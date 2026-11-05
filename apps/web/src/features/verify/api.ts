@@ -275,6 +275,8 @@ export interface EndpointReadinessRow {
   overdue: boolean;
   latestBackupAt: string | null;
   latestSnapshotId: string | null;
+  /** The newest backup recorded no sample files: no restore test of it is possible (0.5.0). */
+  noSamples?: boolean;
 }
 
 /**

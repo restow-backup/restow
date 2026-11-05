@@ -4,6 +4,7 @@ import {
   MIN_BOOT_TEST_MEMORY_MIB,
   MIN_BOOT_TEST_TIMEOUT_SECONDS,
 } from "@restow/core";
+import { PVE_VM_CONSISTENCY_STATES } from "@restow/db";
 import { z } from "zod";
 import { MAX_BROWSE_LIMIT, MAX_DOWNLOAD_PATHS, snapshotPath } from "../endpoints/schemas.js";
 
@@ -66,6 +67,17 @@ export const heartbeatSchema = z.object({
    * ["boot_test"]); absent from older helpers, which then never get such a task.
    */
   capabilities: z.array(z.string().max(64)).max(32).optional(),
+  /**
+   * The tasks the node holds (docs/PVE-PROTOCOL.md, "Tasks the node holds"): the one it runs and
+   * the ones in its local queue, with those whose result it keeps to send again. Absent from
+   * older helpers, whose delivered tasks are then judged by their runs alone.
+   */
+  heldTasks: z
+    .object({
+      current: z.string().uuid().nullish(),
+      queued: z.array(z.string().uuid()).max(64).default([]),
+    })
+    .optional(),
 });
 
 const UUID_TEXT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -104,6 +116,24 @@ export const inventorySchema = z.object({
     .max(10_000)
     .nullish()
     .transform((v) => v ?? []),
+  /**
+   * Every guest of the cluster with the node it runs on, from /cluster/resources (restow-pve
+   * from 0.5.0). Absent from an older node, or null when the node could not read the list: then
+   * only the node's own guests count (an older server ignores it).
+   */
+  clusterGuests: z
+    .array(
+      z.object({
+        vmid,
+        node: z.string().min(1).max(64),
+        type: z
+          .enum(["qemu", "lxc", "vm", "ct"])
+          .transform((t) => (t === "qemu" || t === "vm" ? "vm" : "ct")),
+      }),
+    )
+    .max(20_000)
+    .nullish()
+    .transform((v) => v ?? null),
 });
 
 /**
@@ -125,6 +155,59 @@ export const taskResultSchema = z.object({
     .transform((v) => v ?? undefined),
 });
 
+/** A list of short lines from the node; an unreadable one is dropped, never the whole result. */
+const lines = (max: number) => z.array(z.string().max(1000)).max(max).optional().catch(undefined);
+
+/**
+ * What a restore task's result says beside "done" (docs/PVE-PROTOCOL.md, "Task `restore`"),
+ * as the node fills it: each field optional, an unreadable field dropped. A restore or restore
+ * check that has any of `warnings`, `skippedLxc`, `omittedMounts`, `keptDevices`, a guest it
+ * could not remove (`deleted: false`) or a start that did not happen is shown amber, never
+ * green (apps/web pve/run-status.ts).
+ */
+export const restoreResultSchema = z
+  .object({
+    vmid: z.number().int().min(0).optional().catch(undefined),
+    upid: z.string().max(200).optional().catch(undefined),
+    exitStatus: z.string().max(200).optional().catch(undefined),
+    /** The restore task ended `WARNINGS: n`: the warning lines of its log. */
+    warnings: lines(20),
+    /** Raw `lxc.*` lines PVE restores only for root@pam (skipped for the node's token). */
+    skippedLxc: lines(64),
+    customIdmap: z.boolean().optional().catch(undefined),
+    /** Bind and device mount points left out (their data is not in the backup). */
+    omittedMounts: lines(64),
+    /** A restore into a new guest: the commands that put them back, as root. */
+    remountCommands: lines(64),
+    /** Host devices (PCI, USB) the copy uses, as the original does. */
+    keptDevices: lines(64),
+    madeUnprivileged: z.boolean().optional().catch(undefined),
+    onbootCleared: z.boolean().optional().catch(undefined),
+    restoredAsRoot: z.boolean().optional().catch(undefined),
+    /** A check: the disks of the restored guest and whether it was removed again. */
+    disks: z.number().int().min(0).optional().catch(undefined),
+    deleted: z.boolean().optional().catch(undefined),
+    leftoverVmid: z.number().int().min(0).optional().catch(undefined),
+    /** "Start after the restore": whether the copy runs, and why not. */
+    started: z.boolean().optional().catch(undefined),
+    startError: z.string().max(2000).optional().catch(undefined),
+    startSkipped: z.string().max(200).optional().catch(undefined),
+    /**
+     * A restore check the node did not run (no_storage, storage_inactive, storage_content,
+     * storage_space, restores_off): not a result about the restore point.
+     */
+    skipped: z
+      .object({
+        reason: z.string().max(64),
+        message: z.string().max(2000).default(""),
+      })
+      .optional()
+      .catch(undefined),
+  })
+  .strip();
+
+export type PveRestoreResult = z.infer<typeof restoreResultSchema>;
+
 export const openRunSchema = z.object({
   vmid,
   kind: z.enum(["vm", "ct"]),
@@ -140,6 +223,33 @@ export const incrementalSchema = z.object({
     .min(1)
     .max(64),
 });
+
+/**
+ * What vzdump's log says about a VM's fs-freeze (restow-pve 0.5.0 on, docs/PVE-PROTOCOL.md):
+ * the state, the node's line and the problems around the freeze (a failed or missing thaw). A
+ * malformed value is dropped, so the restore point records nothing rather than a wrong state.
+ */
+export const vmConsistencySchema = z
+  .object({
+    state: z.enum(PVE_VM_CONSISTENCY_STATES),
+    detail: z
+      .string()
+      .max(64 * 1024)
+      .transform((s) => s.trim().slice(0, 500))
+      .optional(),
+    warnings: z
+      .array(z.string().max(64 * 1024))
+      .max(100)
+      .transform((lines) =>
+        lines
+          .map((w) => w.trim().slice(0, 500))
+          .filter(Boolean)
+          .slice(0, 5),
+      )
+      .optional(),
+  })
+  .optional()
+  .catch(undefined);
 
 /** How many unreadable items a container restore point names. */
 export const UNREADABLE_PATHS_KEPT = 20;
@@ -201,6 +311,8 @@ export const commitSchema = z.object({
     .max(1000)
     .transform((paths) => paths.slice(0, UNREADABLE_PATHS_KEPT))
     .optional(),
+  /** VM backups: the guest agent's fs-freeze, from vzdump's log of the running backup. */
+  vmConsistency: vmConsistencySchema,
 });
 
 /**
@@ -223,13 +335,31 @@ export const finishSchema = z.object({
     .transform((v) => v ?? undefined),
 });
 
-export const logSchema = z.object({ log: z.string().max(256 * 1024) });
+/** The end of a container restore started in the PVE UI (docs/PVE-PROTOCOL.md). */
+export const restoreEndSchema = z.object({
+  status: z.enum(["succeeded", "warnings", "failed"]),
+  exitStatus: z.string().max(2000),
+  warnings: z.array(z.string().max(1000)).max(20).optional(),
+  error: nodeErrorText.optional(),
+});
+
+export const logSchema = z.object({
+  log: z.string().max(256 * 1024),
+  /** VM backups: the fs-freeze read from the whole task log (restow-pve 0.5.0 on). */
+  vmConsistency: vmConsistencySchema,
+});
 
 export const runParamSchema = z.object({ runId: uuid });
 export const taskParamSchema = z.object({ taskId: uuid });
 export const snapshotDiskParamSchema = z.object({ snapshotId: uuid, device });
 export const snapshotParamSchema = z.object({ snapshotId: uuid });
 export const volnameQuerySchema = z.object({ volname: z.string().max(120) });
+/** GET /listing: one VMID's restore points, or a page of the cluster's (docs/PVE-PROTOCOL.md). */
+export const listingQuerySchema = z.object({
+  vmid: z.coerce.number().int().min(100).max(999_999_999).optional(),
+  cursor: z.string().min(1).max(200).optional(),
+  limit: z.coerce.number().int().min(1).max(10_000).optional(),
+});
 export const blocksQuerySchema = z.object({
   from: z.coerce.number().int().min(0),
   count: z.coerce.number().int().min(1).max(16),
@@ -263,6 +393,22 @@ const retention = z.object({
   keepMonthly: z.number().int().min(0).max(240),
 });
 
+/**
+ * Job settings an earlier Restow took and stored but never applied: no upload limit reached the
+ * node, and its full read stays every 30th backup. Refused with 422 until they work, and left out
+ * of every job the API shows, so a job saved with them before can be edited as it is.
+ */
+export const UNSUPPORTED_PVE_JOB_SETTINGS = ["bandwidthKbps", "verifyReadEvery"] as const;
+
+/** A job's stored settings without {@link UNSUPPORTED_PVE_JOB_SETTINGS}. */
+export function supportedJobSettings<T extends object>(settings: T): T {
+  const out = { ...settings } as Record<string, unknown>;
+  for (const key of UNSUPPORTED_PVE_JOB_SETTINGS) {
+    delete out[key];
+  }
+  return out as T;
+}
+
 export const jobSchema = z.object({
   name,
   scopeAll: z.boolean().default(false),
@@ -272,11 +418,9 @@ export const jobSchema = z.object({
     .object({
       mode: z.enum(["snapshot", "suspend", "stop"]).optional(),
       retention: retention.optional(),
-      verifyReadEvery: z.number().int().min(1).max(365).optional(),
       restoreTest: z
         .object({ enabled: z.boolean(), targetStorage: storageId.optional() })
         .optional(),
-      bandwidthKbps: z.number().int().min(0).nullable().optional(),
       bootTest: z
         .object({
           schedule: z.enum(["off", "weekly", "after_backup"]),
@@ -322,6 +466,8 @@ export const restoreSchema = z.object({
   targetStorage: storageId,
   targetVmid: vmid.optional(),
   start: z.boolean().default(false),
+  /** Use `targetVmid` although a deleted guest Restow keeps had it (409 otherwise). */
+  confirmVmidReuse: z.boolean().optional(),
 });
 
 // ---------------------------------------------------------------------------

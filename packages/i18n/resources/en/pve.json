@@ -131,16 +131,21 @@
       "waiting_offline": "Waiting, node not ready",
       "waiting": "Waiting for the node",
       "failed": "Last run failed",
+      "boot_failed": "Boot test failed",
       "verify_failed": "Restore check failed",
+      "boot_unverified": "Boot test without proof",
       "verify_not_checked": "Could not check",
       "verify_postponed": "Restore check postponed",
       "incomplete": "Incomplete backup",
       "warnings": "Succeeded with warnings",
+      "boot_test_leftover": "Boot test guest left over",
       "restow_server": "{appName} server",
+      "no_restow_node": "Node without restow-pve",
       "no_job": "No backup job",
       "never": "Not backed up yet",
       "cancelled": "Cancelled",
       "template": "Template",
+      "restore_pool": "Restored, in restow-restore (move it out of the pool to protect it)",
       "absent": "No longer reported",
       "verified": "Restore check passed",
       "succeeded": "Backed up",
@@ -275,6 +280,32 @@
       "full_read": "Full read"
     },
     "unreadable": "{count, plural, one {# item} other {# items}} not readable",
+    "consistency": {
+      "frozen": {
+        "label": "File systems frozen",
+        "hint": "The QEMU guest agent froze the guest's file systems for the backup, so they were consistent."
+      },
+      "stopped": {
+        "label": "Guest stopped",
+        "hint": "The guest did not run during the backup, so its disks were at rest."
+      },
+      "no_agent": {
+        "label": "Guest agent did not answer",
+        "hint": "The VM is set up with the QEMU guest agent, but the agent did not answer, so the file systems were not frozen. The restore point is crash-consistent, as after a power cut. Check that qemu-guest-agent runs in the guest."
+      },
+      "crash_consistent": {
+        "label": "Crash-consistent",
+        "hint": "The file systems were not frozen: the VM has no guest agent enabled, or the freeze is switched off in its options. The restore point is as after a power cut: ext journals are replayed for the file restore, XFS and NTFS can lack the last writes. Restore the whole VM for those."
+      },
+      "freeze_failed": {
+        "label": "Freeze failed",
+        "hint": "The guest agent was asked to freeze the file systems and failed (for example a VSS writer error in Windows or a timeout). PVE went on without the freeze, so the restore point is only crash-consistent. The run shows it as a warning."
+      },
+      "unknown": {
+        "label": "Consistency unknown",
+        "hint": "vzdump's log of the backup does not say whether the file systems were frozen."
+      }
+    },
     "succeededWithGaps": "Succeeded with gaps ({count, plural, one {# item} other {# items}} could not be read)",
     "diskAllocated": "Disk: {size} allocated",
     "unreadablePaths": "Not read: {paths}",
@@ -298,6 +329,20 @@
       "yellow": "The restored VM started and kept running, but its QEMU Guest Agent did not answer. Install the guest agent in the VM for proof.",
       "red": "The restore point did not boot: {message}"
     },
+    "bootTestReason": {
+      "custom_qemu_args": "Not tested: the VM has QEMU arguments of its own (args), which can reach the network or disks of the host. A copy started next to the original could use them too.",
+      "host_disk": "Not tested: the VM uses a disk of the host directly (a device passed through). A copy started next to the original would write to the same disk.",
+      "bridge_not_isolated": "Not tested: the boot test bridge of the node is connected to the network. Set a bridge without ports with restow-pve config --boot-test-bridge.",
+      "node_resources": "Not tested: the node could not give the copy the memory it is set up for (hugepages or a NUMA binding). It is tried again later.",
+      "storage_space": "Not tested: the boot test storage had too little free space for the restore. It is tried again later.",
+      "setup_failed": "Not carried out: the boot test could not be prepared before the restore. This says nothing about the restore point; it is tried again later.",
+      "io_error": "Not carried out: the copy stopped on an I/O error of the boot test storage. This says nothing about the restore point; it is tried again later.",
+      "guest_agent_silent": "The copy started and kept running, but the QEMU Guest Agent that runs in the original did not answer. That it booted is not proven.",
+      "init_running_unverified": "The container's init runs, but whether its services came up could not be checked.",
+      "systemd_degraded": "The container started, but systemd reports failed services (degraded).",
+      "systemd_emergency": "The container did not reach its services: systemd is in emergency or rescue mode.",
+      "guest_panicked": "The copy crashed while it booted (guest panicked)."
+    },
     "bootTestSchedule": {
       "off": "Boot tests: off in the backup job",
       "weekly": "Boot tests: weekly",
@@ -308,8 +353,17 @@
       "no_node": "No boot test possible: restow-pve is not installed on the guest's node.",
       "node_unsupported": "No boot test possible: restow-pve on the guest's node does not run boot tests (update it, or they are switched off there).",
       "restores_off": "No boot test possible: restores are switched off on the guest's node.",
-      "privileged": "No boot test possible: Proxmox VE cannot restore privileged containers from a backup interface.",
+      "privileged": "No boot test: {appName} restores containers only as unprivileged, and the newest restore point is of a privileged container (files with ids above 65535 and device nodes would not restore).",
       "template": "No boot test for VM templates."
+    },
+    "bootTestLeftover": {
+      "plain": "The temporary guest {vmid} could not be removed.",
+      "onStorage": "The temporary guest {vmid} on {storage} could not be removed.",
+      "what": "It still takes memory and disk on node {node} (in the pool restow-restore). restow-pve removes it before its next boot test and when its service starts; you can also remove it in Proxmox VE."
+    },
+    "noRestowNode": {
+      "title": "Runs on node {node}, which has no {appName} helper",
+      "what": "No backup of this guest can run there. Install restow-pve on that node (VMs & containers → Connect Proxmox VE), or move the guest back to a node with restow-pve."
     },
     "chain": {
       "missingTitle": "New backup chain started on {date}",
@@ -348,7 +402,42 @@
     "verifyNotCheckedLocked": "Could not check: repository locked",
     "verifyNotCheckedInterrupted": "Could not check: check interrupted",
     "verifyPostponedLocked": "Check postponed: repository locked",
-    "verifyPostponedInterrupted": "Check postponed: check interrupted"
+    "verifyPostponedInterrupted": "Check postponed: check interrupted",
+    "restoreFinding": {
+      "leftover": "Temporary guest {vmid} could not be removed",
+      "notStarted": "Restored, not started",
+      "checkedWithoutMounts": "Checked without {count, plural, one {# mount point} other {# mount points}}",
+      "restoredWithoutMounts": "Restored without {count, plural, one {# mount point} other {# mount points}}",
+      "checkedWithWarnings": "Checked with warnings",
+      "restoredWithWarnings": "Restored with warnings",
+      "leftoverDetail": "The temporary guest {vmid} of this check is still there (in the pool restow-restore). restow-pve removes it when its service starts next; you can also remove it in Proxmox VE.",
+      "startFailed": "The copy was restored but did not start: {error}",
+      "startSkipped": {
+        "omitted_mounts": "The copy was restored but not started, because mount points were left out: its services would start without their data.",
+        "other": "The copy was restored but not started."
+      },
+      "omittedMountsCheck": "The check did not cover {count, plural, one {this mount point} other {these mount points}}: bind and device mount points are not part of a Proxmox VE backup.",
+      "omittedMountsRestore": "Restored without {count, plural, one {this mount point} other {these mount points}}: bind and device mount points are not part of a Proxmox VE backup, and only root@pam may set them.",
+      "remount": "To put them back, run as root on the node:",
+      "sharedData": "A bind mount point put back shares the live data of the original guest: do not run both on the same data. On another node its host path may not exist.",
+      "copyCommands": "Copy commands",
+      "copyLines": "Copy lines",
+      "warningsDetail": "Proxmox VE ended the restore with {count, plural, one {a warning} other {# warnings}}:",
+      "skippedLxcDetail": "Proxmox VE restores raw LXC options only for root@pam and skipped these. Add them to the copy as root if it needs them:",
+      "customIdmap": "Among them is a custom lxc.idmap: the copy uses the default map, so its files belong to the IDs of that map.",
+      "keptDevicesDetail": "The copy uses the same host devices as the original. Check them before you start it while the original runs:",
+      "madeUnprivileged": "The original is a privileged container; the copy was restored unprivileged.",
+      "onbootCleared": "Unlike the original, the copy does not start with its node (onboot=0)."
+    },
+    "restoreCheckSkipped": "Not checked: {reason, select, no_storage {target storage missing} storage_inactive {target storage inactive} storage_content {target storage takes no guests of this kind} storage_space {not enough space} restores_off {restores are off} other {not possible}}",
+    "restoreCheckBlocked": {
+      "privileged": "Not checked: privileged container. {appName} restores containers only as unprivileged, and the newest restore point is of a privileged container (files with ids above 65535 and device nodes would not restore).",
+      "restores_off": "Restore check not possible: restores are switched off on node {node}.",
+      "node_offline": "Restore check waits: node {node} has not reported lately.",
+      "no_node": "Restore check not possible: restow-pve is not installed on the guest's node."
+    },
+    "restoreCheckLast": "Last restore check",
+    "restoreCheckNone": "Monthly restore check: none yet"
   },
   "restore": {
     "title": "Restore as a new guest",
@@ -356,10 +445,13 @@
     "targetStorage": "Target storage (Proxmox VE storage id)",
     "targetNode": "Target node",
     "vmid": "New ID (empty: next free one)",
+    "vmidHeld": "VMID {vmid} belonged to the guest {name}, which Proxmox VE no longer has; {appName} keeps its restore points. A copy under this VMID would be taken for that guest. Choose another VMID, or leave the field empty for a free one.",
+    "vmidReuse": "Use this VMID anyway",
     "start": "Start after the restore",
     "submit": "Restore",
     "queued": "Restore requested. The node starts it at its next check-in, usually within a minute.",
-    "privileged": "Proxmox VE cannot restore privileged containers from a backup interface."
+    "privileged": "{appName} restores containers only as unprivileged; this restore point is of a privileged container (files with ids above 65535 and device nodes would not restore). Restore it by hand (docs/PVE.md).",
+    "ipNote": "IP addresses stay the same: those in the configuration and those set inside the guest. Only the MAC addresses are new. Before the copy runs next to the original, change its addresses or keep it off the network."
   },
   "readiness": {
     "overdue": "Overdue",

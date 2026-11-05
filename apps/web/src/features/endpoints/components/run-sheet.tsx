@@ -104,7 +104,9 @@ export function RunProgressView({
 /**
  * The consistency of a backup in words: "Shadow copy (file consistent)", "Partly without a shadow
  * copy: D:\", "Without a shadow copy". Never "consistent" alone: a shadow copy without writer
- * components makes open databases crash consistent, not application consistent.
+ * components makes open databases crash consistent, not application consistent. A volume read
+ * live is always named, also beside a shadow copy ("Shadow copy (file consistent); read live:
+ * E:\"): a removable, FAT or exFAT volume never is in one.
  */
 export function consistencyText(
   consistency: RunConsistency,
@@ -114,7 +116,9 @@ export function consistencyText(
   const live = (consistency.liveFilesystems ?? []).join(", ");
   switch (consistency.state) {
     case "used":
-      return t("runs.consistency.used", { method });
+      return live
+        ? t("runs.consistency.usedWith", { method, live })
+        : t("runs.consistency.used", { method });
     case "partial":
       return live
         ? t("runs.consistency.partialWith", { method, live })
@@ -205,7 +209,9 @@ export function RunDetailView({
             {stats.dataAdded !== undefined ? (
               <Fact label={t("runs.facts.dataAdded")}>{format.bytes(stats.dataAdded)}</Fact>
             ) : null}
-            {stats.consistency ? (
+            {/* How a snapshot was read: a run that saved none has nothing to describe (its
+                errors say why the shadow copy failed). */}
+            {stats.consistency && run.snapshotId ? (
               <Fact label={t("runs.facts.consistency")}>
                 <span data-slot="run-consistency" data-state={stats.consistency.state}>
                   {consistencyText(stats.consistency, t)}

@@ -7,8 +7,9 @@
  * their staged references back. A container check another run's restic lock
  * keeps out is postponed, then recorded as "could not check", never failed.
  */
+import { spawnSync } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { chmod, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -24,10 +25,15 @@ import {
   noopLogger,
   PVE_BLOCK_SIZE,
   pveRestorePointReadiness,
+  resticBinary,
+  resticInit,
+  resticSnapshots,
+  runRestic,
   type StorageTargets,
   sealManifest,
   sealSecret,
   type TenantKeyring,
+  withRepository,
   writeToAllTargets,
 } from "@restow/core";
 import {
@@ -71,10 +77,16 @@ import {
   dropPveTokenSecrets,
   PVE_CHECK_LOCK_WAITS_PER_PASS,
   PVE_CHECK_RETRY_LOCK,
+  PVE_ORPHAN_SNAPSHOT_GRACE_MS,
+  PVE_RECONCILE_EVERY_MS,
+  PVE_RECONCILE_RETRY_MS,
   type PveDeps,
+  planBootTests,
   planJobs,
+  planRestoreTests,
   purgeDownloads,
   pvePass,
+  reconcileGuestRepository,
   VERIFY_GIVE_UP_MS,
   VERIFY_POSTPONE_MS,
   verifyDue,
@@ -85,6 +97,7 @@ const adminUrl = process.env.RESTOW_TEST_DATABASE_URL;
 const TEST_DB = "restow_worker_pve_test";
 const sha = (b: Buffer) => createHash("sha256").update(b).digest("hex");
 const DAY = 24 * 60 * 60 * 1000;
+const resticOk = spawnSync(resticBinary(), ["version"]).status === 0;
 
 describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
   let owner: Database;
@@ -310,6 +323,15 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
       excludedAt: clock,
     }));
     expect(coveredBy(job as never, excluded)).toHaveLength(0);
+    // A restored copy in the pool restow-restore, or a leftover temporary guest, is not taken by
+    // the job for all guests; put into a job by hand, that job backs it up (S14).
+    const all = await owner.select().from(pveGuests);
+    const restored = all.map((guest) => ({ ...guest, pool: "restow-restore" }));
+    expect(coveredBy(job as never, restored)).toHaveLength(0);
+    const temporary = all.map((guest) => ({ ...guest, tags: ["restow-boottest"] }));
+    expect(coveredBy(job as never, temporary)).toHaveLength(0);
+    const assigned = restored.map((guest) => ({ ...guest, jobId: job?.id ?? null }));
+    expect(coveredBy(job as never, assigned)).toHaveLength(1);
     expect(await planJobs(deps, clock)).toBe(1);
     expect(await planJobs(deps, clock)).toBe(0);
     const tasks = await owner.select().from(pveTasks);
@@ -445,6 +467,38 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
       .where(eq(pveGuests.id, guestId));
   });
 
+  it("a restore started in the PVE UI keeps the guest's checks out for two hours at most (S03)", async () => {
+    const [run] = await owner
+      .insert(pveRuns)
+      .values({
+        tenantId,
+        clusterId,
+        guestId,
+        kind: "restore",
+        origin: "pve",
+        startedAt: new Date(clock.getTime() - 30 * 60 * 1000),
+      })
+      .returning();
+    await owner.update(pveGuests).set({ lastVerifyAt: null });
+    await owner.update(pveSnapshots).set({ verifyRequestedAt: null });
+    // Going on: the restore reads the repository now.
+    expect(await verifyDue(deps, clock)).toBe(0);
+    // Its end was never reported (an older node): after two hours it no longer counts.
+    await owner
+      .update(pveRuns)
+      .set({ startedAt: new Date(clock.getTime() - 3 * 60 * 60 * 1000) })
+      .where(eq(pveRuns.id, run?.id ?? ""));
+    expect(await verifyDue(deps, clock)).toBe(1);
+    // A restore of Restow's own (a task) keeps the guest busy while it runs.
+    await owner
+      .update(pveRuns)
+      .set({ origin: "restow" })
+      .where(eq(pveRuns.id, run?.id ?? ""));
+    await owner.update(pveGuests).set({ lastVerifyAt: null });
+    expect(await verifyDue(deps, clock)).toBe(0);
+    await owner.delete(pveRuns).where(eq(pveRuns.id, run?.id ?? ""));
+  });
+
   it("plans no backup of the Restow server's own VM until an admin confirmed it", async () => {
     await owner.delete(pveTasks);
     await owner
@@ -505,6 +559,278 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
       .from(chunks)
       .where(eq(chunks.storedId, written.chunks[0] ?? ""));
     expect(chunk?.refcount).toBe(0);
+  });
+
+  it("closes a restore, restore check or boot test that never reported failed, never succeeded, with its task (S02)", async () => {
+    const [node] = await owner.select().from(pveNodes).where(eq(pveNodes.name, "pve1"));
+    const nodeId = node?.id ?? "";
+    const snapshotId = await commit(40, [blockOf(4)], new Date(clock.getTime() - 4 * DAY));
+    const startedAt = new Date(clock.getTime() - 3 * DAY);
+    const open = async (kind: "restore" | "restore_test" | "boot_test" | "backup") => {
+      const [task] = await owner
+        .insert(pveTasks)
+        .values({
+          tenantId,
+          nodeId,
+          guestId,
+          kind: kind === "restore_test" ? "restore" : kind,
+          status: "delivered",
+          params: { snapshotId },
+          deliveredAt: startedAt,
+          expiresAt: new Date(startedAt.getTime() + DAY),
+        })
+        .returning();
+      const [run] = await owner
+        .insert(pveRuns)
+        .values({
+          tenantId,
+          clusterId,
+          guestId,
+          nodeId,
+          kind,
+          snapshotId,
+          taskId: task?.id ?? null,
+          startedAt,
+        })
+        .returning();
+      return { runId: run?.id ?? "", taskId: task?.id ?? "" };
+    };
+    const restore = await open("restore");
+    const check = await open("restore_test");
+    const boot = await open("boot_test");
+    // A backup that committed its restore point did succeed, whatever came after.
+    const backup = await open("backup");
+    expect(await closeStaleRuns(deps, clock)).toBe(4);
+    const row = async (id: string) =>
+      (await owner.select().from(pveRuns).where(eq(pveRuns.id, id)))[0];
+    const taskOf = async (id: string) =>
+      (await owner.select().from(pveTasks).where(eq(pveTasks.id, id)))[0];
+    const never = "The node never reported the result (restarted or unreachable).";
+    for (const { runId, taskId } of [restore, check, boot]) {
+      expect(await row(runId)).toMatchObject({ status: "failed", errorMessage: never });
+      expect(await taskOf(taskId)).toMatchObject({ status: "failed", errorMessage: never });
+    }
+    // A boot test gets the outcome "error": no rating of the restore point, never green.
+    expect((await row(boot.runId))?.stats.bootTest).toMatchObject({
+      outcome: "error",
+      reason: "node_error",
+      message: never,
+    });
+    const [snap] = await owner.select().from(pveSnapshots).where(eq(pveSnapshots.id, snapshotId));
+    expect(snap?.bootTest).toBeNull();
+    expect(await row(backup.runId)).toMatchObject({ status: "succeeded", errorMessage: null });
+    expect((await taskOf(backup.taskId))?.status).toBe("delivered");
+    // A restore stopped in the UI whose node stays silent ends cancelled.
+    const stopped = await open("restore");
+    await owner
+      .update(pveRuns)
+      .set({ cancelRequestedAt: new Date(clock.getTime() - DAY) })
+      .where(eq(pveRuns.id, stopped.runId));
+    await owner
+      .update(pveTasks)
+      .set({ cancelRequestedAt: new Date(clock.getTime() - DAY) })
+      .where(eq(pveTasks.id, stopped.taskId));
+    await owner
+      .update(pveNodes)
+      .set({ lastSeenAt: new Date(clock.getTime() - 2 * DAY) })
+      .where(eq(pveNodes.id, nodeId));
+    expect(await closeCancelledRunsOfSilentNodes(deps, clock)).toBe(1);
+    expect((await row(stopped.runId))?.status).toBe("cancelled");
+    expect((await taskOf(stopped.taskId))?.status).toBe("cancelled");
+    await owner.update(pveNodes).set({ lastSeenAt: clock }).where(eq(pveNodes.id, nodeId));
+    const ids = [restore, check, boot, backup, stopped];
+    await owner.delete(pveRuns).where(
+      inArray(
+        pveRuns.id,
+        ids.map((x) => x.runId),
+      ),
+    );
+    await owner.delete(pveTasks).where(
+      inArray(
+        pveTasks.id,
+        ids.map((x) => x.taskId),
+      ),
+    );
+  });
+
+  it("plans the monthly restore check only where the node can run it, and stamps only that guest (S05)", async () => {
+    await owner.delete(pveTasks);
+    await owner.delete(pveRuns).where(eq(pveRuns.status, "running"));
+    const [job] = await owner
+      .insert(pveJobs)
+      .values({
+        tenantId,
+        name: "with restore check",
+        scopeAll: false,
+        schedule: { kind: "daily", timeOfDay: "03:00", timeZone: "UTC" },
+        settings: { restoreTest: { enabled: true, targetStorage: "local-lvm" } },
+      })
+      .returning();
+    const jobId = job?.id ?? "";
+    const [off] = await owner
+      .insert(pveNodes)
+      .values({
+        tenantId,
+        clusterId,
+        name: "pve2",
+        secretHash: "1".repeat(64),
+        lastSeenAt: clock,
+        facts: { restoresAllowed: false },
+      })
+      .returning();
+    const [onNodeOff] = await owner
+      .insert(pveGuests)
+      .values({ tenantId, clusterId, vmid: 202, kind: "vm", node: "pve2", jobId })
+      .returning();
+    await commit(60, [blockOf(6)], new Date(clock.getTime() - DAY), false, {
+      id: onNodeOff?.id ?? "",
+      vmid: 202,
+    });
+    const [pve1] = await owner.select().from(pveNodes).where(eq(pveNodes.name, "pve1"));
+    await owner
+      .update(pveNodes)
+      .set({ lastSeenAt: clock, facts: { restoresAllowed: true } })
+      .where(eq(pveNodes.id, pve1?.id ?? ""));
+    // Guest 202 waits longest (never checked), but its node has restores off: the next one.
+    await owner
+      .update(pveGuests)
+      .set({ jobId, lastRestoreTestAt: new Date(clock.getTime() - 40 * DAY) })
+      .where(eq(pveGuests.id, guestId));
+    const tasksOf = async (id: string) =>
+      owner
+        .select()
+        .from(pveTasks)
+        .where(and(eq(pveTasks.guestId, id), eq(pveTasks.kind, "restore")));
+    const guestRow = async (id: string) =>
+      (await owner.select().from(pveGuests).where(eq(pveGuests.id, id)))[0];
+    // The node of 101 has not reported for an hour: nothing is planned, nothing stamped.
+    await owner
+      .update(pveNodes)
+      .set({ lastSeenAt: new Date(clock.getTime() - 60 * 60 * 1000) })
+      .where(eq(pveNodes.id, pve1?.id ?? ""));
+    expect(await planRestoreTests(deps, clock)).toBe(0);
+    expect((await guestRow(guestId))?.lastRestoreTestAt).toEqual(
+      new Date(clock.getTime() - 40 * DAY),
+    );
+    await owner
+      .update(pveNodes)
+      .set({ lastSeenAt: clock })
+      .where(eq(pveNodes.id, pve1?.id ?? ""));
+    expect(await planRestoreTests(deps, clock)).toBe(1);
+    expect(await tasksOf(onNodeOff?.id ?? "")).toHaveLength(0);
+    expect((await guestRow(onNodeOff?.id ?? ""))?.lastRestoreTestAt).toBeNull();
+    const [task] = await tasksOf(guestId);
+    expect(task).toMatchObject({
+      nodeId: pve1?.id,
+      params: expect.objectContaining({ restoreTest: true, targetStorage: "local-lvm" }),
+    });
+    expect((await guestRow(guestId))?.lastRestoreTestAt).toEqual(clock);
+    // Planned once: the stamp holds it back.
+    expect(await planRestoreTests(deps, clock)).toBe(0);
+    await owner.delete(pveRuns).where(eq(pveRuns.taskId, task?.id ?? ""));
+    await owner.delete(pveTasks).where(eq(pveTasks.id, task?.id ?? ""));
+    await owner.delete(pveGuests).where(eq(pveGuests.id, onNodeOff?.id ?? ""));
+    await owner.delete(pveNodes).where(eq(pveNodes.id, off?.id ?? ""));
+    await owner
+      .update(pveGuests)
+      .set({ jobId: null, lastRestoreTestAt: null })
+      .where(eq(pveGuests.id, guestId));
+    await owner.delete(pveJobs).where(eq(pveJobs.id, jobId));
+  });
+
+  it("passes over a restore point of a privileged container by its own configuration, not the guest's flag (S21)", async () => {
+    await owner.delete(pveTasks);
+    await owner.delete(pveRuns).where(eq(pveRuns.status, "running"));
+    const [job] = await owner
+      .insert(pveJobs)
+      .values({
+        tenantId,
+        name: "containers with restore check",
+        scopeAll: false,
+        schedule: { kind: "daily", timeOfDay: "03:00", timeZone: "UTC" },
+        settings: { restoreTest: { enabled: true, targetStorage: "local-lvm" } },
+      })
+      .returning();
+    const jobId = job?.id ?? "";
+    const [pve1] = await owner.select().from(pveNodes).where(eq(pveNodes.name, "pve1"));
+    await owner
+      .update(pveNodes)
+      .set({ lastSeenAt: clock, facts: { restoresAllowed: true } })
+      .where(eq(pveNodes.id, pve1?.id ?? ""));
+    // 211 is unprivileged now, but its newest restore point is of the privileged container it
+    // was; it waits longest. 210 is privileged now, its newest restore point unprivileged.
+    const container = async (vmid: number, privileged: boolean, guestConfig: string) => {
+      const [guest] = await owner
+        .insert(pveGuests)
+        .values({ tenantId, clusterId, vmid, kind: "ct", node: "pve1", jobId, privileged })
+        .returning();
+      const [point] = await owner
+        .insert(pveSnapshots)
+        .values({
+          tenantId,
+          clusterId,
+          guestId: guest?.id ?? "",
+          sequence: 1,
+          kind: "ct",
+          archiveName: `ct/${vmid}/2026-10-20T22:00:00Z`,
+          storageId: "restow",
+          manifestPath: `ct-${vmid}`,
+          guestConfig,
+          backupAt: new Date(clock.getTime() - DAY),
+        })
+        .returning();
+      await owner
+        .update(pveGuests)
+        .set({ lastSnapshotId: point?.id ?? null })
+        .where(eq(pveGuests.id, guest?.id ?? ""));
+      return guest?.id ?? "";
+    };
+    const wasPrivileged = await container(211, false, "arch: amd64\nhostname: old\n");
+    const nowPrivileged = await container(210, true, "arch: amd64\nunprivileged: 1\n");
+    await owner
+      .update(pveGuests)
+      .set({ lastRestoreTestAt: new Date(clock.getTime() - 40 * DAY) })
+      .where(eq(pveGuests.id, nowPrivileged));
+    const restoreTasks = async (id: string) =>
+      owner
+        .select()
+        .from(pveTasks)
+        .where(and(eq(pveTasks.guestId, id), eq(pveTasks.kind, "restore")));
+    expect(await planRestoreTests(deps, clock)).toBe(1);
+    expect(await restoreTasks(wasPrivileged)).toHaveLength(0);
+    const [stamped] = await owner.select().from(pveGuests).where(eq(pveGuests.id, wasPrivileged));
+    expect(stamped?.lastRestoreTestAt).toBeNull();
+    expect(await restoreTasks(nowPrivileged)).toEqual([
+      expect.objectContaining({
+        params: expect.objectContaining({ kind: "ct", restoreTest: true }),
+      }),
+    ]);
+    // The same for boot tests: only the unprivileged restore point is booted.
+    await owner
+      .update(pveJobs)
+      .set({ settings: { bootTest: { schedule: "weekly" } } })
+      .where(eq(pveJobs.id, jobId));
+    await owner
+      .update(pveNodes)
+      .set({ lastSeenAt: clock, facts: { restoresAllowed: true, capabilities: ["boot_test"] } })
+      .where(eq(pveNodes.id, pve1?.id ?? ""));
+    await owner.delete(pveRuns).where(inArray(pveRuns.guestId, [wasPrivileged, nowPrivileged]));
+    await owner.delete(pveTasks);
+    await planBootTests(deps, clock);
+    const bootTasks = await owner.select().from(pveTasks).where(eq(pveTasks.kind, "boot_test"));
+    expect(bootTasks.map((t) => t.guestId)).not.toContain(wasPrivileged);
+    expect(bootTasks.map((t) => t.guestId)).toContain(nowPrivileged);
+    await owner.delete(pveRuns).where(inArray(pveRuns.guestId, [wasPrivileged, nowPrivileged]));
+    await owner.delete(pveTasks);
+    await owner
+      .update(pveGuests)
+      .set({ lastSnapshotId: null })
+      .where(inArray(pveGuests.id, [wasPrivileged, nowPrivileged]));
+    await owner
+      .delete(pveSnapshots)
+      .where(inArray(pveSnapshots.guestId, [wasPrivileged, nowPrivileged]));
+    await owner.delete(pveGuests).where(inArray(pveGuests.id, [wasPrivileged, nowPrivileged]));
+    await owner.delete(pveJobs).where(eq(pveJobs.id, jobId));
   });
 
   it("closes a backup run its node no longer lists, after a grace, and only with a fresh list (#46)", async () => {
@@ -728,6 +1054,8 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
       [
         "#!/bin/sh",
         `echo "$*" >> '${calls}'`,
+        // The restore point's snapshot is in the repository.
+        `if [ "$1" = "snapshots" ]; then echo '[{"id":"${"e".repeat(64)}","time":"2026-10-10T11:00:00Z","tags":[]}]'; exit 0; fi`,
         'if [ "$1" != "check" ]; then exit 0; fi',
         `if [ "$(cat '${mode}')" = "ok" ]; then echo "no errors were found"; exit 0; fi`,
         "cat >&2 <<'EOF'",
@@ -1062,5 +1390,422 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
     const left = await activeOf();
     expect(left).toHaveLength(2);
     expect(left).not.toContain(oldest);
+  });
+  /** A container with a real restic repository in the test storage (needs restic). */
+  async function realContainer(vmid: number) {
+    const keys = await deps.runtime.keyrings.get(tenantId);
+    const secretId = randomUUID();
+    const password = `repository-password-${vmid}`;
+    await owner.insert(secrets).values({
+      id: secretId,
+      tenantId,
+      kind: "pve_ct_repository",
+      ciphertext: sealSecret(keys.current, secretId, password),
+    });
+    const [ct] = await owner
+      .insert(pveGuests)
+      .values({
+        tenantId,
+        clusterId,
+        vmid,
+        kind: "ct",
+        node: "pve1",
+        repositorySecretId: secretId,
+        repositoryReadyAt: clock,
+      })
+      .returning();
+    const id = ct?.id ?? "";
+    const data = join(work, `ct-${vmid}`);
+    await mkdir(data, { recursive: true });
+    const inRepo = <T>(fn: Parameters<typeof withRepository<T>>[1]) =>
+      withRepository(
+        {
+          storage: storage.primary,
+          prefix: `pve-guests/${id}/`,
+          repositoryPassword: password,
+          repositoryKey: `test-${id}`,
+          binary: resticBinary(),
+          cacheBase: join(work, "restic-cache"),
+        },
+        fn,
+      );
+    await inRepo((session) => resticInit(session));
+    let n = 0;
+    /** A restic snapshot as restow-pve writes it, tagged with its run; its id. */
+    const backup = async (runId: string) => {
+      await writeFile(join(data, "file"), `content ${n++} ${runId}`);
+      return inRepo(async (session) => {
+        await runRestic(session, [
+          "backup",
+          "--host",
+          "pve1",
+          "--tag",
+          `vmid=${vmid}`,
+          "--tag",
+          `run=${runId}`,
+          data,
+        ]);
+        const listed = await resticSnapshots(session, { noLock: true });
+        return listed.find((snap) => snap.tags.includes(`run=${runId}`))?.id ?? "";
+      });
+    };
+    const listed = async () =>
+      (await inRepo((session) => resticSnapshots(session, { noLock: true }))).map((s) => s.id);
+    const point = async (
+      sequence: number,
+      resticSnapshotId: string,
+      runId: string,
+      status = "active",
+    ) => {
+      const [row] = await owner
+        .insert(pveSnapshots)
+        .values({
+          tenantId,
+          clusterId,
+          guestId: id,
+          sequence,
+          kind: "ct",
+          archiveName: `ct/${vmid}/2026-10-0${sequence}T10:00:00Z`,
+          storageId: "restow",
+          manifestPath: "unused",
+          resticSnapshotId,
+          runId,
+          backupAt: new Date(clock.getTime() - (10 - sequence) * DAY),
+          status: status as "active",
+        })
+        .returning();
+      return row as NonNullable<typeof row>;
+    };
+    const row = async () => (await owner.select().from(pveGuests).where(eq(pveGuests.id, id)))[0];
+    return { id, backup, listed, point, row };
+  }
+
+  it.skipIf(!resticOk)(
+    "forgets the restic snapshots no restore point holds, again after a failed pass, never a running run's or an active one's (S09, S10)",
+    async () => {
+      const ct = await realContainer(320);
+      const runs = { active: randomUUID(), pruned: randomUUID(), orphan: randomUUID() };
+      const [node] = await owner.select().from(pveNodes).where(eq(pveNodes.name, "pve1"));
+      // A backup of the container runs: its snapshot is written, its commit has not come yet.
+      const [running] = await owner
+        .insert(pveRuns)
+        .values({
+          tenantId,
+          clusterId,
+          nodeId: node?.id ?? null,
+          guestId: ct.id,
+          kind: "backup",
+          startedAt: new Date(),
+        })
+        .returning();
+      const ids = {
+        active: await ct.backup(runs.active),
+        pruned: await ct.backup(runs.pruned),
+        orphan: await ct.backup(runs.orphan),
+        running: await ct.backup(running?.id ?? ""),
+      };
+      await ct.point(1, ids.active, runs.active);
+      // Pruned before 0.5.0 (or its forget failed): the row says pruned, restic still has it.
+      await ct.point(2, ids.pruned, runs.pruned, "pruned");
+      const later = new Date(Date.now() + PVE_ORPHAN_SNAPSHOT_GRACE_MS + 60_000);
+
+      // The guest is busy (its backup runs): retention leaves it alone (S10).
+      await applyRetention(deps, later);
+      expect((await ct.listed()).sort()).toEqual(Object.values(ids).sort());
+
+      // The repository is held (a file restore reads it): the pass fails and records nothing
+      // but its claim, which makes the comparison due again in an hour, not on every pass.
+      const reading = await acquireEndpointRepositoryLock(
+        owner.$client,
+        pveGuestRepositoryLockKey(ct.id),
+        { mode: "shared" },
+      );
+      const failedAt = new Date();
+      try {
+        await expect(
+          reconcileGuestRepository(
+            { ...deps, repositoryLockWaitMs: 300 },
+            (await ct.row()) as never,
+            failedAt,
+          ),
+        ).rejects.toThrow();
+      } finally {
+        await reading();
+      }
+      expect((await ct.row())?.repositoryReconciledAt).toEqual(
+        new Date(failedAt.getTime() - PVE_RECONCILE_EVERY_MS + PVE_RECONCILE_RETRY_MS),
+      );
+      expect(await ct.listed()).toContain(ids.pruned);
+
+      // The next pass forgets the same snapshot. A snapshot without a restore point that is
+      // younger than the grace stays (its commit may still come), as do the active and the
+      // running one.
+      const first = await reconcileGuestRepository(deps, (await ct.row()) as never, new Date());
+      expect(first.forgotten).toEqual([ids.pruned]);
+      expect((await ct.listed()).sort()).toEqual([ids.active, ids.orphan, ids.running].sort());
+      expect((await ct.row())?.repositoryReconciledAt).not.toBeNull();
+
+      // After the grace: the orphan of a run that never committed goes; the running run's
+      // snapshot stays while it runs.
+      const second = await reconcileGuestRepository(deps, (await ct.row()) as never, later);
+      expect(second.forgotten).toEqual([ids.orphan]);
+      expect((await ct.listed()).sort()).toEqual([ids.active, ids.running].sort());
+
+      // The run ended without a commit: a day later the pass of retention compares again.
+      await owner
+        .update(pveRuns)
+        .set({ status: "failed", finishedAt: new Date() })
+        .where(eq(pveRuns.id, running?.id ?? ""));
+      await applyRetention(deps, new Date(later.getTime() + DAY + 60_000));
+      expect(await ct.listed()).toEqual([ids.active]);
+      expect((await ct.row())?.repositoryBytes).toBeGreaterThan(0);
+    },
+    120_000,
+  );
+
+  it.skipIf(!resticOk)(
+    "a failed comparison is tried again after an hour, not on every pass",
+    async () => {
+      const ct = await realContainer(323);
+      const run = randomUUID();
+      const id = await ct.backup(run);
+      await ct.point(1, id, run, "pruned");
+      // The previous comparison failed half an hour ago (its claim is still in the column).
+      const failedAt = new Date(Date.now() - 30 * 60_000);
+      const claim = new Date(failedAt.getTime() - PVE_RECONCILE_EVERY_MS + PVE_RECONCILE_RETRY_MS);
+      await owner
+        .update(pveGuests)
+        .set({ repositoryReconciledAt: claim })
+        .where(eq(pveGuests.id, ct.id));
+      await applyRetention(deps, new Date());
+      expect(await ct.listed()).toContain(id);
+      expect((await ct.row())?.repositoryReconciledAt).toEqual(claim);
+      // An hour after the failure it is due again and forgets the snapshot.
+      const retryAt = new Date(failedAt.getTime() + PVE_RECONCILE_RETRY_MS + 60_000);
+      await applyRetention(deps, retryAt);
+      expect(await ct.listed()).not.toContain(id);
+      expect((await ct.row())?.repositoryReconciledAt).toEqual(retryAt);
+    },
+    120_000,
+  );
+
+  it.skipIf(!resticOk)(
+    "a restore point pruned while the repository is compared keeps the comparison due",
+    async () => {
+      const ct = await realContainer(324);
+      const runs = { old: randomUUID(), late: randomUUID() };
+      const ids = { old: await ct.backup(runs.old), late: await ct.backup(runs.late) };
+      await ct.point(1, ids.old, runs.old, "pruned");
+      await ct.point(2, ids.late, runs.late);
+      // Retention prunes the second restore point after the comparison read the rows and
+      // before it records itself (here: while it measures the repository after the forget).
+      const prefix = `pve-guests/${ct.id}/`;
+      let pruned = false;
+      const prunedMeanwhile = async () => {
+        if (!pruned) {
+          pruned = true;
+          await owner
+            .update(pveSnapshots)
+            .set({ status: "pruned", prunedAt: new Date() })
+            .where(eq(pveSnapshots.resticSnapshotId, ids.late));
+          await owner
+            .update(pveGuests)
+            .set({ repositoryReconciledAt: null })
+            .where(eq(pveGuests.id, ct.id));
+        }
+      };
+      const primary = storage.primary;
+      const watched = new Proxy(primary, {
+        get(target, key, receiver) {
+          const value = Reflect.get(target, key, receiver);
+          if ((key === "list" || key === "listWithSizes") && typeof value === "function") {
+            return async (listed: string, ...rest: unknown[]) => {
+              if (listed === prefix) {
+                await prunedMeanwhile();
+              }
+              return value.call(target, listed, ...rest);
+            };
+          }
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+      });
+      const racing = {
+        ...deps,
+        runtime: {
+          ...deps.runtime,
+          storage: new TenantCache<StorageTargets>(async () => ({ primary: watched, copies: [] })),
+        },
+      };
+      const result = await reconcileGuestRepository(racing, (await ct.row()) as never, new Date());
+      expect(pruned).toBe(true);
+      expect(result.forgotten).toEqual([ids.old]);
+      // Not stamped: the snapshot of the point pruned meanwhile is still there, and the next
+      // pass must compare again instead of waiting a day.
+      expect((await ct.row())?.repositoryReconciledAt).toBeNull();
+      const next = await reconcileGuestRepository(deps, (await ct.row()) as never, new Date());
+      expect(next.forgotten).toEqual([ids.late]);
+      expect((await ct.row())?.repositoryReconciledAt).not.toBeNull();
+    },
+    120_000,
+  );
+
+  it.skipIf(!resticOk)(
+    "a container check fails when its restic snapshot is gone or belongs to another run (S12)",
+    async () => {
+      const ct = await realContainer(321);
+      const runA = randomUUID();
+      const runB = randomUUID();
+      const a = await ct.backup(runA);
+      const b = await ct.backup(runB);
+      const pointA = await ct.point(1, a, runA);
+      expect(await verifySnapshot(deps, pointA)).toMatchObject({ errors: [] });
+      // The restore point names the snapshot of another run.
+      const wrong = await ct.point(2, b, randomUUID());
+      const mixed = await verifySnapshot(deps, wrong);
+      expect(mixed.errors.join("\n")).toContain(`belongs to run ${runB}`);
+      // The snapshot file is gone from the storage (restic check alone passes then; restic's
+      // local cache still has it).
+      await storage.primary.delete(`pve-guests/${ct.id}/snapshots/${a}`);
+      const gone = await verifySnapshot(deps, pointA);
+      expect(gone.errors.join("\n")).toContain("is not in the repository");
+    },
+    120_000,
+  );
+
+  it("a container check whose restic cannot start or reads a damaged repository is a finding, not postponed", async () => {
+    const damaged = join(work, "restic-damaged.sh");
+    await writeFile(
+      damaged,
+      [
+        "#!/bin/sh",
+        'if [ "$1" = "snapshots" ]; then echo "Fatal: unable to open config file: config or key is damaged: ciphertext verification failed" >&2; exit 1; fi',
+        "exit 0",
+      ].join("\n"),
+    );
+    await chmod(damaged, 0o755);
+    const before = process.env.RESTIC_BINARY;
+    try {
+      let vmid = 330;
+      for (const binary of [damaged, join(work, "no-such-restic")]) {
+        process.env.RESTIC_BINARY = binary;
+        const keys = await deps.runtime.keyrings.get(tenantId);
+        const secretId = randomUUID();
+        await owner.insert(secrets).values({
+          id: secretId,
+          tenantId,
+          kind: "pve_ct_repository",
+          ciphertext: sealSecret(keys.current, secretId, "repository-password"),
+        });
+        const [ct] = await owner
+          .insert(pveGuests)
+          .values({
+            tenantId,
+            clusterId,
+            vmid,
+            kind: "ct",
+            node: "pve1",
+            repositorySecretId: secretId,
+          })
+          .returning();
+        const [point] = await owner
+          .insert(pveSnapshots)
+          .values({
+            tenantId,
+            clusterId,
+            guestId: ct?.id ?? "",
+            sequence: 1,
+            kind: "ct",
+            archiveName: `ct/${vmid}/2026-10-10T11:00:00Z`,
+            storageId: "restow",
+            manifestPath: "unused",
+            resticSnapshotId: "e".repeat(64),
+            backupAt: clock,
+          })
+          .returning();
+        vmid++;
+        const result = await verifySnapshot(deps, point as never);
+        // Recorded as a failed check with restic's words, never "check did not run".
+        expect(result.errors.join("\n")).toMatch(
+          binary === damaged ? /ciphertext verification failed/ : /ENOENT/,
+        );
+      }
+    } finally {
+      if (before === undefined) {
+        delete process.env.RESTIC_BINARY;
+      } else {
+        process.env.RESTIC_BINARY = before;
+      }
+    }
+  });
+
+  it("postpones a container check whose snapshot list could not be read, never fails it (S12)", async () => {
+    const fake = join(work, "restic-unreachable.sh");
+    await writeFile(
+      fake,
+      [
+        "#!/bin/sh",
+        'if [ "$1" = "snapshots" ]; then echo "Fatal: unable to open repository: Get "http://127.0.0.1/config": connection reset by peer" >&2; exit 1; fi',
+        "exit 0",
+      ].join("\n"),
+    );
+    await chmod(fake, 0o755);
+    const before = process.env.RESTIC_BINARY;
+    process.env.RESTIC_BINARY = fake;
+    try {
+      const keys = await deps.runtime.keyrings.get(tenantId);
+      const secretId = randomUUID();
+      await owner.insert(secrets).values({
+        id: secretId,
+        tenantId,
+        kind: "pve_ct_repository",
+        ciphertext: sealSecret(keys.current, secretId, "repository-password"),
+      });
+      const [ct] = await owner
+        .insert(pveGuests)
+        .values({
+          tenantId,
+          clusterId,
+          vmid: 322,
+          kind: "ct",
+          node: "pve1",
+          repositorySecretId: secretId,
+        })
+        .returning();
+      const [point] = await owner
+        .insert(pveSnapshots)
+        .values({
+          tenantId,
+          clusterId,
+          guestId: ct?.id ?? "",
+          sequence: 1,
+          kind: "ct",
+          archiveName: "ct/322/2026-10-10T11:00:00Z",
+          storageId: "restow",
+          manifestPath: "unused",
+          resticSnapshotId: "f".repeat(64),
+          backupAt: clock,
+          verifyRequestedAt: new Date(clock.getTime() - 60_000),
+        })
+        .returning();
+      await verifyDue(deps, clock);
+      const [row] = await owner
+        .select()
+        .from(pveSnapshots)
+        .where(eq(pveSnapshots.id, point?.id ?? ""));
+      expect(row?.verify?.errors ?? []).toEqual([]);
+      expect(row?.verify?.notChecked).toMatchObject({ reason: "interrupted", attempts: 1 });
+      expect(row?.verify?.notChecked?.detail).toContain("connection reset by peer");
+      expect(row?.verifyRequestedAt).toEqual(new Date(clock.getTime() + VERIFY_POSTPONE_MS));
+      await owner
+        .update(pveSnapshots)
+        .set({ verifyRequestedAt: null })
+        .where(eq(pveSnapshots.id, point?.id ?? ""));
+    } finally {
+      if (before === undefined) {
+        delete process.env.RESTIC_BINARY;
+      } else {
+        process.env.RESTIC_BINARY = before;
+      }
+    }
   });
 });

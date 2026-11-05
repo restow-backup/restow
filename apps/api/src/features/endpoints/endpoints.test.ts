@@ -956,6 +956,7 @@ describe("what needs attention", () => {
     overdue: false,
     latestSnapshotId: "a",
     latestBackupAt: now,
+    noSamples: false,
   } as const;
 
   it("names the person a machine is assigned to in its summary, or nobody", () => {

@@ -583,6 +583,8 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
     expect(resolved).toMatchObject({
       snapshotId: second.snapshotId,
       firewallConfig: "[OPTIONS]\nenable: 1\n",
+      byteSize: data1.length,
+      resticTotalBytes: null,
     });
   });
 
@@ -680,6 +682,288 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
     });
     expect(await fixture.db.select().from(chunks).limit(1)).toHaveLength(1);
   });
+  it("a failed, expired or cancelled restore or restore check never succeeds and never moves Last backup (S01)", async () => {
+    const [guest] = await fixture.db.select().from(pveGuests).where(eq(pveGuests.vmid, 101));
+    const before = new Date("2026-10-04T01:00:00Z");
+    await fixture.db
+      .update(pveGuests)
+      .set({ lastBackupAt: before, lastRestoreTestAt: null })
+      .where(eq(pveGuests.id, guest?.id ?? ""));
+    const guestRow = async () =>
+      (
+        await fixture.db
+          .select()
+          .from(pveGuests)
+          .where(eq(pveGuests.id, guest?.id ?? ""))
+      )[0];
+    const runOf = async (taskId: string) =>
+      (await fixture.db.select().from(pveRuns).where(eq(pveRuns.taskId, taskId)))[0];
+    const restore = (restoreTest: boolean) =>
+      service.restoreSnapshot(
+        shared.db,
+        fixture.tenantId,
+        first.snapshotId,
+        { targetStorage: "local-lvm", start: false },
+        actor(),
+        { restoreTest },
+      );
+    // The node reports the restore and the restore check failed (PVE refused, out of space).
+    for (const restoreTest of [false, true]) {
+      const queued = await restore(restoreTest);
+      await call(node, "/heartbeat", { json: { helperVersion: "0.3.0", state: "idle" } });
+      const error = "unable to restore CT 9002 - mount point mp0: only root can set bind mounts";
+      await json(
+        await call(node, `/tasks/${queued.taskId}/result`, { json: { status: "failed", error } }),
+        204,
+      );
+      const run = await runOf(queued.taskId);
+      expect(run).toMatchObject({
+        kind: restoreTest ? "restore_test" : "restore",
+        status: "failed",
+        errorMessage: error,
+      });
+      expect(run?.stats.warnings).toBeUndefined();
+      const [task] = await fixture.db.select().from(pveTasks).where(eq(pveTasks.id, queued.taskId));
+      expect(task?.status).toBe("failed");
+    }
+    expect((await guestRow())?.lastBackupAt).toEqual(before);
+    expect((await guestRow())?.lastRestoreTestAt).toBeNull();
+    // A restore task closed by the server (it expired) fails its run the same way.
+    const { finishFailedTaskRun } = await import("./runs.js");
+    const { withTenantTx } = await import("../../lib/tenant-context.js");
+    const expired = await restore(true);
+    const [open] = await fixture.db.select().from(pveTasks).where(eq(pveTasks.id, expired.taskId));
+    await withTenantTx(shared.db, fixture.tenantId, (tx) =>
+      finishFailedTaskRun(
+        tx,
+        { ...(open as never as object), status: "failed" } as never,
+        "The node did not run the task in time.",
+        new Date(),
+      ),
+    );
+    expect(await runOf(expired.taskId)).toMatchObject({
+      status: "failed",
+      errorMessage: "The node did not run the task in time.",
+    });
+    // A restore stopped in the UI ends cancelled.
+    const stopped = await restore(false);
+    await call(node, "/heartbeat", { json: { helperVersion: "0.3.0", state: "idle" } });
+    await fixture.db
+      .update(pveTasks)
+      .set({ cancelRequestedAt: new Date() })
+      .where(eq(pveTasks.id, stopped.taskId));
+    await json(
+      await call(node, `/tasks/${stopped.taskId}/result`, {
+        json: { status: "failed", error: "context canceled" },
+      }),
+      204,
+    );
+    expect(await runOf(stopped.taskId)).toMatchObject({ kind: "restore", status: "cancelled" });
+    expect((await guestRow())?.lastBackupAt).toEqual(before);
+    // The node never calls a restore run's end as a backup's.
+    const restoreRun = await runOf(stopped.taskId);
+    expect(
+      (
+        await call(node, `/runs/${restoreRun?.id}/finish`, {
+          json: { status: "succeeded" },
+        })
+      ).status,
+    ).toBe(409);
+  });
+
+  it("keeps what a restore check reported beside its success: a guest it could not remove, mount points left out (S04)", async () => {
+    const queued = await service.restoreSnapshot(
+      shared.db,
+      fixture.tenantId,
+      first.snapshotId,
+      { targetStorage: "local-lvm", start: false },
+      actor(),
+      { restoreTest: true },
+    );
+    await call(node, "/heartbeat", { json: { helperVersion: "0.5.0", state: "idle" } });
+    await json(
+      await call(node, `/tasks/${queued.taskId}/result`, {
+        json: {
+          status: "done",
+          result: {
+            vmid: 9105,
+            upid: "UPID:pve1:000A:qmrestore:9105:root@pam:",
+            deleted: false,
+            leftoverVmid: 9105,
+            omittedMounts: ["mp0: /srv/share,mp=/data"],
+            warnings: ["WARN: unable to set acl"],
+            // Unreadable fields are dropped, the rest is kept.
+            skippedLxc: "not a list",
+            somethingElse: { nested: true },
+            // A check never starts its copy: a start fact from the node is not kept.
+            started: false,
+            startSkipped: "static_ip",
+          },
+        },
+      }),
+      204,
+    );
+    const [run] = await fixture.db.select().from(pveRuns).where(eq(pveRuns.taskId, queued.taskId));
+    expect(run?.status).toBe("succeeded");
+    expect(run?.stats.started).toBeUndefined();
+    expect(run?.stats.startSkipped).toBeUndefined();
+    expect(run?.stats).toMatchObject({
+      vmid: 9105,
+      deleted: false,
+      leftoverVmid: 9105,
+      omittedMounts: ["mp0: /srv/share,mp=/data"],
+      warnings: ["WARN: unable to set acl"],
+    });
+    expect(run?.stats.skippedLxc).toBeUndefined();
+    expect(run?.stats.somethingElse).toBeUndefined();
+    // The guest's page gets all of it (the web shows it amber, run-status.ts).
+    const detail = await service.guestDetail(shared.db, fixture.tenantId, run?.guestId ?? "");
+    const shown = detail.runs.find((r) => r.id === run?.id);
+    expect(shown?.stats).toMatchObject({ deleted: false, omittedMounts: [expect.any(String)] });
+    expect(shown?.warnings).toEqual(["WARN: unable to set acl"]);
+  });
+
+  it("keeps whether the copy started only for a restore that asked for a start", async () => {
+    const results: Record<string, unknown>[] = [];
+    for (const start of [true, false]) {
+      const queued = await service.restoreSnapshot(
+        shared.db,
+        fixture.tenantId,
+        first.snapshotId,
+        { targetStorage: "local-lvm", start },
+        actor(),
+      );
+      await call(node, "/heartbeat", { json: { helperVersion: "0.5.0", state: "idle" } });
+      await json(
+        await call(node, `/tasks/${queued.taskId}/result`, {
+          json: {
+            status: "done",
+            result: { vmid: start ? 9120 : 9121, started: false, startSkipped: "omitted_mounts" },
+          },
+        }),
+        204,
+      );
+      const [run] = await fixture.db
+        .select()
+        .from(pveRuns)
+        .where(eq(pveRuns.taskId, queued.taskId));
+      expect(run?.status).toBe("succeeded");
+      results.push(run?.stats ?? {});
+    }
+    // Asked to start: "Restored, not started" (amber in the web). Not asked: nothing to say.
+    expect(results[0]).toMatchObject({ started: false, startSkipped: "omitted_mounts" });
+    expect(results[1]?.started).toBeUndefined();
+    expect(results[1]?.startSkipped).toBeUndefined();
+  });
+
+  it("a restore check the node skipped is not checked: neither green nor red, tried again in a day (S05)", async () => {
+    const queued = await service.restoreSnapshot(
+      shared.db,
+      fixture.tenantId,
+      first.snapshotId,
+      { targetStorage: "nfs-images", start: false },
+      actor(),
+      { restoreTest: true },
+    );
+    await call(node, "/heartbeat", { json: { helperVersion: "0.5.0", state: "idle" } });
+    const at = new Date();
+    await json(
+      await call(node, `/tasks/${queued.taskId}/result`, {
+        json: {
+          status: "done",
+          result: {
+            skipped: {
+              reason: "storage_content",
+              message: "storage 'nfs-images' does not hold container directories (rootdir)",
+            },
+          },
+        },
+      }),
+      204,
+    );
+    const [run] = await fixture.db.select().from(pveRuns).where(eq(pveRuns.taskId, queued.taskId));
+    expect(run).toMatchObject({
+      kind: "restore_test",
+      status: "failed",
+      errorMessage: "storage 'nfs-images' does not hold container directories (rootdir)",
+    });
+    expect(run?.stats.skipped).toMatchObject({ reason: "storage_content" });
+    const [task] = await fixture.db.select().from(pveTasks).where(eq(pveTasks.id, queued.taskId));
+    expect(task?.status).toBe("done");
+    // Due again in a day: the monthly clock is set back to 29 days ago.
+    const [guest] = await fixture.db
+      .select()
+      .from(pveGuests)
+      .where(eq(pveGuests.id, run?.guestId ?? ""));
+    const since = at.getTime() - (guest?.lastRestoreTestAt?.getTime() ?? 0);
+    expect(Math.round(since / (24 * 60 * 60 * 1000))).toBe(29);
+    // Skipped again for the same reason: 2, 4, then 7 days, not a new "Not checked" every day.
+    for (const waitDays of [2, 4, 7, 7]) {
+      const again = await service.restoreSnapshot(
+        shared.db,
+        fixture.tenantId,
+        first.snapshotId,
+        { targetStorage: "nfs-images", start: false },
+        actor(),
+        { restoreTest: true },
+      );
+      await call(node, "/heartbeat", { json: { helperVersion: "0.5.0", state: "idle" } });
+      const skippedAt = new Date();
+      await json(
+        await call(node, `/tasks/${again.taskId}/result`, {
+          json: {
+            status: "done",
+            result: { skipped: { reason: "storage_content", message: "no rootdir" } },
+          },
+        }),
+        204,
+      );
+      const [row] = await fixture.db
+        .select()
+        .from(pveGuests)
+        .where(eq(pveGuests.id, run?.guestId ?? ""));
+      const back = skippedAt.getTime() - (row?.lastRestoreTestAt?.getTime() ?? 0);
+      expect(Math.round(back / (24 * 60 * 60 * 1000)), `wait ${waitDays}`).toBe(30 - waitDays);
+    }
+    // The guest's page says when a job's check cannot run on the node.
+    const job = await service.saveJob(
+      shared.db,
+      fixture.tenantId,
+      null,
+      {
+        name: "Checked",
+        scopeAll: false,
+        schedule: { kind: "daily", timeOfDay: "03:00", timeZone: "UTC" },
+        enabled: true,
+        settings: { restoreTest: { enabled: true, targetStorage: "local-lvm" } },
+      },
+      actor(),
+    );
+    await fixture.db
+      .update(pveGuests)
+      .set({ jobId: job.id })
+      .where(eq(pveGuests.id, run?.guestId ?? ""));
+    await fixture.db
+      .update(pveNodes)
+      .set({ facts: sql`facts || '{"restoresAllowed": false}'::jsonb` })
+      .where(eq(pveNodes.id, node.nodeId));
+    const detail = await service.guestDetail(shared.db, fixture.tenantId, run?.guestId ?? "");
+    expect(detail.restoreCheck).toMatchObject({
+      enabled: true,
+      blocker: "restores_off",
+      node: "pve1",
+    });
+    await fixture.db
+      .update(pveNodes)
+      .set({ facts: sql`facts || '{"restoresAllowed": true}'::jsonb` })
+      .where(eq(pveNodes.id, node.nodeId));
+    await fixture.db
+      .update(pveGuests)
+      .set({ jobId: null })
+      .where(eq(pveGuests.id, run?.guestId ?? ""));
+    await service.deleteJob(shared.db, fixture.tenantId, job.id, actor());
+  });
+
   it("shows a container's backup as queued, then running, and closes a run whose end the node never reported", async () => {
     const [ct] = await fixture.db.select().from(pveGuests).where(eq(pveGuests.vmid, 200));
     const ctId = ct?.id ?? "";
@@ -920,6 +1204,15 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
       unreadablePaths: ["/var/lib/a", "/var/lib/b"],
     });
     expect(point?.byteSize).toBe(10_000_000);
+    // The node learns the size before a restore (its free-space checks).
+    const resolvedCt = await json<Record<string, unknown>>(
+      await call(node, `/restore-points?volname=${encodeURIComponent(point?.archiveName ?? "")}`),
+    );
+    expect(resolvedCt).toMatchObject({
+      kind: "ct",
+      byteSize: 10_000_000,
+      resticTotalBytes: 10_000_000,
+    });
     await json(
       await call(node, `/runs/${ct.runId}/finish`, { json: { status: "succeeded" } }),
       204,
@@ -930,6 +1223,228 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
       attention: expect.arrayContaining(["last_backup_incomplete"]),
     });
   });
+  it("a container backup's restic credential lives with its open run, beyond 24 hours, at most 48 (S11)", async () => {
+    const { resolvePveRunCredential } = await import("./restic-route.js");
+    const opened = await json<{ runId: string }>(
+      await call(node, "/runs", {
+        json: {
+          vmid: 201,
+          kind: "ct",
+          archiveName: "ct/201/2026-10-12T22:00:00Z",
+          storageId: "restow",
+          startedAt: "2026-10-12T22:00:00Z",
+        },
+      }),
+      201,
+    );
+    const [row] = await fixture.db.select().from(pveRuns).where(eq(pveRuns.id, opened.runId));
+    const guestId = row?.guestId ?? "";
+    const token = generateAgentSecret();
+    const hour = 3600_000;
+    // Issued 25 hours ago with the 24 hours of a credential: the run still runs.
+    const set = (startedHoursAgo: number, issuedHoursAgo = 25) =>
+      fixture.db
+        .update(pveRuns)
+        .set({
+          resticTokenHash: token.hash,
+          startedAt: new Date(Date.now() - startedHoursAgo * hour),
+          resticExpiresAt: new Date(Date.now() - (issuedHoursAgo - 24) * hour),
+        })
+        .where(eq(pveRuns.id, opened.runId));
+    const resolve = () =>
+      resolvePveRunCredential({ runId: opened.runId, token: token.value }, guestId, Date.now());
+    const progress = () =>
+      app.request(`/agent/pve/v1/runs/${opened.runId}/progress`, {
+        method: "POST",
+        headers: { ...basic(opened.runId, token.value), "content-type": "application/json" },
+        body: JSON.stringify({ bytesDone: 1 }),
+      });
+    await set(25);
+    expect(await resolve()).toMatchObject({ ok: true, access: { principal: "agent" } });
+    expect((await progress()).status).toBe(204);
+    // A run older than 48 hours is over, even while it still reads running.
+    await set(49, 49);
+    expect(await resolve()).toEqual({ ok: false, reason: "expired" });
+    expect((await progress()).status).toBe(401);
+    // Stopped in the UI: within its 24 hours it may still release its lock (closing) ...
+    await set(2, 2);
+    await fixture.db
+      .update(pveRuns)
+      .set({ cancelRequestedAt: new Date() })
+      .where(eq(pveRuns.id, opened.runId));
+    expect(await resolve()).toMatchObject({ ok: true, access: { principal: "closing" } });
+    // ... but a stopped run does not live on past them.
+    await set(25);
+    expect(await resolve()).toEqual({ ok: false, reason: "expired" });
+    await fixture.db
+      .update(pveRuns)
+      .set({ cancelRequestedAt: null })
+      .where(eq(pveRuns.id, opened.runId));
+    // A run that ended: the cleanup right after its end is still allowed, as closing ...
+    await json(
+      await call(node, `/runs/${opened.runId}/finish`, {
+        json: { status: "failed", error: "test" },
+      }),
+      204,
+    );
+    await set(2, 2);
+    expect(await resolve()).toMatchObject({ ok: true, access: { principal: "closing" } });
+    // ... and refused once the credential's 24 hours are over.
+    await set(25);
+    expect(await resolve()).toEqual({ ok: false, reason: "expired" });
+  });
+
+  it("a container boot test reads with its own run; a restore in the PVE UI gets one run and an end (S03)", async () => {
+    const [ct] = await fixture.db.select().from(pveGuests).where(eq(pveGuests.vmid, 200));
+    const ctId = ct?.id ?? "";
+    const [point] = await fixture.db
+      .select()
+      .from(pveSnapshots)
+      .where(and(eq(pveSnapshots.guestId, ctId), eq(pveSnapshots.status, "active")))
+      .orderBy(desc(pveSnapshots.sequence))
+      .limit(1);
+    const snapshotId = point?.id ?? "";
+    // The container's repository exists (a restore only reads it).
+    const { storeSecret } = await import("../../lib/secrets.js");
+    const secret = await storeSecret(shared.db, {
+      tenantId: fixture.tenantId,
+      kind: "pve_ct_repository",
+      plaintext: "repository-password",
+    });
+    await fixture.db
+      .update(pveGuests)
+      .set({ repositorySecretId: secret.id, repositoryReadyAt: new Date() })
+      .where(eq(pveGuests.id, ctId));
+    const restoreRuns = async () =>
+      fixture.db
+        .select()
+        .from(pveRuns)
+        .where(and(eq(pveRuns.guestId, ctId), eq(pveRuns.kind, "restore")));
+    const before = (await restoreRuns()).length;
+    const credential = async () =>
+      json<{ runId: string; username: string }>(
+        await call(node, `/snapshots/${snapshotId}/restic`, { json: {} }),
+      );
+    const runRowOf = async (id: string) =>
+      (await fixture.db.select().from(pveRuns).where(eq(pveRuns.id, id)))[0];
+    // A boot test of the container restores through PVE: the credential is its run's.
+    const [task] = await fixture.db
+      .insert(pveTasks)
+      .values({
+        tenantId: fixture.tenantId,
+        nodeId: node.nodeId,
+        guestId: ctId,
+        kind: "boot_test",
+        status: "delivered",
+        deliveredAt: new Date(),
+        params: { snapshotId },
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      })
+      .returning();
+    const [bootRun] = await fixture.db
+      .insert(pveRuns)
+      .values({
+        tenantId: fixture.tenantId,
+        clusterId: node.clusterId,
+        nodeId: node.nodeId,
+        guestId: ctId,
+        kind: "boot_test",
+        taskId: task?.id ?? null,
+        snapshotId,
+      })
+      .returning();
+    const forBoot = await credential();
+    expect(forBoot.runId).toBe(bootRun?.id);
+    expect(forBoot.username).toBe(bootRun?.id);
+    expect(await restoreRuns()).toHaveLength(before);
+    await fixture.db.delete(pveRuns).where(eq(pveRuns.id, bootRun?.id ?? ""));
+    await fixture.db.delete(pveTasks).where(eq(pveTasks.id, task?.id ?? ""));
+    // A restore check of another restore point of the guest waits in the node's queue: a
+    // restore of this one started in the PVE UI meanwhile is not that check's.
+    const [otherTask] = await fixture.db
+      .insert(pveTasks)
+      .values({
+        tenantId: fixture.tenantId,
+        nodeId: node.nodeId,
+        guestId: ctId,
+        kind: "restore",
+        status: "delivered",
+        deliveredAt: new Date(),
+        params: { volname: "ct/200/2020-01-01T00:00:00Z", kind: "ct", restoreTest: true },
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      })
+      .returning();
+    const [checkRun] = await fixture.db
+      .insert(pveRuns)
+      .values({
+        tenantId: fixture.tenantId,
+        clusterId: node.clusterId,
+        nodeId: node.nodeId,
+        guestId: ctId,
+        kind: "restore_test",
+        taskId: otherTask?.id ?? null,
+      })
+      .returning();
+    const fromUi = await credential();
+    expect(fromUi.runId).not.toBe(checkRun?.id);
+    expect(await runRowOf(fromUi.runId)).toMatchObject({
+      kind: "restore",
+      origin: "pve",
+      taskId: null,
+      snapshotId,
+    });
+    await fixture.db.delete(pveRuns).where(eq(pveRuns.id, fromUi.runId));
+    await fixture.db.delete(pveRuns).where(eq(pveRuns.id, checkRun?.id ?? ""));
+    await fixture.db.delete(pveTasks).where(eq(pveTasks.id, otherTask?.id ?? ""));
+    // A restore in the PVE UI: one run, however often it asks.
+    const first = await credential();
+    const again = await credential();
+    expect(again.runId).toBe(first.runId);
+    expect(await restoreRuns()).toHaveLength(before + 1);
+    const end = (runId: string, body: unknown) =>
+      call(node, `/runs/${runId}/restore-end`, { json: body });
+    const runRow = async (id: string) =>
+      (await fixture.db.select().from(pveRuns).where(eq(pveRuns.id, id)))[0];
+    expect((await end(first.runId, { status: "succeeded", exitStatus: "OK" })).status).toBe(204);
+    expect(await runRow(first.runId)).toMatchObject({
+      kind: "restore",
+      origin: "pve",
+      status: "succeeded",
+      errorMessage: null,
+    });
+    // PVE's "WARNINGS: n" is a success with warnings (amber), never plain green.
+    const warned = await credential();
+    expect(warned.runId).not.toBe(first.runId);
+    await end(warned.runId, {
+      status: "warnings",
+      exitStatus: "WARNINGS: 1",
+      warnings: ["WARN: unable to restore acl"],
+    });
+    expect(await runRow(warned.runId)).toMatchObject({ status: "succeeded" });
+    expect((await runRow(warned.runId))?.stats.warnings).toEqual(["WARN: unable to restore acl"]);
+    // Succeeded only with "OK": anything else fails with what PVE said.
+    const broken = await credential();
+    await end(broken.runId, {
+      status: "succeeded",
+      exitStatus: "unable to restore CT 9007 - command 'tar' failed",
+    });
+    expect(await runRow(broken.runId)).toMatchObject({
+      status: "failed",
+      errorMessage: expect.stringContaining("command 'tar' failed"),
+    });
+    // Idempotent, and never for a backup run.
+    expect((await end(broken.runId, { status: "succeeded", exitStatus: "OK" })).status).toBe(204);
+    expect((await runRow(broken.runId))?.status).toBe("failed");
+    const [backup] = await fixture.db
+      .select()
+      .from(pveRuns)
+      .where(and(eq(pveRuns.guestId, ctId), eq(pveRuns.kind, "backup")))
+      .limit(1);
+    expect((await end(backup?.id ?? "", { status: "succeeded", exitStatus: "OK" })).status).toBe(
+      409,
+    );
+  });
+
   it("counts a job's scheduled round: how many of its guests are done, run and wait (#53)", async () => {
     const job = await service.saveJob(
       shared.db,
@@ -996,7 +1511,10 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
   // --- 0.4.2: late task results, vzdump warnings, the Restow server's own VM, restore checks ---
 
   /** An incremental VM backup of 101 that changed nothing: a quick restore point. */
-  async function quickCommit(time: string): Promise<{ runId: string; snapshotId: string }> {
+  async function quickCommit(
+    time: string,
+    extra: Record<string, unknown> = {},
+  ): Promise<{ runId: string; snapshotId: string }> {
     const run = await openRun(time);
     await json(
       await call(node, `/runs/${run.runId}/incremental`, {
@@ -1021,6 +1539,7 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
           ],
           guestConfig: "scsi0: x\n",
           firewallConfig: null,
+          ...extra,
         },
       }),
     );
@@ -1118,6 +1637,92 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
     expect(task?.status).toBe("done");
   });
 
+  it("records a VM restore point's fs-freeze; a failed freeze is a warning of the run (S-C3)", async () => {
+    const [vm] = await fixture.db.select().from(pveGuests).where(eq(pveGuests.vmid, 101));
+    const pointOf = async (snapshotId: string) => {
+      const guest = await service.guestDetail(shared.db, fixture.tenantId, vm?.id ?? "");
+      return guest.snapshots.find((p) => p.id === snapshotId);
+    };
+    // restow-pve 0.5.0: the guest agent was asked to freeze and failed; vzdump went on.
+    await queuedBackup();
+    const detail =
+      "the guest agent could not freeze the file systems (VM 101 qmp command 'guest-fsfreeze-freeze' failed - got timeout); the restore point is crash-consistent";
+    const failed = await quickCommit("2026-10-14T23:00:00Z", {
+      consistency: detail,
+      vmConsistency: { state: "freeze_failed", detail },
+    });
+    await json(
+      await call(node, `/runs/${failed.runId}/finish`, { json: { status: "succeeded" } }),
+      204,
+    );
+    let [row] = await fixture.db.select().from(pveRuns).where(eq(pveRuns.id, failed.runId));
+    expect(row?.status).toBe("succeeded");
+    expect(row?.stats.warnings).toEqual([detail]);
+    expect((await pointOf(failed.snapshotId))?.vmConsistency).toEqual({
+      state: "freeze_failed",
+      detail,
+    });
+
+    // A frozen guest is no warning; the whole log's thaw problem, sent with the task log, is.
+    await queuedBackup();
+    const frozen = await quickCommit("2026-10-14T23:10:00Z", {
+      vmConsistency: { state: "frozen", detail: "the guest agent froze the file systems" },
+    });
+    await json(
+      await call(node, `/runs/${frozen.runId}/finish`, { json: { status: "succeeded" } }),
+      204,
+    );
+    [row] = await fixture.db.select().from(pveRuns).where(eq(pveRuns.id, frozen.runId));
+    expect(row?.stats.warnings).toBeUndefined();
+    const thaw =
+      "the guest agent could not thaw the file systems (timeout); check that the guest can write";
+    await json(
+      await call(node, `/runs/${frozen.runId}/log`, {
+        json: {
+          log: "INFO: issuing guest-agent 'fs-freeze' command\n",
+          vmConsistency: { state: "freeze_failed", detail: "later", warnings: [thaw] },
+        },
+      }),
+      204,
+    );
+    [row] = await fixture.db.select().from(pveRuns).where(eq(pveRuns.id, frozen.runId));
+    // The state the commit recorded stays; the log's warnings join the run's.
+    expect((await pointOf(frozen.snapshotId))?.vmConsistency?.state).toBe("frozen");
+    expect(row?.stats.warnings).toEqual(["later", thaw]);
+
+    // The commit could not read vzdump's log (unknown): the task log completes it.
+    await queuedBackup();
+    const unknown = await quickCommit("2026-10-14T23:20:00Z", {
+      vmConsistency: { state: "unknown" },
+    });
+    expect((await pointOf(unknown.snapshotId))?.vmConsistency).toEqual({ state: "unknown" });
+    await json(
+      await call(node, `/runs/${unknown.runId}/finish`, { json: { status: "succeeded" } }),
+      204,
+    );
+    await json(
+      await call(node, `/runs/${unknown.runId}/log`, {
+        json: { log: "x", vmConsistency: { state: "no_agent", detail: "no answer" } },
+      }),
+      204,
+    );
+    expect((await pointOf(unknown.snapshotId))?.vmConsistency).toEqual({
+      state: "no_agent",
+      detail: "no answer",
+    });
+    [row] = await fixture.db.select().from(pveRuns).where(eq(pveRuns.id, unknown.runId));
+    expect(row?.stats.warnings).toBeUndefined();
+
+    // An older node sends nothing, a malformed value is dropped: not recorded, never a state.
+    await queuedBackup();
+    const old = await quickCommit("2026-10-14T23:30:00Z", { vmConsistency: { state: "glacial" } });
+    expect((await pointOf(old.snapshotId))?.vmConsistency).toBeNull();
+    await json(
+      await call(node, `/runs/${old.runId}/finish`, { json: { status: "succeeded" } }),
+      204,
+    );
+  });
+
   it("a late result settles a committed run the server closed meanwhile, and never fails it (C6)", async () => {
     const taskId = await queuedBackup();
     const run = await quickCommit("2026-10-15T22:00:00Z");
@@ -1166,6 +1771,99 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
     expect(
       (await call(node, `/tasks/${randomUUID()}/result`, { json: { status: "done" } })).status,
     ).toBe(404);
+  });
+
+  it("judges delivered tasks by the list the node holds: a queued backup never expires, a lost restore check fails (S02)", async () => {
+    const [vm] = await fixture.db.select().from(pveGuests).where(eq(pveGuests.vmid, 101));
+    await fixture.db.delete(pveTasks).where(eq(pveTasks.guestId, vm?.id ?? ""));
+    const beat = async (heldTasks?: { current?: string; queued: string[] }) =>
+      json<{ tasks: { id: string }[]; cancel: { tasks: string[] } }>(
+        // A running node takes no new task, so only the expiry acts here.
+        await call(node, "/heartbeat", {
+          json: { helperVersion: "0.5.0", state: "running", ...(heldTasks ? { heldTasks } : {}) },
+        }),
+      );
+    const taskRow = async (id: string) =>
+      (await fixture.db.select().from(pveTasks).where(eq(pveTasks.id, id)))[0];
+    const runOf = async (taskId: string) =>
+      (await fixture.db.select().from(pveRuns).where(eq(pveRuns.taskId, taskId)))[0];
+    const hoursAgo = (h: number) => new Date(Date.now() - h * 60 * 60 * 1000);
+    // A backup that waits in the node's queue behind a long one, past its expiry (K86).
+    const backup = await queuedBackup();
+    await fixture.db
+      .update(pveTasks)
+      .set({ expiresAt: hoursAgo(1) })
+      .where(eq(pveTasks.id, backup));
+    const listed = await beat({ current: randomUUID(), queued: [backup] });
+    expect((await taskRow(backup))?.status).toBe("delivered");
+    expect(listed.cancel.tasks).not.toContain(backup);
+    const [facts] = await fixture.db
+      .select({ facts: pveNodes.facts })
+      .from(pveNodes)
+      .where(eq(pveNodes.id, node.nodeId));
+    expect(facts?.facts.heldTasks).toContain(backup);
+    // The node no longer lists it (it dropped it): it expires, and the node is told to drop it.
+    const gone = await beat({ queued: [] });
+    expect((await taskRow(backup))?.status).toBe("failed");
+    expect(gone.cancel.tasks).toContain(backup);
+    // A restore check the node was given, but which it no longer holds (restow-pve restarted).
+    const check = await service.restoreSnapshot(
+      shared.db,
+      fixture.tenantId,
+      first.snapshotId,
+      { targetStorage: "local-lvm", start: false },
+      actor(),
+      { restoreTest: true },
+    );
+    await fixture.db
+      .update(pveTasks)
+      .set({ status: "delivered", deliveredAt: new Date(Date.now() - 5 * 60 * 1000) })
+      .where(eq(pveTasks.id, check.taskId));
+    // Just delivered: it may still be on its way to the node.
+    await beat({ queued: [] });
+    expect((await taskRow(check.taskId))?.status).toBe("delivered");
+    // An older helper sends no list: nothing is judged by it.
+    await fixture.db
+      .update(pveTasks)
+      .set({ deliveredAt: hoursAgo(1) })
+      .where(eq(pveTasks.id, check.taskId));
+    await beat();
+    expect((await taskRow(check.taskId))?.status).toBe("delivered");
+    // Listed: it waits.
+    await beat({ queued: [check.taskId] });
+    expect((await taskRow(check.taskId))?.status).toBe("delivered");
+    const lost = await beat({ queued: [] });
+    expect(await taskRow(check.taskId)).toMatchObject({
+      status: "failed",
+      errorMessage: "The node no longer holds this task (restow-pve restarted).",
+    });
+    expect(await runOf(check.taskId)).toMatchObject({
+      kind: "restore_test",
+      status: "failed",
+      errorMessage: "The node no longer holds this task (restow-pve restarted).",
+    });
+    expect(lost.cancel.tasks).toContain(check.taskId);
+    // A restore the node never got (it was offline) expires; its run is only a placeholder.
+    const offline = await service.restoreSnapshot(
+      shared.db,
+      fixture.tenantId,
+      first.snapshotId,
+      { targetStorage: "local-lvm", start: false },
+      actor(),
+    );
+    await fixture.db
+      .update(pveTasks)
+      .set({ expiresAt: hoursAgo(1) })
+      .where(eq(pveTasks.id, offline.taskId));
+    const late = await beat();
+    expect((await taskRow(offline.taskId))?.status).toBe("failed");
+    expect(await runOf(offline.taskId)).toMatchObject({
+      kind: "restore",
+      status: "failed",
+      errorMessage: "The node did not run the task in time.",
+    });
+    // Never delivered: nothing to drop on the node.
+    expect(late.cancel.tasks).not.toContain(offline.taskId);
   });
 
   it("finds the Restow server's own VM by its SMBIOS UUID and backs it up only when confirmed (C7)", async () => {
@@ -1397,6 +2095,43 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
     expect(detail.guest.lastVerify?.errors).toEqual([error]);
   });
 
+  it("gives the guest row the boot test of its newest restore point beside the read-back (S06)", async () => {
+    const [vm] = await fixture.db.select().from(pveGuests).where(eq(pveGuests.vmid, 101));
+    const checkedAt = new Date().toISOString();
+    await fixture.db
+      .update(pveSnapshots)
+      .set({
+        verify: { checkedAt, blocks: 8, mismatched: 0, errors: [] },
+        bootTest: {
+          outcome: "red",
+          reason: "guest_stopped",
+          message: "the guest stopped 12 s after its start",
+          checkedAt,
+          durationMs: 1,
+          bootSeconds: null,
+          guestAgent: false,
+          tempVmid: 9001,
+          storage: "local-lvm",
+          cleanedUp: true,
+          runId: "",
+        },
+      })
+      .where(eq(pveSnapshots.guestId, vm?.id ?? ""));
+    const guest = (await service.overview(shared.db, fixture.tenantId)).guests.find(
+      (g) => g.vmid === 101,
+    );
+    expect(guest?.lastVerify).toMatchObject({
+      state: "green",
+      bootTest: { outcome: "red", message: "the guest stopped 12 s after its start" },
+    });
+    const detail = await service.guestDetail(shared.db, fixture.tenantId, vm?.id ?? "");
+    expect(detail.guest.lastVerify?.bootTest?.outcome).toBe("red");
+    await fixture.db
+      .update(pveSnapshots)
+      .set({ bootTest: null })
+      .where(eq(pveSnapshots.guestId, vm?.id ?? ""));
+  });
+
   it("shows a check that could not run as not checked (yellow), never as failed (0.4.3)", async () => {
     const [vm] = await fixture.db.select().from(pveGuests).where(eq(pveGuests.vmid, 101));
     const detailText =
@@ -1451,6 +2186,49 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
       .limit(1);
     expect(newest?.verifyRequestedAt).not.toBeNull();
     await fixture.db.update(pveSnapshots).set({ verifyRequestedAt: null });
+  });
+
+  it("hides the never applied bandwidthKbps and verifyReadEvery of a stored job, and drops them on its next save", async () => {
+    const job = await service.saveJob(
+      shared.db,
+      fixture.tenantId,
+      null,
+      {
+        name: "Stored before 0.5.0",
+        scopeAll: false,
+        schedule: null,
+        enabled: true,
+        settings: { mode: "snapshot" },
+      },
+      actor(),
+    );
+    // An earlier Restow took both and stored them.
+    await fixture.db
+      .update(pveJobs)
+      .set({ settings: { mode: "snapshot", bandwidthKbps: 20000, verifyReadEvery: 7 } as never })
+      .where(eq(pveJobs.id, job.id));
+    const listed = (await service.overview(shared.db, fixture.tenantId)).jobs.find(
+      (j) => j.id === job.id,
+    );
+    expect(listed?.settings).toEqual({ mode: "snapshot" });
+    // The web form sends back what it read with its own change: the request passes the
+    // route's check (routes.jobs.test.ts) and the stored keys are gone.
+    const { jobSchema } = await import("./schemas.js");
+    const input = jobSchema.parse({
+      name: "Renamed",
+      scopeAll: false,
+      schedule: null,
+      enabled: true,
+      settings: { ...listed?.settings, retention: { keepDaily: 3, keepWeekly: 0, keepMonthly: 0 } },
+    });
+    const saved = await service.saveJob(shared.db, fixture.tenantId, job.id, input, actor());
+    expect(saved.name).toBe("Renamed");
+    const [row] = await fixture.db.select().from(pveJobs).where(eq(pveJobs.id, job.id));
+    expect(row?.settings).toEqual({
+      mode: "snapshot",
+      retention: { keepDaily: 3, keepWeekly: 0, keepMonthly: 0 },
+    });
+    await service.deleteJob(shared.db, fixture.tenantId, job.id, actor());
   });
 
   it("plans a job on weekdays or monthly, like a mail job (E1)", async () => {
@@ -1525,5 +2303,248 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
     } finally {
       await fixture.db.execute(sql`DELETE FROM settings`);
     }
+  });
+  it("a guest that moved to a node without restow-pve stays present and needs attention; one gone from the cluster is absent (S15)", async () => {
+    // A cluster of its own: nodes A (restow-pve) and B (restow-pve); C has none.
+    const a = await json<Node>(await enroll(fixture.tenantId, "9".repeat(64), "pveA"), 201);
+    await json<Node>(await enroll(fixture.tenantId, "9".repeat(64), "pveB"), 201);
+    const inventory = (body: unknown) => call(a, "/inventory", { json: body });
+    const ct = (vmid: number) => ({ vmid, kind: "ct", name: `ct${vmid}`, node: "pveA" });
+    const lxc = (vmid: number, on: string) => ({ vmid, node: on, type: "lxc" });
+    const guest = async (vmid: number) =>
+      (await service.overview(shared.db, fixture.tenantId)).guests.find(
+        (g) => g.clusterId === a.clusterId && g.vmid === vmid,
+      );
+    await json(await inventory({ guests: [ct(120), ct(121), ct(122), ct(123)] }));
+
+    // HA moved CT 120 to C and CT 123 to B; CT 121 was deleted; VM 130 runs on C and was
+    // never on a node with restow-pve.
+    await json(
+      await inventory({
+        guests: [ct(122)],
+        clusterGuests: [
+          lxc(120, "pveC"),
+          lxc(122, "pveA"),
+          lxc(123, "pveB"),
+          { vmid: 130, node: "pveC", type: "qemu" },
+        ],
+      }),
+    );
+    expect(await guest(120)).toMatchObject({ present: true, node: "pveC" });
+    expect((await guest(120))?.attention).toContain("no_restow_node");
+    expect(await guest(121)).toMatchObject({ present: false });
+    // B reports it: not absent meanwhile, and not "no Restow node".
+    expect(await guest(123)).toMatchObject({ present: true, node: "pveB" });
+    expect((await guest(123))?.attention).not.toContain("no_restow_node");
+    expect(await guest(130)).toMatchObject({ present: true, node: "pveC", kind: "vm" });
+    expect((await guest(130))?.attention).toEqual(expect.arrayContaining(["no_restow_node"]));
+    const detail = await service.guestDetail(
+      shared.db,
+      fixture.tenantId,
+      (await guest(120))?.id ?? "",
+    );
+    expect(detail.guest.attention).toContain("no_restow_node");
+
+    // Gone from the cluster's list: absent.
+    await json(
+      await inventory({ guests: [ct(122)], clusterGuests: [lxc(122, "pveA"), lxc(123, "pveB")] }),
+    );
+    expect(await guest(120)).toMatchObject({ present: false });
+    expect(await guest(130)).toMatchObject({ present: false });
+    expect(await guest(123)).toMatchObject({ present: true });
+
+    // A node that could not read the list (or an older one) sends none: only its own guests
+    // count, as before.
+    await json(await inventory({ guests: [], clusterGuests: null }));
+    expect(await guest(122)).toMatchObject({ present: false });
+    expect(await guest(123)).toMatchObject({ present: true });
+  });
+  it("a VMID PVE gave to another guest starts a row of its own; restores avoid such VMIDs (S13)", async () => {
+    const x = await json<Node>(await enroll(fixture.tenantId, "8".repeat(64), "pveX"), 201);
+    const inventory = (guests: unknown[]) => call(x, "/inventory", { json: { guests } });
+    let sequence = 0;
+    const withPoint = async (
+      vmid: number,
+      kind: "vm" | "ct",
+      extra: Partial<typeof pveGuests.$inferInsert> = {},
+    ) => {
+      const [guest] = await fixture.db
+        .insert(pveGuests)
+        .values({
+          tenantId: fixture.tenantId,
+          clusterId: x.clusterId,
+          vmid,
+          kind,
+          name: `old${vmid}`,
+          node: "pveX",
+          ...extra,
+        })
+        .returning();
+      const [point] = await fixture.db
+        .insert(pveSnapshots)
+        .values({
+          tenantId: fixture.tenantId,
+          clusterId: x.clusterId,
+          guestId: guest?.id ?? "",
+          sequence: ++sequence,
+          kind,
+          archiveName: `${kind}/${vmid}/2026-10-0${sequence}T10:00:00Z`,
+          storageId: "restow",
+          manifestPath: `pve/manifests/${randomUUID()}`,
+          backupAt: new Date(Date.now() - 86_400_000),
+        })
+        .returning();
+      return { guestId: guest?.id ?? "", pointId: point?.id ?? "" };
+    };
+    const rowsOf = (vmid: number) =>
+      fixture.db
+        .select()
+        .from(pveGuests)
+        .where(and(eq(pveGuests.clusterId, x.clusterId), eq(pveGuests.vmid, vmid)));
+    // CT 105 and VM 106 were deleted in PVE; Restow keeps their restore points. VM 107 too.
+    const ct105 = await withPoint(105, "ct", { present: false });
+    const vm106 = await withPoint(106, "vm", {
+      present: false,
+      smbiosUuid: "11111111-1111-4111-8111-111111111111",
+    });
+    const vm107 = await withPoint(107, "vm", { present: false });
+    const live = await withPoint(110, "ct");
+
+    // A restore (and a check, a boot test) tells the node which VMIDs to leave alone.
+    const restored = await service.restoreSnapshot(
+      shared.db,
+      fixture.tenantId,
+      live.pointId,
+      { targetStorage: "local-lvm", start: false },
+      actor(),
+    );
+    const [task] = await fixture.db.select().from(pveTasks).where(eq(pveTasks.id, restored.taskId));
+    expect(task?.params.avoidVmids).toEqual([105, 106, 107]);
+    // A VMID such a guest had is refused unless confirmed.
+    await expect(
+      service.restoreSnapshot(
+        shared.db,
+        fixture.tenantId,
+        live.pointId,
+        { targetStorage: "local-lvm", targetVmid: 105, start: false },
+        actor(),
+      ),
+    ).rejects.toMatchObject({
+      status: 409,
+      type: "urn:restow:problem:pve-vmid-held",
+      extensions: { vmid: 105, name: "old105" },
+    });
+    await expect(
+      service.restoreSnapshot(
+        shared.db,
+        fixture.tenantId,
+        live.pointId,
+        { targetStorage: "local-lvm", targetVmid: 105, start: false, confirmVmidReuse: true },
+        actor(),
+      ),
+    ).resolves.toMatchObject({ taskId: expect.any(String) });
+
+    // The inventory reports other guests under those VMIDs: a VM as 105, a VM with another
+    // SMBIOS UUID as 106, a boot test's temporary guest as 107. And CT 110 as before.
+    await json(
+      await inventory([
+        { vmid: 105, kind: "vm", name: "new-vm", node: "pveX" },
+        {
+          vmid: 106,
+          kind: "vm",
+          name: "other-vm",
+          node: "pveX",
+          smbiosUuid: "22222222-2222-4222-8222-222222222222",
+        },
+        {
+          vmid: 107,
+          kind: "vm",
+          name: "restow-boottest-110",
+          node: "pveX",
+          pool: "restow-restore",
+          tags: ["restow-boottest"],
+        },
+        { vmid: 110, kind: "ct", name: "old110", node: "pveX" },
+      ]),
+    );
+    for (const [vmid, old, name] of [
+      [105, ct105, "new-vm"],
+      [106, vm106, "other-vm"],
+      [107, vm107, "restow-boottest-110"],
+    ] as const) {
+      const rows = await rowsOf(vmid);
+      expect(rows).toHaveLength(2);
+      const kept = rows.find((r) => r.id === old.guestId);
+      const fresh = rows.find((r) => r.id !== old.guestId);
+      // The old guest stays absent with its name and restore points; the new one is its own.
+      expect(kept).toMatchObject({ present: false, name: `old${vmid}` });
+      expect(kept?.retiredAt).not.toBeNull();
+      expect(fresh).toMatchObject({ present: true, name, retiredAt: null });
+      const [point] = await fixture.db
+        .select()
+        .from(pveSnapshots)
+        .where(eq(pveSnapshots.id, old.pointId));
+      expect(point?.guestId).toBe(old.guestId);
+    }
+    // The next inventory updates the new rows, never the retired ones.
+    await json(
+      await inventory([
+        { vmid: 105, kind: "vm", name: "new-vm-renamed", node: "pveX" },
+        { vmid: 110, kind: "ct", name: "old110", node: "pveX" },
+      ]),
+    );
+    const again = await rowsOf(105);
+    expect(again.find((r) => r.id === ct105.guestId)).toMatchObject({ name: "old105" });
+    expect(again.find((r) => r.id !== ct105.guestId)).toMatchObject({ name: "new-vm-renamed" });
+
+    // The same guest back (same kind, no sign of another one): the old row is taken up again.
+    const ct120 = await withPoint(120, "ct", { present: false });
+    await json(
+      await inventory([
+        { vmid: 110, kind: "ct", name: "old110", node: "pveX" },
+        { vmid: 120, kind: "ct", name: "old120", node: "pveX" },
+      ]),
+    );
+    const back = await rowsOf(120);
+    expect(back).toHaveLength(1);
+    expect(back[0]).toMatchObject({ id: ct120.guestId, present: true, retiredAt: null });
+
+    // CT 121 was deleted and an admin created an unrelated container under its VMID (another
+    // hostname): it does not inherit the old job, restore points and repository. VM 122 was
+    // deleted and restored in the PVE UI with "Unique" into its own VMID: a new SMBIOS UUID,
+    // the same name, the same guest back with its history.
+    const ct121 = await withPoint(121, "ct", { present: false });
+    const vm122 = await withPoint(122, "vm", {
+      present: false,
+      smbiosUuid: "33333333-3333-4333-8333-333333333333",
+    });
+    await json(
+      await inventory([
+        { vmid: 110, kind: "ct", name: "old110", node: "pveX" },
+        { vmid: 121, kind: "ct", name: "intranet", node: "pveX" },
+        {
+          vmid: 122,
+          kind: "vm",
+          name: "old122",
+          node: "pveX",
+          smbiosUuid: "44444444-4444-4444-8444-444444444444",
+        },
+      ]),
+    );
+    const ctRows = await rowsOf(121);
+    expect(ctRows).toHaveLength(2);
+    expect(ctRows.find((r) => r.id === ct121.guestId)).toMatchObject({
+      present: false,
+      name: "old121",
+    });
+    expect(ctRows.find((r) => r.id === ct121.guestId)?.retiredAt).not.toBeNull();
+    const vmRows = await rowsOf(122);
+    expect(vmRows).toHaveLength(1);
+    expect(vmRows[0]).toMatchObject({
+      id: vm122.guestId,
+      present: true,
+      retiredAt: null,
+      smbiosUuid: "44444444-4444-4444-8444-444444444444",
+    });
   });
 });

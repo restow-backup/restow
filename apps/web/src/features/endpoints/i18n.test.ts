@@ -213,6 +213,7 @@ describe("endpoints translations", () => {
         "unsupportedOs",
         "revoked",
         "nothingToTest",
+        "noSamples",
         "instanceUnknown",
         "queueNotReady",
         "pathNotFound",

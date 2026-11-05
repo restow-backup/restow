@@ -131,16 +131,21 @@
       "waiting_offline": "Wartet, Knoten nicht bereit",
       "waiting": "Wartet auf den Knoten",
       "failed": "Letzter Lauf fehlgeschlagen",
+      "boot_failed": "Startprüfung fehlgeschlagen",
       "verify_failed": "Restore-Prüfung fehlgeschlagen",
+      "boot_unverified": "Startprüfung ohne Nachweis",
       "verify_not_checked": "Nicht prüfbar",
       "verify_postponed": "Restore-Prüfung verschoben",
       "incomplete": "Sicherung unvollständig",
       "warnings": "Erfolgreich mit Warnungen",
+      "boot_test_leftover": "Gast der Startprüfung übrig",
       "restow_server": "{appName}-Server",
+      "no_restow_node": "Knoten ohne restow-pve",
       "no_job": "Kein Backup-Job",
       "never": "Noch nicht gesichert",
       "cancelled": "Abgebrochen",
       "template": "Vorlage",
+      "restore_pool": "Wiederhergestellt, in restow-restore (zum Schützen aus dem Pool verschieben)",
       "absent": "Nicht mehr gemeldet",
       "verified": "Restore-Prüfung bestanden",
       "succeeded": "Gesichert",
@@ -275,6 +280,32 @@
       "full_read": "Vollständig gelesen"
     },
     "unreadable": "{count, plural, one {# Element} other {# Elemente}} nicht lesbar",
+    "consistency": {
+      "frozen": {
+        "label": "Dateisysteme eingefroren",
+        "hint": "Der QEMU-Gast-Agent hat die Dateisysteme des Gasts für die Sicherung eingefroren, sie waren also konsistent."
+      },
+      "stopped": {
+        "label": "Gast gestoppt",
+        "hint": "Der Gast lief während der Sicherung nicht, seine Disks waren also in Ruhe."
+      },
+      "no_agent": {
+        "label": "Gast-Agent antwortete nicht",
+        "hint": "Die VM ist mit dem QEMU-Gast-Agenten eingerichtet, der Agent hat aber nicht geantwortet, deshalb wurden die Dateisysteme nicht eingefroren. Der Sicherungsstand ist absturzkonsistent, wie nach einem Stromausfall. Prüfen Sie, ob qemu-guest-agent im Gast läuft."
+      },
+      "crash_consistent": {
+        "label": "Absturzkonsistent",
+        "hint": "Die Dateisysteme wurden nicht eingefroren: Die VM hat keinen Gast-Agenten eingeschaltet, oder das Einfrieren ist in seinen Optionen abgeschaltet. Der Sicherungsstand ist wie nach einem Stromausfall: ext-Journale werden für die Dateiwiederherstellung nachgespielt, XFS und NTFS können die letzten Schreibvorgänge vermissen. Stellen Sie dafür die ganze VM wieder her."
+      },
+      "freeze_failed": {
+        "label": "Einfrieren gescheitert",
+        "hint": "Der Gast-Agent sollte die Dateisysteme einfrieren und ist gescheitert (zum Beispiel ein Fehler eines VSS-Writers unter Windows oder eine Zeitüberschreitung). PVE hat ohne Einfrieren weitergemacht, der Sicherungsstand ist also nur absturzkonsistent. Der Lauf zeigt das als Warnung."
+      },
+      "unknown": {
+        "label": "Konsistenz unbekannt",
+        "hint": "Das vzdump-Log der Sicherung sagt nicht, ob die Dateisysteme eingefroren wurden."
+      }
+    },
     "succeededWithGaps": "Mit Lücken erfolgreich ({count, plural, one {# Element konnte} other {# Elemente konnten}} nicht gelesen werden)",
     "diskAllocated": "Disk: {size} zugewiesen",
     "unreadablePaths": "Nicht gelesen: {paths}",
@@ -298,6 +329,20 @@
       "yellow": "Die wiederhergestellte VM ist gestartet und lief weiter, aber ihr QEMU Guest Agent hat nicht geantwortet. Installieren Sie den Guest Agent in der VM, um den Start nachzuweisen.",
       "red": "Der Sicherungsstand ist nicht gestartet: {message}"
     },
+    "bootTestReason": {
+      "custom_qemu_args": "Nicht geprüft: Die VM hat eigene QEMU-Argumente (args), die das Netzwerk oder Datenträger des Hosts erreichen können. Eine neben dem Original gestartete Kopie könnte sie ebenfalls nutzen.",
+      "host_disk": "Nicht geprüft: Die VM nutzt einen Datenträger des Hosts direkt (durchgereichtes Gerät). Eine neben dem Original gestartete Kopie würde auf denselben Datenträger schreiben.",
+      "bridge_not_isolated": "Nicht geprüft: Die Bridge für Startprüfungen auf dem Knoten ist mit dem Netzwerk verbunden. Legen Sie mit restow-pve config --boot-test-bridge eine Bridge ohne Ports fest.",
+      "node_resources": "Nicht geprüft: Der Knoten konnte der Kopie den Speicher, für den sie eingerichtet ist, nicht geben (Hugepages oder eine NUMA-Bindung). Es wird später erneut versucht.",
+      "storage_space": "Nicht geprüft: Auf dem Speicher für Startprüfungen war zu wenig Platz für die Wiederherstellung. Es wird später erneut versucht.",
+      "setup_failed": "Nicht durchgeführt: Die Startprüfung ließ sich vor der Wiederherstellung nicht vorbereiten. Das sagt nichts über den Sicherungsstand; es wird später erneut versucht.",
+      "io_error": "Nicht durchgeführt: Die Kopie hielt bei einem E/A-Fehler des Speichers für Startprüfungen an. Das sagt nichts über den Sicherungsstand; es wird später erneut versucht.",
+      "guest_agent_silent": "Die Kopie startete und lief weiter, aber der QEMU Guest Agent, der im Original läuft, antwortete nicht. Dass sie hochgefahren ist, ist nicht belegt.",
+      "init_running_unverified": "Der Init-Prozess des Containers läuft, ob seine Dienste gestartet sind, ließ sich aber nicht prüfen.",
+      "systemd_degraded": "Der Container startete, aber systemd meldet fehlgeschlagene Dienste (degraded).",
+      "systemd_emergency": "Der Container erreichte seine Dienste nicht: systemd ist im Notfall- oder Rettungsmodus.",
+      "guest_panicked": "Die Kopie ist beim Hochfahren abgestürzt (guest panicked)."
+    },
     "bootTestSchedule": {
       "off": "Startprüfungen: im Backup-Job aus",
       "weekly": "Startprüfungen: wöchentlich",
@@ -308,8 +353,17 @@
       "no_node": "Keine Startprüfung möglich: restow-pve ist auf dem Knoten des Gasts nicht installiert.",
       "node_unsupported": "Keine Startprüfung möglich: restow-pve auf dem Knoten des Gasts führt keine Startprüfungen aus (aktualisieren Sie es, oder sie sind dort ausgeschaltet).",
       "restores_off": "Keine Startprüfung möglich: Wiederherstellungen sind auf dem Knoten des Gasts ausgeschaltet.",
-      "privileged": "Keine Startprüfung möglich: Proxmox VE kann privilegierte Container nicht über eine Backup-Schnittstelle wiederherstellen.",
+      "privileged": "Keine Startprüfung: {appName} stellt Container nur unprivilegiert wieder her, und der neueste Sicherungsstand ist von einem privilegierten Container (Dateien mit IDs über 65535 und Gerätedateien ließen sich nicht wiederherstellen).",
       "template": "Keine Startprüfung für VM-Vorlagen."
+    },
+    "bootTestLeftover": {
+      "plain": "Der temporäre Gast {vmid} konnte nicht entfernt werden.",
+      "onStorage": "Der temporäre Gast {vmid} auf {storage} konnte nicht entfernt werden.",
+      "what": "Er belegt auf dem Knoten {node} weiter Arbeitsspeicher und Speicherplatz (im Pool restow-restore). restow-pve entfernt ihn vor seiner nächsten Startprüfung und beim Start seines Dienstes; Sie können ihn auch in Proxmox VE entfernen."
+    },
+    "noRestowNode": {
+      "title": "Läuft auf dem Knoten {node}, der keinen {appName}-Helfer hat",
+      "what": "Dort kann keine Sicherung dieses Gasts laufen. Installieren Sie restow-pve auf diesem Knoten (VMs & Container → Proxmox VE verbinden), oder verschieben Sie den Gast zurück auf einen Knoten mit restow-pve."
     },
     "chain": {
       "missingTitle": "Neue Sicherungskette am {date} begonnen",
@@ -348,7 +402,42 @@
     "verifyNotCheckedLocked": "Nicht prüfbar: Repository gesperrt",
     "verifyNotCheckedInterrupted": "Nicht prüfbar: Prüfung unterbrochen",
     "verifyPostponedLocked": "Prüfung verschoben: Repository gesperrt",
-    "verifyPostponedInterrupted": "Prüfung verschoben: Prüfung unterbrochen"
+    "verifyPostponedInterrupted": "Prüfung verschoben: Prüfung unterbrochen",
+    "restoreFinding": {
+      "leftover": "Temporärer Gast {vmid} konnte nicht entfernt werden",
+      "notStarted": "Wiederhergestellt, nicht gestartet",
+      "checkedWithoutMounts": "Geprüft ohne {count, plural, one {# Einhängepunkt} other {# Einhängepunkte}}",
+      "restoredWithoutMounts": "Wiederhergestellt ohne {count, plural, one {# Einhängepunkt} other {# Einhängepunkte}}",
+      "checkedWithWarnings": "Geprüft mit Warnungen",
+      "restoredWithWarnings": "Wiederhergestellt mit Warnungen",
+      "leftoverDetail": "Der temporäre Gast {vmid} dieser Prüfung ist noch vorhanden (im Pool restow-restore). restow-pve entfernt ihn beim nächsten Start seines Dienstes; Sie können ihn auch in Proxmox VE entfernen.",
+      "startFailed": "Die Kopie wurde wiederhergestellt, ist aber nicht gestartet: {error}",
+      "startSkipped": {
+        "omitted_mounts": "Die Kopie wurde wiederhergestellt, aber nicht gestartet, weil Einhängepunkte ausgelassen wurden: Ihre Dienste würden ohne ihre Daten starten.",
+        "other": "Die Kopie wurde wiederhergestellt, aber nicht gestartet."
+      },
+      "omittedMountsCheck": "Die Prüfung hat {count, plural, one {diesen Einhängepunkt} other {diese Einhängepunkte}} nicht erfasst: Bind- und Geräte-Einhängepunkte gehören nicht zu einer Proxmox-VE-Sicherung.",
+      "omittedMountsRestore": "Wiederhergestellt ohne {count, plural, one {diesen Einhängepunkt} other {diese Einhängepunkte}}: Bind- und Geräte-Einhängepunkte gehören nicht zu einer Proxmox-VE-Sicherung, und nur root@pam darf sie setzen.",
+      "remount": "Um sie wieder einzuhängen, führen Sie als root auf dem Knoten aus:",
+      "sharedData": "Ein wieder eingehängter Bind-Einhängepunkt teilt die laufenden Daten des Originals: Betreiben Sie nicht beide auf denselben Daten. Auf einem anderen Knoten gibt es den Pfad des Hosts unter Umständen nicht.",
+      "copyCommands": "Befehle kopieren",
+      "copyLines": "Zeilen kopieren",
+      "warningsDetail": "Proxmox VE hat die Wiederherstellung mit {count, plural, one {einer Warnung} other {# Warnungen}} beendet:",
+      "skippedLxcDetail": "Proxmox VE stellt rohe LXC-Optionen nur für root@pam wieder her und hat diese ausgelassen. Ergänzen Sie sie als root in der Kopie, falls sie sie braucht:",
+      "customIdmap": "Darunter ist eine eigene lxc.idmap: Die Kopie verwendet die Standardzuordnung, ihre Dateien gehören also den IDs dieser Zuordnung.",
+      "keptDevicesDetail": "Die Kopie verwendet dieselben Geräte des Hosts wie das Original. Prüfen Sie sie, bevor Sie die Kopie starten, während das Original läuft:",
+      "madeUnprivileged": "Das Original ist ein privilegierter Container; die Kopie wurde unprivilegiert wiederhergestellt.",
+      "onbootCleared": "Anders als das Original startet die Kopie nicht mit ihrem Knoten (onboot=0)."
+    },
+    "restoreCheckSkipped": "Nicht geprüft: {reason, select, no_storage {Zielspeicher fehlt} storage_inactive {Zielspeicher nicht aktiv} storage_content {Zielspeicher nimmt diese Art Gast nicht auf} storage_space {zu wenig Platz} restores_off {Wiederherstellungen sind aus} other {nicht möglich}}",
+    "restoreCheckBlocked": {
+      "privileged": "Nicht geprüft: privilegierter Container. {appName} stellt Container nur unprivilegiert wieder her, und der neueste Sicherungsstand ist von einem privilegierten Container (Dateien mit IDs über 65535 und Gerätedateien ließen sich nicht wiederherstellen).",
+      "restores_off": "Restore-Prüfung nicht möglich: Auf dem Knoten {node} sind Wiederherstellungen ausgeschaltet.",
+      "node_offline": "Restore-Prüfung wartet: Der Knoten {node} hat sich zuletzt nicht gemeldet.",
+      "no_node": "Restore-Prüfung nicht möglich: restow-pve ist auf dem Knoten des Gasts nicht installiert."
+    },
+    "restoreCheckLast": "Letzte Restore-Prüfung",
+    "restoreCheckNone": "Monatliche Restore-Prüfung: noch keine"
   },
   "restore": {
     "title": "Als neuen Gast wiederherstellen",
@@ -356,10 +445,13 @@
     "targetStorage": "Zielspeicher (Proxmox-VE-Speicher-ID)",
     "targetNode": "Zielknoten",
     "vmid": "Neue ID (leer: nächste freie)",
+    "vmidHeld": "Die VMID {vmid} gehörte zum Gast {name}, den Proxmox VE nicht mehr hat; {appName} behält dessen Sicherungsstände. Eine Kopie unter dieser VMID würde für diesen Gast gehalten. Wählen Sie eine andere VMID, oder lassen Sie das Feld leer für eine freie.",
+    "vmidReuse": "Diese VMID trotzdem verwenden",
     "start": "Nach der Wiederherstellung starten",
     "submit": "Wiederherstellen",
     "queued": "Wiederherstellung angefordert. Der Knoten startet sie bei seiner nächsten Meldung, meist innerhalb einer Minute.",
-    "privileged": "Privilegierte Container kann Proxmox VE aus einer Backup-Schnittstelle nicht wiederherstellen."
+    "privileged": "{appName} stellt Container nur unprivilegiert wieder her; dieser Sicherungsstand ist von einem privilegierten Container (Dateien mit IDs über 65535 und Gerätedateien ließen sich nicht wiederherstellen). Stellen Sie ihn von Hand wieder her (docs/PVE.md).",
+    "ipNote": "IP-Adressen bleiben gleich: die in der Konfiguration und die im Gast eingestellten. Nur die MAC-Adressen sind neu. Bevor die Kopie neben dem Original läuft, ändern Sie ihre Adressen oder trennen Sie sie vom Netz."
   },
   "readiness": {
     "overdue": "Überfällig",

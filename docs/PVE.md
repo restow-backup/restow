@@ -178,6 +178,15 @@ unique per installation).
   6 monthly restore points) and the optional monthly restore check. The worker
   turns a due job into one backup task per guest for the node that hosts it;
   the node starts `vzdump` with the Restow storage and its fleecing storage.
+- **Job settings** (`settings` of `POST /api/v1/pve/jobs` and
+  `PATCH /api/v1/pve/jobs/:id`): `mode`, `retention` (`keepDaily`,
+  `keepWeekly`, `keepMonthly`), `restoreTest` (`enabled`, `targetStorage`) and
+  `bootTest` (`schedule`, `maxMemoryMiB`, `timeoutSeconds`). There is no upload
+  limit for Proxmox VE backups yet, and the full read comes every 30th backup:
+  `bandwidthKbps` and `verifyReadEvery` are refused with 422 ("not supported
+  for Proxmox VE jobs yet"). Up to 0.4 they were taken and stored but never
+  applied; a job that still holds them no longer shows them, and its next save
+  drops them.
 - **Backups started in PVE** (the PVE UI or a PVE backup job onto the Restow
   storage) work the same way and show up as runs started in PVE.
 - **Incremental or not.** A VM's dirty bitmap lives in QEMU's memory. After a
@@ -189,6 +198,25 @@ unique per installation).
 - **Retention** runs on the server only. PVE's "remove" and prune are refused
   by the plugin. Pruning a restore point releases exactly the chunk references
   it holds; the storage check's garbage collection reclaims the chunks later.
+  Retention leaves a guest alone while a run of it is going (a backup, a
+  restore, a check, a boot test) or its node took on a backup of it, and tries
+  again in a later pass.
+- **A container's repository** is compared with the guest's restore points
+  (since 0.5.0): after a restore point was pruned, and at least once a day. The
+  worker lists the restic snapshots (`restic snapshots`) and forgets, then
+  prunes, every one no active restore point names: the snapshot of a pruned
+  restore point, also one whose forget failed before (a lock, the storage, a
+  restart: a later pass does it), and a snapshot no restore point names at all
+  (a run that wrote it and never committed: a late cancel, a refused commit,
+  vzdump failing after the archive step) once it is six hours old and its
+  `run=` tag names no run still going. The restore points and the running runs
+  are read in one statement, so a run that commits during the comparison is
+  never taken for one that never committed. A snapshot the storage still locks
+  stays. Forget and prune wait up to two minutes for another run's lock
+  (`--retry-lock`); a comparison that did not get through is repeated an hour
+  later, at most ten a pass beside the ones a prune asked for. A restore point
+  pruned while the comparison runs keeps it due, so the next pass (every five
+  minutes) forgets that point's snapshot as well.
 - **Restore check.** The server reads a sample of the data blocks of a restore
   point back and compares them with the SHA-256 in the map (containers: `restic
   check` of 5 %). It checks
@@ -213,7 +241,19 @@ unique per installation).
   yet; the check waits for a later pass. A container check first removes stale
   restic locks (`restic unlock`: only locks no live run refreshes, i.e. older
   than 30 minutes or of a process that is gone), as retention does before
-  `forget`/`prune`, and then waits up to two minutes for a lock another run
+  `forget`/`prune`. A lock counts as stale only when both the time the storage
+  received it and the time restic wrote into it are more than 30 minutes old
+  (since 0.5.0), so a storage whose clock lags never has a live lock taken away;
+  a lock whose own time could not be read at that moment stays for the next
+  pass, and goes unread only once the storage received it more than a day ago;
+  when the two differ by more than 30 minutes the worker logs a warning about
+  the storage's clock. It then makes sure the restore point's restic snapshot
+  is in the repository and carries the tag of the restore point's run (a
+  missing or foreign snapshot fails the check, since `restic check` alone
+  passes without it; a snapshot list the storage or the network did not deliver
+  this time postpones it, while a restic that cannot be started or a damaged
+  repository fails it with restic's words), and
+  then waits up to two minutes for a lock another run
   holds (`--retry-lock`; only the first two locked repositories of a pass wait,
   so a pass stays bounded). A check another run's lock still keeps out, or one
   that was stopped before it finished, did not run: nothing is recorded as
@@ -235,7 +275,30 @@ unique per installation).
   the guests are checked in a line of its own.
 
   A job can also restore one guest a month into `restow-restore`, check it and
-  delete it again.
+  delete it again. The worker picks, per job and pass, the guest whose check
+  waits longest among those its node can run now: restores allowed on the node,
+  the node seen within the last ten minutes, no restore or boot test of the
+  guest waiting, no run of it going. A guest passed over is not counted as
+  checked; its page says why ("Restore check not possible: restores are
+  switched off on node pve2", "Restore check waits: node pve2 has not reported
+  lately"). The node looks at the job's target storage before it restores; when
+  the storage is missing, inactive, holds no guests of this kind (`images` for a
+  VM, `rootdir` for a container: a VM-only NFS storage cannot take a container)
+  or lacks the space, it skips the check with the reason. The run then reads
+  "Not checked: ..." (grey, neither red nor green: it says nothing about the
+  restore point), and the guest is tried again after a day; after further skips
+  for the same reason in a row after 2 and 4 days, then every 7 days, until the
+  check runs or the reason changes. A job over VMs and
+  containers needs a target storage that takes both.
+  Such a restore check is green only when the restore ran to
+  `OK`, the temporary guest is gone again and nothing was left out. It is amber
+  (succeeded, but no full proof) when the run says what it could not cover:
+  "Checked without 1 mount point" (a bind or device mount point, whose data is
+  not in a PVE backup), "Checked with warnings" (the restore ended `WARNINGS: n`,
+  raw `lxc.*` options PVE skipped for the node's token), or "Temporary guest 105
+  could not be removed" (restow-pve removes it when its service starts next).
+  The run on the guest's page and in its panel lists each line. A failed check
+  is red.
 - **Warnings of vzdump.** restow-pve asks vzdump for no notes (from 0.4.2), and
   the storage plugin takes a notes update (a PVE backup job with a notes
   template) as a no-op that it logs, instead of an error: such backups used to
@@ -243,6 +306,17 @@ unique per installation).
   restore point was committed succeeded: the run keeps the warning lines and
   the guest shows "Succeeded with warnings" (amber, not failed, not green).
   Protection of a restore point is still refused in PVE (Restow holds them).
+- **Freeze of a VM.** Each VM restore point says whether PVE froze the guest's
+  file systems for it (`vmConsistency`, from vzdump's log; restow-pve 0.5.0 and
+  newer, an older node records nothing and the list shows nothing): "File
+  systems frozen", "Guest stopped", "Crash-consistent" (no agent enabled, or
+  the freeze switched off), "Guest agent did not answer" and "Freeze failed"
+  (both amber), or "Consistency unknown". None of them is green: a freeze says
+  nothing about whether the point restores. A failed freeze, and a thaw that
+  failed or was never logged, are warnings of the run, which then shows
+  "Succeeded with warnings". The commit records the state; the task log, sent
+  after it, completes a state the commit could not read (`unknown`) and adds
+  its warnings, but never replaces a recorded state.
 - **Boot test** (off by default): weekly, or after every backup, the guest's
   node boots the newest restore point in isolation and destroys it again; see
   "Boot test" below.
@@ -439,14 +513,79 @@ snapshots that carry `data_added` (untyped bars, a machine's restic repository
 does not say which snapshot was its first), from the snapshot list the tab loads
 anyway.
 
+## Nodes without restow-pve
+
+Every node of a cluster should run restow-pve: a backup of a guest runs on the
+node the guest is on. restow-pve from 0.5.0 sends the cluster's whole guest
+list (`/cluster/resources`: VMID, node, type) with its inventory. A guest that
+moved (HA, a migration) to a node without restow-pve then stays in the list
+with that node, reads **Node without restow-pve** (amber, a problem: no backup
+can run there) and its page says "Runs on node X, which has no Restow helper";
+it counts as unprotected once its backups are overdue, instead of silently
+dropping out of every count. A guest is marked "No longer reported" only when
+the cluster's list no longer names it. Without the list (an older restow-pve,
+or one that could not read it) a node's inventory only speaks for its own
+guests, as before: one it no longer lists reads absent.
+
+## A VMID used again
+
+PVE hands out the lowest free VMID (`/cluster/nextid`), which is often the one of a guest
+deleted in PVE whose restore points, job and repository Restow still keeps. A copy restored
+under it, or the temporary guest of a check or boot test, would take over that guest's
+history at the next inventory. So (since 0.5.0) restores, restore checks and boot tests tell
+the node to leave such VMIDs alone, a VMID typed into the restore dialog that belongs to such
+a guest needs a confirmation, and a different guest that still turns up under it gets a row
+of its own. Different means another kind, or, while the old one is absent: a temporary guest
+by name or tag, a guest in `restow-restore`, a container with another name (hostname), or a
+VM whose SMBIOS UUID and name both differ (a VM without a known UUID: its name). The old guest
+stays in the list as "No longer reported", with its restore points.
+
+A restore with "Unique" (`unique=1`, `qmrestore --unique`) gives a VM a new SMBIOS UUID and
+new MAC addresses. Restored into the deleted VM's own VMID under its old name, it is the same
+guest back: it keeps its row, restore points and job, and its next backup builds on them.
+Under another name it is a guest of its own (rename it back before the next inventory to keep
+the history). A container keeps its row when it comes back under its hostname.
+
 ## Restore
 
 From the guest's page: **Restore as a new guest**, with the target storage,
 optionally another node of the cluster, a VMID (else the next free one) and
 whether to start it. The restore lands in the pool `restow-restore`; move the
-guest out of the pool once you accept it. Restores started from the PVE UI
+guest out of the pool once you accept it. While it is in that pool and in no
+job, a job for "all guests" does not back it up and it counts nowhere as
+unprotected or without a job (the list shows "Restored, in restow-restore");
+the same holds for a temporary guest of a restore check or boot test that is
+still there (tagged `restow-boottest` or `restow-restorecheck`). Put into a job
+by hand, it is backed up like any other guest. Restores started from the PVE UI
 (storage `restow` > Backups > Restore) work through the same plugin, with the
 admin's own PVE permissions.
+
+IP addresses stay the same: those in the guest's configuration and those set
+inside the guest. Only the MAC addresses are new (PVE regenerates them for a
+restore into a new guest). Before you start the copy next to the original,
+change its addresses or keep it off the network; the dialog says so.
+
+A restore is green only when it ran to `OK` with nothing to report. It is amber
+when it did, but left something to do, and the run on the guest's page lists
+it with what to do:
+
+- **Restored without N mount points**: bind and device mount points are not in
+  a PVE backup and only root@pam may set them, so the copy has none. The run
+  names the lines (`mp0: /mnt/paperless,mp=/data`) and the `pct set` commands
+  that put them back as root. A bind mount point put back shares the
+  original's live data: never run both on the same data. On another node the
+  host path may not exist.
+- **Restored with warnings**: the restore task ended `WARNINGS: n` (its warning
+  lines), PVE skipped raw `lxc.*` options for the node's token (add them as
+  root; a custom `lxc.idmap` among them means the copy uses the default map),
+  or the copy uses the same host devices (PCI, USB) as the original (check them
+  before both run).
+- **Restored, not started**: "Start after the restore" was asked for, but the
+  copy did not start (the run says why).
+
+A copy restored unprivileged from a privileged container, and one that no
+longer starts with its node (`onboot=0`), say so in the run as well, without
+turning it amber.
 
 ### Files of a container
 
@@ -661,8 +800,24 @@ What the guest's node does:
 The result (outcome, reason, boot time, duration, the node's log of the test) is kept with the
 run and, when it rates (green, yellow, red), with the restore point. A red boot test raises
 `boot_test.failed`, a yellow one `boot_test.unproven` (notification catalog, group
-recoverability). `qm` and `pct` run as root, as the service does; the node's API token needs
-no new privilege.
+recoverability).
+
+A test skipped for a reason that passes (a backup or another boot test ran on the node, its
+memory or the storage's space was short at that moment) and a test the node could not carry
+out at all are tried again on a later pass: 30 minutes after the attempt, then 1, 2 and 4
+hours, at most 6, five attempts per restore point (the next restore point starts anew). With
+the weekly schedule the retries come within the week; the week's test comes as usual. A
+reason that stays (the guest needs more memory than the job allows, the storage takes no
+guests of its kind, restores or boot tests are off on the node) is not retried; the run on
+the guest's page says why. When no boot test of a guest came to a result for longer than its
+schedule allows (two days after every backup, eight days weekly), `boot_test.skipped`
+(warning, group recoverability, "No boot test result") is raised once with the last reason,
+but only once the newest restore point is no longer being tried (a reason that stays, or its
+five attempts are used up) or the skips themselves have gone on that long: a first
+`backup_running` of a new restore point whose retry is due in 30 minutes raises nothing, even
+when the last result is old by the rhythm of the backups. It comes again only after a boot
+test came to a result in between. `qm` and `pct` run as root, as the service does; the node's
+API token needs no new privilege.
 
 Not part of the test: a check of ports or applications inside the isolated network, a
 screenshot or serial console heuristic, Windows without the guest agent (yellow at best), and
@@ -697,8 +852,13 @@ guests that need passthrough hardware to boot (removed for the test, so they may
 ## Known limits of this release
 
 Not possible: backing up VM templates (PVE disables fleecing for them), live
-restore (PVE refuses it for providers), restoring privileged containers (PVE
-refuses it; restore by hand as unprivileged), restoring single files back into
+restore (PVE refuses it for providers), restoring restore points of privileged
+containers (Restow restores containers only as unprivileged, and files with ids
+above 65535 and device nodes would not restore; restore such a point by hand).
+Whether a restore point is of a privileged container is read from its own
+configuration (`unprivileged: 1` or not), not from what the guest is now; the
+restore, the monthly restore check and the boot test pass it over, and the
+guest's page says "Not checked: privileged container". Restoring single files back into
 a running guest (they are browsed and downloaded as a ZIP, see "Files of a
 container" and "Files of a VM"), files of VMs on btrfs, ZFS, ReFS, LVM thin or
 RAID volumes, BitLocker or LUKS, NTFS-compressed or EFS files (see "Files of a

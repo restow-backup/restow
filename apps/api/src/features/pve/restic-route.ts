@@ -1,4 +1,9 @@
-import { measureRepositoryBytes, type StorageBackend, secretMatchesHash } from "@restow/core";
+import {
+  measureRepositoryBytes,
+  pveRunCredentialLive,
+  type StorageBackend,
+  secretMatchesHash,
+} from "@restow/core";
 import { pveGuests, pveRuns, tenants } from "@restow/db";
 import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { db, providerDb } from "../../db.js";
@@ -51,6 +56,7 @@ export async function resolvePveRunCredential(
       kind: pveRuns.kind,
       status: pveRuns.status,
       cancelRequestedAt: pveRuns.cancelRequestedAt,
+      startedAt: pveRuns.startedAt,
       tokenHash: pveRuns.resticTokenHash,
       expiresAt: pveRuns.resticExpiresAt,
       tenantStatus: tenants.status,
@@ -66,7 +72,9 @@ export async function resolvePveRunCredential(
   if (!run || !ok || run.guestId !== guestId) {
     return { ok: false, reason: "invalid" };
   }
-  if (!run.expiresAt || run.expiresAt.getTime() < now || run.tenantStatus !== "active") {
+  // The credential lives as long as its open run (at most 48 hours), not 24 hours from its
+  // issue: a first backup of a large container may well take longer than a day.
+  if (!pveRunCredentialLive(run, now) || run.tenantStatus !== "active") {
     return { ok: false, reason: "expired" };
   }
   // A backup stopped in the UI, or a run that has ended: restic fails at its next write (a node

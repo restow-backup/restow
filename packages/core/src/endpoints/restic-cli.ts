@@ -632,6 +632,9 @@ export interface ResticDump {
   cancel(): void;
 }
 
+/** How long a cancelled `restic dump` gets to end after SIGTERM before it is killed. */
+const DUMP_KILL_AFTER_MS = 5_000;
+
 /** `restic dump`: a file's content, or a directory as a tar archive with `archive: "tar"`. */
 export function resticDump(
   session: ResticSession,
@@ -657,7 +660,16 @@ export function resticDump(
     stream: child.stdout as Readable,
     done: outcome,
     cancel: () => {
+      if (child.exitCode !== null || child.signalCode !== null) {
+        return;
+      }
+      // Nobody reads its output any more: SIGTERM, and SIGKILL when it does not end in time
+      // (it may be blocked writing into the pipe). "close" reaps it either way.
+      child.stdout?.destroy();
       child.kill("SIGTERM");
+      const kill = setTimeout(() => child.kill("SIGKILL"), DUMP_KILL_AFTER_MS);
+      kill.unref();
+      child.once("close", () => clearTimeout(kill));
     },
   };
 }
@@ -675,26 +687,73 @@ const FORGET_BATCH = 100;
 export async function resticForget(
   session: ResticSession,
   snapshotIds: readonly string[],
-  options: { signal?: AbortSignal } = {},
+  options: { signal?: AbortSignal; retryLock?: string } = {},
 ): Promise<number> {
   for (const id of snapshotIds) {
     if (!/^[0-9a-f]{8,64}$/.test(id)) {
       throw new TypeError("a snapshot id to forget must be 8 to 64 lower-case hex digits");
     }
   }
+  const retry = retryLockArgs(options.retryLock);
   for (let start = 0; start < snapshotIds.length; start += FORGET_BATCH) {
     const batch = snapshotIds.slice(start, start + FORGET_BATCH);
-    await runRestic(session, ["forget", "--", ...batch], { signal: options.signal });
+    await runRestic(session, ["forget", ...retry, "--", ...batch], { signal: options.signal });
   }
   return snapshotIds.length;
 }
 
-/** `restic prune`: remove the data no snapshot refers to any more (takes the exclusive lock). */
+/**
+ * `restic prune`: remove the data no snapshot refers to any more (takes the exclusive lock).
+ * `retryLock` waits that long for another run's lock (`--retry-lock`) before it gives up.
+ */
 export async function resticPrune(
   session: ResticSession,
-  options: { signal?: AbortSignal } = {},
+  options: { signal?: AbortSignal; retryLock?: string } = {},
 ): Promise<void> {
-  await runRestic(session, ["prune"], { signal: options.signal });
+  await runRestic(session, ["prune", ...retryLockArgs(options.retryLock)], {
+    signal: options.signal,
+  });
+}
+
+function retryLockArgs(retryLock: string | undefined): string[] {
+  if (retryLock === undefined) {
+    return [];
+  }
+  if (!RETRY_LOCK.test(retryLock)) {
+    throw new TypeError("retryLock must look like 30s, 5m or 1h");
+  }
+  return [`--retry-lock=${retryLock}`];
+}
+
+/**
+ * The time a lock file says it was written (restic's own timestamp, from the clock of whoever
+ * wrote it), read without taking a lock. A lock that could not be read (the file is gone, the
+ * storage did not answer, restic failed, the content holds no time) is `unreadable` with what
+ * went wrong: the caller tells "gone" from "still there" by the storage, never by a guess, and
+ * keeps a lock it could not judge (@restow/core `locksToRemove`).
+ */
+export async function resticLockTime(
+  session: ResticSession,
+  name: string,
+): Promise<{ time: Date } | { unreadable: string }> {
+  if (!/^[0-9a-f]{64}$/.test(name)) {
+    throw new TypeError("a lock name must be 64 lower-case hex digits");
+  }
+  let stdout: string;
+  try {
+    ({ stdout } = await runRestic(session, ["cat", "lock", "--no-lock", name]));
+  } catch (error) {
+    return { unreadable: resticErrorDetail(error, 300) };
+  }
+  try {
+    const parsed = JSON.parse(stdout) as { time?: unknown };
+    const time = typeof parsed.time === "string" ? new Date(parsed.time) : null;
+    return time && Number.isFinite(time.getTime())
+      ? { time }
+      : { unreadable: "the lock holds no time" };
+  } catch {
+    return { unreadable: "the lock is not JSON" };
+  }
 }
 
 /**

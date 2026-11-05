@@ -25,6 +25,7 @@ import {
 import {
   commitRun,
   diskHashes,
+  finishPveRestore,
   finishRun,
   MAX_FRAME_BYTES,
   openRun,
@@ -46,9 +47,11 @@ import {
   heartbeatSchema,
   incrementalSchema,
   inventorySchema,
+  listingQuerySchema,
   logSchema,
   openRunSchema,
   progressSchema,
+  restoreEndSchema,
   runParamSchema,
   snapshotDiskParamSchema,
   snapshotParamSchema,
@@ -75,7 +78,8 @@ import {
  *   POST /runs/:runId/incremental                     which disks have a base (query_incremental)
  *   PUT  /runs/:runId/blocks                          one frame of blocks (binary)
  *   POST /runs/:runId/commit                          seal the restore point (idempotent by commit id)
- *   POST /runs/:runId/finish                          end of the run
+ *   POST /runs/:runId/finish                          end of the run (backups)
+ *   POST /runs/:runId/restore-end                     end of a container restore started in PVE
  *   POST /runs/:runId/log                             the PVE task log
  *   POST /runs/:runId/progress                        how far a backup is (node or run credential)
  *   POST /runs/:runId/restic                          per-run restic credential (containers)
@@ -175,7 +179,9 @@ pveNodeRoutes.post("/heartbeat", async (c) => {
 
 pveNodeRoutes.post("/inventory", async (c) => {
   const input = await parseJsonBody(c.req, inventorySchema);
-  return c.json(await reportInventory(c.get("node"), input.guests));
+  return c.json(
+    await reportInventory(c.get("node"), input.guests, new Date(), input.clusterGuests),
+  );
 });
 
 pveNodeRoutes.post("/tasks/:taskId/result", async (c) => {
@@ -186,7 +192,8 @@ pveNodeRoutes.post("/tasks/:taskId/result", async (c) => {
 
 pveNodeRoutes.get("/listing", async (c) => {
   c.header("cache-control", "no-store");
-  return c.json(await listing(c.get("node")));
+  const query = parseOrProblem(listingQuerySchema, c.req.query());
+  return c.json(await listing(c.get("node"), query));
 });
 
 pveNodeRoutes.get("/update", async (c) => {
@@ -234,10 +241,16 @@ pveNodeRoutes.post("/runs/:runId/finish", async (c) => {
   return c.body(null, 204);
 });
 
+pveNodeRoutes.post("/runs/:runId/restore-end", async (c) => {
+  const { runId } = parseOrProblem(runParamSchema, c.req.param());
+  await finishPveRestore(c.get("node"), runId, await parseJsonBody(c.req, restoreEndSchema));
+  return c.body(null, 204);
+});
+
 pveNodeRoutes.post("/runs/:runId/log", async (c) => {
   const { runId } = parseOrProblem(runParamSchema, c.req.param());
-  const { log } = await parseJsonBody(c.req, logSchema);
-  await runLog(c.get("node"), runId, log);
+  const { log, vmConsistency } = await parseJsonBody(c.req, logSchema);
+  await runLog(c.get("node"), runId, log, vmConsistency);
   return c.body(null, 204);
 });
 

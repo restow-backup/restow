@@ -87,6 +87,8 @@ export async function collectGuestFacts(
       template: pveGuests.template,
       present: pveGuests.present,
       excludedAt: pveGuests.excludedAt,
+      pool: pveGuests.pool,
+      tags: pveGuests.tags,
     })
     .from(pveGuests)
     .where(sql`${pveGuests.tenantId} = ${tenantId}`);

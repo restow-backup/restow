@@ -12,7 +12,7 @@ import {
   type TenantEnv,
 } from "../../middleware/session.js";
 import { ProblemError } from "../../problem.js";
-import { parseJsonBody, parseOrProblem } from "../../schemas.js";
+import { parseJsonBody, parseOrProblem, readJsonBody } from "../../schemas.js";
 import {
   announcedAgentVersion,
   readInstallScript,
@@ -47,6 +47,7 @@ import {
   resetRepositorySchema,
   restoreSchema,
   restowServerSchema,
+  UNSUPPORTED_PVE_JOB_SETTINGS,
 } from "./schemas.js";
 import {
   assignJob,
@@ -327,14 +328,37 @@ pveRoutes.get("/snapshots/:id/downloads/:downloadId", restorerForDownload, async
   });
 });
 
+/** The request's settings name one of {@link UNSUPPORTED_PVE_JOB_SETTINGS}: 422 with what it was. */
+function refuseUnsupportedJobSettings(body: unknown): void {
+  const settings =
+    body && typeof body === "object" ? (body as { settings?: unknown }).settings : undefined;
+  if (!settings || typeof settings !== "object") {
+    return;
+  }
+  const named = UNSUPPORTED_PVE_JOB_SETTINGS.filter((key) => key in settings);
+  if (named.length > 0) {
+    throw new ProblemError(422, "Setting not supported", {
+      detail: `${named.join(" and ")} ${named.length === 1 ? "is" : "are"} not supported for Proxmox VE jobs yet. Leave ${named.length === 1 ? "it" : "them"} out; the full read of a VM runs every 30th backup, and backups upload without a limit.`,
+      extensions: { settings: named },
+    });
+  }
+}
+
+/** A job's body: settings it cannot apply are refused by name, never dropped in silence. */
+async function parseJobBody(request: { json: () => Promise<unknown> }) {
+  const body = await readJsonBody(request);
+  refuseUnsupportedJobSettings(body);
+  return parseOrProblem(jobSchema, body);
+}
+
 pveRoutes.post("/jobs", admin, async (c) => {
-  const input = await parseJsonBody(c.req, jobSchema);
+  const input = await parseJobBody(c.req);
   return c.json(await saveJob(db, c.get("tenantId"), null, input, actorOf(c)), 201);
 });
 
 pveRoutes.patch("/jobs/:id", admin, async (c) => {
   const { id } = parseOrProblem(idParamSchema, c.req.param());
-  const input = await parseJsonBody(c.req, jobSchema);
+  const input = await parseJobBody(c.req);
   return c.json(await saveJob(db, c.get("tenantId"), id, input, actorOf(c)));
 });
 

@@ -117,6 +117,14 @@ export type PveNodeFacts = {
    * `boot_test`). The server hands a node only what it declared; an older node never gets one.
    */
   capabilities?: string[];
+  /**
+   * The tasks the node holds, as of `heldTasksAt`: the one it runs and the ones in its local
+   * queue (restow-pve from 0.5.0; absent from older helpers). A delivered task it lists never
+   * expires; a delivered restore, restore check or boot test it no longer lists has been lost
+   * (the helper restarted) and fails.
+   */
+  heldTasks?: string[];
+  heldTasksAt?: string;
 };
 
 /** A node with restow-pve. */
@@ -159,16 +167,15 @@ export const pveNodes = pgTable(
 /** Retention of a job's restore points (as for endpoints: daily, weekly, monthly). */
 export type PveRetention = { keepDaily: number; keepWeekly: number; keepMonthly: number };
 
-/** What a PVE job does. */
+/**
+ * What a PVE job does. A job saved before 0.5.0 may still hold `verifyReadEvery` and
+ * `bandwidthKbps`, which were never applied; the API refuses them and does not show them.
+ */
 export type PveJobSettings = {
   mode?: PveBackupMode;
   retention?: PveRetention;
-  /** Force a full read ("verify read") every this many backups; default 30. */
-  verifyReadEvery?: number;
   /** Monthly restore test into the restore pool (needs capacity; off by default). */
   restoreTest?: { enabled: boolean; targetStorage?: string };
-  /** Upload limit in kbit/s; null = unlimited. */
-  bandwidthKbps?: number | null;
   /** Boot tests of the job's guests (docs/PVE.md, "Boot test"); off by default. */
   bootTest?: PveBootTestSettings;
 };
@@ -205,11 +212,16 @@ export type PveBootTestResult = {
   /** Seconds from the start of the guest until the agent (or init) answered. */
   bootSeconds: number | null;
   guestAgent: boolean;
-  /** The temporary VMID on the node (destroyed again). */
+  /** The temporary VMID on the node (destroyed again); null when none was created. */
   tempVmid: number | null;
   storage: string | null;
-  /** Whether the temporary guest was destroyed. */
+  /**
+   * Whether the temporary guest was destroyed. False with a `tempVmid`: it is still on the node
+   * (amber on the run, the restore point and the guest) until `leftoverGoneAt`.
+   */
   cleanedUp: boolean;
+  /** When a later inventory of the node no longer listed the temporary guest (0.5.0). */
+  leftoverGoneAt?: string | null;
   runId: string;
 };
 
@@ -325,6 +337,10 @@ export const pveGuests = pgTable(
     // every upload and measured again after a prune; null until first measured.
     repositoryBytes: bigint("repository_bytes", { mode: "number" }),
     repositoryMeasuredAt: timestamp("repository_measured_at", { withTimezone: true }),
+    // When the worker last compared the container repository's restic snapshots with the
+    // restore points and forgot those no restore point holds (0.5.0); null: due now (a restore
+    // point was pruned, or never compared yet).
+    repositoryReconciledAt: timestamp("repository_reconciled_at", { withTimezone: true }),
     // The new backup chains of the container's repository, newest first (at most
     // PVE_REPOSITORY_CHAINS_KEPT): shown on the guest page and in its history.
     repositoryChains: jsonb("repository_chains")
@@ -350,10 +366,19 @@ export const pveGuests = pgTable(
     excludedAt: timestamp("excluded_at", { withTimezone: true }),
     excludedBy: text("excluded_by"),
     reportedAt: timestamp("reported_at", { withTimezone: true }),
+    // A VM's SMBIOS UUID as the inventory last reported it (restow-pve from 0.4.2), lower case;
+    // null for containers and from older nodes. Tells a VMID PVE gave to another VM (0.5.0).
+    smbiosUuid: text("smbios_uuid"),
+    // Set when the VMID came back as another guest (docs/PVE.md, "A VMID used again"): this row
+    // stays absent with its restore points, job and repository, and the new guest gets a row of
+    // its own. Only rows without it are unique per cluster and VMID.
+    retiredAt: timestamp("retired_at", { withTimezone: true }),
     ...timestamps(),
   },
   (t) => [
-    uniqueIndex("pve_guests_cluster_vmid_uq").on(t.clusterId, t.vmid),
+    uniqueIndex("pve_guests_cluster_vmid_uq")
+      .on(t.clusterId, t.vmid)
+      .where(sql`${t.retiredAt} IS NULL`),
     index("pve_guests_tenant_idx").on(t.tenantId),
     index("pve_guests_job_idx").on(t.jobId),
   ],
@@ -395,6 +420,27 @@ export const pveTasks = pgTable(
   ],
 );
 
+/**
+ * The consistency states of a VM restore point (restow-pve's ClassifyVMConsistency): `frozen`
+ * (fs-freeze and thaw issued), `stopped` (the guest did not run), `no_agent` (the agent is
+ * configured but did not answer), `crash_consistent` (no agent enabled, or the freeze switched
+ * off), `freeze_failed` (the freeze was issued and failed) or `unknown` (the log says nothing).
+ */
+export const PVE_VM_CONSISTENCY_STATES = [
+  "frozen",
+  "stopped",
+  "no_agent",
+  "crash_consistent",
+  "freeze_failed",
+  "unknown",
+] as const;
+export type PveVmConsistencyState = (typeof PVE_VM_CONSISTENCY_STATES)[number];
+export type PveVmConsistency = {
+  state: PveVmConsistencyState;
+  /** The node's line about it (the error of a failed freeze). */
+  detail?: string;
+};
+
 /** What the server recorded at the incremental query, per disk. */
 export type PveRunDevice = { size: number; baseSnapshotId: string | null };
 
@@ -423,6 +469,12 @@ export type PveRunStats = {
   /** The first of those items (nodes from 0.4 on). */
   unreadablePaths?: string[];
   consistency?: string | null;
+  /**
+   * VM backups (restow-pve 0.5.0 on): whether PVE froze the guest's file systems through the
+   * QEMU guest agent, as vzdump's log of the backup says (docs/PVE.md, "File restore of a VM").
+   * Missing for a container and for a restore point of an older node.
+   */
+  vmConsistency?: PveVmConsistency;
   /**
    * The warning lines vzdump logged beside a backup that committed its restore point ("TASK
    * WARNINGS"): the run succeeded with warnings.

@@ -59,6 +59,8 @@ export interface ReadinessDto {
   overdue: boolean;
   basis: EndpointReadinessDto["basis"];
   latestSnapshotId: string | null;
+  /** The newest backup recorded no sample files: no restore test of it is possible. */
+  noSamples: boolean;
 }
 
 export interface RunSummaryDto {
@@ -566,6 +568,7 @@ export function toReadiness(readiness: EndpointReadinessDto): ReadinessDto {
     overdue: readiness.overdue,
     basis: readiness.basis,
     latestSnapshotId: readiness.latestSnapshotId,
+    noSamples: readiness.noSamples,
   };
 }
 

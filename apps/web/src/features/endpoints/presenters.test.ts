@@ -677,6 +677,7 @@ describe("problems", () => {
     const keys: Record<string, string> = {
       "urn:restow:problem:endpoint-revoked": "endpoints:errors.revoked",
       "urn:restow:problem:endpoint-nothing-to-test": "endpoints:errors.nothingToTest",
+      "urn:restow:problem:endpoint-no-samples": "endpoints:errors.noSamples",
       "urn:restow:problem:endpoint-instance-unknown": "endpoints:errors.instanceUnknown",
       "urn:restow:problem:endpoint-queue-not-ready": "endpoints:errors.queueNotReady",
       "urn:restow:problem:endpoint-path-not-found": "endpoints:errors.pathNotFound",

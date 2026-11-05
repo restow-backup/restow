@@ -107,10 +107,10 @@ except enrollment. Binary formats are defined in
 | --- | --- |
 | `POST /enroll/preflight` | `{token}` → `{expiresAt, pveTokenId, pveTokenSecret}`: the installer's check before it changes anything. 401 when the token is unknown, used, revoked or expired. `pveTokenId`/`pveTokenSecret` are the existing PVE API token an admin gave for this enrollment, else `null`. Does not use the token up. |
 | `POST /enroll` | `{token, clusterName, clusterFingerprint, nodeName, pveVersion, helperVersion, fleecingStorage}` → `{nodeId, nodeSecret, clusterId, storageId, createdCluster}` |
-| `POST /heartbeat` | node facts → `{tasks, storageId, usage, update, cancel, queuePaused}`; since 0.4.0 the facts carry `activeRuns`, the run ids of the backups open on the node (never null). While an update pauses new job starts, or the node's queue is paused (`queuePaused`, 0.4.2), the answer holds no backup task. Nodes with boot tests also send `capabilities` (below). Since 0.4.2: `update` is `{version, now}` (`now`: install it once idle, "Update now" or the fleet phase of an update), and `cancel` is `{tasks: [taskId], runs: [{id, vmid, taskId}]}`, what was stopped in the web app (see "Cancel orders"). |
-| `POST /inventory` | `{guests: [...]}` of this node; since 0.4.2 a VM carries `smbiosUuid` (the `uuid` of its `smbios1`), which finds the Restow server's own VM (PVE.md) |
+| `POST /heartbeat` | node facts → `{tasks, storageId, usage, update, cancel, queuePaused}`; since 0.4.0 the facts carry `activeRuns`, the run ids of the backups open on the node (never null). While an update pauses new job starts, or the node's queue is paused (`queuePaused`, 0.4.2), the answer holds no backup task. Nodes with boot tests also send `capabilities` (below); since 0.5.0 nodes send `heldTasks` (see "Tasks the node holds"). Since 0.4.2: `update` is `{version, now}` (`now`: install it once idle, "Update now" or the fleet phase of an update), and `cancel` is `{tasks: [taskId], runs: [{id, vmid, taskId}]}`, what was stopped in the web app (see "Cancel orders"). |
+| `POST /inventory` | `{guests: [...]}` of this node; since 0.4.2 a VM carries `smbiosUuid` (the `uuid` of its `smbios1`), which finds the Restow server's own VM (PVE.md). Since 0.5.0 also `clusterGuests: [{vmid, node, type}]`, every guest of the cluster from `/cluster/resources` (`type` `qemu` or `lxc`), or `null` when the node could not read it: with the list, a guest it names on a node without restow-pve stays present with that node ("Node without restow-pve"), and only a guest it does not name is absent; without it, a guest last seen on this node that `guests` leaves out is absent (as before). |
 | `POST /tasks/:id/result` | `{status: done\|failed, error, result}`; see "Task results" |
-| `GET /listing` | restore points of the cluster for the plugin |
+| `GET /listing` | active restore points of the cluster for the plugin, newest first → `{volumes: [{volname, vmid, kind, ctime, size, snapshotId}], next}`. Since 0.5.0: `?vmid=` gives every one of that VMID, unpaged (for a guest's Backup tab and `volume_size_info`); otherwise one page of at most `limit` (default and most 10,000) from `cursor` on, and `next` is the cursor of the following page (`null` on the last). Without parameters (a node before 0.5.0) the answer is the newest 10,000, as before; a cluster with more needs restow-pve 0.5.0 to see the rest. 422 for a cursor no page gave. |
 | `GET /update` | `{version}` of a newer signed release or `""` |
 | `POST /runs` | open a backup run → `{runId, guestId, origin, progressIntervalSeconds}` (the last since 0.4.0) |
 | `POST /runs/:id/incremental` | `{devices: [{device, size}]}` → per disk `mode`, `baseSnapshotId`, `hashesDigest` |
@@ -119,13 +119,22 @@ except enrollment. Binary formats are defined in
 | `POST /runs/:id/finish`, `POST /runs/:id/log` | end of the run, PVE task log |
 | `POST /runs/:id/progress` | `{bytesDone, bytesTotal?, bytesUploaded?}` → 204: how far a running backup is (since 0.4.0). Basic `nodeId:nodeSecret`, or the run's restic credential `runId:token` (the unprivileged container backup has no node secret). Reports closer than 2 s are dropped; 409 once the run ended. |
 | `POST /runs/:id/restic` | per-run restic credential of a container backup; since 0.4.0 also `{progressUrl, progressIntervalSeconds}` |
-| `GET /restore-points?volname=` | a restore point by its PVE volume name |
+| `GET /restore-points?volname=` | a restore point by its PVE volume name → `{snapshotId, kind, vmid, guestConfig, firewallConfig, devices: [{device, size}], resticSnapshotId, resticRoot, byteSize, resticTotalBytes}`. Since 0.5.0 `byteSize` is the restore point's size (a VM: its disk sizes summed; a container: the bytes of its files, restic's total; `0` when unknown, a container restore point of a node before 0.4.0) and `resticTotalBytes` a container's restic total (`null` when unknown and for VMs), for the node's free-space checks before a restore. |
 | `GET /snapshots/:id/disks/:device/hashes` | block hash list (`RSBH`) |
 | `GET /snapshots/:id/disks/:device/blocks?from=&count=` | up to 16 blocks of the synthetic full |
-| `POST /snapshots/:id/restic` | read credential for a container restore |
+| `POST /snapshots/:id/restic` | read credential for a container restore; since 0.5.0 also `runId`, the run it reads for (the same as its user name). The run is the one of the task the node was given for the guest and this restore point (a restore or restore check whose `volname`, or a boot test whose `snapshotId`, names it); without such a task (a restore started in the PVE UI) a run of origin `pve`, the same one for every call for that restore point within six hours while it runs. |
+| `POST /runs/:id/restore-end` | `{status: succeeded\|warnings\|failed, exitStatus, warnings?, error?}` → 204 (since 0.5.0): the end of a container restore started in the PVE UI, `exitStatus` PVE's exit status of the restore task. The run succeeds only with `OK`; `WARNINGS: n` is a success with warnings (amber, `warnings` the lines of the task log); anything else fails it with `error` or the exit status. For a run that belongs to a task (its task result ends it) and a run that ended already: 204, nothing changes. 409 for a run that is not a restore. |
 
 `/agent/pve/restic/:guestId/*` is the restic REST v2 backend of a container's
 repository, Basic `runId:token`, append-only.
+
+A run's credential (`expiresAt` in the answer: 24 hours after it was issued) lives as long as
+its run (since 0.5.0): while the run is open (`running`, no stop asked for) and younger than
+48 hours, the restic backend and `/runs/:id/progress` take it also past `expiresAt`, so a
+backup longer than a day is not cut off; a run older than 48 hours is refused even while it
+reads running (the worker closes it as stale). Once the run ended or was stopped, `expiresAt`
+bounds it: until then the node may still release its lock and clean up (read and delete
+its own locks only). The node never needs to renew it.
 
 ### Capabilities and task kinds
 
@@ -167,17 +176,25 @@ that came to an outcome, with `result`:
  "cleanedUp": true, "log": "12:00:01 restoring to the temporary vm 9001 on local-lvm\n..."}
 ```
 
-| `outcome` | `reason` (examples) | Meaning |
+| `outcome` | `reason` | Meaning |
 | --- | --- | --- |
-| `green` | `agent_answered`, `init_running` | the VM's QEMU guest agent answered `qm guest cmd <id> ping`; a container's `pct exec <id> -- cat /proc/1/comm` answered |
-| `yellow` | `no_guest_agent`, `init_unknown` | the guest started and kept running for `timeoutSeconds`, nothing inside answered |
-| `red` | `restore_failed`, `start_failed`, `guest_stopped` | the restore, the start or the boot failed |
-| `skipped` | `memory_limit`, `node_memory`, `storage_space`, `storage_content`, `no_storage`, `backup_running`, `boot_test_running`, `restores_off`, `boot_tests_off` | the node did not run it; `message` says why |
+| `green` | `agent_answered`, `init_running` | the VM's QEMU guest agent answered `qm guest cmd <id> ping`; a container's init runs (and, from 0.5.0, systemd reached `running`) |
+| `yellow` | `no_guest_agent`, `init_unknown`; from 0.5.0 `guest_agent_silent` (the original runs the guest agent, the copy's did not answer), `init_running_unverified` (an init that is not systemd runs; its services were not checked), `systemd_degraded` (failed units, named in `message`) | the guest started and kept running for `timeoutSeconds`; nothing proved that it booted to its services |
+| `red` | `restore_failed`, `start_failed`, `guest_stopped`; from 0.5.0 `guest_panicked`, `systemd_emergency` | the restore, the start or the boot failed |
+| `skipped` | `memory_limit`, `node_memory`, `storage_space`, `storage_content`, `no_storage`, `backup_running`, `boot_test_running`, `restores_off`, `boot_tests_off`; from 0.5.0 `custom_qemu_args`, `host_disk`, `bridge_not_isolated` (the copy would reach out of the test), `node_resources` (hugepages or a NUMA binding could not be had), `storage_space` also for a restore that ran out of space | the node did not boot it, for a reason outside the restore point; `message` says why |
+| `error` (from 0.5.0) | `setup_failed` (the test could not be prepared before the restore read the archive), `io_error` (the copy paused on an I/O error of the boot test storage) | the test could not be carried out; it rates nothing and is tried again |
+
+The server reads the outcome through the reason (`pveBootTestOutcomeOf` in
+`@restow/core`): a skipped or error reason above rates nothing whatever outcome came with
+it, a red reason is red, and a yellow reason takes a green down to yellow (it never makes a
+red better). A reason not in the table keeps the node's outcome, and the web app shows the
+node's `message` for it. `node_resources`, `storage_space`, `node_memory`, `backup_running`,
+`boot_test_running` and every `error` are tried again (30 minutes, then doubling).
 
 `status: "failed"` means the node could not carry the test out at all (its PVE API failed,
-the temporary guest could not be isolated); the server records the outcome `error`. Green,
-yellow and red become the restore point's boot test (`pve_snapshots.boot_test`); skipped and
-error stay with the run.
+the temporary guest could not be isolated); the server records the outcome `error` (with the
+node's `reason` when the result has one, else `node_error`). Green, yellow and red become the
+restore point's boot test (`pve_snapshots.boot_test`); skipped and error stay with the run.
 
 What the node does: see PVE.md, "Boot test". It uses the PVE API for the restore (the same
 call as a restore task, into the pool `restow-restore`, `start=0`) and `qm`/`pct` as root for
@@ -216,13 +233,119 @@ closes a run its node no longer lists, a task expires), and settles what the lat
 result can still say: an open run ends as the task says; a committed run that was
 closed as failed succeeds when the task is reported `done` (the old message becomes
 a warning); warnings are added once. A committed restore point is never failed by
-a task: a task that fails or expires leaves its committed runs succeeded, and a task
-whose run is still open does not expire. 404 only for a task the node never had.
+a task: a task that fails or expires leaves its committed backup runs succeeded, and a
+task whose run is still open does not expire. 404 only for a task the node never had.
+
+Only a backup run commits a restore point. A restore or restore check run names the
+restore point it reads from the start, so it never counts as committed: when its task
+fails or expires it ends `failed` with the task's error (`cancelled` after a cancel
+request), and the guest's "Last backup" stays as it was. `POST /runs/:id/finish` is for
+backup runs; for any other run the server answers 409.
 
 The node (since 0.4.2) keeps a result the server could not take (unreachable, 5xx)
 in `/var/lib/restow-pve/pending-results.json` (at most 100) and sends the kept ones
 again before every heartbeat, oldest first; a refusal (4xx) ends the attempts. A
 task the server delivers again while its result is kept is not run a second time.
+
+### VMIDs to leave alone (0.5.0)
+
+The params of `restore` (also a restore check) and `boot_test` carry `avoidVmids`: the
+VMIDs of guests PVE no longer has but Restow keeps, with restore points or a job (at most
+1000, lowest first). A node that picks the VMID itself (`targetVmid` 0, a boot test) takes a
+free one outside this list and asks again when PVE gave it away meanwhile; an older node
+ignores the field. A `targetVmid` an admin typed that belongs to such a guest is refused with
+409 `urn:restow:problem:pve-vmid-held` (`vmid`, `name`) unless the request says
+`confirmVmidReuse: true`. Should another guest still turn up under such a VMID (another kind;
+while the old one is absent, a guest named `restow-boottest-`/`restow-restorecheck-`, tagged
+so or in the pool `restow-restore`, a container with another name, a VM whose SMBIOS UUID and
+name both differ), the inventory gives it a guest row of its own and the old row stays absent
+with its restore points (`retired_at`). A VM restored with `unique=1` into its own VMID (a new
+SMBIOS UUID, the same name) keeps its row.
+
+### A restore check the node skips (0.5.0)
+
+A restore check (`restore` with `restoreTest`) the node does not run is reported `done` with
+`result.skipped: {reason, message}`. Reasons: `no_storage` (the target storage is not on the
+node), `storage_inactive`, `storage_content` (it holds no `images` for a VM or no `rootdir`
+for a container), `storage_space`, `restores_off`. The server records the run `failed` with
+`stats.skipped` and the message; the web app shows it as "Not checked: ..." in grey, never
+red and never green, and the guest's check is planned again after a day, after further skips
+for the same reason in a row after 2 and 4 days, then every 7 days. The planner passes over
+nodes with restores off or silent for ten minutes, so `restores_off` is rare. (Only the PVE
+guest page reads restore check runs; every other reader of `pve_runs`, the overviews, the
+dashboard, the job lists and the statistics, reads backup runs and restores.)
+
+### Task `restore`: the result (0.5.0)
+
+A `restore` task (a restore, or with `restoreTest: true` a restore check) is reported `done`
+when PVE's restore task ended `OK` or `WARNINGS: n` (a success with warnings); any other exit
+status, and a guest whose configuration cannot be read afterwards, is `failed` with the
+error. Beside `done` the result says what the restore did not prove or left to do. The
+server keeps each field it can read (`restoreResultSchema`, apps/api pve/schemas.ts; an
+unreadable field is dropped, never the result) in the run's stats, and the web app
+(apps/web pve/run-status.ts) shows the run green only when none of the fields marked
+"amber" is there:
+
+| Field | Type | Sent by | Meaning | In the web app |
+| --- | --- | --- | --- | --- |
+| `vmid` | number | both | the VMID of the restored guest | named in the findings |
+| `upid` | string | both | PVE's task id of the restore | kept in the run's stats |
+| `warnings` | string[] (≤ 20) | both | the lines of the task log when PVE ended `WARNINGS: n` | amber, "Restored/Checked with warnings", the lines listed |
+| `omittedMounts` | string[] | both (containers) | bind and device mount points left out (their data is not in a backup; only root@pam may set them) | amber, "Restored/Checked without n mount points" |
+| `remountCommands` | string[] | restore | the `pct set` commands that put them back, as root | listed under the finding |
+| `skippedLxc` | string[] | both (containers) | raw `lxc.*` lines of the backup PVE restores only for root@pam | amber, listed |
+| `customIdmap` | boolean | both (containers) | among them a custom `lxc.idmap` | explained with the lines |
+| `keptDevices` | string[] | restore (VMs) | host devices (`hostpci`, `usb`) the copy has, as the original | amber, "check them before starting" |
+| `madeUnprivileged` | boolean | both (containers) | a privileged container restored unprivileged | named |
+| `onbootCleared` | boolean | both | the copy does not start with its node (`onboot=0`) | named |
+| `restoredAsRoot` | boolean | restore (VMs) | restored as root through `qmrestore` | kept in the run's stats |
+| `started` | boolean | restore with `start: true` only | whether the copy runs | `false`: amber, "Restored, not started" |
+| `startError` | string | restore with `start: true` only | why the start failed | amber, with the error |
+| `startSkipped` | string | restore with `start: true` only | why the node did not start it: `omitted_mounts`, `host_devices`, `static_ip` (the node's `startSkippedMessage` beside it is not kept) | amber, with the reason |
+| `disks` | number | check | the disks of the restored guest | kept in the run's stats |
+| `deleted` | boolean | check | whether the temporary guest was removed again | `false`: amber, "Temporary guest n could not be removed" |
+| `leftoverVmid` | number | check | the VMID of a temporary guest that is still there | named in that finding |
+| `skipped` | `{reason, message}` | check | the check did not run (see above) | grey, "Not checked" |
+
+A restore check never starts its copy (`start: false`), and a restore without "Start after
+the restore" has nothing to start: the server keeps `started`, `startError` and
+`startSkipped` only for a `restore` task whose params say `start: true`, so neither can read
+"not started". Green therefore means: the restore ran to `OK`, a check removed its guest
+again, and nothing of the table's amber fields is there.
+
+### Tasks the node holds (0.5.0)
+
+restow-pve keeps its queue in memory: a task it was given and had not finished when it
+restarted is gone, and no result will come for it. From 0.5.0 every heartbeat carries
+`heldTasks: {current, queued}`, the id of the task it runs (or `null`) and the ids of the
+tasks in its local queue, with those whose result it keeps to send again (at most 64). The
+server keeps the list with its time in the node's facts (`heldTasks`, `heldTasksAt`) and,
+with that heartbeat,
+
+- never expires a delivered task the list names: a backup waiting behind a long one is not
+  late, however long it waits;
+- fails a delivered restore, restore check or boot test that the list does not name and that
+  was delivered more than ten minutes before, with "The node no longer holds this task
+  (restow-pve restarted)."; its run ends as below;
+- puts every delivered task it closed with this heartbeat (expired or lost) into
+  `cancel.tasks`, so a node that still queues a copy drops it instead of running it.
+
+Backups are not judged by the list; their runs tell (`activeRuns`). Without the field (a
+helper before 0.5.0) a delivered task expires only while no run of it is open, as before.
+A restore, restore check or boot test that was never delivered expires at `expiresAt`
+whatever its run says: that run was only created with the task.
+
+A container restore started in the PVE UI has no task: the node reports its end with
+`POST /runs/:id/restore-end`. Its run keeps the guest's restore checks waiting for two
+hours at most (its restic holds only a shared lock); a node that never reports the end
+leaves it to the 48 hours below.
+
+How the server ends a run whose result never came: a backup run succeeds when it committed
+its restore point, else fails. A restore or restore check run fails with "The node never
+reported the result (restarted or unreachable).", a boot test run gets the outcome `error`
+with that message (no rating of the restore point); their task is closed with them. A run
+stopped in the UI ends `cancelled`. Without a list this happens 48 hours after the run
+started.
 
 ### Progress and compatibility
 
@@ -255,5 +378,10 @@ heartbeats every 15 seconds while a task runs or waits (every minute otherwise).
   route) with 409, so an older node ends the backup at its next call.
 - `finish` with `failed` (and `/tasks/:id/result` with `failed`) after a cancel request
   ends the run and the task as `cancelled`; a run that committed its restore point
-  before still ends `succeeded`.
+  before still ends `succeeded`. That holds for every `finish` with `failed` of a
+  committed run, with or without a cancel request (vzdump failing after the commit, for
+  example while it removes the fleecing image): the run succeeds with the node's error
+  as a warning (`stats.warnings`, "Succeeded with warnings"), its task is `done`, and
+  the guest's "Last backup" moves. A failed task result that comes later changes none
+  of it.
 

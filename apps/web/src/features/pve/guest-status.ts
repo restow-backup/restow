@@ -21,7 +21,8 @@ import type { PveGuest, PveNode, PveVerifyFact } from "./api.js";
  * build does not know yet also shows as `verify_not_checked`, never as passed.
  *
  * Green is proof (green-is-proof.test.ts): only `verified`, a restore check that read the
- * newest restore point back, is green. A backup that merely succeeded is the neutral outline.
+ * newest restore point back (or a boot test that booted it), is green, and never while its boot
+ * test is red (`boot_failed`) or yellow (`boot_unverified`). A backup that merely succeeded is the neutral outline.
  */
 
 /** Every state, highest priority first. The table shows the first one that applies. */
@@ -33,16 +34,21 @@ export const GUEST_STATUS_ORDER = [
   // Excluded on purpose: what the row says first, whatever its old runs said.
   "excluded",
   "failed",
+  "boot_failed",
   "verify_failed",
+  "boot_unverified",
   "verify_not_checked",
   "verify_postponed",
   "incomplete",
   "warnings",
+  "boot_test_leftover",
   "restow_server",
+  "no_restow_node",
   "no_job",
   "never",
   "cancelled",
   "template",
+  "restore_pool",
   "absent",
   "verified",
   "succeeded",
@@ -86,20 +92,31 @@ export const GUEST_STATUS_META: Record<GuestStatusKey, StatusMeta> = {
   waiting_offline: { tone: "warning", problem: true, group: "waiting" },
   waiting: { tone: "muted", problem: false, group: "waiting" },
   failed: { tone: "destructive", problem: true, group: "failed" },
+  // The newest restore point's boot test: red (it did not boot), yellow (it started, nothing
+  // inside answered). Either outranks a read-back that passed (pveRestorePointRating).
+  boot_failed: { tone: "destructive", problem: true, group: "verify" },
   verify_failed: { tone: "destructive", problem: true, group: "verify" },
+  boot_unverified: { tone: "warning", problem: true, group: "verify" },
   // The restore check could not run for two hours (repository locked, check stopped): amber.
   verify_not_checked: { tone: "warning", problem: true, group: "verify" },
   // The newest check could not run yet and is tried again shortly: amber, not yet a problem.
   verify_postponed: { tone: "warning", problem: false, group: "verify" },
   incomplete: { tone: "warning", problem: true, group: "warnings" },
   warnings: { tone: "warning", problem: true, group: "warnings" },
+  // A boot test's temporary guest could not be removed and still takes memory and disk.
+  boot_test_leftover: { tone: "warning", problem: true, group: "warnings" },
   restow_server: { tone: "warning", problem: false, group: null },
+  // It runs on a node without restow-pve: no backup can run there (servers from 0.5.0).
+  no_restow_node: { tone: "warning", problem: true, group: "no_backup" },
   no_job: { tone: "warning", problem: true, group: "no_backup" },
   never: { tone: "warning", problem: true, group: "no_backup" },
   // Excluded from backup by an administrator on purpose: not a problem, a filter of its own.
   excluded: { tone: "muted", problem: false, group: "excluded" },
   cancelled: { tone: "muted", problem: false, group: null },
   template: { tone: "muted", problem: false, group: null },
+  // A restored copy (or a leftover temporary guest) in the pool restow-restore, in no job: not
+  // backed up on purpose until someone moves it out of the pool or puts it into a job.
+  restore_pool: { tone: "muted", problem: false, group: null },
   absent: { tone: "muted", problem: false, group: null },
   verified: { tone: "success", problem: false, group: "ok" },
   succeeded: { tone: "outline", problem: false, group: "ok" },
@@ -140,17 +157,27 @@ type StatusNode = Pick<PveNode, "online" | "queuePausedAt"> | null | undefined;
  * come to a result either: amber, never green.
  */
 export function verifyStatusKey(
-  verify: Pick<PveVerifyFact, "state"> | null | undefined,
+  verify: Pick<PveVerifyFact, "state" | "bootTest"> | null | undefined,
 ): GuestStatusKey | null {
   const state = (verify?.state ?? null) as string | null;
-  if (state === null) {
-    return null;
+  // The restore point is rated by both checks (pveRestorePointRating in @restow/core): a red
+  // boot test is red whatever the read-back says, a yellow one is no proof; a green one proves
+  // the point unless the read-back failed.
+  const boot = (verify?.bootTest?.outcome ?? null) as string | null;
+  if (boot === "red") {
+    return "boot_failed";
   }
   if (state === "red") {
     return "verify_failed";
   }
-  if (state === "green") {
+  if (boot === "yellow") {
+    return "boot_unverified";
+  }
+  if (boot === "green" || state === "green") {
     return "verified";
+  }
+  if (state === null && boot === null) {
+    return null;
   }
   return "verify_not_checked";
 }
@@ -161,7 +188,7 @@ export function verifyStatusKey(
  * amber `verify_postponed` beside the earlier result, which still stands.
  */
 export function verifyStatusKeys(
-  verify: Pick<PveVerifyFact, "state" | "notChecked"> | null | undefined,
+  verify: Pick<PveVerifyFact, "state" | "notChecked" | "bootTest"> | null | undefined,
 ): GuestStatusKey[] {
   const keys: GuestStatusKey[] = [];
   const result = verifyStatusKey(verify);
@@ -197,8 +224,17 @@ export function guestStatuses(guest: StatusGuest, node?: StatusNode): GuestStatu
   if (excluded) {
     keys.add("excluded");
   }
-  // Excluded guests are not "not backed up yet" or "in no job": that is what was asked for.
-  const backable = guest.present && !(guest.kind === "vm" && guest.template) && !excluded;
+  const restorePool = (guest.attention ?? []).includes("restore_pool");
+  if (restorePool) {
+    keys.add("restore_pool");
+  }
+  // Excluded guests are not "not backed up yet" or "in no job": that is what was asked for. Nor
+  // are the guests Restow restored into its pool.
+  const backable =
+    guest.present && !(guest.kind === "vm" && guest.template) && !excluded && !restorePool;
+  if (backable && (guest.attention ?? []).includes("no_restow_node")) {
+    keys.add("no_restow_node");
+  }
   if (backable && (guest.attention ?? []).includes("no_job")) {
     keys.add("no_job");
   }
@@ -209,6 +245,9 @@ export function guestStatuses(guest: StatusGuest, node?: StatusNode): GuestStatu
   }
   if ((guest.backups?.last?.unreadable ?? 0) > 0) {
     keys.add("incomplete");
+  }
+  if ((guest.attention ?? []).includes("boot_test_leftover")) {
+    keys.add("boot_test_leftover");
   }
   if (guest.lastRunStatus === "succeeded" && (guest.lastRunWarnings ?? []).length > 0) {
     keys.add("warnings");

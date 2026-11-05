@@ -533,6 +533,13 @@
       "when": 1793829896791,
       "tag": "0075_archive_gap_index",
       "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1793838028570,
+      "tag": "0076_pve_reconcile_vmid_reuse",
+      "breakpoints": true
     }
   ]
 }

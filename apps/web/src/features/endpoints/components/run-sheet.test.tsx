@@ -87,6 +87,44 @@ describe("RunDetailView", () => {
     expect(render_(run())).not.toContain("Consistency");
   });
 
+  it("names the volumes read live beside a shadow copy, never plain file consistent", () => {
+    const base = run().stats ?? {};
+    const html = render_(
+      run({
+        stats: {
+          ...base,
+          consistency: { method: "vss", state: "used", liveFilesystems: ["E:\\", "F:\\"] },
+        },
+      }),
+    );
+    expect(html).toContain("Shadow copy (file consistent); read live: E:\\, F:\\");
+  });
+
+  it("leaves out the consistency of a failed run that saved no snapshot", () => {
+    // Policy "stop the backup": the shadow copy of C:\ failed, restic was stopped, nothing saved.
+    const failed = render_(
+      run({
+        status: "failed",
+        snapshotId: null,
+        stats: {
+          consistency: { method: "vss", state: "partial", liveFilesystems: ["C:\\"] },
+        },
+      }),
+    );
+    expect(failed).not.toContain("Consistency");
+    expect(failed).not.toContain("Partly without a shadow copy");
+    // A failed run that still saved a snapshot says how that snapshot was read.
+    const saved = render_(
+      run({
+        status: "failed",
+        stats: {
+          consistency: { method: "vss", state: "partial", liveFilesystems: ["D:\\"] },
+        },
+      }),
+    );
+    expect(saved).toContain("Partly without a shadow copy: D:\\");
+  });
+
   it("lists the files a partial run could not read, and says what partial means", () => {
     const html = render_(
       run({

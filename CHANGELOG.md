@@ -416,10 +416,201 @@ private repository.
   shown for clock times only.
 - The detail panel and the row of a copy job showed no progress while it copied: its runs are
   restores of what it copies and were not counted as the job's.
+- Proxmox VE: a restore or a restore check that failed showed as succeeded (green), with the
+  node's error only as a warning, and set the guest's "Last backup" to that moment though no
+  backup ran. This happened for every failure the node reported (PVE refusing a bind mount
+  point to the API token, a full target storage, a restore that ended with an error) and for a
+  restore task the server closed because it expired. The server took the restore point a
+  restore reads for one a backup had committed. Such a run now ends failed with the node's
+  error, or cancelled when it was stopped, and "Last backup" moves only for backups.
+- Proxmox VE: a restore, restore check or boot test whose result never came (restow-pve was
+  restarted while it ran or waited, or the node was offline) showed as succeeded after 48
+  hours, and until then it kept the guest's checks and the node's boot tests waiting. Such a
+  run now ends failed ("The node never reported the result"), a boot test with the outcome
+  "error", which rates nothing, and its task is closed with it. restow-pve from 0.5.0 reports
+  in every heartbeat which tasks it holds: a restore, restore check or boot test it no longer
+  holds fails within minutes instead of 48 hours, and a backup that waits in the node's queue
+  behind a long one no longer expires after 12 hours while it still runs later (a failed
+  backup, a false alert and a second backup the same night). A task the server closed this way
+  is withdrawn from the node. A restore or boot test that never reached the node now expires as
+  well.
+- Proxmox VE: a restore or restore check that succeeded showed plain green, whatever it
+  reported beside it. Nothing read what the node sent: mount points left out of a container
+  (bind and device mount points are not in a backup), raw LXC options PVE skipped for the
+  node's token, the restore task's warnings, host devices the copy shares with the original, a
+  temporary guest the check could not remove, or a start that was asked for and did not
+  happen (a check, which never starts its copy, and a restore without "Start after the restore"
+  are never "not started"). Such a run is now
+  amber with what it was ("Checked without 1 mount point", "Restored with warnings", "Temporary
+  guest 105 could not be removed", "Restored, not started"), and the guest's page and panel
+  list each line with what to do: the commands that put the mount points back as root and the
+  warning that a bind mount put back shares the original's live data. Green is left for a
+  restore that ran to `OK` with nothing to report; docs/PVE-PROTOCOL.md ("Task `restore`: the
+  result") lists each field restow-pve sends and what it does to the run. The restore dialog says that IP addresses
+  stay the same and only the MAC addresses are new.
+- Proxmox VE: every boot test of a container, and every container restore started in the PVE
+  UI, opened a run "Restore" that nothing ended. For 48 hours the guest counted as busy, so its
+  restore points were not checked; with boot tests after every backup that was always the case.
+  Then the run turned green, also when the restore had failed. A boot test now reads under its
+  own run and opens none. A restore started in the PVE UI gets one run however often PVE asks
+  for the credential (never the run of a check or boot test of another restore point of the
+  guest that waits on the node meanwhile), keeps the guest's checks out for two hours at most, and ends as PVE ended
+  it once restow-pve from 0.5.0 reports it: green only for `OK`, amber for `WARNINGS: n`, failed
+  otherwise. Without a report it fails after 48 hours, never green.
+- Proxmox VE: the monthly restore check of a job was planned for the first due guest whatever
+  its node could do, and the guest counted as checked at once. On a node with restores switched
+  off it ended red every month; on a node that was off it waited and expired; with one target
+  storage for VMs and containers (often a VM-only NFS storage) every container's check failed
+  and blamed a backup that was fine; the other guests of the job waited behind it. The worker
+  now takes the guest that waits longest among those whose node allows restores and reported
+  in the last ten minutes, with no restore or boot test waiting and no run going; a guest passed
+  over is not counted as checked, and its page says why. A check restow-pve skips because of the
+  target storage (missing, inactive, without the guest's content type, too small) reads "Not
+  checked" in grey, neither red nor green, and is tried again after a day; skipped again for
+  the same reason, after 2 and 4 days, then weekly, so a storage that stays missing does not
+  add a run "Not checked" to the history every day.
+- Proxmox VE: the list of VMs and containers showed a guest as green "Restore check passed" when
+  its newest restore point had passed the read-back but failed its boot test, while Recovery
+  readiness showed the same restore point red; the filter "OK" listed it too. The row now rates
+  the restore point by both checks, as readiness does: "Boot test failed" (red) for a boot test
+  that did not boot, "Boot test without proof" (amber) for one that started without an answer,
+  and green only when neither stands against it.
+- Proxmox VE: a boot test skipped for a reason that passes (a backup ran on the node, memory or
+  space was short at that moment) or one the node could not carry out was not tried again: after
+  every backup the restore point counted as tested, weekly the next try came a week later, and
+  nobody was told. Such a test is now tried again after 30 minutes, then with a doubling wait (at
+  most 6 hours, five attempts per restore point). A guest whose boot tests came to no result for
+  longer than its schedule allows (two days after every backup, eight days weekly) raises the new
+  event "No boot test result" (`boot_test.skipped`) once, with the last reason, as soon as its
+  newest restore point is no longer being tried (a reason that stays, or five attempts used up)
+  or the skips have gone on that long; a first skip whose retry is still due raises nothing.
+  Rules and the bell can pick it like the other boot test events.
+- Proxmox VE: a boot test whose temporary guest could not be removed left no trace in Restow.
+  When the test failed on the way (isolating the guest or waiting for its restore went wrong),
+  the server discarded the whole result, the VMID and "not removed" included, and the node's log
+  with it; after a rated test the fact was stored but shown nowhere, so a green run could leave
+  a VM taking memory and disk on the node. The server now reads the temporary guest from every
+  result. Its run names it ("The temporary guest 9007 on local-zfs could not be removed"), is
+  amber instead of green or grey, the restore point's boot test says it, and the guest gets the
+  state "Boot test guest left over" with a notice on its page, until an inventory of the node no
+  longer lists that VMID or a later boot test there removed it.
+- Proxmox VE: a container backup that ran longer than 24 hours always failed. Its restic
+  credential expired a day after it was issued, so after that every request of restic (and its
+  progress reports) got 401, and the first backup of a large container over a slow link or with
+  a bandwidth limit started again from the beginning every day. The credential now lives as
+  long as its run: while the run is open and younger than 48 hours (when the worker closes it as
+  stale). A run that ended or was stopped keeps the 24 hours to release its lock.
+- Proxmox VE: the check of a container restore point passed although its restic snapshot was
+  gone from the storage (a lifecycle rule, a cleanup by hand, a move that missed the file):
+  `restic check` checks only the snapshots it finds, and restoring or browsing the point then
+  failed with "no matching ID". The check now first makes sure the snapshot is in the
+  repository's list and carries the tag of the restore point's run; a missing or foreign one
+  fails the check. A list the network or the storage did not deliver this time postpones the
+  check instead of failing it; a restic that cannot be started (missing, not executable) or a
+  damaged repository fails it with restic's words.
+- Proxmox VE: the restic repository of a container grew for good. Retention marked restore
+  points pruned and then ran `restic forget` and `prune` once; when that failed (another run's
+  lock, a file restore reading the repository, the storage, a restart) it was only logged and
+  never tried again, and the snapshots of runs that never committed (a cancel at the end, a
+  refused commit, vzdump failing after the archive step) were never forgotten at all. The worker
+  now compares each container repository with its restore points after a prune and once a
+  day, and forgets every snapshot no active restore point holds: those of pruned points (also
+  ones pruned before this release), and after six hours those of runs that never committed and
+  no longer run (never the snapshot of a run that commits while the comparison reads). A pass
+  that does not get through is repeated an hour later (at once when a restore point was pruned
+  meanwhile); forget and prune wait two minutes for another run's lock. Retention now also
+  leaves a guest alone while a run of it is going.
+- Proxmox VE: a storage whose clock lags the server's by more than 30 minutes (a NAS set to
+  local time as UTC) made every live restic lock of a container repository look stale, and the
+  worker removed it and pruned while the node's restic was restoring, testing or backing up. A
+  lock of a container repository now counts as stale only when the time restic wrote into it is
+  30 minutes old as well; a lock whose own time could not be read at that moment (a timeout of
+  the storage, restic failing) is kept for the next pass and removed unread only once the
+  storage received it more than a day ago. A disagreement of the two clocks is logged as a
+  warning. Endpoint repositories keep the storage rule, where an agent could plant a lock dated
+  in the future.
+- Proxmox VE: guests in the pool `restow-restore` (a restored copy not yet accepted, a leftover
+  temporary guest of a restore check or boot test) were taken by a job for "all guests": a
+  restored copy was backed up as a second guest with the original's name, a boot test's guest
+  got a backup planned that failed once it was gone, and both counted as unprotected or "in no
+  job". Such a guest in no job is now left out of the job for all guests and every count, and
+  the list shows it as "Restored, in restow-restore (move it out of the pool to protect it)". A
+  guest put into a job by hand is still backed up.
+- Proxmox VE: a guest that moved (HA, a migration) to a node of the cluster without restow-pve
+  silently dropped out of backups and of every count: the node it left no longer listed it, so
+  it read "No longer reported" and no job, unprotected count or overdue warning took it. With
+  restow-pve from 0.5.0, which sends the cluster's whole guest list with its inventory, such a
+  guest stays in the list with its node, reads "Node without restow-pve" (amber) and counts as
+  unprotected; only a guest the cluster no longer has is absent. An older node keeps the
+  previous behaviour.
+- Proxmox VE: a restore, restore check or boot test could take the VMID of a guest deleted in
+  PVE whose restore points Restow keeps (PVE hands out the lowest free VMID), and the next
+  inventory turned the copy into that guest: its restore points, job and repository, a backup
+  of the copy into the old guest's chain, and during a check the old guest briefly read present
+  under the temporary name. Restores, checks and boot tests now give the node the VMIDs to
+  leave alone (used by restow-pve from 0.5.0), a VMID typed into the restore dialog that
+  belonged to such a guest needs a confirmation, and another guest that still turns up under
+  such a VMID gets its own row while the old one stays absent with its restore points: another
+  kind, a temporary or restored guest, a container with another hostname, a VM with another
+  SMBIOS UUID and another name. A VM restored with "Unique" into its own VMID (a new SMBIOS
+  UUID, the same name) is the same guest back and keeps its history and job.
+- Proxmox VE: a backup stopped after it had committed its restore point, or whose vzdump failed
+  afterwards (removing the fleecing image, for example), ended "Cancelled" or "Failed" next to a
+  valid new restore point; a cancelled one did not move "Last backup", so the guest could turn
+  overdue. Such a run now ends "Succeeded with warnings" with the node's message, its task done,
+  and "Last backup" moves. A run without a restore point still ends cancelled or failed.
+- Proxmox VE: browsing the files of a VM restore point could show an ext4 file system as it was
+  before its last committed changes, or with blocks in the wrong places, while it said that the
+  journal was replayed. The replay in memory took the revoke records of a last transaction that
+  never committed (the usual state of a running guest's restore point) and so dropped a
+  committed write of the same block; it read the tags of a journal with checksum v3 on a file
+  system without the 64bit feature as 12 bytes instead of 16; and it skipped a block whose first
+  bytes looked like the journal's magic number, keeping an older copy. It now replays as the
+  kernel and e2fsck do, tested against journals written by debugfs.
+- Proxmox VE: the server took no consistency from a VM backup, so a restore point whose
+  fs-freeze failed or was skipped looked like a frozen one. It now records the `vmConsistency`
+  restow-pve 0.5.0 sends with the commit (completed from the task log when the commit could not
+  tell), shows it with each VM restore point on the guest page ("Freeze failed" and "Guest agent
+  did not answer" amber, the others neutral, none green) and makes a failed freeze or thaw a
+  warning of the run: "Succeeded with warnings" instead of plain green.
+- Proxmox VE: the job settings `bandwidthKbps` and `verifyReadEvery` were taken by the API and
+  stored, but never applied: backups uploaded without a limit and the full read stayed every
+  30th backup, and nothing said so. A job that sets either is now refused with 422 and a text
+  that names it ("not supported for Proxmox VE jobs yet"); a job saved with them before no
+  longer shows them and can be edited as it is. The web app never offered either.
+- Proxmox VE: the listing of restore points that restow-pve keeps for PVE's storage view stopped
+  at the newest 10,000 of the cluster. In a large cluster (700 guests with the default retention
+  hold about 11,900) the older restore points vanished from "Storage > restow > Backups" and from
+  each guest's Backup tab, though they were active and restorable in Restow, and PVE asking for
+  the size of one got "volume not found". The server now lists every restore point of one VMID
+  on request and the cluster's in pages (docs/PVE-PROTOCOL.md); restow-pve from 0.5.0 uses both.
+  An older node gets the newest 10,000 as before.
+- Proxmox VE: whether a container's restore point could be restored was decided by what the
+  guest is now, not by the restore point: after a container was converted, an old restore point
+  of the privileged container was allowed (and its files with ids above 65535 and device nodes
+  would not have restored), a newer unprivileged one was refused. The refusal blamed PVE, though
+  the rule is Restow's own (it restores containers only as unprivileged), and the monthly restore
+  check skipped such a container for good without a word. The restore point's own configuration
+  decides now, for the restore, the restore check and the boot test; the text says that Restow
+  restores containers only as unprivileged and why, and the guest's page says "Not checked:
+  privileged container".
+- Windows agent (preview), run details: a run that saved no snapshot (the shadow copy of C:\
+  failed under the policy "stop the backup") still showed a consistency line such as "Partly
+  without a shadow copy: C:\", which read as if data had been backed up that way. The line is
+  left out for a run without a snapshot; its errors say why the shadow copy failed. A run read
+  from a shadow copy with some volumes read live (an exFAT or removable disk beside C:\) showed
+  only "Shadow copy (file consistent)"; it now names them: "Shadow copy (file consistent); read
+  live: E:\".
+- Servers and clients: a machine whose newest backup recorded no sample files (every Windows
+  backup before agent 0.5.0) was never restore-checked, and nothing said so: it stayed
+  "Unverified" for good, the worker only logged it, and "Check now" was accepted and ended
+  without a result. The machine now shows "No restore check possible" in amber, the readiness
+  overview says "No sample files recorded; restore check not possible for this backup", and a
+  check asked for is refused with that reason (`endpoint-no-samples`). It is never green.
 
 ### Upgrade Notes
 
-Three database migrations run on start: 0073 creates the new table `storage_samples` and 0074
+Four database migrations run on start: 0073 creates the new table `storage_samples` and 0074
 the new table `directory_memberships`; neither rewrites anything. 0075 serves the restore
 explorer's "From the archive": an index on `archive_items` (tenant, mailbox, capture time), the
 index on `archive_item_mailboxes` (tenant, mailbox) replaced by one that adds the time of the
@@ -431,7 +622,10 @@ longer brings the menu entry "Archive" on its own: up to 0.4.12 the tenant page 
 page issued it when they were first opened, also where journaling was never set up. Such a
 tenant gets the entry once a journal report arrives, a mail job archives, or an administrator
 opens the journal setup on the Archive page (it stays reachable by its address) or issues a new
-address there; the address itself keeps working. The first directory sync after the update reads
+address there; the address itself keeps working. 0076 adds three nullable columns to `pve_guests`
+(`repository_reconciled_at`, `smbios_uuid`, `retired_at`) without a rewrite and rebuilds the
+unique index on cluster and VMID once, now for guests that are not retired; every container's
+repository is compared with its restore points once after the update. The first directory sync after the update reads
 the owners and members of every Microsoft 365 group once (three Graph reads per group, through
 `$batch`); until it has run, a person's "Teams & sites" is empty and says that it may be
 incomplete. Agents before 0.5.0 ignore `snapshotOnFailure`, and the release key keeps the

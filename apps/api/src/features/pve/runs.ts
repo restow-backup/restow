@@ -32,13 +32,15 @@ import {
   type PveSnapshot,
   type PveSnapshotDisk,
   type PveTask,
+  type PveVmConsistency,
+  type PveVmConsistencyState,
   pveGuests,
   pveRunBlocks,
   pveRuns,
   pveSnapshots,
   pveTasks,
 } from "@restow/db";
-import { and, desc, eq, inArray, isNotNull, type SQL, sql } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNotNull, type SQL, sql } from "drizzle-orm";
 import { db, providerDb } from "../../db.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
@@ -431,6 +433,39 @@ export interface CommitInput {
   resticUnreadable?: number;
   resticUnreadablePaths?: string[];
   consistency?: string;
+  /** VM backups (restow-pve 0.5.0 on): the guest agent's fs-freeze, from vzdump's log. */
+  vmConsistency?: VmConsistencyReport;
+}
+
+/** What the node reports about a VM's fs-freeze (commit and task log). */
+export interface VmConsistencyReport {
+  state: PveVmConsistencyState;
+  detail?: string;
+  warnings?: string[];
+}
+
+/** What a VM restore point records about its fs-freeze. */
+function recordedConsistency(report: VmConsistencyReport): PveVmConsistency {
+  return { state: report.state, ...(report.detail ? { detail: report.detail } : {}) };
+}
+
+/**
+ * The run warnings of a VM's fs-freeze: a freeze that was issued and failed (the restore point
+ * is crash-consistent although the guest agent should have frozen it) and the problems around
+ * it (a thaw that failed or was never logged). The backup succeeded with warnings (amber), as
+ * for vzdump's own warnings; a guest without an agent is a state of the restore point, no
+ * warning of the run.
+ */
+export function vmConsistencyWarnings(report: VmConsistencyReport | undefined): string[] {
+  if (!report) {
+    return [];
+  }
+  return [
+    ...(report.state === "freeze_failed"
+      ? [report.detail || "The guest agent could not freeze the file systems for the backup."]
+      : []),
+    ...(report.warnings ?? []),
+  ];
 }
 
 /**
@@ -729,7 +764,16 @@ async function commitOnce(node: NodeContext, run: PveRun, input: CommitInput, no
               : {}),
           }
         : {}),
+      // Whether PVE froze the VM's file systems (an older node sends nothing: not recorded).
+      ...(kind === "vm" && input.vmConsistency
+        ? { vmConsistency: recordedConsistency(input.vmConsistency) }
+        : {}),
     };
+    const freezeWarnings = kind === "vm" ? vmConsistencyWarnings(input.vmConsistency) : [];
+    const runStats: Record<string, unknown> = { ...run.stats, ...stats };
+    if (freezeWarnings.length > 0) {
+      runStats.warnings = mergeWarnings(stringList(run.stats.warnings), freezeWarnings);
+    }
     // The new restore point is checked on the worker's next PVE pass (docs/PVE.md, "Restore
     // check"), unless the installation switched that off; the weekly check stays either way.
     const checkNow = await verifyAfterBackup(providerDb);
@@ -761,7 +805,7 @@ async function commitOnce(node: NodeContext, run: PveRun, input: CommitInput, no
       });
       await tx
         .update(pveRuns)
-        .set({ snapshotId, commitId: input.commitId, stats: { ...run.stats, ...stats } })
+        .set({ snapshotId, commitId: input.commitId, stats: runStats })
         .where(eq(pveRuns.id, run.id));
       const diskState = { ...guest.diskState };
       for (const d of disks) {
@@ -920,19 +964,36 @@ export async function finishRun(
   now: Date = new Date(),
 ): Promise<void> {
   const run = await withTenantTx(db, node.tenantId, (tx) => loadRun(tx, node, runId));
+  if (run.kind !== "backup") {
+    // Only a backup ends here: the snapshotId of any other run names the restore point it read.
+    throw problem(409, "Not a backup run", "This run is not a backup.");
+  }
   if (run.status !== "running") {
     return;
   }
-  const status = endedStatus(
-    run,
-    input.status === "succeeded" && run.snapshotId ? "succeeded" : "failed",
-  );
+  // A backup that committed its restore point succeeded, whatever ends it afterwards: a stop
+  // pressed after the commit, or vzdump failing while it cleans up (fleecing). The restore point
+  // is there and listed; the node's message becomes a warning (docs/PVE-PROTOCOL.md, "Cancel
+  // orders"), as finishFailedTaskRun does for the task's end.
+  const committed = run.snapshotId !== null;
+  const status = committed ? "succeeded" : endedStatus(run, "failed");
   const message =
-    status === "failed"
-      ? (input.error ?? "").slice(0, 2000) ||
-        (run.snapshotId ? "" : "The backup ended without a restore point.")
-      : null;
-  if (!run.snapshotId) {
+    status === "succeeded"
+      ? null
+      : (input.error ?? "").slice(0, 2000) || "The backup ended without a restore point.";
+  const lateError =
+    committed && input.status === "failed"
+      ? (input.error ?? "").trim().slice(0, 500) ||
+        "The backup reported an error after its restore point was committed."
+      : "";
+  const stats: Record<string, unknown> = { ...run.stats, ...(input.stats ?? {}) };
+  if (lateError) {
+    const before = Array.isArray(stats.warnings)
+      ? stats.warnings.filter((w): w is string => typeof w === "string")
+      : [];
+    stats.warnings = mergeWarnings(before, [lateError]);
+  }
+  if (!committed) {
     await releaseStaging(node.tenantId, run.id);
   }
   await withTenantTx(db, node.tenantId, async (tx) => {
@@ -942,7 +1003,7 @@ export async function finishRun(
         status,
         finishedAt: now,
         errorMessage: message,
-        stats: { ...run.stats, ...(input.stats ?? {}) },
+        stats,
       })
       .where(eq(pveRuns.id, run.id));
     if (status !== "cancelled") {
@@ -963,14 +1024,54 @@ export async function finishRun(
   });
 }
 
-export async function runLog(node: NodeContext, runId: string, log: string): Promise<void> {
+/**
+ * The PVE task log of a run, and for a VM backup what the whole log says about the fs-freeze
+ * (restow-pve 0.5.0 on, `backup_handle_log_file` after the commit): it completes a restore point
+ * whose commit said `unknown` or nothing, and its warnings (a failed freeze or thaw) join the
+ * run's. A state the commit recorded is kept: the freeze lines come before backup_vm.
+ */
+export async function runLog(
+  node: NodeContext,
+  runId: string,
+  log: string,
+  vmConsistency?: VmConsistencyReport,
+): Promise<void> {
   await withTenantTx(db, node.tenantId, async (tx) => {
-    await loadRun(tx, node, runId);
-    await tx
-      .update(pveRuns)
-      .set({ logTail: log.slice(-20 * 1024) })
-      .where(eq(pveRuns.id, runId));
+    const run = await loadRun(tx, node, runId);
+    const update: Partial<typeof pveRuns.$inferInsert> = { logTail: log.slice(-20 * 1024) };
+    if (vmConsistency && run.kind === "backup" && run.snapshotId) {
+      const [point] = await tx
+        .select({ kind: pveSnapshots.kind, stats: pveSnapshots.stats })
+        .from(pveSnapshots)
+        .where(eq(pveSnapshots.id, run.snapshotId))
+        .limit(1);
+      if (point?.kind === "vm") {
+        const recorded = point.stats.vmConsistency;
+        if (vmConsistency.state !== "unknown" && (!recorded || recorded.state === "unknown")) {
+          await tx
+            .update(pveSnapshots)
+            .set({
+              stats: sql`${pveSnapshots.stats} || jsonb_build_object('vmConsistency', ${JSON.stringify(recordedConsistency(vmConsistency))}::jsonb)`,
+            })
+            .where(eq(pveSnapshots.id, run.snapshotId));
+          update.stats = { ...run.stats, vmConsistency: recordedConsistency(vmConsistency) };
+        }
+        const added = vmConsistencyWarnings(vmConsistency);
+        if (added.length > 0) {
+          const base = update.stats ?? run.stats;
+          update.stats = {
+            ...base,
+            warnings: mergeWarnings(stringList(run.stats.warnings), added),
+          };
+        }
+      }
+    }
+    await tx.update(pveRuns).set(update).where(eq(pveRuns.id, runId));
   });
+}
+
+function stringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
 }
 
 /**
@@ -989,8 +1090,9 @@ export async function finishFailedTaskRun(
     await recordBootTestResult(tx, task, { status: "failed", error: message }, now);
     return;
   }
-  // A run that committed its restore point succeeded, whatever the task says afterwards: the
-  // restore point is there. The task's message becomes its warning.
+  // A backup run that committed its restore point succeeded, whatever the task says afterwards:
+  // the restore point is there. The task's message becomes its warning. Only a backup: the
+  // snapshotId of a restore or restore check names the restore point it read, not a result.
   const kept = await tx
     .update(pveRuns)
     .set({
@@ -1003,10 +1105,16 @@ export async function finishFailedTaskRun(
       and(
         eq(pveRuns.taskId, task.id),
         eq(pveRuns.status, "running"),
+        eq(pveRuns.kind, "backup"),
         isNotNull(pveRuns.snapshotId),
       ),
     )
-    .returning({ id: pveRuns.id, guestId: pveRuns.guestId, status: pveRuns.status });
+    .returning({
+      id: pveRuns.id,
+      guestId: pveRuns.guestId,
+      status: pveRuns.status,
+      kind: pveRuns.kind,
+    });
   // Every other run the task left open fails with it (a redelivered task can have opened
   // several); one stopped in the UI ends cancelled.
   const cancelled = task.status === "cancelled";
@@ -1024,10 +1132,16 @@ export async function finishFailedTaskRun(
         : {}),
     })
     .where(and(eq(pveRuns.taskId, task.id), eq(pveRuns.status, "running")))
-    .returning({ id: pveRuns.id, guestId: pveRuns.guestId, status: pveRuns.status });
+    .returning({
+      id: pveRuns.id,
+      guestId: pveRuns.guestId,
+      status: pveRuns.status,
+      kind: pveRuns.kind,
+    });
   closed.push(...kept);
   if (closed.length > 0) {
-    const ended = closed.filter((r) => r.status !== "cancelled");
+    // "Last backup" moves for a backup that ended, never for a restore or a restore check.
+    const ended = closed.filter((r) => r.kind === "backup" && r.status !== "cancelled");
     for (const guestId of new Set(ended.map((r) => r.guestId))) {
       await tx.update(pveGuests).set({ lastBackupAt: now }).where(eq(pveGuests.id, guestId));
     }
@@ -1279,6 +1393,14 @@ export async function resolveVolname(node: NodeContext, volname: string) {
     devices: snap.disks.map((d) => ({ device: d.device, size: d.size })),
     resticSnapshotId: snap.resticSnapshotId ?? "",
     resticRoot: snap.resticRoot ?? "",
+    // What the node checks free space against: a VM's disk sizes summed, a container's file
+    // bytes (restic's total); 0 when unknown (a container restore point of an older node).
+    byteSize: snap.byteSize,
+    // A container's restic total as the node reported it; null when unknown, and for VMs.
+    resticTotalBytes:
+      snap.kind === "ct" && typeof snap.stats.resticTotalBytes === "number"
+        ? snap.stats.resticTotalBytes
+        : null,
   };
 }
 
@@ -1342,7 +1464,18 @@ export async function restoreBlocks(
   return Buffer.concat(parts);
 }
 
-/** A read credential for a container restore point (a restore run is recorded). */
+/** A restore started in the PVE UI asks for its credential again within this time: the same run. */
+const PVE_RESTORE_REUSE_MS = 6 * 60 * 60 * 1000;
+
+/**
+ * A read credential for a container restore point. The restore's run is the run of the task the
+ * node was given (a restore, a restore check, or a boot test, which restores through PVE the same
+ * way) for this very restore point (its `volname`, a boot test's `snapshotId`): a restore of
+ * another restore point of the guest started in the PVE UI while such a task waits in the
+ * node's queue is not that task's; a restore started in the PVE UI gets a run of its own (origin `pve`), one per restore
+ * point and node however often it asks. The answer carries the run's id (also its restic user
+ * name): the node reports a PVE-origin restore's end with `POST /runs/:id/restore-end`.
+ */
 export async function restoreRestic(
   node: NodeContext,
   snapshotId: string,
@@ -1365,8 +1498,9 @@ export async function restoreRestic(
         and(
           eq(pveTasks.nodeId, node.nodeId),
           eq(pveTasks.guestId, snap.guestId),
-          eq(pveTasks.kind, "restore"),
+          inArray(pveTasks.kind, ["restore", "boot_test"]),
           eq(pveTasks.status, "delivered"),
+          sql`(${pveTasks.params}->>'volname' = ${snap.archiveName} OR ${pveTasks.params}->>'snapshotId' = ${snap.id})`,
         ),
       )
       .orderBy(desc(pveTasks.deliveredAt))
@@ -1381,6 +1515,28 @@ export async function restoreRestic(
         return existing.id;
       }
     }
+    if (!task) {
+      // Started in PVE: the run it opened before, while it is still going.
+      const [open] = await tx
+        .select({ id: pveRuns.id })
+        .from(pveRuns)
+        .where(
+          and(
+            eq(pveRuns.guestId, snap.guestId),
+            eq(pveRuns.nodeId, node.nodeId),
+            eq(pveRuns.kind, "restore"),
+            eq(pveRuns.origin, "pve"),
+            eq(pveRuns.status, "running"),
+            eq(pveRuns.snapshotId, snap.id),
+            gt(pveRuns.startedAt, new Date(now.getTime() - PVE_RESTORE_REUSE_MS)),
+          ),
+        )
+        .orderBy(desc(pveRuns.startedAt))
+        .limit(1);
+      if (open) {
+        return open.id;
+      }
+    }
     const [run] = await tx
       .insert(pveRuns)
       .values({
@@ -1388,7 +1544,7 @@ export async function restoreRestic(
         clusterId: node.clusterId,
         nodeId: node.nodeId,
         guestId: snap.guestId,
-        kind: "restore",
+        kind: task?.kind === "boot_test" ? "boot_test" : "restore",
         origin: task ? "restow" : "pve",
         archiveName: snap.archiveName,
         storageId: snap.storageId,
@@ -1399,5 +1555,63 @@ export async function restoreRestic(
       .returning();
     return (run as PveRun).id;
   });
-  return issueResticCredential(node.tenantId, runId, snap.guestId, instanceUrl, now);
+  return {
+    ...(await issueResticCredential(node.tenantId, runId, snap.guestId, instanceUrl, now)),
+    runId,
+  };
+}
+
+/** How a container restore started in the PVE UI ended (`POST /runs/:id/restore-end`). */
+export interface RestoreEndInput {
+  status: "succeeded" | "warnings" | "failed";
+  /** PVE's exit status of the restore task: "OK", "WARNINGS: n" or an error text. */
+  exitStatus: string;
+  warnings?: string[];
+  error?: string;
+}
+
+const WARNINGS_EXIT = /^WARNINGS: \d+$/;
+
+/**
+ * The end of a restore the node's storage plugin served without a task of Restow (a restore in
+ * the PVE UI): green only for PVE's exit status `OK`, amber for `WARNINGS: n` (the warning lines
+ * are kept), else failed with what PVE said. A run that belongs to a task ends with the task's
+ * result instead; a run that ended already stays as it is.
+ */
+export async function finishPveRestore(
+  node: NodeContext,
+  runId: string,
+  input: RestoreEndInput,
+  now: Date = new Date(),
+): Promise<void> {
+  await withTenantTx(db, node.tenantId, async (tx) => {
+    const run = await loadRun(tx, node, runId);
+    if (run.kind !== "restore" && run.kind !== "restore_test" && run.kind !== "boot_test") {
+      throw problem(409, "Not a restore run", "This run is not a restore.");
+    }
+    if (run.status !== "running" || run.taskId !== null) {
+      return;
+    }
+    const exit = input.exitStatus.trim();
+    const ok = exit === "OK" && input.status === "succeeded";
+    const warned = WARNINGS_EXIT.test(exit) && input.status !== "failed";
+    const status = ok || warned ? "succeeded" : endedStatus(run, "failed");
+    const warnings = warned ? (input.warnings ?? []).map((w) => w.slice(0, 1000)).slice(0, 20) : [];
+    await tx
+      .update(pveRuns)
+      .set({
+        status,
+        finishedAt: now,
+        errorMessage:
+          status === "succeeded"
+            ? null
+            : (input.error ?? "").slice(0, 2000) || `restore ended with "${exit.slice(0, 200)}"`,
+        stats: {
+          ...run.stats,
+          exitStatus: exit.slice(0, 200),
+          ...(warned ? { warnings: warnings.length > 0 ? warnings : [exit] } : {}),
+        },
+      })
+      .where(and(eq(pveRuns.id, run.id), eq(pveRuns.status, "running")));
+  });
 }

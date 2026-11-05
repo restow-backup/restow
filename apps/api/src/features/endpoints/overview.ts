@@ -30,6 +30,8 @@ export interface EndpointReadinessRowDto {
   overdue: boolean;
   latestBackupAt: string | null;
   latestSnapshotId: string | null;
+  /** The newest backup recorded no sample files: no restore test of it is possible. */
+  noSamples: boolean;
   /** The machine belongs to a backup job; false: nothing backs it up. */
   inJob: boolean;
 }
@@ -79,6 +81,7 @@ export async function loadEndpointOverview(
       overdue,
       latestBackupAt: found.latestBackupAt?.toISOString() ?? null,
       latestSnapshotId: found.latestSnapshotId,
+      noSamples: found.noSamples,
       inJob: jobs.has(endpoint.id),
     });
     rated.push({

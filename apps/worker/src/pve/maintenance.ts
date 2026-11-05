@@ -24,7 +24,10 @@ import { createHash } from "node:crypto";
  *              guest's node restores the newest restore point to a temporary guest, starts
  *              it and waits for the guest agent; only nodes that announced the capability,
  *              one per node at a time, never beside a backup on the node; a failed or
- *              unproven boot test raises boot_test.failed / boot_test.unproven once
+ *              unproven boot test raises boot_test.failed / boot_test.unproven once; a skip
+ *              that passes, or an error, is tried again (30 minutes, doubling, five times),
+ *              and boot tests that came to no result for longer than the schedule allows
+ *              raise boot_test.skipped once
  *   tokens     an existing PVE API token an admin gave for an enrollment is deleted
  *              once that enrollment token is used, revoked or expired
  *   downloads  prepared ZIP downloads of container files go an hour after they expired
@@ -40,18 +43,26 @@ import {
   deleteOnAllTargets,
   listLockFiles,
   loadManifest,
+  lockClockSkews,
   locksToRemove,
   mapChunkIds,
   measureRepositoryBytes,
   PVE_BOOT_TEST_CAPABILITY,
+  PVE_BOOT_TEST_MAX_ATTEMPTS,
+  PVE_RESTORE_TEST_EVERY_MS,
+  PVE_STALE_RUN_MS,
   protectionOnTargets,
   pveBootTestDue,
+  pveBootTestOverdueMs,
   pveBootTestPlan,
+  pveBootTestRetry,
   pveBootTestTaskParams,
   pveDisksOf,
   pveGuestCounted,
   pveNextRunAt,
   pveNodeDeclares,
+  pveRestoreCheckBlocker,
+  pveRestorePointPrivileged,
   pveSelfBackupBlocked,
   ResticError,
   removeLockFiles,
@@ -60,10 +71,13 @@ import {
   resticCheck,
   resticErrorDetail,
   resticForget,
+  resticLockTime,
   resticPrune,
+  resticSnapshots,
   resticUnlock,
   type StorageTargets,
   sampleDataBlocks,
+  storageStaleLocks,
   type TenantKeyring,
   withRepository,
 } from "@restow/core";
@@ -113,6 +127,7 @@ import {
   withTenantTx,
 } from "../handlers/framework.js";
 import { hasActiveMigration } from "../handlers/storage-migration.js";
+import type { TenantTx } from "../progress.js";
 import { raiseEvents } from "../reporting.js";
 import {
   DEFAULT_RETENTION_HOLD_MODE,
@@ -161,9 +176,9 @@ function withGuestRepository<T>(deps: PveDeps, guestId: string, work: () => Prom
 }
 
 export const PVE_PASS_INTERVAL_MS = 5 * 60 * 1000;
-const STALE_RUN_MS = 48 * 60 * 60 * 1000;
+const STALE_RUN_MS = PVE_STALE_RUN_MS;
 const VERIFY_EVERY_MS = 7 * 24 * 60 * 60 * 1000;
-const RESTORE_TEST_EVERY_MS = 30 * 24 * 60 * 60 * 1000;
+const RESTORE_TEST_EVERY_MS = PVE_RESTORE_TEST_EVERY_MS;
 const TASK_TTL_MS = 12 * 60 * 60 * 1000;
 const VERIFY_SAMPLE = 8;
 /** Asked-for restore checks per pass (after a backup round they drain over a few passes). */
@@ -289,9 +304,18 @@ export async function planJobs(deps: PveDeps, now: Date): Promise<number> {
 // Stale runs
 // ---------------------------------------------------------------------------
 
+/** What `closeRun` needs of a run. */
+const closeRunColumns = {
+  id: pveRuns.id,
+  tenantId: pveRuns.tenantId,
+  kind: pveRuns.kind,
+  snapshotId: pveRuns.snapshotId,
+  taskId: pveRuns.taskId,
+};
+
 export async function closeStaleRuns(deps: PveDeps, now: Date): Promise<number> {
   const stale = await deps.providerDb
-    .select({ id: pveRuns.id, tenantId: pveRuns.tenantId, snapshotId: pveRuns.snapshotId })
+    .select(closeRunColumns)
     .from(pveRuns)
     .where(
       and(
@@ -332,7 +356,7 @@ const ACTIVE_RUNS_GRACE_MS = 10 * 60 * 1000;
 export async function closeRunsNodesDropped(deps: PveDeps, now: Date): Promise<number> {
   const fresh = new Date(now.getTime() - ACTIVE_RUNS_FRESH_MS).toISOString();
   const dropped = await deps.providerDb
-    .select({ id: pveRuns.id, tenantId: pveRuns.tenantId, snapshotId: pveRuns.snapshotId })
+    .select(closeRunColumns)
     .from(pveRuns)
     .innerJoin(pveNodes, eq(pveNodes.id, pveRuns.nodeId))
     .where(
@@ -374,7 +398,7 @@ const CANCEL_SILENT_NODE_MS = 15 * 60 * 1000;
 export async function closeCancelledRunsOfSilentNodes(deps: PveDeps, now: Date): Promise<number> {
   const silentSince = new Date(now.getTime() - CANCEL_SILENT_NODE_MS);
   const stuck = await deps.providerDb
-    .select({ id: pveRuns.id, tenantId: pveRuns.tenantId, snapshotId: pveRuns.snapshotId })
+    .select(closeRunColumns)
     .from(pveRuns)
     .leftJoin(pveNodes, eq(pveNodes.id, pveRuns.nodeId))
     .where(
@@ -407,33 +431,82 @@ export async function closeCancelledRunsOfSilentNodes(deps: PveDeps, now: Date):
   return closed;
 }
 
+/** Why a restore, restore check or boot test run the server closed has no result. */
+export const PVE_RESULT_NEVER_REPORTED =
+  "The node never reported the result (restarted or unreachable).";
+
 /**
- * Close a run that is still `running`: succeeded when its restore point was committed,
- * else failed with `message`; what it staged is released. False when it ended meanwhile.
+ * Close a run that is still `running`; what it staged is released. False when it ended
+ * meanwhile.
+ *
+ * Only a backup run can have succeeded: its snapshotId is the restore point it committed. A
+ * restore, restore check or boot test names the restore point it reads from the start, so
+ * without the node's result it failed ({@link PVE_RESULT_NEVER_REPORTED}); a boot test gets the
+ * outcome `error` (never a rating of the restore point), and the task of such a run is closed
+ * with it. A run stopped in the UI ends cancelled.
  */
 async function closeRun(
   deps: PveDeps,
-  run: { id: string; tenantId: string; snapshotId: string | null },
+  run: {
+    id: string;
+    tenantId: string;
+    kind: string;
+    snapshotId: string | null;
+    taskId: string | null;
+  },
   now: Date,
   message: string,
 ): Promise<boolean> {
+  const backup = run.kind === "backup";
+  const committed = backup && run.snapshotId !== null;
+  const error = backup ? message : PVE_RESULT_NEVER_REPORTED;
+  const cancelledOrFailed = sql<
+    "failed" | "cancelled"
+  >`CASE WHEN ${pveRuns.cancelRequestedAt} IS NOT NULL THEN 'cancelled' ELSE 'failed' END`;
   const staged = await withTenantTx(deps.db, run.tenantId, async (tx) => {
     const [updated] = await tx
       .update(pveRuns)
       .set({
-        // A run stopped in the UI ends cancelled, not failed.
-        status: run.snapshotId
-          ? "succeeded"
-          : sql<
-              "failed" | "cancelled"
-            >`CASE WHEN ${pveRuns.cancelRequestedAt} IS NOT NULL THEN 'cancelled' ELSE 'failed' END`,
+        status: committed ? "succeeded" : run.kind === "boot_test" ? "failed" : cancelledOrFailed,
         finishedAt: now,
-        errorMessage: run.snapshotId ? null : message,
+        errorMessage: committed ? null : error,
+        ...(run.kind === "boot_test"
+          ? {
+              // The same record as a boot test the node could not carry out (API boot-tests.ts).
+              stats: sql`${pveRuns.stats} || jsonb_build_object('bootTest', ${JSON.stringify({
+                outcome: "error",
+                reason: "node_error",
+                message: error,
+                checkedAt: now.toISOString(),
+                durationMs: 0,
+                bootSeconds: null,
+                guestAgent: false,
+                tempVmid: null,
+                storage: null,
+                cleanedUp: false,
+                runId: run.id,
+              })}::jsonb)`,
+            }
+          : {}),
       })
       .where(and(eq(pveRuns.id, run.id), eq(pveRuns.status, "running")))
       .returning({ id: pveRuns.id });
     if (!updated) {
       return null;
+    }
+    if (!backup && run.taskId) {
+      await tx
+        .update(pveTasks)
+        .set({
+          status: sql<
+            "failed" | "cancelled"
+          >`CASE WHEN ${pveTasks.cancelRequestedAt} IS NOT NULL THEN 'cancelled' ELSE 'failed' END`,
+          finishedAt: now,
+          errorMessage: error,
+        })
+        .where(
+          and(eq(pveTasks.id, run.taskId), inArray(pveTasks.status, ["pending", "delivered"])),
+        );
     }
     const rows = await tx
       .delete(pveRunBlocks)
@@ -497,6 +570,13 @@ export async function pruneSnapshot(deps: PveDeps, snap: PveSnapshot, now: Date)
       .set({ status: "pruned", prunedAt: now })
       .where(and(eq(pveSnapshots.id, snap.id), eq(pveSnapshots.status, "active")))
       .returning();
+    if (row?.resticSnapshotId) {
+      // Its restic snapshot is forgotten by the next comparison of the repository.
+      await tx
+        .update(pveGuests)
+        .set({ repositoryReconciledAt: null })
+        .where(eq(pveGuests.id, snap.guestId));
+    }
     if (row) {
       await appendAuditEntry(tx, {
         tenantId: snap.tenantId,
@@ -516,10 +596,52 @@ export async function pruneSnapshot(deps: PveDeps, snap: PveSnapshot, now: Date)
   await deleteOnAllTargets(ctx.storage, snap.manifestPath, deps.runtime.logger);
 }
 
+/** A restic snapshot no restore point names is forgotten once it is this old (6 hours). */
+export const PVE_ORPHAN_SNAPSHOT_GRACE_MS = 6 * 60 * 60 * 1000;
+/** Each container repository is compared with its restore points at least this often. */
+export const PVE_RECONCILE_EVERY_MS = 24 * 60 * 60 * 1000;
+/** Comparisons that were not caused by a prune, per pass (after an update they drain). */
+export const PVE_RECONCILES_PER_PASS = 10;
+/** How long forget and prune wait for another run's lock before the pass leaves them. */
+export const PVE_FORGET_RETRY_LOCK = "2m";
+/**
+ * A comparison that did not get through (the storage is down, a long restore holds the lock,
+ * the password is wrong) is tried again after this long (1 hour), not on every pass: each try
+ * waits up to {@link PVE_FORGET_RETRY_LOCK} inside the repository lock and would slow the
+ * whole PVE pass. A restore point pruned meanwhile makes it due at once.
+ */
+export const PVE_RECONCILE_RETRY_MS = 60 * 60 * 1000;
+
+/**
+ * VMIDs a restore check or boot test must not take (the API's pve/vmids.ts, docs/PVE.md, "A VMID
+ * used again"): those of absent guests Restow keeps with restore points or a job.
+ */
+async function avoidVmids(
+  tx: { execute: Database["execute"] },
+  clusterId: string,
+): Promise<number[]> {
+  const rows = await tx.execute<{ vmid: number }>(sql`
+    SELECT DISTINCT g.vmid FROM pve_guests g
+     WHERE g.cluster_id = ${clusterId} AND g.present = false
+       AND (g.job_id IS NOT NULL OR EXISTS (
+         SELECT 1 FROM pve_snapshots s WHERE s.guest_id = g.id AND s.status <> 'pruned'))
+     ORDER BY g.vmid LIMIT 1000`);
+  return rows.rows.map((r) => Number(r.vmid));
+}
+
+/** Whether a run of the guest is going or its node took on a backup of it (`guestBusy`). */
+async function guestIsBusy(deps: PveDeps, guestId: string, now: Date): Promise<boolean> {
+  const rows = await deps.providerDb.execute<{ busy: boolean }>(
+    sql`SELECT ${guestBusy(sql`${guestId}::uuid`, now)} AS busy`,
+  );
+  return rows.rows[0]?.busy === true;
+}
+
 export async function applyRetention(deps: PveDeps, now: Date): Promise<number> {
   const guests = await deps.providerDb.select().from(pveGuests);
   const mode = guests.length > 0 ? await retentionHoldMode(deps.providerDb) : null;
   let pruned = 0;
+  let reconciles = 0;
   // A "move" storage migration copies the containers' repositories file by file: retention
   // waits for it, so no restic file it listed is pruned away under it (per tenant, once a run).
   const migrating = new Map<string, boolean>();
@@ -532,6 +654,11 @@ export async function applyRetention(deps: PveDeps, now: Date): Promise<number> 
     if (busy) {
       continue;
     }
+    // A backup, restore, check or boot test of the guest runs (its restic holds or takes the
+    // repository's lock, a backup builds on the newest restore point): a later pass.
+    if (await guestIsBusy(deps, guest.id, now)) {
+      continue;
+    }
     const result = await withTenantTx(deps.db, guest.tenantId, async (tx) => {
       const holds = await loadRetentionHolds(tx, {
         tenantId: guest.tenantId,
@@ -541,7 +668,8 @@ export async function applyRetention(deps: PveDeps, now: Date): Promise<number> 
         mode: mode ?? DEFAULT_RETENTION_HOLD_MODE,
       });
       if (retentionHeld(holds, guest.id)) {
-        // Held on suspicion: no restore point goes, so no chunk reference is released either.
+        // Held on suspicion: no restore point goes, so no chunk reference is released either,
+        // and no restic snapshot is forgotten.
         return null;
       }
       const snaps = await tx
@@ -561,44 +689,177 @@ export async function applyRetention(deps: PveDeps, now: Date): Promise<number> 
         zone: tenant?.timeZone ?? DEFAULT_SCHEDULE_TIMEZONE,
       };
     });
-    if (result === null || result.snaps.length <= 1) {
+    if (result === null) {
       continue;
     }
-    const decision = applyRetentionPolicy(
-      result.snaps.map((s) => ({ id: s.id, time: s.backupAt })),
-      result.rules,
-      result.zone,
-    );
-    const forget: string[] = [];
-    for (const id of decision.remove) {
-      const snap = result.snaps.find((s) => s.id === id) as PveSnapshot;
-      try {
-        // A restore point the storage still locks stays until a later run (docs/STORAGE.md).
-        if (await pveSnapshotLocked(deps, guest, snap)) {
-          continue;
+    let prunedContainerPoint = false;
+    if (result.snaps.length > 1) {
+      const decision = applyRetentionPolicy(
+        result.snaps.map((s) => ({ id: s.id, time: s.backupAt })),
+        result.rules,
+        result.zone,
+      );
+      for (const id of decision.remove) {
+        const snap = result.snaps.find((s) => s.id === id) as PveSnapshot;
+        try {
+          // A restore point the storage still locks stays until a later run (docs/STORAGE.md).
+          if (await pveSnapshotLocked(deps, guest, snap)) {
+            continue;
+          }
+          await pruneSnapshot(deps, snap, now);
+          pruned++;
+          prunedContainerPoint ||= snap.resticSnapshotId !== null;
+        } catch (error) {
+          deps.runtime.logger.warn("pve retention: could not prune a restore point", {
+            snapshotId: id,
+            error: error instanceof Error ? error.message : String(error),
+          });
         }
-        await pruneSnapshot(deps, snap, now);
-        pruned++;
-        if (snap.resticSnapshotId) {
-          forget.push(snap.resticSnapshotId);
-        }
-      } catch (error) {
-        deps.runtime.logger.warn("pve retention: could not prune a restore point", {
-          snapshotId: id,
-          error: error instanceof Error ? error.message : String(error),
-        });
       }
     }
-    if (forget.length > 0) {
-      await forgetResticSnapshots(deps, guest, forget).catch((error) =>
-        deps.runtime.logger.warn("pve retention: restic forget failed", {
-          guestId: guest.id,
-          error: error instanceof Error ? error.message : String(error),
-        }),
-      );
+    // The restic snapshots of pruned restore points are forgotten by comparing the repository
+    // with the restore points: a forget that failed (a lock, the storage, a restart) is done by
+    // a later pass, and snapshots of runs that never committed go as well.
+    const due =
+      prunedContainerPoint ||
+      (guest.kind === "ct" &&
+        guest.repositorySecretId !== null &&
+        guest.repositoryReadyAt !== null &&
+        (guest.repositoryReconciledAt === null ||
+          now.getTime() - guest.repositoryReconciledAt.getTime() >= PVE_RECONCILE_EVERY_MS) &&
+        reconciles < PVE_RECONCILES_PER_PASS);
+    if (!due) {
+      continue;
     }
+    if (!prunedContainerPoint) {
+      reconciles++;
+    }
+    await reconcileGuestRepository(deps, guest, now).catch((error) =>
+      deps.runtime.logger.warn("pve retention: restic forget failed, tried again next pass", {
+        guestId: guest.id,
+        error: resticErrorDetail(error, 500),
+      }),
+    );
   }
   return pruned;
+}
+
+/**
+ * Compare a container repository with the guest's restore points and forget, then prune, every
+ * restic snapshot none of them holds (docs/PVE.md, "Retention"):
+ *
+ *   - the snapshot of a pruned restore point (also one pruned before 0.5.0, whose forget failed
+ *     and was never tried again);
+ *   - a snapshot no restore point names at all (a run that wrote it and never committed: a
+ *     late cancel, a refused commit, vzdump failing after the archive step) once it is
+ *     {@link PVE_ORPHAN_SNAPSHOT_GRACE_MS} old and its `run=` tag names no run still going.
+ *
+ * Never a snapshot an active (or unavailable) restore point names, nor one the storage still
+ * locks. Inside the guest's repository lock, after its stale locks are cleared; forget and
+ * prune wait {@link PVE_FORGET_RETRY_LOCK} for another run's lock.
+ *
+ * The comparison is claimed first: `repositoryReconciledAt` is set to a claim time that makes
+ * it due again after {@link PVE_RECONCILE_RETRY_MS}, so a pass that fails is tried again an
+ * hour later. Only a pass that got through records the comparison, and only while the column
+ * still holds that exact claim: a restore point pruned meanwhile (pruneSnapshot sets it to
+ * null) keeps it due, and the next pass forgets that point's snapshot too.
+ */
+export async function reconcileGuestRepository(
+  deps: PveDeps,
+  guest: PveGuest,
+  now: Date,
+): Promise<{ forgotten: string[] }> {
+  const access = await repositoryAccess(deps, guest);
+  if (!access) {
+    return { forgotten: [] };
+  }
+  const storage = await deps.runtime.storage.get(guest.tenantId);
+  const targets = [storage.primary, ...storage.copies];
+  // Claim the comparison with a value only this pass writes: due again after the retry delay
+  // if the pass fails, and set back to null by a prune that lands meanwhile.
+  const claim = new Date(now.getTime() - PVE_RECONCILE_EVERY_MS + PVE_RECONCILE_RETRY_MS);
+  await withTenantTx(deps.db, guest.tenantId, (tx) =>
+    tx.update(pveGuests).set({ repositoryReconciledAt: claim }).where(eq(pveGuests.id, guest.id)),
+  );
+  const forgotten = await withGuestRepository(deps, guest.id, () =>
+    withRepository(access, async (session) => {
+      await clearStaleGuestLocks(deps, access, session, guest.id);
+      const listed = await resticSnapshots(session, { noLock: true });
+      // The restore points and the running runs in one statement, so both come from the same
+      // moment: read one after the other, a run committing in between was neither running nor
+      // a restore point yet, and the snapshot it just committed was forgotten as an orphan.
+      const facts = await withTenantTx(deps.db, guest.tenantId, (tx) =>
+        tx.execute<{ source: "point" | "run"; id: string; status: string }>(sql`
+          SELECT 'point' AS source, s.restic_snapshot_id AS id, s.status::text AS status
+            FROM pve_snapshots s
+           WHERE s.guest_id = ${guest.id} AND s.restic_snapshot_id IS NOT NULL
+          UNION ALL
+          SELECT 'run' AS source, r.id::text AS id, r.status::text AS status
+            FROM pve_runs r
+           WHERE r.guest_id = ${guest.id} AND r.status = 'running'`),
+      );
+      const points = facts.rows.filter((r) => r.source === "point");
+      const keep = new Set(points.filter((r) => r.status !== "pruned").map((r) => r.id));
+      const pruned = new Set(points.filter((r) => r.status === "pruned").map((r) => r.id));
+      const runningIds = new Set(facts.rows.filter((r) => r.source === "run").map((r) => r.id));
+      const ids: string[] = [];
+      for (const snapshot of listed) {
+        if (keep.has(snapshot.id)) {
+          continue;
+        }
+        if (!pruned.has(snapshot.id)) {
+          // No restore point names it: a run that never committed. Only once it is old, and
+          // never while its run (or any run whose tag it carries) still goes.
+          const time = Date.parse(snapshot.time);
+          const run = snapshot.tags.find((tag) => tag.startsWith("run="))?.slice(4);
+          if (
+            !Number.isFinite(time) ||
+            now.getTime() - time < PVE_ORPHAN_SNAPSHOT_GRACE_MS ||
+            (run !== undefined && runningIds.has(run))
+          ) {
+            continue;
+          }
+        }
+        if (await protectionOnTargets(targets, `${access.prefix}snapshots/${snapshot.id}`)) {
+          continue;
+        }
+        ids.push(snapshot.id);
+      }
+      if (ids.length > 0) {
+        await resticForget(session, ids, {
+          retryLock: PVE_FORGET_RETRY_LOCK,
+          signal: deps.runtime.shutdownSignal,
+        });
+        await resticPrune(session, {
+          retryLock: PVE_FORGET_RETRY_LOCK,
+          signal: deps.runtime.shutdownSignal,
+        });
+      }
+      return ids;
+    }),
+  );
+  // The prune freed space the restic route never saw: measure the repository again.
+  const repositoryBytes =
+    forgotten.length > 0 ? await measureRepositoryBytes(access.storage, access.prefix) : null;
+  await withTenantTx(deps.db, guest.tenantId, async (tx) => {
+    if (repositoryBytes !== null) {
+      await tx
+        .update(pveGuests)
+        .set({ repositoryBytes, repositoryMeasuredAt: deps.runtime.now() })
+        .where(eq(pveGuests.id, guest.id));
+    }
+    await tx
+      .update(pveGuests)
+      .set({ repositoryReconciledAt: now })
+      .where(and(eq(pveGuests.id, guest.id), eq(pveGuests.repositoryReconciledAt, claim)));
+  });
+  if (forgotten.length > 0) {
+    deps.runtime.logger.info("pve retention: restic snapshots forgotten", {
+      guestId: guest.id,
+      snapshots: forgotten.length,
+    });
+  }
+  return { forgotten };
 }
 
 /** Whether a target still locks the restore point's manifest or restic snapshot file. */
@@ -650,10 +911,41 @@ async function clearStaleGuestLocks(
 ): Promise<void> {
   try {
     const present = await listLockFiles(access.storage, access.prefix);
+    const now = deps.runtime.now();
+    // Only restow-pve and the server write here, so a lock's own time can be trusted: a lock
+    // is stale only when its storage time and its own time are both 30 minutes old. A storage
+    // whose clock lags (a NAS on local time as UTC) never gets a live lock taken away. A lock
+    // that is still there but could not be read is kept for the next pass (null); one that is
+    // gone meanwhile has nothing left to remove.
+    const lockTimes = new Map<string, Date | null>();
+    for (const lock of storageStaleLocks(present, now)) {
+      const read = await resticLockTime(session, lock.name);
+      if ("time" in read) {
+        lockTimes.set(lock.name, read.time);
+        continue;
+      }
+      const stillThere = await access.storage.head(`${access.prefix}locks/${lock.name}`);
+      if (!stillThere) {
+        continue;
+      }
+      lockTimes.set(lock.name, null);
+      deps.runtime.logger.warn(
+        "pve: the time of a container repository's lock could not be read, the lock is kept for now",
+        { guestId, lock: lock.name.slice(0, 12), detail: read.unreadable },
+      );
+    }
+    const skews = lockClockSkews(present, lockTimes);
+    if (skews.length > 0) {
+      deps.runtime.logger.warn(
+        "pve: the storage time of a container repository's lock and the lock's own time differ by more than 30 minutes (is the storage's clock right?)",
+        { guestId, locks: skews.length, skewMinutes: Math.round((skews[0]?.skewMs ?? 0) / 60_000) },
+      );
+    }
     const stale = locksToRemove(present, {
       agentLocks: new Set(),
       agentActive: false,
-      now: deps.runtime.now(),
+      now,
+      lockTimes,
     });
     if (stale.length > 0) {
       await removeLockFiles(access.storage, access.prefix, stale);
@@ -674,29 +966,6 @@ async function clearStaleGuestLocks(
       detail: resticErrorDetail(error, 500),
     });
   });
-}
-
-async function forgetResticSnapshots(deps: PveDeps, guest: PveGuest, ids: string[]): Promise<void> {
-  const access = await repositoryAccess(deps, guest);
-  if (!access) {
-    return;
-  }
-  await withGuestRepository(deps, guest.id, () =>
-    withRepository(access, async (session) => {
-      // Stale locks only (a run that ended without releasing its lock), as for machines.
-      await clearStaleGuestLocks(deps, access, session, guest.id);
-      await resticForget(session, ids);
-      await resticPrune(session);
-    }),
-  );
-  // The prune freed space the restic route never saw: measure the repository again.
-  const repositoryBytes = await measureRepositoryBytes(access.storage, access.prefix);
-  await withTenantTx(deps.db, guest.tenantId, (tx) =>
-    tx
-      .update(pveGuests)
-      .set({ repositoryBytes, repositoryMeasuredAt: deps.runtime.now() })
-      .where(eq(pveGuests.id, guest.id)),
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -731,6 +1000,13 @@ export async function verifySnapshot(
           // Stale locks only (a run that ended without releasing its lock, a restarted API):
           // never one a live run still refreshes.
           await clearStaleGuestLocks(deps, access, session, snap.guestId);
+          // The restore point's own restic snapshot must be there and be the one its run made:
+          // `restic check` only checks the snapshots it finds, so a missing one passes it.
+          const missing = await containerSnapshotProblem(snap, session);
+          if (missing) {
+            result.errors.push(missing);
+            return;
+          }
           await resticCheck(session, "5%", {
             signal: deps.runtime.shutdownSignal,
             retryLock: options.retryLock,
@@ -778,6 +1054,76 @@ export async function verifySnapshot(
 }
 
 /**
+ * What is wrong with the restic snapshot a container restore point names, or null when it is
+ * there: the repository's snapshot list (from the storage, not restic's local cache, which may
+ * still hold a snapshot file the storage lost) must contain it, and its `run=` tag (restow-pve
+ * tags every container backup with its run) must name the restore point's run. A list that
+ * could not be read for a passing reason (the storage or the network did not answer, restic
+ * was stopped) says nothing about the restore point: the check did not run (`interrupted`) and
+ * is tried again. Everything else is a finding: a repository that is not there or does not
+ * open with its password, a restic that cannot be started (missing, not executable), and any
+ * other failure of restic (a damaged config or snapshot file); postponing those would keep the
+ * check "not run" until it gives up, without ever saying what is wrong.
+ */
+async function containerSnapshotProblem(
+  snap: Pick<PveSnapshot, "resticSnapshotId" | "runId">,
+  session: Parameters<typeof resticSnapshots>[0],
+): Promise<string | null> {
+  const id = snap.resticSnapshotId;
+  if (!id) {
+    return "the restore point names no restic snapshot";
+  }
+  let listed: Awaited<ReturnType<typeof resticSnapshots>>;
+  try {
+    listed = await resticSnapshots(session, { noLock: true });
+  } catch (error) {
+    if (!resticListTransient(error)) {
+      throw error;
+    }
+    throw new ResticError(
+      `the snapshot list of the repository could not be read: ${resticErrorDetail(error, 600)}`,
+      error instanceof ResticError ? error.exitCode : null,
+      "interrupted",
+      error instanceof ResticError ? error.stderr : "",
+    );
+  }
+  const found = listed.find((s) => s.id === id);
+  if (!found) {
+    return `restic snapshot ${id.slice(0, 8)} of this restore point is not in the repository (unable to load snapshot: not found)`;
+  }
+  const run = found.tags.find((tag) => tag.startsWith("run="))?.slice(4);
+  if (run !== undefined && snap.runId && run !== snap.runId) {
+    return `restic snapshot ${id.slice(0, 8)} belongs to run ${run}, not to this restore point's run ${snap.runId}`;
+  }
+  return null;
+}
+
+/**
+ * restic's words for a storage or network that did not answer this time (the REST bridge
+ * answers 5xx when the storage fails), as opposed to a repository that is broken or missing.
+ */
+const TRANSIENT_RESTIC =
+  /connection (refused|reset)|broken pipe|timed? ?out|deadline exceeded|temporary failure|no such host|network is unreachable|unexpected EOF|server closed|unexpected HTTP response \((5\d\d|429)\)|\b(50[234]|429) /i;
+
+/**
+ * Whether a failed `restic snapshots` says nothing about the repository: restic was stopped,
+ * another run held a lock, or the storage or network did not answer. A process that could not
+ * be started (ENOENT, EACCES) is not passing; neither is any other failure of restic.
+ */
+function resticListTransient(error: unknown): boolean {
+  if (!(error instanceof ResticError)) {
+    return false;
+  }
+  if (error.failure === "killed" || error.failure === "interrupted" || error.failure === "locked") {
+    return true;
+  }
+  if (error.failure !== "other") {
+    return false;
+  }
+  return TRANSIENT_RESTIC.test(`${error.stderr}\n${error.message}`);
+}
+
+/**
  * Why a container check did not run at all: another run holds the repository's restic lock
  * (exit code 11, after `--retry-lock`), or restic was stopped before it finished. Neither says
  * anything about the restore point. Null for a real finding (or no restic error).
@@ -807,6 +1153,12 @@ export const VERIFY_GIVE_UP_MS = 2 * 60 * 60 * 1000;
 const VERIFY_AFTER_GIVE_UP_MS = 24 * 60 * 60 * 1000;
 /** A run older than this is closed as stale anyway (bounds the index range of the busy test). */
 const BUSY_RUN_MS = STALE_RUN_MS;
+/**
+ * A container restore started in the PVE UI keeps the guest busy this long at most: its end may
+ * never be reported (an older node), and its restic restore holds only a shared lock, which a
+ * check waits out (`--retry-lock`) or postpones.
+ */
+const PVE_RESTORE_BUSY_MS = 2 * 60 * 60 * 1000;
 
 type VerifyOutcome = "checked" | "later" | "postponed" | "not_checked";
 
@@ -930,14 +1282,17 @@ async function verifyOne(
 
 /**
  * Whether the guest `guestId` (a column) is busy: a run of it is going (a backup, a restore,
- * a boot test: its restic holds or will take the repository's lock), or its node took on a
- * backup of it that has not started its run yet. Indexed (pve_runs_guest_started_idx,
+ * a boot test: its restic holds or will take the repository's lock; a restore started in the PVE
+ * UI for `PVE_RESTORE_BUSY_MS` at most), or its node took on a backup of it that has not started
+ * its run yet. Indexed (pve_runs_guest_started_idx,
  * pve_tasks_open_backup_idx), one probe per candidate row.
  */
 function guestBusy(guestId: SQL, now: Date): SQL {
   const runsSince = new Date(now.getTime() - BUSY_RUN_MS);
+  const pveRestoreSince = new Date(now.getTime() - PVE_RESTORE_BUSY_MS);
   return sql`(EXISTS (SELECT 1 FROM ${pveRuns} r
-      WHERE r.guest_id = ${guestId} AND r.started_at > ${runsSince} AND r.status = 'running')
+      WHERE r.guest_id = ${guestId} AND r.started_at > ${runsSince} AND r.status = 'running'
+        AND NOT (r.kind = 'restore' AND r.origin = 'pve' AND r.started_at <= ${pveRestoreSince}))
     OR EXISTS (SELECT 1 FROM ${pveTasks} t
       WHERE t.guest_id = ${guestId} AND t.kind = 'backup' AND t.status = 'delivered'
         AND (t.expires_at IS NULL OR t.expires_at > ${now})))`;
@@ -1038,6 +1393,15 @@ export async function verifyDue(deps: PveDeps, now: Date): Promise<number> {
 // Monthly restore check
 // ---------------------------------------------------------------------------
 
+/**
+ * Plan the monthly restore checks the jobs ask for: per job one guest whose check is due, the
+ * longest unchecked first, and only one its node can run now (`pveRestoreCheckBlocker`:
+ * restores allowed, seen lately), that has no restore or boot test waiting and no run going. A
+ * guest passed over is not stamped, so it is planned once its node can; the guest's page says
+ * why (`restoreCheck.blocker`). The planned one is stamped now, so a failing check is not
+ * planned again on every pass; one the node skipped (target storage missing, inactive, without
+ * the guest's content type or too small) is tried again after a day (API node-service.ts).
+ */
 export async function planRestoreTests(deps: PveDeps, now: Date): Promise<number> {
   const jobs = await deps.providerDb.select().from(pveJobs).where(eq(pveJobs.enabled, true));
   let n = 0;
@@ -1047,68 +1411,103 @@ export async function planRestoreTests(deps: PveDeps, now: Date): Promise<number
       continue;
     }
     n += await withTenantTx(deps.db, job.tenantId, async (tx) => {
-      const guests = coveredBy(job, await tx.select().from(pveGuests)).filter(
-        (g) =>
-          g.lastSnapshotId !== null &&
-          !(g.kind === "ct" && g.privileged) &&
-          (g.lastRestoreTestAt === null ||
-            g.lastRestoreTestAt.getTime() < now.getTime() - RESTORE_TEST_EVERY_MS),
-      );
-      const guest = guests[0];
-      if (!guest) {
-        return 0;
-      }
-      const [snap] = await tx
-        .select()
-        .from(pveSnapshots)
-        .where(eq(pveSnapshots.id, guest.lastSnapshotId as string));
-      const [node] = await tx
-        .select()
-        .from(pveNodes)
-        .where(
-          and(
-            eq(pveNodes.clusterId, guest.clusterId),
-            eq(pveNodes.name, guest.node ?? ""),
-            isNull(pveNodes.revokedAt),
-          ),
+      const due = coveredBy(job, await tx.select().from(pveGuests))
+        .filter(
+          (g) =>
+            g.lastSnapshotId !== null &&
+            (g.lastRestoreTestAt === null ||
+              g.lastRestoreTestAt.getTime() < now.getTime() - RESTORE_TEST_EVERY_MS),
+        )
+        .sort(
+          (a, b) => (a.lastRestoreTestAt?.getTime() ?? 0) - (b.lastRestoreTestAt?.getTime() ?? 0),
         );
-      if (snap?.status !== "active" || !node) {
+      if (due.length === 0) {
         return 0;
       }
-      const [task] = await tx
-        .insert(pveTasks)
-        .values({
+      const nodes = await tx.select().from(pveNodes).where(isNull(pveNodes.revokedAt));
+      for (const guest of due) {
+        const node =
+          nodes.find((x) => x.clusterId === guest.clusterId && x.name === guest.node) ?? null;
+        if (pveRestoreCheckBlocker(node, now) !== null || !node) {
+          continue;
+        }
+        const [open] = await tx
+          .select({ id: pveTasks.id })
+          .from(pveTasks)
+          .where(
+            and(
+              eq(pveTasks.guestId, guest.id),
+              inArray(pveTasks.kind, ["restore", "boot_test"]),
+              inArray(pveTasks.status, ["pending", "delivered"]),
+            ),
+          )
+          .limit(1);
+        if (open) {
+          continue;
+        }
+        // A run of it going, or a backup its node took on (the restore checks' rule).
+        const [busy] = await tx
+          .select({ id: pveGuests.id })
+          .from(pveGuests)
+          .where(and(eq(pveGuests.id, guest.id), guestBusy(sql`${pveGuests.id}`, now)))
+          .limit(1);
+        if (busy) {
+          continue;
+        }
+        const [snap] = await tx
+          .select()
+          .from(pveSnapshots)
+          .where(eq(pveSnapshots.id, guest.lastSnapshotId as string));
+        if (snap?.status !== "active") {
+          continue;
+        }
+        // Restow restores containers only as unprivileged: a restore point of a privileged one
+        // is passed over and not counted as checked; the guest's page says so (API
+        // guestRestoreCheckFacts, blocker "privileged").
+        if (pveRestorePointPrivileged(snap, guest.privileged)) {
+          continue;
+        }
+        const [task] = await tx
+          .insert(pveTasks)
+          .values({
+            tenantId: job.tenantId,
+            nodeId: node.id,
+            guestId: guest.id,
+            kind: "restore",
+            params: {
+              volname: snap.archiveName,
+              kind: snap.kind,
+              targetVmid: 0,
+              // restow-pve from 0.5.0 picks a free VMID outside these (docs/PVE-PROTOCOL.md).
+              avoidVmids: await avoidVmids(tx, guest.clusterId),
+              targetStorage: test.targetStorage,
+              pool: "restow-restore",
+              start: false,
+              restoreTest: true,
+            },
+            expiresAt: new Date(now.getTime() + TASK_TTL_MS),
+          })
+          .returning();
+        await tx.insert(pveRuns).values({
           tenantId: job.tenantId,
+          clusterId: guest.clusterId,
           nodeId: node.id,
           guestId: guest.id,
-          kind: "restore",
-          params: {
-            volname: snap.archiveName,
-            kind: snap.kind,
-            targetVmid: 0,
-            targetStorage: test.targetStorage,
-            pool: "restow-restore",
-            start: false,
-            restoreTest: true,
-          },
-          expiresAt: new Date(now.getTime() + TASK_TTL_MS),
-        })
-        .returning();
-      await tx.insert(pveRuns).values({
-        tenantId: job.tenantId,
-        clusterId: guest.clusterId,
-        nodeId: node.id,
-        guestId: guest.id,
-        kind: "restore_test",
-        origin: "restow",
-        archiveName: snap.archiveName,
-        taskId: task?.id ?? null,
-        snapshotId: snap.id,
-        startedAt: now,
-      });
-      // Marked now, so a failing test is not planned again on every pass.
-      await tx.update(pveGuests).set({ lastRestoreTestAt: now }).where(eq(pveGuests.id, guest.id));
-      return 1;
+          kind: "restore_test",
+          origin: "restow",
+          archiveName: snap.archiveName,
+          taskId: task?.id ?? null,
+          snapshotId: snap.id,
+          startedAt: now,
+        });
+        // Marked now, so a failing test is not planned again on every pass.
+        await tx
+          .update(pveGuests)
+          .set({ lastRestoreTestAt: now })
+          .where(eq(pveGuests.id, guest.id));
+        return 1;
+      }
+      return 0;
     });
   }
   return n;
@@ -1117,6 +1516,37 @@ export async function planRestoreTests(deps: PveDeps, now: Date): Promise<number
 // ---------------------------------------------------------------------------
 // Boot tests (docs/PVE.md, "Boot test")
 // ---------------------------------------------------------------------------
+
+/** The guests whose newest restore point is of a privileged container (pveRestorePointPrivileged). */
+async function privilegedNewest(tx: TenantTx, guests: readonly PveGuest[]): Promise<Set<string>> {
+  const ids = guests
+    .filter((g) => g.kind === "ct" && g.lastSnapshotId !== null)
+    .map((g) => g.lastSnapshotId as string);
+  if (ids.length === 0) {
+    return new Set();
+  }
+  const points = new Map(
+    (
+      await tx
+        .select({
+          id: pveSnapshots.id,
+          kind: pveSnapshots.kind,
+          guestConfig: pveSnapshots.guestConfig,
+        })
+        .from(pveSnapshots)
+        .where(inArray(pveSnapshots.id, ids))
+    ).map((p) => [p.id, p]),
+  );
+  return new Set(
+    guests
+      .filter((g) => {
+        if (g.kind !== "ct") return false;
+        const point = g.lastSnapshotId ? points.get(g.lastSnapshotId) : undefined;
+        return point ? pveRestorePointPrivileged(point, g.privileged) : g.privileged;
+      })
+      .map((g) => g.id),
+  );
+}
 
 /** A node silent for longer than this gets no new boot test (it would only wait and expire). */
 const BOOT_TEST_NODE_SEEN_MS = 10 * 60 * 1000;
@@ -1143,7 +1573,7 @@ export async function planBootTests(deps: PveDeps, now: Date): Promise<number> {
     }
     n += await withTenantTx(deps.db, job.tenantId, async (tx) => {
       const guests = coveredBy(job, await tx.select().from(pveGuests)).filter(
-        (g) => g.lastSnapshotId !== null && !(g.kind === "ct" && g.privileged),
+        (g) => g.lastSnapshotId !== null,
       );
       if (guests.length === 0) {
         return 0;
@@ -1183,12 +1613,14 @@ export async function planBootTests(deps: PveDeps, now: Date): Promise<number> {
           .where(and(eq(pveSnapshots.guestId, guest.id), eq(pveSnapshots.status, "active")))
           .orderBy(desc(pveSnapshots.sequence))
           .limit(1);
-        if (!snap) {
+        // A restore point of a privileged container is not booted (the guest's page says why:
+        // bootTestBlocker "privileged").
+        if (!snap || pveRestorePointPrivileged(snap, guest.privileged)) {
           continue;
         }
         // By guest first: pve_runs_guest_started_idx reads the guest's runs, not every run.
-        const [tried] = await tx
-          .select({ id: pveRuns.id })
+        const attempts = await tx
+          .select({ status: pveRuns.status, stats: pveRuns.stats, startedAt: pveRuns.startedAt })
           .from(pveRuns)
           .where(
             and(
@@ -1197,19 +1629,38 @@ export async function planBootTests(deps: PveDeps, now: Date): Promise<number> {
               eq(pveRuns.snapshotId, snap.id),
             ),
           )
-          .limit(1);
-        const due = pveBootTestDue(
+          .orderBy(desc(pveRuns.startedAt))
+          .limit(PVE_BOOT_TEST_MAX_ATTEMPTS + 1);
+        // A skip that passes (a backup or boot test ran, memory or space was short) and a test
+        // the node could not carry out are tried again with a growing wait, a few times; any
+        // other outcome stands for this restore point (pveBootTestRetry).
+        const retry = pveBootTestRetry(
+          attempts.map((a) => {
+            const test = a.status === "running" ? null : bootTestOf(a.stats);
+            return {
+              outcome: typeof test?.outcome === "string" ? test.outcome : null,
+              reason: typeof test?.reason === "string" ? test.reason : "",
+              startedAt: a.startedAt,
+            };
+          }),
+        );
+        const scheduled = pveBootTestDue(
           {
             schedule: plan.schedule,
             lastBootTestAt: guest.lastBootTestAt,
             newest: {
               backupAt: snap.backupAt,
-              tested: snap.bootTest !== null || tried !== undefined,
+              tested: snap.bootTest !== null || retry.tested || retry.retryAt !== null,
             },
           },
           now,
         );
-        if (!due) {
+        const retryDue = !retry.tested && retry.retryAt !== null && retry.retryAt <= now;
+        // Weekly: a retry within the week, or the week's test; never before the wait is over.
+        if (retry.retryAt !== null && retry.retryAt > now) {
+          continue;
+        }
+        if (!scheduled && !retryDue) {
           continue;
         }
         const [task] = await tx
@@ -1219,7 +1670,11 @@ export async function planBootTests(deps: PveDeps, now: Date): Promise<number> {
             nodeId: node.id,
             guestId: guest.id,
             kind: "boot_test",
-            params: { ...pveBootTestTaskParams(snap, guest.vmid, plan), jobId: job.id },
+            params: {
+              ...pveBootTestTaskParams(snap, guest.vmid, plan),
+              jobId: job.id,
+              avoidVmids: await avoidVmids(tx, guest.clusterId),
+            },
             expiresAt: new Date(now.getTime() + BOOT_TEST_TASK_TTL_MS),
           })
           .returning({ id: pveTasks.id });
@@ -1244,6 +1699,17 @@ export async function planBootTests(deps: PveDeps, now: Date): Promise<number> {
     });
   }
   return n;
+}
+
+/** The boot test record of a run's stats, as far as it is one. */
+function bootTestOf(stats: Record<string, unknown>): {
+  outcome?: unknown;
+  reason?: string;
+  message?: string;
+  skippedAlertedAt?: unknown;
+} | null {
+  const test = stats.bootTest;
+  return test && typeof test === "object" ? (test as Record<string, never>) : null;
 }
 
 /** Boot tests older than this are not alerted any more (a worker that was down for long). */
@@ -1304,6 +1770,140 @@ export async function alertBootTests(deps: PveDeps, now: Date): Promise<number> 
         .where(eq(pveRuns.id, run.id));
     });
     n++;
+  }
+  return n;
+}
+
+/**
+ * Raise boot_test.skipped once per guest and episode: its job boot-tests it, but no boot test
+ * came to an outcome (green, yellow, red) for longer than the schedule allows (two days after
+ * every backup, eight days weekly), and the last attempt was skipped or could not be carried
+ * out. A skip the planner still tries again is not yet "no result": the event waits until the
+ * attempts at the newest tested restore point are over (a skip that stays, or the attempts used
+ * up, `pveBootTestRetry`) or the skips themselves have gone on for that long. Otherwise a guest
+ * whose last result is old by the rhythm of its backups (backed up every three days, tested
+ * after every backup) would raise it on the first `backup_running` of a new restore point,
+ * whose retry 30 minutes later usually succeeds. The event names the last reason; the run it
+ * was raised for keeps `skippedAlertedAt`, so it comes again only after a boot test came to an
+ * outcome in between.
+ */
+export async function alertBootTestsSkipped(deps: PveDeps, now: Date): Promise<number> {
+  const jobs = await deps.providerDb
+    .select({ job: pveJobs })
+    .from(pveJobs)
+    .innerJoin(tenants, eq(tenants.id, pveJobs.tenantId))
+    .where(and(eq(pveJobs.enabled, true), eq(tenants.status, "active")));
+  let n = 0;
+  for (const { job } of jobs) {
+    const overdueMs = pveBootTestOverdueMs(pveBootTestPlan(job.settings.bootTest).schedule);
+    if (overdueMs === null) {
+      continue;
+    }
+    n += await withTenantTx(deps.db, job.tenantId, async (tx) => {
+      const all = coveredBy(job, await tx.select().from(pveGuests)).filter(
+        (g) => g.lastSnapshotId !== null,
+      );
+      // A guest whose newest restore point is of a privileged container gets no boot test, so
+      // none is missing.
+      const privileged = await privilegedNewest(tx, all);
+      const guests = all.filter((g) => !privileged.has(g.id));
+      let raised = 0;
+      for (const guest of guests) {
+        const rated = (r: { stats: Record<string, unknown> }) => {
+          const outcome = bootTestOf(r.stats)?.outcome;
+          return outcome === "green" || outcome === "yellow" || outcome === "red";
+        };
+        // The last boot test that came to a result, and the attempts since.
+        const [last] = await tx
+          .select({ finishedAt: pveRuns.finishedAt })
+          .from(pveRuns)
+          .where(
+            and(
+              eq(pveRuns.guestId, guest.id),
+              eq(pveRuns.kind, "boot_test"),
+              sql`${pveRuns.stats}->'bootTest'->>'outcome' IN ('green', 'yellow', 'red')`,
+            ),
+          )
+          .orderBy(desc(pveRuns.startedAt))
+          .limit(1);
+        const episode = (
+          await tx
+            .select()
+            .from(pveRuns)
+            .where(
+              and(
+                eq(pveRuns.guestId, guest.id),
+                eq(pveRuns.kind, "boot_test"),
+                sql`${pveRuns.status} <> 'running'`,
+                last?.finishedAt ? sql`${pveRuns.startedAt} > ${last.finishedAt}` : undefined,
+              ),
+            )
+            .orderBy(desc(pveRuns.startedAt))
+            .limit(50)
+        ).filter((r) => !rated(r));
+        const latest = episode[0];
+        const latestOutcome = latest ? bootTestOf(latest.stats)?.outcome : null;
+        if (!latest || (latestOutcome !== "skipped" && latestOutcome !== "error")) {
+          continue;
+        }
+        const episodeStart = episode[episode.length - 1]?.startedAt ?? now;
+        const since = last?.finishedAt ?? episodeStart;
+        if (now.getTime() - since.getTime() < overdueMs) {
+          continue;
+        }
+        // Still being tried: the planner retries this restore point after a passing skip.
+        const retry = pveBootTestRetry(
+          episode
+            .filter((r) => r.snapshotId === latest.snapshotId)
+            .map((r) => {
+              const test = bootTestOf(r.stats);
+              return {
+                outcome: typeof test?.outcome === "string" ? test.outcome : null,
+                reason: typeof test?.reason === "string" ? test.reason : "",
+                startedAt: r.startedAt,
+              };
+            }),
+        );
+        if (!retry.tested && now.getTime() - episodeStart.getTime() < overdueMs) {
+          continue;
+        }
+        if (episode.some((r) => typeof bootTestOf(r.stats)?.skippedAlertedAt === "string")) {
+          continue;
+        }
+        const test = bootTestOf(latest.stats) ?? {};
+        const name = guest.name?.trim() || `${guest.kind === "vm" ? "VM" : "CT"} ${guest.vmid}`;
+        const days = Math.floor((now.getTime() - since.getTime()) / (24 * 60 * 60 * 1000));
+        await raiseEvents(
+          tx,
+          [
+            {
+              tenantId: job.tenantId,
+              level: "warning",
+              event: "boot_test.skipped",
+              message:
+                `No boot test of ${name} came to a result for ${days} days: ${test.message || test.reason || ""}`.trim(),
+              details: {
+                pveGuestId: guest.id,
+                objectName: name,
+                snapshotId: latest.snapshotId,
+                runId: latest.id,
+                reason: test.reason ?? null,
+                days,
+              },
+            },
+          ],
+          now,
+        );
+        await tx
+          .update(pveRuns)
+          .set({
+            stats: sql`jsonb_set(${pveRuns.stats}, '{bootTest,skippedAlertedAt}', to_jsonb(${now.toISOString()}::text))`,
+          })
+          .where(eq(pveRuns.id, latest.id));
+        raised++;
+      }
+      return raised;
+    });
   }
   return n;
 }
@@ -1384,7 +1984,7 @@ export async function pvePass(deps: PveDeps): Promise<PvePassSummary> {
     verified: paused ? 0 : await verifyDue(deps, now),
     restoreTests: paused ? 0 : await planRestoreTests(deps, now),
     bootTests: paused ? 0 : await planBootTests(deps, now),
-    bootTestAlerts: await alertBootTests(deps, now),
+    bootTestAlerts: (await alertBootTests(deps, now)) + (await alertBootTestsSkipped(deps, now)),
     pveTokensDropped: await dropPveTokenSecrets(deps, now),
     downloadsPurged: await purgeDownloads(deps, now),
   };

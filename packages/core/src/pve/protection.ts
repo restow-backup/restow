@@ -15,6 +15,28 @@ export interface PveGuestMembership {
   readonly present: boolean;
   /** Set when an administrator excluded the guest from backup (see {@link pveGuestExcluded}). */
   readonly excludedAt?: Date | string | null;
+  /** The PVE pool the guest is in (see {@link pveGuestInRestorePool}). */
+  readonly pool: string | null;
+  /** Its PVE tags (see {@link pveGuestInRestorePool}). */
+  readonly tags: readonly string[] | null;
+}
+
+/** The PVE pool restores, restore checks and boot tests put their guests in. */
+export const PVE_RESTORE_POOL = "restow-restore";
+/** The tags restow-pve gives the temporary guests of boot tests and restore checks. */
+export const PVE_TEMP_GUEST_TAGS: readonly string[] = ["restow-boottest", "restow-restorecheck"];
+
+/**
+ * Whether a guest is one Restow made: a restored copy in the pool restow-restore, or the
+ * temporary guest of a boot test or restore check (tagged by restow-pve). A job for "all guests"
+ * does not take it, and while it is in no job it counts nowhere as unprotected or without a
+ * job: moving it out of the pool (or putting it into a job) makes it a guest to protect.
+ */
+export function pveGuestInRestorePool(guest: Pick<PveGuestMembership, "pool" | "tags">): boolean {
+  return (
+    guest.pool === PVE_RESTORE_POOL ||
+    (guest.tags ?? []).some((tag) => PVE_TEMP_GUEST_TAGS.includes(tag))
+  );
 }
 
 /** The job fields the rule reads (a subset of the `pve_jobs` row). */
@@ -60,11 +82,17 @@ export function pveGuestExcluded(guest: Pick<PveGuestMembership, "excludedAt">):
 }
 
 /**
- * Whether a guest counts as one to protect: backable and not excluded. Every count of guests
- * (protected, in no job, overdue) and every job plan takes only these.
+ * Whether a guest counts as one to protect: backable, not excluded, and not a guest Restow made
+ * that is in no job ({@link pveGuestInRestorePool}). Every count of guests (protected, in no
+ * job, overdue) and every job plan takes only these.
  */
 export function pveGuestCounted(guest: PveGuestMembership): boolean {
-  return pveGuestBackable(guest) && !pveGuestExcluded(guest);
+  return (
+    pveGuestBackable(guest) &&
+    !pveGuestExcluded(guest) &&
+    // A restored copy or a temporary guest counts only once someone put it into a job.
+    !(guest.jobId === null && pveGuestInRestorePool(guest))
+  );
 }
 
 /**

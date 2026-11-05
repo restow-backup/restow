@@ -3,8 +3,11 @@ import {
   generateAgentSecret,
   hashSecret,
   PVE_BOOT_TEST_CAPABILITY,
+  PVE_RESTORE_TEST_EVERY_MS,
   parseArchiveName,
+  pveGuestInRestorePool,
   pveNodeDeclares,
+  pveRestoreCheckSkipRetryMs,
 } from "@restow/core";
 import {
   type JobStartPauseState,
@@ -35,10 +38,11 @@ import {
   readReleaseFile,
 } from "../endpoints/distribution.js";
 import { auditPve, nodeActor, PVE_AUDIT_ACTIONS } from "./audit.js";
-import { recordBootTestResult } from "./boot-tests.js";
+import { markBootTestLeftoversGone, recordBootTestResult } from "./boot-tests.js";
 import { cancelOrders, taskCancelledOrFailed } from "./cancel.js";
 import type { NodeContext } from "./node-auth.js";
 import { endedStatus, finishFailedTaskRun, settleLateBackupResult } from "./runs.js";
+import { restoreResultSchema } from "./schemas.js";
 import { normalizeSmbiosUuid, ownSmbiosUuid } from "./self-guest.js";
 
 /**
@@ -57,9 +61,14 @@ export const pveEnrollFailures = new FailureTracker(20);
 export const DEFAULT_STORAGE_ID = "restow";
 
 const REDELIVER_AFTER_MS = 30 * 60 * 1000;
+/** A delivered task the node's list does not show yet may still be on its way to the node. */
+const HELD_TASKS_GRACE_MS = 10 * 60 * 1000;
+const TASK_EXPIRED = "The node did not run the task in time.";
+export const TASK_NO_LONGER_HELD = "The node no longer holds this task (restow-pve restarted).";
 const BOOT_TEST_UNSUPPORTED =
   "The node does not run boot tests (restow-pve too old, or boot tests switched off on the node).";
 const MAX_TASKS = 5;
+const MAX_CANCEL_ORDERS = 128;
 /** A node that has not called for this long is offline. */
 export const NODE_ONLINE_MS = 3 * 60 * 1000;
 
@@ -271,6 +280,7 @@ export interface HeartbeatInput {
   restoresAllowed: boolean;
   activeRuns?: string[];
   capabilities?: string[];
+  heldTasks?: { current?: string | null; queued: string[] };
 }
 
 /** Whether an update pauses new job starts (#46); unreadable counts as not paused. */
@@ -292,6 +302,15 @@ export async function nodeHeartbeat(
   // them on the first heartbeat after the pause.
   const pause = await startPause();
   const paused = pause.paused;
+  // The tasks the node holds (restow-pve from 0.5.0); null from an older helper.
+  const held = input.heldTasks
+    ? new Set(
+        [input.heldTasks.current, ...input.heldTasks.queued].filter((id): id is string =>
+          Boolean(id),
+        ),
+      )
+    : null;
+  const listed = held && held.size > 0 ? [...held] : null;
   const result = await withTenantTx(db, node.tenantId, async (tx) => {
     const [nodeRow] = await tx
       .update(pveNodes)
@@ -309,6 +328,7 @@ export async function nodeHeartbeat(
             : {}),
           // An older node sends none: it gets none of the newer task kinds.
           capabilities: (input.capabilities ?? []).slice(0, 32),
+          ...(held ? { heldTasks: [...held], heldTasksAt: now.toISOString() } : {}),
         },
         lastSeenAt: now,
       })
@@ -320,24 +340,52 @@ export async function nodeHeartbeat(
     // Tasks nobody picked up in time fail (one with a cancel request ends cancelled).
     const expired = await tx
       .update(pveTasks)
-      .set({
-        status: taskCancelledOrFailed(),
-        finishedAt: now,
-        errorMessage: "The node did not run the task in time.",
-      })
+      .set({ status: taskCancelledOrFailed(), finishedAt: now, errorMessage: TASK_EXPIRED })
       .where(
         and(
           eq(pveTasks.nodeId, node.nodeId),
           inArray(pveTasks.status, ["pending", "delivered"]),
           lt(pveTasks.expiresAt, now),
-          // A task the node is working on did run in time: its run ends it (or the worker
-          // closes a run its node no longer lists), never the expiry.
-          sql`NOT EXISTS (SELECT 1 FROM pve_runs r WHERE r.task_id = "pve_tasks"."id" AND r.status = 'running')`,
+          // A task the node lists is waiting in its queue or running: it is not late.
+          listed ? notInArray(pveTasks.id, listed) : undefined,
+          or(
+            // A restore, restore check or boot test the node never got: its run is only the
+            // placeholder created with the task.
+            and(eq(pveTasks.status, "pending"), ne(pveTasks.kind, "backup")),
+            // A task the node is working on did run in time: its run ends it (or the worker
+            // closes a run its node no longer lists), never the expiry.
+            sql`NOT EXISTS (SELECT 1 FROM pve_runs r WHERE r.task_id = "pve_tasks"."id" AND r.status = 'running')`,
+          ),
         ),
       )
       .returning();
     for (const task of expired) {
-      await finishFailedTaskRun(tx, task, "The node did not run the task in time.", now);
+      await finishFailedTaskRun(tx, task, TASK_EXPIRED, now);
+    }
+    // A restore, restore check or boot test the node was given but no longer holds is lost (the
+    // helper restarted, its queue is in memory): no result will come, so it fails now instead of
+    // after 48 hours. Backups are not judged by the list: their runs tell.
+    const lost = held
+      ? await tx
+          .update(pveTasks)
+          .set({
+            status: taskCancelledOrFailed(),
+            finishedAt: now,
+            errorMessage: TASK_NO_LONGER_HELD,
+          })
+          .where(
+            and(
+              eq(pveTasks.nodeId, node.nodeId),
+              eq(pveTasks.status, "delivered"),
+              ne(pveTasks.kind, "backup"),
+              lt(pveTasks.deliveredAt, new Date(now.getTime() - HELD_TASKS_GRACE_MS)),
+              listed ? notInArray(pveTasks.id, listed) : undefined,
+            ),
+          )
+          .returning()
+      : [];
+    for (const task of lost) {
+      await finishFailedTaskRun(tx, task, TASK_NO_LONGER_HELD, now);
     }
     // A boot test queued for a node that no longer announces them (an older helper after a
     // reinstall, or boot tests switched off on the node) fails instead of being delivered.
@@ -361,8 +409,14 @@ export async function nodeHeartbeat(
         await finishFailedTaskRun(tx, task, BOOT_TEST_UNSUPPORTED, now);
       }
     }
-    // What the node is to stop: delivered tasks and running backups with a cancel request.
-    const cancel = await cancelOrders(tx, node.nodeId);
+    // What the node is to stop: delivered tasks and running backups with a cancel request, and
+    // every delivered task the server just closed, so the node drops a copy it still queues.
+    const orders = await cancelOrders(tx, node.nodeId);
+    const closedHere = [...expired, ...lost].filter((t) => t.deliveredAt !== null).map((t) => t.id);
+    const cancel = {
+      ...orders,
+      tasks: [...new Set([...orders.tasks, ...closedHere])].slice(0, MAX_CANCEL_ORDERS),
+    };
     // A node that was busy did not take new work; the state tells. A paused queue hands out
     // no backup (the admin resumes it on the node's page).
     const queuePaused = nodeRow?.queuePausedAt != null;
@@ -528,20 +582,127 @@ export interface InventoryGuestInput {
   smbiosUuid?: string | null;
 }
 
+/** Names restow-pve gives the temporary guests of boot tests and restore checks. */
+const TEMP_GUEST_NAME = /^restow-(boottest|restorecheck)-/;
+
 /**
- * Replace what this node reports: every guest it lists is upserted (it may
- * have migrated here), every guest last seen on this node that it no longer
- * lists is marked absent.
+ * Whether a VMID the inventory reports belongs to another guest than the row Restow keeps for it
+ * (docs/PVE.md, "A VMID used again"). Only a row worth keeping counts (it holds restore points
+ * or a job; any other row is simply taken over): the kind differs; or, while the old guest is
+ * absent, the guest is a temporary one (by its name or tag) or a restored copy in the pool
+ * restow-restore, or its identity differs:
+ *
+ *   - a VM whose SMBIOS UUID differs and whose name differs as well. A restore with `unique=1`
+ *     (the PVE UI's "Unique", qmrestore --unique) of the deleted VM into its own VMID gives it a
+ *     new SMBIOS UUID but keeps its name: that is the same guest back, with its history and job;
+ *   - a container (which has no UUID), or a VM without one, whose name (its hostname) differs:
+ *     an unrelated container an admin created under the VMID of a deleted one.
+ *
+ * A name only counts when both sides have one.
+ */
+export function pveVmidReused(
+  before: {
+    kind: string;
+    present: boolean;
+    name: string | null;
+    smbiosUuid: string | null;
+    jobId: string | null;
+    holdsPoints: boolean;
+  },
+  reported: {
+    kind: string;
+    name: string;
+    pool: string;
+    tags: readonly string[];
+    smbiosUuid: string | null;
+  },
+): boolean {
+  if (!before.holdsPoints && before.jobId === null) {
+    return false;
+  }
+  if (before.kind !== reported.kind) {
+    return true;
+  }
+  if (before.present) {
+    return false;
+  }
+  if (
+    TEMP_GUEST_NAME.test(reported.name) ||
+    pveGuestInRestorePool({ pool: reported.pool || null, tags: reported.tags })
+  ) {
+    return true;
+  }
+  const oldName = before.name?.trim() ?? "";
+  const newName = reported.name.trim();
+  const nameDiffers = oldName !== "" && newName !== "" && oldName !== newName;
+  if (reported.kind === "vm" && before.smbiosUuid !== null && reported.smbiosUuid !== null) {
+    return before.smbiosUuid !== reported.smbiosUuid && nameDiffers;
+  }
+  return nameDiffers;
+}
+
+/** A guest of the cluster as /cluster/resources lists it (restow-pve from 0.5.0). */
+export interface ClusterGuestInput {
+  vmid: number;
+  node: string;
+  type: "vm" | "ct";
+}
+
+/**
+ * Replace what this node reports: every guest it lists is upserted (it may have migrated here).
+ *
+ * With the cluster's whole guest list (`clusterGuests`, restow-pve from 0.5.0) the sweep is
+ * cluster-wide and by fact: a guest the list does not name is gone (absent); a guest it names on
+ * a node without restow-pve stays present with that node, so it reads "no Restow node" and
+ * counts as unprotected instead of dropping out of every count; a guest on another node with
+ * restow-pve is that node's to report. Without the list (an older node, or one that could not
+ * read it), every guest last seen on this node that it no longer lists is marked absent, as
+ * before.
  */
 export async function reportInventory(
   node: NodeContext,
   guests: InventoryGuestInput[],
   now: Date = new Date(),
+  clusterGuests: ClusterGuestInput[] | null = null,
 ): Promise<{ guests: number }> {
   // The VM this installation runs in carries the server's SMBIOS UUID (self-guest.ts).
   const own = await ownSmbiosUuid();
   await withTenantTx(db, node.tenantId, async (tx) => {
+    const vmids = guests.map((g) => g.vmid);
+    const existing =
+      vmids.length > 0
+        ? await tx
+            .select({
+              id: pveGuests.id,
+              vmid: pveGuests.vmid,
+              kind: pveGuests.kind,
+              present: pveGuests.present,
+              name: pveGuests.name,
+              smbiosUuid: pveGuests.smbiosUuid,
+              jobId: pveGuests.jobId,
+              holdsPoints: sql<boolean>`EXISTS (SELECT 1 FROM pve_snapshots s WHERE s.guest_id = "pve_guests"."id" AND s.status <> 'pruned')`,
+            })
+            .from(pveGuests)
+            .where(
+              and(
+                eq(pveGuests.clusterId, node.clusterId),
+                inArray(pveGuests.vmid, vmids),
+                isNull(pveGuests.retiredAt),
+              ),
+            )
+        : [];
+    const known = new Map(existing.map((row) => [row.vmid, row]));
     for (const g of guests) {
+      const uuid = g.kind === "vm" ? normalizeSmbiosUuid(g.smbiosUuid) : null;
+      const before = known.get(g.vmid);
+      if (before && pveVmidReused(before, { ...g, smbiosUuid: uuid })) {
+        // Another guest under a VMID Restow still holds: the old row keeps its restore points,
+        // job and repository, absent; the new guest starts a row of its own.
+        await tx
+          .update(pveGuests)
+          .set({ retiredAt: now, present: false })
+          .where(eq(pveGuests.id, before.id));
+      }
       const values = {
         restowServerDetected:
           own !== null && g.kind === "vm" && normalizeSmbiosUuid(g.smbiosUuid) === own,
@@ -557,25 +718,115 @@ export async function reportInventory(
         disks: g.disks.slice(0, 64),
         present: true,
         reportedAt: now,
+        // An older node sends none: the one known stays.
+        ...(uuid ? { smbiosUuid: uuid } : {}),
       };
       await tx
         .insert(pveGuests)
         .values({ tenantId: node.tenantId, clusterId: node.clusterId, vmid: g.vmid, ...values })
-        .onConflictDoUpdate({ target: [pveGuests.clusterId, pveGuests.vmid], set: values });
+        .onConflictDoUpdate({
+          target: [pveGuests.clusterId, pveGuests.vmid],
+          targetWhere: sql`${pveGuests.retiredAt} IS NULL`,
+          set: values,
+        });
     }
     const listed = guests.map((g) => g.vmid);
-    await tx
+    if (clusterGuests === null) {
+      await tx
+        .update(pveGuests)
+        .set({ present: false })
+        .where(
+          and(
+            eq(pveGuests.clusterId, node.clusterId),
+            eq(pveGuests.node, node.name),
+            listed.length > 0 ? notInArray(pveGuests.vmid, listed) : sql`true`,
+          ),
+        );
+    } else {
+      await sweepByClusterList(tx, node, listed, clusterGuests);
+    }
+    // A boot test's temporary guest this node could not remove and no longer lists is gone.
+    await markBootTestLeftoversGone(tx, node.nodeId, listed, now);
+  });
+  return { guests: guests.length };
+}
+
+/** The cluster-wide sweep of {@link reportInventory}, by the cluster's whole guest list. */
+async function sweepByClusterList(
+  tx: Transaction,
+  node: NodeContext,
+  listed: readonly number[],
+  clusterGuests: readonly ClusterGuestInput[],
+): Promise<void> {
+  const named = [...new Set([...listed, ...clusterGuests.map((g) => g.vmid)])];
+  // Gone from the cluster: absent, whichever node last reported it.
+  await tx
+    .update(pveGuests)
+    .set({ present: false })
+    .where(
+      and(
+        eq(pveGuests.clusterId, node.clusterId),
+        eq(pveGuests.present, true),
+        named.length > 0 ? notInArray(pveGuests.vmid, named) : sql`true`,
+      ),
+    );
+  const helpers = new Set(
+    (
+      await tx
+        .select({ name: pveNodes.name })
+        .from(pveNodes)
+        .where(and(eq(pveNodes.clusterId, node.clusterId), isNull(pveNodes.revokedAt)))
+    ).map((n) => n.name),
+  );
+  const own = new Set(listed);
+  for (const g of clusterGuests) {
+    if (own.has(g.vmid) || g.node === node.name) {
+      continue;
+    }
+    if (helpers.has(g.node)) {
+      // That node reports it; a guest that just moved there keeps its row and is not absent.
+      await tx
+        .update(pveGuests)
+        .set({ node: g.node })
+        .where(
+          and(
+            eq(pveGuests.clusterId, node.clusterId),
+            eq(pveGuests.vmid, g.vmid),
+            eq(pveGuests.kind, g.type),
+            eq(pveGuests.node, node.name),
+            isNull(pveGuests.retiredAt),
+          ),
+        );
+      continue;
+    }
+    // Runs on a node without restow-pve: still there, and not backed up there. One no node
+    // with restow-pve ever reported is listed as well, so it is not missed.
+    const kept = await tx
       .update(pveGuests)
-      .set({ present: false })
+      .set({ node: g.node, present: true })
       .where(
         and(
           eq(pveGuests.clusterId, node.clusterId),
-          eq(pveGuests.node, node.name),
-          listed.length > 0 ? notInArray(pveGuests.vmid, listed) : sql`true`,
+          eq(pveGuests.vmid, g.vmid),
+          eq(pveGuests.kind, g.type),
+          isNull(pveGuests.retiredAt),
         ),
-      );
-  });
-  return { guests: guests.length };
+      )
+      .returning({ id: pveGuests.id });
+    if (kept.length === 0) {
+      await tx
+        .insert(pveGuests)
+        .values({
+          tenantId: node.tenantId,
+          clusterId: node.clusterId,
+          vmid: g.vmid,
+          kind: g.type,
+          node: g.node,
+          present: true,
+        })
+        .onConflictDoNothing();
+    }
+  }
 }
 
 /** The warning lines a node reports with a task (vzdump "TASK WARNINGS"), cut and bounded. */
@@ -700,12 +951,73 @@ export async function taskResult(
       .where(and(eq(pveRuns.taskId, task.id), eq(pveRuns.status, "running")))
       .limit(1);
     if (run && (run.kind === "restore" || run.kind === "restore_test")) {
+      // The run succeeded; what the result says beside it (warnings, mount points left out, a
+      // guest the check could not remove, ...) stays with it and makes it amber in the UI.
+      const parsed = restoreResultSchema.safeParse(input.result ?? {});
+      const result: Record<string, unknown> = parsed.success
+        ? Object.fromEntries(Object.entries(parsed.data).filter(([, v]) => v !== undefined))
+        : {};
+      // Whether the copy started means something only where the task asked for a start: a
+      // check never starts its guest, and a restore without "Start after the restore" has no
+      // start to report. A `started: false` there must not read "Restored, not started".
+      if (run.kind !== "restore" || task.params?.start !== true) {
+        delete result.started;
+        delete result.startError;
+        delete result.startSkipped;
+      }
+      const skipped = run.kind === "restore_test" && parsed.success ? parsed.data.skipped : null;
+      if (skipped) {
+        // The node did not run the check (its target storage is missing, inactive, without the
+        // guest's content type or too small; restores are off): not checked, which says nothing
+        // about the restore point. It is planned again after a day, and after skips for the same
+        // reason in a row after 2, 4, then every 7 days: a cause that stays until an admin acts
+        // does not add a run "Not checked" to the history every day.
+        const before = await tx
+          .select({ stats: pveRuns.stats })
+          .from(pveRuns)
+          .where(
+            and(
+              eq(pveRuns.guestId, run.guestId),
+              eq(pveRuns.kind, "restore_test"),
+              sql`${pveRuns.id} <> ${run.id}`,
+              sql`${pveRuns.status} <> 'running'`,
+            ),
+          )
+          .orderBy(desc(pveRuns.startedAt))
+          .limit(8);
+        let inARow = 1;
+        for (const previous of before) {
+          const reason = (previous.stats as { skipped?: { reason?: unknown } }).skipped?.reason;
+          if (reason !== skipped.reason) {
+            break;
+          }
+          inARow++;
+        }
+        await tx
+          .update(pveRuns)
+          .set({
+            status: "failed",
+            finishedAt: now,
+            errorMessage: skipped.message || `Not checked: ${skipped.reason}`,
+            stats: { ...run.stats, ...result },
+          })
+          .where(eq(pveRuns.id, run.id));
+        await tx
+          .update(pveGuests)
+          .set({
+            lastRestoreTestAt: new Date(
+              now.getTime() - PVE_RESTORE_TEST_EVERY_MS + pveRestoreCheckSkipRetryMs(inARow),
+            ),
+          })
+          .where(eq(pveGuests.id, run.guestId));
+        return;
+      }
       await tx
         .update(pveRuns)
         .set({
           status: "succeeded",
           finishedAt: now,
-          stats: { ...run.stats, ...(input.result ?? {}) },
+          stats: { ...run.stats, ...result },
         })
         .where(eq(pveRuns.id, run.id));
       if (run.kind === "restore_test") {
@@ -718,26 +1030,80 @@ export async function taskResult(
   });
 }
 
-/** The restore points of the node's cluster, for the storage plugin's listing. */
-export async function listing(node: NodeContext) {
-  const rows = await withTenantTx(db, node.tenantId, (tx) =>
-    tx
+/** The most restore points one page of the listing holds (and what a node before 0.5.0 gets). */
+export const LISTING_PAGE_MAX = 10_000;
+
+/**
+ * Where a page of the cluster-wide listing ends: the backup time (to the millisecond, as the
+ * listing orders it) and the id of its last restore point, base64url.
+ */
+export function listingCursor(backupAtMs: number, id: string): string {
+  return Buffer.from(`${backupAtMs}:${id}`, "utf8").toString("base64url");
+}
+
+function parseListingCursor(cursor: string): { backupAtMs: number; id: string } {
+  const text = Buffer.from(cursor, "base64url").toString("utf8");
+  const match = /^(\d{1,15}):([0-9a-f-]{36})$/.exec(text);
+  if (!match) {
+    throw new ProblemError(422, "Invalid cursor", {
+      detail: "The cursor is not one a listing page gave.",
+    });
+  }
+  return { backupAtMs: Number(match[1]), id: match[2] as string };
+}
+
+/**
+ * The restore points of the node's cluster, for the storage plugin's listing
+ * (docs/PVE-PROTOCOL.md, "Listing"), newest first:
+ *
+ *   - with `vmid`, every active restore point of that VMID, unpaged (PVE asks per VMID for a
+ *     guest's Backup tab and for one volume's size);
+ *   - else one page of the cluster's, at most `limit` (and {@link LISTING_PAGE_MAX}), from
+ *     `cursor` on; `next` is the cursor of the page after, null on the last. A node before
+ *     0.5.0 asks without either and gets the newest 10,000, as before.
+ */
+export async function listing(
+  node: NodeContext,
+  query: { vmid?: number; cursor?: string; limit?: number } = {},
+) {
+  // Ordered by the backup time to the millisecond and the id: the cursor carries both exactly.
+  const backupAtMs = sql<number>`floor(extract(epoch from ${pveSnapshots.backupAt}) * 1000)::bigint`;
+  const where = [eq(pveSnapshots.clusterId, node.clusterId), eq(pveSnapshots.status, "active")];
+  let limit: number | undefined;
+  if (query.vmid !== undefined) {
+    where.push(eq(pveGuests.vmid, query.vmid));
+  } else {
+    limit = Math.min(Math.max(query.limit ?? LISTING_PAGE_MAX, 1), LISTING_PAGE_MAX);
+    if (query.cursor) {
+      const after = parseListingCursor(query.cursor);
+      where.push(
+        sql`(${backupAtMs}, ${pveSnapshots.id}) < (${after.backupAtMs}::bigint, ${after.id}::uuid)`,
+      );
+    }
+  }
+  const rows = await withTenantTx(db, node.tenantId, (tx) => {
+    const select = tx
       .select({
         archiveName: pveSnapshots.archiveName,
         kind: pveSnapshots.kind,
         backupAt: pveSnapshots.backupAt,
+        backupAtMs,
         byteSize: pveSnapshots.byteSize,
         id: pveSnapshots.id,
         vmid: pveGuests.vmid,
       })
       .from(pveSnapshots)
       .innerJoin(pveGuests, eq(pveGuests.id, pveSnapshots.guestId))
-      .where(and(eq(pveSnapshots.clusterId, node.clusterId), eq(pveSnapshots.status, "active")))
-      .orderBy(desc(pveSnapshots.backupAt))
-      .limit(10_000),
-  );
+      .where(and(...where))
+      .orderBy(desc(backupAtMs), desc(pveSnapshots.id));
+    // One more than the page, to know whether another follows.
+    return limit === undefined ? select : select.limit(limit + 1);
+  });
+  const more = limit !== undefined && rows.length > limit;
+  const page = more ? rows.slice(0, limit) : rows;
+  const last = page.at(-1);
   return {
-    volumes: rows.map((r) => ({
+    volumes: page.map((r) => ({
       volname: r.archiveName,
       vmid: r.vmid,
       kind: r.kind,
@@ -745,6 +1111,7 @@ export async function listing(node: NodeContext) {
       size: r.byteSize,
       snapshotId: r.id,
     })),
+    next: more && last ? listingCursor(Number(last.backupAtMs), last.id) : null,
   };
 }
 
@@ -758,7 +1125,13 @@ export async function guestForBackup(
     const [found] = await tx
       .select()
       .from(pveGuests)
-      .where(and(eq(pveGuests.clusterId, node.clusterId), eq(pveGuests.vmid, vmid)))
+      .where(
+        and(
+          eq(pveGuests.clusterId, node.clusterId),
+          eq(pveGuests.vmid, vmid),
+          isNull(pveGuests.retiredAt),
+        ),
+      )
       .limit(1);
     if (found) {
       return found;
@@ -774,7 +1147,13 @@ export async function guestForBackup(
     const [again] = await tx
       .select()
       .from(pveGuests)
-      .where(and(eq(pveGuests.clusterId, node.clusterId), eq(pveGuests.vmid, vmid)))
+      .where(
+        and(
+          eq(pveGuests.clusterId, node.clusterId),
+          eq(pveGuests.vmid, vmid),
+          isNull(pveGuests.retiredAt),
+        ),
+      )
       .limit(1);
     if (!again) {
       throw new Error("guest vanished");

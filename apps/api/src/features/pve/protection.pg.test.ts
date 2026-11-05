@@ -162,6 +162,13 @@ async function seed(db: Database): Promise<Fixture> {
     excludedAt: ago(DAY),
     excludedBy: "admin@contoso.test",
   });
+  // A restored copy not yet accepted and a boot test's leftover, both in no job: no guest to
+  // protect, so none of the counts below moves (S14).
+  await guest(contoso, contosoCluster, 107, "web-restored", { kind: "ct", pool: "restow-restore" });
+  await guest(contoso, contosoCluster, 9001, "restow-boottest-101", {
+    tags: ["restow-boottest"],
+    pool: "restow-restore",
+  });
   const foreign = await guest(fabrikam, fabrikamCluster, 101, "fabrikam-vm");
 
   let sequence = 0;

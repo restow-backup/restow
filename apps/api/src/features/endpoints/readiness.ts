@@ -4,7 +4,7 @@ import {
   endpointVerifyOverdue,
   type ReadinessReportFact,
 } from "@restow/core";
-import { endpointReports, endpointRuns } from "@restow/db";
+import { endpointReports, endpointRuns, endpointSamples } from "@restow/db";
 import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import type { Transaction } from "../../lib/tenant-context.js";
 
@@ -20,6 +20,12 @@ export interface EndpointReadinessDto extends EndpointReadinessResult {
   overdue: boolean;
   latestSnapshotId: string | null;
   latestBackupAt: Date | null;
+  /**
+   * The newest good backup has no sample files (`endpoint_samples`), so no restore test of it is
+   * possible: the agent could record none (on Windows before 0.5.0, every backup). It stays
+   * `unverified`, never green, and the web app says why instead of "not tested yet".
+   */
+  noSamples: boolean;
 }
 
 export async function loadEndpointReadiness(
@@ -94,6 +100,25 @@ export async function loadEndpointReadiness(
     )
     .orderBy(endpointReports.endpointId, desc(endpointReports.checkedAt));
 
+  // Which of those backups recorded sample files for a restore test.
+  const sampled =
+    snapshotIds.length === 0
+      ? []
+      : await tx
+          .selectDistinct({
+            endpointId: endpointSamples.endpointId,
+            snapshotId: endpointSamples.snapshotId,
+          })
+          .from(endpointSamples)
+          .where(
+            and(
+              eq(endpointSamples.tenantId, tenantId),
+              inArray(endpointSamples.endpointId, ids),
+              inArray(endpointSamples.snapshotId, snapshotIds),
+            ),
+          );
+  const withSamples = new Set(sampled.map((row) => `${row.endpointId}/${row.snapshotId}`));
+
   const factsByEndpoint = new Map<string, ReadinessReportFact[]>();
   for (const row of [...tests, ...checks]) {
     const list = factsByEndpoint.get(row.endpointId) ?? [];
@@ -119,6 +144,10 @@ export async function loadEndpointReadiness(
       overdue: endpointVerifyOverdue(rated.checkedAt, now),
       latestSnapshotId: backup?.snapshotId ?? null,
       latestBackupAt: backup?.finishedAt ?? null,
+      noSamples:
+        rated.state === "unverified" &&
+        !!backup?.snapshotId &&
+        !withSamples.has(`${id}/${backup.snapshotId}`),
     });
   }
   return result;

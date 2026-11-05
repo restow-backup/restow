@@ -36,6 +36,7 @@ import {
   endpointEnrollmentTokens,
   endpointReports,
   endpointRuns,
+  endpointSamples,
   endpointSnapshotFlags,
   endpoints,
   endpointTasks,
@@ -1268,6 +1269,24 @@ export async function requestRestoreTest(
       throw new ProblemError(409, "Nothing to test", {
         type: ENDPOINT_PROBLEMS.nothingToTest,
         detail: "The endpoint has no good backup to test yet.",
+      });
+    }
+    // Without sample files the worker has nothing to read back: say so instead of queueing a
+    // test that ends without a result.
+    const [sample] = await tx
+      .select({ id: endpointSamples.id })
+      .from(endpointSamples)
+      .where(
+        and(
+          eq(endpointSamples.endpointId, id),
+          eq(endpointSamples.snapshotId, endpoint.lastSnapshotId),
+        ),
+      )
+      .limit(1);
+    if (!sample) {
+      throw new ProblemError(409, "No sample files", {
+        type: ENDPOINT_PROBLEMS.noSamples,
+        detail: "The newest backup recorded no sample files, so no restore test of it is possible.",
       });
     }
     const payload: EndpointJobPayload = { tenantId, endpointId: id, force: true };

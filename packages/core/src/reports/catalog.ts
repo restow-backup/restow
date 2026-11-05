@@ -25,6 +25,7 @@ export const REPORT_EVENTS = [
   "verify.completed",
   "boot_test.failed",
   "boot_test.unproven",
+  "boot_test.skipped",
   "scrub.corrupt",
   "scrub.repaired",
   "endpoint.stale",
@@ -106,6 +107,10 @@ export const REPORT_EVENT_INFO: Readonly<Record<ReportEvent, ReportEventInfo>> =
   // A boot test's temporary VM started and kept running, but its QEMU guest agent never
   // answered: no proof that the system inside works.
   "boot_test.unproven": { group: "recoverability", level: "warning" },
+  // A guest's job boot-tests it, but no boot test came to a result for longer than its schedule
+  // allows (two days after every backup, eight weekly): each was skipped or could not be carried
+  // out. Once per guest until a boot test comes to a result again.
+  "boot_test.skipped": { group: "recoverability", level: "warning" },
   "scrub.corrupt": { group: "storage", level: "error" },
   "scrub.repaired": { group: "storage", level: "info" },
   // An endpoint (server or client, docs/AGENT.md) went silent or missed its backups.

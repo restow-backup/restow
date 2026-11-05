@@ -24,6 +24,7 @@ export const REPORT_EVENTS = [
   "verify.completed",
   "boot_test.failed",
   "boot_test.unproven",
+  "boot_test.skipped",
   "scrub.corrupt",
   "scrub.repaired",
   "endpoint.stale",
