@@ -59,6 +59,9 @@
  *     createdDateTime, lastModifiedDateTime  ISO 8601 (default: mtime)
  *     contentType        MIME type
  *     quickXorHash       hash OneDrive reported at backup time
+ *     sourceSize         size OneDrive reported; differs from the object's
+ *                        size when the source rewrote the file on download
+ *                        (SharePoint, Office document properties)
  *     stale              "true" when the bytes are the last good copy of a changed file
  *     versionId          file-version: the OneDrive version id
  *     packageType        folder: a package (OneNote notebook) whose files lie below it
@@ -434,12 +437,43 @@ export function versionFactsOf(object: ManifestObject): VersionFacts {
   return { filePath, versionId: nonEmpty(object.metadata?.versionId) ?? fromPath };
 }
 
-/** The backup-time QuickXorHash of a file, when its bytes still belong to it. */
+/**
+ * Whether the backed-up bytes differ from what the source stored: SharePoint
+ * (and OneDrive for Business) rewrite the document properties of an Office
+ * file on download, so the backup holds other bytes than the item, of
+ * another size (`sourceSize`, the size Graph reported, differs).
+ */
+export function rewrittenOnDownload(object: ManifestObject): boolean {
+  const recorded = nonEmpty(object.metadata?.sourceSize);
+  return recorded !== undefined && recorded !== String(object.size);
+}
+
+/**
+ * The backup-time QuickXorHash of a file, when it is the hash of the
+ * backed-up bytes: not for the last good copy of a changed file (stale), and
+ * not for a file the source rewrote on download, whose recorded hash belongs
+ * to the bytes the source stores, not to the backup's.
+ */
 export function recordedQuickXorHashOf(object: ManifestObject): string | undefined {
-  if (object.metadata?.stale === "true") {
+  if (object.metadata?.stale === "true" || rewrittenOnDownload(object)) {
     return undefined;
   }
   return nonEmpty(object.metadata?.quickXorHash);
+}
+
+/**
+ * What the source stored for a file it rewrites on download: the size and
+ * QuickXorHash Graph reported at backup time, to recognise the unchanged
+ * original in its place. Undefined for any other file.
+ */
+export function sourceStoredOf(
+  object: ManifestObject,
+): { readonly size: number; readonly quickXorHash: string } | undefined {
+  const quickXorHash = nonEmpty(object.metadata?.quickXorHash);
+  if (!rewrittenOnDownload(object) || object.metadata?.stale === "true" || !quickXorHash) {
+    return undefined;
+  }
+  return { size: Number(object.metadata?.sourceSize), quickXorHash };
 }
 
 // ---------------------------------------------------------------------------

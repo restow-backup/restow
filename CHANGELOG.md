@@ -567,6 +567,11 @@ private repository.
   became "A%2FB"); they are now the real mailbox names, and in "skip" mode `INBOX` goes into the
   target's inbox and a mailbox with a SPECIAL-USE (`\Sent`, `\Drafts`, `\Trash`, `\Junk`,
   `\Archive`) into the matching folder, instead of new top-level folders "INBOX" and "Sent".
+- Mail restore: a message that Exchange created as a draft (a MIME import whose header lacks Date
+  or From, for example) counted as confirmed as soon as its Message-ID matched, although it was
+  no draft in the backup and Outlook shows it as an unsent draft. The draft state of every
+  restored message is now compared with the backup (`isDraft` of an Exchange backup, `\Draft` of
+  an IMAP backup or import); a difference makes it "Not confirmed" with the reason.
 - Restore into another IMAP account: the target was stored as the bare login and looked up without
   order, source or status, so with two IMAP sources that know the same login (an old and a new
   server during a migration) a restore could write into the wrong server while the job reported
@@ -577,11 +582,16 @@ private repository.
   suggestions"); a login that only one account has, as sent by older API clients or jobs queued
   before the update, still works. A restore of an imported mailbox into a Microsoft 365 mailbox
   whose address two mailboxes of the tenant share is refused the same way instead of picking one.
-- Mail restore: a message that Exchange created as a draft (a MIME import whose header lacks Date
-  or From, for example) counted as confirmed as soon as its Message-ID matched, although it was
-  no draft in the backup and Outlook shows it as an unsent draft. The draft state of every
-  restored message is now compared with the backup (`isDraft` of an Exchange backup, `\Draft` of
-  an IMAP backup or import); a difference makes it "Not confirmed" with the reason.
+- OneDrive/SharePoint restore: in "rename" mode an Office file of a SharePoint or OneDrive for
+  Business library came back as a numbered copy ("Report 1.docx") next to the unchanged original,
+  and every retry of the job (after an update's drain or a restart) added one more ("Report
+  2.docx", ...). SharePoint rewrites the document properties of an Office file on download, so the
+  backup holds other bytes than the library, and the duplicate check compared the library's size
+  and hash with the backup's. The unchanged original is now recognised by the size and hash the
+  library reported at backup time, the backup's own hash is used for everything else, and the job
+  records which item it uploaded for which file, so a retry never uploads it again. Such files
+  were also marked "Not confirmed" after every restore because their hash was compared with the
+  library's; they are confirmed now when what was sent matches the backup.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,

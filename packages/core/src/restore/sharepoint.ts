@@ -62,6 +62,7 @@ import type { ManifestObject, SnapshotManifest } from "../manifest.js";
 import { chunkReaderFor, type RestoreGraphClientFactory, throwIfAborted } from "./common.js";
 import { objectTypeOf } from "./conventions.js";
 import { OneDriveRestoreSession, parseDriveTargetRef } from "./onedrive.js";
+import { RestoreProgress } from "./progress.js";
 import { isAbortError, RestoreLedger, type RestoreReport } from "./results.js";
 import { planRestore, resolveRestoreSource } from "./selection.js";
 
@@ -189,15 +190,25 @@ export class SharePointRestoreEngine implements RestoreEngine {
     const reader = chunkReaderFor(ctx);
     if (libraries.size > 0) {
       ctx.progress.phase("files");
-      await this.restoreLibraries(
-        ctx,
-        request,
-        client,
-        objects,
-        [...libraries.values()],
-        ledger,
-        logger,
-      );
+      const progress = await RestoreProgress.open(ctx.cursor, request.restoreJobId);
+      try {
+        await this.restoreLibraries(
+          ctx,
+          request,
+          client,
+          objects,
+          [...libraries.values()],
+          ledger,
+          logger,
+          progress,
+        );
+      } finally {
+        await progress.flush().catch((error: unknown) =>
+          logger.warn("could not save the restore progress", {
+            error: error instanceof Error ? error.message : String(error),
+          }),
+        );
+      }
     }
     if (lists.size > 0) {
       ctx.progress.phase("lists");
@@ -247,6 +258,7 @@ export class SharePointRestoreEngine implements RestoreEngine {
     groups: readonly LibraryGroup[],
     ledger: RestoreLedger,
     logger: Logger,
+    progress: RestoreProgress,
   ): Promise<void> {
     const other =
       request.target.type === "other" ? parseDriveTargetRef(request.target.ref ?? "") : null;
@@ -287,6 +299,7 @@ export class SharePointRestoreEngine implements RestoreEngine {
         reader: chunkReaderFor(ctx),
         ledger,
         logger: logger.child({ library: group.folder, driveId }),
+        progress,
         targetPathOf: (path) => (path.startsWith(prefix) ? path.slice(prefix.length) : ""),
       });
       for (const folder of group.folders) {

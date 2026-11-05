@@ -11,7 +11,7 @@ import {
   verifyUpload,
 } from "./onedrive.js";
 import { quickXorHash } from "./quickxorhash.js";
-import { FakeDrive } from "./testing/fake-drive.js";
+import { FakeDrive, rewriteOfficeProperties } from "./testing/fake-drive.js";
 import {
   createSnapshotFixture,
   type FixtureObject,
@@ -180,6 +180,16 @@ describe("OneDriveRestoreEngine", () => {
 
     const first = await engineFor(drive).run(fixture.ctx, request);
     expect(first.restored).toBe(2);
+    // The job's own record names what the first attempt uploaded.
+    const recorded = await engineFor(drive).run(fixture.ctx, request);
+    expect(recorded.restored).toBe(2);
+    expect(recorded.items.find((item) => item.id === "F1")).toMatchObject({
+      status: "restored",
+      targetRef: must(drive.child(folder.id, "report 1.docx")).id,
+      reason: "restored by an earlier attempt of this job",
+    });
+    // Without the record (an attempt that ended before it was saved), by content.
+    await fixture.ctx.cursor.clear();
     const retry = await engineFor(drive).run(fixture.ctx, request);
 
     expect(retry.failures).toEqual([]);
@@ -199,6 +209,85 @@ describe("OneDriveRestoreEngine", () => {
     ]);
     // The large file was compared by hash, not uploaded a second time.
     expect(drive.sessions.size).toBe(1);
+  });
+
+  describe("an Office file SharePoint rewrote on download", () => {
+    // The library stores S; the download (the backup) yields other bytes B.
+    const stored = Buffer.from("quarterly report as the library stores it");
+    const downloaded = rewriteOfficeProperties(Buffer.from("quarterly report as downloaded"));
+    const rewritten: FixtureObject = {
+      path: "Documents/Report.docx",
+      type: "file",
+      id: "F9",
+      content: downloaded,
+      metadata: {
+        lastModifiedDateTime: "2025-03-02T09:30:00Z",
+        sourceSize: String(stored.length),
+        quickXorHash: quickXorHash(stored),
+      },
+    };
+
+    it("is recognised in its place unchanged, without a numbered copy", async () => {
+      fixture = await createSnapshotFixture({
+        kind: "onedrive",
+        externalId: DRIVE,
+        objects: [rewritten],
+      });
+      const drive = new FakeDrive(DRIVE);
+      drive.rewritesOfficeFiles = true;
+      const folder = drive.addFolder("root", "Documents");
+      const original = drive.addFile(folder.id, "Report.docx", stored);
+
+      const report = await engineFor(drive).run(
+        fixture.ctx,
+        restoreRequestFor(fixture, { mode: "rename" }),
+      );
+
+      expect(report.failures).toEqual([]);
+      expect(report.items.find((item) => item.id === "F9")).toMatchObject({
+        status: "skipped",
+        code: "exists",
+        targetRef: original.id,
+      });
+      expect(drive.files().map((item) => item.name)).toEqual(["Report.docx"]);
+    });
+
+    it("is uploaded once by a job however often it is retried, and counts as confirmed", async () => {
+      fixture = await createSnapshotFixture({
+        kind: "onedrive",
+        externalId: DRIVE,
+        objects: [rewritten],
+      });
+      for (const rewrites of [false, true]) {
+        const drive = new FakeDrive(DRIVE);
+        drive.rewritesOfficeFiles = rewrites;
+        const folder = drive.addFolder("root", "Documents");
+        drive.addFile(folder.id, "Report.docx", Buffer.from("edited since the backup"));
+        const request = restoreRequestFor(fixture, { mode: "rename" });
+
+        const first = await engineFor(drive).run(fixture.ctx, request);
+        // The recorded hash is the library's, not the backup's: no false mismatch.
+        expect(first.items.find((item) => item.id === "F9")?.verified).toBe(!rewrites);
+        const second = await engineFor(drive).run(fixture.ctx, request);
+        expect(second.items.find((item) => item.id === "F9")?.reason, String(rewrites)).toBe(
+          "restored by an earlier attempt of this job",
+        );
+        if (!rewrites) {
+          // Without the record the backup's own hash finds the earlier upload.
+          await fixture.ctx.cursor.clear();
+          const third = await engineFor(drive).run(fixture.ctx, request);
+          expect(third.items.find((item) => item.id === "F9")?.code).toBe("exists");
+        }
+        expect(
+          drive
+            .files()
+            .map((item) => item.name)
+            .sort(),
+          String(rewrites),
+        ).toEqual(["Report 1.docx", "Report.docx"]);
+        await fixture.ctx.cursor.clear();
+      }
+    });
   });
 
   it("uploads a renamed copy in rename mode only where the file there differs", async () => {

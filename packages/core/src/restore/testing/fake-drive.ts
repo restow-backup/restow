@@ -38,6 +38,15 @@ interface FakeSession {
 }
 
 const NOT_FOUND: FixtureResponse = { status: 404, json: graphError("itemNotFound") };
+
+function isOfficeFile(name: string): boolean {
+  return /\.(docx|xlsx|pptx)$/i.test(name);
+}
+
+/** What SharePoint does to an Office file's document properties: other bytes, another size. */
+export function rewriteOfficeProperties(content: Buffer): Buffer {
+  return Buffer.concat([content, Buffer.from(`<cp:lastModifiedBy>SharePoint</cp:lastModifiedBy>`)]);
+}
 const UPLOAD_HOST = "https://upload.example.test";
 
 export class FakeDrive {
@@ -46,6 +55,12 @@ export class FakeDrive {
   readonly graph: FakeGraph;
   /** When set, every reported QuickXorHash is replaced with this value (mismatch tests). */
   reportedQuickXorHash: string | null = null;
+  /**
+   * Like a SharePoint library: an uploaded Office file is stored with its
+   * document properties rewritten, so its size and hash differ from the bytes
+   * that were sent.
+   */
+  rewritesOfficeFiles = false;
   private counter = 0;
 
   constructor(
@@ -162,6 +177,9 @@ export class FakeDrive {
     conflictBehavior: string | undefined,
     fileSystemInfo: Record<string, unknown> | undefined,
   ): FixtureResponse {
+    if (this.rewritesOfficeFiles && isOfficeFile(name)) {
+      content = rewriteOfficeProperties(content);
+    }
     const existing = this.child(parentId, name);
     let finalName = name;
     if (existing) {

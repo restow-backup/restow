@@ -132,6 +132,25 @@ describe("SharePointRestoreEngine", () => {
     expect(world.drive.child("root", "readme.txt")?.content.toString()).toBe("hello sales");
   });
 
+  it("adds no numbered copy of an Office file when a retried job finds it rewritten by SharePoint", async () => {
+    const world = await backedUp(harness);
+    world.drive.rewritesOfficeFiles = true;
+    const retried = request(world, {
+      selection: { paths: ["Libraries/Documents/Reports/Q3.xlsx"] },
+    });
+
+    await restoreEngine(world).run(harness.context({ jobId: "restore" }), retried);
+    const retry = await restoreEngine(world).run(harness.context({ jobId: "restore" }), retried);
+
+    expect(retry.failures).toEqual([]);
+    expect(retry.items.find((item) => item.path.endsWith("Q3.xlsx"))?.reason).toBe(
+      "restored by an earlier attempt of this job",
+    );
+    expect(world.drive.files().map((file) => world.drive.pathOf(file.id))).toEqual([
+      "Reports/Q3.xlsx",
+    ]);
+  });
+
   it("restores into another library below a folder, keeping each library apart", async () => {
     const world = await backedUp(harness);
     const report = await restoreEngine(world).run(
