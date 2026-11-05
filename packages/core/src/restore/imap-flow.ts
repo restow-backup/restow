@@ -151,10 +151,21 @@ export class ImapFlowRestoreSession implements ImapRestoreSession {
     mailbox: string,
     message: { readonly internalDate: Date | undefined; readonly size: number },
   ): Promise<number[]> {
+    // SEARCH compares dates by day in the server's own time zone (RFC 3501 ignores time and
+    // zone), while imapflow sends the UTC day: a message appended at 23:30 UTC is on the next
+    // day for a server in Europe. A window of a day either side finds it wherever the server
+    // is; the caller tells the copies apart by SHA-256.
+    const day = 24 * 60 * 60 * 1000;
+    const window = message.internalDate
+      ? {
+          since: new Date(message.internalDate.getTime() - day),
+          before: new Date(message.internalDate.getTime() + 2 * day),
+        }
+      : {};
     return this.withMailbox(mailbox, async () => {
       const found = await this.client.search(
         {
-          ...(message.internalDate ? { on: message.internalDate } : {}),
+          ...window,
           larger: Math.max(0, message.size - 1),
           smaller: message.size + 1,
         },

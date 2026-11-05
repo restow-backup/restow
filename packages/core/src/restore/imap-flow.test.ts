@@ -66,9 +66,44 @@ class FakeImapFlow extends EventEmitter {
     return { path, release: () => this.locks-- };
   }
 
-  async search(query: { header: Record<string, string> }): Promise<number[]> {
-    this.calls.push(`SEARCH ${query.header["message-id"]}`);
-    return [7, 9];
+  /** Stored messages for date and size searches. */
+  readonly stored: Array<{ uid: number; internalDate: Date; size: number }> = [];
+  /**
+   * The server's time zone as an offset from UTC in hours: SEARCH ON, SINCE
+   * and BEFORE compare the day of the internal date there (RFC 3501 ignores
+   * time and zone; Dovecot uses the server's local time, Gmail its own).
+   */
+  serverUtcOffsetHours = 0;
+
+  async search(query: {
+    header?: Record<string, string>;
+    on?: Date;
+    since?: Date;
+    before?: Date;
+    larger?: number;
+    smaller?: number;
+  }): Promise<number[]> {
+    if (query.header !== undefined) {
+      this.calls.push(`SEARCH ${query.header["message-id"]}`);
+      return [7, 9];
+    }
+    // imapflow sends a date criterion as the UTC day of the Date it is given.
+    const sentDay = (date: Date) => date.toISOString().slice(0, 10);
+    const serverDay = (date: Date) =>
+      new Date(date.getTime() + this.serverUtcOffsetHours * 3_600_000).toISOString().slice(0, 10);
+    this.calls.push(`SEARCH ${JSON.stringify(query)}`);
+    return this.stored
+      .filter((message) => {
+        const day = serverDay(message.internalDate);
+        return (
+          (query.on === undefined || day === sentDay(query.on)) &&
+          (query.since === undefined || day >= sentDay(query.since)) &&
+          (query.before === undefined || day < sentDay(query.before)) &&
+          (query.larger === undefined || message.size > query.larger) &&
+          (query.smaller === undefined || message.size < query.smaller)
+        );
+      })
+      .map((message) => message.uid);
   }
 
   async append(
@@ -222,6 +257,28 @@ describe("ImapFlowRestoreSession", () => {
     fake.logoutFails = true;
     await session.close();
     expect(fake.closed).toBe(true);
+  });
+});
+
+describe("ImapFlowRestoreSession.findSimilar", () => {
+  it("finds a message appended late in the UTC day on a server east of UTC", async () => {
+    const fake = new FakeImapFlow({} as ImapFlowOptions, namespaced);
+    // Dovecot in Europe/Berlin: 23:30 UTC on 1 March is 00:30 on 2 March there.
+    fake.serverUtcOffsetHours = 1;
+    const internalDate = new Date("2025-03-01T23:30:00Z");
+    fake.stored.push(
+      { uid: 12, internalDate, size: 2048 },
+      { uid: 13, internalDate, size: 4096 },
+      { uid: 14, internalDate: new Date("2025-03-05T10:00:00Z"), size: 2048 },
+    );
+    const session = await ImapFlowRestoreSession.open(asClient(fake));
+
+    expect(await session.findSimilar("INBOX", { internalDate, size: 2048 })).toEqual([12]);
+    // West of UTC as well: 00:30 UTC on 2 March is 1 March in New York.
+    fake.serverUtcOffsetHours = -5;
+    const early = new Date("2025-03-02T00:30:00Z");
+    fake.stored.push({ uid: 15, internalDate: early, size: 777 });
+    expect(await session.findSimilar("INBOX", { internalDate: early, size: 777 })).toEqual([15]);
   });
 });
 

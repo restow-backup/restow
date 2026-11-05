@@ -88,8 +88,9 @@ export interface ImapRestoreSession {
   /** UIDs of messages in `mailbox` whose Message-ID header equals `messageId`. */
   findByMessageId(mailbox: string, messageId: string): Promise<number[]>;
   /**
-   * UIDs of messages in `mailbox` that may be `message` (same internal date
-   * day and size), for a message without Message-ID on a retried job; the
+   * UIDs of messages in `mailbox` that may be `message` (same size, an
+   * internal date within a day of it: servers judge the day in their own
+   * time zone), for a message without Message-ID on a retried job; the
    * caller compares SHA-256. Sessions that cannot search omit it.
    */
   findSimilar?(
@@ -483,7 +484,22 @@ class ImapRestoreRun {
       }
       if (duplicates.messageId === undefined && this.progress.isRetry) {
         const earlier = await this.earlierCopyWithoutMessageId(mailbox, message);
+        if (earlier !== undefined && this.mode === "skip") {
+          // The original mailbox: the copy may be one it held before this job, not this
+          // job's work. It is there all the same, so the message is not appended twice.
+          duplicates.settle();
+          ledger.skipped(
+            message,
+            "exists",
+            this.legacyNote(
+              "an identical message (same day, size and SHA-256; it has no Message-ID) is already in the target mailbox, from before this job or from an earlier attempt of it",
+            ),
+            `${mailbox}:${earlier}`,
+          );
+          return;
+        }
         if (earlier !== undefined) {
+          // The restore mailbox belongs to this job: the copy is an earlier attempt's.
           duplicates.settle();
           ledger.restored(message, {
             targetRef: `${mailbox}:${earlier}`,
@@ -616,7 +632,10 @@ class ImapRestoreRun {
   /**
    * After a Gmail message was written once: its other labels into a Gmail
    * account by COPY, and the outcome of the objects that stood for its other
-   * labels (./gmail.ts).
+   * labels (./gmail.ts). A rename-mode retry that finds the message an
+   * earlier attempt appended adds the labels as well: that attempt may have
+   * ended between the APPEND and the COPYs, and a COPY to a label the message
+   * has already changes nothing in Gmail.
    */
   private async finishGmailMessage(unit: GmailUnit): Promise<void> {
     const outcome = this.ledger.resultOf(unit.object.path);
@@ -624,7 +643,13 @@ class ImapRestoreRun {
     const lost = new Map<string, string>();
     const notes: string[] = [];
     let labelFailed = false;
-    if (outcome?.status === "restored") {
+    const foundOnRetry =
+      outcome?.status === "skipped" &&
+      outcome.code === "exists" &&
+      this.mode === "rename" &&
+      outcome.targetRef !== undefined &&
+      unit.copyLabels.length > 0;
+    if (outcome?.status === "restored" || foundOnRetry) {
       const dropped = new Set(this.droppedKeywords.get(unit.object.path) ?? []);
       const asKeywords: string[] = [];
       for (const { label, keyword } of unit.keywords) {
@@ -675,7 +700,9 @@ class ImapRestoreRun {
           `Gmail labels not kept: ${[...lost.entries()].map(([label, why]) => `${label.replace(/^\\+/, "")} (${why})`).join(", ")}`,
         );
       }
-      if (notes.length > 0) {
+      if (notes.length > 0 && foundOnRetry) {
+        this.ledger.amendSkipped(unit.object.path, notes.join("; "));
+      } else if (notes.length > 0) {
         this.ledger.amendRestored(unit.object.path, notes.join("; "), labelFailed);
       }
     }

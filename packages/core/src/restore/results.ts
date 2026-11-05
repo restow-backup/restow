@@ -249,6 +249,23 @@ export class RestoreLedger {
     }
   }
 
+  /** Add to the reason of a skipped item what a later step did (labels a retry added, say). */
+  amendSkipped(path: string, note: string): void {
+    for (let index = this.results.length - 1; index >= 0; index--) {
+      const result = this.results[index];
+      if (result?.path !== path) {
+        continue;
+      }
+      if (result.status === "skipped") {
+        this.results[index] = {
+          ...result,
+          reason: result.reason ? `${result.reason}; ${note}` : note,
+        };
+      }
+      return;
+    }
+  }
+
   skipped(
     object: ManifestObject,
     code: Exclude<RestoreItemCode, "restored" | "unverified">,

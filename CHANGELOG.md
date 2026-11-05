@@ -577,8 +577,11 @@ private repository.
   message twice. For the moments the record does not cover yet, a rename-mode retry now also takes
   a copy that the server re-rendered (only for a Message-ID that occurs once in the restore, so two
   different messages with the same Message-ID are still both restored), finds an IMAP message
-  without Message-ID by date, size and SHA-256, and adds missing attachments to an Exchange message
-  it finds in its restore folder.
+  without Message-ID by size and SHA-256 within a day of its date (a server judges the day in its
+  own time zone, so a message from late in the evening is on the next day there), and adds missing
+  attachments to an Exchange message it finds in its restore folder. In "skip" mode such an
+  identical message in the original mailbox is skipped as already there, not reported as restored
+  by an earlier attempt, since the mailbox may have held it before the job.
 - Mail restore: an imported mailbox (PST, MBOX, EML) or an IMAP backup restored into a Microsoft
   365 mailbox lost its read state, follow-up flags and keywords, yet every message counted as
   confirmed. The restore only read Exchange's own properties; the IMAP flags were ignored. `\Seen`
@@ -602,7 +605,9 @@ private repository.
   own label, else the archive), and its other labels follow: into Gmail as labels again, on
   another IMAP server as keywords, in Microsoft 365 as categories; Starred becomes the flag. A
   server that keeps no new keywords is not sent any, and the result names the labels that are
-  lost, as it does when Microsoft 365 refuses the categories and the flag of a message. The objects of the backup that stood for the other labels are listed as skipped with
+  lost, as it does when Microsoft 365 refuses the categories and the flag of a message. A retried
+  restore into Gmail that finds a message its earlier attempt appended adds the labels as well,
+  in case that attempt ended before them. The objects of the backup that stood for the other labels are listed as skipped with
   what became of their label, and Gmail's Important and Starred are not created as folders on
   another server.
 - Mail restore: an event that had attachments counted as confirmed although nothing of its

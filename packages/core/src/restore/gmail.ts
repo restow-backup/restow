@@ -425,10 +425,25 @@ export function reportGmailCopies(
       continue;
     }
     if (outcome.status === "skipped") {
+      const lostLabel = copy.label === null ? undefined : labels.lost.get(copy.label);
+      if (lostLabel !== undefined) {
+        // A retry found the message and could not add this label to it.
+        ledger.failed(
+          copy.object,
+          new Error(
+            `the same Gmail message is already restored, as ${where}; its label ${describeLabel(copy.label)} could not be added: ${lostLabel}`,
+          ),
+          "error",
+        );
+        continue;
+      }
+      const keptLabel = copy.label === null ? undefined : labels.kept.get(copy.label);
       ledger.skipped(
         copy.object,
         outcome.code === "restored" || outcome.code === "unverified" ? "exists" : outcome.code,
-        `the same Gmail message as ${unit.object.path} (restored once for all its labels): ${outcome.reason ?? "skipped"}`,
+        keptLabel !== undefined
+          ? `the same Gmail message is already restored, as ${where}; its label ${describeLabel(copy.label)} ${keptLabel}`
+          : `the same Gmail message as ${unit.object.path} (restored once for all its labels): ${outcome.reason ?? "skipped"}`,
         outcome.targetRef,
       );
       continue;

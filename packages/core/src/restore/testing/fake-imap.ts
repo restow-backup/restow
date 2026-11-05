@@ -64,6 +64,8 @@ export class FakeImapAccount implements ImapRestoreSession {
   refuseAppendTo: string | null = null;
   /** When set, the connection drops after this many APPENDs: later commands all fail. */
   dropAfterAppends: number | null = null;
+  /** When set, the connection drops at the first COPY (the worker is gone before the labels). */
+  dropAtCopy = false;
   connectionLost = false;
 
   constructor(private readonly options: FakeImapOptions = {}) {
@@ -100,6 +102,9 @@ export class FakeImapAccount implements ImapRestoreSession {
 
   async copy(mailbox: string, uid: number, destination: string): Promise<void> {
     this.commands.push(`COPY ${mailbox} ${uid} ${destination}`);
+    if (this.dropAtCopy) {
+      this.connectionLost = true;
+    }
     this.assertConnected();
     const message = this.box(mailbox).messages.find((candidate) => candidate.uid === uid);
     if (!message) {
@@ -126,13 +131,13 @@ export class FakeImapAccount implements ImapRestoreSession {
   }
 
   /** Put a message into a mailbox directly (the target's existing state). */
-  seed(path: string, content: string): StoredMessage {
+  seed(path: string, content: string, internalDate?: Date): StoredMessage {
     const box = this.box(path);
     const message = {
       uid: this.nextUid++,
       content: Buffer.from(content),
       flags: [],
-      internalDate: undefined,
+      internalDate,
     };
     box.messages.push(message);
     return message;
@@ -177,16 +182,20 @@ export class FakeImapAccount implements ImapRestoreSession {
     mailbox: string,
     message: { readonly internalDate: Date | undefined; readonly size: number },
   ): Promise<number[]> {
-    // SEARCH ON <day of the internal date> LARGER size-1 SMALLER size+1
+    // SEARCH SINCE <day before> BEFORE <two days after> LARGER size-1 SMALLER size+1
+    // (the server judges the day in its own time zone, ./imap-flow.ts).
     this.commands.push(`SEARCH ${mailbox} similar ${message.size}`);
     this.assertConnected();
-    const day = message.internalDate?.toISOString().slice(0, 10);
+    const at = message.internalDate?.getTime();
+    const day = 24 * 60 * 60 * 1000;
     return this.box(mailbox)
-      .messages.filter(
-        (stored) =>
+      .messages.filter((stored) => {
+        const time = stored.internalDate?.getTime();
+        return (
           stored.content.length === message.size &&
-          (day === undefined || stored.internalDate?.toISOString().slice(0, 10) === day),
-      )
+          (at === undefined || (time !== undefined && Math.abs(time - at) <= 2 * day))
+        );
+      })
       .map((stored) => stored.uid);
   }
 
