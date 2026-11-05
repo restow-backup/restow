@@ -356,6 +356,12 @@ Verzeichnissynchronisierung speichert (`users.mail_addresses`); ein IMAP-Konto �
 Die Zuordnung steht in `archive_item_mailboxes` (nur hinzufügen, nie ändern, wie
 `archive_items`).
 
+- Als Journal-Report gilt nur eine Mail mit dem Header `X-MS-Journal-Report`, die allein an die
+  Journal-Adresse des Mandanten ging (seit 0.5.0). Header und Umschlagtext kann jeder Absender
+  schreiben; eine Mail an die Archiv-Adresse eines Kontos (`archive+<token>`) oder ohne den
+  Header wird deshalb nie nach ihrem Umschlag zugeordnet, sondern so archiviert, wie sie ankam
+  (Quelle `smtp_forward`, für eine Konto-Adresse nur diesem Konto). Ist sie wie ein Report
+  aufgebaut, trägt sie die Markierung `journal-shaped` (docs/IMAP.md, "Weiterleitung").
 - Ein Report, der kein Postfach des Mandanten nennt, wird trotzdem archiviert und gehört dann nur
   dem Mandanten. Nichts wird verworfen.
 - Suche, Export und Legal Hold je Postfach berücksichtigen zugeordnete Journal-Reports.

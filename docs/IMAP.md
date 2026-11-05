@@ -267,9 +267,14 @@ für Microsoft 365 ist eine Microsoft-365-Quelle mit Graph oder Journaling der b
 Ein Anbieter kann jede Mail eines Kontos schon beim Transport als Kopie an das Archiv schicken.
 Das erfasst Mail, bevor ein Nutzer sie löschen kann (stärker als die Synchronisation aus dem
 Postfach) und braucht keine IMAP-Verbindung. Der Empfänger ist derselbe wie für Exchange
-Online (Abschnitt "SMTP-Journal-Empfänger", Edition Business und Service Provider); er erkennt
-Journal-Reports am Header `X-MS-Journal-Report` oder an ihrem Aufbau und nimmt alles andere als
-einfache Kopie (Quelle `smtp_forward`).
+Online (Abschnitt "SMTP-Journal-Empfänger", Edition Business und Service Provider). Als
+Journal-Report nimmt er nur eine Mail mit dem Header `X-MS-Journal-Report`, die allein an die
+Mandanten-Adresse ging; alles andere ist eine einfache Kopie (Quelle `smtp_forward`) und wird
+so archiviert, wie es ankam. Eine Mail an eine Konto-Adresse ist das immer, auch mit dem Header:
+Den Header und den Umschlagtext eines Reports kann jeder Absender schreiben, und ein Report
+würde den Postfächern zugeordnet, die sein Umschlag nennt. Eine Kopie, die wie ein Report
+aufgebaut ist (der Header an anderer Stelle oder nur der Aufbau eines Reports), trägt die
+Markierung `journal-shaped`.
 
 **Adressen.**
 
@@ -337,6 +342,11 @@ gewählt hat, und den Kopien der letzten 7 Tage (je Konto und für die Mandanten
   Absenderprüfung (Zielbild, nicht in 0.1.0): Exchange Online liefert aus
   `*.protection.outlook.com`; den SPF des Absenders zu prüfen ist noch nicht umgesetzt (Journal-Reports
   kommen von der Tenant-Domain bzw. `MicrosoftExchange329e71ec88ae4615bbc36ab6ce41109e@<tenant>.onmicrosoft.com`).
+  Wer die Journal-Adresse zusätzlich absichern will, lässt Port 25 in der Firewall nur aus den
+  Adressbereichen von Exchange Online Protection zu (Microsoft veröffentlicht sie unter
+  "Office 365 URLs and IP address ranges", Bereich Exchange Online, Port 25) und verlangt am
+  Connector TLS mit dem Zertifikat des Journal-Hosts; Weiterleitungen anderer Anbieter an
+  Konto-Adressen brauchen dann eigene Freigaben.
 - Verarbeitung: Report parsen (Envelope-Text: Sender, Message-Id, Recipients mit
   To/Cc/Bcc-Kennzeichnung), Original aus Anhang extrahieren, beides speichern. Ab 0.3.0
   ordnet der Empfänger jeden Report den Postfächern zu, deren Adresse der Umschlag nennt

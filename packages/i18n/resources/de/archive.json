@@ -290,7 +290,8 @@
     "recipient-classification-degraded": "An/Cc/Bcc konnte nicht für jeden Empfänger bestimmt werden",
     "recipients-truncated": "Mehr als 100.000 Empfänger; nur die ersten 100.000 sind aufgeführt (der archivierte Report enthält alle)",
     "captured-late": "Nachträglich erfasst: lag vor Beginn der Erfassung im Postfach",
-    "message-id-conflict": "Eine andere archivierte E-Mail hat dieselbe Message-ID, aber anderen Inhalt"
+    "message-id-conflict": "Eine andere archivierte E-Mail hat dieselbe Message-ID, aber anderen Inhalt",
+    "journal-shaped": "Wie ein Journal-Report aufgebaut, aber nicht als solcher angenommen (kein X-MS-Journal-Report an der Journal-Adresse des Mandanten); so archiviert, wie sie ankam"
   },
   "protection": {
     "title": "Schutz des Archivspeichers",

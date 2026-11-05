@@ -5,9 +5,9 @@
  * can be exercised directly in tests without opening a socket.
  *
  * Since 0.4.4 the receiver takes two kinds of mail ({@link receiveArchiveMail} decides):
- * Exchange journal reports (the `X-MS-Journal-Report` header) as before, source `journal`,
- * and plain copies a provider forwards (source `smtp_forward`, see
- * {@link receiveForwardedCopy}).
+ * Exchange journal reports (the `X-MS-Journal-Report` header, at the tenant's journal
+ * address only), source `journal`, and plain copies a provider forwards (source
+ * `smtp_forward`, see {@link receiveForwardedCopy}).
  *
  * Durability contract (docs/IMAP.md, journal receiver section): the caller (./server.ts) must not reply 250 to Exchange until
  * {@link receiveArchiveMail} resolves; any failure here (storage, database)
@@ -168,6 +168,7 @@ export async function receiveForwardedCopy(
   delivery: ArchiveDelivery,
   rawBytes: Buffer,
   deps: JournalReceiverDeps,
+  extraFlags: readonly archive.ArchiveFlag[] = [],
 ): Promise<ArchiveReceipt> {
   const parsed = await archive.parsePlainCopyIsolated(rawBytes, deps.parseLimits ?? {});
   const now = deps.now ?? (() => new Date());
@@ -179,7 +180,7 @@ export async function receiveForwardedCopy(
     envelopeTo: delivery.rcptTo,
     deliveredTo: parsed.deliveredTo,
   };
-  const flags: archive.ArchiveFlag[] = [...parsed.flags];
+  const flags: archive.ArchiveFlag[] = [...parsed.flags, ...extraFlags];
   if (parsed.parseLimit === null && !parsed.messageId) {
     flags.push("message-id-missing");
   }
@@ -230,24 +231,32 @@ export async function receiveForwardedCopy(
 }
 
 /**
- * Process one accepted message (see the module docstring): a journal report goes the
- * journal way, anything else is a forwarded plain copy.
+ * Process one accepted message (see the module docstring). Only a mail with the
+ * `X-MS-Journal-Report` header sent to the tenant's journal address alone goes the journal
+ * way: a report is stored as its attached message, labelled `journal` and assigned to every
+ * mailbox its envelope text names, and that text is the sender's to write. Anything else is
+ * a forwarded plain copy, archived as received; a copy to an account's archive address
+ * belongs to that account only, whatever its body says. A copy built like a report
+ * (the header elsewhere, or only the report's structure) is flagged `journal-shaped`.
  */
 export async function receiveArchiveMail(
   delivery: ArchiveDelivery,
   rawBytes: Buffer,
   deps: JournalReceiverDeps,
 ): Promise<ArchiveReceipt> {
-  if (archive.isJournalReport(rawBytes)) {
-    const record = await receiveJournalReport(
-      delivery.tenantId,
-      rawBytes,
-      deps,
-      delivery.recipients.flatMap((recipient) =>
-        recipient.kind === "account" ? [recipient.protectedObjectId] : [],
-      ),
-    );
+  const toJournalAddress =
+    delivery.recipients.length > 0 &&
+    delivery.recipients.every((recipient) => recipient.kind === "tenant");
+  if (toJournalAddress && archive.hasJournalReportHeader(rawBytes)) {
+    const record = await receiveJournalReport(delivery.tenantId, rawBytes, deps);
     return { kind: "journal_report", outcome: "stored", itemId: record.id, flags: record.flags };
   }
-  return receiveForwardedCopy(delivery, rawBytes, deps);
+  const shaped = archive.isJournalReport(rawBytes);
+  if (shaped) {
+    deps.logger?.info("a mail built like a journal report is archived as a plain copy", {
+      tenantId: delivery.tenantId,
+      toJournalAddress,
+    });
+  }
+  return receiveForwardedCopy(delivery, rawBytes, deps, shaped ? ["journal-shaped"] : []);
 }

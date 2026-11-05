@@ -290,7 +290,8 @@
     "recipient-classification-degraded": "To/Cc/Bcc could not be determined for every recipient",
     "recipients-truncated": "More than 100,000 recipients; only the first 100,000 are listed (the archived report keeps all of them)",
     "captured-late": "Captured afterwards: in the mailbox before capture started",
-    "message-id-conflict": "Another archived mail has the same Message-ID but different content"
+    "message-id-conflict": "Another archived mail has the same Message-ID but different content",
+    "journal-shaped": "Built like a journal report but not accepted as one (no X-MS-Journal-Report at the tenant's journal address); archived as received"
   },
   "protection": {
     "title": "Protection of the archive storage",

@@ -523,6 +523,16 @@ private repository.
   if it had been carried out. A resync request now decides the next pass by itself, keeps the
   mailbox marked until it ran, and only the pass that ran as that resync clears it (a request
   made during that pass stays for the next one).
+- Mail archive (security): any mail that carried an `X-MS-Journal-Report` header, or whose first
+  part merely looked like a journal report's envelope (`Sender:`, `Message-ID:`, a recipient
+  line), was processed as an Exchange journal report, also at the archive address of an IMAP
+  account. An outsider who mailed an archived user whose provider copies mail to the archive
+  could so plant an item labelled `journal` into every mailbox of the tenant the forged envelope
+  named, and the mail the user actually received was replaced by its attachment. Only a mail
+  with the header sent to the tenant's journal address alone is now taken as a journal report;
+  everything else, a copy to an account address always, is archived as received (source
+  `smtp_forward`) and, when it is built like a report, flagged `journal-shaped`. docs/IMAP.md
+  describes how to restrict port 25 to Exchange Online.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,
