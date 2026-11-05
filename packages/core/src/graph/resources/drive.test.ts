@@ -1,7 +1,7 @@
 import { Readable } from "node:stream";
 import { describe, expect, it } from "vitest";
 import { InMemoryDeltaTokenStore } from "../delta.js";
-import { createFakeGraph, graphError, must } from "../testing/fake-graph.js";
+import { createFakeGraph, graphError, must, selectedEntity } from "../testing/fake-graph.js";
 import fixture from "../testing/fixtures/drive-delta.json" with { type: "json" };
 import {
   createUploadSession,
@@ -9,6 +9,7 @@ import {
   driveDelta,
   driveItemPath,
   ensureDriveFolderPath,
+  getItem,
   getUserDrive,
   isDeletedItem,
   isFileItem,
@@ -132,6 +133,58 @@ describe("drive", () => {
     expect(must(graph.callsTo("GET", "/items/01REPORT")[0]).headers.authorization).toBe(
       "Bearer test-token",
     );
+  });
+
+  it("fetches one item as completely as the delta lists it: authorship, sharing, shortcut facet", async () => {
+    const shared: DriveDeltaItem = {
+      id: "01SHARED",
+      name: "contract.pdf",
+      size: 4,
+      cTag: '"c:{S},1"',
+      file: {
+        mimeType: "application/pdf",
+        hashes: { quickXorHash: "AAAAAAAAAAAAAAAAAAAAAAAAAAA=" },
+      },
+      parentReference: { driveId: DRIVE, id: "01ROOT", path: "/drive/root:" },
+      createdBy: { user: { displayName: "Alice Example", id: "user-1" } },
+      lastModifiedBy: { user: { displayName: "Bob Example", id: "user-2" } },
+      shared: { scope: "anonymous", sharedDateTime: "2026-09-01T08:00:00Z" },
+      "@microsoft.graph.downloadUrl": "https://contoso-my.sharepoint.example/download.aspx?item=s",
+    };
+    const shortcut: DriveDeltaItem = {
+      id: "01SHORTCUT",
+      name: "Team files",
+      parentReference: { driveId: DRIVE, id: "01ROOT", path: "/drive/root:" },
+      remoteItem: {
+        id: "01REMOTE",
+        folder: { childCount: 3 },
+        parentReference: { driveId: "b!t" },
+      },
+    };
+    const unshared: DriveDeltaItem = { ...shared, id: "01PLAIN", shared: undefined };
+    const entities = new Map([shared, shortcut, unshared].map((item) => [item.id, item]));
+    const graph = createFakeGraph([
+      {
+        // Like Graph: an item comes back with what $select names, nothing more.
+        url: (u) => u.pathname.includes("/items/"),
+        respond: (call) => ({
+          status: 200,
+          json: selectedEntity(
+            call,
+            must(entities.get(new URL(call.url).pathname.split("/").pop() ?? "")),
+          ),
+        }),
+      },
+    ]);
+    const client = graph.client();
+    const file = await getItem(client, DRIVE, "01SHARED");
+    expect(file.createdBy?.user?.displayName).toBe("Alice Example");
+    expect(file.lastModifiedBy?.user?.displayName).toBe("Bob Example");
+    expect(file.shared?.scope).toBe("anonymous");
+    expect(file["@microsoft.graph.downloadUrl"]).toBe(shared["@microsoft.graph.downloadUrl"]);
+    expect((await getItem(client, DRIVE, "01SHORTCUT")).remoteItem?.id).toBe("01REMOTE");
+    // Asked for and absent: not shared, which is not the same as "unknown".
+    expect((await getItem(client, DRIVE, "01PLAIN")).shared).toBeNull();
   });
 
   it("asks for the file bytes unencoded and takes no size from an encoded response", async () => {

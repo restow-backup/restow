@@ -7,6 +7,7 @@
  * The backup format for a message is its MIME (RFC 5322) plus the metadata from
  * the delta entry; flag/category changes only touch metadata (docs/MICROSOFT.md).
  */
+import { createHash } from "node:crypto";
 import type { Readable } from "node:stream";
 import type {
   Attachment,
@@ -16,6 +17,8 @@ import type {
   MailFolder,
   Message,
 } from "@microsoft/microsoft-graph-types";
+import { JobAbortedError } from "../../engine/chunkstore.js";
+import { pauseBeforeRetry } from "../../storage/transfer.js";
 import type { BatchRequest, GraphClient, GraphRequest } from "../client.js";
 import { type DeltaBatch, type DeltaSummary, type DeltaTokenStore, syncDelta } from "../delta.js";
 import { GraphError, isGraphError, isMailboxUnavailable, isNotFound } from "../errors.js";
@@ -180,6 +183,14 @@ export interface ListMailFolderTreeOptions {
    * decides what to do with that subtree; the tree is not proof that it is gone.
    */
   onVanishedFolder?: (folder: MailFolderNode, error: unknown) => void;
+  /**
+   * Called for a folder whose child listing got no usable answer: a server error or
+   * throttling the client retried in vain, or no answer at all inside the `$batch` (a
+   * synthetic 502). Its subfolders are missing from the tree and nothing says whether they
+   * exist. Without this callback such an answer throws, as it always did. A refusal of the
+   * mailbox (401, 403, "no mailbox") throws either way.
+   */
+  onUnlistedFolder?: (folder: MailFolderNode, error: GraphError) => void;
 }
 
 type RawFolder = Pick<MailFolder, (typeof MAIL_FOLDER_SELECT)[number]> & { id: string };
@@ -187,6 +198,15 @@ type RawFolder = Pick<MailFolder, (typeof MAIL_FOLDER_SELECT)[number]> & { id: s
 /** A folder that no longer exists (deleted or moved after it was listed), not a missing mailbox. */
 function isVanishedFolder(error: unknown): boolean {
   return isNotFound(error) && !isMailboxUnavailable(error);
+}
+
+/** A child listing that says nothing about the folder: throttled or a server error. */
+function isUnknownChildListing(error: unknown): error is GraphError {
+  if (!isGraphError(error)) {
+    return false;
+  }
+  const status = error.status;
+  return (status === 429 || status >= 500) && !isMailboxUnavailable(error);
 }
 
 /**
@@ -266,6 +286,12 @@ export async function listMailFolderTree(
         // mailbox" codes that also come as 404 stay fatal.
         if (isVanishedFolder(error)) {
           options.onVanishedFolder?.(parent, error);
+          continue;
+        }
+        // Not an answer about the folder at all (5xx, throttled, missing in the $batch):
+        // the subtree is unknown, which the caller must not take for "no subfolders".
+        if (options.onUnlistedFolder && isUnknownChildListing(error)) {
+          options.onUnlistedFolder(parent, error);
           continue;
         }
         throw error;
@@ -416,6 +442,101 @@ export async function getMessage(
   });
 }
 
+/**
+ * What a message's content is, apart from its flags: the body as text and the list of its
+ * attachments (id, name, size, inline), without their bytes. Subject, `hasAttachments` and
+ * `bodyPreview` (the first 255 characters) stay the same when an attachment of a received
+ * mail is removed or its body is edited further down; this does not. It also does not move
+ * when a flag, the read state, a category or a retention tag changes, which PidTagMessageSize
+ * (0x0E08) does: Exchange counts every MAPI property into the size.
+ */
+export function messageContentCheckUrl(userId: string, messageId: string): string {
+  return `${userPath(userId)}/messages/${encodeURIComponent(messageId)}${query({
+    $select: "id,body",
+    $expand: "attachments($select=id,name,size,isInline)",
+  })}`;
+}
+
+/** The body as text: smaller than HTML and enough to tell an edit. */
+export const MESSAGE_CONTENT_CHECK_HEADERS: Readonly<Record<string, string>> = {
+  Prefer: 'outlook.body-content-type="text"',
+};
+
+/**
+ * The content signature of a {@link messageContentCheckUrl} answer (SHA-256 over the body
+ * text and the sorted attachment list), or undefined when the answer lacks either.
+ */
+export function messageContentSignature(body: unknown): string | undefined {
+  const answer = body as
+    | { body?: { content?: unknown } | null; attachments?: unknown }
+    | null
+    | undefined;
+  const content = answer?.body?.content;
+  if (typeof content !== "string" || !Array.isArray(answer?.attachments)) {
+    return undefined;
+  }
+  const attachments = (answer.attachments as Array<Record<string, unknown>>)
+    .map((attachment) => [
+      String(attachment?.id ?? ""),
+      String(attachment?.name ?? ""),
+      Number(attachment?.size ?? -1),
+      attachment?.isInline === true,
+    ])
+    .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+  return createHash("sha256")
+    .update(JSON.stringify({ body: content, attachments }), "utf8")
+    .digest("hex");
+}
+
+export interface MessageContentSignatures {
+  /** By message id. */
+  readonly signatures: ReadonlyMap<string, string>;
+  /** Messages Graph did not answer for (throttled, server error, gone): unknown, not unchanged. */
+  readonly unanswered: ReadonlySet<string>;
+}
+
+/**
+ * {@link messageContentSignature} of several messages through `$batch` (20 per request).
+ * Every id is either signed or unanswered.
+ */
+export async function getMessageContentSignatures(
+  client: GraphClient,
+  userId: string,
+  messageIds: readonly string[],
+): Promise<MessageContentSignatures> {
+  const signatures = new Map<string, string>();
+  const unanswered = new Set<string>();
+  if (messageIds.length === 0) {
+    return { signatures, unanswered };
+  }
+  const responses = await client.batch(
+    messageIds.map((id, index) => ({
+      id: String(index),
+      method: "GET",
+      url: messageContentCheckUrl(userId, id),
+      headers: { ...MESSAGE_CONTENT_CHECK_HEADERS },
+    })),
+  );
+  const answered = new Set<string>();
+  for (const response of responses) {
+    const id = messageIds[Number(response.id)];
+    if (id === undefined || response.status < 200 || response.status >= 300) {
+      continue;
+    }
+    const signature = messageContentSignature(response.body);
+    if (signature !== undefined) {
+      signatures.set(id, signature);
+      answered.add(id);
+    }
+  }
+  for (const id of messageIds) {
+    if (!answered.has(id)) {
+      unanswered.add(id);
+    }
+  }
+  return { signatures, unanswered };
+}
+
 function messageMimeUrl(userId: string, messageId: string): string {
   return `${userPath(userId)}/messages/${encodeURIComponent(messageId)}/$value`;
 }
@@ -467,33 +588,91 @@ export const ATTACHMENT_SELECT = [
   "lastModifiedDateTime",
 ] as const;
 
+/**
+ * `contentId` lives on the derived fileAttachment type, not on attachment: it is selected in the
+ * type-cast form. It is what an inline image's `cid:` reference in the HTML body names.
+ */
+export const ATTACHMENT_CONTENT_ID_SELECT = "microsoft.graph.fileAttachment/contentId";
+
 export type AttachmentMeta = Pick<Attachment, (typeof ATTACHMENT_SELECT)[number]> & {
   id: string;
   /** `#microsoft.graph.fileAttachment`, `#microsoft.graph.itemAttachment` or `#microsoft.graph.referenceAttachment`. */
   "@odata.type"?: string;
+  /** File attachments only: the Content-ID an inline image is referenced by (`cid:`). */
+  contentId?: string | null;
 };
+
+/** The attachments of an item (`<parent>/attachments`): a message, an event or a post. */
+export function listAttachmentsAt(
+  client: GraphClient,
+  parentPath: string,
+  options: { readonly contentId?: boolean } = {},
+): AsyncGenerator<AttachmentMeta, void, unknown> {
+  const select = [
+    ...ATTACHMENT_SELECT,
+    ...(options.contentId ? [ATTACHMENT_CONTENT_ID_SELECT] : []),
+  ];
+  return paginate<AttachmentMeta>(
+    client,
+    `${parentPath}/attachments${query({ $select: select.join(",") })}`,
+  );
+}
 
 export function listAttachments(
   client: GraphClient,
   userId: string,
   messageId: string,
+  options: { readonly contentId?: boolean } = {},
 ): AsyncGenerator<AttachmentMeta, void, unknown> {
-  const url = `${userPath(userId)}/messages/${encodeURIComponent(messageId)}/attachments${query({
-    $select: ATTACHMENT_SELECT.join(","),
-  })}`;
-  return paginate<AttachmentMeta>(client, url);
+  return listAttachmentsAt(client, messagePath(userId, messageId), options);
 }
 
-/** Stream the raw bytes of a file attachment (or the MIME of an item attachment). */
-export async function openAttachmentContent(
+function messagePath(userId: string, messageId: string): string {
+  return `${userPath(userId)}/messages/${encodeURIComponent(messageId)}`;
+}
+
+/**
+ * The attachments of an item with their Content-ID. Should Graph refuse the type-cast
+ * `$select` (400), they are listed without it, and `contentIdUnavailable` says so: the caller
+ * records that inline images may not resolve after a restore instead of staying silent.
+ */
+export async function listAttachmentsWithContentIdAt(
+  client: GraphClient,
+  parentPath: string,
+): Promise<{ attachments: AttachmentMeta[]; contentIdUnavailable: boolean }> {
+  try {
+    return {
+      attachments: await collect(listAttachmentsAt(client, parentPath, { contentId: true })),
+      contentIdUnavailable: false,
+    };
+  } catch (error) {
+    if (!(isGraphError(error) && error.status === 400)) {
+      throw error;
+    }
+    return {
+      attachments: await collect(listAttachmentsAt(client, parentPath)),
+      contentIdUnavailable: true,
+    };
+  }
+}
+
+export function listAttachmentsWithContentId(
   client: GraphClient,
   userId: string,
   messageId: string,
+): Promise<{ attachments: AttachmentMeta[]; contentIdUnavailable: boolean }> {
+  return listAttachmentsWithContentIdAt(client, messagePath(userId, messageId));
+}
+
+/** Stream the raw bytes of an attachment of an item (`<parent>/attachments/{id}/$value`). */
+export async function openAttachmentContentAt(
+  client: GraphClient,
+  parentPath: string,
   attachmentId: string,
 ): Promise<Readable> {
   const req: GraphRequest = {
     method: "GET",
-    url: `${userPath(userId)}/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}/$value`,
+    url: `${parentPath}/attachments/${encodeURIComponent(attachmentId)}/$value`,
     headers: { Accept: "*/*" },
   };
   const response = await client.stream(req);
@@ -509,8 +688,30 @@ export async function openAttachmentContent(
   return response.body;
 }
 
+/** Stream the raw bytes of a file attachment (or the MIME of an item attachment). */
+export function openAttachmentContent(
+  client: GraphClient,
+  userId: string,
+  messageId: string,
+  attachmentId: string,
+): Promise<Readable> {
+  return openAttachmentContentAt(client, messagePath(userId, messageId), attachmentId);
+}
+
 /** `$value` fails for very large messages (docs say above ~150 MB). */
 export const MIME_FALLBACK_THRESHOLD_BYTES = 150 * 1024 * 1024;
+
+/** Why a message is stored as Graph JSON plus attachments instead of its MIME. */
+export type MimeFallbackReason =
+  /** `$value` refused the message as too large (413, size codes, or known size > 150 MB). */
+  | "too_large"
+  /** Exchange cannot convert the item to MIME (a conversion or corrupt-data code). */
+  | "conversion_refused"
+  /**
+   * `$value` answered a plain 500 on every attempt and the caller asked for the JSON then
+   * (`jsonAfterServerError`): the content is safe, the MIME is tried again later.
+   */
+  | "server_error";
 
 export type MessageContent =
   | { kind: "mime"; stream: Readable }
@@ -519,6 +720,9 @@ export type MessageContent =
       /** Message JSON including the body, for messages whose MIME cannot be fetched. */
       message: Message;
       attachments: Array<{ meta: AttachmentMeta; open: () => Promise<Readable> }>;
+      fallbackReason: MimeFallbackReason;
+      /** Graph refused to name the attachments' Content-IDs ({@link listAttachmentsWithContentId}). */
+      contentIdUnavailable?: boolean;
     };
 
 /** Errors from `$value` that mean "too big for MIME export", not "gone" or "forbidden". */
@@ -537,82 +741,149 @@ export function isMimeTooLargeError(error: unknown): boolean {
   return /size\w*exceed|exceed\w*size|too\s*large|MessageSizeExceeded/i.test(wording);
 }
 
+const CONVERSION_WORDING = /MimeContentConversion|ConversionFailed|CorruptData/i;
+
 /**
- * Errors from `$value` where the JSON + attachments export may still work: the
- * message is too big, or Exchange cannot convert the item to MIME (IRM, corrupt
- * or special item classes; these come as a 500 or a conversion code and would
- * otherwise fail on every run, retried forever as "service unavailable").
- * "Gone", "forbidden", "unauthorised" and throttling are never mistaken for it.
+ * Errors from `$value` where the JSON + attachments export is the answer: the message
+ * is too big, or Exchange says it cannot convert the item to MIME (IRM, corrupt or
+ * special item classes, named by a conversion code). A plain 500 is not one of them:
+ * it is a server error like any other and may be gone a second later (see
+ * {@link isMimeServerError}). "Gone", "forbidden", "unauthorised" and throttling are
+ * never mistaken for it.
  */
 export function isMimeExportRefusedError(error: unknown): boolean {
-  if (!isGraphError(error)) {
-    return false;
-  }
-  if (isMimeTooLargeError(error)) {
-    return true;
-  }
-  if ([401, 403, 404, 410, 429].includes(error.status)) {
-    return false;
-  }
-  const wording = `${error.code ?? ""} ${error.innerCode ?? ""} ${error.message}`;
-  if (/MimeContentConversion|ConversionFailed|CorruptData/i.test(wording)) {
-    return true;
-  }
-  // A plain 500 (fetchMessageContent asks once more first, the client does not
-  // retry a 500): try the JSON path. If the service is really down, the JSON
-  // fetch fails as well and the failure keeps its 5xx class.
-  return error.status === 500;
+  return mimeRefusalReason(error) !== null;
 }
 
-/** A 500 without a conversion code: may be transient, so MIME is asked once more. */
-function isPlainServerError(error: unknown): boolean {
-  if (!isGraphError(error) || error.status !== 500) {
-    return false;
+/** The reason a `$value` error means "store as JSON", or null when it does not. */
+export function mimeRefusalReason(
+  error: unknown,
+): Exclude<MimeFallbackReason, "server_error"> | null {
+  if (!isGraphError(error)) {
+    return null;
+  }
+  if (isMimeTooLargeError(error)) {
+    return "too_large";
+  }
+  if ([401, 403, 404, 410, 429].includes(error.status)) {
+    return null;
   }
   const wording = `${error.code ?? ""} ${error.innerCode ?? ""} ${error.message}`;
-  return !/MimeContentConversion|ConversionFailed|CorruptData/i.test(wording);
+  return CONVERSION_WORDING.test(wording) ? "conversion_refused" : null;
+}
+
+/** A 500 from `$value` without a conversion code: a server error, asked again with backoff. */
+export function isMimeServerError(error: unknown): error is GraphError {
+  return isGraphError(error) && error.status === 500 && mimeRefusalReason(error) === null;
+}
+
+/** Default number of `$value` attempts in all when it answers a plain 500. */
+export const MIME_SERVER_ERROR_ATTEMPTS = 3;
+/** Default base of the exponential backoff between those attempts. */
+export const MIME_SERVER_ERROR_BACKOFF_MS = 1000;
+/** Longest wait between two of those attempts, also for a server's Retry-After. */
+const MIME_SERVER_ERROR_MAX_WAIT_MS = 30_000;
+
+export interface FetchMessageContentOptions {
+  knownSizeBytes?: number;
+  fallbackThresholdBytes?: number;
+  /** `$value` attempts in all when it answers a plain 500 (default 3, at least 1). */
+  serverErrorAttempts?: number;
+  /** Base of the exponential backoff (with jitter) between those attempts (default 1 s). */
+  serverErrorBackoffMs?: number;
+  /**
+   * After the last plain 500, fetch the JSON + attachments (reason `server_error`)
+   * instead of throwing the 500. Default false: a plain 500 is an item failure the
+   * next run retries, never a reason to give up the MIME.
+   */
+  jsonAfterServerError?: boolean;
+  /** Ends a backoff wait early (the job's signal). */
+  signal?: AbortSignal;
+  /** Injectable wait (tests). */
+  sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
+  /** Injectable RNG in [0, 1) for the jitter (tests). */
+  random?: () => number;
 }
 
 /**
  * Fetch a message's content as MIME, falling back to JSON body plus individual
  * attachments when Graph refuses the MIME export (oversized message, or an item
- * Exchange cannot convert to MIME).
+ * Exchange cannot convert to MIME). A plain 500 is asked again with backoff and,
+ * when it stays, thrown (or, with `jsonAfterServerError`, answered with the JSON).
  */
 export async function fetchMessageContent(
   client: GraphClient,
   userId: string,
   messageId: string,
-  options: { knownSizeBytes?: number; fallbackThresholdBytes?: number } = {},
+  options: FetchMessageContentOptions = {},
 ): Promise<MessageContent> {
   const threshold = options.fallbackThresholdBytes ?? MIME_FALLBACK_THRESHOLD_BYTES;
   const knownTooLarge = options.knownSizeBytes !== undefined && options.knownSizeBytes > threshold;
-  if (!knownTooLarge) {
+  if (knownTooLarge) {
+    return fetchMessageParts(client, userId, messageId, "too_large");
+  }
+  const attempts = Math.max(
+    1,
+    Math.floor(options.serverErrorAttempts ?? MIME_SERVER_ERROR_ATTEMPTS),
+  );
+  const baseMs = Math.max(0, options.serverErrorBackoffMs ?? MIME_SERVER_ERROR_BACKOFF_MS);
+  const sleep = options.sleep ?? waitBeforeAskingAgain;
+  const random = options.random ?? Math.random;
+  for (let attempt = 1; ; attempt++) {
     try {
       return { kind: "mime", stream: await openMessageMime(client, userId, messageId) };
     } catch (error) {
-      if (!isMimeExportRefusedError(error)) {
+      const reason = mimeRefusalReason(error);
+      if (reason !== null) {
+        return fetchMessageParts(client, userId, messageId, reason);
+      }
+      if (!isMimeServerError(error)) {
         throw error;
       }
-      // A one-off 500 must not turn a message into the JSON format for good.
-      if (isPlainServerError(error)) {
-        try {
-          return { kind: "mime", stream: await openMessageMime(client, userId, messageId) };
-        } catch (retryError) {
-          if (!isMimeExportRefusedError(retryError)) {
-            throw retryError;
-          }
+      if (attempt >= attempts) {
+        if (options.jsonAfterServerError) {
+          return fetchMessageParts(client, userId, messageId, "server_error");
         }
+        throw error;
       }
+      const asked = error.retryAfterMs;
+      const backoff = baseMs * 2 ** (attempt - 1) + random() * baseMs;
+      await sleep(Math.min(MIME_SERVER_ERROR_MAX_WAIT_MS, asked ?? backoff), options.signal);
     }
   }
+}
+
+/** A backoff wait that ends with {@link JobAbortedError} when the job is cancelled. */
+async function waitBeforeAskingAgain(ms: number, signal?: AbortSignal): Promise<void> {
+  try {
+    await pauseBeforeRetry(ms, signal);
+  } catch (error) {
+    throw signal?.aborted ? new JobAbortedError() : error;
+  }
+}
+
+/** The JSON body plus attachments of a message whose MIME is not stored (see the reason). */
+export async function fetchMessageParts(
+  client: GraphClient,
+  userId: string,
+  messageId: string,
+  fallbackReason: MimeFallbackReason,
+): Promise<Extract<MessageContent, { kind: "parts" }>> {
   const message = await getMessage(client, userId, messageId, {
     select: [...MESSAGE_SELECT, "body", "internetMessageHeaders"],
   });
-  const attachments = (await collect(listAttachments(client, userId, messageId))).map((meta) => ({
+  const listed = await listAttachmentsWithContentId(client, userId, messageId);
+  const attachments = listed.attachments.map((meta) => ({
     meta,
     open: () => openAttachmentContent(client, userId, messageId, meta.id),
   }));
-  return { kind: "parts", message, attachments };
+  return {
+    kind: "parts",
+    message,
+    attachments,
+    fallbackReason,
+    ...(listed.contentIdUnavailable ? { contentIdUnavailable: true } : {}),
+  };
 }
 
 export async function getMailboxSettings(
@@ -740,6 +1011,8 @@ export async function addFileAttachment(
   const session = await requestOk<UploadSessionInfo>(client, {
     method: "POST",
     url: `${base}/createUploadSession`,
+    // A second session is harmless (the unused one expires); the attachment is not created yet.
+    idempotent: true,
     body: {
       AttachmentItem: {
         attachmentType: "file",

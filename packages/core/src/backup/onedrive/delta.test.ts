@@ -36,6 +36,10 @@ describe("walkDriveDelta", () => {
       ["initial", false, 3],
     ]);
     expect(pages[0]?.url).toBe(`/drives/${DRIVE}/root/delta`);
+    // Every page asks for sharing-only changes, with the inherited sharing on every item.
+    for (const call of graph.calls) {
+      expect(call.headers.prefer).toBe("deltashowsharingchanges");
+    }
     expect(pages[1]?.url).toContain("token=NEXT1");
     expect(outcome).toEqual({
       mode: "initial",

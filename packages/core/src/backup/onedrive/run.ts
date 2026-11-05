@@ -18,12 +18,14 @@ import { classifyFailure, FailureError } from "../../failures/classify.js";
 import type { GraphClient } from "../../graph/client.js";
 import type { DeltaMode } from "../../graph/delta.js";
 import { GraphError, isNotFound } from "../../graph/errors.js";
+import { QuickXorHash } from "../../graph/quickxorhash.js";
 import { collect } from "../../graph/resources/common.js";
 import {
   type DriveDeltaItem,
   driveDeltaUrl,
   getItem,
   type ItemDownload,
+  isSharingChange,
   listItemVersions,
   openItemDownload,
   openVersionDownload,
@@ -39,6 +41,7 @@ import { type DriveWalkOutcome, walkDriveDelta } from "./delta.js";
 import {
   canReuseContent,
   classifyItem,
+  type DriveItemKind,
   fileObject,
   folderObject,
   graphPathOf,
@@ -89,6 +92,22 @@ export class TruncatedDownloadError extends Error {
   }
 }
 
+/**
+ * Downloaded bytes of the size Graph reported whose hash is not the one Graph
+ * reported for the item: not the bytes the source holds (a fault on the way,
+ * or a newer revision than the one listed, which the run checks once).
+ */
+export class ContentMismatchError extends Error {
+  constructor(
+    readonly algorithm: "QuickXorHash" | "SHA-256",
+    readonly expected: string,
+    readonly received: string,
+  ) {
+    super(`downloaded bytes have ${algorithm} ${received}, Graph reported ${expected}`);
+    this.name = "ContentMismatchError";
+  }
+}
+
 /** The download stream broke off mid-transfer (connection reset, server abort). */
 export class DownloadInterruptedError extends Error {
   constructor(cause: unknown) {
@@ -111,15 +130,126 @@ export function describeFailure(error: unknown): string {
   return String(error).slice(0, 500);
 }
 
-/** The chunks of a download, passed on unchanged; `windows` keeps the entropy windows of them. */
+/**
+ * The chunks of a download, passed on unchanged; `windows` keeps the entropy
+ * windows of them, `hash` takes in every byte.
+ */
 async function* measured(
   chunks: AsyncIterable<Buffer>,
   windows: EntropyWindows | undefined,
+  hash?: QuickXorHash,
+  tail?: TailBytes,
 ): AsyncGenerator<Buffer> {
   for await (const chunk of chunks) {
     windows?.push(chunk);
+    hash?.update(chunk);
+    tail?.push(chunk);
     yield chunk;
   }
+}
+
+/** The end of a ZIP's central directory record is within this many bytes of its end. */
+const ZIP_TAIL_BYTES = 22 + 0xffff;
+
+/** The last {@link ZIP_TAIL_BYTES} bytes of a stream. */
+class TailBytes {
+  private chunks: Buffer[] = [];
+  private length = 0;
+
+  push(chunk: Buffer): void {
+    this.chunks.push(chunk);
+    this.length += chunk.length;
+    while (
+      this.chunks.length > 1 &&
+      this.length - (this.chunks[0]?.length ?? 0) >= ZIP_TAIL_BYTES
+    ) {
+      this.length -= (this.chunks.shift() as Buffer).length;
+    }
+  }
+
+  bytes(): Buffer {
+    const all = Buffer.concat(this.chunks);
+    return all.subarray(Math.max(0, all.length - ZIP_TAIL_BYTES));
+  }
+}
+
+/**
+ * Whether `tail` (the last bytes of a stream of `total` bytes) ends a complete ZIP: an
+ * end-of-central-directory record that closes the stream exactly, whose central directory
+ * ends right before it. A download cut short ends without one (or with one that points
+ * elsewhere). ZIP64 archives point through their own locator and count as complete when it
+ * is there.
+ */
+export function endsCompleteZip(tail: Buffer, total: number): boolean {
+  for (let at = tail.length - 22; at >= 0; at--) {
+    if (tail.readUInt32LE(at) !== 0x06054b50) {
+      continue;
+    }
+    const commentLength = tail.readUInt16LE(at + 20);
+    if (at + 22 + commentLength !== tail.length) {
+      continue;
+    }
+    const directorySize = tail.readUInt32LE(at + 12);
+    const directoryOffset = tail.readUInt32LE(at + 16);
+    if (directoryOffset === 0xffffffff || directorySize === 0xffffffff) {
+      return at >= 20 && tail.readUInt32LE(at - 20) === 0x07064b50;
+    }
+    return directoryOffset + directorySize === total - tail.length + at;
+  }
+  return false;
+}
+
+/**
+ * Office Open XML documents (ZIP containers): the files SharePoint rewrites on download
+ * (property promotion), so their bytes legitimately differ from the size Graph reports.
+ */
+const OFFICE_DOCUMENT =
+  /\.(docx|docm|dotx|dotm|xlsx|xlsm|xltx|xltm|xlsb|pptx|pptm|potx|potm|ppsx|ppsm|vsdx|vsdm)$/i;
+
+/** What the bytes of a file must match: the size and hashes Graph reported for it. */
+interface ExpectedContent {
+  readonly size?: number;
+  readonly quickXorHash?: string;
+  readonly sha256Hash?: string;
+  /** An Office document SharePoint may rewrite on download ({@link OFFICE_DOCUMENT}). */
+  readonly officeDocument?: boolean;
+}
+
+function expectedContent(item: DriveDeltaItem): ExpectedContent {
+  const hashes = item.file?.hashes;
+  return {
+    ...(typeof item.size === "number" ? { size: item.size } : {}),
+    ...(OFFICE_DOCUMENT.test(item.name ?? "") ? { officeDocument: true } : {}),
+    ...(hashes?.quickXorHash ? { quickXorHash: hashes.quickXorHash } : {}),
+    ...(hashes?.sha256Hash ? { sha256Hash: hashes.sha256Hash } : {}),
+  };
+}
+
+/**
+ * Why bytes of the reported size are not the item's, or null when a hash
+ * Graph reported agrees (or Graph reported none to compare with).
+ * SharePoint rewrites Office documents on download, so bytes of another size
+ * carry no hash Graph knows and are not compared.
+ */
+function contentMismatch(
+  expected: ExpectedContent,
+  content: WrittenObject,
+  quickXorHash: string | undefined,
+): ContentMismatchError | null {
+  if (expected.size !== content.size) {
+    return null;
+  }
+  if (expected.quickXorHash !== undefined && quickXorHash !== undefined) {
+    return expected.quickXorHash === quickXorHash
+      ? null
+      : new ContentMismatchError("QuickXorHash", expected.quickXorHash, quickXorHash);
+  }
+  if (expected.sha256Hash !== undefined) {
+    return expected.sha256Hash.toLowerCase() === content.sha256.toLowerCase()
+      ? null
+      : new ContentMismatchError("SHA-256", expected.sha256Hash, content.sha256);
+  }
+  return null;
 }
 
 /** Graph's answer for an item that no longer exists (deleted between delta and download). */
@@ -145,8 +275,27 @@ async function* sourceBytes(stream: Readable): AsyncGenerator<Buffer> {
 }
 
 type FetchOutcome =
-  | { readonly ok: true; readonly content: WrittenObject; readonly contentType: string | null }
-  | { readonly ok: false; readonly error: unknown };
+  | {
+      readonly ok: true;
+      readonly content: WrittenObject;
+      readonly contentType: string | null;
+      readonly quickXorHash?: string;
+    }
+  | {
+      readonly ok: false;
+      readonly error: unknown;
+      /** Bytes that arrived whole but are not the expected ones ({@link ContentMismatchError}). */
+      readonly mismatched?: {
+        readonly content: WrittenObject;
+        readonly contentType: string | null;
+        readonly quickXorHash?: string;
+      };
+    };
+
+type FetchedItem =
+  | { readonly gone: true; readonly item?: undefined }
+  | { readonly gone: false; readonly item: DriveDeltaItem }
+  | { readonly gone: false; readonly item?: undefined; readonly error: unknown };
 
 interface PlacedItem {
   readonly item: DriveDeltaItem;
@@ -379,12 +528,15 @@ export class DriveBackupRun {
   private readonly failures: ItemFailureRecord[] = [];
   /** The failures recorded for each item, so a later success in the same run takes them back. */
   private readonly failedById = new Map<string, ItemFailureRecord[]>();
+  /** The folder each failed item was in, so a deletion of that folder takes the failure back. */
+  private readonly failedParents = new Map<string, string | null>();
+  /** The item being processed, whose folder a failure records. */
+  private inFlight: DriveDeltaItem | undefined;
   private readonly retryIds = new Set<string>();
   private retryOverflow: boolean;
   private downloaded = 0;
   private reused = 0;
   private vanished = 0;
-  private skipped = 0;
   private seen = 0;
   private itemsSinceCheckpoint = 0;
   private bytesSinceCheckpoint = 0;
@@ -487,20 +639,16 @@ export class DriveBackupRun {
     this.ctx.progress.total(this.seen);
     for (const id of this.plan.retryIds) {
       this.throwIfAborted();
-      let item: DriveDeltaItem;
-      try {
-        item = await getItem(this.client, this.driveId, id);
-      } catch (error) {
-        this.rethrowIfAborted(error);
-        if (isNotFound(error)) {
-          // Gone for good: the snapshot drops it, the previous snapshots keep it.
-          this.forget(id);
-        } else {
-          this.recordFailure(id, this.knownPath(id), error);
-        }
+      // Gone for good: the snapshot drops it, the previous snapshots keep it.
+      const current = await this.fetchItem(id);
+      if (current.gone) {
         continue;
       }
-      await this.processItem(item, { retry: true });
+      if (current.item === undefined) {
+        this.recordFailure(id, this.knownPath(id), current.error);
+        continue;
+      }
+      await this.processItem(current.item, { retry: true });
       await this.maybeCheckpoint();
     }
     this.retriesDone = true;
@@ -576,6 +724,7 @@ export class DriveBackupRun {
   /** The drive's final objects into the sink, and the state the next run continues from. */
   private finish(outcome: DriveWalkOutcome): DriveRunOutcome {
     const tree = this.tree.materialize({ cascadeDeletions: true });
+    this.withdrawBelowDeleted(tree.cascadedIds);
     this.reportCollisions(tree.collisions);
     this.sink.replace(tree.objects);
     const changes = compareWithPrevious(this.previousById, tree.objects);
@@ -626,7 +775,6 @@ export class DriveBackupRun {
       downloaded: this.downloaded,
       reused: this.reused,
       vanished: this.vanished,
-      skipped: this.skipped,
       failures: this.failures.length,
       fullResyncRequired: this.retryOverflow,
       newBytes: bytes,
@@ -647,23 +795,101 @@ export class DriveBackupRun {
   // Items
 
   private async processItem(
-    item: DriveDeltaItem,
+    delta: DriveDeltaItem,
     options: { retry?: boolean } = {},
   ): Promise<void> {
-    const kind = classifyItem(item);
+    this.inFlight = delta;
+    try {
+      await this.processEntry(delta, options);
+    } finally {
+      this.inFlight = undefined;
+    }
+  }
+
+  private async processEntry(delta: DriveDeltaItem, options: { retry?: boolean }): Promise<void> {
+    let item = delta;
+    let kind = classifyItem(item);
+    if (kind === "unknown" && options.retry !== true) {
+      // No facet that says what it is (a partial entry, or a kind this
+      // classifier does not know): asked once more, getItem names them all.
+      // A retried item has just come from getItem.
+      const current = await this.fetchItem(item.id);
+      if (current.gone) {
+        return;
+      }
+      if (current.item === undefined) {
+        this.recordFailure(item.id, this.knownPath(item.id), current.error);
+        return;
+      }
+      item = { ...item, ...current.item };
+      kind = classifyItem(item);
+    }
+    if (kind === "unknown") {
+      // Never skipped in silence: reported, and fetched again by the next run.
+      this.recordFailure(
+        item.id,
+        item.name || this.knownPath(item.id),
+        incompleteItem("Graph returned the item without a file, folder or shortcut facet"),
+      );
+      return;
+    }
     if (kind === "root") {
       this.tree.rootId = item.id;
       return;
     }
     if (kind === "deleted") {
+      // Gone, not failed: an earlier failure of it in this run no longer stands.
+      this.withdrawFailures(item.id);
       this.tree.remove(item.id);
       this.ctx.progress.advance(1);
       return;
     }
-    if (kind === "unknown") {
-      this.skipped++;
-      this.logger.warn("item has no file, folder or shortcut facet, skipped", { itemId: item.id });
-      this.ctx.progress.advance(1);
+    // Listed for a sharing change (DRIVE_DELTA_HEADERS): the entry need not
+    // carry the sharing itself, so it is read from the item. The content is
+    // not downloaded for it; unchanged bytes are reused as always.
+    let sharingError: unknown;
+    if (isSharingChange(item)) {
+      const current = await this.fetchItem(item.id);
+      if (current.gone) {
+        return;
+      }
+      if (current.item === undefined) {
+        sharingError = current.error;
+      } else {
+        item = { ...item, shared: current.item.shared ?? null };
+      }
+    }
+    await this.processKnown(item, kind, options);
+    if (sharingError !== undefined) {
+      // After the item: storing it takes back its earlier failures of this run.
+      this.recordFailure(item.id, this.knownPath(item.id), sharingError, "reading the sharing");
+    }
+  }
+
+  /**
+   * The item as Graph has it now ({@link getItem}). An item that no longer
+   * exists is dropped from the snapshot (`gone`); any other error comes back
+   * for the caller to report.
+   */
+  private async fetchItem(itemId: string): Promise<FetchedItem> {
+    try {
+      return { gone: false, item: await getItem(this.client, this.driveId, itemId) };
+    } catch (error) {
+      this.rethrowIfAborted(error);
+      if (isNotFound(error)) {
+        this.forget(itemId);
+        return { gone: true };
+      }
+      return { gone: false, error };
+    }
+  }
+
+  private async processKnown(
+    item: DriveDeltaItem,
+    kind: DriveItemKind,
+    options: { retry?: boolean },
+  ): Promise<void> {
+    if (kind === "unknown" || kind === "root" || kind === "deleted") {
       return;
     }
     const placed = await this.place(item);
@@ -773,13 +999,26 @@ export class DriveBackupRun {
     const fetched = await this.fetchContent(
       () => openItemDownload(this.client, this.driveId, item),
       windows,
+      expectedContent(item),
     );
-    if (!fetched.ok) {
-      if (isItemGone(fetched.error)) {
+    let stored = item;
+    let outcome: FetchOutcome = fetched;
+    if (!fetched.ok && fetched.mismatched !== undefined) {
+      const revision = await this.laterRevision(item, fetched.mismatched);
+      if (revision === "gone") {
+        return;
+      }
+      if (revision !== null) {
+        stored = revision;
+        outcome = { ok: true, ...fetched.mismatched };
+      }
+    }
+    if (!outcome.ok) {
+      if (isItemGone(outcome.error)) {
         this.forget(item.id);
         return;
       }
-      this.recordFailure(item.id, path, fetched.error);
+      this.recordFailure(item.id, path, outcome.error);
       if (existing?.type === ONEDRIVE_OBJECT_TYPES.file) {
         this.tree.put(staleFileObject(existing, item, path, now), placement);
         this.carryVersions(item.id);
@@ -787,12 +1026,12 @@ export class DriveBackupRun {
       return;
     }
 
-    const { content, contentType } = fetched;
+    const { content, contentType } = outcome;
     if (windows && windows.size === content.size && content.size > 0) {
       const { head, tail } = windows.windows();
       this.activity.addEntropy(entropySampleOf(path, content.size, head, tail));
     }
-    this.tree.put(fileObject(item, path, content, { now, contentType }), placement);
+    this.tree.put(fileObject(stored, path, content, { now, contentType }), placement);
     this.downloaded++;
     this.bytesSinceCheckpoint += content.size;
     this.ctx.progress.advance(1, content.size);
@@ -809,6 +1048,7 @@ export class DriveBackupRun {
   private async fetchContent(
     open: () => Promise<ItemDownload>,
     windows?: EntropyWindows,
+    expected: ExpectedContent = {},
   ): Promise<FetchOutcome> {
     let download: ItemDownload;
     try {
@@ -817,9 +1057,16 @@ export class DriveBackupRun {
       this.rethrowIfAborted(error);
       return { ok: false, error };
     }
+    const hash = expected.quickXorHash !== undefined ? new QuickXorHash() : undefined;
+    const tail =
+      expected.officeDocument === true && download.contentLength === null
+        ? new TailBytes()
+        : undefined;
     let content: WrittenObject;
     try {
-      content = await this.writer.chunks.write(measured(sourceBytes(download.stream), windows));
+      content = await this.writer.chunks.write(
+        measured(sourceBytes(download.stream), windows, hash, tail),
+      );
     } catch (error) {
       this.rethrowIfAborted(error);
       if (error instanceof DownloadInterruptedError) {
@@ -830,7 +1077,60 @@ export class DriveBackupRun {
     if (download.contentLength !== null && download.contentLength !== content.size) {
       return { ok: false, error: new TruncatedDownloadError(download.contentLength, content.size) };
     }
-    return { ok: true, content, contentType: download.contentType };
+    // No length announced (an encoded body, a chunked one): the size Graph
+    // reported for the item is the only measure left. An Office document
+    // SharePoint rewrote has another size; it is taken when its bytes are a
+    // complete ZIP (a download cut short is not), as with an announced length.
+    if (
+      download.contentLength === null &&
+      expected.size !== undefined &&
+      expected.size !== content.size &&
+      !(tail !== undefined && endsCompleteZip(tail.bytes(), content.size))
+    ) {
+      return { ok: false, error: new TruncatedDownloadError(expected.size, content.size) };
+    }
+    const quickXorHash = hash?.digestBase64();
+    const contentType = download.contentType;
+    const mismatch = contentMismatch(expected, content, quickXorHash);
+    if (mismatch !== null) {
+      return { ok: false, error: mismatch, mismatched: { content, contentType, quickXorHash } };
+    }
+    return { ok: true, content, contentType, ...(quickXorHash ? { quickXorHash } : {}) };
+  }
+
+  /**
+   * The bytes that came are not the revision the delta listed: the file may
+   * have changed in between (the download URL serves the current revision).
+   * Graph is asked once for the item; when its current revision is exactly
+   * these bytes, they are stored under that revision's tag and hashes.
+   * Otherwise null: the download failed. "gone" when the item no longer exists.
+   */
+  private async laterRevision(
+    item: DriveDeltaItem,
+    bytes: { readonly content: WrittenObject; readonly quickXorHash?: string },
+  ): Promise<DriveDeltaItem | "gone" | null> {
+    const current = await this.fetchItem(item.id);
+    if (current.gone) {
+      return "gone";
+    }
+    if (current.item === undefined) {
+      return null;
+    }
+    const revision: DriveDeltaItem = { ...item, ...current.item };
+    const expected = expectedContent(revision);
+    const proven =
+      expected.size === bytes.content.size &&
+      // A hash this run can compare: the QuickXorHash it computed, or the SHA-256.
+      ((expected.quickXorHash !== undefined && bytes.quickXorHash !== undefined) ||
+        expected.sha256Hash !== undefined) &&
+      contentMismatch(expected, bytes.content, bytes.quickXorHash) === null;
+    if (!proven) {
+      return null;
+    }
+    this.logger.info("file changed while it was read; stored its current revision", {
+      itemId: item.id,
+    });
+    return revision;
   }
 
   /** The item no longer exists at the source: drop it from this snapshot. */
@@ -943,6 +1243,9 @@ export class DriveBackupRun {
     const record: ItemFailureRecord = { itemRef, reason, cause };
     this.failures.push(record);
     this.failedById.set(itemId, [...(this.failedById.get(itemId) ?? []), record]);
+    if (this.inFlight?.id === itemId) {
+      this.failedParents.set(itemId, this.inFlight.parentReference?.id ?? null);
+    }
     this.ctx.progress.fail(itemRef, reason, cause);
     if (!this.retryIds.has(itemId)) {
       if (this.retryIds.size < this.settings.maxRetryIds) {
@@ -965,6 +1268,7 @@ export class DriveBackupRun {
       return;
     }
     this.failedById.delete(itemId);
+    this.failedParents.delete(itemId);
     const taken = new Set(records);
     for (let index = this.failures.length - 1; index >= 0; index--) {
       const failure = this.failures[index];
@@ -974,6 +1278,53 @@ export class DriveBackupRun {
     }
     this.retryIds.delete(itemId);
     this.ctx.progress.withdraw?.(records);
+  }
+
+  /**
+   * A folder deleted in this run takes everything below it out of the
+   * snapshot (the cascade at commit), and with it the failures of those items:
+   * gone, not failed. `cascaded` are the stored items the cascade dropped; a
+   * failed item that has no copy in the snapshot is found through the folder
+   * it was in.
+   */
+  private withdrawBelowDeleted(cascaded: readonly string[]): void {
+    if (this.failedById.size === 0) {
+      return;
+    }
+    const deleted = new Set(this.tree.deletedIds());
+    const dropped = new Set(cascaded);
+    // Where an item hangs now: a failed item where the delta put it, an ancestor where this
+    // run's tree has it (moved in this run, perhaps out of a folder deleted later), and only
+    // an ancestor the tree does not hold where the previous snapshot had it.
+    const parentOf = (id: string, failed: boolean): string | null | undefined => {
+      if (failed && this.failedParents.has(id)) {
+        return this.failedParents.get(id);
+      }
+      const current = this.tree.parentOf(id);
+      return current !== undefined ? current : this.previousById.get(id)?.metadata?.parentId;
+    };
+    const below = (id: string, depth: number): boolean => {
+      if (depth > 64) {
+        return false;
+      }
+      const parent = parentOf(id, depth === 0);
+      if (parent === undefined || parent === null) {
+        return false;
+      }
+      if (deleted.has(parent) || dropped.has(parent)) {
+        return true;
+      }
+      // An ancestor the tree holds and did not cascade survives, and so does what is below it.
+      if (this.tree.get(parent) !== undefined) {
+        return false;
+      }
+      return below(parent, depth + 1);
+    };
+    for (const id of [...this.failedById.keys()]) {
+      if (dropped.has(id) || below(id, 0)) {
+        this.withdrawFailures(id);
+      }
+    }
   }
 
   private reportCollisions(paths: readonly string[]): void {

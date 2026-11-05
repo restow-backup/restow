@@ -25,24 +25,35 @@
  * The posts are asked for with `$expand=attachments`; when Graph refuses that
  * to the app, the run continues without the expansion for this group and
  * every post with attachments records the names it could not fetch
- * (`missingAttachments`), so nothing is lost silently.
+ * (`missingAttachments`), so nothing is lost silently. With the expansion, a
+ * file attachment comes with its bytes (or they are read through
+ * `/attachments/{id}/$value`), an item attachment (a forwarded mail, an event)
+ * is read as MIME through `/$value` and embedded as `message/rfc822`, and a
+ * link attachment is recorded by name (`referenceAttachments`; the file lives
+ * in OneDrive or SharePoint). An attachment that cannot be read leaves the post
+ * marked `attachmentsNotBackedUp`: the run warns, and the next run reads the
+ * thread again.
  */
 import { createHash } from "node:crypto";
 import type { Attachment, FileAttachment, Recipient } from "@microsoft/microsoft-graph-types";
+import { buildCause } from "../../failures/classify.js";
 import { isNotFound } from "../../graph/errors.js";
 import {
   isAttachmentExpansionRefused,
   listPosts,
   listThreads,
   type PostWithAttachments,
+  postPath,
   type ThreadInfo,
 } from "../../graph/resources/groups.js";
+import { openAttachmentContentAt } from "../../graph/resources/mail.js";
 import {
   encodeHeaderText,
   filePart,
   formatMailbox,
   type HeaderField,
   type MimePart,
+  messagePart,
   multipart,
   serializeMessage,
   textPart,
@@ -75,9 +86,18 @@ export const POST_META = {
   /** Graph id of the thread; `folderId` carries it too (with a prefix) for grouping. */
   threadId: "conversationThreadId",
   postId: "postId",
-  /** Names of file attachments Graph did not hand out (expansion refused). */
+  /** Names of attachments not in the backup (expansion refused, or not readable). */
   missingAttachments: "missingAttachments",
+  /**
+   * "true": the post has attachments (`hasAttachments` as Graph says) that are not in the
+   * backup, because Graph refused them to the app or they could not be read. Every run with
+   * such posts warns.
+   */
+  attachmentsNotBackedUp: "attachmentsNotBackedUp",
 } as const;
+
+/** What `missingAttachments` says when Graph refused the attachment expansion. */
+const REFUSED_ATTACHMENTS = "(attachments not available to the app)";
 
 /** The group a backup run writes into the `To` header of every post. */
 export interface GroupAddress {
@@ -134,11 +154,28 @@ function isFileAttachment(attachment: Attachment): attachment is FileAttachment 
   );
 }
 
+const ITEM_ATTACHMENT = "#microsoft.graph.itemAttachment";
+const REFERENCE_ATTACHMENT = "#microsoft.graph.referenceAttachment";
+
+function attachmentType(attachment: Attachment): string {
+  return (
+    (attachment as { "@odata.type"?: string })["@odata.type"] ?? "#microsoft.graph.fileAttachment"
+  );
+}
+
+/** Bytes of an attachment read on its own (`/$value`): a file's content, an item's MIME. */
+export interface FetchedAttachment {
+  readonly bytes: Buffer;
+  readonly contentType: string;
+}
+
 export interface BuiltPost {
   readonly bytes: Buffer;
-  /** File attachments written as MIME parts. */
+  /** Attachments written as MIME parts (files, and items as message/rfc822). */
   readonly attachments: number;
-  /** Attachments named in the post that could not be included (link or item attachments). */
+  /** Link attachments, by name: their file lives in OneDrive or SharePoint. */
+  readonly referenceAttachments: readonly string[];
+  /** Attachments named in the post that are not in the message (could not be read). */
   readonly skippedAttachments: readonly string[];
 }
 
@@ -147,6 +184,7 @@ export function buildPostMessage(
   post: PostWithAttachments,
   thread: Pick<ThreadInfo, "id" | "topic">,
   group: GroupAddress,
+  fetched: ReadonlyMap<string, FetchedAttachment> = new Map(),
 ): BuiltPost {
   const headers: HeaderField[] = [];
   const from = mailboxOf(post.from) ?? mailboxOf(post.sender);
@@ -183,8 +221,13 @@ export function buildPostMessage(
   const body = textPart(post.body?.contentType === "text" ? "plain" : "html", content);
   const parts: MimePart[] = [];
   const skipped: string[] = [];
+  const references: string[] = [];
   for (const attachment of post.attachments ?? []) {
-    if (isFileAttachment(attachment) && typeof attachment.contentBytes === "string") {
+    const type = attachmentType(attachment);
+    const read = attachment.id ? fetched.get(attachment.id) : undefined;
+    if (type === REFERENCE_ATTACHMENT) {
+      references.push(attachment.name ?? "(unnamed)");
+    } else if (isFileAttachment(attachment) && typeof attachment.contentBytes === "string") {
       parts.push(
         filePart({
           contentType: attachment.contentType ?? "application/octet-stream",
@@ -192,6 +235,19 @@ export function buildPostMessage(
           disposition: attachment.isInline ? "inline" : "attachment",
           contentId: attachment.contentId ?? null,
           data: Buffer.from(attachment.contentBytes, "base64"),
+        }),
+      );
+    } else if (read && type === ITEM_ATTACHMENT) {
+      // A forwarded mail (or another item) as Graph's MIME of it: an attached message.
+      parts.push(messagePart(itemFileName(attachment.name), read.bytes));
+    } else if (read) {
+      parts.push(
+        filePart({
+          contentType: attachment.contentType ?? read.contentType,
+          fileName: attachment.name ?? null,
+          disposition: attachment.isInline ? "inline" : "attachment",
+          contentId: (attachment as FileAttachment).contentId ?? null,
+          data: read.bytes,
         }),
       );
     } else {
@@ -202,8 +258,37 @@ export function buildPostMessage(
   return {
     bytes: serializeMessage(headers, root),
     attachments: parts.length,
+    referenceAttachments: references,
     skippedAttachments: skipped,
   };
+}
+
+/** File name of an attached item: its subject with `.eml`. */
+function itemFileName(name: string | null | undefined): string {
+  const base = (name ?? "").trim() || "attached message";
+  return /\.eml$/i.test(base) ? base : `${base}.eml`;
+}
+
+/**
+ * Attachments the expansion lists without their bytes: item attachments always, a file
+ * attachment when Graph left out `contentBytes`. Link attachments carry no bytes at all.
+ */
+function attachmentsToRead(post: PostWithAttachments): Attachment[] {
+  return (post.attachments ?? []).filter((attachment) => {
+    const type = attachmentType(attachment);
+    if (!attachment.id || type === REFERENCE_ATTACHMENT) {
+      return false;
+    }
+    return !(isFileAttachment(attachment) && typeof attachment.contentBytes === "string");
+  });
+}
+
+async function readAll(stream: AsyncIterable<unknown>): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array));
+  }
+  return Buffer.concat(chunks);
 }
 
 // ---------------------------------------------------------------------------
@@ -254,6 +339,7 @@ class ConversationsPhase {
     thread: ThreadInfo,
     fingerprint: string,
     missing: readonly string[],
+    references: readonly string[] = [],
   ): Record<string, string> {
     // Metadata is for display (the explorer, reports): plain text, never RFC 2047 words.
     const fromText = formatRecipient(post.from ?? post.sender);
@@ -291,6 +377,11 @@ class ConversationsPhase {
     }
     if (missing.length > 0) {
       metadata[POST_META.missingAttachments] = JSON.stringify(missing);
+      // Refused to the app or not readable: either way not in the backup.
+      metadata[POST_META.attachmentsNotBackedUp] = "true";
+    }
+    if (references.length > 0) {
+      metadata[META.referenceAttachments] = JSON.stringify(references);
     }
     return metadata;
   }
@@ -301,39 +392,76 @@ class ConversationsPhase {
     const mtime = toMillis(post.receivedDateTime) || toMillis(post.createdDateTime);
     const fingerprint = postFingerprint(post, this.expand);
     const existing = run.index.get(OBJECT_TYPES.mail, post.id);
-    if (run.reusable(existing, fingerprint)) {
+    // A post stored without some of its attachments is read again while the expansion works.
+    if (run.reusable(existing, fingerprint) && !(this.expand && notBackedUp(existing))) {
       run.carryForward(existing, {
         path,
         mtime,
-        metadata: this.metadataOf(post, thread, fingerprint, this.missingOf(existing)),
+        metadata: this.metadataOf(
+          post,
+          thread,
+          fingerprint,
+          this.missingOf(existing),
+          this.referencesOf(existing),
+        ),
       });
       return;
     }
-    const built = buildPostMessage(post, thread, this.options.group);
+    const fetched = this.expand ? await this.readAttachments(post, thread) : new Map();
+    const built = buildPostMessage(post, thread, this.options.group, fetched);
     const missing =
       !this.expand && post.hasAttachments === true
-        ? ["(attachments not available to the app)"]
+        ? [REFUSED_ATTACHMENTS]
         : built.skippedAttachments;
     await run.storeBytes(built.bytes, {
       path,
       id: post.id,
       type: OBJECT_TYPES.mail,
       mtime,
-      metadata: this.metadataOf(post, thread, fingerprint, missing),
+      metadata: this.metadataOf(post, thread, fingerprint, missing, built.referenceAttachments),
     });
   }
 
+  /**
+   * The bytes of the attachments the expansion listed without them ({@link attachmentsToRead}).
+   * One that cannot be read is left out (the post records it as missing and the run warns).
+   */
+  private async readAttachments(
+    post: PostWithAttachments,
+    thread: ThreadInfo,
+  ): Promise<Map<string, FetchedAttachment>> {
+    const fetched = new Map<string, FetchedAttachment>();
+    const parent = postPath(this.options.groupId, thread.id, post.id);
+    for (const attachment of attachmentsToRead(post)) {
+      this.run.throwIfAborted();
+      const id = attachment.id as string;
+      try {
+        const bytes = await readAll(await openAttachmentContentAt(this.run.client, parent, id));
+        fetched.set(id, {
+          bytes,
+          contentType: attachment.contentType ?? "application/octet-stream",
+        });
+      } catch (error) {
+        if (!isItemLevelError(error) && !isVanished(error)) {
+          throw error;
+        }
+        this.run.logger.warn("post attachment could not be read", {
+          postId: post.id,
+          attachmentId: id,
+          type: attachmentType(attachment),
+          error,
+        });
+      }
+    }
+    return fetched;
+  }
+
+  private referencesOf(existing: { metadata?: Record<string, string> }): string[] {
+    return parseNames(existing.metadata?.[META.referenceAttachments]);
+  }
+
   private missingOf(existing: { metadata?: Record<string, string> }): string[] {
-    const raw = existing.metadata?.[POST_META.missingAttachments];
-    if (!raw) {
-      return [];
-    }
-    try {
-      const parsed: unknown = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed.filter((e): e is string => typeof e === "string") : [];
-    } catch {
-      return [];
-    }
+    return parseNames(existing.metadata?.[POST_META.missingAttachments]);
   }
 
   /** Posts of a thread; switches off the attachment expansion once Graph refuses it. */
@@ -434,11 +562,14 @@ class ConversationsPhase {
     for (const thread of threads) {
       run.throwIfAborted();
       const delivered = thread.lastDeliveredDateTime ?? "";
+      const members = run.index.members(threadGroup(thread.id));
       const unchanged =
         !run.full &&
         delivered !== "" &&
         previous[thread.id] === delivered &&
-        run.index.members(threadGroup(thread.id)).length > 0;
+        members.length > 0 &&
+        // Posts stored without their attachments are read again while Graph may hand them out.
+        !(this.expand && members.some(notBackedUp));
       if (unchanged) {
         next[thread.id] = delivered;
         continue;
@@ -451,6 +582,65 @@ class ConversationsPhase {
       }
     }
     run.state.conversationThreads = next;
+    this.warnAboutRefusedAttachments();
+  }
+
+  /**
+   * One warning per run while the restore point holds posts whose attachments Graph refused to
+   * the app (also posts stored by an earlier run): the run is never plain green for them.
+   */
+  private warnAboutRefusedAttachments(): void {
+    const run = this.run;
+    let refused = 0;
+    let unreadable = 0;
+    for (const group of run.index.groups(mailGroup(THREAD_GROUP_PREFIX))) {
+      for (const member of run.index.members(group).filter(notBackedUp)) {
+        if (
+          parseNames(member.metadata?.[POST_META.missingAttachments]).includes(REFUSED_ATTACHMENTS)
+        ) {
+          refused++;
+        } else {
+          unreadable++;
+        }
+      }
+    }
+    if (refused > 0) {
+      const reason = `${refused} post(s) of the group conversations have attachments Graph did not hand to the app; they are backed up without them`;
+      run.warn(
+        CONVERSATIONS_PATH,
+        reason,
+        buildCause("graph.group_post_attachments_refused", { count: refused }, { message: reason }),
+      );
+    }
+    if (unreadable > 0) {
+      const reason = `${unreadable} post(s) of the group conversations have attachments that could not be read; they are backed up without them and read again on the next run`;
+      run.warn(
+        CONVERSATIONS_PATH,
+        reason,
+        buildCause(
+          "graph.group_post_attachments_unreadable",
+          { count: unreadable },
+          { message: reason },
+        ),
+      );
+    }
+  }
+}
+
+function notBackedUp(object: { metadata?: Record<string, string> }): boolean {
+  return object.metadata?.[POST_META.attachmentsNotBackedUp] === "true";
+}
+
+/** A JSON array of names, as stored in metadata; anything malformed reads as none. */
+function parseNames(raw: string | undefined): string[] {
+  if (!raw) {
+    return [];
+  }
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((e): e is string => typeof e === "string") : [];
+  } catch {
+    return [];
   }
 }
 

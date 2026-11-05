@@ -29,11 +29,15 @@ import type {
 } from "../../engine/types.js";
 import type { GraphClient } from "../../graph/client.js";
 import { defaultInstanceWindow, type InstanceWindow } from "../../graph/resources/calendar.js";
-import type { WellKnownFolderName } from "../../graph/resources/mail.js";
+import {
+  MIME_SERVER_ERROR_BACKOFF_MS,
+  type WellKnownFolderName,
+} from "../../graph/resources/mail.js";
 import { backupCalendar } from "./calendar.js";
 import { backupContacts } from "./contacts.js";
 import { folderObjectAt } from "./folders.js";
 import { backupMail, DEFAULT_SKIPPED_FOLDERS, type MailPhaseOptions } from "./mail.js";
+import { checkOnlineArchive } from "./online-archive.js";
 import { CALENDAR_ROOT, CONTACTS_ROOT, MAIL_ROOT } from "./paths.js";
 import {
   BackupRun,
@@ -65,6 +69,8 @@ export interface ExchangeBackupEngineOptions<Db = unknown> {
   readonly skipWellKnownFolders?: Iterable<WellKnownFolderName>;
   /** Requested delta page size (Graph caps it at 200). */
   readonly deltaPageSize?: number;
+  /** Base of the backoff between `$value` attempts after a plain 500 (default 1 s; tests 0). */
+  readonly mimeServerErrorBackoffMs?: number;
   /** Instance window for series exceptions; defaults to one year back, two ahead of `ctx.now()`. */
   readonly calendarWindow?: (now: Date) => InstanceWindow;
   readonly includeCalendar?: boolean;
@@ -101,6 +107,7 @@ export class ExchangeBackupEngine<Db = unknown> implements BackupEngine<Db> {
         MAX_DELTA_PAGE_SIZE,
         Math.max(1, options.deltaPageSize ?? MAX_DELTA_PAGE_SIZE),
       ),
+      mimeServerErrorBackoffMs: options.mimeServerErrorBackoffMs ?? MIME_SERVER_ERROR_BACKOFF_MS,
     };
   }
 
@@ -168,6 +175,9 @@ export class ExchangeBackupEngine<Db = unknown> implements BackupEngine<Db> {
 
     try {
       addRootFolders(run);
+      // Before the mail phase, so a mailbox whose archive is not covered says so even when
+      // a later phase fails.
+      await checkOnlineArchive(run);
       await backupMail(run, this.mailOptions);
       if (this.options.includeCalendar ?? true) {
         await backupCalendar(run, {
@@ -200,6 +210,7 @@ export class ExchangeBackupEngine<Db = unknown> implements BackupEngine<Db> {
         objects: result.objectsTotal,
         ...run.counters,
         newBytes: result.bytes,
+        ...(Object.keys(run.jsonFallbacks).length > 0 ? { jsonFallbacks: run.jsonFallbacks } : {}),
       });
       return result;
     } catch (error) {

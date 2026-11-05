@@ -27,7 +27,7 @@ je Kunden-Tenant. Application Permissions (keine delegierten) für Backup:
 - Sites.ReadWrite.All (SharePoint Online, optional; Sites.Read.All genügt für die Sicherung,
   die Wiederherstellung in eine Website braucht ReadWrite; siehe „SharePoint Online" unten)
 - User.Read.All, Group.Read.All, Directory.Read.All (Verzeichnis-Sync, Schutzregeln;
-  Group.Read.All liest auch die Microsoft-365-Gruppen und ihre Unterhaltungen, siehe
+  User.Read.All erkennt auch ein Online-Archiv, siehe „Exchange: Sichern“; Group.Read.All liest auch die Microsoft-365-Gruppen und ihre Unterhaltungen, siehe
   „Gruppenpostfächer" unten)
 - Organization.Read.All (Tenant-Name, Lizenzen)
 - Mail.Send (optional, nur wenn Benachrichtigungen über diese App statt über eine eigene
@@ -49,7 +49,11 @@ packages/core/src/graph/auth/token.ts unterstützt beides).
 Ein App-Consent gewährt Zugriff auf alle Postfächer des Tenants. Kunden, die den
 Umfang einschränken wollen, nutzen Exchange `New-ApplicationAccessPolicy` mit einer
 Gruppe. Restow muss damit umgehen (403 für ausgeschlossene Postfächer als "nicht im
-Schutzumfang" anzeigen, nicht als Fehler).
+Schutzumfang" anzeigen, nicht als Fehler). Wird die Richtlinie (oder ein entzogener Consent)
+mitten in einem Lauf wirksam, antwortet das Delta jedes weiteren Ordners mit 403. Bestätigt der
+Posteingang des Postfachs die Verweigerung, bricht der Lauf mit dem Zugriffsfehler ab und
+verwirft den Sicherungsstand, statt die übrigen Ordner ungelesen weiterzutragen; ein 403, das nur
+ein Ordner liefert, bleibt ein Ordnerfehler.
 
 ## Throttling (der Grund, warum alle Tools langsam sind)
 
@@ -58,7 +62,21 @@ Schutzumfang" anzeigen, nicht als Fehler).
   Anfragen je Postfach. OneDrive/SharePoint: eigene Limits je Tenant, abhängig von
   Lizenzzahl.
 - Antwort 429 mit `Retry-After` ist normal, kein Fehler. Immer respektieren, Jitter
-  dazu, kein Hammering. 503/504 mit Backoff wiederholen.
+  dazu, kein Hammering. 503/504 mit Backoff wiederholen, aber nur, wo eine zweite Anfrage
+  nichts doppelt anlegen kann.
+- POST ist nicht idempotent: Exchange legt eine Nachricht oft schon an, während das Gateway
+  noch mit 504 aufgibt, und eine zweite Anfrage legt eine zweite Kopie an. Der Graph-Client
+  (`graph/client.ts`) sendet deshalb einen POST nur nach einer Antwort erneut, die beweist,
+  dass nichts geschehen ist: 429 und 503 mit `Retry-After` (Drosselung). Nach 504, nach 503
+  ohne `Retry-After` und ohne Antwort innerhalb der Wartezeit (5 Minuten) wirft er
+  `GraphOutcomeUnknownError` (Ursache `graph.outcome_unknown`, vorübergehend); wer den POST
+  geschickt hat, muss zuerst im Ziel nachsehen (bei Nachrichten über die Message-ID im
+  Zielordner), bevor er ihn wiederholt. GET, PUT, PATCH und DELETE werden wie bisher wiederholt.
+  Ein POST, der nichts anlegt oder nur Wegwerfbares (Upload-Session anlegen, Reauthorisieren
+  eines Abonnements), setzt `idempotent: true`. Im `$batch` gilt dasselbe je Teilanfrage: eine
+  anlegende Teilanfrage mit 504 kommt als 504 zurück, eine gedrosselte wird erneut gesendet; ein
+  `$batch` mit anlegenden Teilanfragen wird nach 504 oder Zeitüberschreitung nicht erneut
+  gesendet.
 - Strategie: Parallelität über Postfächer, nicht innerhalb eines Postfachs; Delta-
   Queries; `$select` minimal; Batch-Requests (max. 20 je Batch, teilen sich Limits).
 - Erstsicherung großer Tenants dauert Tage. Das ist so und wird in der UI so gesagt
@@ -83,8 +101,55 @@ Schutzumfang" anzeigen, nicht als Fehler).
 - Inhalt: `/users/{id}/messages/{mid}/$value` liefert MIME (RFC 5322) inklusive
   Anhänge. Das ist das Format im Backup. Nachteil: Änderungen an Flags/Kategorien
   erzeugen kein neues MIME; Metadaten separat speichern.
+- Wann der Inhalt neu geladen wird: Ein Fingerabdruck aus Betreff, `hasAttachments`, `isDraft`
+  und `bodyPreview` (bei Entwürfen zusätzlich `lastModifiedDateTime`) entscheidet über den
+  Download. Entfernt jemand in Outlook einen Anhang einer empfangenen Mail oder bearbeitet ihren
+  Text hinter den ersten 255 Zeichen, bleibt dieser Abdruck gleich. Deshalb liest der Lauf für
+  jede Nachricht, deren Inhalt er lädt oder deren `lastModifiedDateTime` sich bei gleichem
+  Abdruck geändert hat, eine Inhaltssignatur: `GET /messages/{mid}?$select=id,body&$expand=
+  attachments($select=id,name,size,isInline)` mit `Prefer: outlook.body-content-type="text"`,
+  je 20 Nachrichten ein `$batch`, daraus SHA-256 über den Text und die sortierte Anhangsliste,
+  gespeichert als `contentSignature`. Weicht sie ab, wird der Inhalt neu geladen. Markierung,
+  Lesestatus, Kategorien und Aufbewahrungsstempel ändern sie nicht (PidTagMessageSize dagegen
+  schon: Exchange zählt jede MAPI-Eigenschaft mit, deshalb taugt die Größe nicht). Bleibt die
+  Abfrage für eine geänderte Nachricht unbeantwortet (429, 5xx, ganzer `$batch` abgelehnt),
+  behält die Sicherung die alte Kopie mit ihrer alten Änderungszeit, der Lauf meldet die
+  Nachricht als Warnung `graph.mail_content_unchecked`, und der nächste Lauf prüft sie über die
+  Wiederholungsliste erneut. Auch eine Nachricht, die erst eine Wiederholung oder die erneute
+  MIME-Abfrage speichert, bekommt ihre Signatur. Eine Kopie ohne `contentSignature` (vor 0.5.0)
+  wird bei ihrer nächsten Änderung einmal neu geladen. `changeKey` taugt dafür nicht, er ändert
+  sich auch bei Flags und Lesestatus.
 - Große Anhänge (>4 MB) kommen im MIME mit; `$value` kann für sehr große Mails
   (>150 MB) fehlschlagen; Fallback: Anhänge einzeln über `/attachments/{id}/$value`.
+- JSON-Format (Graph-JSON der Nachricht mit `body` und `internetMessageHeaders`, dazu jeder
+  Anhang als eigenes Objekt) nur, wenn `$value` die Nachricht wirklich verweigert. Der Grund
+  steht im Objekt als `formatReason`: `too_large` (413 oder ein Größen-Code), `conversion_refused`
+  (Exchange kann das Element nicht in MIME umwandeln: `ErrorMimeContentConversionFailed`,
+  `ConversionFailed`, `CorruptData`). Ein einfacher 500 ohne solchen Code ist kein Grund: `$value`
+  wird mit Backoff (1 s, 2 s, plus Jitter; `Retry-After` gilt) insgesamt dreimal gefragt; bleibt
+  es beim 500, ist die Nachricht ein Elementfehler und der nächste Lauf holt sie über
+  `mailRetry` erneut. Antworten fünf Nachrichten in Folge mit nichts als 500 (ein Ausfall im
+  Exchange-Backend trifft ganze Postfächer), fragt der Lauf weitere Nachrichten nicht mehr und
+  wartet auch keinen Backoff mehr ab: Sie sind sofort Elementfehler (wiederholt über
+  `mailRetry`, ohne Zählung in `mailMimeServerErrors`), und höchstens einmal je Minute geht ein
+  einzelner Versuch ohne Backoff hinaus; antwortet er, läuft alles wieder normal.
+  Erst nach drei Läufen in Folge mit nur 500 wird die JSON-Form gesichert
+  (`server_error`, gezählt in `mailMimeServerErrors` im Zustand), damit der Inhalt sicher ist.
+  Eine JSON-Kopie mit `server_error` oder ohne `formatReason` (vor 0.5.0 reichten zwei schnelle
+  500 für die JSON-Form auf Dauer) fragt jeder inkrementelle Lauf noch einmal nach dem MIME
+  (höchstens 200 je Ordner und Lauf); kommt es, ersetzt es die JSON-Kopie samt Anhängen, sonst
+  bleibt die Kopie unverändert. Jede JSON-Sicherung steht im Protokoll ("message stored as JSON
+  instead of MIME" mit Grund) und gezählt im Abschluss des Laufs (`jsonFallbacks`). Eine nach
+  Serverfehlern gesicherte JSON-Kopie (`server_error`) ist außerdem eine Warnung
+  `graph.mail_stored_without_mime` an der Nachricht, im Lauf, der sie speichert, und in jedem
+  Lauf, dessen erneute MIME-Abfrage wieder scheitert: Bis das MIME kommt, hat die Nachricht keine
+  Originaldatei für EML-, MBOX- oder PST-Export, der Lauf ist also nicht grün. `too_large` und
+  `conversion_refused` sind endgültige Antworten von Exchange und bleiben grün.
+  Jeder Dateianhang der JSON-Form trägt seine Content-ID (`metadata.contentId`, gelesen mit dem
+  Typ-Cast-`$select` `microsoft.graph.fileAttachment/contentId`, weil `contentId` nur am
+  abgeleiteten Typ steht); der Restore setzt sie wieder, sonst zeigen die `cid:`-Bilder im
+  HTML-Text ins Leere. Lehnt Graph den Typ-Cast ab (400), werden die Anhänge ohne gelistet und
+  die Nachricht trägt `contentIdUnavailable`. JSON-Sicherungen vor 0.5.0 haben keine Content-ID.
 - Kalender: `/users/{id}/calendars` und `/events` (Serientermine als Master plus
   Ausnahmen; `calendarView` nur für Ansicht, nicht für Backup). Kontakte:
   `/contactFolders` und `/contacts`. Beides als JSON mit Graph-Schema sichern.
@@ -97,6 +162,24 @@ Schutzumfang" anzeigen, nicht als Fehler).
   einem anderen Postfach freigegebener Kalender gehört diesem Postfach und wird mit ihm gesichert.
   Die Metadaten eines Termins nennen Betreff, Beginn und Ende (UTC), ganztägig, Organisator, Ort
   und bei einer Serie das letzte Datum ihres Bereichs (Ort und Serienende ab 0.4.2).
+- Terminanhänge (Nutzerkalender, ab 0.5.0): Hat ein Termin `hasAttachments`, listet der Lauf
+  `/users/{id}/events/{id}/attachments` (mit Content-ID) und speichert jeden Dateianhang als
+  Objekt `event-attachment` unter `<Termin>.attachments/<Name>.<id>` (Inhalt über `$value`;
+  Metadaten Name, Inhaltstyp, Größe, inline, Content-ID, `eventItemId`, `eventPath`), einen
+  Elementanhang als sein Graph-JSON (`$expand=microsoft.graph.itemAttachment/item`), einen
+  Linkanhang nur mit Namen am Termin (`referenceAttachments`). Der Termin trägt
+  `attachmentsChangeKey`: Solange sein `changeKey` gleich bleibt, werden die Anhänge nicht neu
+  gelesen, nur mitgeführt (auch bei Umbenennung). Ein Anhang, der sich nicht lesen lässt, ist ein
+  Elementfehler des Termins; die gespeicherten Anhänge bleiben, und der nächste Lauf liest sie
+  erneut. Eine Ausnahme einer Serie (ein verschobener Termin, an den nur dort das Protokoll
+  angehängt ist) hat eigene Anhänge: Für jede Ausnahme mit `hasAttachments` liest der Lauf
+  `/events/{Ausnahme-ID}/attachments` genauso und legt sie unter
+  `<Serie>.attachments/occurrence <Datum>.<id>/` ab, mit `eventItemId` = Ausnahme,
+  `seriesMasterId` = Serie und `eventPath` = `<Serie-Pfad>#<Ausnahme-ID>` (ein eigenes
+  Terminobjekt hat die Ausnahme nicht, sie steht im JSON der Serie). Die Serie trägt je Ausnahme
+  deren `changeKey` (`exceptionAttachments`); nur bei einer Änderung wird neu gelesen.
+  Sicherungen vor 0.5.0 haben keine Terminanhänge; der erste Lauf danach holt sie für alle noch
+  vorhandenen Termine nach.
 - Kalender im Restore-Explorer (ab 0.4.2): Ein Kalender listet seine Termine nach Beginn
   (neueste zuerst oder anstehende zuerst), mit Wann, Ort und Organisator, nicht nach Betreff.
   Eine Serie steht einmal in der Liste und klappt ihre Termine auf; die Monatsansicht zeigt
@@ -106,9 +189,23 @@ Schutzumfang" anzeigen, nicht als Fehler).
   Zeitzone der Serie über Sommer- und Winterzeit. Ein einzeln gelöschter Termin einer Serie ist
   im Backup nicht vermerkt (Graph v1.0 nennt keine abgesagten Vorkommen) und erscheint daher
   noch, so wie ihn eine Wiederherstellung der Serie auch wieder anlegt.
-- Archivpostfach (In-Place Archive): über Graph nur eingeschränkt erreichbar
-  (`/users/{id}/mailFolders` liefert das primäre Postfach). Dokumentieren, in v1 nicht
-  versprechen.
+- Online-Archiv (In-Place Archive) wird nicht gesichert: Graph v1.0 liest nur das primäre
+  Postfach (`/users/{id}/mailFolders`), und Restow liest das Archiv nicht über Beta-APIs. Mails,
+  die eine Aufbewahrungsrichtlinie (MRM, etwa „nach 2 Jahren ins Archiv verschieben“) oder der
+  Benutzer ins Online-Archiv verschiebt, meldet das Ordner-Delta als entfernt; sie fehlen ab
+  dann in den neuen Sicherungsständen, ältere behalten sie bis zum Ende ihrer Aufbewahrung. Damit
+  das nie still geschieht, fragt jeder Lauf einmal (Antwort einen Tag im Zustand gemerkt,
+  `onlineArchive`) Graph beta `GET /beta/users/{id}/settings/exchange` (exchangeSettings,
+  Anwendungsberechtigung User.Read.All, die die App für den Verzeichnis-Sync ohnehin hat). Nennt
+  Graph ein `inPlaceArchiveMailboxId`, endet jeder Lauf des Postfachs mit der Warnung
+  `graph.online_archive_not_covered` (Element `online-archive`, nicht wiederholbar), nie einfach
+  grün; die Warnung lässt sich bestätigen. Grün bleibt ein Lauf nur bei der belegten Antwort
+  „kein Archiv“. Verweigert Graph die Abfrage oder beantwortet sie nicht (fehlende Berechtigung,
+  Beta nicht verfügbar, 403, 5xx), endet der Lauf mit der Warnung `graph.online_archive_unknown`
+  (wiederholbar), und der nächste Lauf fragt erneut; ein früher erkanntes Archiv bleibt solange
+  als `graph.online_archive_not_covered` gemeldet. Wer das Archiv braucht, sichert es auf anderem Weg (etwa per
+  eDiscovery-Export) oder bewahrt die Sicherungsstände so lange auf, wie die Mails gebraucht
+  werden.
 - Geteilte Postfächer und Ressourcen: normale Nutzerobjekte ohne Lizenz; Schutzregel
   muss sie einschließen können.
 - Gelöschte Nutzer: Graph `directory/deletedItems/microsoft.graph.user` 30 Tage; das
@@ -236,7 +333,21 @@ Zustand und lässt ihn nachträglich bestätigen, bei IMAP setzt ihn die Antwort
   (`GET /snapshots/people/memberships?key=user:<id>`, Keyset nach Rolle, Name und ID, je 25 Einträge,
   eine Abfrage je Seite über den Index `directory_memberships_user_idx`).
 - Freigaben/Berechtigungen werden als Information gesichert, nicht wiederhergestellt
-  (v1).
+  (v1): je Element die Freigabe-Facette (`sharedScope`, `sharedBy`, `sharedDateTime`).
+  Jede Delta-Seite fragt mit `Prefer: deltashowsharingchanges` (ab 0.5.0):
+  Ohne den Header lässt OneDrive for Business/SharePoint ein Element, an dem sich nur die Freigabe
+  geändert hat, aus dem Delta weg, und ein inkrementeller Lauf behielte die alte Freigabe für
+  immer. Ein so gemeldetes Element (`@microsoft.graph.sharedChanged: "True"`) liest der Lauf
+  einmal einzeln (`GET /drives/{did}/items/{id}`, ohne Download; unveränderte Bytes werden wie
+  immer übernommen) und übernimmt dessen Freigabe; lässt es sich nicht lesen, ist das ein
+  Elementfehler mit Wiederholung im nächsten Lauf, die Datei bleibt gesichert. Bewusst ohne
+  `hierarchicalsharing`: Damit meldet Graph eine Freigabe nur an der Wurzel der
+  Berechtigungshierarchie und lässt die geerbte Freigabe an jedem Element darunter weg. Eine
+  bearbeitete oder neue Datei in einem freigegebenen Ordner stünde dann als nicht freigegeben im
+  Sicherungsstand, und die Dateien unter einem Ordner, dessen Freigabe entfernt wurde, behielten
+  ihre alte. Ohne den Header trägt jedes gemeldete Element seine geltende (auch geerbte)
+  Freigabe. Sagt ein Delta-Eintrag zur Freigabe nichts, behält eine Datei mit unveränderten
+  Bytes die zuletzt gesicherte.
 - Gesperrtes OneDrive (ab 0.4.7): Microsoft sperrt das OneDrive eines Kontos ohne Lizenz nach
   einiger Zeit. Jeder Zugriff antwortet dann HTTP 423 mit `notAllowed`/`resourceLocked` („Access
   to this site has been blocked. Please contact the administrator to resolve this problem.“),
@@ -297,8 +408,8 @@ das vorab begrenzen).
 
 | Pfad im Sicherungsstand | Inhalt |
 | --- | --- |
-| `site.json` | Titel, URL, Beschreibung, Websitesammlung, `sharepointIds`; je Bibliothek Name, Drive-ID und die Freigaben ihres Stammordners (`/drives/{id}/root/permissions`); je Liste Name, Vorlage, Elementzahl |
-| `Libraries/<Bibliothek>/…` | jede Dokumentbibliothek (`/sites/{id}/drives`, auch „Websiteseiten" mit den Seiten und „Websiteobjekte") über den Drive-Lauf der OneDrive-Engine: Delta mit Token je Bibliothek, Elemente nach ID, gestreamte Downloads, optionale Versionen (`<Datei>:versions/<id>`), Wiederholung, 410-Neuaufzählung, Prüfpunkte, Freigabe-Facette je Element als Information |
+| `site.json` | Titel, URL, Beschreibung, Websitesammlung, `sharepointIds`; je Bibliothek Name, Drive-ID, die Freigaben ihres Stammordners (`/drives/{id}/root/permissions`), ob sie in diesem Lauf gelesen wurde (`readThisRun`) und wann zuletzt (`lastReadAt`); je Liste Name, Vorlage, Elementzahl |
+| `Libraries/<Bibliothek>/…` | jede Dokumentbibliothek (`/sites/{id}/drives`, auch „Websiteseiten" mit den Seiten und „Websiteobjekte") über den Drive-Lauf der OneDrive-Engine: Delta mit Token je Bibliothek, Elemente nach ID, gestreamte Downloads, optionale Versionen (`<Datei>:versions/<id>`), Wiederholung, 410-Neuaufzählung, Prüfpunkte, Freigabe-Facette je Element als Information (Freigabeänderungen über `Prefer: deltashowsharingchanges`, wie beim OneDrive) |
 | `Lists/<Liste>/_list.json` | Liste und Spalten (`/lists/{id}/columns`) |
 | `Lists/<Liste>/<Titel> (<id>).json` | je Listenelement alle Feldwerte (`/lists/{id}/items?expand=fields`), dazu Inhaltstyp, Autor, Daten |
 
@@ -308,8 +419,11 @@ haben kein Delta: Sie werden je Lauf vollständig gelesen (die Feldwerte kommen 
 200 je Seite), ein unverändertes Element (gleiches eTag) übernimmt seine gespeicherten Bytes, den
 Rest dedupliziert der Pack-Speicher. Versteckte Listen (Systemlisten) und Bibliotheken als Listen
 werden übergangen. Eine Bibliothek oder Liste, die Graph verweigert (403/404/423), wird als
-fehlgeschlagenes Element gemeldet und behält ihre letzte Kopie (Liste: als `stale` markiert); der
-Rest der Website wird gesichert. Eine gelöschte Website schlägt mit `graph.site_unavailable` fehl.
+fehlgeschlagenes Element gemeldet und behält ihre letzte Kopie (Liste: jedes Element als `stale`
+markiert; Bibliothek, ab 0.5.0: der Bibliotheksordner trägt `carriedForward: "true"` und
+`lastReadAt`, den Zeitpunkt, zu dem ihre Dateien zuletzt gelesen wurden, und `site.json` nennt sie
+mit `readThisRun: false`; die Dateien selbst werden nicht als `stale` markiert, damit ihre
+Wiederverwendung nach Inhaltskennung weiter greift); der Rest der Website wird gesichert. Eine gelöschte Website schlägt mit `graph.site_unavailable` fehl.
 Eine gesperrte Website (ab 0.4.7; ein Administrator hat sie gesperrt, oder sie gehört zu einem
 Konto ohne Lizenz) antwortet auf Website-Ebene (`/sites/{id}`, `/sites/{id}/drives`) oder in jeder
 Bibliothek mit 423 `notAllowed`/`resourceLocked`: Antworten alle Bibliotheken so, endet der Lauf
@@ -440,11 +554,18 @@ Wiederherstellung, Download, Export, Restore-Prüfung und Aufbewahrung unveränd
   **einmal** über die `seriesMasterId` (`/groups/{id}/events/{id}`); die Ausnahmen kommen dann wie
   gewohnt über `/instances`. Ist auch der Master nicht lesbar, werden die Vorkommen der Serie im
   Fenster als Einzeltermine gesichert (Typ `occurrence`/`exception` in der Metadatenspalte), damit
-  sie wenigstens als Termine wiederherstellbar sind. Ereignisse vor dem Fenster sieht dieser
-  Rückfallweg nicht. Kalender haben in v1.0 kein Delta: Jeder Lauf liest vollständig, unveränderte
-  Ereignisse kosten über die Bytes nichts.
-- Ereignisanhänge: wie bei Nutzerkalendern nicht gesichert (`hasAttachments` steht in den
-  Metadaten); Graph dokumentiert `…/events/{id}/attachments` für Gruppen nicht.
+  sie wenigstens als Termine wiederherstellbar sind. Ereignisse vor oder hinter dem Fenster sieht
+  dieser Rückfallweg nicht: Bereits gesicherte bleiben dann so im Sicherungsstand, wie sie zuletzt
+  gesichert wurden (auch wenn sie inzwischen gelöscht sind); entfernt wird nur ein gesicherter
+  Termin, dessen Beginn im Fenster liegt und den die Ansicht nicht mehr nennt, ein Serienmaster
+  nur, wenn sein ganzer Bereich im Fenster liegt und die Ansicht kein Vorkommen der Serie nennt.
+  Jeder Lauf über den Rückfallweg endet mit der Warnung `graph.group_calendar_windowed` (mit dem
+  Fenster), nie einfach grün. Kalender haben in v1.0 kein Delta: Jeder Lauf liest vollständig,
+  unveränderte Ereignisse kosten über die Bytes nichts.
+- Ereignisanhänge: anders als bei Nutzerkalendern nicht gesichert (`hasAttachments` steht in den
+  Metadaten); Graph dokumentiert `…/events/{id}/attachments` für Gruppen nicht. Hat mindestens
+  ein Termin des Gruppenkalenders Anhänge, endet der Lauf mit einer Warnung
+  `graph.group_event_attachments_not_covered` (Anzahl der Termine), nie einfach grün.
 - Unterhaltungen: `/groups/{id}/threads` vollständig je Lauf, Beiträge
   (`/threads/{id}/posts?$expand=attachments`) nur für Threads, deren `lastDeliveredDateTime` sich
   seit dem letzten Lauf bewegt hat (Zustand `conversationThreads` im Manifest), bei „Vollständig"
@@ -452,9 +573,20 @@ Wiederherstellung, Download, Export, Restore-Prüfung und Aufbewahrung unveränd
   Threads nehmen ihre Beiträge mit. Graph liefert keine MIME-Form von Beiträgen; Restow baut sie
   deterministisch (`From`, ggf. `Sender`, `To` = Gruppenadresse, `Cc` = vom Beitrag hinzugefügte
   Teilnehmer, `Subject`/`Thread-Topic` = Thema, `Date`, eine aus der Post-ID abgeleitete
-  `Message-ID`, Text/HTML, Dateianhänge als MIME-Teile). Verweigert Graph die Erweiterung um
-  Anhänge, werden die Beiträge ohne Anhänge gesichert und `missingAttachments` nennt das;
-  Link- und Elementanhänge werden namentlich vermerkt.
+  `Message-ID`, Text/HTML, Anhänge als MIME-Teile). Dateianhänge kommen mit `contentBytes` aus
+  der Erweiterung oder, wenn Graph sie ohne liefert, über
+  `/threads/{id}/posts/{id}/attachments/{id}/$value`; Elementanhänge (eine als Anlage
+  weitergeleitete Mail, ein Termin) über dasselbe `/$value` als MIME und eingebettet als
+  `message/rfc822`; Linkanhänge haben keinen Inhalt in Graph v1.0 und stehen namentlich in
+  `referenceAttachments` (die Datei liegt in OneDrive oder SharePoint). Verweigert Graph die
+  Erweiterung um Anhänge, werden die Beiträge ohne Anhänge gesichert und `missingAttachments`
+  nennt das; ebenso jeder Anhang, dessen Abruf scheitert. Ein so gesicherter Beitrag trägt
+  `attachmentsNotBackedUp: "true"` (`hasAttachments` bleibt, wie Graph es meldet), und jeder Lauf,
+  dessen Sicherungsstand solche Beiträge hat, endet mit einer Warnung (Element
+  `mail/Conversations`, mit der Anzahl): `graph.group_post_attachments_refused` bei verweigerter
+  Erweiterung, `graph.group_post_attachments_unreadable` bei gescheitertem Abruf, nie einfach
+  grün. Threads mit solchen Beiträgen werden erneut gelesen, solange Graph die Erweiterung nicht
+  verweigert; gibt Graph die Anhänge später heraus, kommen sie dazu.
 - Eine gelöschte Gruppe schlägt mit `graph.group_unavailable` fehl (die nächste Synchronisierung
   verwaist sie). Throttling wie bei Postfächern (derselbe Graph-Client, Parallelität über die
   Gruppen statt innerhalb einer).
@@ -930,7 +1062,8 @@ zeigt den übersetzten Grund, nie die rohe Serverantwort.
 - Delta-Token ungültig (410 Gone) nach längerer Pause oder Ordner-Änderung: vollen
   Neuabgleich für diesen Ordner, nicht für das ganze Postfach.
 - `lastModifiedDateTime` ändert sich bei Flag-Änderung; MIME nicht neu laden, nur
-  Metadaten.
+  Metadaten. Ob sich doch der Inhalt geändert hat, sagt die Nachrichtengröße (siehe „Wann der
+  Inhalt neu geladen wird“ oben), nicht `changeKey`.
 - Zeitzonen: Graph liefert UTC; Anzeige in Nutzerzeitzone (MailboxSettings).
 - Große Tenants: `users` mit `$filter=accountEnabled eq true` reicht nicht (geteilte
   Postfächer sind disabled). Schutzregeln, nicht Filter.

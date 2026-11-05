@@ -76,10 +76,38 @@ export async function getUserDrive(client: GraphClient, userId: string): Promise
 /** The download URL Graph attaches to file items. Pre-authenticated, valid ~1 hour. */
 export const DOWNLOAD_URL_KEY = "@microsoft.graph.downloadUrl" as const;
 
+/**
+ * The annotation a delta entry carries when the item is listed because its
+ * sharing changed (only sent with {@link DRIVE_DELTA_HEADERS}). Graph writes
+ * the value as the string "True".
+ */
+export const SHARED_CHANGED_KEY = "@microsoft.graph.sharedChanged" as const;
+
 export type DriveDeltaItem = DriveItem & {
   id: string;
   [DOWNLOAD_URL_KEY]?: string;
+  [SHARED_CHANGED_KEY]?: string;
 };
+
+/**
+ * Sent with every page of a drive delta. Without `deltashowsharingchanges`,
+ * OneDrive for Business and SharePoint leave an item whose only change is its
+ * sharing (shared with the organisation, a link created or removed) out of the
+ * delta, so an incremental backup would keep recording the old sharing for
+ * good. Deliberately without `hierarchicalsharing`: with it Graph reports the
+ * sharing only at the root of a permission hierarchy and drops the inherited
+ * sharing from every item below, so a file edited (or added) in a shared folder
+ * would be recorded as not shared, and the files below a folder whose sharing
+ * was removed would keep their old sharing in every later restore point.
+ */
+export const DRIVE_DELTA_HEADERS: Readonly<Record<string, string>> = {
+  Prefer: "deltashowsharingchanges",
+};
+
+/** True when Graph lists the entry because its sharing changed. */
+export function isSharingChange(item: DriveDeltaItem): boolean {
+  return String(item[SHARED_CHANGED_KEY] ?? "").toLowerCase() === "true";
+}
 
 export function driveDeltaKey(driveId: string): string {
   return `drive:${driveId}`;
@@ -102,6 +130,7 @@ export function driveDelta(
     store,
     key: options.key ?? driveDeltaKey(driveId),
     initialUrl: driveDeltaUrl(driveId),
+    headers: { ...DRIVE_DELTA_HEADERS },
     onResync: options.onResync,
   });
 }
@@ -171,15 +200,38 @@ export const DRIVE_ITEM_SELECT = [
   "root",
 ] as const;
 
+/**
+ * What {@link getItem} asks for: everything the backup records from a delta
+ * entry, so an item fetched on its own (a retry, an item the delta sent without
+ * its folder or its kind, a sharing change) is stored exactly as complete as
+ * one from the delta: authorship, the sharing facet, and the `remoteItem`
+ * facet that makes a shortcut a shortcut. Graph returns only what `$select`
+ * names; a property left out here is missing from the backup.
+ */
+export const GET_ITEM_SELECT = [
+  ...DRIVE_ITEM_SELECT,
+  "createdBy",
+  "lastModifiedBy",
+  "shared",
+  "remoteItem",
+] as const;
+
+/**
+ * One item with everything {@link GET_ITEM_SELECT} names. Graph leaves an unset
+ * facet out of the answer; for `shared`, which was asked for, that means the
+ * item is not shared, so it comes back as `null` (a delta entry without
+ * `shared` says nothing either way).
+ */
 export async function getItem(
   client: GraphClient,
   driveId: string,
   itemId: string,
 ): Promise<DriveDeltaItem> {
-  return requestOk<DriveDeltaItem>(client, {
+  const item = await requestOk<DriveDeltaItem>(client, {
     method: "GET",
-    url: `${itemBase(driveId, itemId)}${query({ $select: `${DRIVE_ITEM_SELECT.join(",")},content.downloadUrl` })}`,
+    url: `${itemBase(driveId, itemId)}${query({ $select: `${GET_ITEM_SELECT.join(",")},content.downloadUrl` })}`,
   });
+  return { ...item, shared: item.shared ?? null };
 }
 
 /** A file download: the stream plus what the headers say about it. */
@@ -347,6 +399,8 @@ export async function createUploadSession(
   const session = await requestOk<UploadSessionInfo>(client, {
     method: "POST",
     url: `${childByNamePath(driveId, parentId, name)}/createUploadSession`,
+    // A second session is harmless (the unused one expires); nothing is created yet.
+    idempotent: true,
     body: {
       item: {
         "@microsoft.graph.conflictBehavior": options.conflictBehavior ?? "fail",

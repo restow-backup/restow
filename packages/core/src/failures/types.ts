@@ -48,6 +48,31 @@ export const FAILURE_CODES = [
   "graph.group_unavailable",
   "graph.throttled",
   "graph.service_unavailable",
+  // A request that creates something got no answer that says whether it was carried out
+  // (504, 503 without Retry-After, timeout); it was not sent again (graph/errors.ts).
+  "graph.outcome_unknown",
+  // The mailbox has an online archive (In-Place Archive) the backup does not reach
+  // (backup/exchange/online-archive.ts). A warning on every run of that mailbox.
+  "graph.online_archive_not_covered",
+  // Graph did not answer whether a mailbox has an online archive: never plain green.
+  "graph.online_archive_unknown",
+  // Events of a group calendar with attachments: Graph does not hand those to the app
+  // (backup/exchange/calendar.ts). One warning per run and group.
+  "graph.group_event_attachments_not_covered",
+  // Posts of group conversations whose attachments Graph refused to the app
+  // (backup/groups/conversations.ts). One warning per run and group.
+  "graph.group_post_attachments_refused",
+  // Posts whose attachments (items, files without bytes) could not be read: read again next run.
+  "graph.group_post_attachments_unreadable",
+  // A group calendar read through calendarView (Graph refused the plain listing): events
+  // outside the window are kept as last backed up (backup/exchange/calendar.ts).
+  "graph.group_calendar_windowed",
+  // A changed message whose content Graph did not let the backup check: kept as stored,
+  // checked again next run (backup/exchange/mail.ts).
+  "graph.mail_content_unchecked",
+  // A message whose MIME Graph refused with server errors for several runs, stored as JSON
+  // for now and asked again on later runs (backup/exchange/mail.ts).
+  "graph.mail_stored_without_mime",
   "graph.item_not_found",
   "graph.item_too_large",
   "graph.item_unreadable",
@@ -70,6 +95,9 @@ export const FAILURE_CODES = [
   "imap.server_limit",
   "imap.connection_lost",
   "imap.message_missing",
+  // A Gmail account whose All Mail is hidden from IMAP: backed up folder by folder, so every
+  // message once per label (backup/imap/gmail.ts). A warning; nothing is missing.
+  "imap.gmail_all_mail_hidden",
   // Archive capture over IMAP (0.4.4): why an account is polled instead of watched with IDLE.
   // Informational: the account is still captured, only with the delay of the poll.
   "imap.idle_unsupported",
@@ -292,6 +320,9 @@ export const FAILURE_STEP_IDS = [
   "free_target_space",
   "check_app_password",
   "enable_imap_access",
+  "show_gmail_all_mail_in_imap",
+  "check_archive_policy",
+  "store_group_attachments_in_files",
   "reauthorize_oauth",
   "set_object_password",
   "check_host_reachable",

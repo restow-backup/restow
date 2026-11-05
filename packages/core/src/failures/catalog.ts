@@ -183,6 +183,60 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     retryable: true,
     steps: () => [step("wait_automatic"), step("check_service_health")],
   },
+  "graph.outcome_unknown": {
+    category: "microsoft",
+    transient: true,
+    retryable: true,
+    steps: () => [step("wait_automatic"), step("check_service_health")],
+  },
+  "graph.online_archive_not_covered": {
+    category: "microsoft",
+    transient: false,
+    retryable: false,
+    steps: () => [step("check_archive_policy")],
+  },
+  "graph.online_archive_unknown": {
+    category: "microsoft",
+    transient: true,
+    retryable: true,
+    steps: () => [step("verify_permissions"), step("check_archive_policy")],
+  },
+  "graph.group_event_attachments_not_covered": {
+    category: "microsoft",
+    transient: false,
+    retryable: false,
+    steps: () => [step("store_group_attachments_in_files")],
+  },
+  "graph.group_post_attachments_refused": {
+    category: "microsoft",
+    transient: false,
+    retryable: false,
+    steps: () => [step("store_group_attachments_in_files")],
+  },
+  "graph.group_post_attachments_unreadable": {
+    category: "microsoft",
+    transient: true,
+    retryable: true,
+    steps: () => [step("wait_automatic")],
+  },
+  "graph.group_calendar_windowed": {
+    category: "microsoft",
+    transient: false,
+    retryable: false,
+    steps: () => [step("verify_permissions")],
+  },
+  "graph.mail_content_unchecked": {
+    category: "microsoft",
+    transient: true,
+    retryable: true,
+    steps: () => [step("wait_automatic")],
+  },
+  "graph.mail_stored_without_mime": {
+    category: "microsoft",
+    transient: true,
+    retryable: true,
+    steps: () => [step("wait_automatic")],
+  },
   "graph.item_not_found": {
     category: "microsoft",
     transient: true,
@@ -319,6 +373,12 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     transient: true,
     retryable: true,
     steps: () => [step("wait_automatic"), step("check_server_limits")],
+  },
+  "imap.gmail_all_mail_hidden": {
+    category: "imap",
+    transient: false,
+    retryable: false,
+    steps: () => [step("show_gmail_all_mail_in_imap")],
   },
   // Archive capture (0.4.4): the account is polled instead of watched with IDLE (informational).
   "imap.idle_unsupported": {

@@ -508,6 +508,161 @@ private repository.
   one the pass started with.
   This was the cause of the IMAP test that failed now and then ("shows a watched account as
   IDLE"); with a pass slowed down on purpose it failed every time before and passes now.
+- Mail restore: a message, contact, folder or attachment could be created twice in the target
+  mailbox when Microsoft Graph answered late. The Graph client sent every request again after a
+  504, a 503 or no answer within five minutes, also a POST that creates something, although
+  Exchange often has already stored the item when the gateway gives up; the report then counted
+  one item while the mailbox held two. A request that creates something is now sent again only
+  after an answer that proves nothing happened (429, or 503 with Retry-After). After a 504, a 503
+  without Retry-After or a timeout it fails with the new cause "Microsoft did not confirm whether
+  the change was carried out" (`graph.outcome_unknown`), and the next attempt checks the target
+  first. Reads, PATCH, PUT and DELETE are retried as before; inside a `$batch` a creating
+  sub-request answered 504 is handed back instead of being sent again.
+- Mail backup: a mailbox folder whose subfolder listing was missing from Microsoft Graph's
+  `$batch` answer counted as a folder without subfolders. The backup then removed the mail of
+  the whole subtree from the new restore point, forgot its delta links and reported success. A
+  `$batch` now hands back one answer per request: a read Graph left out is asked again and,
+  if it is still missing, comes back as a 502; a 200 that is not Graph's envelope (a proxy's
+  page, a body without `responses`) is an error. A folder whose subfolders could not be listed
+  (left out, server error, throttled) keeps its stored subtree and is recorded as a failure.
+- Mail backup: two quick HTTP 500 answers from Microsoft for a message's MIME export stored that
+  message as JSON for good. It then had no original file for EML, MBOX or PST export, and no
+  later incremental run asked for its MIME again. A plain 500 (without a conversion code) is
+  now asked again twice with backoff; if it stays, the message is an item failure that the next
+  run retries, and only after three runs in a row is its content kept as JSON. When five
+  messages in a row get nothing but a 500 (an outage of the mailbox's backend), the run stops
+  waiting for each further message: they fail at once and are retried on the next run, and a
+  single request a minute checks whether Microsoft answers again. Every JSON copy
+  now records why (too large, conversion refused, server error) and is logged. A copy stored
+  after server errors ends the run with a warning on the message, in every run until its MIME
+  arrives, since it has no original file for export yet. Such a copy, and one stored by an
+  earlier version without a reason, gets its MIME asked for again on the next runs and is
+  replaced by it when Microsoft hands it out.
+- Mail backup: one message that a Dovecot or Gmail server cannot read blocked the whole folder
+  over IMAP, on every run. Such servers refuse a whole `UID FETCH` ("Some messages could not be
+  FETCHed") when one message of the set is broken; the metadata request for all new messages
+  failed, the folder was retried once and then reported as failed with nothing new stored, and
+  on a first backup the folder was missing from the restore point altogether. The request is now
+  split until the unreadable messages are found: each of them is an item failure naming the
+  message, and the rest of the folder, new mail included, is backed up, also when a long run of
+  messages is damaged. Gmail's "Account exceeded command or bandwidth limits" is recognised as
+  the account's download limit: it is not split into further requests, and the folder fails
+  once (retried on the next run) instead of once per message.
+- Mail backup: an IMAP folder that failed during a full read (a requested full backup, or after
+  the server changed its UIDVALIDITY, for example after a migration) kept only what that attempt
+  had downloaded, often nothing, although the previous restore point held all of its mail. In a
+  requested full backup the previous messages that were not read again are now carried forward
+  with their current flags. After a UIDVALIDITY change the messages already read under the new
+  UIDs are kept together with the previous copy of every message not read again yet, and the
+  next run goes on with the rest instead of starting over, so a folder larger than a daily
+  download limit gets through after a few runs; once it is read completely, the previous
+  copies go.
+- Mail backup: when an interrupted IMAP backup was resumed after a folder had been renamed or
+  deleted in between, the restore point kept the folder the earlier attempt had already stored
+  next to its new name, so a restore brought back a folder that no longer existed and every
+  message of a renamed folder twice. Folders the server no longer lists are now dropped from
+  the resumed restore point, also a folder the earlier attempt was still in.
+- Mail backup: on an IMAP server that reports a NIL hierarchy delimiter (a flat namespace) or
+  leaves out UIDNEXT when a folder is opened, the folder's state could not be read back, so
+  every run downloaded the whole folder again, every night, which can hit the server's download
+  limits. Such folders are now backed up incrementally. A folder the server opens without
+  UIDVALIDITY made the whole run fail; now only that folder fails and keeps its previous copy.
+- Mail backup: IMAP runs are faster and upload far less. After every folder, also one in which
+  nothing had changed, and during a download every 250 messages, the run rewrote its whole
+  object list to every storage target; a nightly run over a large mailbox without new mail
+  uploaded about as many partial manifests as it had folders, and a first backup grew with the
+  square of the mailbox size. A folder without changes now writes no checkpoint, and checkpoints
+  after a folder and during a download come at most once a minute, during a download also less
+  often as the restore point grows.
+- Mail backup: a Gmail or Google Workspace account was downloaded and stored once per label plus
+  once more in All Mail, because Gmail shows every label as an IMAP folder. A first backup
+  transferred several times the mailbox size against Gmail's daily download limit, every newly
+  labelled message was downloaded again per label, and a restore to another provider created a
+  copy per label. Messages are now downloaded once, from All Mail, Spam and Trash, and their
+  labels are kept with each message. INBOX, Sent and every label folder still hold their
+  messages in the restore point, so they can be browsed, exported and restored on their own as
+  before; their copies take the content of the All Mail message without a download. If All Mail
+  is hidden from IMAP in the Gmail settings, the account is still backed up folder by folder and
+  every run says so in a warning.
+- Mail backup: a Microsoft 365 mailbox with an online archive (In-Place Archive) gave no sign
+  that the archive is not backed up. Mail that a retention policy or the user moved there was
+  reported as removed by Graph, left the new restore points, and the run stayed green. Every run
+  now asks Microsoft whether the mailbox has an online archive and, if it has one, ends with a
+  warning that it is not covered (Graph offers no generally available way to read it). When
+  Microsoft does not answer that question (a missing permission, the beta interface not
+  available), the run also ends with a warning, saying that Restow could not check, and the next
+  run asks again; only a proven "no archive" leaves the run green.
+- Mail backup: when the consent was revoked or an Application Access Policy was added while a
+  Microsoft 365 mailbox backup was running, every further folder became a warning and the run
+  committed a restore point that carried those folders forward without reading them, shown as
+  "completed with warnings". Once the mailbox itself refuses access, the run now fails with the
+  access cause and keeps no such restore point; a refusal of a single folder stays a warning.
+- Mail backup: a Microsoft 365 message whose content changed while its subject and preview stayed
+  the same kept its old copy in the backup: an attachment removed from a received mail in
+  Outlook, or its text edited after the first 255 characters. The backup now also compares the
+  message's text and its list of attachments and downloads the message again when they changed.
+  Flag, read-state, category and retention changes still download nothing. When Microsoft does
+  not answer that check for a changed message, the stored copy is kept, the run ends with a
+  warning instead of green, and the next run checks the message again. A copy stored before this
+  version is downloaded once more on its next change.
+- Mail backup: a Microsoft 365 message stored as JSON (too large or not convertible to MIME) lost
+  the Content-ID of its inline attachments, so after a restore the images in its HTML body were
+  broken. The Content-ID is now backed up and restored. Messages stored as JSON by earlier
+  versions do not have it and cannot be repaired.
+- Mail backup: attachments of calendar events (an agenda attached to a meeting, for example)
+  were not backed up and nothing said so. They are now backed up with each event of a user's
+  calendars, also those attached to a single moved occurrence of a series, and read again only
+  when the event changes; an attachment that cannot be read is reported as a failed item. The first run after the update adds them for all events that still
+  exist. Group calendars do not hand attachments to Restow: a run whose group calendar has
+  events with attachments now ends with a warning that says so.
+- Group backup: when Microsoft Graph refused the attachments of group conversation posts to
+  Restow, the posts were backed up without their files and the run was green. Such a run now
+  ends with a warning naming the number of posts concerned, and the posts are marked as backed
+  up without attachments. Once Graph hands the attachments out, the next run adds them. A mail
+  forwarded as an attachment to a post, and a file Graph lists without its content, were left
+  out silently as well; they are now read on their own and kept with the post, a OneDrive or
+  SharePoint link attachment is recorded by name, and an attachment that cannot be read ends
+  the run with a warning and is read again on the next run.
+- Group backup: when Microsoft Graph refused the full event list of a group calendar and Restow
+  read it through the calendar view (five years back to two years ahead), every backed-up event
+  outside that window was removed from the new restore point, although it still existed. Such
+  events are now kept as last backed up, and the run ends with a warning that the group calendar
+  was read within a time window only.
+- OneDrive and SharePoint backup: a file or shortcut that one run could not read (a checked-out
+  file, for example) lost its author, its last editor and its sharing when the next run fetched
+  it again: the snapshot showed a shared file as not shared, and a shortcut was dropped without a
+  word. Such items are now stored as completely as any other, and a file whose content is
+  unchanged keeps what the earlier backup knew about it.
+- OneDrive and SharePoint backup: a file or folder whose only change was its sharing (shared
+  with the organisation or through a link after its last edit, or no longer shared) kept its old
+  sharing in every later restore point, because the incremental backup never heard of the
+  change. Restow now asks Microsoft for sharing changes too, with the sharing each item inherits
+  from its folder, and records the current sharing without downloading the file again; a sharing
+  change that cannot be read is reported as a failed item and read again on the next run.
+- OneDrive and SharePoint backup: an item that Microsoft listed without saying whether it is a
+  file, a folder or a shortcut was skipped with a line in the log only, and the run was green; a
+  new file that arrived this way was missing from every restore point until it changed again.
+  Restow now asks Microsoft for the item itself and backs it up; an item that still cannot be
+  told apart is reported as a failed item and tried again on the next run.
+- OneDrive and SharePoint backup: a downloaded file was checked only for its length, so bytes
+  of the right length but the wrong content were stored as a good copy, and restore checks
+  confirmed them (they compare with what was stored). When the server announced no length, the
+  bytes were not checked at all. Restow now compares every downloaded file with the QuickXorHash
+  Microsoft reports for it (files of another size than reported, such as Office documents
+  SharePoint rewrites on download, carry no hash to compare with) and, without an announced
+  length, with the reported size; such a rewritten Office document is then taken when its
+  bytes form a complete ZIP, so it does not fail on every run. A file that changed while it was read is stored as its newer
+  version; any other mismatch keeps the last good copy, is reported as a failed item and is read
+  again on the next run.
+- OneDrive and SharePoint backup: a file that could not be read and was deleted later in the
+  same run (or a file in a folder deleted later in the same run) stayed in the run's failed
+  items and was tried again on the next run, although it no longer existed. Such failures are
+  now taken back; a folder moved out of the deleted one in the same run keeps its files' failures.
+- SharePoint backup: a document library that Microsoft refused to Restow (403, 404, 423) kept its
+  files from the previous run in the new restore point, with nothing in the restore point saying
+  so; it looked as current as the libraries that were read. The library folder is now marked as
+  carried forward from an earlier run, with the time its files were last read, and `site.json`
+  says the library was not read in this run. The run still reports the library as a failed item.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,

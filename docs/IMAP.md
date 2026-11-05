@@ -10,10 +10,49 @@
   beachten.
 - Inkrementell über UIDVALIDITY und UIDNEXT je Ordner; ändert sich UIDVALIDITY, wird
   der Ordner voll neu gelesen (Dedupe über Message-ID plus Hash verhindert Doppelung
-  im Speicher).
+  im Speicher). Geladen wird die Differenz der UIDs (was der vorige Stand nicht hat), nicht
+  "ab UIDNEXT": Ein Server ohne `OK [UIDNEXT]` (RFC 3501 verlangt, dass Clients damit umgehen)
+  und ein NIL-Trennzeichen (flacher Namensraum, gespeichert als `""`) lassen den Ordner
+  inkrementell. Ein Ordner ohne `OK [UIDVALIDITY]` schlägt als Ordner fehl und behält seinen
+  vorigen Stand; die anderen Ordner werden gesichert.
 - Inhalt: RFC 5322 byte-genau (`BODY.PEEK[]`), Flags separat, interne Datumsangabe.
 - Gelöschte Mails: beim nächsten Lauf per UID-Vergleich erkannt; Snapshot behält sie.
+- Eine Nachricht, die der Server nicht lesen kann (Dovecot mit beschädigter oder fehlender
+  Mail-Datei, Gmail): Dovecot und Gmail lehnen dann jeden `UID FETCH`, dessen Menge sie enthält,
+  als Ganzes ab (`NO Some messages could not be FETCHed`). Die Engine teilt eine abgelehnte
+  Metadaten-Abfrage so lange in Hälften, bis die unlesbaren UIDs feststehen (höchstens 100
+  zusätzliche Befehle je Abfrage, `metaIsolationCommands`). Ist das Budget aufgebraucht (eine
+  lange Folge defekter Nachrichten), geht der noch nicht geprüfte Teil ohne Metadaten weiter;
+  der Body-Abruf mit seinem Einzelabruf findet die unlesbaren. Nur wenn keiner der Befehle der
+  Teilung eine Antwort bekommt, verweigert der Server den Ordner, und der Ordner schlägt fehl.
+  Jede unlesbare Nachricht ist ein Elementfehler mit der Antwort des Servers, der Rest des
+  Ordners wird gesichert, und der nächste Lauf versucht sie erneut. Eine Befehls- oder
+  Download-Grenze (`[OVERQUOTA]`, `[LIMIT]`, Gmails „Account exceeded command or bandwidth
+  limits“, Ursache `imap.server_limit`) wird nie geteilt: Der Ordner schlägt einmal fehl, der
+  nächste Lauf setzt fort.
+- Ein Ordner, der in einem Voll-Lauf auch beim zweiten Versuch scheitert, macht den
+  Sicherungsstand nicht schlechter als den vorigen: Bei verlangtem Voll-Lauf und gleicher
+  UIDVALIDITY kommen die vorigen Nachrichten, die noch nicht neu gelesen wurden und noch im Ordner
+  liegen, mit ihren aktuellen Flags mit. Nach einem UIDVALIDITY-Wechsel bleibt, was unter den
+  neuen UIDs schon gelesen ist, und jede vorige Nachricht, die noch nicht neu gelesen wurde,
+  bleibt als ältere Kopie (Abgleich über Message-ID, SHA-256 und Größe, eins zu eins; Pfad
+  `<uid>.v<uidvalidity>.eml`, damit sie nicht mit einer neuen UID zusammenfällt). Der
+  Ordnerzustand trägt die neue UIDVALIDITY, der nächste Lauf lädt nur die noch fehlenden UIDs;
+  so kommt der Ordner auch unter einer täglichen Download-Grenze nach einigen Läufen durch.
+  Sobald jede UID unter der neuen UIDVALIDITY gesichert ist, fallen die älteren Kopien weg.
+- Wiederaufnahme nach einem abgebrochenen Versuch: Ein Ordner, den der frühere Versuch schon
+  fertig oder halb gesichert hatte und den der Server inzwischen nicht mehr listet (umbenannt
+  oder gelöscht), verschwindet samt Objekten und Zustand aus dem Sicherungsstand; ein
+  umbenannter Ordner steht dort nur unter seinem neuen Namen. Ältere Sicherungsstände behalten
+  ihn.
 - Parallelität: max. 2 Verbindungen je Konto (viele Server limitieren).
+- Checkpoints (Pakete, Teilmanifest, Cursor) schreiben jedes Mal die ganze Objektliste an jedes
+  Speicherziel. Deshalb: nach einem Ordner nur, wenn er etwas geändert hat (geladene Nachricht,
+  gelöschte, geänderte Flags, nachgetragene Umschläge) oder noch ungesicherte Downloads offen
+  sind; ein unveränderter Ordner wird nach einem Absturz einfach neu geplant, ohne Download.
+  Während des Ladens alle `checkpointEveryMessages` Nachrichten (mindestens 1/20 der Objekte
+  des Sicherungsstands) oder `checkpointEveryBytes`, aber höchstens einmal je
+  `checkpointMinIntervalMs` (Vorgabe 60 s).
 - Restore: APPEND in Zielordner mit Original-Datum und Flags; Zielordner anlegen, falls
   fehlend; Duplikate über Message-ID prüfen. Geprüft wird gegen den Stand des Ordners,
   bevor dieser Lauf dort etwas geschrieben hat (ein Ordner kann zwei verschiedene Mails
@@ -29,6 +68,32 @@
   Ergebnis. Ein wiederholter "rename"-Job erkennt eigene frühere Kopien nur am gleichen
   Inhalt (SHA-256), jede Kopie steht für genau eine Mail
   (packages/core/src/restore/duplicates.ts).
+- Gmail und Google Workspace (packages/core/src/backup/imap/gmail.ts): Gmail kennt Labels statt
+  Ordner und zeigt jedes Label als IMAP-Ordner (INBOX, Gesendet, Markiert, Wichtig, Entwürfe,
+  jedes eigene Label), jede Nachricht zusätzlich in `[Gmail]/All Mail` (Alle Nachrichten,
+  SPECIAL-USE `\All`), jede Kopie mit eigener UID. Erkannt wird Gmail an der Erweiterung
+  `X-GM-EXT-1` und an All Mail mit `\All` unter `[Gmail]`/`[Google Mail]`. Das Backup lädt die
+  Nachrichten dann nur aus All Mail, Spam und Papierkorb (die beiden halten, was All Mail nicht
+  hat), also jede genau einmal; das schont die tägliche IMAP-Download-Grenze von Gmail. Die
+  Labels jeder Nachricht in All Mail (`X-GM-LABELS`, mit den Flags im selben `FETCH 1:*`
+  gelesen) stehen als `metadata.gmailLabels` (sortiertes JSON-Array, etwa
+  `["\\Inbox","Projekte"]`) am Nachrichtenobjekt und werden wie die Flags bei jedem Lauf ohne
+  neuen Download aktualisiert; dazu kommt Gmails Nachrichten-ID `X-GM-MSGID` als
+  `metadata.gmailMessageId`. Die Label-Ordner werden danach gesichert, wenn All Mail, Spam und
+  Papierkorb fertig sind, und behalten ihre Nachrichten, jede mit eigener UID und eigenen
+  Flags, aber ohne Download: Das `FETCH 1:*` eines Label-Ordners fragt `X-GM-MSGID` mit ab, und
+  jedes Nachrichtenobjekt übernimmt Inhalt (Chunks, SHA-256) und Umschlag der Kopie in All
+  Mail. Nur eine Nachricht, die All Mail nicht gespeichert hat (dort fehlgeschlagen, oder nicht
+  in All Mail), wird im Label-Ordner selbst gelesen. INBOX, Gesendet und jedes Label lassen
+  sich so wie bei jedem anderen Server einzeln durchsuchen, exportieren und wiederherstellen.
+  Der Zustand trägt `imap.layout: "gmail"`. Ein Sicherungsstand von vor 0.5.0 enthielt jede
+  Nachricht einmal je Label mit eigenem Download: Der erste Lauf danach übernimmt diese Objekte
+  unverändert (keine Downloads), die Nachrichten in All Mail bekommen Labels und `X-GM-MSGID`.
+  Ist All Mail in Gmail für IMAP ausgeblendet (Einstellungen → Labels → „In IMAP anzeigen“), sichert Restow Ordner für Ordner
+  wie bei jedem anderen Server, jede Nachricht also einmal je Label, und meldet das in jedem
+  Lauf als Warnung `imap.gmail_all_mail_hidden`: Es fehlt nichts, aber eine Wiederherstellung zu
+  einem anderen Anbieter legt jede Kopie an. Abhilfe: „In IMAP anzeigen“ für Alle Nachrichten
+  einschalten.
 - Grenzen: Kalender/Kontakte gibt es per IMAP nicht (CalDAV/CardDAV später).
 - Importierte Postfächer (Mail-Dateien statt Server, docs/IMPORT.md) nutzen dasselbe
   Manifestformat wie ein IMAP-Backup; sie werden nie gesichert, aber wie ein IMAP-Konto

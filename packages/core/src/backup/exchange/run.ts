@@ -19,6 +19,7 @@ import type {
   ProgressReporter,
 } from "../../engine/types.js";
 import { classifyFailure } from "../../failures/classify.js";
+import type { FailureCause } from "../../failures/types.js";
 import { type GraphClient, RETRYABLE_STATUSES } from "../../graph/client.js";
 import { isGraphError, isMailboxUnavailable, isNotFound } from "../../graph/errors.js";
 import type { MailboxOwner } from "../../graph/resources/common.js";
@@ -36,6 +37,8 @@ export const OBJECT_TYPES = {
   mail: "mail",
   attachment: "attachment",
   event: "event",
+  /** One attachment of a user calendar's event (./calendar.ts). */
+  eventAttachment: "event-attachment",
   contact: "contact",
   folder: "folder",
 } as const;
@@ -66,6 +69,10 @@ export const META = {
   messagePath: "messagePath",
   name: "name",
   isInline: "isInline",
+  /** restore: Content-ID of a file attachment (what an inline image's `cid:` names). */
+  contentId: "contentId",
+  /** For JSON messages: Graph refused to name the attachments' Content-IDs. */
+  contentIdUnavailable: "contentIdUnavailable",
   /** restore: calendar facts of an event. */
   calendarName: "calendarName",
   isDefaultCalendar: "isDefaultCalendar",
@@ -77,12 +84,36 @@ export const META = {
   wellKnownName: "wellKnownName",
   /** Digest of the content-relevant properties; equal digests mean the bytes need not be fetched again. */
   fingerprint: "fingerprint",
+  /**
+   * Mail: SHA-256 over the body text and the attachment list (id, name, size) Graph reported
+   * when the content was fetched or last checked. Another one behind an equal fingerprint
+   * means the content changed anyway (mail.ts storeMessage); flags and categories leave it.
+   */
+  contentSignature: "contentSignature",
   /** Snapshot in which the bytes were last fetched from Graph (kept on metadata-only updates). */
   fetchedInSnapshot: "fetchedInSnapshot",
   /** For attachments and their folder: the Graph id of the message they belong to. */
   messageItemId: "messageItemId",
+  /** For event attachments and their folder: the Graph id and object path of their event. */
+  eventItemId: "eventItemId",
+  eventPath: "eventPath",
+  /** An exception's attachments (and their folder): the Graph id of the series master. */
+  seriesMasterId: "seriesMasterId",
+  /** On a series master: `{exceptionId: changeKey}` of the exceptions whose attachments are stored. */
+  exceptionAttachments: "exceptionAttachments",
+  /**
+   * On events: the changeKey the stored attachments belong to. Another changeKey (or none) and
+   * `hasAttachments` mean the attachments are listed again (./calendar.ts).
+   */
+  attachmentsChangeKey: "attachmentsChangeKey",
   /** For folder objects: `mail`, `calendar`, `contacts`, `attachments` or `root`. */
   folderKind: "folderKind",
+  /**
+   * For JSON messages: why the MIME is not stored (`too_large`, `conversion_refused`,
+   * `server_error`; graph/resources/mail.ts MimeFallbackReason). A JSON message without
+   * it, or with `server_error`, gets its MIME asked again (mail.ts needsMimeAgain).
+   */
+  formatReason: "formatReason",
   /** For JSON messages: number of attachment objects stored with the message. */
   attachmentCount: "attachmentCount",
   /** For JSON messages: names of link attachments, whose target Graph v1.0 does not expose. */
@@ -131,13 +162,17 @@ export function groupOf(object: ManifestObject): string {
     case OBJECT_TYPES.attachment:
       return mailGroup(metadata[META.folderId] ?? "");
     case OBJECT_TYPES.event:
+    case OBJECT_TYPES.eventAttachment:
       return calendarGroup(metadata[META.calendarId] ?? "");
     case OBJECT_TYPES.contact:
       return contactsGroup(metadata[META.folderId] ?? "");
     case OBJECT_TYPES.folder:
-      // The attachments folder of a JSON message lives with the message.
-      return metadata[META.messageItemId] !== undefined
-        ? mailGroup(metadata[META.folderId] ?? "")
+      // The attachments folder of a JSON message (or an event) lives with its item.
+      if (metadata[META.messageItemId] !== undefined) {
+        return mailGroup(metadata[META.folderId] ?? "");
+      }
+      return metadata[META.eventItemId] !== undefined
+        ? calendarGroup(metadata[META.calendarId] ?? "")
         : FOLDERS_GROUP;
     default:
       return `other:${object.type ?? ""}`;
@@ -344,6 +379,17 @@ export class BackupRun {
   };
   /** Every item failure of this run, in order (also reported through the progress reporter). */
   readonly failures: ItemFailureRecord[] = [];
+  /** Messages stored as JSON in this run instead of MIME, by reason (logged with the result). */
+  readonly jsonFallbacks: Record<string, number> = {};
+  /**
+   * Plain 500s on `$value` across messages (mail.ts {@link MIME_OUTAGE_AFTER}): how many
+   * messages in a row had nothing else, when `$value` was last asked, and the last answer.
+   */
+  readonly mimeOutage: { consecutive: number; lastAskedAt: number; lastError: unknown } = {
+    consecutive: 0,
+    lastAskedAt: 0,
+    lastError: undefined,
+  };
 
   private readonly checkpoints: CheckpointPolicy;
   private phase: ExchangePhase = "mail";
@@ -508,6 +554,28 @@ export class BackupRun {
     this.noteItem(size);
   }
 
+  /**
+   * Record objects whose bytes were written in this run and that belong to an item recorded
+   * on its own (the attachments of an event): no item is counted.
+   */
+  recordRiders(objects: readonly FetchedObject[]): void {
+    let size = 0;
+    let newBytes = 0;
+    for (const { object, content } of objects) {
+      this.index.put({
+        ...object,
+        metadata: { ...(object.metadata ?? {}), [META.fetchedInSnapshot]: this.snapshotId },
+        size: content.size,
+        sha256: content.sha256,
+        chunks: content.chunks,
+      });
+      size += content.size;
+      newBytes += content.newBytes;
+    }
+    this.reporter.advance(0, newBytes, size);
+    this.noteItem(size);
+  }
+
   /** Fetch-and-store for an item that is exactly one object. */
   async storeBytes(input: ObjectInput, object: FetchedObject["object"]): Promise<void> {
     const content = await this.writeContent(input);
@@ -578,6 +646,17 @@ export class BackupRun {
     this.logger.debug("item deleted in the mailbox while the backup ran", {
       itemRef: redactItemRef(itemRef),
     });
+  }
+
+  /**
+   * Record a warning about the run as a whole (no source item failed): an item failure with a
+   * cause the operator can read and acknowledge, so the run is never plain green. Not counted
+   * in {@link counters}, which count source items.
+   */
+  warn(itemRef: string, reason: string, cause: FailureCause): void {
+    this.failures.push({ itemRef, reason, cause });
+    this.reporter.fail(itemRef, reason, cause);
+    this.logger.warn("backup warning", { itemRef: redactItemRef(itemRef), code: cause.code });
   }
 
   /** Record an item failure (never fatal for the run). */

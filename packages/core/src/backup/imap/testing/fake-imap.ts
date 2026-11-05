@@ -17,6 +17,7 @@ import {
   type ImapEnvelopeMeta,
   type ImapFolderInfo,
   type ImapFolderStatus,
+  type ImapListFlagsOptions,
   type ImapMessageFlags,
   type ImapMessageMeta,
   type ImapMessageProtection,
@@ -33,13 +34,32 @@ export interface FakeMessage {
   readonly messageId: string | null;
   /** Always present on the fake message; `faults.envelopeFailures` decides whether a FETCH returns it. */
   readonly envelope: ImapEnvelopeMeta;
+  /**
+   * Gmail: the one message behind this copy, shared by its copies in All Mail and in every
+   * label folder (each copy has its own UID). Its labels are what X-GM-LABELS answers.
+   */
+  readonly gmail?: FakeGmailMessage;
+}
+
+/** One Gmail message (see {@link FakeImapServer.addGmailMessage}). */
+export interface FakeGmailMessage {
+  /** X-GM-MSGID: the same for every copy of the message. */
+  readonly id: string;
+  labels: string[];
+  readonly source: Buffer;
+  readonly copies: Map<string, number>;
 }
 
 export interface FakeFolderOptions {
-  readonly delimiter?: string;
+  /** `null`: the server answers NIL (flat namespace); the session reports it as imapflow does, null. */
+  readonly delimiter?: string | null;
   readonly specialUse?: string;
   readonly selectable?: boolean;
   readonly uidValidity?: number;
+  /** EXAMINE answers without OK [UIDNEXT]: the session reports uidNext as imapflow does, undefined. */
+  readonly noUidNext?: boolean;
+  /** EXAMINE answers without OK [UIDVALIDITY]: refused as the connector refuses it. */
+  readonly noUidValidity?: boolean;
 }
 
 /** Envelope fields a test cares about; anything left out defaults to "empty" (no attachments, no protection). */
@@ -61,9 +81,22 @@ export interface FakeAddOptions {
   readonly internalDate?: Date;
   readonly messageId?: string | null;
   readonly envelope?: FakeEnvelopeOptions;
+  /** Internal: the Gmail message this copy belongs to. */
+  readonly gmail?: FakeGmailMessage;
 }
 
 let messageCounter = 0;
+
+export const GMAIL_ALL_MAIL = "[Gmail]/All Mail";
+
+/** Gmail's system labels (X-GM-LABELS) and the SPECIAL-USE of the folder that shows them. */
+const GMAIL_SYSTEM_LABELS: Record<string, string> = {
+  "\\Inbox": "\\Inbox",
+  "\\Sent": "\\Sent",
+  "\\Draft": "\\Drafts",
+  "\\Important": "\\Important",
+  "\\Starred": "\\Flagged",
+};
 
 /** Who is told when mail arrives in a folder (IDLE sessions of the fake server). */
 type ArrivalListener = (folder: FakeFolder) => void;
@@ -72,6 +105,10 @@ export class FakeFolder {
   readonly name: string;
   readonly parent: string[];
   readonly delimiter: string;
+  /** The server's LIST answers NIL as the delimiter. */
+  readonly nilDelimiter: boolean;
+  readonly noUidNext: boolean;
+  readonly noUidValidity: boolean;
   readonly specialUse: string | undefined;
   readonly selectable: boolean;
   uidValidity: number;
@@ -84,8 +121,11 @@ export class FakeFolder {
     readonly path: string,
     options: FakeFolderOptions = {},
   ) {
-    this.delimiter = options.delimiter ?? "/";
-    const parts = path.split(this.delimiter);
+    this.nilDelimiter = options.delimiter === null;
+    this.noUidNext = options.noUidNext === true;
+    this.noUidValidity = options.noUidValidity === true;
+    this.delimiter = options.delimiter ?? (this.nilDelimiter ? "" : "/");
+    const parts = this.delimiter === "" ? [path] : path.split(this.delimiter);
     this.name = parts[parts.length - 1];
     this.parent = parts.slice(0, -1);
     this.specialUse =
@@ -118,6 +158,7 @@ export class FakeFolder {
       messageId:
         options.messageId === undefined ? `<msg-${messageCounter}@fake.test>` : options.messageId,
       envelope,
+      ...(options.gmail ? { gmail: options.gmail } : {}),
     };
     this.messages.set(uid, message);
     this.onArrival?.(this);
@@ -160,6 +201,8 @@ export interface FakeServerStats {
   listFolders: number;
   opens: number;
   listFlags: number;
+  /** Of `listFlags`, how many asked for X-GM-LABELS. */
+  listFlagsWithLabels: number;
   metaFetches: number;
   /** STATUS commands (archive capture). */
   statusCalls: number;
@@ -195,6 +238,24 @@ export interface FakeServerFaults {
   refuseSourceCode: string | null;
   /** Folders whose metadata FETCH fails with a NO (EXAMINE and STATUS still work). */
   refuseMeta: Set<string>;
+  /**
+   * A provider's download cap: this many more sources are delivered, then every FETCH of a
+   * source answers `NO [OVERQUOTA] Account exceeded download limits` (null: no cap). Tests set
+   * it again before each run to model a cap that resets every day.
+   */
+  downloadCap: number | null;
+  /**
+   * Folders whose metadata FETCH Gmail refuses for its command or bandwidth cap:
+   * `NO [ALERT] Account exceeded command or bandwidth limits. (Failure)`.
+   */
+  limitMeta: Set<string>;
+  /**
+   * "<folder>:<uid>": a message the server cannot read (Dovecot with a corrupt or missing mail
+   * file, Gmail's "Failure"). Like those servers, any UID FETCH whose set contains it, metadata
+   * or body, answers `NO Some messages could not be FETCHed (Unknown error)` for the whole
+   * command; sets without it answer OK. FLAGS (from the index) still lists it.
+   */
+  unreadable: Set<string>;
 }
 
 export class FakeImapServer implements ImapConnector {
@@ -206,6 +267,7 @@ export class FakeImapServer implements ImapConnector {
     listFolders: 0,
     opens: 0,
     listFlags: 0,
+    listFlagsWithLabels: 0,
     metaFetches: 0,
     statusCalls: 0,
     idles: 0,
@@ -223,6 +285,9 @@ export class FakeImapServer implements ImapConnector {
     refuseSource: new Set(),
     refuseSourceCode: null,
     refuseMeta: new Set(),
+    downloadCap: null,
+    limitMeta: new Set(),
+    unreadable: new Set(),
   };
   private readonly arrivalListeners = new Set<ArrivalListener>();
   /**
@@ -239,6 +304,96 @@ export class FakeImapServer implements ImapConnector {
   }> = [];
   /** Called after each delivered source; tests use it to cancel mid-run. */
   onDelivered: ((folder: string, uid: number) => void) | null = null;
+  /** The server announces X-GM-EXT-1 (Gmail): FETCH answers X-GM-LABELS. */
+  gmailExtensions = false;
+
+  /**
+   * A Gmail account as imap.gmail.com lists it: INBOX, the `[Gmail]` container with All Mail
+   * (`\\All`), Sent Mail, Drafts, Starred, Important, Spam and Trash, plus the user labels
+   * given, and X-GM-EXT-1. `allMailHidden`: the user unticked "Show in IMAP" for All Mail.
+   */
+  setupGmail(
+    options: { readonly labels?: readonly string[]; readonly allMailHidden?: boolean } = {},
+  ): void {
+    this.gmailExtensions = true;
+    this.addFolder("INBOX");
+    this.addFolder("[Gmail]", { selectable: false });
+    if (!options.allMailHidden) {
+      this.addFolder(GMAIL_ALL_MAIL, { specialUse: "\\All", uidValidity: 11 });
+    }
+    this.addFolder("[Gmail]/Drafts", { specialUse: "\\Drafts", uidValidity: 12 });
+    this.addFolder("[Gmail]/Important", { specialUse: "\\Important", uidValidity: 13 });
+    this.addFolder("[Gmail]/Sent Mail", { specialUse: "\\Sent", uidValidity: 14 });
+    this.addFolder("[Gmail]/Spam", { specialUse: "\\Junk", uidValidity: 15 });
+    this.addFolder("[Gmail]/Starred", { specialUse: "\\Flagged", uidValidity: 16 });
+    this.addFolder("[Gmail]/Trash", { specialUse: "\\Trash", uidValidity: 17 });
+    for (const label of options.labels ?? []) {
+      this.addFolder(label, { uidValidity: 20 });
+    }
+  }
+
+  /**
+   * One Gmail message: a copy in All Mail (when listed) and one in the folder of each label,
+   * each with its own UID, as Gmail's IMAP server exposes it.
+   */
+  addGmailMessage(
+    source: Buffer | string,
+    labels: readonly string[],
+    options: Omit<FakeAddOptions, "gmail"> = {},
+  ): FakeGmailMessage {
+    const gmail: FakeGmailMessage = {
+      id: String(1_600_000_000_000 + ++messageCounter),
+      labels: [...labels],
+      source: Buffer.isBuffer(source) ? source : Buffer.from(source, "utf8"),
+      copies: new Map(),
+    };
+    const messageId =
+      options.messageId === undefined ? `<gmail-${++messageCounter}@fake.test>` : options.messageId;
+    for (const path of this.gmailFoldersOf(gmail.labels)) {
+      const copy = this.folder(path).add(gmail.source, { ...options, messageId, gmail });
+      gmail.copies.set(path, copy.uid);
+    }
+    return gmail;
+  }
+
+  /** Relabel a Gmail message: copies appear in newly labelled folders and leave the others. */
+  setGmailLabels(gmail: FakeGmailMessage, labels: readonly string[]): void {
+    const [firstPath, firstUid] = [...gmail.copies.entries()][0] ?? [];
+    const existing =
+      firstPath === undefined ? undefined : this.folder(firstPath).messages.get(firstUid as number);
+    gmail.labels = [...labels];
+    const wanted = new Set(this.gmailFoldersOf(gmail.labels));
+    for (const [path, uid] of [...gmail.copies]) {
+      if (!wanted.has(path)) {
+        this.folder(path).delete(uid);
+        gmail.copies.delete(path);
+      }
+    }
+    for (const path of wanted) {
+      if (!gmail.copies.has(path)) {
+        const copy = this.folder(path).add(gmail.source, {
+          messageId: existing?.messageId ?? null,
+          ...(existing ? { internalDate: existing.internalDate } : {}),
+          gmail,
+        });
+        gmail.copies.set(path, copy.uid);
+      }
+    }
+  }
+
+  private gmailFoldersOf(labels: readonly string[]): string[] {
+    const paths = this.folders.has(GMAIL_ALL_MAIL) ? [GMAIL_ALL_MAIL] : [];
+    for (const label of labels) {
+      const special = GMAIL_SYSTEM_LABELS[label];
+      const folder = special
+        ? [...this.folders.values()].find((candidate) => candidate.specialUse === special)
+        : this.folders.get(label);
+      if (folder && !paths.includes(folder.path)) {
+        paths.push(folder.path);
+      }
+    }
+    return paths;
+  }
 
   addFolder(path: string, options?: FakeFolderOptions): FakeFolder {
     const folder = new FakeFolder(path, options);
@@ -410,7 +565,8 @@ class FakeSession implements ImapSession {
       path: folder.path,
       name: folder.name,
       parent: [...folder.parent],
-      delimiter: folder.delimiter,
+      // As imapflow reports a NIL delimiter: null.
+      delimiter: folder.nilDelimiter ? (null as unknown as string) : folder.delimiter,
       selectable: folder.selectable,
       ...(folder.specialUse ? { specialUse: folder.specialUse } : {}),
     }));
@@ -426,22 +582,45 @@ class FakeSession implements ImapSession {
     if (!folder?.selectable) {
       throw new ImapSessionError(`EXAMINE ${path}: NO Mailbox does not exist`, false);
     }
+    if (folder.noUidValidity) {
+      // What ImapFlowSession.openFolder throws for an EXAMINE without OK [UIDVALIDITY].
+      throw new ImapSessionError(
+        `EXAMINE ${path}: the server sent no UIDVALIDITY, so its UIDs cannot be tracked`,
+        false,
+      );
+    }
     this.current = folder;
     return {
       path,
       uidValidity: String(folder.uidValidity),
-      uidNext: folder.uidNext,
+      // As imapflow reports an EXAMINE without OK [UIDNEXT]: undefined.
+      uidNext: folder.noUidNext ? (undefined as unknown as number) : folder.uidNext,
       exists: folder.messages.size,
     };
   }
 
-  async listFlags(): Promise<ImapMessageFlags[]> {
+  get gmailExtensions(): boolean {
+    return this.server.gmailExtensions;
+  }
+
+  async listFlags(options: ImapListFlagsOptions = {}): Promise<ImapMessageFlags[]> {
     await this.command();
     this.server.stats.listFlags++;
+    // As imapflow: X-GM-LABELS is only asked for on a server that announced X-GM-EXT-1.
+    const labels = options.labels === true && this.server.gmailExtensions;
+    const gmailIds = options.gmailIds === true && this.server.gmailExtensions;
+    if (labels) {
+      this.server.stats.listFlagsWithLabels++;
+    }
     const folder = this.requireFolder();
     return folder.uids().map((uid) => {
       const message = folder.messages.get(uid) as FakeMessage;
-      return { uid, flags: [...message.flags] };
+      return {
+        uid,
+        flags: [...message.flags],
+        ...(labels ? { labels: [...(message.gmail?.labels ?? [])] } : {}),
+        ...(gmailIds && message.gmail ? { gmailMessageId: message.gmail.id } : {}),
+      };
     });
   }
 
@@ -455,6 +634,17 @@ class FakeSession implements ImapSession {
         false,
       );
     }
+    if (this.server.faults.limitMeta.has(folder.path)) {
+      const text = "Account exceeded command or bandwidth limits. (Failure)";
+      const cause = Object.assign(new Error("Command failed"), {
+        responseStatus: "NO",
+        responseText: text,
+        serverResponseCode: "ALERT",
+        executedCommand: `1F UID FETCH ${uids.join(",")} (UID RFC822.SIZE FLAGS INTERNALDATE ENVELOPE)`,
+      });
+      throw new ImapSessionError(`UID FETCH: NO ${text}`, false, { cause });
+    }
+    this.refuseUnreadable(folder, uids, "(UID RFC822.SIZE FLAGS INTERNALDATE ENVELOPE)");
     const result: ImapMessageMeta[] = [];
     for (const uid of [...uids].sort((a, b) => a - b)) {
       const key = `${folder.path}:${uid}`;
@@ -488,6 +678,7 @@ class FakeSession implements ImapSession {
       });
       throw new ImapSessionError(`UID FETCH: NO ${text}`, false, { cause });
     }
+    this.refuseUnreadable(folder, uids, "(UID BODY.PEEK[])");
     for (const uid of [...uids].sort((a, b) => a - b)) {
       await tick();
       const key = `${folder.path}:${uid}`;
@@ -500,6 +691,19 @@ class FakeSession implements ImapSession {
       const message = folder.messages.get(uid);
       if (!message || this.server.faults.omit.has(key) || this.server.faults.omitSource.has(key)) {
         continue;
+      }
+      if (this.server.faults.downloadCap !== null) {
+        if (this.server.faults.downloadCap <= 0) {
+          const text = "Account exceeded download limits";
+          const cause = Object.assign(new Error("Command failed"), {
+            responseStatus: "NO",
+            responseText: text,
+            serverResponseCode: "OVERQUOTA",
+            executedCommand: `1F UID FETCH ${uids.join(",")} (UID BODY.PEEK[])`,
+          });
+          throw new ImapSessionError(`UID FETCH: NO ${text}`, false, { cause });
+        }
+        this.server.faults.downloadCap--;
       }
       this.server.stats.sourcesDelivered.push(key);
       yield {
@@ -534,6 +738,20 @@ class FakeSession implements ImapSession {
     if (!this.usable) {
       throw new ImapSessionError("connection is closed", true);
     }
+  }
+
+  /** Dovecot's answer to a FETCH over a set with a message it cannot read: NO for all of it. */
+  private refuseUnreadable(folder: FakeFolder, uids: readonly number[], items: string): void {
+    if (!uids.some((uid) => this.server.faults.unreadable.has(`${folder.path}:${uid}`))) {
+      return;
+    }
+    const text = "Some messages could not be FETCHed (Unknown error)";
+    const cause = Object.assign(new Error("Command failed"), {
+      responseStatus: "NO",
+      responseText: text,
+      executedCommand: `1F UID FETCH ${uids.join(",")} ${items}`,
+    });
+    throw new ImapSessionError(`UID FETCH: NO ${text}`, false, { cause });
   }
 
   private requireFolder(): FakeFolder {

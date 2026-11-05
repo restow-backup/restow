@@ -1,8 +1,15 @@
 import { Readable } from "node:stream";
 import { describe, expect, it } from "vitest";
+import { JobAbortedError } from "../../engine/chunkstore.js";
 import { InMemoryDeltaTokenStore } from "../delta.js";
 import { GraphError } from "../errors.js";
-import { batchEnvelope, createFakeGraph, graphError, must } from "../testing/fake-graph.js";
+import {
+  batchEnvelope,
+  createFakeGraph,
+  type FixtureResponse,
+  graphError,
+  must,
+} from "../testing/fake-graph.js";
 import foldersFixture from "../testing/fixtures/mail-folders.json" with { type: "json" };
 import contentFixture from "../testing/fixtures/message-content.json" with { type: "json" };
 import deltaFixture from "../testing/fixtures/messages-delta.json" with { type: "json" };
@@ -209,6 +216,29 @@ describe("mail folder tree with a folder deleted while it is listed", () => {
     expect(vanished).toEqual(["AAMkFolderProjects"]);
   });
 
+  it("reports a parent without a usable answer as unlisted, never as one without subfolders", async () => {
+    for (const answer of [
+      { status: 502, body: graphError("MissingBatchResponse") },
+      { status: 503, body: graphError("ServiceUnavailable") },
+      { status: 429, body: graphError("TooManyRequests") },
+    ]) {
+      const graph = treeGraph(answer);
+      const unlisted: Array<[string, number]> = [];
+      const tree = await listMailFolderTree(graph.client({ maxRetries: 0 }), USER, {
+        onVanishedFolder: () => {
+          throw new Error("not a vanished folder");
+        },
+        onUnlistedFolder: (folder, error) => unlisted.push([folder.id, error.status]),
+      });
+      expect(tree.find((f) => f.id === "AAMkFolderRestow")).toBeUndefined();
+      expect(unlisted).toEqual([["AAMkFolderProjects", answer.status]]);
+      // Without the callback the answer is an error, as before.
+      await expect(listMailFolderTree(graph.client({ maxRetries: 0 }), USER)).rejects.toMatchObject(
+        { status: answer.status },
+      );
+    }
+  });
+
   it("still fails on a 404 that says the mailbox itself is unavailable", async () => {
     const graph = treeGraph({ status: 404, body: graphError("MailboxNotEnabledForRESTAPI") });
     await expect(listMailFolderTree(graph.client(), USER)).rejects.toMatchObject({ status: 404 });
@@ -337,7 +367,7 @@ describe("message content", () => {
       },
     ]);
     const content = await fetchMessageContent(graph.client(), USER, "AAMkMsgBig");
-    expect(content.kind).toBe("parts");
+    expect(content).toMatchObject({ kind: "parts", fallbackReason: "too_large" });
     if (content.kind !== "parts") {
       throw new Error("unreachable");
     }
@@ -356,22 +386,9 @@ describe("message content", () => {
     expect(messageGet.searchParams.get("$select")).toContain("body");
   });
 
-  it.each([
-    [
-      "a MIME conversion error",
-      [{ status: 500, json: graphError("ErrorMimeContentConversionFailed") }],
-      1,
-    ],
-    [
-      "a 500 that repeats",
-      [
-        { status: 500, json: graphError("ErrorInternalServerError") },
-        { status: 500, json: graphError("ErrorInternalServerError") },
-      ],
-      2,
-    ],
-  ])("falls back to JSON plus attachments after %s", async (_what, responses, mimeCalls) => {
-    const graph = createFakeGraph([
+  /** Routes for a message whose `$value` answers `responses`, with its JSON and attachments. */
+  function contentGraph(responses: FixtureResponse[]) {
+    return createFakeGraph([
       { url: /messages\/AAMkMsgBig\/\$value/, respond: responses },
       {
         url: (u) => u.pathname === `/v1.0/users/${USER}/messages/AAMkMsgBig`,
@@ -382,23 +399,78 @@ describe("message content", () => {
         respond: { status: 200, json: contentFixture.attachments },
       },
     ]);
+  }
+  const mimeOk: FixtureResponse = {
+    status: 200,
+    headers: { "content-type": "message/rfc822" },
+    text: contentFixture.mime,
+  };
+  /** Exchange's plain 500: no conversion code, often gone a moment later. */
+  const plain500: FixtureResponse = {
+    status: 500,
+    json: graphError("UnknownError", "An internal server error occurred."),
+  };
+
+  it("falls back to JSON plus attachments after a MIME conversion error, with its reason", async () => {
+    const graph = contentGraph([
+      { status: 500, json: graphError("ErrorMimeContentConversionFailed") },
+    ]);
     const content = await fetchMessageContent(graph.client(), USER, "AAMkMsgBig");
-    expect(content.kind).toBe("parts");
-    expect(graph.callsTo("GET", "/messages/AAMkMsgBig/$value")).toHaveLength(mimeCalls);
+    expect(content).toMatchObject({ kind: "parts", fallbackReason: "conversion_refused" });
+    expect(graph.callsTo("GET", "/messages/AAMkMsgBig/$value")).toHaveLength(1);
   });
 
-  it("asks for the MIME once more after a single 500 and keeps the MIME format", async () => {
-    const graph = createFakeGraph([
-      {
-        url: /messages\/AAMkMsg1\/\$value/,
-        respond: [
-          { status: 500, json: graphError("ErrorInternalServerError") },
-          { status: 200, headers: { "content-type": "message/rfc822" }, text: contentFixture.mime },
-        ],
+  it("keeps the MIME format when $value answers two plain 500s and then the MIME", async () => {
+    const graph = contentGraph([plain500, plain500, mimeOk]);
+    const waits: number[] = [];
+    const content = await fetchMessageContent(graph.client(), USER, "AAMkMsgBig", {
+      sleep: async (ms) => {
+        waits.push(ms);
       },
-    ]);
-    const content = await fetchMessageContent(graph.client(), USER, "AAMkMsg1");
+      random: () => 0,
+    });
     expect(content.kind).toBe("mime");
+    expect(graph.callsTo("GET", "/messages/AAMkMsgBig/$value")).toHaveLength(3);
+    // Exponential backoff from one second.
+    expect(waits).toEqual([1000, 2000]);
+  });
+
+  it("throws a plain 500 that stays instead of exporting the message as JSON", async () => {
+    const graph = contentGraph([plain500]);
+    await expect(
+      fetchMessageContent(graph.client(), USER, "AAMkMsgBig", { sleep: async () => {} }),
+    ).rejects.toMatchObject({ status: 500, code: "UnknownError" });
+    expect(graph.callsTo("GET", "/messages/AAMkMsgBig/$value")).toHaveLength(3);
+    expect(graph.callsTo("GET", "/attachments")).toHaveLength(0);
+  });
+
+  it("answers with the JSON after a plain 500 that stays only when asked to", async () => {
+    const graph = contentGraph([plain500]);
+    const content = await fetchMessageContent(graph.client(), USER, "AAMkMsgBig", {
+      sleep: async () => {},
+      jsonAfterServerError: true,
+    });
+    expect(content).toMatchObject({ kind: "parts", fallbackReason: "server_error" });
+  });
+
+  it("waits as long as a 500's Retry-After asks", async () => {
+    const graph = contentGraph([{ ...plain500, headers: { "Retry-After": "7" } }, mimeOk]);
+    const waits: number[] = [];
+    await fetchMessageContent(graph.client(), USER, "AAMkMsgBig", {
+      sleep: async (ms) => {
+        waits.push(ms);
+      },
+    });
+    expect(waits).toEqual([7000]);
+  });
+
+  it("stops waiting between attempts when the job is cancelled", async () => {
+    const graph = contentGraph([plain500, mimeOk]);
+    const job = new AbortController();
+    job.abort();
+    await expect(
+      fetchMessageContent(graph.client(), USER, "AAMkMsgBig", { signal: job.signal }),
+    ).rejects.toBeInstanceOf(JobAbortedError);
   });
 
   it("skips the MIME attempt entirely when the known size exceeds the threshold", async () => {
@@ -624,5 +696,40 @@ describe("restore", () => {
     );
     expect(error).toBeInstanceOf(GraphError);
     expect((error as GraphError).code).toBe("ErrorAccessDenied");
+  });
+});
+
+describe("messageContentSignature", () => {
+  it("covers the body text and the attachment list, in any order, and nothing else", async () => {
+    const { messageContentSignature, messageContentCheckUrl } = await import("./mail.js");
+    const answer = {
+      id: "AAMk1",
+      body: { contentType: "text", content: "Hello, see both drafts." },
+      attachments: [
+        { id: "a2", name: "v2.docx", size: 5120, isInline: false },
+        { id: "a1", name: "v1.docx", size: 4096, isInline: false },
+      ],
+    };
+    const signature = messageContentSignature(answer);
+    expect(signature).toMatch(/^[0-9a-f]{64}$/);
+    expect(
+      messageContentSignature({ ...answer, attachments: [...answer.attachments].reverse() }),
+    ).toBe(signature);
+    // An attachment removed, or the body edited: another signature.
+    expect(
+      messageContentSignature({ ...answer, attachments: answer.attachments.slice(1) }),
+    ).not.toBe(signature);
+    expect(
+      messageContentSignature({ ...answer, body: { contentType: "text", content: "Hello." } }),
+    ).not.toBe(signature);
+    // Without body or attachment list Graph's answer proves nothing.
+    expect(messageContentSignature({ id: "AAMk1", body: answer.body })).toBeUndefined();
+    expect(messageContentSignature({ id: "AAMk1", attachments: [] })).toBeUndefined();
+    const url = new URL(
+      messageContentCheckUrl("alice@contoso.example", "AAMk/1"),
+      "https://graph.microsoft.com/v1.0/",
+    );
+    expect(url.searchParams.get("$select")).toBe("id,body");
+    expect(url.searchParams.get("$expand")).toBe("attachments($select=id,name,size,isInline)");
   });
 });

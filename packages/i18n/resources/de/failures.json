@@ -117,6 +117,42 @@
         "title": "Microsoft hatte ein vorübergehendes Dienstproblem",
         "why": "Microsoft hat mit einem Serverfehler geantwortet{has_httpStatus, select, yes { (HTTP {httpStatus})} other {}}. Solche Fehler verschwinden meist innerhalb weniger Minuten von selbst."
       },
+      "outcome_unknown": {
+        "title": "Microsoft hat nicht bestätigt, ob die Änderung ausgeführt wurde",
+        "why": "{appName} hat bei Microsoft etwas angelegt (zum Beispiel eine Nachricht, einen Kontakt oder einen Ordner). Microsoft hat {reason, select, timeout {nicht rechtzeitig geantwortet} other {mit einem Gateway- oder Dienstfehler geantwortet{has_httpStatus, select, yes { (HTTP {httpStatus})} other {}}}}. Ob das Element angelegt wurde, ist damit unbekannt. Damit keine Doppelung entsteht, sendet {appName} die Anfrage nicht blind erneut; der nächste Versuch prüft zuerst, was im Ziel schon vorhanden ist."
+      },
+      "online_archive_not_covered": {
+        "title": "Das Online-Archiv dieses Postfachs wird nicht gesichert",
+        "why": "Dieses Postfach hat ein Online-Archiv (In-Place Archive). Microsoft Graph bietet dafür keine allgemein verfügbare Schnittstelle, deshalb sichert {appName} nur das primäre Postfach. Mails, die eine Aufbewahrungsrichtlinie oder ein Benutzer ins Online-Archiv verschiebt, fehlen ab dann in den neuen Sicherungsständen; ältere Sicherungsstände behalten sie, bis deren Aufbewahrung abläuft."
+      },
+      "online_archive_unknown": {
+        "title": "Ob dieses Postfach ein Online-Archiv hat, ließ sich nicht prüfen",
+        "why": "{appName} fragt bei jedem Lauf bei Microsoft nach, ob das Postfach ein Online-Archiv (In-Place Archive) hat, denn das Archiv wird nicht gesichert. Microsoft hat die Frage diesmal nicht beantwortet (zum Beispiel fehlende Berechtigung User.Read.All oder die Beta-Schnittstelle nicht verfügbar). Hat das Postfach ein Archiv, fehlen Mails, die eine Aufbewahrungsrichtlinie dorthin verschiebt, ab dann in den neuen Sicherungsständen, ohne dass es auffällt. Der nächste Lauf fragt erneut."
+      },
+      "group_event_attachments_not_covered": {
+        "title": "Anhänge von Terminen im Gruppenkalender werden nicht gesichert",
+        "why": "{count, plural, one {# Termin} other {# Termine}} im Kalender dieser Gruppe {count, plural, one {hat} other {haben}} Anhänge. Microsoft Graph gibt Anhänge von Gruppenterminen nicht an die App heraus, deshalb sichert {appName} nur die Termine selbst. Eine Wiederherstellung legt diese Termine ohne ihre Anhänge an."
+      },
+      "group_post_attachments_refused": {
+        "title": "Anhänge von Gruppenbeiträgen wurden nicht gesichert",
+        "why": "{count, plural, one {# Beitrag} other {# Beiträge}} in den Unterhaltungen dieser Gruppe {count, plural, one {hat} other {haben}} Anhänge, die Microsoft Graph der App verweigert hat. {appName} hat die Beiträge ohne diese Anhänge gesichert; eine Wiederherstellung oder ein Export bringt sie ohne Anhänge zurück. Gibt Graph die Anhänge später heraus, holt {appName} sie beim nächsten Lauf nach."
+      },
+      "group_post_attachments_unreadable": {
+        "title": "Anhänge von Gruppenbeiträgen ließen sich nicht lesen",
+        "why": "{count, plural, one {# Beitrag} other {# Beiträge}} in den Unterhaltungen dieser Gruppe {count, plural, one {hat} other {haben}} Anhänge (zum Beispiel eine als Anlage weitergeleitete Mail), die Microsoft beim Abruf nicht ausgeliefert hat. {appName} hat die Beiträge ohne diese Anhänge gesichert und liest sie beim nächsten Lauf erneut."
+      },
+      "group_calendar_windowed": {
+        "title": "Der Gruppenkalender wurde nur in einem Zeitfenster gelesen",
+        "why": "Microsoft Graph hat der App die vollständige Terminliste dieses Gruppenkalenders verweigert. {appName} hat ihn deshalb über die Kalenderansicht{has_windowStart, select, yes { vom {windowStart}{has_windowEnd, select, yes { bis zum {windowEnd}} other {}}} other { (fünf Jahre zurück bis zwei Jahre voraus)}} gelesen. Termine außerhalb dieses Fensters bleiben so in der Sicherung, wie sie zuletzt gesichert wurden; Änderungen oder Löschungen dort sieht dieser Lauf nicht."
+      },
+      "mail_content_unchecked": {
+        "title": "Der Inhalt einer geänderten Nachricht ließ sich nicht prüfen",
+        "why": "Diese Nachricht wurde seit dem letzten Lauf geändert. Ob nur Markierung, Lesestatus oder Kategorie oder auch ihr Inhalt (Text, Anhänge) betroffen ist, konnte {appName} nicht prüfen, weil Microsoft auf die Abfrage nicht geantwortet hat. Die Sicherung behält die zuletzt gesicherte Fassung, und der nächste Lauf prüft die Nachricht erneut und lädt sie neu, wenn sich ihr Inhalt geändert hat."
+      },
+      "mail_stored_without_mime": {
+        "title": "Eine Nachricht ist vorerst ohne ihre Originaldatei gesichert",
+        "why": "Microsoft hat die Originaldatei (MIME) dieser Nachricht über mehrere Läufe hinweg mit einem Serverfehler verweigert. {appName} hat ihren Inhalt deshalb als JSON gesichert (Text, Kopfzeilen und jeder Anhang einzeln): Sie lässt sich wiederherstellen, aber ein Export als EML, MBOX oder PST hat bis dahin keine Originaldatei. Die nächsten Läufe fragen die Originaldatei erneut an und ersetzen die JSON-Kopie, sobald Microsoft sie herausgibt."
+      },
       "item_not_found": {
         "title": "Das Element wurde inzwischen bei Microsoft geändert oder gelöscht",
         "why": "{appName} hatte dieses Element aufgelistet, konnte es danach aber nicht lesen, weil es dazwischen bei Microsoft verschoben oder gelöscht wurde. Der nächste Lauf sieht den neuen Stand."
@@ -143,7 +179,7 @@
       },
       "item_incomplete": {
         "title": "Microsoft hat das Element unvollständig gemeldet",
-        "why": "Microsoft hat dieses Element ohne Namen oder ohne seinen Ordner gemeldet. Ohne diese Angaben kann {appName} es nicht einordnen. Das passiert meist, wenn das Element gerade verschoben, umbenannt oder hochgeladen wird; der nächste Lauf versucht es erneut."
+        "why": "Microsoft hat dieses Element ohne Namen, ohne seinen Ordner oder ohne Angabe, ob es eine Datei, ein Ordner oder eine Verknüpfung ist, gemeldet. Ohne diese Angaben kann {appName} es nicht einordnen und nicht sichern. Das passiert meist, wenn das Element gerade verschoben, umbenannt oder hochgeladen wird; der nächste Lauf versucht es erneut. Bleibt der Fehler, prüfen Sie das Element in OneDrive oder SharePoint."
       },
       "subscription_failed": {
         "title": "Microsoft 365 sendet für dieses Postfach keine Änderungsbenachrichtigungen",
@@ -202,6 +238,10 @@
       "message_missing": {
         "title": "Der IMAP-Server hat eine Nachricht nicht ausgeliefert",
         "why": "Der Server hat die Nachricht im Ordner aufgeführt, sie beim Abruf aber nicht zurückgegeben. Meist wurde sie zwischenzeitlich gelöscht oder verschoben, oder der Server hat den Abruf wegen einer Grenze abgebrochen. Der nächste Lauf versucht es erneut."
+      },
+      "gmail_all_mail_hidden": {
+        "title": "Bei diesem Gmail-Konto ist „Alle Nachrichten“ für IMAP ausgeblendet",
+        "why": "Gmail zeigt jedes Label als eigenen IMAP-Ordner. {appName} liest bei Gmail jede Nachricht nur einmal aus „[Gmail]/Alle Nachrichten“ und merkt sich ihre Labels. Dieser Ordner ist für IMAP ausgeblendet, deshalb hat {appName} Ordner für Ordner gesichert: Jede Nachricht liegt einmal je Label in der Sicherung, und eine Wiederherstellung zu einem anderen Anbieter legt jede dieser Kopien an. Es fehlt nichts."
       },
       "idle_unsupported": {
         "title": "Der IMAP-Server bietet kein IDLE an",
@@ -683,6 +723,9 @@
     "free_target_space": "Schaffen Sie Platz im Ziel oder wählen Sie für die Wiederherstellung ein anderes Ziel.",
     "check_app_password": "Prüfen Sie Benutzername und Passwort in den Quelleneinstellungen. Verlangt der Anbieter eine Zwei-Faktor-Anmeldung, erstellen Sie ein App-Passwort und verwenden Sie dieses.",
     "enable_imap_access": "Stellen Sie sicher, dass der IMAP-Zugriff für das Konto beim Mailanbieter eingeschaltet ist.",
+    "show_gmail_all_mail_in_imap": "Schalten Sie in Gmail unter Einstellungen > Labels bei „Alle Nachrichten“ die Option „In IMAP anzeigen“ ein. Der nächste Lauf sichert jede Nachricht dann nur noch einmal.",
+    "check_archive_policy": "Prüfen Sie, ob eine Aufbewahrungsrichtlinie Mails ins Online-Archiv verschiebt. Sichern Sie das Archiv bei Bedarf auf anderem Weg (zum Beispiel mit einem eDiscovery-Export), oder bewahren Sie die Sicherungsstände so lange auf, wie Sie diese Mails brauchen.",
+    "store_group_attachments_in_files": "Legen Sie wichtige Anhänge zusätzlich in den Dateien der Gruppe ab (die SharePoint-Website der Gruppe); diese werden mit der Website gesichert.",
     "reauthorize_oauth": "Verbinden Sie das Konto in den Quelleneinstellungen neu, damit {appName} ein neues OAuth-Token erhält.",
     "set_object_password": "Setzen oder korrigieren Sie das Passwort dieses Kontos auf der Seite Geschützte Objekte.",
     "check_host_reachable": "{has_host, select, yes {Prüfen Sie, ob {host}{has_port, select, yes {:{port}} other {}} vom Server von {appName} aus erreichbar ist} other {Prüfen Sie, ob der Server von dem Rechner aus erreichbar ist, auf dem {appName} läuft}}: Name, Port, Firewall und Proxy.",

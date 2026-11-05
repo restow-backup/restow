@@ -32,16 +32,24 @@ import { createHash } from "node:crypto";
 import { pipeline, type Readable, Transform } from "node:stream";
 import type { Message, Recipient } from "@microsoft/microsoft-graph-types";
 import { JobAbortedError } from "../../engine/chunkstore.js";
+import { buildCause } from "../../failures/classify.js";
 import { type DeltaMode, isRemoved, RecordDeltaTokenStore } from "../../graph/delta.js";
+import { isGraphError, isMailboxUnavailable } from "../../graph/errors.js";
+import { query, requestOk, userPath } from "../../graph/resources/common.js";
 import {
   fetchMessageContent,
   getMessage,
+  getMessageContentSignatures,
+  isMimeServerError,
   listMailFolderTree,
   type MailFolderNode,
   MESSAGE_DELTA_SELECT,
   type MessageContent,
+  type MessageContentSignatures,
   type MessageDeltaEntry,
   messagesDelta,
+  mimeRefusalReason,
+  openMessageMime,
   resolveWellKnownFolders,
   type WellKnownFolderName,
 } from "../../graph/resources/mail.js";
@@ -63,6 +71,7 @@ import {
   type FetchedObject,
   FOLDERS_GROUP,
   ItemError,
+  isAreaRefused,
   isItemLevelError,
   isVanished,
   MESSAGE_FORMAT,
@@ -87,6 +96,8 @@ export interface MailPhaseOptions {
   readonly includeHiddenFolders: boolean;
   readonly skipWellKnownFolders: ReadonlySet<WellKnownFolderName>;
   readonly deltaPageSize: number;
+  /** Base of the backoff between `$value` attempts after a plain 500. */
+  readonly mimeServerErrorBackoffMs?: number;
 }
 
 export interface PlannedFolder {
@@ -644,6 +655,9 @@ function ridersOf(run: BackupRun, message: ManifestObject): ManifestObject[] {
 }
 
 function removeMessage(run: BackupRun, message: ManifestObject): void {
+  if (message.id !== undefined) {
+    delete run.state.mailMimeServerErrors[message.id];
+  }
   run.removeItem(message, ridersOf(run, message));
 }
 
@@ -660,6 +674,9 @@ const CONTENT_METADATA = [
   META.attachmentCount,
   META.referenceAttachments,
   META.protection,
+  META.formatReason,
+  META.contentSignature,
+  META.contentIdUnavailable,
 ] as const;
 
 /** Refresh a stored message without fetching its bytes again. */
@@ -669,6 +686,7 @@ function carryMessage(
   entry: MailDeltaEntry,
   existing: ManifestObject,
   mtime: number,
+  contentUpdate: Record<string, string> = {},
 ): void {
   const json = isJsonMessage(existing);
   const path = json
@@ -681,6 +699,7 @@ function carryMessage(
       metadata[key] = value;
     }
   }
+  Object.assign(metadata, contentUpdate);
   const riders = ridersOf(run, existing);
   const oldPath = existing.path;
   run.carryForward(existing, { path, mtime, metadata });
@@ -773,6 +792,10 @@ async function storeJsonMessage(
             [META.isInline]: String(meta.isInline === true),
             attachmentType: meta["@odata.type"] ?? "",
             declaredSize: String(meta.size ?? ""),
+            // What the body's `cid:` reference names; restore sets it on the new attachment.
+            ...(typeof meta.contentId === "string" && meta.contentId.trim().length > 0
+              ? { [META.contentId]: meta.contentId }
+              : {}),
           },
           folder,
         ),
@@ -784,11 +807,19 @@ async function storeJsonMessage(
   const metadata: Record<string, string> = {
     ...base.metadata,
     [META.format]: MESSAGE_FORMAT.json,
+    [META.formatReason]: content.fallbackReason,
     [META.contentType]: "application/json",
     [META.attachmentCount]: String(attachments.length),
   };
   if (references.length > 0) {
     metadata[META.referenceAttachments] = JSON.stringify(references);
+  }
+  if (content.contentIdUnavailable) {
+    // Inline images of the HTML body may show as broken after a restore.
+    metadata[META.contentIdUnavailable] = "true";
+    run.logger.warn("Graph did not name the Content-IDs of the attachments", {
+      messageId: entry.id,
+    });
   }
 
   if (existing) {
@@ -814,6 +845,158 @@ async function storeJsonMessage(
   ]);
 }
 
+/** Runs in a row with a plain 500 on `$value` after which a message's JSON is stored instead. */
+export const MIME_SERVER_ERROR_RUNS = 3;
+
+/** JSON reasons that are final: asking for the MIME again would be refused the same way. */
+const FINAL_JSON_REASONS: ReadonlySet<string> = new Set(["too_large", "conversion_refused"]);
+
+/**
+ * A JSON message whose MIME is worth asking for again: stored after a plain 500
+ * (`server_error`), or by a version that did not record why (before 0.5.0 a plain 500
+ * twice in a row was enough to store a message as JSON for good).
+ */
+export function needsMimeAgain(object: ManifestObject | undefined): boolean {
+  return (
+    object !== undefined &&
+    isJsonMessage(object) &&
+    !FINAL_JSON_REASONS.has(object.metadata?.[META.formatReason] ?? "")
+  );
+}
+
+/** Why a message stands in the restore point without its MIME for now. */
+const STORED_WITHOUT_MIME =
+  "Microsoft has refused the message's original file (MIME) with a server error for several runs; its content is backed up as JSON without the original file, and the next runs ask for the MIME again";
+
+/**
+ * Count a JSON fallback of this run and say so in the log. One stored after server errors
+ * (not a final refusal) is also a warning on the message: it has no original file for EML,
+ * MBOX or PST export until Microsoft hands out the MIME again.
+ */
+function noteJsonFallback(
+  run: BackupRun,
+  entry: MailDeltaEntry,
+  reason: string,
+  itemRef: string,
+): void {
+  run.jsonFallbacks[reason] = (run.jsonFallbacks[reason] ?? 0) + 1;
+  run.logger.info("message stored as JSON instead of MIME", { messageId: entry.id, reason });
+  if (!FINAL_JSON_REASONS.has(reason)) {
+    warnStoredWithoutMime(run, itemRef);
+  }
+}
+
+function warnStoredWithoutMime(run: BackupRun, itemRef: string): void {
+  run.warn(
+    itemRef,
+    STORED_WITHOUT_MIME,
+    buildCause("graph.mail_stored_without_mime", {}, { message: STORED_WITHOUT_MIME }),
+  );
+}
+
+/**
+ * Ask once more for the MIME of a JSON message whose content has not changed
+ * ({@link needsMimeAgain}). The MIME replaces the JSON when Graph hands it out now; a
+ * refusal only records its reason on the stored copy, and a server error keeps the copy
+ * as it is for the next run. Never downloads the JSON and attachments again.
+ */
+async function askMimeAgain(
+  run: BackupRun,
+  folder: PlannedFolder,
+  entry: MailDeltaEntry,
+  existing: ManifestObject,
+  mtime: number,
+  fingerprint: string,
+): Promise<void> {
+  if (mimeOutageSkips(run)) {
+    carryMessage(run, folder, entry, existing, mtime);
+    warnStoredWithoutMime(run, existing.path);
+    return;
+  }
+  let stream: Readable;
+  run.mimeOutage.lastAskedAt = run.ctx.now().getTime();
+  try {
+    stream = await openMessageMime(run.client, run.userId, entry.id);
+    noteMimeOutcome(run, true);
+  } catch (error) {
+    const reason = mimeRefusalReason(error);
+    if (reason !== null) {
+      carryMessage(run, folder, entry, existing, mtime, { [META.formatReason]: reason });
+      return;
+    }
+    if (isMimeServerError(error)) {
+      noteMimeOutcome(run, false, error);
+      run.logger.info("MIME of a message stored as JSON still unavailable, JSON kept", {
+        messageId: entry.id,
+      });
+      carryMessage(run, folder, entry, existing, mtime);
+      warnStoredWithoutMime(run, existing.path);
+      return;
+    }
+    throw error;
+  }
+  run.logger.info("MIME of a message stored as JSON is available again, stored as MIME", {
+    messageId: entry.id,
+  });
+  delete run.state.mailMimeServerErrors[entry.id];
+  const metadata: Record<string, string> = {
+    ...mailMetadata(entry, folder, existing),
+    [META.fingerprint]: fingerprint,
+  };
+  // The signature describes the message in Exchange, not the form it is stored in.
+  const signature = existing.metadata?.[META.contentSignature];
+  if (signature !== undefined) {
+    metadata[META.contentSignature] = signature;
+  }
+  await storeMimeMessage(run, folder, entry, existing, mtime, metadata, stream);
+}
+
+/**
+ * After this many messages in a row whose `$value` answered nothing but a plain 500 (all their
+ * attempts), the mailbox's MIME export is taken to be down for now (an Exchange backend
+ * incident hits whole mailboxes): the run stops paying the backoff for every further message.
+ */
+export const MIME_OUTAGE_AFTER = 5;
+/** While the export is down, `$value` is asked again once (no backoff) at most this often. */
+export const MIME_OUTAGE_PROBE_MS = 60_000;
+
+/** Whether `$value` is down for this run and the next probe is not due yet. */
+function mimeOutageSkips(run: BackupRun): boolean {
+  const outage = run.mimeOutage;
+  return (
+    outage.consecutive >= MIME_OUTAGE_AFTER &&
+    run.ctx.now().getTime() - outage.lastAskedAt < MIME_OUTAGE_PROBE_MS
+  );
+}
+
+/** The item failure of a message not asked because `$value` is down. */
+function mimeOutageError(run: BackupRun): ItemError {
+  return new ItemError(
+    `Microsoft answered HTTP 500 for the original file (MIME) of ${run.mimeOutage.consecutive} messages in a row; this message was not asked in this run and is retried on the next run`,
+    { cause: run.mimeOutage.lastError },
+  );
+}
+
+/** `$value` answered (`answered`), or gave nothing but a plain 500 (`error`). */
+function noteMimeOutcome(run: BackupRun, answered: boolean, error?: unknown): void {
+  const outage = run.mimeOutage;
+  if (answered) {
+    if (outage.consecutive >= MIME_OUTAGE_AFTER) {
+      run.logger.info("MIME export of the mailbox answers again");
+    }
+    outage.consecutive = 0;
+    return;
+  }
+  outage.consecutive++;
+  outage.lastError = error ?? outage.lastError;
+  if (outage.consecutive === MIME_OUTAGE_AFTER) {
+    run.logger.warn(
+      "MIME export answers HTTP 500 for every message, not asking further messages in this run (asked again once a minute)",
+      { messages: outage.consecutive },
+    );
+  }
+}
+
 /** Fetch a message's content and store it as MIME, or as JSON when Graph refuses the MIME. */
 async function fetchMessage(
   run: BackupRun,
@@ -822,12 +1005,45 @@ async function fetchMessage(
   existing: ManifestObject | undefined,
   mtime: number,
   fingerprint: string,
+  options: MailPhaseOptions,
+  signature: string | undefined,
 ): Promise<void> {
-  const content = await fetchMessageContent(run.client, run.userId, entry.id);
+  const serverErrorRuns = run.state.mailMimeServerErrors[entry.id] ?? 0;
+  if (mimeOutageSkips(run)) {
+    // Not asked, so not counted towards the JSON fallback either.
+    throw mimeOutageError(run);
+  }
+  const probing = run.mimeOutage.consecutive >= MIME_OUTAGE_AFTER;
+  let content: MessageContent;
+  run.mimeOutage.lastAskedAt = run.ctx.now().getTime();
+  try {
+    content = await fetchMessageContent(run.client, run.userId, entry.id, {
+      signal: run.ctx.signal,
+      serverErrorBackoffMs: options.mimeServerErrorBackoffMs,
+      // While the export is down: one attempt, no backoff.
+      ...(probing ? { serverErrorAttempts: 1 } : {}),
+      // The third run in a row with nothing but a plain 500: keep the content as JSON.
+      jsonAfterServerError: serverErrorRuns + 1 >= MIME_SERVER_ERROR_RUNS,
+    });
+  } catch (error) {
+    if (isMimeServerError(error)) {
+      noteMimeOutcome(run, false, error);
+      // An item failure, retried next run (mailRetry); never a reason to give up the MIME.
+      run.state.mailMimeServerErrors[entry.id] = serverErrorRuns + 1;
+    }
+    throw error;
+  }
+  // A JSON copy after the third run of 500s: `$value` itself is still down.
+  noteMimeOutcome(run, !(content.kind === "parts" && content.fallbackReason === "server_error"));
+  delete run.state.mailMimeServerErrors[entry.id];
   const metadata: Record<string, string> = {
     ...mailMetadata(entry, folder, existing),
     [META.fingerprint]: fingerprint,
   };
+  // Asked before the download: an edit in between shows as another signature next time.
+  if (signature !== undefined) {
+    metadata[META.contentSignature] = signature;
+  }
 
   if (content.kind === "parts") {
     const protection = protectionFromHeaders(content.message.internetMessageHeaders);
@@ -835,9 +1051,28 @@ async function fetchMessage(
       metadata[META.protection] = protection;
     }
     await storeJsonMessage(run, folder, entry, existing, content, { mtime, metadata });
+    noteJsonFallback(
+      run,
+      entry,
+      content.fallbackReason,
+      mailJsonObjectPath(folder.path, entry.subject, entry.id),
+    );
     return;
   }
-  const { stream, header } = sniffMimeHeader(content.stream);
+  await storeMimeMessage(run, folder, entry, existing, mtime, metadata, content.stream);
+}
+
+/** Store a message's MIME, replacing whatever version (MIME or JSON) the snapshot had. */
+async function storeMimeMessage(
+  run: BackupRun,
+  folder: PlannedFolder,
+  entry: MailDeltaEntry,
+  existing: ManifestObject | undefined,
+  mtime: number,
+  metadata: Record<string, string>,
+  mime: Readable,
+): Promise<void> {
+  const { stream, header } = sniffMimeHeader(mime);
   const written = await run.writeContent(stream);
   const head = await header;
   const protection =
@@ -846,6 +1081,11 @@ async function fetchMessage(
   if (protection) {
     metadata[META.protection] = protection;
   }
+  // Content metadata of an earlier JSON version does not describe the MIME.
+  delete metadata[META.formatReason];
+  delete metadata[META.attachmentCount];
+  delete metadata[META.referenceAttachments];
+  delete metadata[META.contentIdUnavailable];
   if (existing) {
     // An earlier JSON version leaves its attachments behind otherwise.
     for (const rider of ridersOf(run, existing)) {
@@ -870,22 +1110,141 @@ async function fetchMessage(
   ]);
 }
 
+function entryMtime(entry: MailDeltaEntry): number {
+  return toMillis(entry.lastModifiedDateTime) || toMillis(entry.receivedDateTime);
+}
+
+/** Content signatures asked for the entries of a delta page ({@link entriesToCheck}). */
+export type ContentChecks = MessageContentSignatures;
+
+const NO_CHECKS: ContentChecks = { signatures: new Map(), unanswered: new Set() };
+
+/**
+ * The entries of a delta page whose content signature {@link storeMessage} needs: those
+ * whose content will be fetched (the signature is stored with it, as the baseline of the
+ * next comparison) and those modified with an unchanged fingerprint (the signature tells
+ * a content change from a flag, read-state, category or retention change). An entry whose
+ * modification time did not move needs none, nor does a draft (every change of a draft
+ * fetches it, see {@link contentFingerprint}).
+ */
+export function entriesToCheck(run: BackupRun, entries: readonly MailDeltaEntry[]): string[] {
+  const ids: string[] = [];
+  for (const entry of entries) {
+    if (isRemoved(entry) || entry.isDraft === true) {
+      continue;
+    }
+    const existing = run.index.get(OBJECT_TYPES.mail, entry.id);
+    if (run.reusable(existing, contentFingerprint(entry)) && existing.mtime === entryMtime(entry)) {
+      continue;
+    }
+    ids.push(entry.id);
+  }
+  return ids;
+}
+
+/** {@link getMessageContentSignatures} for a page; a $batch Graph refuses leaves every id unanswered. */
+async function contentChecks(run: BackupRun, ids: readonly string[]): Promise<ContentChecks> {
+  if (ids.length === 0) {
+    return NO_CHECKS;
+  }
+  try {
+    return await getMessageContentSignatures(run.client, run.userId, ids);
+  } catch (error) {
+    if (!isItemLevelError(error)) {
+      throw error;
+    }
+    run.logger.warn("message content could not be checked, asked again on the next run", {
+      messages: ids.length,
+      reason: describeError(error),
+    });
+    return { signatures: new Map(), unanswered: new Set(ids) };
+  }
+}
+
+/** Why a message's stored copy was kept without proof that its content is unchanged. */
+const CONTENT_UNCHECKED =
+  "the message changed and Microsoft did not answer whether its content changed too; the stored copy is kept and checked again on the next run";
+
+/**
+ * A modified message (its modification time moved) whose content could not be checked: the
+ * stored copy is not proven current. It is kept with its old modification time, so the next
+ * comparison still sees the change, and the next run asks again (mailRetry).
+ */
+class ContentUncheckedError extends Error {
+  constructor() {
+    super(CONTENT_UNCHECKED);
+    this.name = "ContentUncheckedError";
+  }
+}
+
+/**
+ * Whether a stored copy with an unchanged fingerprint still stands for the message. Subject,
+ * `hasAttachments` and `bodyPreview` (the first 255 characters) stay the same when an
+ * attachment of a received mail is removed or its body is edited further down; only the
+ * modification time and the content signature (body text and attachment list) move. A flag,
+ * read-state, category or retention change moves the modification time, not the signature.
+ * A stored copy without a signature (before 0.5.0) is fetched again once; an unanswered check
+ * throws {@link ContentUncheckedError}.
+ */
+function storedCopyCurrent(
+  existing: ManifestObject,
+  entry: MailDeltaEntry,
+  mtime: number,
+  checks: ContentChecks,
+): boolean {
+  if (existing.mtime === mtime || entry.isDraft === true) {
+    return true;
+  }
+  const signature = checks.signatures.get(entry.id);
+  if (signature === undefined) {
+    throw new ContentUncheckedError();
+  }
+  return existing.metadata?.[META.contentSignature] === signature;
+}
+
 async function storeMessage(
   run: BackupRun,
   folder: PlannedFolder,
   entry: MailDeltaEntry,
+  options: MailPhaseOptions,
+  checks: ContentChecks,
 ): Promise<void> {
   const fingerprint = contentFingerprint(entry);
-  const mtime = toMillis(entry.lastModifiedDateTime) || toMillis(entry.receivedDateTime);
+  const mtime = entryMtime(entry);
   const existing = run.index.get(OBJECT_TYPES.mail, entry.id);
+  const signature = checks.signatures.get(entry.id);
   if (run.reusable(existing, fingerprint)) {
-    carryMessage(run, folder, entry, existing, mtime);
-    return;
+    let current: boolean;
+    try {
+      current = storedCopyCurrent(existing, entry, mtime, checks);
+    } catch (error) {
+      if (error instanceof ContentUncheckedError) {
+        // Flags and the rest are current; the content and the modification time stay as stored.
+        carryMessage(run, folder, entry, existing, existing.mtime);
+      }
+      throw error;
+    }
+    if (current) {
+      const update: Record<string, string> = {};
+      if (signature !== undefined && existing.metadata?.[META.contentSignature] !== signature) {
+        update[META.contentSignature] = signature;
+      }
+      if (needsMimeAgain(existing) && !run.fetchedInThisRun(existing)) {
+        await askMimeAgain(run, folder, entry, existing, mtime, fingerprint);
+        return;
+      }
+      carryMessage(run, folder, entry, existing, mtime, update);
+      return;
+    }
+    run.logger.info("message content changed behind an unchanged preview, fetched again", {
+      messageId: entry.id,
+      storedSignature: existing.metadata?.[META.contentSignature] ?? null,
+    });
   }
-  await fetchMessage(run, folder, entry, existing, mtime, fingerprint);
+  await fetchMessage(run, folder, entry, existing, mtime, fingerprint, options, signature);
 }
 
-type EntryOutcome = "stored" | "removed" | "vanished" | "failed";
+type EntryOutcome = "stored" | "removed" | "vanished" | "failed" | "unchecked";
 
 /** A message deleted in the mailbox after it was listed: drop the stored copy, if any. */
 function messageVanished(run: BackupRun, id: string, itemRef: string, seen: Set<string>): void {
@@ -902,6 +1261,8 @@ async function processEntry(
   folder: PlannedFolder,
   entry: MailDeltaEntry,
   seen: Set<string>,
+  options: MailPhaseOptions,
+  checks: ContentChecks,
 ): Promise<EntryOutcome> {
   if (isRemoved(entry)) {
     const existing = run.index.get(OBJECT_TYPES.mail, entry.id);
@@ -915,9 +1276,17 @@ async function processEntry(
   seen.add(entry.id);
   const itemRef = mailObjectPath(folder.path, entry.subject, entry.id);
   try {
-    await storeMessage(run, folder, entry);
+    await storeMessage(run, folder, entry, options, checks);
     return "stored";
   } catch (error) {
+    if (error instanceof ContentUncheckedError) {
+      run.warn(
+        itemRef,
+        CONTENT_UNCHECKED,
+        buildCause("graph.mail_content_unchecked", {}, { message: CONTENT_UNCHECKED }),
+      );
+      return "unchecked";
+    }
     if (isVanished(error)) {
       messageVanished(run, entry.id, itemRef, seen);
       return "vanished";
@@ -951,11 +1320,13 @@ async function retryFailedMessages(
   ids: readonly string[],
   seen: Set<string>,
   failed: Set<string>,
+  options: MailPhaseOptions,
+  why = "retrying messages that failed in the previous run",
 ): Promise<void> {
   if (ids.length === 0) {
     return;
   }
-  run.logger.info("retrying messages that failed in the previous run", {
+  run.logger.info(why, {
     folderId: folder.node.id,
     messages: ids.length,
   });
@@ -985,13 +1356,45 @@ async function retryFailedMessages(
       run.reporter.advance(1, 0);
       continue;
     }
-    const outcome = await processEntry(run, folder, { ...message, id } as MailDeltaEntry, seen);
-    if (outcome === "failed") {
+    const entry = { ...message, id } as MailDeltaEntry;
+    const checks = await contentChecks(run, entriesToCheck(run, [entry]));
+    const outcome = await processEntry(run, folder, entry, seen, options, checks);
+    if (outcome === "failed" || outcome === "unchecked") {
       failed.add(id);
     }
     run.setPosition(folder.node.id, id);
     await run.maybeCheckpoint();
   }
+}
+
+/** At most this many JSON messages per folder and run get their MIME asked again. */
+export const MAX_MIME_AGAIN_PER_FOLDER = 200;
+
+/** The JSON messages of a folder whose MIME is asked again in this run ({@link needsMimeAgain}). */
+function jsonMessagesToAskAgain(
+  run: BackupRun,
+  folder: PlannedFolder,
+  listed: ReadonlySet<string>,
+  retried: readonly string[],
+): string[] {
+  const skip = new Set(retried);
+  const ids: string[] = [];
+  for (const member of run.index.members(mailGroup(folder.node.id))) {
+    if (ids.length >= MAX_MIME_AGAIN_PER_FOLDER) {
+      break;
+    }
+    if (
+      member.type === OBJECT_TYPES.mail &&
+      member.id !== undefined &&
+      !listed.has(member.id) &&
+      !skip.has(member.id) &&
+      needsMimeAgain(member) &&
+      !run.fetchedInThisRun(member)
+    ) {
+      ids.push(member.id);
+    }
+  }
+  return ids;
 }
 
 /** Remember this run's failed messages of a folder for the next run. */
@@ -1077,11 +1480,13 @@ export async function syncMailFolder(
       run.expectMore(folder.node.totalItemCount);
       countedFull = true;
     }
-    for (const entry of batch.items as MailDeltaEntry[]) {
+    const entries = batch.items as MailDeltaEntry[];
+    const checks = await contentChecks(run, entriesToCheck(run, entries));
+    for (const entry of entries) {
       run.throwIfAborted();
       listed.add(entry.id);
-      const outcome = await processEntry(run, folder, entry, seen);
-      if (outcome === "failed") {
+      const outcome = await processEntry(run, folder, entry, seen, options, checks);
+      if (outcome === "failed" || outcome === "unchecked") {
         failed.add(entry.id);
       } else {
         failed.delete(entry.id);
@@ -1094,7 +1499,19 @@ export async function syncMailFolder(
 
   if (mode === "incremental") {
     const pending = (run.state.mailRetry[folderId] ?? []).filter((id) => !listed.has(id));
-    await retryFailedMessages(run, folder, pending, seen, failed);
+    await retryFailedMessages(run, folder, pending, seen, failed, options);
+    // JSON copies whose MIME may be available (stored after a plain 500, or by a version
+    // that did not say why): the delta will not list them again unless they change.
+    const again = jsonMessagesToAskAgain(run, folder, listed, pending);
+    await retryFailedMessages(
+      run,
+      folder,
+      again,
+      seen,
+      failed,
+      options,
+      "asking again for the MIME of messages stored as JSON",
+    );
   } else {
     // A full enumeration lists everything, earlier failures included.
     removeUnseen(run, folder, seen);
@@ -1163,6 +1580,13 @@ export async function backupMail(run: BackupRun, options: MailPhaseOptions): Pro
         });
         unlisted.set(folder.id, error);
       },
+      onUnlistedFolder: (folder, error) => {
+        run.logger.warn("subfolders of a mail folder could not be listed, kept as they were", {
+          folderId: folder.id,
+          reason: describeError(error),
+        });
+        unlisted.set(folder.id, error);
+      },
     });
   } catch (error) {
     throw toMailboxAccessError(error, "mail folders");
@@ -1213,9 +1637,39 @@ export async function backupMail(run: BackupRun, options: MailPhaseOptions): Pro
       if (!isItemLevelError(error)) {
         throw error;
       }
+      if (await mailboxAccessLost(run, error)) {
+        // Consent revoked or an access policy added while the run was going: every further
+        // folder would answer the same. The job fails with the access cause instead of
+        // committing a restore point that carries the remaining folders forward unread.
+        throw toMailboxAccessError(error, `mail folder ${folder.node.id}`);
+      }
       // A folder that cannot be enumerated is one failure, not a failed mailbox;
       // its objects stay as they were and its delta link is kept for the next run.
       run.fail(folder.path, error);
     }
+  }
+}
+
+/**
+ * Whether a folder enumeration that failed means the mailbox itself can no longer be read:
+ * a "no mailbox" answer, or a 403 (ErrorAccessDenied after consent was revoked or an
+ * Application Access Policy was added) that the mailbox's Inbox answers as well. A 403 the
+ * Inbox does not repeat concerns that folder only and stays a folder failure.
+ */
+async function mailboxAccessLost(run: BackupRun, error: unknown): Promise<boolean> {
+  if (isGraphError(error) && isMailboxUnavailable(error)) {
+    return true;
+  }
+  if (!isAreaRefused(error)) {
+    return false;
+  }
+  try {
+    await requestOk(run.client, {
+      method: "GET",
+      url: `${userPath(run.userId)}/mailFolders/inbox${query({ $select: "id" })}`,
+    });
+    return false;
+  } catch (probe) {
+    return isGraphError(probe) && (probe.status === 403 || isMailboxUnavailable(probe));
   }
 }
