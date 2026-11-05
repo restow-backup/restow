@@ -31,7 +31,6 @@
  * then, and the failure names it); a disagreement only on OneDrive's side
  * leaves the item restored but unverified.
  */
-import { Readable } from "node:stream";
 import type { DriveItem } from "@microsoft/microsoft-graph-types";
 import { type ChunkReader, RestoreIntegrityError } from "../engine/chunkstore.js";
 import type {
@@ -63,6 +62,7 @@ import {
   sourceStoredOf,
   versionFactsOf,
 } from "./conventions.js";
+import { ObjectRangeSource } from "./object-range.js";
 import { RESTORED_BY_EARLIER_ATTEMPT, RestoreProgress } from "./progress.js";
 import { UploadDigest } from "./quickxorhash.js";
 import { isAbortError, RestoreLedger, type RestoreReport } from "./results.js";
@@ -72,6 +72,8 @@ export interface OneDriveRestoreEngineOptions {
   readonly graph: RestoreGraphClientFactory;
   /** Upload-session fragment size in bytes (default 10 MiB; clamped to 5–60 MiB). */
   readonly fragmentSize?: number;
+  /** First wait after a failed fragment before the session is asked what it holds (tests: 0). */
+  readonly fragmentRetryDelayMs?: number;
 }
 
 /** Where a drive restore writes: a drive plus an optional folder below its root. */
@@ -186,6 +188,7 @@ export class OneDriveRestoreEngine implements RestoreEngine {
       basePath: target.basePath,
       mode: request.mode,
       fragmentSize: this.options.fragmentSize,
+      fragmentRetryDelayMs: this.options.fragmentRetryDelayMs,
       reader: chunkReaderFor(ctx),
       ledger,
       logger,
@@ -279,6 +282,7 @@ interface SessionOptions {
   readonly basePath: readonly string[];
   readonly mode: RestoreMode;
   readonly fragmentSize: number | undefined;
+  readonly fragmentRetryDelayMs?: number | undefined;
   readonly reader: ChunkReader;
   readonly ledger: RestoreLedger;
   readonly logger: Logger;
@@ -295,21 +299,6 @@ interface SessionOptions {
    * the snapshot path.
    */
   readonly targetPathOf?: (snapshotPath: string) => string;
-}
-
-/** The bytes of an object as a stream that feeds `digest` on the way through. */
-function digestingStream(
-  reader: ChunkReader,
-  object: ManifestObject,
-  digest: UploadDigest,
-): Readable {
-  async function* feed(): AsyncGenerator<Buffer> {
-    for await (const chunk of reader.readObject(object)) {
-      digest.update(chunk);
-      yield chunk;
-    }
-  }
-  return Readable.from(feed(), { objectMode: false });
 }
 
 export class OneDriveRestoreSession {
@@ -400,16 +389,21 @@ export class OneDriveRestoreSession {
       }
 
       const digest = new UploadDigest();
-      const source = digestingStream(reader, object, digest);
+      // Seekable: a fragment the session lost is read again from its chunk.
+      const source = new ObjectRangeSource(reader, object, digest);
       let item: DriveItem;
       try {
-        item = await uploadFile(client, driveId, parentId, name, source, object.size, {
+        item = await uploadFile(client, driveId, parentId, name, source.read, object.size, {
           conflictBehavior: conflictBehaviorFor(this.o.mode),
           fileSystemInfo: fileTimestampsOf(object),
           fragmentSize: this.o.fragmentSize,
+          signal: ctx.signal,
+          ...(this.o.fragmentRetryDelayMs !== undefined
+            ? { retryDelayMs: this.o.fragmentRetryDelayMs }
+            : {}),
         });
       } finally {
-        source.destroy();
+        await source.close();
       }
 
       const check = verifyUpload(object, item, digest);

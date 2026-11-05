@@ -152,6 +152,8 @@ import { planRestore, type RestorePlan, resolveRestoreSource } from "./selection
 
 export interface ExchangeRestoreEngineOptions {
   readonly graph: RestoreGraphClientFactory;
+  /** First wait after a failed attachment fragment before the session is asked (tests: 0). */
+  readonly fragmentRetryDelayMs?: number;
 }
 
 /** Mailbox address (or user id) a restore writes into. */
@@ -242,6 +244,7 @@ export class ExchangeRestoreEngine implements RestoreEngine {
       keepAttendees: restoreRequestOptions(request).keepAttendees ?? false,
       catalog: plan.catalog,
       reader: chunkReaderFor(ctx),
+      fragmentRetryDelayMs: this.options.fragmentRetryDelayMs,
       ledger,
       logger,
     });
@@ -415,6 +418,7 @@ interface SessionOptions {
   readonly keepAttendees: boolean;
   readonly catalog: SnapshotCatalog;
   readonly reader: ChunkReader;
+  readonly fragmentRetryDelayMs?: number | undefined;
   readonly ledger: RestoreLedger;
   readonly logger: Logger;
   /** What earlier attempts of this job restored (./progress.ts). */
@@ -1075,6 +1079,7 @@ export class ExchangeRestoreSession {
     present?: readonly AttachmentMeta[],
   ): Promise<{ id: string | undefined; existed?: boolean }> {
     const { client, userId } = this.o;
+    const uploadOptions = this.uploadOptions();
     const match = (attachment: AttachmentMeta): boolean => {
       const size = attachment.size ?? -1;
       return (
@@ -1091,7 +1096,14 @@ export class ExchangeRestoreSession {
       return { id: already.id, existed: true };
     }
     try {
-      const added = await addFileAttachment(client, userId, messageGraphId, file, source);
+      const added = await addFileAttachment(
+        client,
+        userId,
+        messageGraphId,
+        file,
+        source,
+        uploadOptions,
+      );
       if (added.id !== undefined) {
         taken.add(added.id);
       }
@@ -1111,7 +1123,14 @@ export class ExchangeRestoreSession {
       }
       const again = reopen();
       try {
-        const added = await addFileAttachment(client, userId, messageGraphId, file, again);
+        const added = await addFileAttachment(
+          client,
+          userId,
+          messageGraphId,
+          file,
+          again,
+          uploadOptions,
+        );
         if (added.id !== undefined) {
           taken.add(added.id);
         }
@@ -1124,6 +1143,16 @@ export class ExchangeRestoreSession {
         again.destroy();
       }
     }
+  }
+
+  /** Upload sessions end their waits with the job and resume failed fragments. */
+  private uploadOptions(): { signal: AbortSignal; retryDelayMs?: number } {
+    return {
+      signal: this.o.ctx.signal,
+      ...(this.o.fragmentRetryDelayMs !== undefined
+        ? { retryDelayMs: this.o.fragmentRetryDelayMs }
+        : {}),
+    };
   }
 
   /** When the backup says the message arrived: Exchange's receivedDateTime, IMAP's internal date. */

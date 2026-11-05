@@ -36,7 +36,7 @@ import {
   type UploadOptions,
   type UploadSessionInfo,
   type UploadSource,
-  uploadToSession,
+  uploadToSessionOrCancel,
 } from "./upload-session.js";
 
 // ---------------------------------------------------------------------------
@@ -890,7 +890,7 @@ export async function addFileAttachment(
       },
     },
   });
-  const outcome = await uploadToSession(client, session, source, file.size, {
+  const outcome = await uploadToSessionOrCancel(client, session, source, file.size, {
     ...options,
     bounds: OUTLOOK_FRAGMENT_BOUNDS,
   });

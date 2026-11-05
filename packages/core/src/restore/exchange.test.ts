@@ -1019,11 +1019,13 @@ describe("ExchangeRestoreEngine", () => {
       objects: [object, small],
     });
     const mailbox = new FakeMailbox();
+    // The PDF's second fragment is refused once with 502, as Exchange's gateway does.
+    mailbox.failAttachmentFragmentsAt.push(12 * 320 * 1024);
 
-    const report = await engineFor(mailbox).run(
-      fixture.ctx,
-      restoreRequestFor(fixture, { mode: "skip" }),
-    );
+    const report = await new ExchangeRestoreEngine({
+      graph: () => mailbox.graph.client(),
+      fragmentRetryDelayMs: 0,
+    }).run(fixture.ctx, restoreRequestFor(fixture, { mode: "skip" }));
 
     expect(report.failures).toEqual([]);
     expect(report.restored).toBe(2);
@@ -1081,9 +1083,19 @@ describe("ExchangeRestoreEngine", () => {
         sha256: sha256(Buffer.from(forwarded)),
       },
     ]);
-    // The PDF went through an upload session in fragments of at most 4 MiB.
+    // The PDF went through one upload session in fragments of at most 4 MiB; the refused
+    // fragment was sent again after the session was asked, not the whole attachment.
     expect(mailbox.graph.callsTo("POST", "/attachments/createUploadSession")).toHaveLength(1);
-    expect(mailbox.graph.calls.filter((call) => call.method === "PUT")).toHaveLength(2);
+    expect(
+      mailbox.graph.calls
+        .filter((call) => call.method === "PUT")
+        .map((call) => call.headers["content-range"]),
+    ).toEqual([
+      `bytes 0-${12 * 320 * 1024 - 1}/${pdf.length}`,
+      `bytes ${12 * 320 * 1024}-${pdf.length - 1}/${pdf.length}`,
+      `bytes ${12 * 320 * 1024}-${pdf.length - 1}/${pdf.length}`,
+    ]);
+    expect(mailbox.cancelledUploads).toEqual([]);
     const item = must(report.items.find((entry) => entry.id === "AAMk30"));
     expect(item.verified).toBe(true);
     expect(item.reason).toMatch(/at most 4 MB in one request/);

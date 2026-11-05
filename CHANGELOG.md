@@ -597,6 +597,15 @@ private repository.
   notebook as a package, not as a folder, and the restore stopped at it with "a file with that
   name exists", so the notebook and every section below it failed in every mode. A notebook in the
   target is now treated as the folder it is, and the sections go into it.
+- OneDrive/SharePoint restore and mail restore: a large file started again from its first byte
+  after any hiccup on one of its fragments. A 500 or 502 from SharePoint, a connection that broke
+  while a fragment was sent, or a fragment sent once more after a timeout (which the session then
+  refused with 416) failed the whole file, and the half-finished upload session was left open on
+  the target; a retry of the job uploaded it again from 0. A 40 GB file needed some 4,000
+  fragments in a row without a single error. The restore now asks the session what it holds and
+  sends only what it lacks, up to six times per fragment with a growing pause; a file reads that
+  part again from its backup, also one the session lost. When it gives up, the upload session is
+  cancelled. The same applies to attachments from 3 MB that are added to restored messages.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,

@@ -138,6 +138,13 @@ export function isWriteOutcomeUnknown(error: unknown): boolean {
     if (error.name === "GraphOutcomeUnknownError" || error.name === "GraphResponseTimeoutError") {
       return true;
     }
+    // The answer to an upload session's last fragment was lost (./upload-session.ts).
+    if (
+      error.name === "UploadSessionError" &&
+      (error as { details?: { completionUnknown?: boolean } }).details?.completionUnknown === true
+    ) {
+      return true;
+    }
   }
   if (isGraphError(error)) {
     return error.status === 502 || error.status === 504;

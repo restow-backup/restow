@@ -25,7 +25,11 @@ const MIB = 1024 * 1024;
 const FRAGMENT = 5 * MIB;
 
 function engineFor(drive: FakeDrive): OneDriveRestoreEngine {
-  return new OneDriveRestoreEngine({ graph: () => drive.graph.client(), fragmentSize: FRAGMENT });
+  return new OneDriveRestoreEngine({
+    graph: () => drive.graph.client(),
+    fragmentSize: FRAGMENT,
+    fragmentRetryDelayMs: 0,
+  });
 }
 
 const report = Buffer.from("quarterly report, final version");
@@ -126,6 +130,61 @@ describe("OneDriveRestoreEngine", () => {
     expect(result.items.filter((item) => item.type === "file").every((item) => item.verified)).toBe(
       true,
     );
+  });
+
+  it("continues a large file after a failed fragment, reading a lost one again from its chunks", async () => {
+    fixture = await createSnapshotFixture({
+      kind: "onedrive",
+      externalId: DRIVE,
+      objects: [largeFile, oddFile],
+    });
+    const drive = new FakeDrive(DRIVE);
+    // exact.bin: the session loses the first fragment while refusing the second, so the
+    // restore has to read bytes it already sent once more, then the second fragment gets a
+    // 502; odd.bin: the connection breaks after its first fragment was taken.
+    drive.failFragmentAt(FRAGMENT, { kind: "lose-previous" });
+    drive.failFragmentAt(FRAGMENT, { kind: "status", status: 502 });
+    drive.failFragmentAt(0, { kind: "reset-after-accept" });
+
+    const result = await engineFor(drive).run(fixture.ctx, restoreRequestFor(fixture));
+
+    expect(result.failures).toEqual([]);
+    expect(result.restored).toBe(2);
+    expect(result.unverified).toBe(0);
+    const byPath = new Map(drive.files().map((item) => [drive.pathOf(item.id), item]));
+    expect(must(byPath.get("Videos/Clips/exact.bin")).content.equals(large)).toBe(true);
+    expect(must(byPath.get("Videos/odd.bin")).content.equals(odd)).toBe(true);
+    const [first, second] = [...drive.sessions.values()];
+    expect(must(first).ranges).toEqual([
+      `bytes 0-${FRAGMENT - 1}/${large.length}`,
+      `bytes ${FRAGMENT}-${large.length - 1}/${large.length}`,
+      `bytes 0-${FRAGMENT - 1}/${large.length}`,
+      `bytes ${FRAGMENT}-${large.length - 1}/${large.length}`,
+      `bytes ${FRAGMENT}-${large.length - 1}/${large.length}`,
+    ]);
+    expect(must(second).ranges).toEqual([
+      `bytes 0-${FRAGMENT - 1}/${odd.length}`,
+      `bytes ${FRAGMENT}-${odd.length - 1}/${odd.length}`,
+    ]);
+  });
+
+  it("fails a file whose fragment never gets through and cancels its upload session", async () => {
+    fixture = await createSnapshotFixture({
+      kind: "onedrive",
+      externalId: DRIVE,
+      objects: [largeFile],
+    });
+    const drive = new FakeDrive(DRIVE);
+    drive.failFragmentAt(FRAGMENT, { kind: "status", status: 500 }, 1000);
+
+    const result = await engineFor(drive).run(fixture.ctx, restoreRequestFor(fixture));
+
+    expect(result.restored).toBe(0);
+    expect(result.failures).toHaveLength(1);
+    expect(result.items[0]).toMatchObject({ id: "F2", status: "failed" });
+    const session = must([...drive.sessions.values()][0]);
+    expect(session.cancelled).toBe(true);
+    expect(drive.files()).toEqual([]);
   });
 
   it("maps the modes onto conflict behaviour: rename keeps both, skip leaves, replace overwrites", async () => {

@@ -36,6 +36,11 @@ export interface FakeMessage {
   sentDateTime: string | null;
 }
 
+/** The session id in an attachment upload URL. */
+function uploadIdOf(call: RecordedCall): string {
+  return /AttachmentSessions\('([^']+)'\)/.exec(decodeURIComponent(call.url))?.[1] ?? "";
+}
+
 /** Host of the pre-authenticated attachment upload URLs. */
 const UPLOAD_HOST = "outlook.office.example";
 
@@ -142,6 +147,10 @@ export class FakeMailbox {
   readonly minUploadSessionBytes = 3 * 1024 * 1024;
   /** Largest attachment an upload session takes. */
   maxAttachmentBytes = 150 * 1024 * 1024;
+  /** The next attachment fragments PUT at these offsets are refused with 502 (once each). */
+  readonly failAttachmentFragmentsAt: number[] = [];
+  /** Upload sessions cancelled with DELETE. */
+  readonly cancelledUploads: string[] = [];
   /** Open attachment upload sessions by id. */
   private readonly uploads = new Map<
     string,
@@ -603,6 +612,28 @@ export class FakeMailbox {
         url: (url: URL) => url.hostname === UPLOAD_HOST,
         respond: (call) => this.uploadFragment(call),
       },
+      {
+        method: "GET",
+        url: (url: URL) => url.hostname === UPLOAD_HOST,
+        respond: (call) => {
+          const upload = this.uploads.get(uploadIdOf(call));
+          return upload
+            ? { status: 200, json: { nextExpectedRanges: [`${upload.received}-`] } }
+            : NOT_FOUND;
+        },
+      },
+      {
+        method: "DELETE",
+        url: (url: URL) => url.hostname === UPLOAD_HOST,
+        respond: (call) => {
+          const id = uploadIdOf(call);
+          if (!this.uploads.delete(id)) {
+            return NOT_FOUND;
+          }
+          this.cancelledUploads.push(id);
+          return { status: 204 };
+        },
+      },
       // Calendars and events.
       {
         method: "GET",
@@ -766,7 +797,7 @@ export class FakeMailbox {
   }
 
   private uploadFragment(call: RecordedCall): FixtureResponse {
-    const id = /AttachmentSessions\('([^']+)'\)/.exec(decodeURIComponent(call.url))?.[1] ?? "";
+    const id = uploadIdOf(call);
     const upload = this.uploads.get(id);
     if (!upload) {
       return NOT_FOUND;
@@ -775,6 +806,11 @@ export class FakeMailbox {
     const range = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(call.headers["content-range"] ?? "");
     if (!range || Number(range[1]) !== upload.received || body.length > 4 * 1024 * 1024) {
       return { status: 416, json: graphError("InvalidRange") };
+    }
+    const fault = this.failAttachmentFragmentsAt.indexOf(upload.received);
+    if (fault !== -1) {
+      this.failAttachmentFragmentsAt.splice(fault, 1);
+      return { status: 502, json: graphError("BadGateway") };
     }
     upload.parts.push(body);
     upload.received += body.length;

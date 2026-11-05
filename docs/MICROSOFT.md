@@ -247,7 +247,19 @@ Zustand und lässt ihn nachträglich bestätigen, bei IMAP setzt ihn die Antwort
   Version je Snapshot; Snapshots liefern die Historie.
 - Restore: Upload-Session `createUploadSession` für alles über 4 MB, Chunks 5 bis
   60 MiB, Vielfache von 320 KiB. Konflikte: `@microsoft.graph.conflictBehavior`
-  rename/replace wählbar. mtime setzen über `fileSystemInfo`.
+  rename/replace wählbar. mtime setzen über `fileSystemInfo`. Ein Fragment, das scheitert
+  (5xx, abgebrochene Verbindung, keine Antwort, 416 nach einem erneut gesendeten Fragment),
+  beendet die Datei nicht: Restow fragt die Session (`GET` auf die `uploadUrl`) nach
+  `nextExpectedRanges` und sendet nur, was ihr fehlt, bis zu sechs Versuche je Fragment mit
+  wachsender Pause (`packages/core/src/graph/resources/upload-session.ts`). Eine Datei liest das
+  Fragment dafür erneut aus ihren Chunks (`restore/object-range.ts`), auch ein früheres, das die
+  Session verloren hat; ein Mail-Anhang (aus dem MIME-Strom) sendet das aktuelle Fragment aus dem
+  Speicher. Gibt der Upload auf, wird die Session mit `DELETE` beendet. Ging nur die Antwort auf
+  das letzte Fragment verloren, sucht Restow die Datei unter ihrem Namen (nicht im Modus
+  „Umbenennen“, dort bleibt sie fehlgeschlagen) und den Anhang an seiner Nachricht.
+- OneNote-Notizbücher liefert Graph als `package` ohne `folder`-Facette. Die Sicherung legt sie
+  als Ordner mit ihren `.one`-Abschnitten ab; beim Restore steigt der Pfad in ein noch
+  vorhandenes Notizbuch ab und legt die Abschnitte dort hinein.
 - Restore-Explorer (ab 0.4.2): Postfach, OneDrive und ein zugeordnetes IMAP-Konto einer
   Person stehen als ein Eintrag (über den Verzeichnisbenutzer des Objekts,
   `protected_objects.user_id`); die zweite Spalte zeigt E-Mail, Kalender, Kontakte und OneDrive,

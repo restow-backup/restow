@@ -20,9 +20,10 @@ import {
   DRIVE_DEFAULT_FRAGMENT_BYTES,
   DRIVE_FRAGMENT_BOUNDS,
   type UploadOptions,
+  UploadSessionError,
   type UploadSessionInfo,
   type UploadSource,
-  uploadToSession,
+  uploadToSessionOrCancel,
 } from "./upload-session.js";
 
 export const DRIVE_SELECT = ["id", "driveType", "name", "owner", "quota", "webUrl"] as const;
@@ -406,11 +407,29 @@ export async function uploadFile(
       : created;
   }
   const session = await createUploadSession(client, driveId, parentId, name, options);
-  const outcome = await uploadToSession<DriveItem>(client, session, source, size, {
-    fragmentSize: options.fragmentSize ?? DRIVE_DEFAULT_FRAGMENT_BYTES,
-    bounds: DRIVE_FRAGMENT_BOUNDS,
-    onProgress: options.onProgress,
-  });
+  let outcome: Awaited<ReturnType<typeof uploadToSessionOrCancel<DriveItem>>>;
+  try {
+    outcome = await uploadToSessionOrCancel<DriveItem>(client, session, source, size, {
+      ...options,
+      fragmentSize: options.fragmentSize ?? DRIVE_DEFAULT_FRAGMENT_BYTES,
+      bounds: DRIVE_FRAGMENT_BOUNDS,
+    });
+  } catch (error) {
+    // The answer to the last fragment was lost: the file is there when the
+    // name it was sent to holds it at its size (the caller then compares the
+    // hash). Under "rename" OneDrive may have chosen another name, unknown here.
+    if (
+      error instanceof UploadSessionError &&
+      error.details.completionUnknown === true &&
+      conflictBehavior !== "rename"
+    ) {
+      const created = await getChildByName(client, driveId, parentId, name);
+      if (created && isFileItem(created) && created.size === size) {
+        return created;
+      }
+    }
+    throw error;
+  }
   if (!outcome.result) {
     throw new Error(`Upload session finished with ${outcome.status} but returned no item`);
   }
