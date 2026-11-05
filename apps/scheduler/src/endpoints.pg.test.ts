@@ -151,13 +151,14 @@ describe.skipIf(!adminUrl)("endpoint jobs of the scheduler", () => {
     }
   });
 
-  it("names the five queues and creates them with the shared settings", () => {
+  it("names the six queues and creates them with the shared settings", () => {
     expect(Object.values(ENDPOINT_QUEUES)).toEqual([
       "endpoint-retention",
       "endpoint-check",
       "endpoint-verify",
       "endpoint-monitor",
       "endpoint-removal",
+      "endpoint-baremetal-check",
     ]);
     expect(Object.keys(ENDPOINT_QUEUE_OPTIONS).sort()).toEqual(
       Object.values(ENDPOINT_QUEUES).sort(),
@@ -250,6 +251,66 @@ describe.skipIf(!adminUrl)("endpoint jobs of the scheduler", () => {
     expect(due).toContain(agentOnly);
     expect(due).not.toContain(tested);
     expect(due).not.toContain(withoutSamples);
+  });
+
+  it("finds the bare metal check due for the newest whole machine snapshot without a report", async () => {
+    const planner = new EndpointJobPlanner({ installation: provider.$client }, boss);
+    const layoutRun = async (id: string, snapshot: string | null, startedAt: Date) => {
+      const [layout] = await q<{ id: string }>(
+        `INSERT INTO endpoint_layouts (tenant_id, endpoint_id, sha256, format, schema_version, platform,
+                                       manifest, summary, verdict, layout_fingerprint)
+         VALUES ($1, $2, $3, 'restow-layout-v1', 1, 'linux', '{}'::jsonb, '{}'::jsonb, 'supported', 'f')
+         RETURNING id`,
+        [tenantId, id, randomBytes(32).toString("hex")],
+      );
+      await q(
+        `INSERT INTO endpoint_runs (tenant_id, endpoint_id, kind, status, started_at, snapshot_id, layout_id)
+         VALUES ($1, $2, 'backup', 'succeeded', $3, $4, $5)`,
+        [tenantId, id, startedAt, snapshot, layout?.id],
+      );
+    };
+    const report = (id: string, snapshot: string, readiness: string | null = "green") =>
+      q(
+        `INSERT INTO endpoint_reports (tenant_id, endpoint_id, kind, origin, snapshot_id, readiness)
+         VALUES ($1, $2, 'baremetal_check', 'server', $3, $4)`,
+        [tenantId, id, snapshot, readiness],
+      );
+    const fresh = await endpoint({});
+    await layoutRun(fresh, "e".repeat(64), new Date(now.getTime() - HOUR));
+    const checked = await endpoint({});
+    await layoutRun(checked, "e".repeat(64), new Date(now.getTime() - HOUR));
+    await report(checked, "e".repeat(64));
+    // A report of an older snapshot does not count for the newest one.
+    const newer = await endpoint({});
+    await layoutRun(newer, "1".repeat(64), new Date(now.getTime() - 2 * HOUR));
+    await report(newer, "1".repeat(64));
+    await layoutRun(newer, "2".repeat(64), new Date(now.getTime() - HOUR));
+    // The snapshot was gone: the worker's report without a rating ends it, it is not queued again.
+    const gone = await endpoint({});
+    await layoutRun(gone, "3".repeat(64), new Date(now.getTime() - HOUR));
+    await report(gone, "3".repeat(64), null);
+    // The newest run with a layout has no snapshot (yet): nothing to check.
+    const noSnapshot = await endpoint({});
+    await layoutRun(noSnapshot, null, new Date(now.getTime() - HOUR));
+    const plain = await endpoint({});
+    const revoked = await endpoint({ status: "revoked" });
+    await layoutRun(revoked, "e".repeat(64), new Date(now.getTime() - HOUR));
+    const suspended = await endpoint({ tenant: suspendedTenantId });
+    await q(
+      `INSERT INTO endpoint_layouts (tenant_id, endpoint_id, sha256, format, schema_version, platform,
+                                     manifest, summary, verdict, layout_fingerprint)
+       VALUES ($1, $2, $3, 'restow-layout-v1', 1, 'linux', '{}'::jsonb, '{}'::jsonb, 'supported', 'f')`,
+      [suspendedTenantId, suspended, "9".repeat(64)],
+    );
+    const due = (await planner.due(now)).baremetalCheck.map((row) => row.id);
+    expect(due).toContain(fresh);
+    expect(due).toContain(newer);
+    expect(due).not.toContain(checked);
+    expect(due).not.toContain(gone);
+    expect(due).not.toContain(noSnapshot);
+    expect(due).not.toContain(plain);
+    expect(due).not.toContain(revoked);
+    expect(due).not.toContain(suspended);
   });
 
   it("queues one job per endpoint and kind, spaced out, and the monitor every few minutes", async () => {

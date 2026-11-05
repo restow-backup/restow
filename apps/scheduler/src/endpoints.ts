@@ -7,6 +7,9 @@
 //   endpoint-verify     every new good backup that has samples but no server-side restore test
 //   endpoint-monitor    every five minutes: silent endpoints, failed runs, failed tests, alerts
 //   endpoint-removal    every removed machine whose backups are due for deletion (#65)
+//   endpoint-baremetal-check  the newest whole machine snapshot of a Linux machine without a
+//                       stage 1 report (docs/BAREMETAL.md 12.1); the finish of the run queues it
+//                       at once, this catches up the ones that did not get queued
 //
 // What is due comes from the endpoint rows themselves (last_retention_at,
 // last_check_at, the reports), so a restart or a second scheduler decides the
@@ -29,6 +32,7 @@ export interface EndpointJobCounts {
   readonly verify: number;
   readonly monitor: number;
   readonly removal: number;
+  readonly baremetalCheck: number;
 }
 
 /** The pg-boss options of an endpoint queue (settings shared with the worker, @restow/core). */
@@ -54,9 +58,13 @@ export class EndpointJobPlanner {
   ) {}
 
   /** The endpoints whose retention, check or restore test is due. */
-  async due(
-    now: Date,
-  ): Promise<{ retention: DueRow[]; check: DueRow[]; verify: DueRow[]; removal: DueRow[] }> {
+  async due(now: Date): Promise<{
+    retention: DueRow[];
+    check: DueRow[];
+    verify: DueRow[];
+    removal: DueRow[];
+    baremetalCheck: DueRow[];
+  }> {
     const retentionBefore = new Date(now.getTime() - this.retentionEveryMs);
     const checkBefore = new Date(now.getTime() - this.checkEveryMs);
     const base = `
@@ -99,11 +107,28 @@ export class EndpointJobPlanner {
         ORDER BY e.removal_due_at LIMIT 200`,
       [now],
     );
+    // The newest run with a layout (by start) must have a stage 1 report for its snapshot.
+    const baremetalCheck = await this.pools.installation.query<DueRow>(
+      `SELECT e.id, e.tenant_id ${base}
+          AND e.status = 'active'
+          AND e.os = 'linux'
+          AND EXISTS (
+            SELECT 1
+              FROM LATERAL (SELECT r.snapshot_id FROM endpoint_runs r
+                             WHERE r.endpoint_id = e.id AND r.layout_id IS NOT NULL
+                             ORDER BY r.started_at DESC LIMIT 1) latest
+             WHERE latest.snapshot_id IS NOT NULL
+               AND NOT EXISTS (SELECT 1 FROM endpoint_reports rep
+                                WHERE rep.endpoint_id = e.id AND rep.kind = 'baremetal_check'
+                                  AND rep.snapshot_id = latest.snapshot_id))
+        ORDER BY e.last_success_at LIMIT 200`,
+    );
     return {
       retention: retention.rows,
       check: check.rows,
       verify: verify.rows,
       removal: removal.rows,
+      baremetalCheck: baremetalCheck.rows,
     };
   }
 
@@ -126,7 +151,14 @@ export class EndpointJobPlanner {
       return null;
     }
     this.lastPlanned = now.getTime();
-    const counts = { retention: 0, check: 0, verify: 0, monitor: 0, removal: 0 };
+    const counts = {
+      retention: 0,
+      check: 0,
+      verify: 0,
+      monitor: 0,
+      removal: 0,
+      baremetalCheck: 0,
+    };
     try {
       const due = await this.due(now);
       for (const row of due.retention) {
@@ -137,6 +169,10 @@ export class EndpointJobPlanner {
       }
       for (const row of due.verify) {
         if (await this.send(ENDPOINT_QUEUES.verify, row, HOUR_SECONDS)) counts.verify++;
+      }
+      for (const row of due.baremetalCheck) {
+        if (await this.send(ENDPOINT_QUEUES.baremetalCheck, row, HOUR_SECONDS))
+          counts.baremetalCheck++;
       }
       for (const row of due.removal) {
         // A failing deletion is retried every quarter of an hour, not on every pass.

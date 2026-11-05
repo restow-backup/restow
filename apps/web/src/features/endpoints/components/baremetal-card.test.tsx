@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
+import { act } from "react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { i18n } from "@/i18n";
 
-import type { Baremetal, LayoutSummary } from "../api.js";
+import type { Baremetal, BaremetalCheck, LayoutSummary } from "../api.js";
 import { type Mounted, mount } from "../dom-harness.js";
 import "../i18n.js";
 import { BaremetalCard, showsBaremetalCard } from "./baremetal-card.js";
@@ -102,6 +103,7 @@ function baremetal(over: Partial<Baremetal> = {}): Baremetal {
     preview: true,
     enabled: true,
     state: "unverified",
+    stateDetail: null,
     notPossible: null,
     latest: {
       layoutId: "22222222-2222-4222-8222-222222222222",
@@ -118,6 +120,57 @@ function baremetal(over: Partial<Baremetal> = {}): Baremetal {
       summary: SUMMARY,
     },
     snapshotHint: null,
+    check: null,
+    ...over,
+  };
+}
+
+const ALL_OK = (["L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8"] as const).map((id) => ({
+  id,
+  status: "ok" as const,
+  findings: [],
+  evidence: {},
+}));
+
+function check(over: Partial<BaremetalCheck> = {}): BaremetalCheck {
+  return {
+    reportId: "44444444-4444-4444-8444-444444444444",
+    checkedAt: "2026-11-04T22:00:00Z",
+    snapshotId: "abcdef0123456789",
+    readiness: "green",
+    incomplete: null,
+    checks: ALL_OK,
+    restoreSizes: { "/": { bytes: 9_123_456_789, files: 312_000, inodes: 340_112 } },
+    minimumSizes: {
+      disks: [
+        { disk: "d0", kname: "nvme0n1", sizeBytes: 512_110_190_592, minBytes: 115_964_116_992 },
+      ],
+      filesystems: [
+        {
+          fs: "f2",
+          mount: "/",
+          type: "ext4",
+          restoreBytes: 9_123_456_789,
+          minBytes: 10_871_128_064,
+        },
+      ],
+    },
+    planner: {
+      same: { ok: true, problems: [], warnings: [] },
+      minimal: { ok: true, problems: [], warnings: [] },
+      otherController: {
+        ok: true,
+        problems: [],
+        warnings: [
+          {
+            code: "other_controller_driver_missing",
+            ref: "t0",
+            params: { kernel: "6.1.0-27-amd64", module: "ahci", modalias: "pci:x" },
+          },
+        ],
+      },
+    },
+    bootChainFingerprint: "c".repeat(64),
     ...over,
   };
 }
@@ -143,7 +196,8 @@ describe("BaremetalCard", () => {
     expect(fetchBaremetal).toHaveBeenCalledWith(ID);
     const text = page.text();
     expect(text).toContain("Bare-metal restore (preview)");
-    expect(text).toContain("Layout captured; the restore check follows in a later version");
+    expect(text).toContain("Layout captured; restore check pending");
+    expect(text).toContain("has not run yet");
     expect(text).toContain("Supported, with notes");
     expect(text).toContain("abcdef01");
     // Unsupported first (red), then the warnings (yellow), each in its words.
@@ -192,6 +246,158 @@ describe("BaremetalCard", () => {
   it("stays away while the preview is off and no layout exists", async () => {
     await open(baremetal({ preview: false, enabled: false, state: "not_enabled", latest: null }));
     expect(document.querySelector('[data-slot="baremetal-card"]')).toBeNull();
+  });
+
+  it("shows a passed layout check with its report and the minimum sizes, not as boot proof", async () => {
+    await open(baremetal({ state: "layout_checked", check: check() }));
+    const text = page.text();
+    expect(text).toContain("Layout checked");
+    expect(text).toContain("this is not yet proof that the restored machine starts");
+    expect(document.querySelector('[data-slot="baremetal-check-result"]')?.textContent).toBe(
+      "Passed",
+    );
+    // Green is kept for proof (the boot probe): neither the state nor the result is green.
+    expect(document.querySelector('[data-slot="baremetal-state"]')?.getAttribute("data-tone")).toBe(
+      "neutral",
+    );
+    expect(
+      document.querySelector('[data-slot="baremetal-check-result"]')?.getAttribute("data-tone"),
+    ).toBe("neutral");
+    expect(page.html()).not.toContain('data-tone="success"');
+    expect(document.querySelectorAll('[data-slot="baremetal-check"]')).toHaveLength(8);
+    expect(text).toContain("Boot chain in the restore point");
+    // The planner, per target, in its words.
+    expect(text).toContain("Same hardware: Plans without problems");
+    expect(text).toContain(
+      "On another disk controller the backed-up kernel 6.1.0-27-amd64 would have no driver (ahci).",
+    );
+    // Minimum sizes per disk and per mount point, formatted.
+    const minimum =
+      document.querySelector('[data-slot="baremetal-minimum-sizes"]')?.textContent ?? "";
+    expect(minimum).toContain("Minimum sizes");
+    // Sizes in binary units, as everywhere on the page.
+    expect(document.querySelector('[data-slot="minimum-disk"]')?.textContent).toBe(
+      "nvme0n1 (now 477 GB): at least 108 GB",
+    );
+    expect(document.querySelector('[data-slot="minimum-filesystem"]')?.textContent).toBe(
+      "/: 8.5 GB to restore, at least 10.1 GB",
+    );
+    expect(text).not.toContain("has not run yet");
+  });
+
+  it("shows a failed check with its proof, and the evidence on request", async () => {
+    const checks = ALL_OK.map((item) =>
+      item.id === "L6"
+        ? {
+            id: "L6" as const,
+            status: "failed" as const,
+            findings: [
+              {
+                code: "kernel_missing",
+                severity: "failed" as const,
+                ref: "6.1.0-27-amd64",
+                params: {
+                  version: "6.1.0-27-amd64",
+                  path: "/boot/vmlinuz-6.1.0-27-amd64",
+                  default: true,
+                },
+              },
+            ],
+            evidence: {
+              kernels: [{ version: "6.1.0-27-amd64", found: false }],
+              fstab: { entries: 5 },
+            },
+          }
+        : item,
+    );
+    await open(baremetal({ state: "red", check: check({ readiness: "red", checks }) }));
+    const text = page.text();
+    expect(text).toContain("Restore check failed");
+    expect(text).toContain("Fix it on the machine");
+    expect(document.querySelector('[data-slot="baremetal-state"]')?.getAttribute("data-tone")).toBe(
+      "destructive",
+    );
+    expect(document.querySelector('[data-check="L6"]')?.getAttribute("data-status")).toBe("failed");
+    expect(text).toContain(
+      "The kernel 6.1.0-27-amd64 (/boot/vmlinuz-6.1.0-27-amd64) is not in the restore point.",
+    );
+    const details = document.querySelector<HTMLDetailsElement>(
+      '[data-check="L6"] [data-slot="baremetal-evidence"]',
+    );
+    expect(details?.querySelector("summary")?.textContent).toBe("Show evidence");
+    await act(async () => {
+      if (details) {
+        details.open = true;
+        details.dispatchEvent(new Event("toggle"));
+      }
+    });
+    expect(details?.querySelector("summary")?.textContent).toBe("Hide evidence");
+    // Evidence is text, never markup.
+    expect(details?.querySelector("pre")?.textContent).toContain(
+      'kernels: {"version":"6.1.0-27-amd64","found":false}',
+    );
+  });
+
+  it("words the planner's codes with their parameters, sizes formatted", async () => {
+    const checks = ALL_OK.map((item) =>
+      item.id === "L3"
+        ? {
+            id: "L3" as const,
+            status: "failed" as const,
+            findings: [
+              {
+                code: "target_too_small",
+                severity: "failed" as const,
+                ref: "t0",
+                params: {
+                  target: "minimal",
+                  disk: "d0",
+                  haveBytes: 1_073_741_824,
+                  needBytes: 2_147_483_648,
+                },
+              },
+            ],
+            evidence: {},
+          }
+        : item,
+    );
+    await open(baremetal({ state: "red", check: check({ readiness: "red", checks }) }));
+    expect(page.text()).toContain("Target disk minimal has 1 GB, d0 needs at least 2 GB.");
+  });
+
+  it("says when the check could not finish (yellow), without rating", async () => {
+    await open(
+      baremetal({
+        state: "unverified",
+        stateDetail: "incomplete",
+        check: check({
+          readiness: "yellow",
+          incomplete: "planner_timeout",
+          minimumSizes: null,
+          planner: {
+            same: { ok: null, incomplete: "planner_timeout" },
+            minimal: { ok: null, incomplete: "planner_timeout" },
+            otherController: { ok: null, incomplete: "planner_timeout" },
+          },
+        }),
+      }),
+    );
+    const text = page.text();
+    expect(text).toContain("Layout captured; restore check pending");
+    expect(text).toContain("could not finish");
+    expect(document.querySelector('[data-slot="baremetal-check-result"]')?.textContent).toBe(
+      "Incomplete",
+    );
+    expect(text).toContain("The restore planner took too long.");
+    expect(document.querySelector('[data-slot="baremetal-minimum-sizes"]')).toBeNull();
+  });
+
+  it.each([
+    ["unsupported", "The layout uses parts the restore cannot create"],
+    ["arm64_later", "arm64 machines follow in a later version"],
+  ] as const)("says why bare metal is not possible: %s", async (reason, words) => {
+    await open(baremetal({ state: "not_possible", notPossible: reason }));
+    expect(page.text()).toContain(words);
   });
 
   it("decides when the card has something to say", () => {

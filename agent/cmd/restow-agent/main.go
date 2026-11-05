@@ -24,7 +24,7 @@ Commands:
   update       Install a newer release the Restow instance offers, now (not while a backup runs)
   service      Control the system service: install | start | stop | restart | status
   hooks        Show or set whether hooks from the Restow server run here: status | off | scripts | any
-  baremetal    Capture the disk layout of this machine (Linux, preview): baremetal capture [--raw-dir DIR] [--out FILE]
+  baremetal    Capture the disk layout of this machine (Linux, preview) or plan its restore: baremetal capture|plan
   uninstall    Remove the agent, its service and its local secrets from this machine
   version      Print the version
 

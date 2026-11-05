@@ -190,7 +190,10 @@ RUN --mount=type=cache,id=go-mod,target=/go/pkg/mod \
 # restic is a link to the copy for the image's own architecture. The file share
 # runner (restow-share, docs/FILESHARES.md) goes to /usr/local/bin for the
 # image's architecture only: the mounter starts it in a runner container from
-# this image; it is not an agent download.
+# this image; it is not an agent download. The worker's restore planner
+# (docs/BAREMETAL.md 12.2, RESTOW_PLANNER_BIN) is a link to the agent binary of
+# the image's own architecture in /usr/local/lib/restow; it runs under prlimit
+# from util-linux, which the Debian base brings.
 FROM --platform=$BUILDPLATFORM alpine:3.24 AS agent-dist
 ARG RESTOW_VERSION=
 ARG TARGETARCH
@@ -199,7 +202,7 @@ COPY --from=agent-build /install /install
 RUN set -eu; \
     version="${RESTOW_VERSION#v}"; version="${version:-0.0.0-dev}"; \
     root="/rootfs/srv/agent"; \
-    mkdir -p "${root}/${version}" "${root}/install" /rootfs/usr/local/bin; \
+    mkdir -p "${root}/${version}" "${root}/install" /rootfs/usr/local/bin /rootfs/usr/local/lib/restow; \
     for dir in /agent/*/; do \
       [ -d "$dir" ] || continue; \
       target="$(basename "$dir")"; \
@@ -220,6 +223,9 @@ RUN set -eu; \
     cp /install/release-signing.pub "${root}/install/" 2>/dev/null || true; \
     if [ -f "${root}/${version}/linux-${TARGETARCH}/restic" ]; then \
       ln -s "/srv/agent/${version}/linux-${TARGETARCH}/restic" /rootfs/usr/local/bin/restic; \
+    fi; \
+    if [ -f "${root}/${version}/linux-${TARGETARCH}/restow-agent" ]; then \
+      ln -s "/srv/agent/${version}/linux-${TARGETARCH}/restow-agent" /rootfs/usr/local/lib/restow/restow-agent; \
     fi; \
     if [ -f "/agent/server/linux-${TARGETARCH}/restow-share" ]; then \
       install -m 0755 "/agent/server/linux-${TARGETARCH}/restow-share" /rootfs/usr/local/bin/restow-share; \

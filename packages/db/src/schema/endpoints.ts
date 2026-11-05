@@ -84,6 +84,8 @@ export const endpointReportKindEnum = pgEnum("endpoint_report_kind", [
   "restore_test",
   "repository_check",
   "retention",
+  // Bare metal stage 1 (docs/BAREMETAL.md 12.1): layout and boot chain of a whole machine snapshot.
+  "baremetal_check",
 ]);
 
 export type EndpointProfile = (typeof endpointProfileEnum.enumValues)[number];

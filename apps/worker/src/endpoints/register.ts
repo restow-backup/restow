@@ -12,6 +12,7 @@ import {
 import { EndpointRepositoryBusyError, retryConcurrentSetup } from "@restow/db";
 import type PgBoss from "pg-boss";
 import { isUuid } from "../handlers/framework.js";
+import { BaremetalCheckIncompleteError, endpointBaremetalCheck } from "./baremetal-check.js";
 import { endpointCheck } from "./check.js";
 import type { EndpointJobDeps } from "./common.js";
 import { endpointMonitor } from "./monitor.js";
@@ -62,6 +63,14 @@ export async function registerEndpointJobs(
             });
             throw error;
           }
+          if (error instanceof BaremetalCheckIncompleteError) {
+            // The snapshot could not be read for a reason that proves nothing about the backup.
+            logger.warn("endpoint bare metal check could not read the snapshot, job will retry", {
+              queue,
+              reason: error.reason,
+            });
+            throw error;
+          }
           if (error instanceof RestoreTestIncompleteError) {
             // A sampled file could not be read for a reason that proves nothing about the backup.
             logger.warn("endpoint restore test could not complete, job will retry", {
@@ -83,6 +92,9 @@ export async function registerEndpointJobs(
   await work(ENDPOINT_QUEUES.check, (job) => endpointCheck(deps, payloadOf(job.data)));
   await work(ENDPOINT_QUEUES.verify, (job) => endpointVerify(deps, payloadOf(job.data)));
   await work(ENDPOINT_QUEUES.removal, (job) => endpointRemoval(deps, payloadOf(job.data)));
+  await work(ENDPOINT_QUEUES.baremetalCheck, (job) =>
+    endpointBaremetalCheck(deps, payloadOf(job.data)),
+  );
   await work(ENDPOINT_QUEUES.monitor, async () => {
     const summary = await endpointMonitor(deps);
     if (Object.values(summary).some((count) => count > 0)) {

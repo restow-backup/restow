@@ -781,3 +781,147 @@ export async function resticStats(
     snapshots: asNumber(parsed.snapshots_count) ?? 0,
   };
 }
+
+/** `restic snapshots --json <id>`: one snapshot, or null when the repository has none with this id. */
+export async function resticSnapshot(
+  session: ResticSession,
+  snapshotId: string,
+  options: { signal?: AbortSignal } = {},
+): Promise<ResticSnapshot | null> {
+  if (!/^[0-9a-f]{8,64}$/.test(snapshotId)) {
+    throw new TypeError("a snapshot id must be 8 to 64 lower-case hex digits");
+  }
+  const { stdout } = await runRestic(session, ["snapshots", "--json", "--", snapshotId], {
+    signal: options.signal,
+  });
+  const rows = firstJsonArray(stdout) as SnapshotJson[];
+  const row = rows.find((candidate) => typeof candidate.id === "string");
+  if (!row) {
+    return null;
+  }
+  return {
+    id: row.id as string,
+    shortId: typeof row.short_id === "string" ? row.short_id : (row.id as string).slice(0, 8),
+    time: typeof row.time === "string" ? row.time : "",
+    hostname: typeof row.hostname === "string" ? row.hostname : "",
+    paths: Array.isArray(row.paths) ? (row.paths as string[]) : [],
+    tags: Array.isArray(row.tags) ? (row.tags as string[]) : [],
+    filesNew: asNumber(row.summary?.files_new),
+    totalBytesProcessed: asNumber(row.summary?.total_bytes_processed),
+    totalFilesProcessed: asNumber(row.summary?.total_files_processed),
+    dataAdded: asNumber(row.summary?.data_added),
+  };
+}
+
+/** One node of a snapshot's tree (`restic ls --json`); restic records no link count or device. */
+export interface ResticTreeNode {
+  path: string;
+  type: ResticNode["type"];
+  size: number | null;
+  mtime: string | null;
+  inode: number | null;
+}
+
+/**
+ * Every node of a snapshot, streamed (`restic ls --json <snapshot>`): `onNode` sees each one as
+ * restic prints it, so a snapshot of millions of files never sits in memory. Returns the number
+ * of nodes.
+ */
+export async function resticWalk(
+  session: ResticSession,
+  snapshotId: string,
+  onNode: (node: ResticTreeNode) => void,
+  options: { signal?: AbortSignal } = {},
+): Promise<number> {
+  const args = ["ls", "--json", snapshotId];
+  const { child, done } = spawnRestic(session, args, { signal: options.signal });
+  if (!child.stdout) {
+    throw new Error("restic produced no output stream");
+  }
+  let count = 0;
+  const stdout = child.stdout;
+  const lines = createInterface({ input: stdout, crlfDelay: Number.POSITIVE_INFINITY });
+  try {
+    for await (const line of lines) {
+      if (!line.startsWith("{")) {
+        continue;
+      }
+      let row: Record<string, unknown>;
+      try {
+        row = JSON.parse(line) as Record<string, unknown>;
+      } catch {
+        continue;
+      }
+      if (row.struct_type === "snapshot" || row.message_type === "snapshot") {
+        continue;
+      }
+      if (typeof row.path !== "string") {
+        continue;
+      }
+      count += 1;
+      onNode({
+        path: row.path,
+        type: nodeTypeOf(row.type),
+        size: asNumber(row.size),
+        mtime: typeof row.mtime === "string" ? row.mtime : null,
+        inode: asNumber(row.inode),
+      });
+    }
+  } catch (error) {
+    // `onNode` or the stream failed: readline only pauses stdout, so restic would block on a
+    // full pipe and keep its repository lock. Stop it and wait until it is gone.
+    lines.close();
+    child.kill("SIGKILL");
+    stdout.destroy();
+    await done.catch(() => undefined);
+    throw error;
+  }
+  const { exitCode, signal, stderr } = await done;
+  if (exitCode !== 0) {
+    throw failure(args, exitCode, stderr, signal);
+  }
+  return count;
+}
+
+/**
+ * The first `maxBytes` of a file in a snapshot (`restic dump`). A longer file comes back cut, with
+ * `truncated` set, and restic is stopped as soon as the cap is reached.
+ */
+export async function resticReadFile(
+  session: ResticSession,
+  snapshotId: string,
+  path: string,
+  maxBytes: number,
+  options: { signal?: AbortSignal } = {},
+): Promise<{ bytes: Buffer; truncated: boolean }> {
+  const dump = resticDump(session, snapshotId, path, { signal: options.signal });
+  const chunks: Buffer[] = [];
+  let size = 0;
+  let truncated = false;
+  try {
+    for await (const chunk of dump.stream as AsyncIterable<Buffer>) {
+      const room = maxBytes - size;
+      if (chunk.length > room) {
+        if (room > 0) chunks.push(chunk.subarray(0, room));
+        size = maxBytes;
+        truncated = true;
+        break;
+      }
+      chunks.push(chunk);
+      size += chunk.length;
+    }
+  } catch (error) {
+    dump.cancel();
+    await dump.done.catch(() => undefined);
+    throw error;
+  }
+  if (truncated) {
+    // Stopped here on purpose: its exit says nothing about the file.
+    dump.cancel();
+    dump.stream.destroy();
+    await dump.done.catch(() => undefined);
+  } else {
+    await dump.done;
+  }
+  return { bytes: Buffer.concat(chunks), truncated };
+}

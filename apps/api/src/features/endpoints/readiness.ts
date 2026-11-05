@@ -98,7 +98,8 @@ export async function loadEndpointReadiness(
   for (const row of [...tests, ...checks]) {
     const list = factsByEndpoint.get(row.endpointId) ?? [];
     list.push({
-      kind: row.kind,
+      // Both queries above read restore tests and repository checks only.
+      kind: row.kind as ReadinessReportFact["kind"],
       origin: row.origin,
       snapshotId: row.snapshotId,
       readiness: row.readiness,

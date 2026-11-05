@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { layoutFingerprint, layoutFingerprintInput } from "./fingerprint.js";
+import { bootChainFingerprint, layoutFingerprint, layoutFingerprintInput } from "./fingerprint.js";
 import { type LinuxLayoutManifest, parseLayoutManifest } from "./manifest.js";
 
 /** The manifests the Go agent writes and owns, with their fingerprints. */
@@ -53,5 +53,47 @@ describe("layoutFingerprint", () => {
     if (copy.disks[0]) copy.disks[0].table = null;
     const input = layoutFingerprintInput(copy) as { disks: { table: unknown; parts: unknown[] }[] };
     expect(input.disks.find((d) => d.table === null)?.parts).toEqual([]);
+  });
+});
+
+describe("bootChainFingerprint", () => {
+  const files = [
+    { path: "/boot/vmlinuz-6.1.0-27-amd64", size: 5616, mtime: "2024-11-01T10:00:00Z" },
+    { path: "/boot/initrd.img-6.1.0-27-amd64", size: 384, mtime: "2024-11-01T10:01:00Z" },
+    {
+      path: "/boot/efi/EFI/debian/shimx64.efi",
+      size: 4112,
+      mtime: "2024-10-01T08:00:00Z",
+      authenticodeSha256: "a".repeat(64),
+      sbat: ["sbat,1,SBAT Version", "shim,4,UEFI shim"],
+    },
+  ];
+  const configs = [
+    { path: "/etc/fstab", sha256: "b".repeat(64) },
+    { path: "/etc/crypttab", sha256: null },
+  ];
+
+  it("does not depend on the order the snapshot was read in", () => {
+    const first = bootChainFingerprint({ files, configs });
+    const second = bootChainFingerprint({
+      files: [...files].reverse(),
+      configs: [...configs].reverse(),
+    });
+    expect(first).toMatch(/^[0-9a-f]{64}$/);
+    expect(second).toBe(first);
+  });
+
+  it("changes with a kernel update and with a changed configuration", () => {
+    const base = bootChainFingerprint({ files, configs });
+    const kernel = files.map((file, index) =>
+      index === 0 ? { ...file, size: 5620, mtime: "2024-12-01T10:00:00Z" } : file,
+    );
+    expect(bootChainFingerprint({ files: kernel, configs })).not.toBe(base);
+    const fstab = configs.map((config) =>
+      config.path === "/etc/fstab" ? { ...config, sha256: "c".repeat(64) } : config,
+    );
+    expect(bootChainFingerprint({ files, configs: fstab })).not.toBe(base);
+    const sbat = files.map((file, index) => (index === 2 ? { ...file, sbat: ["shim,5"] } : file));
+    expect(bootChainFingerprint({ files: sbat, configs })).not.toBe(base);
   });
 });

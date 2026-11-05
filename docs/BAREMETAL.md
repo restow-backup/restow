@@ -4021,8 +4021,10 @@ Alle übrigen Befunde der drei Reviews sind wie vorgeschlagen eingearbeitet.
 
 ## 26. Stand der Umsetzung
 
-**M1 (Ganz-Rechner-Sicherung, Linux) ist umgesetzt**, hinter `RESTOW_BAREMETAL_PREVIEW`
-(Standard aus). M2 bis M6 sind offen; für sie bleibt dieses Dokument der Entwurf.
+**M1 (Ganz-Rechner-Sicherung, Linux) und M2 (Planer und Stufe 1) sind umgesetzt**, hinter
+`RESTOW_BAREMETAL_PREVIEW` (Standard aus; der Schalter hängt weiter nur am Job-Schalter, 26.2).
+M3 bis M6 sind offen; für sie bleibt dieses Dokument der Entwurf. Was M2 liefert und abweichend
+entschieden hat, steht in 26.4 bis 26.6.
 
 ### 26.1 Was M1 liefert
 
@@ -4177,7 +4179,8 @@ Nachgebessert nach dem Review von M1:
 - macOS: Erfassung unter darwin, APFS-Snapshots, `DEFAULT_DARWIN_WHOLE_MACHINE_EXCLUDES`,
   Snapshot-Form der Pfadabbildung, `layoutFingerprint` für darwin (M6).
 - `BuildLoadOption` (M4).
-- `bootChainFingerprint` und eine Bewertung über `unverified` hinaus (M2, M5).
+- `bootChainFingerprint` und eine Bewertung über `unverified` hinaus (M2, M5; mit M2 erledigt
+  bis `layout_checked`, 26.4).
 - Ein Layout im Demo-Datensatz.
 - Aufzeichnungen echter Systeme für die Testdaten ([Maschine] 27.1).
 - Die Root-Tests mit LVM, btrfs, md, LUKS und der Erfassung (`TestRootThickLVM`,
@@ -4192,6 +4195,240 @@ Nachgebessert nach dem Review von M1:
 - Aus Abschnitt 27 offen für M1: 27.1 (Ausgaben echter Systeme), 27.13 (LVM-Snapshots unter Last),
   27.14 (Thin-Pool-Schwellen mit `thin_pool_autoextend_threshold`), 27.15 (btrfs mit sehr vielen
   Subvolumes).
+
+### 26.4 Was M2 liefert
+
+Agent (`agent/`):
+
+- `internal/baremetal`: `Plan` (`plan.go`, Ausgabe `restow-plan-v1`, kanonisch und deterministisch)
+  mit Größen in Bytes, Umrechnung in LBA des Ziels und Restore-Größen (`sizing.go`), Zuordnung mit
+  Übernahme intakter Teile und Identitätskonflikten (`mapping.go`), Treiberprüfung gegen
+  `modules.alias`/`modules.builtin(.modinfo)` (`drivers.go`) und Secure-Boot-Prüfung gegen `db`,
+  `dbx` und `SbatLevel` des Ziels (`secureboot.go`), beide rein; `mkfs`-Argumente je Dateisystem
+  (`mkfs.go`), Fixups als reine Funktionen (`fixups.go`, nur geplant, nicht ausgeführt), Fakten und
+  Ziel (`facts.go`, `target.go`, `SyntheticTarget` für `same`, `minimal`, `other-controller`), die
+  Codes (`plan_codes.go`, `testdata/plan-codes.json`) und die Grenzen (`limits_linux.go`,
+  `limits_other.go`). Das Manifest kennt optional `filesystems[].btrfs.csum`, die XFS-Funktionen
+  `nrext64`; Format, Schema-Version und `layoutFingerprint` bleiben.
+- `restow-agent baremetal plan --manifest <datei|-> [--facts <datei|->] --target
+  <same|minimal|other-controller|DATEI> [--choices DATEI] [--snapshot ID] --json`
+  (`cmd/restow-agent/baremetalplan.go`): Exit 0 mit Plan (Probleme sind Daten), 1 mit Fehlerobjekt
+  bei abgelehnter Eingabe oder innerem Fehler, 2 bei falscher Bedienung.
+- Golden Files (`testdata/plans/<manifest>.<szenario>.json`) mit Fakten, Zielen und Wahlen unter
+  `testdata/{facts,targets,choices}`; die TS-Tests lesen sie.
+
+Server (`packages/`, `apps/`):
+
+- `packages/core/src/endpoints/baremetal/`: `plan.ts` (Zod-Schemas für Fakten, Ziel, Wahlen und die
+  Ausgabe `restow-plan-v1` als Vereinigung von Plan und Fehlerobjekt, `parsePlanOutput`,
+  `PLAN_TARGETS`, `PLAN_PROBLEM_CODES`, `PLAN_WARNING_CODES`), `check.ts` (`parseFstab`,
+  `parseCrypttab`, `resolveFstabSource`, `stageOneWanted`, `StageOneCollector`, `stageOneDumps`,
+  `planFactsOf`, `judgeLayoutCheck` mit L1 bis L8, `bootChainInputOf`, `LAYOUT_CHECK_IDS`,
+  `CHECK_FINDING_CODES`), `restore-sizes.ts` (`RestoreSizeCounter` mit begrenztem Speicher für die
+  Erkennung harter Links, `restoreSizeTargets`),
+  `readiness.ts` (`baremetalReadiness`), `fingerprint.ts` (`bootChainFingerprint`), `manifest.ts`
+  (`csum` optional). `restic-cli.ts`: `resticSnapshot`, `resticWalk` (`ls --json` gestreamt, mit
+  `inode`; wirft der Rückruf oder bricht der Strom ab, beendet `resticWalk` restic mit SIGKILL und
+  wartet auf das Ende, damit kein restic an einer vollen Pipe hängt und die Repository-Sperre
+  hält), `resticReadFile` (mit Obergrenze). `queues.ts`: `endpoint-baremetal-check` (stately,
+  3 Wiederholungen, 300 s mit Backoff, 6 Stunden, 14 Tage), `EndpointJobPayload.runId`.
+- `packages/db`: Berichtsart `baremetal_check`, Migration **0077_baremetal_check** (mit drizzle
+  erzeugt, nur `ALTER TYPE ... ADD VALUE`, keine Tabelle, also keine Änderung an `sql/rls.sql`),
+  Upgrade-Test auf 0076.
+- `apps/worker`: `endpoints/planner.ts` (Sandbox nach 12.2, Ergebnis Plan, abgelehnt oder
+  unvollständig), `endpoints/baremetal-check.ts` (Ablauf wie 12.1: geteilte Sperre, `restic
+  snapshots <id>`, L4-Dump, ein `restic ls` über den ganzen Baum, höchstens 80 Dumps; danach ohne
+  Sperre drei Planerläufe, Bewertung, Bericht), Registrierung in `register.ts` mit eigener
+  Wiederholungs-Logzeile für `BaremetalCheckIncompleteError`.
+- `apps/scheduler`: holt den Check nach (neuester Lauf mit Layout ohne Bericht für seinen
+  Snapshot, `LATERAL ... LIMIT 1`, je Stunde höchstens einmal je Rechner). Ist der Snapshot im
+  Repository nicht mehr vorhanden (die Aufbewahrung hat ihn vergessen, etwa weil spätere
+  Sicherungen ohne `wholeMachine` oder ohne `RESTOW_BAREMETAL_PREVIEW` kein Layout mehr
+  aufzeichnen), schreibt der Worker einen Bericht ohne Bewertung (`readiness` null,
+  `summary.skipped: "snapshot_gone"`); damit endet die Abfrage für diesen Snapshot, die API
+  übergeht den Bericht.
+- `apps/api`: `finishRun` stellt den Check für einen guten Lauf mit Layout sofort ein (in einem
+  Savepoint, ein fehlendes pg-boss-Schema oder eine Ablehnung lässt den Abschluss gelten, der
+  Scheduler holt nach); `GET /api/v1/endpoints/:id/baremetal` liest den neuesten Bericht des
+  Snapshots des neuesten Layouts und bewertet mit `baremetalReadiness` (`state` mit
+  `layout_checked` und `red`, `stateDetail`, `notPossible` auch `unsupported` und `arm64_later`,
+  `check` mit Prüfungen, Restore- und Mindestgrößen, Planer und Fingerabdruck). Die Liste
+  `reports` der Rechner-Details lässt `baremetal_check` aus.
+- `apps/web`: Karte mit den neuen Zuständen und Hinweisen (`layout_checked` nie grün: Ton
+  `neutral` für den Zustand und für das Ergebnis "Bestanden" des Berichts, `success` bleibt dem
+  Zustand `green` aus M5; dazu der Satz, dass erst die Startprobe den Start beweist), Prüfbericht
+  (`baremetal-check-report.tsx`: Datum, Snapshot, Ergebnis, L1 bis L8 mit Symbol, Befunden und
+  aufklappbarem Beleg als Text, Planer je Ziel), Mindestgrößen (`minimum-sizes.tsx`); Texte de/en
+  für jeden Code des Planers und der Prüfung.
+- Image und CI: `/usr/local/lib/restow/restow-agent` als Verweis auf das Agenten-Binary der
+  eigenen Architektur (`Dockerfile`, Stufe `agent-dist`); `prlimit` bringt die Debian-Basis
+  (util-linux) mit, ohne läuft der Planer ohne `prlimit` und setzt seine Grenzen selbst. Job `agent`
+  lädt `agent-linux-amd64` hoch, Job `test` hängt davon ab (`needs: agent`) und setzt
+  `RESTOW_PLANNER_BIN`. `.env.example`: `RESTOW_PLANNER_BIN`. docs/AGENT.md, CHANGELOG.
+
+Tests: Golden Files und Einheitentests des Planers (Go); `plan.test.ts` (jede Datei unter
+`testdata/plans`, `facts`, `targets` parst, die Codelisten gleichen `plan-codes.json`),
+`check.test.ts`, `restore-sizes.test.ts`, `readiness.test.ts`, `fingerprint.test.ts`;
+`baremetal-check.test.ts` (Sandbox mit Ersatz-Binaries: keine `RESTOW_*`/`DATABASE_URL`, leerer
+Ordner, Zeitgrenze, zu viel Ausgabe, Absturz, Ablehnung, fehlendes Binary);
+`baremetal-check.pg.test.ts` (**Stufe 1** mit Postgres, echtem restic 0.19.1 und dem echten
+Planer-Binary: grün und auf der Karte `layout_checked`, L4 rot bei abweichendem `layout.json`, L6
+rot ohne `/boot`, L5 rot ohne `/home`, besetztes Repository und nicht lesbarer Snapshot ohne
+Bericht und mit Wiederholung, ein zweiter Lauf ohne `force` schreibt keinen zweiten Bericht, ohne
+`RESTOW_PLANNER_BIN` scheitert die Suite); `baremetal.pg.test.ts` der API (jeder Zustand, genau ein
+Job je Abschluss, keine Berichte `baremetal_check` in den Details); Scheduler- und Migrationstest;
+Karte und i18n im Web.
+
+### 26.5 Abweichungen vom Entwurf (in M2 entschieden)
+
+- **Speichergrenze des Planers:** `prlimit --as=536870912` (12.2) und `RLIMIT_AS` (10.1) lassen
+  kein Go-Programm starten (nachgestellt: `fatal error: failed to reserve page summary memory`,
+  auch bei 256 MiB). Verwendet wird `RLIMIT_DATA` 512 MiB (`prlimit --data=536870912`) und im
+  Binary zusätzlich `debug.SetMemoryLimit(384 MiB)`; CPU 30 s und `nofile` 16 bleiben. Das
+  begrenzt den Speicher trotzdem (1 GiB anzufordern endet mit einem Speicherfehler).
+- **Fakten über stdin:** 12.2 sagt "stdin als einzige Eingabe (Manifest und Fakten)", 10.1 nennt
+  `--facts <datei>`. Beide Schalter dürfen `-` sein; stdin trägt dann zwei JSON-Werte
+  hintereinander (erst das Manifest, höchstens 512 KiB, dann die Fakten, höchstens 32 MiB).
+- **Migrationsnummer:** Die 0075 des Entwurfs ist auf diesem Zweig **0077**. `release/0.5.0` hat
+  inzwischen eine eigene `0076_pve_reconcile_vmid_reuse`; beim Zusammenführen müssen
+  `0076_baremetal_layouts` und `0077_baremetal_check` je um eins aufrücken (Journal, Snapshots,
+  Upgrade-Tests). Das ist nicht Teil von M2.
+- **dbx:** Das Manifest trägt nur `dbxSha256`, Stufe 1 kann Sperrungen also nicht prüfen (10.5,
+  Prüfung 2). Die synthetischen Ziele tragen `dbx: null` und geben die Warnung
+  `secure_boot_dbx_unknown`; CA- und SBAT-Prüfung laufen. `recover` (M4) liest die volle dbx des
+  Ziels.
+- **L5 und die Pfade des Snapshots:** restic 0.19.1 schreibt keine Pfade um; eine Testsicherung
+  eines Ersatz-Wurzelordners (`cd root && restic backup .`) hat nie `paths == ["/"]`. L5 urteilt
+  darum am Baum: Jede Quelle ist ein Ordner mit Einträgen. Eine Abweichung in `paths` ist nur die
+  Warnung `paths_differ`; im Betrieb stimmen beide überein. Leer ist rot nur für eine
+  Systemquelle (`/`, `/boot`, ESP, `/usr`, `/var`, wie 12.1), für eine Datenquelle eine Warnung.
+- **L2 rot und `not_possible`:** Der Bericht eines Layouts mit Urteil `unsupported` ist rot (L2,
+  12.1), angezeigt wird `not_possible` mit Grund `unsupported` (12.4); `not_possible` gewinnt.
+- **Unvollständig:** Ein Lesefehler des Repositorys, der nichts über die Sicherung beweist,
+  schreibt keinen Bericht und wird wiederholt (12.1). Ein Planer, der nicht antwortet (Zeitgrenze,
+  zu viel Ausgabe, Absturz, kein Binary), würde ebenso wieder scheitern: Dafür entsteht ein
+  **gelber** Bericht, angezeigt als `unverified` mit `stateDetail: "incomplete"`, geprüft wird
+  wieder nach der nächsten Sicherung. Lehnt der Planer ein gültiges Manifest ab, ist L3 rot
+  (`planner_refused_valid_manifest`).
+- **Werte, die M1 nicht erfasst:** Die Prüfsummenart von btrfs ist ein neues optionales Feld
+  (`csum`); ohne plant der Planer mit crc32c und der Warnung `btrfs_csum_assumed`. `nrext64` steht
+  in der XFS-Funktionsliste, fehlt es, plant er `nrext64=0`. Die XFS-Inode-Größe folgt aus `crc`.
+  Stride und Stripe-Breite von ext entfallen (zurückgestellt).
+- **Funktionstabellen von `mkfs`:** Ob die Werkzeuge des ISO ein Format anlegen können, hängt an
+  deren Versionen, die es vor M4 nicht gibt. M2 nutzt feste Tabellen für die Werkzeuge von trixie;
+  M4 prüft sie gegen das echte ISO [CI].
+- **Mindestgröße:** "Mindestgröße" und "weiteres Schrumpfen bestätigt der Bediener" vertragen
+  sich für ein serverseitiges `--target minimal` nicht. Die Mindestgröße gilt mit jedem LV auf
+  seinem Minimum, `minimal` läuft mit `shrink: "auto"`, `same` mit `shrink: "none"`.
+- **Sektor 63:** Das Ausrichten einer Partition ab Sektor 63 (10.9) verträgt sich mit der
+  Identitätsregel (10.10): Die PARTUUID bleibt, das Dateisystem wird ohnehin neu angelegt (Golden
+  File `plan-mbr-start63`).
+- **`/boot` wächst nicht:** 10.9 lässt `/boot` auf einer größeren Platte wachsen, `grow` markiert
+  aber nur eine Partition je Platte. M2 lässt `/boot` bei seiner Größe (zurückgestellt).
+- **Partitionsnamen:** Das sfdisk-Skript schreibt `name="…"` nur für druckbares ASCII ohne `"`
+  und `\`; jeder andere Name bekommt einen eigenen Schritt `sfdisk --part-label`, damit kein Text
+  des Manifests in einem Kontext mit Anführungszeichen landet (16.1).
+- **Restore-Größen an `recover`:** Die Übergabe mit den Zugangsdaten (9.5) kommt mit M3; M2 legt
+  sie nur im Bericht ab (`restoreSizes`).
+- **Belege:** Jeder Befund trägt zusätzlich `severity` (`failed`, `warning`, `info`), jede Prüfung
+  `evidence` (nur strukturierte Felder: Pfade, Ziele, Quellen, Zahlen, Wahrheitswerte; nie Zeilen
+  aus `grub.cfg`, Loader-Einträgen oder einer Kommandozeile); höchstens 50 Befunde je Prüfung,
+  jede Zeichenkette ohne Steuerzeichen und höchstens 300 Zeichen. Neu gegenüber der Codeliste des
+  Plans ist `fstab_missing` (keine `/etc/fstab` im Snapshot, rot).
+- **Kein `rest-server` in dieser Umgebung:** Der Test "Stufe 1 gegen `rest-server` mit dem echten
+  Binary" (22, 21.2) läuft gegen die eigene restic-Route des Repositorys (`withRepository` über
+  `LocalStorageBackend` und den Loopback-Listener, wie jeder Worker-Job), mit echtem restic 0.19.1
+  und dem echten Planer-Binary (`go build ./cmd/restow-agent`). Die `rest-server`-Tests des Agenten
+  (`agent/integration`) bleiben unverändert.
+- **Monitor:** Rote Berichte `baremetal_check` lösen in M2 noch keinen Alarm aus (die
+  Alarmabfrage kennt nur Restore-Test und Repository-Prüfung); Alarme kommen mit M5.
+- **Harte Links in den Restore-Größen:** restic schreibt weder Linkzahl noch Gerät in `ls --json`.
+  `RestoreSizeCounter` erkennt eine Datei an `inode|size|mtime` je Einhängepunkt und merkt sich
+  höchstens 1 000 000 Schlüssel über alle Ziele (rund 80 MB Heap). Danach zählt er weiter jede
+  Datei, eine erst danach gesehene mehrfach verlinkte aber mehrfach; die betroffenen Ziele stehen
+  im Bericht unter `restoreSizesUpperBound`. Zu viel zählen hebt nur die Mindestgröße an. Ohne
+  Grenze brachten 16,7 Millionen Dateien den Worker an die Heap-Grenze (`RangeError: Set maximum
+  size exceeded` bzw. Speicherfehler).
+- **Verschwundener Snapshot:** endgültig, ein Bericht ohne Bewertung (`readiness` null,
+  `summary.skipped: "snapshot_gone"`), keine Wiederholung (siehe 26.4, `apps/scheduler`).
+- **Grün ist Beweis (12):** `layout_checked` und das Ergebnis "Bestanden" der Stufe 1 tragen den Ton
+  `neutral`, nie `success`.
+- **LVM-RAID (2.1, 10.9, 10.10):** Das Manifest trägt je LV den Segmenttyp und `stripes`, bei einem
+  RAID- oder Mirror-Segment die Zahl der Images (Teil-LVs, Parität eingeschlossen). Daraus folgen
+  Platzbedarf und `lvcreate`: `raid1`/`mirror` mit n Images: n Kopien, `--type raid1 -m n-1` (ein
+  altes `mirror`-LV entsteht als `raid1`); `raid4`/`raid5*`: n-1 Datenstreifen, `raid6*`: n-2,
+  jeweils `--type <typ> -i <daten> [-I <streifen>]`; `raid10`: zwei Kopien, `--type raid10 -i n/2
+  -m 1`; `raid0`/`raid0_meta`: `-i n`. Jedes Image belegt seinen Anteil in ganzen Extents und (außer
+  `raid0`) ein `rmeta` von mindestens 4 MiB; die Größe eines RAID-LV ist ein Vielfaches von
+  Datenstreifen mal Extent. Die Summe des VG zählt jedes Image (`vgMinimum`); jede PV muss
+  zusätzlich die Images tragen, die auf ihr liegen. Der Planer verteilt die Images selbst
+  (größtes Image zuerst, je auf die PVs mit dem meisten freien Platz) und gibt `lvcreate` die
+  gewählten PVs mit; RAID-LVs entstehen vor allen anderen LVs, lineare LVs nehmen danach den Rest.
+  Passt die Verteilung nicht, obwohl die Summe passt, geben gewachsene oder ohnehin geschrumpfte
+  RAID-LVs bis zu ihrem Minimum zurück, sonst `target_too_small`. Ein RAID-LV ohne oder mit
+  unmöglicher Image-Zahl (`raid1` unter 2, `raid4`/`raid5` unter 3, `raid6` unter 5, `raid10`
+  ungerade oder unter 4, `raid0` unter 2) oder mit unbekanntem RAID-Typ ist das Problem
+  `layout_unsupported` (Ref `vg/lv`, `params.codes: ["lvm_raid_geometry_unknown"]`) und bekommt
+  keinen `lvcreate`-Schritt, nie ein lineares Ersatz-LV. Golden Files: `plan-lvm-raid` (raid1 und
+  raid5 über drei PVs).
+- **dbx-Zertifikate (10.5, Prüfung 2):** Ein Loader gilt als gesperrt, wenn sein Authenticode-Hash
+  in `dbx.hashes` steht oder wenn der SHA-256 des `db`-Zertifikats, dessen CN der Aussteller des
+  Loaders ist, in `dbx.certs` steht. Das Zertifikat des Loaders selbst (Blatt) wird nicht
+  verglichen, weil das Manifest es nicht trägt; enger als 10.5 ("Zertifikat eines Loaders").
+- **Mehrzeilige LVM-Filter (10.13):** `FixLVMFilter` schreibt nur einzeilige `filter`- und
+  `global_filter`-Zeilen um; ein über mehrere Zeilen verteilter Filter bleibt unverändert. 10.13
+  verlangt dafür ein Problem im Plan; der Plan sieht `lvm.conf` in M2 aber nicht (der Inhalt kommt
+  erst in `recover` aus dem Snapshot). Die Meldung wandert nach M4 (26.6).
+- **Format `restow-plan-v1` über den Vertrag hinaus** (darauf baut `recover` in M4):
+  - Ziele heißen `same`, `minimal`, `other-controller` oder sind eine Zieldatei
+    (`restow-target-v1`).
+  - `adopted[]` sind Einträge `{kind, ref, targets, mounts}` (übernommene Einheit, ihre Quelle,
+    die Zielplatten, die Einhängepunkte).
+  - Schritte `{n, phase, kind, target, args, stdin, stdinSecret, reason}`. Phasen und Arten:
+    `prepare` (`release_holders`, `wipe`, `zero_range`), `partition` (`partition`, `part_label`,
+    `pmbr_boot`), `md` (`md_create`, `md_assemble`), `luks` (`luks_format`, `luks_open`,
+    `luks_refresh`), `lvm` (`pv_create`, `vg_create`, `lv_create`, `vg_activate` für ein
+    übernommenes VG), `mkfs` (`mkfs`, `mkswap`, `btrfs_subvolume`, `btrfs_default`, `mount` und
+    `umount` der obersten btrfs-Ebene), `mount` (`mount`, `nocow` für `chattr +C` vor dem
+    Restore), `restore` (`restore`), `post` (`mkdirs`, `swapfile`, `keyfile`, `fixup`,
+    `lvm_devices`, `initramfs`, `grub_config`, `bootloader_bios`, `nvram`, `fallback_path`,
+    `verify`).
+  - `args[0]` ist ein Programm oder eine Operation, die `recover` selbst ausführt:
+    `release-holders`, `blkzero`, `fixup`, `mkdirs`, `swapfile`, `nvram`, `fallback-path`,
+    `verify` und `chroot-exec` (der Rest der Zeile läuft im wiederhergestellten System). Die
+    Platzhalter `{snapshot}` und `{target_root}` füllt `recover`.
+  - `secure_boot_disabled_by_choice` trägt `params.codes` (die Befunde, die mit Secure Boot
+    Probleme wären), `mok_enroll_required` bei fehlender Schlüsseldatei `params.fileMissing: true`.
+  - Zuordnung: Gibt es mehr freie Zielplatten als nicht zugeordnete Quellplatten, wählt der
+    Planer nicht selbst, sondern meldet `mapping_invalid` mit `reason: "choice_required"` (dazu
+    `unknown_source`, `unknown_target`, `target_used_twice`, `unknown_adopt`, `adopt_and_erase`).
+  - Testdaten: neben `facts/`, `targets/` und `plans/` der Ordner `testdata/choices/` mit den
+    Wahlen eines Szenarios.
+
+### 26.6 Zurückgestellt (M2)
+
+- Ausführen der Pläne (`recover`, Halter, Isolation, NVRAM, `--answers`) (M4).
+- Alarme `baremetal.*` und Webhook `job.failed` für `endpoint_baremetal_check`, Fehlerkatalog
+  `endpoint.baremetal_check_failed` mit Schritt `read_baremetal_report` (M5).
+- Spalte "Bare Metal" in `GET /api/v1/verify/latest`, Zustände `green` und `overdue` (M5).
+- Restore-Größen in den Zugangsdaten (M3); `darwin_check` (M6).
+- Wachsen von `/boot`, Stride und Stripe-Breite von ext, genaue Datenversätze von md (später).
+- LVM-RAID: die genaue Zahl der Kopien von `raid10` (`data_copies` erfasst M1 nicht, der Planer
+  nimmt zwei an, wie LVM sie anlegt), Region-Größe und `--nosync`; die Verteilung der Images ist
+  eine eigene Wahl des Planers, nicht die des Quellrechners (`lvm fullreport` der Segmente mit
+  ihren PVs erfasst M1 nicht). Thin-Pools auf RAID werden linear geplant.
+- Mehrzeilige `filter`/`global_filter` in `lvm.conf`: die Meldung als Problem (10.13) mit `recover`
+  (M4).
+- MOK: nur Einheitentests (`TestMOK`, `TestSecureBootChain`), kein Golden File mit
+  MOK-signiertem Modul oder Kernel.
+- Filtern beim Zurückschreiben eines Ordners auf den Rechner (unverändert seit M1).
+- Aus Abschnitt 27 offen für M2: 27.1 (echte Ausgaben von `btrfs inspect-internal dump-super`
+  mit `csum_type` und `xfs_info` mit `nrext64` über die Distributionen), 27.3 (stimmt die
+  Vorhersage von `CheckChain` auf Herstellerfirmware), 27.5 (Treiberprüfung bei älteren Kerneln),
+  27.21 (Identitäten echter Zielgeräte); [CI]: die Planprüfung der Loop-Stapel in `agent-root`
+  (`TestRootCaptureStacks` plant `--target same` ohne Probleme, läuft hier nicht), die
+  `mkfs`-Funktionstabellen gegen das ISO (M4); [Image]: `prlimit` im Worker-Image (hier kein
+  Docker-Dienst, im Test lief es mit `/usr/bin/prlimit` des Containers).
 
 ## 27. Nur auf echter Hardware zu prüfen
 

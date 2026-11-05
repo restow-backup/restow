@@ -1,0 +1,590 @@
+{
+  "adopted": [],
+  "disks": [
+    {
+      "disk": "d0",
+      "lvs": [
+        {
+          "grown": false,
+          "lv": "root",
+          "shrunk": false,
+          "sizeBytes": 103079215104,
+          "vg": "pve"
+        },
+        {
+          "grown": false,
+          "lv": "swap",
+          "shrunk": false,
+          "sizeBytes": 8589934592,
+          "vg": "pve"
+        },
+        {
+          "grown": false,
+          "lv": "data",
+          "shrunk": false,
+          "sizeBytes": 852551008256,
+          "vg": "pve"
+        }
+      ],
+      "partitions": [
+        {
+          "grown": false,
+          "number": 1,
+          "realigned": false,
+          "shrunk": false,
+          "sizeBytes": 1048576,
+          "sizeLba": 2048,
+          "startBytes": 1048576,
+          "startLba": 2048
+        },
+        {
+          "grown": false,
+          "number": 2,
+          "realigned": false,
+          "shrunk": false,
+          "sizeBytes": 1073741824,
+          "sizeLba": 2097152,
+          "startBytes": 2097152,
+          "startLba": 4096
+        },
+        {
+          "grown": false,
+          "number": 3,
+          "realigned": false,
+          "shrunk": false,
+          "sizeBytes": 998244352000,
+          "sizeLba": 1949696000,
+          "startBytes": 1075838976,
+          "startLba": 2101248
+        }
+      ],
+      "sectorSize": 512,
+      "table": "gpt",
+      "target": "t0"
+    }
+  ],
+  "drivers": {
+    "fallback": null,
+    "kernel": "6.8.12-4-pve",
+    "nics": [
+      {
+        "builtin": false,
+        "device": "eno1",
+        "found": true,
+        "kernel": "6.8.12-4-pve",
+        "modalias": "pci:v00008086d00001533sv000015D9sd00001533bc02sc00i00",
+        "module": "igb"
+      }
+    ],
+    "storage": [
+      {
+        "builtin": false,
+        "device": "t0",
+        "found": true,
+        "kernel": "6.8.12-4-pve",
+        "modalias": "pci:v0000144Dd0000A80Asv0000144Dsd0000A801bc01sc08i02",
+        "module": "nvme"
+      }
+    ]
+  },
+  "format": "restow-plan-v1",
+  "mapping": [
+    {
+      "action": "erase",
+      "reason": "identity",
+      "source": "d0",
+      "target": "t0"
+    }
+  ],
+  "minimumSizes": {
+    "disks": [
+      {
+        "disk": "d0",
+        "kname": "nvme0n1",
+        "minBytes": 43031461888,
+        "sizeBytes": 1000204886016
+      }
+    ],
+    "filesystems": [
+      {
+        "fs": "f0",
+        "minBytes": 1073741824,
+        "mount": "/boot/efi",
+        "restoreBytes": 6291456,
+        "type": "vfat"
+      },
+      {
+        "fs": "f1",
+        "minBytes": 24528650592,
+        "mount": "/",
+        "restoreBytes": 20615843020,
+        "type": "ext4"
+      }
+    ],
+    "lvs": [
+      {
+        "lv": "root",
+        "minBytes": 24532484096,
+        "vg": "pve"
+      },
+      {
+        "lv": "swap",
+        "minBytes": 8589934592,
+        "vg": "pve"
+      }
+    ],
+    "thinPools": [
+      {
+        "lv": "data",
+        "minBytes": 8589934592,
+        "vg": "pve"
+      }
+    ]
+  },
+  "ok": true,
+  "problems": [],
+  "secureBoot": {
+    "checked": false,
+    "loaders": [],
+    "targetSecureBoot": false
+  },
+  "steps": [
+    {
+      "args": [
+        "release-holders",
+        "/dev/nvme0n1"
+      ],
+      "kind": "release_holders",
+      "n": 1,
+      "phase": "prepare",
+      "reason": "stop everything that holds /dev/nvme0n1 (mounts, swap, LVM, md, dm)",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/nvme0n1"
+    },
+    {
+      "args": [
+        "wipefs",
+        "-a",
+        "/dev/nvme0n1"
+      ],
+      "kind": "wipe",
+      "n": 2,
+      "phase": "prepare",
+      "reason": "remove the signatures of the old content of /dev/nvme0n1 (its partitions first)",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/nvme0n1"
+    },
+    {
+      "args": [
+        "blkzero",
+        "--head=16777216",
+        "--tail=16777216",
+        "/dev/nvme0n1"
+      ],
+      "kind": "zero_range",
+      "n": 3,
+      "phase": "prepare",
+      "reason": "zero the first and last 16 MiB of /dev/nvme0n1",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/nvme0n1"
+    },
+    {
+      "args": [
+        "sfdisk",
+        "--no-reread",
+        "--wipe",
+        "always",
+        "/dev/nvme0n1"
+      ],
+      "kind": "partition",
+      "n": 4,
+      "phase": "partition",
+      "reason": "recreate the GPT of d0 with its identifiers (PARTUUIDs stay)",
+      "stdin": "label: gpt\nlabel-id: B5C6D7E8-F90A-4B1C-2D3E-4F5061728394\nunit: sectors\nsector-size: 512\n\n/dev/nvme0n1p1 : start=2048, size=2048, type=21686148-6449-6E6F-744E-656564454649, uuid=aa000000-0000-4000-8000-000000000001\n/dev/nvme0n1p2 : start=4096, size=2097152, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B, uuid=aa000000-0000-4000-8000-000000000002\n/dev/nvme0n1p3 : start=2101248, size=1949696000, type=E6D6D379-F507-44C2-A23C-238F2A3DF928, uuid=aa000000-0000-4000-8000-000000000003\n",
+      "stdinSecret": null,
+      "target": "/dev/nvme0n1"
+    },
+    {
+      "args": [
+        "pvcreate",
+        "--devices",
+        "/dev/nvme0n1p3",
+        "--uuid",
+        "pvpve-0000",
+        "--norestorefile",
+        "--yes",
+        "/dev/nvme0n1p3"
+      ],
+      "kind": "pv_create",
+      "n": 5,
+      "phase": "lvm",
+      "reason": "create the physical volume with its UUID",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/nvme0n1p3"
+    },
+    {
+      "args": [
+        "vgcreate",
+        "--devices",
+        "/dev/nvme0n1p3",
+        "-s",
+        "4096k",
+        "pve",
+        "/dev/nvme0n1p3"
+      ],
+      "kind": "vg_create",
+      "n": 6,
+      "phase": "lvm",
+      "reason": "create the volume group pve",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "pve"
+    },
+    {
+      "args": [
+        "lvcreate",
+        "--devices",
+        "/dev/nvme0n1p3",
+        "--yes",
+        "-n",
+        "root",
+        "-L",
+        "103079215104b",
+        "pve"
+      ],
+      "kind": "lv_create",
+      "n": 7,
+      "phase": "lvm",
+      "reason": "create LV pve/root",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "pve/root"
+    },
+    {
+      "args": [
+        "lvcreate",
+        "--devices",
+        "/dev/nvme0n1p3",
+        "--yes",
+        "-n",
+        "swap",
+        "-L",
+        "8589934592b",
+        "pve"
+      ],
+      "kind": "lv_create",
+      "n": 8,
+      "phase": "lvm",
+      "reason": "create LV pve/swap",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "pve/swap"
+    },
+    {
+      "args": [
+        "lvcreate",
+        "--devices",
+        "/dev/nvme0n1p3",
+        "--yes",
+        "-n",
+        "data",
+        "--type",
+        "thin-pool",
+        "-L",
+        "852551008256b",
+        "--chunksize",
+        "64k",
+        "--poolmetadatasize",
+        "8388608k",
+        "pve"
+      ],
+      "kind": "lv_create",
+      "n": 9,
+      "phase": "lvm",
+      "reason": "create LV pve/data",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "pve/data"
+    },
+    {
+      "args": [
+        "mkfs.vfat",
+        "-F",
+        "32",
+        "-i",
+        "3B4C5D6E",
+        "-S",
+        "512",
+        "-s",
+        "8",
+        "/dev/nvme0n1p2"
+      ],
+      "kind": "mkfs",
+      "n": 10,
+      "phase": "mkfs",
+      "reason": "create vfat f0 with its UUID and recorded features",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/nvme0n1p2"
+    },
+    {
+      "args": [
+        "mkfs.ext4",
+        "-F",
+        "-t",
+        "ext4",
+        "-U",
+        "aa100000-0000-4000-8000-000000000001",
+        "-b",
+        "4096",
+        "-I",
+        "256",
+        "-N",
+        "6622585",
+        "-m",
+        "5",
+        "-O",
+        "none,has_journal,ext_attr,resize_inode,dir_index,filetype,extent,64bit,flex_bg,sparse_super,large_file,huge_file,dir_nlink,extra_isize,metadata_csum",
+        "-G",
+        "16",
+        "-J",
+        "size=128",
+        "/dev/pve/root"
+      ],
+      "kind": "mkfs",
+      "n": 11,
+      "phase": "mkfs",
+      "reason": "create ext4 f1 with its UUID and recorded features",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/pve/root"
+    },
+    {
+      "args": [
+        "mkswap",
+        "-U",
+        "aa100000-0000-4000-8000-000000000002",
+        "/dev/pve/swap"
+      ],
+      "kind": "mkswap",
+      "n": 12,
+      "phase": "mkfs",
+      "reason": "create the swap area with its UUID",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/pve/swap"
+    },
+    {
+      "args": [
+        "mount",
+        "-t",
+        "ext4",
+        "/dev/pve/root",
+        "{target_root}"
+      ],
+      "kind": "mount",
+      "n": 13,
+      "phase": "mount",
+      "reason": "mount f1 at /",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/pve/root"
+    },
+    {
+      "args": [
+        "mount",
+        "-t",
+        "vfat",
+        "-o",
+        "quiet",
+        "/dev/nvme0n1p2",
+        "{target_root}/boot/efi"
+      ],
+      "kind": "mount",
+      "n": 14,
+      "phase": "mount",
+      "reason": "mount f0 at /boot/efi",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/nvme0n1p2"
+    },
+    {
+      "args": [
+        "restic",
+        "restore",
+        "--json",
+        "--no-lock",
+        "--no-cache",
+        "--target",
+        "{target_root}",
+        "--sparse",
+        "--verify",
+        "--overwrite",
+        "never",
+        "{snapshot}"
+      ],
+      "kind": "restore",
+      "n": 15,
+      "phase": "restore",
+      "reason": "restore the files of the snapshot",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": null
+    },
+    {
+      "args": [
+        "mkdirs",
+        "/proc:0555",
+        "/sys:0555",
+        "/dev:0755",
+        "/run:0755",
+        "/tmp:1777",
+        "/boot/efi:0755"
+      ],
+      "kind": "mkdirs",
+      "n": 16,
+      "phase": "post",
+      "reason": "create mount points and API folders that the snapshot may lack",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": null
+    },
+    {
+      "args": [
+        "fixup",
+        "/etc/default/grub",
+        "cmdline"
+      ],
+      "kind": "fixup",
+      "n": 17,
+      "phase": "post",
+      "reason": "rewrite device references in /etc/default/grub",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/etc/default/grub"
+    },
+    {
+      "args": [
+        "fixup",
+        "/etc/fstab",
+        "fstab"
+      ],
+      "kind": "fixup",
+      "n": 18,
+      "phase": "post",
+      "reason": "rewrite device references in /etc/fstab",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/etc/fstab"
+    },
+    {
+      "args": [
+        "fixup",
+        "/etc/initramfs-tools/conf.d/resume",
+        "resume"
+      ],
+      "kind": "fixup",
+      "n": 19,
+      "phase": "post",
+      "reason": "rewrite device references in /etc/initramfs-tools/conf.d/resume",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/etc/initramfs-tools/conf.d/resume"
+    },
+    {
+      "args": [
+        "fixup",
+        "/etc/kernel/proxmox-boot-uuids",
+        "proxmox_boot_uuids"
+      ],
+      "kind": "fixup",
+      "n": 20,
+      "phase": "post",
+      "reason": "rewrite device references in /etc/kernel/proxmox-boot-uuids",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/etc/kernel/proxmox-boot-uuids"
+    },
+    {
+      "args": [
+        "chroot-exec",
+        "update-initramfs",
+        "-u",
+        "-k",
+        "6.8.12-4-pve"
+      ],
+      "kind": "initramfs",
+      "n": 21,
+      "phase": "post",
+      "reason": "rebuild the initramfs with MODULES=most",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": null
+    },
+    {
+      "args": [
+        "chroot-exec",
+        "grub-mkconfig",
+        "-o",
+        "/boot/grub/grub.cfg"
+      ],
+      "kind": "grub_config",
+      "n": 22,
+      "phase": "post",
+      "reason": "write the GRUB configuration",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/boot/grub/grub.cfg"
+    },
+    {
+      "args": [
+        "nvram",
+        "--label",
+        "proxmox",
+        "--partuuid",
+        "aa000000-0000-4000-8000-000000000002",
+        "--loader",
+        "\\EFI\\proxmox\\shimx64.efi"
+      ],
+      "kind": "nvram",
+      "n": 23,
+      "phase": "post",
+      "reason": "create the boot entry proxmox",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "aa000000-0000-4000-8000-000000000002"
+    },
+    {
+      "args": [
+        "verify"
+      ],
+      "kind": "verify",
+      "n": 24,
+      "phase": "post",
+      "reason": "check the restored system (identities, fstab, boot files)",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": null
+    }
+  ],
+  "target": "same",
+  "warnings": [
+    {
+      "code": "raw_lvs_skipped",
+      "message": "2 LVs without a file system were not backed up and are not created (pve/vm-100-disk-0, pve/vm-101-disk-0).",
+      "params": {
+        "count": 2,
+        "lvs": [
+          "pve/vm-100-disk-0",
+          "pve/vm-101-disk-0"
+        ]
+      },
+      "ref": null,
+      "severity": "warning"
+    }
+  ]
+}

@@ -540,6 +540,13 @@
       "when": 1793834193850,
       "tag": "0076_baremetal_layouts",
       "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1793844921330,
+      "tag": "0077_baremetal_check",
+      "breakpoints": true
     }
   ]
 }

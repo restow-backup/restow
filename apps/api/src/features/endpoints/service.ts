@@ -468,10 +468,16 @@ export async function getEndpoint(
       )
       .orderBy(desc(sql`coalesce(${endpointTasks.finishedAt}, ${endpointTasks.createdAt})`))
       .limit(RECENT_TASKS);
+    // The bare metal layout check has its own card (baremetal.ts), not a row in this list.
+    const listedReports = and(
+      eq(endpointReports.tenantId, tenantId),
+      eq(endpointReports.endpointId, id),
+      ne(endpointReports.kind, "baremetal_check"),
+    );
     const recentReports = await tx
       .select()
       .from(endpointReports)
-      .where(and(eq(endpointReports.tenantId, tenantId), eq(endpointReports.endpointId, id)))
+      .where(listedReports)
       .orderBy(desc(endpointReports.checkedAt))
       .limit(30);
     // The newest report of every kind as well: daily restore tests must not push the last
@@ -479,7 +485,7 @@ export async function getEndpoint(
     const latestPerKind = await tx
       .selectDistinctOn([endpointReports.kind])
       .from(endpointReports)
-      .where(and(eq(endpointReports.tenantId, tenantId), eq(endpointReports.endpointId, id)))
+      .where(listedReports)
       .orderBy(endpointReports.kind, desc(endpointReports.checkedAt));
     const listed = new Set(recentReports.map((report) => report.id));
     const reports = [

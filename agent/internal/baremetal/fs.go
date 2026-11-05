@@ -225,7 +225,7 @@ func (c *capture) xfsInfo(target string, fs *Filesystem) error {
 	x.BlockSize = num("data", "bsize")
 	x.SectorSize = num("meta-data", "sectsz")
 	x.AGCount = num("meta-data", "agcount")
-	for _, feat := range []string{"crc", "finobt", "reflink", "rmapbt", "bigtime", "inobtcount", "sparse"} {
+	for _, feat := range []string{"crc", "finobt", "reflink", "rmapbt", "bigtime", "inobtcount", "sparse", "nrext64"} {
 		if kv["meta-data"][feat] == "1" {
 			x.Features = append(x.Features, feat)
 		}
@@ -256,6 +256,14 @@ func (c *capture) btrfsSuper(n *blkNode, fs *Filesystem) error {
 				b.NodeSize, _ = strconv.ParseInt(f[1], 10, 64)
 			case "sectorsize":
 				b.SectorSize, _ = strconv.ParseInt(f[1], 10, 64)
+			case "csum_type":
+				// "csum_type		0 (crc32c)"
+				if len(f) >= 3 {
+					name := strings.Trim(f[2], "()")
+					if oneOf(name, "crc32c", "xxhash", "sha256", "blake2") {
+						b.Csum = strPtr(name)
+					}
+				}
 			case "incompat_flags", "compat_ro_flags":
 				inFlags = true
 				continue

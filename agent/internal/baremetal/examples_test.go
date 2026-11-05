@@ -117,7 +117,7 @@ func exampleBIOS() *Manifest {
 	}
 	disk := func(id, kname, serial string) Disk {
 		return Disk{ID: id, KName: kname, SizeBytes: 2000398934016, LogicalSectorSize: 512, PhysicalSectorSize: 4096,
-			Model: strPtr("WDC WD20EFRX-68E"), Serial: strPtr(serial), WWN: strPtr("0x50014ee2b5c6d7e8"), Transport: strPtr("sata"),
+			Model: strPtr("WDC WD20EFRX-68E"), Serial: strPtr(serial), WWN: strPtr(map[string]string{"d0": "0x50014ee2b5c6d7e8", "d1": "0x50014ee2b5c6d7e9"}[id]), Transport: strPtr("sata"),
 			Rotational: true, Zoned: "none", MajMin: map[string]string{"d0": "8:0", "d1": "8:16"}[id], BootCode: "grub",
 			DriverChain: []string{"ahci"},
 			Table: &PartitionTable{Type: "dos", ID: map[string]string{"d0": "0xa1b2c3d4", "d1": "0xb2c3d4e5"}[id], SectorSize: 512,

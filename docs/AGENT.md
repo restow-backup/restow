@@ -413,10 +413,32 @@ Ordner des Jobs bleiben gespeichert, ein älterer Agent sichert weiter sie.
   (Einstellungen, "Dateisystem-Snapshot (LVM, btrfs)", nur Linux, 422 `linux_only` sonst) wirkt
   unabhängig davon.
 - `GET /api/v1/endpoints/:id/baremetal` (ab `tenant_restore`) liefert die Karte der Rechnerseite:
-  Zustand (`not_enabled`, `not_possible`, `no_layout`, `unverified`), die Zusammenfassung des
+  Zustand (`not_enabled`, `not_possible`, `no_layout`, `unverified`, seit M2 auch
+  `layout_checked` und `red`, mit `stateDetail` und dem Prüfbericht `check`), die Zusammenfassung des
   neuesten Layouts mit Bewertung und, wenn eine VG keinen Platz für Snapshots hat, den Hinweis
   `snapshotHint`. `GET /api/v1/endpoints/:id/baremetal/layouts/:layoutId` (Administratoren) liefert
   das volle Manifest mit Seriennummern. Eine Wiederherstellung gibt es in M1 noch nicht.
+- **Layout-Prüfung (seit 0.5.0, M2, docs/BAREMETAL.md 12.1, 12.2).** Nach jeder Sicherung des
+  ganzen Rechners prüft der Worker (Queue `endpoint-baremetal-check`) den neuesten Snapshot mit
+  Layout: unter der geteilten Sperre des Repositorys einmal `restic snapshots <id>`, `restic dump`
+  der Agent-Kopie des Manifests, ein `restic ls --json` über den ganzen Baum (Restore-Größen je
+  Einhängepunkt, Quellen, Startkette) und höchstens 80 kleine `restic dump` (fstab, crypttab, LVM,
+  Modullisten); danach ohne Sperre dreimal den Planer des Agenten (`restow-agent baremetal plan`,
+  `--target same`, `minimal`, `other-controller`). Ergebnis ist ein Bericht `baremetal_check`
+  (Migration 0077) mit den Prüfungen L1 bis L8, Belegen, Restore- und Mindestgrößen,
+  `bootChainFingerprint` und den Antworten des Planers; rot nur mit Beleg, gelb (unvollständig),
+  wenn der Planer nicht antworten konnte. Ein Lesefehler, der nichts über die Sicherung beweist,
+  schreibt keinen Bericht, der Job wird wiederholt. Die Karte zeigt daraus die Bewertung
+  (`unverified`, `layout_checked`, `red`, bei gelb `unverified` mit `stateDetail: "incomplete"`;
+  `not_possible` auch für `unsupported` und arm64), den Bericht und die Mindestgrößen. Die Liste
+  `reports` der Rechner-Details enthält diese Berichte nicht.
+- **Planer im Worker.** Der Worker startet das Agenten-Binary seiner Architektur
+  (`/usr/local/lib/restow/restow-agent` im Image, sonst `RESTOW_PLANNER_BIN`) mit `execFile`, nur
+  `PATH` und `LC_ALL` in der Umgebung (keine `RESTOW_*`, keine Datenbank-URL, kein Master-Key), in
+  einem frischen leeren Ordner, mit stdin als einziger Eingabe (Manifest, dann die Fakten
+  `restow-plan-facts-v1`), unter `prlimit --data=536870912 --cpu=30 --nofile=16` (fehlt `prlimit`,
+  setzt das Binary die Grenzen selbst; nie `--as`, damit startet kein Go-Programm), höchstens 45
+  Sekunden und 4 MiB Ausgabe.
 
 ### Richtlinien (seit 0.4.0)
 
@@ -833,6 +855,7 @@ beschränkt die Wiederholung bei dauerhaft fehlschlagenden Jobs.
 | `endpoint-check` | wöchentlich je Endpunkt | Sperren aufräumen, `restic check --read-data-subset=n/20`: pro Woche ein Zwanzigstel der Daten, in fester Reihenfolge, damit das ganze Repository über etwa fünf Monate gelesen wird. Bericht `repository_check`, grün oder rot. War das Repository gesperrt, gilt die Prüfung als nicht gelaufen: `last_check_at` bleibt stehen, der Scheduler bietet sie wieder an. |
 | `endpoint-verify` | nach jedem neuen guten Backup mit Stichproben | Restore-Test (unten). |
 | `endpoint-monitor` | alle 5 Minuten | Aufräumen und Alarme (unten). |
+| `endpoint-baremetal-check` | seit 0.5.0: beim Abschluss jedes Laufs mit Layout sofort, der Scheduler holt einen fehlenden nach (neuester Lauf mit Layout ohne Bericht für seinen Snapshot) | Layout-Prüfung, Stufe 1 der Restore-Prüfung (docs/BAREMETAL.md 12.1, unter "Ganzer Rechner"); Bericht `baremetal_check`. |
 
 **Nie zwei Arbeiten des Servers zugleich auf einem Repository.** restic sperrt seine
 Repositories selbst, aber zwei restic-Prozesse, die im selben Augenblick starten, können die Sperre des
@@ -1371,7 +1394,8 @@ Mandantentabellen (`packages/db/sql/rls.sql`).
   vom Monitor eine Stunde nach Ablauf entfernt.
 - `endpoint_reports` (zusätzlich zur ursprünglichen Liste): Ergebnisse der Serverarbeit als Fakten
   mit Zeitpunkt: Restore-Test (Herkunft `server` oder `agent`, Snapshot, grün/rot, Details),
-  Repository-Prüfung, Retention. Sie spielen die Rolle von `verify_reports`, ohne die
+  Repository-Prüfung, Retention, seit Migration 0077 die Layout-Prüfung `baremetal_check`
+  (Snapshot, `run_id` des Laufs mit dem Layout, grün/gelb/rot, Prüfungen in `summary`). Sie spielen die Rolle von `verify_reports`, ohne die
   Postfach-Tabellen zu berühren (deren Fremdschlüssel verlangen ein geschütztes Objekt und einen
   Restow-Snapshot).
 

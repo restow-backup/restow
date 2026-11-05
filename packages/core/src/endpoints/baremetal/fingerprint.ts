@@ -120,3 +120,49 @@ export function layoutFingerprint(m: LayoutManifest): string {
   }
   return canonicalSha256(canonicalLayoutJson(layoutFingerprintInput(m)));
 }
+
+/** One file of the boot chain as stage 1 saw it in the snapshot (12.4). */
+export interface BootChainFile {
+  path: string;
+  size: number;
+  mtime: string;
+  /** For a loader: the Authenticode hash and SBAT lines from the manifest. */
+  authenticodeSha256?: string;
+  sbat?: string[];
+}
+
+/** One configuration file of the boot chain: its SHA-256, or null when the snapshot has none. */
+export interface BootChainConfig {
+  path: string;
+  sha256: string | null;
+}
+
+/**
+ * The boot chain fingerprint (docs/BAREMETAL.md 12.4): a SHA-256 over the kernels, initramfs
+ * images, loader files (with their Authenticode hash and SBAT), the GRUB configuration and the
+ * BLS and loader entries as stage 1 found them in the snapshot (path, size, modification time),
+ * and over the hashes of fstab, crypttab, mdadm.conf, /etc/default/grub, /etc/kernel/cmdline,
+ * lvm.conf and system.devices. A kernel update changes it, a new file in /home does not. Both
+ * lists are sorted by path first, so the order the snapshot was read in does not matter.
+ */
+export function bootChainFingerprint(input: {
+  files: readonly BootChainFile[];
+  configs: readonly BootChainConfig[];
+}): string {
+  const files = sortBy(
+    input.files,
+    (file) => file.path,
+    (file) => file.mtime,
+  ).map((file) => ({
+    path: file.path,
+    size: file.size,
+    mtime: file.mtime,
+    ...(file.authenticodeSha256 ? { authenticodeSha256: file.authenticodeSha256 } : {}),
+    ...(file.sbat ? { sbat: [...file.sbat] } : {}),
+  }));
+  const configs = sortBy(input.configs, (config) => config.path).map((config) => ({
+    path: config.path,
+    sha256: config.sha256,
+  }));
+  return canonicalSha256(canonicalLayoutJson({ v: 1, files, configs }));
+}

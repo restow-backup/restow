@@ -24,7 +24,7 @@
          {
             "node": "/dev/nvme0n1p3",
             "start": 3049472,
-            "size": 997177344,
+            "size": 997163008,
             "type": "0FC63DAF-8483-4772-8E79-3D69D8477DE4",
             "uuid": "7a3e6f2c-3d4e-4f50-8b12-c3d4e5f60718"
          }

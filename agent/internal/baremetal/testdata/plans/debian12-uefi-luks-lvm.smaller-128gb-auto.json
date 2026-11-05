@@ -1,0 +1,813 @@
+{
+  "adopted": [],
+  "disks": [
+    {
+      "disk": "d0",
+      "lvs": [
+        {
+          "grown": false,
+          "lv": "root",
+          "shrunk": true,
+          "sizeBytes": 16114515968,
+          "vg": "srv01-vg"
+        },
+        {
+          "grown": false,
+          "lv": "swap_1",
+          "shrunk": false,
+          "sizeBytes": 8589934592,
+          "vg": "srv01-vg"
+        },
+        {
+          "grown": false,
+          "lv": "home",
+          "shrunk": true,
+          "sizeBytes": 101749620736,
+          "vg": "srv01-vg"
+        }
+      ],
+      "partitions": [
+        {
+          "grown": false,
+          "number": 1,
+          "realigned": false,
+          "shrunk": false,
+          "sizeBytes": 536870912,
+          "sizeLba": 1048576,
+          "startBytes": 1048576,
+          "startLba": 2048
+        },
+        {
+          "grown": false,
+          "number": 2,
+          "realigned": false,
+          "shrunk": false,
+          "sizeBytes": 1023410176,
+          "sizeLba": 1998848,
+          "startBytes": 537919488,
+          "startLba": 1050624
+        },
+        {
+          "grown": false,
+          "number": 3,
+          "realigned": false,
+          "shrunk": true,
+          "sizeBytes": 126472945664,
+          "sizeLba": 247017472,
+          "startBytes": 1561329664,
+          "startLba": 3049472
+        }
+      ],
+      "sectorSize": 512,
+      "table": "gpt",
+      "target": "t0"
+    }
+  ],
+  "drivers": {
+    "fallback": null,
+    "kernel": "6.1.0-27-amd64",
+    "nics": [
+      {
+        "builtin": false,
+        "device": "enp3s0",
+        "found": true,
+        "kernel": "6.1.0-27-amd64",
+        "modalias": "pci:v00008086d00001533sv000015D9sd00001533bc02sc00i00",
+        "module": "igb"
+      }
+    ],
+    "storage": [
+      {
+        "builtin": false,
+        "device": "t0",
+        "found": true,
+        "kernel": "6.1.0-27-amd64",
+        "modalias": "pci:v0000144Dd0000A80Asv0000144Dsd0000A801bc01sc08i02",
+        "module": "nvme"
+      }
+    ]
+  },
+  "format": "restow-plan-v1",
+  "mapping": [
+    {
+      "action": "erase",
+      "reason": "size",
+      "source": "d0",
+      "target": "t0"
+    }
+  ],
+  "minimumSizes": {
+    "disks": [
+      {
+        "disk": "d0",
+        "kname": "nvme0n1",
+        "minBytes": 124766912512,
+        "sizeBytes": 512110190592
+      }
+    ],
+    "filesystems": [
+      {
+        "fs": "f0",
+        "minBytes": 536870912,
+        "mount": "/boot/efi",
+        "restoreBytes": 6291456,
+        "type": "vfat"
+      },
+      {
+        "fs": "f1",
+        "minBytes": 972239668,
+        "mount": "/boot",
+        "restoreBytes": 204682035,
+        "type": "ext4"
+      },
+      {
+        "fs": "f2",
+        "minBytes": 12844492250,
+        "mount": "/",
+        "restoreBytes": 10737418240,
+        "type": "ext4"
+      },
+      {
+        "fs": "f3",
+        "minBytes": 101745697033,
+        "mount": "/home",
+        "restoreBytes": 85899345920,
+        "type": "ext4"
+      }
+    ],
+    "lvs": [
+      {
+        "lv": "root",
+        "minBytes": 12847153152,
+        "vg": "srv01-vg"
+      },
+      {
+        "lv": "swap_1",
+        "minBytes": 8589934592,
+        "vg": "srv01-vg"
+      },
+      {
+        "lv": "home",
+        "minBytes": 101749620736,
+        "vg": "srv01-vg"
+      }
+    ],
+    "thinPools": []
+  },
+  "ok": true,
+  "problems": [],
+  "secureBoot": {
+    "checked": true,
+    "loaders": [
+      {
+        "detail": null,
+        "path": "/boot/efi/EFI/BOOT/BOOTX64.EFI",
+        "verdict": "ok"
+      },
+      {
+        "detail": null,
+        "path": "/boot/efi/EFI/BOOT/fbx64.efi",
+        "verdict": "ok"
+      },
+      {
+        "detail": null,
+        "path": "/boot/efi/EFI/debian/grubx64.efi",
+        "verdict": "ok"
+      },
+      {
+        "detail": null,
+        "path": "/boot/efi/EFI/debian/shimx64.efi",
+        "verdict": "ok"
+      }
+    ],
+    "targetSecureBoot": true
+  },
+  "steps": [
+    {
+      "args": [
+        "release-holders",
+        "/dev/nvme0n1"
+      ],
+      "kind": "release_holders",
+      "n": 1,
+      "phase": "prepare",
+      "reason": "stop everything that holds /dev/nvme0n1 (mounts, swap, LVM, md, dm)",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/nvme0n1"
+    },
+    {
+      "args": [
+        "wipefs",
+        "-a",
+        "/dev/nvme0n1"
+      ],
+      "kind": "wipe",
+      "n": 2,
+      "phase": "prepare",
+      "reason": "remove the signatures of the old content of /dev/nvme0n1 (its partitions first)",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/nvme0n1"
+    },
+    {
+      "args": [
+        "blkzero",
+        "--head=16777216",
+        "--tail=16777216",
+        "/dev/nvme0n1"
+      ],
+      "kind": "zero_range",
+      "n": 3,
+      "phase": "prepare",
+      "reason": "zero the first and last 16 MiB of /dev/nvme0n1",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/nvme0n1"
+    },
+    {
+      "args": [
+        "sfdisk",
+        "--no-reread",
+        "--wipe",
+        "always",
+        "/dev/nvme0n1"
+      ],
+      "kind": "partition",
+      "n": 4,
+      "phase": "partition",
+      "reason": "recreate the GPT of d0 with its identifiers (PARTUUIDs stay)",
+      "stdin": "label: gpt\nlabel-id: 0F6C5E2A-1B3D-4C5E-9F70-8192A3B4C5D6\nunit: sectors\nsector-size: 512\n\n/dev/nvme0n1p1 : start=2048, size=1048576, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B, uuid=5e1c4d0a-1b2c-4d3e-8f90-a1b2c3d4e5f6, name=\"EFI System Partition\"\n/dev/nvme0n1p2 : start=1050624, size=1998848, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, uuid=6f2d5e1b-2c3d-4e4f-9a01-b2c3d4e5f607\n/dev/nvme0n1p3 : start=3049472, size=247017472, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, uuid=7a3e6f2c-3d4e-4f50-8b12-c3d4e5f60718\n",
+      "stdinSecret": null,
+      "target": "/dev/nvme0n1"
+    },
+    {
+      "args": [
+        "cryptsetup",
+        "luksFormat",
+        "--type",
+        "luks2",
+        "--uuid",
+        "2b1f0c3e-6d7a-4e8b-9c0d-1e2f3a4b5c6d",
+        "--cipher",
+        "aes-xts-plain64",
+        "--key-size",
+        "512",
+        "--sector-size",
+        "512",
+        "--pbkdf",
+        "argon2id",
+        "--iter-time",
+        "2000",
+        "--pbkdf-memory",
+        "1048576",
+        "--batch-mode",
+        "--key-file",
+        "-",
+        "/dev/nvme0n1p3"
+      ],
+      "kind": "luks_format",
+      "n": 5,
+      "phase": "luks",
+      "reason": "create LUKS volume c0 with a new master key and its UUID",
+      "stdin": null,
+      "stdinSecret": "passphrase",
+      "target": "/dev/nvme0n1p3"
+    },
+    {
+      "args": [
+        "cryptsetup",
+        "open",
+        "--key-file",
+        "-",
+        "/dev/nvme0n1p3",
+        "nvme0n1p3_crypt"
+      ],
+      "kind": "luks_open",
+      "n": 6,
+      "phase": "luks",
+      "reason": "open c0 under its crypttab name",
+      "stdin": null,
+      "stdinSecret": "passphrase",
+      "target": "/dev/nvme0n1p3"
+    },
+    {
+      "args": [
+        "cryptsetup",
+        "refresh",
+        "--persistent",
+        "--key-file",
+        "-",
+        "--allow-discards",
+        "nvme0n1p3_crypt"
+      ],
+      "kind": "luks_refresh",
+      "n": 7,
+      "phase": "luks",
+      "reason": "store the activation flags of c0",
+      "stdin": null,
+      "stdinSecret": "passphrase",
+      "target": "/dev/nvme0n1p3"
+    },
+    {
+      "args": [
+        "pvcreate",
+        "--devices",
+        "/dev/mapper/nvme0n1p3_crypt",
+        "--uuid",
+        "Ab12Cd-34Ef-56Gh-78Ij-90Kl-12Mn-34OpQr",
+        "--norestorefile",
+        "--yes",
+        "/dev/mapper/nvme0n1p3_crypt"
+      ],
+      "kind": "pv_create",
+      "n": 8,
+      "phase": "lvm",
+      "reason": "create the physical volume with its UUID",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/mapper/nvme0n1p3_crypt"
+    },
+    {
+      "args": [
+        "vgcreate",
+        "--devices",
+        "/dev/mapper/nvme0n1p3_crypt",
+        "-s",
+        "4096k",
+        "srv01-vg",
+        "/dev/mapper/nvme0n1p3_crypt"
+      ],
+      "kind": "vg_create",
+      "n": 9,
+      "phase": "lvm",
+      "reason": "create the volume group srv01-vg",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "srv01-vg"
+    },
+    {
+      "args": [
+        "lvcreate",
+        "--devices",
+        "/dev/mapper/nvme0n1p3_crypt",
+        "--yes",
+        "-n",
+        "root",
+        "-L",
+        "16114515968b",
+        "srv01-vg"
+      ],
+      "kind": "lv_create",
+      "n": 10,
+      "phase": "lvm",
+      "reason": "create LV srv01-vg/root",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "srv01-vg/root"
+    },
+    {
+      "args": [
+        "lvcreate",
+        "--devices",
+        "/dev/mapper/nvme0n1p3_crypt",
+        "--yes",
+        "-n",
+        "swap_1",
+        "-L",
+        "8589934592b",
+        "srv01-vg"
+      ],
+      "kind": "lv_create",
+      "n": 11,
+      "phase": "lvm",
+      "reason": "create LV srv01-vg/swap_1",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "srv01-vg/swap_1"
+    },
+    {
+      "args": [
+        "lvcreate",
+        "--devices",
+        "/dev/mapper/nvme0n1p3_crypt",
+        "--yes",
+        "-n",
+        "home",
+        "-L",
+        "101749620736b",
+        "srv01-vg"
+      ],
+      "kind": "lv_create",
+      "n": 12,
+      "phase": "lvm",
+      "reason": "create LV srv01-vg/home",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "srv01-vg/home"
+    },
+    {
+      "args": [
+        "mkfs.vfat",
+        "-F",
+        "32",
+        "-i",
+        "1A2B3C4D",
+        "-S",
+        "512",
+        "-s",
+        "8",
+        "/dev/nvme0n1p1"
+      ],
+      "kind": "mkfs",
+      "n": 13,
+      "phase": "mkfs",
+      "reason": "create vfat f0 with its UUID and recorded features",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/nvme0n1p1"
+    },
+    {
+      "args": [
+        "mkfs.ext4",
+        "-F",
+        "-t",
+        "ext4",
+        "-U",
+        "8b9c0d1e-2f3a-4b5c-6d7e-8f9a0b1c2d3e",
+        "-b",
+        "4096",
+        "-I",
+        "256",
+        "-N",
+        "249856",
+        "-m",
+        "5",
+        "-O",
+        "none,has_journal,ext_attr,resize_inode,dir_index,filetype,extent,64bit,flex_bg,sparse_super,large_file,huge_file,dir_nlink,extra_isize,metadata_csum",
+        "-G",
+        "16",
+        "-J",
+        "size=128",
+        "/dev/nvme0n1p2"
+      ],
+      "kind": "mkfs",
+      "n": 14,
+      "phase": "mkfs",
+      "reason": "create ext4 f1 with its UUID and recorded features",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/nvme0n1p2"
+    },
+    {
+      "args": [
+        "mkfs.ext4",
+        "-F",
+        "-t",
+        "ext4",
+        "-U",
+        "9c0d1e2f-3a4b-5c6d-7e8f-9a0b1c2d3e4f",
+        "-b",
+        "4096",
+        "-I",
+        "256",
+        "-N",
+        "1035317",
+        "-m",
+        "5",
+        "-O",
+        "none,has_journal,ext_attr,resize_inode,dir_index,filetype,extent,64bit,flex_bg,sparse_super,large_file,huge_file,dir_nlink,extra_isize,metadata_csum",
+        "-G",
+        "16",
+        "-J",
+        "size=128",
+        "/dev/srv01-vg/root"
+      ],
+      "kind": "mkfs",
+      "n": 15,
+      "phase": "mkfs",
+      "reason": "create ext4 f2 with its UUID and recorded features",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/srv01-vg/root"
+    },
+    {
+      "args": [
+        "mkfs.ext4",
+        "-F",
+        "-t",
+        "ext4",
+        "-U",
+        "0d1e2f3a-4b5c-6d7e-8f9a-0b1c2d3e4f50",
+        "-b",
+        "4096",
+        "-I",
+        "256",
+        "-N",
+        "6537162",
+        "-m",
+        "5",
+        "-O",
+        "none,has_journal,ext_attr,resize_inode,dir_index,filetype,extent,64bit,flex_bg,sparse_super,large_file,huge_file,dir_nlink,extra_isize,metadata_csum",
+        "-G",
+        "16",
+        "-J",
+        "size=128",
+        "/dev/srv01-vg/home"
+      ],
+      "kind": "mkfs",
+      "n": 16,
+      "phase": "mkfs",
+      "reason": "create ext4 f3 with its UUID and recorded features",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/srv01-vg/home"
+    },
+    {
+      "args": [
+        "mkswap",
+        "-U",
+        "1e2f3a4b-5c6d-7e8f-9a0b-1c2d3e4f5061",
+        "/dev/srv01-vg/swap_1"
+      ],
+      "kind": "mkswap",
+      "n": 17,
+      "phase": "mkfs",
+      "reason": "create the swap area with its UUID",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/srv01-vg/swap_1"
+    },
+    {
+      "args": [
+        "mount",
+        "-t",
+        "ext4",
+        "/dev/srv01-vg/root",
+        "{target_root}"
+      ],
+      "kind": "mount",
+      "n": 18,
+      "phase": "mount",
+      "reason": "mount f2 at /",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/srv01-vg/root"
+    },
+    {
+      "args": [
+        "mount",
+        "-t",
+        "ext4",
+        "/dev/nvme0n1p2",
+        "{target_root}/boot"
+      ],
+      "kind": "mount",
+      "n": 19,
+      "phase": "mount",
+      "reason": "mount f1 at /boot",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/nvme0n1p2"
+    },
+    {
+      "args": [
+        "mount",
+        "-t",
+        "ext4",
+        "/dev/srv01-vg/home",
+        "{target_root}/home"
+      ],
+      "kind": "mount",
+      "n": 20,
+      "phase": "mount",
+      "reason": "mount f3 at /home",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/srv01-vg/home"
+    },
+    {
+      "args": [
+        "mount",
+        "-t",
+        "vfat",
+        "-o",
+        "quiet",
+        "/dev/nvme0n1p1",
+        "{target_root}/boot/efi"
+      ],
+      "kind": "mount",
+      "n": 21,
+      "phase": "mount",
+      "reason": "mount f0 at /boot/efi",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/nvme0n1p1"
+    },
+    {
+      "args": [
+        "restic",
+        "restore",
+        "--json",
+        "--no-lock",
+        "--no-cache",
+        "--target",
+        "{target_root}",
+        "--sparse",
+        "--verify",
+        "--overwrite",
+        "never",
+        "{snapshot}"
+      ],
+      "kind": "restore",
+      "n": 22,
+      "phase": "restore",
+      "reason": "restore the files of the snapshot",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": null
+    },
+    {
+      "args": [
+        "mkdirs",
+        "/proc:0555",
+        "/sys:0555",
+        "/dev:0755",
+        "/run:0755",
+        "/tmp:1777",
+        "/boot:0755",
+        "/boot/efi:0755",
+        "/home:0755"
+      ],
+      "kind": "mkdirs",
+      "n": 23,
+      "phase": "post",
+      "reason": "create mount points and API folders that the snapshot may lack",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": null
+    },
+    {
+      "args": [
+        "fixup",
+        "/etc/crypttab",
+        "crypttab"
+      ],
+      "kind": "fixup",
+      "n": 24,
+      "phase": "post",
+      "reason": "rewrite device references in /etc/crypttab",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/etc/crypttab"
+    },
+    {
+      "args": [
+        "fixup",
+        "/etc/default/grub",
+        "cmdline"
+      ],
+      "kind": "fixup",
+      "n": 25,
+      "phase": "post",
+      "reason": "rewrite device references in /etc/default/grub",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/etc/default/grub"
+    },
+    {
+      "args": [
+        "fixup",
+        "/etc/fstab",
+        "fstab"
+      ],
+      "kind": "fixup",
+      "n": 26,
+      "phase": "post",
+      "reason": "rewrite device references in /etc/fstab",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/etc/fstab"
+    },
+    {
+      "args": [
+        "fixup",
+        "/etc/initramfs-tools/conf.d/resume",
+        "resume"
+      ],
+      "kind": "fixup",
+      "n": 27,
+      "phase": "post",
+      "reason": "rewrite device references in /etc/initramfs-tools/conf.d/resume",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/etc/initramfs-tools/conf.d/resume"
+    },
+    {
+      "args": [
+        "chroot-exec",
+        "update-initramfs",
+        "-u",
+        "-k",
+        "6.1.0-27-amd64"
+      ],
+      "kind": "initramfs",
+      "n": 28,
+      "phase": "post",
+      "reason": "rebuild the initramfs with MODULES=most",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": null
+    },
+    {
+      "args": [
+        "chroot-exec",
+        "grub-mkconfig",
+        "-o",
+        "/boot/grub/grub.cfg"
+      ],
+      "kind": "grub_config",
+      "n": 29,
+      "phase": "post",
+      "reason": "write the GRUB configuration",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/boot/grub/grub.cfg"
+    },
+    {
+      "args": [
+        "nvram",
+        "--label",
+        "debian",
+        "--partuuid",
+        "5e1c4d0a-1b2c-4d3e-8f90-a1b2c3d4e5f6",
+        "--loader",
+        "\\EFI\\debian\\shimx64.efi"
+      ],
+      "kind": "nvram",
+      "n": 30,
+      "phase": "post",
+      "reason": "create the boot entry debian",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "5e1c4d0a-1b2c-4d3e-8f90-a1b2c3d4e5f6"
+    },
+    {
+      "args": [
+        "verify"
+      ],
+      "kind": "verify",
+      "n": 31,
+      "phase": "post",
+      "reason": "check the restored system (identities, fstab, boot files)",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": null
+    }
+  ],
+  "target": "hardware",
+  "warnings": [
+    {
+      "code": "partition_shrunk",
+      "message": "Partition d0p3 shrinks from 510547460096 to 126472945664 bytes.",
+      "params": {
+        "fromBytes": 510547460096,
+        "partition": "d0p3",
+        "toBytes": 126472945664
+      },
+      "ref": "d0p3",
+      "severity": "warning"
+    },
+    {
+      "code": "lv_shrunk",
+      "message": "LV srv01-vg/root shrinks from 53687091200 to 16114515968 bytes.",
+      "params": {
+        "fromBytes": 53687091200,
+        "lv": "root",
+        "toBytes": 16114515968,
+        "vg": "srv01-vg"
+      },
+      "ref": "srv01-vg/root",
+      "severity": "warning"
+    },
+    {
+      "code": "lv_shrunk",
+      "message": "LV srv01-vg/home shrinks from 429496729600 to 101749620736 bytes.",
+      "params": {
+        "fromBytes": 429496729600,
+        "lv": "home",
+        "toBytes": 101749620736,
+        "vg": "srv01-vg"
+      },
+      "ref": "srv01-vg/home",
+      "severity": "warning"
+    },
+    {
+      "code": "secure_boot_dbx_unknown",
+      "message": "The revocation list (dbx) of the target is not known; revoked loaders were not checked.",
+      "params": {},
+      "ref": null,
+      "severity": "warning"
+    }
+  ]
+}

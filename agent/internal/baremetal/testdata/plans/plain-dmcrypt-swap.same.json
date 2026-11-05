@@ -1,0 +1,594 @@
+{
+  "adopted": [],
+  "disks": [
+    {
+      "disk": "d0",
+      "lvs": [],
+      "partitions": [
+        {
+          "grown": false,
+          "number": 1,
+          "realigned": false,
+          "shrunk": false,
+          "sizeBytes": 536870912,
+          "sizeLba": 1048576,
+          "startBytes": 1048576,
+          "startLba": 2048
+        },
+        {
+          "grown": false,
+          "number": 2,
+          "realigned": false,
+          "shrunk": false,
+          "sizeBytes": 59559116800,
+          "sizeLba": 116326400,
+          "startBytes": 537919488,
+          "startLba": 1050624
+        },
+        {
+          "grown": false,
+          "number": 3,
+          "realigned": false,
+          "shrunk": false,
+          "sizeBytes": 8589934592,
+          "sizeLba": 16777216,
+          "startBytes": 60097036288,
+          "startLba": 117377024
+        }
+      ],
+      "sectorSize": 512,
+      "table": "gpt",
+      "target": "t0"
+    },
+    {
+      "disk": "d1",
+      "lvs": [],
+      "partitions": [
+        {
+          "grown": false,
+          "number": 1,
+          "realigned": false,
+          "shrunk": false,
+          "sizeBytes": 106954752000,
+          "sizeLba": 208896000,
+          "startBytes": 1048576,
+          "startLba": 2048
+        }
+      ],
+      "sectorSize": 512,
+      "table": "gpt",
+      "target": "t1"
+    }
+  ],
+  "drivers": {
+    "fallback": null,
+    "kernel": "6.1.0-27-amd64",
+    "nics": [],
+    "storage": [
+      {
+        "builtin": false,
+        "device": "t0",
+        "found": true,
+        "kernel": "6.1.0-27-amd64",
+        "modalias": "virtio:d00000002v00001AF4",
+        "module": "virtio_blk"
+      },
+      {
+        "builtin": false,
+        "device": "t0",
+        "found": true,
+        "kernel": "6.1.0-27-amd64",
+        "modalias": "pci:v00001AF4d00001001sv00001AF4sd00000002bc01sc00i00",
+        "module": "virtio_pci"
+      }
+    ]
+  },
+  "format": "restow-plan-v1",
+  "mapping": [
+    {
+      "action": "erase",
+      "reason": "size_transport",
+      "source": "d0",
+      "target": "t0"
+    },
+    {
+      "action": "erase",
+      "reason": "size_transport",
+      "source": "d1",
+      "target": "t1"
+    }
+  ],
+  "minimumSizes": {
+    "disks": [
+      {
+        "disk": "d0",
+        "kname": "vda",
+        "minBytes": 23363321856,
+        "sizeBytes": 68719476736
+      },
+      {
+        "disk": "d1",
+        "kname": "vdb",
+        "minBytes": 25447890944,
+        "sizeBytes": 107374182400
+      }
+    ],
+    "filesystems": [
+      {
+        "fs": "f0",
+        "minBytes": 536870912,
+        "mount": "/boot/efi",
+        "restoreBytes": 6291456,
+        "type": "vfat"
+      },
+      {
+        "fs": "f1",
+        "minBytes": 14233573575,
+        "mount": "/",
+        "restoreBytes": 11911823360,
+        "type": "ext4"
+      },
+      {
+        "fs": "f2",
+        "minBytes": 25445444267,
+        "mount": "/srv/data",
+        "restoreBytes": 21390950400,
+        "type": "ext4"
+      }
+    ],
+    "lvs": [],
+    "thinPools": []
+  },
+  "ok": true,
+  "problems": [],
+  "secureBoot": {
+    "checked": true,
+    "loaders": [
+      {
+        "detail": null,
+        "path": "/boot/efi/EFI/BOOT/BOOTX64.EFI",
+        "verdict": "ok"
+      },
+      {
+        "detail": null,
+        "path": "/boot/efi/EFI/BOOT/fbx64.efi",
+        "verdict": "ok"
+      },
+      {
+        "detail": null,
+        "path": "/boot/efi/EFI/debian/grubx64.efi",
+        "verdict": "ok"
+      },
+      {
+        "detail": null,
+        "path": "/boot/efi/EFI/debian/shimx64.efi",
+        "verdict": "ok"
+      }
+    ],
+    "targetSecureBoot": true
+  },
+  "steps": [
+    {
+      "args": [
+        "release-holders",
+        "/dev/vda"
+      ],
+      "kind": "release_holders",
+      "n": 1,
+      "phase": "prepare",
+      "reason": "stop everything that holds /dev/vda (mounts, swap, LVM, md, dm)",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/vda"
+    },
+    {
+      "args": [
+        "wipefs",
+        "-a",
+        "/dev/vda"
+      ],
+      "kind": "wipe",
+      "n": 2,
+      "phase": "prepare",
+      "reason": "remove the signatures of the old content of /dev/vda (its partitions first)",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/vda"
+    },
+    {
+      "args": [
+        "blkzero",
+        "--head=16777216",
+        "--tail=16777216",
+        "/dev/vda"
+      ],
+      "kind": "zero_range",
+      "n": 3,
+      "phase": "prepare",
+      "reason": "zero the first and last 16 MiB of /dev/vda",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/vda"
+    },
+    {
+      "args": [
+        "release-holders",
+        "/dev/vdb"
+      ],
+      "kind": "release_holders",
+      "n": 4,
+      "phase": "prepare",
+      "reason": "stop everything that holds /dev/vdb (mounts, swap, LVM, md, dm)",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/vdb"
+    },
+    {
+      "args": [
+        "wipefs",
+        "-a",
+        "/dev/vdb"
+      ],
+      "kind": "wipe",
+      "n": 5,
+      "phase": "prepare",
+      "reason": "remove the signatures of the old content of /dev/vdb (its partitions first)",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/vdb"
+    },
+    {
+      "args": [
+        "blkzero",
+        "--head=16777216",
+        "--tail=16777216",
+        "/dev/vdb"
+      ],
+      "kind": "zero_range",
+      "n": 6,
+      "phase": "prepare",
+      "reason": "zero the first and last 16 MiB of /dev/vdb",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/vdb"
+    },
+    {
+      "args": [
+        "sfdisk",
+        "--no-reread",
+        "--wipe",
+        "always",
+        "/dev/vda"
+      ],
+      "kind": "partition",
+      "n": 7,
+      "phase": "partition",
+      "reason": "recreate the GPT of d0 with its identifiers (PARTUUIDs stay)",
+      "stdin": "label: gpt\nlabel-id: F90A1B2C-3D4E-4F50-6172-839405A6B7C8\nunit: sectors\nsector-size: 512\n\n/dev/vda1 : start=2048, size=1048576, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B, uuid=ae100000-0000-4000-8000-000000000001\n/dev/vda2 : start=1050624, size=116326400, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, uuid=ae100000-0000-4000-8000-000000000002\n/dev/vda3 : start=117377024, size=16777216, type=0657FD6D-A4AB-43C4-84E5-0933C84B4F4F, uuid=ae100000-0000-4000-8000-000000000003\n",
+      "stdinSecret": null,
+      "target": "/dev/vda"
+    },
+    {
+      "args": [
+        "sfdisk",
+        "--no-reread",
+        "--wipe",
+        "always",
+        "/dev/vdb"
+      ],
+      "kind": "partition",
+      "n": 8,
+      "phase": "partition",
+      "reason": "recreate the GPT of d1 with its identifiers (PARTUUIDs stay)",
+      "stdin": "label: gpt\nlabel-id: 0A1B2C3D-4E4F-5061-7283-9405A6B7C8D9\nunit: sectors\nsector-size: 512\n\n/dev/vdb1 : start=2048, size=208896000, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, uuid=ae200000-0000-4000-8000-000000000001, name=\"data\"\n",
+      "stdinSecret": null,
+      "target": "/dev/vdb"
+    },
+    {
+      "args": [
+        "mkfs.vfat",
+        "-F",
+        "32",
+        "-i",
+        "5D6E7F80",
+        "-S",
+        "512",
+        "-s",
+        "8",
+        "/dev/vda1"
+      ],
+      "kind": "mkfs",
+      "n": 9,
+      "phase": "mkfs",
+      "reason": "create vfat f0 with its UUID and recorded features",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/vda1"
+    },
+    {
+      "args": [
+        "mkfs.ext4",
+        "-F",
+        "-t",
+        "ext4",
+        "-U",
+        "ae000000-0000-4000-8000-000000000001",
+        "-b",
+        "4096",
+        "-I",
+        "256",
+        "-N",
+        "3826526",
+        "-m",
+        "5",
+        "-O",
+        "none,has_journal,ext_attr,resize_inode,dir_index,filetype,extent,64bit,flex_bg,sparse_super,large_file,huge_file,dir_nlink,extra_isize,metadata_csum",
+        "-G",
+        "16",
+        "-J",
+        "size=128",
+        "/dev/vda2"
+      ],
+      "kind": "mkfs",
+      "n": 10,
+      "phase": "mkfs",
+      "reason": "create ext4 f1 with its UUID and recorded features",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/vda2"
+    },
+    {
+      "args": [
+        "mkfs.ext4",
+        "-F",
+        "-t",
+        "ext4",
+        "-U",
+        "ae300000-0000-4000-8000-000000000001",
+        "-L",
+        "data",
+        "-b",
+        "4096",
+        "-I",
+        "256",
+        "-N",
+        "6871578",
+        "-m",
+        "5",
+        "-O",
+        "none,has_journal,ext_attr,resize_inode,dir_index,filetype,extent,64bit,flex_bg,sparse_super,large_file,huge_file,dir_nlink,extra_isize,metadata_csum",
+        "-G",
+        "16",
+        "-J",
+        "size=128",
+        "/dev/vdb1"
+      ],
+      "kind": "mkfs",
+      "n": 11,
+      "phase": "mkfs",
+      "reason": "create ext4 f2 with its UUID and recorded features",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/vdb1"
+    },
+    {
+      "args": [
+        "mount",
+        "-t",
+        "ext4",
+        "/dev/vda2",
+        "{target_root}"
+      ],
+      "kind": "mount",
+      "n": 12,
+      "phase": "mount",
+      "reason": "mount f1 at /",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/vda2"
+    },
+    {
+      "args": [
+        "mount",
+        "-t",
+        "vfat",
+        "-o",
+        "quiet",
+        "/dev/vda1",
+        "{target_root}/boot/efi"
+      ],
+      "kind": "mount",
+      "n": 13,
+      "phase": "mount",
+      "reason": "mount f0 at /boot/efi",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/vda1"
+    },
+    {
+      "args": [
+        "mount",
+        "-t",
+        "ext4",
+        "/dev/vdb1",
+        "{target_root}/srv/data"
+      ],
+      "kind": "mount",
+      "n": 14,
+      "phase": "mount",
+      "reason": "mount f2 at /srv/data",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/vdb1"
+    },
+    {
+      "args": [
+        "restic",
+        "restore",
+        "--json",
+        "--no-lock",
+        "--no-cache",
+        "--target",
+        "{target_root}",
+        "--sparse",
+        "--verify",
+        "--overwrite",
+        "never",
+        "{snapshot}"
+      ],
+      "kind": "restore",
+      "n": 15,
+      "phase": "restore",
+      "reason": "restore the files of the snapshot",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": null
+    },
+    {
+      "args": [
+        "mkdirs",
+        "/proc:0555",
+        "/sys:0555",
+        "/dev:0755",
+        "/run:0755",
+        "/tmp:1777",
+        "/boot/efi:0755",
+        "/srv/data:0755"
+      ],
+      "kind": "mkdirs",
+      "n": 16,
+      "phase": "post",
+      "reason": "create mount points and API folders that the snapshot may lack",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": null
+    },
+    {
+      "args": [
+        "fixup",
+        "/etc/crypttab",
+        "crypttab"
+      ],
+      "kind": "fixup",
+      "n": 17,
+      "phase": "post",
+      "reason": "rewrite device references in /etc/crypttab",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/etc/crypttab"
+    },
+    {
+      "args": [
+        "fixup",
+        "/etc/default/grub",
+        "cmdline"
+      ],
+      "kind": "fixup",
+      "n": 18,
+      "phase": "post",
+      "reason": "rewrite device references in /etc/default/grub",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/etc/default/grub"
+    },
+    {
+      "args": [
+        "fixup",
+        "/etc/fstab",
+        "fstab"
+      ],
+      "kind": "fixup",
+      "n": 19,
+      "phase": "post",
+      "reason": "rewrite device references in /etc/fstab",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/etc/fstab"
+    },
+    {
+      "args": [
+        "fixup",
+        "/etc/initramfs-tools/conf.d/resume",
+        "resume"
+      ],
+      "kind": "fixup",
+      "n": 20,
+      "phase": "post",
+      "reason": "rewrite device references in /etc/initramfs-tools/conf.d/resume",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/etc/initramfs-tools/conf.d/resume"
+    },
+    {
+      "args": [
+        "chroot-exec",
+        "update-initramfs",
+        "-u",
+        "-k",
+        "6.1.0-27-amd64"
+      ],
+      "kind": "initramfs",
+      "n": 21,
+      "phase": "post",
+      "reason": "rebuild the initramfs with MODULES=most",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": null
+    },
+    {
+      "args": [
+        "chroot-exec",
+        "grub-mkconfig",
+        "-o",
+        "/boot/grub/grub.cfg"
+      ],
+      "kind": "grub_config",
+      "n": 22,
+      "phase": "post",
+      "reason": "write the GRUB configuration",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/boot/grub/grub.cfg"
+    },
+    {
+      "args": [
+        "nvram",
+        "--label",
+        "debian",
+        "--partuuid",
+        "ae100000-0000-4000-8000-000000000001",
+        "--loader",
+        "\\EFI\\debian\\shimx64.efi"
+      ],
+      "kind": "nvram",
+      "n": 23,
+      "phase": "post",
+      "reason": "create the boot entry debian",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "ae100000-0000-4000-8000-000000000001"
+    },
+    {
+      "args": [
+        "verify"
+      ],
+      "kind": "verify",
+      "n": 24,
+      "phase": "post",
+      "reason": "check the restored system (identities, fstab, boot files)",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": null
+    }
+  ],
+  "target": "same",
+  "warnings": [
+    {
+      "code": "secure_boot_dbx_unknown",
+      "message": "The revocation list (dbx) of the target is not known; revoked loaders were not checked.",
+      "params": {},
+      "ref": null,
+      "severity": "warning"
+    }
+  ]
+}

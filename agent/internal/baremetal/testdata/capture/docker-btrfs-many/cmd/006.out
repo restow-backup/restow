@@ -1,6 +1,6 @@
 superblock: bytenr=65536, device=/dev/sda2
 ---------------------------------------------------------
-csum_type		0 (crc32c)
+csum_type		1 (xxhash)
 fsid			b1000000-0000-4000-8000-000000000001
 label			
 nodesize		16384

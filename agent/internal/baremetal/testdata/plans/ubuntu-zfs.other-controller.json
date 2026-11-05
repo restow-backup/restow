@@ -1,0 +1,70 @@
+{
+  "adopted": [],
+  "disks": [],
+  "drivers": {
+    "fallback": null,
+    "kernel": null,
+    "nics": [],
+    "storage": []
+  },
+  "format": "restow-plan-v1",
+  "mapping": [],
+  "minimumSizes": {
+    "disks": [
+      {
+        "disk": "d0",
+        "kname": "sda",
+        "minBytes": 499711475712,
+        "sizeBytes": 500107862016
+      }
+    ],
+    "filesystems": [
+      {
+        "fs": "f0",
+        "minBytes": 536870912,
+        "mount": "/boot/efi",
+        "restoreBytes": 6291456,
+        "type": "vfat"
+      },
+      {
+        "fs": "f1",
+        "minBytes": 2147483648,
+        "mount": null,
+        "restoreBytes": 0,
+        "type": "zfs_member"
+      },
+      {
+        "fs": "f2",
+        "minBytes": 497025024000,
+        "mount": null,
+        "restoreBytes": 0,
+        "type": "zfs_member"
+      }
+    ],
+    "lvs": [],
+    "thinPools": []
+  },
+  "ok": false,
+  "problems": [
+    {
+      "code": "layout_unsupported",
+      "message": "The layout of this snapshot cannot be restored to bare metal (fs_type_unsupported).",
+      "params": {
+        "codes": [
+          "fs_type_unsupported"
+        ],
+        "reason": "fs_type_unsupported"
+      },
+      "ref": null,
+      "severity": "problem"
+    }
+  ],
+  "secureBoot": {
+    "checked": false,
+    "loaders": [],
+    "targetSecureBoot": false
+  },
+  "steps": [],
+  "target": "other-controller",
+  "warnings": []
+}

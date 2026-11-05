@@ -1,0 +1,720 @@
+{
+  "adopted": [],
+  "disks": [
+    {
+      "disk": "d0",
+      "lvs": [],
+      "partitions": [
+        {
+          "grown": false,
+          "number": 1,
+          "realigned": false,
+          "shrunk": true,
+          "sizeBytes": 1997999250432,
+          "sizeLba": 3902342286,
+          "startBytes": 1048576,
+          "startLba": 2048
+        },
+        {
+          "grown": false,
+          "number": 2,
+          "realigned": true,
+          "shrunk": false,
+          "sizeBytes": 2397884416,
+          "sizeLba": 4683368,
+          "startBytes": 1998000750592,
+          "startLba": 3902345216
+        }
+      ],
+      "sectorSize": 512,
+      "table": "dos",
+      "target": "t0"
+    },
+    {
+      "disk": "d1",
+      "lvs": [],
+      "partitions": [
+        {
+          "grown": false,
+          "number": 1,
+          "realigned": false,
+          "shrunk": true,
+          "sizeBytes": 1997999250432,
+          "sizeLba": 3902342286,
+          "startBytes": 1048576,
+          "startLba": 2048
+        },
+        {
+          "grown": false,
+          "number": 2,
+          "realigned": true,
+          "shrunk": false,
+          "sizeBytes": 2397884416,
+          "sizeLba": 4683368,
+          "startBytes": 1998000750592,
+          "startLba": 3902345216
+        }
+      ],
+      "sectorSize": 512,
+      "table": "dos",
+      "target": "t1"
+    }
+  ],
+  "drivers": {
+    "fallback": "5.15.0-124-generic",
+    "kernel": "5.15.0-125-generic",
+    "nics": [],
+    "storage": []
+  },
+  "format": "restow-plan-v1",
+  "mapping": [
+    {
+      "action": "erase",
+      "reason": "identity",
+      "source": "d0",
+      "target": "t0"
+    },
+    {
+      "action": "erase",
+      "reason": "identity",
+      "source": "d1",
+      "target": "t1"
+    }
+  ],
+  "minimumSizes": {
+    "disks": [
+      {
+        "disk": "d0",
+        "kname": "sda",
+        "minBytes": 457187524608,
+        "sizeBytes": 2000398934016
+      },
+      {
+        "disk": "d1",
+        "kname": "sdb",
+        "minBytes": 457187524608,
+        "sizeBytes": 2000398934016
+      }
+    ],
+    "filesystems": [
+      {
+        "fs": "f0",
+        "minBytes": 454653988616,
+        "mount": "/",
+        "restoreBytes": 412345678901,
+        "type": "btrfs"
+      }
+    ],
+    "lvs": [],
+    "thinPools": []
+  },
+  "ok": true,
+  "problems": [],
+  "secureBoot": {
+    "checked": false,
+    "loaders": [],
+    "targetSecureBoot": null
+  },
+  "steps": [
+    {
+      "args": [
+        "release-holders",
+        "/dev/sda"
+      ],
+      "kind": "release_holders",
+      "n": 1,
+      "phase": "prepare",
+      "reason": "stop everything that holds /dev/sda (mounts, swap, LVM, md, dm)",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/sda"
+    },
+    {
+      "args": [
+        "wipefs",
+        "-a",
+        "/dev/sda"
+      ],
+      "kind": "wipe",
+      "n": 2,
+      "phase": "prepare",
+      "reason": "remove the signatures of the old content of /dev/sda (its partitions first)",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/sda"
+    },
+    {
+      "args": [
+        "blkzero",
+        "--head=16777216",
+        "--tail=16777216",
+        "/dev/sda"
+      ],
+      "kind": "zero_range",
+      "n": 3,
+      "phase": "prepare",
+      "reason": "zero the first and last 16 MiB of /dev/sda",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/sda"
+    },
+    {
+      "args": [
+        "release-holders",
+        "/dev/sdb"
+      ],
+      "kind": "release_holders",
+      "n": 4,
+      "phase": "prepare",
+      "reason": "stop everything that holds /dev/sdb (mounts, swap, LVM, md, dm)",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/sdb"
+    },
+    {
+      "args": [
+        "wipefs",
+        "-a",
+        "/dev/sdb"
+      ],
+      "kind": "wipe",
+      "n": 5,
+      "phase": "prepare",
+      "reason": "remove the signatures of the old content of /dev/sdb (its partitions first)",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/sdb"
+    },
+    {
+      "args": [
+        "blkzero",
+        "--head=16777216",
+        "--tail=16777216",
+        "/dev/sdb"
+      ],
+      "kind": "zero_range",
+      "n": 6,
+      "phase": "prepare",
+      "reason": "zero the first and last 16 MiB of /dev/sdb",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/sdb"
+    },
+    {
+      "args": [
+        "sfdisk",
+        "--no-reread",
+        "--wipe",
+        "always",
+        "/dev/sda"
+      ],
+      "kind": "partition",
+      "n": 7,
+      "phase": "partition",
+      "reason": "recreate the DOS of d0 with its identifiers (PARTUUIDs stay)",
+      "stdin": "label: dos\nlabel-id: 0xa1b2c3d4\nunit: sectors\nsector-size: 512\n\n/dev/sda1 : start=2048, size=3902342286, type=fd, bootable\n/dev/sda2 : start=3902345216, size=4683368, type=82\n",
+      "stdinSecret": null,
+      "target": "/dev/sda"
+    },
+    {
+      "args": [
+        "sfdisk",
+        "--no-reread",
+        "--wipe",
+        "always",
+        "/dev/sdb"
+      ],
+      "kind": "partition",
+      "n": 8,
+      "phase": "partition",
+      "reason": "recreate the DOS of d1 with its identifiers (PARTUUIDs stay)",
+      "stdin": "label: dos\nlabel-id: 0xb2c3d4e5\nunit: sectors\nsector-size: 512\n\n/dev/sdb1 : start=2048, size=3902342286, type=fd, bootable\n/dev/sdb2 : start=3902345216, size=4683368, type=82\n",
+      "stdinSecret": null,
+      "target": "/dev/sdb"
+    },
+    {
+      "args": [
+        "mdadm",
+        "--create",
+        "/dev/md/0",
+        "--run",
+        "--level=raid1",
+        "--raid-devices=2",
+        "--metadata=1.2",
+        "--uuid=a1b2c3d4:e5f60718:293a4b5c:6d7e8f90",
+        "--name=0",
+        "--homehost=srv02",
+        "--bitmap=internal",
+        "/dev/sda1",
+        "--write-mostly",
+        "/dev/sdb1"
+      ],
+      "kind": "md_create",
+      "n": 9,
+      "phase": "md",
+      "reason": "create the md array md0 with its UUID (no --assume-clean: it resyncs)",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/md/0"
+    },
+    {
+      "args": [
+        "mkfs.btrfs",
+        "-f",
+        "-U",
+        "4a5b6c7d-8e9f-4a0b-9c1d-2e3f4a5b6c7d",
+        "-n",
+        "16384",
+        "-s",
+        "4096",
+        "--csum",
+        "crc32c",
+        "-O",
+        "extref,no-holes,skinny-metadata,^free-space-tree",
+        "-d",
+        "single",
+        "-m",
+        "dup",
+        "/dev/md/0"
+      ],
+      "kind": "mkfs",
+      "n": 10,
+      "phase": "mkfs",
+      "reason": "create btrfs f0 with its UUID and recorded features",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/md/0"
+    },
+    {
+      "args": [
+        "mount",
+        "-t",
+        "btrfs",
+        "-o",
+        "subvolid=5,device=/dev/md/0",
+        "/dev/md/0",
+        "{target_root}/.restow-btrfs-f0"
+      ],
+      "kind": "mount",
+      "n": 11,
+      "phase": "mkfs",
+      "reason": "mount the top level of f0 to create its subvolumes",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/md/0"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f0/@"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 12,
+      "phase": "mkfs",
+      "reason": "create subvolume @",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f0/@home"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 13,
+      "phase": "mkfs",
+      "reason": "create subvolume @home",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@home"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f0/@/var/lib/machines"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 14,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/machines",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/machines"
+    },
+    {
+      "args": [
+        "umount",
+        "{target_root}/.restow-btrfs-f0"
+      ],
+      "kind": "umount",
+      "n": 15,
+      "phase": "mkfs",
+      "reason": "unmount the top level of f0",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/md/0"
+    },
+    {
+      "args": [
+        "mount",
+        "-t",
+        "btrfs",
+        "-o",
+        "subvol=@,device=/dev/md/0",
+        "/dev/md/0",
+        "{target_root}"
+      ],
+      "kind": "mount",
+      "n": 16,
+      "phase": "mount",
+      "reason": "mount f0 at /",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/md/0"
+    },
+    {
+      "args": [
+        "mount",
+        "-t",
+        "btrfs",
+        "-o",
+        "subvol=@home,device=/dev/md/0",
+        "/dev/md/0",
+        "{target_root}/home"
+      ],
+      "kind": "mount",
+      "n": 17,
+      "phase": "mount",
+      "reason": "mount f0 at /home",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/md/0"
+    },
+    {
+      "args": [
+        "chattr",
+        "+C",
+        "{target_root}/var/lib/libvirt/images"
+      ],
+      "kind": "nocow",
+      "n": 18,
+      "phase": "mount",
+      "reason": "set nodatacow on /var/lib/libvirt/images before the restore",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/var/lib/libvirt/images"
+    },
+    {
+      "args": [
+        "restic",
+        "restore",
+        "--json",
+        "--no-lock",
+        "--no-cache",
+        "--target",
+        "{target_root}",
+        "--sparse",
+        "--verify",
+        "--overwrite",
+        "never",
+        "{snapshot}"
+      ],
+      "kind": "restore",
+      "n": 19,
+      "phase": "restore",
+      "reason": "restore the files of the snapshot",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": null
+    },
+    {
+      "args": [
+        "mkdirs",
+        "/proc:0555",
+        "/sys:0555",
+        "/dev:0755",
+        "/run:0755",
+        "/tmp:1777",
+        "/home:0755"
+      ],
+      "kind": "mkdirs",
+      "n": 20,
+      "phase": "post",
+      "reason": "create mount points and API folders that the snapshot may lack",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": null
+    },
+    {
+      "args": [
+        "fixup",
+        "/boot/grub/device.map",
+        "delete"
+      ],
+      "kind": "fixup",
+      "n": 21,
+      "phase": "post",
+      "reason": "rewrite device references in /boot/grub/device.map",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/boot/grub/device.map"
+    },
+    {
+      "args": [
+        "fixup",
+        "/etc/crypttab",
+        "crypttab"
+      ],
+      "kind": "fixup",
+      "n": 22,
+      "phase": "post",
+      "reason": "rewrite device references in /etc/crypttab",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/etc/crypttab"
+    },
+    {
+      "args": [
+        "fixup",
+        "/etc/default/grub",
+        "cmdline"
+      ],
+      "kind": "fixup",
+      "n": 23,
+      "phase": "post",
+      "reason": "rewrite device references in /etc/default/grub",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/etc/default/grub"
+    },
+    {
+      "args": [
+        "fixup",
+        "/etc/fstab",
+        "fstab"
+      ],
+      "kind": "fixup",
+      "n": 24,
+      "phase": "post",
+      "reason": "rewrite device references in /etc/fstab",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/etc/fstab"
+    },
+    {
+      "args": [
+        "fixup",
+        "/etc/initramfs-tools/conf.d/resume",
+        "resume"
+      ],
+      "kind": "fixup",
+      "n": 25,
+      "phase": "post",
+      "reason": "rewrite device references in /etc/initramfs-tools/conf.d/resume",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/etc/initramfs-tools/conf.d/resume"
+    },
+    {
+      "args": [
+        "fixup",
+        "/etc/mdadm.conf",
+        "mdadm"
+      ],
+      "kind": "fixup",
+      "n": 26,
+      "phase": "post",
+      "reason": "rewrite device references in /etc/mdadm.conf",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/etc/mdadm.conf"
+    },
+    {
+      "args": [
+        "fixup",
+        "/etc/mdadm/mdadm.conf",
+        "mdadm"
+      ],
+      "kind": "fixup",
+      "n": 27,
+      "phase": "post",
+      "reason": "rewrite device references in /etc/mdadm/mdadm.conf",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/etc/mdadm/mdadm.conf"
+    },
+    {
+      "args": [
+        "fixup",
+        "/etc/systemd/system/srv-backup.mount",
+        "mount_unit"
+      ],
+      "kind": "fixup",
+      "n": 28,
+      "phase": "post",
+      "reason": "rewrite device references in /etc/systemd/system/srv-backup.mount",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/etc/systemd/system/srv-backup.mount"
+    },
+    {
+      "args": [
+        "fixup",
+        "/var/cache/debconf/config.dat",
+        "grub_install_devices"
+      ],
+      "kind": "fixup",
+      "n": 29,
+      "phase": "post",
+      "reason": "rewrite device references in /var/cache/debconf/config.dat",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/var/cache/debconf/config.dat"
+    },
+    {
+      "args": [
+        "chroot-exec",
+        "update-initramfs",
+        "-u",
+        "-k",
+        "5.15.0-125-generic"
+      ],
+      "kind": "initramfs",
+      "n": 30,
+      "phase": "post",
+      "reason": "rebuild the initramfs with MODULES=most",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": null
+    },
+    {
+      "args": [
+        "chroot-exec",
+        "grub-mkconfig",
+        "-o",
+        "/boot/grub/grub.cfg"
+      ],
+      "kind": "grub_config",
+      "n": 31,
+      "phase": "post",
+      "reason": "write the GRUB configuration",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/boot/grub/grub.cfg"
+    },
+    {
+      "args": [
+        "chroot-exec",
+        "grub-install",
+        "--target=i386-pc",
+        "--no-nvram",
+        "/dev/sda"
+      ],
+      "kind": "bootloader_bios",
+      "n": 32,
+      "phase": "post",
+      "reason": "install the BIOS boot code of GRUB",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/sda"
+    },
+    {
+      "args": [
+        "chroot-exec",
+        "grub-install",
+        "--target=i386-pc",
+        "--no-nvram",
+        "/dev/sdb"
+      ],
+      "kind": "bootloader_bios",
+      "n": 33,
+      "phase": "post",
+      "reason": "install the BIOS boot code of GRUB",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/sdb"
+    },
+    {
+      "args": [
+        "verify"
+      ],
+      "kind": "verify",
+      "n": 34,
+      "phase": "post",
+      "reason": "check the restored system (identities, fstab, boot files)",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": null
+    }
+  ],
+  "target": "same",
+  "warnings": [
+    {
+      "code": "bios_boot_disk",
+      "message": "Select t0 as the boot disk in the BIOS (or as the boot volume of the controller).",
+      "params": {
+        "target": "t0"
+      },
+      "ref": "t0",
+      "severity": "warning"
+    },
+    {
+      "code": "partition_shrunk",
+      "message": "Partition d0p1 shrinks from 1998000000000 to 1997999250432 bytes.",
+      "params": {
+        "fromBytes": 1998000000000,
+        "partition": "d0p1",
+        "toBytes": 1997999250432
+      },
+      "ref": "d0p1",
+      "severity": "warning"
+    },
+    {
+      "code": "partition_realigned",
+      "message": "Partition d0p2 is moved to a 1 MiB boundary (it started at byte 1998001048576); its PARTUUID stays.",
+      "params": {
+        "fromBytes": 1998001048576,
+        "partition": "d0p2"
+      },
+      "ref": "d0p2",
+      "severity": "warning"
+    },
+    {
+      "code": "partition_shrunk",
+      "message": "Partition d1p1 shrinks from 1998000000000 to 1997999250432 bytes.",
+      "params": {
+        "fromBytes": 1998000000000,
+        "partition": "d1p1",
+        "toBytes": 1997999250432
+      },
+      "ref": "d1p1",
+      "severity": "warning"
+    },
+    {
+      "code": "partition_realigned",
+      "message": "Partition d1p2 is moved to a 1 MiB boundary (it started at byte 1998001048576); its PARTUUID stays.",
+      "params": {
+        "fromBytes": 1998001048576,
+        "partition": "d1p2"
+      },
+      "ref": "d1p2",
+      "severity": "warning"
+    },
+    {
+      "code": "btrfs_csum_assumed",
+      "message": "The checksum type of btrfs f0 is not recorded; crc32c is assumed.",
+      "params": {
+        "fs": "f0"
+      },
+      "ref": "f0",
+      "severity": "warning"
+    }
+  ]
+}

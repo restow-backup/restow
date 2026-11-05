@@ -3,10 +3,10 @@ Filesystem volume name:   <none>
 Filesystem UUID:          ae000000-0000-4000-8000-000000000001
 Filesystem magic number:  0xEF53
 Filesystem features:      has_journal ext_attr resize_inode dir_index filetype needs_recovery extent 64bit flex_bg sparse_super large_file huge_file dir_nlink extra_isize metadata_csum
-Inode count:              3648000
-Block count:              14592000
-Reserved block count:     729600
-Free inodes:              3618000
+Inode count:              3635200
+Block count:              14540800
+Reserved block count:     727040
+Free inodes:              3605200
 Block size:               4096
 Flex block group size:    16
 Inode size:	          256

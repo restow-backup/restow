@@ -1,0 +1,1 @@
+ALTER TYPE "public"."endpoint_report_kind" ADD VALUE 'baremetal_check';

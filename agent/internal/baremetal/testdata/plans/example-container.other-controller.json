@@ -1,0 +1,41 @@
+{
+  "adopted": [],
+  "disks": [],
+  "drivers": {
+    "fallback": null,
+    "kernel": null,
+    "nics": [],
+    "storage": []
+  },
+  "format": "restow-plan-v1",
+  "mapping": [],
+  "minimumSizes": {
+    "disks": [],
+    "filesystems": [],
+    "lvs": [],
+    "thinPools": []
+  },
+  "ok": false,
+  "problems": [
+    {
+      "code": "layout_unsupported",
+      "message": "The layout of this snapshot cannot be restored to bare metal (container).",
+      "params": {
+        "codes": [
+          "container"
+        ],
+        "reason": "container"
+      },
+      "ref": null,
+      "severity": "problem"
+    }
+  ],
+  "secureBoot": {
+    "checked": false,
+    "loaders": [],
+    "targetSecureBoot": null
+  },
+  "steps": [],
+  "target": "other-controller",
+  "warnings": []
+}

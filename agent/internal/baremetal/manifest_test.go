@@ -18,12 +18,16 @@ const manifestDir = "testdata/manifests"
 
 // validExamples are the hand-built manifests of the shared test data.
 func validExamples() map[string]*Manifest {
-	return map[string]*Manifest{
+	out := map[string]*Manifest{
 		"example-debian12-uefi-luks-lvm": exampleDebian(),
 		"example-bios-mdadm-btrfs":       exampleBIOS(),
 		"example-container":              exampleContainer(),
 		"darwin-minimal":                 exampleDarwin(),
 	}
+	for name, m := range planExamples() {
+		out[name] = m
+	}
+	return out
 }
 
 // invalidExamples are manifests both languages must reject, as the bytes

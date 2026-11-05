@@ -437,11 +437,14 @@ type XFSInfo struct {
 
 // BtrfsInfo describes a btrfs file system and its subvolumes.
 type BtrfsInfo struct {
-	DataProfile      string      `json:"dataProfile"`
-	MetadataProfile  string      `json:"metadataProfile"`
-	SystemProfile    string      `json:"systemProfile"`
-	NodeSize         int64       `json:"nodeSize"`
-	SectorSize       int64       `json:"sectorSize"`
+	DataProfile     string `json:"dataProfile"`
+	MetadataProfile string `json:"metadataProfile"`
+	SystemProfile   string `json:"systemProfile"`
+	NodeSize        int64  `json:"nodeSize"`
+	SectorSize      int64  `json:"sectorSize"`
+	// Csum is the checksum type (crc32c, xxhash, sha256, blake2); nil in
+	// manifests written before 0.5.0 M2 (the planner then assumes crc32c).
+	Csum             *string     `json:"csum,omitempty"`
 	Features         []string    `json:"features"`
 	Quota            bool        `json:"quota"`
 	DefaultSubvolume SubvolRef   `json:"defaultSubvolume"`

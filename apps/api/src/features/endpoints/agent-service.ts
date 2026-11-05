@@ -6,8 +6,11 @@ import {
   bandwidthTimeZone,
   cleanDataFolderReport,
   DEFAULT_SCHEDULE_TIMEZONE,
+  ENDPOINT_QUEUES,
+  type EndpointJobPayload,
   effectiveBandwidthKbps,
   endpointPasswordKey,
+  endpointSingletonKey,
   enrolledEndpointConfig,
   enrollmentProfile,
   enrollmentTokenState,
@@ -59,6 +62,8 @@ import { loadTenantDek, storeSecret } from "../../lib/secrets.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { emitWebhookEvent } from "../../lib/webhooks.js";
 import { ProblemError } from "../../problem.js";
+import { pgBossExecutor } from "../jobs/pg-boss-tx.js";
+import { jobQueue } from "../jobs/queue.js";
 import { type AgentContext, FailureTracker } from "./agent-auth.js";
 import { agentActor, auditEndpoint, ENDPOINT_AUDIT_ACTIONS } from "./audit.js";
 import { storeRunLayout } from "./baremetal.js";
@@ -1002,6 +1007,10 @@ export async function finishRun(
           )
           .onConflictDoNothing();
       }
+      // A whole machine backup gets its layout checked (bare metal stage 1) right away.
+      if (good && layoutId) {
+        await queueBaremetalCheck(tx, agent, runId);
+      }
       // Samples of long-gone backups are of no use for a restore test.
       await tx
         .delete(endpointSamples)
@@ -1070,6 +1079,30 @@ export async function finishRun(
     }
     return { runId, status };
   });
+}
+
+/**
+ * Hand stage 1 of the bare metal check (docs/BAREMETAL.md 12.1) to the worker for the run that
+ * just recorded a layout. In a savepoint: a queue that is not there yet (the worker has not
+ * started) must not fail the finish, and nor may anything else pg-boss refuses; the scheduler
+ * catches the check up within the hour.
+ */
+async function queueBaremetalCheck(tx: Transaction, agent: AgentContext, runId: string) {
+  const payload: EndpointJobPayload = {
+    tenantId: agent.tenantId,
+    endpointId: agent.endpointId,
+    runId,
+  };
+  try {
+    await tx.transaction(async (savepoint) => {
+      await jobQueue(db).send(ENDPOINT_QUEUES.baremetalCheck, payload, {
+        singletonKey: endpointSingletonKey(ENDPOINT_QUEUES.baremetalCheck, agent.endpointId),
+        db: pgBossExecutor(savepoint),
+      });
+    });
+  } catch {
+    // The queue is not there yet (isMissingQueueSchema) or pg-boss refused: the run stands.
+  }
 }
 
 type VerifySampleTaskParams = RestoreTestTaskParams;

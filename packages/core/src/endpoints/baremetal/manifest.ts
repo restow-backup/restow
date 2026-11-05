@@ -119,6 +119,9 @@ export const LAYOUT_WARNING_CODES = [
   "capture_failed",
 ] as const;
 
+/** The btrfs checksum types `mkfs.btrfs --csum` accepts (`filesystems[].btrfs.csum`). */
+export const BTRFS_CSUM_TYPES = ["crc32c", "xxhash", "sha256", "blake2"] as const;
+
 export const LAYOUT_VERDICTS = ["supported", "supported_with_warnings", "unsupported"] as const;
 export type LayoutVerdict = (typeof LAYOUT_VERDICTS)[number];
 
@@ -451,6 +454,9 @@ const filesystemSchema = z.looseObject({
       nodeSize: I,
       sectorSize: I,
       features: list(S, 128),
+      // The checksum type (`csum_type` of dump-super), since M2; older manifests have none and the
+      // planner assumes crc32c. Not part of the layout fingerprint.
+      csum: z.enum(BTRFS_CSUM_TYPES).nullable().optional(),
       quota: B,
       defaultSubvolume: z.looseObject({ id: I, path: S }),
       subvolumes: list(subvolumeSchema, 4096),

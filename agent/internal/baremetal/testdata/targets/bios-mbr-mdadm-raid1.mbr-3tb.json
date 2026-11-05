@@ -1,0 +1,72 @@
+{
+  "disks": [
+    {
+      "driverChain": [
+        "sd",
+        "ahci"
+      ],
+      "driverModaliases": [
+        "pci:v00008086d0000A352sv00001028sd0000085Abc01sc06i01"
+      ],
+      "eui64": null,
+      "id": "t0",
+      "identity": "serial.NEW0",
+      "ioError": false,
+      "logicalSectorSize": 512,
+      "model": "WDC WD20EFRX-68E",
+      "nguid": null,
+      "nsid": null,
+      "path": "/dev/sda",
+      "physicalSectorSize": 512,
+      "readOnly": false,
+      "removable": false,
+      "serial": "NEW0",
+      "signatures": [],
+      "sizeBytes": 3000592982016,
+      "transport": "sata",
+      "wwn": null,
+      "zoned": "none"
+    },
+    {
+      "driverChain": [
+        "sd",
+        "ahci"
+      ],
+      "driverModaliases": [
+        "pci:v00008086d0000A352sv00001028sd0000085Abc01sc06i01"
+      ],
+      "eui64": null,
+      "id": "t1",
+      "identity": "serial.NEW1",
+      "ioError": false,
+      "logicalSectorSize": 512,
+      "model": "WDC WD20EFRX-68E",
+      "nguid": null,
+      "nsid": null,
+      "path": "/dev/sdb",
+      "physicalSectorSize": 512,
+      "readOnly": false,
+      "removable": false,
+      "serial": "NEW1",
+      "signatures": [],
+      "sizeBytes": 3000592982016,
+      "transport": "sata",
+      "wwn": null,
+      "zoned": "none"
+    }
+  ],
+  "firmware": {
+    "db": [],
+    "dbx": null,
+    "mode": "bios",
+    "mokList": [],
+    "sbatLevel": [],
+    "secureBoot": null,
+    "setupMode": null
+  },
+  "format": "restow-plan-target-v1",
+  "kind": "hardware",
+  "nics": [],
+  "others": [],
+  "ramBytes": 0
+}

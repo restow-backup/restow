@@ -2345,3 +2345,104 @@ describe.skipIf(!adminUrl)("upgrading to 0.5.0: layouts of whole machine backups
     }
   }, 120_000);
 });
+
+describe.skipIf(!adminUrl)("upgrading to 0.5.0: the bare metal layout check (0077)", () => {
+  const base = adminUrl as string;
+  const database = `restow_db_migrate_bmcheck_${suffix}`;
+  const owner: RoleLogin = {
+    name: `restow_mig_bmcheck_${suffix}`,
+    password: randomBytes(18).toString("base64url"),
+  };
+  const ids = { tenant: randomUUID(), endpoint: randomUUID(), report: randomUUID() };
+  let folder = "";
+
+  beforeAll(async () => {
+    folder = migrationsFolderUpTo("0076_baremetal_layouts");
+    const admin = new pg.Pool({ connectionString: base });
+    try {
+      await admin.query(
+        `CREATE ROLE ${owner.name} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE PASSWORD '${owner.password}'`,
+      );
+      await admin.query(`CREATE DATABASE ${database} OWNER ${owner.name}`);
+    } finally {
+      await admin.end();
+    }
+  });
+
+  afterAll(async () => {
+    if (folder) rmSync(folder, { recursive: true, force: true });
+    await dropTestDatabase(base, database);
+    const admin = new pg.Pool({ connectionString: base });
+    try {
+      await admin.query(`DROP ROLE IF EXISTS ${owner.name}`);
+    } finally {
+      await admin.end();
+    }
+  });
+
+  it("applies on top of 0076, keeps every report and accepts the new kind", async () => {
+    const url = urlFor(base, database, owner);
+    await applyReleasedSchema(url, folder, null);
+    const pool = new pg.Pool({ connectionString: url });
+    try {
+      const providerId = await insertReturningId(
+        pool,
+        "INSERT INTO providers (name) VALUES ('Provider') RETURNING id",
+        [],
+      );
+      await asTenant(pool, ids.tenant, async (client) => {
+        await client.query(
+          "INSERT INTO tenants (id, provider_id, name, slug) VALUES ($1, $2, 'Contoso', $3)",
+          [ids.tenant, providerId, `contoso-${suffix}`],
+        );
+        await client.query(
+          `INSERT INTO endpoints (id, tenant_id, hostname, os, arch, profile, secret_hash, config)
+           VALUES ($1, $2, 'srv-01', 'linux', 'amd64', 'server', 'x', '{}'::jsonb)`,
+          [ids.endpoint, ids.tenant],
+        );
+        await client.query(
+          `INSERT INTO endpoint_reports (id, tenant_id, endpoint_id, kind, origin, snapshot_id, readiness, summary)
+           VALUES ($1, $2, $3, 'restore_test', 'server', $4, 'green', '{"files":3}'::jsonb)`,
+          [ids.report, ids.tenant, ids.endpoint, "a".repeat(64)],
+        );
+      });
+
+      await runMigrations(url);
+
+      const { rows: values } = await pool.query<{ value: string }>(
+        `SELECT e.enumlabel AS value FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
+          WHERE t.typname = 'endpoint_report_kind' ORDER BY e.enumsortorder`,
+      );
+      expect(values.map((row) => row.value)).toEqual([
+        "restore_test",
+        "repository_check",
+        "retention",
+        "baremetal_check",
+      ]);
+      await asTenant(pool, ids.tenant, async (client) => {
+        const before = await client.query(
+          "SELECT kind, readiness, summary FROM endpoint_reports WHERE id = $1",
+          [ids.report],
+        );
+        expect(before.rows).toEqual([
+          { kind: "restore_test", readiness: "green", summary: { files: 3 } },
+        ]);
+        await client.query(
+          `INSERT INTO endpoint_reports (tenant_id, endpoint_id, kind, origin, snapshot_id, readiness, summary)
+           VALUES ($1, $2, 'baremetal_check', 'server', $3, 'yellow', '{"incomplete":"planner_timeout"}'::jsonb)`,
+          [ids.tenant, ids.endpoint, "b".repeat(64)],
+        );
+        const { rows } = await client.query(
+          "SELECT kind FROM endpoint_reports WHERE endpoint_id = $1 ORDER BY kind",
+          [ids.endpoint],
+        );
+        expect(rows.map((row: { kind: string }) => row.kind)).toEqual([
+          "restore_test",
+          "baremetal_check",
+        ]);
+      });
+    } finally {
+      await pool.end();
+    }
+  }, 120_000);
+});

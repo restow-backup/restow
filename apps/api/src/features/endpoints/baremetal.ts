@@ -1,5 +1,9 @@
 import {
   agentVersionAtLeast,
+  type BaremetalNotPossibleReason,
+  type BaremetalReadinessState,
+  type BaremetalStateDetail,
+  baremetalReadiness,
   keyFilesOf,
   type LayoutManifest,
   type LayoutSummary,
@@ -14,6 +18,7 @@ import {
   type Endpoint,
   type EndpointRun,
   endpointLayouts,
+  endpointReports,
   endpointRuns,
   endpoints,
 } from "@restow/db";
@@ -25,14 +30,15 @@ import type { AgentContext } from "./agent-auth.js";
 import type { FinishRunInput } from "./schemas.js";
 
 /**
- * Bare metal on the server, milestone M1 (docs/BAREMETAL.md 4.3, 14.3): the layout manifests the
- * agent sends with a whole machine backup are checked and stored once per machine and content
+ * Bare metal on the server (docs/BAREMETAL.md 4.3, 12, 14.3): the layout manifests the agent sends
+ * with a whole machine backup are checked and stored once per machine and content
  * (`endpoint_layouts`), the run points at its layout, and the machine's page reads the newest
- * layout's summary. Restore, the restore check and the boot probe come with later milestones.
+ * layout's summary with the stage 1 report of its snapshot (M2) and the rating that follows
+ * (@restow/core `baremetalReadiness`). Restore and the boot probe come with later milestones.
  */
 
-export type BaremetalState = "not_enabled" | "not_possible" | "no_layout" | "unverified";
-export type BaremetalNotPossible = "container" | "windows" | "darwin_later" | "agent_too_old";
+export type BaremetalState = Exclude<BaremetalReadinessState, "green" | "overdue">;
+export type BaremetalNotPossible = BaremetalNotPossibleReason;
 
 export interface BaremetalLatestDto {
   layoutId: string;
@@ -54,14 +60,31 @@ export interface SnapshotHintDto {
   mounts: string[];
 }
 
+/** The stage 1 report of the newest layout's snapshot (12.1), as the worker wrote it. */
+export interface BaremetalCheckDto {
+  reportId: string;
+  checkedAt: string;
+  snapshotId: string | null;
+  readiness: "green" | "red" | "yellow";
+  incomplete: string | null;
+  checks: unknown[];
+  restoreSizes: Record<string, unknown>;
+  minimumSizes: Record<string, unknown> | null;
+  planner: Record<string, unknown> | null;
+  bootChainFingerprint: string | null;
+}
+
 export interface BaremetalDto {
   /** Whole machine backups are switched on for this installation (RESTOW_BAREMETAL_PREVIEW). */
   preview: boolean;
   /** The machine's job backs it up as a whole. */
   enabled: boolean;
   state: BaremetalState;
+  /** `incomplete`: stage 1 ran but could not finish (a yellow report). */
+  stateDetail: BaremetalStateDetail;
   notPossible: BaremetalNotPossible | null;
   latest: BaremetalLatestDto | null;
+  check: BaremetalCheckDto | null;
   /** The machine's volume group has no room for snapshots (6.1): what to leave free. */
   snapshotHint: SnapshotHintDto | null;
 }
@@ -174,14 +197,45 @@ async function latestLayoutRun(tx: Transaction, endpointId: string) {
   return row ?? null;
 }
 
-function notPossibleOf(endpoint: Endpoint, enabled: boolean): BaremetalNotPossible | null {
-  if (endpoint.os === "windows") return "windows";
-  if (endpoint.os === "darwin") return "darwin_later";
-  if (endpoint.settings.agent?.machine?.virtualization === "container") return "container";
-  if (enabled && !agentVersionAtLeast(endpoint.agentVersion, WHOLE_MACHINE_AGENT_VERSION)) {
-    return "agent_too_old";
+/** The newest stage 1 report of a snapshot. */
+async function latestCheckOf(
+  tx: Transaction,
+  endpointId: string,
+  snapshotId: string,
+): Promise<BaremetalCheckDto | null> {
+  const [report] = await tx
+    .select()
+    .from(endpointReports)
+    .where(
+      and(
+        eq(endpointReports.endpointId, endpointId),
+        eq(endpointReports.kind, "baremetal_check"),
+        eq(endpointReports.snapshotId, snapshotId),
+      ),
+    )
+    .orderBy(desc(endpointReports.checkedAt))
+    .limit(1);
+  if (!report || report.readiness === null) {
+    return null;
   }
-  return null;
+  const summary = report.summary as Record<string, unknown>;
+  const record = (value: unknown) =>
+    value !== null && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
+  return {
+    reportId: report.id,
+    checkedAt: report.checkedAt.toISOString(),
+    snapshotId: report.snapshotId,
+    readiness: report.readiness,
+    incomplete: typeof summary.incomplete === "string" ? summary.incomplete : null,
+    checks: Array.isArray(summary.checks) ? summary.checks : [],
+    restoreSizes: record(summary.restoreSizes) ?? {},
+    minimumSizes: record(summary.minimumSizes),
+    planner: record(summary.planner),
+    bootChainFingerprint:
+      typeof summary.bootChainFingerprint === "string" ? summary.bootChainFingerprint : null,
+  };
 }
 
 /**
@@ -236,7 +290,6 @@ export async function getBaremetalState(
       throw new ProblemError(404, "Endpoint not found");
     }
     const enabled = endpoint.config.wholeMachine === true;
-    const notPossible = notPossibleOf(endpoint, enabled);
     const latestRow = await latestLayoutRun(tx, endpointId);
     let latest: BaremetalLatestDto | null = null;
     let snapshotHint: SnapshotHintDto | null = null;
@@ -257,19 +310,27 @@ export async function getBaremetalState(
       };
       snapshotHint = manifest ? snapshotHintOf(manifest) : null;
     }
-    const state: BaremetalState = notPossible
-      ? "not_possible"
-      : latest
-        ? "unverified"
-        : enabled
-          ? "no_layout"
-          : "not_enabled";
+    const check = latest?.snapshotId
+      ? await latestCheckOf(tx, endpointId, latest.snapshotId)
+      : null;
+    const rating = baremetalReadiness({
+      enabled,
+      os: endpoint.os,
+      arch: endpoint.arch,
+      virtualization: endpoint.settings.agent?.machine?.virtualization ?? null,
+      agentTooOld: !agentVersionAtLeast(endpoint.agentVersion, WHOLE_MACHINE_AGENT_VERSION),
+      latestLayout: latest ? { verdict: latest.verdict } : null,
+      latestReport: check ? { readiness: check.readiness } : null,
+    });
     return {
       preview: config.baremetalPreview,
       enabled,
-      state,
-      notPossible,
+      // `green` and `overdue` need the boot probe (M5); the rating does not produce them yet.
+      state: rating.state as BaremetalState,
+      stateDetail: rating.detail,
+      notPossible: rating.notPossible,
       latest,
+      check,
       snapshotHint,
     };
   });

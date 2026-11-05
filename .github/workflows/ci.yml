@@ -86,6 +86,9 @@ jobs:
     name: Unit and Postgres tests
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    # The bare metal stage 1 suite (apps/worker baremetal-check.pg.test.ts) runs the real
+    # restore planner: the linux-amd64 agent the agent job built (docs/BAREMETAL.md 21.2).
+    needs: agent
 
     # The Postgres suites (docs/TESTING.md) need a real server and a superuser:
     # every suite creates its own scratch database, and the Row Level Security
@@ -130,6 +133,18 @@ jobs:
         # apps/api and apps/worker start restic, and the Postgres guard below
         # refuses a suite that skipped itself for lack of it.
         run: sh scripts/ci/install-restic.sh
+
+      - name: Download the restore planner (the agent of the agent job)
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: agent-linux-amd64
+          path: ${{ runner.temp }}/planner
+
+      - name: Point the stage 1 suite at the planner
+        # Without RESTOW_PLANNER_BIN the suite fails instead of skipping itself.
+        run: |
+          chmod +x "$RUNNER_TEMP/planner/restow-agent"
+          echo "RESTOW_PLANNER_BIN=$RUNNER_TEMP/planner/restow-agent" >> "$GITHUB_ENV"
 
       - name: Self-test the CI and release tooling
         # The Postgres suite guard, the edge header checker, the ee/ import guard,
@@ -533,6 +548,15 @@ jobs:
       - name: Cross-compile every target with restic (agent/build.sh)
         if: steps.detect.outputs.present == 'true'
         run: sh agent/build.sh --out "$RUNNER_TEMP/agent-dist"
+
+      - name: Hand the linux-amd64 agent to the test job (the restore planner of stage 1)
+        if: steps.detect.outputs.present == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agent-linux-amd64
+          path: ${{ runner.temp }}/agent-dist/linux-amd64/restow-agent
+          if-no-files-found: error
+          retention-days: 1
 
       - name: The Go modules inside restic are the ones whose licenses are vendored
         # The build information of the five pinned restic binaries just fetched (restic.exe

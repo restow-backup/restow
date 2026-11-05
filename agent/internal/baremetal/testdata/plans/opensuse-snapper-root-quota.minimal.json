@@ -1,0 +1,633 @@
+{
+  "adopted": [],
+  "disks": [
+    {
+      "disk": "d0",
+      "lvs": [],
+      "partitions": [
+        {
+          "grown": false,
+          "number": 1,
+          "realigned": false,
+          "shrunk": false,
+          "sizeBytes": 8388608,
+          "sizeLba": 16384,
+          "startBytes": 1048576,
+          "startLba": 2048
+        },
+        {
+          "grown": false,
+          "number": 2,
+          "realigned": false,
+          "shrunk": true,
+          "sizeBytes": 18086887424,
+          "sizeLba": 35325952,
+          "startBytes": 9437184,
+          "startLba": 18432
+        },
+        {
+          "grown": false,
+          "number": 3,
+          "realigned": false,
+          "shrunk": false,
+          "sizeBytes": 2147483648,
+          "sizeLba": 4194304,
+          "startBytes": 18096324608,
+          "startLba": 35344384
+        }
+      ],
+      "sectorSize": 512,
+      "table": "gpt",
+      "target": "t0"
+    }
+  ],
+  "drivers": {
+    "fallback": null,
+    "kernel": "6.4.0-150600.23.25-default",
+    "nics": [],
+    "storage": [
+      {
+        "builtin": false,
+        "device": "t0",
+        "found": true,
+        "kernel": "6.4.0-150600.23.25-default",
+        "modalias": "virtio:d00000002v00001AF4",
+        "module": "virtio_blk"
+      },
+      {
+        "builtin": false,
+        "device": "t0",
+        "found": true,
+        "kernel": "6.4.0-150600.23.25-default",
+        "modalias": "pci:v00001AF4d00001001sv00001AF4sd00000002bc01sc00i00",
+        "module": "virtio_pci"
+      }
+    ]
+  },
+  "format": "restow-plan-v1",
+  "mapping": [
+    {
+      "action": "erase",
+      "reason": "size",
+      "source": "d0",
+      "target": "t0"
+    }
+  ],
+  "minimumSizes": {
+    "disks": [
+      {
+        "disk": "d0",
+        "kname": "vda",
+        "minBytes": 20244856832,
+        "sizeBytes": 64424509440
+      }
+    ],
+    "filesystems": [
+      {
+        "fs": "f0",
+        "minBytes": 18086887424,
+        "mount": "/",
+        "restoreBytes": 15466496000,
+        "type": "btrfs"
+      }
+    ],
+    "lvs": [],
+    "thinPools": []
+  },
+  "ok": true,
+  "problems": [],
+  "secureBoot": {
+    "checked": false,
+    "loaders": [],
+    "targetSecureBoot": null
+  },
+  "steps": [
+    {
+      "args": [
+        "release-holders",
+        "/dev/vda"
+      ],
+      "kind": "release_holders",
+      "n": 1,
+      "phase": "prepare",
+      "reason": "stop everything that holds /dev/vda (mounts, swap, LVM, md, dm)",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/vda"
+    },
+    {
+      "args": [
+        "wipefs",
+        "-a",
+        "/dev/vda"
+      ],
+      "kind": "wipe",
+      "n": 2,
+      "phase": "prepare",
+      "reason": "remove the signatures of the old content of /dev/vda (its partitions first)",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/vda"
+    },
+    {
+      "args": [
+        "blkzero",
+        "--head=16777216",
+        "--tail=16777216",
+        "/dev/vda"
+      ],
+      "kind": "zero_range",
+      "n": 3,
+      "phase": "prepare",
+      "reason": "zero the first and last 16 MiB of /dev/vda",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/vda"
+    },
+    {
+      "args": [
+        "sfdisk",
+        "--no-reread",
+        "--wipe",
+        "always",
+        "/dev/vda"
+      ],
+      "kind": "partition",
+      "n": 4,
+      "phase": "partition",
+      "reason": "recreate the GPT of d0 with its identifiers (PARTUUIDs stay)",
+      "stdin": "label: gpt\nlabel-id: 61728394-A5B6-47C8-D9EA-FB0C1D2E3F40\nunit: sectors\nsector-size: 512\n\n/dev/vda1 : start=2048, size=16384, type=21686148-6449-6E6F-744E-656564454649, uuid=e1000000-0000-4000-8000-000000000001\n/dev/vda2 : start=18432, size=35325952, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, uuid=e1000000-0000-4000-8000-000000000002\n/dev/vda3 : start=35344384, size=4194304, type=0657FD6D-A4AB-43C4-84E5-0933C84B4F4F, uuid=e1000000-0000-4000-8000-000000000003\n",
+      "stdinSecret": null,
+      "target": "/dev/vda"
+    },
+    {
+      "args": [
+        "mkfs.btrfs",
+        "-f",
+        "-U",
+        "f2000000-0000-4000-8000-000000000001",
+        "-n",
+        "16384",
+        "-s",
+        "4096",
+        "--csum",
+        "crc32c",
+        "-O",
+        "extref,free-space-tree,no-holes,skinny-metadata",
+        "-d",
+        "single",
+        "-m",
+        "dup",
+        "/dev/vda2"
+      ],
+      "kind": "mkfs",
+      "n": 5,
+      "phase": "mkfs",
+      "reason": "create btrfs f0 with its UUID and recorded features",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/vda2"
+    },
+    {
+      "args": [
+        "mount",
+        "-t",
+        "btrfs",
+        "-o",
+        "subvolid=5,device=/dev/vda2",
+        "/dev/vda2",
+        "{target_root}/.restow-btrfs-f0"
+      ],
+      "kind": "mount",
+      "n": 6,
+      "phase": "mkfs",
+      "reason": "mount the top level of f0 to create its subvolumes",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/vda2"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f0/@"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 7,
+      "phase": "mkfs",
+      "reason": "create subvolume @",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f0/@/.snapshots"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 8,
+      "phase": "mkfs",
+      "reason": "create subvolume @/.snapshots",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/.snapshots"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f0/@/home"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 9,
+      "phase": "mkfs",
+      "reason": "create subvolume @/home",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/home"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f0/@/opt"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 10,
+      "phase": "mkfs",
+      "reason": "create subvolume @/opt",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/opt"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f0/@/root"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 11,
+      "phase": "mkfs",
+      "reason": "create subvolume @/root",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/root"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f0/@/var"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 12,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f0/@/.snapshots/2/snapshot"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 13,
+      "phase": "mkfs",
+      "reason": "create subvolume @/.snapshots/2/snapshot",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/.snapshots/2/snapshot"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "set-default",
+        "{target_root}/.restow-btrfs-f0/@/.snapshots/2/snapshot"
+      ],
+      "kind": "btrfs_default",
+      "n": 14,
+      "phase": "mkfs",
+      "reason": "make @/.snapshots/2/snapshot the default subvolume",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/.snapshots/2/snapshot"
+    },
+    {
+      "args": [
+        "umount",
+        "{target_root}/.restow-btrfs-f0"
+      ],
+      "kind": "umount",
+      "n": 15,
+      "phase": "mkfs",
+      "reason": "unmount the top level of f0",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/vda2"
+    },
+    {
+      "args": [
+        "mkswap",
+        "-U",
+        "f2000000-0000-4000-8000-0000000000c3",
+        "/dev/vda3"
+      ],
+      "kind": "mkswap",
+      "n": 16,
+      "phase": "mkfs",
+      "reason": "create the swap area with its UUID",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/vda3"
+    },
+    {
+      "args": [
+        "mount",
+        "-t",
+        "btrfs",
+        "-o",
+        "subvol=@/.snapshots/2/snapshot,device=/dev/vda2",
+        "/dev/vda2",
+        "{target_root}"
+      ],
+      "kind": "mount",
+      "n": 17,
+      "phase": "mount",
+      "reason": "mount f0 at /",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/vda2"
+    },
+    {
+      "args": [
+        "mount",
+        "-t",
+        "btrfs",
+        "-o",
+        "subvol=@/.snapshots,device=/dev/vda2",
+        "/dev/vda2",
+        "{target_root}/.snapshots"
+      ],
+      "kind": "mount",
+      "n": 18,
+      "phase": "mount",
+      "reason": "mount f0 at /.snapshots",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/vda2"
+    },
+    {
+      "args": [
+        "mount",
+        "-t",
+        "btrfs",
+        "-o",
+        "subvol=@/home,device=/dev/vda2",
+        "/dev/vda2",
+        "{target_root}/home"
+      ],
+      "kind": "mount",
+      "n": 19,
+      "phase": "mount",
+      "reason": "mount f0 at /home",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/vda2"
+    },
+    {
+      "args": [
+        "mount",
+        "-t",
+        "btrfs",
+        "-o",
+        "subvol=@/opt,device=/dev/vda2",
+        "/dev/vda2",
+        "{target_root}/opt"
+      ],
+      "kind": "mount",
+      "n": 20,
+      "phase": "mount",
+      "reason": "mount f0 at /opt",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/vda2"
+    },
+    {
+      "args": [
+        "mount",
+        "-t",
+        "btrfs",
+        "-o",
+        "subvol=@/root,device=/dev/vda2",
+        "/dev/vda2",
+        "{target_root}/root"
+      ],
+      "kind": "mount",
+      "n": 21,
+      "phase": "mount",
+      "reason": "mount f0 at /root",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/vda2"
+    },
+    {
+      "args": [
+        "mount",
+        "-t",
+        "btrfs",
+        "-o",
+        "subvol=@/var,device=/dev/vda2",
+        "/dev/vda2",
+        "{target_root}/var"
+      ],
+      "kind": "mount",
+      "n": 22,
+      "phase": "mount",
+      "reason": "mount f0 at /var",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/vda2"
+    },
+    {
+      "args": [
+        "restic",
+        "restore",
+        "--json",
+        "--no-lock",
+        "--no-cache",
+        "--target",
+        "{target_root}",
+        "--sparse",
+        "--verify",
+        "--overwrite",
+        "never",
+        "{snapshot}"
+      ],
+      "kind": "restore",
+      "n": 23,
+      "phase": "restore",
+      "reason": "restore the files of the snapshot",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": null
+    },
+    {
+      "args": [
+        "mkdirs",
+        "/proc:0555",
+        "/sys:0555",
+        "/dev:0755",
+        "/run:0755",
+        "/tmp:1777",
+        "/.snapshots:0755",
+        "/home:0755",
+        "/opt:0755",
+        "/root:0755",
+        "/var:0755"
+      ],
+      "kind": "mkdirs",
+      "n": 24,
+      "phase": "post",
+      "reason": "create mount points and API folders that the snapshot may lack",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": null
+    },
+    {
+      "args": [
+        "fixup",
+        "/etc/default/grub",
+        "cmdline"
+      ],
+      "kind": "fixup",
+      "n": 25,
+      "phase": "post",
+      "reason": "rewrite device references in /etc/default/grub",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/etc/default/grub"
+    },
+    {
+      "args": [
+        "fixup",
+        "/etc/default/grub_installdevice",
+        "grub_install_devices"
+      ],
+      "kind": "fixup",
+      "n": 26,
+      "phase": "post",
+      "reason": "rewrite device references in /etc/default/grub_installdevice",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/etc/default/grub_installdevice"
+    },
+    {
+      "args": [
+        "fixup",
+        "/etc/fstab",
+        "fstab"
+      ],
+      "kind": "fixup",
+      "n": 27,
+      "phase": "post",
+      "reason": "rewrite device references in /etc/fstab",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/etc/fstab"
+    },
+    {
+      "args": [
+        "chroot-exec",
+        "dracut",
+        "--force",
+        "--no-hostonly",
+        "--include",
+        "/etc/crypttab",
+        "/etc/crypttab",
+        "--include",
+        "/etc/vconsole.conf",
+        "/etc/vconsole.conf",
+        "--kver",
+        "6.4.0-150600.23.25-default"
+      ],
+      "kind": "initramfs",
+      "n": 28,
+      "phase": "post",
+      "reason": "rebuild the initramfs without hostonly",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": null
+    },
+    {
+      "args": [
+        "chroot-exec",
+        "grub2-mkconfig",
+        "-o",
+        "/boot/grub2/grub.cfg"
+      ],
+      "kind": "grub_config",
+      "n": 29,
+      "phase": "post",
+      "reason": "write the GRUB configuration",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/boot/grub2/grub.cfg"
+    },
+    {
+      "args": [
+        "chroot-exec",
+        "grub2-install",
+        "--target=i386-pc",
+        "--no-nvram",
+        "/dev/vda"
+      ],
+      "kind": "bootloader_bios",
+      "n": 30,
+      "phase": "post",
+      "reason": "install the BIOS boot code of GRUB",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/vda"
+    },
+    {
+      "args": [
+        "verify"
+      ],
+      "kind": "verify",
+      "n": 31,
+      "phase": "post",
+      "reason": "check the restored system (identities, fstab, boot files)",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": null
+    }
+  ],
+  "target": "minimal",
+  "warnings": [
+    {
+      "code": "partition_shrunk",
+      "message": "Partition d0p2 shrinks from 61865984000 to 18086887424 bytes.",
+      "params": {
+        "fromBytes": 61865984000,
+        "partition": "d0p2",
+        "toBytes": 18086887424
+      },
+      "ref": "d0p2",
+      "severity": "warning"
+    }
+  ]
+}

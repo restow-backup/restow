@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import de from "@restow/i18n/resources/de/endpoints.json" with { type: "json" };
 import en from "@restow/i18n/resources/en/endpoints.json" with { type: "json" };
 import { beforeAll, describe, expect, it } from "vitest";
@@ -99,7 +100,75 @@ const VALUES = {
   disk: "nvme0n1",
   luks: 1,
   plain: 0,
+  // The layout check and the restore planner (docs/BAREMETAL.md 12.1, C-M2-5).
+  codes: "fs_type_unsupported",
+  target: "t0",
+  source: "UUID=1A2B-3C4D",
+  expected: "a1b2",
+  actual: "c3d4",
+  type: "ext4",
+  device: "/dev/sda2",
+  entry: 1,
+  tool: "update-initramfs",
+  tools: "grub-install",
+  bytes: "9 GB",
+  kname: "nvme0n1",
+  minBytes: "108 GB",
+  haveBytes: "100 GB",
+  needBytes: "108 GB",
+  targets: "t0, t1",
+  uuid: "1a2b",
+  modalias: "pci:v00008086",
+  kernel: "6.1.0-27-amd64",
+  loader: "/boot/efi/EFI/debian/shimx64.efi",
+  issuer: "UEFI CA",
+  component: "shim",
+  generation: 4,
+  level: "shim,5",
+  object: "f2",
+  subject: "DKMS key",
+  fs: "f2",
+  feature: "nrext64",
+  sizes: "512, 4096",
+  md: "m0",
+  have: 1,
+  need: 2,
+  lv: "root",
+  unit: "md:md1",
+  nic: "enp3s0",
+  module: "ahci",
+  partition: "d0p1",
+  freeBytes: "1 TB",
+  fromBytes: "50 GB",
+  toBytes: "40 GB",
+  sizeBytes: "260 MB",
+  blockSize: 4096,
+  sourceBlockSize: 1024,
+  sectorSize: 4096,
+  sourceSectorSize: 512,
+  tokens: "systemd-tpm2",
+  lvs: "vm-100-disk-0",
+  restore: "9 GB",
+  mount: "/",
 };
+
+/** The planner's codes (agent/internal/baremetal/testdata/plan-codes.json, C-M2-6). */
+const PLAN_CODES = JSON.parse(
+  readFileSync(
+    new URL("../../../../../agent/internal/baremetal/testdata/plan-codes.json", import.meta.url),
+    "utf8",
+  ),
+) as { problems: string[]; warnings: string[] };
+
+/** The layout check's codes, as @restow/core lists them (`CHECK_FINDING_CODES`). */
+const CHECK_CODES = (() => {
+  const source = readFileSync(
+    new URL("../../../../../packages/core/src/endpoints/baremetal/check.ts", import.meta.url),
+    "utf8",
+  );
+  const list = /export const CHECK_FINDING_CODES = \[([\s\S]*?)\] as const/.exec(source)?.[1] ?? "";
+  return [...list.matchAll(/"([a-z0-9_]+)"/g)].map((match) => match[1] as string);
+})();
 
 describe("endpoints translations", () => {
   beforeAll(async () => {
@@ -223,6 +292,42 @@ describe("endpoints translations", () => {
         "pathNotFound",
         "tokenSettled",
       ].map((e) => `errors.${e}`),
+    ];
+    for (const key of keys) {
+      expect(i18n.exists(`endpoints:${key}`, { lng: "en" }), key).toBe(true);
+      expect(i18n.exists(`endpoints:${key}`, { lng: "de" }), key).toBe(true);
+    }
+  });
+
+  it("words every code of the restore planner and of the layout check, in both languages", () => {
+    expect(PLAN_CODES.problems.length).toBeGreaterThan(10);
+    expect(CHECK_CODES.length).toBeGreaterThan(20);
+    const keys = [
+      ...[...PLAN_CODES.problems, ...PLAN_CODES.warnings].map(
+        (code) => `baremetal.plan.codes.${code}`,
+      ),
+      ...CHECK_CODES.map((code) => `baremetal.check.findings.${code}`),
+      ...["L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8"].map(
+        (id) => `baremetal.check.items.${id}`,
+      ),
+      ...["same", "minimal", "other-controller"].map(
+        (target) => `baremetal.check.targets.${target}`,
+      ),
+      ...[
+        "planner_timeout",
+        "planner_output_too_large",
+        "planner_crashed",
+        "planner_unavailable",
+        "planner_refused_valid_manifest",
+      ].map((reason) => `baremetal.check.incomplete.${reason}`),
+      ...["ok", "warning", "failed", "skipped"].map((status) => `baremetal.check.status.${status}`),
+      ...["green", "red", "yellow"].map((result) => `baremetal.check.result.${result}`),
+      ...["unverified", "layout_checked", "red"].map((state) => `baremetal.states.${state}`),
+      ...["unsupported", "arm64_later"].map((reason) => `baremetal.notPossible.${reason}`),
+      "baremetal.unverifiedHint",
+      "baremetal.incompleteHint",
+      "baremetal.layoutCheckedHint",
+      "baremetal.redHint",
     ];
     for (const key of keys) {
       expect(i18n.exists(`endpoints:${key}`, { lng: "en" }), key).toBe(true);

@@ -1,0 +1,79 @@
+{
+  "disks": [
+    {
+      "driverChain": [
+        "sd",
+        "ahci"
+      ],
+      "driverModaliases": [
+        "pci:v00008086d0000A352sv00001028sd0000085Abc01sc06i01"
+      ],
+      "eui64": null,
+      "id": "t0",
+      "identity": "wwn.50014ee2b5c6d7ea",
+      "ioError": false,
+      "logicalSectorSize": 512,
+      "model": "WDC WD20EFRX-68E",
+      "nguid": null,
+      "nsid": null,
+      "path": "/dev/sda",
+      "physicalSectorSize": 512,
+      "readOnly": false,
+      "removable": false,
+      "serial": "WD-WCC4ESDA",
+      "signatures": [],
+      "sizeBytes": 2000398934016,
+      "transport": "sata",
+      "wwn": "0x50014ee2b5c6d7ea",
+      "zoned": "none"
+    },
+    {
+      "driverChain": [
+        "sd",
+        "ahci"
+      ],
+      "driverModaliases": [
+        "pci:v00008086d0000A352sv00001028sd0000085Abc01sc06i01"
+      ],
+      "eui64": null,
+      "id": "t1",
+      "identity": "wwn.50014ee2b5c6d7eb",
+      "ioError": false,
+      "logicalSectorSize": 512,
+      "model": "WDC WD20EFRX-68E",
+      "nguid": null,
+      "nsid": null,
+      "path": "/dev/sdb",
+      "physicalSectorSize": 512,
+      "readOnly": false,
+      "removable": false,
+      "serial": "WD-WCC4ESDB",
+      "signatures": [],
+      "sizeBytes": 2000398934016,
+      "transport": "sata",
+      "wwn": "0x50014ee2b5c6d7eb",
+      "zoned": "none"
+    }
+  ],
+  "firmware": {
+    "db": [],
+    "dbx": null,
+    "mode": "uefi",
+    "mokList": [],
+    "sbatLevel": [],
+    "secureBoot": null,
+    "setupMode": null
+  },
+  "format": "restow-plan-target-v1",
+  "kind": "hardware",
+  "nics": [
+    {
+      "driver": "e1000e",
+      "mac": "00:25:90:ab:cd:ef",
+      "modalias": "pci:v00008086d00001533sv000015D9sd00001533bc02sc00i00",
+      "name": "eno1"
+    }
+  ],
+  "others": [],
+  "ramBytes": 0
+}

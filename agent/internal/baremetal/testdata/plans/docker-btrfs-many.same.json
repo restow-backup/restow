@@ -1,0 +1,3563 @@
+{
+  "adopted": [],
+  "disks": [
+    {
+      "disk": "d0",
+      "lvs": [],
+      "partitions": [
+        {
+          "grown": false,
+          "number": 1,
+          "realigned": false,
+          "shrunk": false,
+          "sizeBytes": 536870912,
+          "sizeLba": 1048576,
+          "startBytes": 1048576,
+          "startLba": 2048
+        },
+        {
+          "grown": false,
+          "number": 2,
+          "realigned": false,
+          "shrunk": false,
+          "sizeBytes": 499122176000,
+          "sizeLba": 974848000,
+          "startBytes": 537919488,
+          "startLba": 1050624
+        }
+      ],
+      "sectorSize": 512,
+      "table": "gpt",
+      "target": "t0"
+    }
+  ],
+  "drivers": {
+    "fallback": null,
+    "kernel": "5.15.0-125-generic",
+    "nics": [
+      {
+        "builtin": false,
+        "device": "eno1",
+        "found": true,
+        "kernel": "5.15.0-125-generic",
+        "modalias": "pci:v00008086d00001533sv000015D9sd00001533bc02sc00i00",
+        "module": "igb"
+      }
+    ],
+    "storage": [
+      {
+        "builtin": false,
+        "device": "t0",
+        "found": true,
+        "kernel": "5.15.0-125-generic",
+        "modalias": "pci:v00008086d0000A352sv00001028sd0000085Abc01sc06i01",
+        "module": "ahci"
+      }
+    ]
+  },
+  "format": "restow-plan-v1",
+  "mapping": [
+    {
+      "action": "erase",
+      "reason": "identity",
+      "source": "d0",
+      "target": "t0"
+    }
+  ],
+  "minimumSizes": {
+    "disks": [
+      {
+        "disk": "d0",
+        "kname": "sda",
+        "minBytes": 138871308288,
+        "sizeBytes": 500107862016
+      }
+    ],
+    "filesystems": [
+      {
+        "fs": "f0",
+        "minBytes": 536870912,
+        "mount": "/boot/efi",
+        "restoreBytes": 6291456,
+        "type": "vfat"
+      },
+      {
+        "fs": "f1",
+        "minBytes": 138332340224,
+        "mount": "/",
+        "restoreBytes": 124780544000,
+        "type": "btrfs"
+      }
+    ],
+    "lvs": [],
+    "thinPools": []
+  },
+  "ok": true,
+  "problems": [],
+  "secureBoot": {
+    "checked": true,
+    "loaders": [
+      {
+        "detail": null,
+        "path": "/boot/efi/EFI/BOOT/BOOTX64.EFI",
+        "verdict": "ok"
+      },
+      {
+        "detail": null,
+        "path": "/boot/efi/EFI/BOOT/fbx64.efi",
+        "verdict": "ok"
+      },
+      {
+        "detail": null,
+        "path": "/boot/efi/EFI/ubuntu/grubx64.efi",
+        "verdict": "ok"
+      },
+      {
+        "detail": null,
+        "path": "/boot/efi/EFI/ubuntu/shimx64.efi",
+        "verdict": "ok"
+      }
+    ],
+    "targetSecureBoot": true
+  },
+  "steps": [
+    {
+      "args": [
+        "release-holders",
+        "/dev/sda"
+      ],
+      "kind": "release_holders",
+      "n": 1,
+      "phase": "prepare",
+      "reason": "stop everything that holds /dev/sda (mounts, swap, LVM, md, dm)",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/sda"
+    },
+    {
+      "args": [
+        "wipefs",
+        "-a",
+        "/dev/sda"
+      ],
+      "kind": "wipe",
+      "n": 2,
+      "phase": "prepare",
+      "reason": "remove the signatures of the old content of /dev/sda (its partitions first)",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/sda"
+    },
+    {
+      "args": [
+        "blkzero",
+        "--head=16777216",
+        "--tail=16777216",
+        "/dev/sda"
+      ],
+      "kind": "zero_range",
+      "n": 3,
+      "phase": "prepare",
+      "reason": "zero the first and last 16 MiB of /dev/sda",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/sda"
+    },
+    {
+      "args": [
+        "sfdisk",
+        "--no-reread",
+        "--wipe",
+        "always",
+        "/dev/sda"
+      ],
+      "kind": "partition",
+      "n": 4,
+      "phase": "partition",
+      "reason": "recreate the GPT of d0 with its identifiers (PARTUUIDs stay)",
+      "stdin": "label: gpt\nlabel-id: 2C3D4E4F-5061-7283-9405-A6B7C8D9EAFB\nunit: sectors\nsector-size: 512\n\n/dev/sda1 : start=2048, size=1048576, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B, uuid=b1100000-0000-4000-8000-000000000001\n/dev/sda2 : start=1050624, size=974848000, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, uuid=b1100000-0000-4000-8000-000000000002\n",
+      "stdinSecret": null,
+      "target": "/dev/sda"
+    },
+    {
+      "args": [
+        "mkfs.vfat",
+        "-F",
+        "32",
+        "-i",
+        "7F8091A2",
+        "-S",
+        "512",
+        "-s",
+        "8",
+        "/dev/sda1"
+      ],
+      "kind": "mkfs",
+      "n": 5,
+      "phase": "mkfs",
+      "reason": "create vfat f0 with its UUID and recorded features",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/sda1"
+    },
+    {
+      "args": [
+        "mkfs.btrfs",
+        "-f",
+        "-U",
+        "b1000000-0000-4000-8000-000000000001",
+        "-n",
+        "16384",
+        "-s",
+        "4096",
+        "--csum",
+        "xxhash",
+        "-O",
+        "extref,free-space-tree,no-holes,skinny-metadata",
+        "-d",
+        "single",
+        "-m",
+        "dup",
+        "/dev/sda2"
+      ],
+      "kind": "mkfs",
+      "n": 6,
+      "phase": "mkfs",
+      "reason": "create btrfs f1 with its UUID and recorded features",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/sda2"
+    },
+    {
+      "args": [
+        "mount",
+        "-t",
+        "btrfs",
+        "-o",
+        "subvolid=5,device=/dev/sda2",
+        "/dev/sda2",
+        "{target_root}/.restow-btrfs-f1"
+      ],
+      "kind": "mount",
+      "n": 7,
+      "phase": "mkfs",
+      "reason": "mount the top level of f1 to create its subvolumes",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/sda2"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 8,
+      "phase": "mkfs",
+      "reason": "create subvolume @",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@home"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 9,
+      "phase": "mkfs",
+      "reason": "create subvolume @home",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@home"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000001"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 10,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000001",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000001"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000002"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 11,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000002",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000002"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000003"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 12,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000003",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000003"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000004"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 13,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000004",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000004"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000005"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 14,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000005",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000005"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000006"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 15,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000006",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000006"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000007"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 16,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000007",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000007"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000008"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 17,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000008",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000008"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000009"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 18,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000009",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000009"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000000a"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 19,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000000a",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000000a"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000000b"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 20,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000000b",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000000b"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000000c"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 21,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000000c",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000000c"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000000d"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 22,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000000d",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000000d"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000000e"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 23,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000000e",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000000e"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000000f"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 24,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000000f",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000000f"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000010"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 25,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000010",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000010"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000011"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 26,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000011",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000011"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000012"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 27,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000012",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000012"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000013"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 28,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000013",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000013"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000014"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 29,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000014",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000014"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000015"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 30,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000015",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000015"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000016"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 31,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000016",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000016"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000017"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 32,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000017",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000017"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000018"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 33,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000018",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000018"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000019"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 34,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000019",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000019"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000001a"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 35,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000001a",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000001a"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000001b"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 36,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000001b",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000001b"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000001c"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 37,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000001c",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000001c"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000001d"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 38,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000001d",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000001d"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000001e"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 39,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000001e",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000001e"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000001f"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 40,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000001f",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000001f"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000020"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 41,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000020",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000020"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000021"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 42,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000021",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000021"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000022"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 43,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000022",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000022"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000023"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 44,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000023",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000023"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000024"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 45,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000024",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000024"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000025"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 46,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000025",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000025"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000026"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 47,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000026",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000026"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000027"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 48,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000027",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000027"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000028"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 49,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000028",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000028"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000029"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 50,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000029",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000029"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000002a"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 51,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000002a",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000002a"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000002b"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 52,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000002b",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000002b"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000002c"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 53,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000002c",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000002c"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000002d"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 54,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000002d",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000002d"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000002e"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 55,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000002e",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000002e"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000002f"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 56,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000002f",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000002f"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000030"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 57,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000030",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000030"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000031"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 58,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000031",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000031"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000032"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 59,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000032",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000032"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000033"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 60,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000033",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000033"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000034"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 61,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000034",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000034"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000035"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 62,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000035",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000035"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000036"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 63,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000036",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000036"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000037"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 64,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000037",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000037"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000038"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 65,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000038",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000038"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000039"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 66,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000039",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000039"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000003a"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 67,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000003a",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000003a"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000003b"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 68,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000003b",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000003b"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000003c"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 69,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000003c",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000003c"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000003d"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 70,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000003d",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000003d"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000003e"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 71,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000003e",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000003e"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000003f"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 72,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000003f",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000003f"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000040"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 73,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000040",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000040"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000041"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 74,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000041",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000041"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000042"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 75,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000042",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000042"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000043"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 76,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000043",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000043"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000044"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 77,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000044",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000044"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000045"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 78,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000045",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000045"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000046"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 79,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000046",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000046"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000047"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 80,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000047",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000047"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000048"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 81,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000048",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000048"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000049"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 82,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000049",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000049"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000004a"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 83,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000004a",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000004a"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000004b"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 84,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000004b",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000004b"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000004c"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 85,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000004c",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000004c"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000004d"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 86,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000004d",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000004d"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000004e"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 87,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000004e",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000004e"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000004f"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 88,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000004f",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000004f"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000050"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 89,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000050",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000050"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000051"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 90,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000051",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000051"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000052"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 91,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000052",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000052"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000053"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 92,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000053",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000053"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000054"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 93,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000054",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000054"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000055"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 94,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000055",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000055"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000056"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 95,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000056",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000056"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000057"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 96,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000057",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000057"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000058"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 97,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000058",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000058"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000059"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 98,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000059",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000059"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000005a"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 99,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000005a",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000005a"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000005b"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 100,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000005b",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000005b"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000005c"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 101,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000005c",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000005c"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000005d"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 102,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000005d",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000005d"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000005e"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 103,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000005e",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000005e"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000005f"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 104,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000005f",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000005f"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000060"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 105,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000060",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000060"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000061"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 106,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000061",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000061"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000062"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 107,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000062",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000062"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000063"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 108,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000063",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000063"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000064"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 109,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000064",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000064"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000065"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 110,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000065",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000065"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000066"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 111,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000066",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000066"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000067"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 112,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000067",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000067"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000068"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 113,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000068",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000068"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000069"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 114,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000069",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000069"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000006a"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 115,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000006a",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000006a"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000006b"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 116,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000006b",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000006b"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000006c"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 117,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000006c",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000006c"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000006d"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 118,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000006d",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000006d"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000006e"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 119,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000006e",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000006e"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000006f"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 120,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000006f",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000006f"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000070"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 121,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000070",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000070"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000071"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 122,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000071",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000071"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000072"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 123,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000072",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000072"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000073"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 124,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000073",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000073"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000074"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 125,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000074",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000074"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000075"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 126,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000075",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000075"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000076"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 127,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000076",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000076"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000077"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 128,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000077",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000077"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000078"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 129,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000078",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000078"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000079"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 130,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000079",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000079"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000007a"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 131,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000007a",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000007a"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000007b"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 132,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000007b",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000007b"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000007c"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 133,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000007c",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000007c"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000007d"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 134,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000007d",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000007d"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000007e"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 135,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000007e",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000007e"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000007f"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 136,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000007f",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000007f"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000080"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 137,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000080",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000080"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000081"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 138,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000081",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000081"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000082"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 139,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000082",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000082"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000083"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 140,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000083",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000083"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000084"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 141,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000084",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000084"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000085"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 142,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000085",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000085"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000086"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 143,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000086",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000086"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000087"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 144,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000087",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000087"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000088"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 145,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000088",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000088"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000089"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 146,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000089",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000089"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000008a"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 147,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000008a",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000008a"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000008b"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 148,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000008b",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000008b"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000008c"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 149,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000008c",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000008c"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000008d"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 150,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000008d",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000008d"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000008e"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 151,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000008e",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000008e"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000008f"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 152,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000008f",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000008f"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000090"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 153,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000090",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000090"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000091"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 154,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000091",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000091"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000092"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 155,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000092",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000092"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000093"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 156,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000093",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000093"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000094"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 157,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000094",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000094"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000095"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 158,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000095",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000095"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000096"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 159,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000096",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000096"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000097"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 160,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000097",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000097"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000098"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 161,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000098",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000098"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000099"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 162,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000099",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/0000000000000000000000000000000000000000000000000000000000000099"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000009a"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 163,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000009a",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000009a"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000009b"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 164,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000009b",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000009b"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000009c"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 165,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000009c",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000009c"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000009d"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 166,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000009d",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000009d"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000009e"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 167,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000009e",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000009e"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000009f"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 168,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000009f",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/000000000000000000000000000000000000000000000000000000000000009f"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000a0"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 169,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000a0",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000a0"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000a1"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 170,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000a1",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000a1"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000a2"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 171,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000a2",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000a2"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000a3"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 172,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000a3",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000a3"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000a4"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 173,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000a4",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000a4"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000a5"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 174,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000a5",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000a5"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000a6"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 175,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000a6",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000a6"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000a7"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 176,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000a7",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000a7"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000a8"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 177,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000a8",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000a8"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000a9"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 178,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000a9",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000a9"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000aa"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 179,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000aa",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000aa"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000ab"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 180,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000ab",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000ab"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000ac"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 181,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000ac",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000ac"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000ad"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 182,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000ad",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000ad"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000ae"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 183,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000ae",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000ae"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000af"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 184,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000af",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000af"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000b0"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 185,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000b0",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000b0"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000b1"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 186,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000b1",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000b1"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000b2"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 187,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000b2",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000b2"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000b3"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 188,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000b3",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000b3"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000b4"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 189,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000b4",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000b4"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000b5"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 190,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000b5",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000b5"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000b6"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 191,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000b6",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000b6"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000b7"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 192,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000b7",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000b7"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000b8"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 193,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000b8",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000b8"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000b9"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 194,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000b9",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000b9"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000ba"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 195,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000ba",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000ba"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000bb"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 196,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000bb",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000bb"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000bc"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 197,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000bc",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000bc"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000bd"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 198,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000bd",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000bd"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000be"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 199,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000be",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000be"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000bf"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 200,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000bf",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000bf"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000c0"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 201,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000c0",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000c0"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000c1"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 202,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000c1",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000c1"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000c2"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 203,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000c2",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000c2"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000c3"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 204,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000c3",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000c3"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000c4"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 205,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000c4",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000c4"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000c5"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 206,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000c5",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000c5"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000c6"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 207,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000c6",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000c6"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000c7"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 208,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000c7",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000c7"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000c8"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 209,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000c8",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000c8"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000c9"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 210,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000c9",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000c9"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000ca"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 211,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000ca",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000ca"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000cb"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 212,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000cb",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000cb"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000cc"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 213,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000cc",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000cc"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f1/@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000cd"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 214,
+      "phase": "mkfs",
+      "reason": "create subvolume @/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000cd",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "@/var/lib/docker/btrfs/subvolumes/00000000000000000000000000000000000000000000000000000000000000cd"
+    },
+    {
+      "args": [
+        "umount",
+        "{target_root}/.restow-btrfs-f1"
+      ],
+      "kind": "umount",
+      "n": 215,
+      "phase": "mkfs",
+      "reason": "unmount the top level of f1",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/sda2"
+    },
+    {
+      "args": [
+        "mount",
+        "-t",
+        "btrfs",
+        "-o",
+        "subvol=@,device=/dev/sda2",
+        "/dev/sda2",
+        "{target_root}"
+      ],
+      "kind": "mount",
+      "n": 216,
+      "phase": "mount",
+      "reason": "mount f1 at /",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/sda2"
+    },
+    {
+      "args": [
+        "mount",
+        "-t",
+        "btrfs",
+        "-o",
+        "subvol=@home,device=/dev/sda2",
+        "/dev/sda2",
+        "{target_root}/home"
+      ],
+      "kind": "mount",
+      "n": 217,
+      "phase": "mount",
+      "reason": "mount f1 at /home",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/sda2"
+    },
+    {
+      "args": [
+        "mount",
+        "-t",
+        "vfat",
+        "-o",
+        "quiet",
+        "/dev/sda1",
+        "{target_root}/boot/efi"
+      ],
+      "kind": "mount",
+      "n": 218,
+      "phase": "mount",
+      "reason": "mount f0 at /boot/efi",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/sda1"
+    },
+    {
+      "args": [
+        "restic",
+        "restore",
+        "--json",
+        "--no-lock",
+        "--no-cache",
+        "--target",
+        "{target_root}",
+        "--sparse",
+        "--verify",
+        "--overwrite",
+        "never",
+        "{snapshot}"
+      ],
+      "kind": "restore",
+      "n": 219,
+      "phase": "restore",
+      "reason": "restore the files of the snapshot",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": null
+    },
+    {
+      "args": [
+        "mkdirs",
+        "/proc:0555",
+        "/sys:0555",
+        "/dev:0755",
+        "/run:0755",
+        "/tmp:1777",
+        "/boot/efi:0755",
+        "/home:0755"
+      ],
+      "kind": "mkdirs",
+      "n": 220,
+      "phase": "post",
+      "reason": "create mount points and API folders that the snapshot may lack",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": null
+    },
+    {
+      "args": [
+        "fixup",
+        "/etc/default/grub",
+        "cmdline"
+      ],
+      "kind": "fixup",
+      "n": 221,
+      "phase": "post",
+      "reason": "rewrite device references in /etc/default/grub",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/etc/default/grub"
+    },
+    {
+      "args": [
+        "fixup",
+        "/etc/fstab",
+        "fstab"
+      ],
+      "kind": "fixup",
+      "n": 222,
+      "phase": "post",
+      "reason": "rewrite device references in /etc/fstab",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/etc/fstab"
+    },
+    {
+      "args": [
+        "chroot-exec",
+        "update-initramfs",
+        "-u",
+        "-k",
+        "5.15.0-125-generic"
+      ],
+      "kind": "initramfs",
+      "n": 223,
+      "phase": "post",
+      "reason": "rebuild the initramfs with MODULES=most",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": null
+    },
+    {
+      "args": [
+        "chroot-exec",
+        "grub-mkconfig",
+        "-o",
+        "/boot/grub/grub.cfg"
+      ],
+      "kind": "grub_config",
+      "n": 224,
+      "phase": "post",
+      "reason": "write the GRUB configuration",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/boot/grub/grub.cfg"
+    },
+    {
+      "args": [
+        "nvram",
+        "--label",
+        "ubuntu",
+        "--partuuid",
+        "b1100000-0000-4000-8000-000000000001",
+        "--loader",
+        "\\EFI\\ubuntu\\shimx64.efi"
+      ],
+      "kind": "nvram",
+      "n": 225,
+      "phase": "post",
+      "reason": "create the boot entry ubuntu",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "b1100000-0000-4000-8000-000000000001"
+    },
+    {
+      "args": [
+        "verify"
+      ],
+      "kind": "verify",
+      "n": 226,
+      "phase": "post",
+      "reason": "check the restored system (identities, fstab, boot files)",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": null
+    }
+  ],
+  "target": "same",
+  "warnings": [
+    {
+      "code": "secure_boot_dbx_unknown",
+      "message": "The revocation list (dbx) of the target is not known; revoked loaders were not checked.",
+      "params": {},
+      "ref": null,
+      "severity": "warning"
+    }
+  ]
+}

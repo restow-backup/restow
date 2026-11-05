@@ -285,6 +285,34 @@ private repository.
   `lvcreate` left behind is removed at once.
 - The worker's endpoint monitor removes layouts no run points at any more, keeping each machine's
   newest.
+- Layout check after every whole machine backup (preview, Linux): the server validates the
+  layout, plans the restore with the agent's own planner (sandboxed, without the server's
+  environment), computes restore sizes, and checks that the snapshot holds the layout, every
+  mounted file system and fstab entry and the boot chain (kernels, initramfs, boot loader, fstab,
+  crypttab and LVM device entries). The finish of a run with a layout queues the new worker job
+  `endpoint-baremetal-check` at once, the scheduler catches up a snapshot without one; it reads
+  the snapshot under the shared repository lock (`restic ls` once, `restic dump` for at most 80
+  small files) and writes a report of the new kind `baremetal_check` (migration 0077) with the
+  checks L1 to L8, each with its findings and evidence, the restore sizes per mount point, the
+  minimum disk and file system sizes, the planner's answers for the same hardware, the smallest
+  possible disks and another disk controller, and the boot chain fingerprint. Red only with proof;
+  a repository read that proves nothing is retried, a planner that cannot answer makes the check
+  incomplete; a snapshot retention has forgotten gets a report without a rating and is not
+  queued again. Hard links are recognised with bounded memory (past one million files a size is
+  an upper bound, never too small). The machine's card shows the check report and the minimum
+  sizes; its state is "Layout checked" (or "Restore check failed"), never green, until a later
+  version adds the boot probe that proves a restored machine starts.
+- `restow-agent baremetal plan --manifest <file|-> [--facts <file|->] --target
+  <same|minimal|other-controller|file> [--choices file] [--snapshot id] --json`: the restore
+  planner of the agent (`restow-plan-v1`): disk mapping with intact parts kept, sizes in bytes and
+  sectors, partitions, RAID, LUKS, LVM (LVM RAID LVs sized by all their images and created with
+  their type and image count on the physical volumes the plan chose; a RAID LV whose geometry is
+  unknown blocks the plan), file systems with their features, the driver check against
+  the backed-up kernel's module lists and the Secure Boot check against the target's keys, as an
+  ordered list of steps; nothing is executed. It starts no program, reads only its arguments and
+  on Linux limits itself (512 MiB data, 30 s CPU). The worker runs it from `/usr/local/lib/restow/restow-agent`
+  (`RESTOW_PLANNER_BIN`) with only `PATH` and `LC_ALL`, in an empty folder, under `prlimit`, for
+  at most 45 seconds and 4 MiB of output.
 
 ### Changed
 
@@ -462,7 +490,7 @@ private repository.
 
 ### Upgrade Notes
 
-Four database migrations run on start: 0073 creates the new table `storage_samples` and 0074 the new
+Five database migrations run on start: 0073 creates the new table `storage_samples` and 0074 the new
 table `directory_memberships`; neither rewrites anything. 0075 serves the restore explorer's "From
 the archive": an index on `archive_items` (tenant, mailbox, capture time), the index on
 `archive_item_mailboxes` (tenant, mailbox) replaced by one that adds the time of the assignment, a
@@ -477,7 +505,8 @@ the Archive page (it stays reachable by its address) or issues a new address the
 itself keeps working. The first directory sync after the update reads the owners and members of
 every Microsoft 365 group once (three Graph reads per group, through `$batch`); until it has run, a
 person's "Teams & sites" is empty and says that it may be incomplete. 0076 creates the table
-`endpoint_layouts` and adds the empty column `endpoint_runs.layout_id`; nothing is rewritten. Whole
+`endpoint_layouts` and adds the empty column `endpoint_runs.layout_id`; nothing is rewritten. 0077
+adds the value `baremetal_check` to the report kinds of machines; nothing is rewritten. Whole
 machine backups stay off until `RESTOW_BAREMETAL_PREVIEW=true` is set for the api. Agents before
 0.5.0 ignore `snapshotOnFailure`, `wholeMachine` and `fsSnapshot`, and the release key keeps the
 fingerprint `SHA256:2LB7RPpIS0wqbcZ2NA8MjuQN7ZfFPqBX3CwrGFSu76o`.

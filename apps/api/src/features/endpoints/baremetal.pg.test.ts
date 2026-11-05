@@ -6,16 +6,27 @@
  * other's layouts. The manifests are the agent's own test data
  * (agent/internal/baremetal/testdata/manifests).
  *
+ * M2: a whole machine finish queues the stage 1 check (one job per machine), the card reads the
+ * newest check report of the newest layout's snapshot and rates the machine with it, and the
+ * machine's detail does not list those reports among its others.
+ *
  * It does not need restic: the machines are inserted, not enrolled. Runs when
  * RESTOW_TEST_DATABASE_URL points at a Postgres server as a superuser.
  */
 import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { generateAgentSecret, MAX_LAYOUT_BYTES } from "@restow/core";
-import { type EndpointConfig, endpointLayouts, endpointRuns, endpoints } from "@restow/db";
-import { eq } from "drizzle-orm";
+import { ENDPOINT_QUEUES, generateAgentSecret, MAX_LAYOUT_BYTES } from "@restow/core";
+import {
+  type EndpointConfig,
+  endpointLayouts,
+  endpointReports,
+  endpointRuns,
+  endpoints,
+} from "@restow/db";
+import { eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
+import PgBoss from "pg-boss";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   basic,
@@ -58,6 +69,15 @@ describe.skipIf(!testDatabaseAdminUrl)("layouts of whole machine backups", () =>
 
   beforeAll(async () => {
     fixture = await startFixture(DATABASE);
+    // pg-boss owns its schema as the installation role; the API only enqueues into it.
+    const boss = new PgBoss({ connectionString: fixture.roles.providerUrl });
+    await boss.start();
+    await fixture.roles.grantQueue();
+    await boss.createQueue(ENDPOINT_QUEUES.baremetalCheck, {
+      name: ENDPOINT_QUEUES.baremetalCheck,
+      policy: "stately",
+    });
+    await boss.stop({ graceful: false, wait: true });
     const { agentRoutes } = await import("./agent-routes.js");
     const { errorHandler } = await import("../../problem.js");
     baremetal = await import("./baremetal.js");
@@ -73,7 +93,12 @@ describe.skipIf(!testDatabaseAdminUrl)("layouts of whole machine backups", () =>
   });
 
   async function machine(
-    values: { tenantId?: string; os?: "linux" | "windows"; config?: Partial<EndpointConfig> } = {},
+    values: {
+      tenantId?: string;
+      os?: "linux" | "windows";
+      arch?: "amd64" | "arm64";
+      config?: Partial<EndpointConfig>;
+    } = {},
   ) {
     const secret = generateAgentSecret();
     const id = randomUUID();
@@ -83,7 +108,7 @@ describe.skipIf(!testDatabaseAdminUrl)("layouts of whole machine backups", () =>
       tenantId,
       hostname: `host-${id.slice(0, 8)}`,
       os: values.os ?? "linux",
-      arch: "amd64",
+      arch: values.arch ?? "amd64",
       profile: "server",
       secretHash: secret.hash,
       agentVersion: "0.5.0",
@@ -372,5 +397,142 @@ describe.skipIf(!testDatabaseAdminUrl)("layouts of whole machine backups", () =>
       status: 422,
       extensions: { errors: [{ path: "config.fsSnapshot", code: "linux_only" }] },
     });
+  });
+  /** A stage 1 report of the worker for a run's snapshot. */
+  async function checkReport(
+    who: { id: string },
+    run: { id: string; snapshotId: string | null },
+    readiness: "green" | "red" | "yellow",
+    summary: Record<string, unknown> = {},
+  ) {
+    const [row] = await fixture.db
+      .insert(endpointReports)
+      .values({
+        tenantId: fixture.tenantId,
+        endpointId: who.id,
+        kind: "baremetal_check",
+        origin: "server",
+        snapshotId: run.snapshotId,
+        runId: run.id,
+        readiness,
+        summary: {
+          checks: [{ id: "L1", status: "ok", findings: [], evidence: {} }],
+          restoreSizes: { "/": { bytes: 9, files: 1, inodes: 2 } },
+          minimumSizes: { disks: [], filesystems: [] },
+          planner: { same: { ok: true, problems: [], warnings: [] } },
+          bootChainFingerprint: "c".repeat(64),
+          incomplete: null,
+          ...summary,
+        },
+      })
+      .returning();
+    return row;
+  }
+
+  const jobsOf = (endpointId: string) =>
+    fixture.db.execute<{ data: Record<string, unknown>; singleton_key: string }>(
+      sql`SELECT data, singleton_key FROM pgboss.job
+           WHERE name = ${ENDPOINT_QUEUES.baremetalCheck} AND data->>'endpointId' = ${endpointId}`,
+    );
+
+  it("queues the layout check once when a whole machine backup finishes", async () => {
+    const who = await machine({ config: { wholeMachine: true } });
+    const run = await backup(who, { layout: manifest(DEBIAN) });
+    const { rows } = await jobsOf(who.id);
+    expect(rows).toEqual([
+      {
+        data: { tenantId: fixture.tenantId, endpointId: who.id, runId: run.id },
+        singleton_key: `${ENDPOINT_QUEUES.baremetalCheck}:${who.id}`,
+      },
+    ]);
+    // A second backup while the first check still waits: no second job (one per machine).
+    await backup(who, { layout: manifest(DEBIAN) });
+    expect((await jobsOf(who.id)).rows).toHaveLength(1);
+    // A backup without a layout queues nothing.
+    const plain = await machine();
+    await backup(plain, {});
+    expect((await jobsOf(plain.id)).rows).toHaveLength(0);
+  });
+
+  it("rates the machine with the check of the newest layout's snapshot", async () => {
+    const who = await machine({ config: { wholeMachine: true } });
+    const run = await backup(who, { layout: manifest(DEBIAN) });
+    const card = () => baremetal.getBaremetalState(shared.db, fixture.tenantId, who.id);
+    expect(await card()).toMatchObject({ state: "unverified", stateDetail: null, check: null });
+
+    const green = await checkReport(who, run, "green");
+    expect(await card()).toMatchObject({
+      state: "layout_checked",
+      stateDetail: null,
+      check: {
+        reportId: green?.id,
+        snapshotId: run.snapshotId,
+        readiness: "green",
+        incomplete: null,
+        checks: [{ id: "L1", status: "ok" }],
+        restoreSizes: { "/": { bytes: 9, files: 1, inodes: 2 } },
+        bootChainFingerprint: "c".repeat(64),
+      },
+    });
+
+    // A newer check of the same snapshot replaces it.
+    await checkReport(who, run, "red", {
+      checks: [
+        { id: "L6", status: "failed", findings: [{ code: "kernel_missing" }], evidence: {} },
+      ],
+    });
+    expect(await card()).toMatchObject({ state: "red", check: { readiness: "red" } });
+    await checkReport(who, run, "yellow", { incomplete: "planner_timeout" });
+    expect(await card()).toMatchObject({
+      state: "unverified",
+      stateDetail: "incomplete",
+      check: { readiness: "yellow", incomplete: "planner_timeout" },
+    });
+
+    // A newer backup without a check: the old report rates nothing any more.
+    await backup(who, { layout: manifest("example-bios-mdadm-btrfs") });
+    expect(await card()).toMatchObject({ state: "unverified", stateDetail: null, check: null });
+  });
+
+  it("is not possible for an unsupported layout, also with a red check, and for arm64", async () => {
+    const who = await machine({ config: { wholeMachine: true } });
+    const layout = manifest(DEBIAN) as Record<string, unknown>;
+    layout.verdict = "unsupported";
+    layout.unsupported = [
+      { code: "fs_type_unsupported", ref: "f2", message: "zfs", severity: "unsupported" },
+    ];
+    const run = await backup(who, { layout });
+    await checkReport(who, run, "red");
+    expect(await baremetal.getBaremetalState(shared.db, fixture.tenantId, who.id)).toMatchObject({
+      state: "not_possible",
+      notPossible: "unsupported",
+      check: { readiness: "red" },
+    });
+    const arm = await machine({ arch: "arm64", config: { wholeMachine: true } });
+    expect(await baremetal.getBaremetalState(shared.db, fixture.tenantId, arm.id)).toMatchObject({
+      state: "not_possible",
+      notPossible: "arm64_later",
+    });
+  });
+
+  it("keeps the layout checks out of the machine's report list", async () => {
+    const service = await import("./service.js");
+    const who = await machine({ config: { wholeMachine: true } });
+    const run = await backup(who, { layout: manifest(DEBIAN) });
+    await checkReport(who, run, "green");
+    await fixture.db.insert(endpointReports).values({
+      tenantId: fixture.tenantId,
+      endpointId: who.id,
+      kind: "retention",
+      origin: "server",
+      summary: { removedSnapshots: 0 },
+    });
+    const detail = await service.getEndpoint(
+      shared.db,
+      fixture.tenantId,
+      who.id,
+      "https://restow.test.example",
+    );
+    expect(detail.reports.map((report) => report.kind)).toEqual(["retention"]);
   });
 });

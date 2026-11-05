@@ -16,6 +16,8 @@ export const ENDPOINT_QUEUES = {
   monitor: "endpoint-monitor",
   /** A removed machine whose backups are due for deletion (@restow/db EndpointRemoval). */
   removal: "endpoint-removal",
+  /** Bare metal stage 1 (docs/BAREMETAL.md 12.1): layout and boot chain of a whole machine snapshot. */
+  baremetalCheck: "endpoint-baremetal-check",
 } as const;
 
 export type EndpointQueue = (typeof ENDPOINT_QUEUES)[keyof typeof ENDPOINT_QUEUES];
@@ -77,6 +79,15 @@ export const ENDPOINT_QUEUE_SETTINGS: Readonly<Record<EndpointQueue, EndpointQue
     expireInHours: 12,
     retentionDays: 14,
   },
+  [ENDPOINT_QUEUES.baremetalCheck]: {
+    name: ENDPOINT_QUEUES.baremetalCheck,
+    policy: "stately",
+    retryLimit: 3,
+    retryDelay: 300,
+    retryBackoff: true,
+    expireInHours: 6,
+    retentionDays: 14,
+  },
 };
 
 export interface EndpointJobPayload {
@@ -84,8 +95,13 @@ export interface EndpointJobPayload {
   endpointId: string;
   /** For `endpoint-check`: the share of the pack files to read, in percent. */
   subsetPercent?: number;
-  /** For `endpoint-verify`: test again although this snapshot was tested before. */
+  /**
+   * For `endpoint-verify`: test again although this snapshot was tested before; for
+   * `endpoint-baremetal-check`: check again although this snapshot has a report.
+   */
   force?: boolean;
+  /** For `endpoint-baremetal-check`: the run that recorded the layout (else the newest such run). */
+  runId?: string;
 }
 
 /** pg-boss singleton key: one queued and one active job per endpoint and kind. */

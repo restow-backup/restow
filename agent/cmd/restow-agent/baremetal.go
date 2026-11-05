@@ -17,15 +17,28 @@ import (
 	"github.com/restow-backup/restow/agent/internal/state"
 )
 
-// cmdBaremetal is `restow-agent baremetal capture [--raw-dir DIR] [--out
-// FILE]` (Linux, preview): it captures the disk layout of this machine as a
-// whole-machine backup does and prints the manifest (docs/BAREMETAL.md 4).
-// Nothing is sent and nothing is backed up.
+const baremetalUsage = `Usage: restow-agent baremetal capture|plan
+  baremetal capture [--raw-dir DIR] [--out FILE]
+  baremetal plan --manifest FILE|- [--facts FILE|-] --target same|minimal|other-controller|FILE [--choices FILE] [--snapshot ID] [--json]`
+
+// cmdBaremetal is `restow-agent baremetal capture|plan` (docs/BAREMETAL.md
+// 4 and 10.1).
 func cmdBaremetal(args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "plan" {
+		return cmdBaremetalPlan(args[1:], planStdin, stdout, stderr)
+	}
 	if len(args) == 0 || args[0] != "capture" {
-		fmt.Fprintln(stderr, "Usage: restow-agent baremetal capture [--raw-dir DIR] [--out FILE]")
+		fmt.Fprintln(stderr, baremetalUsage)
 		return exitUsage
 	}
+	return cmdBaremetalCapture(args, stdout, stderr)
+}
+
+// cmdBaremetalCapture is `restow-agent baremetal capture [--raw-dir DIR]
+// [--out FILE]` (Linux, preview): it captures the disk layout of this
+// machine as a whole-machine backup does and prints the manifest
+// (docs/BAREMETAL.md 4). Nothing is sent and nothing is backed up.
+func cmdBaremetalCapture(args []string, stdout, stderr io.Writer) int {
 	fs := newFlagSet("baremetal capture", stderr)
 	rawDir := fs.String("raw-dir", "", "also write the sanitized raw tool outputs (raw/) into this folder")
 	outFile := fs.String("out", "", "write the manifest to this file instead of standard output")

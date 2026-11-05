@@ -1,7 +1,7 @@
 meta-data=/dev/nvme0n2p1         isize=512    agcount=4, agsize=24413696 blks
          =                       sectsz=512   attr=2, projid32bit=1
          =                       crc=1        finobt=1, sparse=1, rmapbt=0
-         =                       reflink=1    bigtime=1 inobtcount=1, nrext64=0
+         =                       reflink=1    bigtime=1 inobtcount=1, nrext64=1
 data     =                       bsize=4096   blocks=121856000, imaxpct=25
          =                       sunit=0      swidth=0 blks
 naming   =version 2              bsize=4096   ascii-ci=0, ftype=1

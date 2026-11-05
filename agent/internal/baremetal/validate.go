@@ -465,6 +465,7 @@ func (v *validator) linux(l *LinuxLayout) {
 		v.nonNeg(p+".usedBytes", fs.UsedBytes)
 		v.nonNegPtr(p+".inodesUsed", fs.InodesUsed)
 		if b := fs.Btrfs; b != nil {
+			v.enumPtr(p+".btrfs.csum", b.Csum, "crc32c", "xxhash", "sha256", "blake2")
 			subvols += len(b.Subvolumes)
 			for j, s := range b.Subvolumes {
 				v.enum(fmt.Sprintf("%s.btrfs.subvolumes[%d].kind", p, j), s.Kind,

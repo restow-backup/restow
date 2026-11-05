@@ -328,7 +328,7 @@ func sysDebian12() *simMachine {
 	d := newDisk("nvme0n1", 512110190592, "gpt", "0F6C5E2A-1B3D-4C5E-9F70-8192A3B4C5D6")
 	vfat(addPart(d, 1, 1, 512, tESP, "5e1c4d0a-1b2c-4d3e-8f90-a1b2c3d4e5f6", "EFI System Partition"), "1A2B-3C4D", "/boot/efi")
 	ext4(addPart(d, 2, 513, 976, tLinux, "6f2d5e1b-2c3d-4e4f-9a01-b2c3d4e5f607", ""), "8b9c0d1e-2f3a-4b5c-6d7e-8f9a0b1c2d3e", "/boot")
-	p3 := addPart(d, 3, 1489, 486903, tLinux, "7a3e6f2c-3d4e-4f50-8b12-c3d4e5f60718", "")
+	p3 := addPart(d, 3, 1489, 486896, tLinux, "7a3e6f2c-3d4e-4f50-8b12-c3d4e5f60718", "")
 	c := luks(p3, "2b1f0c3e-6d7a-4e8b-9c0d-1e2f3a4b5c6d", 2, "nvme0n1p3_crypt")
 	pv(c, "Ab12Cd-34Ef-56Gh-78Ij-90Kl-12Mn-34OpQr")
 	ext4(lvNode(c, "srv01-vg", "root", 50*GiB), "9c0d1e2f-3a4b-5c6d-7e8f-9a0b1c2d3e4f", "/")
@@ -710,7 +710,7 @@ func sysNVMeTwoNS() *simMachine {
 	d2 := newDisk("nvme0n2", 500107862016, "gpt", "C6D7E8F9-0A1B-4C2D-3E4F-506172839405")
 	d2.NSID, d2.EUI = "2", "00 25 38 b1 11 b2 c3 d5"
 	d2.DevPath = strings.Replace(d2.DevPath, "nvme0n1", "nvme0n2", 1)
-	xfs(addPart(d2, 1, 1, 476000, tLinux, "ab000000-0000-4000-8000-000000000001", "data"), "ab100000-0000-4000-8000-000000000001", "/srv")
+	xfs(addPart(d2, 1, 1, 476000, tLinux, "ab000000-0000-4000-8000-000000000001", "data"), "ab100000-0000-4000-8000-000000000001", "/srv").XFS.Nrext64 = 1
 	s.Disks = append(s.Disks, d2)
 	s.Files["/etc/fstab"] += "UUID=ab100000-0000-4000-8000-000000000001 /srv xfs defaults 0 2\n"
 	for _, n := range s.all() {
@@ -788,8 +788,8 @@ func sysPlainSwap() *simMachine {
 	s.Cmdline = "BOOT_IMAGE=/vmlinuz-6.1.0-27-amd64 root=UUID=ae000000-0000-4000-8000-000000000001 ro"
 	d := newDisk("vda", 68719476736, "gpt", "F90A1B2C-3D4E-4F50-6172-839405A6B7C8")
 	vfat(addPart(d, 1, 1, 512, tESP, "ae100000-0000-4000-8000-000000000001", ""), "5D6E-7F80", "/boot/efi")
-	ext4(addPart(d, 2, 513, 57000, tLinux, "ae100000-0000-4000-8000-000000000002", ""), "ae000000-0000-4000-8000-000000000001", "/")
-	p3 := addPart(d, 3, 57513, 8192, tSwap, "ae100000-0000-4000-8000-000000000003", "")
+	ext4(addPart(d, 2, 513, 56800, tLinux, "ae100000-0000-4000-8000-000000000002", ""), "ae000000-0000-4000-8000-000000000001", "/")
+	p3 := addPart(d, 3, 57313, 8192, tSwap, "ae100000-0000-4000-8000-000000000003", "")
 	cs := &simNode{KName: "dm-0", Name: "cswap", Type: "crypt", Size: 8192 * MiB}
 	swapSig(cs, "")
 	p3.Children = []*simNode{cs}
@@ -881,7 +881,7 @@ func sysDockerBtrfsMany() *simMachine {
 		subs = append(subs, simSubvol{ID: int64(300 + i), Parent: 256, TopLevel: 256,
 			Path: fmt.Sprintf("@/var/lib/docker/btrfs/subvolumes/%064x", i+1), UUID: fmt.Sprintf("b1300000-0000-4000-8000-%012d", i)})
 	}
-	btrfsFS(p2, "b1000000-0000-4000-8000-000000000001", &simBtrfs{Subvols: subs}, s,
+	btrfsFS(p2, "b1000000-0000-4000-8000-000000000001", &simBtrfs{Subvols: subs, Csum: "xxhash"}, s,
 		simMount{Target: "/", Root: "/@", SubvolID: 256}, simMount{Target: "/home", Root: "/@home", SubvolID: 257})
 	s.Disks = []*simNode{d}
 	s.Files["/etc/fstab"] = "UUID=b1000000-0000-4000-8000-000000000001 / btrfs defaults,subvol=@ 0 1\nUUID=b1000000-0000-4000-8000-000000000001 /home btrfs defaults,subvol=@home 0 2\nUUID=7F80-91A2 /boot/efi vfat umask=0077 0 1\n"

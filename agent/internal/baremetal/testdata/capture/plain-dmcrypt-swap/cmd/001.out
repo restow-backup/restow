@@ -37,9 +37,9 @@
                "zoned": "none"
             },
             {
-               "fssize": 56780390400,
+               "fssize": 56581160960,
                "fstype": "ext4",
-               "fsused": 11953766400,
+               "fsused": 11911823360,
                "fsver": "1.0",
                "kname": "vda2",
                "label": null,
@@ -63,7 +63,7 @@
                "ro": false,
                "rota": false,
                "serial": null,
-               "size": 59768832000,
+               "size": 59559116800,
                "tran": null,
                "type": "part",
                "uuid": "ae000000-0000-4000-8000-000000000001",

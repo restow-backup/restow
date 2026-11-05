@@ -39,6 +39,7 @@ type simXFS struct {
 	ISize, AGCount, SectSz, BSize, LogBlocks int64
 	CRC, Finobt, Sparse, Rmapbt, Reflink     int
 	Bigtime, Inobtcount, Ftype               int
+	Nrext64                                  int
 	Log, Realtime                            string
 }
 
@@ -130,6 +131,7 @@ type simBtrfs struct {
 	Features           []string
 	Used, Size         int64
 	NoCow              []string
+	Csum               string // crc32c when empty
 }
 
 type simBootEntry struct {
@@ -473,14 +475,14 @@ func (s *simMachine) xfsInfo(n *simNode) string {
 	return fmt.Sprintf(`meta-data=%-22s isize=%-6d agcount=%d, agsize=24413696 blks
          =                       sectsz=%-5d attr=2, projid32bit=1
          =                       crc=%-8d finobt=%d, sparse=%d, rmapbt=%d
-         =                       reflink=%-4d bigtime=%d inobtcount=%d, nrext64=0
+         =                       reflink=%-4d bigtime=%d inobtcount=%d, nrext64=%d
 data     =                       bsize=%-6d blocks=%d, imaxpct=25
          =                       sunit=0      swidth=0 blks
 naming   =version 2              bsize=4096   ascii-ci=0, ftype=%d
 log      =%-22s bsize=%-6d blocks=%d, version=2
          =                       sectsz=%-5d sunit=0 blks, lazy-count=1
 realtime =%-22s extsz=4096   blocks=0, rtextents=0
-`, n.path(), x.ISize, x.AGCount, x.SectSz, x.CRC, x.Finobt, x.Sparse, x.Rmapbt, x.Reflink, x.Bigtime, x.Inobtcount,
+`, n.path(), x.ISize, x.AGCount, x.SectSz, x.CRC, x.Finobt, x.Sparse, x.Rmapbt, x.Reflink, x.Bigtime, x.Inobtcount, x.Nrext64,
 		x.BSize, n.Size/x.BSize, x.Ftype, log, x.BSize, x.LogBlocks, x.SectSz, rt)
 }
 
@@ -498,7 +500,12 @@ func (s *simMachine) btrfsOf(target string) (*simNode, *simBtrfs) {
 func (s *simMachine) dumpSuper(n *simNode, b *simBtrfs) string {
 	var out strings.Builder
 	fmt.Fprintf(&out, "superblock: bytenr=65536, device=%s\n---------------------------------------------------------\n", n.path())
-	fmt.Fprintf(&out, "csum_type\t\t0 (crc32c)\nfsid\t\t\t%s\nlabel\t\t\t%s\nnodesize\t\t%d\nsectorsize\t\t4096\n", n.UUID, n.Label, b.NodeSize)
+	csum := b.Csum
+	if csum == "" {
+		csum = "crc32c"
+	}
+	csumNum := map[string]int{"crc32c": 0, "xxhash": 1, "sha256": 2, "blake2": 3}[csum]
+	fmt.Fprintf(&out, "csum_type\t\t%d (%s)\nfsid\t\t\t%s\nlabel\t\t\t%s\nnodesize\t\t%d\nsectorsize\t\t4096\n", csumNum, csum, n.UUID, n.Label, b.NodeSize)
 	var inc, ro []string
 	for _, f := range b.Features {
 		if strings.HasPrefix(f, "free_space_tree") || f == "block_group_tree" {

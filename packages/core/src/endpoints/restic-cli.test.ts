@@ -20,6 +20,7 @@ import {
   resticSnapshots,
   resticStat,
   resticStatMany,
+  resticWalk,
   runRestic,
 } from "./restic-cli.js";
 import { restoreTestSamples } from "./restore-test.js";
@@ -371,6 +372,49 @@ describe("a restic process stopped by a signal", () => {
     ]);
     expect(result.transient).toBe(true);
     expect(result.matched).toBe(0);
+  });
+});
+
+describe("a walk over a snapshot whose callback fails", () => {
+  let work: string;
+  let session: ResticSession;
+  let pidFile: string;
+
+  beforeAll(async () => {
+    work = await mkdtemp(join(tmpdir(), "restow-restic-walk-"));
+    pidFile = join(work, "pid");
+    // Prints nodes without end, the way `restic ls` on a huge snapshot keeps the pipe full.
+    const fake = join(work, "restic-endless.sh");
+    await writeFile(
+      fake,
+      `#!/bin/sh\necho $$ > '${pidFile}'\nwhile :; do echo '{"name":"a","type":"file","path":"/a","inode":1,"size":1}'; done\n`,
+    );
+    await chmod(fake, 0o755);
+    session = {
+      repositoryUrl: join(work, "repo"),
+      username: "",
+      password: "",
+      repositoryPassword: "x",
+      cacheDir: join(work, "cache"),
+      binary: fake,
+    };
+  });
+
+  afterAll(async () => {
+    await rm(work, { recursive: true, force: true });
+  });
+
+  it("stops restic before it passes the error on, so no restic is left holding its lock", async () => {
+    let seen = 0;
+    await expect(
+      resticWalk(session, "a".repeat(64), () => {
+        seen += 1;
+        if (seen === 1000) throw new RangeError("Set maximum size exceeded");
+      }),
+    ).rejects.toThrow("Set maximum size exceeded");
+    const pid = Number((await readFile(pidFile, "utf8")).trim());
+    expect(pid).toBeGreaterThan(0);
+    expect(() => process.kill(pid, 0)).toThrow(expect.objectContaining({ code: "ESRCH" }));
   });
 });
 

@@ -165,6 +165,8 @@ restow-agent service ...   install | start | stop | restart | status
 restow-agent hooks ...     status | off | scripts | any: whether hooks from the server run here
 restow-agent baremetal capture [--raw-dir DIR] [--out FILE]
                            Capture the disk layout of this machine (Linux, preview; prints the manifest, sends nothing)
+restow-agent baremetal plan --manifest FILE|- --target same|minimal|other-controller|FILE [--json]
+                           Plan the restore of a layout manifest (pure; any system; see "Whole machine")
 restow-agent uninstall     Remove the agent (--yes, --keep-logs, --keep-binaries)
 restow-agent version       Version, commit, build date (--short for the number only)
 ```
@@ -286,9 +288,34 @@ an agent 0.5.0 instead backs up every local file system:
   A failed capture still backs up the mounted file systems (`layout_capture_failed`, run
   `partial`).
 - `restow-agent baremetal capture` shows what a whole-machine backup would record.
+- `restow-agent baremetal plan` computes the restore plan of a manifest (contract
+  `restow-plan-v1`): which disk goes where, partition and LV sizes in bytes and target
+  sectors, the `mkfs` arguments from the recorded parameters, the driver and Secure Boot
+  checks and the steps a restore would take. It is a pure function: it starts no program,
+  reads only its arguments (and standard input) and, on Linux, limits itself (data segment
+  512 MiB, CPU 30 s). The Restow server runs it in a sandbox after each whole-machine
+  backup to check the layout (stage 1) and to show the minimum disk sizes.
+
+  ```
+  restow-agent baremetal plan --manifest layout.json --target same --json
+  restow-agent baremetal plan --manifest - --facts - --target minimal --json < manifest-then-facts
+  ```
+
+  `--target` is `same` (the recorded hardware), `minimal` (every disk at its minimum size,
+  shrinking allowed), `other-controller` (NVMe and SATA swapped, for the driver check) or a
+  target file (`restow-plan-target-v1`). `--facts` (`restow-plan-facts-v1`) holds the
+  kernel module lists and the restore sizes per mount point from the snapshot; without it
+  the sizes are estimated from the space in use and drivers are not checked. With both
+  `--manifest -` and `--facts -`, standard input carries the manifest and then the facts.
+  `--choices FILE` sets the operator's decisions (disk mapping, adoption, shrinking, raw
+  LVs, Secure Boot off), `--snapshot ID` the snapshot of the restore step. Exit codes: `0`
+  a plan was computed (problems are part of it: `ok` is false), `1` the input was refused
+  or the planner failed (with `--json` an `error` object with a code on standard output),
+  `2` usage.
 
 macOS and Windows machines ignore `wholeMachine` and back up their folders (one log line).
-Restoring a whole machine onto new hardware is not part of this release.
+Restoring a whole machine onto new hardware is not part of this release; the planner only
+plans.
 
 ### File system snapshots on Linux (LVM, btrfs)
 

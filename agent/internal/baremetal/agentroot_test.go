@@ -329,6 +329,23 @@ func TestRootCaptureStacks(t *testing.T) {
 	if !nested {
 		t.Fatalf("btrfs subvolume @data/nested missing")
 	}
+
+	// M2: the captured stacks plan on the same hardware without problems.
+	if m.Linux.Verdict == VerdictUnsupported {
+		t.Logf("verdict unsupported (the runner's own disks); the plan check is skipped")
+		return
+	}
+	tg, choices, err := SyntheticTarget(m, TargetSame, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, _ := Plan(m, tg, nil, choices)
+	for _, p := range plan.Problems {
+		t.Errorf("plan problem %s: %s", p.Code, p.Message)
+	}
+	if _, err := EncodePlan(plan); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // TestRootCaptureCommand: `restow-agent baremetal capture --raw-dir --out`

@@ -1,0 +1,645 @@
+{
+  "adopted": [],
+  "disks": [
+    {
+      "disk": "d0",
+      "lvs": [],
+      "partitions": [
+        {
+          "grown": false,
+          "number": 1,
+          "realigned": false,
+          "shrunk": false,
+          "sizeBytes": 629145600,
+          "sizeLba": 1228800,
+          "startBytes": 1048576,
+          "startLba": 2048
+        },
+        {
+          "grown": false,
+          "number": 2,
+          "realigned": false,
+          "shrunk": false,
+          "sizeBytes": 1073741824,
+          "sizeLba": 2097152,
+          "startBytes": 630194176,
+          "startLba": 1230848
+        },
+        {
+          "grown": false,
+          "number": 3,
+          "realigned": false,
+          "shrunk": true,
+          "sizeBytes": 275590938624,
+          "sizeLba": 538263552,
+          "startBytes": 1703936000,
+          "startLba": 3328000
+        }
+      ],
+      "sectorSize": 512,
+      "table": "gpt",
+      "target": "t0"
+    }
+  ],
+  "drivers": {
+    "fallback": null,
+    "kernel": "6.11.5-300.fc41.x86_64",
+    "nics": [
+      {
+        "builtin": false,
+        "device": "enp0s31f6",
+        "found": true,
+        "kernel": "6.11.5-300.fc41.x86_64",
+        "modalias": "pci:v00008086d00001533sv000015D9sd00001533bc02sc00i00",
+        "module": "igb"
+      }
+    ],
+    "storage": [
+      {
+        "builtin": false,
+        "device": "t0",
+        "found": true,
+        "kernel": "6.11.5-300.fc41.x86_64",
+        "modalias": "pci:v0000144Dd0000A80Asv0000144Dsd0000A801bc01sc08i02",
+        "module": "nvme"
+      }
+    ]
+  },
+  "format": "restow-plan-v1",
+  "mapping": [
+    {
+      "action": "erase",
+      "reason": "identity",
+      "source": "d0",
+      "target": "t0"
+    }
+  ],
+  "minimumSizes": {
+    "disks": [
+      {
+        "disk": "d0",
+        "kname": "nvme0n1",
+        "minBytes": 277295923200,
+        "sizeBytes": 1000204886016
+      }
+    ],
+    "filesystems": [
+      {
+        "fs": "f0",
+        "minBytes": 629145600,
+        "mount": "/boot/efi",
+        "restoreBytes": 6291456,
+        "type": "vfat"
+      },
+      {
+        "fs": "f1",
+        "minBytes": 1020054733,
+        "mount": "/boot",
+        "restoreBytes": 214748364,
+        "type": "ext4"
+      },
+      {
+        "fs": "f2",
+        "minBytes": 275590938624,
+        "mount": "/",
+        "restoreBytes": 249561088000,
+        "type": "btrfs"
+      }
+    ],
+    "lvs": [],
+    "thinPools": []
+  },
+  "ok": true,
+  "problems": [],
+  "secureBoot": {
+    "checked": true,
+    "loaders": [
+      {
+        "detail": null,
+        "path": "/boot/efi/EFI/BOOT/BOOTX64.EFI",
+        "verdict": "ok"
+      },
+      {
+        "detail": null,
+        "path": "/boot/efi/EFI/BOOT/fbx64.efi",
+        "verdict": "ok"
+      },
+      {
+        "detail": null,
+        "path": "/boot/efi/EFI/fedora/grubx64.efi",
+        "verdict": "ok"
+      },
+      {
+        "detail": null,
+        "path": "/boot/efi/EFI/fedora/shimx64.efi",
+        "verdict": "ok"
+      }
+    ],
+    "targetSecureBoot": true
+  },
+  "steps": [
+    {
+      "args": [
+        "release-holders",
+        "/dev/nvme0n1"
+      ],
+      "kind": "release_holders",
+      "n": 1,
+      "phase": "prepare",
+      "reason": "stop everything that holds /dev/nvme0n1 (mounts, swap, LVM, md, dm)",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/nvme0n1"
+    },
+    {
+      "args": [
+        "wipefs",
+        "-a",
+        "/dev/nvme0n1"
+      ],
+      "kind": "wipe",
+      "n": 2,
+      "phase": "prepare",
+      "reason": "remove the signatures of the old content of /dev/nvme0n1 (its partitions first)",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/nvme0n1"
+    },
+    {
+      "args": [
+        "blkzero",
+        "--head=16777216",
+        "--tail=16777216",
+        "/dev/nvme0n1"
+      ],
+      "kind": "zero_range",
+      "n": 3,
+      "phase": "prepare",
+      "reason": "zero the first and last 16 MiB of /dev/nvme0n1",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/nvme0n1"
+    },
+    {
+      "args": [
+        "sfdisk",
+        "--no-reread",
+        "--wipe",
+        "always",
+        "/dev/nvme0n1"
+      ],
+      "kind": "partition",
+      "n": 4,
+      "phase": "partition",
+      "reason": "recreate the GPT of d0 with its identifiers (PARTUUIDs stay)",
+      "stdin": "label: gpt\nlabel-id: 506172F8-94A5-46B7-C8D9-EAFB0C1D2E3F\nunit: sectors\nsector-size: 512\n\n/dev/nvme0n1p1 : start=2048, size=1228800, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B, uuid=d1000000-0000-4000-8000-000000000001, name=\"EFI System Partition\"\n/dev/nvme0n1p2 : start=1230848, size=2097152, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, uuid=d1000000-0000-4000-8000-000000000002\n/dev/nvme0n1p3 : start=3328000, size=538263552, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, uuid=d1000000-0000-4000-8000-000000000003\n",
+      "stdinSecret": null,
+      "target": "/dev/nvme0n1"
+    },
+    {
+      "args": [
+        "mkfs.vfat",
+        "-F",
+        "32",
+        "-i",
+        "E5F60718",
+        "-S",
+        "512",
+        "-s",
+        "8",
+        "/dev/nvme0n1p1"
+      ],
+      "kind": "mkfs",
+      "n": 5,
+      "phase": "mkfs",
+      "reason": "create vfat f0 with its UUID and recorded features",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/nvme0n1p1"
+    },
+    {
+      "args": [
+        "mkfs.ext4",
+        "-F",
+        "-t",
+        "ext4",
+        "-U",
+        "f1000000-0000-4000-8000-0000000000b1",
+        "-b",
+        "4096",
+        "-I",
+        "256",
+        "-N",
+        "262144",
+        "-m",
+        "5",
+        "-O",
+        "none,has_journal,ext_attr,resize_inode,dir_index,filetype,extent,64bit,flex_bg,sparse_super,large_file,huge_file,dir_nlink,extra_isize,metadata_csum",
+        "-G",
+        "16",
+        "-J",
+        "size=128",
+        "/dev/nvme0n1p2"
+      ],
+      "kind": "mkfs",
+      "n": 6,
+      "phase": "mkfs",
+      "reason": "create ext4 f1 with its UUID and recorded features",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/nvme0n1p2"
+    },
+    {
+      "args": [
+        "mkfs.btrfs",
+        "-f",
+        "-U",
+        "f1000000-0000-4000-8000-000000000001",
+        "-n",
+        "16384",
+        "-s",
+        "4096",
+        "--csum",
+        "crc32c",
+        "-O",
+        "extref,free-space-tree,no-holes,skinny-metadata",
+        "-d",
+        "single",
+        "-m",
+        "dup",
+        "/dev/nvme0n1p3"
+      ],
+      "kind": "mkfs",
+      "n": 7,
+      "phase": "mkfs",
+      "reason": "create btrfs f2 with its UUID and recorded features",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/nvme0n1p3"
+    },
+    {
+      "args": [
+        "mount",
+        "-t",
+        "btrfs",
+        "-o",
+        "subvolid=5,device=/dev/nvme0n1p3",
+        "/dev/nvme0n1p3",
+        "{target_root}/.restow-btrfs-f2"
+      ],
+      "kind": "mount",
+      "n": 8,
+      "phase": "mkfs",
+      "reason": "mount the top level of f2 to create its subvolumes",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/nvme0n1p3"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f2/home"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 9,
+      "phase": "mkfs",
+      "reason": "create subvolume home",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "home"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f2/root"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 10,
+      "phase": "mkfs",
+      "reason": "create subvolume root",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "root"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f2/home/anna/vm-images"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 11,
+      "phase": "mkfs",
+      "reason": "create subvolume home/anna/vm-images",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "home/anna/vm-images"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f2/root/var/lib/machines"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 12,
+      "phase": "mkfs",
+      "reason": "create subvolume root/var/lib/machines",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "root/var/lib/machines"
+    },
+    {
+      "args": [
+        "btrfs",
+        "subvolume",
+        "create",
+        "{target_root}/.restow-btrfs-f2/root/var/lib/portables"
+      ],
+      "kind": "btrfs_subvolume",
+      "n": 13,
+      "phase": "mkfs",
+      "reason": "create subvolume root/var/lib/portables",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "root/var/lib/portables"
+    },
+    {
+      "args": [
+        "umount",
+        "{target_root}/.restow-btrfs-f2"
+      ],
+      "kind": "umount",
+      "n": 14,
+      "phase": "mkfs",
+      "reason": "unmount the top level of f2",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/nvme0n1p3"
+    },
+    {
+      "args": [
+        "mount",
+        "-t",
+        "btrfs",
+        "-o",
+        "subvol=root,device=/dev/nvme0n1p3",
+        "/dev/nvme0n1p3",
+        "{target_root}"
+      ],
+      "kind": "mount",
+      "n": 15,
+      "phase": "mount",
+      "reason": "mount f2 at /",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/nvme0n1p3"
+    },
+    {
+      "args": [
+        "mount",
+        "-t",
+        "ext4",
+        "/dev/nvme0n1p2",
+        "{target_root}/boot"
+      ],
+      "kind": "mount",
+      "n": 16,
+      "phase": "mount",
+      "reason": "mount f1 at /boot",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/nvme0n1p2"
+    },
+    {
+      "args": [
+        "mount",
+        "-t",
+        "btrfs",
+        "-o",
+        "subvol=home,device=/dev/nvme0n1p3",
+        "/dev/nvme0n1p3",
+        "{target_root}/home"
+      ],
+      "kind": "mount",
+      "n": 17,
+      "phase": "mount",
+      "reason": "mount f2 at /home",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/nvme0n1p3"
+    },
+    {
+      "args": [
+        "mount",
+        "-t",
+        "vfat",
+        "-o",
+        "quiet",
+        "/dev/nvme0n1p1",
+        "{target_root}/boot/efi"
+      ],
+      "kind": "mount",
+      "n": 18,
+      "phase": "mount",
+      "reason": "mount f0 at /boot/efi",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/nvme0n1p1"
+    },
+    {
+      "args": [
+        "chattr",
+        "+C",
+        "{target_root}/var/lib/libvirt"
+      ],
+      "kind": "nocow",
+      "n": 19,
+      "phase": "mount",
+      "reason": "set nodatacow on /var/lib/libvirt before the restore",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/var/lib/libvirt"
+    },
+    {
+      "args": [
+        "restic",
+        "restore",
+        "--json",
+        "--no-lock",
+        "--no-cache",
+        "--target",
+        "{target_root}",
+        "--sparse",
+        "--verify",
+        "--overwrite",
+        "never",
+        "{snapshot}"
+      ],
+      "kind": "restore",
+      "n": 20,
+      "phase": "restore",
+      "reason": "restore the files of the snapshot",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": null
+    },
+    {
+      "args": [
+        "mkdirs",
+        "/proc:0555",
+        "/sys:0555",
+        "/dev:0755",
+        "/run:0755",
+        "/tmp:1777",
+        "/boot:0755",
+        "/boot/efi:0755",
+        "/home:0755"
+      ],
+      "kind": "mkdirs",
+      "n": 21,
+      "phase": "post",
+      "reason": "create mount points and API folders that the snapshot may lack",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": null
+    },
+    {
+      "args": [
+        "fixup",
+        "/boot/loader/entries/*.conf",
+        "cmdline"
+      ],
+      "kind": "fixup",
+      "n": 22,
+      "phase": "post",
+      "reason": "rewrite device references in /boot/loader/entries/*.conf",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/boot/loader/entries/*.conf"
+    },
+    {
+      "args": [
+        "fixup",
+        "/etc/default/grub",
+        "cmdline"
+      ],
+      "kind": "fixup",
+      "n": 23,
+      "phase": "post",
+      "reason": "rewrite device references in /etc/default/grub",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/etc/default/grub"
+    },
+    {
+      "args": [
+        "fixup",
+        "/etc/fstab",
+        "fstab"
+      ],
+      "kind": "fixup",
+      "n": 24,
+      "phase": "post",
+      "reason": "rewrite device references in /etc/fstab",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/etc/fstab"
+    },
+    {
+      "args": [
+        "chroot-exec",
+        "dracut",
+        "--force",
+        "--no-hostonly",
+        "--include",
+        "/etc/crypttab",
+        "/etc/crypttab",
+        "--include",
+        "/etc/vconsole.conf",
+        "/etc/vconsole.conf",
+        "--kver",
+        "6.11.5-300.fc41.x86_64"
+      ],
+      "kind": "initramfs",
+      "n": 25,
+      "phase": "post",
+      "reason": "rebuild the initramfs without hostonly",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": null
+    },
+    {
+      "args": [
+        "chroot-exec",
+        "grub2-mkconfig",
+        "-o",
+        "/boot/grub2/grub.cfg"
+      ],
+      "kind": "grub_config",
+      "n": 26,
+      "phase": "post",
+      "reason": "write the GRUB configuration",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/boot/grub2/grub.cfg"
+    },
+    {
+      "args": [
+        "nvram",
+        "--label",
+        "fedora",
+        "--partuuid",
+        "d1000000-0000-4000-8000-000000000001",
+        "--loader",
+        "\\EFI\\fedora\\shimx64.efi"
+      ],
+      "kind": "nvram",
+      "n": 27,
+      "phase": "post",
+      "reason": "create the boot entry fedora",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "d1000000-0000-4000-8000-000000000001"
+    },
+    {
+      "args": [
+        "verify"
+      ],
+      "kind": "verify",
+      "n": 28,
+      "phase": "post",
+      "reason": "check the restored system (identities, fstab, boot files)",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": null
+    }
+  ],
+  "target": "minimal",
+  "warnings": [
+    {
+      "code": "partition_shrunk",
+      "message": "Partition d0p3 shrinks from 998244352000 to 275590938624 bytes.",
+      "params": {
+        "fromBytes": 998244352000,
+        "partition": "d0p3",
+        "toBytes": 275590938624
+      },
+      "ref": "d0p3",
+      "severity": "warning"
+    },
+    {
+      "code": "secure_boot_dbx_unknown",
+      "message": "The revocation list (dbx) of the target is not known; revoked loaders were not checked.",
+      "params": {},
+      "ref": null,
+      "severity": "warning"
+    }
+  ]
+}

@@ -608,8 +608,78 @@ type TenantKey = string | null;
 
 // --- Bare metal (preview, docs/BAREMETAL.md 14.3) -----------------------------------
 
-export type BaremetalState = "not_enabled" | "not_possible" | "no_layout" | "unverified";
-export type BaremetalNotPossible = "container" | "windows" | "darwin_later" | "agent_too_old";
+export type BaremetalState =
+  | "not_enabled"
+  | "not_possible"
+  | "no_layout"
+  | "unverified"
+  | "layout_checked"
+  | "red";
+export type BaremetalNotPossible =
+  | "container"
+  | "windows"
+  | "darwin_later"
+  | "arm64_later"
+  | "agent_too_old"
+  | "unsupported";
+
+/** The checks of the layout check, stage 1 of the restore check (docs/BAREMETAL.md 12.1). */
+export const BAREMETAL_CHECK_IDS = ["L1", "L2", "L3", "L4", "L5", "L6", "L7", "L8"] as const;
+export type BaremetalCheckId = (typeof BAREMETAL_CHECK_IDS)[number];
+export type BaremetalCheckStatus = "ok" | "warning" | "failed" | "skipped";
+
+export interface BaremetalCheckFinding {
+  code: string;
+  severity: "failed" | "warning" | "info";
+  ref: string | null;
+  params: Record<string, unknown>;
+}
+
+export interface BaremetalLayoutCheck {
+  id: BaremetalCheckId;
+  status: BaremetalCheckStatus;
+  findings: BaremetalCheckFinding[];
+  /** What the check looked at: structured fields only, shown as text. */
+  evidence: Record<string, unknown>;
+}
+
+/** One run of the restore planner as the report keeps it. */
+export interface BaremetalPlannerRun {
+  ok: boolean | null;
+  problems?: { code: string; ref: string | null; params: Record<string, unknown> }[];
+  warnings?: { code: string; ref: string | null; params: Record<string, unknown> }[];
+  incomplete?: string;
+  refused?: string;
+}
+
+export interface BaremetalMinimumSizes {
+  disks: { disk: string; kname: string; sizeBytes: number; minBytes: number }[];
+  filesystems: {
+    fs: string;
+    mount: string | null;
+    type: string;
+    restoreBytes: number;
+    minBytes: number;
+  }[];
+}
+
+/** The newest layout check of the newest layout's restore point. */
+export interface BaremetalCheck {
+  reportId: string;
+  checkedAt: string;
+  snapshotId: string | null;
+  readiness: "green" | "red" | "yellow";
+  incomplete: string | null;
+  checks: BaremetalLayoutCheck[];
+  restoreSizes: Record<string, { bytes: number; files: number; inodes: number }>;
+  minimumSizes: BaremetalMinimumSizes | null;
+  planner: {
+    same?: BaremetalPlannerRun;
+    minimal?: BaremetalPlannerRun;
+    otherController?: BaremetalPlannerRun;
+  } | null;
+  bootChainFingerprint: string | null;
+}
 export type LayoutVerdict = "supported" | "supported_with_warnings" | "unsupported";
 
 export interface LayoutUnsupported {
@@ -681,6 +751,8 @@ export interface Baremetal {
   /** The machine's job backs it up as a whole. */
   enabled: boolean;
   state: BaremetalState;
+  /** `incomplete`: the layout check ran but could not finish. */
+  stateDetail: "incomplete" | null;
   notPossible: BaremetalNotPossible | null;
   latest: {
     layoutId: string;
@@ -701,6 +773,7 @@ export interface Baremetal {
     suggestedFreeBytes: number;
     mounts: string[];
   } | null;
+  check: BaremetalCheck | null;
 }
 
 export const endpointKeys = {

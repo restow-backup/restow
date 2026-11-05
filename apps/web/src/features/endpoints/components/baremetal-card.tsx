@@ -6,15 +6,37 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 
 import type { Baremetal, BaremetalState, LayoutUnsupported, LayoutVerdict } from "../api.js";
 import { useBaremetal, useEndpointFormat } from "../hooks.js";
+import { BaremetalCheckReport } from "./baremetal-check-report.js";
 import { LayoutSummary } from "./layout-summary.js";
+import { MinimumSizes } from "./minimum-sizes.js";
 
 const STATE_TONE: Record<BaremetalState, StatusTone> = {
   not_enabled: "muted",
   not_possible: "muted",
   no_layout: "info",
-  // A captured layout proves nothing yet: the restore check comes with a later release.
+  // A captured layout proves nothing yet.
   unverified: "info",
+  // Stage 1 passed; only a boot probe (a later release) is proof that the machine starts, and
+  // green is kept for proof (docs/BAREMETAL.md 12).
+  layout_checked: "neutral",
+  red: "destructive",
 };
+
+/** The explanation under the state, if it has one. */
+function stateHint(baremetal: Baremetal): string | null {
+  switch (baremetal.state) {
+    case "unverified":
+      return baremetal.stateDetail === "incomplete"
+        ? "baremetal.incompleteHint"
+        : "baremetal.unverifiedHint";
+    case "layout_checked":
+      return "baremetal.layoutCheckedHint";
+    case "red":
+      return "baremetal.redHint";
+    default:
+      return null;
+  }
+}
 
 const VERDICT_TONE: Record<LayoutVerdict, StatusTone> = {
   supported: "neutral",
@@ -66,9 +88,11 @@ function Findings({ items }: { items: LayoutUnsupported[] }) {
 
 /**
  * Bare metal (preview) on the machine's page (docs/BAREMETAL.md 14.6): whether the machine is
- * backed up as a whole, the layout its newest whole machine backup recorded with the verdict and
- * what is not supported, the summary of the layout, and what to leave free for snapshots. A
- * restore wizard and the recovery ISO come with later releases.
+ * backed up as a whole, its rating (12.4, up to "layout checked"), the layout check of the newest
+ * restore point with its evidence and the minimum sizes of replacement hardware, the layout its
+ * newest whole machine backup recorded with the verdict and what is not supported, the summary
+ * of the layout, and what to leave free for snapshots. A restore wizard, the recovery ISO and the
+ * boot probe come with later releases.
  */
 export function BaremetalCard({ endpointId }: { endpointId: string }) {
   const { t } = useTranslation("endpoints");
@@ -82,6 +106,8 @@ export function BaremetalCard({ endpointId }: { endpointId: string }) {
     return null;
   }
   const latest = baremetal.latest;
+  const hint = stateHint(baremetal);
+  const check = baremetal.check;
   return (
     <Card data-slot="baremetal-card">
       <CardHeader>
@@ -99,8 +125,10 @@ export function BaremetalCard({ endpointId }: { endpointId: string }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {baremetal.state === "unverified" ? (
-          <p className="text-sm text-muted-foreground">{t("baremetal.unverifiedHint")}</p>
+        {hint ? (
+          <p className="text-sm text-muted-foreground" data-slot="baremetal-hint">
+            {t(hint)}
+          </p>
         ) : null}
         {baremetal.snapshotHint ? (
           <p
@@ -133,6 +161,16 @@ export function BaremetalCard({ endpointId }: { endpointId: string }) {
               </dd>
             </dl>
             <Findings items={latest.unsupported} />
+            {check ? (
+              <>
+                <BaremetalCheckReport check={check} />
+                {check.minimumSizes ? <MinimumSizes sizes={check.minimumSizes} /> : null}
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground" data-slot="baremetal-check-pending">
+                {t("baremetal.check.pending")}
+              </p>
+            )}
             <LayoutSummary summary={latest.summary} />
           </>
         ) : null}
