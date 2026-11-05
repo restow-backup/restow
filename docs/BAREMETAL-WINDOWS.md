@@ -2442,6 +2442,23 @@ Reihenfolge und Gates:
 
 ## 11. Offene Fragen und Entscheidungen
 
+### 11.0 Entscheidungen des Maintainers (5. November 2026)
+
+- **Frage 1:** W2a (SQL Server, erste Stufe) kommt in **0.5.0**, sobald seine Gate-Liste
+  bestanden ist. Für 0.5.0 gibt es keinen Termindruck; W1 und W2a werden vollständig gebaut
+  statt gekürzt.
+- **Frage 18:** **Weg B (WinRE-Medium) zuerst**, A danach. Kritischer Pfad M3 → W3 → W4 → W8
+  → W6 wie in Abschnitt 9.
+- **Frage 12:** Kit aus der WinRE des Kunden je Gerät: **ja** (nur für dieses Gerät, Download
+  nur für Admins). Start von Kunden-Windows in der Labor-VM ohne Netz und ohne Aktivierung:
+  **ja** (abschaltbar je Mandant). Evaluierungsfassungen in der CI: **prüft der Maintainer
+  rechtlich**; bis dahin gelten nur in der CI belegte Wege als "nicht bewiesen" (4.4.3), und
+  W8 bzw. W5 beginnen erst nach dieser Klärung.
+- **Fragen 2 und 3, frühere Festlegungen:** angenommen. "Windows Bare Metal später" bekommt
+  diesen Plan; "Keine Images" in docs/AGENT.md fällt für Windows ab W4; "Systemzustand und
+  Registry nicht Teil" gilt nur noch für die Dateisicherung.
+- Die übrigen Fragen nehmen den Vorschlag.
+
 ### 11.1 Fragen an den Maintainer
 
 Der Entwurf schlägt vor und setzt den Vorschlag um, wenn keine andere Entscheidung kommt.
