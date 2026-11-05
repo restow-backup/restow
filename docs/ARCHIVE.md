@@ -626,8 +626,9 @@ geänderter oder verschobener Vermerk. Das gilt für eine gelöschte Spitze der 
 Objekte), für Lücken mitten in der Kette (neben Objekten unter Legal Hold oder spät erfassten)
 und für das jüngste Objekt: Der nächste Schreiber hängt an den Vermerk an. Vor 0.5.0 löschte der
 Lauf auch das Kettenglied, und die Prüfung meldete ab der ersten berechtigten Löschung für immer
-einen Bruch; Löschungen aus dieser Zeit (frühestens nach acht Jahren möglich) lassen sich nicht
-nachträglich mit Vermerken versehen.
+einen Bruch; Löschungen aus dieser Zeit (frühestens sechs Jahre nach der Erfassung, der
+kürzesten Frist, die eine Aufbewahrungsregel festlegen kann; ohne eigene Regel acht Jahre) lassen
+sich nicht nachträglich mit Vermerken versehen.
 
 ## Suche und Export
 
