@@ -578,6 +578,11 @@ private repository.
   now asks Microsoft whether the mailbox has an online archive and, if it has one, ends with a
   warning that it is not covered (Graph offers no generally available way to read it). When
   Microsoft does not answer that question, nothing is claimed and the next run asks again.
+- Mail backup: when the consent was revoked or an Application Access Policy was added while a
+  Microsoft 365 mailbox backup was running, every further folder became a warning and the run
+  committed a restore point that carried those folders forward without reading them, shown as
+  "completed with warnings". Once the mailbox itself refuses access, the run now fails with the
+  access cause and keeps no such restore point; a refusal of a single folder stays a warning.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,

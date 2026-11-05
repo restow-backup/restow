@@ -1544,6 +1544,42 @@ describe("ExchangeBackupEngine", () => {
     expect(cursor.cursor).toBeNull();
   });
 
+  describe("access lost while the run goes (consent revoked, access policy added)", () => {
+    const denied = { status: 403, json: graphError("ErrorAccessDenied", "Access is denied.") };
+
+    it("fails with the access cause instead of committing a partial snapshot", async () => {
+      // The first folder delta goes through; then Exchange answers 403 for everything.
+      let deltas = 0;
+      box.intercept = (call) => {
+        const path = new URL(call.url).pathname;
+        if (path.endsWith("/messages/delta") && !new URL(call.url).searchParams.has("$skiptoken")) {
+          deltas++;
+        }
+        const revoked = deltas > 1;
+        return revoked && (path.endsWith("/messages/delta") || path.endsWith("/mailFolders/inbox"))
+          ? denied
+          : undefined;
+      };
+      const error = await engine.run(newContext(), mailbox, {}).catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(MailboxAccessError);
+      expect((error as MailboxAccessError).status).toBe(403);
+      expect(await snapshots.latestCompleted(mailbox.id)).toBeNull();
+      expect(await snapshots.get("snap-1")).toBeNull();
+    });
+
+    it("keeps a 403 of one folder a folder failure when the mailbox still answers", async () => {
+      box.intercept = (call) =>
+        new URL(call.url).pathname.includes(`/mailFolders/${F.hidden}/messages/delta`)
+          ? denied
+          : undefined;
+      const result = await engine.run(newContext(), mailbox, {});
+      expect(result.failures).toEqual([
+        expect.objectContaining({ itemRef: "mail/Quick Step Settings" }),
+      ]);
+      expect(mailObjects(await manifestOf(result.snapshotId))).toHaveLength(MESSAGE_COUNT - 1);
+    });
+  });
+
   it("backs the mailbox up when one well-known folder lookup is refused (no 0 of 0 failure)", async () => {
     const answerSub = (
       box as unknown as { answerBatchSub(url: string): unknown }

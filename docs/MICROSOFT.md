@@ -49,7 +49,11 @@ packages/core/src/graph/auth/token.ts unterstützt beides).
 Ein App-Consent gewährt Zugriff auf alle Postfächer des Tenants. Kunden, die den
 Umfang einschränken wollen, nutzen Exchange `New-ApplicationAccessPolicy` mit einer
 Gruppe. Restow muss damit umgehen (403 für ausgeschlossene Postfächer als "nicht im
-Schutzumfang" anzeigen, nicht als Fehler).
+Schutzumfang" anzeigen, nicht als Fehler). Wird die Richtlinie (oder ein entzogener Consent)
+mitten in einem Lauf wirksam, antwortet das Delta jedes weiteren Ordners mit 403. Bestätigt der
+Posteingang des Postfachs die Verweigerung, bricht der Lauf mit dem Zugriffsfehler ab und
+verwirft den Sicherungsstand, statt die übrigen Ordner ungelesen weiterzutragen; ein 403, das nur
+ein Ordner liefert, bleibt ein Ordnerfehler.
 
 ## Throttling (der Grund, warum alle Tools langsam sind)
 

@@ -33,6 +33,8 @@ import { pipeline, type Readable, Transform } from "node:stream";
 import type { Message, Recipient } from "@microsoft/microsoft-graph-types";
 import { JobAbortedError } from "../../engine/chunkstore.js";
 import { type DeltaMode, isRemoved, RecordDeltaTokenStore } from "../../graph/delta.js";
+import { isGraphError, isMailboxUnavailable } from "../../graph/errors.js";
+import { query, requestOk, userPath } from "../../graph/resources/common.js";
 import {
   fetchMessageContent,
   getMessage,
@@ -66,6 +68,7 @@ import {
   type FetchedObject,
   FOLDERS_GROUP,
   ItemError,
+  isAreaRefused,
   isItemLevelError,
   isVanished,
   MESSAGE_FORMAT,
@@ -1391,9 +1394,39 @@ export async function backupMail(run: BackupRun, options: MailPhaseOptions): Pro
       if (!isItemLevelError(error)) {
         throw error;
       }
+      if (await mailboxAccessLost(run, error)) {
+        // Consent revoked or an access policy added while the run was going: every further
+        // folder would answer the same. The job fails with the access cause instead of
+        // committing a restore point that carries the remaining folders forward unread.
+        throw toMailboxAccessError(error, `mail folder ${folder.node.id}`);
+      }
       // A folder that cannot be enumerated is one failure, not a failed mailbox;
       // its objects stay as they were and its delta link is kept for the next run.
       run.fail(folder.path, error);
     }
+  }
+}
+
+/**
+ * Whether a folder enumeration that failed means the mailbox itself can no longer be read:
+ * a "no mailbox" answer, or a 403 (ErrorAccessDenied after consent was revoked or an
+ * Application Access Policy was added) that the mailbox's Inbox answers as well. A 403 the
+ * Inbox does not repeat concerns that folder only and stays a folder failure.
+ */
+async function mailboxAccessLost(run: BackupRun, error: unknown): Promise<boolean> {
+  if (isGraphError(error) && isMailboxUnavailable(error)) {
+    return true;
+  }
+  if (!isAreaRefused(error)) {
+    return false;
+  }
+  try {
+    await requestOk(run.client, {
+      method: "GET",
+      url: `${userPath(run.userId)}/mailFolders/inbox${query({ $select: "id" })}`,
+    });
+    return false;
+  } catch (probe) {
+    return isGraphError(probe) && (probe.status === 403 || isMailboxUnavailable(probe));
   }
 }
