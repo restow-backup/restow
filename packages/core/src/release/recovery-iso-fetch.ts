@@ -17,8 +17,9 @@
  *      file plus MIN_FREE_BYTES free in the store (checked before and while it runs); short of
  *      that, or on ENOSPC, the partial file is removed and the pass ends with `store_full`.
  *
- * A pass holds `<store>/.fetch.lock` (created exclusively, refreshed while it works), so two
- * passes never write the same partial file, and ends itself before the queue's expiry
+ * A pass holds `<store>/.fetch.lock` (created exclusively, refreshed while it works, checked
+ * before every write; a stale lock is taken over atomically, lockStore), so two passes never
+ * write the same partial file, and ends itself before the queue's expiry
  * (RECOVERY_ISO_PASS_TIME_LIMIT_MS) with a resumable `truncated`. Progress and the last problem go
  * to `<store>/state.json` for the web app. Redirects (GitHub
  * hands the bytes out from another host) are followed over https only. Outbound connections honour
@@ -26,7 +27,10 @@
  * its own): a proxy gets a CONNECT tunnel; without one, the lookup refuses private addresses.
  */
 import { randomUUID } from "node:crypto";
+import { constants as fsConstants } from "node:fs";
 import {
+  copyFile,
+  link,
   mkdir,
   open,
   readFile,
@@ -355,6 +359,11 @@ interface DownloadContext {
   /** Fires at the pass's deadline. */
   deadline: AbortSignal;
   progress: (done: number, total: number | null) => Promise<void>;
+  /**
+   * Throws RecoveryIsoLockLostError when the store's lock is no longer this pass's: before
+   * every write and removal (`soon`: at most every LOCK_CHECK_INTERVAL_MS, for the chunks).
+   */
+  owner: (soon?: boolean) => Promise<void>;
 }
 
 async function sizeOf(path: string): Promise<number | null> {
@@ -380,12 +389,13 @@ async function downloadIso(
   options: RecoveryIsoHttpOptions,
   context: DownloadContext,
 ): Promise<DownloadResult> {
-  const { maxBytes, progress } = context;
+  const { maxBytes, progress, owner } = context;
   const finalPath = join(dir, candidate.fileName);
   const partPath = `${finalPath}.part`;
   const metaPath = `${partPath}.json`;
   /** No room: the partial file goes (it would hold space in the backups' volume) and so does the pass. */
   const storeFull = async (detail: string | null): Promise<DownloadResult> => {
+    await owner();
     await rm(partPath, { force: true });
     await rm(metaPath, { force: true });
     return { ok: false, problem: "store_full", detail, transient: false };
@@ -398,6 +408,7 @@ async function downloadIso(
     meta = null;
   }
   let have = (await sizeOf(partPath)) ?? 0;
+  await owner();
   if (meta?.sha256 !== candidate.sha256 || have > maxBytes) {
     await rm(partPath, { force: true });
     have = 0;
@@ -427,6 +438,7 @@ async function downloadIso(
     const range = contentRange(response.headers["content-range"]);
     if (!range || range.start !== have) {
       response.resume();
+      await owner();
       await rm(partPath, { force: true });
       return { ok: false, problem: "truncated", detail: "range", transient: true };
     }
@@ -449,6 +461,7 @@ async function downloadIso(
   }
   if (total !== null && total > maxBytes) {
     response.resume();
+    await owner();
     await rm(partPath, { force: true });
     return { ok: false, problem: "too_large", detail: String(total), transient: false };
   }
@@ -463,9 +476,11 @@ async function downloadIso(
     // Written chunk by chunk to an open file: what arrived before a cut-off stays on disk.
     let file: Awaited<ReturnType<typeof open>>;
     try {
+      await owner();
       file = await open(partPath, have === 0 ? "w" : "a");
     } catch (error) {
       response.destroy();
+      if (error instanceof RecoveryIsoLockLostError) throw error;
       const code = errorCode(error);
       if (code && SPACE_ERRORS.has(code)) return storeFull(code);
       return { ok: false, problem: "store_not_writable", detail: code, transient: false };
@@ -478,10 +493,12 @@ async function downloadIso(
         if (done + bytes.length > maxBytes) {
           response.destroy();
           await file.close();
+          await owner();
           await rm(partPath, { force: true });
           await rm(metaPath, { force: true });
           return { ok: false, problem: "too_large", detail: null, transient: false };
         }
+        await owner(true);
         await file.write(bytes);
         done += bytes.length;
         const now = Date.now();
@@ -499,6 +516,10 @@ async function downloadIso(
       }
     } catch (error) {
       await file.close().catch(() => undefined);
+      if (error instanceof RecoveryIsoLockLostError) {
+        response.destroy();
+        throw error;
+      }
       const code = errorCode(error);
       if (code && SPACE_ERRORS.has(code)) return storeFull(code);
       // Cut off, or the pass's deadline: the part stays and the next attempt continues it.
@@ -516,6 +537,7 @@ async function downloadIso(
     await progress(done, total);
   }
   const actual = await sha256OfFile(partPath);
+  await owner();
   if (actual !== candidate.sha256) {
     await rm(partPath, { force: true });
     await rm(metaPath, { force: true });
@@ -572,22 +594,104 @@ export interface RecoveryIsoFetchResult {
 const LOCK_FILE = ".fetch.lock";
 /** A lock not refreshed for this long belongs to a pass that is gone. */
 const LOCK_STALE_MS = 15 * 60_000;
+/** A pass that confirmed its lock this recently writes without reading it again. */
+const LOCK_CHECK_INTERVAL_MS = 250;
+
+/** The pass's lock is no longer its own (taken over after it went silent); it writes nothing more. */
+export class RecoveryIsoLockLostError extends Error {
+  constructor() {
+    super("the lock of the recovery ISO store was taken over by another pass");
+    this.name = "RecoveryIsoLockLostError";
+  }
+}
 
 interface StoreLock {
+  /** Throws RecoveryIsoLockLostError when the lock file no longer carries this pass's token. */
+  check(): Promise<void>;
+  /** check(), at most every LOCK_CHECK_INTERVAL_MS: before each chunk of the download. */
+  checkSoon(): Promise<void>;
+  /** check(), then refresh the lock's mtime. */
   touch(): Promise<void>;
   release(): Promise<void>;
 }
 
+interface SeenLock {
+  token: string | null;
+  ino: number;
+  mtimeMs: number;
+}
+
+/** The lock at path (null: none). An unreadable or half-written file has no token. */
+async function readLock(path: string): Promise<SeenLock | null> {
+  let info: Awaited<ReturnType<typeof stat>>;
+  try {
+    info = await stat(path);
+  } catch (error) {
+    if (errorCode(error) === "ENOENT") return null;
+    throw error;
+  }
+  let token: string | null = null;
+  try {
+    const parsed = JSON.parse(await readFile(path, "utf8")) as { token?: unknown };
+    token = typeof parsed.token === "string" ? parsed.token : null;
+  } catch {
+    token = null;
+  }
+  return { token, ino: Number(info.ino), mtimeMs: Number(info.mtimeMs) };
+}
+
 /**
- * The store's lock: created exclusively, with a token, refreshed (mtime) while the pass works. A
- * lock older than LOCK_STALE_MS is taken over; null when another pass holds it.
+ * Takes whatever lock is at path away in one step (rename to a name only this pass uses) and
+ * keeps it gone only when `mine` accepts it; anything else (a lock another pass created in the
+ * meantime) goes back with an exclusive link, never over a newer lock. "gone": nothing was there.
+ */
+async function takeLockAway(
+  path: string,
+  aside: string,
+  mine: (lock: SeenLock | null) => boolean,
+): Promise<"removed" | "restored" | "gone"> {
+  try {
+    await rename(path, aside);
+  } catch (error) {
+    if (errorCode(error) === "ENOENT") return "gone";
+    throw error;
+  }
+  try {
+    if (mine(await readLock(aside))) return "removed";
+    try {
+      await link(aside, path);
+    } catch (error) {
+      // EEXIST: a newer lock took the place; the owner of this one notices at its next check.
+      if (errorCode(error) !== "EEXIST") {
+        await copyFile(aside, path, fsConstants.COPYFILE_EXCL).catch(() => undefined);
+      }
+    }
+    return "restored";
+  } finally {
+    await rm(aside, { force: true });
+  }
+}
+
+/**
+ * The store's lock: created exclusively, with a token, refreshed (mtime) while the pass works,
+ * and checked before every write (RecoveryIsoLockLostError once another pass holds it). A lock
+ * older than LOCK_STALE_MS is taken over atomically: it is renamed aside, and only when the
+ * file renamed is still the stale lock this pass looked at (same inode, same token, still
+ * stale) is it dropped and the exclusive creation tried again; a lock another pass created in
+ * the meantime goes back. Two passes that both see a stale lock therefore never both hold it:
+ * only one exclusive creation can succeed. Null when another pass holds the lock.
  */
 async function lockStore(storeDir: string): Promise<StoreLock | null> {
   const path = join(storeDir, LOCK_FILE);
   const token = randomUUID();
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    let handle: Awaited<ReturnType<typeof open>> | null = null;
     try {
-      const handle = await open(path, "wx", 0o644);
+      handle = await open(path, "wx", 0o644);
+    } catch (error) {
+      if (errorCode(error) !== "EEXIST") throw error;
+    }
+    if (handle) {
       try {
         await handle.writeFile(
           JSON.stringify({
@@ -600,30 +704,54 @@ async function lockStore(storeDir: string): Promise<StoreLock | null> {
       } finally {
         await handle.close();
       }
-      const owned = async () => {
-        try {
-          return (JSON.parse(await readFile(path, "utf8")) as { token?: unknown }).token === token;
-        } catch {
-          return false;
-        }
-      };
-      return {
-        async touch() {
-          const now = new Date();
-          await utimes(path, now, now).catch(() => undefined);
-        },
-        async release() {
-          if (await owned()) await rm(path, { force: true });
-        },
-      };
-    } catch (error) {
-      if (errorCode(error) !== "EEXIST") throw error;
-      const info = await stat(path).catch(() => null);
-      if (info && Date.now() - info.mtimeMs < LOCK_STALE_MS) return null;
-      await rm(path, { force: true });
+      return ownedLock(path, token);
     }
+    const seen = await readLock(path);
+    if (!seen) continue; // released in the meantime
+    if (Date.now() - seen.mtimeMs < LOCK_STALE_MS) return null;
+    const outcome = await takeLockAway(
+      path,
+      `${path}.stale-${token}`,
+      (lock) =>
+        lock !== null &&
+        lock.ino === seen.ino &&
+        lock.token === seen.token &&
+        Date.now() - lock.mtimeMs >= LOCK_STALE_MS,
+    );
+    if (outcome === "restored") return null;
   }
   return null;
+}
+
+function ownedLock(path: string, token: string): StoreLock {
+  let confirmedAt = Date.now();
+  const check = async () => {
+    // A pass that takes a stale lock over may hold this one aside for a moment before it puts
+    // it back (takeLockAway): read again shortly before giving up.
+    for (let read = 0; read < 3; read++) {
+      if (read > 0) await new Promise((resolve) => setTimeout(resolve, 20));
+      const lock = await readLock(path).catch(() => null);
+      if (lock?.token === token) {
+        confirmedAt = Date.now();
+        return;
+      }
+    }
+    throw new RecoveryIsoLockLostError();
+  };
+  return {
+    check,
+    async checkSoon() {
+      if (Date.now() - confirmedAt >= LOCK_CHECK_INTERVAL_MS) await check();
+    },
+    async touch() {
+      await check();
+      const now = new Date();
+      await utimes(path, now, now).catch(() => undefined);
+    },
+    async release() {
+      await takeLockAway(path, `${path}.release-${token}`, (lock) => lock?.token === token);
+    },
+  };
 }
 
 function emptyState(now: Date): RecoveryIsoFetchState {
@@ -765,12 +893,22 @@ export async function fetchRecoveryIso(
         return save(patch, done);
       },
       touch: () => lock.touch(),
+      owner: (soon) => (soon ? lock.checkSoon() : lock.check()),
       http: {
         ...http,
         signal: http.signal ? AbortSignal.any([http.signal, deadline.signal]) : deadline.signal,
       },
       deadline: deadline.signal,
     });
+  } catch (error) {
+    if (!(error instanceof RecoveryIsoLockLostError)) throw error;
+    // The pass went silent long enough for another to take the store over: that one records
+    // the state, this one stops without writing.
+    return {
+      state: (await readRecoveryIsoFetchState(storeDir)) ?? state,
+      transient: false,
+      busy: true,
+    };
   } finally {
     clearTimeout(timer);
     await lock.release().catch(() => undefined);
@@ -786,7 +924,10 @@ interface LockedPass {
   base: Extract<Awaited<ReturnType<typeof verifiedBaseIso>>, { ok: true }>;
   state: () => RecoveryIsoFetchState;
   save: (patch: Partial<RecoveryIsoFetchState>, done?: boolean) => Promise<RecoveryIsoFetchState>;
+  /** Checks the lock (RecoveryIsoLockLostError) and refreshes it. */
   touch: () => Promise<void>;
+  /** Checks the lock only (DownloadContext.owner). */
+  owner: (soon?: boolean) => Promise<void>;
   http: RecoveryIsoHttpOptions;
   deadline: AbortSignal;
 }
@@ -891,6 +1032,7 @@ async function fetchLocked(pass: LockedPass): Promise<RecoveryIsoFetchResult> {
       }
       const dir = storedRebuildDir(storeDir, version, rebuild);
       const temporary = `${dir}.tmp`;
+      await pass.touch();
       await rm(temporary, { recursive: true, force: true });
       await mkdir(temporary, { recursive: true });
       await writeFile(join(temporary, REBUILD_SUMS_ASSET), sums.body);
@@ -913,6 +1055,7 @@ async function fetchLocked(pass: LockedPass): Promise<RecoveryIsoFetchResult> {
   const lookupProblem = problem ? { problem, detail } : null;
   if (selection.local && selection.offered?.fileName === newest.fileName) {
     if (selection.local.origin === "store") {
+      await pass.touch();
       await pruneRecoveryIsoStore(storeDir, newest);
     }
     return {
@@ -965,6 +1108,7 @@ async function fetchLocked(pass: LockedPass): Promise<RecoveryIsoFetchResult> {
       progress: async (done, total) => {
         await save({ bytesDone: done, bytesTotal: total });
       },
+      owner: pass.owner,
     },
   );
   if (!result.ok) {

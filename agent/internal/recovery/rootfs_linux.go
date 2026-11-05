@@ -24,6 +24,7 @@ const (
 	resolveInRoot       = 0x10
 	oPath               = 0x200000
 	atRemoveDir         = 0x200
+	atEmptyPath         = 0x1000
 )
 
 type openHow struct {
@@ -93,13 +94,42 @@ func (r *DirRootfs) open(p string, flags int, mode uint32) (int, error) {
 	}
 }
 
-// ReadFile reads a regular file of at most max bytes.
+// pathFd opens p as O_PATH (nothing of the inode is opened: no device
+// driver, FIFO or socket sees an open) and describes it.
+func (r *DirRootfs) pathFd(p string, flags int) (int, *syscall.Stat_t, error) {
+	fd, err := r.open(p, oPath|flags, 0)
+	if err != nil {
+		return -1, nil, err
+	}
+	var st syscall.Stat_t
+	if err := syscall.Fstat(fd, &st); err != nil {
+		syscall.Close(fd)
+		return -1, nil, err
+	}
+	return fd, &st, nil
+}
+
+// procFd is the path through which a file opened as O_PATH is reached
+// again: the same inode, no new path resolution in the target.
+func procFd(fd int) string { return "/proc/self/fd/" + strconv.Itoa(fd) }
+
+// ReadFile reads a regular file of at most max bytes. The file is opened
+// as O_PATH first and opened for reading only when it is a regular file:
+// a block or char node restored from the snapshot at a path recover reads
+// (a watchdog, a tape, a terminal) is never opened.
 func (r *DirRootfs) ReadFile(p string, max int64) ([]byte, error) {
-	fd, err := r.open(p, syscall.O_RDONLY|syscall.O_NONBLOCK, 0)
+	pfd, pst, err := r.pathFd(p, 0)
 	if err != nil {
 		return nil, err
 	}
-	f := os.NewFile(uintptr(fd), p)
+	defer syscall.Close(pfd)
+	if pst.Mode&syscall.S_IFMT != syscall.S_IFREG {
+		return nil, fmt.Errorf("%s is not a regular file", p)
+	}
+	f, err := os.OpenFile(procFd(pfd), os.O_RDONLY|syscall.O_NONBLOCK|syscall.O_CLOEXEC, 0)
+	if err != nil {
+		return nil, err
+	}
 	defer f.Close()
 	st, err := f.Stat()
 	if err != nil {
@@ -307,12 +337,19 @@ func (s statInfo) ModTime() time.Time { return time.Unix(s.st.Mtim.Sec, s.st.Mti
 func (s statInfo) IsDir() bool        { return s.st.Mode&syscall.S_IFMT == syscall.S_IFDIR }
 func (s statInfo) Sys() any           { return &s.st }
 
+// openForMeta opens p as O_PATH without following a link in the last
+// component; the metadata calls act on it through /proc/self/fd, so a
+// device node, FIFO or socket of the target is never opened.
 func (r *DirRootfs) openForMeta(p string) (int, error) {
-	fd, err := r.open(p, syscall.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
-	if err != nil && errors.Is(err, syscall.ELOOP) {
+	fd, st, err := r.pathFd(p, syscall.O_NOFOLLOW)
+	if err != nil {
+		return -1, err
+	}
+	if st.Mode&syscall.S_IFMT == syscall.S_IFLNK {
+		syscall.Close(fd)
 		return -1, fmt.Errorf("%s: %w", p, ErrSymlinkTarget)
 	}
-	return fd, err
+	return fd, nil
 }
 
 // Chmod changes the mode of p (not through a link).
@@ -322,7 +359,7 @@ func (r *DirRootfs) Chmod(p string, mode fs.FileMode) error {
 		return err
 	}
 	defer syscall.Close(fd)
-	return syscall.Fchmod(fd, uint32(mode.Perm())|modeBits(mode))
+	return syscall.Chmod(procFd(fd), uint32(mode.Perm())|modeBits(mode))
 }
 
 // Chown changes the owner of p (not through a link).
@@ -332,7 +369,18 @@ func (r *DirRootfs) Chown(p string, uid, gid int) error {
 		return err
 	}
 	defer syscall.Close(fd)
-	return syscall.Fchown(fd, uid, gid)
+	return fchownEmptyPath(fd, uid, gid)
+}
+
+// fchownEmptyPath is fchownat(fd, "", AT_EMPTY_PATH): it works on an
+// O_PATH descriptor.
+func fchownEmptyPath(fd, uid, gid int) error {
+	empty := [1]byte{}
+	_, _, e := syscall.Syscall6(syscall.SYS_FCHOWNAT, uintptr(fd), uintptr(unsafe.Pointer(&empty[0])), uintptr(uid), uintptr(gid), atEmptyPath, 0)
+	if e != 0 {
+		return e
+	}
+	return nil
 }
 
 // Remove removes a file, a link or an empty folder.
@@ -386,8 +434,12 @@ func (r *DirRootfs) Getxattr(p, name string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	pp, err := syscall.BytePtrFromString(procFd(fd))
+	if err != nil {
+		return nil, err
+	}
 	buf := make([]byte, 4096)
-	sz, _, e := syscall.Syscall6(syscall.SYS_FGETXATTR, uintptr(fd), uintptr(unsafe.Pointer(n)), uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)), 0, 0)
+	sz, _, e := syscall.Syscall6(syscall.SYS_GETXATTR, uintptr(unsafe.Pointer(pp)), uintptr(unsafe.Pointer(n)), uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)), 0, 0)
 	if e != 0 {
 		return nil, e
 	}

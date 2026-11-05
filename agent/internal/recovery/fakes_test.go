@@ -255,6 +255,11 @@ type fakeOps struct {
 	free    int64
 	entries int
 	fail    string
+	// stack is added to the devices of every isolated step (the dm nodes
+	// DeviceSet finds above the target disks).
+	stack []string
+	// dm are the device-mapper devices of the machine.
+	dm []DMMapping
 }
 
 func (f *fakeExec) note(s string) {
@@ -318,7 +323,19 @@ func (o *fakeOps) TmpFile(name string, data []byte) (string, func(), error) {
 	return "/run/restow-recovery/tmp/" + name, func() {}, o.rec("tmpfile " + name)
 }
 func (o *fakeOps) DeviceSet(disks, extra []string) ([]string, []string) {
-	return append(append([]string{}, disks...), extra...), nil
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return append(append(append([]string{}, disks...), extra...), o.stack...), nil
+}
+func (o *fakeOps) DMMappings() []DMMapping {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return append([]DMMapping(nil), o.dm...)
+}
+func (o *fakeOps) setDM(ms ...DMMapping) {
+	o.mu.Lock()
+	o.dm = ms
+	o.mu.Unlock()
 }
 func (o *fakeOps) UnmountAll(ctx context.Context, root string) error { return o.rec("unmount " + root) }
 

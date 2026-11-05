@@ -29,7 +29,41 @@ const (
 	prSetNoNewPrivs   = 38
 	seccompModeFilter = 2
 	cloneNewCgroup    = 0x02000000
+	// mount_setattr(2) (Linux 5.12): the same number on amd64 and arm64.
+	sysMountSetattr = 442
+	atRecursive     = 0x8000
+	mountAttrNosuid = 0x2
+	mountAttrNodev  = 0x4
 )
+
+// mountAttr is struct mount_attr (MOUNT_ATTR_SIZE_VER0).
+type mountAttr struct {
+	AttrSet     uint64
+	AttrClr     uint64
+	Propagation uint64
+	UsernsFd    uint64
+}
+
+// noDevTree makes every mount at or below dir nodev and nosuid in one
+// call (AT_RECURSIVE; a remount with MS_BIND|MS_REMOUNT changes only the
+// top mount and would miss /boot, /boot/efi and btrfs subvolumes). Each
+// mount keeps its other flags (read-only stays read-only). There is no
+// fallback: a kernel without mount_setattr fails here.
+func noDevTree(dir string) error {
+	p, err := syscall.BytePtrFromString(dir)
+	if err != nil {
+		return err
+	}
+	attr := mountAttr{AttrSet: mountAttrNodev | mountAttrNosuid}
+	atFdcwd := -100
+	_, _, e := syscall.Syscall6(sysMountSetattr, uintptr(atFdcwd), uintptr(unsafe.Pointer(p)), atRecursive,
+		uintptr(unsafe.Pointer(&attr)), unsafe.Sizeof(attr), 0)
+	runtime.KeepAlive(p)
+	if e != 0 {
+		return fmt.Errorf("make %s nodev and nosuid: mount_setattr: %w", dir, e)
+	}
+	return nil
+}
 
 // RunIsolated runs spec.Argv inside the target through the helper self
 // (the agent binary; "/proc/self/exe" on the ISO): self is started as
@@ -224,7 +258,7 @@ func initMain(spec IsolateSpec, specJSON []byte) (int, error) {
 }
 
 // setupRoot builds the view of the program: the target root bound onto
-// itself, a fresh /proc, /sys read-only, /run on tmpfs, a /dev tmpfs with
+// itself and made nodev and nosuid with all its submounts, a fresh /proc, /sys read-only, /run on tmpfs, a /dev tmpfs with
 // nodev holding only bind mounts of the null devices, a private devpts
 // and the target devices, then pivot_root and the old root detached.
 func setupRoot(spec IsolateSpec) error {
@@ -234,6 +268,15 @@ func setupRoot(spec IsolateSpec) error {
 	}
 	if err := syscall.Mount(root, root, "", syscall.MS_BIND|syscall.MS_REC, ""); err != nil {
 		return fmt.Errorf("bind %s: %w", root, err)
+	}
+	// restic restores block and char nodes from the snapshot anywhere in
+	// the tree (a node of a disk outside the erase set, tty1, uinput):
+	// the whole target tree, submounts included, becomes nodev before
+	// /dev, /proc, /sys and /run are mounted on it. The nodes bound into
+	// the new /dev below come from the ISO's devtmpfs and stay usable,
+	// because nodev is checked on the mount a node is opened through.
+	if err := noDevTree(root); err != nil {
+		return err
 	}
 	// The mount points are plain directories of the target (recover's
 	// mkdirs step made them); a symlink or anything else is refused.

@@ -405,3 +405,43 @@ func TestSfdiskParseCompare(t *testing.T) {
 		t.Error("multiline filter")
 	}
 }
+
+// TestRecoveryMountArgs: every mount of the target is nodev and nosuid
+// during the recovery (restored device nodes cannot be opened, 10.12), the
+// options come after those of the plan.
+func TestRecoveryMountArgs(t *testing.T) {
+	for _, c := range []struct{ in, want string }{
+		{"mount -t ext4 /dev/sda2 /mnt/restow-target", "mount -t ext4 -o nodev,nosuid /dev/sda2 /mnt/restow-target"},
+		{"mount -t vfat -o quiet /dev/sda1 /mnt/restow-target/boot/efi", "mount -t vfat -o quiet,nodev,nosuid /dev/sda1 /mnt/restow-target/boot/efi"},
+		{"mount -t btrfs -o subvol=@,compress=zstd:3,device=/dev/sda2,dev,suid /dev/sda2 /mnt/restow-target",
+			"mount -t btrfs -o subvol=@,compress=zstd:3,device=/dev/sda2,dev,suid,nodev,nosuid /dev/sda2 /mnt/restow-target"},
+		{"mount -t btrfs -o  /dev/sda2 /mnt/restow-target", "mount -t btrfs -o nodev,nosuid /dev/sda2 /mnt/restow-target"},
+	} {
+		got, err := recoveryMountArgs(strings.Split(c.in, " "))
+		if err != nil || strings.Join(got, " ") != c.want {
+			t.Errorf("%s: %q %v, want %s", c.in, got, err, c.want)
+		}
+	}
+	for _, bad := range []string{"mount", "mkfs.ext4 /dev/sda1 x", "mount -t ext4 -oquiet /dev/sda1 /mnt/x", "mount --options=dev /dev/sda1 /mnt/x"} {
+		if got, err := recoveryMountArgs(strings.Split(bad, " ")); err == nil {
+			t.Errorf("%s accepted: %q", bad, got)
+		}
+	}
+	// The golden plan's mounts reach the ISO's mount with the options.
+	h := newHarness(t, "debian12-uefi-luks-lvm.same", "debian12-uefi-luks-lvm")
+	if _, err := h.x.Run(context.Background()); err != nil {
+		t.Fatalf("run: %v\n%s", err, h.exec.lines())
+	}
+	n := 0
+	for _, l := range strings.Split(h.exec.lines(), "\n") {
+		if strings.HasPrefix(l, "mount ") {
+			n++
+			if !strings.Contains(l, "nodev,nosuid ") {
+				t.Errorf("a mount without nodev,nosuid: %s", l)
+			}
+		}
+	}
+	if n == 0 {
+		t.Error("no mount in the golden plan")
+	}
+}

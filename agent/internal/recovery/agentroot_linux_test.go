@@ -213,12 +213,49 @@ func main() {
 	if err == nil {
 		for name, req := range map[string]uintptr{"dm_version": 0xc138fd00, "dm_remove_all": 0xc138fd01, "dm_create": 0xc138fd03,
 			"dm_suspend": 0xc138fd06, "dm_table_load": 0xc138fd09, "dm_target_msg": 0xc138fd0e, "nvme_admin": 0xc0484e41,
-			"nvme_io": 0xc0484e43, "tiocsti": 0x5412} {
+			"nvme_io": 0xc0484e43, "tiocsti": 0x5412, "md_raid_version": 0x800c0910, "md_get_array_info": 0x80480911,
+			"md_get_disk_info": 0x80140912, "md_add_new_disk": 0x40140921, "md_set_array_info": 0x40480923, "md_hot_add_disk": 0x928,
+			"md_set_disk_faulty": 0x929, "md_run_array": 0x400c0930, "md_stop_array": 0x932} {
 			_, _, e := syscall.Syscall(syscall.SYS_IOCTL, null.Fd(), req, 0)
 			errno("ioctl_"+name, e)
 		}
 		null.Close()
 	}
+	// Device nodes restored onto the target tree outside /dev (a block
+	// node of the other disk, a char node, a node on a submount of the
+	// root): opened for writing only, never written.
+	for _, p := range []string{"/root/evil-blk", "/root/evil-chr", "/srv/evil-blk"} {
+		n, err := syscall.Open(p, syscall.O_WRONLY, 0)
+		if err == nil {
+			syscall.Close(n)
+		}
+		try("node"+p, err)
+	}
+	for _, p := range []string{"/", "/srv"} {
+		var sfs syscall.Statfs_t
+		if err := syscall.Statfs(p, &sfs); err == nil {
+			res["flags"+p] = strconv.FormatInt(int64(sfs.Flags), 16)
+		}
+	}
+	// AF_VSOCK is not network-namespaced; io_uring could open sockets
+	// past the filter.
+	for name, family := range map[string]int{"vsock": 40, "unix": syscall.AF_UNIX, "inet": syscall.AF_INET, "netlink": syscall.AF_NETLINK} {
+		typ := syscall.SOCK_STREAM
+		if family == syscall.AF_NETLINK {
+			typ = syscall.SOCK_RAW
+		}
+		s, err := syscall.Socket(family, typ, 0)
+		if err == nil {
+			syscall.Close(s)
+		}
+		try("socket_"+name, err)
+	}
+	var params [120]byte
+	ring, _, e := syscall.Syscall(425, 1, uintptr(unsafe.Pointer(&params[0])), 0)
+	if e == 0 {
+		syscall.Close(int(ring))
+	}
+	errno("io_uring_setup", e)
 	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
 	if err == nil {
 		tty.Close()
@@ -236,7 +273,7 @@ func main() {
 func TestRootIsolation(t *testing.T) {
 	work := rootOnly(t)
 	root := filepath.Join(work, "root")
-	for _, d := range []string{"proc", "sys", "dev", "run", "tmp", "mnt"} {
+	for _, d := range []string{"proc", "sys", "dev", "run", "tmp", "mnt", "root", "srv"} {
 		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -254,6 +291,22 @@ func TestRootIsolation(t *testing.T) {
 	goBuild(t, agent, "../../cmd/restow-agent")
 	other := loopDev(t, work, "other", 4)
 	allowed := loopDev(t, work, "allowed", 4)
+	// Device nodes as restic restores them from a snapshot, outside /dev:
+	// a block node of the other disk and a char node (1:3) on the root,
+	// and one on a submount of the root without nodev (as recover's own
+	// mounts of the target were).
+	var st syscall.Stat_t
+	if err := syscall.Stat(other, &st); err != nil {
+		t.Fatal(err)
+	}
+	sh(t, "mount", "-t", "tmpfs", "-o", "mode=0755,size=1m", "tmpfs", filepath.Join(root, "srv"))
+	t.Cleanup(func() { _ = syscall.Unmount(filepath.Join(root, "srv"), syscall.MNT_DETACH) })
+	for p, n := range map[string][2]uint32{"root/evil-blk": {syscall.S_IFBLK, uint32(st.Rdev)}, "root/evil-chr": {syscall.S_IFCHR, 1<<8 | 3},
+		"srv/evil-blk": {syscall.S_IFBLK, uint32(st.Rdev)}} {
+		if err := syscall.Mknod(filepath.Join(root, p), n[0]|0o600, int(n[1])); err != nil {
+			t.Fatal(err)
+		}
+	}
 	spec := IsolateSpec{Root: root, Argv: []string{"/hook", other, allowed}, Devices: []string{allowed}, TimeoutSeconds: 60}
 	// Without and with CAP_SYS_ADMIN (the grub steps on LVM or LUKS keep
 	// it): every attempt must fail in both.
@@ -307,10 +360,35 @@ func checkIsolationResult(t *testing.T, root, allowed string, sysAdmin bool, out
 	}
 	eperm, enosys := syscall.EPERM.Error(), syscall.ENOSYS.Error()
 	for _, k := range []string{"open_tree_attr", "ioctl_dm_remove_all", "ioctl_dm_create", "ioctl_dm_suspend", "ioctl_dm_table_load",
-		"ioctl_dm_target_msg", "ioctl_nvme_admin", "ioctl_nvme_io", "ioctl_tiocsti"} {
+		"ioctl_dm_target_msg", "ioctl_nvme_admin", "ioctl_nvme_io", "ioctl_tiocsti", "ioctl_md_add_new_disk", "ioctl_md_set_array_info",
+		"ioctl_md_hot_add_disk", "ioctl_md_set_disk_faulty", "ioctl_md_run_array", "ioctl_md_stop_array"} {
 		if r[k] != eperm {
 			t.Errorf("%s: %q, want %q from the filter", k, r[k], eperm)
 		}
+	}
+	// Restored device nodes cannot be opened: the whole target tree is
+	// nodev and nosuid (ST_NOSUID 0x2, ST_NODEV 0x4), submounts included.
+	eacces := syscall.EACCES.Error()
+	for _, k := range []string{"node/root/evil-blk", "node/root/evil-chr", "node/srv/evil-blk"} {
+		if r[k] != eacces {
+			t.Errorf("%s: %q, want %q (nodev)", k, r[k], eacces)
+		}
+	}
+	for _, k := range []string{"flags/", "flags/srv"} {
+		if f, err := strconv.ParseUint(r[k], 16, 64); err != nil || f&0x6 != 0x6 {
+			t.Errorf("%s: %q, want nodev and nosuid", k, r[k])
+		}
+	}
+	if r["socket_vsock"] != syscall.EAFNOSUPPORT.Error() {
+		t.Errorf("socket(AF_VSOCK): %q, want %q", r["socket_vsock"], syscall.EAFNOSUPPORT.Error())
+	}
+	for _, k := range []string{"socket_unix", "socket_inet", "socket_netlink"} {
+		if r[k] != "ok" {
+			t.Errorf("%s: %q, want ok", k, r[k])
+		}
+	}
+	if r["io_uring_setup"] != eperm {
+		t.Errorf("io_uring_setup: %q, want %q", r["io_uring_setup"], eperm)
 	}
 	if v, ok := r["core_pattern_clone"]; ok {
 		t.Errorf("open_tree_attr gave a copy of /proc/sys; core_pattern through it: %q", v)
@@ -320,8 +398,10 @@ func checkIsolationResult(t *testing.T, root, allowed string, sysAdmin bool, out
 	}
 	// A read-only device-mapper request passes the filter (and /dev/null
 	// refuses it itself).
-	if r["ioctl_dm_version"] == eperm || r["ioctl_dm_version"] == "" {
-		t.Errorf("DM_VERSION was refused by the filter: %q", r["ioctl_dm_version"])
+	for _, k := range []string{"ioctl_dm_version", "ioctl_md_raid_version", "ioctl_md_get_array_info", "ioctl_md_get_disk_info"} {
+		if r[k] == eperm || r[k] == "" {
+			t.Errorf("%s was refused by the filter: %q", k, r[k])
+		}
 	}
 	capEff, err := strconv.ParseUint(r["capeff"], 16, 64)
 	if err != nil {

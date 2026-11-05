@@ -183,6 +183,30 @@ func (o *LinuxOps) MappingOn(name, dev string) (bool, string) {
 	return false, ""
 }
 
+// DMMappings implements Ops: every /sys/class/block/dm-N with its dm/name,
+// dm/uuid and slaves. A device whose attributes cannot be read is listed
+// with what could be read (no UUID: it counts as one that could hold a
+// key).
+func (o *LinuxOps) DMMappings() []DMMapping {
+	blocks, _ := filepath.Glob(filepath.Join(o.sys(), "class/block/dm-*"))
+	var out []DMMapping
+	for _, b := range blocks {
+		m := DMMapping{Node: filepath.Base(b)}
+		if n, err := os.ReadFile(filepath.Join(b, "dm/name")); err == nil {
+			m.Name = strings.TrimSpace(string(n))
+		}
+		if u, err := os.ReadFile(filepath.Join(b, "dm/uuid")); err == nil {
+			m.UUID = strings.TrimSpace(string(u))
+		}
+		ents, _ := os.ReadDir(filepath.Join(b, "slaves"))
+		for _, e := range ents {
+			m.Slaves = append(m.Slaves, e.Name())
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
 // mountPoints lists the mount points of this mount namespace.
 func mountPoints() []string {
 	b, err := os.ReadFile("/proc/self/mountinfo")

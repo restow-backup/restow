@@ -1947,6 +1947,7 @@
       "ext_block_size_raised": "A file system was created with larger blocks than before.",
       "fallback_kernel_driver_missing": "The fallback kernel has no driver for a target disk.",
       "firmware_mode_mismatch": "The target starts in another firmware mode than the backed-up machine.",
+      "foreign_mapping_open": "Device-mapper devices outside the target disks were open (for example an old disk opened in the shell); a program of the backed-up system could have read their keys, so the recovery stopped. Close them and continue the recovery.",
       "fs_not_recreated": "A file system was not created again; its partition stays empty.",
       "grow_not_last": "A partition marked to grow is not the last one on its disk; it keeps its size.",
       "holders_busy": "A target disk is still in use (mounted, RAID, LVM or encryption) and could not be released.",

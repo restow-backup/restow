@@ -56,6 +56,8 @@ type Ops interface {
 	// MappingOn reports whether the device-mapper device name sits on
 	// exactly dev (and nothing else), and what it sits on.
 	MappingOn(name, dev string) (bool, string)
+	// DMMappings lists every device-mapper device of the machine (sysfs).
+	DMMappings() []DMMapping
 }
 
 // BootEntryRequest is one Boot#### entry to create.
@@ -306,6 +308,11 @@ func (x *Executor) Run(ctx context.Context) (*ExecReport, error) {
 	total := len(x.Plan.Steps)
 	lastSecret := lastSecretStep(x.Plan)
 	resumeChecked := false
+	if err := x.PreflightMappings(); err != nil {
+		x.report.Problem, x.report.FailedKind, x.report.FailedError = ProblemForeignMappingOpen, "preflight", redact.Redact(err.Error())
+		x.log("before the first step: %v", err)
+		return &x.report, &StepError{Kind: "preflight", Problem: ProblemForeignMappingOpen, Err: err}
+	}
 	for i := 0; i < len(x.Plan.Steps); i++ {
 		s := x.Plan.Steps[i]
 		if rctx.Err() != nil {
@@ -393,10 +400,12 @@ func lastSecretStep(p *baremetal.RestorePlan) int {
 	return last
 }
 
-// problemError carries a recover code.
+// problemError carries a recover code (and the parameters of its console
+// text, code.<code>).
 type problemError struct {
-	code string
-	err  error
+	code   string
+	err    error
+	params map[string]any
 }
 
 func (p *problemError) Error() string { return p.err.Error() }
@@ -650,6 +659,11 @@ func (x *Executor) program(ctx context.Context, s *baremetal.Step, args []string
 		if err := x.mountPoint(target); err != nil {
 			return err
 		}
+		m, err := recoveryMountArgs(args)
+		if err != nil {
+			return err
+		}
+		spec.Argv = m
 	case "nocow":
 		r, err := x.rel(args[len(args)-1])
 		if err != nil {
@@ -703,6 +717,35 @@ func (x *Executor) program(ctx context.Context, s *baremetal.Step, args []string
 		}
 	}
 	return nil
+}
+
+// recoveryMountArgs adds nodev and nosuid to a mount of the target
+// (`mount -t <fs> [-o <opts>] <dev> <dir>`, 10.12): restic restores the
+// block and char nodes of the snapshot as they are, and on a nodev mount
+// neither recover nor a program of the target can open one (a node of a
+// disk outside the erase set, tty1, uinput). mknod still works there. The
+// options come last, so no option of the plan turns them off. The target
+// keeps its own options in fstab; these hold only during the recovery.
+func recoveryMountArgs(args []string) ([]string, error) {
+	if len(args) < 3 || args[0] != "mount" {
+		return nil, fmt.Errorf("not a mount of the target: %q", args)
+	}
+	out := append([]string(nil), args...)
+	for i := 1; i < len(out)-2; i++ {
+		if out[i] == "-o" {
+			if out[i+1] == "" {
+				out[i+1] = "nodev,nosuid"
+			} else {
+				out[i+1] += ",nodev,nosuid"
+			}
+			return out, nil
+		}
+		if strings.HasPrefix(out[i], "-o") || strings.HasPrefix(out[i], "--options") {
+			return nil, fmt.Errorf("mount options in an unexpected form: %q", args)
+		}
+	}
+	n := len(out)
+	return append(out[:n-2:n-2], "-o", "nodev,nosuid", out[n-2], out[n-1]), nil
 }
 
 func hasArg(args []string, a string) bool {
@@ -1163,6 +1206,13 @@ func (x *Executor) isolated(ctx context.Context, s *baremetal.Step, argv []strin
 	disks, extra := x.isolatedDevices(s.Kind)
 	spec.Devices, spec.DevLinks = x.Ops.DeviceSet(disks, extra)
 	spec.CapSysAdmin = needsSysAdmin(prog, spec.Devices)
+	if spec.CapSysAdmin {
+		// DM_TABLE_STATUS answers for every mapping of the machine: none
+		// that could hold a key may be open outside the target (10.14).
+		if f := foreignKeyMappings(x.Ops.DMMappings(), spec.Devices, x.openedNames()); len(f) > 0 {
+			return foreignMappingError(prog, f)
+		}
+	}
 	switch s.Kind {
 	case "initramfs_extra":
 		ok, why := x.bootRoomFor(deref(s.Target))
@@ -1209,6 +1259,13 @@ func (x *Executor) isolated(ctx context.Context, s *baremetal.Step, argv []strin
 			}
 		}
 	}
+	// A mapping opened from another console while the program ran: it
+	// could have read the key.
+	if spec.CapSysAdmin {
+		if f := foreignKeyMappings(x.Ops.DMMappings(), spec.Devices, x.openedNames()); len(f) > 0 {
+			return openedDuringError(prog, f)
+		}
+	}
 	if err != nil {
 		return err
 	}
@@ -1226,12 +1283,11 @@ func (x *Executor) isolated(ctx context.Context, s *baremetal.Step, argv []strin
 // grub-mkconfig) and of vgimportdevices need CAP_SYS_ADMIN, but only when
 // a device-mapper node (LVM, LUKS) is among the devices of the step; on a
 // plain system they run without it and without /dev/mapper/control. The
-// seccomp filter still lets only read-only device-mapper commands through
-// (10.14).
+// seccomp filter still lets only read-only device-mapper commands through,
+// and such a step runs only while no mapping that could hold a key is open
+// outside the target (dmguard.go, 10.14).
 func needsSysAdmin(prog string, devices []string) bool {
-	switch prog {
-	case "grub-install", "grub2-install", "grub-mkconfig", "grub2-mkconfig", "update-grub", "vgimportdevices":
-	default:
+	if !dmAdminPrograms[prog] {
 		return false
 	}
 	for _, d := range devices {

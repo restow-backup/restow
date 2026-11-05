@@ -137,6 +137,41 @@ func TestSeccompFilter(t *testing.T) {
 				t.Errorf("%s ioctl %#x: %#x, want allow", arch, req, got)
 			}
 		}
+		// md: only the queries pass (RAID_VERSION, GET_ARRAY_INFO,
+		// GET_DISK_INFO, GET_BITMAP_FILE); every command that changes an
+		// array answers EPERM, whatever its size and direction bits.
+		for _, req := range []uint64{0x800c0910, 0x80480911, 0x80140912, 0x90000915} {
+			if got := runBPF(t, prog, tab.ioctl, tab.audit, 3, req); got != seccompOK {
+				t.Errorf("%s md query %#x: %#x, want allow", arch, req, got)
+			}
+		}
+		for _, req := range []uint64{0x920, 0x40140921, 0x922, 0x40480923, 0x924, 0x925, 0x926, 0x927, 0x928, 0x929, 0x92a, 0x4004092b,
+			0x400c0930, 0x931, 0x932, 0x933, 0x934, 0x935, 0x914, 0x80140921, 0xffffffff00000932} {
+			if got := runBPF(t, prog, tab.ioctl, tab.audit, 3, req); got != eperm {
+				t.Errorf("%s md command %#x: %#x, want EPERM", arch, req, got)
+			}
+		}
+		// socket and socketpair: AF_UNIX, AF_INET, AF_INET6 and AF_NETLINK
+		// pass; AF_VSOCK and every other family answer EAFNOSUPPORT (the
+		// high 32 bits of the int argument are ignored by the kernel).
+		const eafnosupport = seccompErr | errnoEAFNOSUPPORT
+		for _, nr := range []int{tab.socket, tab.socketpair} {
+			for _, fam := range []uint64{1, 2, 10, 16, 0xffffffff00000001} {
+				if got := runBPF(t, prog, nr, tab.audit, fam, 1, 0); got != seccompOK {
+					t.Errorf("%s socket call %d family %#x: %#x, want allow", arch, nr, fam, got)
+				}
+			}
+			for _, fam := range []uint64{0, 3, 4, 5, 9, 17, 21, 29, 30, 31, 38, 40, 44, 45, 46, 0xffff, 0x100000028} {
+				if got := runBPF(t, prog, nr, tab.audit, fam, 1, 0); got != eafnosupport {
+					t.Errorf("%s socket call %d family %#x: %#x, want EAFNOSUPPORT", arch, nr, fam, got)
+				}
+			}
+		}
+		for _, name := range []string{"io_uring_setup", "io_uring_enter", "io_uring_register"} {
+			if nr, ok := tab.denied[name]; !ok || runBPF(t, prog, nr, tab.audit, 0) != eperm {
+				t.Errorf("%s: %s is not denied", arch, name)
+			}
+		}
 		// Another architecture's calls kill the process.
 		if got := runBPF(t, prog, 0, 0x40000003, 0); got != seccompKill {
 			t.Errorf("%s wrong arch: %#x", arch, got)

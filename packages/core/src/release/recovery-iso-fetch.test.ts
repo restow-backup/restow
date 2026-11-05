@@ -6,7 +6,7 @@
  */
 import { createHash, generateKeyPairSync, type KeyObject } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
 import http, { type IncomingMessage, type ServerResponse } from "node:http";
 import net, { type AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -602,6 +602,54 @@ describe("fetchRecoveryIso: space, deadline, lock and an unreachable release pag
     expect(taken.busy).toBeUndefined();
     expect(taken.state).toMatchObject({ status: "verified" });
     expect(existsSync(lock)).toBe(false);
+  });
+
+  it("lets exactly one of several concurrent passes take over a stale lock", async () => {
+    const root = await agentRoot(ISO);
+    await publishRelease(root);
+    const isoPath = `/asset-host/restow-backup/restow/releases/download/v0.5.0/${recoveryIsoFileName("0.5.0")}`;
+    for (let round = 0; round < 4; round++) {
+      store = await temp("restow-iso-store-");
+      resetRecoveryIsoHashCache();
+      const lock = join(store, ".fetch.lock");
+      await writeFile(lock, JSON.stringify({ token: "gone", pid: 1 }));
+      const old = new Date(Date.now() - 60 * 60_000);
+      await utimes(lock, old, old);
+      const before = server.countFor(isoPath);
+      const passes = round % 2 === 0 ? 2 : 4;
+      const results = await Promise.all(
+        Array.from({ length: passes }, () => fetchRecoveryIso(options(root))),
+      );
+      const winners = results.filter((result) => !result.busy);
+      expect(winners).toHaveLength(1);
+      expect(winners[0]?.state).toMatchObject({ status: "verified" });
+      expect(results.filter((result) => result.busy)).toHaveLength(passes - 1);
+      // One download, one writer of the partial file, and nothing of the takeover left behind.
+      expect(server.countFor(isoPath) - before).toBe(1);
+      expect(await readFile(stored(recoveryIsoFileName("0.5.0")))).toEqual(ISO);
+      expect((await readdir(store)).filter((name) => name.startsWith(".fetch.lock"))).toEqual([]);
+    }
+  }, 30_000);
+
+  it("stops writing once another pass took its lock over", async () => {
+    const root = await agentRoot(ISO);
+    await publishRelease(root);
+    server.put("v0.5.0", recoveryIsoFileName("0.5.0"), ISO, "restow-backup/restow", {
+      stallAfter: 100_000,
+    });
+    const lock = join(store, ".fetch.lock");
+    const running = fetchRecoveryIso(options(root, { timeLimitMs: 1500 }));
+    await untilSize(part(), 100_000);
+    const fetching = await readRecoveryIsoFetchState(store);
+    expect(fetching?.status).toBe("fetching");
+    // The pass went silent; another one took the store over (a lock with its own token).
+    await writeFile(lock, JSON.stringify({ token: "newer", pid: 2 }));
+    const result = await running;
+    expect(result.busy).toBe(true);
+    // It neither recorded its cut-off transfer nor removed the other pass's lock or the part.
+    expect(await readRecoveryIsoFetchState(store)).toMatchObject({ status: "fetching" });
+    expect(JSON.parse(await readFile(lock, "utf8"))).toMatchObject({ token: "newer" });
+    expect((await stat(part())).size).toBeGreaterThanOrEqual(100_000);
   });
 
   it("does not report a skipped rebuild or retry when only the release page cannot be reached", async () => {

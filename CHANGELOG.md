@@ -348,10 +348,19 @@ private repository.
   EFI system partition, smaller and larger disks, 4Kn; intact data disks can be kept; the boot
   chain, drivers and Secure Boot state are checked before anything is erased; initramfs and boot
   loader are set up again with the restored system's own tools in an isolated environment (own
-  namespaces, a `/dev` with only the target devices, a reduced capability set and a seccomp
-  filter that also refuses the device-mapper commands that change mappings, NVMe passthrough,
+  namespaces, a `/dev` with only the target devices, the restored tree and all its mounts
+  `nodev` and `nosuid` so that device nodes from the backup cannot be opened, a reduced capability
+  set and a seccomp filter that also refuses the device-mapper commands that change mappings, the
+  md commands that change arrays, NVMe passthrough, sockets other than Unix, IPv4, IPv6 and
+  netlink (AF_VSOCK is not network-namespaced and reaches the hypervisor of a VM), io_uring,
   `open_tree_attr` and system calls newer than its table; `CAP_SYS_ADMIN` only for the boot loader
-  and LVM tools on device-mapper volumes).
+  and LVM tools on device-mapper volumes, and only while no device-mapper device outside the target
+  disks that could hold a key is open: the kernel reads the table of any mapping to such a program,
+  and the table of a LUKS1 or plain dm-crypt volume carries its key. The ISO names such a volume
+  (for example an old disk opened in the shell) before anything is erased and offers a shell to
+  close it; one opened while such a program runs stops the recovery with
+  `foreign_mapping_open`). The ISO mounts the target file systems `nodev` and `nosuid` for the
+  recovery and never opens a file of the restored system that is not a regular file.
   Firmware packages: `firmware-bnx2`, `firmware-bnx2x`, `firmware-qlogic`, `firmware-realtek`,
   `firmware-misc-nonfree` and `firmware-intel-misc` (wired network cards and storage controllers
   only; their licences are in `restow-recovery_<v>_FIRMWARE-LICENSES.txt`, the reasons in
@@ -601,6 +610,10 @@ private repository.
   `endpoint.recovery.failed` are errors of the group "Recoverability" and go to the bell and to
   every rule that lists them. Recovery codes, rebind tokens and the 64-digit hex values of a
   session are removed from every stored log and failure text.
+- The download of the recovery ISO takes over a stale lock of its store atomically: the old lock is
+  renamed aside and dropped only when it is still the stale one, so two passes that both find it
+  stale never both write the partial file, and a pass checks that the lock is still its own before
+  every write and stops without writing once it is not.
 
 ### Upgrade Notes
 

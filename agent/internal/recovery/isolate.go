@@ -14,10 +14,11 @@ import (
 // from a machine that may have been compromised. Each runs through the
 // hidden helper restow-agent chroot-exec (isolate_linux.go) in new mount,
 // PID, network, IPC and UTS namespaces, with pivot_root into the target
-// (a chroot could be left with chroot("..") or open_by_handle_at, R4), a
-// fresh /proc, a read-only /sys, a /dev with only the null devices and
-// the target devices, a reduced capability bounding set, no new
-// privileges and the seccomp filter below.
+// (a chroot could be left with chroot("..") or open_by_handle_at, R4), the
+// target tree nodev and nosuid with all its submounts, a fresh /proc, a
+// read-only /sys, a /dev with only the null devices and the target
+// devices, a reduced capability bounding set, no new privileges and the
+// seccomp filter below.
 
 // IsolateSpec is what recover hands the helper (JSON over fd 3).
 type IsolateSpec struct {
@@ -129,17 +130,18 @@ type SockFilter struct {
 
 // Classic BPF and seccomp constants.
 const (
-	bpfLdWAbs   = 0x20 // BPF_LD | BPF_W | BPF_ABS
-	bpfAndK     = 0x54 // BPF_ALU | BPF_AND | BPF_K
-	bpfJeqK     = 0x15 // BPF_JMP | BPF_JEQ | BPF_K
-	bpfJgeK     = 0x35 // BPF_JMP | BPF_JGE | BPF_K
-	bpfJsetK    = 0x45 // BPF_JMP | BPF_JSET | BPF_K
-	bpfRetK     = 0x06 // BPF_RET | BPF_K
-	seccompKill = 0x80000000
-	seccompErr  = 0x00050000
-	seccompOK   = 0x7fff0000
-	errnoEPERM  = 1
-	errnoENOSYS = 38
+	bpfLdWAbs         = 0x20 // BPF_LD | BPF_W | BPF_ABS
+	bpfAndK           = 0x54 // BPF_ALU | BPF_AND | BPF_K
+	bpfJeqK           = 0x15 // BPF_JMP | BPF_JEQ | BPF_K
+	bpfJgeK           = 0x35 // BPF_JMP | BPF_JGE | BPF_K
+	bpfJsetK          = 0x45 // BPF_JMP | BPF_JSET | BPF_K
+	bpfRetK           = 0x06 // BPF_RET | BPF_K
+	seccompKill       = 0x80000000
+	seccompErr        = 0x00050000
+	seccompOK         = 0x7fff0000
+	errnoEPERM        = 1
+	errnoENOSYS       = 38
+	errnoEAFNOSUPPORT = 97
 	// offsets in struct seccomp_data (the low 32 bits of an argument on a
 	// little-endian machine; amd64 and arm64 both are)
 	offNr   = 0
@@ -177,6 +179,13 @@ const (
 	// ioctlTypeNVMe is 'N' (NVMe passthrough; with CAP_SYS_ADMIN any
 	// admin command on any namespace, nvme_cmd_allowed).
 	ioctlTypeNVMe = 0x4e00
+	// ioctlTypeMD is the md driver (MD_MAJOR 9, linux/raid/md_u.h): every
+	// command but the three queries needs only CAP_SYS_ADMIN (md.c
+	// md_ioctl_valid), and ADD_NEW_DISK names the new member as
+	// major:minor, so a step that keeps CAP_SYS_ADMIN could stop a bound
+	// array, build it anew over any disk and write to it through the bound
+	// /dev/mdN, or add a foreign disk to a running array.
+	ioctlTypeMD = 0x0900
 	// tiocsti and tioclinux push input into a terminal (TIOCSTI) or paste
 	// the console selection (TIOCLINUX); a program of the target must not
 	// type into the console of recover.
@@ -194,6 +203,25 @@ const (
 // later commands) answers EPERM.
 var dmReadOnlyCommands = []uint32{0, 2, 7, 11, 12, 13, 17}
 
+// mdQueryCommands are the md commands a step may send: RAID_VERSION 0x10,
+// GET_ARRAY_INFO 0x11 and GET_DISK_INFO 0x12 (grub-probe on md, LVM,
+// mdadm --detail) and GET_BITMAP_FILE 0x15 (read-only, mdadm --detail).
+// Everything else (CLEAR_ARRAY, ADD_NEW_DISK, HOT_REMOVE_DISK,
+// SET_ARRAY_INFO, SET_DISK_INFO, HOT_ADD_DISK, SET_DISK_FAULTY,
+// SET_BITMAP_FILE, RUN_ARRAY, STOP_ARRAY, RAID_AUTORUN, ...) answers EPERM.
+// The kernel dispatches md commands by the whole request; type and number
+// fix the command, the size and direction bits cannot turn a query into
+// another command.
+var mdQueryCommands = []uint32{0x10, 0x11, 0x12, 0x15}
+
+// socketFamilies are the address families socket(2) and socketpair(2)
+// may use: AF_UNIX 1, AF_INET 2, AF_INET6 10 and AF_NETLINK 16, all bound
+// to the empty network namespace. Every other family answers
+// EAFNOSUPPORT, above all AF_VSOCK (40), which is not network-namespaced
+// and reaches the hypervisor of a VM (VMware VMCI, Hyper-V, virtio-vsock,
+// Firecracker); also AF_PACKET, AF_BLUETOOTH, AF_ALG and the rest.
+var socketFamilies = []uint32{1, 2, 10, 16}
+
 // syscallTable is the architecture's audit value and the numbers the
 // filter needs.
 type syscallTable struct {
@@ -203,15 +231,21 @@ type syscallTable struct {
 	clone  int
 	clone3 int
 	ioctl  int
+	// socket and socketpair are checked for their address family.
+	socket     int
+	socketpair int
 }
 
 // deniedSyscalls answer EPERM (10.14 plus R4: chroot and the file handle
 // calls; plus delete_module, fspick, mount_setattr, open_tree_attr,
-// swapon, swapoff and, on amd64, iopl and ioperm).
+// swapon, swapoff, the io_uring calls (IORING_OP_SOCKET and
+// IORING_OP_CONNECT run past seccomp, so a ring could open an AF_VSOCK
+// socket) and, on amd64, iopl and ioperm).
 var deniedSyscalls = []string{"mount", "umount2", "pivot_root", "open_tree", "open_tree_attr", "move_mount", "fsopen", "fsmount",
 	"fsconfig", "fspick", "mount_setattr", "mknod", "mknodat", "init_module", "finit_module", "delete_module", "kexec_load",
 	"kexec_file_load", "reboot", "ptrace", "process_vm_readv", "process_vm_writev", "bpf", "perf_event_open", "unshare",
-	"setns", "chroot", "open_by_handle_at", "name_to_handle_at", "swapon", "swapoff", "iopl", "ioperm"}
+	"setns", "chroot", "open_by_handle_at", "name_to_handle_at", "swapon", "swapoff", "io_uring_setup", "io_uring_enter",
+	"io_uring_register", "iopl", "ioperm"}
 
 // bpfAsm builds a classic BPF program with forward jumps to labels.
 type bpfAsm struct {
@@ -267,8 +301,10 @@ func (a *bpfAsm) assemble() ([]SockFilter, error) {
 // architecture kills the process, x32 calls and the denied calls get
 // EPERM, system calls newer than the table get ENOSYS, clone with any
 // CLONE_NEW* flag gets EPERM, clone3 gets ENOSYS (so the C library falls
-// back to clone, whose flags the filter can read), ioctl gets EPERM for
-// the device-mapper commands that change mappings, for every NVMe
+// back to clone, whose flags the filter can read), socket and socketpair
+// get EAFNOSUPPORT for every family but AF_UNIX, AF_INET, AF_INET6 and
+// AF_NETLINK, ioctl gets EPERM for the device-mapper commands that change
+// mappings, for every md command but the queries, for every NVMe
 // passthrough command and for TIOCSTI and TIOCLINUX; everything else is
 // allowed.
 func BuildSeccomp(arch string) ([]SockFilter, error) {
@@ -277,8 +313,9 @@ func BuildSeccomp(arch string) ([]SockFilter, error) {
 		return nil, fmt.Errorf("seccomp: no system call table for %s", arch)
 	}
 	const (
-		eperm  = seccompErr | errnoEPERM
-		enosys = seccompErr | errnoENOSYS
+		eperm        = seccompErr | errnoEPERM
+		enosys       = seccompErr | errnoENOSYS
+		eafnosupport = seccompErr | errnoEAFNOSUPPORT
 	)
 	a := &bpfAsm{}
 	a.ins(bpfLdWAbs, offArch)
@@ -310,10 +347,13 @@ func BuildSeccomp(arch string) ([]SockFilter, error) {
 	a.jump(bpfJsetK, cloneNewMask, "", "allow")
 	a.ins(bpfRetK, eperm)
 	a.label("not_clone")
+	a.jump(bpfJeqK, uint32(tab.socket), "socket", "")
+	a.jump(bpfJeqK, uint32(tab.socketpair), "socket", "")
 	a.jump(bpfJeqK, uint32(tab.ioctl), "", "allow")
 	a.ins(bpfLdWAbs, offArg1)
 	a.ins(bpfAndK, ioctlTypeMask)
 	a.jump(bpfJeqK, ioctlTypeDM, "dm", "")
+	a.jump(bpfJeqK, ioctlTypeMD, "md", "")
 	a.retIf(ioctlTypeNVMe, eperm)
 	a.ins(bpfLdWAbs, offArg1)
 	a.retIf(tiocsti, eperm)
@@ -326,6 +366,20 @@ func BuildSeccomp(arch string) ([]SockFilter, error) {
 		a.jump(bpfJeqK, c, "allow", "")
 	}
 	a.ins(bpfRetK, eperm)
+	a.label("md")
+	a.ins(bpfLdWAbs, offArg1)
+	a.ins(bpfAndK, ioctlNrMask)
+	for _, c := range mdQueryCommands {
+		a.jump(bpfJeqK, c, "allow", "")
+	}
+	a.ins(bpfRetK, eperm)
+	a.label("socket")
+	// The family is an int: the kernel reads only the low 32 bits.
+	a.ins(bpfLdWAbs, offArg0)
+	for _, f := range socketFamilies {
+		a.jump(bpfJeqK, f, "allow", "")
+	}
+	a.ins(bpfRetK, eafnosupport)
 	a.label("allow")
 	a.ins(bpfRetK, seccompOK)
 	return a.assemble()

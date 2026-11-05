@@ -10,6 +10,7 @@ const (
 	ProblemAccessExpired             = "access_expired"
 	ProblemArchUnsupported           = "arch_unsupported"
 	ProblemClockWrong                = "clock_wrong"
+	ProblemForeignMappingOpen        = "foreign_mapping_open"
 	ProblemHoldersBusy               = "holders_busy"
 	ProblemLVMFilterMultiline        = "lvm_filter_multiline"
 	ProblemManifestFormatUnknown     = "manifest_format_unknown"
@@ -72,7 +73,7 @@ const (
 // RecoverProblemCodes, RecoverWarningCodes, CheckIDs and HintCodes are the
 // lists of testdata/recover-codes.json (in its order).
 var (
-	RecoverProblemCodes = []string{ProblemAccessExpired, ProblemArchUnsupported, ProblemClockWrong, ProblemHoldersBusy,
+	RecoverProblemCodes = []string{ProblemAccessExpired, ProblemArchUnsupported, ProblemClockWrong, ProblemForeignMappingOpen, ProblemHoldersBusy,
 		ProblemLVMFilterMultiline, ProblemManifestFormatUnknown, ProblemManifestInvalid, ProblemManifestMismatch,
 		ProblemMkfsReadbackMismatch, ProblemNoDisksFound, ProblemPartitionReadbackMismatch, ProblemRecoveryTooOld,
 		ProblemRestoreFailed, ProblemSPKIMismatch, ProblemStepFailed, ProblemSystemFilesIncomplete, ProblemTLSUntrusted,

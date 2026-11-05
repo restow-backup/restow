@@ -309,6 +309,11 @@ func (r *Recover) run(ctx context.Context) (*Result, error) {
 			return unclean, nil
 		}
 	}
+	if err := r.awaitForeignMappings(ctx, x); err != nil {
+		zeroRepo()
+		secrets.Zero()
+		return r.fail(ctx, plan, nil, ProblemForeignMappingOpen, err)
+	}
 	rep, execErr := x.Run(ctx)
 	r.flushLog(ctx)
 	if rep == nil {
@@ -336,10 +341,17 @@ func (r *Recover) run(ctx context.Context) (*Result, error) {
 			code = se.Problem
 		}
 		warnings = append(warnings, api.RecoveryWarning{Code: code, Message: redact.Redact(execErr.Error())})
-		if code == ProblemAccessExpired {
+		var pe *problemError
+		switch {
+		case code == ProblemAccessExpired:
 			r.UI.Say("code." + ProblemAccessExpired)
+		case code == ProblemForeignMappingOpen && errors.As(execErr, &pe):
+			r.UI.Line(TParams(r.UI.Lang, "code."+code, pe.params))
+			r.UI.Say("dm.foreign.resume")
 		}
-		r.UI.Say("exec.failed", "n", rep.FailedStep)
+		if rep.FailedStep > 0 {
+			r.UI.Say("exec.failed", "n", rep.FailedStep)
+		}
 	case verification.Result == api.VerifyFailed:
 		status = api.RecoveryFailed
 		warnings = append(warnings, api.RecoveryWarning{Code: ProblemVerifyFailed, Message: FailedChecks(verification)})
@@ -364,6 +376,31 @@ func (r *Recover) run(ctx context.Context) (*Result, error) {
 	r.UI.Say("done.succeeded")
 	r.after(ctx)
 	return res, nil
+}
+
+// awaitForeignMappings: before the first step, no device-mapper device
+// that could hold a key may be open outside the target disks when the plan
+// runs a grub or LVM program with CAP_SYS_ADMIN (dmguard.go, 10.14). On
+// the console recover names them and offers a shell to close them, then
+// checks again; an unattended run stops.
+func (r *Recover) awaitForeignMappings(ctx context.Context, x *Executor) error {
+	for {
+		err := x.PreflightMappings()
+		var pe *problemError
+		if err == nil || !errors.As(err, &pe) {
+			return err
+		}
+		r.logf("%v", err)
+		r.UI.Line(TParams(r.UI.Lang, "code."+ProblemForeignMappingOpen, pe.params))
+		if r.unattended() {
+			return err
+		}
+		ok, aerr := r.UI.YesNo(r.UI.Text("dm.foreign.shell"), true)
+		if aerr != nil || !ok {
+			return err
+		}
+		_ = r.Env.Shell(ctx)
+	}
 }
 
 // Interrupt is Ctrl+C on the console: during the execution recover asks

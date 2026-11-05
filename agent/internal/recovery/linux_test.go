@@ -11,7 +11,9 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
+	"time"
 
 	"github.com/restow-backup/restow/agent/internal/baremetal"
 )
@@ -88,6 +90,85 @@ func TestRootfsStaysInside(t *testing.T) {
 	}
 	if _, err := r.ReadFile("relative", 1); err == nil {
 		t.Error("a relative path was accepted")
+	}
+}
+
+// TestRootfsNeverOpensSpecialFiles: a FIFO (standing in for a block or
+// char node restored from the snapshot, whose open has side effects) at a
+// path recover reads or changes is never opened: a writer blocked in
+// open(2) on it would be released by any open for reading.
+func TestRootfsNeverOpensSpecialFiles(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "etc"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fifo := filepath.Join(root, "etc/fstab")
+	if err := syscall.Mkfifo(fifo, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("fstab", filepath.Join(root, "etc/link")); err != nil {
+		t.Fatal(err)
+	}
+	r, err := OpenRootfs(root)
+	if err != nil {
+		t.Skipf("openat2: %v", err)
+	}
+	defer r.Close()
+	opened := make(chan struct{})
+	go func() {
+		if f, err := os.OpenFile(fifo, os.O_WRONLY, 0); err == nil {
+			f.Close()
+		}
+		close(opened)
+	}()
+	time.Sleep(100 * time.Millisecond)
+	if _, err := r.ReadFile("/etc/fstab", 1<<20); err == nil {
+		t.Error("ReadFile read a FIFO")
+	}
+	if _, err := r.ReadFile("/etc/link", 1<<20); err == nil {
+		t.Error("ReadFile read a FIFO through a link")
+	}
+	if err := r.Chmod("/etc/fstab", 0o640); err != nil {
+		t.Errorf("chmod: %v", err)
+	}
+	if err := r.Chown("/etc/fstab", os.Getuid(), os.Getgid()); err != nil {
+		t.Errorf("chown: %v", err)
+	}
+	_, _ = r.Getxattr("/etc/fstab", "security.selinux")
+	if err := r.Chmod("/etc/link", 0o600); !errors.Is(err, ErrSymlinkTarget) {
+		t.Errorf("chmod through a link: %v", err)
+	}
+	if err := r.Chown("/etc/link", os.Getuid(), os.Getgid()); !errors.Is(err, ErrSymlinkTarget) {
+		t.Errorf("chown through a link: %v", err)
+	}
+	select {
+	case <-opened:
+		t.Error("recover opened the FIFO of the target")
+	case <-time.After(300 * time.Millisecond):
+	}
+	if st, err := os.Lstat(fifo); err != nil || st.Mode().Perm() != 0o640 || st.Mode()&fs.ModeNamedPipe == 0 {
+		t.Errorf("chmod through O_PATH: %v %v", st, err)
+	}
+	// Release the writer.
+	if f, err := os.OpenFile(fifo, os.O_RDONLY|syscall.O_NONBLOCK, 0); err == nil {
+		<-opened
+		f.Close()
+	}
+	// Regular files and folders still work.
+	if err := os.WriteFile(filepath.Join(root, "etc/hostname"), []byte("srv01\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := r.ReadFile("/etc/hostname", 64); err != nil || string(b) != "srv01\n" {
+		t.Errorf("ReadFile: %q %v", b, err)
+	}
+	if _, err := r.ReadFile("/etc/hostname", 3); err == nil {
+		t.Error("the size limit")
+	}
+	if err := r.Chmod("/etc", 0o711); err != nil {
+		t.Error(err)
+	}
+	if st, _ := os.Stat(filepath.Join(root, "etc")); st.Mode().Perm() != 0o711 {
+		t.Errorf("chmod of a folder: %v", st.Mode())
 	}
 }
 

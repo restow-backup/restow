@@ -2069,8 +2069,13 @@ schaltet `recover` sie erst **nach** dem Restore ein (`btrfs quota enable`, dann
   Manifests an seinem Einhängepunkt (btrfs mit `subvol=`, `device=` je Gerät und den
   `compress`/`compress-force`-Optionen aus `mountinfo`, damit die Daten wieder komprimiert
   landen und die Größenrechnung stimmt), vfat mit `quiet` (sonst scheitern `chown`/`chmod`
-  von restic auf FAT), alles andere mit den Standardoptionen. Übernommene Dateisysteme
-  werden eingehängt, aber vom Restore ausgenommen (10.7).
+  von restic auf FAT), alles andere mit den Standardoptionen. Der Ausführer hängt jedes
+  Dateisystem des Ziels (auch die oberste Ebene eines btrfs beim Anlegen der Subvolumes) für die
+  Dauer der Wiederherstellung zusätzlich mit `nodev,nosuid` ein, als letzte Optionen, damit keine
+  Option des Plans sie aufhebt (`recoveryMountArgs`): restic legt Block- und Zeichenknoten aus dem
+  Snapshot unverändert an (`mknod` geht auf `nodev`), öffnen lässt sich keiner, weder von
+  `recover` noch von einem Programm des Ziels. Die `fstab` des Ziels behält ihre Optionen.
+  Übernommene Dateisysteme werden eingehängt, aber vom Restore ausgenommen (10.7).
 - `restic restore --json --no-lock --no-cache --target /mnt/restow-target --sparse --verify
   --overwrite never [--exclude <übernommene Einhängepunkte>] <snapshot>` (neue Felder in
   `restic.RestoreOptions`: `Sparse`, `NoLock`, `NoCache`, `Overwrite`, `Subfolder`,
@@ -2165,11 +2170,28 @@ fremder Teile) und die NVRAM beschädigen. Darum läuft jeder dieser Schritte ü
   `/proc/sys/kernel/core_pattern` mit `|/pfad` ließe den Kernel eine Datei des Ziels als
   volles root außerhalb jedes Namensraums starten, `/proc/sysrq-trigger` den Rechner neu
   starten oder `recover` beenden.
+- **Der Zielbaum ist `nodev` und `nosuid`:** Gleich nach dem rekursiven Bind der Wurzel und
+  bevor `/dev`, `/proc`, `/sys` und `/run` darauf eingehängt werden, setzt der Helfer mit einem
+  Aufruf `mount_setattr(AT_FDCWD, <wurzel>, AT_RECURSIVE, MOUNT_ATTR_NODEV|MOUNT_ATTR_NOSUID)`
+  (Linux 5.12) beide Attribute auf jede Einhängung des Ziels, `/boot`, `/boot/efi` und
+  btrfs-Subvolumes eingeschlossen; ein `MS_BIND|MS_REMOUNT` ohne Rekursion träfe nur die oberste.
+  Scheitert der Aufruf, startet das Programm nicht (kein Rückfall). Grund: restic stellt als
+  root Block- und Zeichenknoten aus dem Snapshot wieder her (10.10 [Quelle] 1). Ein Knoten
+  irgendwo im Baum (`/root/x` = `b 8:16`, die alte Platte, `c 4:1` tty1, `c 10:223` uinput,
+  `/dev/input/event*`, `/dev/sg*`) ließe sich sonst von jedem Programm des Ziels mit uid 0
+  öffnen, ohne `CAP_MKNOD` und ohne `CAP_SYS_ADMIN`, und auf eine Platte außerhalb der
+  Löschmenge schreiben oder die Konsole des Bedieners lesen. Die Knoten im neuen `/dev` sind
+  Bind-Mounts aus dem `devtmpfs` des ISO und bleiben nutzbar, denn `nodev` gilt für die
+  Einhängung, über die ein Knoten geöffnet wird. Zusätzlich hängt `recover` das Ziel selbst
+  schon `nodev,nosuid` ein (10.12), und `DirRootfs` öffnet eine Datei des Ziels erst als
+  `O_PATH`, liest sie nur, wenn sie eine reguläre Datei ist, und ändert Modus, Besitzer und
+  liest Attribute über `/proc/self/fd/<n>`, ohne sie zu öffnen.
 - `/dev` ist ein neues `tmpfs` mit `nodev`, darin als einzelne Bind-Mounts aus dem `/dev`
   des ISO genau `null`, `zero`, `full`, `random`, `urandom`, `tty`, `pts` (eigene Instanz)
   und die Knoten der **Zielgeräte** des Plans samt ihrer Partitionen, md-, dm- und
   `mapper`-Knoten und der zugehörigen `/dev/disk/by-*`-Links. Ein mit `mknod` neu angelegter
-  Knoten auf dem `nodev`-tmpfs lässt sich nicht öffnen; übernommene Datenplatten sind nur
+  Knoten auf dem `nodev`-tmpfs lässt sich ebenso wenig öffnen wie ein wiederhergestellter
+  Knoten im übrigen Zielbaum; übernommene Datenplatten sind nur
   dabei, wenn der Schritt sie braucht (initramfs mit `crypttab`-Einträgen: nur deren
   dm-Knoten).
 - Vor dem `exec` setzt der Helfer `PR_SET_NO_NEW_PRIVS` und entfernt aus der
@@ -2183,23 +2205,70 @@ fremder Teile) und die NVRAM beschädigen. Darum läuft jeder dieser Schritte ü
   `umount2`, `pivot_root`, `open_tree`, `open_tree_attr`, `move_mount`, `fsopen`, `fsmount`,
   `fsconfig`, `mknod`, `mknodat`, `init_module`, `finit_module`, `kexec_load`,
   `kexec_file_load`, `reboot`, `ptrace`, `process_vm_readv`, `process_vm_writev`, `bpf`,
-  `perf_event_open` und `unshare`/`setns` mit `EPERM` beantwortet und jeden Systemaufruf, der
+  `perf_event_open`, `unshare`/`setns` und `io_uring_setup`, `io_uring_enter`,
+  `io_uring_register` mit `EPERM` beantwortet (`IORING_OP_SOCKET` und `IORING_OP_CONNECT`
+  liefen an seccomp vorbei) und jeden Systemaufruf, der
   neuer ist als seine Tabelle (ab 467), mit `ENOSYS`, damit ein neuerer Kernel keinen
   Einhänge-Aufruf unbemerkt durchlässt. `ioctl` prüft er nach Typ und Nummer: von
   device-mapper nur die lesenden Befehle (`DM_VERSION`, `DM_LIST_DEVICES`, `DM_DEV_STATUS`,
-  `DM_TABLE_DEPS`, `DM_TABLE_STATUS`, `DM_LIST_VERSIONS`, `DM_GET_TARGET_VERSION`), jede
-  NVMe-Durchreichung (Typ `N`: mit `CAP_SYS_ADMIN` beliebige Admin-Befehle auf jedem
-  Namensraum) und `TIOCSTI`/`TIOCLINUX` nie; der Helfer startet zudem in einer neuen Sitzung
-  ohne steuerndes Terminal. Damit kann auch ein Schritt mit `CAP_SYS_ADMIN` weder ein
-  `devtmpfs` mit allen Platten einhängen noch eine dm-Tabelle auf eine fremde Platte
-  umlenken (eine Tabelle nennt ihr Gerät als `major:minor`, ohne Knoten in `/dev`), Module
-  laden oder fremde Prozesse lesen. Was bleibt: `DM_TABLE_STATUS` liefert den Schlüssel einer
-  dm-crypt-Zuordnung, die nicht über den Schlüsselbund verschlüsselt ist (LUKS1, plain); ein
-  Schritt ohne Netz, der nur die Zielgeräte schreiben kann, könnte ihn dort ablegen
-  (grub braucht die Tabelle linearer Zuordnungen). [CI] Ob jeder der drei
+  `DM_TABLE_DEPS`, `DM_TABLE_STATUS`, `DM_LIST_VERSIONS`, `DM_GET_TARGET_VERSION`), von md
+  (Typ `0x09`, `MD_MAJOR`) nur die Abfragen `RAID_VERSION`, `GET_ARRAY_INFO`, `GET_DISK_INFO`
+  und `GET_BITMAP_FILE` (Nummern `0x10`, `0x11`, `0x12`, `0x15`; grub-probe, LVM, `mdadm
+  --detail`), jede NVMe-Durchreichung (Typ `N`: mit `CAP_SYS_ADMIN` beliebige Admin-Befehle auf
+  jedem Namensraum) und `TIOCSTI`/`TIOCLINUX` nie. md braucht für jeden anderen Befehl nur
+  `CAP_SYS_ADMIN` (`md_ioctl_valid`), und `ADD_NEW_DISK` nennt das neue Mitglied als
+  `major:minor`: Ein grub- oder `vgimportdevices`-Schritt auf LVM oder LUKS über md hätte sonst
+  ein ruhendes Ziel-Array über den eingebundenen `/dev/mdN` anhalten (`STOP_ARRAY`), mit
+  `SET_ARRAY_INFO` (Version 0, ohne Superblock) und `ADD_NEW_DISK` über eine beliebige Platte
+  neu bauen und mit `RUN_ARRAY` beschreiben können, oder einem laufenden Array eine fremde
+  Platte mit md-Superblock hinzufügen. `socket` und `socketpair` lässt der Filter nur für
+  `AF_UNIX`, `AF_INET`, `AF_INET6` und `AF_NETLINK` zu (alle im leeren Netz-Namensraum) und
+  beantwortet jede andere Familie mit `EAFNOSUPPORT`, vor allem `AF_VSOCK`: vsock ist nicht an
+  den Netz-Namensraum gebunden und erreicht in einer VM den Hypervisor (VMware VMCI, Hyper-V,
+  virtio-vsock, Firecracker; auf dieser Testmaschine antwortete der Host mit RST). Der Helfer
+  startet zudem in einer neuen Sitzung ohne steuerndes Terminal. Damit kann auch ein Schritt
+  mit `CAP_SYS_ADMIN` weder ein `devtmpfs` mit allen Platten einhängen noch eine dm-Tabelle
+  oder ein md-Array auf eine fremde Platte umlenken (beide nennen ihr Gerät als
+  `major:minor`, ohne Knoten in `/dev`), Module laden oder fremde Prozesse lesen. [CI] Ob jeder der drei
   initramfs-Erzeuger, `grub-install`, `grub2-mkconfig`, `bootctl`, `vgimportdevices`,
   `restorecon` und `kernel-install` mit dieser Menge läuft; was einer zusätzlich braucht,
   steht mit Begründung in `isolate_linux.go` und in diesem Abschnitt.
+- **Fremde dm-Zuordnungen** (`dmguard.go`): `DM_TABLE_STATUS` beantwortet der Kernel für
+  *jede* Zuordnung des Rechners, nicht nur für die eingebundenen Knoten. Mit
+  `DM_STATUS_TABLE_FLAG` (ein Feld in `struct dm_ioctl`, das seccomp nicht lesen kann) enthält
+  die Tabelle einer dm-crypt-Zuordnung den Volume-Schlüssel hexadezimal, wenn er nicht im
+  Kernel-Schlüsselbund liegt (LUKS1, plain, LUKS2 mit `--disable-keyring`), die einer
+  dm-integrity-Zuordnung den Schlüssel ihres Hashes. Ein `grub-install` aus der Sicherung könnte
+  so den Schlüssel einer Platte, die der Bediener behält und in der Shell geöffnet hat, ins Ziel
+  schreiben. Verbieten lässt sich der Befehl nicht: `grub-probe` liest die Tabelle einer
+  LUKS2-Zuordnung des Ziels, um ihren Cipher zu erfahren (`grub_util_pull_devmapper` bricht
+  ohne sie ab, grub 2.12), und LVM prüft mit dem Status eines dm-Geräts, ob es nutzbar ist
+  (beides derselbe ioctl 12). Darum läuft ein Schritt mit `CAP_SYS_ADMIN` nur, wenn außerhalb
+  des Zielstapels keine Zuordnung offen ist, die einen Schlüssel tragen könnte. Zum Zielstapel
+  gehören die dm-Knoten aus `DeviceSet` (was auf den Zielplatten sitzt) und die Volumes, die
+  dieser Lauf mit `luks_open` geöffnet oder auf der Partition des Plans übernommen hat (auch
+  übernommene Datenplatten aus der `crypttab`). Als schlüssellos gelten nur Zuordnungen mit
+  UUID `LVM-`, `mpath-`, `DMRAID-` und `part<N>-` (kpartx); jede andere, auch eine ohne UUID
+  (`dmsetup create`), zählt als möglicher Schlüsselträger. `recover` liest die Zuordnungen aus
+  sysfs (`/sys/class/block/dm-*/dm/name`, `dm/uuid`, `slaves`), und zwar
+  1. vor dem ersten Schritt, wenn der Plan ein grub- oder LVM-Programm und einen dm-Stapel hat:
+     Die Konsole nennt jede Zuordnung mit Gerät und dem Befehl zum Schließen (`cryptsetup close
+     <name>`, sonst `dmsetup remove <name>`) und bietet eine Shell an; danach prüft `recover`
+     erneut. "Nein" und ein unbeaufsichtigter Lauf enden mit `foreign_mapping_open`, bevor etwas
+     gelöscht ist;
+  2. unmittelbar vor jedem Schritt mit `CAP_SYS_ADMIN` (der Schritt scheitert mit
+     `foreign_mapping_open`, das Programm startet nicht);
+  3. unmittelbar danach: Eine Zuordnung, die eine andere Konsole während des Programms geöffnet
+     hat, beendet den Lauf ebenso, mit dem Hinweis, ihren Schlüssel als bekannt zu behandeln
+     (`cryptsetup reencrypt`).
+
+  Nach 2 und 3 schließt der Bediener die Zuordnung und setzt mit einem neuen Start fort (10.18).
+  Die eigenen Zuordnungen des Ziels bleiben lesbar: LUKS2-Volumes öffnet `cryptsetup open` über
+  den Schlüsselbund (Vorgabe; der Plan setzt kein `--disable-keyring`, die Tabelle zeigt dann
+  `:64:logon:cryptsetup:…` statt des Schlüssels); ein LUKS1-Volume des Ziels zeigt seinen
+  Schlüssel, das ist keine neue Preisgabe, denn root des gestarteten Zielsystems liest ihn
+  ebenso (`dmsetup table --showkeys`). Ohne `CAP_SYS_ADMIN` beantwortet der Kernel keinen
+  device-mapper-Befehl, die Prüfung entfällt dort.
 - Umgebung leer bis auf `PATH`, `LANG=C.UTF-8`, `SYSTEMD_OFFLINE=1`.
 - Vor dem ersten Schritt ist restic beendet und alles aus 10.13 Punkt 1 bis 3 erledigt.
 - NVRAM schreibt nicht das Zielsystem: `grub-install --no-nvram`, `bootctl install
@@ -2208,7 +2277,10 @@ fremder Teile) und die NVRAM beschädigen. Darum läuft jeder dieser Schritte ü
   `FS_IOC_SETFLAGS` nur für die eigene Datei aufheben).
 - CI-Test im Job `agent-root`: Ein initramfs-Hook im Testsystem versucht `ping 1.1.1.1`,
   `cat /proc/1/environ`, `ls /proc` (erwartet nur eigene PIDs), Schreiben auf eine nicht
-  ausgewählte Loop-Platte, `mknod` und Öffnen eines neuen Knotens, `mount -t tmpfs` und das
+  ausgewählte Loop-Platte, `mknod` und Öffnen eines neuen Knotens, das Öffnen
+  wiederhergestellter Knoten im Zielbaum (Block-Knoten der nicht ausgewählten Loop-Platte und
+  Zeichenknoten `1:3` auf der Wurzel und auf einer Untereinhängung ohne `nodev`: `EACCES`),
+  `mount -t tmpfs`, die verändernden md-ioctls, `socket(AF_VSOCK)`, `io_uring_setup` und das
   Öffnen von `/proc/sys/kernel/core_pattern`, `/proc/sysrq-trigger` und
   `/proc/irq/default_smp_affinity` zum Schreiben; alles muss scheitern, der Hook schreibt das Ergebnis in eine Datei, die der Test prüft.
 
@@ -4932,6 +5004,30 @@ Prüfung, jeder Hinweis mit genau seinen Platzhaltern); `check-separate-works.te
   `/proc/1/auxv` des Helfers öffnen (Lesemodus); die Umgebung des Helfers ist leer, und
   `/proc/1/mem` bleibt zu. Ohne device-mapper in dieser Umgebung ist ein echtes
   `DM_TABLE_LOAD` nicht gelaufen; der Filter antwortet vor dem Treiber.
+- **Wiederhergestellte Geräteknoten, md-ioctls, vsock und io_uring in der Isolation (nach dem
+  Review ergänzt):** Der Zielbaum der Isolation ist mit allen Untereinhängungen `nodev` und
+  `nosuid` (`mount_setattr` mit `AT_RECURSIVE`, kein Rückfall; das ISO braucht damit Linux
+  5.12), die Einhängungen des Ziels durch `recover` bekommen `nodev,nosuid` (10.12), und
+  `DirRootfs` öffnet nur reguläre Dateien zum Lesen (10.14). Vorher öffnete ein Programm des Ziels
+  ohne `CAP_SYS_ADMIN` einen von restic wiederhergestellten Block-Knoten einer Platte außerhalb
+  der Geräte des Schritts und schrieb darauf (hier als root auf 6.18 nachgestellt, auch mit einem
+  echten `restic restore` von `console`, `tty1`, `kmsg` und einem Block-Knoten). Seccomp lässt
+  von md nur die Abfragen durch, beantwortet `socket`/`socketpair` außer für Unix, IPv4, IPv6
+  und netlink mit `EAFNOSUPPORT` und verweigert die io_uring-Aufrufe. Der Test im Job
+  `agent-root` prüft all das mit und ohne `CAP_SYS_ADMIN` und scheitert ohne die Änderungen;
+  ein echtes md war hier nicht verfügbar (der Filter antwortet vor dem Treiber, [CI]).
+- **Schlüssel fremder dm-Zuordnungen (nach dem Review ergänzt):** `DM_TABLE_STATUS` (12) bleibt
+  im Filter erlaubt, denn grub 2.12 liest die Tabelle der LUKS2-Zuordnung des Ziels
+  (`grub_util_pull_devmapper`, sonst Abbruch) und LVM den Status jedes dm-Geräts; ob die Tabelle
+  oder nur der Status gefragt ist, steht in `struct dm_ioctl` und ist für seccomp unsichtbar.
+  Statt dessen verweigert `recover` jeden Schritt mit `CAP_SYS_ADMIN`, solange außerhalb des
+  Zielstapels eine Zuordnung offen ist, die nicht sicher schlüssellos ist (10.14, `dmguard.go`):
+  vor dem ersten Schritt mit Shell zum Schließen und erneuter Prüfung, vor und nach jedem
+  solchen Schritt mit dem neuen Problemcode `foreign_mapping_open` (recover-codes.json,
+  `verification.ts`, Texte de/en). Der Filter selbst ist unverändert. Geprüft mit Fakes
+  (Aufzählung aus einem nachgebauten sysfs, Abbruch vor dem Löschen, vor grub und während grub,
+  LVM-Zuordnungen und übernommene Volumes zählen nicht, die Shell-Schleife der Konsole); ein
+  echtes dm-crypt war in dieser Umgebung nicht verfügbar ([CI] im Job `agent-root`).
 - **`luks_open` mit vorhandener Zuordnung:** Gibt es `/dev/mapper/<name>` schon, nimmt der
   Ausführer sie nur, wenn sie laut sysfs (`slaves`) auf genau der Partition des Plans liegt;
   sonst bricht der Schritt mit der Zuordnung und ihrem Gerät ab. So bekommt eine gleichnamige
@@ -5047,8 +5143,18 @@ allen Anfragen) mit `truncated` (`detail: deadline`), das Teil bleibt, die Wiede
 fort. Zusätzlich hält ein Durchlauf `<store>/.fetch.lock` (exklusiv angelegt mit Kennung, Rechner
 und PID, die mtime wird bei jedem Speichern des Zustands und je Neubau-Anfrage erneuert): Ist die
 Datei jünger als 15 Minuten, ändert ein zweiter Durchlauf nichts (`busy`, nur ein Protokolleintrag);
-eine ältere gehört einem verschwundenen Durchlauf und wird übernommen. So schreiben nie zwei
-Durchläufe dasselbe `.part`.
+eine ältere gehört einem verschwundenen Durchlauf und wird übernommen, und zwar in einem Schritt:
+Der Durchlauf benennt sie in einen eigenen Namen um (`rename` ist atomar, nur einer bekommt
+diese Datei) und verwirft sie nur, wenn es noch die veraltete ist, die er gesehen hat (gleicher
+Inode, gleiche Kennung, weiter älter als 15 Minuten); sonst legt er sie mit `link` exklusiv
+zurück, nie über eine neuere. Danach versucht er wieder das exklusive Anlegen, das nur einem
+gelingt. Vorher konnten zwei Durchläufe, die beide die veraltete Datei sahen, sie beide
+übernehmen (Löschen und exklusives Anlegen, der zweite löschte die neue Sperre des ersten).
+Zusätzlich prüft ein Durchlauf vor jedem Schreiben (Zustand, Neubau-Ordner, Aufräumen, `.part`
+und seine Metadaten, Umbenennen; während des Downloads höchstens alle 250 ms), dass die Sperre
+noch seine Kennung trägt; sonst endet er sofort ohne weiteres Schreiben (`busy`), und die
+Sperre des anderen bleibt liegen. Auch das Freigeben benennt erst um und löscht nur die eigene.
+So schreiben nie zwei Durchläufe dasselbe `.part`.
 
 Weiterleitungen (GitHub liefert Anhänge von einem anderen Host) folgen nur über https, höchstens
 fünf. Ausgehend gelten die üblichen Proxy-Variablen `HTTPS_PROXY`/`HTTP_PROXY`/`NO_PROXY` (eine

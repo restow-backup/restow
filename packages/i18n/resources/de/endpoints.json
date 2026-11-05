@@ -1947,6 +1947,7 @@
       "ext_block_size_raised": "Ein Dateisystem wurde mit größeren Blöcken als vorher angelegt.",
       "fallback_kernel_driver_missing": "Der Ersatzkernel hat keinen Treiber für eine Zielplatte.",
       "firmware_mode_mismatch": "Das Ziel startet in einem anderen Firmwaremodus als der gesicherte Rechner.",
+      "foreign_mapping_open": "Device-Mapper-Geräte außerhalb der Zielplatten waren geöffnet (etwa eine alte Platte, in der Shell geöffnet); ein Programm des gesicherten Systems hätte ihre Schlüssel lesen können, darum hielt die Wiederherstellung an. Schließen Sie sie und setzen Sie die Wiederherstellung fort.",
       "fs_not_recreated": "Ein Dateisystem wurde nicht wieder angelegt; seine Partition bleibt leer.",
       "grow_not_last": "Eine Partition, die wachsen soll, ist nicht die letzte ihrer Platte; sie behält ihre Größe.",
       "holders_busy": "Eine Zielplatte ist noch belegt (eingehängt, RAID, LVM oder Verschlüsselung) und ließ sich nicht freigeben.",

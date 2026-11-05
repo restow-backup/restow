@@ -33,6 +33,7 @@ export const RECOVER_PROBLEM_CODES = [
   "access_expired",
   "arch_unsupported",
   "clock_wrong",
+  "foreign_mapping_open",
   "holders_busy",
   "lvm_filter_multiline",
   "manifest_format_unknown",
