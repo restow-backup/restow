@@ -2032,20 +2032,7 @@ private repository.
 
 ### Upgrade Notes
 
-Migration 0079 (0.5.0 notifications and branding) creates the tables `report_events`,
-`provider_notification_recipients`, `provider_report_rules`, `provider_branding`,
-`tenant_branding` and `branding_images`, makes `report_deliveries.tenant_id` nullable and adds
-nullable or defaulted columns to `report_deliveries`, `report_rules`,
-`tenant_notification_recipients`, `tenant_contacts`, `webhooks` and `settings`; no table is
-rewritten. It moves the weekly report rule of the tenants' notification recipients to the
-calendar week (also when the migrating owner is bound by Row Level Security). After the update
-the owners of the provider team receive the critical events and the installation's own events by
-e-mail; an installation without a mail transport shows a lasting "notification mail cannot be
-sent" alert until a transport is configured, unless the notification mail is marked as not
-needed. Before you brand a From address on SMTP, add it (or its `@domain`) to the allowed
-sender addresses of the notification mail and let your mail server send as it.
-
-Eighteen database migrations run on start: 0073 creates the new table `storage_samples` and 0074
+Nineteen database migrations run on start: 0073 creates the new table `storage_samples` and 0074
 the new table `directory_memberships`; neither rewrites anything. 0075 serves the restore
 explorer's "From the archive": an index on `archive_items` (tenant, mailbox, capture time), the
 index on `archive_item_mailboxes` (tenant, mailbox) replaced by one that adds the time of the
@@ -2086,11 +2073,25 @@ the new tables `installation_restore_mode` (installation-level) and `storage_pro
 Security like every tenant table); it changes no existing table and writes no row (a tenant
 without a row in `storage_progress` counts as 0). 0090 creates the new tables
 `cluster_join_tokens` and `cluster_nodes` (installation-level, no Row Level Security) and widens
-the check on `installation_restore_mode.source` by `setup`; both are new and empty. The first directory sync after the
+the check on `installation_restore_mode.source` by `setup`; both are new and empty. 0091 serves
+the notifications and branding of 0.5.0 (see below). The first directory sync after the
 update reads the owners and members of every Microsoft 365 group once (three Graph reads per group, through
 `$batch`); until it has run, a person's "Teams & sites" is empty and says that it may be
 incomplete. Agents before 0.5.0 ignore `snapshotOnFailure`, and the release key keeps the
 fingerprint `SHA256:2LB7RPpIS0wqbcZ2NA8MjuQN7ZfFPqBX3CwrGFSu76o`.
+
+Migration 0091 (0.5.0 notifications and branding) creates the tables `report_events`,
+`provider_notification_recipients`, `provider_report_rules`, `provider_branding`,
+`tenant_branding` and `branding_images`, makes `report_deliveries.tenant_id` nullable and adds
+nullable or defaulted columns to `report_deliveries`, `report_rules`,
+`tenant_notification_recipients`, `tenant_contacts`, `webhooks` and `settings`; no table is
+rewritten. It moves the weekly report rule of the tenants' notification recipients to the
+calendar week (also when the migrating owner is bound by Row Level Security). After the update
+the owners of the provider team receive the critical events and the installation's own events by
+e-mail; an installation without a mail transport shows a lasting "notification mail cannot be
+sent" alert until a transport is configured, unless the notification mail is marked as not
+needed. Before you brand a From address on SMTP, add it (or its `@domain`) to the allowed
+sender addresses of the notification mail and let your mail server send as it.
 
 From this release on every storage target gets small progress markers under
 `tenants/<tid>/progress/`; they are never copied or counted, and the storage check prunes old ones

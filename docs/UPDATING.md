@@ -1267,8 +1267,9 @@ migrations, so going back needs no restore, or starts as Community with
   records how far the database had come when data was last written to it
   (progress markers). At its start and before every deletion pass the worker
   compares them with the database; a target ahead of the database switches
-  restore mode on, raises the alert `installation.restore_mode` (bell, e-mail
-  and webhooks per the notification rules) and refuses the deletion. Writes in
+  restore mode on, raises the alert `installation.restore_mode` (bell, the
+  provider's notification recipients, and e-mail and webhooks per the
+  notification rules) and refuses the deletion. Writes in
   the last minute before the dump may carry no marker yet, which is why the
   command line step comes first.
 

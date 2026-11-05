@@ -2237,7 +2237,7 @@ describe.skipIf(!adminUrl)(
 );
 
 describe.skipIf(!adminUrl)(
-  "upgrading to 0.5.0: the tenants' weekly report moves to the calendar week (0079)",
+  "upgrading to 0.5.0: the tenants' weekly report moves to the calendar week (0091)",
   () => {
     const base = adminUrl as string;
     const database = `restow_db_migrate_cadence_${suffix}`;
@@ -2249,7 +2249,7 @@ describe.skipIf(!adminUrl)(
     let folder = "";
 
     beforeAll(async () => {
-      folder = migrationsFolderUpTo("0078_write_once_storage");
+      folder = migrationsFolderUpTo("0090_cluster_nodes");
       const admin = new pg.Pool({ connectionString: base });
       try {
         await admin.query(

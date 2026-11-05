@@ -17,9 +17,9 @@
  */
 import {
   buildCause,
+  type ChannelColumns,
   type GuardTarget,
   type Logger,
-  plannedDeliveries,
   pruneProgressMarkers,
   type RestoreModeDetectionInput,
   RestoreModeGuard,
@@ -43,6 +43,7 @@ import {
   type NewNotification,
   type NewReportDelivery,
   notifications,
+  planRuleDeliveries,
   readInstallationIdentity,
   readRestoreMode,
   readStorageProgress,
@@ -51,16 +52,18 @@ import {
   recordRestoreModeRefusal,
   recordStorageProgressCheck,
   reportDeliveries,
+  reportEvents,
   reportRules,
   resolveKeyMirrorFindings,
   safeErrorMessage,
+  tenantDigestZone,
   tenants,
 } from "@restow/db";
 import { and, eq, sql } from "drizzle-orm";
 import { appendAuditEntry } from "./audit.js";
 import type { ResolvedTenantStorage } from "./handlers/framework.js";
 import type { TenantTx } from "./progress.js";
-import { channelColumns } from "./reporting.js";
+import { channelColumns, reportInstallationTimeZone } from "./reporting.js";
 
 export const RESTORE_MODE_EVENT = "installation.restore_mode";
 export const KEY_MIRROR_CONFLICT_EVENT = "installation.key_mirror_conflict";
@@ -82,8 +85,11 @@ export interface WorkerInstallationEvent {
 }
 
 /**
- * One notification without a tenant (the bell of provider administrators) and the deliveries of
- * every tenant's enabled event rule that lists the event, inside the caller's transaction.
+ * One notification without a tenant (the bell of provider administrators), a `report_events` row
+ * the API's dispatcher fans out to the provider's recipients (apps/api features/reports/fanout.ts)
+ * and the deliveries of every tenant's enabled event rule that lists the event, each only to the
+ * channels whose column in the notification matrix has it on (at once, or held for a recipient's
+ * digest), inside the caller's transaction.
  */
 export async function raiseWorkerInstallationEvent(
   tx: TenantTx,
@@ -99,20 +105,21 @@ export async function raiseWorkerInstallationEvent(
     createdAt: now,
   };
   await tx.insert(notifications).values(notification);
-  const rules = await tx
-    .select({
-      id: reportRules.id,
-      tenantId: reportRules.tenantId,
-      name: reportRules.name,
-      enabled: reportRules.enabled,
-      trigger: reportRules.trigger,
-      events: reportRules.events,
-      throttleMinutes: reportRules.throttleMinutes,
-      emailRecipients: reportRules.emailRecipients,
-      inApp: reportRules.inApp,
-      webhookId: reportRules.webhookId,
-      language: reportRules.language,
+  const [reportEvent] = await tx
+    .insert(reportEvents)
+    .values({
+      tenantId: null,
+      event,
+      level,
+      subjectKey: subjectKeyOf(event, details),
+      message,
+      details,
+      occurredAt: now,
+      createdAt: now,
     })
+    .returning({ id: reportEvents.id });
+  const rules = await tx
+    .select({ rule: reportRules })
     .from(reportRules)
     .innerJoin(tenants, eq(tenants.id, reportRules.tenantId))
     .where(
@@ -123,29 +130,23 @@ export async function raiseWorkerInstallationEvent(
         sql`${event} = ANY(${reportRules.events})`,
       ),
     );
-  const subjectKey = subjectKeyOf(event, details);
-  const payload = { event, level, message, details, occurredAt: now.toISOString() };
   const rows: NewReportDelivery[] = [];
-  for (const rule of rules) {
-    const columns = await channelColumns(tx, rule.tenantId);
-    for (const planned of plannedDeliveries(rule, "event", { event, columns })) {
-      rows.push({
-        tenantId: rule.tenantId,
-        ruleId: rule.id,
-        ruleName: rule.name,
-        kind: "event",
-        event,
-        subjectKey,
-        payload,
-        channel: planned.channel,
-        recipient: planned.recipient,
-        language: rule.language,
-        status: "pending",
-        nextAttemptAt: now,
-        createdAt: now,
-        updatedAt: now,
-      });
+  const contexts = new Map<string, { columns: ChannelColumns; timeZone: string }>();
+  for (const { rule } of rules) {
+    let context = contexts.get(rule.tenantId);
+    if (!context) {
+      context = {
+        columns: await channelColumns(tx, rule.tenantId),
+        timeZone: await tenantDigestZone(tx, rule.tenantId, reportInstallationTimeZone),
+      };
+      contexts.set(rule.tenantId, context);
     }
+    rows.push(
+      ...(await planRuleDeliveries(tx, rule.tenantId, rule, notification, now, {
+        ...context,
+        reportEventId: reportEvent?.id ?? null,
+      })),
+    );
   }
   if (rows.length > 0) {
     await tx.insert(reportDeliveries).values(rows);

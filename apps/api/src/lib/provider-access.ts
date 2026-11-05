@@ -288,8 +288,6 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   // The estimate of the price cards, per tenant: a member limited to some tenants gets those
   // (the handler narrows it, like the tenant list).
   "GET /api/v1/settings/pricing/estimate": view(LIST),
-  // The installation's agent policy (docs/AGENT.md, "Richtlinien"): it reaches every tenant's
-  // machines, so changing it needs an administrator with every tenant.
   // The provider's branding (0.5.0, features/branding): everyone on the team sees it and the
   // preview, the owner changes it; a test mail goes to the one who asks.
   "GET /api/v1/settings/branding": view(PROVIDER),
@@ -306,6 +304,8 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "GET /api/v1/settings/summary-reports": view(PROVIDER),
   "PUT /api/v1/settings/summary-reports/:cadence": configure(PROVIDER),
   "POST /api/v1/settings/summary-reports/:cadence/test": configure(PROVIDER),
+  // The installation's agent policy (docs/AGENT.md, "Richtlinien"): it reaches every tenant's
+  // machines, so changing it needs an administrator with every tenant.
   "GET /api/v1/settings/agent-policy": view(PROVIDER),
   "PUT /api/v1/settings/agent-policy": configure(PROVIDER),
 

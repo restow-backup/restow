@@ -445,6 +445,20 @@ describe.skipIf(!adminUrl)("restore mode after restoring a database dump", () =>
       "installation.key_mirror_conflict",
       "installation.key_mirror_conflict",
     ]);
+    // Each alert also reaches the provider's recipients: a report event without a tenant, which
+    // the API's dispatcher fans out (apps/api features/reports/fanout.ts).
+    expect(
+      (
+        await q<{ event: string; level: string }>(
+          dump,
+          "SELECT event, level FROM report_events WHERE tenant_id IS NULL ORDER BY created_at, event",
+        )
+      ).map((row) => [row.event, row.level]),
+    ).toEqual([
+      ["installation.restore_mode", "error"],
+      ["installation.key_mirror_conflict", "error"],
+      ["installation.key_mirror_conflict", "error"],
+    ]);
     expect(await q(dump, "SELECT id FROM key_mirror_findings")).toHaveLength(2);
     const refusals = await q<{ pass: string }>(
       dump,

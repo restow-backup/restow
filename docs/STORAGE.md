@@ -359,8 +359,8 @@ cannot be compared with the database holds these.
   every marker it saw was committed before that read, so none is above it. A marker of this
   installation above the database's value, or a key version in storage above the database's
   newest, means the database is older than its storage: restore mode comes on, the alert
-  `installation.restore_mode` is raised (bell, e-mail and webhooks per the notification
-  rules), the audit entry `installation.restore_mode.detected` is written and the deletion
+  `installation.restore_mode` is raised (bell, the provider's notification recipients, and
+  e-mail and webhooks per the notification rules), the audit entry `installation.restore_mode.detected` is written and the deletion
   is refused. A target that cannot be read refuses deletions for that tenant this time
   without switching restore mode on.
 

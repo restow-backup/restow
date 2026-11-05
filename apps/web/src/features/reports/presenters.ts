@@ -144,6 +144,8 @@ export const INSTALLATION_EVENTS: readonly ReportEvent[] = [
   "update.available",
   "installation.disk_low",
   "installation.app_secret_expiring",
+  "installation.restore_mode",
+  "installation.key_mirror_conflict",
 ];
 
 /** The events of `group` a person may put into a rule (installation events are the provider's). */

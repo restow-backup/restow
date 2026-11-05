@@ -313,14 +313,19 @@ describe.skipIf(!canRun)("a storage change in the middle of a container backup",
         dataUploads += 1;
         if (flipAfterDataUploads !== null && dataUploads === flipAfterDataUploads) {
           flipAfterDataUploads = null;
-          await flipLikeV041();
           if (flipTheOldWay) {
             // A run as before 0.5.0 (no target recorded: the route writes to whatever is the
-            // primary now), and the store cache gone as after its minute.
+            // primary now). Dropped before the flip: restic uploads packs in parallel, and a
+            // request read between the flip and this update would still see the pinned target
+            // and get the 0.5.0 refusal (403) the old path never gave.
             await fixture.db
               .update(pveRuns)
               .set({ storageTarget: null, storageGeneration: null })
               .where(and(eq(pveRuns.tenantId, fixture.tenantId), eq(pveRuns.status, "running")));
+          }
+          await flipLikeV041();
+          if (flipTheOldWay) {
+            // The store cache gone as after its minute.
             store.forgetTenantChunkStore(fixture.tenantId);
           }
         }
