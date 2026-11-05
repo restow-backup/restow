@@ -381,6 +381,17 @@ describe.skipIf(!adminUrl)("restore mode after restoring a database dump", () =>
     // A delete outside every pass is held as well (the backend's own check).
     await expect(storage.primary.delete(manifest)).rejects.toBeInstanceOf(DeletionsHeldError);
 
+    // A tenant rule that lists the installation's alerts: each finding reaches it, the second
+    // (another target) is not swallowed by the throttle of the first.
+    await q(
+      dump,
+      `INSERT INTO report_rules (tenant_id, name, trigger, events, email_recipients)
+       VALUES ($1, 'Installation', 'event',
+               ARRAY['installation.restore_mode', 'installation.key_mirror_conflict'],
+               ARRAY['ops@example.test'])`,
+      [tenantId],
+    );
+
     // The key mirror: the restored database hands out version 2 again with another key.
     await dump.insert(tenantKeys).values({
       tenantId,
@@ -459,6 +470,40 @@ describe.skipIf(!adminUrl)("restore mode after restoring a database dump", () =>
       ["installation.key_mirror_conflict", "error"],
       ["installation.key_mirror_conflict", "error"],
     ]);
+    // Every alert is its own subject: the restore mode by its id, a finding by its tenant,
+    // target and key. The rule mails each finding once (the restore mode was on before the rule
+    // existed), and the provider's fan-out, which throttles by the same subject, sees three.
+    const subjects = await q<{ event: string; subject_key: string }>(
+      dump,
+      "SELECT event, subject_key FROM report_events WHERE tenant_id IS NULL ORDER BY created_at, event",
+    );
+    expect(new Set(subjects.map((row) => row.subject_key)).size).toBe(3);
+    expect(
+      await q<{ event: string; subject_key: string; recipient: string }>(
+        dump,
+        `SELECT event, subject_key, recipient FROM report_deliveries
+          WHERE tenant_id = $1 AND kind = 'event' ORDER BY created_at, subject_key`,
+        [tenantId],
+      ),
+    ).toEqual(
+      expect.arrayContaining([
+        {
+          event: "installation.key_mirror_conflict",
+          subject_key: `key_mirror:${tenantId}:target-primary:2`,
+          recipient: "ops@example.test",
+        },
+        {
+          event: "installation.key_mirror_conflict",
+          subject_key: `key_mirror:${tenantId}:target-copy:2`,
+          recipient: "ops@example.test",
+        },
+      ]),
+    );
+    expect(
+      await q(dump, "SELECT id FROM report_deliveries WHERE tenant_id = $1 AND kind = 'event'", [
+        tenantId,
+      ]),
+    ).toHaveLength(2);
     expect(await q(dump, "SELECT id FROM key_mirror_findings")).toHaveLength(2);
     const refusals = await q<{ pass: string }>(
       dump,

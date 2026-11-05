@@ -378,6 +378,38 @@ describe.skipIf(!testDatabaseAdminUrl)(
         ).toEqual([["olivia@msp.example", null, null]]);
       });
 
+      it("mails every key that differs in storage, a repeat of the same key once", async () => {
+        const finding = (targetId: string) => ({
+          tenantId: contoso,
+          targetId,
+          keyVersion: 2,
+          storedSha256: "ab".repeat(32),
+          kind: "conflict",
+          objectName: "keys/2",
+        });
+        for (const targetId of ["target-primary", "target-copy", "target-primary"]) {
+          await providerDb.transaction((tx) =>
+            mod.updates.raiseInstallationEvent(tx, {
+              event: "installation.key_mirror_conflict",
+              level: "error",
+              message: "key mirror",
+              details: finding(targetId),
+              now: clock,
+            }),
+          );
+        }
+        await mod.fanout.fanOutOnce(providerDb, clock);
+        const mailed = (await rows()).filter(
+          (row: ReportDelivery) =>
+            row.event === "installation.key_mirror_conflict" &&
+            row.recipient === "olivia@msp.example",
+        );
+        expect(mailed.map((row: ReportDelivery) => row.subjectKey).sort()).toEqual([
+          `key_mirror:${contoso}:target-copy:2`,
+          `key_mirror:${contoso}:target-primary:2`,
+        ]);
+      });
+
       it("keeps every provider delivery out of the tenant's session", async () => {
         await raise("verify.red", { protectedObjectId: randomUUID() });
         await mod.fanout.fanOutOnce(providerDb, clock);

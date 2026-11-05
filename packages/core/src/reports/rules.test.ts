@@ -177,6 +177,31 @@ describe("subjectKeyOf", () => {
       "event:installation.app_secret_expiring",
     );
   });
+
+  it("makes every restore mode activation its own subject", () => {
+    expect(subjectKeyOf("installation.restore_mode", { restoreModeId: "rm-1" })).toBe(
+      "restore_mode:rm-1",
+    );
+    expect(subjectKeyOf("installation.restore_mode", { restoreModeId: "rm-2" })).not.toBe(
+      subjectKeyOf("installation.restore_mode", { restoreModeId: "rm-1" }),
+    );
+  });
+
+  it("makes every tenant, target and key its own subject for a key that differs in storage", () => {
+    const finding = { tenantId: "t1", targetId: "target-primary", keyVersion: 2 };
+    const key = (details: Record<string, unknown>) =>
+      subjectKeyOf("installation.key_mirror_conflict", details);
+    expect(key(finding)).toBe("key_mirror:t1:target-primary:2");
+    const others = [
+      key({ ...finding, targetId: "target-copy" }),
+      key({ ...finding, keyVersion: 3 }),
+      key({ ...finding, tenantId: "t2" }),
+      key({ ...finding, keyVersion: 0, objectKey: "tenants/t1/repo-passwords/a.json" }),
+      key({ ...finding, keyVersion: 0, objectKey: "tenants/t1/repo-passwords/b.json" }),
+    ];
+    expect(new Set([key(finding), ...others]).size).toBe(6);
+    expect(others[3]).toBe("key_mirror:t1:target-primary:tenants/t1/repo-passwords/a.json");
+  });
 });
 
 describe("subjectKeyOf for objects no longer backed up", () => {

@@ -317,6 +317,21 @@ export function subjectKeyOf(event: ReportEvent, details: Record<string, unknown
     const question = details.question === "login" ? ":login" : "";
     return `inactive_many:${String(details.tenantId ?? "")}:${String(details.date ?? "")}${question}`;
   }
+  // A restore mode is about that one activation: a new activation within the throttle window
+  // (the previous one ended, a dump was restored again) is a new subject.
+  if (event === "installation.restore_mode" && typeof details.restoreModeId === "string") {
+    return `restore_mode:${details.restoreModeId}`;
+  }
+  // A wrapped key in storage that differs from the database's is about that key on that target
+  // of that tenant: a finding on the copy, for another key version or another sealed password
+  // document must not fall into the throttle of the first.
+  if (event === "installation.key_mirror_conflict") {
+    const key =
+      typeof details.objectKey === "string" && details.objectKey.length > 0
+        ? details.objectKey
+        : String(details.keyVersion ?? "");
+    return `key_mirror:${String(details.tenantId ?? "")}:${String(details.targetId ?? "")}:${key}`;
+  }
   // An alert about a VM or container of Proxmox VE is about that guest.
   const guest = details.pveGuestId;
   if (typeof guest === "string" && guest.length > 0) {
