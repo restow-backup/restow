@@ -4,7 +4,12 @@ import type { ProgressUpdate } from "../../engine/progress.js";
 import type { FirstBackupProgress, JobContext } from "../../engine/types.js";
 import { classifyFailure } from "../../failures/classify.js";
 import type { DriveDeltaItem } from "../../graph/resources/drive.js";
-import { type FixtureRoute, graphError, must } from "../../graph/testing/fake-graph.js";
+import {
+  type FixtureRoute,
+  graphError,
+  must,
+  selectedEntity,
+} from "../../graph/testing/fake-graph.js";
 import driveFixture from "../../graph/testing/fixtures/drive-delta.json" with { type: "json" };
 import { OneDriveUnavailableError, resolveOneDriveId } from "./engine.js";
 import fixture from "./fixtures/drive-backup.json" with { type: "json" };
@@ -63,6 +68,14 @@ function q3Item(overrides: Partial<DriveDeltaItem> = {}): DriveDeltaItem {
 
 function notesItem(overrides: Partial<DriveDeltaItem> = {}): DriveDeltaItem {
   return { ...(fixture.initialPage2.value[0] as DriveDeltaItem), ...overrides };
+}
+
+/** An item route that answers like Graph: only what the request's $select names. */
+function itemAnswer(id: string, item: DriveDeltaItem): FixtureRoute {
+  return {
+    url: itemRoute(id),
+    respond: (call) => ({ status: 200, json: selectedEntity(call, item) }),
+  };
 }
 
 function downloadLink(item: string): string {
@@ -635,6 +648,75 @@ describe("OneDriveBackupEngine", () => {
     expect(state(healed).retry).toEqual([]);
     expect(harness.progress.updates.map((u) => u.snapshot.phase)).toContain(ONEDRIVE_PHASES.retry);
     expect(graph.callsTo("GET", "/items/01NEW")).toHaveLength(1);
+  });
+
+  it("keeps authorship, sharing and the shortcut facet of items fetched again by the retry", async () => {
+    const sharedQ3 = q3Item({
+      shared: {
+        scope: "organization",
+        sharedBy: { user: { displayName: "Alice Example", id: "user-1" } },
+        sharedDateTime: "2026-09-10T08:00:00Z",
+      },
+    });
+    const shortcut = fixture.initialPage2.value[2] as DriveDeltaItem;
+    const graph = createFakeGraph([
+      {
+        url: deltaUrl(null),
+        respond: {
+          status: 200,
+          json: {
+            ...fixture.initialPage1,
+            value: [...fixture.initialPage1.value.slice(0, 3), sharedQ3],
+          },
+        },
+      },
+      {
+        url: deltaUrl("NEXT1"),
+        respond: {
+          status: 200,
+          // The shortcut arrives without its name: it cannot be placed and is retried.
+          json: {
+            ...fixture.initialPage2,
+            value: [
+              fixture.initialPage2.value[0],
+              fixture.initialPage2.value[1],
+              { ...shortcut, name: undefined },
+            ],
+          },
+        },
+      },
+      { url: deltaUrl("DELTA1"), respond: { status: 200, json: page([], "DELTA2") } },
+      {
+        url: downloadUrl("q3"),
+        respond: [
+          { status: 423, json: graphError("resourceLocked", "The file is checked out") },
+          { status: 200, bytes: new TextEncoder().encode(CONTENT.q3) },
+        ],
+      },
+      ...contentRoutes({ notes: CONTENT.notes }),
+      itemAnswer("01Q3", sharedQ3),
+      itemAnswer("01SHORTCUT", shortcut),
+    ]);
+    const engine = harness.engine(graph);
+    const first = await engine.run(harness.context({ jobId: "job-1" }), oneDrive, {});
+    expect(first.failures.map((f) => f.itemRef)).toEqual([Q3_PATH, "01SHORTCUT"]);
+    expect(state(await harness.manifest(first)).retry).toEqual(["01Q3", "01SHORTCUT"]);
+
+    const second = await engine.run(harness.context({ jobId: "job-2" }), oneDrive, {});
+    expect(second.failures).toEqual([]);
+    const manifest = await harness.manifest(second);
+    expect(objectAt(manifest, Q3_PATH).metadata).toMatchObject({
+      createdBy: "Alice Example",
+      lastModifiedBy: "Bob Example",
+      sharedScope: "organization",
+      sharedBy: "Alice Example",
+      sharedDateTime: "2026-09-10T08:00:00Z",
+    });
+    expect(objectAt(manifest, "Team files")).toMatchObject({
+      type: ONEDRIVE_OBJECT_TYPES.shortcut,
+      metadata: { remoteItemId: "01REMOTE", remoteDriveId: "b!teamdrive" },
+    });
+    expect(state(manifest).retry).toEqual([]);
   });
 
   it("reports a download that breaks off mid-stream as an item failure and carries on", async () => {

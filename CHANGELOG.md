@@ -608,6 +608,11 @@ private repository.
   outside that window was removed from the new restore point, although it still existed. Such
   events are now kept as last backed up, and the run ends with a warning that the group calendar
   was read within a time window only.
+- OneDrive and SharePoint backup: a file or shortcut that one run could not read (a checked-out
+  file, for example) lost its author, its last editor and its sharing when the next run fetched
+  it again: the snapshot showed a shared file as not shared, and a shortcut was dropped without a
+  word. Such items are now stored as completely as any other, and a file whose content is
+  unchanged keeps what the earlier backup knew about it.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,

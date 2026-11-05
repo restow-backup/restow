@@ -171,15 +171,38 @@ export const DRIVE_ITEM_SELECT = [
   "root",
 ] as const;
 
+/**
+ * What {@link getItem} asks for: everything the backup records from a delta
+ * entry, so an item fetched on its own (a retry, an item the delta sent without
+ * its folder or its kind, a sharing change) is stored exactly as complete as
+ * one from the delta: authorship, the sharing facet, and the `remoteItem`
+ * facet that makes a shortcut a shortcut. Graph returns only what `$select`
+ * names; a property left out here is missing from the backup.
+ */
+export const GET_ITEM_SELECT = [
+  ...DRIVE_ITEM_SELECT,
+  "createdBy",
+  "lastModifiedBy",
+  "shared",
+  "remoteItem",
+] as const;
+
+/**
+ * One item with everything {@link GET_ITEM_SELECT} names. Graph leaves an unset
+ * facet out of the answer; for `shared`, which was asked for, that means the
+ * item is not shared, so it comes back as `null` (a delta entry without
+ * `shared` says nothing either way).
+ */
 export async function getItem(
   client: GraphClient,
   driveId: string,
   itemId: string,
 ): Promise<DriveDeltaItem> {
-  return requestOk<DriveDeltaItem>(client, {
+  const item = await requestOk<DriveDeltaItem>(client, {
     method: "GET",
-    url: `${itemBase(driveId, itemId)}${query({ $select: `${DRIVE_ITEM_SELECT.join(",")},content.downloadUrl` })}`,
+    url: `${itemBase(driveId, itemId)}${query({ $select: `${GET_ITEM_SELECT.join(",")},content.downloadUrl` })}`,
   });
+  return { ...item, shared: item.shared ?? null };
 }
 
 /** A file download: the stream plus what the headers say about it. */
