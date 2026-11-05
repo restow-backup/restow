@@ -183,6 +183,12 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     retryable: true,
     steps: () => [step("wait_automatic"), step("check_service_health")],
   },
+  "graph.outcome_unknown": {
+    category: "microsoft",
+    transient: true,
+    retryable: true,
+    steps: () => [step("wait_automatic"), step("check_service_health")],
+  },
   "graph.item_not_found": {
     category: "microsoft",
     transient: true,

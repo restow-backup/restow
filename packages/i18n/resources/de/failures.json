@@ -117,6 +117,10 @@
         "title": "Microsoft hatte ein vorübergehendes Dienstproblem",
         "why": "Microsoft hat mit einem Serverfehler geantwortet{has_httpStatus, select, yes { (HTTP {httpStatus})} other {}}. Solche Fehler verschwinden meist innerhalb weniger Minuten von selbst."
       },
+      "outcome_unknown": {
+        "title": "Microsoft hat nicht bestätigt, ob die Änderung ausgeführt wurde",
+        "why": "{appName} hat bei Microsoft etwas angelegt (zum Beispiel eine Nachricht, einen Kontakt oder einen Ordner). Microsoft hat {reason, select, timeout {nicht rechtzeitig geantwortet} other {mit einem Gateway- oder Dienstfehler geantwortet{has_httpStatus, select, yes { (HTTP {httpStatus})} other {}}}}. Ob das Element angelegt wurde, ist damit unbekannt. Damit keine Doppelung entsteht, sendet {appName} die Anfrage nicht blind erneut; der nächste Versuch prüft zuerst, was im Ziel schon vorhanden ist."
+      },
       "item_not_found": {
         "title": "Das Element wurde inzwischen bei Microsoft geändert oder gelöscht",
         "why": "{appName} hatte dieses Element aufgelistet, konnte es danach aber nicht lesen, weil es dazwischen bei Microsoft verschoben oder gelöscht wurde. Der nächste Lauf sieht den neuen Stand."

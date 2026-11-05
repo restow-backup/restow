@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { JobAbortedError } from "../engine/chunkstore.js";
+import { classifyFailure } from "../failures/classify.js";
 import { isTransientTransferError } from "../storage/transfer.js";
 import {
   chunkIntoBatches,
@@ -10,7 +11,7 @@ import {
   MAX_RETRY_AFTER_MS,
   parseRetryAfter,
 } from "./client.js";
-import { GraphError } from "./errors.js";
+import { GraphError, GraphOutcomeUnknownError } from "./errors.js";
 import { batchEnvelope, createFakeGraph, graphError, must } from "./testing/fake-graph.js";
 
 describe("batching", () => {
@@ -275,6 +276,208 @@ describe("throttling", () => {
     const res = await client.request({ method: "GET", url: "/me" });
     expect(res.status).toBe(504);
     expect(graph.calls).toHaveLength(3);
+  });
+});
+
+describe("requests that create something (POST is not idempotent)", () => {
+  const created = { status: 201, json: { id: "AAMkNew" } };
+  const importMime = {
+    method: "POST",
+    url: "/users/u/mailFolders/f/messages",
+    rawBody: "TUlNRQ==",
+  };
+
+  it("does not send a POST again after a 504: the outcome is unknown, not a second copy", async () => {
+    const graph = createFakeGraph([
+      {
+        method: "POST",
+        url: "/v1.0/users/u/mailFolders/f/messages",
+        respond: [
+          { status: 504, json: { error: { code: "GatewayTimeout", message: "timeout" } } },
+          created,
+        ],
+      },
+    ]);
+    const error = await graph
+      .client()
+      .request(importMime)
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(GraphOutcomeUnknownError);
+    expect(error).toBeInstanceOf(GraphError);
+    expect((error as GraphOutcomeUnknownError).status).toBe(504);
+    expect((error as GraphOutcomeUnknownError).timedOut).toBe(false);
+    expect(graph.calls).toHaveLength(1);
+    const cause = classifyFailure(error);
+    expect(cause.code).toBe("graph.outcome_unknown");
+    expect(cause.transient).toBe(true);
+  });
+
+  it("sends a POST again after 429 with Retry-After: Graph did nothing", async () => {
+    const graph = createFakeGraph([
+      {
+        method: "POST",
+        url: "/v1.0/users/u/mailFolders/f/messages",
+        respond: [
+          {
+            status: 429,
+            headers: { "Retry-After": "2" },
+            json: graphError("ApplicationThrottled"),
+          },
+          created,
+        ],
+      },
+    ]);
+    const res = await graph.client().request(importMime);
+    expect(res.status).toBe(201);
+    expect(graph.calls).toHaveLength(2);
+  });
+
+  it("sends a POST again after 503 with Retry-After, not after a bare 503", async () => {
+    const throttled = createFakeGraph([
+      {
+        method: "POST",
+        url: "/v1.0/users/u/contacts",
+        respond: [
+          {
+            status: 503,
+            headers: { "Retry-After": "5" },
+            json: graphError("ServiceUnavailable"),
+          },
+          created,
+        ],
+      },
+    ]);
+    const ok = await throttled
+      .client()
+      .request({ method: "POST", url: "/users/u/contacts", body: {} });
+    expect(ok.status).toBe(201);
+    expect(throttled.calls).toHaveLength(2);
+
+    const failed = createFakeGraph([
+      {
+        method: "POST",
+        url: "/v1.0/users/u/contacts",
+        respond: [{ status: 503, json: graphError("ServiceUnavailable") }, created],
+      },
+    ]);
+    await expect(
+      failed.client().request({ method: "POST", url: "/users/u/contacts", body: {} }),
+    ).rejects.toBeInstanceOf(GraphOutcomeUnknownError);
+    expect(failed.calls).toHaveLength(1);
+  });
+
+  it("does not send a POST again that Graph did not answer in time", async () => {
+    let calls = 0;
+    const fetchImpl = ((_url: string, init: RequestInit) => {
+      calls += 1;
+      if (calls === 1) {
+        // The body went out; the answer never comes.
+        return new Promise((_, reject) => {
+          init.signal?.addEventListener("abort", () => reject(new Error("aborted")), {
+            once: true,
+          });
+        });
+      }
+      return Promise.resolve(new Response("{}", { status: 201 }));
+    }) as unknown as typeof fetch;
+    const client = new FetchGraphClient({
+      accessTokenProvider: async () => "token",
+      fetchImpl,
+      sleep: async () => {},
+      random: () => 0,
+      responseTimeoutMs: 20,
+    });
+    const error = await client.request(importMime).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(GraphOutcomeUnknownError);
+    expect((error as GraphOutcomeUnknownError).timedOut).toBe(true);
+    expect((error as Error).cause).toBeInstanceOf(GraphResponseTimeoutError);
+    expect(calls).toBe(1);
+    expect(classifyFailure(error).params.reason).toBe("timeout");
+  });
+
+  it("still retries a GET, PATCH and an opted-in POST after a 504", async () => {
+    for (const req of [
+      { method: "GET", url: "/me" },
+      { method: "PATCH", url: "/me", body: {} },
+      { method: "POST", url: "/me", body: {}, idempotent: true },
+    ]) {
+      const graph = createFakeGraph([
+        {
+          method: req.method,
+          url: "/v1.0/me",
+          respond: [
+            { status: 504, text: "gateway" },
+            { status: 200, json: {} },
+          ],
+        },
+      ]);
+      expect((await graph.client().request(req)).status).toBe(200);
+      expect(graph.calls).toHaveLength(2);
+    }
+  });
+
+  it("does not resend a POST sub-request of a $batch answered 504, but a throttled one", async () => {
+    let round = 0;
+    const graph = createFakeGraph([
+      {
+        method: "POST",
+        url: "/v1.0/$batch",
+        respond: (call) => {
+          round += 1;
+          return batchEnvelope(call, (sub) => {
+            if (round === 1 && sub.url === "/subscriptions") {
+              return sub.body && (sub.body as { resource: string }).resource === "a"
+                ? { status: 504, body: graphError("GatewayTimeout") }
+                : {
+                    status: 429,
+                    headers: { "Retry-After": "1" },
+                    body: graphError("TooManyRequests"),
+                  };
+            }
+            if (round === 1 && sub.method === "GET") {
+              return { status: 504, body: graphError("GatewayTimeout") };
+            }
+            return { status: 201, body: { id: sub.id } };
+          });
+        },
+      },
+    ]);
+    const responses = await graph.client().batch([
+      { id: "a", method: "POST", url: "/subscriptions", body: { resource: "a" } },
+      { id: "b", method: "POST", url: "/subscriptions", body: { resource: "b" } },
+      { id: "c", method: "GET", url: "/users/c" },
+    ]);
+    expect(responses.map((r) => [r.id, r.status])).toEqual([
+      ["a", 504],
+      ["b", 201],
+      ["c", 201],
+    ]);
+    const second = graph.callsTo("POST", "$batch")[1]?.json as {
+      requests: { method: string; url: string }[];
+    };
+    expect(second.requests.map((r) => `${r.method} ${r.url}`)).toEqual([
+      "POST /subscriptions",
+      "GET /users/c",
+    ]);
+    expect(round).toBe(2);
+  });
+
+  it("does not resend a $batch envelope with a POST inside after a 504", async () => {
+    const graph = createFakeGraph([
+      { method: "POST", url: "/v1.0/$batch", respond: { status: 504, text: "gateway" } },
+    ]);
+    await expect(
+      graph.client().batch([{ id: "a", method: "POST", url: "/subscriptions", body: {} }]),
+    ).rejects.toBeInstanceOf(GraphOutcomeUnknownError);
+    expect(graph.calls).toHaveLength(1);
+
+    const reads = createFakeGraph([
+      { method: "POST", url: "/v1.0/$batch", respond: { status: 504, text: "gateway" } },
+    ]);
+    await expect(
+      reads.client({ maxRetries: 2 }).batch([{ id: "a", method: "GET", url: "/users/a" }]),
+    ).rejects.toBeInstanceOf(GraphError);
+    expect(reads.calls).toHaveLength(3);
   });
 });
 

@@ -48,6 +48,9 @@ export const FAILURE_CODES = [
   "graph.group_unavailable",
   "graph.throttled",
   "graph.service_unavailable",
+  // A request that creates something got no answer that says whether it was carried out
+  // (504, 503 without Retry-After, timeout); it was not sent again (graph/errors.ts).
+  "graph.outcome_unknown",
   "graph.item_not_found",
   "graph.item_too_large",
   "graph.item_unreadable",

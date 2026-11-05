@@ -740,6 +740,8 @@ export async function addFileAttachment(
   const session = await requestOk<UploadSessionInfo>(client, {
     method: "POST",
     url: `${base}/createUploadSession`,
+    // A second session is harmless (the unused one expires); the attachment is not created yet.
+    idempotent: true,
     body: {
       AttachmentItem: {
         attachmentType: "file",

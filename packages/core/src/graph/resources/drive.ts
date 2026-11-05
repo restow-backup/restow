@@ -347,6 +347,8 @@ export async function createUploadSession(
   const session = await requestOk<UploadSessionInfo>(client, {
     method: "POST",
     url: `${childByNamePath(driveId, parentId, name)}/createUploadSession`,
+    // A second session is harmless (the unused one expires); nothing is created yet.
+    idempotent: true,
     body: {
       item: {
         "@microsoft.graph.conflictBehavior": options.conflictBehavior ?? "fail",

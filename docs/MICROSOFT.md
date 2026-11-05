@@ -58,7 +58,21 @@ Schutzumfang" anzeigen, nicht als Fehler).
   Anfragen je Postfach. OneDrive/SharePoint: eigene Limits je Tenant, abhängig von
   Lizenzzahl.
 - Antwort 429 mit `Retry-After` ist normal, kein Fehler. Immer respektieren, Jitter
-  dazu, kein Hammering. 503/504 mit Backoff wiederholen.
+  dazu, kein Hammering. 503/504 mit Backoff wiederholen, aber nur, wo eine zweite Anfrage
+  nichts doppelt anlegen kann.
+- POST ist nicht idempotent: Exchange legt eine Nachricht oft schon an, während das Gateway
+  noch mit 504 aufgibt, und eine zweite Anfrage legt eine zweite Kopie an. Der Graph-Client
+  (`graph/client.ts`) sendet deshalb einen POST nur nach einer Antwort erneut, die beweist,
+  dass nichts geschehen ist: 429 und 503 mit `Retry-After` (Drosselung). Nach 504, nach 503
+  ohne `Retry-After` und ohne Antwort innerhalb der Wartezeit (5 Minuten) wirft er
+  `GraphOutcomeUnknownError` (Ursache `graph.outcome_unknown`, vorübergehend); wer den POST
+  geschickt hat, muss zuerst im Ziel nachsehen (bei Nachrichten über die Message-ID im
+  Zielordner), bevor er ihn wiederholt. GET, PUT, PATCH und DELETE werden wie bisher wiederholt.
+  Ein POST, der nichts anlegt oder nur Wegwerfbares (Upload-Session anlegen, Reauthorisieren
+  eines Abonnements), setzt `idempotent: true`. Im `$batch` gilt dasselbe je Teilanfrage: eine
+  anlegende Teilanfrage mit 504 kommt als 504 zurück, eine gedrosselte wird erneut gesendet; ein
+  `$batch` mit anlegenden Teilanfragen wird nach 504 oder Zeitüberschreitung nicht erneut
+  gesendet.
 - Strategie: Parallelität über Postfächer, nicht innerhalb eines Postfachs; Delta-
   Queries; `$select` minimal; Batch-Requests (max. 20 je Batch, teilen sich Limits).
 - Erstsicherung großer Tenants dauert Tage. Das ist so und wird in der UI so gesagt

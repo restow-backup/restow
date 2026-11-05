@@ -117,6 +117,10 @@
         "title": "Microsoft had a temporary service problem",
         "why": "Microsoft answered with a server error{has_httpStatus, select, yes { (HTTP {httpStatus})} other {}}. Such errors usually disappear on their own within minutes."
       },
+      "outcome_unknown": {
+        "title": "Microsoft did not confirm whether the change was carried out",
+        "why": "{appName} asked Microsoft to create something (for example a message, a contact or a folder). Microsoft {reason, select, timeout {did not answer in time} other {answered with a gateway or service error{has_httpStatus, select, yes { (HTTP {httpStatus})} other {}}}}. Whether the item was created is therefore unknown. To avoid a duplicate, {appName} does not blindly send the request again; the next attempt first checks what the target already holds."
+      },
       "item_not_found": {
         "title": "The item was changed or deleted at Microsoft in the meantime",
         "why": "{appName} listed this item but could not read it afterwards, because it was moved or deleted at Microsoft in between. The next run sees the new state."

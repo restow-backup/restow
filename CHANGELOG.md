@@ -508,6 +508,16 @@ private repository.
   one the pass started with.
   This was the cause of the IMAP test that failed now and then ("shows a watched account as
   IDLE"); with a pass slowed down on purpose it failed every time before and passes now.
+- Mail restore: a message, contact, folder or attachment could be created twice in the target
+  mailbox when Microsoft Graph answered late. The Graph client sent every request again after a
+  504, a 503 or no answer within five minutes, also a POST that creates something, although
+  Exchange often has already stored the item when the gateway gives up; the report then counted
+  one item while the mailbox held two. A request that creates something is now sent again only
+  after an answer that proves nothing happened (429, or 503 with Retry-After). After a 504, a 503
+  without Retry-After or a timeout it fails with the new cause "Microsoft did not confirm whether
+  the change was carried out" (`graph.outcome_unknown`), and the next attempt checks the target
+  first. Reads, PATCH, PUT and DELETE are retried as before; inside a `$batch` a creating
+  sub-request answered 504 is handed back instead of being sent again.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,
