@@ -18,23 +18,32 @@
  *     stream went live `captured-late`.
  *
  * Every request names immutable ids (`Prefer: IdType="ImmutableId"`), so a message keeps
- * its external ref across folder moves and is captured once. Messages too large for a
- * MIME export (above ~150 MB) are not archived and are reported back (`oversized`).
+ * its external ref across folder moves and is captured once.
+ *
+ * A message whose MIME export fails is never dropped silently (0.5.0, docs/ARCHIVE.md
+ * "Lücken der Erfassung"): too large for a MIME export (above ~150 MB, `too_large`) or one
+ * Exchange cannot convert (IRM, corrupt items: `not_convertible`) is recorded as an open
+ * gap at once; the archive keeps MIME only, it does not invent a message from the JSON
+ * parts. A 5xx is no refusal: the message is tried again later (the drain keeps it pending,
+ * the catch-up and the backfill hand it to {@link GraphCaptureSink.retryLater}), and only
+ * after three failed attempts it becomes a gap (`export_failed`).
  *
  * Nothing here touches Postgres or the archive store: the worker's Graph way
  * (apps/worker/src/archive-capture/graph.ts) wires the sink and the state.
  */
 import { JobAbortedError } from "../engine/chunkstore.js";
 import type { GraphClient } from "../graph/client.js";
-import { GraphError, isGone, isNotFound } from "../graph/errors.js";
+import { GraphError, isGone, isGraphError, isNotFound } from "../graph/errors.js";
 import { userPath } from "../graph/resources/common.js";
 import {
-  fetchMessageContent,
+  isMimeTooLargeError,
   listMailFolderTree,
+  openMessageMime,
   resolveWellKnownFolders,
   type WellKnownFolderName,
 } from "../graph/resources/mail.js";
 import { IMMUTABLE_ID_PREFER } from "../graph/resources/subscriptions.js";
+import { type CaptureGapSink, GAP_OPEN_AFTER_ATTEMPTS } from "./capture-gaps.js";
 import { type HeldMails, heldBySentAt, holdMail } from "./identity.js";
 
 /** Metadata the capture reads per message, in delta pages and in the drain's `$batch`. */
@@ -97,6 +106,14 @@ export interface GraphCaptureSink {
     readonly externalRef: string;
     readonly receivedByService: Date | null;
   }): Promise<unknown>;
+  /** Where messages without a MIME export are recorded (./capture-gaps.ts). */
+  readonly gaps?: CaptureGapSink;
+  /**
+   * Fetch these messages again on a later pass (the worker puts them into the drain's
+   * pending list): a MIME export that failed with a 5xx in a catch-up or the backfill,
+   * whose cursor moves on past the message. Without it such a failure fails the run.
+   */
+  retryLater?(refs: readonly string[]): Promise<void>;
 }
 
 function throwIfAborted(signal: AbortSignal | undefined): void {
@@ -113,23 +130,52 @@ function dateOf(value: string | null | undefined): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-/** Download one message's MIME; null when Graph refuses the MIME export (too large). */
+/** Exchange cannot convert the item to MIME (IRM, corrupt or special item classes). */
+function isConversionRefused(error: unknown): boolean {
+  if (!isGraphError(error) || [401, 403, 404, 410, 429].includes(error.status)) {
+    return false;
+  }
+  const wording = `${error.code ?? ""} ${error.innerCode ?? ""} ${error.message}`;
+  return /MimeContentConversion|ConversionFailed|CorruptData/i.test(wording);
+}
+
+type MimeOutcome =
+  | { readonly original: Buffer }
+  | { readonly refused: "too_large" | "not_convertible" }
+  | { readonly failed: GraphError };
+
+/**
+ * Download one message's MIME (`$value`). A refusal (too large, not convertible) and a
+ * 5xx are told apart, never both "too large"; anything else (404, auth, throttling the
+ * client gave up on, the network) is thrown.
+ */
 async function downloadMime(
   client: GraphClient,
   userId: string,
   messageId: string,
   signal: AbortSignal | undefined,
-): Promise<Buffer | null> {
-  const content = await fetchMessageContent(client, userId, messageId);
-  if (content.kind !== "mime") {
-    return null;
+): Promise<MimeOutcome> {
+  let stream: Awaited<ReturnType<typeof openMessageMime>>;
+  try {
+    stream = await openMessageMime(client, userId, messageId);
+  } catch (error) {
+    if (isMimeTooLargeError(error)) {
+      return { refused: "too_large" };
+    }
+    if (isConversionRefused(error)) {
+      return { refused: "not_convertible" };
+    }
+    if (isGraphError(error) && error.status >= 500) {
+      return { failed: error };
+    }
+    throw error;
   }
   const chunks: Buffer[] = [];
-  for await (const chunk of content.stream) {
+  for await (const chunk of stream) {
     throwIfAborted(signal);
     chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array));
   }
-  return Buffer.concat(chunks);
+  return { original: Buffer.concat(chunks) };
 }
 
 /** Counters every capture function reports. */
@@ -138,8 +184,25 @@ export interface GraphCaptureCounts {
   captured: number;
   /** Mail the archive already held for the mailbox, not downloaded. */
   skipped: number;
-  /** Ids of messages too large for a MIME export: not archived. */
+  /** Ids of messages too large for a MIME export: not archived, recorded as gaps. */
   oversized: string[];
+  /** Ids of messages Exchange cannot convert to MIME: not archived, recorded as gaps. */
+  notConvertible: string[];
+  /** Ids whose MIME export failed (5xx) and that are tried again later. */
+  deferred: string[];
+  /** Ids whose MIME export failed three times: given up, recorded as gaps. */
+  exportFailed: string[];
+}
+
+function emptyCounts(): GraphCaptureCounts {
+  return {
+    captured: 0,
+    skipped: 0,
+    oversized: [],
+    notConvertible: [],
+    deferred: [],
+    exportFailed: [],
+  };
 }
 
 /**
@@ -158,6 +221,8 @@ async function capturePage(
   },
   messages: readonly GraphMessageMeta[],
   counts: GraphCaptureCounts,
+  /** A failed (5xx) export is kept for later (the caller sees `deferred`), not thrown. */
+  defer = true,
 ): Promise<void> {
   if (messages.length === 0) {
     return;
@@ -178,9 +243,9 @@ async function capturePage(
       counts.skipped++;
       continue;
     }
-    let original: Buffer | null;
+    let outcome: MimeOutcome;
     try {
-      original = await downloadMime(options.client, options.userId, message.id, options.signal);
+      outcome = await downloadMime(options.client, options.userId, message.id, options.signal);
     } catch (error) {
       // Gone between listing and download (deleted, moved out of reach): nothing to keep.
       if (isNotFound(error)) {
@@ -188,10 +253,35 @@ async function capturePage(
       }
       throw error;
     }
-    if (original === null) {
-      counts.oversized.push(message.id);
+    if ("refused" in outcome) {
+      // No MIME export of this message, now or later: an open gap, never silently dropped.
+      await options.sink.gaps?.gaveUp({
+        kind: "message",
+        ref: message.id,
+        reason: outcome.refused,
+      });
+      (outcome.refused === "too_large" ? counts.oversized : counts.notConvertible).push(message.id);
       continue;
     }
+    if ("failed" in outcome) {
+      if (!defer) {
+        throw outcome.failed;
+      }
+      const attempts = options.sink.gaps
+        ? await options.sink.gaps.failed({
+            kind: "message",
+            ref: message.id,
+            reason: "export_failed",
+          })
+        : 1;
+      if (attempts >= GAP_OPEN_AFTER_ATTEMPTS) {
+        counts.exportFailed.push(message.id);
+      } else {
+        counts.deferred.push(message.id);
+      }
+      continue;
+    }
+    const original = outcome.original;
     await options.sink.append({
       original,
       externalRef: message.id,
@@ -201,6 +291,24 @@ async function capturePage(
     holdMail(known.messages, message.internetMessageId, { sizeBytes: original.length, sentAt });
     known.externalRefs.add(message.id);
     counts.captured++;
+  }
+}
+
+/**
+ * Capture a page of a catch-up or the backfill. Their cursor moves past the page, so a
+ * message whose export failed (5xx) is handed to the sink's `retryLater` (the drain asks for
+ * it again); a sink without one fails the run instead, as before 0.5.0.
+ */
+async function capturePageMovingOn(
+  options: Parameters<typeof capturePage>[0],
+  messages: readonly GraphMessageMeta[],
+  counts: GraphCaptureCounts,
+): Promise<void> {
+  const before = counts.deferred.length;
+  await capturePage(options, messages, counts, options.sink.retryLater !== undefined);
+  const deferred = counts.deferred.slice(before);
+  if (deferred.length > 0) {
+    await options.sink.retryLater?.(deferred);
   }
 }
 
@@ -263,7 +371,10 @@ export interface GraphDrainOptions {
 }
 
 export interface GraphDrainResult extends GraphCaptureCounts {
-  /** Refs that are done (captured, held already, drafts, gone): delete them from pending. */
+  /**
+   * Refs that are done (captured, held already, drafts, gone, given up as a gap): delete
+   * them from pending. A ref in `deferred` is not, it is fetched again on the next pass.
+   */
   handled: string[];
   /** Refs Graph no longer found (404): moved or deleted before the fetch; a catch-up looks. */
   missing: number;
@@ -286,9 +397,7 @@ export async function drainGraphPending(options: GraphDrainOptions): Promise<Gra
     missing: 0,
     drafts: 0,
     failure: null,
-    captured: 0,
-    skipped: 0,
-    oversized: [],
+    ...emptyCounts(),
   };
   const refs = [...new Set(options.refs)];
   if (refs.length === 0) {
@@ -350,8 +459,13 @@ export async function drainGraphPending(options: GraphDrainOptions): Promise<Gra
     messages.push({ ...message, id: response.id });
   }
   await capturePage(options, messages, result);
+  // A message whose export failed (5xx) stays pending for the next pass; given up after
+  // three attempts it is a gap and done here.
+  const later = new Set(result.deferred);
   for (const message of messages) {
-    result.handled.push(message.id);
+    if (!later.has(message.id)) {
+      result.handled.push(message.id);
+    }
   }
   return result;
 }
@@ -441,9 +555,7 @@ export async function catchUpGraphMailbox(
     folders: folders.length,
     resynced: 0,
     leftToBackfill: 0,
-    captured: 0,
-    skipped: 0,
-    oversized: [],
+    ...emptyCounts(),
   };
   const save = async () => {
     result.state = { ...options.state, folders: { ...cursors }, knownFolders: knownFolders() };
@@ -491,7 +603,7 @@ export async function catchUpGraphMailbox(
             }
             wanted.push(message);
           }
-          await capturePage(options, wanted, result);
+          await capturePageMovingOn(options, wanted, result);
           cursor = page.deltaLink
             ? { deltaLink: page.deltaLink }
             : {
@@ -586,7 +698,7 @@ export async function backfillGraphMailbox(
       skipped: 0,
     } satisfies GraphBackfillCursor);
   await options.saveCursor(cursor);
-  const counts: GraphCaptureCounts = { captured: 0, skipped: 0, oversized: [] };
+  const counts = emptyCounts();
   const result = (completed: boolean): GraphBackfillResult => ({ ...counts, completed, cursor });
 
   for (;;) {
@@ -630,7 +742,7 @@ export async function backfillGraphMailbox(
       };
       const messages = (page.value ?? []).filter((m) => m.isDraft !== true);
       const before = { captured: counts.captured, skipped: counts.skipped };
-      await capturePage(options, messages, counts);
+      await capturePageMovingOn(options, messages, counts);
       url = page["@odata.nextLink"];
       const { nextLink: _previous, ...rest } = cursor;
       cursor = {

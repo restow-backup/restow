@@ -459,6 +459,51 @@ interface GraphState extends ArchiveStreamState {
   readonly nextCatchUpAt?: string;
 }
 
+/**
+ * The capture's sink: the context (dedupe, append, gaps) plus the retry of a message whose
+ * MIME export failed with a 5xx in a catch-up or the backfill: it goes into the drain's
+ * pending list (as a notification would), so the next pass asks for it again.
+ */
+function captureSink(ctx: CaptureContext): archive.GraphCaptureSink {
+  return {
+    alreadyCaptured: (query) => ctx.alreadyCaptured(query),
+    append: (mail) => ctx.append(mail),
+    gaps: ctx.gaps,
+    retryLater: async (refs) => {
+      if (refs.length === 0) {
+        return;
+      }
+      await withTenantTx(ctx.db, ctx.tenantId, (tx) =>
+        tx.execute(sql`
+          insert into archive_capture_pending (tenant_id, protected_object_id, way, external_ref)
+          select ${ctx.tenantId}::uuid, ${ctx.stream.protectedObjectId}::uuid, 'graph_sync', ref
+            from unnest(ARRAY[${sql.join(
+              refs.map((ref) => sql`${ref}`),
+              sql`, `,
+            )}]::text[]) as ref
+          on conflict (protected_object_id, way, external_ref) do nothing
+        `),
+      );
+    },
+  };
+}
+
+/** What a run could not archive by MIME: recorded as gaps (./gaps.ts), logged here. */
+function logExportGaps(ctx: CaptureContext, result: archive.GraphCaptureCounts): void {
+  if (result.oversized.length + result.notConvertible.length + result.exportFailed.length > 0) {
+    ctx.logger.warn("mail without a MIME export is not archived; recorded as capture gaps", {
+      tooLarge: result.oversized.length,
+      notConvertible: result.notConvertible.length,
+      exportFailed: result.exportFailed.length,
+    });
+  }
+  if (result.deferred.length > 0) {
+    ctx.logger.info("mail whose MIME export failed is fetched again on a later pass", {
+      messages: result.deferred.length,
+    });
+  }
+}
+
 function stateOf(ctx: CaptureContext): GraphState {
   return ctx.stream.state as GraphState;
 }
@@ -753,7 +798,7 @@ export function createGraphCaptureWay(deps: GraphWayDeps): CaptureWay {
         client: access.client,
         userId: access.userId,
         refs,
-        sink: ctx,
+        sink: captureSink(ctx),
         signal: ctx.signal,
       });
       if (result.failure && result.handled.length === 0) {
@@ -764,11 +809,7 @@ export function createGraphCaptureWay(deps: GraphWayDeps): CaptureWay {
           status: result.failure.status,
         });
       }
-      if (result.oversized.length > 0) {
-        ctx.logger.warn("mail too large for a MIME export is not archived", {
-          messages: result.oversized.length,
-        });
-      }
+      logExportGaps(ctx, result);
       const state = stateOf(ctx);
       return {
         state: result.missing > 0 || result.failure ? { ...state, forceCatchUp: true } : undefined,
@@ -802,7 +843,7 @@ export function createGraphCaptureWay(deps: GraphWayDeps): CaptureWay {
           folders: state.folders ?? {},
           ...(state.knownFolders ? { knownFolders: state.knownFolders } : {}),
         },
-        sink: ctx,
+        sink: captureSink(ctx),
         activatedAt: ctx.stream.activatedAt,
         backfillCompleted: ctx.stream.backfillCompletedAt !== null,
         fullResync: ctx.reason === "resync",
@@ -810,11 +851,7 @@ export function createGraphCaptureWay(deps: GraphWayDeps): CaptureWay {
         checkpoint: (next) =>
           ctx.checkpoint({ ...state, folders: next.folders, knownFolders: next.knownFolders }),
       });
-      if (result.oversized.length > 0) {
-        ctx.logger.warn("mail too large for a MIME export is not archived", {
-          messages: result.oversized.length,
-        });
-      }
+      logExportGaps(ctx, result);
       // A `missed` lifecycle event this catch-up answered is done.
       await withTenantTx(ctx.db, ctx.tenantId, (tx) =>
         tx.execute(sql`
@@ -865,18 +902,14 @@ export function createGraphCaptureWay(deps: GraphWayDeps): CaptureWay {
       const result = await archive.backfillGraphMailbox({
         client: access.client,
         userId: access.userId,
-        sink: ctx,
+        sink: captureSink(ctx),
         cursor,
         saveCursor: (next) => ctx.job.cursor.save({ ...(stored ?? {}), graphBackfill: next }),
         signal: ctx.signal,
         budgetMs: BACKFILL_BUDGET_MS,
         onPage: ({ messages }) => ctx.job.progress.advance(messages),
       });
-      if (result.oversized.length > 0) {
-        ctx.logger.warn("mail too large for a MIME export is not archived", {
-          messages: result.oversized.length,
-        });
-      }
+      logExportGaps(ctx, result);
       return {
         captured: result.cursor.captured,
         skipped: result.cursor.skipped,

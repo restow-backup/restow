@@ -43,6 +43,12 @@ export interface FakeMessage {
   mime?: string;
   /** `$value` answers 413 (too large for a MIME export). */
   tooLarge?: boolean;
+  /**
+   * `$value` answers this error every time, as Exchange does for an item it cannot convert
+   * (`{ status: 500, code: "ErrorMimeContentConversionFailed" }`) or a corrupt one
+   * (`ErrorCorruptData`).
+   */
+  mimeError?: { status: number; code: string };
 }
 
 export interface FakeSubscription {
@@ -283,6 +289,12 @@ export class FakeMailboxGraph {
       }
       if (message.tooLarge) {
         return json(413, graphError("ErrorMessageSizeExceeded", "too large"));
+      }
+      if (message.mimeError) {
+        return json(
+          message.mimeError.status,
+          graphError(message.mimeError.code, "The MIME content of the item could not be produced."),
+        );
       }
       return { status: 200, text: message.mime ?? defaultMime(message) };
     }

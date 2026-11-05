@@ -179,6 +179,11 @@ dem nächsten Job fort, die laufende Erfassung beim nächsten Durchgang.
   erledigt, eine solche Nachricht nach einem Versuch.
 - **Laufende Erfassung (IMAP):** Ein Ordner, der drei Durchgänge in Folge verweigert wird, ist
   eine offene Lücke; eine Nachricht, die nach drei Durchgängen aufgegeben wird, ebenso.
+- **Graph:** Eine Mail über ~150 MB (`too_large`) oder eine, die Exchange nicht in MIME umwandeln
+  kann (`not_convertible`), ist sofort eine offene Lücke; das Archiv hält nur MIME und baut aus
+  den JSON-Teilen keine Mail nach. Scheitert der MIME-Export mit einem 5xx, bleibt die Mail
+  ausstehend und wird bei den nächsten Durchgängen erneut geholt; nach drei Fehlschlägen ist sie
+  eine Lücke (`export_failed`). docs/MICROSOFT.md, "Abholen".
 - **Anzeige:** Die Archiv-Seite zeigt beim Weg, wie viele Postfächer unvollständig sind, und je
   Postfach die Zahl der offenen Lücken (gelb, nie als in Ordnung).
   `GET /api/v1/archive/capture/mailboxes/:objectId/gaps` listet sie (Art, Ordner oder Nachricht,

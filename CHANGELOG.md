@@ -576,6 +576,14 @@ private repository.
   without change notifications). The catch-up now remembers the folders the mailbox had when
   capture started and reads a folder made later in full, and the takeover lists the folders again
   before it reports completed and takes over the new ones.
+- Mail archive: Graph capture dropped for good every message whose MIME export failed and logged
+  it as "too large for a MIME export". Two transient HTTP 500 on `$value` in a row, and items
+  Exchange cannot convert to MIME (IRM, corrupt items), ended up there as well as mail over
+  ~150 MB, and the message was marked handled, so no later pass asked for it again. A 5xx now
+  keeps the message pending (a catch-up and the takeover put it into the pending list) and it is
+  fetched again on the next passes, given up only after three failures; a message too large or
+  not convertible is recorded as an open capture gap at once (`too_large`, `not_convertible`,
+  `export_failed`), shown on the archive page and named by the capture alert.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,

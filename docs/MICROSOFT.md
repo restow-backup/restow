@@ -640,7 +640,15 @@ Code: `packages/core/src/graph/resources/subscriptions.ts`, `packages/core/src/a
   parentFolderId`), Entwürfe übersprungen (eine gesendete Mail kommt als eigene Nachricht in
   Gesendete Elemente), was das Archiv für das Postfach schon hat, wird nicht geladen; dann MIME
   über `$value`. 404 heißt: inzwischen gelöscht oder verschoben, das Nachholen schaut nach.
-  Mails über ~150 MB (kein MIME-Export) werden nicht archiviert und protokolliert.
+  Das Archiv hält nur MIME. Eine Mail ohne MIME-Export wird nicht archiviert, aber nie still
+  übergangen (seit 0.5.0): über ~150 MB (413, `too_large`) und ein Element, das Exchange nicht
+  in MIME umwandeln kann (IRM, beschädigt: `ConversionFailed`, `CorruptData`,
+  `not_convertible`), werden sofort als offene Lücke der Erfassung festgehalten (docs/ARCHIVE.md,
+  "Lücken der Erfassung"). Ein 5xx ist keine Weigerung: Die Mail bleibt ausstehend (aus dem
+  Nachholen und der Übernahme kommt sie dafür in die Liste der ausstehenden Mails) und wird bei
+  den nächsten Durchgängen erneut geholt; erst nach drei Fehlschlägen ist sie eine Lücke
+  (`export_failed`). Bis 0.4.12 galt jede solche Mail als "zu groß", auch nach zwei
+  vorübergehenden 500ern, und war für immer verloren.
 - **Nachholen:** Delta über alle Ordner (versteckte eingeschlossen; ohne Suchordner, Entwürfe,
   Postausgang, Synchronisierungsprobleme) plus `recoverableitemsdeletions`, alle
   `ARCHIVE_GRAPH_CATCHUP_MINUTES` (360) mit Benachrichtigungen. 410 Gone → dieser Ordner wird neu

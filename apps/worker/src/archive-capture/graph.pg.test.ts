@@ -26,6 +26,7 @@ import {
   type TenantKeyring,
 } from "@restow/core";
 import {
+  archiveCaptureGaps,
   archiveCaptureStreams,
   archiveItems,
   backupJobMembers,
@@ -41,6 +42,7 @@ import {
 import { runMigrations } from "@restow/db/migrate";
 import { and, eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { FakeMailboxGraph as DistFakeMailboxGraph } from "../../../../packages/core/dist/graph/testing/fake-mailbox.js";
 import { FakeMailboxGraph } from "../../../../packages/core/src/graph/testing/fake-mailbox.js";
 import type { WorkerFeatureGate } from "../extensions.js";
 import { archiveHandler, configureArchiveHandler } from "../handlers/archive.js";
@@ -292,6 +294,52 @@ describe.skipIf(!adminUrl)("graph capture way (Postgres)", () => {
     const after = await streamState();
     expect(after.lastCatchUpAt).not.toBe(before.lastCatchUpAt);
     expect(after.forceCatchUp).toBeUndefined();
+  });
+
+  it("keeps mail whose MIME export failed pending until it is archived, records one without MIME as a gap", async () => {
+    // The built core's fake: its GraphError is the class the worker's (built) capture knows,
+    // so a 500 is a failed export, as in production.
+    const built = new DistFakeMailboxGraph();
+    const user = fake.mailboxes.keys().next().value as string;
+    built.addMailbox(user, FOLDERS, []);
+    fake = built as unknown as FakeMailboxGraph;
+    const { instance } = service(way());
+    await pass(instance);
+    const later = new Date(Date.now() + 2 * hour).toISOString();
+    built.addMessage(user, { id: "flaky", folderId: "inbox", receivedDateTime: later });
+    built.addMessage(user, {
+      id: "huge",
+      folderId: "inbox",
+      receivedDateTime: later,
+      tooLarge: true,
+    });
+    built.failNext("/messages/flaky/$value", 500, 500);
+    await db.execute(sql`
+      insert into archive_capture_pending (tenant_id, protected_object_id, way, external_ref)
+      values (${tenantId}, ${objectId}, 'graph_sync', 'flaky'),
+             (${tenantId}, ${objectId}, 'graph_sync', 'huge')
+    `);
+    const pendingRefs = async () =>
+      (
+        await db.execute<{ ref: string }>(
+          sql`select external_ref as ref from archive_capture_pending order by 1`,
+        )
+      ).rows.map((row) => row.ref);
+    await pass(instance);
+    // Two 500s: not "too large", not dropped; it stays pending. The huge one is a gap.
+    expect(await pendingRefs()).toEqual(["flaky"]);
+    await pass(instance);
+    expect(await pendingRefs()).toEqual(["flaky"]);
+    await pass(instance);
+    expect(await pendingRefs()).toEqual([]);
+    expect(await itemRefs()).toContain("flaky");
+    const gaps = await db.select().from(archiveCaptureGaps).orderBy(archiveCaptureGaps.ref);
+    expect(
+      gaps.map((gap) => [gap.ref, gap.reason, gap.openedAt !== null, gap.resolvedAt !== null]),
+    ).toEqual([
+      ["flaky", "export_failed", false, true],
+      ["huge", "too_large", true, false],
+    ]);
   });
 
   it("polls without a public HTTPS URL and says why; a subscription is removed then", async () => {

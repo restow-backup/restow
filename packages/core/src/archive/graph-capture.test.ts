@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { IMMUTABLE_ID_PREFER } from "../graph/resources/subscriptions.js";
 import { type FakeFolder, FakeMailboxGraph } from "../graph/testing/fake-mailbox.js";
+import { MemoryCaptureGaps } from "./capture-gaps.js";
 import {
   backfillGraphMailbox,
   catchUpGraphMailbox,
@@ -30,6 +31,8 @@ const FOLDERS: FakeFolder[] = [
 
 /** A sink like the worker's: what was appended, and the dedupe query over it. */
 class MemorySink implements GraphCaptureSink {
+  gaps?: MemoryCaptureGaps;
+  retryLater?: (refs: readonly string[]) => Promise<void>;
   readonly appended: Array<{
     ref: string;
     key: string | null;
@@ -185,10 +188,12 @@ describe("drainGraphPending", () => {
     expect(fake.graph.callsTo("GET", "/messages/t1-copy/$value")).toHaveLength(0);
   });
 
-  it("does not archive a message too large for a MIME export", async () => {
+  it("records a message too large for a MIME export as a gap, not silently", async () => {
     const fake = mailbox();
     fake.addMessage(USER, { id: "big", folderId: "inbox", tooLarge: true });
     const sink = new MemorySink();
+    const gaps = new MemoryCaptureGaps();
+    sink.gaps = gaps;
     const result = await drainGraphPending({
       client: fake.client(),
       userId: USER,
@@ -198,6 +203,60 @@ describe("drainGraphPending", () => {
     expect(result.oversized).toEqual(["big"]);
     expect(result.handled).toEqual(["big"]);
     expect(sink.appended).toEqual([]);
+    expect(gaps.gaps.get("message:big")).toMatchObject({ reason: "too_large", open: true });
+  });
+
+  it("records an item Exchange cannot convert to MIME as a gap, never as too large", async () => {
+    const fake = mailbox();
+    fake.addMessage(USER, {
+      id: "irm",
+      folderId: "inbox",
+      mimeError: { status: 500, code: "ErrorMimeContentConversionFailed" },
+    });
+    const sink = new MemorySink();
+    const gaps = new MemoryCaptureGaps();
+    sink.gaps = gaps;
+    const result = await drainGraphPending({
+      client: fake.client(),
+      userId: USER,
+      refs: ["irm"],
+      sink,
+    });
+    expect(result).toMatchObject({ oversized: [], notConvertible: ["irm"], handled: ["irm"] });
+    expect(gaps.open()).toEqual(["message:irm"]);
+    expect(gaps.gaps.get("message:irm")?.reason).toBe("not_convertible");
+  });
+
+  it("keeps a message whose MIME export failed with 500 pending and archives it on a later pass", async () => {
+    const fake = mailbox();
+    fake.failNext("/messages/m2/$value", 500, 500);
+    const sink = new MemorySink();
+    const gaps = new MemoryCaptureGaps();
+    sink.gaps = gaps;
+    const drain = () =>
+      drainGraphPending({ client: fake.client(), userId: USER, refs: ["m2"], sink });
+    const first = await drain();
+    // Not "too large", not handled: it stays pending for the next pass.
+    expect(first).toMatchObject({ oversized: [], deferred: ["m2"], handled: [] });
+    const second = await drain();
+    expect(second.deferred).toEqual(["m2"]);
+    const third = await drain();
+    expect(third.handled).toEqual(["m2"]);
+    expect(sink.refs()).toEqual(["m2"]);
+    expect(gaps.open()).toEqual([]);
+  });
+
+  it("gives a message up as a gap after three failed exports", async () => {
+    const fake = mailbox();
+    fake.failNext("/messages/m2/$value", 500, 500, 500);
+    const sink = new MemorySink();
+    const gaps = new MemoryCaptureGaps();
+    sink.gaps = gaps;
+    for (let pass = 1; pass <= 3; pass++) {
+      await drainGraphPending({ client: fake.client(), userId: USER, refs: ["m2"], sink });
+    }
+    expect(gaps.open()).toEqual(["message:m2"]);
+    expect(gaps.gaps.get("message:m2")?.reason).toBe("export_failed");
   });
 });
 
@@ -284,6 +343,30 @@ describe("catchUpGraphMailbox", () => {
     expect(second).toMatchObject({ captured: 1, leftToBackfill: 0 });
     expect(sink.refs()).toContain("m1");
     expect(second.state.knownFolders).toContain("projekt-x");
+  });
+
+  it("hands a message whose export failed to the retry list and moves on", async () => {
+    const fake = mailbox();
+    fake.failNext("/messages/m3/$value", 500);
+    const sink = new MemorySink();
+    const retried: string[] = [];
+    sink.retryLater = async (refs) => {
+      retried.push(...refs);
+    };
+    const result = await catchUpGraphMailbox({
+      client: fake.client(),
+      userId: USER,
+      state: {},
+      sink,
+      activatedAt: ACTIVATED,
+      backfillCompleted: true,
+    });
+    expect(retried).toEqual(["m3"]);
+    expect(result.deferred).toEqual(["m3"]);
+    expect(sink.refs()).not.toContain("m3");
+    // The drain of the next pass takes it.
+    await drainGraphPending({ client: fake.client(), userId: USER, refs: retried, sink });
+    expect(sink.refs()).toContain("m3");
   });
 
   it("enumerates a folder again after 410 Gone and captures what is unknown", async () => {
