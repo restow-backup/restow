@@ -1,0 +1,60 @@
+{
+  "errors": [
+    {
+      "message": "master: DBCC CHECKDB reported 2 error(s) in the backup restored from the repository; first: Object ID 245575913, index ID 1, partition ID 72057594041466880, alloc unit ID 72057594046971904 (type In-row data): Page (1:312) could not be processed. See other errors for details. (8928)."
+    }
+  ],
+  "ops": [
+    "inventory",
+    "filelist:master",
+    "verify:master"
+  ],
+  "sqlVerify": {
+    "instance": "SQLEXPRESS",
+    "databases": [
+      {
+        "databaseId": "c1d2e3f4-0a1b-4c2d-8e3f-5a6b7c8d9e01",
+        "backupId": "a9e8d7c6-b5a4-4392-8170-6f5e4d3c2b1a",
+        "name": "master",
+        "method": "restore+checkdb",
+        "verifyName": "master__restow_verify_20261105T020013Z",
+        "fetched": true,
+        "sha256Match": true,
+        "restore": {
+          "ok": true,
+          "errors": []
+        },
+        "checkdb": {
+          "ran": true,
+          "physicalOnly": false,
+          "errors": [
+            {
+              "number": 8928,
+              "level": 16,
+              "state": 1,
+              "message": "Object ID 245575913, index ID 1, partition ID 72057594041466880, alloc unit ID 72057594046971904 (type In-row data): Page (1:312) could not be processed. See other errors for details.",
+              "repairLevel": "repair_allow_data_loss",
+              "objectId": 245575913,
+              "indexId": 1
+            },
+            {
+              "number": 8939,
+              "level": 16,
+              "state": 98,
+              "message": "Table error: Object ID 245575913, index ID 1, partition ID 72057594041466880, alloc unit ID 72057594046971904 (type In-row data), page (1:312). Test (IS_OFF (BUF_IOERR, pBUF-\u003ebstat)) failed.",
+              "repairLevel": "repair_allow_data_loss",
+              "objectId": 245575913,
+              "indexId": 1
+            }
+          ],
+          "durationMs": 43000
+        },
+        "dropped": true,
+        "backupLsn": "37000000014400001",
+        "logsApplied": 0,
+        "durationMs": 3000
+      }
+    ]
+  },
+  "status": "failed"
+}

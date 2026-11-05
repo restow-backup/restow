@@ -3,6 +3,7 @@ package sqlserver
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -34,10 +35,11 @@ func TestNamesAndPaths(t *testing.T) {
 	if got := SnapshotPathOf(`e:\SqlStaging\X\a.bak`); got != "/E/SqlStaging/X/a.bak" {
 		t.Fatalf("snapshot path %s", got)
 	}
-	if got := BackupPath("/stage", "sqlexpress", "Sales", at); got != "/stage/SQLEXPRESS/Sales~8de4e0ea/full-20261105T020011Z.bak" {
+	// BackupPath and RestoredPath build native paths (backslashes on Windows).
+	if got := BackupPath("/stage", "sqlexpress", "Sales", at); got != filepath.FromSlash("/stage/SQLEXPRESS/Sales~8de4e0ea/full-20261105T020011Z.bak") {
 		t.Fatalf("backup path %s", got)
 	}
-	if got := RestoredPath("/r/1", "/C/ProgramData/x.bak"); got != "/r/1/C/ProgramData/x.bak" {
+	if got := RestoredPath("/r/1", "/C/ProgramData/x.bak"); got != filepath.FromSlash("/r/1/C/ProgramData/x.bak") {
 		t.Fatalf("restored path %s", got)
 	}
 	if DataSourceFor("MSSQLSERVER") != `lpc:.` || DataSourceFor("SQLEXPRESS") != `lpc:.\SQLEXPRESS` {

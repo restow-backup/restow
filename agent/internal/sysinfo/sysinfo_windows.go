@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/restow-backup/restow/agent/internal/hooks"
 	"github.com/restow-backup/restow/agent/internal/procenv"
 	"github.com/restow-backup/restow/agent/internal/winapi"
 )
@@ -119,10 +120,12 @@ func runWMIQuery() ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	ps := filepath.Join(sys, "WindowsPowerShell", "v1.0", "powershell.exe")
-	cmd := exec.CommandContext(ctx, ps, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", "-")
+	// -EncodedCommand, not "-Command -": PowerShell 5.1 reads stdin like the
+	// interactive console, so a statement over several lines waits for an
+	// empty line and an open block at EOF is dropped without output.
+	cmd := exec.CommandContext(ctx, ps, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", hooks.EncodePowerShell(wmiQuery))
 	cmd.Env = procenv.Base()
 	cmd.Dir = sys
-	cmd.Stdin = bytes.NewReader([]byte(wmiQuery))
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: winapi.CreateNoWindow}
 	var out bytes.Buffer
 	cmd.Stdout = &limited{w: &out, n: 256 << 10}

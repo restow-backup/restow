@@ -587,7 +587,25 @@
           "revealed": "Repository password shown"
         }
       },
-      "update_requested": "Agent update requested"
+      "update_requested": "Agent update requested",
+      "sql": {
+        "inventory": {
+          "requested": "SQL Server sign-in check requested"
+        },
+        "restore": {
+          "requested": "SQL Server restore under a new name requested",
+          "finished": "SQL Server restore under a new name finished"
+        },
+        "restore_script": {
+          "downloaded": "SQL Server restore script downloaded"
+        },
+        "tde": {
+          "confirmed": "TDE certificate confirmed as backed up"
+        },
+        "verify": {
+          "requested": "SQL Server check requested"
+        }
+      }
     },
     "backup_job": {
       "created": "Backup job created",

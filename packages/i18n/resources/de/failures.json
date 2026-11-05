@@ -661,7 +661,7 @@
       },
       "sql_verify_system_db": {
         "title": "Diese Systemdatenbank lässt sich nicht prüfen",
-        "why": "SQL Server erlaubt nicht, diese Systemdatenbank unter einem anderen Namen wiederherzustellen, darum lässt sie sich auf diesem Weg nicht prüfen."
+        "why": "Eine Kopie dieser Systemdatenbank unter einem anderen Namen lässt sich nicht wiederherstellen oder nicht richtig prüfen (bei master meldet DBCC CHECKDB die Einträge der Serverebene in ihrem Katalog als Fehler), darum lässt sie sich auf diesem Weg nicht prüfen."
       }
     },
     "share": {

@@ -12,6 +12,8 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -83,6 +85,7 @@ func (f *fixture) golden(name string, v any) {
 		f.t.Fatal(err)
 	}
 	s := strings.ReplaceAll(string(b), sqlserver.SnapshotPathOf(f.root), "<root>")
+	s = replaceEscapedRoot(s, f.root)
 	s = strings.ReplaceAll(s, f.root, "<root>")
 	path := filepath.Join("testdata", "golden", name+".json")
 	if updating() {
@@ -101,6 +104,24 @@ func (f *fixture) golden(name string, v any) {
 	if strings.TrimSpace(string(want)) != strings.TrimSpace(s) {
 		f.t.Fatalf("%s differs from the golden file\n--- got\n%s\n--- want\n%s", name, s, want)
 	}
+}
+
+// replaceEscapedRoot replaces a native path below root as JSON writes it
+// on Windows (C:\\Users\\...\\staging) by <root> and the rest of the path
+// with slashes, so the golden files are the same on every system.
+func replaceEscapedRoot(s, root string) string {
+	enc, err := json.Marshal(root)
+	if err != nil {
+		return s
+	}
+	esc := strings.Trim(string(enc), `"`)
+	if esc == root {
+		return s // no backslash in root: nothing is escaped
+	}
+	re := regexp.MustCompile(regexp.QuoteMeta(esc) + `(?:\\\\[^\\"\s;,]+)*`)
+	return re.ReplaceAllStringFunc(s, func(m string) string {
+		return "<root>" + strings.ReplaceAll(strings.TrimPrefix(m, esc), `\\`, "/")
+	})
 }
 
 func allConfig() *api.SQLConfig {
@@ -327,13 +348,18 @@ func TestBackupCustomStagingTrust(t *testing.T) {
 		"backup:master": "backup-master.jsonl", "backup:Scratch": "backup-Scratch.jsonl"}
 	// The staging path is a Windows path; on other systems it is a relative
 	// name below the test's working folder (the fixtures read their
-	// recordings before the change of folder).
+	// recordings before the change of folder). On Windows it is a folder
+	// below the test's temporary folder, as a runner has no drive E:.
 	f := newFixture(t, ok)
 	runs := []*fixture{newFixture(t, ok), newFixture(t, ok)}
 	t.Chdir(t.TempDir())
-	const dir = `E:\SqlStaging`
+	dir, volume := `E:\SqlStaging`, `E:\`
+	if runtime.GOOS == "windows" {
+		dir = filepath.Join(t.TempDir(), "SqlStaging")
+		volume = filepath.VolumeName(dir) + `\`
+	}
 	f.env.CustomStaging, f.env.StagingRoot = true, dir
-	f.fs.Facts = &sqlserver.VolumeFacts{Root: `E:\`, Fixed: true, FileSystem: "NTFS"}
+	f.fs.Facts = &sqlserver.VolumeFacts{Root: volume, Fixed: true, FileSystem: "NTFS"}
 	if err := os.MkdirAll(filepath.Join(dir, "SQLEXPRESS"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -502,6 +528,28 @@ func TestVerifyCasesGolden(t *testing.T) {
 				t.Fatalf("%+v %+v", r, r.Checkdb)
 			}
 		}},
+		// A copy of master under a check name shows catalog errors (8992)
+		// only because it is not master (C22, seen in the CI): incomplete
+		// with sql_verify_system_db, never red.
+		{name: "master-catalog", verify: "verify-checkdb-master-catalog.jsonl", setup: func(f *fixture, p *api.SQLVerifyParams) { p.Databases[0].Name = "master" },
+			status: api.StatusFailed, check: func(t *testing.T, f *fixture, r api.SQLVerifyResult) {
+				if r.Code != api.SQLVerifySystemDB || r.Checkdb == nil || r.Checkdb.Ran || len(r.Checkdb.Errors) != 0 || !r.Dropped {
+					t.Fatalf("%+v %+v", r, r.Checkdb)
+				}
+			}},
+		// The same catalog errors in a user database are evidence.
+		{name: "user-db-catalog", verify: "verify-checkdb-master-catalog.jsonl", status: api.StatusFailed, check: func(t *testing.T, f *fixture, r api.SQLVerifyResult) {
+			if r.Code != "" || r.Checkdb == nil || !r.Checkdb.Ran || len(r.Checkdb.Errors) != 2 || r.Checkdb.Errors[0].Number != 8992 {
+				t.Fatalf("%+v %+v", r, r.Checkdb)
+			}
+		}},
+		// Any other CHECKDB error in a copy of master stays evidence.
+		{name: "master-damage", verify: "verify-checkdb-8928.jsonl", setup: func(f *fixture, p *api.SQLVerifyParams) { p.Databases[0].Name = "master" },
+			status: api.StatusFailed, check: func(t *testing.T, f *fixture, r api.SQLVerifyResult) {
+				if r.Code != "" || r.Checkdb == nil || !r.Checkdb.Ran || len(r.Checkdb.Errors) != 2 || r.Checkdb.Errors[0].Number != 8928 {
+					t.Fatalf("%+v %+v", r, r.Checkdb)
+				}
+			}},
 		// The data and log volumes keep a reserve for the live databases:
 		// free space that holds the copy with 1 MiB to spare is refused.
 		{name: "no-reserve", verify: "verify-green.jsonl", setup: func(f *fixture, p *api.SQLVerifyParams) {

@@ -187,9 +187,14 @@ try {
         $p = Start-Process -FilePath $package.FullName -ArgumentList @('/q', "/x:$setupDir") -Wait -PassThru
         $setup = Join-Path $setupDir 'setup.exe'
         if ($p.ExitCode -ne 0 -or -not (Test-Path $setup) -or -not (Test-MicrosoftSignature $setup)) { Exit-Incomplete 'the Express package could not be extracted' }
+        # Only the runner's own account is sysadmin. Not BUILTIN\Administrators:
+        # the probe runs as LocalSystem, which is a member of it, and would be
+        # sysadmin without a login of its own (SQL Server 2012 and later give
+        # neither SYSTEM nor the administrators sysadmin, 5.1.2).
+        $runner = [Security.Principal.WindowsIdentity]::GetCurrent().Name
         foreach ($inst in @('SQLEXPRESS', 'RESTOWB')) {
             if (Test-Instance $inst) { continue }
-            $setupArgs = @('/Q', '/ACTION=Install', '/FEATURES=SQLEngine', "/INSTANCENAME=$inst", '/SQLSYSADMINACCOUNTS=BUILTIN\Administrators',
+            $setupArgs = @('/Q', '/ACTION=Install', '/FEATURES=SQLEngine', "/INSTANCENAME=$inst", "/SQLSYSADMINACCOUNTS=$runner",
                 '/IACCEPTSQLSERVERLICENSETERMS', '/UPDATEENABLED=0', '/TCPENABLED=0', '/NPENABLED=0')
             $p = Start-Process -FilePath $setup -ArgumentList $setupArgs -Wait -PassThru
             if ($p.ExitCode -ne 0 -and $p.ExitCode -ne 3010) { throw "setup of $inst ended with exit code $($p.ExitCode)" }
@@ -243,6 +248,7 @@ WHILE (SELECT COUNT(*) FROM dbo.Orders) < 20000 INSERT INTO dbo.Orders (Filler) 
 USE Scratch;
 IF OBJECT_ID('dbo.T') IS NULL CREATE TABLE dbo.T (Id int PRIMARY KEY, V char(500) NOT NULL);
 IF NOT EXISTS (SELECT 1 FROM dbo.T) INSERT INTO dbo.T SELECT TOP (500) ROW_NUMBER() OVER (ORDER BY (SELECT 1)), 'z' FROM sys.all_objects;
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID('dbo.T') AND name = 'IX_T_V') CREATE INDEX IX_T_V ON dbo.T (V);
 "@
     if ($compresses) {
         $comp = Invoke-AdminSql 'SQLEXPRESS' "SELECT CAST(value_in_use AS int) AS v FROM sys.configurations WHERE name = 'backup compression default'" -Rows
@@ -287,11 +293,16 @@ IF NOT EXISTS (SELECT 1 FROM dbo.T) INSERT INTO dbo.T SELECT TOP (500) ROW_NUMBE
         return ($text | ConvertFrom-Json)
     }
 
-    # 1. Without a login.
-    Invoke-AdminSql 'SQLEXPRESS' "IF SUSER_ID('NT SERVICE\RestowSqlCi') IS NOT NULL DROP LOGIN [NT SERVICE\RestowSqlCi];"
+    # 1. Without a login: none for the service SID, and none for the account
+    # the probe runs as (LocalSystem; setup may create a login for NT
+    # AUTHORITY\SYSTEM with public rights only).
+    Invoke-AdminSql 'SQLEXPRESS' "IF SUSER_ID('NT SERVICE\RestowSqlCi') IS NOT NULL DROP LOGIN [NT SERVICE\RestowSqlCi]; IF SUSER_ID('NT AUTHORITY\SYSTEM') IS NOT NULL DROP LOGIN [NT AUTHORITY\SYSTEM];"
     $r = Invoke-Probe @{ op = 'inventory'; instance = 'SQLEXPRESS' }
     $first = @(Get-Field $r 'errors') | Select-Object -First 1
-    if ((Get-Field $r 'status') -eq 'failed' -and (Get-Field $first 'code') -eq 'sql_login_missing') { Ok 'without a login: sql_login_missing' } else { Fail ("without a login: " + (Show-Errors $r)) }
+    if ((Get-Field $r 'status') -eq 'failed' -and (Get-Field $first 'code') -eq 'sql_login_missing') { Ok 'without a login: sql_login_missing' } else {
+        $as = @(Get-Field $r 'sqlInventory.instances') | Select-Object -First 1
+        Fail ("without a login: status " + (Get-Field $r 'status') + ", signed in as " + (ConvertTo-Json -InputObject @(Get-Field $as 'login') -Compress) + ", errors " + (Show-Errors $r))
+    }
 
     # 2. The small rights.
     Invoke-AdminSql 'SQLEXPRESS' @"
@@ -352,17 +363,30 @@ ALTER ROLE db_backupoperator ADD MEMBER [NT SERVICE\RestowSqlCi]; ALTER ROLE db_
     $notGreen = @($vdbs | Where-Object { -not ((Get-Field $_ 'sha256Match') -and (Get-Field $_ 'restore.ok') -and (Get-Field $_ 'checkdb.ran') -and @(Get-Field $_ 'checkdb.errors').Count -eq 0) })
     $green = (Get-Field $v 'status') -eq 'succeeded' -and $vdbs.Count -gt 0 -and $notGreen.Count -eq 0
     $sys = @($vdbs | Where-Object { (Get-Field $_ 'code') -eq 'sql_verify_system_db' } | ForEach-Object { Get-Field $_ 'name' })
-    if ($green) { Ok 'check from the repository: green (RestowCi, master, msdb)' } elseif ($sys.Count -gt 0) { Fail ("system databases cannot be checked under a new name: " + ($sys -join ', ') + " (C22: note it in the design)") } else { Fail ("check from the repository: " + (Show-Errors $v)) }
+    # C22 as the design records it: a copy of master under a check name is no
+    # master, CHECKDB reports its server-level catalog rows (8992), so the
+    # check of master is incomplete with sql_verify_system_db. Only master may
+    # end so; RestowCi and msdb are green.
+    $masterOnly = $vdbs.Count -eq 3 -and (Get-Field $v 'status') -eq 'partial' -and $notGreen.Count -eq 1 -and
+        (Get-Field $notGreen[0] 'name') -eq 'master' -and (Get-Field $notGreen[0] 'code') -eq 'sql_verify_system_db'
+    if ($green) { Ok 'check from the repository: green (RestowCi, master, msdb)' }
+    elseif ($masterOnly) { Ok 'check from the repository: green (RestowCi, msdb); master incomplete with sql_verify_system_db (C22)' }
+    elseif ($sys.Count -gt 0) { Fail ("system databases cannot be checked under a new name: " + ($sys -join ', ') + " (C22: note it in the design)") } else { Fail ("check from the repository: " + (Show-Errors $v)) }
 
     # A damaged copy is red: a page of Scratch is changed through the buffer
     # pool (its checksum stays valid, so the backup goes through), CHECKDB of
-    # the copy restored from the repository finds it.
+    # the copy restored from the repository finds it. The change keeps the
+    # record well-formed: zeros over the record header made WRITEPAGE itself
+    # raise a table error (8944, "Test (offsetNull >= BASEOFFSET) failed") on
+    # 2019 and 2022. Instead the first byte of V in the first row of the page
+    # (page header 96 bytes, record header 4, Id 4) becomes 'y' while the
+    # index IX_T_V still holds 'z', a mismatch only CHECKDB sees (8951/8952).
     $page = Invoke-AdminSql 'SQLEXPRESS' @"
-SELECT TOP (1) allocated_page_page_id AS p FROM sys.dm_db_database_page_allocations(DB_ID('Scratch'), OBJECT_ID('Scratch.dbo.T'), NULL, NULL, 'DETAILED')
+SELECT TOP (1) allocated_page_page_id AS p FROM sys.dm_db_database_page_allocations(DB_ID('Scratch'), OBJECT_ID('Scratch.dbo.T'), 1, NULL, 'DETAILED')
 WHERE page_type_desc = 'DATA_PAGE' ORDER BY allocated_page_page_id;
 "@ -Rows
     $pageId = [int]$page.Rows[0].p
-    Invoke-AdminSql 'SQLEXPRESS' "ALTER DATABASE Scratch SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DBCC WRITEPAGE ('Scratch', 1, $pageId, 96, 4, 0x00000000, 0); ALTER DATABASE Scratch SET MULTI_USER;"
+    Invoke-AdminSql 'SQLEXPRESS' "ALTER DATABASE Scratch SET SINGLE_USER WITH ROLLBACK IMMEDIATE; DBCC WRITEPAGE ('Scratch', 1, $pageId, 104, 1, 0x79, 0); ALTER DATABASE Scratch SET MULTI_USER;"
     $bad = Invoke-Probe @{ op = 'backup'; instance = 'SQLEXPRESS'; databases = @('Scratch') }
     $badJson = Join-Path $WorkDir 'backup-scratch.json'
     [System.IO.File]::WriteAllText($badJson, (ConvertTo-Json -InputObject $bad -Depth 12))
@@ -415,7 +439,7 @@ WHERE page_type_desc = 'DATA_PAGE' ORDER BY allocated_page_page_id;
         if ($ok -and $kept -and $leftDirs -eq 0) { Ok 'with -StagingDir the script deleted only its own folder' } else { Fail ("with -StagingDir: exit ok $ok, the other file kept $kept, folders left $leftDirs") }
     }
 
-    # 5. The flows once more as the runner (sysadmin through Administrators).
+    # 5. The flows once more as the runner (sysadmin through its own login).
     $env:RESTOW_TEST_SQL_INSTANCE = 'SQLEXPRESS'
     $env:RESTIC_BINARY = $Restic
     & go test -count=1 -v -tags 'windowsintegration,sqlintegration' -run TestIntegration ./internal/sqlserver/ | Out-Host

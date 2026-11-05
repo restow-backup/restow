@@ -660,6 +660,18 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "GET /api/v1/endpoints/:id/browse": operate(),
   "POST /api/v1/endpoints/:id/downloads": operate(),
   "GET /api/v1/endpoints/:id/downloads/:downloadId": operate(),
+  // The native SQL Server backup (W2a, docs/BAREMETAL-WINDOWS.md 5.1): reading the databases
+  // and their backups is for every member; checking a backup (a restore under a temporary name
+  // with CHECKDB) and the agent's sign-in check need a technician; a restore under a new name,
+  // the restore script for another machine and the TDE confirmation are an administrator's, as
+  // the tenant side asks for a tenant admin and the design for the role "Administrator".
+  "GET /api/v1/endpoints/:id/sql": view(),
+  "GET /api/v1/endpoints/:id/sql/databases/:databaseId/backups": view(),
+  "POST /api/v1/endpoints/:id/sql/verify": operate(),
+  "POST /api/v1/endpoints/:id/sql/inventory": operate(),
+  "POST /api/v1/endpoints/:id/sql/restore": configure(),
+  "GET /api/v1/endpoints/:id/sql/backups/:backupId/restore-script": configure(),
+  "POST /api/v1/endpoints/:id/sql/databases/:databaseId/tde-confirm": configure(),
 
   // --- Webhooks --------------------------------------------------------------------
   "GET /api/v1/reports/catalog": view(),

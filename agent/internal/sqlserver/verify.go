@@ -27,6 +27,28 @@ var mediaErrors = map[int]bool{3183: true, 3189: true, 3241: true, 3242: true, 3
 // systemDatabases are verified like user databases (C22).
 var systemDatabases = map[string]bool{"master": true, "model": true, "msdb": true}
 
+// checkCatalogError is the CHECKDB error that carries a failed system
+// catalog check ("Check Catalog Msg 3851 ...").
+const checkCatalogError = 8992
+
+// masterCatalogOnly reports whether a CHECKDB of a copy of master found
+// nothing but catalog errors. A copy of master under a check name is no
+// master: its catalog holds rows of server-level objects that only master
+// may hold, and CHECKDB reports each as error 8992 (the CI showed this on
+// SQL Server 2019 and 2022 Express, C22). Such a result proves neither a
+// good nor a bad backup. Any other error stays evidence of damage.
+func masterCatalogOnly(name string, errs []api.SQLCheckdbError) bool {
+	if !strings.EqualFold(name, "master") || len(errs) == 0 {
+		return false
+	}
+	for _, e := range errs {
+		if e.Number != checkCatalogError {
+			return false
+		}
+	}
+	return true
+}
+
 // Verify checks the backups a sql_verify task names (docs/BAREMETAL-
 // WINDOWS.md 5.1.7): leftovers of an earlier check are dropped (only names
 // from the journal), then for each database the backup is fetched from the
@@ -239,6 +261,11 @@ func (e *Env) verifyOne(ctx context.Context, r *api.SQLVerifyResult, d api.SQLVe
 			return
 		}
 		incomplete(api.SQLRestoreFailed, "%s: RESTORE of the backup failed: %s", d.Name, first)
+	case vr.Checkdb != nil && vr.Checkdb.Ran && masterCatalogOnly(d.Name, vr.Checkdb.Errors):
+		// Not evidence (C22): the check is incomplete, never red.
+		n := len(vr.Checkdb.Errors)
+		r.Checkdb = &api.SQLCheckdbResult{Ran: false, PhysicalOnly: vr.Checkdb.PhysicalOnly, Errors: []api.SQLCheckdbError{}, DurationMs: vr.Checkdb.DurationMs}
+		incomplete(api.SQLVerifySystemDB, "%s: DBCC CHECKDB of the copy under a check name reported %d catalog error(s) (%d), as it does for every copy of master under another name; its backup is not checked.", d.Name, n, checkCatalogError)
 	case vr.Checkdb == nil && !vr.NewBroker:
 		msg := "ALTER DATABASE SET NEW_BROKER failed"
 		if vr.NewBrokerProblem != nil {

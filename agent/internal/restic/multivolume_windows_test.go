@@ -7,6 +7,8 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/restow-backup/restow/agent/internal/hooks"
 	"github.com/restow-backup/restow/agent/internal/winapi"
 )
 
@@ -44,7 +47,11 @@ type shadowCopy struct {
 	VolumeName  string `json:"volumeName"`
 }
 
-// shadowQuery is fixed text: no input goes into it.
+// shadowQuery is fixed text: no input goes into it. It goes to PowerShell
+// as -EncodedCommand, not through stdin: with -Command - PowerShell reads
+// stdin like the interactive console, and a statement over several lines
+// waits for an empty line that never comes, so the query wrote nothing and
+// every poll looked like "no shadow copy".
 const shadowQuery = `$ErrorActionPreference = 'Stop'
 $rows = @(Get-CimInstance -ClassName Win32_ShadowCopy | ForEach-Object {
   @{ id = [string]$_.ID; setId = [string]$_.SetID; volumeName = [string]$_.VolumeName;
@@ -57,14 +64,21 @@ func listShadowCopies(ctx context.Context) ([]shadowCopy, error) {
 		return nil, err
 	}
 	ps := filepath.Join(sys, "WindowsPowerShell", "v1.0", "powershell.exe")
-	cmd := exec.CommandContext(ctx, ps, "-NoProfile", "-NonInteractive", "-Command", "-")
-	cmd.Stdin = strings.NewReader(shadowQuery)
+	cmd := exec.CommandContext(ctx, ps, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+		"-EncodedCommand", hooks.EncodePowerShell(shadowQuery))
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%v: %s", err, strings.TrimSpace(stderr.String()))
 	}
 	out = bytes.TrimSpace(out)
-	if len(out) == 0 || string(out) == "null" {
+	if len(out) == 0 {
+		// ConvertTo-Json writes [] for no rows: nothing at all means the
+		// query did not run.
+		return nil, errors.New("the shadow copy query wrote nothing")
+	}
+	if string(out) == "null" {
 		return nil, nil
 	}
 	if out[0] == '{' { // one row: Windows PowerShell 5.1 writes the element itself
@@ -82,7 +96,12 @@ type evidence struct {
 	SetsByVolume map[string]string `json:"setByVolume"`
 	SnapshotID   string            `json:"snapshotId"`
 	Polls        int               `json:"polls"`
-	Finding      string            `json:"finding"`
+	PollErrors   int               `json:"pollErrors"`
+	LastPollErr  string            `json:"lastPollError,omitempty"`
+	// Snapshot is what restic said about the shadow copies (failed or
+	// skipped volumes: it read those live).
+	Snapshot SnapshotOutcome `json:"snapshot"`
+	Finding  string          `json:"finding"`
 }
 
 func TestMultiVolumeShadowCopySets(t *testing.T) {
@@ -134,7 +153,11 @@ func TestMultiVolumeShadowCopySets(t *testing.T) {
 
 	var mu sync.Mutex
 	seen := map[string]shadowCopy{}
-	before, _ := listShadowCopies(ctx)
+	// The query has to work before it can show anything.
+	before, err := listShadowCopies(ctx)
+	if err != nil {
+		t.Fatalf("Win32_ShadowCopy: %v", err)
+	}
 	old := map[string]bool{}
 	for _, s := range before {
 		old[s.ID] = true
@@ -146,16 +169,19 @@ func TestMultiVolumeShadowCopySets(t *testing.T) {
 		defer wg.Done()
 		for pctx.Err() == nil {
 			rows, err := listShadowCopies(pctx)
+			mu.Lock()
 			if err == nil {
-				mu.Lock()
 				ev.Polls++
 				for _, s := range rows {
 					if !old[s.ID] {
 						seen[s.ID] = s
 					}
 				}
-				mu.Unlock()
+			} else if pctx.Err() == nil {
+				ev.PollErrors++
+				ev.LastPollErr = err.Error()
 			}
+			mu.Unlock()
 			select {
 			case <-pctx.Done():
 			case <-time.After(200 * time.Millisecond):
@@ -170,6 +196,7 @@ func TestMultiVolumeShadowCopySets(t *testing.T) {
 		t.Fatalf("backup: %v", err)
 	}
 	ev.SnapshotID = res.SnapshotID
+	ev.Snapshot = res.Snapshot
 	for _, s := range seen {
 		ev.Seen = append(ev.Seen, s)
 	}
@@ -203,7 +230,11 @@ func TestMultiVolumeShadowCopySets(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	t.Logf("%s (%d polls): %+v", ev.Finding, ev.Polls, ev.SetsByVolume)
+	t.Logf("%s (%d polls, %d failed %q, %d new shadow copies): %+v; restic: failed %+v, skipped %v",
+		ev.Finding, ev.Polls, ev.PollErrors, ev.LastPollErr, len(ev.Seen), ev.SetsByVolume, ev.Snapshot.FailedVolumes, ev.Snapshot.SkippedVolumes)
+	if len(ev.Snapshot.FailedVolumes) > 0 || len(ev.Snapshot.SkippedVolumes) > 0 {
+		t.Fatalf("restic did not read every volume from a shadow copy: failed %+v, skipped %v", ev.Snapshot.FailedVolumes, ev.Snapshot.SkippedVolumes)
+	}
 	if len(ev.SetsByVolume) < len(ev.Volumes) {
 		t.Fatalf("the shadow copies of %d of %d volumes were seen; poll more often or write more data", len(ev.SetsByVolume), len(ev.Volumes))
 	}

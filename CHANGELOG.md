@@ -58,7 +58,10 @@ private repository.
   and drops it. The server judges: green only after a clean CHECKDB of the backup fetched from
   the repository, red only with evidence (CHECKDB consistency errors, a damaged backup, another
   SHA-256), incomplete otherwise (no space, a time limit, a CHECKDB that stopped because tempdb or
-  its log ran full, memory ran out or the connection broke). Restore and check leave a reserve
+  its log ran full, memory ran out or the connection broke). A copy of `master` under a check
+  name reports the server-level entries of its catalog as CHECKDB errors (8992); when those are
+  its only errors, the check of `master` is incomplete (`sql_verify_system_db`), not red.
+  Restore and check leave a reserve
   free on the volumes they write to, at least 1 GiB and a tenth of the volumes of the data and
   log files, so the live databases there can keep growing. New alerts `endpoint.sql_red`,
   `endpoint.sql_recovered` and `endpoint.sql_overdue` (more than 8 days without a clean check).

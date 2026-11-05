@@ -661,7 +661,7 @@
       },
       "sql_verify_system_db": {
         "title": "This system database cannot be checked",
-        "why": "SQL Server does not allow this system database to be restored under another name, so it cannot be checked this way."
+        "why": "A copy of this system database under another name cannot be restored, or is not checked correctly (for master, DBCC CHECKDB reports the server-level entries of its catalog as errors), so it cannot be checked this way."
       }
     },
     "share": {
