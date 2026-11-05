@@ -94,6 +94,32 @@
   Lauf als Warnung `imap.gmail_all_mail_hidden`: Es fehlt nichts, aber eine Wiederherstellung zu
   einem anderen Anbieter legt jede Kopie an. Abhilfe: „In IMAP anzeigen“ für Alle Nachrichten
   einschalten.
+- Restore einer Gmail-Sicherung (packages/core/src/restore/gmail.ts): Gmail zeigt eine Mail in
+  jedem Ordner, der eines ihrer Labels ist, und zusätzlich in `[Gmail]/All Mail` (`\All`).
+  Ordnerweise wiederhergestellt, landete sie einmal je Label und noch einmal für All Mail im
+  Ziel. Jetzt wird jede Mail genau einmal geschrieben, in einen Heimatordner nach ihren Labels:
+  `\Inbox` vor `\Sent`, `\Draft`, `\Trash` und `\Spam`, sonst das erste eigene Label, sonst
+  All Mail (in einem Ziel ohne `\All` dessen `\Archive`, in Microsoft 365 der Archivordner).
+  Die übrigen Labels folgen: in ein Gmail-Konto per COPY in den Ordner des Labels (Gmail fügt
+  damit das Label hinzu, die Mail bleibt eine), auf einem anderen IMAP-Server als Schlüsselwort
+  (Keyword, ohne Leerzeichen und Sonderzeichen; `\Important` wird `Important`), in Microsoft
+  365 als Kategorie; `\Starred` wird `\Flagged`. Nimmt der Zielordner laut PERMANENTFLAGS
+  keine neuen Schlüsselwörter (`\*` fehlt), werden sie nicht gesendet, und das Ergebnis nennt
+  die Labels, die verloren gehen. Erkannt wird eine Gmail-Sicherung an All Mail mit `\All` unter
+  `[Gmail]` oder am Metadatum `gmailLabels`; ein Gmail-Ziel an derselben Ordnerliste.
+  Zusammengehörig sind die Objekte einer Mail mit gleicher Message-ID, gleichem SHA-256 und
+  gleicher Größe, in beiden Formen der Sicherung: Ab 0.5.0 (oben) tragen die Mails von All Mail
+  (und Spam und Papierkorb, die Gmail getrennt hält) `metadata.gmailLabels` als JSON-Array der
+  Werte von `X-GM-LABELS` (`\Inbox`, `\Sent`, `\Draft`, `\Important`, `\Starred`,
+  `Arbeit/Projekte`), und die Objekte der Label-Ordner teilen Inhalt und Umschlag mit ihnen;
+  eine Sicherung von vor 0.5.0 hält ein Objekt je Label-Ordner mit eigenem Download (Gmail
+  liefert in jedem Label dieselben Bytes). Geschrieben wird das Objekt des Heimatordners, die
+  anderen Objekte einer Mail meldet der Restore als übersprungen ("das Ziel hält sie bereits")
+  mit dem, was aus ihrem Label wurde. Ordnerobjekte für Important und Starred legt der Restore
+  in einem Ziel, das nicht Gmail ist, nicht an (sie sind dort Schlüsselwort bzw. Flag). Wer nur
+  einen Label-Ordner auswählt, bekommt genau diesen Ordner zurück. Eine Sicherung bei
+  ausgeblendetem All Mail (Warnung `imap.gmail_all_mail_hidden`) hat weder All Mail noch
+  `gmailLabels` und wird Ordner für Ordner wiederhergestellt, jede Kopie einzeln.
 - Grenzen: Kalender/Kontakte gibt es per IMAP nicht (CalDAV/CardDAV später).
 - Importierte Postfächer (Mail-Dateien statt Server, docs/IMPORT.md) nutzen dasselbe
   Manifestformat wie ein IMAP-Backup; sie werden nie gesichert, aber wie ein IMAP-Konto

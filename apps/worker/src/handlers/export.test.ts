@@ -6,6 +6,7 @@ import {
   Keyring,
   mailfiles,
   type ProtectedObjectRef,
+  SnapshotWriter,
 } from "@restow/core";
 import type { Database, MailExport } from "@restow/db";
 import { describe, expect, it } from "vitest";
@@ -273,6 +274,57 @@ describe("the export handler", () => {
         `${createHash("sha256").update(entry.data).digest("hex")}  ${entry.name}`,
       );
     }
+  });
+
+  it("reports a group post whose attachments the backup does not hold as incomplete, not as exported cleanly", async () => {
+    const { ctx } = setup();
+    const writer = await SnapshotWriter.begin(ctx, { protectedObject: object, sourceType: "m365" });
+    for (const [id, missing] of [
+      ["AAQk1", '["Plan.pdf"]'],
+      ["AAQk2", undefined],
+    ] as const) {
+      const raw = eml(`Post ${id}`, id);
+      const written = await writer.chunks.write(raw);
+      // Metadata as the group conversation backup writes it.
+      writer.add({
+        path: `mail/Conversations/Plan.${id}.eml`,
+        id,
+        type: "mail",
+        size: written.size,
+        sha256: written.sha256,
+        mtime: NOW.getTime(),
+        chunks: written.chunks,
+        metadata: {
+          subject: `Post ${id}`,
+          messageId: `<${id}@example.test>`,
+          folderPath: "Conversations",
+          format: "mime",
+          postId: id,
+          ...(missing ? { missingAttachments: missing } : {}),
+        },
+      });
+    }
+    const { snapshotId } = await writer.commit();
+    const harness = fakeStore(exportRow({ snapshotId, format: "mbox" }));
+
+    const outcome = await createExportHandler({ env: {}, store: () => harness.store }).run(
+      ctx,
+      payload,
+    );
+
+    expect(outcome?.summary).toMatchObject({ messages: 2, failed: 0, incomplete: 1 });
+    const [result] = harness.results;
+    expect(result?.report).toMatchObject({
+      messages: 2,
+      failed: 0,
+      incomplete: 1,
+      incompleteItems: [
+        {
+          ref: expect.stringContaining("#"),
+          reason: expect.stringMatching(/does not hold these attachments of the post: Plan\.pdf/),
+        },
+      ],
+    });
   });
 
   it("exports one folder as a single .mbox file that can be read back message by message", async () => {

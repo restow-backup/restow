@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { RestoreTarget } from "../engine/types.js";
 import { must } from "../graph/testing/fake-graph.js";
 import { appendableFlags, ImapRestoreEngine, targetMailboxComponents } from "./imap.js";
-import { FakeImapAccount } from "./testing/fake-imap.js";
+import { FakeImapAccount, rerenderHeaders } from "./testing/fake-imap.js";
 import {
   corruptStoredObject,
   createSnapshotFixture,
@@ -173,10 +173,25 @@ describe("ImapRestoreEngine", () => {
     expect(target.messages(`${RESTORE_FOLDER}.Sent.2025`)).toHaveLength(1);
     expect(target.messages("INBOX")).toHaveLength(0);
 
+    // The job's own record says what the first attempt restored.
+    const appends = target.commands.filter((command) => command.startsWith("APPEND")).length;
     const retry = await engineFor(target).run(fixture.ctx, request);
-    expect(retry.restored).toBe(0);
-    expect(retry.skipped).toBe(4);
-    expect(retry.items.find((item) => item.status === "skipped")?.reason).toMatch(
+    expect(retry.restored).toBe(4);
+    expect(retry.skipped).toBe(0);
+    expect(
+      retry.items
+        .filter((item) => item.type !== "folder")
+        .every((item) => item.reason === "restored by an earlier attempt of this job"),
+    ).toBe(true);
+    expect(target.commands.filter((command) => command.startsWith("APPEND"))).toHaveLength(appends);
+
+    // Without the record (an attempt that ended before it was saved) the
+    // Message-ID check of the restore mailbox finds the same work.
+    await fixture.ctx.cursor.clear();
+    const unrecorded = await engineFor(target).run(fixture.ctx, request);
+    expect(unrecorded.restored).toBe(0);
+    expect(unrecorded.skipped).toBe(4);
+    expect(unrecorded.items.find((item) => item.status === "skipped")?.reason).toMatch(
       /job was retried/,
     );
   });
@@ -192,6 +207,13 @@ describe("ImapRestoreEngine", () => {
     const request = restoreRequestFor(fixture, { mode: "replace" });
 
     await engineFor(target).run(fixture.ctx, request);
+    const recorded = await engineFor(target).run(fixture.ctx, request);
+    expect(
+      recorded.items
+        .filter((item) => item.type !== "folder")
+        .every((item) => item.reason?.includes('ran as "rename" instead')),
+    ).toBe(true);
+    await fixture.ctx.cursor.clear();
     const retry = await engineFor(target).run(fixture.ctx, request);
 
     expect(retry.restored).toBe(0);
@@ -219,6 +241,7 @@ describe("ImapRestoreEngine", () => {
 
     await engineFor(target).run(fixture.ctx, request);
     clock = new Date(NOW.getTime() + 7 * 60_000);
+    await fixture.ctx.cursor.clear();
     const retry = await engineFor(target).run(fixture.ctx, request);
 
     expect(retry.restored).toBe(0);
@@ -397,14 +420,120 @@ describe("ImapRestoreEngine", () => {
     const mailbox = `${RESTORE_FOLDER}.INBOX`;
     expect(target.messages(mailbox)).toHaveLength(1);
 
-    // The retry runs on a fresh connection and skips what the first attempt appended.
+    // The retry runs on a fresh connection and knows what the first attempt appended.
     target.connectionLost = false;
     target.dropAfterAppends = null;
     const report = await engineFor(target).run(fixture.ctx, request);
     expect(report.failures).toEqual([]);
-    expect(report.restored).toBe(2);
-    expect(report.skipped).toBe(1);
+    expect(report.restored).toBe(3);
+    expect(report.skipped).toBe(0);
+    expect(
+      report.items.filter((i) => i.reason === "restored by an earlier attempt of this job"),
+    ).toHaveLength(1);
     expect(target.messages(mailbox)).toHaveLength(3);
+  });
+
+  it("restores exactly once into a server that re-renders what it stores, with or without the job's record", async () => {
+    const ten = Array.from({ length: 10 }, (_, i) =>
+      message("INBOX", `mail/INBOX/${i + 1}.eml`, i + 1),
+    );
+    fixture = await createSnapshotFixture({
+      kind: "imap",
+      externalId: "anna",
+      now: () => NOW,
+      objects: ten,
+    });
+    const mailbox = `${RESTORE_FOLDER}.INBOX`;
+    for (const keepRecord of [true, false]) {
+      const target = new FakeImapAccount({ delimiter: "." });
+      target.mangle = rerenderHeaders;
+      target.dropAfterAppends = 5;
+      const request = restoreRequestFor(fixture, { mode: "rename" });
+      await expect(engineFor(target).run(fixture.ctx, request)).rejects.toThrow(
+        /connection was lost/,
+      );
+      expect(target.messages(mailbox)).toHaveLength(5);
+      if (!keepRecord) {
+        // An attempt that ended before its record was saved.
+        await fixture.ctx.cursor.clear();
+      }
+
+      target.connectionLost = false;
+      target.dropAfterAppends = null;
+      const retry = await engineFor(target).run(fixture.ctx, request);
+
+      expect(retry.failures, String(keepRecord)).toEqual([]);
+      expect(target.messages(mailbox), String(keepRecord)).toHaveLength(10);
+      expect(retry.restored + retry.skipped, String(keepRecord)).toBe(10);
+      if (!keepRecord) {
+        expect(retry.items.filter((item) => item.status === "skipped")).toHaveLength(5);
+        expect(retry.items.find((item) => item.status === "skipped")?.reason).toMatch(
+          /server re-rendered the message/,
+        );
+      }
+    }
+  });
+
+  it("does not append a message without Message-ID again when the job is retried", async () => {
+    const plain = (uid: number): FixtureObject => {
+      const base = message("INBOX", `mail/INBOX/${uid}.eml`, uid);
+      const { messageId: _id, ...metadata } = base.metadata ?? {};
+      return {
+        ...base,
+        content: `Subject: Scan ${uid}\r\nDate: Thu, 15 Jan 2026 10:30:00 +0000\r\n\r\npage ${uid}\r\n`,
+        metadata,
+      };
+    };
+    fixture = await createSnapshotFixture({
+      kind: "imap",
+      externalId: "anna",
+      now: () => NOW,
+      objects: [plain(1), plain(2), plain(3)],
+    });
+    const target = new FakeImapAccount({ delimiter: "." });
+    target.dropAfterAppends = 2;
+    const request = restoreRequestFor(fixture, { mode: "rename" });
+    await expect(engineFor(target).run(fixture.ctx, request)).rejects.toThrow(
+      /connection was lost/,
+    );
+    // The worker was killed before the attempt saved its record; pg-boss hands the job out again.
+    await fixture.ctx.cursor.clear();
+
+    target.connectionLost = false;
+    target.dropAfterAppends = null;
+    const retry = await engineFor(target).run({ ...fixture.ctx, attempt: 1 }, request);
+
+    const mailbox = `${RESTORE_FOLDER}.INBOX`;
+    expect(target.messages(mailbox)).toHaveLength(3);
+    expect(retry.restored).toBe(3);
+    expect(
+      retry.items.filter((item) => item.reason?.includes("found by its content")),
+    ).toHaveLength(2);
+  });
+
+  it("never claims a message the original mailbox already held as the work of an earlier attempt", async () => {
+    // A scanner mail without Message-ID that the target's INBOX already holds, byte for byte.
+    const content = "Subject: Scan 1\r\nDate: Thu, 15 Jan 2026 10:30:00 +0000\r\n\r\npage 1\r\n";
+    const base = message("INBOX", "mail/INBOX/1.eml", 1, { specialUse: "\\Inbox" });
+    const { messageId: _id, ...metadata } = base.metadata ?? {};
+    fixture = await createSnapshotFixture({
+      kind: "imap",
+      externalId: "anna",
+      now: () => NOW,
+      objects: [{ ...base, content, metadata }],
+    });
+    const target = new FakeImapAccount({ delimiter: "." });
+    target.seed("INBOX", content, new Date(String(metadata.internalDate)));
+    const request = restoreRequestFor(fixture, { mode: "skip" });
+
+    // A retried attempt of a skip-mode job (the first one wrote nothing).
+    const report = await engineFor(target).run({ ...fixture.ctx, attempt: 1 }, request);
+
+    expect(target.messages("INBOX")).toHaveLength(1);
+    const item = must(report.items.find((entry) => entry.path === "mail/INBOX/1.eml"));
+    expect(item).toMatchObject({ status: "skipped", code: "exists" });
+    expect(item.reason).toMatch(/identical message .* is already in the target mailbox/);
+    expect(item.reason).not.toMatch(/restored by an earlier attempt/);
   });
 
   it("logs out when the job is cancelled mid-restore", async () => {
@@ -573,6 +702,7 @@ describe("ImapRestoreEngine with two backed-up messages sharing a Message-ID", (
     // Both were restored by the earlier attempt: nothing is written again.
     const target = new FakeImapAccount({ delimiter: "." });
     await engineFor(target).run(fixture.ctx, request);
+    await fixture.ctx.cursor.clear();
     const retry = await engineFor(target).run(fixture.ctx, request);
     expect(retry.skipped).toBe(2);
     for (const skipped of retry.items) {
@@ -583,6 +713,7 @@ describe("ImapRestoreEngine with two backed-up messages sharing a Message-ID", (
     expect(contents(target, mailbox)).toEqual([direct, listCopy]);
 
     // The earlier attempt restored only the list copy: the direct one follows now.
+    await fixture.ctx.cursor.clear();
     const partial = new FakeImapAccount({ delimiter: "." });
     await partial.ensureMailbox(mailbox);
     const earlier = partial.seed(mailbox, listCopy);
@@ -621,5 +752,320 @@ describe("IMAP helpers", () => {
         "Old/Stuff",
       ),
     ).toEqual(["Old/Stuff", "INBOX"]);
+  });
+});
+
+// A Gmail account as the IMAP backup saw it: one message object per label
+// mailbox ("/" as delimiter), the same bytes in each, and All Mail with \All.
+function gmailMessage(
+  mailbox: string,
+  path: string,
+  uid: number,
+  mail: { id: string; specialUse?: string; flags?: string; labels?: string[] },
+): FixtureObject {
+  const messageId = `<${mail.id}@example.org>`;
+  return {
+    path,
+    type: "message",
+    id: `imap:${mailbox}:9:${uid}`,
+    content: mimeMessage({ messageId, subject: `Gmail ${mail.id}` }),
+    mtime: Date.UTC(2025, 10, 3, 8, 15),
+    metadata: {
+      mailbox,
+      delimiter: "/",
+      uid: String(uid),
+      uidValidity: "9",
+      flags: mail.flags ?? "\\Seen",
+      internalDate: new Date(Date.UTC(2025, 10, 3, 8, 15)).toISOString(),
+      messageId,
+      ...(mail.specialUse ? { specialUse: mail.specialUse } : {}),
+      ...(mail.labels ? { gmailLabels: JSON.stringify(mail.labels) } : {}),
+    },
+  };
+}
+
+function gmailFolder(mailbox: string, path: string, specialUse?: string): FixtureObject {
+  return {
+    path,
+    type: "folder",
+    id: `imap:${mailbox}:9`,
+    content: "",
+    metadata: { mailbox, delimiter: "/", uidValidity: "9", ...(specialUse ? { specialUse } : {}) },
+  };
+}
+
+const ALL = "[Gmail]/All Mail";
+const gmailPerLabel: FixtureObject[] = [
+  gmailFolder("INBOX", "mail/INBOX", "\\Inbox"),
+  gmailFolder(ALL, "mail/[Gmail]/All Mail", "\\All"),
+  gmailFolder("[Gmail]/Sent Mail", "mail/[Gmail]/Sent Mail", "\\Sent"),
+  gmailFolder("[Gmail]/Important", "mail/[Gmail]/Important", "\\Important"),
+  gmailFolder("[Gmail]/Starred", "mail/[Gmail]/Starred", "\\Flagged"),
+  gmailFolder("Work", "mail/Work"),
+  gmailFolder("Work/Projects", "mail/Work/Projects"),
+  // a: Inbox, Work, Important, Starred
+  gmailMessage("INBOX", "mail/INBOX/1.eml", 1, { id: "a", specialUse: "\\Inbox" }),
+  gmailMessage(ALL, "mail/[Gmail]/All Mail/11.eml", 11, { id: "a", specialUse: "\\All" }),
+  gmailMessage("Work", "mail/Work/21.eml", 21, { id: "a" }),
+  gmailMessage("[Gmail]/Important", "mail/[Gmail]/Important/31.eml", 31, {
+    id: "a",
+    specialUse: "\\Important",
+  }),
+  gmailMessage("[Gmail]/Starred", "mail/[Gmail]/Starred/41.eml", 41, {
+    id: "a",
+    specialUse: "\\Flagged",
+  }),
+  // b: only the label Work/Projects
+  gmailMessage(ALL, "mail/[Gmail]/All Mail/12.eml", 12, { id: "b", specialUse: "\\All" }),
+  gmailMessage("Work/Projects", "mail/Work/Projects/22.eml", 22, { id: "b" }),
+  // c: sent
+  gmailMessage("[Gmail]/Sent Mail", "mail/[Gmail]/Sent Mail/51.eml", 51, {
+    id: "c",
+    specialUse: "\\Sent",
+  }),
+  gmailMessage(ALL, "mail/[Gmail]/All Mail/13.eml", 13, { id: "c", specialUse: "\\All" }),
+  // d: archived, no label at all
+  gmailMessage(ALL, "mail/[Gmail]/All Mail/14.eml", 14, { id: "d", specialUse: "\\All" }),
+];
+
+function messageIdOf(content: Buffer): string | undefined {
+  return /^message-id:\s*(\S+)/im.exec(content.toString("utf8"))?.[1];
+}
+
+describe("ImapRestoreEngine with a Gmail backup", () => {
+  let fixture: SnapshotFixture;
+
+  afterEach(async () => {
+    await fixture?.cleanup();
+  });
+
+  it("restores each message of a per-label backup once into another server, labels as keywords", async () => {
+    fixture = await createSnapshotFixture({
+      kind: "imap",
+      externalId: "anna@gmail.example",
+      objects: gmailPerLabel,
+      now: () => NOW,
+    });
+    const target = new FakeImapAccount({
+      delimiter: ".",
+      mailboxes: { Sent: "\\Sent", Archive: "\\Archive" },
+      permanentFlags: ["\\Seen", "\\Flagged", "\\*"],
+    });
+
+    const report = await engineFor(target).run(
+      fixture.ctx,
+      restoreRequestFor(fixture, { mode: "skip" }),
+    );
+
+    expect(report.failures).toEqual([]);
+    // Four messages, each appended exactly once.
+    expect(report.restored).toBe(4);
+    expect(target.commands.filter((command) => command.startsWith("APPEND"))).toHaveLength(4);
+    const ids = target.distinctMessages().map((stored) => messageIdOf(stored.content));
+    expect(ids.sort()).toEqual([
+      "<a@example.org>",
+      "<b@example.org>",
+      "<c@example.org>",
+      "<d@example.org>",
+    ]);
+    const a = must(target.messages("INBOX")[0]);
+    expect(messageIdOf(a.content)).toBe("<a@example.org>");
+    expect([...a.flags].sort()).toEqual(["Important", "Work", "\\Flagged", "\\Seen"]);
+    expect(target.messages("Work.Projects").map((stored) => messageIdOf(stored.content))).toEqual([
+      "<b@example.org>",
+    ]);
+    expect(target.messages("Sent").map((stored) => messageIdOf(stored.content))).toEqual([
+      "<c@example.org>",
+    ]);
+    // A message without labels goes into the target's archive, not a "[Gmail]" folder.
+    expect(target.messages("Archive").map((stored) => messageIdOf(stored.content))).toEqual([
+      "<d@example.org>",
+    ]);
+    // Gmail's own mailboxes are not recreated: Sent Mail is the target's Sent, Important and
+    // Starred are labels (keyword, flag) and All Mail went into the archive.
+    expect(target.mailboxNames().some((name) => name.includes("[Gmail]"))).toBe(false);
+    expect(
+      must(report.items.find((entry) => entry.path === "mail/[Gmail]/Important")),
+    ).toMatchObject({
+      status: "skipped",
+      reason: expect.stringMatching(/is a label, not a folder/),
+    });
+
+    // Every object of the backup has an outcome; the label copies say what became of them.
+    const item = (path: string) => must(report.items.find((entry) => entry.path === path));
+    expect(item("mail/INBOX/1.eml")).toMatchObject({ status: "restored", verified: true });
+    expect(item("mail/INBOX/1.eml").reason).toMatch(
+      /Gmail labels kept as keywords: Work Important/,
+    );
+    expect(item("mail/Work/21.eml")).toMatchObject({ status: "skipped", code: "merged" });
+    expect(item("mail/Work/21.eml").reason).toMatch(/label "Work" is kept as the keyword "Work"/);
+    expect(item("mail/[Gmail]/All Mail/11.eml").reason).toMatch(/All Mail holds every message/);
+    expect(item("mail/[Gmail]/Starred/41.eml").reason).toMatch(/kept as the flag \\Flagged/);
+    expect(report.skipped).toBe(6);
+  });
+
+  it("says which labels a server without keywords cannot keep", async () => {
+    fixture = await createSnapshotFixture({
+      kind: "imap",
+      externalId: "anna@gmail.example",
+      objects: gmailPerLabel,
+      now: () => NOW,
+    });
+    const target = new FakeImapAccount({ permanentFlags: ["\\Seen", "\\Flagged", "\\Answered"] });
+
+    const report = await engineFor(target).run(
+      fixture.ctx,
+      restoreRequestFor(fixture, { mode: "skip" }),
+    );
+
+    expect(report.failures).toEqual([]);
+    const item = (path: string) => must(report.items.find((entry) => entry.path === path));
+    expect(item("mail/Work/21.eml").reason).toMatch(
+      /label "Work" is not kept: the server takes no new keywords/,
+    );
+    expect(item("mail/INBOX/1.eml").reason).toMatch(/keywords Work Important are not kept/);
+  });
+
+  it("restores each message once into Gmail and adds its other labels by COPY", async () => {
+    fixture = await createSnapshotFixture({
+      kind: "imap",
+      externalId: "anna@gmail.example",
+      objects: gmailPerLabel,
+      now: () => NOW,
+    });
+    const target = new FakeImapAccount({ gmail: true, mailboxes: { Work: undefined } });
+
+    const report = await engineFor(target).run(
+      fixture.ctx,
+      restoreRequestFor(fixture, { mode: "skip" }),
+    );
+
+    expect(report.failures).toEqual([]);
+    expect(target.commands.filter((command) => command.startsWith("APPEND"))).toHaveLength(4);
+    // Gmail holds each message once; its labels are the mailboxes it appears in.
+    expect(target.distinctMessages()).toHaveLength(4);
+    expect(target.messages(ALL)).toHaveLength(4);
+    const labelsOf = (id: string) =>
+      target
+        .mailboxNames()
+        .filter((name) =>
+          target
+            .messages(name)
+            .some((stored) => messageIdOf(stored.content) === `<${id}@example.org>`),
+        )
+        .filter((name) => name !== ALL);
+    expect(labelsOf("a")).toEqual(["INBOX", "Work", "[Gmail]/Important"]);
+    expect(must(target.messages("INBOX")[0]).flags).toContain("\\Flagged");
+    expect(labelsOf("b")).toEqual(["Work/Projects"]);
+    expect(labelsOf("c")).toEqual(["[Gmail]/Sent Mail"]);
+    expect(labelsOf("d")).toEqual([]);
+    const item = (path: string) => must(report.items.find((entry) => entry.path === path));
+    expect(item("mail/INBOX/1.eml").reason).toMatch(/Gmail labels added: Work, Important/);
+    expect(item("mail/Work/21.eml").reason).toMatch(
+      /label "Work" was added to it \(COPY to Work\)/,
+    );
+  });
+
+  it("adds the labels on a retry when the earlier attempt ended between APPEND and COPY", async () => {
+    fixture = await createSnapshotFixture({
+      kind: "imap",
+      externalId: "anna@gmail.example",
+      objects: gmailPerLabel,
+      now: () => NOW,
+    });
+    const target = new FakeImapAccount({ gmail: true, mailboxes: { Work: undefined } });
+    target.dropAtCopy = true;
+    const request = restoreRequestFor(fixture, { mode: "rename" });
+    await expect(engineFor(target).run(fixture.ctx, request)).rejects.toThrow(
+      /connection was lost/,
+    );
+    // The worker was killed before the attempt saved its record.
+    await fixture.ctx.cursor.clear();
+    target.dropAtCopy = false;
+    target.connectionLost = false;
+
+    const report = await engineFor(target).run({ ...fixture.ctx, attempt: 1 }, request);
+
+    expect(report.failures).toEqual([]);
+    expect(target.distinctMessages()).toHaveLength(4);
+    // Message a is labelled Work again: the label mailbox holds it.
+    const work = target.mailboxNames().filter((name) => /(^|\/)Work$/.test(name));
+    expect(
+      work.some((name) =>
+        target.messages(name).some((stored) => messageIdOf(stored.content) === "<a@example.org>"),
+      ),
+    ).toBe(true);
+    const item = (path: string) => must(report.items.find((entry) => entry.path === path));
+    expect(item("mail/INBOX/1.eml")).toMatchObject({ status: "skipped", code: "exists" });
+    expect(item("mail/INBOX/1.eml").reason).toMatch(/Gmail labels added: Work, Important/);
+    expect(item("mail/Work/21.eml").reason).toMatch(/label "Work" was added to it/);
+  });
+
+  it("restores a Gmail-layout backup (All Mail with its labels) once per message", async () => {
+    const objects: FixtureObject[] = [
+      gmailFolder(ALL, "mail/[Gmail]/All Mail", "\\All"),
+      gmailFolder("[Gmail]/Sent Mail", "mail/[Gmail]/Sent Mail", "\\Sent"),
+      gmailMessage(ALL, "mail/[Gmail]/All Mail/11.eml", 11, {
+        id: "a",
+        specialUse: "\\All",
+        labels: ["\\Inbox", "\\Important", "Work", "\\Starred"],
+      }),
+      gmailMessage(ALL, "mail/[Gmail]/All Mail/12.eml", 12, {
+        id: "b",
+        specialUse: "\\All",
+        labels: ["Work/Projects"],
+      }),
+      gmailMessage(ALL, "mail/[Gmail]/All Mail/13.eml", 13, {
+        id: "c",
+        specialUse: "\\All",
+        labels: ["\\Sent"],
+      }),
+    ];
+    fixture = await createSnapshotFixture({
+      kind: "imap",
+      externalId: "anna@gmail.example",
+      objects,
+      now: () => NOW,
+    });
+    const target = new FakeImapAccount({ mailboxes: { Sent: "\\Sent" } });
+
+    const report = await engineFor(target).run(
+      fixture.ctx,
+      restoreRequestFor(fixture, { mode: "skip" }),
+    );
+
+    expect(report.failures).toEqual([]);
+    expect(report.restored).toBe(3);
+    expect(target.distinctMessages()).toHaveLength(3);
+    expect([...must(target.messages("INBOX")[0]).flags].sort()).toEqual([
+      "Important",
+      "Work",
+      "\\Flagged",
+      "\\Seen",
+    ]);
+    expect(target.messages("Work/Projects")).toHaveLength(1);
+    expect(target.messages("Sent")).toHaveLength(1);
+  });
+
+  it("keeps a single label folder of a Gmail backup as it is", async () => {
+    fixture = await createSnapshotFixture({
+      kind: "imap",
+      externalId: "anna@gmail.example",
+      objects: gmailPerLabel,
+      now: () => NOW,
+    });
+    const target = new FakeImapAccount();
+
+    const report = await engineFor(target).run(
+      fixture.ctx,
+      restoreRequestFor(fixture, {
+        mode: "skip",
+        selection: { paths: ["mail/Work/21.eml"] },
+      }),
+    );
+
+    expect(report.failures).toEqual([]);
+    expect(report.restored).toBe(1);
+    expect(target.messages("Work")).toHaveLength(1);
   });
 });

@@ -11,7 +11,7 @@ import {
   verifyUpload,
 } from "./onedrive.js";
 import { quickXorHash } from "./quickxorhash.js";
-import { FakeDrive } from "./testing/fake-drive.js";
+import { FakeDrive, rewriteOfficeProperties } from "./testing/fake-drive.js";
 import {
   createSnapshotFixture,
   type FixtureObject,
@@ -25,7 +25,11 @@ const MIB = 1024 * 1024;
 const FRAGMENT = 5 * MIB;
 
 function engineFor(drive: FakeDrive): OneDriveRestoreEngine {
-  return new OneDriveRestoreEngine({ graph: () => drive.graph.client(), fragmentSize: FRAGMENT });
+  return new OneDriveRestoreEngine({
+    graph: () => drive.graph.client(),
+    fragmentSize: FRAGMENT,
+    fragmentRetryDelayMs: 0,
+  });
 }
 
 const report = Buffer.from("quarterly report, final version");
@@ -128,6 +132,61 @@ describe("OneDriveRestoreEngine", () => {
     );
   });
 
+  it("continues a large file after a failed fragment, reading a lost one again from its chunks", async () => {
+    fixture = await createSnapshotFixture({
+      kind: "onedrive",
+      externalId: DRIVE,
+      objects: [largeFile, oddFile],
+    });
+    const drive = new FakeDrive(DRIVE);
+    // exact.bin: the session loses the first fragment while refusing the second, so the
+    // restore has to read bytes it already sent once more, then the second fragment gets a
+    // 502; odd.bin: the connection breaks after its first fragment was taken.
+    drive.failFragmentAt(FRAGMENT, { kind: "lose-previous" });
+    drive.failFragmentAt(FRAGMENT, { kind: "status", status: 502 });
+    drive.failFragmentAt(0, { kind: "reset-after-accept" });
+
+    const result = await engineFor(drive).run(fixture.ctx, restoreRequestFor(fixture));
+
+    expect(result.failures).toEqual([]);
+    expect(result.restored).toBe(2);
+    expect(result.unverified).toBe(0);
+    const byPath = new Map(drive.files().map((item) => [drive.pathOf(item.id), item]));
+    expect(must(byPath.get("Videos/Clips/exact.bin")).content.equals(large)).toBe(true);
+    expect(must(byPath.get("Videos/odd.bin")).content.equals(odd)).toBe(true);
+    const [first, second] = [...drive.sessions.values()];
+    expect(must(first).ranges).toEqual([
+      `bytes 0-${FRAGMENT - 1}/${large.length}`,
+      `bytes ${FRAGMENT}-${large.length - 1}/${large.length}`,
+      `bytes 0-${FRAGMENT - 1}/${large.length}`,
+      `bytes ${FRAGMENT}-${large.length - 1}/${large.length}`,
+      `bytes ${FRAGMENT}-${large.length - 1}/${large.length}`,
+    ]);
+    expect(must(second).ranges).toEqual([
+      `bytes 0-${FRAGMENT - 1}/${odd.length}`,
+      `bytes ${FRAGMENT}-${odd.length - 1}/${odd.length}`,
+    ]);
+  });
+
+  it("fails a file whose fragment never gets through and cancels its upload session", async () => {
+    fixture = await createSnapshotFixture({
+      kind: "onedrive",
+      externalId: DRIVE,
+      objects: [largeFile],
+    });
+    const drive = new FakeDrive(DRIVE);
+    drive.failFragmentAt(FRAGMENT, { kind: "status", status: 500 }, 1000);
+
+    const result = await engineFor(drive).run(fixture.ctx, restoreRequestFor(fixture));
+
+    expect(result.restored).toBe(0);
+    expect(result.failures).toHaveLength(1);
+    expect(result.items[0]).toMatchObject({ id: "F2", status: "failed" });
+    const session = must([...drive.sessions.values()][0]);
+    expect(session.cancelled).toBe(true);
+    expect(drive.files()).toEqual([]);
+  });
+
   it("maps the modes onto conflict behaviour: rename keeps both, skip leaves, replace overwrites", async () => {
     fixture = await createSnapshotFixture({
       kind: "onedrive",
@@ -167,6 +226,54 @@ describe("OneDriveRestoreEngine", () => {
     expect(current.content.equals(report)).toBe(true);
   });
 
+  it("restores a OneNote section into the notebook that is still in the target (a package item)", async () => {
+    const section = Buffer.from("OneNote section bytes");
+    fixture = await createSnapshotFixture({
+      kind: "onedrive",
+      externalId: DRIVE,
+      objects: [
+        // The backup records a notebook as a folder with packageType (backup/onedrive/items.ts).
+        {
+          path: "Notebook",
+          type: "folder",
+          id: "NB",
+          content: "",
+          metadata: { packageType: "oneNote" },
+        },
+        {
+          path: "Notebook/Section.one",
+          type: "file",
+          id: "SEC",
+          content: section,
+          metadata: { quickXorHash: quickXorHash(section) },
+        },
+      ],
+    });
+    const drive = new FakeDrive(DRIVE);
+    const notebook = drive.addNotebook("root", "Notebook");
+    drive.addFile(notebook.id, "Other.one", Buffer.from("a section nobody deleted"));
+
+    for (const mode of ["rename", "replace", "skip"] as const) {
+      const result = await engineFor(drive).run(fixture.ctx, restoreRequestFor(fixture, { mode }));
+      expect(result.failures).toEqual([]);
+      expect(result.items.find((item) => item.id === "NB")).toMatchObject({
+        status: "restored",
+        targetRef: notebook.id,
+      });
+      if (mode === "skip") {
+        expect(result.items.find((item) => item.id === "SEC")?.status).toBe("skipped");
+      } else {
+        expect(result.items.find((item) => item.id === "SEC")?.status).toBe("restored");
+      }
+    }
+    // The section went into the live notebook; no second "Notebook" folder appeared.
+    expect(
+      [...drive.items.values()].filter((item) => item.name.toLowerCase() === "notebook"),
+    ).toHaveLength(1);
+    expect(must(drive.child(notebook.id, "Section.one")).content.equals(section)).toBe(true);
+    expect(drive.child(notebook.id, "Other.one")).toBeDefined();
+  });
+
   it("recognises the copies an earlier attempt uploaded when a rename-mode job is retried", async () => {
     fixture = await createSnapshotFixture({
       kind: "onedrive",
@@ -180,6 +287,16 @@ describe("OneDriveRestoreEngine", () => {
 
     const first = await engineFor(drive).run(fixture.ctx, request);
     expect(first.restored).toBe(2);
+    // The job's own record names what the first attempt uploaded.
+    const recorded = await engineFor(drive).run(fixture.ctx, request);
+    expect(recorded.restored).toBe(2);
+    expect(recorded.items.find((item) => item.id === "F1")).toMatchObject({
+      status: "restored",
+      targetRef: must(drive.child(folder.id, "report 1.docx")).id,
+      reason: "restored by an earlier attempt of this job",
+    });
+    // Without the record (an attempt that ended before it was saved), by content.
+    await fixture.ctx.cursor.clear();
     const retry = await engineFor(drive).run(fixture.ctx, request);
 
     expect(retry.failures).toEqual([]);
@@ -199,6 +316,85 @@ describe("OneDriveRestoreEngine", () => {
     ]);
     // The large file was compared by hash, not uploaded a second time.
     expect(drive.sessions.size).toBe(1);
+  });
+
+  describe("an Office file SharePoint rewrote on download", () => {
+    // The library stores S; the download (the backup) yields other bytes B.
+    const stored = Buffer.from("quarterly report as the library stores it");
+    const downloaded = rewriteOfficeProperties(Buffer.from("quarterly report as downloaded"));
+    const rewritten: FixtureObject = {
+      path: "Documents/Report.docx",
+      type: "file",
+      id: "F9",
+      content: downloaded,
+      metadata: {
+        lastModifiedDateTime: "2025-03-02T09:30:00Z",
+        sourceSize: String(stored.length),
+        quickXorHash: quickXorHash(stored),
+      },
+    };
+
+    it("is recognised in its place unchanged, without a numbered copy", async () => {
+      fixture = await createSnapshotFixture({
+        kind: "onedrive",
+        externalId: DRIVE,
+        objects: [rewritten],
+      });
+      const drive = new FakeDrive(DRIVE);
+      drive.rewritesOfficeFiles = true;
+      const folder = drive.addFolder("root", "Documents");
+      const original = drive.addFile(folder.id, "Report.docx", stored);
+
+      const report = await engineFor(drive).run(
+        fixture.ctx,
+        restoreRequestFor(fixture, { mode: "rename" }),
+      );
+
+      expect(report.failures).toEqual([]);
+      expect(report.items.find((item) => item.id === "F9")).toMatchObject({
+        status: "skipped",
+        code: "exists",
+        targetRef: original.id,
+      });
+      expect(drive.files().map((item) => item.name)).toEqual(["Report.docx"]);
+    });
+
+    it("is uploaded once by a job however often it is retried, and counts as confirmed", async () => {
+      fixture = await createSnapshotFixture({
+        kind: "onedrive",
+        externalId: DRIVE,
+        objects: [rewritten],
+      });
+      for (const rewrites of [false, true]) {
+        const drive = new FakeDrive(DRIVE);
+        drive.rewritesOfficeFiles = rewrites;
+        const folder = drive.addFolder("root", "Documents");
+        drive.addFile(folder.id, "Report.docx", Buffer.from("edited since the backup"));
+        const request = restoreRequestFor(fixture, { mode: "rename" });
+
+        const first = await engineFor(drive).run(fixture.ctx, request);
+        // The recorded hash is the library's, not the backup's: no false mismatch.
+        expect(first.items.find((item) => item.id === "F9")?.verified).toBe(!rewrites);
+        const second = await engineFor(drive).run(fixture.ctx, request);
+        expect(second.items.find((item) => item.id === "F9")?.reason, String(rewrites)).toBe(
+          "restored by an earlier attempt of this job",
+        );
+        if (!rewrites) {
+          // Without the record the backup's own hash finds the earlier upload.
+          await fixture.ctx.cursor.clear();
+          const third = await engineFor(drive).run(fixture.ctx, request);
+          expect(third.items.find((item) => item.id === "F9")?.code).toBe("exists");
+        }
+        expect(
+          drive
+            .files()
+            .map((item) => item.name)
+            .sort(),
+          String(rewrites),
+        ).toEqual(["Report 1.docx", "Report.docx"]);
+        await fixture.ctx.cursor.clear();
+      }
+    });
   });
 
   it("uploads a renamed copy in rename mode only where the file there differs", async () => {

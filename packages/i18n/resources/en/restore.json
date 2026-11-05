@@ -271,8 +271,17 @@
       "sent": "Sent"
     },
     "protection": {
-      "notice": "{kind, select, purview {Rights-protected by Microsoft Purview} smime {S/MIME-encrypted} other {Protected}}: opening the EML needs the recipient's rights; restoring into the mailbox works.",
-      "downloadHint": "{kind, select, purview {Rights-protected by Microsoft Purview} smime {S/MIME-encrypted} other {Protected}}: the downloaded EML needs the recipient's rights to open; restoring into the mailbox works."
+      "notice": "{kind, select, purview {Rights-protected by Microsoft Purview} smime {S/MIME-encrypted} other {Protected}}: opening the EML needs the recipient's rights. Restoring into the mailbox works for messages up to about 2.6 MB; Exchange cannot take a larger one protected, so it can only be downloaded as EML.",
+      "downloadHint": "{kind, select, purview {Rights-protected by Microsoft Purview} smime {S/MIME-encrypted} other {Protected}}: the downloaded EML needs the recipient's rights to open. Restoring into the mailbox works for messages up to about 2.6 MB; a larger one can only be downloaded."
+    },
+    "attachmentsNotBackedUp": {
+      "title": "Not all attachments backed up",
+      "description": "Not all attachments of this post are in the backup: Microsoft did not hand them out to the app, or some of them could not be read at the backup. A restore, a download or an export brings back the post without them."
+    },
+    "carriedForward": {
+      "title": "Library not readable at this backup",
+      "description": "The library could not be read at this backup; its files are as of {date}, the last backup that read it.",
+      "descriptionUndated": "The library could not be read at this backup; its files are those of an earlier backup."
     },
     "reading": {
       "plainText": "Plain-text message",
@@ -351,7 +360,7 @@
         "onedrive": "The user (UPN) or drive id of the target OneDrive; add :/Folder to restore into a subfolder.",
         "site": "The library to restore into, from a backed-up site of the same Microsoft 365 tenant; add :/Folder to restore into a subfolder.",
         "group": "The address of the user mailbox in the same Microsoft 365 tenant that receives the group calendar's events and the conversations (as mail).",
-        "imap": "The login of an IMAP account of this tenant."
+        "imap": "The login of an IMAP account of this tenant. Choose it from the suggestions when two servers know the same login."
       }
     },
     "mode": {
@@ -390,6 +399,7 @@
       "accountRequired": "Enter the account to restore into.",
       "reasonRequired": "Enter a reason of at least 3 characters.",
       "targetUnknown": "This account is not known in this tenant. IMAP restores can only go into accounts of this tenant.",
+      "targetAmbiguous": "More than one account of this tenant has this login or address. Choose the account from the suggestions, which name its source.",
       "selectionUnknown": "Some selected entries no longer exist at this restore point. Reload the folder and select again.",
       "originalGone": "The original account no longer exists. Restore into another account or download the data.",
       "queueUnavailable": "The queue is not available. Make sure the {appName} worker is running, then try again.",
@@ -544,7 +554,10 @@
       "unverified": "Restored, but the target's confirmation did not match the backup.",
       "exists": "The target already holds this item.",
       "not_restorable": "The backup holds no restorable content for this kind of item.",
-      "parent_not_restored": "Belongs to a message that was not restored.",
+      "parent_not_restored": "Belongs to an item (a message or an event) that was not restored.",
+      "parent_exists": "Belongs to an item that already exists in the target and was therefore skipped.",
+      "merged": "Restored with another item: as an attachment inside its MIME, or as the same Gmail message under another label.",
+      "not_applicable": "No item of its own in the target: it is carried another way, as a label, category or flag.",
       "wrong_target": "This kind of item cannot be restored into this target.",
       "data_missing": "Data of this item is missing from the storage.",
       "integrity": "The data did not pass the integrity check and was not restored.",

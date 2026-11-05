@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { loadManifest } from "../../engine/snapshot.js";
-import type { ProtectedObjectRef } from "../../engine/types.js";
+import type { ProtectedObjectRef, RestoreTarget } from "../../engine/types.js";
 import {
   createFakeGraph,
   type FakeGraph,
@@ -10,6 +10,7 @@ import {
 import type { ManifestObject, SnapshotManifest } from "../../manifest.js";
 import { chunkReaderFor } from "../../restore/common.js";
 import { calendarFactsOf, folderSegmentsOf } from "../../restore/conventions.js";
+import { DownloadRestoreEngine } from "../../restore/download.js";
 import { GroupRestoreEngine } from "../../restore/groups.js";
 import { FakeMailbox as TargetMailbox } from "../../restore/testing/fake-mailbox.js";
 import {
@@ -470,6 +471,32 @@ describe("GroupMailboxBackupEngine", () => {
     expect(graph.calls.filter((call) => call.url.includes("/attachments"))).toEqual([]);
   });
 
+  it("restores and downloads posts whose attachments Graph refused as not confirmed, with the reason", async () => {
+    group.refuseAttachmentExpand = true;
+    const backup = await engine().run(fixture.ctx, fixture.protectedObject);
+    const request = (target: RestoreTarget) =>
+      restoreRequestFor(
+        { protectedObject: fixture.protectedObject, snapshotId: backup.snapshotId },
+        { mode: "skip", target },
+      );
+    const target = new TargetMailbox();
+    const report = await new GroupRestoreEngine({ graph: () => target.graph.client() }).run(
+      fixture.ctx,
+      request({ type: "other", ref: "bob@contoso.example" }),
+    );
+    const p1 = must(report.items.find((item) => item.id === "P1"));
+    expect(p1).toMatchObject({ status: "restored", verified: false });
+    expect(p1.reason).toMatch(/Microsoft did not hand out the attachments of this post/);
+
+    const download = await new DownloadRestoreEngine().run(
+      fixture.ctx,
+      request({ type: "download", ref: null }),
+    );
+    const downloaded = must(download.items.find((item) => item.id === "P1"));
+    expect(downloaded).toMatchObject({ status: "restored", verified: false });
+    expect(downloaded.reason).toMatch(/Microsoft did not hand out the attachments/);
+  });
+
   it("fails with GroupUnavailableError when the group no longer exists", async () => {
     group.exists = false;
     await expect(engine().run(fixture.ctx, fixture.protectedObject)).rejects.toBeInstanceOf(
@@ -549,6 +576,14 @@ describe("GroupMailboxBackupEngine", () => {
       );
       const folder = must(messages[0]).parentFolderId;
       expect(target.folderPath(folder)).toEqual(["Conversations"]);
+      // P1's link attachment is recorded by name (its file lives in OneDrive or SharePoint):
+      // said, as for a message, without taking the confirmation.
+      const p1 = must(report.items.find((item) => item.id === "P1"));
+      expect(p1).toMatchObject({ status: "restored", code: "restored", verified: true });
+      expect(p1.reason).toMatch(
+        /link attachments are listed in the backup but not re-created: Shared doc/,
+      );
+      expect(must(report.items.find((item) => item.id === "P2")).verified).toBe(true);
       const subjects = [...target.events.values()].map((event) => event.body.subject).sort();
       expect(subjects).toEqual(["Kickoff", "Weekly standup"]);
     });

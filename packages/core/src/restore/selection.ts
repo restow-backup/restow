@@ -136,10 +136,14 @@ export function selectObjects(
     }
   }
   for (const object of manifest.objects) {
-    if (objectTypeOf(object) !== "attachment" || selected.has(object.path)) {
+    const type = objectTypeOf(object);
+    if ((type !== "attachment" && type !== "event-attachment") || selected.has(object.path)) {
       continue;
     }
-    const owner = catalog.attachmentOwner(object);
+    const owner =
+      type === "attachment"
+        ? catalog.attachmentOwner(object)
+        : catalog.eventAttachmentOwner(object);
     if (owner !== undefined && selected.has(owner)) {
       selected.set(object.path, object);
     }
@@ -155,9 +159,11 @@ export interface RestorePlan {
   readonly mail: ManifestObject[];
   /** Attachments by the path of their (selected) message. */
   readonly attachmentsByMessage: Map<string, ManifestObject[]>;
-  /** Attachments selected without their message. */
+  /** Attachments selected without their message (or event). */
   readonly orphanAttachments: ManifestObject[];
   readonly events: ManifestObject[];
+  /** Event attachments by the path of their (selected) event. */
+  readonly attachmentsByEvent: Map<string, ManifestObject[]>;
   readonly contacts: ManifestObject[];
   readonly files: ManifestObject[];
   readonly versions: ManifestObject[];
@@ -178,6 +184,7 @@ export function planRestore(manifest: SnapshotManifest, selection: RestoreSelect
     attachmentsByMessage: new Map(),
     orphanAttachments: [],
     events: [],
+    attachmentsByEvent: new Map(),
     contacts: [],
     files: [],
     versions: [],
@@ -187,6 +194,9 @@ export function planRestore(manifest: SnapshotManifest, selection: RestoreSelect
   };
   const selectedMail = new Set(
     objects.filter((object) => objectTypeOf(object) === "mail").map((object) => object.path),
+  );
+  const selectedEvents = new Set(
+    objects.filter((object) => objectTypeOf(object) === "event").map((object) => object.path),
   );
   for (const object of objects) {
     switch (objectTypeOf(object)) {
@@ -207,6 +217,17 @@ export function planRestore(manifest: SnapshotManifest, selection: RestoreSelect
       case "event":
         plan.events.push(object);
         break;
+      case "event-attachment": {
+        const owner = catalog.eventAttachmentOwner(object);
+        if (owner === undefined || !selectedEvents.has(owner)) {
+          plan.orphanAttachments.push(object);
+          break;
+        }
+        const list = plan.attachmentsByEvent.get(owner) ?? [];
+        list.push(object);
+        plan.attachmentsByEvent.set(owner, list);
+        break;
+      }
       case "contact":
         plan.contacts.push(object);
         break;

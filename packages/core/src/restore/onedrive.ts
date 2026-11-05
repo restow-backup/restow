@@ -11,7 +11,11 @@
  *   rename   an existing file keeps its place, the restored copy is renamed;
  *            a file already there with the same content (the unchanged
  *            original, or the copy an earlier attempt of a retried job
- *            uploaded) is not uploaded once more
+ *            uploaded) is not uploaded once more. An Office file SharePoint
+ *            rewrote on download is recognised in its place by the size and
+ *            hash the library reported at backup time, and what an earlier
+ *            attempt uploaded by the job's own record (./progress.ts), since
+ *            no hash of the backup matches what SharePoint stores
  *   replace  the existing file is overwritten (OneDrive keeps it as a version)
  *   skip     an existing file with that name is left alone
  *
@@ -27,7 +31,6 @@
  * then, and the failure names it); a disagreement only on OneDrive's side
  * leaves the item restored but unverified.
  */
-import { Readable } from "node:stream";
 import type { DriveItem } from "@microsoft/microsoft-graph-types";
 import { type ChunkReader, RestoreIntegrityError } from "../engine/chunkstore.js";
 import type {
@@ -55,8 +58,12 @@ import {
   objectTypeOf,
   pathSegments,
   recordedQuickXorHashOf,
+  rewrittenOnDownload,
+  sourceStoredOf,
   versionFactsOf,
 } from "./conventions.js";
+import { ObjectRangeSource } from "./object-range.js";
+import { RESTORED_BY_EARLIER_ATTEMPT, RestoreProgress } from "./progress.js";
 import { UploadDigest } from "./quickxorhash.js";
 import { isAbortError, RestoreLedger, type RestoreReport } from "./results.js";
 import { planRestore, type RestorePlan, resolveRestoreSource } from "./selection.js";
@@ -65,6 +72,8 @@ export interface OneDriveRestoreEngineOptions {
   readonly graph: RestoreGraphClientFactory;
   /** Upload-session fragment size in bytes (default 10 MiB; clamped to 5–60 MiB). */
   readonly fragmentSize?: number;
+  /** First wait after a failed fragment before the session is asked what it holds (tests: 0). */
+  readonly fragmentRetryDelayMs?: number;
 }
 
 /** Where a drive restore writes: a drive plus an optional folder below its root. */
@@ -171,6 +180,10 @@ export class OneDriveRestoreEngine implements RestoreEngine {
       mode: request.mode,
     });
 
+    const progress = await RestoreProgress.open(ctx.cursor, {
+      restoreJobId: request.restoreJobId,
+      retry: ctx.attempt > 0,
+    });
     const session = new OneDriveRestoreSession({
       ctx,
       client,
@@ -178,11 +191,22 @@ export class OneDriveRestoreEngine implements RestoreEngine {
       basePath: target.basePath,
       mode: request.mode,
       fragmentSize: this.options.fragmentSize,
+      fragmentRetryDelayMs: this.options.fragmentRetryDelayMs,
       reader: chunkReaderFor(ctx),
       ledger,
       logger,
+      progress,
     });
-    await restorePlan(ctx, plan, session, ledger);
+    try {
+      await restorePlan(ctx, plan, session, ledger);
+    } finally {
+      // What this attempt uploaded stays known to the next one, also when it failed.
+      await progress.flush().catch((error: unknown) =>
+        logger.warn("could not save the restore progress", {
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    }
 
     ledger.settle(plan.objects);
     await ctx.progress.flush();
@@ -236,7 +260,10 @@ async function restorePlan(
       "wrong_target",
     );
   }
-  for (const attachments of plan.attachmentsByMessage.values()) {
+  for (const attachments of [
+    ...plan.attachmentsByMessage.values(),
+    ...plan.attachmentsByEvent.values(),
+  ]) {
     for (const attachment of attachments) {
       ledger.failed(
         attachment,
@@ -261,9 +288,16 @@ interface SessionOptions {
   readonly basePath: readonly string[];
   readonly mode: RestoreMode;
   readonly fragmentSize: number | undefined;
+  readonly fragmentRetryDelayMs?: number | undefined;
   readonly reader: ChunkReader;
   readonly ledger: RestoreLedger;
   readonly logger: Logger;
+  /**
+   * What earlier attempts of this restore job uploaded, by snapshot path and
+   * target (./progress.ts): a retry recognises its own uploads by item id,
+   * also where SharePoint rewrote the bytes and no hash can match.
+   */
+  readonly progress?: RestoreProgress;
   /**
    * The path an object of the snapshot is written to below `basePath`; the
    * snapshot path itself when absent (a OneDrive). A SharePoint library drops
@@ -271,21 +305,6 @@ interface SessionOptions {
    * the snapshot path.
    */
   readonly targetPathOf?: (snapshotPath: string) => string;
-}
-
-/** The bytes of an object as a stream that feeds `digest` on the way through. */
-function digestingStream(
-  reader: ChunkReader,
-  object: ManifestObject,
-  digest: UploadDigest,
-): Readable {
-  async function* feed(): AsyncGenerator<Buffer> {
-    for await (const chunk of reader.readObject(object)) {
-      digest.update(chunk);
-      yield chunk;
-    }
-  }
-  return Readable.from(feed(), { objectMode: false });
 }
 
 export class OneDriveRestoreSession {
@@ -337,6 +356,18 @@ export class OneDriveRestoreSession {
         throw new Error("the file has an empty path");
       }
       const parentId = await this.ensureFolder(segments);
+      // Keyed by where the file goes: one snapshot path can go into two libraries.
+      const recordKey = `${this.o.driveId}:${object.path}`;
+      const recorded = this.o.progress?.get(recordKey);
+      if (recorded?.state === "done") {
+        ledger.restored(object, {
+          targetRef: recorded.targetRef,
+          bytes: object.size,
+          verified: recorded.verified,
+          note: RESTORED_BY_EARLIER_ATTEMPT,
+        });
+        return;
+      }
 
       if (this.o.mode === "skip") {
         const existing = await getChildByName(client, driveId, parentId, name);
@@ -364,16 +395,21 @@ export class OneDriveRestoreSession {
       }
 
       const digest = new UploadDigest();
-      const source = digestingStream(reader, object, digest);
+      // Seekable: a fragment the session lost is read again from its chunk.
+      const source = new ObjectRangeSource(reader, object, digest);
       let item: DriveItem;
       try {
-        item = await uploadFile(client, driveId, parentId, name, source, object.size, {
+        item = await uploadFile(client, driveId, parentId, name, source.read, object.size, {
           conflictBehavior: conflictBehaviorFor(this.o.mode),
           fileSystemInfo: fileTimestampsOf(object),
           fragmentSize: this.o.fragmentSize,
+          signal: ctx.signal,
+          ...(this.o.fragmentRetryDelayMs !== undefined
+            ? { retryDelayMs: this.o.fragmentRetryDelayMs }
+            : {}),
         });
       } finally {
-        source.destroy();
+        await source.close();
       }
 
       const check = verifyUpload(object, item, digest);
@@ -406,10 +442,17 @@ export class OneDriveRestoreSession {
       if (object.metadata?.stale === "true") {
         notes.push("the backup held the last good copy of this file, not its newest change");
       }
+      const verified = check.problems.length === 0;
+      await this.o.progress?.done(recordKey, verified, item.id ?? undefined);
+      if (rewrittenOnDownload(object)) {
+        // SharePoint may rewrite this upload too: nothing but the record tells
+        // a retry that this item is the job's own, so it is saved at once.
+        await this.o.progress?.flush();
+      }
       ledger.restored(object, {
         targetRef: item.id ?? undefined,
         bytes: object.size,
-        verified: check.problems.length === 0,
+        verified,
         note: [...check.problems, ...notes].join("; ") || undefined,
       });
     } catch (error) {
@@ -434,6 +477,10 @@ export class OneDriveRestoreSession {
   ): Promise<DriveDeltaItem | null> {
     const { client, driveId } = this.o;
     let backupHash: Promise<string> | undefined;
+    // An Office file SharePoint rewrote on download: the unchanged original
+    // still holds what the source stored at backup time (size and hash Graph
+    // reported then), not the backup's bytes.
+    const stored = objectTypeOf(object) === "file" ? sourceStoredOf(object) : undefined;
     for (let copy = 0; copy <= MAX_RENAMED_COPIES; copy++) {
       throwIfAborted(this.o.ctx);
       const candidate = await getChildByName(
@@ -444,6 +491,14 @@ export class OneDriveRestoreSession {
       );
       if (candidate === null) {
         return null;
+      }
+      if (
+        stored !== undefined &&
+        isFileItem(candidate) &&
+        candidate.size === stored.size &&
+        candidate.file?.hashes?.quickXorHash === stored.quickXorHash
+      ) {
+        return candidate;
       }
       if (!isFileItem(candidate) || candidate.size !== object.size) {
         continue;

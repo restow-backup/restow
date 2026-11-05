@@ -180,6 +180,11 @@ export interface MailSummary {
   flagged: boolean | null;
   /** Set when the mail cannot be read back in the clear (see {@link MailProtectionKind}). */
   protection: MailProtectionKind | null;
+  /**
+   * The backup holds the message without some of its attachments (a group post whose
+   * attachments Microsoft did not hand out). Absent from older API versions.
+   */
+  attachmentsNotBackedUp?: boolean;
 }
 
 /**
@@ -220,6 +225,8 @@ export interface TreeEntry {
   /** Present for calendar events (absent from an API older than 0.4.2). */
   event?: EventSummary | null;
   contentType: string | null;
+  /** A SharePoint library the backup could not read: its files are those of `lastReadAt`. */
+  carriedForward?: { lastReadAt: string | null };
 }
 
 /** One occurrence in a calendar view: a single event, or one of a series. */
@@ -416,6 +423,8 @@ export interface RestoreTargetAccount {
   displayName: string | null;
   /** The linked user's email or UPN (#55); older servers omit it. */
   ownerEmail?: string | null;
+  /** The source the account belongs to (two IMAP servers may know one login); older servers omit it. */
+  sourceName?: string | null;
 }
 
 export interface RestoreProgress {
@@ -451,7 +460,8 @@ export interface RestoreJob {
   snapshotSequence: number | null;
   snapshotAt: string | null;
   object: { id: string; kind: ObjectKind; externalId: string; displayName: string | null } | null;
-  target: { type: RestoreTargetType; ref: string | null };
+  /** `label` names an account target by login and source (absent from older APIs). */
+  target: { type: RestoreTargetType; ref: string | null; label?: string | null };
   mode: RestoreMode;
   selection: SelectionSummary;
   reason: string | null;
@@ -485,6 +495,9 @@ export const RESTORE_ITEM_CODES = [
   "exists",
   "not_restorable",
   "parent_not_restored",
+  "parent_exists",
+  "merged",
+  "not_applicable",
   "wrong_target",
   "data_missing",
   "integrity",

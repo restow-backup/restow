@@ -204,8 +204,12 @@ Formate:
 
 - **EML in einer ZIP-Datei** (`eml_zip`): eine `.eml` je Nachricht, Ordnerstruktur,
   leere Ordner bleiben, dazu `MANIFEST.csv` (Eintrag, SHA-256, Größe, Message-ID, Datum,
-  Absender, Empfänger, Betreff, Status) und `SHA256SUMS` (prüfbar mit `sha256sum -c`).
-  Die Bytes sind die gespeicherten Originale.
+  Absender, Empfänger, Betreff, Status, Hinweis) und `SHA256SUMS` (prüfbar mit `sha256sum -c`).
+  Die Bytes sind die gespeicherten Originale. Ein Beitrag einer Gruppenunterhaltung, dessen
+  Anhänge die Sicherung nicht enthält (Microsoft hat sie nicht herausgegeben, oder es sind
+  Link- oder Elementanhänge), steht mit dem Status `incomplete` und dem Grund im Manifest; der
+  Bericht des Exports zählt ihn als „ohne alle Anhänge“, und der Export endet „mit Problemen“
+  statt sauber.
 - **MBOX** (`mbox`): mboxrd; ein einzelner Ordner wird eine `.mbox`-Datei, mehrere Ordner
   eine ZIP mit einer `.mbox` je Ordner (plus Manifest und Prüfsummen). Bekannte
   Eigenschaft: eine Nachricht ohne abschließenden Zeilenumbruch bekommt einen.

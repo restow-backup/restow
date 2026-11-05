@@ -271,8 +271,17 @@
       "sent": "Gesendet"
     },
     "protection": {
-      "notice": "{kind, select, purview {Rechteverwaltet durch Microsoft Purview} smime {S/MIME-verschlüsselt} other {Geschützt}}: Zum Öffnen der EML sind die Rechte der Empfängerin oder des Empfängers nötig; die Wiederherstellung ins Postfach funktioniert.",
-      "downloadHint": "{kind, select, purview {Rechteverwaltet durch Microsoft Purview} smime {S/MIME-verschlüsselt} other {Geschützt}}: Die heruntergeladene EML lässt sich nur mit den Rechten der Empfängerin oder des Empfängers öffnen; die Wiederherstellung ins Postfach funktioniert."
+      "notice": "{kind, select, purview {Rechteverwaltet durch Microsoft Purview} smime {S/MIME-verschlüsselt} other {Geschützt}}: Zum Öffnen der EML sind die Rechte der Empfängerin oder des Empfängers nötig. Die Wiederherstellung ins Postfach funktioniert für Nachrichten bis etwa 2,6 MB; eine größere kann Exchange nicht geschützt übernehmen, sie lässt sich nur als EML herunterladen.",
+      "downloadHint": "{kind, select, purview {Rechteverwaltet durch Microsoft Purview} smime {S/MIME-verschlüsselt} other {Geschützt}}: Die heruntergeladene EML lässt sich nur mit den Rechten der Empfängerin oder des Empfängers öffnen. Die Wiederherstellung ins Postfach funktioniert für Nachrichten bis etwa 2,6 MB; eine größere lässt sich nur herunterladen."
+    },
+    "attachmentsNotBackedUp": {
+      "title": "Nicht alle Anhänge gesichert",
+      "description": "Nicht alle Anhänge dieses Beitrags sind in der Sicherung: Microsoft hat sie nicht an die App herausgegeben, oder einige ließen sich bei der Sicherung nicht lesen. Eine Wiederherstellung, ein Download oder ein Export liefert den Beitrag ohne sie."
+    },
+    "carriedForward": {
+      "title": "Bibliothek bei dieser Sicherung nicht lesbar",
+      "description": "Bibliothek war bei dieser Sicherung nicht lesbar; Stand vom {date}, der letzten Sicherung, die sie lesen konnte.",
+      "descriptionUndated": "Bibliothek war bei dieser Sicherung nicht lesbar; ihre Dateien stammen aus einer früheren Sicherung."
     },
     "reading": {
       "plainText": "Nur-Text-Nachricht",
@@ -351,7 +360,7 @@
         "onedrive": "Der Benutzer (UPN) oder die Laufwerks-ID des Ziel-OneDrive; mit :/Ordner stellen Sie in einen Unterordner wieder her.",
         "site": "Die Bibliothek, in die wiederhergestellt wird, aus einer gesicherten Website desselben Microsoft-365-Tenants; mit :/Ordner stellen Sie in einen Unterordner wieder her.",
         "group": "Die Adresse des Benutzerpostfachs im selben Microsoft-365-Tenant, das die Termine des Gruppenkalenders und die Unterhaltungen (als Mails) erhält.",
-        "imap": "Die Anmeldung eines IMAP-Kontos dieses Mandanten."
+        "imap": "Die Anmeldung eines IMAP-Kontos dieses Mandanten. Wählen Sie sie aus den Vorschlägen, wenn zwei Server dieselbe Anmeldung kennen."
       }
     },
     "mode": {
@@ -390,6 +399,7 @@
       "accountRequired": "Geben Sie das Konto an, in das wiederhergestellt werden soll.",
       "reasonRequired": "Geben Sie eine Begründung mit mindestens 3 Zeichen an.",
       "targetUnknown": "Dieses Konto ist in diesem Mandanten nicht bekannt. IMAP-Wiederherstellungen sind nur in Konten dieses Mandanten möglich.",
+      "targetAmbiguous": "Mehrere Konten dieses Mandanten haben diese Anmeldung oder Adresse. Wählen Sie das Konto aus den Vorschlägen, die seine Quelle nennen.",
       "selectionUnknown": "Einige ausgewählte Einträge gibt es an diesem Sicherungsstand nicht mehr. Laden Sie den Ordner neu und wählen Sie erneut aus.",
       "originalGone": "Das ursprüngliche Konto existiert nicht mehr. Stellen Sie in ein anderes Konto wieder her oder laden Sie die Daten herunter.",
       "queueUnavailable": "Die Warteschlange ist nicht verfügbar. Stellen Sie sicher, dass der Worker von {appName} läuft, und versuchen Sie es erneut.",
@@ -544,7 +554,10 @@
       "unverified": "Wiederhergestellt, aber die Bestätigung des Ziels stimmte nicht mit der Sicherung überein.",
       "exists": "Das Ziel enthält dieses Element bereits.",
       "not_restorable": "Die Sicherung enthält für diese Art von Element keinen wiederherstellbaren Inhalt.",
-      "parent_not_restored": "Gehört zu einer E-Mail, die nicht wiederhergestellt wurde.",
+      "parent_not_restored": "Gehört zu einem Element (E-Mail oder Termin), das nicht wiederhergestellt wurde.",
+      "parent_exists": "Gehört zu einem Element, das im Ziel bereits vorhanden ist und deshalb übersprungen wurde.",
+      "merged": "Mit einem anderen Element wiederhergestellt: als Anhang in dessen MIME oder als dieselbe Gmail-Nachricht unter einem weiteren Label.",
+      "not_applicable": "Im Ziel kein eigenes Element: Es wird anders nachgebildet, als Label, Kategorie oder Kennzeichnung.",
       "wrong_target": "Diese Art von Element lässt sich in dieses Ziel nicht wiederherstellen.",
       "data_missing": "Daten dieses Elements fehlen im Speicher.",
       "integrity": "Die Daten haben die Integritätsprüfung nicht bestanden und wurden nicht wiederhergestellt.",

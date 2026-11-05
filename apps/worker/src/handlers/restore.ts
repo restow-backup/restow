@@ -480,10 +480,17 @@ function graphClients(
   };
 }
 
+/** A protected object id, as the API records the target IMAP account of a restore. */
+const OBJECT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /**
  * The IMAP account a restore writes into: the object's own account, or for
- * "another account" the tenant's IMAP account with that login (its source
- * holds the server and credential; the API only accepts known accounts).
+ * "another account" an active IMAP account of the tenant (its source holds
+ * the server and credential). The API records that account by its id; a
+ * bare login (a job queued before, an older API client) is used only when
+ * exactly one active account has it. A login is unique per source only, so
+ * with two servers that both know it, picking one could write into the
+ * wrong server; the restore is refused instead.
  */
 export async function imapTargetAccount(
   run: TenantTxRunner,
@@ -496,8 +503,9 @@ export async function imapTargetAccount(
     const { source, objectSecretRef } = await store.loadSource(protectedObject);
     return imapAccountFor(source, protectedObject, objectSecretRef);
   }
-  const login = (target.ref ?? "").trim();
-  const [row] = await run((tx) =>
+  const ref = (target.ref ?? "").trim();
+  const byId = OBJECT_ID.test(ref);
+  const rows = await run((tx) =>
     tx
       .select({ object: protectedObjects, source: sources })
       .from(protectedObjects)
@@ -508,13 +516,25 @@ export async function imapTargetAccount(
           eq(protectedObjects.kind, "imap"),
           // Imported mailboxes (source kind `import`) hold mail but cannot receive any.
           eq(sources.kind, "imap"),
-          eq(sql`lower(${protectedObjects.externalId})`, login.toLowerCase()),
+          eq(protectedObjects.status, "active"),
+          byId
+            ? eq(protectedObjects.id, ref)
+            : eq(sql`lower(${protectedObjects.externalId})`, ref.toLowerCase()),
         ),
       )
-      .limit(1),
+      .orderBy(asc(protectedObjects.id))
+      .limit(2),
   );
+  const [row] = rows;
   if (!row) {
-    throw new InvalidPayloadError(`IMAP account "${login}" is not an account of this tenant`);
+    throw new InvalidPayloadError(
+      `IMAP account "${ref}" is not an active IMAP account of this tenant`,
+    );
+  }
+  if (rows.length > 1) {
+    throw new InvalidPayloadError(
+      `several IMAP accounts of this tenant have the login "${ref}"; request the restore again and choose the account from the list`,
+    );
   }
   return imapAccountFor(row.source, row.object, row.object.secretRef);
 }
@@ -578,7 +598,7 @@ async function openImapSession(
  * the job was requested: a synced mailbox's externalId is the Entra object id,
  * so the typed address matches through the directory user's e-mail as well,
  * orphaned mailboxes and imported mailboxes are never a target, and both sides
- * order by id so a duplicate address resolves to the same row.
+ * refuse an address that more than one mailbox has.
  */
 export async function mailboxTargetObject(
   run: TenantTxRunner,
@@ -586,7 +606,7 @@ export async function mailboxTargetObject(
   address: string | null,
 ): Promise<ProtectedObjectRef> {
   const login = (address ?? "").trim().toLowerCase();
-  const [row] = await run((tx) =>
+  const rows = await run((tx) =>
     tx
       .select({ po: protectedObjects })
       .from(protectedObjects)
@@ -605,12 +625,19 @@ export async function mailboxTargetObject(
         ),
       )
       .orderBy(asc(protectedObjects.id))
-      .limit(1),
+      .limit(2),
   );
+  const [row] = rows;
   const po = row?.po;
   if (!po) {
     throw new InvalidPayloadError(
       `mailbox "${address}" is not a Microsoft 365 mailbox of this tenant`,
+    );
+  }
+  if (rows.length > 1) {
+    // Never guess between two mailboxes: the restore would land in the wrong one.
+    throw new InvalidPayloadError(
+      `several Microsoft 365 mailboxes of this tenant have the address "${address}"; request the restore again with the mailbox's object id`,
     );
   }
   return {

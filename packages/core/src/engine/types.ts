@@ -211,11 +211,25 @@ export interface Cursor {
   [key: string]: unknown;
 }
 
-/** Persistence for a job's {@link Cursor} (jobs.cursor). */
+/**
+ * Persistence for a job's {@link Cursor} (jobs.cursor), and for a keyed record
+ * beside it (job_cursor_entries).
+ *
+ * The cursor is one value, written whole on every save. A record that grows
+ * with the job's items (a restore's per-item progress, ../restore/progress.ts)
+ * goes into the entries instead: `putEntries` writes only the entries it is
+ * given, so a batch costs what the batch holds, not what the whole record
+ * holds. Both are kept across the retries of a job and dropped with it when it
+ * ends (`clear`, and the database when the job reaches a final status).
+ */
 export interface CursorStore {
   load(): Promise<Cursor | null>;
   save(cursor: Cursor): Promise<void>;
   clear(): Promise<void>;
+  /** Every entry the job's attempts have put. */
+  loadEntries(): Promise<Record<string, string>>;
+  /** Add or replace these entries; the others stay as they are. */
+  putEntries(entries: Readonly<Record<string, string>>): Promise<void>;
 }
 
 // ---------------------------------------------------------------------------

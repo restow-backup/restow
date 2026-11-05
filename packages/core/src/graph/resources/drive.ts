@@ -20,9 +20,10 @@ import {
   DRIVE_DEFAULT_FRAGMENT_BYTES,
   DRIVE_FRAGMENT_BOUNDS,
   type UploadOptions,
+  UploadSessionError,
   type UploadSessionInfo,
   type UploadSource,
-  uploadToSession,
+  uploadToSessionOrCancel,
 } from "./upload-session.js";
 
 export const DRIVE_SELECT = ["id", "driveType", "name", "owner", "quota", "webUrl"] as const;
@@ -460,11 +461,29 @@ export async function uploadFile(
       : created;
   }
   const session = await createUploadSession(client, driveId, parentId, name, options);
-  const outcome = await uploadToSession<DriveItem>(client, session, source, size, {
-    fragmentSize: options.fragmentSize ?? DRIVE_DEFAULT_FRAGMENT_BYTES,
-    bounds: DRIVE_FRAGMENT_BOUNDS,
-    onProgress: options.onProgress,
-  });
+  let outcome: Awaited<ReturnType<typeof uploadToSessionOrCancel<DriveItem>>>;
+  try {
+    outcome = await uploadToSessionOrCancel<DriveItem>(client, session, source, size, {
+      ...options,
+      fragmentSize: options.fragmentSize ?? DRIVE_DEFAULT_FRAGMENT_BYTES,
+      bounds: DRIVE_FRAGMENT_BOUNDS,
+    });
+  } catch (error) {
+    // The answer to the last fragment was lost: the file is there when the
+    // name it was sent to holds it at its size (the caller then compares the
+    // hash). Under "rename" OneDrive may have chosen another name, unknown here.
+    if (
+      error instanceof UploadSessionError &&
+      error.details.completionUnknown === true &&
+      conflictBehavior !== "rename"
+    ) {
+      const created = await getChildByName(client, driveId, parentId, name);
+      if (created && isFileItem(created) && created.size === size) {
+        return created;
+      }
+    }
+    throw error;
+  }
   if (!outcome.result) {
     throw new Error(`Upload session finished with ${outcome.status} but returned no item`);
   }
@@ -519,8 +538,19 @@ export async function createFolder(
 }
 
 /**
+ * Items a path walk descends into: folders and packages. A OneNote notebook is
+ * a `package` item without a `folder` facet, yet it holds its sections (`.one`
+ * files) as children the way a folder does, and the backup records it as a
+ * folder (backup/onedrive/items.ts).
+ */
+export function isContainerItem(item: DriveItem): boolean {
+  return isFolderItem(item) || isPackageItem(item);
+}
+
+/**
  * Walk (and create where missing) a folder path below `parentId` (default: root)
- * and return the id of the last folder. A file in the way is an error, not
+ * and return the id of the last folder. An existing folder or package (a
+ * OneNote notebook) is descended into; a file in the way is an error, not
  * silently replaced.
  */
 export async function ensureDriveFolderPath(
@@ -536,7 +566,7 @@ export async function ensureDriveFolderPath(
     let id = cache.get(cacheKey);
     if (!id) {
       const existing = await getChildByName(client, driveId, parentId, segment);
-      if (existing && !isFolderItem(existing)) {
+      if (existing && !isContainerItem(existing)) {
         throw new Error(`Cannot create folder "${segment}": a file with that name exists`);
       }
       if (existing) {
@@ -552,6 +582,9 @@ export async function ensureDriveFolderPath(
           const raced = await getChildByName(client, driveId, parentId, segment);
           if (!raced) {
             throw error;
+          }
+          if (!isContainerItem(raced)) {
+            throw new Error(`Cannot create folder "${segment}": a file with that name exists`);
           }
           id = raced.id;
         }

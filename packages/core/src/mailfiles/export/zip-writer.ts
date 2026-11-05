@@ -196,16 +196,20 @@ export interface MessageZipStrategy {
 export function summarize(entries: readonly ExportEntry[]): ExportSummary {
   let messages = 0;
   let failed = 0;
+  let incomplete = 0;
   let bytes = 0;
   for (const entry of entries) {
     if (entry.status === "added") {
       messages++;
       bytes += entry.bytes;
+      if (entry.incomplete !== undefined) {
+        incomplete++;
+      }
     } else {
       failed++;
     }
   }
-  return { entries, messages, failed, bytes };
+  return { entries, messages, failed, incomplete, bytes };
 }
 
 /** Append `MANIFEST.csv` and `SHA256SUMS` (which also vouches for the manifest) and finish the ZIP. */
@@ -320,6 +324,7 @@ export function runMessageZip(
             sha256,
             bytes,
             ...(strategy.addedNote !== undefined ? { note: strategy.addedNote } : {}),
+            ...(message.incomplete !== undefined ? { incomplete: message.incomplete } : {}),
           },
           message,
         );

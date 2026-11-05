@@ -90,6 +90,14 @@ describe("backup and restore round trip", () => {
       internetMessageId: "<m4@contoso.example>",
       hasAttachments: true,
       mimeTooLarge: true,
+      receivedDateTime: "2026-09-01T07:45:12Z",
+      // What Graph returns with the message: the transport headers of the delivery.
+      internetMessageHeaders: [
+        { name: "Received", value: "from AM0PR01.eurprd01.prod.outlook.com by ..." },
+        { name: "DKIM-Signature", value: "v=1; a=rsa-sha256; d=contoso.example" },
+        { name: "Message-ID", value: "<m4@contoso.example>" },
+        { name: "X-Launch-Campaign", value: "2026-autumn" },
+      ],
       attachments: [
         { id: "A1", name: "launch.mp4", contentType: "video/mp4", bytes: video },
         {
@@ -187,6 +195,12 @@ describe("backup and restore round trip", () => {
 
     const big = restored("<m4@contoso.example>");
     expect(big.parentFolderId).toBe("wk-inbox");
+    // Received mail again, at its own time, with only the custom header Graph takes.
+    expect(big.isDraft).toBe(false);
+    expect(Date.parse(big.receivedDateTime)).toBe(Date.parse("2026-09-01T07:45:12Z"));
+    expect(big.json?.internetMessageHeaders).toEqual([
+      { name: "X-Launch-Campaign", value: "2026-autumn" },
+    ]);
     expect(big.attachments.map((a) => [a.name, a.contentBytes, a.isInline, a.contentId])).toEqual([
       ["launch.mp4", Buffer.from(video).toString("base64"), false, undefined],
       // The body's cid: reference resolves again only with the Content-ID.

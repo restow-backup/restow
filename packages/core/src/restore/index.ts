@@ -58,6 +58,8 @@ export {
   parseDriveTargetRef,
   resolveTargetDriveId,
 } from "./onedrive.js";
+export type { ProgressEntry, RestoreProgressOptions } from "./progress.js";
+export { RestoreProgress } from "./progress.js";
 export { QuickXorHash, quickXorHash } from "./quickxorhash.js";
 export type {
   RestoreItemCode,

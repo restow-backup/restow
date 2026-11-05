@@ -48,6 +48,14 @@ import {
 import { imapFlagsOf, imapInternalDateOf } from "./conventions.js";
 import { type DuplicateSlot, MessageIdDuplicates } from "./duplicates.js";
 import {
+  type GmailUnit,
+  gmailLabelFolderNote,
+  placedIn,
+  planGmailMail,
+  reportGmailCopies,
+} from "./gmail.js";
+import { RESTORED_BY_EARLIER_ATTEMPT, RestoreProgress } from "./progress.js";
+import {
   describeRestoreError,
   failureCodeOf,
   isAbortError,
@@ -79,6 +87,33 @@ export interface ImapRestoreSession {
   ensureMailbox(path: string): Promise<string>;
   /** UIDs of messages in `mailbox` whose Message-ID header equals `messageId`. */
   findByMessageId(mailbox: string, messageId: string): Promise<number[]>;
+  /**
+   * UIDs of messages in `mailbox` that may be `message` (same size, an
+   * internal date within a day of it: servers judge the day in their own
+   * time zone), for a message without Message-ID on a retried job; the
+   * caller compares SHA-256. Sessions that cannot search omit it.
+   */
+  findSimilar?(
+    mailbox: string,
+    message: { readonly internalDate: Date | undefined; readonly size: number },
+  ): Promise<number[]>;
+  /**
+   * True for a Gmail account (`[Gmail]/All Mail` with `\All` in LIST): a
+   * message is restored once and gets its other labels by {@link copy}
+   * (./gmail.ts). Sessions that cannot tell omit it.
+   */
+  readonly isGmail?: boolean;
+  /**
+   * COPY one message into another mailbox. Only used on Gmail, where a COPY
+   * adds a label to the same message instead of making a second one. Never
+   * removes the message from its mailbox (no MOVE).
+   */
+  copy?(mailbox: string, uid: number, destination: string): Promise<void>;
+  /**
+   * PERMANENTFLAGS of `mailbox` (contains `\*` when new keywords are kept),
+   * or undefined when the server does not say. Sessions that cannot tell omit it.
+   */
+  permanentFlags?(mailbox: string): Promise<readonly string[] | undefined>;
   /** APPEND one message; the UID is known when the server supports UIDPLUS. */
   append(
     mailbox: string,
@@ -164,7 +199,10 @@ export function targetMailboxComponents(
     return [asComponent(restoreFolder, delimiter), ...clean(names)];
   }
   if (anchor !== undefined) {
-    const anchorPath = session.specialUseMailbox?.(anchor);
+    // Gmail's All Mail goes into an archive mailbox where the target has no \All.
+    const anchorPath =
+      session.specialUseMailbox?.(anchor) ??
+      (anchor.toLowerCase() === "\\all" ? session.specialUseMailbox?.("\\Archive") : undefined);
     if (anchorPath !== undefined) {
       const anchorComponents =
         delimiter.length === 0
@@ -216,6 +254,10 @@ export class ImapRestoreEngine implements RestoreEngine {
       mode,
     });
 
+    const progress = await RestoreProgress.open(ctx.cursor, {
+      restoreJobId: request.restoreJobId,
+      retry: ctx.attempt > 0,
+    });
     const session = await this.options.imap(ctx, request.protectedObject, request.target);
     try {
       const run = new ImapRestoreRun(
@@ -226,9 +268,16 @@ export class ImapRestoreEngine implements RestoreEngine {
         mode === "rename" ? restoreFolderNameFor(ctx, request) : null,
         mode,
         legacyReplace,
+        progress,
       );
       await run.restorePlan(plan);
     } finally {
+      // What this attempt restored stays known to the next one, also when it failed.
+      await progress.flush().catch((error: unknown) =>
+        logger.warn("could not save the restore progress", {
+          error: describeRestoreError(error),
+        }),
+      );
       await session.close();
     }
 
@@ -259,9 +308,14 @@ class ImapRestoreRun {
     private readonly mode: "rename" | "skip",
     /** The stored request asked for the discontinued "replace" mode; ran as "rename" instead. */
     private readonly legacyReplace: boolean,
+    /** What earlier attempts of this job restored (./progress.ts). */
+    private readonly progress: RestoreProgress,
   ) {
     this.reader = chunkReaderFor(ctx);
   }
+
+  /** Copies of messages without Message-ID this run took as an earlier attempt's, per mailbox. */
+  private readonly takenSimilar = new Map<string, Set<number>>();
 
   /** Prepend {@link LEGACY_REPLACE_MODE_NOTE} for a job that asked for the discontinued "replace" mode. */
   private withLegacyReplaceNote(note: string | undefined): string | undefined {
@@ -312,11 +366,21 @@ class ImapRestoreRun {
     }
     if (plan.mail.length > 0) {
       this.ctx.progress.phase("mail");
-      const duplicates = new MessageIdDuplicates<number>(plan.mail, (message) =>
+      // A Gmail message once, not once per label (./gmail.ts).
+      const gmail = planGmailMail(
+        plan.mail,
+        this.catalog,
+        this.session.isGmail === true ? "gmail" : "imap",
+      );
+      const duplicates = new MessageIdDuplicates<number>(gmail.mail, (message) =>
         this.mailboxPath(message),
       );
-      for (const message of plan.mail) {
+      for (const message of gmail.mail) {
         await this.restoreMessage(message, duplicates.slot(message));
+        const unit = gmail.units.get(message.path);
+        if (unit !== undefined) {
+          await this.finishGmailMessage(unit);
+        }
       }
     }
     const foreign = [
@@ -327,6 +391,7 @@ class ImapRestoreRun {
       ...plan.informational,
       ...plan.orphanAttachments,
       ...[...plan.attachmentsByMessage.values()].flat(),
+      ...[...plan.attachmentsByEvent.values()].flat(),
     ];
     for (const object of foreign) {
       this.ledger.failed(
@@ -366,6 +431,15 @@ class ImapRestoreRun {
 
   private async recreateFolder(folder: ManifestObject): Promise<void> {
     throwIfAborted(this.ctx);
+    const label = gmailLabelFolderNote(
+      folder,
+      this.catalog,
+      this.session.isGmail === true ? "gmail" : "imap",
+    );
+    if (label !== undefined) {
+      this.ledger.skipped(folder, "not_applicable", this.legacyNote(label));
+      return;
+    }
     try {
       const mailbox = await this.mailboxFor(folder);
       this.ledger.restored(folder, { targetRef: mailbox, bytes: 0, verified: true });
@@ -390,6 +464,55 @@ class ImapRestoreRun {
       const existing = await duplicates.existing(mailbox, (messageId) =>
         session.findByMessageId(mailbox, messageId),
       );
+      const recorded = this.progress.get(message.path);
+      if (recorded?.state === "done") {
+        // This job's own record: restored by an earlier attempt, with its verdict.
+        const uid = Number(recorded.targetRef?.slice(recorded.targetRef.lastIndexOf(":") + 1));
+        if (Number.isInteger(uid) && uid > 0) {
+          duplicates.claim(uid);
+        } else {
+          await duplicates.claimEarlierCopy((copy) => this.sameContent(mailbox, copy, message));
+        }
+        duplicates.settle();
+        ledger.restored(message, {
+          targetRef: recorded.targetRef ?? mailbox,
+          bytes: message.size,
+          verified: recorded.verified,
+          note: this.withLegacyReplaceNote(RESTORED_BY_EARLIER_ATTEMPT),
+        });
+        return;
+      }
+      if (duplicates.messageId === undefined && this.progress.isRetry) {
+        const earlier = await this.earlierCopyWithoutMessageId(mailbox, message);
+        if (earlier !== undefined && this.mode === "skip") {
+          // The original mailbox: the copy may be one it held before this job, not this
+          // job's work. It is there all the same, so the message is not appended twice.
+          duplicates.settle();
+          ledger.skipped(
+            message,
+            "exists",
+            this.legacyNote(
+              "an identical message (same day, size and SHA-256; it has no Message-ID) is already in the target mailbox, from before this job or from an earlier attempt of it",
+            ),
+            `${mailbox}:${earlier}`,
+          );
+          return;
+        }
+        if (earlier !== undefined) {
+          // The restore mailbox belongs to this job: the copy is an earlier attempt's.
+          duplicates.settle();
+          ledger.restored(message, {
+            targetRef: `${mailbox}:${earlier}`,
+            bytes: message.size,
+            verified: true,
+            note: this.withLegacyReplaceNote(
+              `${RESTORED_BY_EARLIER_ATTEMPT} (found by its content, it has no Message-ID)`,
+            ),
+          });
+          await this.progress.done(message.path, true, `${mailbox}:${earlier}`);
+          return;
+        }
+      }
       if (existing.length > 0 && this.mode === "skip") {
         duplicates.settle();
         ledger.skipped(
@@ -403,8 +526,12 @@ class ImapRestoreRun {
       if (existing.length > 0 && this.mode === "rename") {
         // The restore mailbox belongs to this job: what it holds under this
         // Message-ID was restored by an earlier attempt, message for message.
-        const earlier = await duplicates.claimEarlierCopy((uid) =>
-          this.sameContent(mailbox, uid, message),
+        // A copy known to differ is taken too (a server that re-renders what
+        // it stores, such as Exchange over IMAP), but only while unclaimed
+        // copies are left: each copy stands for one message.
+        const earlier = await duplicates.claimEarlierCopy(
+          (uid) => this.sameContent(mailbox, uid, message),
+          { acceptDiffering: true },
         );
         if (earlier !== undefined) {
           duplicates.settle();
@@ -414,7 +541,9 @@ class ImapRestoreRun {
             this.legacyNote(
               earlier.confirmed
                 ? "this message was already restored into this mailbox, with the same content (the job was retried)"
-                : "a message with this Message-ID was already restored into this mailbox (the job was retried)",
+                : earlier.differs
+                  ? "a message with this Message-ID was already restored into this mailbox (the job was retried); the server re-rendered the message, so its content could not be compared"
+                  : "a message with this Message-ID was already restored into this mailbox (the job was retried)",
             ),
             `${mailbox}:${earlier.copy}`,
           );
@@ -424,11 +553,19 @@ class ImapRestoreRun {
 
       // Reading verifies size and SHA-256; nothing is written before it succeeded.
       const content = await this.reader.readObjectToBuffer(message);
-      const { flags, withheld } = appendableFlags(imapFlagsOf(message));
+      const appendable = appendableFlags(imapFlagsOf(message));
+      const { withheld } = appendable;
+      const notes: string[] = [];
+      const { flags, dropped } = await this.keepableFlags(mailbox, appendable.flags);
+      if (dropped.length > 0) {
+        this.droppedKeywords.set(message.path, dropped);
+        notes.push(
+          `the keywords ${dropped.join(" ")} are not kept: the server takes no new keywords in this mailbox`,
+        );
+      }
       const { uid } = await session.append(mailbox, content, flags, imapInternalDateOf(message));
       duplicates.wrote(mailbox, uid);
 
-      const notes: string[] = [];
       let verified: boolean | undefined;
       if (uid !== undefined && session.fetchSha256 !== undefined) {
         const stored = await session.fetchSha256(mailbox, uid);
@@ -443,6 +580,11 @@ class ImapRestoreRun {
         notes.push(`${withheld.join(" ")} not set again`);
       }
       duplicates.settle();
+      await this.progress.done(
+        message.path,
+        verified,
+        uid === undefined ? undefined : `${mailbox}:${uid}`,
+      );
       ledger.restored(message, {
         targetRef: uid === undefined ? mailbox : `${mailbox}:${uid}`,
         bytes: content.length,
@@ -459,6 +601,114 @@ class ImapRestoreRun {
     }
   }
 
+  /** Keywords a mailbox would not keep, by the message they were meant for. */
+  private readonly droppedKeywords = new Map<string, string[]>();
+  private readonly permanentFlagsByMailbox = new Map<string, readonly string[] | undefined>();
+
+  /**
+   * The flags `mailbox` keeps: a server whose PERMANENTFLAGS lack `\*` drops
+   * new keywords without a word, so they are not sent and the caller says so.
+   */
+  private async keepableFlags(
+    mailbox: string,
+    flags: readonly string[],
+  ): Promise<{ flags: string[]; dropped: string[] }> {
+    const keywords = flags.filter((flag) => !flag.startsWith("\\"));
+    if (keywords.length === 0 || this.session.permanentFlags === undefined) {
+      return { flags: [...flags], dropped: [] };
+    }
+    if (!this.permanentFlagsByMailbox.has(mailbox)) {
+      this.permanentFlagsByMailbox.set(mailbox, await this.session.permanentFlags(mailbox));
+    }
+    const permanent = this.permanentFlagsByMailbox.get(mailbox);
+    if (permanent === undefined || permanent.includes("\\*")) {
+      return { flags: [...flags], dropped: [] };
+    }
+    const known = new Set(permanent.map((flag) => flag.toLowerCase()));
+    const dropped = keywords.filter((keyword) => !known.has(keyword.toLowerCase()));
+    return { flags: flags.filter((flag) => !dropped.includes(flag)), dropped };
+  }
+
+  /**
+   * After a Gmail message was written once: its other labels into a Gmail
+   * account by COPY, and the outcome of the objects that stood for its other
+   * labels (./gmail.ts). A rename-mode retry that finds the message an
+   * earlier attempt appended adds the labels as well: that attempt may have
+   * ended between the APPEND and the COPYs, and a COPY to a label the message
+   * has already changes nothing in Gmail.
+   */
+  private async finishGmailMessage(unit: GmailUnit): Promise<void> {
+    const outcome = this.ledger.resultOf(unit.object.path);
+    const kept = new Map<string, string>();
+    const lost = new Map<string, string>();
+    const notes: string[] = [];
+    let labelFailed = false;
+    const foundOnRetry =
+      outcome?.status === "skipped" &&
+      outcome.code === "exists" &&
+      this.mode === "rename" &&
+      outcome.targetRef !== undefined &&
+      unit.copyLabels.length > 0;
+    if (outcome?.status === "restored" || foundOnRetry) {
+      const dropped = new Set(this.droppedKeywords.get(unit.object.path) ?? []);
+      const asKeywords: string[] = [];
+      for (const { label, keyword } of unit.keywords) {
+        if (dropped.has(keyword)) {
+          lost.set(label, "the server takes no new keywords");
+        } else {
+          kept.set(label, `is kept as the keyword "${keyword}"`);
+          asKeywords.push(keyword);
+        }
+      }
+      if (asKeywords.length > 0) {
+        notes.push(`Gmail labels kept as keywords: ${asKeywords.join(" ")}`);
+      }
+      const ref = outcome.targetRef ?? "";
+      const split = ref.lastIndexOf(":");
+      const mailbox = split === -1 ? ref : ref.slice(0, split);
+      const uid = split === -1 ? Number.NaN : Number(ref.slice(split + 1));
+      const added: string[] = [];
+      for (const place of unit.copyLabels) {
+        const name = place.label.replace(/^\\+/, "");
+        if (!Number.isInteger(uid) || uid <= 0 || this.session.copy === undefined) {
+          lost.set(
+            place.label,
+            "the server did not name the restored message, so no label was added",
+          );
+          labelFailed = true;
+          continue;
+        }
+        try {
+          const destination = await this.mailboxFor(placedIn(unit.object, place));
+          await this.session.copy(mailbox, uid, destination);
+          kept.set(place.label, `was added to it (COPY to ${destination})`);
+          added.push(name);
+        } catch (error) {
+          if (isAbortError(error)) {
+            throw error;
+          }
+          this.throwIfConnectionLost(error);
+          lost.set(place.label, describeRestoreError(error));
+          labelFailed = true;
+        }
+      }
+      if (added.length > 0) {
+        notes.push(`Gmail labels added: ${added.join(", ")}`);
+      }
+      if (lost.size > 0) {
+        notes.push(
+          `Gmail labels not kept: ${[...lost.entries()].map(([label, why]) => `${label.replace(/^\\+/, "")} (${why})`).join(", ")}`,
+        );
+      }
+      if (notes.length > 0 && foundOnRetry) {
+        this.ledger.amendSkipped(unit.object.path, notes.join("; "));
+      } else if (notes.length > 0) {
+        this.ledger.amendRestored(unit.object.path, notes.join("; "), labelFailed);
+      }
+    }
+    reportGmailCopies(unit, outcome, { kept, lost }, this.ledger);
+  }
+
   /**
    * A command failed because the connection is gone: not this item's fault,
    * and every remaining item would fail the same way and the job would still
@@ -472,6 +722,34 @@ class ImapRestoreRun {
         cause: error,
       });
     }
+  }
+
+  /**
+   * On a retried job, a message without Message-ID cannot be found by it: a
+   * stored message of the same internal date and size whose SHA-256 is the
+   * backup's, and that no other message of this run took, is the copy an
+   * earlier attempt appended.
+   */
+  private async earlierCopyWithoutMessageId(
+    mailbox: string,
+    message: ManifestObject,
+  ): Promise<number | undefined> {
+    if (this.session.findSimilar === undefined || message.sha256 === undefined) {
+      return undefined;
+    }
+    const taken = this.takenSimilar.get(mailbox) ?? new Set<number>();
+    this.takenSimilar.set(mailbox, taken);
+    const candidates = await this.session.findSimilar(mailbox, {
+      internalDate: imapInternalDateOf(message),
+      size: message.size,
+    });
+    for (const uid of candidates) {
+      if (!taken.has(uid) && (await this.sameContent(mailbox, uid, message)) === true) {
+        taken.add(uid);
+        return uid;
+      }
+    }
+    return undefined;
   }
 
   /**

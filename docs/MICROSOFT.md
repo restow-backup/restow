@@ -180,6 +180,19 @@ ein Ordner liefert, bleibt ein Ordnerfehler.
   deren `changeKey` (`exceptionAttachments`); nur bei einer Änderung wird neu gelesen.
   Sicherungen vor 0.5.0 haben keine Terminanhänge; der erste Lauf danach holt sie für alle noch
   vorhandenen Termine nach.
+- Terminanhänge im Restore (`packages/core/src/restore/exchange.ts`, `restoreEventAttachments`):
+  Objekte vom Typ `event-attachment` (die Bytes eines Dateianhangs, `metadata.eventPath` oder
+  `eventItemId` nennt den Termin, dazu `name`, `contentType`, `attachmentType`, `isInline`)
+  werden nach dem Termin angelegt, unter 3 MB mit `POST /events/{id}/attachments`, ab 3 MB über
+  `…/attachments/createUploadSession` (bis 150 MB, Fragmente wie bei Mail-Anhängen); ein
+  angehängtes Element kommt als Datei mit seinem gesicherten Graph-JSON (`<Name>.json`), ein
+  Link-Anhang nicht. Die Anhänge einer Serienausnahme (`seriesMasterId`, `eventPath`
+  `<Serie-Pfad>#<Ausnahme-ID>`) kommen an das passende Vorkommen der wiederhergestellten Serie,
+  sobald die Ausnahme dort wieder angewendet ist; lässt sie sich nicht anwenden, werden sie mit
+  diesem Grund übersprungen. Danach wird jeder Anhang an Name und Größe auf dem Termin bestätigt. Ein Anhang, den ein früherer Versuch desselben Jobs schon
+  angelegt hat, wird nicht noch einmal gesendet. Hatte ein Termin Anhänge (`hasAttachments`), die
+  Sicherung aber keine (ältere Sicherungen, Gruppenkalender), ist er „Nicht bestätigt“ mit dem
+  Hinweis, dass die Anhänge nicht gesichert wurden.
 - Kalender im Restore-Explorer (ab 0.4.2): Ein Kalender listet seine Termine nach Beginn
   (neueste zuerst oder anstehende zuerst), mit Wann, Ort und Organisator, nicht nach Betreff.
   Eine Serie steht einmal in der Liste und klappt ihre Termine auf; die Monatsansicht zeigt
@@ -294,9 +307,71 @@ Zustand und lässt ihn nachträglich bestätigen, bei IMAP setzt ihn die Antwort
 - Nachricht aus MIME anlegen: `POST /users/{id}/mailFolders/{fid}/messages` mit
   `Content-Type: text/plain` und Base64-kodiertem MIME. Ergebnis ist ein neues Objekt
   (neue ID, `isDraft=false` wenn Header vollständig). Datum bleibt erhalten, Flags/
-  Kategorien danach per PATCH setzen.
+  Kategorien danach per PATCH setzen. Legt Graph eine Nachricht als Entwurf an, die laut
+  Sicherung keiner war (`isDraft` der Exchange-Sicherung, `\Draft` einer IMAP-Sicherung oder
+  eines Imports), etwa weil Date oder From im Header fehlen, ist das Element „Nicht bestätigt“
+  mit dem Grund; ist der Entwurfsstatus der Sicherung unbekannt, steht es nur als Hinweis da.
+- Größe: Graph nimmt in einer Anfrage höchstens 4 MB an (sonst 413). Base64 macht aus 3 MB MIME
+  4 MB, deshalb importiert Restow eine Nachricht nur dann in einem Stück als MIME, wenn ihr Base64
+  höchstens 3,5 MiB lang ist (`MIME_IMPORT_LIMIT_BASE64_BYTES`, also etwa 2,6 MiB MIME). Eine
+  größere Nachricht (bis 150 MB sichert die Sicherung als MIME) wird in zwei Durchgängen über die
+  Sicherung zerlegt (`packages/core/src/restore/mime-parts.ts`, mailparser, ohne einen Anhang im
+  Speicher zu halten): zuerst aus Kopf und Text als JSON angelegt (Betreff, Text oder HTML,
+  Absender, Empfänger, Antwort an, Wichtigkeit, Message-ID, `x-`-Header und die erweiterten
+  Eigenschaften für Entwurfsstatus und Daten wie unten), dann bekommt sie ihre Anhänge einzeln:
+  unter 3 MB mit einem POST, ab 3 MB über `createUploadSession` (bis 150 MB je Anhang, Fragmente
+  bis 4 MiB), eingebettete Bilder mit ihrer Content-ID (`cid:` im HTML), eine angehängte
+  Nachricht als `.eml`. Danach listet Restow die Anhänge der Nachricht und vergleicht Name und
+  Größe mit dem, was es hinzugefügt hat. Scheitert ein Anhang, fehlt einer in der Liste oder
+  stimmt die Message-ID nicht, ist das Element „Nicht bestätigt“ mit dem Grund. Der Text selbst
+  muss in die 4 MB einer Anfrage passen: Bilder, die ein HTML-Text als `data:`-URI enthält (ein
+  Newsletter), werden zu eingebetteten Anhängen mit Content-ID; ein Text, der auch ohne sie
+  größer ist, lässt sich nicht ins Postfach legen und scheitert mit dem Hinweis auf den
+  EML-Download. Den Entwurfsstatus legt die Sicherung fest; wo sie ihn nicht kennt (Beiträge
+  aus Gruppenunterhaltungen), gilt, was ein MIME-Import ergäbe: kein Entwurf, wenn Date und From
+  im Header stehen. Eine verschlüsselte (S/MIME `application/pkcs7-mime`, PGP
+  `multipart/encrypted`), undurchsichtig signierte (`smime-type=signed-data`) oder
+  rechtegeschützte Nachricht (Purview, `.rpmsg`) dieser Größe baut Restow nicht nach: Exchange
+  speichert solche Nachrichten als eigene Nachrichtenklasse mit dem Original-MIME, ein Nachbau
+  aus Teilen ließe sich weder öffnen noch prüfen. Sie scheitert mit dem Hinweis auf den
+  EML-Download. Eine signierte Nachricht (`multipart/signed`) kommt lesbar mit der Signaturdatei
+  als Anhang zurück, aber „Nicht bestätigt“, weil die Signatur nicht mehr passt. Bis zur Grenze
+  des MIME-Imports behalten alle diese Nachrichten ihren Schutz. Was dabei nicht zurückkommt (die Header, die Graph beim
+  Anlegen nicht nimmt, etwa Received und References, und die genaue MIME-Struktur), nennt der
+  Hinweis des Elements; die Originalbytes gibt es als EML-Download. Den Hinweis „als Download
+  (EML) wiederherstellen“ gibt es nur noch, wenn Exchange eine Anfrage wirklich ablehnt.
+- Nachricht aus dem JSON-Format anlegen (Graph hatte den MIME-Export verweigert, siehe
+  „Sichern"): `POST /users/{id}/mailFolders/{fid}/messages` mit dem gesicherten JSON ohne die
+  schreibgeschützten Felder (`toCreatableMessage`, `packages/core/src/graph/resources/mail.ts`).
+  Graph nimmt beim Anlegen in `internetMessageHeaders` nur eigene Header mit `x-`/`X-` an und
+  lehnt jeden anderen (Received, DKIM-Signature, Message-ID, ...) mit 400
+  `InvalidInternetMessageHeader` ab. Restow schickt deshalb nur `x-`-Header mit, ohne die von
+  Exchange beim Zustellen gestempelten (`X-MS-*`, `X-Microsoft-*`, `X-Forefront-*`), höchstens 5
+  und zusammen höchstens 2 KB; die übrigen bleiben in der Sicherung, die Wiederherstellung nennt
+  ihre Anzahl. Ohne weitere Angaben legt Graph eine JSON-Nachricht als Entwurf mit dem heutigen
+  Datum an; kennt die Sicherung den Entwurfsstatus nicht und zeigt Exchange die Nachricht als
+  Entwurf, ist sie „Nicht bestätigt“. War die gesicherte Nachricht kein Entwurf (`isDraft` im JSON oder in den Metadaten),
+  setzt Restow beim Anlegen die erweiterten Eigenschaften `PidTagMessageFlags` (`Integer 0x0E07`,
+  gelesen-Bit aus `isRead`, nie das Entwurfs-Bit 0x8), `PidTagMessageDeliveryTime`
+  (`SystemTime 0x0E06` = `receivedDateTime`) und `PidTagClientSubmitTime` (`SystemTime 0x0039` =
+  `sentDateTime`). Graph wertet sie nur beim Anlegen aus. Meldet Graph die Nachricht danach doch
+  als Entwurf oder mit anderen Daten, ist das Element „Nicht bestätigt“ mit dem Grund.
 - Zielordner: Original-Pfad nachbauen oder "Wiederhergestellt <Datum>"-Ordner; beides
   anbieten. Duplikate vermeiden: vor Import per `internetMessageId` prüfen.
+- Unbekannter Ausgang: Ein POST ist nicht idempotent. Antwortet das Gateway 502/504, kommt keine
+  Antwort rechtzeitig oder bricht die Verbindung ab, kann Exchange das Element trotzdem anlegen,
+  auch erst Sekunden bis Minuten später (ein großer MIME-Import in ein gedrosseltes Postfach).
+  Restow sendet dann nicht sofort erneut, sondern sucht das Element etwa zwei Minuten lang
+  (Abfragen nach 0, 5, 15, 30 und 60 s, `UNKNOWN_OUTCOME_LOOKS_MS` in
+  `packages/core/src/restore/common.ts`): eine Nachricht über ihre Message-ID im Zielordner, einen
+  Anhang über Name und Größe, einen Kontakt über Name und Adresse. Was es findet, wird übernommen
+  (wiederhergestellt, aber nicht bestätigt). Erst wenn keine Abfrage etwas sieht, geht die Anfrage
+  ein zweites Mal hinaus; danach sieht Restow noch einmal nach, und eine zweite Kopie, die doch
+  noch entstanden ist, macht das Element „Nicht bestätigt“ mit dem Hinweis, die überzählige zu
+  entfernen. Ein Ordner wird erneut angelegt; antwortet Exchange darauf 409, weil der erste doch
+  entstanden ist, wird er übernommen. Eine Nachricht ohne Message-ID und ein nicht gefundener
+  Kontakt werden nie ein zweites Mal gesendet, sondern gemeldet. Termine gehen mit derselben
+  `transactionId` erneut hinaus, Graph liefert dann den schon angelegten.
 - Kalender/Kontakte: POST auf `/events` bzw. `/contacts` aus dem JSON (IDs werden neu).
 - Grenzen: Send/Receive-Status, Konversations-IDs und einige Header werden neu erzeugt.
   Das ist bei jedem Produkt so; in der Doku sagen.
@@ -311,7 +386,19 @@ Zustand und lässt ihn nachträglich bestätigen, bei IMAP setzt ihn die Antwort
   Version je Snapshot; Snapshots liefern die Historie.
 - Restore: Upload-Session `createUploadSession` für alles über 4 MB, Chunks 5 bis
   60 MiB, Vielfache von 320 KiB. Konflikte: `@microsoft.graph.conflictBehavior`
-  rename/replace wählbar. mtime setzen über `fileSystemInfo`.
+  rename/replace wählbar. mtime setzen über `fileSystemInfo`. Ein Fragment, das scheitert
+  (5xx, abgebrochene Verbindung, keine Antwort, 416 nach einem erneut gesendeten Fragment),
+  beendet die Datei nicht: Restow fragt die Session (`GET` auf die `uploadUrl`) nach
+  `nextExpectedRanges` und sendet nur, was ihr fehlt, bis zu sechs Versuche je Fragment mit
+  wachsender Pause (`packages/core/src/graph/resources/upload-session.ts`). Eine Datei liest das
+  Fragment dafür erneut aus ihren Chunks (`restore/object-range.ts`), auch ein früheres, das die
+  Session verloren hat; ein Mail-Anhang (aus dem MIME-Strom) sendet das aktuelle Fragment aus dem
+  Speicher. Gibt der Upload auf, wird die Session mit `DELETE` beendet. Ging nur die Antwort auf
+  das letzte Fragment verloren, sucht Restow die Datei unter ihrem Namen (nicht im Modus
+  „Umbenennen“, dort bleibt sie fehlgeschlagen) und den Anhang an seiner Nachricht.
+- OneNote-Notizbücher liefert Graph als `package` ohne `folder`-Facette. Die Sicherung legt sie
+  als Ordner mit ihren `.one`-Abschnitten ab; beim Restore steigt der Pfad in ein noch
+  vorhandenes Notizbuch ab und legt die Abschnitte dort hinein.
 - Restore-Explorer (ab 0.4.2): Postfach, OneDrive und ein zugeordnetes IMAP-Konto einer
   Person stehen als ein Eintrag (über den Verzeichnisbenutzer des Objekts,
   `protected_objects.user_id`); die zweite Spalte zeigt E-Mail, Kalender, Kontakte und OneDrive,
@@ -445,7 +532,11 @@ Elemente.
   wiederhergestellt, bekommt jede einen Ordner mit ihrem Namen. Modi: „Beide behalten"
   (umbenennen), „Überschreiben" (SharePoint behält die alte Datei als Version), „Vorhandene
   überspringen". Upload und Prüfung wie bei OneDrive (Upload-Session, Größe, SHA-256,
-  QuickXorHash).
+  QuickXorHash). Trägt der Ordner einer Bibliothek `carriedForward` (Graph hatte sie bei dieser
+  Sicherung verweigert, sie hält die Dateien des letzten Laufs, der sie lesen konnte,
+  `lastReadAt`), nennt das Ergebnis an der Bibliothek und an jeder daraus wiederhergestellten
+  Datei, von wann ihr Stand ist; die Prüfung der Dateien bleibt dieselbe. Der Explorer zeigt an
+  der Bibliothek „Bibliothek bei dieser Sicherung nicht lesbar“.
 - Listenelemente nur in ihre ursprüngliche Liste, als **neue** Elemente (neue IDs; Erstellt/Geändert
   und Autoren setzt SharePoint). Geschrieben werden nur beschreibbare Felder: System-, schreibgeschützte,
   versteckte und berechnete Spalten bleiben weg (nach `_list.json`). „Überschreiben" setzt bei einem
@@ -586,7 +677,11 @@ Wiederherstellung, Download, Export, Restore-Prüfung und Aufbewahrung unveränd
   `mail/Conversations`, mit der Anzahl): `graph.group_post_attachments_refused` bei verweigerter
   Erweiterung, `graph.group_post_attachments_unreadable` bei gescheitertem Abruf, nie einfach
   grün. Threads mit solchen Beiträgen werden erneut gelesen, solange Graph die Erweiterung nicht
-  verweigert; gibt Graph die Anhänge später heraus, kommen sie dazu.
+  verweigert; gibt Graph die Anhänge später heraus, kommen sie dazu. Ein Beitrag ohne gesicherte
+  Anhänge ist nach einem Restore in ein Postfach und im ZIP-Download „Nicht bestätigt“ mit dem
+  Hinweis, welche Anhänge fehlen (`attachmentsNotBackedUpOf`,
+  `packages/core/src/restore/conventions.ts`); der Restore-Explorer zeigt an ihm „Anhänge nicht
+  gesichert“ (`MailSummary.attachmentsNotBackedUp`).
 - Eine gelöschte Gruppe schlägt mit `graph.group_unavailable` fehl (die nächste Synchronisierung
   verwaist sie). Throttling wie bei Postfächern (derselbe Graph-Client, Parallelität über die
   Gruppen statt innerhalb einer).

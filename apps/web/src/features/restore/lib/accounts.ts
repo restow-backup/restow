@@ -44,11 +44,48 @@ export function accountAddress(
 
 /**
  * The label of a suggested target account: its name with its owner's
- * address, so two people of the same name stay apart. The option's value
- * stays the external id the restore is sent with.
+ * address, so two people of the same name stay apart, and for an IMAP
+ * account its source (the server), so two accounts with one login stay apart.
  */
 export function accountOptionLabel(account: RestoreTargetAccount): string {
   const name = protectedObjectName(account);
   const address = protectedObjectAddress(account);
-  return address ? `${name} · ${address}` : name;
+  const label = address ? `${name} · ${address}` : name;
+  return account.kind === "imap" && account.sourceName ? `${label} · ${account.sourceName}` : label;
+}
+
+function sameLogin(a: RestoreTargetAccount, b: RestoreTargetAccount): boolean {
+  return (
+    a.kind === "imap" &&
+    b.kind === "imap" &&
+    a.externalId.toLowerCase() === b.externalId.toLowerCase()
+  );
+}
+
+/**
+ * What a suggested account's option puts into the field: its external id
+ * (address, login), and for an IMAP login that several sources know the
+ * login with the source, so each option names one account.
+ */
+export function accountOptionValue(
+  account: RestoreTargetAccount,
+  all: readonly RestoreTargetAccount[],
+): string {
+  const twins = all.filter((other) => sameLogin(account, other));
+  return twins.length > 1 && account.sourceName
+    ? `${account.externalId} · ${account.sourceName}`
+    : account.externalId;
+}
+
+/**
+ * The account id a restore request carries for what the field holds. An
+ * IMAP account taken from the suggestions goes by its id, so the restore
+ * writes into exactly that server's account; anything else (an address, a
+ * drive, a login typed by hand) goes as typed, and the server refuses a
+ * login that more than one account has.
+ */
+export function targetAccountId(typed: string, all: readonly RestoreTargetAccount[]): string {
+  const value = typed.trim();
+  const chosen = all.find((account) => accountOptionValue(account, all) === value);
+  return chosen?.kind === "imap" ? chosen.id : value;
 }

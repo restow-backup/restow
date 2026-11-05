@@ -663,6 +663,178 @@ private repository.
   so; it looked as current as the libraries that were read. The library folder is now marked as
   carried forward from an earlier run, with the time its files were last read, and `site.json`
   says the library was not read in this run. The run still reports the library as a failed item.
+- Mail restore: a message backed up in the JSON format (Graph had refused its MIME export: larger
+  than about 150 MB, protected with IRM or not convertible) could not be restored into a mailbox.
+  The backup stores the message with its transport headers (Received, DKIM-Signature, Message-ID
+  and the like), the restore sent them back, and Graph refuses every header that does not start
+  with `x-` on a new message (400 `InvalidInternetMessageHeader`), so each such message failed.
+  The restore now sends only custom `x-` headers (at most 5, without the ones Exchange stamps on
+  delivery) and says how many transport headers stay in the backup. A message that was not a
+  draft also comes back as received mail with its own received and sent dates instead of a draft
+  dated the day of the restore (the properties `PidTagMessageFlags`,
+  `PidTagMessageDeliveryTime` and `PidTagClientSubmitTime` are set when it is created); if
+  Exchange still shows it as a draft or with other dates, the message is "Not confirmed" with the
+  reason.
+- Mail restore: no message larger than about 3 MB could be restored into a mailbox. The restore
+  sent every message as one base64 MIME upload, Graph takes at most 4 MB in one request and
+  refused it (413), and the item failed with "restore it as a download (EML) instead"; an ordinary
+  mail with a 5 MB PDF was enough. Before Graph refused it, a 100 MB message also took about
+  230 MB of memory. A message whose base64 MIME is larger than 3.5 MiB is now created from its
+  header and body, and its attachments are added one by one (from 3 MB through an upload
+  session, up to 150 MB each), with inline images and attached messages (as .eml); the backup
+  is read twice as a stream and no attachment is held in memory. Afterwards the message's
+  attachments are listed and compared by name and size. What does not come back (transport
+  headers such as Received and References, the exact MIME) is said on the item; an attachment
+  that could not be added or that the message does not list, or a different Message-ID, makes it
+  "Not confirmed". Images an HTML body carries inline as `data:` URIs (a newsletter) become inline
+  attachments so the body fits one request; a text that is larger than 4 MB on its own still
+  cannot go into a mailbox and fails with "restore it as a download (EML)". A message of this
+  size without a recorded draft state (a group conversation post) is created as what its MIME
+  import would be, received mail when its header has Date and From, instead of a draft dated the
+  day of the restore that still counted as confirmed; a message from the JSON fallback whose
+  draft state the backup does not record and that Exchange shows as a draft is "Not confirmed".
+  An encrypted (S/MIME, PGP/MIME), opaquely signed or rights-protected (Purview) message of this
+  size is not rebuilt, since Exchange could not open or check the result: it fails with the hint
+  to restore it as a download (EML). A signed message (multipart/signed) is restored readable,
+  with its signature file attached, but "Not confirmed", because the signature no longer
+  matches. Up to that size such messages are imported as they are and keep their protection.
+- Mail restore: when Exchange carried out a create but its answer was lost (the gateway answered
+  504, no answer came in time, or the connection broke), nothing checked whether the item already
+  existed. A message was then reported as failed although it was in the folder, or, sent again,
+  ended up there twice; a folder whose create was sent again failed the message with 409; a
+  contact or an attachment could be duplicated. The restore now looks first: a message by its
+  Message-ID in the target folder (a copy the folder did not have before the restore is the one
+  the create made), a folder by its name (also after a 409), an attachment by name and size on
+  its message, a contact by name and address. Exchange may still be working on the request when
+  the gateway gives up (a large import into a throttled mailbox commits a minute later), so it
+  keeps looking for about two minutes before anything is sent again. What it finds is kept and
+  the item says so (it counts as restored, without the confirmation a matching item gets); only
+  what none of the looks found is sent once more, and when the first create still made its copy
+  after all, the message or attachment is "Not confirmed" with both copies named. An event is
+  sent once more
+  with the same `transactionId`, so Exchange returns the one it made. A message without
+  Message-ID and a contact that is not found are never sent again but reported, so that no second
+  copy is made.
+- Mail restore: a restore job that was retried (after an update's drain, an expired attempt or a
+  lost IMAP connection) only had the target to tell what its earlier attempt had done, and that was
+  not enough. Into a server that re-renders what it stores (Exchange over IMAP) every message the
+  first attempt had appended was appended again, as was every message without Message-ID; in
+  Exchange a message whose create had gone through but whose attachments or flags never followed
+  was skipped as "already restored", without its attachments and without a failure. A restore job
+  now keeps its own record of what it restored (a finished message, or one that exists but still
+  waits for its attachments), one database row per item, written in batches of only what is new,
+  so the record of a mailbox with a million messages costs no more per batch than that of a small
+  one; it is dropped when the job ends. An attempt that restored nothing writes nothing, so a
+  restore stuck on one item until its time limit still uses up its retries and fails instead of
+  continuing for free for up to 21 days. A retry reports what an earlier attempt
+  restored as "restored by an earlier attempt of this job" with that attempt's verdict, finishes a
+  message that still lacks attachments (only the missing ones are added) and never restores a
+  message twice. For the moments the record does not cover yet, a rename-mode retry now also takes
+  a copy that the server re-rendered (only for a Message-ID that occurs once in the restore, so two
+  different messages with the same Message-ID are still both restored), finds an IMAP message
+  without Message-ID by size and SHA-256 within a day of its date (a server judges the day in its
+  own time zone, so a message from late in the evening is on the next day there), and adds missing
+  attachments to an Exchange message it finds in its restore folder. In "skip" mode such an
+  identical message in the original mailbox is skipped as already there, not reported as restored
+  by an earlier attempt, since the mailbox may have held it before the job.
+- Mail restore: an imported mailbox (PST, MBOX, EML) or an IMAP backup restored into a Microsoft
+  365 mailbox lost its read state, follow-up flags and keywords, yet every message counted as
+  confirmed. The restore only read Exchange's own properties; the IMAP flags were ignored. `\Seen`
+  now sets the read state (unread without it), `\Flagged` the follow-up flag, keywords become
+  categories, and flags Microsoft 365 has no counterpart for (`\Answered`, `$Forwarded`) are
+  named on the item. Folder names came from the escaped path ("100%" became "100%25", "A/B"
+  became "A%2FB"); they are now the real mailbox names, and in "skip" mode `INBOX` goes into the
+  target's inbox and a mailbox with a SPECIAL-USE (`\Sent`, `\Drafts`, `\Trash`, `\Junk`,
+  `\Archive`) into the matching folder, instead of new top-level folders "INBOX" and "Sent".
+- Mail restore: a message that Exchange created as a draft (a MIME import whose header lacks Date
+  or From, for example) counted as confirmed as soon as its Message-ID matched, although it was
+  no draft in the backup and Outlook shows it as an unsent draft. The draft state of every
+  restored message is now compared with the backup (`isDraft` of an Exchange backup, `\Draft` of
+  an IMAP backup or import); a difference makes it "Not confirmed" with the reason.
+- Mail restore of a Gmail or Google Workspace backup: every message came back once per label and
+  once more for "All Mail". Gmail shows a message in every mailbox that is one of its labels, and
+  each mailbox was restored on its own, so a whole-account restore into another server or into
+  Microsoft 365 (a migration, or after the account was lost) wrote a message with three labels
+  four times; into Gmail itself it also came back as separate copies. Each message is now restored
+  once, into the folder its labels point to (Inbox, then Sent, Drafts, Trash, Spam, then its first
+  own label, else the archive), and its other labels follow: into Gmail as labels again, on
+  another IMAP server as keywords, in Microsoft 365 as categories; Starred becomes the flag. A
+  server that keeps no new keywords is not sent any, and the result names the labels that are
+  lost, as it does when Microsoft 365 refuses the categories and the flag of a message. A retried
+  restore into Gmail that finds a message its earlier attempt appended adds the labels as well,
+  in case that attempt ended before them. The objects of the backup that stood for the other labels are listed as skipped with
+  what became of their label, and Gmail's Important and Starred are not created as folders on
+  another server.
+- Mail restore: an event that had attachments counted as confirmed although nothing of its
+  attachments came back. Backed-up event attachments are now added to the restored event (from
+  3 MB through an upload session, up to 150 MB each) and confirmed on it by name and size; those
+  of a moved occurrence of a series go onto that occurrence once its changes are applied again,
+  and an attached item (a forwarded mail, an event) comes back as a file with its content as
+  JSON. An event whose attachments the backup does not hold (a backup that did not save them, a
+  group calendar) is "Not confirmed" with the note that its attachments were not part of the
+  backup.
+- Group conversations: a post whose attachments Microsoft did not hand out to the app (or some of
+  which could not be read at the backup) came back from a restore or a ZIP download as
+  confirmed, and the restore explorer showed it like any other post, although its files were
+  never backed up. Such a post is now "Not confirmed" with the attachments it lacks, and the
+  explorer shows "Not all attachments backed up" on it, naming both causes. An EML ZIP or
+  MBOX export of such posts reported every one of them as exported and finished clean; they are
+  now listed with the status `incomplete` and the reason in `MANIFEST.csv`, counted and named
+  on the export page ("Mails without all their attachments"), and the export shows "Completed
+  with issues".
+- Restore job page: the explanation of a skipped item did not always fit. An event attachment
+  read "Belongs to a message that was not restored", also when its event was skipped because the
+  calendar already had it; an attachment inside a restored message's MIME, a Gmail message under
+  a further label, and Gmail's Important and Starred folders read "The target already holds this
+  item", although the target held no such item. Such items now say that they belong to an item
+  (a message or an event) that was not restored, belong to an item that already exists, were
+  restored with another item, or are no item of their own in the target (carried as a label,
+  category or flag).
+- Restore into another IMAP account: the target was stored as the bare login and looked up without
+  order, source or status, so with two IMAP sources that know the same login (an old and a new
+  server during a migration) a restore could write into the wrong server while the job reported
+  success, and it could even pick an account that is no longer protected. The dialog now sends the
+  chosen account itself (its suggestions name each account's source), the API records the
+  account's id and the worker resolves exactly that active account. A login that more than one
+  active account has is refused with the sources named ("Choose the account from the
+  suggestions"); a login that only one account has, as sent by older API clients or jobs queued
+  before the update, still works. A restore of an imported mailbox into a Microsoft 365 mailbox
+  whose address two mailboxes of the tenant share is refused the same way instead of picking one.
+  The job list, the job page and the audit entry name the target account by its login and source
+  ("Into info@contoso.test · New mail server"), not by its id.
+- OneDrive/SharePoint restore: in "rename" mode an Office file of a SharePoint or OneDrive for
+  Business library came back as a numbered copy ("Report 1.docx") next to the unchanged original,
+  and every retry of the job (after an update's drain or a restart) added one more ("Report
+  2.docx", ...). SharePoint rewrites the document properties of an Office file on download, so the
+  backup holds other bytes than the library, and the duplicate check compared the library's size
+  and hash with the backup's. The unchanged original is now recognised by the size and hash the
+  library reported at backup time, the backup's own hash is used for everything else, and the job
+  records which item it uploaded for which file, so a retry never uploads it again. Such files
+  were also marked "Not confirmed" after every restore because the sent bytes were compared with
+  the hash the library reported at backup time, which belongs to the library's rewritten copy;
+  that comparison is gone. A library that rewrites the uploaded file as well (the usual case for
+  SharePoint document properties) still reports another size or hash than was sent, and the file
+  stays "Not confirmed" with that size or hash as the reason: Restow cannot check what the
+  library made of it.
+- OneDrive/SharePoint restore: a OneNote section could not be restored into its notebook while
+  the notebook was still there (the usual case: one section deleted or damaged). OneDrive lists a
+  notebook as a package, not as a folder, and the restore stopped at it with "a file with that
+  name exists", so the notebook and every section below it failed in every mode. A notebook in the
+  target is now treated as the folder it is, and the sections go into it.
+- SharePoint restore: a library Graph refused at a backup keeps the files of the last run that
+  could read it, but a restore and the restore explorer showed them as if they were that backup's
+  state. The library and every file restored from it now say that the library could not be read
+  at this backup and from when its files are, and the explorer shows "Library not readable at
+  this backup" with that date on the library. The files keep their normal verification.
+- OneDrive/SharePoint restore and mail restore: a large file started again from its first byte
+  after any hiccup on one of its fragments. A 500 or 502 from SharePoint, a connection that broke
+  while a fragment was sent, or a fragment sent once more after a timeout (which the session then
+  refused with 416) failed the whole file, and the half-finished upload session was left open on
+  the target; a retry of the job uploaded it again from 0. A 40 GB file needed some 4,000
+  fragments in a row without a single error. The restore now asks the session what it holds and
+  sends only what it lacks, up to six times per fragment with a growing pause; a file reads that
+  part again from its backup, also one the session lost. When it gives up, the upload session is
+  cancelled. The same applies to attachments from 3 MB that are added to restored messages.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,
@@ -1412,7 +1584,7 @@ private repository.
 
 ### Upgrade Notes
 
-Six database migrations run on start: 0073 creates the new table `storage_samples` and 0074
+Seven database migrations run on start: 0073 creates the new table `storage_samples` and 0074
 the new table `directory_memberships`; neither rewrites anything. 0075 serves the restore
 explorer's "From the archive": an index on `archive_items` (tenant, mailbox, capture time), the
 index on `archive_item_mailboxes` (tenant, mailbox) replaced by one that adds the time of the
@@ -1435,7 +1607,9 @@ of every tenant that ever changed its primary (see Fixed). 0078 adds the nullabl
 `settings.default_storage_write_once`, empty for every row, without a rewrite. A repository counts
 as write-once only once a test of this version found it so: after the update, run "Test" on every
 repository (and on the installation default) that lies on a WORM share, so that retention stops
-trying to delete there and a reset begins its new chain under a fresh prefix at once. The first directory sync after the
+trying to delete there and a reset begins its new chain under a fresh prefix at once. 0079
+creates the new table `job_cursor_entries` (a restore job's record of what it restored) and a
+trigger on `jobs` that empties it for a job that ends; nothing is rewritten. The first directory sync after the
 update reads the owners and members of every Microsoft 365 group once (three Graph reads per group, through
 `$batch`); until it has run, a person's "Teams & sites" is empty and says that it may be
 incomplete. Agents before 0.5.0 ignore `snapshotOnFailure`, and the release key keeps the

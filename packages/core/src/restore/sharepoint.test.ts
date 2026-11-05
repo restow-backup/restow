@@ -3,10 +3,16 @@ import { Harness, TENANT } from "../backup/onedrive/testing.js";
 import { SharePointBackupEngine } from "../backup/sharepoint/engine.js";
 import { FakeSharePoint, type FakeSpList, type FakeSpSite } from "../backup/sharepoint/testing.js";
 import type { ProtectedObjectRef, RestoreRequest } from "../engine/types.js";
+import { must } from "../graph/testing/fake-graph.js";
 import { verifyProtectedObject } from "../verify/engine.js";
 import { DownloadRestoreEngine } from "./download.js";
 import { SharePointRestoreEngine } from "./sharepoint.js";
 import { FakeDrive } from "./testing/fake-drive.js";
+import {
+  createSnapshotFixture,
+  restoreRequestFor,
+  type SnapshotFixture,
+} from "./testing/fixtures.js";
 import { readZip } from "./testing/zip-reader.js";
 
 const SITE_ID = "contoso.sharepoint.example,1111,2222";
@@ -130,6 +136,25 @@ describe("SharePointRestoreEngine", () => {
       }),
     );
     expect(world.drive.child("root", "readme.txt")?.content.toString()).toBe("hello sales");
+  });
+
+  it("adds no numbered copy of an Office file when a retried job finds it rewritten by SharePoint", async () => {
+    const world = await backedUp(harness);
+    world.drive.rewritesOfficeFiles = true;
+    const retried = request(world, {
+      selection: { paths: ["Libraries/Documents/Reports/Q3.xlsx"] },
+    });
+
+    await restoreEngine(world).run(harness.context({ jobId: "restore" }), retried);
+    const retry = await restoreEngine(world).run(harness.context({ jobId: "restore" }), retried);
+
+    expect(retry.failures).toEqual([]);
+    expect(retry.items.find((item) => item.path.endsWith("Q3.xlsx"))?.reason).toBe(
+      "restored by an earlier attempt of this job",
+    );
+    expect(world.drive.files().map((file) => world.drive.pathOf(file.id))).toEqual([
+      "Reports/Q3.xlsx",
+    ]);
   });
 
   it("restores into another library below a folder, keeping each library apart", async () => {
@@ -332,5 +357,59 @@ describe("SharePointRestoreEngine", () => {
     // Three library files, plus site.json, the list's schema and its two items (0.4.9).
     expect(outcome.checked).toBe(7);
     expect(outcome.mismatched).toBe(0);
+  });
+});
+
+describe("SharePointRestoreEngine with a library carried forward from an earlier run", () => {
+  let fixture: SnapshotFixture;
+
+  afterEach(async () => {
+    await fixture?.cleanup();
+  });
+
+  it("says on the library and on its files that they are the state of the last run that read it", async () => {
+    fixture = await createSnapshotFixture({
+      kind: "site",
+      externalId: SITE_ID,
+      objects: [
+        {
+          path: "Libraries/Documents",
+          type: "folder",
+          id: "L1",
+          content: "",
+          // Graph refused the library at this backup; its files are those of 1 October.
+          metadata: {
+            driveId: "b!docs",
+            carriedForward: "true",
+            lastReadAt: "2026-10-01T02:00:00.000Z",
+          },
+        },
+        { path: "Libraries/Documents/readme.txt", type: "file", id: "F1", content: "hello sales" },
+        {
+          path: "Libraries/Pages",
+          type: "folder",
+          id: "L2",
+          content: "",
+          metadata: { driveId: "b!pages" },
+        },
+        { path: "Libraries/Pages/Home.aspx", type: "file", id: "F2", content: "<html>home</html>" },
+      ],
+    });
+    const drive = new FakeDrive("b!docs");
+    const report = await new SharePointRestoreEngine({ graph: () => drive.graph.client() }).run(
+      fixture.ctx,
+      restoreRequestFor(fixture, { target: { type: "other", ref: "b!docs" } }),
+    );
+
+    expect(report.failures).toEqual([]);
+    const item = (id: string) => must(report.items.find((entry) => entry.id === id));
+    const note =
+      "the library could not be read at this backup; its files are as of 2026-10-01T02:00:00.000Z";
+    expect(item("L1").reason).toBe(note);
+    expect(item("F1")).toMatchObject({ status: "restored", verified: true });
+    expect(item("F1").reason).toContain(note);
+    // A library read at this backup says nothing of the sort.
+    expect(item("L2").reason).toBeUndefined();
+    expect(item("F2").reason ?? "").not.toContain("could not be read");
   });
 });

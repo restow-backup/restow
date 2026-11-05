@@ -87,6 +87,8 @@ DECLARE
     'manifest_versions',
     'jobs',
     'job_progress',
+    -- A job's keyed record beside its cursor (0.5.0, a restore's per-item progress).
+    'job_cursor_entries',
     'item_failures',
     'restore_jobs',
     'verify_reports',

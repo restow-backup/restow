@@ -25,6 +25,7 @@ import { GraphError, isGraphError, isMailboxUnavailable, isNotFound } from "../e
 import {
   bodyOrThrow,
   collect,
+  isWriteOutcomeUnknown,
   odataString,
   paginate,
   query,
@@ -38,7 +39,7 @@ import {
   type UploadOptions,
   type UploadSessionInfo,
   type UploadSource,
-  uploadToSession,
+  uploadToSessionOrCancel,
 } from "./upload-session.js";
 
 // ---------------------------------------------------------------------------
@@ -951,9 +952,131 @@ const MESSAGE_READ_ONLY = [
   "singleValueExtendedProperties",
 ] as const;
 
-/** Strip read-only properties so a backed-up message JSON can be POSTed again. */
-export function toCreatableMessage(message: Message): Partial<Message> {
-  return stripReadOnly(message as Record<string, unknown>, MESSAGE_READ_ONLY) as Partial<Message>;
+/**
+ * MAPI properties (MS-OXPROPS) a message created from JSON gets, so it is a
+ * received or sent message with its own dates and not a draft dated today.
+ * Graph honours them only on create.
+ */
+export const PID_TAG_MESSAGE_FLAGS = "Integer 0x0E07";
+export const PID_TAG_MESSAGE_DELIVERY_TIME = "SystemTime 0x0E06";
+export const PID_TAG_CLIENT_SUBMIT_TIME = "SystemTime 0x0039";
+/** PidTagMessageFlags bits: read, and unsent (the draft bit, never set here). */
+export const MSGFLAG_READ = 0x1;
+export const MSGFLAG_UNSENT = 0x8;
+
+/**
+ * Custom headers a create may carry. Graph refuses any header whose name does
+ * not start with `x-` (400 InvalidInternetMessageHeader) and limits the custom
+ * headers of a message; Restow stays well below that with at most 5 headers of
+ * together at most 2 KB.
+ */
+export const MAX_CREATE_HEADERS = 5;
+export const MAX_CREATE_HEADER_BYTES = 2048;
+
+/**
+ * Headers Exchange and its filters stamp on delivery. They describe the
+ * original transport, not the message, and a create must not claim them.
+ */
+const TRANSPORT_STAMPED_HEADER = /^x-(ms-|microsoft-|forefront-|originatororg$)/i;
+
+/** What {@link toCreatableMessage} could not carry over. */
+export interface CreatableMessageLoss {
+  /** Backed-up headers left out: standard (transport) headers and x- headers over the limit. */
+  readonly droppedHeaders: number;
+  /** The backup does not say whether the message was a draft; it stays one (Graph's default). */
+  readonly draftStateUnknown: boolean;
+}
+
+function customHeadersOf(message: Message): {
+  kept: Array<{ name: string; value: string }>;
+  dropped: number;
+} {
+  const all = Array.isArray(message.internetMessageHeaders) ? message.internetMessageHeaders : [];
+  const kept: Array<{ name: string; value: string }> = [];
+  let bytes = 0;
+  for (const header of all) {
+    const name = typeof header?.name === "string" ? header.name.trim() : "";
+    const value = typeof header?.value === "string" ? header.value : "";
+    if (!/^x-/i.test(name) || TRANSPORT_STAMPED_HEADER.test(name)) {
+      continue;
+    }
+    const size = Buffer.byteLength(name) + Buffer.byteLength(value);
+    if (kept.length >= MAX_CREATE_HEADERS || bytes + size > MAX_CREATE_HEADER_BYTES) {
+      continue;
+    }
+    kept.push({ name, value });
+    bytes += size;
+  }
+  return { kept, dropped: all.length - kept.length };
+}
+
+function isoInstant(value: string | null | undefined): string | undefined {
+  if (typeof value !== "string" || Number.isNaN(Date.parse(value))) {
+    return undefined;
+  }
+  return new Date(value).toISOString();
+}
+
+/**
+ * The extended properties that make a message created from JSON what it was:
+ * not a draft (PidTagMessageFlags without the unsent bit, with the read bit
+ * from `isRead`), received and sent at its own times. Only for a message the
+ * backup recorded as not a draft; a draft stays a draft without dates.
+ */
+export function restoredMessageProperties(
+  message: Pick<Message, "isRead" | "receivedDateTime" | "sentDateTime">,
+): Array<{ id: string; value: string }> {
+  const properties = [
+    { id: PID_TAG_MESSAGE_FLAGS, value: String(message.isRead === true ? MSGFLAG_READ : 0) },
+  ];
+  const received = isoInstant(message.receivedDateTime);
+  if (received !== undefined) {
+    properties.push({ id: PID_TAG_MESSAGE_DELIVERY_TIME, value: received });
+  }
+  const sent = isoInstant(message.sentDateTime);
+  if (sent !== undefined) {
+    properties.push({ id: PID_TAG_CLIENT_SUBMIT_TIME, value: sent });
+  }
+  return properties;
+}
+
+/**
+ * Turn a backed-up message JSON into a body Graph accepts on create: read-only
+ * properties stripped, only the custom `x-` headers Graph takes (never the
+ * transport headers the backup fetched with the message), and, for a message
+ * that was not a draft (`isDraft` false in the JSON or, when the JSON lacks it,
+ * in `options.isDraft`), the extended properties of
+ * {@link restoredMessageProperties}.
+ */
+export function toCreatableMessage(
+  message: Message,
+  options: { isDraft?: boolean } = {},
+): Partial<Message> {
+  return prepareMessageCreate(message, options).body;
+}
+
+/** {@link toCreatableMessage}, also saying what could not be carried over. */
+export function prepareMessageCreate(
+  message: Message,
+  options: { isDraft?: boolean } = {},
+): { body: Partial<Message>; loss: CreatableMessageLoss } {
+  const { internetMessageHeaders: _headers, ...rest } = message;
+  const body = stripReadOnly(
+    rest as Record<string, unknown>,
+    MESSAGE_READ_ONLY,
+  ) as Partial<Message>;
+  const headers = customHeadersOf(message);
+  if (headers.kept.length > 0) {
+    body.internetMessageHeaders = headers.kept;
+  }
+  const isDraft = typeof message.isDraft === "boolean" ? message.isDraft : options.isDraft;
+  if (isDraft === false) {
+    body.singleValueExtendedProperties = restoredMessageProperties(message);
+  }
+  return {
+    body,
+    loss: { droppedHeaders: headers.dropped, draftStateUnknown: isDraft === undefined },
+  };
 }
 
 /** Create a message from JSON (fallback path for messages backed up as parts). */
@@ -970,8 +1093,24 @@ export async function createMessageFromJson(
   });
 }
 
-/** Attachments up to this size are posted inline as base64 `contentBytes`. */
+/**
+ * Attachments below this size are posted inline as base64 `contentBytes`;
+ * Graph takes one of this size or larger (up to 150 MB) only through an
+ * upload session, and refuses an upload session for a smaller one.
+ */
 export const INLINE_ATTACHMENT_LIMIT_BYTES = 3 * 1024 * 1024;
+
+/**
+ * Largest base64 MIME Restow imports in one request: Graph refuses a request
+ * body over 4 MB (413), so a larger message is created without its
+ * attachments and gets them one by one (restore/exchange.ts).
+ */
+export const MIME_IMPORT_LIMIT_BASE64_BYTES = 3.5 * 1024 * 1024;
+
+/** Length of the base64 form of `bytes` bytes. */
+export function base64Length(bytes: number): number {
+  return Math.ceil(bytes / 3) * 4;
+}
 
 /**
  * Add a file attachment to an existing message: inline for small files, via an
@@ -981,18 +1120,41 @@ export async function addFileAttachment(
   client: GraphClient,
   userId: string,
   messageId: string,
-  file: {
-    name: string;
-    contentType?: string;
-    size: number;
-    isInline?: boolean;
-    contentId?: string;
-  },
+  file: FileAttachmentFacts,
   source: UploadSource,
   options: UploadOptions = {},
 ): Promise<{ id: string | undefined; location: string | undefined }> {
-  const base = `${userPath(userId)}/messages/${encodeURIComponent(messageId)}/attachments`;
-  if (file.size <= INLINE_ATTACHMENT_LIMIT_BYTES) {
+  return addFileAttachmentAt(
+    client,
+    `${userPath(userId)}/messages/${encodeURIComponent(messageId)}/attachments`,
+    file,
+    source,
+    options,
+  );
+}
+
+/** What a file attachment is created with. */
+export interface FileAttachmentFacts {
+  name: string;
+  contentType?: string;
+  size: number;
+  isInline?: boolean;
+  contentId?: string;
+}
+
+/**
+ * Add a file attachment to the item whose `attachments` collection is `base`
+ * (a message or an event): a POST under 3 MB, else an upload session (up to
+ * 150 MB, fragments resumed after a failure and cancelled when it gives up).
+ */
+export async function addFileAttachmentAt(
+  client: GraphClient,
+  base: string,
+  file: FileAttachmentFacts,
+  source: UploadSource,
+  options: UploadOptions = {},
+): Promise<{ id: string | undefined; location: string | undefined }> {
+  if (file.size < INLINE_ATTACHMENT_LIMIT_BYTES) {
     const bytes = await readAll(source, file.size);
     const created = await requestOk<{ id?: string }>(client, {
       method: "POST",
@@ -1024,7 +1186,7 @@ export async function addFileAttachment(
       },
     },
   });
-  const outcome = await uploadToSession(client, session, source, file.size, {
+  const outcome = await uploadToSessionOrCancel(client, session, source, file.size, {
     ...options,
     bounds: OUTLOOK_FRAGMENT_BOUNDS,
   });
@@ -1148,6 +1310,52 @@ async function createChildFolder(
 }
 
 /**
+ * Create a folder without ever creating it twice: when Graph answers 409 (it
+ * exists, for example because an earlier POST went through unanswered) or the
+ * outcome of the POST is unknown, the folder is looked up again and taken;
+ * only a folder that is still missing after an unknown outcome is created
+ * once more. Exchange refuses a second folder of the same name, so that
+ * create cannot make a twin: when the first one went through meanwhile (it
+ * was still being made when its answer was lost) it answers 409, and the
+ * folder is looked up once more.
+ */
+async function createChildFolderOnce(
+  client: GraphClient,
+  userId: string,
+  parentFolderId: string | undefined,
+  displayName: string,
+): Promise<string> {
+  const isExists = (error: unknown) => isGraphError(error) && error.status === 409;
+  try {
+    return await createChildFolder(client, userId, parentFolderId, displayName);
+  } catch (error) {
+    const exists = isExists(error);
+    if (!exists && !isWriteOutcomeUnknown(error)) {
+      throw error;
+    }
+    const found = await findChildFolder(client, userId, parentFolderId, displayName);
+    if (found !== null) {
+      return found;
+    }
+    if (exists) {
+      throw error;
+    }
+    try {
+      return await createChildFolder(client, userId, parentFolderId, displayName);
+    } catch (retryError) {
+      if (!isExists(retryError)) {
+        throw retryError;
+      }
+      const late = await findChildFolder(client, userId, parentFolderId, displayName);
+      if (late === null) {
+        throw retryError;
+      }
+      return late;
+    }
+  }
+}
+
+/**
  * Walk (and create where missing) a folder path like `Inbox/Projects/2026` and
  * return the id of the last folder. Lookups are by display name, case-insensitive
  * as Graph's `$filter eq` is; existing folders are never duplicated.
@@ -1168,7 +1376,7 @@ export async function ensureMailFolderPath(
     const id: string =
       cached ??
       (await findChildFolder(client, userId, parentId, segment)) ??
-      (await createChildFolder(client, userId, parentId, segment));
+      (await createChildFolderOnce(client, userId, parentId, segment));
     cache.set(cacheKey, id);
     current = id;
   }
