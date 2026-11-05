@@ -129,6 +129,10 @@
         "title": "Attachments of events in the group calendar are not backed up",
         "why": "{count, plural, one {# event} other {# events}} in this group's calendar {count, plural, one {has} other {have}} attachments. Microsoft Graph does not hand attachments of group events to the app, so {appName} backs up the events themselves only. A restore creates these events without their attachments."
       },
+      "group_post_attachments_refused": {
+        "title": "Attachments of group posts were not backed up",
+        "why": "{count, plural, one {# post} other {# posts}} in this group's conversations {count, plural, one {has} other {have}} attachments that Microsoft Graph refused to the app. {appName} backed up the posts without these attachments; a restore or an export brings them back without them. If Graph hands the attachments out later, {appName} adds them on the next run."
+      },
       "item_not_found": {
         "title": "The item was changed or deleted at Microsoft in the meantime",
         "why": "{appName} listed this item but could not read it afterwards, because it was moved or deleted at Microsoft in between. The next run sees the new state."

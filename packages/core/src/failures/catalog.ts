@@ -201,6 +201,12 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     retryable: false,
     steps: () => [step("store_group_attachments_in_files")],
   },
+  "graph.group_post_attachments_refused": {
+    category: "microsoft",
+    transient: false,
+    retryable: false,
+    steps: () => [step("store_group_attachments_in_files")],
+  },
   "graph.item_not_found": {
     category: "microsoft",
     transient: true,

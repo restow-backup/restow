@@ -57,6 +57,9 @@ export const FAILURE_CODES = [
   // Events of a group calendar with attachments: Graph does not hand those to the app
   // (backup/exchange/calendar.ts). One warning per run and group.
   "graph.group_event_attachments_not_covered",
+  // Posts of group conversations whose attachments Graph refused to the app
+  // (backup/groups/conversations.ts). One warning per run and group.
+  "graph.group_post_attachments_refused",
   "graph.item_not_found",
   "graph.item_too_large",
   "graph.item_unreadable",

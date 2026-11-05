@@ -599,6 +599,10 @@ private repository.
   reported as a failed item. The first run after the update adds them for all events that still
   exist. Group calendars do not hand attachments to Restow: a run whose group calendar has
   events with attachments now ends with a warning that says so.
+- Group backup: when Microsoft Graph refused the attachments of group conversation posts to
+  Restow, the posts were backed up without their files and the run was green. Such a run now
+  ends with a warning naming the number of posts concerned, and the posts are marked as backed
+  up without attachments. Once Graph hands the attachments out, the next run adds them.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,

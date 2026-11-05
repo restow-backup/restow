@@ -129,6 +129,10 @@
         "title": "Anhänge von Terminen im Gruppenkalender werden nicht gesichert",
         "why": "{count, plural, one {# Termin} other {# Termine}} im Kalender dieser Gruppe {count, plural, one {hat} other {haben}} Anhänge. Microsoft Graph gibt Anhänge von Gruppenterminen nicht an die App heraus, deshalb sichert {appName} nur die Termine selbst. Eine Wiederherstellung legt diese Termine ohne ihre Anhänge an."
       },
+      "group_post_attachments_refused": {
+        "title": "Anhänge von Gruppenbeiträgen wurden nicht gesichert",
+        "why": "{count, plural, one {# Beitrag} other {# Beiträge}} in den Unterhaltungen dieser Gruppe {count, plural, one {hat} other {haben}} Anhänge, die Microsoft Graph der App verweigert hat. {appName} hat die Beiträge ohne diese Anhänge gesichert; eine Wiederherstellung oder ein Export bringt sie ohne Anhänge zurück. Gibt Graph die Anhänge später heraus, holt {appName} sie beim nächsten Lauf nach."
+      },
       "item_not_found": {
         "title": "Das Element wurde inzwischen bei Microsoft geändert oder gelöscht",
         "why": "{appName} hatte dieses Element aufgelistet, konnte es danach aber nicht lesen, weil es dazwischen bei Microsoft verschoben oder gelöscht wurde. Der nächste Lauf sieht den neuen Stand."

@@ -29,6 +29,7 @@
  */
 import { createHash } from "node:crypto";
 import type { Attachment, FileAttachment, Recipient } from "@microsoft/microsoft-graph-types";
+import { buildCause } from "../../failures/classify.js";
 import { isNotFound } from "../../graph/errors.js";
 import {
   isAttachmentExpansionRefused,
@@ -77,7 +78,15 @@ export const POST_META = {
   postId: "postId",
   /** Names of file attachments Graph did not hand out (expansion refused). */
   missingAttachments: "missingAttachments",
+  /**
+   * "true": the post has attachments (`hasAttachments` as Graph says) that are not in the
+   * backup, because Graph refused them to the app. Every run with such posts warns.
+   */
+  attachmentsNotBackedUp: "attachmentsNotBackedUp",
 } as const;
+
+/** What `missingAttachments` says when Graph refused the attachment expansion. */
+const REFUSED_ATTACHMENTS = "(attachments not available to the app)";
 
 /** The group a backup run writes into the `To` header of every post. */
 export interface GroupAddress {
@@ -292,6 +301,9 @@ class ConversationsPhase {
     if (missing.length > 0) {
       metadata[POST_META.missingAttachments] = JSON.stringify(missing);
     }
+    if (missing.includes(REFUSED_ATTACHMENTS)) {
+      metadata[POST_META.attachmentsNotBackedUp] = "true";
+    }
     return metadata;
   }
 
@@ -312,7 +324,7 @@ class ConversationsPhase {
     const built = buildPostMessage(post, thread, this.options.group);
     const missing =
       !this.expand && post.hasAttachments === true
-        ? ["(attachments not available to the app)"]
+        ? [REFUSED_ATTACHMENTS]
         : built.skippedAttachments;
     await run.storeBytes(built.bytes, {
       path,
@@ -434,11 +446,14 @@ class ConversationsPhase {
     for (const thread of threads) {
       run.throwIfAborted();
       const delivered = thread.lastDeliveredDateTime ?? "";
+      const members = run.index.members(threadGroup(thread.id));
       const unchanged =
         !run.full &&
         delivered !== "" &&
         previous[thread.id] === delivered &&
-        run.index.members(threadGroup(thread.id)).length > 0;
+        members.length > 0 &&
+        // Posts stored without their attachments are read again while Graph may hand them out.
+        !(this.expand && members.some(notBackedUp));
       if (unchanged) {
         next[thread.id] = delivered;
         continue;
@@ -451,7 +466,33 @@ class ConversationsPhase {
       }
     }
     run.state.conversationThreads = next;
+    this.warnAboutRefusedAttachments();
   }
+
+  /**
+   * One warning per run while the restore point holds posts whose attachments Graph refused to
+   * the app (also posts stored by an earlier run): the run is never plain green for them.
+   */
+  private warnAboutRefusedAttachments(): void {
+    const run = this.run;
+    let count = 0;
+    for (const group of run.index.groups(mailGroup(THREAD_GROUP_PREFIX))) {
+      count += run.index.members(group).filter(notBackedUp).length;
+    }
+    if (count === 0) {
+      return;
+    }
+    const reason = `${count} post(s) of the group conversations have attachments Graph did not hand to the app; they are backed up without them`;
+    run.warn(
+      CONVERSATIONS_PATH,
+      reason,
+      buildCause("graph.group_post_attachments_refused", { count }, { message: reason }),
+    );
+  }
+}
+
+function notBackedUp(object: { metadata?: Record<string, string> }): boolean {
+  return object.metadata?.[POST_META.attachmentsNotBackedUp] === "true";
 }
 
 /** Back up the conversations of a group mailbox (resumable: skipped once done in this run). */

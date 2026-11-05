@@ -273,16 +273,42 @@ describe("GroupMailboxBackupEngine", () => {
     expect(manifest.objects.filter((o) => o.type === "mail")).toHaveLength(3);
   });
 
-  it("stores posts without attachments when Graph refuses the expansion, and says so", async () => {
+  it("stores posts without attachments when Graph refuses the expansion, and warns", async () => {
     group.refuseAttachmentExpand = true;
     const result = await engine().run(fixture.ctx, fixture.protectedObject);
-    expect(result.failures).toEqual([]);
+    // Never plain green: one warning for the group, with the number of posts concerned.
+    expect(result.failures).toEqual([
+      expect.objectContaining({
+        itemRef: CONVERSATIONS_PATH,
+        cause: expect.objectContaining({
+          code: "graph.group_post_attachments_refused",
+          params: { count: 1 },
+        }),
+      }),
+    ]);
     const manifest = await manifestOf(result.snapshotId);
-    expect(byId(manifest, "P1").metadata?.missingAttachments).toBe(
-      JSON.stringify(["(attachments not available to the app)"]),
-    );
+    expect(byId(manifest, "P1").metadata).toMatchObject({
+      missingAttachments: JSON.stringify(["(attachments not available to the app)"]),
+      [POST_META.attachmentsNotBackedUp]: "true",
+      hasAttachments: "true",
+    });
     expect(await text(byId(manifest, "P1"))).not.toContain("plan.pdf");
     expect(byId(manifest, "P2").metadata?.missingAttachments).toBeUndefined();
+    expect(byId(manifest, "P2").metadata?.[POST_META.attachmentsNotBackedUp]).toBeUndefined();
+
+    // Still refused next run: the posts stored without them keep the warning.
+    const again = await engine().run(fixture.ctx, fixture.protectedObject);
+    expect(again.failures.map((failure) => failure.cause?.code)).toEqual([
+      "graph.group_post_attachments_refused",
+    ]);
+
+    // Graph hands them out again: the thread is read again and the warning is gone.
+    group.refuseAttachmentExpand = false;
+    const healed = await engine().run(fixture.ctx, fixture.protectedObject);
+    expect(healed.failures).toEqual([]);
+    const after = await manifestOf(healed.snapshotId);
+    expect(byId(after, "P1").metadata?.[POST_META.attachmentsNotBackedUp]).toBeUndefined();
+    expect(await text(byId(after, "P1"))).toContain("plan.pdf");
   });
 
   it("warns once that attachments of group events are not backed up", async () => {

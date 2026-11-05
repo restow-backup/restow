@@ -528,7 +528,12 @@ Wiederherstellung, Download, Export, Restore-Prüfung und Aufbewahrung unveränd
   Teilnehmer, `Subject`/`Thread-Topic` = Thema, `Date`, eine aus der Post-ID abgeleitete
   `Message-ID`, Text/HTML, Dateianhänge als MIME-Teile). Verweigert Graph die Erweiterung um
   Anhänge, werden die Beiträge ohne Anhänge gesichert und `missingAttachments` nennt das;
-  Link- und Elementanhänge werden namentlich vermerkt.
+  Link- und Elementanhänge werden namentlich vermerkt. Ein so gesicherter Beitrag trägt
+  `attachmentsNotBackedUp: "true"` (`hasAttachments` bleibt, wie Graph es meldet), und jeder Lauf,
+  dessen Sicherungsstand solche Beiträge hat, endet mit einer Warnung
+  `graph.group_post_attachments_refused` (Element `mail/Conversations`, mit der Anzahl), nie
+  einfach grün. Threads mit solchen Beiträgen werden erneut gelesen, solange Graph die
+  Erweiterung nicht verweigert; gibt Graph die Anhänge später heraus, kommen sie dazu.
 - Eine gelöschte Gruppe schlägt mit `graph.group_unavailable` fehl (die nächste Synchronisierung
   verwaist sie). Throttling wie bei Postfächern (derselbe Graph-Client, Parallelität über die
   Gruppen statt innerhalb einer).
