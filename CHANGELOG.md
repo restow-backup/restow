@@ -589,6 +589,11 @@ private repository.
   3 MB through an upload session, up to 150 MB each) and confirmed on it by name and size. An
   event whose attachments the backup does not hold (a backup that did not save them, a group
   calendar) is "Not confirmed" with the note that its attachments were not part of the backup.
+- Group conversations: a post whose attachments Microsoft did not hand out to the app (or whose
+  link attachment the backup could not keep) came back from a restore or a ZIP download as
+  confirmed, and the restore explorer showed it like any other post, although its files were
+  never backed up. Such a post is now "Not confirmed" with the attachments it lacks, and the
+  explorer shows "Attachments not backed up" on it.
 - Restore into another IMAP account: the target was stored as the bare login and looked up without
   order, source or status, so with two IMAP sources that know the same login (an old and a new
   server during a migration) a restore could write into the wrong server while the job reported

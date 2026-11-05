@@ -89,7 +89,17 @@ describe("mailSummaryOf", () => {
       isRead: false,
       flagged: true,
       protection: "rights-protected",
+      attachmentsNotBackedUp: false,
     });
+  });
+
+  it("knows a group post whose attachments were not backed up", () => {
+    expect(
+      mailSummaryOf({ missingAttachments: '["(attachments not available to the app)"]' })
+        .attachmentsNotBackedUp,
+    ).toBe(true);
+    expect(mailSummaryOf({ attachmentsNotBackedUp: "true" }).attachmentsNotBackedUp).toBe(true);
+    expect(mailSummaryOf({ missingAttachments: "[]" }).attachmentsNotBackedUp).toBe(false);
   });
 
   it("reads IMAP flags in JSON and whitespace form and the internal date", () => {
@@ -122,6 +132,7 @@ describe("mailSummaryOf", () => {
       isRead: null,
       flagged: null,
       protection: null,
+      attachmentsNotBackedUp: false,
     });
     expect(mailSummaryOf({ subject: "   " }).subject).toBeNull();
   });
@@ -194,6 +205,7 @@ const emptyMailSummary: MailSummary = {
   isRead: null,
   flagged: null,
   protection: null,
+  attachmentsNotBackedUp: false,
 };
 
 describe("toTreeEntry", () => {

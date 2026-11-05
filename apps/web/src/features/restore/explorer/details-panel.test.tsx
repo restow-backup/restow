@@ -128,6 +128,13 @@ describe("DetailsPanel", () => {
     expect(restoreButtonAt).toBeGreaterThan(readingPaneAt);
   });
 
+  it("says when the backup holds a group post without its attachments", () => {
+    expect(render(mailEntry)).not.toContain("Attachments not backed up");
+    const html = render({ ...mailEntry, mail: { ...mail, attachmentsNotBackedUp: true } });
+    expect(html).toContain("Attachments not backed up");
+    expect(html).toContain("Microsoft did not hand out the attachments of this post");
+  });
+
   it("shows a protection hint next to Download for a protected mail", () => {
     const client = new QueryClient();
     const protectedEntry: TreeEntry = {

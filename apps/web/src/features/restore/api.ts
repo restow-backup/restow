@@ -180,6 +180,11 @@ export interface MailSummary {
   flagged: boolean | null;
   /** Set when the mail cannot be read back in the clear (see {@link MailProtectionKind}). */
   protection: MailProtectionKind | null;
+  /**
+   * The backup holds the message without some of its attachments (a group post whose
+   * attachments Microsoft did not hand out). Absent from older API versions.
+   */
+  attachmentsNotBackedUp?: boolean;
 }
 
 /**

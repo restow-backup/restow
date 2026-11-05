@@ -1,6 +1,15 @@
-import { ArchiveRestore, Download, FolderOpen, LocateFixed, Lock, X } from "lucide-react";
+import {
+  ArchiveRestore,
+  Download,
+  FolderOpen,
+  LocateFixed,
+  Lock,
+  Paperclip,
+  X,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -105,6 +114,14 @@ export function DetailsPanel({
         <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
           {t("details.deletedHint")}
         </p>
+      ) : null}
+
+      {mail?.attachmentsNotBackedUp ? (
+        <Alert variant="warning">
+          <Paperclip />
+          <AlertTitle>{t("details.attachmentsNotBackedUp.title")}</AlertTitle>
+          <AlertDescription>{t("details.attachmentsNotBackedUp.description")}</AlertDescription>
+        </Alert>
       ) : null}
 
       {/* The reading pane (headers, sanitised body, attachments, print) sits

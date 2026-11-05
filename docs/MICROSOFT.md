@@ -509,7 +509,10 @@ Wiederherstellung, Download, Export, Restore-Prüfung und Aufbewahrung unveränd
   Teilnehmer, `Subject`/`Thread-Topic` = Thema, `Date`, eine aus der Post-ID abgeleitete
   `Message-ID`, Text/HTML, Dateianhänge als MIME-Teile). Verweigert Graph die Erweiterung um
   Anhänge, werden die Beiträge ohne Anhänge gesichert und `missingAttachments` nennt das;
-  Link- und Elementanhänge werden namentlich vermerkt.
+  Link- und Elementanhänge werden namentlich vermerkt. Ein solcher Beitrag ist nach einem Restore
+  in ein Postfach und im ZIP-Download „Nicht bestätigt“ mit dem Hinweis, welche Anhänge fehlen
+  (`attachmentsNotBackedUpOf`, `packages/core/src/restore/conventions.ts`); der Restore-Explorer
+  zeigt an ihm „Anhänge nicht gesichert“ (`MailSummary.attachmentsNotBackedUp`).
 - Eine gelöschte Gruppe schlägt mit `graph.group_unavailable` fehl (die nächste Synchronisierung
   verwaist sie). Throttling wie bei Postfächern (derselbe Graph-Client, Parallelität über die
   Gruppen statt innerhalb einer).

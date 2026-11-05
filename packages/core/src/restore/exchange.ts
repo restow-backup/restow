@@ -126,6 +126,8 @@ import {
 } from "./common.js";
 import {
   attachmentFactsOf,
+  attachmentsNotBackedUpNote,
+  attachmentsNotBackedUpOf,
   type CalendarFacts,
   imapFlagsNotCarried,
   imapInternalDateOf,
@@ -377,6 +379,11 @@ export class ExchangeRestoreEngine implements RestoreEngine {
         const unit = gmail.units.get(message.path);
         if (unit !== undefined) {
           finishGmailMessageForExchange(unit, ledger);
+        }
+        // A group post whose attachments Graph never handed out comes back without them.
+        const missing = attachmentsNotBackedUpOf(message);
+        if (missing !== undefined) {
+          ledger.amendRestored(message.path, attachmentsNotBackedUpNote(missing), true);
         }
       }
       for (const attachment of plan.orphanAttachments) {

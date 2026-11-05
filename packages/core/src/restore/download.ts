@@ -30,6 +30,8 @@ import type { ManifestObject } from "../manifest.js";
 import { chunkReaderFor, restoreRequestOptions } from "./common.js";
 import {
   attachmentFactsOf,
+  attachmentsNotBackedUpNote,
+  attachmentsNotBackedUpOf,
   messageFormatOf,
   objectTypeOf,
   pathSegments,
@@ -464,14 +466,18 @@ export class DownloadRestoreEngine implements RestoreEngine {
       comment: `Restow restore ${request.restoreJobId} from snapshot ${request.snapshotId}`,
       onEntry: (entry) => {
         switch (entry.status) {
-          case "added":
-            // The SHA-256 was checked against the snapshot while streaming.
+          case "added": {
+            // The SHA-256 was checked against the snapshot while streaming; a group
+            // post whose attachments were never backed up is in it without them.
+            const missing = attachmentsNotBackedUpOf(entry.object);
             ledger.restored(entry.object, {
               targetRef: entry.name,
               bytes: entry.bytes,
-              verified: true,
+              verified: missing === undefined,
+              ...(missing !== undefined ? { note: attachmentsNotBackedUpNote(missing) } : {}),
             });
             break;
+          }
           case "missing":
             ledger.failed(
               entry.object,

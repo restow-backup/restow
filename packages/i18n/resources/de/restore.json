@@ -274,6 +274,10 @@
       "notice": "{kind, select, purview {Rechteverwaltet durch Microsoft Purview} smime {S/MIME-verschlüsselt} other {Geschützt}}: Zum Öffnen der EML sind die Rechte der Empfängerin oder des Empfängers nötig; die Wiederherstellung ins Postfach funktioniert.",
       "downloadHint": "{kind, select, purview {Rechteverwaltet durch Microsoft Purview} smime {S/MIME-verschlüsselt} other {Geschützt}}: Die heruntergeladene EML lässt sich nur mit den Rechten der Empfängerin oder des Empfängers öffnen; die Wiederherstellung ins Postfach funktioniert."
     },
+    "attachmentsNotBackedUp": {
+      "title": "Anhänge nicht gesichert",
+      "description": "Anhänge wurden von Microsoft nicht herausgegeben und nicht gesichert. Eine Wiederherstellung oder ein Download liefert den Beitrag ohne sie."
+    },
     "reading": {
       "plainText": "Nur-Text-Nachricht",
       "attachmentsCount": "Anhänge ({count})",

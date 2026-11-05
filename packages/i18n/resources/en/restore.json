@@ -274,6 +274,10 @@
       "notice": "{kind, select, purview {Rights-protected by Microsoft Purview} smime {S/MIME-encrypted} other {Protected}}: opening the EML needs the recipient's rights; restoring into the mailbox works.",
       "downloadHint": "{kind, select, purview {Rights-protected by Microsoft Purview} smime {S/MIME-encrypted} other {Protected}}: the downloaded EML needs the recipient's rights to open; restoring into the mailbox works."
     },
+    "attachmentsNotBackedUp": {
+      "title": "Attachments not backed up",
+      "description": "Microsoft did not hand out the attachments of this post (or some of them), so they are not in the backup. A restore or download brings the post back without them."
+    },
     "reading": {
       "plainText": "Plain-text message",
       "attachmentsCount": "Attachments ({count})",

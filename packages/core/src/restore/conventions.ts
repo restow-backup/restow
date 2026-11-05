@@ -45,6 +45,9 @@
  *     receivedDateTime   ISO 8601 time Exchange received the message
  *     format             "mime" (default) | "json" ("parts" is read as "json")
  *     referenceAttachments  JSON message: JSON array of link attachment names
+ *     missingAttachments  group post: JSON array of the attachments Graph did not
+ *                        hand out (not backed up); attachmentsNotBackedUp "true" says
+ *                        the same without names
  *     folderKind         folder objects: mail | calendar | contacts | attachments | root
  *   Attachments (of "json" messages)
  *     messagePath        path of the message it belongs to (or messageItemId: its id)
@@ -289,6 +292,37 @@ export function messageFlagsOf(object: ManifestObject): MessageFlags {
     flags.importance = metadata.importance as Importance;
   }
   return flags;
+}
+
+/**
+ * The attachments a message had but the backup does not hold (a group post
+ * whose attachments Graph refused to hand out to the app,
+ * backup/groups/conversations.ts): their names, `[]` when only the fact is
+ * known, undefined when nothing is missing.
+ */
+export function attachmentsNotBackedUpOf(object: ManifestObject): string[] | undefined {
+  const metadata = object.metadata ?? {};
+  const names = parseStringArray(metadata.missingAttachments);
+  if (names !== undefined && names.length > 0) {
+    return names;
+  }
+  return parseBoolean(metadata.attachmentsNotBackedUp) === true ? [] : undefined;
+}
+
+/** The sentence a restore or download adds for {@link attachmentsNotBackedUpOf}. */
+export function attachmentsNotBackedUpNote(missing: readonly string[]): string {
+  // "(attachments not available to the app)": Graph refused the attachments altogether.
+  const named = missing.filter((name) => !name.startsWith("("));
+  const notes: string[] = [];
+  if (named.length < missing.length || missing.length === 0) {
+    notes.push(
+      "Microsoft did not hand out the attachments of this post to the app, so they were not backed up",
+    );
+  }
+  if (named.length > 0) {
+    notes.push(`the backup does not hold these attachments of the post: ${named.join(", ")}`);
+  }
+  return notes.join("; ");
 }
 
 /**
