@@ -589,6 +589,15 @@ private repository.
   without change notifications). The catch-up now remembers the folders the mailbox had when
   capture started and reads a folder made later in full, and the takeover lists the folders again
   before it reports completed and takes over the new ones.
+- Mail archive: the takeover of a Microsoft 365 mailbox's existing mail skipped one older mail
+  for every mail the user deleted or moved out of the part of a folder already read. It paged
+  each folder with Graph's nextLink, which for a folder's messages is an offset (`$skip`), over
+  hours or days of continuations; each removal shifted the rest by one, and the catch-up leaves
+  mail received before capture started to the takeover, so those mails never reached the
+  archive (an Inbox of 80,000 mails with 40 newer mails deleted meanwhile lost about 40). The
+  takeover now pages by received time, oldest first, and asks each page afresh from the last
+  one's time; a takeover in progress pages its current folder again from the start (held mail
+  is skipped without a download).
 - Mail archive: Graph capture dropped for good every message whose MIME export failed and logged
   it as "too large for a MIME export". Two transient HTTP 500 on `$value` in a row, and items
   Exchange cannot convert to MIME (IRM, corrupt items), ended up there as well as mail over

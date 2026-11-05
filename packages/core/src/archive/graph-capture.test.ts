@@ -528,6 +528,85 @@ describe("backfillGraphMailbox", () => {
     expect(done.cursor.folders).toContain("projekt-x");
   });
 
+  it("takes over every old message although mail already paged is deleted between pages", async () => {
+    const fake = new FakeMailboxGraph();
+    const old = Array.from({ length: 12 }, (_, n) => ({
+      id: `old-${String(n + 1).padStart(2, "0")}`,
+      folderId: "inbox",
+      receivedDateTime: new Date(Date.UTC(2025, 0, 1 + n, 8)).toISOString(),
+    }));
+    fake.addMailbox(USER, FOLDERS, old);
+    const sink = new MemorySink();
+    let cursor: GraphBackfillCursor | null = null;
+    const run = (budgetMs?: number) => {
+      let clock = 0;
+      return backfillGraphMailbox({
+        client: fake.client(),
+        userId: USER,
+        sink,
+        cursor,
+        saveCursor: async (next) => {
+          cursor = next;
+        },
+        ...(budgetMs !== undefined ? { budgetMs, now: () => clock++ } : {}),
+      });
+    };
+    // A job whose budget ends after a few pages (2 messages each), over hours or days.
+    expect((await run(4)).completed).toBe(false);
+    const taken = sink.refs();
+    expect(taken.length).toBeGreaterThan(0);
+    // Meanwhile the user deletes mail the backfill already took: on Graph's offset paging
+    // every removal shifted the rest by one and one older mail was never listed.
+    for (const id of taken.slice(0, 3)) {
+      fake.deleteMessage(USER, id);
+    }
+    expect((await run()).completed).toBe(true);
+    expect(sink.refs()).toEqual(old.map((m) => m.id));
+  });
+
+  it("pages through more mail in one second than a page holds", async () => {
+    const fake = new FakeMailboxGraph();
+    const same = Array.from({ length: 5 }, (_, n) => ({
+      id: `burst-${n + 1}`,
+      folderId: "inbox",
+      receivedDateTime: "2025-03-01T08:00:00Z",
+    }));
+    fake.addMailbox(USER, FOLDERS, [
+      ...same,
+      { id: "after", folderId: "inbox", receivedDateTime: "2025-03-01T08:00:01Z" },
+    ]);
+    const sink = new MemorySink();
+    const result = await backfillGraphMailbox({
+      client: fake.client(),
+      userId: USER,
+      sink,
+      cursor: null,
+      saveCursor: async () => {},
+    });
+    expect(result.completed).toBe(true);
+    expect(sink.refs()).toEqual(["after", "burst-1", "burst-2", "burst-3", "burst-4", "burst-5"]);
+  });
+
+  it("pages a folder again from its start when the cursor holds an offset of an earlier version", async () => {
+    const fake = mailbox();
+    const sink = new MemorySink();
+    const result = await backfillGraphMailbox({
+      client: fake.client(),
+      userId: USER,
+      sink,
+      cursor: {
+        folders: ["inbox", "projects", "sent", "deletions"],
+        index: 0,
+        nextLink: "https://graph.microsoft.com/v1.0/users/anna/mailFolders/inbox/messages?$skip=2",
+        captured: 0,
+        skipped: 0,
+      },
+      saveCursor: async () => {},
+    });
+    expect(result.completed).toBe(true);
+    expect(sink.refs()).toEqual(["m1", "m2", "m3", "m4", "x1"]);
+  });
+
   it("takes over every folder page by page and resumes from its cursor", async () => {
     const fake = mailbox();
     const client = fake.client();

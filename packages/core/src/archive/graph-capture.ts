@@ -669,13 +669,38 @@ export async function catchUpGraphMailbox(
 // ---------------------------------------------------------------------------
 // Backfill
 
+/**
+ * Where the backfill stands inside a folder: it pages by `receivedDateTime` ascending and
+ * asks each page afresh from the last one's time (a keyset), never by an offset. Graph's
+ * nextLink of `/mailFolders/{id}/messages` is offset-based (`$skip`): every mail deleted or
+ * moved out of the part already paged (over hours or days of continuations) shifted the
+ * rest, and one older mail per removal was never listed.
+ */
+export interface GraphBackfillPosition {
+  /** `receivedDateTime` of the last message taken (the next page asks `ge` this). */
+  readonly receivedDateTime: string;
+  /** Ids already taken with exactly that time (the next page starts with them again). */
+  readonly ids: readonly string[];
+  /**
+   * More messages share that time than one page holds: the next page of that same query
+   * (Graph's nextLink, offset within that one second only).
+   */
+  readonly nextLink?: string;
+}
+
 /** The backfill's resumable position (the `archive` job's cursor). */
 export interface GraphBackfillCursor {
   /** The folders to take over, fixed when the backfill started. */
   readonly folders: readonly string[];
   /** Index into `folders` of the folder in progress. */
   readonly index: number;
-  /** The next page of that folder, when one was started. */
+  /** Where that folder stands, when one page of it was taken. */
+  readonly position?: GraphBackfillPosition;
+  /**
+   * Before 0.5.0: Graph's offset-based nextLink of the folder in progress. Not followed any
+   * more (it may skip mail); that folder is paged again from its start, held mail is skipped
+   * without a download.
+   */
   readonly nextLink?: string;
   readonly captured: number;
   readonly skipped: number;
@@ -702,8 +727,55 @@ export interface GraphBackfillResult extends GraphCaptureCounts {
   cursor: GraphBackfillCursor;
 }
 
-function backfillFolderUrl(userId: string, folderId: string): string {
-  return `${userPath(userId)}/mailFolders/${encodeURIComponent(folderId)}/messages?$select=${GRAPH_CAPTURE_MESSAGE_SELECT.join(",")}&$top=${PAGE_SIZE}`;
+/** Before every message Graph holds (the first page of a folder). */
+const BACKFILL_START = "1900-01-01T00:00:00Z";
+
+/**
+ * One page of a folder from `since` on, oldest first. `$filter` and `$orderby` name the same
+ * property in the same order, as Graph requires for messages.
+ */
+function backfillFolderUrl(userId: string, folderId: string, since: string): string {
+  const filter = encodeURIComponent(`receivedDateTime ge ${since}`);
+  const order = encodeURIComponent("receivedDateTime asc");
+  return `${userPath(userId)}/mailFolders/${encodeURIComponent(folderId)}/messages?$select=${GRAPH_CAPTURE_MESSAGE_SELECT.join(",")}&$filter=${filter}&$orderby=${order}&$top=${PAGE_SIZE}`;
+}
+
+/** Graph's DateTimeOffset as a filter literal (seconds, UTC); null when it is no date. */
+function filterTime(value: string | null | undefined): string | null {
+  const date = dateOf(value);
+  return date ? `${date.toISOString().slice(0, 19)}Z` : null;
+}
+
+/**
+ * Where the folder stands after a page: the newest time taken and the ids taken at it. A
+ * page whose messages all share the time of the position it was asked from (more mail in one
+ * second than a page holds) moves on with Graph's nextLink of that query.
+ */
+function nextPosition(
+  previous: GraphBackfillPosition | undefined,
+  page: readonly GraphMessageMeta[],
+  nextLink: string | undefined,
+): GraphBackfillPosition {
+  let position: GraphBackfillPosition = previous ?? { receivedDateTime: BACKFILL_START, ids: [] };
+  for (const message of page) {
+    const time = filterTime(message.receivedDateTime);
+    if (time === null) {
+      continue;
+    }
+    position =
+      time === position.receivedDateTime
+        ? { receivedDateTime: time, ids: [...new Set([...position.ids, message.id])] }
+        : time > position.receivedDateTime
+          ? { receivedDateTime: time, ids: [message.id] }
+          : position;
+  }
+  const sameSecond =
+    page.length > 0 &&
+    previous !== undefined &&
+    page.every((message) => filterTime(message.receivedDateTime) === previous.receivedDateTime);
+  return sameSecond && nextLink
+    ? { receivedDateTime: position.receivedDateTime, ids: position.ids, nextLink }
+    : { receivedDateTime: position.receivedDateTime, ids: position.ids };
 }
 
 /** Take over every message of the mailbox's capture folders, page by page; resumable. */
@@ -742,16 +814,27 @@ export async function backfillGraphMailbox(
       await options.saveCursor(cursor);
     }
     const folderId = cursor.folders[cursor.index] as string;
-    let url: string | undefined = cursor.nextLink ?? backfillFolderUrl(options.userId, folderId);
-    while (url) {
+    if (cursor.nextLink !== undefined) {
+      // A position of an earlier version (an offset): this folder again from its start.
+      const { nextLink: _offset, position: _none, ...rest } = cursor;
+      cursor = rest;
+    }
+    let more = true;
+    let gone = false;
+    while (more) {
       throwIfAborted(options.signal);
       if (options.budgetMs !== undefined && now() - started >= options.budgetMs) {
         return result(false);
       }
+      const position = cursor.position;
+      const url =
+        position?.nextLink ??
+        backfillFolderUrl(options.userId, folderId, position?.receivedDateTime ?? BACKFILL_START);
       const response: { status: number; headers: Record<string, string>; body: unknown } =
         await options.client.request({ method: "GET", url, headers: graphCaptureHeaders() });
       if (response.status === 404) {
         // The folder was deleted since the backfill started.
+        gone = true;
         break;
       }
       if (response.status < 200 || response.status >= 300) {
@@ -767,14 +850,22 @@ export async function backfillGraphMailbox(
         value?: GraphMessageMeta[];
         "@odata.nextLink"?: string;
       };
-      const messages = (page.value ?? []).filter((m) => m.isDraft !== true);
+      const listed = page.value ?? [];
+      // The ids taken at the position's time come back first: not looked at twice.
+      const taken = new Set(position?.ids ?? []);
+      const fresh = listed.filter((m) => !taken.has(m.id));
+      const messages = fresh.filter((m) => m.isDraft !== true);
       const before = { captured: counts.captured, skipped: counts.skipped };
       await capturePageMovingOn(options, messages, counts);
-      url = page["@odata.nextLink"];
-      const { nextLink: _previous, ...rest } = cursor;
+      const next = nextPosition(position, listed, page["@odata.nextLink"]);
+      // Done with the folder when Graph has no further page, or a page brought nothing new
+      // and no further page of the same second.
+      more =
+        page["@odata.nextLink"] !== undefined && (fresh.length > 0 || next.nextLink !== undefined);
+      const { position: _previous, ...rest } = cursor;
       cursor = {
         ...rest,
-        ...(url ? { nextLink: url } : { index: cursor.index + 1 }),
+        ...(more ? { position: next } : { index: cursor.index + 1 }),
         captured: cursor.captured + counts.captured - before.captured,
         skipped: cursor.skipped + counts.skipped - before.skipped,
       };
@@ -782,12 +873,11 @@ export async function backfillGraphMailbox(
       options.onPage?.({
         folder: cursor.index,
         folders: cursor.folders.length,
-        messages: (page.value ?? []).length,
+        messages: listed.length,
       });
     }
-    if (cursor.folders[cursor.index] === folderId) {
-      // Left by the 404 above.
-      const { nextLink: _gone, ...rest } = cursor;
+    if (gone) {
+      const { position: _gone, ...rest } = cursor;
       cursor = { ...rest, index: cursor.index + 1 };
       await options.saveCursor(cursor);
     }

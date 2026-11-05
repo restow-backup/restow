@@ -386,17 +386,53 @@ export class FakeMailboxGraph {
     return json(200, body);
   }
 
+  /**
+   * `/mailFolders/{id}/messages` as Graph answers it: newest first unless `$orderby`
+   * (`receivedDateTime asc|desc`) says otherwise, `$filter=receivedDateTime ge <time>`, and a
+   * nextLink that is the same query with an offset (`$skip`), evaluated afresh on every page:
+   * a message removed from the part already paged shifts the rest, as on Graph.
+   */
   private listing(state: MailboxState, userId: string, folderId: string, url: URL) {
     if (!state.log.has(folderId)) {
       return notFound("folder");
     }
     const skip = Number(url.searchParams.get("$skip") ?? 0);
-    const ids = [...state.messages.values()].filter((m) => m.folderId === folderId);
-    const page = ids.slice(skip, skip + this.pageSize);
+    const top = Math.min(Number(url.searchParams.get("$top") ?? this.pageSize), this.pageSize);
+    const filter = url.searchParams.get("$filter");
+    const since = filter ? /^receivedDateTime ge (\S+)$/.exec(filter)?.[1] : undefined;
+    if (filter && since === undefined) {
+      return json(400, graphError("ErrorInvalidUrlQueryFilter", `unsupported $filter ${filter}`));
+    }
+    const orderby = url.searchParams.get("$orderby") ?? "receivedDateTime desc";
+    const ascending = /^receivedDateTime asc$/i.test(orderby);
+    const received = (m: FakeMessage) =>
+      new Date(m.receivedDateTime ?? "2026-11-02T08:00:00Z").getTime();
+    const ids = [...state.messages.values()]
+      .filter((m) => m.folderId === folderId)
+      .filter((m) => since === undefined || received(m) >= new Date(since).getTime())
+      // Stable within one second, by insertion: what Graph's order of equal times looks like.
+      .map((m, position) => ({ m, position }))
+      .sort((a, b) =>
+        received(a.m) === received(b.m)
+          ? a.position - b.position
+          : ascending
+            ? received(a.m) - received(b.m)
+            : received(b.m) - received(a.m),
+      )
+      .map(({ m }) => m);
+    const page = ids.slice(skip, skip + top);
     const body: Record<string, unknown> = { value: page.map((m) => this.messageJson(m)) };
-    if (skip + this.pageSize < ids.length) {
-      body["@odata.nextLink"] =
-        `${BASE}/users/${encodeURIComponent(userId)}/mailFolders/${encodeURIComponent(folderId)}/messages?$skip=${skip + this.pageSize}`;
+    if (skip + top < ids.length) {
+      const next = new URL(
+        `${BASE}/users/${encodeURIComponent(userId)}/mailFolders/${encodeURIComponent(folderId)}/messages`,
+      );
+      for (const [key, value] of url.searchParams) {
+        if (key !== "$skip") {
+          next.searchParams.set(key, value);
+        }
+      }
+      next.searchParams.set("$skip", String(skip + top));
+      body["@odata.nextLink"] = next.toString();
     }
     return json(200, body);
   }

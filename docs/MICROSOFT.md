@@ -663,7 +663,13 @@ Code: `packages/core/src/graph/resources/subscriptions.ts`, `packages/core/src/a
   am Stream, nach zwei Stunden fortgesetzt im nächsten Job, docs/ARCHIVE.md "Übernahme des
   Altbestands"); Mails, die vor dem Start der Erfassung eingingen, sind als `captured-late`
   markiert. Ihre Ordnerliste steht beim Start fest; bevor sie abschließt, listet sie die Ordner
-  erneut und übernimmt auch die, die inzwischen angelegt wurden (seit 0.5.0).
+  erneut und übernimmt auch die, die inzwischen angelegt wurden (seit 0.5.0). Je Ordner blättert
+  sie nach `receivedDateTime` aufsteigend und fragt jede Seite neu ab der Zeit der letzten
+  (`$filter=receivedDateTime ge …`, die schon übernommenen Ids dieser Sekunde gemerkt), nicht
+  über Graphs `nextLink`: Der ist für `/mailFolders/{id}/messages` ein Versatz (`$skip`), und
+  jede Mail, die der Benutzer aus dem schon gelesenen Teil löschte oder verschob, ließ eine
+  ältere aus (seit 0.5.0). Nur mehr Mails in einer Sekunde, als eine Seite fasst, blättert sie
+  innerhalb dieser Sekunde mit dem `nextLink`.
 - **Neue Ordner:** Das Nachholen merkt sich die Ordner, die das Postfach beim Start der Erfassung
   hatte (`knownFolders` im Zustand des Streams). Nur deren erste Aufzählung überlässt ältere
   Mail der Übernahme; ein später angelegter Ordner wird vollständig erfasst. Vorher ging alte
