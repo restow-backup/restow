@@ -1979,6 +1979,57 @@ describe("ExchangeBackupEngine", () => {
       expect(after.objects.filter((o) => o.metadata?.[META.eventItemId] === "evt-att")).toEqual([]);
     });
 
+    it("backs up the attachments of a series exception, keyed by the exception", async () => {
+      const master = must(box.events.get("evt-master"));
+      const exception = must(master.exceptions?.[0]);
+      const minutes = new Uint8Array(Buffer.from("minutes of the moved meeting"));
+      Object.assign(exception, {
+        changeKey: "ck-exc-1",
+        hasAttachments: true,
+        attachments: [
+          { id: "att-min", name: "minutes.txt", contentType: "text/plain", bytes: minutes },
+        ],
+      });
+      const ctx = newContext();
+      const result = await engine.run(ctx, mailbox, {});
+      expect(result.failures).toEqual([]);
+      const manifest = await manifestOf(result.snapshotId);
+      const masterPath = `calendar/Calendar/Weekly sync.${shortId("evt-master")}.json`;
+      const stored = byId(manifest, "evt-exc-1/att-min");
+      expect(stored.type).toBe("event-attachment");
+      expect(
+        stored.path.startsWith(
+          `calendar/Calendar/Weekly sync.${shortId("evt-master")}.attachments/`,
+        ),
+      ).toBe(true);
+      expect(stored.metadata).toMatchObject({
+        [META.eventItemId]: "evt-exc-1",
+        [META.seriesMasterId]: "evt-master",
+        [META.eventPath]: `${masterPath}#evt-exc-1`,
+        [META.name]: "minutes.txt",
+      });
+      expect(await readBytes(ctx, stored)).toEqual(Buffer.from(minutes));
+
+      // Unchanged exception: not listed again, carried forward.
+      graph.calls.length = 0;
+      const second = await engine.run(newContext({ jobId: "job-2" }), mailbox, {});
+      expect(
+        graph.calls.filter((call) => new URL(call.url).pathname.includes("/events/evt-exc-1/")),
+      ).toEqual([]);
+      expect(byId(await manifestOf(second.snapshotId), "evt-exc-1/att-min").chunks).toEqual(
+        stored.chunks,
+      );
+
+      // The attachment taken off the exception: gone from the next restore point.
+      Object.assign(exception, { changeKey: "ck-exc-2", hasAttachments: false, attachments: [] });
+      box.updateEvent("evt-master", {});
+      const third = await engine.run(newContext({ jobId: "job-3" }), mailbox, {});
+      const after = await manifestOf(third.snapshotId);
+      expect(
+        after.objects.filter((o) => o.metadata?.[META.seriesMasterId] === "evt-master"),
+      ).toEqual([]);
+    });
+
     it("records an attachment that cannot be read as an item failure", async () => {
       meetingWithAgenda();
       const attachment = must(box.events.get("evt-att")?.attachments?.[0]);

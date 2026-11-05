@@ -97,6 +97,10 @@ export const META = {
   /** For event attachments and their folder: the Graph id and object path of their event. */
   eventItemId: "eventItemId",
   eventPath: "eventPath",
+  /** An exception's attachments (and their folder): the Graph id of the series master. */
+  seriesMasterId: "seriesMasterId",
+  /** On a series master: `{exceptionId: changeKey}` of the exceptions whose attachments are stored. */
+  exceptionAttachments: "exceptionAttachments",
   /**
    * On events: the changeKey the stored attachments belong to. Another changeKey (or none) and
    * `hasAttachments` mean the attachments are listed again (./calendar.ts).

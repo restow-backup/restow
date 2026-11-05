@@ -171,8 +171,15 @@ ein Ordner liefert, bleibt ein Ordnerfehler.
   `attachmentsChangeKey`: Solange sein `changeKey` gleich bleibt, werden die Anhänge nicht neu
   gelesen, nur mitgeführt (auch bei Umbenennung). Ein Anhang, der sich nicht lesen lässt, ist ein
   Elementfehler des Termins; die gespeicherten Anhänge bleiben, und der nächste Lauf liest sie
-  erneut. Sicherungen vor 0.5.0 haben keine Terminanhänge; der erste Lauf danach holt sie für
-  alle noch vorhandenen Termine nach.
+  erneut. Eine Ausnahme einer Serie (ein verschobener Termin, an den nur dort das Protokoll
+  angehängt ist) hat eigene Anhänge: Für jede Ausnahme mit `hasAttachments` liest der Lauf
+  `/events/{Ausnahme-ID}/attachments` genauso und legt sie unter
+  `<Serie>.attachments/occurrence <Datum>.<id>/` ab, mit `eventItemId` = Ausnahme,
+  `seriesMasterId` = Serie und `eventPath` = `<Serie-Pfad>#<Ausnahme-ID>` (ein eigenes
+  Terminobjekt hat die Ausnahme nicht, sie steht im JSON der Serie). Die Serie trägt je Ausnahme
+  deren `changeKey` (`exceptionAttachments`); nur bei einer Änderung wird neu gelesen.
+  Sicherungen vor 0.5.0 haben keine Terminanhänge; der erste Lauf danach holt sie für alle noch
+  vorhandenen Termine nach.
 - Kalender im Restore-Explorer (ab 0.4.2): Ein Kalender listet seine Termine nach Beginn
   (neueste zuerst oder anstehende zuerst), mit Wann, Ort und Organisator, nicht nach Betreff.
   Eine Serie steht einmal in der Liste und klappt ihre Termine auf; die Monatsansicht zeigt

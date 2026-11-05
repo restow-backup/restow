@@ -611,8 +611,8 @@ private repository.
   versions do not have it and cannot be repaired.
 - Mail backup: attachments of calendar events (an agenda attached to a meeting, for example)
   were not backed up and nothing said so. They are now backed up with each event of a user's
-  calendars and read again only when the event changes; an attachment that cannot be read is
-  reported as a failed item. The first run after the update adds them for all events that still
+  calendars, also those attached to a single moved occurrence of a series, and read again only
+  when the event changes; an attachment that cannot be read is reported as a failed item. The first run after the update adds them for all events that still
   exist. Group calendars do not hand attachments to Restow: a run whose group calendar has
   events with attachments now ends with a warning that says so.
 - Group backup: when Microsoft Graph refused the attachments of group conversation posts to

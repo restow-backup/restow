@@ -79,11 +79,17 @@ export interface FakeCalendar {
   isDefaultCalendar?: boolean;
 }
 
+/** A modified occurrence of a series, as `/instances` lists it, with its own attachments. */
+export type FakeException = Omit<Event, "attachments"> & { attachments?: FakeAttachment[] };
+
 export interface FakeEvent extends Event {
   id: string;
   calendarId: string;
-  /** Modified occurrences, for series masters. */
-  exceptions?: Event[];
+  /**
+   * Modified occurrences, for series masters. An exception's own attachments (as Graph keeps
+   * them on the occurrence, `/events/{exceptionId}/attachments`) go in `attachments` on it.
+   */
+  exceptions?: FakeException[];
   /** `/events/{id}/attachments` (set `hasAttachments` to match, as Graph does). */
   attachments?: FakeAttachment[];
 }
@@ -453,7 +459,12 @@ export class FakeMailbox {
       ([id = ""]) => {
         const master = this.events.get(id);
         return master
-          ? { status: 200, json: { value: master.exceptions ?? [] } }
+          ? {
+              status: 200,
+              json: {
+                value: (master.exceptions ?? []).map(({ attachments: _a, ...rest }) => rest),
+              },
+            }
           : this.notFound("event");
       },
     ],
@@ -517,8 +528,23 @@ export class FakeMailbox {
     };
   }
 
-  private eventAttachmentList(eventId: string, select: string[]): FixtureResponse {
+  /** An event, or an exception of a series (Graph serves both under `/events/{id}`). */
+  private eventOrException(eventId: string): FakeEvent | FakeException | undefined {
     const event = this.events.get(eventId);
+    if (event) {
+      return event;
+    }
+    for (const master of this.events.values()) {
+      const exception = master.exceptions?.find((candidate) => candidate.id === eventId);
+      if (exception) {
+        return exception;
+      }
+    }
+    return undefined;
+  }
+
+  private eventAttachmentList(eventId: string, select: string[]): FixtureResponse {
+    const event = this.eventOrException(eventId);
     if (!event) {
       return this.notFound("event");
     }
@@ -550,7 +576,9 @@ export class FakeMailbox {
     attachmentId: string,
     expandItem: boolean,
   ): FixtureResponse {
-    const attachment = this.events.get(eventId)?.attachments?.find((a) => a.id === attachmentId);
+    const attachment = this.eventOrException(eventId)?.attachments?.find(
+      (a) => a.id === attachmentId,
+    );
     if (!attachment) {
       return this.notFound("attachment");
     }
