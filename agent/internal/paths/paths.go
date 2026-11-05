@@ -132,6 +132,19 @@ func (l Layout) CacheDir() string { return filepath.Join(l.DataDir, "cache") }
 // TmpDir holds temporary folders (verify_sample restores).
 func (l Layout) TmpDir() string { return filepath.Join(l.DataDir, "tmp") }
 
+// BaremetalDir holds the layout manifest and its raw files of the last
+// whole-machine backup (docs/BAREMETAL.md, 4.3). It lies in the root file
+// system (or /var), so it is in the same snapshot as the system it
+// describes.
+func (l Layout) BaremetalDir() string { return filepath.Join(l.DataDir, "baremetal") }
+
+// Folders of the snapshot helper on Linux (docs/BAREMETAL.md, 6.3); they
+// exist only inside its private mount namespace.
+const (
+	SnapTreeDir = "/run/restow-agent/snaptree"
+	BtrfsTopDir = "/run/restow-agent/btrfs"
+)
+
 // OutboxDir holds run reports that could not be delivered yet.
 func (l Layout) OutboxDir() string { return filepath.Join(l.DataDir, "outbox") }
 

@@ -186,7 +186,21 @@ type Config struct {
 	// for the pause to end; the backup is not missed and not failed. Absent
 	// on an older server, which means not paused.
 	StartsPaused bool `json:"startsPaused,omitempty"`
+	// WholeMachine (server 0.5.0, preview): back up every local file system
+	// with the disk layout (docs/BAREMETAL.md, 5). Sent only when true and
+	// only to Linux machines; absent means false. An older agent ignores it
+	// and backs up Paths, which the job keeps.
+	WholeMachine bool `json:"wholeMachine,omitempty"`
+	// FSSnapshot (server 0.5.0): "auto" takes LVM or btrfs snapshots where
+	// possible, "off" reads the live file systems (6.1). Absent means off.
+	FSSnapshot string `json:"fsSnapshot,omitempty"`
 }
+
+// Values of Config.FSSnapshot.
+const (
+	FSSnapshotAuto = "auto"
+	FSSnapshotOff  = "off"
+)
 
 // Catch-up modes of a policy.
 const (
@@ -367,6 +381,10 @@ type FinishRequest struct {
 	// whether a file system snapshot was used. Set for every backup that got
 	// as far as restic; a server of an earlier release ignores it.
 	Consistency *Consistency `json:"consistency,omitempty"`
+	// Layout (agent 0.5.0) is the layout manifest of a whole-machine backup,
+	// exactly the canonical bytes written to layout.json (contract C1). Sent
+	// only with a snapshot id; a server of an earlier release ignores it.
+	Layout json.RawMessage `json:"layout,omitempty"`
 }
 
 // Consistency is the report field shared by every snapshot method (VSS on
@@ -390,7 +408,10 @@ const MaxLiveFilesystems = 32
 
 // Consistency methods and states.
 const (
-	SnapshotMethodVSS = "vss"
+	SnapshotMethodVSS   = "vss"
+	SnapshotMethodLVM   = "lvm"
+	SnapshotMethodBtrfs = "btrfs"
+	SnapshotMethodMixed = "mixed"
 
 	ConsistencyUsed        = "used"
 	ConsistencyPartial     = "partial"

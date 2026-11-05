@@ -653,6 +653,10 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "GET /api/v1/endpoints/:id/browse": operate(),
   "POST /api/v1/endpoints/:id/downloads": operate(),
   "GET /api/v1/endpoints/:id/downloads/:downloadId": operate(),
+  // Bare metal (preview): the card with the layout's summary, and the full manifest with the
+  // machine's serial numbers only for those who configure machines.
+  "GET /api/v1/endpoints/:id/baremetal": view(),
+  "GET /api/v1/endpoints/:id/baremetal/layouts/:layoutId": configure(),
 
   // --- Webhooks --------------------------------------------------------------------
   "GET /api/v1/reports/catalog": view(),

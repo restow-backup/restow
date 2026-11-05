@@ -1,0 +1,8 @@
+ID 256 gen 1256 parent 5 top level 5 parent_uuid -                                    uuid b6000000-0000-4000-8000-000000000256 path <FS_TREE>/@
+ID 257 gen 1257 parent 256 top level 256 parent_uuid -                                    uuid b6000000-0000-4000-8000-000000000257 path <FS_TREE>/@/.snapshots
+ID 258 gen 1258 parent 257 top level 257 parent_uuid -                                    uuid b6000000-0000-4000-8000-000000000258 path <FS_TREE>/@/.snapshots/1/snapshot
+ID 259 gen 1259 parent 256 top level 256 parent_uuid -                                    uuid b6000000-0000-4000-8000-000000000259 path <FS_TREE>/@/home
+ID 260 gen 1260 parent 256 top level 256 parent_uuid -                                    uuid b6000000-0000-4000-8000-000000000260 path <FS_TREE>/@/opt
+ID 261 gen 1261 parent 256 top level 256 parent_uuid -                                    uuid b6000000-0000-4000-8000-000000000261 path <FS_TREE>/@/var
+ID 262 gen 1262 parent 256 top level 256 parent_uuid -                                    uuid b6000000-0000-4000-8000-000000000262 path <FS_TREE>/@/root
+ID 268 gen 1268 parent 257 top level 257 parent_uuid b6000000-0000-4000-8000-000000000258 uuid b6000000-0000-4000-8000-000000000268 path <FS_TREE>/@/.snapshots/2/snapshot

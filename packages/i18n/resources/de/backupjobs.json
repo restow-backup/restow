@@ -1062,7 +1062,8 @@
     "pauseNotSupported": "Ein Job für Rechner lässt sich nicht pausieren: Der Agent entscheidet, wann gesichert wird.",
     "state": "Der Job ist nicht in einem Zustand, der das erlaubt.",
     "allJobExists": "Ein anderer Job deckt bereits alle Objekte ab, die in keinem anderen Job sind. Ein Mandant hat einen solchen Job.",
-    "invalid": "Der Job lässt sich so nicht speichern."
+    "invalid": "Der Job lässt sich so nicht speichern.",
+    "baremetalPreviewOff": "Die Sicherung ganzer Rechner ist eine Vorschau, die auf dieser Installation nicht eingeschaltet ist. Wenden Sie sich an den Betreiber der Installation."
   },
   "shareEditor": {
     "enabled": "Eingeschaltet",
@@ -1386,5 +1387,21 @@
     "pveRunning": "Sicherungen und Startprüfungen von VMs und Containern, die gerade laufen",
     "pveBootTest": "Startprüfung",
     "pveBootTestHint": "Stellt den neuesten Sicherungsstand als temporären Gast wieder her und startet ihn; der Knoten meldet dafür keinen Fortschritt."
+  },
+  "wholeMachine": {
+    "label": "Ganzer Rechner (Bare Metal, Vorschau)",
+    "hint": "Sichert alle lokalen Dateisysteme samt Plattenlayout, damit sich Linux-Rechner später auf neuer Hardware wiederherstellen lassen. Windows- und macOS-Rechner sichern weiter ihre Ordner.",
+    "foldersAll": "Alle lokalen Dateisysteme",
+    "previewOff": "Ganz-Rechner-Sicherungen sind in dieser Installation nicht eingeschaltet (Vorschau): Die Rechner sichern die Ordner unten. Sie können den Schalter hier nur ausschalten.",
+    "restoreExcludes": "Vorherige Ausschlüsse wiederherstellen",
+    "containerImages": "Container-Images (btrfs-Speichertreiber): nach einer Wiederherstellung neu laden statt sichern",
+    "notes": {
+      "container": "sichert seine Ordner; Bare Metal geht in einem Container nicht",
+      "windows": "Windows-Rechner sichern weiter ihre Ordner",
+      "darwin_later": "macOS folgt in einer späteren Version",
+      "agent_too_old": "Agent zu alt für Ganzer Rechner (ab 0.5.0)",
+      "arm64_restore_later": "Sicherung und Layout ja, Wiederherstellung folgt später",
+      "bios_needs_csm": "Ersatzhardware braucht CSM bzw. Legacy-Start"
+    }
   }
 }

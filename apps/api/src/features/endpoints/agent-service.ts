@@ -27,6 +27,7 @@ import {
   type RestoreTestTaskParams,
   redactAgentLog,
   redactAgentMessage,
+  resolveFsSnapshot,
   resticInit,
   restoreTestAlreadyWaiting,
   restoreTestRetry,
@@ -52,6 +53,7 @@ import {
   tenants,
 } from "@restow/db";
 import { and, asc, eq, gt, inArray, isNull, lt, ne, or, type SQL, sql } from "drizzle-orm";
+import { config as appConfig } from "../../config.js";
 import { db, providerDb } from "../../db.js";
 import { loadTenantDek, storeSecret } from "../../lib/secrets.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
@@ -59,6 +61,7 @@ import { emitWebhookEvent } from "../../lib/webhooks.js";
 import { ProblemError } from "../../problem.js";
 import { type AgentContext, FailureTracker } from "./agent-auth.js";
 import { agentActor, auditEndpoint, ENDPOINT_AUDIT_ACTIONS } from "./audit.js";
+import { storeRunLayout } from "./baremetal.js";
 import { type AgentCancelOrders, agentCancelOrders } from "./cancel.js";
 import {
   announcedAgentVersion,
@@ -66,6 +69,7 @@ import {
   isAgentVersion,
   latestAgentRelease,
 } from "./distribution.js";
+import { wholeMachineSent } from "./dto.js";
 import { ENDPOINT_PROBLEMS } from "./problems.js";
 import {
   forgetTenantStorage,
@@ -128,14 +132,38 @@ export interface EnrollResponse {
  * asks again when a backup starts and then gets the limit of that moment. A machine in no backup
  * job (schedule `none`) is sent no folders and no hooks (`agentFacingConfig`): an agent older
  * than 0.2.1 does not know `none` and would otherwise back them up on its profile's default.
+ *
+ * Whole machine backups (docs/BAREMETAL.md 5.1, 6.1; agents from 0.5.0, an older one ignores both
+ * fields): `wholeMachine: true` only while RESTOW_BAREMETAL_PREVIEW is on and for a Linux machine
+ * whose job writes it, so switching the preview off takes effect with the agent's next fetch (it
+ * fetches before every backup). `fsSnapshot` goes to Linux and macOS machines (never Windows,
+ * which has `useVss`): the machine's own setting, else on for a whole machine and off otherwise.
+ * Without `os` neither is sent.
  */
 export function configResponse(
   config: EndpointConfig,
   configVersion: number,
   effective?: { zone: string; now: Date },
-  options: { startsPaused?: boolean } = {},
+  options: { startsPaused?: boolean; os?: string; baremetalPreview?: boolean } = {},
 ): AgentConfigResponse {
-  const { bandwidthWindows, policy, ...rest } = agentFacingConfig(config);
+  const {
+    bandwidthWindows,
+    policy,
+    wholeMachine: storedWhole,
+    fsSnapshot: storedSnapshot,
+    ...rest
+  } = agentFacingConfig(config);
+  const wholeMachine = wholeMachineSent(storedWhole, options.os, options.baremetalPreview);
+  const snapshotFields =
+    options.os === "linux"
+      ? {
+          ...(wholeMachine ? { wholeMachine: true } : {}),
+          fsSnapshot: resolveFsSnapshot(storedSnapshot, wholeMachine),
+        }
+      : // macOS gets its APFS snapshots with M6; until then it never takes one.
+        options.os === "darwin"
+        ? { fsSnapshot: "off" as const }
+        : {};
   // The agent policy (docs/AGENT.md, "Richtlinien"): the limit of a job without its own and a lock
   // decide the default limit and whether its windows apply, AC power is folded in, and the rest
   // (window, catch-up, retries) goes along in its wire form. Without a policy nothing changes.
@@ -157,6 +185,7 @@ export function configResponse(
       bandwidthKbps: bandwidth.kbps,
       ...policyFields,
       ...paused,
+      ...snapshotFields,
       configVersion,
     };
   }
@@ -170,6 +199,7 @@ export function configResponse(
     ),
     ...policyFields,
     ...paused,
+    ...snapshotFields,
     configVersion,
   };
 }
@@ -387,7 +417,10 @@ export async function enrollEndpoint(
         url: repositoryUrl(context.instanceUrl, endpointId),
         password: repositoryPassword,
       },
-      config: configResponse(config, 1),
+      config: configResponse(config, 1, undefined, {
+        os: input.os,
+        baremetalPreview: appConfig.baremetalPreview,
+      }),
       restic: { version: RESTIC_VERSION },
     };
   } catch (error) {
@@ -447,7 +480,7 @@ export async function agentConfig(
       endpoint.config,
       endpoint.configVersion,
       zone === null ? undefined : { zone, now },
-      { startsPaused },
+      { startsPaused, os: endpoint.os, baremetalPreview: appConfig.baremetalPreview },
     );
   });
 }
@@ -898,11 +931,15 @@ export async function finishRun(
     // A run that failed after a stop was asked for in the UI was stopped as asked.
     const cancelled = input.status === "failed" && run.cancelRequestedAt !== null;
     const status: EndpointRun["status"] = cancelled ? "cancelled" : input.status;
+    // The layout of a whole machine backup: stored before the run's errors are, so a refused one
+    // adds its hint to them.
+    const layoutId = await storeRunLayout(tx, agent, run, input, errors);
     const failure = cancelled ? null : failureRecordOf(input.status, errors, now);
     await tx
       .update(endpointRuns)
       .set({
         status,
+        layoutId,
         finishedAt: finishedAt.getTime() < run.startedAt.getTime() ? now : finishedAt,
         snapshotId: input.snapshotId ?? null,
         stats: statsWithActivity(input.stats, input.activity, input.consistency),

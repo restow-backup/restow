@@ -1,0 +1,5 @@
+Filesystem type is: ef53
+File size of /swap.img is 4294967296 (1048576 blocks of 4096 bytes)
+ ext:     logical_offset:        physical_offset: length:   expected: flags:
+   0:        0..   32767:      34816..     67583:  32768:            
+/swap.img: 1 extent found

@@ -1,13 +1,16 @@
 import {
+  CONTAINER_IMAGE_EXCLUDES,
   DEFAULT_ENDPOINT_RETENTION,
   DEFAULT_SCHEDULE_TIMEZONE,
   DEFAULT_SHARE_RETENTION,
+  DEFAULT_WHOLE_MACHINE_EXCLUDES,
   defaultEndpointConfig,
   defaultSchedule,
   effectiveSchedule,
   effectiveSettings,
   mailJobObjectIds,
   RECOMMENDED_SCHEDULE_DEFAULTS,
+  wholeMachineNote,
 } from "@restow/core";
 import type { Database } from "@restow/db";
 import {
@@ -25,6 +28,7 @@ import {
   tenants,
 } from "@restow/db";
 import { and, asc, desc, eq, ilike, inArray, or, type SQL, sql } from "drizzle-orm";
+import { config } from "../../config.js";
 import { isServiceLimitedBackup, notBackedUpOf } from "../../lib/service-limit.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
@@ -685,6 +689,7 @@ function endpointMembers(
         : null,
       restoreCheck: { state: fact.restore.state, checkedAt: iso(fact.restore.checkedAt) },
       nextRunAt: iso(fact.nextRunAt),
+      wholeMachineNote: job.settings?.wholeMachine === true ? wholeMachineNote(fact) : null,
     });
   }
   return items.sort((a, b) => a.name.localeCompare(b.name));
@@ -1030,6 +1035,11 @@ export async function getDefaults(
       mailSourceKinds: [],
       retentionPolicies: [],
       endpointRetention: { ...DEFAULT_ENDPOINT_RETENTION },
+      wholeMachine: {
+        available: config.baremetalPreview,
+        excludes: [...DEFAULT_WHOLE_MACHINE_EXCLUDES],
+        containerImageExcludes: [...CONTAINER_IMAGE_EXCLUDES],
+      },
     };
   });
 }

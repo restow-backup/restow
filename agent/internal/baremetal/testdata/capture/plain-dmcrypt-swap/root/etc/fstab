@@ -1,0 +1,4 @@
+UUID=ae000000-0000-4000-8000-000000000001 / ext4 errors=remount-ro 0 1
+UUID=5D6E-7F80 /boot/efi vfat umask=0077 0 1
+/dev/mapper/cswap none swap sw 0 0
+LABEL=data /srv/data ext4 defaults 0 2

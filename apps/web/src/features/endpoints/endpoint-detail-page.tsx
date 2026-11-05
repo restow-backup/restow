@@ -32,6 +32,7 @@ import { ApiError, errorMessageKey } from "@/lib/api";
 
 import type { EndpointDetail } from "./api.js";
 import { AttentionArea } from "./components/attention-area.js";
+import { BaremetalCard } from "./components/baremetal-card.js";
 import { stoppableBackup } from "./components/machine-cells.js";
 import { OverviewTab } from "./components/overview-tab.js";
 import { RunSheet } from "./components/run-sheet.js";
@@ -376,8 +377,10 @@ export function EndpointDetailPage({
             );
           })}
         </TabsList>
-        <TabsContent value="overview" className="pt-2">
+        <TabsContent value="overview" className="space-y-4 pt-2">
           <OverviewTab detail={detail} onOpenRun={setOpenRun} />
+          {/* Bare metal (preview): shown with the preview on or once a layout was captured. */}
+          <BaremetalCard endpointId={detail.id} />
         </TabsContent>
         <TabsContent value="snapshots" className="space-y-4 pt-2">
           <MachineNewDataChart endpointId={detail.id} />

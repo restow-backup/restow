@@ -1,0 +1,17 @@
+lsattr
+-d
+/.snapshots
+/.snapshots/2
+/boot
+/boot/grub2
+/boot/grub2/i386-pc
+/etc
+/etc/default
+/home
+/lib
+/lib/modules
+/lib/modules/6.4.0-150600.23.25-default
+/opt
+/root
+/var
+/.snapshots/2

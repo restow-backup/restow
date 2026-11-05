@@ -50,6 +50,7 @@ import {
 import {
   type Endpoint,
   endpointDownloads,
+  endpointLayouts,
   endpointReports,
   endpointRuns,
   endpoints,
@@ -80,6 +81,8 @@ export interface MonitorSummary {
   abandonedRuns: number;
   expiredTasks: number;
   purgedDownloads: number;
+  /** Layouts of whole machine backups no run points at any more and not a machine's newest. */
+  purgedLayouts: number;
   runAlerts: number;
   reportAlerts: number;
   staleAlerts: number;
@@ -235,6 +238,27 @@ async function purgeDownloads(deps: EndpointJobDeps, now: Date): Promise<number>
     .delete(endpointDownloads)
     .where(lt(endpointDownloads.expiresAt, new Date(now.getTime() - DOWNLOAD_KEEP_MS)))
     .returning({ id: endpointDownloads.id });
+  return purged.length;
+}
+
+/**
+ * The layout manifests of whole machine backups (docs/BAREMETAL.md 14.2) are kept while a run
+ * points at one or it is its machine's newest; the rest goes. A layout of the last day stays,
+ * whatever points at it, so nothing is removed while the finish that stores it runs.
+ */
+async function purgeLayouts(deps: EndpointJobDeps, now: Date): Promise<number> {
+  const purged = await deps.providerDb
+    .delete(endpointLayouts)
+    .where(
+      and(
+        lt(endpointLayouts.createdAt, new Date(now.getTime() - DAY_MS)),
+        sql`NOT EXISTS (SELECT 1 FROM ${endpointRuns} r WHERE r.layout_id = ${endpointLayouts.id})`,
+        sql`EXISTS (SELECT 1 FROM ${endpointLayouts} newer
+                     WHERE newer.endpoint_id = ${endpointLayouts.endpointId}
+                       AND (newer.created_at, newer.id) > (${endpointLayouts.createdAt}, ${endpointLayouts.id}))`,
+      ),
+    )
+    .returning({ id: endpointLayouts.id });
   return purged.length;
 }
 
@@ -635,6 +659,7 @@ export async function endpointMonitor(deps: EndpointJobDeps): Promise<MonitorSum
     abandonedRuns: await closeAbandonedRuns(deps, now),
     expiredTasks: await expireTasks(deps, now),
     purgedDownloads: await purgeDownloads(deps, now),
+    purgedLayouts: await purgeLayouts(deps, now),
     runAlerts: 0,
     reportAlerts: 0,
     staleAlerts: 0,

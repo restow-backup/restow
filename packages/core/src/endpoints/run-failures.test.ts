@@ -111,6 +111,28 @@ describe("explaining the agent's run errors", () => {
     expect(failureOfRun([{ code: "snapshot_cleanup_failed", message: "not deleted" }])).toBeNull();
   });
 
+  it("explains a layout that could not be recorded, and never by a layout the server refused", () => {
+    const capture = classifyRunError({
+      code: "layout_capture_failed",
+      message: "lsblk: not found",
+    });
+    expect(capture.code).toBe("endpoint.layout_capture_failed");
+    expect(capture.transient).toBe(false);
+    expect(
+      failureOfRun([
+        { code: "layout_rejected", message: "control character" },
+        { code: "layout_capture_failed", message: "lsblk: not found" },
+      ])?.code,
+    ).toBe("endpoint.layout_capture_failed");
+    expect(failureOfRun([{ code: "layout_rejected", message: "too large" }])).toBeNull();
+    expect(failureOfRun([{ code: "layout_too_large", message: "600 KiB" }])).toBeNull();
+    // An LVM or btrfs snapshot speaks the same codes as a shadow copy.
+    expect(
+      failureOfRun([{ code: "snapshot_failed", path: "/home", message: "lvcreate failed" }])
+        ?.params,
+    ).toEqual({ path: "/home" });
+  });
+
   it("knows the causes the server derives itself", () => {
     expect(agentStoppedCause().code).toBe("endpoint.agent_stopped");
     expect(silentCause(2.6).params).toEqual({ ageHours: 3 });

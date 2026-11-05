@@ -254,9 +254,52 @@ private repository.
 - `GET /api/v1/navigation` tells the web which menu entries the active tenant offers beyond roles
   and the installation's features; today `offers.archive` (always false for someone who is not an
   administrator of the tenant).
+- Whole machine backups (preview, Linux): a backup job switch backs up every local file system,
+  every btrfs subvolume and every local fstab entry, with its disk layout. The agent records the
+  layout (partition tables, RAID, LUKS metadata without secrets, LVM, file systems and their
+  features, mounts and fstab, firmware and Secure Boot state, boot loader, initramfs generator and
+  its keyboard layout, driver chain of the boot disks) as a layout manifest inside the snapshot and
+  reports it; backups run with `--one-file-system` and `--group-by host`. The server checks the
+  manifest (`restow-layout-v1`, the same schema and canonical encoding in Go and TypeScript, held
+  to the agent's own test data), keeps it once per machine and content in the new table
+  `endpoint_layouts` (migration 0076, Row Level Security like the other tenant tables) and links
+  the run to it (`endpoint_runs.layout_id`); a refused manifest leaves the run as reported with the
+  hint `layout_rejected`. The machine's page shows a card "Bare-metal restore (preview)" with the
+  captured layout (disks with their partitions, the storage stack, firmware, boot loader,
+  distribution, encryption), its assessment with what is not supported, and how much to leave free
+  in a volume group without room for snapshots; a run says "Layout captured". The job lists why a
+  member backs up its folders instead (container, Windows, macOS later, agent before 0.5.0) or what
+  it should know (BIOS boot needs CSM, arm64 restore later). The switch is hidden and refused
+  (409 `baremetal-preview-off`) unless `RESTOW_BAREMETAL_PREVIEW=true`; restoring a machine comes
+  with later releases.
+- File system snapshots on Linux: LVM (thick and thin) and btrfs snapshots under the policy 'When
+  the file system snapshot fails'; snapshot paths stay the real paths. Thin pools above 80 % get
+  no snapshot, and a backup stops its snapshot before a pool runs full. A volume group without free
+  space is read live without a warning on every run. The machine's settings offer "File system
+  snapshot (LVM, btrfs)" (on, off or the default: on for a whole machine backup, off otherwise);
+  `GET /agent/v1/config` sends it as `fsSnapshot`, and a run's consistency names LVM, btrfs or
+  both. A backup of folders reads the file systems and btrfs subvolumes mounted below them from
+  their own snapshots, or live when they have none, and lists those in its consistency. The agent
+  never kills `lvcreate`, `lvchange` or `lvremove`: a cancelled run, a stop of the service or an
+  update lets them finish, at their time limit they get SIGTERM, and a snapshot that a failed
+  `lvcreate` left behind is removed at once.
+- The worker's endpoint monitor removes layouts no run points at any more, keeping each machine's
+  newest.
 
 ### Changed
 
+- The agent no longer backs up its own state file (`/etc/restow-agent/state.json`) with the agent
+  secret and the repository password, on any system; the restore dialog hides it in older
+  snapshots, and LUKS key files are no longer downloadable for the restore role. The browser hides
+  the state file from everybody and the key files that a machine's layout names from restore
+  operators; selecting one is refused (422 or 403 `endpoint-restore-path-locked`), a folder ZIP
+  leaves them out, and an administrator gets a key file only after a recent sign-in, audited as
+  `endpoint.repository.secret_file_revealed`.
+- The explanations of `snapshot_failed` and `snapshot_unavailable` no longer speak of the shadow
+  copy only: they name it, LVM and btrfs, and the steps cover Windows and Linux.
+- The agent's systemd unit allows mount namespaces (`RestrictNamespaces=mnt`) so the snapshot
+  helper can build the LVM and btrfs snapshot tree in a private one; every other namespace type
+  stays blocked.
 - Proxmox VE inventory (#58): a guest's row says how large its first backup was and when
   ("First backup: 32 GB on 3 Oct"), what the last follow-up added ("Last follow-up: +210 MB", or
   "No follow-up backup yet") and the average follow-up ("Average follow-up: +180 MB (last 7
@@ -419,22 +462,24 @@ private repository.
 
 ### Upgrade Notes
 
-Three database migrations run on start: 0073 creates the new table `storage_samples` and 0074
-the new table `directory_memberships`; neither rewrites anything. 0075 serves the restore
-explorer's "From the archive": an index on `archive_items` (tenant, mailbox, capture time), the
-index on `archive_item_mailboxes` (tenant, mailbox) replaced by one that adds the time of the
-assignment, a partial index on the Message-IDs of `manifest_versions` (mail only), and the new
-column `tenants.journal_address_issued_at`, empty for every tenant. Building the indexes reads the
-archive's rows, its assignments and the backup index's mail rows once, and new captures and
-backups wait for it meanwhile; nothing is rewritten. A journal address issued before 0.5.0 no
-longer brings the menu entry "Archive" on its own: up to 0.4.12 the tenant page and the Archive
-page issued it when they were first opened, also where journaling was never set up. Such a
-tenant gets the entry once a journal report arrives, a mail job archives, or an administrator
-opens the journal setup on the Archive page (it stays reachable by its address) or issues a new
-address there; the address itself keeps working. The first directory sync after the update reads
-the owners and members of every Microsoft 365 group once (three Graph reads per group, through
-`$batch`); until it has run, a person's "Teams & sites" is empty and says that it may be
-incomplete. Agents before 0.5.0 ignore `snapshotOnFailure`, and the release key keeps the
+Four database migrations run on start: 0073 creates the new table `storage_samples` and 0074 the new
+table `directory_memberships`; neither rewrites anything. 0075 serves the restore explorer's "From
+the archive": an index on `archive_items` (tenant, mailbox, capture time), the index on
+`archive_item_mailboxes` (tenant, mailbox) replaced by one that adds the time of the assignment, a
+partial index on the Message-IDs of `manifest_versions` (mail only), and the new column
+`tenants.journal_address_issued_at`, empty for every tenant. Building the indexes reads the
+archive's rows, its assignments and the backup index's mail rows once, and new captures and backups
+wait for it meanwhile; nothing is rewritten. A journal address issued before 0.5.0 no longer brings
+the menu entry "Archive" on its own: up to 0.4.12 the tenant page and the Archive page issued it
+when they were first opened, also where journaling was never set up. Such a tenant gets the entry
+once a journal report arrives, a mail job archives, or an administrator opens the journal setup on
+the Archive page (it stays reachable by its address) or issues a new address there; the address
+itself keeps working. The first directory sync after the update reads the owners and members of
+every Microsoft 365 group once (three Graph reads per group, through `$batch`); until it has run, a
+person's "Teams & sites" is empty and says that it may be incomplete. 0076 creates the table
+`endpoint_layouts` and adds the empty column `endpoint_runs.layout_id`; nothing is rewritten. Whole
+machine backups stay off until `RESTOW_BAREMETAL_PREVIEW=true` is set for the api. Agents before
+0.5.0 ignore `snapshotOnFailure`, `wholeMachine` and `fsSnapshot`, and the release key keeps the
 fingerprint `SHA256:2LB7RPpIS0wqbcZ2NA8MjuQN7ZfFPqBX3CwrGFSu76o`.
 
 ### Known Issues

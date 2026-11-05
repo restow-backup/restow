@@ -1,0 +1,87 @@
+[
+  {
+    "target": "/run/restow-agent/snaptree",
+    "source": "tmpfs",
+    "fstype": "tmpfs",
+    "options": "mode=0755",
+    "bind": false,
+    "recursive": false
+  },
+  {
+    "target": "/run/restow-agent/snaptree",
+    "source": "/",
+    "options": "ro",
+    "bind": true,
+    "recursive": false
+  },
+  {
+    "target": "/run/restow-agent/snaptree/home",
+    "source": "/home",
+    "options": "ro",
+    "bind": true,
+    "recursive": false
+  },
+  {
+    "target": "/run/restow-agent/snaptree/boot",
+    "source": "/boot",
+    "options": "ro",
+    "bind": true,
+    "recursive": false
+  },
+  {
+    "target": "/run/restow-agent/snaptree/proc",
+    "source": "/proc",
+    "options": "ro",
+    "bind": true,
+    "recursive": false
+  },
+  {
+    "target": "/run/restow-agent/snaptree/sys",
+    "source": "/sys",
+    "options": "ro",
+    "bind": true,
+    "recursive": false
+  },
+  {
+    "target": "/run/restow-agent/snaptree/dev",
+    "source": "/dev",
+    "options": "ro",
+    "bind": true,
+    "recursive": false
+  },
+  {
+    "target": "/run/restow-agent/snaptree/run",
+    "source": "/run",
+    "options": "ro",
+    "bind": true,
+    "recursive": false
+  },
+  {
+    "target": "/run/restow-agent/snaptree/boot/efi",
+    "source": "/boot/efi",
+    "options": "ro",
+    "bind": true,
+    "recursive": false
+  },
+  {
+    "target": "/run/restow-agent/snaptree/var/lib/restow-agent/cache",
+    "source": "/var/lib/restow-agent/cache",
+    "options": "rw",
+    "bind": true,
+    "recursive": false
+  },
+  {
+    "target": "/run/restow-agent/snaptree/var/lib/restow-agent/tmp",
+    "source": "/var/lib/restow-agent/tmp",
+    "options": "rw",
+    "bind": true,
+    "recursive": false
+  },
+  {
+    "target": "/run/restow-agent/snaptree/opt/restow-agent/bin/restic",
+    "source": "/opt/restow-agent/bin/restic",
+    "options": "ro",
+    "bind": true,
+    "recursive": false
+  }
+]

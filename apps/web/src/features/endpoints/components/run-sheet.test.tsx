@@ -87,6 +87,28 @@ describe("RunDetailView", () => {
     expect(render_(run())).not.toContain("Consistency");
   });
 
+  it("names LVM and btrfs snapshots, and file systems read without one", () => {
+    const base = run().stats ?? {};
+    const of = (consistency: NonNullable<RunDetail["stats"]>["consistency"]) =>
+      render_(run({ stats: { ...base, consistency } }));
+    expect(of({ method: "lvm", state: "used" })).toContain("LVM snapshot (file consistent)");
+    expect(of({ method: "btrfs", state: "used" })).toContain("btrfs snapshot (file consistent)");
+    expect(of({ method: "mixed", state: "used" })).toContain(
+      "LVM and btrfs snapshots (file consistent)",
+    );
+    // A partition or a full volume group has no snapshot method: listed, not an error.
+    expect(
+      of({ method: "lvm", state: "partial", liveFilesystems: ["/boot", "/boot/efi"] }),
+    ).toContain("Partly without a file system snapshot: /boot, /boot/efi");
+  });
+
+  it("says that a whole machine backup captured the layout, and links to it", () => {
+    expect(render_(run({ layoutId: "l1" }))).toContain("Layout captured");
+    expect(render_(run({ layoutId: null }))).not.toContain("Layout captured");
+    const linked = render(<RunDetailView run={run({ layoutId: "l1" })} onShowLayout={() => {}} />);
+    expect(linked).toContain("Show on the machine&#x27;s page");
+  });
+
   it("lists the files a partial run could not read, and says what partial means", () => {
     const html = render_(
       run({

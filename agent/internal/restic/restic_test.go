@@ -272,6 +272,12 @@ func TestBackupArgs(t *testing.T) {
 			want: []string{"backup", "--json", "--files-from-raw", "/tmp/paths.raw", "--exclude-caches", "--retry-lock", "15m"},
 		},
 		{
+			name: "whole machine: one file system, grouped by host, the baremetal tag",
+			opts: BackupOptions{Host: "srv01", Tags: []string{"restow-agent", "restow-baremetal"}, OneFileSystem: true, GroupBy: "host"},
+			want: []string{"backup", "--json", "--files-from-raw", "/tmp/paths.raw", "--exclude-caches", "--retry-lock", "15m",
+				"--host", "srv01", "--tag", "restow-agent", "--tag", "restow-baremetal", "--one-file-system", "--group-by", "host"},
+		},
+		{
 			name: "a negative size is no limit",
 			opts: BackupOptions{ExcludeLargerThanBytes: -7},
 			want: []string{"backup", "--json", "--files-from-raw", "/tmp/paths.raw", "--exclude-caches", "--retry-lock", "15m"},
@@ -284,6 +290,31 @@ func TestBackupArgs(t *testing.T) {
 				t.Fatalf("args\n got: %q\nwant: %q", got, tc.want)
 			}
 		})
+	}
+}
+
+// TestBackupThroughPrefix: with Exec the prefix runs and gets the restic
+// binary and its arguments; output and exit codes are handled as before.
+func TestBackupThroughPrefix(t *testing.T) {
+	r, argsFile, _ := fakeRestic(t)
+	mode(r, "backup-ok")
+	dir := t.TempDir()
+	prefixLog := filepath.Join(dir, "prefix.txt")
+	prefix := filepath.Join(dir, "helper")
+	if err := os.WriteFile(prefix, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > "+prefixLog+"\nshift 4\nexec \"$@\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	res, err := r.Backup(context.Background(), BackupOptions{Paths: []string{"/data"}, OneFileSystem: true, GroupBy: "host",
+		Exec: []string{prefix, "snapshot-exec", "--spec", "/tmp/spec.json", "--"}})
+	if err != nil || res.SnapshotID == "" {
+		t.Fatalf("%v %+v", err, res)
+	}
+	got := readFile(t, prefixLog)
+	if !strings.HasPrefix(got, "snapshot-exec\n--spec\n/tmp/spec.json\n--\n"+r.Bin+"\nbackup\n--json\n") {
+		t.Fatalf("prefix args:\n%s", got)
+	}
+	if args := readFile(t, argsFile); !strings.Contains(args, "--one-file-system\n--group-by\nhost") {
+		t.Fatalf("restic args:\n%s", args)
 	}
 }
 

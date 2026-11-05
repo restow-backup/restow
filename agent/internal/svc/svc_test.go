@@ -53,7 +53,7 @@ func TestSystemdUnitContent(t *testing.T) {
 		"After=network-online.target", "WantedBy=multi-user.target", "StartLimitBurst=10",
 		// Hardening that backups of arbitrary paths and restores anywhere still allow.
 		"NoNewPrivileges=yes", "ProtectKernelTunables=yes", "ProtectKernelLogs=yes", "ProtectControlGroups=yes",
-		"RestrictNamespaces=yes", "LockPersonality=yes", "UMask=0077", "CapabilityBoundingSet=~CAP_SYS_MODULE",
+		"RestrictNamespaces=mnt", "LockPersonality=yes", "UMask=0077", "CapabilityBoundingSet=~CAP_SYS_MODULE",
 		"SystemCallFilter=~@module", "SystemCallErrorNumber=EPERM", "RestrictRealtime=yes", "SystemCallArchitectures=native",
 	} {
 		if !strings.Contains(unit, want) {

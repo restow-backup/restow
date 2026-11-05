@@ -12,7 +12,7 @@ import type {
   FailureParams,
   FailureTechnical,
 } from "../failures/types.js";
-import { INTERRUPTED_RUN_CODE, resticExitCodeOf, SNAPSHOT_CLEANUP_RUN_CODE } from "./run-errors.js";
+import { INTERRUPTED_RUN_CODE, NOTE_RUN_CODES, resticExitCodeOf } from "./run-errors.js";
 
 export interface RunErrorInput {
   path?: string | null;
@@ -36,6 +36,7 @@ const BY_CODE: Readonly<Record<string, FailureCode>> = {
   agent_stopped: "endpoint.agent_stopped",
   snapshot_failed: "endpoint.snapshot_failed",
   snapshot_unavailable: "endpoint.snapshot_unavailable",
+  layout_capture_failed: "endpoint.layout_capture_failed",
   [INTERRUPTED_RUN_CODE]: "endpoint.interrupted",
 };
 
@@ -105,8 +106,9 @@ export function classifyRunError(error: RunErrorInput): FailureCause {
  * first one. `null` for a run without errors. `count` is how many errors were reported.
  */
 export function failureOfRun(errors: readonly RunErrorInput[]): FailureCause | null {
-  // A snapshot left behind is a note beside the outcome, never its explanation.
-  const candidates = errors.filter((error) => error.code !== SNAPSHOT_CLEANUP_RUN_CODE);
+  // A snapshot left behind or a layout the server did not keep is a note beside the outcome,
+  // never its explanation.
+  const candidates = errors.filter((error) => !NOTE_RUN_CODES.has(error.code ?? ""));
   if (candidates.length === 0) {
     return null;
   }

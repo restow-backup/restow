@@ -589,10 +589,11 @@
       "filesChanged": "Changed files",
       "filesUnmodified": "Unchanged files",
       "dataAdded": "Data added to storage",
-      "consistency": "Consistency"
+      "consistency": "Consistency",
+      "layout": "Layout captured"
     },
     "consistency": {
-      "used": "{method, select, vss {Shadow copy (file consistent)} none {File system snapshot (file consistent)} other {File system snapshot {method} (file consistent)}}",
+      "used": "{method, select, vss {Shadow copy (file consistent)} lvm {LVM snapshot (file consistent)} btrfs {btrfs snapshot (file consistent)} mixed {LVM and btrfs snapshots (file consistent)} apfs {APFS snapshot (file consistent)} other {File system snapshot (file consistent)}}",
       "partial": "{method, select, vss {Partly without a shadow copy} other {Partly without a file system snapshot}}",
       "partialWith": "{method, select, vss {Partly without a shadow copy: {live}} other {Partly without a file system snapshot: {live}}}",
       "unavailable": "{method, select, vss {Without a shadow copy (shadow copy not available)} other {Without a file system snapshot (not available)}}",
@@ -624,7 +625,9 @@
     "interruptedNote": "The agent was restarted while this run was going and picks the work up again by itself. This is not a failure; nothing needs to be done.",
     "incompleteNote": "This restore check could not complete, so it says nothing about the backup: nothing was rated, no alert went out, and the last restore check stays as it was. The machine gets the restore check again after a wait while this backup is its newest; otherwise the next backup brings a new one.",
     "incompleteNoteFinal": "This restore check could not complete, so it says nothing about the backup: nothing was rated and no alert went out. The machine is revoked and gets no more restore checks.",
-    "errorCount": "{count, plural, one {# error} other {# errors}}"
+    "errorCount": "{count, plural, one {# error} other {# errors}}",
+    "layoutShow": "Show on the machine's page",
+    "layoutCaptured": "Yes"
   },
   "reports": {
     "title": "Reports",
@@ -968,6 +971,17 @@
       "hintDefault": "Leave empty for the installation's default of {size}.",
       "hintUnlimited": "Leave empty for no limit (the installation sets none).",
       "tenantNote": "All servers and clients of this tenant share a budget of {size}."
+    },
+    "fsSnapshot": {
+      "label": "File system snapshot (LVM, btrfs)",
+      "hint": "Backs up from an LVM or btrfs snapshot, so all files are from the same moment (file consistent). File systems without a snapshot method (a partition, a full volume group) are read live. What happens when a snapshot fails is set by the agent policy.",
+      "default": "Default",
+      "auto": "On (where possible)",
+      "off": "Off",
+      "defaultNote": {
+        "auto": "Default for this machine: on, because its job backs it up as a whole.",
+        "off": "Default for this machine: off. Whole machine backups take snapshots by default."
+      }
     }
   },
   "repositoryKey": {
@@ -1092,7 +1106,8 @@
     "confirmHostname": "The hostname does not match. Type it exactly as shown.",
     "removalLegalHold": "A legal hold covers every backup of this tenant, so they cannot be deleted now. Keep them until they expire instead, or release the hold first.",
     "removalSuspicionHold": "A suspicious restore point of this machine is not resolved and holds its backups. Resolve it first, or keep the backups until they expire.",
-    "removalNeverExpires": "The retention of this machine keeps every backup, so they would never expire. Delete them instead."
+    "removalNeverExpires": "The retention of this machine keeps every backup, so they would never expire. Delete them instead.",
+    "restorePathLocked": "This file is not handed out: the agent's own state file is never restored (the agent gets a new identity when it is enrolled again), and key files of encrypted volumes only to administrators."
   },
   "readinessSection": {
     "overdue": "Overdue",
@@ -1128,10 +1143,13 @@
     "unknown": "Error code {code}",
     "detail": "Technical message from the agent",
     "agent_stopped": "The agent stopped reporting while the run was in progress",
-    "snapshot_failed": "The shadow copy of a drive failed",
-    "snapshot_unavailable": "Without a shadow copy: file system snapshots cannot be used on the machine",
-    "snapshot_cleanup_failed": "A shadow copy was left behind after the backup",
-    "cancelled": "Cancelled in the web app"
+    "snapshot_failed": "The file system snapshot (such as a shadow copy or an LVM or btrfs snapshot) of a drive or file system failed",
+    "snapshot_unavailable": "Without a file system snapshot: snapshots cannot be used on the machine",
+    "snapshot_cleanup_failed": "A file system snapshot was left behind after the backup",
+    "cancelled": "Cancelled in the web app",
+    "layout_capture_failed": "The disk layout could not be recorded; the mounted file systems were backed up anyway",
+    "layout_too_large": "The disk layout is too large for the server; it is in the restore point, but not shown here",
+    "layout_rejected": "The server did not keep the disk layout the agent sent"
   },
   "agentUpdates": {
     "title": "Automatic agent updates",
@@ -1421,5 +1439,109 @@
     "openPage": "Open machine page",
     "progressOf": "Backup progress of {name}",
     "adminOnly": "Backing up and stopping is for administrators of backup jobs."
+  },
+  "baremetal": {
+    "title": "Bare-metal restore (preview)",
+    "states": {
+      "not_enabled": "Not backed up as a whole",
+      "not_possible": "Not possible",
+      "no_layout": "No layout captured yet",
+      "unverified": "Layout captured; the restore check follows in a later version"
+    },
+    "notPossible": {
+      "container": "A container is restored with its host.",
+      "windows": "Windows machines are not restored as a whole yet.",
+      "darwin_later": "macOS follows in a later version.",
+      "agent_too_old": "The agent is too old for a whole machine backup (0.5.0 or later needed)."
+    },
+    "unverifiedHint": "The newest whole machine backup recorded the layout below. Whether it can be restored is checked from a later version on; until then nothing here is proof.",
+    "snapshotHint": "{vg} has no free space for snapshots. Leave {size} free (10 % of the volume group), then {appName} backs up {mounts} consistently.",
+    "capturedAt": "Captured",
+    "snapshot": "Restore point",
+    "verdictLabel": "Assessment",
+    "verdict": {
+      "supported": "Supported",
+      "supported_with_warnings": "Supported, with notes",
+      "unsupported": "Not supported"
+    },
+    "codes": {
+      "fs_type_unsupported": "A file system of a system path has a type the restore cannot create (for example ZFS, bcachefs, F2FS or NTFS)",
+      "lvm_type_unsupported": "A logical volume uses a cache, writecache or VDO, which the restore cannot create",
+      "md_container_unsupported": "A RAID array lives in a firmware RAID container",
+      "md_journal_unsupported": "A RAID array uses a journal or partial parity log",
+      "md_reshape_in_progress": "A RAID array was being reshaped during the backup",
+      "multipath_unsupported": "A disk is reached over multipath",
+      "integrity_unsupported": "A volume uses dm-integrity",
+      "luks_detached_header": "An encrypted volume keeps its header apart from its data",
+      "network_root_unsupported": "The root file system comes over the network (iSCSI, NFS)",
+      "xfs_external_log": "An XFS file system has an external log or a realtime device",
+      "bootloader_unsupported": "The boot loader is none the restore can set up",
+      "initramfs_unsupported": "The initramfs generator is none the restore can run",
+      "uki_without_generator": "A unified kernel image is used, but no generator for it is installed",
+      "unknown_device_in_boot_path": "An unknown device lies on the way to /, /boot or the EFI system partition",
+      "container": "The machine is a container: it is restored with its host",
+      "fstab_unresolvable": "An fstab entry of a system path cannot be resolved to a device",
+      "luks_token": "An encrypted volume opens with a TPM2, FIDO2 or network-bound key: set it up again after a restore",
+      "snapshot_subvolumes": "Subvolumes of automatic system snapshots are created empty on restore, not backed up",
+      "lvm_snapshot_lvs": "LVM snapshots on the machine are not backed up",
+      "raw_lvs": "Logical volumes without a file system (raw) are not backed up",
+      "pve_guest_volumes": "Volumes of virtual machines and containers (Proxmox VE) are not backed up here; the Proxmox VE integration backs them up",
+      "docker_btrfs_many": "More than 200 btrfs subvolumes of container images: consider downloading them again after a restore instead of backing them up",
+      "data_fs_unsupported": "A data file system of an unsupported type is backed up, but not created again on restore",
+      "untested_distribution": "The distribution has not been tested for restores",
+      "non_systemd_init": "The machine does not start with systemd",
+      "secure_boot_own_keys": "Secure Boot is on with a boot loader or kernel signed by your own keys",
+      "dkms_mok": "Kernel modules built on the machine are signed with a machine owner key",
+      "bios_needs_csm": "The machine starts in legacy BIOS mode: replacement hardware needs CSM or legacy boot, which many current models no longer have",
+      "dual_boot_windows": "A second system (Windows) is on the disks; only Linux is restored",
+      "lvm_device_ids": "LVM names its devices in a devices file or filter; the restore adjusts it",
+      "device_name_refs": "Configuration files name devices by kernel name (such as /dev/sda), which can change on new hardware",
+      "md_degraded": "A RAID array was degraded during the backup",
+      "capture_failed": "A part of the layout could not be recorded"
+    },
+    "content": {
+      "esp": "EFI system partition",
+      "bios_boot": "BIOS boot partition",
+      "filesystem": "File system",
+      "luks": "Encrypted (LUKS)",
+      "md": "RAID member",
+      "pv": "LVM physical volume",
+      "swap": "Swap",
+      "plain": "Encrypted (plain)",
+      "empty": "Empty",
+      "other": "Other"
+    },
+    "stack": {
+      "disk": "Disk",
+      "partition": "Partition",
+      "md": "RAID",
+      "luks": "LUKS",
+      "plain": "dm-crypt",
+      "vg": "Volume group",
+      "lv": "Logical volume",
+      "fs": "File system",
+      "subvolume": "Subvolume",
+      "swap": "Swap"
+    },
+    "summary": {
+      "diskBar": "{disk} with {count, plural, one {# partition} other {# partitions}}",
+      "system": "System",
+      "firmware": "Firmware",
+      "firmwareMode": {
+        "uefi": "UEFI",
+        "bios": "BIOS (legacy)"
+      },
+      "secureBoot": "Secure Boot",
+      "on": "On",
+      "off": "Off",
+      "unknown": "Unknown",
+      "bootloader": "Boot loader",
+      "initramfs": "initramfs and keyboard layout",
+      "encryption": "Encryption",
+      "noEncryption": "None",
+      "encryptionCount": "{luks, plural, one {# LUKS volume} other {# LUKS volumes}}, {plain, plural, one {# plain dm-crypt} other {# plain dm-crypt}}",
+      "disks": "Disks",
+      "stack": "Storage stack"
+    }
   }
 }

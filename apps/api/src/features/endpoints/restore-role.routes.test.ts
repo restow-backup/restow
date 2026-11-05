@@ -63,6 +63,7 @@ const pveFiles = vi.hoisted(() => ({
   openContainerDownload: vi.fn(),
 }));
 const bootTests = vi.hoisted(() => ({ requestBootTest: vi.fn() }));
+const baremetalService = vi.hoisted(() => ({ getBaremetalState: vi.fn(), getLayout: vi.fn() }));
 const policyService = vi.hoisted(() => ({
   getEndpointAgentPolicy: vi.fn(),
   getTenantAgentPolicy: vi.fn(),
@@ -131,6 +132,7 @@ vi.mock("./instance-url.js", () => ({
   instanceUrl: async () => ({ url: "https://restow.test.example", configured: true }),
 }));
 vi.mock("../pve/boot-tests.js", () => bootTests);
+vi.mock("./baremetal.js", () => baremetalService);
 vi.mock("./agent-policy.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./agent-policy.js")>()),
   ...policyService,
@@ -178,6 +180,8 @@ beforeEach(() => {
     stream: Readable.from([Buffer.from("PK")]),
   });
   endpointService.createTask.mockResolvedValue({ id: "task-1", alreadyQueued: false });
+  baremetalService.getBaremetalState.mockResolvedValue({ state: "not_enabled" });
+  baremetalService.getLayout.mockResolvedValue({ id: ids.point, manifest: {} });
   pveService.overview.mockResolvedValue({ clusters: [], guests: [], jobs: [] });
   pveService.guestDetail.mockResolvedValue({ guest: { id: ids.guest }, snapshots: [] });
   pveFiles.browseContainerFiles.mockResolvedValue({ entries: [], nextCursor: null });
@@ -308,6 +312,61 @@ describe("a restore operator on a machine's files", () => {
     await call("GET", machine());
     expect(endpointService.getEndpoint.mock.calls[0]?.[4]).toEqual({ revealHooks: true });
     expect((await call("POST", machine("/tasks"), { kind: "backup_now" })).status).toBe(202);
+  });
+});
+
+describe("the secret files of a snapshot (docs/BAREMETAL.md 5.4)", () => {
+  const restoreReader = expect.objectContaining({ userId: "user-1", role: "restore" });
+  const adminReader = expect.objectContaining({ userId: "user-1", role: "admin" });
+
+  it("reads files as the restore role, which locks key files", async () => {
+    await call("GET", machine(`/browse?snapshotId=${snapshotId}&path=/etc`));
+    await call("POST", machine("/downloads"), { snapshotId, paths: ["/etc"] });
+    await app.request(machine(`/downloads/${ids.download}?tenant=${ids.tenant}`));
+    await call("POST", machine("/tasks"), { kind: "restore", snapshotId, paths: ["/etc"] });
+    expect(endpointService.browseSnapshot.mock.calls[0]?.[4]).toEqual(restoreReader);
+    expect(endpointService.prepareDownload.mock.calls[0]?.[4]).toEqual(restoreReader);
+    expect(endpointService.openDownload.mock.calls[0]?.[4]).toEqual(restoreReader);
+    expect(endpointService.createTask.mock.calls[0]?.[4]).toEqual(restoreReader);
+  });
+
+  it("reads files as an admin, who has key files after a recent sign-in", async () => {
+    who.membership = "admin";
+    await call("GET", machine(`/browse?snapshotId=${snapshotId}&path=/etc`));
+    await call("POST", machine("/downloads"), { snapshotId, paths: ["/etc"] });
+    await call("POST", machine("/tasks"), { kind: "restore", snapshotId, paths: ["/etc"] });
+    for (const fn of [
+      endpointService.browseSnapshot,
+      endpointService.prepareDownload,
+      endpointService.createTask,
+    ]) {
+      const reader = fn.mock.calls[0]?.[4] as { confirmRecentSignIn?: () => void };
+      expect(reader).toEqual(adminReader);
+      // The check is the session's recent sign-in: the test session names no strong method.
+      expect(() => reader.confirmRecentSignIn?.()).toThrow(/sign-in from the last/);
+    }
+  });
+
+  it("shows the bare metal card to the restore role, and the full layout only to admins", async () => {
+    expect((await call("GET", machine("/baremetal"))).status).toBe(200);
+    expect(baremetalService.getBaremetalState).toHaveBeenCalledWith({}, ids.tenant, ids.endpoint);
+    const layout = machine(`/baremetal/layouts/${ids.point}`);
+    expect((await call("GET", layout)).status).toBe(403);
+    expect(baremetalService.getLayout).not.toHaveBeenCalled();
+    who.membership = "admin";
+    expect((await call("GET", layout)).status).toBe(200);
+    expect(baremetalService.getLayout).toHaveBeenCalledWith(
+      {},
+      ids.tenant,
+      ids.endpoint,
+      ids.point,
+    );
+  });
+
+  it("is refused to a plain user", async () => {
+    who.membership = "member";
+    expect((await call("GET", machine("/baremetal"))).status).toBe(403);
+    expect(baremetalService.getBaremetalState).not.toHaveBeenCalled();
   });
 });
 

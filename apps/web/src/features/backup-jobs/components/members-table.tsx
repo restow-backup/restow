@@ -164,6 +164,14 @@ export function MembersTable({
                     {t("scope.notCovered", { status: memberStatusWord(member, tc) })}
                   </span>
                 ) : null}
+                {member.wholeMachineNote ? (
+                  <span
+                    className="block text-xs text-muted-foreground"
+                    data-slot="whole-machine-note"
+                  >
+                    {t(`wholeMachine.notes.${member.wholeMachineNote}`)}
+                  </span>
+                ) : null}
               </div>
             </div>
           );

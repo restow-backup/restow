@@ -141,6 +141,13 @@ export interface Config {
   exports: ExportConfig;
   preview: PreviewConfig;
   pve: PveConfig;
+  /**
+   * `RESTOW_BAREMETAL_PREVIEW`: whole machine backups of Linux machines (docs/BAREMETAL.md 22).
+   * Off by default while the boot probe is not done: the job switch is hidden and refused, and
+   * `GET /agent/v1/config` sends no `wholeMachine`. File system snapshots (`fsSnapshot`) work
+   * either way.
+   */
+  baremetalPreview: boolean;
 }
 
 /**
@@ -415,6 +422,7 @@ export function loadConfig(env: Env = process.env): Config {
       blockMapCacheBytes:
         positiveInt(env, "PVE_BLOCK_MAP_CACHE_MB", DEFAULT_PVE_BLOCK_MAP_CACHE_MB) * 1024 * 1024,
     },
+    baremetalPreview: bool(env, "RESTOW_BAREMETAL_PREVIEW"),
   };
 }
 

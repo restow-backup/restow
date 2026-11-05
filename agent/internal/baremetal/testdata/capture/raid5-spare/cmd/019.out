@@ -1,0 +1,5 @@
+DEVNAME=/dev/mapper/data-share
+UUID=a8000000-0000-4000-8000-0000000000d1
+BLOCK_SIZE=512
+TYPE=xfs
+USAGE=filesystem

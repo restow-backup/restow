@@ -241,8 +241,101 @@ describe.skipIf(!testDatabaseAdminUrl)("the configuration of an agent over a wee
     const who = await machine({ config: plain, configVersion: 2 });
     for (const iso of ["2026-10-06T06:00:00Z", "2026-10-10T10:00:00Z"]) {
       const answer = await configAt(who, iso);
-      // Plus whether an update pauses new runs (0.4.0; never part of the stored configuration).
-      expect(answer).toEqual({ ...plain, configVersion: 2, startsPaused: false });
+      // Plus whether an update pauses new runs (0.4.0; never part of the stored configuration),
+      // and for Linux whether to take file system snapshots (0.5.0, resolved from the default).
+      expect(answer).toEqual({
+        ...plain,
+        configVersion: 2,
+        startsPaused: false,
+        fsSnapshot: "off",
+      });
     }
+  });
+
+  describe("whole machine and file system snapshots (0.5.0)", () => {
+    let appConfig: typeof import("../../config.js")["config"];
+
+    beforeAll(async () => {
+      appConfig = (await import("../../config.js")).config;
+    });
+
+    afterEach(() => {
+      appConfig.baremetalPreview = false;
+    });
+
+    async function machine(os: "linux" | "windows" | "darwin", stored: Partial<EndpointConfig>) {
+      const secret = generateAgentSecret();
+      const id = randomUUID();
+      const { bandwidthWindows: _none, ...plain } = config();
+      await fixture.db.insert(endpoints).values({
+        id,
+        tenantId: fixture.tenantId,
+        hostname: `host-${id.slice(0, 8)}`,
+        os,
+        arch: "amd64",
+        profile: "server",
+        secretHash: secret.hash,
+        config: { ...plain, ...stored },
+        configVersion: 3,
+      });
+      return { id, secret: secret.value };
+    }
+
+    async function answer(who: { id: string; secret: string }) {
+      const response = await app.request("/agent/v1/config", {
+        headers: { ...basic(who.id, who.secret), "x-forwarded-for": `198.51.100.${ipCounter++}` },
+      });
+      expect(response.status, await response.clone().text()).toBe(200);
+      return (await response.json()) as Record<string, unknown>;
+    }
+
+    it("sends wholeMachine only with the preview on, and then snapshots by default", async () => {
+      const who = await machine("linux", { wholeMachine: true });
+      const off = await answer(who);
+      expect(off).not.toHaveProperty("wholeMachine");
+      expect(off.fsSnapshot).toBe("off");
+      appConfig.baremetalPreview = true;
+      const on = await answer(who);
+      expect(on.wholeMachine).toBe(true);
+      expect(on.fsSnapshot).toBe("auto");
+      // The stored configuration is the same either way, version included.
+      expect(on.configVersion).toBe(off.configVersion);
+    });
+
+    it("sends the machine's own snapshot setting over the default", async () => {
+      appConfig.baremetalPreview = true;
+      expect(
+        (await answer(await machine("linux", { wholeMachine: true, fsSnapshot: "off" })))
+          .fsSnapshot,
+      ).toBe("off");
+      expect((await answer(await machine("linux", { fsSnapshot: "auto" }))).fsSnapshot).toBe(
+        "auto",
+      );
+      const plain = await answer(await machine("linux", {}));
+      expect(plain.fsSnapshot).toBe("off");
+      expect(plain).not.toHaveProperty("wholeMachine");
+    });
+
+    it("sends Windows neither field and macOS no snapshots yet", async () => {
+      appConfig.baremetalPreview = true;
+      const windows = await answer(await machine("windows", { wholeMachine: true, useVss: true }));
+      expect(windows).not.toHaveProperty("wholeMachine");
+      expect(windows).not.toHaveProperty("fsSnapshot");
+      expect(windows.useVss).toBe(true);
+      const mac = await answer(await machine("darwin", { wholeMachine: true }));
+      expect(mac).not.toHaveProperty("wholeMachine");
+      expect(mac.fsSnapshot).toBe("off");
+    });
+
+    it("sends a machine in no job nothing of a whole machine", async () => {
+      appConfig.baremetalPreview = true;
+      const waiting = await machine("linux", {
+        wholeMachine: true,
+        schedule: { kind: "none", timeZone: "Europe/Berlin" },
+      });
+      const result = await answer(waiting);
+      expect(result).not.toHaveProperty("wholeMachine");
+      expect(result.paths).toEqual([]);
+    });
   });
 });

@@ -24,6 +24,7 @@ Commands:
   update       Install a newer release the Restow instance offers, now (not while a backup runs)
   service      Control the system service: install | start | stop | restart | status
   hooks        Show or set whether hooks from the Restow server run here: status | off | scripts | any
+  baremetal    Capture the disk layout of this machine (Linux, preview): baremetal capture [--raw-dir DIR] [--out FILE]
   uninstall    Remove the agent, its service and its local secrets from this machine
   version      Print the version
 
@@ -67,6 +68,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return cmdService(rest, stdout, stderr)
 	case "hooks":
 		return cmdHooks(rest, stdout, stderr)
+	case "baremetal":
+		return cmdBaremetal(rest, stdout, stderr)
+	case "snapshot-exec":
+		// Hidden: the snapshot helper the agent itself starts.
+		return cmdSnapshotExec(rest, stdout, stderr)
 	case "uninstall":
 		return cmdUninstall(rest, stdout, stderr)
 	case "version", "--version", "-v":

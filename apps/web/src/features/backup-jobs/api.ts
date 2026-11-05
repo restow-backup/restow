@@ -90,6 +90,11 @@ export interface JobEndpointSettings {
    * installation. Machine jobs only, not per member.
    */
   policy?: Partial<Pick<AgentPolicyValues, JobPolicyKey>>;
+  /**
+   * Back up every local file system of a Linux machine with its disk layout (preview,
+   * docs/BAREMETAL.md 5.1). Machine jobs only, not per member; the folders stay for older agents.
+   */
+  wholeMachine?: boolean;
   // --- File share jobs (docs/FILESHARES.md 7.5) ---
   /** "Skip temporary and system files" (default on). */
   presets?: { systemFiles?: boolean };
@@ -298,7 +303,21 @@ export interface JobMember {
   } | null;
   restoreCheck: { state: MemberRestoreState; checkedAt: string | null };
   nextRunAt: string | null;
+  /**
+   * Machines of a whole machine job: why it backs up its folders instead, or what it should know;
+   * null when there is nothing to add. Absent for other members and from older servers.
+   */
+  wholeMachineNote?: WholeMachineNote | null;
 }
+
+/** What a job page says next to a machine of a whole machine job. */
+export type WholeMachineNote =
+  | "container"
+  | "windows"
+  | "darwin_later"
+  | "agent_too_old"
+  | "arm64_restore_later"
+  | "bios_needs_csm";
 
 export interface JobMembers {
   mode: JobScopeMode;
@@ -380,6 +399,12 @@ export interface JobDefaults {
   retentionPolicies: RetentionPolicyChoice[];
   /** Machine jobs: what a machine keeps its repository with unless the job says otherwise. */
   endpointRetention: JobRetention;
+  /**
+   * Machine jobs: whether "Whole machine" is offered (the installation's preview switch), the
+   * exclusions it starts from and the optional ones for container images. Absent for other kinds
+   * and from older servers.
+   */
+  wholeMachine?: { available: boolean; excludes: string[]; containerImageExcludes: string[] };
 }
 
 export interface JobRun {

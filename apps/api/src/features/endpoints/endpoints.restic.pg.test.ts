@@ -45,12 +45,13 @@ import {
   acquireEndpointRepositoryLock,
   auditLog,
   endpointDownloads,
+  endpointLayouts,
   endpointReports,
   endpointRepositoryLocks,
   endpointRuns,
   endpoints,
 } from "@restow/db";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { readZip } from "../../../../../packages/core/src/restore/testing/zip-reader.js";
@@ -119,9 +120,11 @@ describe.skipIf(!canRun)("endpoint backup with the real restic binary", () => {
     args: string[],
     who: Agent = agent,
     env: Record<string, string> = {},
+    cwd?: string,
   ): Promise<{ code: number | null; out: string }> {
     return new Promise((resolve, reject) => {
       const child = spawn(resticBinary(), args, {
+        cwd,
         env: {
           PATH: process.env.PATH ?? "",
           HOME: work,
@@ -967,6 +970,234 @@ describe.skipIf(!canRun)("endpoint backup with the real restic binary", () => {
       const snapshots = await service.listSnapshots(shared.db, fixture.tenantId, agent.endpointId);
       expect(snapshots.items.every((snapshot) => snapshot.flags.length === 0)).toBe(true);
     }, 120_000);
+  });
+
+  describe("the agent's state file and LUKS key files in a snapshot (docs/BAREMETAL.md 5.4)", () => {
+    let machine: Agent;
+    let snapshotId = "";
+    const restorer = () => ({ ...actor(), role: "restore" as const });
+    const admin = (confirm: () => void = () => undefined) => ({
+      ...actor(),
+      role: "admin" as const,
+      confirmRecentSignIn: confirm,
+    });
+    const refused = (status: number, reason: string) => ({
+      status,
+      type: "urn:restow:problem:endpoint-restore-path-locked",
+      extensions: expect.objectContaining({ reason }),
+    });
+
+    async function readAll(stream: Readable): Promise<Buffer> {
+      const chunks: Buffer[] = [];
+      for await (const chunk of Readable.from(stream)) chunks.push(chunk as Buffer);
+      return Buffer.concat(chunks);
+    }
+
+    beforeAll(async () => {
+      const created = await service.createEnrollmentToken(
+        shared.db,
+        fixture.tenantId,
+        { profile: "server", os: "linux" },
+        actor(),
+        { url: "https://restow.test.example", configured: true },
+      );
+      const response = await fetch(`http://127.0.0.1:${port}/agent/v1/enroll`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          token: created.token,
+          hostname: "db-01",
+          os: "linux",
+          arch: "amd64",
+          agentVersion: "0.4.12",
+          osVersion: "test",
+        }),
+      });
+      expect(response.status).toBe(201);
+      const body = (await response.json()) as {
+        endpointId: string;
+        agentSecret: string;
+        repository: { password: string };
+      };
+      machine = {
+        endpointId: body.endpointId,
+        agentSecret: body.agentSecret,
+        repositoryPassword: body.repository.password,
+      };
+      // A snapshot as an agent before 0.5.0 made it: with its state file, and a key file that
+      // crypttab names. Relative paths from a root folder put them at /etc in the snapshot.
+      const root = join(work, "machine-root");
+      await mkdir(join(root, "etc", "restow-agent"), { recursive: true });
+      await mkdir(join(root, "etc", "luks-keys"), { recursive: true });
+      await writeFile(join(root, "etc", "hosts"), "127.0.0.1 localhost\n");
+      await writeFile(join(root, "etc", "restow-agent", "state.json"), '{"agentSecret":"x"}');
+      await writeFile(join(root, "etc", "restow-agent", ".state-123.tmp"), "{}");
+      await writeFile(join(root, "etc", "luks-keys", "root.key"), "key material");
+      const backed = await restic(["backup", "etc"], machine, {}, root);
+      expect(backed.code, backed.out).toBe(0);
+      const listed = await restic(["snapshots", "--json"], machine);
+      snapshotId = (JSON.parse(listed.out.split("\n")[0] ?? "[]") as { id: string }[])[0]?.id ?? "";
+      expect(snapshotId).toMatch(/^[0-9a-f]{64}$/);
+      // The layout of that backup names the key file.
+      const layout = JSON.parse(
+        await readFile(
+          new URL(
+            "../../../../../agent/internal/baremetal/testdata/manifests/example-debian12-uefi-luks-lvm.json",
+            import.meta.url,
+          ),
+          "utf8",
+        ),
+      ) as { luks: { keyFile: string | null }[] };
+      const volume = layout.luks[0];
+      if (volume) volume.keyFile = "/etc/luks-keys/root.key";
+      const [stored] = await fixture.db
+        .insert(endpointLayouts)
+        .values({
+          tenantId: fixture.tenantId,
+          endpointId: machine.endpointId,
+          sha256: "c".repeat(64),
+          format: "restow-layout-v1",
+          schemaVersion: 1,
+          platform: "linux",
+          manifest: layout as unknown as Record<string, unknown>,
+          summary: {},
+          verdict: "supported",
+          layoutFingerprint: "f",
+        })
+        .returning();
+      await fixture.db.insert(endpointRuns).values({
+        tenantId: fixture.tenantId,
+        endpointId: machine.endpointId,
+        kind: "backup",
+        status: "succeeded",
+        startedAt: new Date(),
+        finishedAt: new Date(),
+        snapshotId,
+        layoutId: stored?.id ?? null,
+      });
+    }, 120_000);
+
+    const browse = (path: string, reader: Parameters<Service["browseSnapshot"]>[4]) =>
+      service
+        .browseSnapshot(
+          shared.db,
+          fixture.tenantId,
+          machine.endpointId,
+          { snapshotId, path, limit: 100 },
+          reader,
+        )
+        .then((listing) => listing.entries.map((entry) => entry.name));
+
+    it("hides the state file from everybody and key files from the restore role", async () => {
+      expect(await browse("/etc/restow-agent", restorer())).toEqual([]);
+      expect(await browse("/etc/restow-agent", admin())).toEqual([]);
+      expect(await browse("/etc/luks-keys", restorer())).toEqual([]);
+      expect(await browse("/etc/luks-keys", admin())).toEqual(["root.key"]);
+      expect(await browse("/etc", restorer())).toEqual(["luks-keys", "restow-agent", "hosts"]);
+    }, 60_000);
+
+    it("refuses the state file and, to the restore role, a key file as a selection", async () => {
+      const prepare = (paths: string[], reader: Parameters<Service["prepareDownload"]>[4]) =>
+        service.prepareDownload(
+          shared.db,
+          fixture.tenantId,
+          machine.endpointId,
+          { snapshotId, paths },
+          reader,
+        );
+      for (const reader of [restorer(), admin()]) {
+        await expect(prepare(["/etc/restow-agent/state.json"], reader)).rejects.toMatchObject(
+          refused(422, "agent_state"),
+        );
+        await expect(prepare(["/etc/restow-agent/.state-123.tmp"], reader)).rejects.toMatchObject(
+          refused(422, "agent_state"),
+        );
+      }
+      await expect(prepare(["/etc/luks-keys/root.key"], restorer())).rejects.toMatchObject(
+        refused(403, "key_file"),
+      );
+      // An admin needs a recent sign-in for a selection that is or holds a key file.
+      const stale = () => {
+        throw Object.assign(new Error("sign in again"), { status: 403 });
+      };
+      await expect(prepare(["/etc/luks-keys/root.key"], admin(stale))).rejects.toThrow(
+        /sign in again/,
+      );
+      await expect(prepare(["/etc"], admin(stale))).rejects.toThrow(/sign in again/);
+      await expect(prepare(["/etc/hosts"], admin(stale))).resolves.toMatchObject({ items: 1 });
+    }, 60_000);
+
+    it("packs a folder without the state file, and without key files for the restore role", async () => {
+      const zipOf = async (reader: Parameters<Service["prepareDownload"]>[4]) => {
+        const prepared = await service.prepareDownload(
+          shared.db,
+          fixture.tenantId,
+          machine.endpointId,
+          { snapshotId, paths: ["/etc"] },
+          reader,
+        );
+        const download = await service.openDownload(
+          shared.db,
+          fixture.tenantId,
+          machine.endpointId,
+          prepared.id,
+          reader,
+        );
+        return readZip(await readAll(download.stream))
+          .filter((entry) => !entry.isDirectory)
+          .map((entry) => entry.name)
+          .sort();
+      };
+      expect(await zipOf(restorer())).toEqual(["etc/hosts"]);
+      const revealedBefore = await fixture.db
+        .select()
+        .from(auditLog)
+        .where(eq(auditLog.action, "endpoint.repository.secret_file_revealed"));
+      expect(await zipOf(admin())).toEqual(["etc/hosts", "etc/luks-keys/root.key"]);
+      const revealed = await fixture.db
+        .select()
+        .from(auditLog)
+        .where(eq(auditLog.action, "endpoint.repository.secret_file_revealed"));
+      expect(revealed).toHaveLength(revealedBefore.length + 1);
+      expect(revealed.at(-1)?.details).toMatchObject({
+        via: "download",
+        keyFiles: ["/etc/luks-keys/root.key"],
+      });
+    }, 120_000);
+
+    it("restores a folder onto the machine, but no state file and no key file for the restore role", async () => {
+      const restore = (paths: string[], reader: Parameters<Service["createTask"]>[4]) =>
+        service.createTask(
+          shared.db,
+          fixture.tenantId,
+          machine.endpointId,
+          { kind: "restore", snapshotId, paths },
+          reader,
+        );
+      await expect(restore(["/etc/restow-agent/state.json"], admin())).rejects.toMatchObject(
+        refused(422, "agent_state"),
+      );
+      await expect(restore(["/etc/luks-keys/root.key"], restorer())).rejects.toMatchObject(
+        refused(403, "key_file"),
+      );
+      await expect(restore(["/etc"], restorer())).resolves.toMatchObject({ alreadyQueued: false });
+      await restore(["/etc/luks-keys/root.key"], admin());
+      const [revealed] = await fixture.db
+        .select()
+        .from(auditLog)
+        .where(
+          and(
+            eq(auditLog.action, "endpoint.repository.secret_file_revealed"),
+            eq(auditLog.target, machine.endpointId),
+          ),
+        )
+        .orderBy(desc(auditLog.createdAt))
+        .limit(1);
+      expect(revealed?.details).toMatchObject({
+        via: "restore",
+        paths: ["/etc/luks-keys/root.key"],
+      });
+    }, 60_000);
   });
 
   async function resticSnapshotIds(): Promise<string[]> {

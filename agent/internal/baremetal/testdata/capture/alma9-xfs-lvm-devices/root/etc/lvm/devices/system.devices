@@ -1,0 +1,3 @@
+# LVM uses devices listed in this file.
+VERSION=1.1.3
+IDTYPE=sys_wwid IDNAME=t10.ATA_____WDC_WD2500 DEVNAME=/dev/sda3 PVID=pvalma0000 PART=3

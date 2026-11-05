@@ -37,7 +37,8 @@
     "imapflow": "^1.0.171",
     "mailparser": "^3.12.4",
     "nodemailer": "^10.2.1",
-    "yauzl": "^3.4.0"
+    "yauzl": "^3.4.0",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@microsoft/microsoft-graph-types": "^2.40.0",

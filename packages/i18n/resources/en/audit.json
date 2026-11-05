@@ -576,7 +576,8 @@
         "denied": "Machine tried to change its backups",
         "password": {
           "revealed": "Repository password shown"
-        }
+        },
+        "secret_file_revealed": "Key file of an encrypted volume handed out"
       },
       "update_requested": "Agent update requested"
     },

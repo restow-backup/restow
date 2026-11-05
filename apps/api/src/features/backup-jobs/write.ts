@@ -39,6 +39,7 @@ import {
   withPendingMarkers,
 } from "@restow/db";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { config } from "../../config.js";
 import { audit } from "../../lib/audit.js";
 import {
   type DbExecutor,
@@ -51,6 +52,7 @@ import { assertNotLocked, readGlobalAgentPolicy } from "../endpoints/agent-polic
 import { auditEndpoint, ENDPOINT_AUDIT_ACTIONS } from "../endpoints/audit.js";
 import { type BandwidthWindowsProblem, checkedBandwidthWindows } from "../endpoints/bandwidth.js";
 import { hookFingerprint } from "../endpoints/dto.js";
+import { ENDPOINT_PROBLEMS } from "../endpoints/problems.js";
 import { AGENT_TASK_TTL_MS } from "../endpoints/service.js";
 import { auditShare, FILE_SHARE_TENANT_AUDIT_ACTIONS } from "../file-shares/audit.js";
 import { FILE_SHARE_PROBLEMS } from "../file-shares/constants.js";
@@ -310,6 +312,7 @@ const ENDPOINT_SETTING_KEYS = [
   "bandwidthWindows",
   "retention",
   "policy",
+  "wholeMachine",
 ];
 
 /** Settings checked for the job: a machine job needs folders, a mail job takes none. */
@@ -415,7 +418,30 @@ function checkedSettings(
       delete clean.policy;
     }
   }
+  // Stored only when on: a job without the switch stays as it was.
+  if (clean.wholeMachine !== true) {
+    delete clean.wholeMachine;
+  }
   return clean;
+}
+
+/**
+ * Whole machine backups are a preview (RESTOW_BAREMETAL_PREVIEW, docs/BAREMETAL.md 22): switching
+ * them on is refused while it is off (409). A job that has them keeps them; `GET /agent/v1/config`
+ * sends nothing of it while the preview is off.
+ */
+function assertWholeMachineAllowed(
+  next: BackupJobSettings,
+  before: BackupJobSettings | null,
+): void {
+  if (next.wholeMachine === true && before?.wholeMachine !== true && !config.baremetalPreview) {
+    throw new ProblemError(409, "Whole machine backups are not switched on", {
+      type: ENDPOINT_PROBLEMS.baremetalPreviewOff,
+      detail:
+        "Whole machine backups are a preview this installation has not switched on (RESTOW_BAREMETAL_PREVIEW).",
+      extensions: { errors: [{ path: "settings.wholeMachine", code: "preview_off" }] },
+    });
+  }
 }
 
 /**
@@ -1050,6 +1076,7 @@ export async function createBackupJob(
   const { schedule, verifySchedule } = checkedBase(kind, input, now);
   let settings = checkedSettings(kind, input.settings, { requirePaths: true });
   await assertJobPolicyAllowed(settings, null);
+  assertWholeMachineAllowed(settings, null);
   if (kind !== "copy" && (input.sourceFileShareId || input.targetFileShareId)) {
     throw jobProblem(
       [input.sourceFileShareId ? "sourceFileShareId" : "targetFileShareId"],
@@ -1412,6 +1439,7 @@ export async function updateBackupJob(
         ? checkedSettings(kind, patch.settings, { requirePaths: true })
         : (before.settings ?? {});
     await assertJobPolicyAllowed(settings, before.settings ?? null);
+    assertWholeMachineAllowed(settings, before.settings ?? null);
     let sourceFileShareId = before.sourceFileShareId;
     let targetFileShareId = before.targetFileShareId;
     if (kind !== "copy" && (patch.sourceFileShareId || patch.targetFileShareId)) {

@@ -1,0 +1,3 @@
+UUID=b1000000-0000-4000-8000-000000000001 / btrfs defaults,subvol=@ 0 1
+UUID=b1000000-0000-4000-8000-000000000001 /home btrfs defaults,subvol=@home 0 2
+UUID=7F80-91A2 /boot/efi vfat umask=0077 0 1

@@ -163,6 +163,8 @@ restow-agent backup-now    Run one backup in the foreground (exit 0 ok, 3 partia
 restow-agent update        Install the release the server offers now, then restart the service
 restow-agent service ...   install | start | stop | restart | status
 restow-agent hooks ...     status | off | scripts | any: whether hooks from the server run here
+restow-agent baremetal capture [--raw-dir DIR] [--out FILE]
+                           Capture the disk layout of this machine (Linux, preview; prints the manifest, sends nothing)
 restow-agent uninstall     Remove the agent (--yes, --keep-logs, --keep-binaries)
 restow-agent version       Version, commit, build date (--short for the number only)
 ```
@@ -207,7 +209,8 @@ failure.
 Configured paths that do not exist are skipped and logged; if none exists the run fails
 with an explanation. A path that is a symbolic link is backed up through its target
 (restic would otherwise store the link itself; on macOS `/etc` and `/var` are links). The
-agent always excludes its own cache and temporary folders and every folder named
+agent always excludes its own cache and temporary folders, its state file with the agent
+secret (see [Secrets are not backed up](#secrets-are-not-backed-up)) and every folder named
 `Restow-Restore-*`, so earlier restores are not backed up again. Snapshots carry the
 host name recorded at enrollment and the tag `restow-agent`.
 
@@ -254,6 +257,68 @@ host name recorded at enrollment and the tag `restow-agent`.
   Paths of the other system in a mixed job (`/etc` on Windows, `C:\Users` on Linux) are
   skipped with one log line.
 - A backup is limited to 72 hours; a wedged restic is then stopped and the run fails.
+
+### Whole machine (preview)
+
+With `RESTOW_BAREMETAL_PREVIEW` on the instance, a backup job can back up the **whole
+machine** (`wholeMachine` in the configuration, server and agent 0.5.0; Linux machines
+that are not containers). The job's folders stay in the job (older agents back them up);
+an agent 0.5.0 instead backs up every local file system:
+
+- Before restic it triggers automount points (10 s each) and captures the **disk layout**
+  (2 minutes at most): disks and partition tables, md arrays, LUKS and plain dm-crypt
+  (header metadata only, never keys, salts, digests or tokens), LVM, file systems with
+  their creation parameters, btrfs subvolumes, mounts, `fstab`, swap, firmware boot
+  entries and Secure Boot state, boot loader, initramfs and keymap, kernels, network
+  interfaces. `lsblk`, `blkid` and `sfdisk` are required; every other tool is optional
+  (a missing part is a warning in the manifest). The result is the canonical JSON
+  manifest `restow-layout-v1` with a verdict (`supported`, `supported_with_warnings`,
+  `unsupported`) and the reasons.
+- The sources are every mounted file system of a supported type on a local device (each
+  mount point once), the local `fstab` entries including `noauto` and automount ones, and
+  every btrfs subvolume below a mounted path except snapper, timeshift and the agent's own
+  snapshots. restic runs with `--one-file-system`, `--group-by host` and the additional
+  tag `restow-baremetal`. Swap files and snapper/timeshift folders are excluded.
+- The manifest is written to `/var/lib/restow-agent/baremetal/layout.json` (folder 0700,
+  sanitized tool outputs below `raw/`) **before** the snapshots are taken, so it is part
+  of the snapshot it describes, and the same bytes go to the instance with the run report
+  (`layout`, at most 512 KiB; a larger one stays in the snapshot only, `layout_too_large`).
+  A failed capture still backs up the mounted file systems (`layout_capture_failed`, run
+  `partial`).
+- `restow-agent baremetal capture` shows what a whole-machine backup would record.
+
+macOS and Windows machines ignore `wholeMachine` and back up their folders (one log line).
+Restoring a whole machine onto new hardware is not part of this release.
+
+### File system snapshots on Linux (LVM, btrfs)
+
+`fsSnapshot` (per machine in the Restow UI, `auto` or `off`; default `auto` for whole-machine
+backups, `off` otherwise) lets the agent back up from snapshots instead of the live file
+systems:
+
+- **LVM:** a thick snapshot `<lv>_restowsnap` with the tag `restow-agent-snapshot` and a
+  copy-on-write area of 10 percent of the LV (at least 1 GiB, at most 32 GiB), all
+  snapshots of a volume group together at most 90 percent of its free space; with less
+  than 1 GiB free the LV is read live and the machine's page says how much space to
+  leave. Thin LVs get a thin snapshot while the pool's data and metadata are below 80
+  percent. While restic runs the agent checks every 30 seconds and stops reading from the
+  snapshots when a thin pool passes 90 percent or a snapshot 95 percent (under the policy
+  `continue` it backs up again from the live file systems).
+- **btrfs:** one read-only snapshot per subvolume below `.restow-snapshots/<run>/` of the
+  file system's top level, when at least 5 percent and 2 GiB are free.
+- Partitions, md arrays, FAT, LUKS on an LV and other file systems have no snapshot method
+  and are read live; that is not an error.
+- restic reads the snapshots under the **real paths**: the hidden helper
+  `restow-agent snapshot-exec` builds the snapshot tree in a private mount namespace
+  (read-only mounts, `noauto` entries mounted read-only only there) and starts restic in it
+  with `chroot`. Nothing is mounted on the host; the helper dies with the agent. The sample
+  hashes and the ransomware entropy are measured in the same tree.
+- Snapshots are removed after the backup; leftovers of a crash are removed when the agent
+  starts and before every backup (only LVs with both the tag and the suffix, only
+  subvolumes below `.restow-snapshots/`).
+- `snapshotOnFailure` applies as for VSS: a snapshot that failed is `snapshot_failed`, no
+  snapshot possible at all (tools missing, no rights) is `snapshot_unavailable`. The report's
+  `consistency.method` is `lvm`, `btrfs` or `mixed`.
 
 **Restore task.** Restores into `targetDir`, or by default into
 `<first backed-up folder>/Restow-Restore-<yyyyMMdd-HHmmss>` (the first backed-up folder
@@ -377,6 +442,13 @@ are passed on when they are set in the service environment, for example with
   root) holds the agent secret and the repository password in plain text; the agent
   corrects looser permissions and refuses a file owned by someone else. Nothing else
   secret is stored. `status.json` is world-readable and contains no secrets.
+- <a id="secrets-are-not-backed-up"></a>**Secrets are not backed up.** Every backup, on every
+  system and with or without whole machine, excludes the agent's state file and its
+  temporary copies (`/etc/restow-agent/state.json` and `.state-*.tmp`; macOS also in the
+  `/private/etc` and `/System/Volumes/Data` spellings; Windows
+  `C:\ProgramData\Restow\state\state.json`), and on Linux the state of restow-pve
+  (`/etc/restow-pve/state.json`, `.state.json.*`). Older snapshots may still contain it;
+  the restore dialog of the instance hides it.
 - **Secrets in use.** The enrollment token is read from the environment, never from a
   flag or URL, and removed from the environment at once. restic receives the repository
   password and the REST credentials only through environment variables, never on a
@@ -416,7 +488,7 @@ are passed on when they are set in the service environment, for example with
   what that still allows: `NoNewPrivileges`, `ProtectKernelTunables`,
   `ProtectKernelLogs`, `ProtectControlGroups`, `ProtectHostname`, no kernel module loading
   (`CapabilityBoundingSet=~CAP_SYS_MODULE`, `SystemCallFilter=~@module`),
-  `RestrictNamespaces`, `RestrictRealtime`, `LockPersonality`,
+  `RestrictNamespaces=mnt` (only the snapshot helper's mount namespace), `RestrictRealtime`, `LockPersonality`,
   `SystemCallArchitectures=native` and `UMask=0077` (launchd: `Umask` 077). Not used, on
   purpose: `ProtectSystem`, `ProtectHome`, `PrivateTmp` (backups of arbitrary paths and
   restores into them), `ProtectKernelModules` (hides `/usr/lib/modules` from a backup of
@@ -451,6 +523,7 @@ are passed on when they are set in the service environment, for example with
 | `/etc/restow-agent/state.json` | Enrollment: instance URL, endpoint id, agent secret, repository URL and password, hook policy (0600) |
 | `/var/lib/restow-agent/status.json` | Runtime status for `restow-agent status` (no secrets) |
 | `/var/lib/restow-agent/cache` | restic cache (metadata of the repository; can grow to a few GB for large repositories and can be deleted) |
+| `/var/lib/restow-agent/baremetal/` | Layout manifest `layout.json` and sanitized `raw/` tool outputs of the last whole-machine backup (0700; Linux, preview) |
 | `/var/lib/restow-agent/{tmp,restic-tmp,outbox}` | Temporary restore copies, restic option files, undelivered run reports |
 | `/var/log/restow-agent/agent.log` | Agent log, rotated at 5 MB, 3 files kept (Linux: also in the journal; macOS: `launchd.log` for crash traces) |
 | `/etc/systemd/system/restow-agent.service` | systemd unit (Linux) |
@@ -718,9 +791,10 @@ carries all of them.
 - **No mTLS yet.** v1 authenticates each agent with a per-agent secret over HTTPS. A
   stolen secret (root on the endpoint) allows writing new backups to that endpoint's
   repository and reading it; it does not allow deleting anything.
-- **No LVM, ZFS or btrfs snapshots for ordinary backups yet.** Consistency on Linux and
-  macOS comes from the optional pre/post hooks (database dumps, `fsfreeze`, and so on).
-  Files that change while they are read can end up inconsistent in the snapshot.
+- **No ZFS or APFS snapshots yet.** LVM and btrfs snapshots on Linux need `fsSnapshot: auto`;
+  file systems without a snapshot method (partitions, md, FAT, ZFS) and macOS are read live.
+  Consistency there comes from the optional pre/post hooks (database dumps, `fsfreeze`, and so
+  on). Files that change while they are read can end up inconsistent in the snapshot.
 - **Windows shadow copies are file consistent, not application consistent.** Open
   databases (SQL Server, Exchange) are crash consistent and their logs are not truncated;
   use a pre hook for an application-consistent dump. Files listed under

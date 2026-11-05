@@ -589,10 +589,11 @@
       "filesChanged": "Geänderte Dateien",
       "filesUnmodified": "Unveränderte Dateien",
       "dataAdded": "Neu gespeicherte Daten",
-      "consistency": "Konsistenz"
+      "consistency": "Konsistenz",
+      "layout": "Layout erfasst"
     },
     "consistency": {
-      "used": "{method, select, vss {Schattenkopie (dateikonsistent)} none {Dateisystem-Snapshot (dateikonsistent)} other {Dateisystem-Snapshot {method} (dateikonsistent)}}",
+      "used": "{method, select, vss {Schattenkopie (dateikonsistent)} lvm {LVM-Snapshot (dateikonsistent)} btrfs {btrfs-Snapshot (dateikonsistent)} mixed {LVM- und btrfs-Snapshots (dateikonsistent)} apfs {APFS-Snapshot (dateikonsistent)} other {Dateisystem-Snapshot (dateikonsistent)}}",
       "partial": "{method, select, vss {Teilweise ohne Schattenkopie} other {Teilweise ohne Dateisystem-Snapshot}}",
       "partialWith": "{method, select, vss {Teilweise ohne Schattenkopie: {live}} other {Teilweise ohne Dateisystem-Snapshot: {live}}}",
       "unavailable": "{method, select, vss {Ohne Schattenkopie (Schattenkopie nicht verfügbar)} other {Ohne Dateisystem-Snapshot (nicht verfügbar)}}",
@@ -624,7 +625,9 @@
     "interruptedNote": "Der Agent wurde während dieses Laufs neu gestartet und nimmt die Arbeit von selbst wieder auf. Das ist kein Fehler; Sie müssen nichts tun.",
     "incompleteNote": "Diese Restore-Prüfung konnte nicht abgeschlossen werden und sagt daher nichts über die Sicherung aus: Nichts wurde bewertet, kein Alarm ging hinaus, und die letzte Restore-Prüfung bleibt, wie sie war. Der Rechner bekommt die Prüfung nach einer Wartezeit erneut, solange diese Sicherung seine neueste ist; sonst bringt die nächste Sicherung eine neue Prüfung.",
     "incompleteNoteFinal": "Diese Restore-Prüfung konnte nicht abgeschlossen werden und sagt daher nichts über die Sicherung aus: Nichts wurde bewertet, und kein Alarm ging hinaus. Der Rechner ist gesperrt und bekommt keine weiteren Restore-Prüfungen.",
-    "errorCount": "{count, plural, one {# Fehler} other {# Fehler}}"
+    "errorCount": "{count, plural, one {# Fehler} other {# Fehler}}",
+    "layoutShow": "Auf der Rechnerseite anzeigen",
+    "layoutCaptured": "Ja"
   },
   "reports": {
     "title": "Berichte",
@@ -968,6 +971,17 @@
       "hintDefault": "Leer lassen für den Standard der Installation von {size}.",
       "hintUnlimited": "Leer lassen für unbegrenzt (die Installation legt keinen Standard fest).",
       "tenantNote": "Alle Server und Clients dieses Mandanten teilen sich ein Budget von {size}."
+    },
+    "fsSnapshot": {
+      "label": "Dateisystem-Snapshot (LVM, btrfs)",
+      "hint": "Sichert aus einem LVM- oder btrfs-Snapshot, damit alle Dateien vom selben Zeitpunkt stammen (dateikonsistent). Dateisysteme ohne Snapshot-Verfahren (eine Partition, eine volle Volume Group) werden direkt gelesen. Was geschieht, wenn ein Snapshot scheitert, legt die Richtlinie der Agenten fest.",
+      "default": "Vorgabe",
+      "auto": "An (wo möglich)",
+      "off": "Aus",
+      "defaultNote": {
+        "auto": "Vorgabe für diesen Rechner: an, weil sein Job ihn als Ganzes sichert.",
+        "off": "Vorgabe für diesen Rechner: aus. Sicherungen ganzer Rechner nutzen Snapshots standardmäßig."
+      }
     }
   },
   "repositoryKey": {
@@ -1092,7 +1106,8 @@
     "confirmHostname": "Der Hostname stimmt nicht. Geben Sie ihn genau wie angezeigt ein.",
     "removalLegalHold": "Eine Legal Hold umfasst jede Sicherung dieses Mandanten, daher lassen sie sich jetzt nicht löschen. Behalten Sie sie stattdessen bis zum Ablauf, oder heben Sie die Hold zuerst auf.",
     "removalSuspicionHold": "Ein verdächtiger Sicherungsstand dieses Rechners ist nicht geklärt und hält seine Sicherungen. Klären Sie ihn zuerst, oder behalten Sie die Sicherungen bis zum Ablauf.",
-    "removalNeverExpires": "Die Aufbewahrung dieses Rechners behält jede Sicherung, sie würden also nie ablaufen. Löschen Sie sie stattdessen."
+    "removalNeverExpires": "Die Aufbewahrung dieses Rechners behält jede Sicherung, sie würden also nie ablaufen. Löschen Sie sie stattdessen.",
+    "restorePathLocked": "Diese Datei wird nicht herausgegeben: Die Zustandsdatei des Agenten wird nie wiederhergestellt (der Agent erhält bei einer neuen Anmeldung eine neue Identität), Schlüsseldateien verschlüsselter Volumes nur an Administratoren."
   },
   "readinessSection": {
     "overdue": "Überfällig",
@@ -1128,10 +1143,13 @@
     "unknown": "Fehlercode {code}",
     "detail": "Technische Meldung des Agents",
     "agent_stopped": "Der Agent hat sich während des Laufs nicht mehr gemeldet",
-    "snapshot_failed": "Die Schattenkopie eines Laufwerks ist fehlgeschlagen",
-    "snapshot_unavailable": "Ohne Schattenkopie: Dateisystem-Snapshots sind auf dem Rechner nicht nutzbar",
-    "snapshot_cleanup_failed": "Eine Schattenkopie blieb nach der Sicherung liegen",
-    "cancelled": "In der Oberfläche abgebrochen"
+    "snapshot_failed": "Der Dateisystem-Snapshot (etwa eine Schattenkopie oder ein LVM- oder btrfs-Snapshot) eines Laufwerks oder Dateisystems ist fehlgeschlagen",
+    "snapshot_unavailable": "Ohne Dateisystem-Snapshot: Snapshots sind auf dem Rechner nicht nutzbar",
+    "snapshot_cleanup_failed": "Ein Dateisystem-Snapshot blieb nach der Sicherung liegen",
+    "cancelled": "In der Oberfläche abgebrochen",
+    "layout_capture_failed": "Das Plattenlayout ließ sich nicht erfassen; die eingehängten Dateisysteme wurden trotzdem gesichert",
+    "layout_too_large": "Das Plattenlayout ist für den Server zu groß; es liegt im Wiederherstellungspunkt, wird hier aber nicht gezeigt",
+    "layout_rejected": "Der Server hat das vom Agenten gesendete Plattenlayout nicht übernommen"
   },
   "agentUpdates": {
     "title": "Automatische Agent-Updates",
@@ -1421,5 +1439,109 @@
     "openPage": "Seite des Rechners öffnen",
     "progressOf": "Fortschritt der Sicherung von {name}",
     "adminOnly": "Sichern und Stoppen ist Sache der Administratoren von Backup-Jobs."
+  },
+  "baremetal": {
+    "title": "Bare-Metal-Wiederherstellung (Vorschau)",
+    "states": {
+      "not_enabled": "Nicht als Ganzes gesichert",
+      "not_possible": "Nicht möglich",
+      "no_layout": "Noch kein Layout erfasst",
+      "unverified": "Layout erfasst; die Restore-Prüfung folgt in einer späteren Version"
+    },
+    "notPossible": {
+      "container": "Ein Container wird mit seinem Host wiederhergestellt.",
+      "windows": "Windows-Rechner werden noch nicht als Ganzes wiederhergestellt.",
+      "darwin_later": "macOS folgt in einer späteren Version.",
+      "agent_too_old": "Der Agent ist zu alt für die Sicherung des ganzen Rechners (ab 0.5.0)."
+    },
+    "unverifiedHint": "Die neueste Sicherung des ganzen Rechners hat das Layout unten erfasst. Ob es sich wiederherstellen lässt, wird ab einer späteren Version geprüft; bis dahin ist nichts hier ein Beweis.",
+    "snapshotHint": "{vg} hat keinen freien Platz für Snapshots. Lassen Sie {size} frei (10 Prozent der Volume Group), dann sichert {appName} {mounts} konsistent.",
+    "capturedAt": "Erfasst",
+    "snapshot": "Wiederherstellungspunkt",
+    "verdictLabel": "Bewertung",
+    "verdict": {
+      "supported": "Unterstützt",
+      "supported_with_warnings": "Unterstützt, mit Hinweisen",
+      "unsupported": "Nicht unterstützt"
+    },
+    "codes": {
+      "fs_type_unsupported": "Ein Dateisystem eines Systempfads hat einen Typ, den die Wiederherstellung nicht anlegen kann (etwa ZFS, bcachefs, F2FS oder NTFS)",
+      "lvm_type_unsupported": "Ein logisches Volume nutzt Cache, Writecache oder VDO, das die Wiederherstellung nicht anlegen kann",
+      "md_container_unsupported": "Ein RAID-Verbund liegt in einem Firmware-RAID-Container",
+      "md_journal_unsupported": "Ein RAID-Verbund nutzt ein Journal oder ein Partial Parity Log",
+      "md_reshape_in_progress": "Ein RAID-Verbund wurde während der Sicherung umgebaut",
+      "multipath_unsupported": "Eine Platte ist über Multipath angebunden",
+      "integrity_unsupported": "Ein Volume nutzt dm-integrity",
+      "luks_detached_header": "Ein verschlüsseltes Volume hält seinen Header getrennt von den Daten",
+      "network_root_unsupported": "Das Wurzel-Dateisystem kommt über das Netz (iSCSI, NFS)",
+      "xfs_external_log": "Ein XFS-Dateisystem hat ein externes Log oder ein Realtime-Gerät",
+      "bootloader_unsupported": "Der Bootloader ist keiner, den die Wiederherstellung einrichten kann",
+      "initramfs_unsupported": "Der initramfs-Erzeuger ist keiner, den die Wiederherstellung ausführen kann",
+      "uki_without_generator": "Ein Unified Kernel Image wird genutzt, aber kein Erzeuger dafür ist installiert",
+      "unknown_device_in_boot_path": "Ein unbekanntes Gerät liegt im Weg zu /, /boot oder der EFI-Systempartition",
+      "container": "Der Rechner ist ein Container: Er wird mit seinem Host wiederhergestellt",
+      "fstab_unresolvable": "Ein fstab-Eintrag eines Systempfads lässt sich keinem Gerät zuordnen",
+      "luks_token": "Ein verschlüsseltes Volume öffnet sich mit einem TPM2-, FIDO2- oder netzgebundenen Schlüssel: Richten Sie ihn nach einer Wiederherstellung neu ein",
+      "snapshot_subvolumes": "Subvolumes automatischer Systemsnapshots werden bei der Wiederherstellung leer angelegt, nicht gesichert",
+      "lvm_snapshot_lvs": "LVM-Snapshots auf dem Rechner werden nicht gesichert",
+      "raw_lvs": "Logische Volumes ohne Dateisystem (raw) werden nicht gesichert",
+      "pve_guest_volumes": "Volumes virtueller Maschinen und Container (Proxmox VE) werden hier nicht gesichert; das übernimmt die Proxmox-VE-Integration",
+      "docker_btrfs_many": "Mehr als 200 btrfs-Subvolumes von Container-Images: Erwägen Sie, sie nach einer Wiederherstellung neu zu laden statt sie zu sichern",
+      "data_fs_unsupported": "Ein Datendateisystem eines nicht unterstützten Typs wird gesichert, bei der Wiederherstellung aber nicht neu angelegt",
+      "untested_distribution": "Die Distribution ist für Wiederherstellungen nicht geprüft",
+      "non_systemd_init": "Der Rechner startet nicht mit systemd",
+      "secure_boot_own_keys": "Secure Boot ist an, mit einem Bootloader oder Kernel, den eigene Schlüssel signiert haben",
+      "dkms_mok": "Auf dem Rechner gebaute Kernelmodule sind mit einem Machine Owner Key signiert",
+      "bios_needs_csm": "Der Rechner startet im BIOS-Modus: Ersatzhardware braucht CSM bzw. Legacy-Start, den viele aktuelle Modelle nicht mehr haben",
+      "dual_boot_windows": "Auf den Platten liegt ein zweites System (Windows); wiederhergestellt wird nur Linux",
+      "lvm_device_ids": "LVM nennt seine Geräte in einer Gerätedatei oder einem Filter; die Wiederherstellung passt das an",
+      "device_name_refs": "Konfigurationsdateien nennen Geräte mit Kernelnamen (etwa /dev/sda), die sich auf neuer Hardware ändern können",
+      "md_degraded": "Ein RAID-Verbund war während der Sicherung degradiert",
+      "capture_failed": "Ein Teil des Layouts ließ sich nicht erfassen"
+    },
+    "content": {
+      "esp": "EFI-Systempartition",
+      "bios_boot": "BIOS-Boot-Partition",
+      "filesystem": "Dateisystem",
+      "luks": "Verschlüsselt (LUKS)",
+      "md": "RAID-Mitglied",
+      "pv": "LVM Physical Volume",
+      "swap": "Swap",
+      "plain": "Verschlüsselt (plain)",
+      "empty": "Leer",
+      "other": "Sonstiges"
+    },
+    "stack": {
+      "disk": "Platte",
+      "partition": "Partition",
+      "md": "RAID",
+      "luks": "LUKS",
+      "plain": "dm-crypt",
+      "vg": "Volume Group",
+      "lv": "Logisches Volume",
+      "fs": "Dateisystem",
+      "subvolume": "Subvolume",
+      "swap": "Swap"
+    },
+    "summary": {
+      "diskBar": "{disk} mit {count, plural, one {# Partition} other {# Partitionen}}",
+      "system": "System",
+      "firmware": "Firmware",
+      "firmwareMode": {
+        "uefi": "UEFI",
+        "bios": "BIOS (Legacy)"
+      },
+      "secureBoot": "Secure Boot",
+      "on": "An",
+      "off": "Aus",
+      "unknown": "Unbekannt",
+      "bootloader": "Bootloader",
+      "initramfs": "initramfs und Tastaturbelegung",
+      "encryption": "Verschlüsselung",
+      "noEncryption": "Keine",
+      "encryptionCount": "{luks, plural, one {# LUKS-Volume} other {# LUKS-Volumes}}, {plain, plural, one {# plain dm-crypt} other {# plain dm-crypt}}",
+      "disks": "Platten",
+      "stack": "Speicherstapel"
+    }
   }
 }

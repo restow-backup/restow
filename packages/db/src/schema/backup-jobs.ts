@@ -95,6 +95,12 @@ export type BackupJobEndpointSettings = {
    * the installation. Not overridable per member.
    */
   policy?: BackupJobAgentPolicy;
+  /**
+   * Back up every local file system of a Linux machine with its disk layout (preview,
+   * docs/BAREMETAL.md 5.1); absent or false: the job's folders. Not overridable per member: a job
+   * is whole or it is not. The folders stay for agents older than 0.5.0.
+   */
+  wholeMachine?: boolean;
 };
 
 /** A weekly range in which agents may start backups (days start it, 1 = Monday ... 7 = Sunday). */

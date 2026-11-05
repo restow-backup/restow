@@ -31,10 +31,10 @@ import {
   tenants,
   user,
 } from "@restow/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { Hono, type MiddlewareHandler } from "hono";
 import PgBoss from "pg-boss";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { SessionUser } from "../../auth.js";
 import { type Role, roleSatisfies, type TenantRole } from "../../middleware/rbac.js";
 import type { TenantEnv } from "../../middleware/session.js";
@@ -2005,6 +2005,146 @@ describe.skipIf(!testDatabaseAdminUrl)("backup jobs against Postgres", () => {
         intervalMinutes: 60,
         timeZone: ZONE,
       });
+    });
+  });
+
+  describe("whole machine jobs (preview, docs/BAREMETAL.md 5.1)", () => {
+    let appConfig: typeof import("../../config.js")["config"];
+    const made: string[] = [];
+
+    const make = async (
+      hostname: string,
+      values: { os?: "linux" | "windows"; agentVersion?: string; container?: boolean } = {},
+    ) => {
+      const os = values.os ?? "linux";
+      const [row] = await owner
+        .insert(endpoints)
+        .values({
+          tenantId: contoso,
+          hostname,
+          os,
+          arch: "amd64",
+          profile: "server",
+          secretHash: randomUUID(),
+          agentVersion: values.agentVersion ?? "0.5.0",
+          config: enrolledEndpointConfig(os, "server", { timeZone: ZONE }),
+          settings: {
+            agent: {
+              hooks: "off",
+              ...(values.container
+                ? { machine: { virtualization: "container", technology: "lxc", desktop: false } }
+                : {}),
+            },
+          },
+        })
+        .returning();
+      made.push(row?.id ?? "");
+      return row?.id ?? "";
+    };
+
+    beforeAll(async () => {
+      appConfig = (await import("../../config.js")).config;
+    });
+
+    afterEach(() => {
+      appConfig.baremetalPreview = false;
+    });
+
+    afterAll(async () => {
+      await owner.delete(backupJobMembers).where(inArray(backupJobMembers.endpointId, made));
+      await owner.delete(endpointTasks).where(inArray(endpointTasks.endpointId, made));
+      await owner.delete(endpoints).where(inArray(endpoints.id, made));
+      await owner.delete(backupJobs).where(inArray(backupJobs.name, ["Whole", "Refused"]));
+    });
+
+    it("is refused while the preview is off, and offered once it is on", async () => {
+      const id = await make("whole-off");
+      const refused = await problem(
+        await call("POST", "", {
+          body: machineJob("Refused", [id], {
+            settings: { paths: ["/etc"], wholeMachine: true },
+          }),
+        }),
+        409,
+      );
+      expect(refused.type).toBe("urn:restow:problem:baremetal-preview-off");
+      const off = await json<{ wholeMachine?: { available: boolean } }>(
+        await call("GET", "/defaults?kind=endpoint"),
+        200,
+      );
+      expect(off.wholeMachine?.available).toBe(false);
+      appConfig.baremetalPreview = true;
+      const on = await json<{
+        wholeMachine?: { available: boolean; excludes: string[]; containerImageExcludes: string[] };
+      }>(await call("GET", "/defaults?kind=endpoint"), 200);
+      expect(on.wholeMachine).toMatchObject({
+        available: true,
+        containerImageExcludes: ["/var/lib/docker/btrfs", "/var/lib/docker/image"],
+      });
+      expect(on.wholeMachine?.excludes).toContain("/var/tmp/*");
+      // A mail job has no such switch.
+      const mail = await json<{ wholeMachine?: unknown }>(
+        await call("GET", "/defaults?kind=mail"),
+        200,
+      );
+      expect(mail.wholeMachine).toBeUndefined();
+    });
+
+    it("writes the switch to Linux machines only and notes why the others back up folders", async () => {
+      appConfig.baremetalPreview = true;
+      const linux = await make("whole-linux");
+      const container = await make("whole-lxc", { container: true });
+      const windows = await make("whole-win", { os: "windows" });
+      const old = await make("whole-old", { agentVersion: "0.4.12" });
+      const job = await json<BackupJobDto>(
+        await call("POST", "", {
+          body: machineJob("Whole", [linux, container, windows, old], {
+            settings: { paths: ["/etc"], excludes: ["/var/tmp/*"], wholeMachine: true },
+          }),
+        }),
+        201,
+      );
+      expect(job.settings).toMatchObject({ wholeMachine: true, paths: ["/etc"] });
+      expect((await machine(linux))?.config.wholeMachine).toBe(true);
+      expect((await machine(old))?.config.wholeMachine).toBe(true);
+      expect((await machine(container))?.config).not.toHaveProperty("wholeMachine");
+      expect((await machine(windows))?.config).not.toHaveProperty("wholeMachine");
+      // The folders stay for an agent older than 0.5.0.
+      expect((await machine(linux))?.config.paths).toEqual(["/etc"]);
+      const members = await json<{
+        items: { targetId: string; wholeMachineNote?: string | null }[];
+      }>(await call("GET", `/${job.id}/members`), 200);
+      const note = new Map(members.items.map((item) => [item.targetId, item.wholeMachineNote]));
+      expect(note.get(linux)).toBeNull();
+      expect(note.get(container)).toBe("container");
+      expect(note.get(windows)).toBe("windows");
+      expect(note.get(old)).toBe("agent_too_old");
+
+      // With the preview off again, the job keeps it and can be saved as it is.
+      appConfig.baremetalPreview = false;
+      await json<BackupJobDto>(
+        await call("PATCH", `/${job.id}`, {
+          body: { settings: { paths: ["/etc"], excludes: ["/var/tmp/*"], wholeMachine: true } },
+        }),
+        200,
+      );
+      expect((await machine(linux))?.config.wholeMachine).toBe(true);
+      // Switched off, the key goes from every machine.
+      const versionBefore = (await machine(linux))?.configVersion ?? 0;
+      const plain = await json<BackupJobDto>(
+        await call("PATCH", `/${job.id}`, {
+          body: { settings: { paths: ["/etc"], excludes: ["/var/tmp/*"], wholeMachine: false } },
+        }),
+        200,
+      );
+      expect(plain.settings).not.toHaveProperty("wholeMachine");
+      expect((await machine(linux))?.config).not.toHaveProperty("wholeMachine");
+      expect((await machine(linux))?.configVersion).toBe(versionBefore + 1);
+      // A member cannot override it: the key is no override, the machine stays as the job says.
+      await call("PATCH", `/${job.id}/members/${linux}`, {
+        body: { overrides: { wholeMachine: true } },
+      });
+      expect((await machine(linux))?.config).not.toHaveProperty("wholeMachine");
     });
   });
 

@@ -74,7 +74,7 @@ Harte Randbedingungen, die für alles Folgende gelten:
   (Regel aus docs/WINDOWS-AGENT.md, Abschnitt 4); reine Logik (Manifest, Planer, Fixups,
   Pfadabbildung) bleibt ohne Build-Tag und wird auf jedem System getestet.
 - Das Recovery-ISO ist ein **eigenes GPL-Werk** unter `integrations/recovery`, getrennt vom
-  Apache-2.0-Kern wie `integrations/pve/plugin` und geprüft von
+  Apache-2.0-Kern wie das Speicher-Plugin für Proxmox VE und geprüft von
   `scripts/ci/check-separate-works.mjs` (Abschnitt 8.1). Es enthält keinen Restow-Code im
   Quelltext; `restow-agent` und `restic` kommen als fertige Programme hinein. Es enthält
   **keine Geheimnisse und nichts Instanzbezogenes** (keine URL, kein Schlüssel, keine CA);
@@ -209,7 +209,7 @@ Harte Randbedingungen, die für alles Folgende gelten:
   `yellow`, `red`), Restore-Test nach dem Grundsatz "Rot nur mit Beleg"
   (`restore-test.ts`, `isBackupFinding`).
 - Getrennte Werke: `scripts/ci/license-policy.json` (`separateWorks`), heute nur
-  `integrations/pve/plugin` (AGPL-3.0-or-later); `check-separate-works.mjs` verlangt
+  das Speicher-Plugin für Proxmox VE (AGPL-3.0-or-later); `check-separate-works.mjs` verlangt
   LICENSE, SPDX-Kopf je Datei, keinen TypeScript-, JavaScript- oder Go-Code im Werk,
   Verweise nur aus `allowedReferences`, keine Kopie außerhalb. Lizenz-Marker kennt der
   Check nur für AGPL (`LICENSE_MARKERS`).
@@ -237,6 +237,7 @@ Harte Randbedingungen, die für alles Folgende gelten:
 | Exit-Codes `backup`: 0, 1 (kein Snapshot), 3 (unvollständig), 10, 11, 12; `restore`: 0, 1, 10, 11, 12. | `--help` beider Befehle |
 | `ls <snapshot> <ordner>` listet nur unterhalb absoluter Ordner; `--recursive` steigt ab; `--json` liefert je Knoten Typ, Größe, Inode, Modus. | `restic ls --help` |
 | `--exclude-cloud-files` wirkt nur unter Windows (OneDrive Files On-Demand). | `restic backup --help`, Agent `snapshot_windows.go` |
+| `backup -x` nimmt den **Ordner** eines Einhängepunkts in den Baum des Eltern-Dateisystems auf und steigt nicht in das darunter eingehängte Dateisystem ab. Modus und Besitzer des Eintrags sind die der **Wurzel des eingehängten Dateisystems** (hier 0755, uid 0), nicht die des Ordners darunter im Eltern-Dateisystem (angelegt mit 0750, uid 1234). Für 10.12 heißt das: Modus und Besitzer der verdeckten Ordner stehen nicht im Snapshot, `recover` legt sie selbst an. ([Quelle] Punkt 2, M1) | `TestRootResticLiveTree` (`agent/internal/fssnap/agentroot_test.go`, als root mit restic 0.19.1): `QUELLE-1.2.2 restic -x records the mount point folder /var/tmp/restow-agentroot-…/mnt/live/sub: true (mode 20000000755, uid 0)` |
 
 **[Quelle]** Zu belegen gegen die Quellen von `v0.19.1` (Ergebnis als Testdaten und als
 Zeile in dieser Tabelle), bevor der jeweilige Meilenstein fertig ist:
@@ -248,7 +249,8 @@ Zeile in dieser Tabelle), bevor der jeweilige Meilenstein fertig ist:
 2. Linux (M1/M4): ob `backup -x` den **Ordner** eines Einhängepunkts (`/proc`, `/sys`, `/dev`,
    `/run`, `/tmp`, `/boot/efi`, `/home`) mit Modus und Besitzer in den Baum des
    Eltern-Dateisystems aufnimmt, wenn darunter ein anderes Dateisystem hängt. Unabhängig vom
-   Ergebnis legt `recover` diese Ordner selbst an (Abschnitt 10.12).
+   Ergebnis legt `recover` diese Ordner selbst an (Abschnitt 10.12). **Belegt in M1** (Zeile in
+   der Tabelle oben): ja, aber mit Modus und Besitzer der Wurzel des eingehängten Dateisystems.
 3. Fortsetzen (M4): woran `--overwrite if-changed` eine vorhandene Datei als gleich erkennt
    (Erwartung: Größe und mtime, kein Inhaltsvergleich) und ob `--verify` übersprungene
    Dateien liest. Darauf baut Abschnitt 10.18 nicht: Nach einem unsauberen Ende gilt
@@ -3855,7 +3857,7 @@ Vorschlag um, wenn keine andere Entscheidung kommt.
    zurückholen"; **Windows Bare Metal später, nicht in 0.5.0.**
 2. **Edition:** Community, ohne Lizenzprüfung.
 3. **Linux-Wiederherstellung:** bootfähiges Recovery-ISO als eigenes GPL-Werk unter
-   `integrations/recovery`, getrennt vom Kern wie `integrations/pve/plugin`, geprüft von
+   `integrations/recovery`, getrennt vom Kern wie das Speicher-Plugin für Proxmox VE, geprüft von
    `check-separate-works`; feste Liste nicht-freier Firmware (benannt, begründet,
    Lizenzhinweise, Abschnitt 8.4); reproduzierbarer Bau in der CI; signiert wie das
    Agent-Release (Release-Schlüssel, Prüfung wie `verify-agent-signature.sh`); Modus
@@ -4019,7 +4021,177 @@ Alle übrigen Befunde der drei Reviews sind wie vorgeschlagen eingearbeitet.
 
 ## 26. Stand der Umsetzung
 
-Noch nichts umgesetzt. Dieses Dokument ist der Entwurf für M1 bis M6.
+**M1 (Ganz-Rechner-Sicherung, Linux) ist umgesetzt**, hinter `RESTOW_BAREMETAL_PREVIEW`
+(Standard aus). M2 bis M6 sind offen; für sie bleibt dieses Dokument der Entwurf.
+
+### 26.1 Was M1 liefert
+
+Server (`packages/`, `apps/`):
+
+- `packages/core/src/endpoints/baremetal/`: `canonical.ts` (kanonische Kodierung nach 4.2,
+  Schlüssel nach UTF-8-Bytes sortiert, `noControlChars`, `layoutSha256`), `manifest.ts`
+  (`layoutManifestSchema` als `z.discriminatedUnion("platform", ...)`, Linux vollständig mit
+  Referenzen, Zyklen, ID-Mustern und Grenzen, darwin vorläufig; `parseLayoutManifest`,
+  `MAX_LAYOUT_BYTES`), `fingerprint.ts` (`layoutFingerprint`, nur Linux), `summary.ts`
+  (`summarizeLayout`), `paths.ts` (`manifestPathInSnapshot`, `keyFilesOf`).
+  `endpoints/whole-machine.ts` (`DEFAULT_WHOLE_MACHINE_EXCLUDES`, `CONTAINER_IMAGE_EXCLUDES`,
+  `wholeMachineNote`, `wholeMachineApplies`, `resolveFsSnapshot`), `config.ts`
+  (`wholeMachine`, `fsSnapshot`), `backup-jobs/endpoint-config.ts` (Schalter nur in Linux-Rechner
+  ohne Container), `restore-target.ts` (`AGENT_STATE_SNAPSHOT_PATTERNS`, `isAgentStatePath`,
+  `restoreSelectionIssue`, `selectionCovers`), `zip.ts` (`skip`), neue Lauf-Codes
+  `layout_capture_failed`, `layout_too_large`, `layout_rejected` und der Fehlerkatalog
+  `endpoint.layout_capture_failed` mit Schritt `check_endpoint_layout_tools`; die Texte zu
+  `snapshot_failed`/`snapshot_unavailable` sind nicht mehr nur VSS. Die TS-Tests lesen die
+  Testdaten des Go-Pakets (`agent/internal/baremetal/testdata/manifests`): kanonische Bytes,
+  SHA-256 und Fingerabdruck stimmen mit Go überein, jedes `invalid-*` wird abgelehnt.
+- `packages/db`: Tabelle `endpoint_layouts`, Spalte `endpoint_runs.layout_id` mit Teilindex,
+  Migration **0076_baremetal_layouts** (mit drizzle erzeugt), Row Level Security über
+  `sql/rls.sql`; Job-Einstellung `wholeMachine` (JSONB).
+- `apps/api`: `RESTOW_BAREMETAL_PREVIEW` (`config.baremetalPreview`); `GET /agent/v1/config` mit
+  `wholeMachine` und `fsSnapshot` (C2); `finish` speichert das Layout (`storeRunLayout`,
+  dedupliziert, sonst Hinweis `layout_rejected`); `GET /api/v1/endpoints/:id/baremetal`
+  (ab Restore-Rolle) und `.../baremetal/layouts/:layoutId` (Admin); `fsSnapshot` am Rechner (nur
+  Linux, 422 `linux_only`); Sperre von `state.json` und Schlüsseldateien in Browser, Download und
+  Restore-Auftrag (5.4); Job-Schalter mit 409 `baremetal-preview-off`, Standardwerte und
+  `wholeMachineNote` je Mitglied; Audit `endpoint.repository.secret_file_revealed`; Regeln für
+  Provider-Teams (Karte: Lesen, volles Manifest: Konfigurieren).
+- `apps/worker`: der Monitor entfernt Layouts ohne Lauf, die nicht das neueste ihres Rechners sind.
+- `apps/web`: Schalter "Ganzer Rechner (Bare Metal, Vorschau)" im Job-Editor (Ordner ausgegraut,
+  Ausschlüsse ersetzt mit "Vorherige Ausschlüsse wiederherstellen", Container-Images), Hinweise je
+  Mitglied, Karte "Bare-Metal-Wiederherstellung (Vorschau)" mit Zusammenfassung
+  (`baremetal-card.tsx`, `layout-summary.tsx`), Einstellung "Dateisystem-Snapshot (LVM, btrfs)",
+  "Layout erfasst" im Lauf, Konsistenz-Texte für LVM, btrfs und gemischt; Texte de/en.
+- CI: Job `agent-root` (Loop-Geräte, LVM, btrfs, md, LUKS, XFS; Build-Tag `agentroot` und
+  `RESTOW_AGENT_ROOT=1`), in `passed.needs`. `.env.example`: `RESTOW_BAREMETAL_PREVIEW`.
+  CHANGELOG unter `[Unreleased]`, docs/AGENT.md ("Ganzer Rechner", Konsistenz, Fehlercodes,
+  Datenmodell, Geheimnisse in Snapshots).
+
+Agent (`agent/`): `internal/cmdrun` (Werkzeugaufrufe mit Zeit- und Größengrenze, verbotene
+Argumente, Attrappe für Tests), `internal/sysparse` (Zerleger), `internal/baremetal` (Manifest,
+kanonische Kodierung, Validierung, `Assess`, Fingerabdruck, EFI und PE, Sammler aus 4.1, Ablage
+nach `Layout.BaremetalDir()`), `internal/fssnap` (Planung, LVM dick und dünn, btrfs je Subvolume,
+Namensraum-Helfer mit `chroot` und `noauto`, Überwachung, Aufräumen), Ganz-Rechner-Zweig in
+`backupStep`, Ausschluss der Agent-Zustandsdatei bei jeder Sicherung auf allen Systemen (macOS über
+`expandDarwinExcludes`), `restow-agent baremetal capture` und das versteckte `snapshot-exec`.
+
+Nachgebessert nach dem Review von M1:
+
+- **LVM-Befehle werden nie getötet:** `lvcreate`, `lvchange` und `lvremove` laufen über
+  `cmdrun.RunNoKill` (`ExecRunner.RunNoKill`): ohne den Abbruch des Laufs
+  (`context.WithoutCancel`), mit eigener Grenze je Aufruf (`cmdrun.StateChangeTimeout`, 10 Minuten),
+  an der Grenze `SIGTERM` und dann Warten, nie `SIGKILL` (ein `SIGKILL` zwischen Suspend und Resume
+  kann das Ursprungs-LV, oft `/`, angehalten lassen). Der Abbruch wird nur zwischen zwei Befehlen
+  geprüft. Scheitert `lvcreate` (oder erreicht es die Grenze), fragt der Agent mit `lvs` nach
+  `<lv>_restowsnap` und entfernt einen Snapshot mit dem Tag `restow-agent-snapshot` und der Endung
+  sofort.
+- **Sicherung ohne `wholeMachine` mit `fsSnapshot: "auto"`:** restic läuft ohne `-x`, darum nimmt
+  `Discover` jede Einhängung unterhalb einer Quelle (alle Typen außer `autofs`, nicht unter
+  `/proc`, `/sys`, `/dev`, `/run`) und jedes nicht anderweitig eingehängte btrfs-Subvolume
+  darunter als `Nested`-Quelle in den Baum: mit eigenem Snapshot, sonst als nur lesender Bind des
+  echten Pfads, und dann in `liveFilesystems`. Nur lesende Snapshots von snapper und Timeshift
+  werden live gebunden (alles darunter kommt mit dem Bind), die eigenen Snapshots des Agenten
+  ausgelassen. Eine Einhängung, deren Eltern-Einhängung nicht im Baum ist (unter einem indirekten
+  Automount-Punkt), bekommt einen Hinweis im Lauf-Log. Liegt das Subvolume einer Quelle unterhalb
+  des Einhängepunkts seines Dateisystems, kommt dieser Einhängepunkt vorher als nur lesender Bind
+  in den Baum. Tests: `TestTreeMountsNested` (Quelle `/` mit dem Fixture von `TestDiscover`),
+  `TestTreeMountsSubvolBelowMount`, `TestCreateNeverKillsLVM`,
+  `TestCreateRemovesLeftoverAfterFailedLVCreate`, `TestExecRunnerNoKill`.
+- **Vorschau aus, Job mit `wholeMachine`:** Der Editor zeigt den Schalter nur zum Ausschalten
+  (mit dem Hinweis, dass die Rechner die Ordner sichern), die Ordner bleiben bearbeitbar, "Alle
+  lokalen Dateisysteme" entfällt. Das Ein- oder Ausschalten allein speichert jetzt auch (vorher
+  verglich der Editor `wholeMachine` nicht und schickte nichts). Die Rechner-Details tragen
+  `config.wholeMachineActive` (was `GET /agent/v1/config` sendet, `wholeMachineSent`); danach
+  richtet sich der angezeigte Standard von "Dateisystem-Snapshot".
+- **Root-Tests hier gelaufen** (als root, `RESTOW_AGENT_ROOT=1`, restic 0.19.1, ohne
+  rest-server): `TestRootHelperLiveTree`, `TestRootKill9LeavesNothingMounted` und
+  `TestRootResticLiveTree` bestanden; das Ergebnis zu [Quelle] 1.2 Punkt 2 steht in der Tabelle
+  in 1.2.
+
+### 26.2 Abweichungen vom Entwurf (in M1 entschieden)
+
+- **Migrationsnummer:** 0074 und 0075 waren schon vergeben, M1 ist **0076**; M2 bis M6 rücken auf
+  0077 bis 0081.
+- **RLS** steht nach Konvention in `sql/rls.sql` (`tenant_tables`), nicht in der Migration.
+- **Zwischendateien:** `state.Save` schreibt `.state-*.tmp`, nicht `.state.json.*`; ausgeschlossen
+  und gesperrt sind beide Formen, unter Linux auch `/etc/restow-pve/state.json` und
+  `/etc/restow-pve/.state.json.*`.
+- **Mehrzeilige Daten** sind Listen von Zeilen: `firmware.sbatLevel` ist `string[]`, weil
+  Steuerzeichen (auch `\n`) in keiner Zeichenkette erlaubt sind; abgelehnt werden zusätzlich
+  U+2028/U+2029 (Go kodiert sie immer als Escape) und U+007F bis U+009F. Zahlen nur als ganze
+  Zahlen 0 bis 2^53-1; eine Swap-Priorität ist darum Text (`priority`).
+- **Reihenfolge 5.6:** Der Plan der Snapshots entsteht vor dem Manifest, das Manifest trägt das
+  geplante Verfahren (`backup.fsSnapshots`, nach Quellpfad statt nach Dateisystem-ID, dazu
+  `backup.liveReasons`), danach werden die Snapshots angelegt; das Ergebnis steht nur in
+  `consistency`. So bleibt der SHA-256 in Datenbank und Snapshot gleich (L4).
+- **VG-Größen** (`lvm.vgs[].sizeBytes`, `freeBytes`) sind Felder des Manifests, für den Hinweis aus
+  6.1; sie gehen nicht in den Fingerabdruck.
+- **Zustand der Konsistenz:** `used` (keiner gescheitert, einer hielt), `partial` (einer
+  gescheitert, einer hielt), `unavailable` (keiner hielt). "Kein Verfahren" ist nie ein Fehler; der
+  Lauf wird nur mit `snapshot_failed` oder `snapshot_unavailable` `partial`.
+- **macOS** bekommt `wholeMachine` erst mit M6; M1 schreibt es nur in Linux-Rechner ohne Container.
+  Ein darwin-Manifest ist im Schema vorläufig vorhanden, der Server lehnt es bis M6 mit
+  `layout_rejected` ab.
+- **Vorschau-Schalter:** nur der Job-Schalter (und später der Assistent) hängt an
+  `RESTOW_BAREMETAL_PREVIEW`; `fsSnapshot` wirkt immer. Ist die Vorschau aus, sendet
+  `GET /config` kein `wholeMachine`, und Einschalten wird abgelehnt; ein Job, der es schon hat,
+  behält es.
+- **btrfs:** Snapshots und ihr Löschen laufen immer über den Helfer in einem privaten
+  Namensraum, der die oberste Ebene (`subvolid=5`) einhängt; auf dem Rechner bleibt nichts
+  eingehängt. Der Snapshot-Baum enthält immer das Wurzel-Dateisystem (restic braucht `/etc` und die
+  CA-Zertifikate), und bei `wholeMachine` läuft der Helfer immer, auch mit `fsSnapshot: "off"`.
+- **Gleiche Bytes in Go und TS:** Go sortiert über `map`/`[]any` nach UTF-8-Bytes, ohne
+  HTML-Escape, `nil`-Listen werden `[]`; TS sortiert mit `Buffer.compare`.
+- **Beide Plattformen** erkennt das Schema an den reservierten Schlüsseln der jeweils anderen;
+  unbekannte Schlüssel gehen durch und bleiben in der Datenbank wie gesendet.
+- **Abschnitt 17** (Satz "kein Bare-Metal-Restore" ersetzen) ist nicht Teil von M1, die
+  Wiederherstellung kommt mit M4.
+- **Testdaten:** Aufzeichnungen echter Systeme und echte shim/GRUB/UKI-Dateien gibt es in dieser
+  Umgebung nicht; M1 liefert **synthetische** Daten nach den dokumentierten Formaten
+  (`"synthetic": true` in `meta.json`), PE-Dateien entstehen im Test. Sie sind durch Aufzeichnungen
+  zu ersetzen ([Maschine] 27.1, 21.4 Punkt 1).
+- **Sperre der Schlüsseldateien (5.4):** Die Zustandsdatei ist für alle Rollen im Browser
+  ausgeblendet, als Einzelauswahl abgelehnt (422) und im Ordner-ZIP immer ausgelassen.
+  Schlüsseldateien (`luks[].keyFile` des Layouts des Snapshots und des neuesten des Rechners) sind
+  für `tenant_restore` ausgeblendet, gesperrt (403) und im ZIP ausgelassen; Admins bekommen sie mit
+  frischer Anmeldung und Audit. Ein Ordner, der auf den Rechner zurückgeschrieben wird, wird nicht
+  gefiltert (die Daten bleiben auf demselben Rechner, der Agent hat keinen Ausschluss-Parameter).
+- **Texte** nennen keine Produkte anderer Hersteller ("Container-Images (btrfs-Speichertreiber)"
+  statt eines Produktnamens).
+- **Ordner des Jobs** bleiben bei `wholeMachine` erhalten (Agenten vor 0.5.0 sichern sie); der
+  Editor graut sie nur aus, solange die Vorschau an ist. Ist sie aus, sichern die Rechner die
+  Ordner, und der Editor zeigt sie bearbeitbar (siehe 26.1, Nachbesserungen).
+- **systemd-Unit:** `RestrictNamespaces=mnt` statt `RestrictNamespaces=yes`, damit der
+  Snapshot-Helfer seinen privaten Mount-Namensraum anlegen kann (6.3); alle anderen
+  Namensraum-Arten bleiben gesperrt (`agent/internal/svc/systemd.go`, docs/AGENT.md,
+  CHANGELOG unter "Changed").
+- **`Pdeathsig`:** Helfer und restic im Baum starten mit `Pdeathsig: SIGKILL`; sie sterben mit dem
+  Agenten, und mit ihnen der Namensraum samt Einhängungen, so dass nach `kill -9` kein Snapshot
+  offen bleibt (6.5, `TestRootKill9LeavesNothingMounted`). Für `lvcreate` und `lvremove` gilt
+  das ausdrücklich nicht (sie laufen ohne Namensraum über `RunNoKill`).
+- **Sicherung ohne `wholeMachine`:** Der Entwurf beschreibt den Baum nur für die Quellen selbst;
+  M1 nimmt die Einhängungen und Subvolumes unterhalb der Quellen mit auf (26.1), weil restic dort
+  ohne `-x` läuft.
+
+### 26.3 Zurückgestellt
+
+- macOS: Erfassung unter darwin, APFS-Snapshots, `DEFAULT_DARWIN_WHOLE_MACHINE_EXCLUDES`,
+  Snapshot-Form der Pfadabbildung, `layoutFingerprint` für darwin (M6).
+- `BuildLoadOption` (M4).
+- `bootChainFingerprint` und eine Bewertung über `unverified` hinaus (M2, M5).
+- Ein Layout im Demo-Datensatz.
+- Aufzeichnungen echter Systeme für die Testdaten ([Maschine] 27.1).
+- Die Root-Tests mit LVM, btrfs, md, LUKS und der Erfassung (`TestRootThickLVM`,
+  `TestRootFullVG`, `TestRootThinPool`, `TestRootBtrfsNested`, `TestRootCleanupStaleLVM`,
+  `TestRootResticThroughHelper`, `TestRootCaptureStacks`, `TestRootCaptureCommand`) liefen hier
+  nicht (keine LVM- und btrfs-Werkzeuge im Container; ohne `RESTOW_AGENT_ROOT=1` werden sie
+  übersprungen); sie brauchen den CI-Job `agent-root` [CI].
+- Ein Lauf, der LVM-Befehle beim Beenden des Dienstes noch abwartet, kann an `TimeoutStopSec=120`
+  der Unit stoßen; dann beendet systemd mit `KillMode=mixed` alle Prozesse der Unit mit `SIGKILL`.
+  Ob `lvremove` in diese Zeit fällt, ist [Maschine] 27.13 zu prüfen.
+- Filtern beim Zurückschreiben eines Ordners auf den Rechner (siehe 26.2, Sperre).
+- Aus Abschnitt 27 offen für M1: 27.1 (Ausgaben echter Systeme), 27.13 (LVM-Snapshots unter Last),
+  27.14 (Thin-Pool-Schwellen mit `thin_pool_autoextend_threshold`), 27.15 (btrfs mit sehr vielen
+  Subvolumes).
 
 ## 27. Nur auf echter Hardware zu prüfen
 

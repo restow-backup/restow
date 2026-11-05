@@ -1,0 +1,1 @@
+SUBSYSTEM=="net", ATTR{address}=="3c:ec:ef:12:34:56", NAME="enp3s0"

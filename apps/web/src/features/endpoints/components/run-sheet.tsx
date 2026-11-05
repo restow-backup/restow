@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import { ErrorState, RelativeTime } from "@/components/kit";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import {
   Sheet,
@@ -136,10 +137,13 @@ export function RunDetailView({
   run,
   subjectName,
   willRetry = true,
+  onShowLayout,
 }: {
   run: RunDetail;
   subjectName?: string;
   willRetry?: boolean;
+  /** Opens the bare metal card of the machine, where the captured layout is shown. */
+  onShowLayout?: () => void;
 }) {
   const format = useEndpointFormat();
   const { t, language } = format;
@@ -213,6 +217,19 @@ export function RunDetailView({
               </Fact>
             ) : null}
           </>
+        ) : null}
+        {run.layoutId ? (
+          <Fact label={t("runs.facts.layout")}>
+            <span data-slot="run-layout">
+              {onShowLayout ? (
+                <Button type="button" variant="link" className="h-auto p-0" onClick={onShowLayout}>
+                  {t("runs.layoutShow")}
+                </Button>
+              ) : (
+                t("runs.layoutCaptured")
+              )}
+            </span>
+          </Fact>
         ) : null}
       </Facts>
 
@@ -398,7 +415,20 @@ export function RunSheet({
             />
           </div>
         ) : run.data ? (
-          <RunDetailView run={run.data} subjectName={endpointName} willRetry={willRetry} />
+          <RunDetailView
+            run={run.data}
+            subjectName={endpointName}
+            willRetry={willRetry}
+            onShowLayout={() => {
+              onClose();
+              // The card is on the overview, below the sheet that just closes.
+              window.setTimeout(() => {
+                document
+                  .querySelector('[data-slot="baremetal-card"]')
+                  ?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }, 150);
+            }}
+          />
         ) : (
           <div className="space-y-3 px-4" aria-hidden="true">
             <Skeleton className="h-24 w-full" />

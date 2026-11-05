@@ -1,0 +1,5 @@
+lvs --reportformat json -o lv_name,vg_name,lv_tags,lv_time
+lvremove -y vg0/root_restowsnap
+btrfs subvolume list -a /
+helper plain mounts=[tmpfs:/run/restow-agent/btrfs(mode=0700) /dev/sda2:/run/restow-agent/btrfs/f1(subvolid=5)] mkdirs=[] -- btrfs subvolume delete /run/restow-agent/btrfs/f1/.restow-snapshots/old-run/257
+helper plain mounts=[tmpfs:/run/restow-agent/btrfs(mode=0700) /dev/sda2:/run/restow-agent/btrfs/f1(subvolid=5)] mkdirs=[] -- rmdir /run/restow-agent/btrfs/f1/.restow-snapshots/old-run

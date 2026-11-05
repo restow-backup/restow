@@ -1,0 +1,4 @@
+TYPE=Ethernet
+NAME=ens192
+HWADDR=00:50:56:aa:bb:cc
+ONBOOT=yes

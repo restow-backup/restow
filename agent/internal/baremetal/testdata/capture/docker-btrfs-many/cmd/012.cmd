@@ -1,0 +1,12 @@
+lsattr
+-d
+/boot
+/boot/grub
+/boot/grub/x86_64-efi
+/etc
+/etc/default
+/etc/initramfs-tools
+/home
+/lib
+/lib/modules
+/lib/modules/5.15.0-125-generic

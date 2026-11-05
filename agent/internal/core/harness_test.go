@@ -41,6 +41,12 @@ unlock) exit 0 ;;
 cat) exit 0 ;;
 backup)
   printf '%s\n' "$@" > "$FAKE_DIR/backup-args.txt"
+  prev=""
+  for a in "$@"; do
+    if [ "$prev" = "--exclude-file" ] || [ "$prev" = "--iexclude-file" ]; then cp "$a" "$FAKE_DIR/excludes.txt"; fi
+    if [ "$prev" = "--files-from-raw" ]; then tr '\000' '\n' < "$a" > "$FAKE_DIR/paths.txt"; fi
+    prev="$a"
+  done
   if [ -n "$FAKE_BACKUP_SLEEP" ]; then
     trap 'kill $pid 2>/dev/null; echo interrupted >&2; exit 130' INT
     echo '{"message_type":"status","percent_done":0.1,"files_done":1,"bytes_done":10}'

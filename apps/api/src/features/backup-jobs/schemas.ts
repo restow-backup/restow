@@ -137,6 +137,9 @@ const copySettingsShape = {
 export const jobSettingsSchema = z.object({
   ...endpointSettingsShape,
   policy: jobAgentPolicySchema.optional(),
+  // Machine jobs: back up every local file system with its layout (preview, Linux); not a
+  // member's override (docs/BAREMETAL.md 5.1).
+  wholeMachine: z.boolean().optional(),
   ...shareSettingsShape,
   ...copySettingsShape,
 });

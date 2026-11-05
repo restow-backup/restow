@@ -1,0 +1,127 @@
+[
+  {
+    "target": "/run/restow-agent/snaptree",
+    "source": "tmpfs",
+    "fstype": "tmpfs",
+    "options": "mode=0755",
+    "bind": false,
+    "recursive": false
+  },
+  {
+    "target": "/run/restow-agent/snaptree",
+    "source": "/dev/vg0/root_restowsnap",
+    "fstype": "ext4",
+    "options": "ro,noload",
+    "bind": false,
+    "recursive": false
+  },
+  {
+    "target": "/run/restow-agent/snaptree/boot",
+    "source": "/boot",
+    "options": "ro",
+    "bind": true,
+    "recursive": false
+  },
+  {
+    "target": "/run/restow-agent/snaptree/home",
+    "source": "/dev/vg0/home_restowsnap",
+    "fstype": "xfs",
+    "options": "ro,nouuid,norecovery",
+    "bind": false,
+    "recursive": false
+  },
+  {
+    "target": "/run/restow-agent/snaptree/secret",
+    "source": "/secret",
+    "options": "ro",
+    "bind": true,
+    "recursive": false
+  },
+  {
+    "target": "/run/restow-agent/snaptree/srv",
+    "source": "/srv",
+    "options": "ro",
+    "bind": true,
+    "recursive": false
+  },
+  {
+    "target": "/run/restow-agent/snaptree/data",
+    "source": "/dev/sdb1",
+    "fstype": "btrfs",
+    "options": "ro,subvol=.restow-snapshots/run-1/257",
+    "bind": false,
+    "recursive": false
+  },
+  {
+    "target": "/run/restow-agent/snaptree/tmp",
+    "source": "/tmp",
+    "options": "ro",
+    "bind": true,
+    "recursive": false
+  },
+  {
+    "target": "/run/restow-agent/snaptree/proc",
+    "source": "/proc",
+    "options": "ro",
+    "bind": true,
+    "recursive": false
+  },
+  {
+    "target": "/run/restow-agent/snaptree/sys",
+    "source": "/sys",
+    "options": "ro",
+    "bind": true,
+    "recursive": false
+  },
+  {
+    "target": "/run/restow-agent/snaptree/dev",
+    "source": "/dev",
+    "options": "ro",
+    "bind": true,
+    "recursive": false
+  },
+  {
+    "target": "/run/restow-agent/snaptree/run",
+    "source": "/run",
+    "options": "ro",
+    "bind": true,
+    "recursive": false
+  },
+  {
+    "target": "/run/restow-agent/snaptree/boot/efi",
+    "source": "/boot/efi",
+    "options": "ro",
+    "bind": true,
+    "recursive": false
+  },
+  {
+    "target": "/run/restow-agent/snaptree/mnt/nas",
+    "source": "/mnt/nas",
+    "options": "ro",
+    "bind": true,
+    "recursive": false
+  },
+  {
+    "target": "/run/restow-agent/snaptree/data/vm",
+    "source": "/dev/sdb1",
+    "fstype": "btrfs",
+    "options": "ro,subvol=.restow-snapshots/run-1/258",
+    "bind": false,
+    "recursive": false
+  },
+  {
+    "target": "/run/restow-agent/snaptree/data/.snapshots",
+    "source": "/data/.snapshots",
+    "options": "ro",
+    "bind": true,
+    "recursive": false
+  },
+  {
+    "target": "/run/restow-agent/snaptree/data/vm/disks",
+    "source": "/dev/sdb1",
+    "fstype": "btrfs",
+    "options": "ro,subvol=.restow-snapshots/run-1/259",
+    "bind": false,
+    "recursive": false
+  }
+]

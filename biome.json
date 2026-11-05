@@ -12,6 +12,7 @@
       "!**/node_modules",
       "!**/routeTree.gen.ts",
       "!**/drizzle",
+      "!**/agent/**/testdata",
       "!**/.claude",
       "!**/packages/db/src/schema/auth.ts",
       "!**/*.md",

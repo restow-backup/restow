@@ -1,0 +1,4 @@
+lvcreate -s -n root_restowsnap --addtag restow-agent-snapshot vg0/root
+lvchange -ay -K vg0/root_restowsnap
+-- remove
+lvremove -y vg0/root_restowsnap

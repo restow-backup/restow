@@ -84,6 +84,8 @@ export interface RunSummary {
   /** A stop was asked for (0.4.2): "Cancelling" while running; who asked. Missing on older servers. */
   cancelRequestedAt?: string | null;
   cancelledBy?: string | null;
+  /** The layout a whole machine backup recorded (0.5.0); null otherwise, missing on older servers. */
+  layoutId?: string | null;
 }
 
 export interface EndpointSummary {
@@ -252,6 +254,18 @@ export interface EndpointConfig {
   bandwidthWindows?: BandwidthWindow[];
   onlyOnAcPower: boolean;
   useVss: boolean;
+  /**
+   * File system snapshots of a Linux machine (LVM, btrfs), as the machine stores it; null: the
+   * default (on for a whole machine backup, off otherwise). Missing on older servers.
+   */
+  fsSnapshot?: "auto" | "off" | null;
+  /** The machine's job backs it up as a whole (preview). Missing on older servers. */
+  wholeMachine?: boolean;
+  /**
+   * What the agent gets: `wholeMachine` only while the installation has the preview on (and for
+   * a Linux machine). The default of `fsSnapshot` follows this. Missing on older servers.
+   */
+  wholeMachineActive?: boolean;
 }
 
 export interface Retention {
@@ -527,6 +541,8 @@ export interface UpdateEndpointInput {
     onlyOnAcPower?: boolean;
     /** Windows machines only: back up from a shadow copy (VSS). */
     useVss?: boolean;
+    /** Linux machines only: file system snapshots (LVM, btrfs); null returns to the default. */
+    fsSnapshot?: "auto" | "off" | null;
   };
   settings?: {
     retention?: Retention;
@@ -590,6 +606,103 @@ export const LIMITS = {
 
 type TenantKey = string | null;
 
+// --- Bare metal (preview, docs/BAREMETAL.md 14.3) -----------------------------------
+
+export type BaremetalState = "not_enabled" | "not_possible" | "no_layout" | "unverified";
+export type BaremetalNotPossible = "container" | "windows" | "darwin_later" | "agent_too_old";
+export type LayoutVerdict = "supported" | "supported_with_warnings" | "unsupported";
+
+export interface LayoutUnsupported {
+  code: string;
+  ref: string | null;
+  message: string;
+  severity: "unsupported" | "warning";
+}
+
+export type PartitionContent =
+  | "esp"
+  | "bios_boot"
+  | "filesystem"
+  | "luks"
+  | "md"
+  | "pv"
+  | "swap"
+  | "plain"
+  | "empty"
+  | "other";
+
+export interface LayoutStackNode {
+  kind: "disk" | "partition" | "md" | "luks" | "plain" | "vg" | "lv" | "fs" | "subvolume" | "swap";
+  id: string;
+  label: string;
+  sizeBytes: number | null;
+  children: LayoutStackNode[];
+}
+
+/** What the server keeps of a layout for the machine's page (@restow/core `LayoutSummary`). */
+export interface LayoutSummary {
+  platform: "linux";
+  os: {
+    prettyName: string | null;
+    id: string;
+    versionId: string | null;
+    arch: string;
+    kernel: string;
+  };
+  firmware: { mode: "uefi" | "bios"; secureBoot: boolean | null };
+  bootloader: { kind: string; platform: string | null; shim: boolean };
+  initramfs: { generator: string | null; keymap: string | null };
+  disks: {
+    id: string;
+    kname: string;
+    model: string | null;
+    sizeBytes: number;
+    transport: string | null;
+    logicalSectorSize: number;
+    tableType: "gpt" | "dos" | null;
+    partitions: {
+      number: number;
+      startBytes: number;
+      sizeBytes: number;
+      content: PartitionContent;
+      label: string | null;
+    }[];
+  }[];
+  stack: LayoutStackNode[];
+  mounts: { target: string; type: string }[];
+  encryption: { luks: number; plainCrypt: number; tokenTypes: string[] };
+  vgs: { name: string; sizeBytes: number; freeBytes: number }[];
+  counts: { subvolumes: number; lvs: number };
+}
+
+export interface Baremetal {
+  /** Whole machine backups are switched on for this installation. */
+  preview: boolean;
+  /** The machine's job backs it up as a whole. */
+  enabled: boolean;
+  state: BaremetalState;
+  notPossible: BaremetalNotPossible | null;
+  latest: {
+    layoutId: string;
+    runId: string;
+    snapshotId: string | null;
+    capturedAt: string;
+    sha256: string;
+    fingerprint: string;
+    verdict: LayoutVerdict;
+    unsupported: LayoutUnsupported[];
+    summary: LayoutSummary;
+  } | null;
+  /** The volume group has no room for snapshots: what to leave free. */
+  snapshotHint: {
+    vg: string;
+    sizeBytes: number;
+    freeBytes: number;
+    suggestedFreeBytes: number;
+    mounts: string[];
+  } | null;
+}
+
 export const endpointKeys = {
   all: (tenantId: TenantKey) => ["tenant", tenantId, "endpoints"] as const,
   lists: (tenantId: TenantKey) => ["tenant", tenantId, "endpoints", "list"] as const,
@@ -612,6 +725,8 @@ export const endpointKeys = {
   agentUpdates: (tenantId: TenantKey) =>
     ["tenant", tenantId, "endpoints", "agent-updates"] as const,
   removals: (tenantId: TenantKey) => ["tenant", tenantId, "endpoints", "removals"] as const,
+  baremetal: (tenantId: TenantKey, endpointId: string) =>
+    ["tenant", tenantId, "endpoints", "detail", endpointId, "baremetal"] as const,
 };
 
 // --- Requests ---------------------------------------------------------------------
@@ -740,6 +855,11 @@ export async function fetchRuns(endpointId: string, limit: number): Promise<RunS
     `${BASE}/${id(endpointId)}/runs${queryString({ limit })}`,
   );
   return body.items;
+}
+
+/** The bare metal card of a machine (restore role and up). */
+export function fetchBaremetal(endpointId: string): Promise<Baremetal> {
+  return apiFetch<Baremetal>(`${BASE}/${id(endpointId)}/baremetal`);
 }
 
 export function fetchRun(endpointId: string, runId: string): Promise<RunDetail> {

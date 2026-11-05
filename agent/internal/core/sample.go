@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/restow-backup/restow/agent/internal/api"
+	"github.com/restow-backup/restow/agent/internal/fssnap"
 	"github.com/restow-backup/restow/agent/internal/restic"
 )
 
@@ -40,6 +41,12 @@ func (a *Agent) collectSample(rc *runContext, snapshotID string) []api.SampleFil
 	sample := make([]api.SampleFile, 0, sampleFiles)
 	budget := int64(sampleBudgetBytes)
 	skipped := 0
+	if rc.measure != nil {
+		// The snapshot tree still exists: hash exactly what was backed up
+		// (docs/BAREMETAL.md 5.6); no unchanged-file rule is needed.
+		sample, skipped = measureSample(sctx, rc, nodes)
+		nodes = nil
+	}
 	for _, n := range nodes {
 		if len(sample) >= sampleFiles || sctx.Err() != nil {
 			break
@@ -89,4 +96,32 @@ func hashUnchanged(done <-chan struct{}, n restic.Node) (api.SampleFile, bool) {
 		return api.SampleFile{}, false
 	}
 	return api.SampleFile{Path: n.Path, SHA256: sum, Size: size}, true
+}
+
+// measureSample hashes the sample candidates inside the snapshot tree.
+func measureSample(ctx context.Context, rc *runContext, nodes []restic.Node) ([]api.SampleFile, int) {
+	req := fssnap.MeasureRequest{}
+	budget := int64(sampleBudgetBytes)
+	for _, n := range nodes {
+		if len(req.Sample) >= samplePool || int64(n.Size) > budget {
+			continue
+		}
+		budget -= int64(n.Size)
+		req.Sample = append(req.Sample, fssnap.SampleFile{Path: n.Path, Size: int64(n.Size)})
+	}
+	resp, err := rc.measure(ctx, req)
+	if err != nil {
+		if rc.ctx.Err() == nil {
+			rc.rl.Warnf("Could not hash the sample files in the snapshot: %v", err)
+		}
+		return []api.SampleFile{}, len(nodes)
+	}
+	out := make([]api.SampleFile, 0, sampleFiles)
+	for _, s := range resp.Sample {
+		if len(out) >= sampleFiles {
+			break
+		}
+		out = append(out, api.SampleFile{Path: s.Path, SHA256: s.SHA256, Size: s.Size})
+	}
+	return out, len(nodes) - len(out)
 }

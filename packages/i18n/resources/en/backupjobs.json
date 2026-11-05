@@ -1062,7 +1062,8 @@
     "pauseNotSupported": "A machine job cannot be paused: the agent decides when to back up.",
     "state": "The job is not in a state that allows this.",
     "allJobExists": "Another job already covers every object that is in no other job. A tenant has one such job.",
-    "invalid": "The job cannot be saved like this."
+    "invalid": "The job cannot be saved like this.",
+    "baremetalPreviewOff": "Whole machine backups are a preview that is not switched on for this installation. Ask the operator of the installation."
   },
   "shareEditor": {
     "enabled": "Switched on",
@@ -1386,5 +1387,21 @@
     "pveRunning": "Backups and boot tests of VMs and containers running now",
     "pveBootTest": "Boot test",
     "pveBootTestHint": "Restores the newest restore point to a temporary guest and starts it; the node reports no progress for it."
+  },
+  "wholeMachine": {
+    "label": "Whole machine (bare metal, preview)",
+    "hint": "Backs up every local file system with the disk layout, so Linux machines can later be restored onto new hardware. Windows and macOS machines keep backing up their folders.",
+    "foldersAll": "All local file systems",
+    "previewOff": "Whole machine backups are not switched on in this installation (preview): the machines back up the folders below. The switch can only be turned off here.",
+    "restoreExcludes": "Restore previous exclusions",
+    "containerImages": "Container images (btrfs storage driver): download again after a restore instead of backing up",
+    "notes": {
+      "container": "backs up its folders; bare metal is not possible in a container",
+      "windows": "Windows machines keep backing up their folders",
+      "darwin_later": "macOS follows in a later version",
+      "agent_too_old": "Agent too old for whole machine (0.5.0 or later needed)",
+      "arm64_restore_later": "backup and layout yes, restore comes later",
+      "bios_needs_csm": "Replacement hardware needs CSM or legacy boot"
+    }
   }
 }

@@ -77,6 +77,7 @@ const CONFIG_KEYS = [
   "bandwidthWindows",
   "excludeLargerThanBytes",
   "policy",
+  "wholeMachine",
 ] as const;
 
 function hooksOf(config: EndpointConfig): { pre?: string; post?: string } {
@@ -168,8 +169,10 @@ export async function syncEndpointConfigs(
     const next = buildEndpointConfig(
       endpoint.config,
       effectiveSchedule(job.schedule, overrides),
-      { ...settings, policy: job.settings?.policy },
+      { ...settings, policy: job.settings?.policy, wholeMachine: job.settings?.wholeMachine },
       levels,
+      // A whole machine job writes the switch to Linux machines that are no container (5.1).
+      { os: endpoint.os, virtualization: endpoint.settings.agent?.machine?.virtualization },
     );
     const retention = retentionToWrite(settings.retention, endpoint.settings.retention);
     if (sameEndpointConfig(endpoint.config, next) && retention === null) {
@@ -319,9 +322,11 @@ export async function releaseEndpointConfigs(
     }
     const schedule = noSchedule(endpoint.config.schedule.timeZone);
     const configVersion = endpoint.configVersion + 1;
+    // The whole machine switch is the job's: a machine in no job backs up nothing as a whole.
+    const { wholeMachine: _whole, ...kept } = endpoint.config;
     await tx
       .update(endpoints)
-      .set({ config: { ...endpoint.config, schedule }, configVersion })
+      .set({ config: { ...kept, schedule }, configVersion })
       .where(eq(endpoints.id, endpoint.id));
     await tx.insert(endpointTasks).values({
       tenantId,

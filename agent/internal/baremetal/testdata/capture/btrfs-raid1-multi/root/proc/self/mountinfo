@@ -1,0 +1,7 @@
+21 1 0:20 / /sys rw,nosuid,nodev,noexec,relatime shared:7 - sysfs sysfs rw
+22 1 0:21 / /proc rw,nosuid,nodev,noexec,relatime shared:12 - proc proc rw
+23 1 0:5 / /dev rw,nosuid,relatime shared:2 - devtmpfs udev rw,size=8000000k,nr_inodes=2000000,mode=755
+24 1 0:22 / /run rw,nosuid,nodev,noexec,relatime shared:5 - tmpfs tmpfs rw,size=1600000k,mode=755
+25 1 8:2 / / rw,relatime - ext4 /dev/sda2 rw
+26 1 8:1 / /boot/efi rw,relatime - vfat /dev/sda1 rw,fmask=0077,dmask=0077,codepage=437,iocharset=ascii,shortname=mixed,utf8,errors=remount-ro
+27 1 0:40 / /srv/pool rw,relatime - btrfs /dev/sdb rw,ssd,space_cache=v2,subvolid=5,subvol=/

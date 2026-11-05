@@ -15,9 +15,9 @@ import {
 } from "@/features/updates/testing";
 import { i18n } from "@/i18n";
 
-import { candidate, defaults, endpointJob, list, mailJob } from "../fixtures.js";
+import { candidate, defaults, endpointJob, list, mailJob, member } from "../fixtures.js";
 import "../i18n.js";
-import { adminSession, focusOn, type Opened, openJobs, press } from "../testing.js";
+import { adminSession, focusOn, type Opened, openJobs, openMenu, press } from "../testing.js";
 
 // The whole editor renders per test and some tests type a lot (24 windows take about 3 s
 // alone); under the parallel load of the full suite they come near the default 5 s.
@@ -556,6 +556,111 @@ describe("a machine job", () => {
     expect(textOf(editor().querySelector('[aria-label="Chosen folders"]'))).not.toContain(
       "/srv/data",
     );
+  });
+
+  describe("whole machine (preview)", () => {
+    const WHOLE = {
+      available: true,
+      excludes: ["/tmp/*", "/var/tmp/*", "**/lost+found/*"],
+      containerImageExcludes: ["/var/lib/docker/btrfs", "/var/lib/docker/image"],
+    };
+    const routes = (available: boolean) => ({
+      ...ENDPOINT_ROUTES,
+      "GET /backup-jobs/defaults": () =>
+        json(defaults("endpoint", { wholeMachine: { ...WHOLE, available } })),
+      "POST /backup-jobs": () => json(endpointJob(), 201),
+    });
+    const wholeSwitch = () => field("Whole machine (bare metal, preview)");
+    const ownPatterns = () =>
+      textOf(editor().querySelector('[aria-label="Own patterns of this job"]'));
+
+    it("is not offered while the installation has not switched it on", async () => {
+      await open("/jobs?type=endpoint&new=1", routes(false));
+      expect(slot("whole-machine-field")).toBeNull();
+    });
+
+    it("greys out the folders, replaces the exclusions and puts the old ones back on request", async () => {
+      await open("/jobs?type=endpoint&new=1", routes(true));
+      expect(textOf(slot("whole-machine-field"))).toContain(
+        "Windows and macOS machines keep backing up their folders",
+      );
+      await click(wholeSwitch());
+      expect(wholeSwitch().getAttribute("aria-checked")).toBe("true");
+      expect(textOf(slot("whole-machine-folders"))).toContain("All local file systems");
+      // The folders stay, greyed out: an agent before 0.5.0 backs them up.
+      expect(textOf(editor().querySelector('[aria-label="Chosen folders"]'))).toContain("/etc");
+      expect(field("Folders").disabled).toBe(true);
+      expect(ownPatterns()).toContain("/var/tmp/*");
+      expect(ownPatterns()).not.toContain("**/.cache");
+      // Container images stay in unless chosen.
+      const images = field(
+        "Container images (btrfs storage driver): download again after a restore instead of backing up",
+      );
+      expect(images.getAttribute("aria-checked")).toBe("false");
+      await click(images);
+      expect(ownPatterns()).toContain("/var/lib/docker/btrfs");
+      await click(buttonByText(editor(), "Restore previous exclusions"));
+      expect(ownPatterns()).not.toContain("/var/tmp/*");
+      expect(buttonByText(editor(), "Restore previous exclusions")).toBeNull();
+    });
+
+    it("tells the truth about a stored switch while the preview is off: folders editable, the switch only turns off", async () => {
+      const stored = endpointJob({
+        settings: { ...endpointJob().settings, wholeMachine: true },
+      });
+      const patches: unknown[] = [];
+      opened = await openJobs("/jobs?type=endpoint", {
+        routes: {
+          ...routes(false),
+          "GET /backup-jobs": () => json(list([stored])),
+          "GET /backup-jobs/job-srv": () => json(stored),
+          "GET /backup-jobs/job-srv/members": () => json({ mode: "selected", items: [member()] }),
+          "PATCH /backup-jobs/job-srv": (request) => {
+            patches.push(request.body);
+            return json(endpointJob());
+          },
+        },
+      });
+      await flush(5);
+      const items = await openMenu(
+        document.querySelector('[aria-label="Actions for Linux servers, daily"]'),
+      );
+      await click(items.find((item) => item.textContent === "Edit"));
+      await flush(8);
+      // The agents get the folders: no "All local file systems", the folders can be edited.
+      expect(slot("whole-machine-folders")).toBeNull();
+      expect(field("Folders").disabled).toBe(false);
+      expect(textOf(slot("whole-machine-field"))).toContain(
+        "Whole machine backups are not switched on in this installation",
+      );
+      expect(wholeSwitch().getAttribute("aria-checked")).toBe("true");
+      expect(textOf(slot("whole-machine-field"))).not.toContain("Container images");
+      await click(wholeSwitch());
+      expect(wholeSwitch().getAttribute("aria-checked")).toBe("false");
+      // Switching it on again is refused while the preview is off.
+      expect(wholeSwitch().disabled).toBe(true);
+      await click(buttonByText(editor(), "Save changes"));
+      await flush(5);
+      expect(patches).toHaveLength(1);
+      expect((patches[0] as { settings: Record<string, unknown> }).settings).not.toHaveProperty(
+        "wholeMachine",
+      );
+    });
+
+    it("sends the switch with the job and keeps the folders", async () => {
+      await open("/jobs?type=endpoint&new=1", routes(true));
+      await typeInto(field("Name"), "Whole servers");
+      await click(wholeSwitch());
+      await click(checkbox("FS-BERGISCH"));
+      await click(buttonByText(editor(), "Create job"));
+      await flush(4);
+      const sent = opened?.requests.find(
+        (request) => request.method === "POST" && request.path === "/backup-jobs",
+      );
+      expect(sent?.body).toMatchObject({
+        settings: { wholeMachine: true, paths: ["/etc", "/home"] },
+      });
+    });
   });
 
   it("says that at least one folder is needed, and a bad bandwidth, when saving", async () => {

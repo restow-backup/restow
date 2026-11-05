@@ -649,6 +649,13 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     retryable: true,
     steps: () => [step("check_endpoint_snapshot_service"), READ_DETAILS],
   },
+  // A whole machine backup could not record the disk layout (lsblk, blkid or sfdisk missing).
+  "endpoint.layout_capture_failed": {
+    category: "endpoint",
+    transient: false,
+    retryable: true,
+    steps: () => [step("check_endpoint_layout_tools"), READ_DETAILS],
+  },
   "endpoint.post_hook_failed": {
     category: "endpoint",
     transient: false,

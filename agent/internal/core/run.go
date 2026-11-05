@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"github.com/restow-backup/restow/agent/internal/api"
 	"github.com/restow-backup/restow/agent/internal/buildinfo"
 	"github.com/restow-backup/restow/agent/internal/eventlog"
+	"github.com/restow-backup/restow/agent/internal/fssnap"
 	"github.com/restow-backup/restow/agent/internal/lock"
 	"github.com/restow-backup/restow/agent/internal/release"
 	"github.com/restow-backup/restow/agent/internal/restic"
@@ -34,6 +36,9 @@ type runContext struct {
 	rl      *runlog.Log
 	runner  *restic.Runner
 	cfg     *api.Config
+	// measure, when set, hashes and measures files in the snapshot tree of
+	// this backup (Linux file system snapshots, docs/BAREMETAL.md 5.6).
+	measure func(ctx context.Context, req fssnap.MeasureRequest) (fssnap.MeasureResponse, error)
 }
 
 // runOutcome is what a run reports when it ends.
@@ -59,6 +64,8 @@ type runOutcome struct {
 	Activity *activity.Report
 	// Consistency is whether a file system snapshot was used (backups).
 	Consistency *api.Consistency
+	// Layout is the canonical layout manifest of a whole-machine backup.
+	Layout json.RawMessage
 }
 
 func (o *runOutcome) fail(code, format string, args ...any) {
@@ -128,7 +135,7 @@ func (a *Agent) endRun(rc *runContext, out runOutcome) {
 	fin := api.FinishRequest{
 		Status: out.Status, FinishedAt: finished, SnapshotID: out.SnapshotID, Stats: out.Stats,
 		Sample: out.Sample, Errors: capErrors(out.Errors, out.Unlisted), LogTail: rc.rl.Tail(), RestoreTest: out.RestoreTest,
-		Activity: out.Activity, Consistency: out.Consistency,
+		Activity: out.Activity, Consistency: out.Consistency, Layout: out.Layout,
 	}
 	timeout := 4 * time.Minute
 	base := rc.ctx

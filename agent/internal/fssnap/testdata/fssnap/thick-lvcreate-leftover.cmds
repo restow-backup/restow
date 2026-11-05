@@ -1,0 +1,6 @@
+lvcreate -s -L 5368709120b -n root_restowsnap --addtag restow-agent-snapshot vg0/root
+lvcreate -s -L 34359738368b -n home_restowsnap --addtag restow-agent-snapshot vg0/home
+lvs --reportformat json -o lv_name,vg_name,lv_tags vg0/home_restowsnap
+lvremove -y vg0/home_restowsnap
+-- remove
+lvremove -y vg0/root_restowsnap

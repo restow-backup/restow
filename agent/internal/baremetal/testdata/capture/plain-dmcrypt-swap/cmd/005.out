@@ -1,0 +1,10 @@
+label: gpt
+label-id: 0A1B2C3D-4E4F-5061-7283-9405A6B7C8D9
+device: /dev/vdb
+unit: sectors
+first-lba: 2048
+last-lba: 209715166
+table-length: 128
+sector-size: 512
+
+/dev/vdb1 : start=        2048, size=   208896000, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, uuid=ae200000-0000-4000-8000-000000000001, name="data"

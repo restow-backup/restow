@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { useConfirmIdentity } from "@/components/confirm-identity-dialog";
 import { Field, messageId } from "@/components/forms/field";
 import { ConfirmDialog } from "@/components/kit/confirm-dialog";
+import { NativeSelect } from "@/components/kit/native-select";
 import { ReadOnlyGroup } from "@/components/kit/read-only-group";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -42,6 +43,8 @@ import {
   type DraftField,
   type DraftProblems,
   draftFromDetail,
+  effectiveFsSnapshot,
+  type FsSnapshotChoice,
   hasProblems,
   type SettingsDraft,
   stricterRetention,
@@ -781,6 +784,35 @@ export function SettingsTab({ detail }: { detail: EndpointDetail }) {
                     onCheckedChange={(checked) => set("useVss", checked)}
                     disabled={disabled}
                   />
+                </div>
+              ) : null}
+              {detail.os === "linux" ? (
+                <div
+                  className="flex flex-wrap items-start justify-between gap-4 rounded-md border p-3"
+                  data-slot="settings-fs-snapshot"
+                >
+                  <div className="min-w-0 flex-1 space-y-0.5">
+                    <label htmlFor="settings-fs-snapshot" className="text-sm font-medium">
+                      {t("settings.fsSnapshot.label")}
+                    </label>
+                    <p className="text-xs text-muted-foreground">{t("settings.fsSnapshot.hint")}</p>
+                    {draft.fsSnapshot === "default" ? (
+                      <p className="text-xs text-muted-foreground" data-slot="fs-snapshot-default">
+                        {t(`settings.fsSnapshot.defaultNote.${effectiveFsSnapshot(detail.config)}`)}
+                      </p>
+                    ) : null}
+                  </div>
+                  <NativeSelect
+                    id="settings-fs-snapshot"
+                    className="w-auto"
+                    value={draft.fsSnapshot}
+                    onChange={(event) => set("fsSnapshot", event.target.value as FsSnapshotChoice)}
+                    disabled={disabled}
+                  >
+                    <option value="default">{t("settings.fsSnapshot.default")}</option>
+                    <option value="auto">{t("settings.fsSnapshot.auto")}</option>
+                    <option value="off">{t("settings.fsSnapshot.off")}</option>
+                  </NativeSelect>
                 </div>
               ) : null}
             </Section>

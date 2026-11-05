@@ -32,6 +32,17 @@ export interface SnapshotZipOptions {
   signal?: AbortSignal;
   /** ZIP comment (snapshot id, endpoint). */
   comment?: string;
+  /**
+   * Files and folders left out of the archive, by their path in the snapshot (absolute,
+   * `/`-separated): the agent's state file and, for the restore role, LUKS key files
+   * (docs/BAREMETAL.md 5.4).
+   */
+  skip?: (snapshotPath: string) => boolean;
+}
+
+/** The snapshot path of an entry of `restic dump --archive tar` (named from the root, no slash). */
+export function tarEntrySnapshotPath(entryName: string): string {
+  return `/${entryName.replace(/^\/+/, "").replace(/\/+$/, "")}`;
 }
 
 export interface SnapshotZip {
@@ -151,11 +162,15 @@ export function streamSnapshotZip(
   options: SnapshotZipOptions & { selection: { path: string; type: "file" | "dir" }[] },
 ): SnapshotZip {
   const { session, snapshotId, selection, signal } = options;
+  const skip = options.skip ?? (() => false);
   const archive = new ZipArchive({ zlib: { level: 1 }, comment: options.comment });
   const names = new UniqueNames();
 
   const pump = async (): Promise<void> => {
     for (const item of selection) {
+      if (skip(item.path)) {
+        continue;
+      }
       if (item.type === "file") {
         const dump = resticDump(session, snapshotId, item.path, { signal });
         const name = names.claim(safeEntryName(basename(item.path)) || "file");
@@ -168,6 +183,10 @@ export function streamSnapshotZip(
       const dump = resticDump(session, snapshotId, item.path, { archive: "tar", signal });
       const prefix = parentPrefix(item.path);
       for await (const entry of readTar(dump.stream)) {
+        if (skip(tarEntrySnapshotPath(entry.name))) {
+          // The reader skips the body the archive does not take.
+          continue;
+        }
         const relative = entry.name.startsWith(prefix)
           ? entry.name.slice(prefix.length)
           : entry.name;

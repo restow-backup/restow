@@ -94,6 +94,11 @@ const VALUES = {
   os: "windows",
   method: "vss",
   live: "D:\\",
+  vg: "vg0",
+  mounts: "/, /home",
+  disk: "nvme0n1",
+  luks: 1,
+  plain: 0,
 };
 
 describe("endpoints translations", () => {

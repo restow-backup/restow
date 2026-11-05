@@ -73,6 +73,18 @@ func TestUsageAndUnknownCommands(t *testing.T) {
 	if code := run([]string{"help"}, &so, &se); code != exitOK || !strings.Contains(so.String(), "enroll") {
 		t.Fatalf("help: %d", code)
 	}
+	// baremetal is documented; the helper snapshot-exec is internal.
+	if !strings.Contains(so.String(), "baremetal    Capture the disk layout") || strings.Contains(so.String(), "snapshot-exec") {
+		t.Fatalf("usage:\n%s", so.String())
+	}
+	se.Reset()
+	if code := run([]string{"baremetal"}, &so, &se); code != exitUsage || !strings.Contains(se.String(), "baremetal capture") {
+		t.Fatalf("baremetal without capture: %d %s", code, se.String())
+	}
+	se.Reset()
+	if code := run([]string{"snapshot-exec"}, &so, &se); code != exitUsage {
+		t.Fatalf("snapshot-exec without spec: %d %s", code, se.String())
+	}
 	so.Reset()
 	if code := run([]string{"version"}, &so, &se); code != exitOK || !strings.Contains(so.String(), "restow-agent ") || !strings.Contains(so.String(), "platform:") {
 		t.Fatalf("version: %d %s", code, so.String())

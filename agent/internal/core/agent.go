@@ -257,6 +257,8 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 
 	a.recoverInterrupted(ctx)
+	// Snapshots a run left behind when the agent or the machine stopped.
+	a.cleanupStaleSnapshots(ctx)
 	_ = a.d.Status.Update(func(s *status.Status) { s.Service = "idle" })
 
 	workerDone := make(chan struct{})

@@ -44,6 +44,7 @@ import {
   deriveAuthLogin,
   EndpointRepositoryBusyError,
   endpointDownloads,
+  endpointLayouts,
   endpointReports,
   endpointRepositoryLocks,
   endpointRuns,
@@ -1652,6 +1653,58 @@ describe.skipIf(!adminUrl || !resticAvailable())(
         expect(left.sort()).toEqual([recentlyExpired, open].sort());
         expect(left).not.toContain(staleUnused);
         expect(left).not.toContain(staleStarted);
+      }, 60_000);
+
+      it("keeps the layouts a run points at and each machine's newest, and removes the rest", async () => {
+        clock = new Date();
+        const id = await bareEndpoint();
+        const layout = (sha: string, ageHours: number) => ({
+          tenantId: contoso,
+          endpointId: id,
+          sha256: sha.repeat(64),
+          format: "restow-layout-v1",
+          schemaVersion: 1,
+          platform: "linux",
+          manifest: {},
+          summary: {},
+          verdict: "supported",
+          layoutFingerprint: "f",
+          createdAt: new Date(clock.getTime() - ageHours * HOUR),
+        });
+        const [oldReferenced, oldOrphan, recentOrphan, newest] = (
+          await owner
+            .insert(endpointLayouts)
+            .values([layout("a", 72), layout("b", 48), layout("c", 2), layout("d", 1)])
+            .returning({ id: endpointLayouts.id })
+        ).map((entry) => entry.id);
+        await owner.insert(endpointRuns).values({
+          tenantId: contoso,
+          endpointId: id,
+          kind: "backup",
+          status: "succeeded",
+          startedAt: new Date(clock.getTime() - 72 * HOUR),
+          snapshotId: "e".repeat(64),
+          layoutId: oldReferenced,
+        });
+        const summary = await endpointMonitor(deps);
+        expect(summary.purgedLayouts).toBeGreaterThanOrEqual(1);
+        const left = (
+          await owner
+            .select({ id: endpointLayouts.id })
+            .from(endpointLayouts)
+            .where(eq(endpointLayouts.endpointId, id))
+        ).map((entry) => entry.id);
+        expect(left.sort()).toEqual([oldReferenced, recentOrphan, newest].sort());
+        expect(left).not.toContain(oldOrphan);
+        // A machine's only layout stays, whatever its age.
+        const lonely = await bareEndpoint();
+        await owner.insert(endpointLayouts).values({ ...layout("f", 200), endpointId: lonely });
+        await endpointMonitor(deps);
+        const kept = await owner
+          .select({ id: endpointLayouts.id })
+          .from(endpointLayouts)
+          .where(eq(endpointLayouts.endpointId, lonely));
+        expect(kept).toHaveLength(1);
       }, 60_000);
     });
 

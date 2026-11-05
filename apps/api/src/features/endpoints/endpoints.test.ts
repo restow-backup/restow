@@ -38,6 +38,7 @@ import {
   problemsOf,
   type RatedTests,
   storageOf,
+  toConfigDto,
   toRunDetail,
   toRunSummary,
   toSummary,
@@ -526,6 +527,28 @@ describe("the configuration an agent is served", () => {
     expect(
       configResponse(stored, 1, { zone: "America/New_York", now: instant }).bandwidthKbps,
     ).toBe(2000); // 12:30
+  });
+});
+
+describe("the configuration a machine's page shows", () => {
+  it("says whether the agent gets the whole machine: only with the preview on and on Linux", () => {
+    const linux = {
+      ...defaultEndpointConfig("linux", "server", { timeZone: "Europe/Berlin" }),
+      wholeMachine: true,
+    };
+    expect(toConfigDto(linux, { os: "linux", baremetalPreview: false })).toMatchObject({
+      wholeMachine: true,
+      wholeMachineActive: false,
+      fsSnapshot: null,
+    });
+    expect(toConfigDto(linux, { os: "linux", baremetalPreview: true }).wholeMachineActive).toBe(
+      true,
+    );
+    expect(toConfigDto(linux, { os: "windows", baremetalPreview: true }).wholeMachineActive).toBe(
+      false,
+    );
+    // It matches what GET /agent/v1/config sends.
+    expect(configResponse(linux, 1, undefined, { os: "linux" }).fsSnapshot).toBe("off");
   });
 });
 

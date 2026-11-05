@@ -8,6 +8,7 @@ import (
 
 	"github.com/restow-backup/restow/agent/internal/activity"
 	"github.com/restow-backup/restow/agent/internal/api"
+	"github.com/restow-backup/restow/agent/internal/fssnap"
 )
 
 // activityTimeout bounds the diff of two snapshots and the few reads after it.
@@ -67,7 +68,17 @@ func (a *Agent) collectActivity(rc *runContext, snapshotID string, sources []str
 		}
 		return nil
 	}
-	samples := activity.MeasureAll(c.Candidates(), snapshotToLocalPath, func() bool { return actx.Err() != nil })
+	var samples []activity.Sample
+	if rc.measure != nil {
+		// Entropy from the snapshot tree (docs/BAREMETAL.md 5.6).
+		resp, err := rc.measure(actx, fssnap.MeasureRequest{Activity: c.Candidates()})
+		if err != nil && rc.ctx.Err() == nil {
+			rc.rl.Warnf("Could not measure changed files in the snapshot: %v", err)
+		}
+		samples = resp.Activity
+	} else {
+		samples = activity.MeasureAll(c.Candidates(), snapshotToLocalPath, func() bool { return actx.Err() != nil })
+	}
 	r := c.Report(samples)
 	rc.rl.Infof("Compared with snapshot %s: %d new, %d changed, %d deleted, %d renamed to another extension; %d files sampled.",
 		shortID(previous), r.Added, r.Modified, r.Removed, r.Renamed, len(r.Entropy))

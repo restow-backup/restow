@@ -1,0 +1,21 @@
+superblock: bytenr=65536, device=/dev/nvme0n1p2
+---------------------------------------------------------
+csum_type		0 (crc32c)
+fsid			af000000-0000-4000-8000-000000000001
+label			
+nodesize		16384
+sectorsize		4096
+compat_flags		0x0
+compat_ro_flags		0x2
+			( FREE_SPACE_TREE |
+			  FREE_SPACE_TREE_VALID )
+incompat_flags		0x6
+			( MIXED_BACKREF |
+			  DEFAULT_SUBVOL |
+			  BIG_METADATA |
+			  EXTENDED_IREF |
+			  SKINNY_METADATA |
+			  NO_HOLES )
+cache_generation	0
+uuid_tree_generation	2344
+dev_item.uuid		77777777-0000-4000-8000-000000000001

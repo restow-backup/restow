@@ -561,6 +561,69 @@ jobs:
           done
           echo "restic.exe contains all four snapshot error texts"
 
+  agent-root:
+    name: Go agent as root (file system snapshots and layout capture on loop devices)
+    # docs/BAREMETAL.md 21.2: LVM (thick, thin, a full volume group), btrfs with nested
+    # subvolumes, md, LUKS and XFS on loop devices, the snapshot helper's namespace and
+    # chroot, restic through it against rest-server, and that nothing stays mounted. The
+    # tests are behind the build tag agentroot and RESTOW_AGENT_ROOT=1, so they never run
+    # elsewhere.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Is there an agent with these tests in this commit?
+        id: detect
+        run: |
+          if [ -f agent/go.mod ] && grep -rqs --include='*.go' 'agentroot' agent/internal; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::no agent-root tests in this commit; nothing to run."
+          fi
+
+      - name: Set up Go
+        if: steps.detect.outputs.present == 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: agent/go.mod
+          cache: false
+
+      - name: Storage tools
+        if: steps.detect.outputs.present == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            lvm2 thin-provisioning-tools btrfs-progs mdadm cryptsetup xfsprogs
+
+      - name: restic and rest-server (pinned in agent/tools.env)
+        if: steps.detect.outputs.present == 'true'
+        env:
+          AGENT_DIR: ${{ github.workspace }}/agent
+        run: |
+          mkdir -p "$RUNNER_TEMP/tools"
+          . agent/scripts/lib.sh
+          fetch_tool restic linux amd64 "$RUNNER_TEMP/tools/restic"
+          fetch_tool rest-server linux amd64 "$RUNNER_TEMP/tools/rest-server"
+
+      - name: Tests as root (build tag agentroot)
+        if: steps.detect.outputs.present == 'true'
+        working-directory: agent
+        env:
+          RESTIC_BINARY: ${{ runner.temp }}/tools/restic
+          RESTOW_TEST_RESTIC: ${{ runner.temp }}/tools/restic
+          RESTOW_TEST_REST_SERVER: ${{ runner.temp }}/tools/rest-server
+        run: |
+          go test -c -tags agentroot -o "$RUNNER_TEMP/fssnap.test" ./internal/fssnap
+          go test -c -tags agentroot -o "$RUNNER_TEMP/baremetal.test" ./internal/baremetal
+          # Each test binary runs in its package folder, where its testdata lies.
+          cd internal/fssnap
+          sudo -E env RESTOW_AGENT_ROOT=1 "PATH=$PATH" "$RUNNER_TEMP/fssnap.test" -test.v -test.count=1 -test.timeout=20m
+          cd ../baremetal
+          sudo -E env RESTOW_AGENT_ROOT=1 "PATH=$PATH" "$RUNNER_TEMP/baremetal.test" -test.v -test.count=1 -test.timeout=20m
+
   agent-windows:
     name: Go agent on Windows (vet, unit tests)
     # Windows preview (docs/WINDOWS-AGENT.md, section 3.5): the unit tests that have no
@@ -693,6 +756,7 @@ jobs:
       - licenses
       - secrets
       - agent
+      - agent-root
       - agent-windows
       - shellcheck
       - actionlint

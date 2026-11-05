@@ -62,6 +62,20 @@ type BackupOptions struct {
 	// soon as restic reports it (the caller may stop the backup). Calls
 	// never overlap.
 	OnSnapshotFailed func(VolumeFailure)
+
+	// OneFileSystem: --one-file-system (whole machine, docs/BAREMETAL.md
+	// 5.5): file system boundaries are not crossed; every file system to
+	// back up is named as a source.
+	OneFileSystem bool
+	// GroupBy: --group-by <v> (whole machine: "host"); empty keeps restic's
+	// default (host,paths).
+	GroupBy string
+	// Exec, when set, runs restic through this argv prefix (the snapshot
+	// helper, 6.3): the command is Exec[0] with Exec[1:] + [restic binary] +
+	// restic's arguments.
+	Exec []string
+	// ExecNewMountNS starts the prefix in a new mount namespace (Linux).
+	ExecNewMountNS bool
 }
 
 // BackupResult is the outcome of a backup that produced a snapshot.
@@ -110,6 +124,12 @@ func backupArgs(o BackupOptions, filesFrom, excludeFile string) []string {
 	}
 	if o.ExcludeCloudFiles {
 		args = append(args, "--exclude-cloud-files")
+	}
+	if o.OneFileSystem {
+		args = append(args, "--one-file-system")
+	}
+	if o.GroupBy != "" {
+		args = append(args, "--group-by", o.GroupBy)
 	}
 	if o.UseFSSnapshot {
 		// Options of the snapshot, not secrets: they may stand on the command line.
@@ -193,7 +213,7 @@ func (r *Runner) Backup(ctx context.Context, o BackupOptions) (*BackupResult, er
 		}
 	}
 	sawProgress := false
-	xr, err := r.exec(ctx, execSpec{Command: "backup", Args: args, OnStderrError: items.add, OnStdoutLine: func(line []byte) {
+	xr, err := r.exec(ctx, execSpec{Command: "backup", Args: args, Prefix: o.Exec, NewMountNS: o.ExecNewMountNS, OnStderrError: items.add, OnStdoutLine: func(line []byte) {
 		switch peekType(line) {
 		case msgStatus:
 			sawProgress = true

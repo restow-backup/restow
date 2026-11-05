@@ -3,10 +3,12 @@ package core
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/restow-backup/restow/agent/internal/api"
+	"github.com/restow-backup/restow/agent/internal/fssnap"
 	"github.com/restow-backup/restow/agent/internal/restic"
 	"github.com/restow-backup/restow/agent/internal/winapi"
 )
@@ -56,6 +58,130 @@ func snapshotFailPolicy(cfg *api.Config) bool {
 
 // snapshotLogHint is where an administrator looks for the cause.
 const snapshotLogHint = "Event Viewer > Windows Logs > Application, source VSS; as an administrator: vssadmin list writers"
+
+// snapshotNoun names the snapshot of a method in messages.
+func snapshotNoun(method string) string {
+	switch method {
+	case api.SnapshotMethodLVM:
+		return "LVM snapshot"
+	case api.SnapshotMethodBtrfs:
+		return "btrfs snapshot"
+	case "apfs":
+		return "APFS snapshot"
+	case api.SnapshotMethodMixed:
+		return "file system snapshot"
+	}
+	return "shadow copy"
+}
+
+// snapshotLogHintFor is where an administrator looks for the cause, per
+// method (docs/BAREMETAL.md 6.4).
+func snapshotLogHintFor(method string) string {
+	switch method {
+	case api.SnapshotMethodLVM:
+		return "lvs, vgs, journalctl -k"
+	case api.SnapshotMethodBtrfs:
+		return "btrfs filesystem usage <mount point>"
+	case api.SnapshotMethodMixed:
+		return "lvs, vgs, journalctl -k and btrfs filesystem usage <mount point>"
+	case "apfs":
+		return "diskutil apfs listSnapshots /"
+	}
+	return snapshotLogHint
+}
+
+// methodOfSource is the snapshot method of one planned source.
+func methodOfSource(plan fssnap.Plan, p string) string {
+	for _, s := range plan.Sources {
+		if s.Path == p && s.Method != fssnap.MethodLive {
+			return string(s.Method)
+		}
+	}
+	return plan.Method
+}
+
+// consistencyOfFS rates the LVM and btrfs snapshots of a Linux backup
+// (R8): used when none failed and at least one held, partial when some
+// failed and some held, unavailable when none held (all failed, none with
+// a method, or no snapshot possible); liveFilesystems are the source
+// paths read live (failed or without a method), sorted, at most 32.
+func consistencyOfFS(plan fssnap.Plan, out fssnap.Outcome) *api.Consistency {
+	c := &api.Consistency{Method: plan.Method, State: api.ConsistencyOff}
+	if !plan.Requested {
+		c.Method = ""
+		return c
+	}
+	held, failed := len(out.Snapshotted) > 0, len(out.Failed) > 0
+	switch {
+	case plan.Unavailable != "" || out.Unavailable != "" || !held:
+		c.State = api.ConsistencyUnavailable
+	case failed:
+		c.State = api.ConsistencyPartial
+	default:
+		c.State = api.ConsistencyUsed
+	}
+	set := map[string]bool{}
+	for _, f := range out.Failed {
+		set[f.Path] = true
+	}
+	for _, p := range out.Live {
+		set[p] = true
+	}
+	if c.State != api.ConsistencyUnavailable || plan.Unavailable == "" && out.Unavailable == "" {
+		live := make([]string, 0, len(set))
+		for p := range set {
+			live = append(live, p)
+		}
+		sort.Strings(live)
+		if len(live) > api.MaxLiveFilesystems {
+			live = live[:api.MaxLiveFilesystems]
+		}
+		if len(live) > 0 {
+			c.LiveFilesystems = live
+		}
+	}
+	return c
+}
+
+// fsSnapshotFailedErrors are the run errors of the LVM and btrfs snapshots
+// that failed (path: the source path).
+func fsSnapshotFailedErrors(plan fssnap.Plan, fails []fssnap.Failure, stopped bool) []api.RunError {
+	var errs []api.RunError
+	for _, f := range fails {
+		noun := snapshotNoun(methodOfSource(plan, f.Path))
+		msg := fmt.Sprintf("The %s of %s could not be created or did not hold (%s). ", noun, f.Path, f.Message)
+		if stopped {
+			msg += "The backup was stopped, as the policy for a failed file system snapshot asks."
+		} else {
+			msg += "It was read from the live file system: files that changed during the backup may be inconsistent."
+		}
+		errs = append(errs, api.RunError{Code: "snapshot_failed", Path: f.Path, Message: msg})
+	}
+	return errs
+}
+
+// fsSnapshotUnavailableError is the run error for a Linux backup without
+// any snapshot although one was wanted.
+func fsSnapshotUnavailableError(method, reason string, fallback bool) api.RunError {
+	msg := fmt.Sprintf("The file system snapshot (%s) cannot be used on this machine: %s. ", snapshotNoun(method), reason)
+	if fallback {
+		msg += "The backup ran without it, from the live file system."
+	} else {
+		msg += "The backup was not made, as the policy for a failed file system snapshot asks."
+	}
+	return api.RunError{Code: "snapshot_unavailable", Message: msg}
+}
+
+// fsSnapshotCleanupErrors report snapshots the agent could not remove; they
+// change nothing about the status and are removed at the next start.
+func fsSnapshotCleanupErrors(fails []fssnap.Failure) []api.RunError {
+	var errs []api.RunError
+	for _, f := range fails {
+		errs = append(errs, api.RunError{Code: "snapshot_cleanup_failed", Path: f.Path,
+			Message: fmt.Sprintf("The snapshot %s could not be removed after the backup (%s); the agent removes it when it starts again or before the next backup.", f.Path, f.Message)})
+	}
+	return errs
+}
 
 // consistencyOf rates what happened to the snapshot of a backup that got as
 // far as restic. unavailable: no snapshot could be taken at all.

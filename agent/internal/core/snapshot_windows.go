@@ -64,3 +64,7 @@ func platformBackupOptions(o *restic.BackupOptions, _ paths.Layout) {
 	o.Excludes = append(o.Excludes, paths.DataRoot())
 	o.Excludes = append(o.Excludes, windowsFixedExcludes...)
 }
+
+// newFSBackend: Windows uses VSS through restic (planSnapshot); LVM, btrfs
+// and whole-machine backups are Linux only.
+func newFSBackend(*Agent) fsBackend { return nil }

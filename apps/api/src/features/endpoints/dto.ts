@@ -91,6 +91,8 @@ export interface RunSummaryDto {
   dataAdded: number | null;
   totalBytesProcessed: number | null;
   progress: EndpointRun["progress"];
+  /** The layout manifest a whole machine backup recorded (docs/BAREMETAL.md 4.3); null otherwise. */
+  layoutId: string | null;
   /** A stop was asked for in the UI (0.4.2): "Cancelling" while running, and who asked. */
   cancelRequestedAt: string | null;
   cancelledBy: string | null;
@@ -236,6 +238,43 @@ export interface MachineDto {
   profileDetection: NonNullable<EndpointSettings["profileDetection"]> | null;
 }
 
+/** The configuration of a machine as its page shows it. */
+export type EndpointConfigDto = Omit<EndpointConfig, "fsSnapshot" | "wholeMachine"> & {
+  fsSnapshot: "auto" | "off" | null;
+  wholeMachine: boolean;
+  /**
+   * What the agent gets (`GET /agent/v1/config`): `wholeMachine` only while
+   * RESTOW_BAREMETAL_PREVIEW is on and for a Linux machine. The default of `fsSnapshot` follows
+   * this, not the stored switch.
+   */
+  wholeMachineActive: boolean;
+};
+
+/**
+ * Whether the agent backs up the whole machine: its job writes the switch, the preview is on and
+ * the machine runs Linux (docs/BAREMETAL.md 5.1, 26.2).
+ */
+export function wholeMachineSent(
+  stored: boolean | undefined,
+  os: string | undefined,
+  baremetalPreview: boolean | undefined,
+): boolean {
+  return stored === true && baremetalPreview === true && os === "linux";
+}
+
+/** The stored configuration in the form of {@link EndpointConfigDto}. */
+export function toConfigDto(
+  config: EndpointConfig,
+  agent: { os?: string; baremetalPreview?: boolean } = {},
+): EndpointConfigDto {
+  return {
+    ...config,
+    fsSnapshot: config.fsSnapshot ?? null,
+    wholeMachine: config.wholeMachine === true,
+    wholeMachineActive: wholeMachineSent(config.wholeMachine, agent.os, agent.baremetalPreview),
+  };
+}
+
 export interface EndpointDetailDto extends EndpointSummaryDto {
   /**
    * Removed from Restow while its backups are still stored (#65): they can be browsed and
@@ -247,7 +286,11 @@ export interface EndpointDetailDto extends EndpointSummaryDto {
     state: "scheduled" | "held" | "deferred" | "done";
     expiresAt: string | null;
   } | null;
-  config: EndpointConfig;
+  /**
+   * The stored configuration, with `fsSnapshot` as the machine stores it (null: the default) and
+   * `wholeMachine` as its job writes it (docs/BAREMETAL.md 5.1, 6.1).
+   */
+  config: EndpointConfigDto;
   /** null when the agent does not report data folders. */
   dataFolders: DataFoldersDto | null;
   machine: MachineDto;
@@ -518,6 +561,7 @@ export function toRunSummary(run: EndpointRun, rated: RatedTests): RunSummaryDto
     progress: run.status === "running" ? run.progress : null,
     cancelRequestedAt: iso(run.cancelRequestedAt),
     cancelledBy: run.cancelledBy ?? null,
+    layoutId: run.layoutId ?? null,
   };
 }
 

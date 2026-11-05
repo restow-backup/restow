@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   bigint,
+  check,
   index,
   integer,
   jsonb,
@@ -152,6 +153,16 @@ export type EndpointConfig = {
    * wire form (`GET /agent/v1/config`, field `policy`).
    */
   policy?: EndpointConfigPolicy;
+  /**
+   * Back up the whole machine (preview, docs/BAREMETAL.md 5); written from a whole machine job to
+   * Linux machines that are no container, absent otherwise.
+   */
+  wholeMachine?: boolean;
+  /**
+   * File system snapshots on Linux (LVM, btrfs), set on the machine; absent means the default (on
+   * for a whole machine backup, off otherwise).
+   */
+  fsSnapshot?: "auto" | "off";
 };
 
 /** The effective agent policy stored with a machine's configuration. */
@@ -461,10 +472,14 @@ export const endpointRuns = pgTable(
     // label of who asked.
     cancelRequestedAt: timestamp("cancel_requested_at", { withTimezone: true }),
     cancelledBy: text("cancelled_by"),
+    // The layout manifest a whole machine backup recorded (0.5.0, docs/BAREMETAL.md 4.3).
+    layoutId: uuid("layout_id").references(() => endpointLayouts.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     index("endpoint_runs_endpoint_started_idx").on(t.endpointId, t.startedAt),
+    // The layouts still referenced by a run (the monitor keeps them, apps/worker monitor.ts).
+    index("endpoint_runs_layout_idx").on(t.layoutId).where(sql`${t.layoutId} IS NOT NULL`),
     // The runs an agent is told to stop with its heartbeat.
     index("endpoint_runs_cancelling_idx")
       .on(t.endpointId)
@@ -479,6 +494,41 @@ export const endpointRuns = pgTable(
       .where(
         sql`${t.kind} = 'backup' AND ${t.status} IN ('succeeded', 'partial') AND ${t.snapshotId} IS NOT NULL AND ${t.finishedAt} IS NOT NULL`,
       ),
+  ],
+);
+
+/**
+ * The layout manifest of a whole machine backup (preview, docs/BAREMETAL.md 4.3, 14.2), stored
+ * once per machine and content: the SHA-256 of its canonical encoding (@restow/core
+ * `canonicalLayoutJson`) is the same in the snapshot (`layout.json`) and here, and the runs that
+ * recorded it point at it (`endpoint_runs.layout_id`). `summary` is what the machine's page shows
+ * (@restow/core `LayoutSummary`); the full manifest carries serial numbers and is read by admins
+ * only. A layout no run points at and that is not the machine's newest is removed by the monitor.
+ */
+export const endpointLayouts = pgTable(
+  "endpoint_layouts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    endpointId: uuid("endpoint_id")
+      .notNull()
+      .references(() => endpoints.id, { onDelete: "cascade" }),
+    sha256: text("sha256").notNull(),
+    format: text("format").notNull(),
+    schemaVersion: integer("schema_version").notNull(),
+    platform: text("platform").notNull(),
+    manifest: jsonb("manifest").$type<Record<string, unknown>>().notNull(),
+    summary: jsonb("summary").$type<Record<string, unknown>>().notNull(),
+    verdict: text("verdict").notNull(),
+    layoutFingerprint: text("layout_fingerprint").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("endpoint_layouts_endpoint_sha_uq").on(t.endpointId, t.sha256),
+    index("endpoint_layouts_endpoint_created_idx").on(t.endpointId, t.createdAt),
+    check("endpoint_layouts_platform_ck", sql`${t.platform} IN ('linux', 'darwin')`),
   ],
 );
 
@@ -720,6 +770,8 @@ export type EndpointSample = typeof endpointSamples.$inferSelect;
 export type NewEndpointSample = typeof endpointSamples.$inferInsert;
 export type EndpointReport = typeof endpointReports.$inferSelect;
 export type NewEndpointReport = typeof endpointReports.$inferInsert;
+export type EndpointLayout = typeof endpointLayouts.$inferSelect;
+export type NewEndpointLayout = typeof endpointLayouts.$inferInsert;
 export type EndpointRepositoryLock = typeof endpointRepositoryLocks.$inferSelect;
 export type NewEndpointRepositoryLock = typeof endpointRepositoryLocks.$inferInsert;
 export type EndpointSnapshotFlag = typeof endpointSnapshotFlags.$inferSelect;

@@ -1,0 +1,5 @@
+[Match]
+MACAddress=f0:2f:74:aa:bb:cc
+
+[Network]
+DHCP=yes

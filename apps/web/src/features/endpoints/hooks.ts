@@ -25,6 +25,7 @@ import {
   type EndpointProfile,
   endpointKeys,
   fetchAgentUpdates,
+  fetchBaremetal,
   fetchBrowse,
   fetchEndpoint,
   fetchEndpoints,
@@ -108,6 +109,21 @@ export function useRuns(endpointId: string, limit: number, enabled: boolean) {
     queryFn: () => fetchRuns(endpointId, limit),
     enabled: scope.enabled && enabled,
     refetchInterval: connected ? false : IDLE_REFRESH_MS,
+  });
+}
+
+/**
+ * The bare metal card of a machine (preview): its state and the newest layout's summary. The
+ * layout changes only with a backup, so it is not polled; a finished run refreshes the detail,
+ * and the card's key sits below it.
+ */
+export function useBaremetal(endpointId: string, wanted = true) {
+  const { tenantId, enabled } = useTenantScope();
+  return useQuery({
+    queryKey: endpointKeys.baremetal(tenantId, endpointId),
+    queryFn: () => fetchBaremetal(endpointId),
+    enabled: enabled && wanted,
+    retry: false,
   });
 }
 

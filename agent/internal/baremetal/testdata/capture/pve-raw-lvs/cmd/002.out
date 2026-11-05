@@ -1,0 +1,34 @@
+{
+   "partitiontable": {
+      "device": "/dev/nvme0n1",
+      "firstlba": 2048,
+      "id": "B5C6D7E8-F90A-4B1C-2D3E-4F5061728394",
+      "label": "gpt",
+      "lastlba": 1953525134,
+      "partitions": [
+         {
+            "node": "/dev/nvme0n1p1",
+            "start": 2048,
+            "size": 2048,
+            "type": "21686148-6449-6E6F-744E-656564454649",
+            "uuid": "aa000000-0000-4000-8000-000000000001"
+         },
+         {
+            "node": "/dev/nvme0n1p2",
+            "start": 4096,
+            "size": 2097152,
+            "type": "C12A7328-F81F-11D2-BA4B-00A0C93EC93B",
+            "uuid": "aa000000-0000-4000-8000-000000000002"
+         },
+         {
+            "node": "/dev/nvme0n1p3",
+            "start": 2101248,
+            "size": 1949696000,
+            "type": "E6D6D379-F507-44C2-A23C-238F2A3DF928",
+            "uuid": "aa000000-0000-4000-8000-000000000003"
+         }
+      ],
+      "sectorsize": 512,
+      "unit": "sectors"
+   }
+}

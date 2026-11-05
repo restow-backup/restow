@@ -101,6 +101,12 @@ type execSpec struct {
 	// RawStdout, when set, receives restic's stdout unchanged instead of
 	// OnStdoutLine (restic dump).
 	RawStdout io.Writer
+	// Prefix, when set, starts Prefix[0] with Prefix[1:] + [Bin] + Args
+	// instead of Bin (the snapshot helper). Environment, output handling,
+	// exit codes and the interrupt stay the same: the helper execs restic.
+	Prefix []string
+	// NewMountNS starts the process in a new mount namespace (Linux only).
+	NewMountNS bool
 }
 
 type execResult struct {
@@ -126,13 +132,23 @@ func (r *Runner) exec(ctx context.Context, spec execSpec) (*execResult, error) {
 	if r.Bin == "" {
 		return nil, errors.New("restic binary path is not set")
 	}
-	cmd := exec.CommandContext(ctx, r.Bin, spec.Args...)
+	name, args := r.Bin, spec.Args
+	if len(spec.Prefix) > 0 {
+		name = spec.Prefix[0]
+		args = append(append(append([]string(nil), spec.Prefix[1:]...), r.Bin), spec.Args...)
+	}
+	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Env = r.Env()
 	cmd.Stdin = nil
 	// Ask restic to stop cleanly (it removes its lock and temporary files) and
 	// only kill it when it does not react: SIGINT on Unix, CTRL_BREAK to its
 	// own process group on Windows (runner_unix.go, runner_windows.go).
 	configureProcess(cmd)
+	if spec.NewMountNS {
+		if err := newMountNS(cmd); err != nil {
+			return nil, err
+		}
+	}
 	cmd.WaitDelay = r.CancelGrace
 	if cmd.WaitDelay == 0 {
 		cmd.WaitDelay = defaultGrace

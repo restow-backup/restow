@@ -683,6 +683,7 @@ describe("problems", () => {
       "urn:restow:problem:endpoint-token-settled": "endpoints:errors.tokenSettled",
       "urn:restow:problem:endpoint-download-gone": "endpoints:errors.downloadGone",
       "urn:restow:problem:unsupported-os": "endpoints:errors.unsupportedOs",
+      "urn:restow:problem:endpoint-restore-path-locked": "endpoints:errors.restorePathLocked",
       // Setting a hook and showing the repository password need a recent sign-in.
       "urn:restow:problem:recent-sign-in-required": "endpoints:errors.recentSignIn",
     };

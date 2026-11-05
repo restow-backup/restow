@@ -27,6 +27,7 @@ import {
   updateTenantAgentPolicy,
 } from "./agent-policy.js";
 import type { EndpointActor } from "./audit.js";
+import { getBaremetalState, getLayout } from "./baremetal.js";
 import { cancelEndpointBackup, requestEndpointUpdate } from "./cancel.js";
 import { instanceUrl } from "./instance-url.js";
 import { ENDPOINT_PROBLEMS } from "./problems.js";
@@ -40,6 +41,7 @@ import {
   createTokenSchema,
   downloadParamSchema,
   endpointIdParamSchema,
+  layoutParamSchema,
   listEndpointsQuerySchema,
   listRunsQuerySchema,
   listTokensQuerySchema,
@@ -69,6 +71,7 @@ import {
   revealRepositoryPassword,
   revokeEndpoint,
   revokeEnrollmentToken,
+  type SnapshotReader,
   setAgentUpdates,
   updateEndpoint,
 } from "./service.js";
@@ -118,6 +121,14 @@ import {
  *   GET    /:id/browse?snapshotId=&path=&cursor=  one page of a folder of a snapshot
  *   POST   /:id/downloads                       check selected files and folders, prepare a ZIP (paths in the body)
  *   GET    /:id/downloads/:downloadId           start the prepared ZIP: streamed, audited first, once
+ *   GET    /:id/baremetal                       bare metal (preview): state, the newest layout's summary
+ *                                               and verdict, the snapshot hint (restore operators too)
+ *   GET    /:id/baremetal/layouts/:layoutId     one layout with its full manifest (serial numbers; admins)
+ *
+ * The agent's state file (agent secret, repository password) is hidden from browsing and never
+ * handed out; the LUKS key files a machine's layout names are hidden from restore operators and
+ * handed to an admin only after a recent sign-in, audited (docs/BAREMETAL.md 5.4, service.ts
+ * `checkSelection`).
  *
  * Setting or changing a hook (it runs as root on the machine) and showing the
  * repository password (it opens every backup of the machine without Restow)
@@ -172,6 +183,15 @@ export function mayConfigure(c: Context<TenantEnv>): boolean {
 function actorOf(c: Context<TenantEnv>): EndpointActor {
   const user = c.get("user");
   return { label: user.email, userId: user.id, ip: clientIp(c) };
+}
+
+/** The actor of a read of backed-up files, with what it may read of a snapshot's secrets. */
+function readerOf(c: Context<TenantEnv>): SnapshotReader {
+  return {
+    ...actorOf(c),
+    role: mayConfigure(c) ? "admin" : "restore",
+    confirmRecentSignIn: () => assertRecentSignIn(c.get("auth").session),
+  };
 }
 
 endpointsRoutes.get("/", restorer, async (c) => {
@@ -292,7 +312,7 @@ endpointsRoutes.post("/:id/tasks", restorer, async (c) => {
       extensions: { requiredRole: "tenant_admin", role: c.get("role") },
     });
   }
-  const result = await createTask(db, c.get("tenantId"), id, input, actorOf(c));
+  const result = await createTask(db, c.get("tenantId"), id, input, readerOf(c));
   return c.json(result, result.alreadyQueued ? 200 : 202);
 });
 
@@ -367,8 +387,18 @@ endpointsRoutes.get("/:id/browse", restorer, async (c) => {
   const { id } = parseOrProblem(endpointIdParamSchema, c.req.param());
   const query = parseOrProblem(browseQuerySchema, c.req.query());
   return c.json(
-    await browseSnapshot(db, c.get("tenantId"), id, query, actorOf(c), c.req.raw.signal),
+    await browseSnapshot(db, c.get("tenantId"), id, query, readerOf(c), c.req.raw.signal),
   );
+});
+
+endpointsRoutes.get("/:id/baremetal", restorer, async (c) => {
+  const { id } = parseOrProblem(endpointIdParamSchema, c.req.param());
+  return c.json(await getBaremetalState(db, c.get("tenantId"), id));
+});
+
+endpointsRoutes.get("/:id/baremetal/layouts/:layoutId", admin, async (c) => {
+  const { id, layoutId } = parseOrProblem(layoutParamSchema, c.req.param());
+  return c.json(await getLayout(db, c.get("tenantId"), id, layoutId));
 });
 
 /**
@@ -405,7 +435,7 @@ endpointsRoutes.post("/:id/downloads", restorer, async (c) => {
     c.get("tenantId"),
     id,
     input,
-    actorOf(c),
+    readerOf(c),
     c.req.raw.signal,
   );
   c.header("cache-control", "no-store");
@@ -423,7 +453,7 @@ endpointsRoutes.get("/:id/downloads/:downloadId", restorerForDownload, async (c)
     c.get("tenantId"),
     id,
     downloadId,
-    actorOf(c),
+    readerOf(c),
     c.req.raw.signal,
   );
   const fileName = download.fileName.replace(/[^A-Za-z0-9._-]+/g, "_").slice(0, 120) || "files.zip";

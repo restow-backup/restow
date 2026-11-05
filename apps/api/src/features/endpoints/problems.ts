@@ -92,4 +92,12 @@ export const ENDPOINT_PROBLEMS = {
   removalSuspicionHold: "urn:restow:problem:endpoint-removal-suspicion-hold",
   /** 409: keeping the backups until they expire, but the machine's retention keeps everything. */
   removalNeverExpires: "urn:restow:problem:endpoint-removal-never-expires",
+  /**
+   * 422 or 403: a selected path is not handed out (docs/BAREMETAL.md 5.4). 422 with `reason:
+   * "agent_state"` for the agent's state file (for everybody); 403 with `reason: "key_file"` for a
+   * LUKS key file of the machine's layout and the restore role. `path` names it.
+   */
+  restorePathLocked: "urn:restow:problem:endpoint-restore-path-locked",
+  /** 409: whole machine backups are a preview this installation has not switched on (RESTOW_BAREMETAL_PREVIEW). */
+  baremetalPreviewOff: "urn:restow:problem:baremetal-preview-off",
 } as const;

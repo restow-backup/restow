@@ -154,7 +154,8 @@ Endpunkt (Linux/macOS)                       Restow-Instanz
    (Fingerabdruck des Release-Schlüssels wie `ssh-keygen -l`, SHA-256 von `windows.ps1`, wie
    diese Instanz es ausliefert; `null`, wenn es keins gibt). Ein Windows-Rechner bekommt die
    Standardordner `C:\Users` (Server zusätzlich `C:\ProgramData`) und `useVss: true`.
-7. Ablage des Agenten: Linux/macOS `/etc/restow-agent/state.json`, Modus 0600, root. Windows
+7. Ablage des Agenten: Linux/macOS `/etc/restow-agent/state.json`, Modus 0600, root (ab 0.5.0
+   von jeder Sicherung ausgeschlossen, siehe "Geheimnisse in Snapshots"). Windows
    (Vorschau): `C:\ProgramData\Restow\state\state.json` in einem Ordner mit geschützter DACL
    (SYSTEM und Administratoren), Agent-Secret und Repository-Passwort zusätzlich per DPAPI
    (Maschinenbereich) verschlüsselt im Feld `protected`.
@@ -177,11 +178,11 @@ Alle Antworten sind JSON, Fehler `application/problem+json` wie im Rest der API.
 | Aufruf | Zweck |
 | --- | --- |
 | `POST /enroll` | Token gegen Zugangsdaten tauschen (siehe oben). |
-| `GET /config` | `{ profile, schedule, paths, excludes, hooks, bandwidthKbps, onlyOnAcPower, useVss, configVersion }`, bei einem Rechner in einem Job mit Größenlimit zusätzlich `excludeLargerThanBytes` (siehe "Jobs"; ein Agent, der das Feld nicht kennt, ignoriert es). `schedule.kind` ist `interval`, `daily`, `on_connect` oder (seit 0.2.1) `none`; bei `none` sind `paths` leer und `hooks` `{}` (siehe "Rechner ohne Job"). `bandwidthKbps` ist das Limit, das **im Moment der Anfrage** gilt (aktives Zeitfenster des Jobs, sonst der Standard, `null` = unbegrenzt); die Zeitfenster selbst bekommt der Agent nie. Ab 0.4.0 zusätzlich `startsPaused` (pausiert ein Update gerade neue Läufe, siehe "Update-Pause") und, wenn eine Richtlinie etwas festlegt, `policy: { backupWindow?, catchUp, maxRetries, snapshotOnFailure? }` (siehe "Richtlinien"; `snapshotOnFailure` seit 0.5.0 und nur als `"fail"`, fehlt es, gilt `continue`); Bandbreite und Netzteil der Richtlinie stecken dann schon in `bandwidthKbps` und `onlyOnAcPower`. Ein älterer Agent ignoriert beide Felder. `Cache-Control: no-store`. |
+| `GET /config` | `{ profile, schedule, paths, excludes, hooks, bandwidthKbps, onlyOnAcPower, useVss, configVersion }`, bei einem Rechner in einem Job mit Größenlimit zusätzlich `excludeLargerThanBytes` (siehe "Jobs"; ein Agent, der das Feld nicht kennt, ignoriert es). `schedule.kind` ist `interval`, `daily`, `on_connect` oder (seit 0.2.1) `none`; bei `none` sind `paths` leer und `hooks` `{}` (siehe "Rechner ohne Job"). `bandwidthKbps` ist das Limit, das **im Moment der Anfrage** gilt (aktives Zeitfenster des Jobs, sonst der Standard, `null` = unbegrenzt); die Zeitfenster selbst bekommt der Agent nie. Ab 0.4.0 zusätzlich `startsPaused` (pausiert ein Update gerade neue Läufe, siehe "Update-Pause") und, wenn eine Richtlinie etwas festlegt, `policy: { backupWindow?, catchUp, maxRetries, snapshotOnFailure? }` (siehe "Richtlinien"; `snapshotOnFailure` seit 0.5.0 und nur als `"fail"`, fehlt es, gilt `continue`); Bandbreite und Netzteil der Richtlinie stecken dann schon in `bandwidthKbps` und `onlyOnAcPower`. Ein älterer Agent ignoriert beide Felder. Seit 0.5.0 (docs/BAREMETAL.md 5.1, 6.1): `wholeMachine: true` nur, wenn der Job des Rechners ihn als Ganzes sichert, der Rechner Linux ist und `RESTOW_BAREMETAL_PREVIEW` an ist (sonst fehlt das Feld; schaltet man die Vorschau ab, sendet der Server es beim nächsten Abruf nicht mehr, ohne `configVersion` zu ändern); `fsSnapshot: "auto" \| "off"` für Linux (macOS bis M6 immer `"off"`, Windows nie): die Einstellung des Rechners, sonst `"auto"` bei `wholeMachine`, sonst `"off"`. Ein Agent vor 0.5.0 ignoriert beide. `Cache-Control: no-store`. |
 | `POST /heartbeat` | `{ agentVersion, osVersion, state: idle/running, nextRunAt, configVersion, hooks, hookScripts?, machine?, dataFolders?, waiting? }` ergibt `{ tasks, startsPaused, cancel, updateNow }` (`startsPaused` ab 0.4.0; solange es `true` ist, enthält `tasks` keine `backup_now`-Aufgabe; `cancel` und `updateNow` ab 0.4.2, siehe "Sicherung stoppen" und "Selbstaktualisierung"). Alle 5 Minuten (Jitter +-60 s), während ein Lauf läuft jede Minute (Agent ab 0.4.2), und sofort beim Start. `hooks` ist die Hook-Regel des Rechners (`off`, `scripts`, `any`), `hookScripts` die Skripte in `/etc/restow-agent/hooks.d` (Regel `scripts`, höchstens 50). `machine` und `dataFolders` (Agent ab 0.4.0) siehe "Rechner und Datenordner". `waiting` (Agent ab 0.4.0, immer gesendet): worauf eine fällige Sicherung wartet, `""` wenn nichts wartet (siehe "Richtlinien"); fehlt es, gilt es als unbekannt. |
 | `POST /runs` | `{ kind: backup/restore/verify_sample, taskId?, startedAt }` ergibt `{ runId }`. |
 | `POST /runs/:id/progress` | `{ filesDone, bytesDone, totalFiles?, totalBytes?, currentPath? }`, alle 5 s (Agent ab 0.2.0; 0.1.x: alle 10 s). Das Limit der Agent-API (600 Aufrufe je Endpunkt und 10 Minuten, gleitendes Fenster) lässt das zu: Mit Heartbeat, Konfiguration und Start und Ende des Laufs sind es etwa 125 Aufrufe in 10 Minuten. Der Verlauf (`run_samples`) behält Punkte, die mindestens 1,5 s auseinanderliegen. |
-| `POST /runs/:id/finish` | `{ status: succeeded/partial/failed, finishedAt, snapshotId?, stats?, sample?, errors, logTail, restoreTest?, activity?, consistency? }`. `consistency` (Agent ab 0.5.0, jeder Backup-Lauf, der restic erreicht hat, auch ein fehlgeschlagener, wenn der Snapshot der Grund ist): `{ method?: vss/lvm/btrfs/apfs/mixed, state: used/partial/unavailable/off, liveFilesystems? }`, siehe "Konsistenz"; der Server prüft und begrenzt es und legt es als `stats.consistency` ab, ein fehlerhaftes wird verworfen. `activity` (Agent ab 0.4.0, nur bei einem Backup mit vorigem Snapshot): was sich gegenüber dem vorigen Snapshot geändert hat, für die Ransomware-Erkennung (Format und Grenzen: docs/RANSOMWARE.md, "The activity report"); ein Server, der das Feld nicht kennt, ignoriert es, ein fehlerhafter Bericht wird verworfen, ohne den Abschluss abzulehnen. `restoreTest` nur bei `verify_sample`: `{ files: [{ path, sha256? \| missing: true \| error }], restic?: { exitCode, fatal, errors: [{ item, message }] } }` (siehe "Restore-Test"). Wiederholung für einen beendeten Lauf antwortet gleich und ändert nichts. |
+| `POST /runs/:id/finish` | `{ status: succeeded/partial/failed, finishedAt, snapshotId?, stats?, sample?, errors, logTail, restoreTest?, activity?, consistency? }`. `consistency` (Agent ab 0.5.0, jeder Backup-Lauf, der restic erreicht hat, auch ein fehlgeschlagener, wenn der Snapshot der Grund ist): `{ method?: vss/lvm/btrfs/apfs/mixed, state: used/partial/unavailable/off, liveFilesystems? }`, siehe "Konsistenz"; der Server prüft und begrenzt es und legt es als `stats.consistency` ab, ein fehlerhaftes wird verworfen. `activity` (Agent ab 0.4.0, nur bei einem Backup mit vorigem Snapshot): was sich gegenüber dem vorigen Snapshot geändert hat, für die Ransomware-Erkennung (Format und Grenzen: docs/RANSOMWARE.md, "The activity report"); ein Server, der das Feld nicht kennt, ignoriert es, ein fehlerhafter Bericht wird verworfen, ohne den Abschluss abzulehnen. `restoreTest` nur bei `verify_sample`: `{ files: [{ path, sha256? \| missing: true \| error }], restic?: { exitCode, fatal, errors: [{ item, message }] } }` (siehe "Restore-Test"). `layout` (Agent ab 0.5.0, nur bei einer Sicherung des ganzen Rechners mit `snapshotId`): das Layout-Manifest `restow-layout-v1` (docs/BAREMETAL.md 4), genau die kanonischen Bytes von `layout.json` im Snapshot, höchstens 512 KiB; der Server prüft es (`parseLayoutManifest`), legt es je Rechner und SHA-256 einmal in `endpoint_layouts` ab und setzt `endpoint_runs.layout_id`. Ein abgelehntes (ungültig, zu groß, macOS vor M6) ändert den Status des Laufs nicht und hängt den Hinweis `layout_rejected` an seine Fehler. Wiederholung für einen beendeten Lauf antwortet gleich und ändert nichts. |
 | `GET /update` | `{ version, url, sha256 }` oder `null`: neuere **signierte** Agent-Version auf dieser Instanz; `null` auch, solange der Mandant Agent-Updates pausiert hat. |
 
 ### Rechner und Datenordner
@@ -388,6 +389,34 @@ sichern weiter; es gibt keine Datenmigration, die sie anhält (die Migration nac
 - **In einen Job:** Anlegen mit `scope.members`, `POST .../members` oder `PUT .../members` schreiben den
   Zeitplan des Jobs über `none` (`buildEndpointConfig` übernimmt ihn immer, wenn der Rechner `none`
   hat) und erhöhen `config_version`; der Agent holt die Konfiguration mit der `update_config`-Aufgabe.
+
+### Ganzer Rechner (Vorschau, seit 0.5.0)
+
+Ein Job der Art `endpoint` kann `settings.wholeMachine: true` setzen (docs/BAREMETAL.md 5): Der
+Agent (ab 0.5.0, nur Linux) sichert dann statt der Ordner des Jobs jedes lokale Dateisystem, jedes
+btrfs-Subvolume und jeden lokalen `fstab`-Eintrag, mit `--one-file-system`, `--group-by host` und
+dem Tag `restow-baremetal`, erfasst vorher das Plattenlayout (`restow-layout-v1`, im Snapshot unter
+`/var/lib/restow-agent/baremetal/layout.json`) und sendet es mit dem Abschluss (`layout`). Die
+Ordner des Jobs bleiben gespeichert, ein älterer Agent sichert weiter sie.
+
+- Der Schalter ist nicht je Mitglied überschreibbar. `syncEndpointConfigs` schreibt
+  `config.wholeMachine: true` nur in Linux-Rechner, die kein Container sind
+  (`settings.agent.machine.virtualization`); Windows, macOS (folgt mit M6) und Container bekommen
+  ihn nicht, die Mitgliederliste nennt den Grund (`wholeMachineNote`). Verlässt ein Rechner den
+  Job, verschwindet das Feld.
+- Solange `RESTOW_BAREMETAL_PREVIEW` (api) nicht `true` ist, bietet der Job-Editor den Schalter
+  nicht an, das Einschalten wird mit 409 `baremetal-preview-off` abgelehnt, und `GET /config`
+  sendet kein `wholeMachine` (ein Job, der es schon hat, behält es; der Editor zeigt ihn dann nur
+  zum Ausschalten, die Ordner bleiben bearbeitbar, denn die Rechner sichern sie). Die
+  Rechner-Details tragen `config.wholeMachineActive`: das, was `GET /config` sendet; danach
+  richtet sich der angezeigte Standard des Dateisystem-Snapshots. `fsSnapshot` am Rechner
+  (Einstellungen, "Dateisystem-Snapshot (LVM, btrfs)", nur Linux, 422 `linux_only` sonst) wirkt
+  unabhängig davon.
+- `GET /api/v1/endpoints/:id/baremetal` (ab `tenant_restore`) liefert die Karte der Rechnerseite:
+  Zustand (`not_enabled`, `not_possible`, `no_layout`, `unverified`), die Zusammenfassung des
+  neuesten Layouts mit Bewertung und, wenn eine VG keinen Platz für Snapshots hat, den Hinweis
+  `snapshotHint`. `GET /api/v1/endpoints/:id/baremetal/layouts/:layoutId` (Administratoren) liefert
+  das volle Manifest mit Seriennummern. Eine Wiederherstellung gibt es in M1 noch nicht.
 
 ### Richtlinien (seit 0.4.0)
 
@@ -612,7 +641,8 @@ darf weitere senden), die Oberfläche formuliert die bekannten (`endpoints:runEr
 `interrupted`, `cancelled` (seit 0.4.2, siehe "Sicherung stoppen"), `no_paths`, `pre_hook_failed`, `post_hook_failed`, `hooks_not_allowed`, `timeout`,
 `target_not_empty`, `invalid_task`, `hash_mismatch`, `missing`, `not_regular`, `read_error`,
 `snapshot_failed`, `snapshot_unavailable`, `snapshot_cleanup_failed` (seit 0.5.0, siehe
-"Konsistenz") und `restic_exit_<N>`. `hooks_not_allowed` heißt: Ein Hook ist eingestellt, aber der Rechner lässt
+"Konsistenz"), `layout_capture_failed`, `layout_too_large`, `layout_rejected` (seit 0.5.0, Sicherung
+des ganzen Rechners, siehe unten) und `restic_exit_<N>`. `hooks_not_allowed` heißt: Ein Hook ist eingestellt, aber der Rechner lässt
 Hooks des Servers nicht zu; die Sicherung lief ohne ihn und ist `partial`. `missing` heißt nur noch:
 In der hergestellten Kopie liegt unter diesem Pfad nichts; jeder andere Fehler beim Prüfen des
 Pfads ist `read_error`. Dateien, die restic bei einer Sicherung nicht lesen konnte, stehen je Datei
@@ -640,8 +670,13 @@ strukturierte Erklärung (`endpoint_runs.failure`, dasselbe Format wie bei Jobs,
 `file_missing`, `file_not_regular`, `read_error`, `restic_failed`, `repository_locked`,
 `repository_missing`, `repository_password`, `repository_refused`, `network`, `agent_stopped`,
 `interrupted`, seit 0.5.0 `snapshot_failed` (vorübergehend) und `snapshot_unavailable`), dazu die
-Schritte aus dem Katalog. `snapshot_cleanup_failed` ist ein Hinweis und nie die Erklärung eines
-Laufs. Entscheidend für die Wahl ist der Fehler, den
+Schritte aus dem Katalog; seit 0.5.0 auch `layout_capture_failed` (Schritt
+`check_endpoint_layout_tools`). `snapshot_cleanup_failed`, `layout_too_large` und `layout_rejected`
+sind Hinweise und nie die Erklärung eines Laufs: `layout_capture_failed` heißt, das Plattenlayout
+ließ sich nicht erfassen (etwa weil `lsblk`, `blkid` oder `sfdisk` fehlen), gesichert wurden die
+eingehängten Dateisysteme, Lauf `partial`; `layout_too_large`, das Layout liegt im Snapshot, ist aber
+größer als 512 KiB und wurde nicht gesendet (`partial`); `layout_rejected` setzt der Server, wenn er
+das gesendete Layout ablehnt (Status unverändert). Entscheidend für die Wahl ist der Fehler, den
 der Admin zuerst beheben muss (ein Hook oder fehlende Ordner vor allem anderen). `restic_exit_<N>`
 wird nach restics Exit-Codes gedeutet (10 Repository fehlt, 11 gesperrt, 12 Passwort, 3
 unvollständig) und nach dem Text des Fehlers (Netzwerk, abgelehnt). Die Detailansicht eines
@@ -1069,7 +1104,18 @@ Rechner selbst und jede andere Aktion antworten weiter 404. Danach ist er für j
 - Browsen (je Seite), Download, Restore-Anforderung und das Anzeigen des Repository-Passworts stehen im
   Audit-Log: `endpoint.snapshot.browsed`, `endpoint.snapshot.downloaded`,
   `endpoint.restore.requested`, `endpoint.restore.finished`,
-  `endpoint.repository.password.revealed`.
+  `endpoint.repository.password.revealed`, seit 0.5.0 `endpoint.repository.secret_file_revealed`
+  (ein Administrator lädt eine LUKS-Schlüsseldatei herunter oder stellt sie wieder her).
+- **Geheimnisse in Snapshots (seit 0.5.0, docs/BAREMETAL.md 5.4).** Kein Agent ab 0.5.0 sichert
+  seine Zustandsdatei mehr (`state.json` mit Agent-Secret und Repository-Passwort und die
+  Zwischendateien des Speicherns), auf keinem System. Ältere Snapshots enthalten sie weiter: Der
+  Browser blendet sie für alle aus, als einzelne Auswahl (Download, Restore) wird sie mit 422
+  `endpoint-restore-path-locked` abgelehnt, und ein Ordner-ZIP lässt sie aus. Die LUKS-Schlüsseldateien,
+  die das Layout des Snapshots oder das neueste des Rechners nennt (`luks[].keyFile`, aus
+  `crypttab`), sind für die Rolle `tenant_restore` ausgeblendet, als Auswahl gesperrt (403) und im ZIP
+  ausgelassen; ein Administrator bekommt sie nach einer frischen Anmeldung, auditiert. Ein Ordner, der
+  auf dem Rechner wiederhergestellt wird, wird nicht gefiltert (die Daten bleiben auf demselben
+  Rechner, in einem neuen Ordner, den nur root lesen kann).
 - Gleichzeitige restic-Prozesse der API sind begrenzt (6 insgesamt, 3 je Mandant; darüber 429
   `urn:restow:problem:restic-busy`).
 
@@ -1151,6 +1197,8 @@ hier.
 | `endpoint-removal-legal-hold` | 409 | Sicherungen jetzt löschen, aber eine Legal Hold über den ganzen Mandanten hält sie. |
 | `endpoint-removal-suspicion-hold` | 409 | Sicherungen jetzt löschen, aber ein ungeklärter verdächtiger Sicherungsstand des Rechners hält sie. |
 | `endpoint-removal-never-expires` | 409 | Bis zum Ablauf behalten, aber die Aufbewahrung des Rechners behält alles. |
+| `endpoint-restore-path-locked` | 422 / 403 | Ein ausgewählter Pfad wird nicht herausgegeben (seit 0.5.0): 422 mit `reason: "agent_state"` für die Zustandsdatei des Agenten (für alle), 403 mit `reason: "key_file"` für eine LUKS-Schlüsseldatei des Layouts und die Rolle `tenant_restore`; `path` nennt ihn. |
+| `baremetal-preview-off` | 409 | `wholeMachine` an einem Job einschalten, während `RESTOW_BAREMETAL_PREVIEW` aus ist. |
 | `unsupported-os` | 422 | Betriebssystem nicht unterstützt: ein unbekanntes System oder Windows on ARM (Windows nur amd64). |
 | `enrollment-token-invalid` | 401 | Das Enrollment-Token ist unbekannt, abgelaufen, widerrufen oder verwendet. |
 | `agent-unauthorized` | 401 | Falsche oder fehlende Zugangsdaten des Agenten. |
@@ -1302,7 +1350,13 @@ Mandantentabellen (`packages/db/sql/rls.sql`).
 - `endpoint_enrollment_tokens`: `token_hash` (eindeutig), Profil, Bezeichnung, `expires_at`,
   `used_at`, `used_by_endpoint_id`, `revoked_at`, `created_by`.
 - `endpoint_runs`: Art, Status, Zeiten, `snapshot_id`, `stats`, `errors`, `log_tail`,
-  `progress`, `failure` (die Erklärung oben), `task_id`, `alerted_at`.
+  `progress`, `failure` (die Erklärung oben), `task_id`, `alerted_at`; seit Migration 0076
+  `layout_id` (das Layout einer Sicherung des ganzen Rechners, `ON DELETE SET NULL`).
+- `endpoint_layouts` (Migration 0076, docs/BAREMETAL.md 4.3): Layout-Manifeste der Sicherungen
+  ganzer Rechner, je Rechner und SHA-256 der kanonischen Kodierung einmal (`sha256`, `format`,
+  `schema_version`, `platform`, `manifest`, `summary` für die Rechnerseite, `verdict`,
+  `layout_fingerprint`). Der Monitor entfernt täglich Layouts, auf die kein Lauf mehr zeigt und die
+  nicht das neueste ihres Rechners sind (ein Layout des letzten Tages bleibt immer).
 - `endpoint_tasks`: Art, `params`, Status, `created_by`, Zeiten, `expires_at`, `error_message`.
   Ein erneut angebotener Restore-Test trägt `params.retry` und `params.notBefore` (keine eigene
   Spalte).
@@ -1384,7 +1438,8 @@ Mandantentabellen (`packages/db/sql/rls.sql`).
   konfigurierte öffentliche URL.
 - **Dienst-Härtung (systemd).** `NoNewPrivileges`, `ProtectKernelTunables`, `ProtectKernelLogs`,
   `ProtectControlGroups`, `ProtectHostname`, kein Laden von Kernelmodulen
-  (`CapabilityBoundingSet=~CAP_SYS_MODULE`, `SystemCallFilter=~@module`), `RestrictNamespaces`,
+  (`CapabilityBoundingSet=~CAP_SYS_MODULE`, `SystemCallFilter=~@module`),
+  `RestrictNamespaces=mnt` (nur Mount-Namespaces, für den Snapshot-Helfer, docs/BAREMETAL.md 6.3),
   `RestrictRealtime`, `LockPersonality`, `SystemCallArchitectures=native`, `UMask=0077`; launchd
   `Umask` 077. Bewusst nicht: `ProtectSystem`, `ProtectHome`, `PrivateTmp` (Sicherung beliebiger
   Pfade, Restore überallhin), `ProtectKernelModules` (versteckt `/usr/lib/modules`),
@@ -1405,7 +1460,21 @@ Mandantentabellen (`packages/db/sql/rls.sql`).
 - **Wiederherstellung von Sicherungen des Endpunkts setzt das Repository-Passwort voraus.**
   Es liegt nur auf dem Server (und dem Endpunkt selbst).
 - **Konsistenz.** Linux/macOS: optionale Pre-/Post-Hooks (z. B. `pg_dump`); ohne Snapshot
-  liest restic das laufende Dateisystem. Windows: Schattenkopie (VSS) über restic
+  liest restic das laufende Dateisystem. Linux ab 0.5.0 mit `fsSnapshot: "auto"` (Vorgabe nur bei
+  `wholeMachine`, docs/BAREMETAL.md 6): je Dateisystem ein LVM-Snapshot (dick oder dünn) bzw. je
+  btrfs-Subvolume ein `-r`-Snapshot, gelesen über einen privaten Mount-Namensraum mit `chroot`, so
+  dass die Pfade im Snapshot die echten bleiben; ohne `wholeMachine` (restic ohne `-x`) kommen
+  auch die Dateisysteme und Subvolumes unterhalb der Ordner mit in den Baum, aus ihrem Snapshot
+  oder live gelesen. `lvcreate`, `lvchange` und `lvremove` werden nie getötet (ein Abbruch des
+  Laufs erreicht sie nicht, an ihrer Zeitgrenze bekommen sie `SIGTERM`). `method` ist `lvm`,
+  `btrfs` oder `mixed`. `state`:
+  `used`, wenn kein Snapshot scheiterte und mindestens einer hielt; `partial`, wenn einer scheiterte
+  und einer hielt; `unavailable`, wenn keiner hielt. `liveFilesystems` nennt die Einhängepunkte, die
+  ohne Snapshot gelesen wurden (gescheitert oder ohne Verfahren). Ein Dateisystem ohne Verfahren
+  (Partition, md, LUKS auf einem LV, vfat, eine VG mit weniger als 1 GiB frei, ein Thin-Pool ab 80
+  Prozent) ist **kein** Fehler: Der Lauf bleibt `succeeded`, wie die vorab ausgeschlossenen Volumes
+  unter Windows; `partial` wird er nur mit `snapshot_failed` oder `snapshot_unavailable` (Werkzeug
+  fehlt, keine Rechte, Kernel ohne `dm_snapshot`). Windows: Schattenkopie (VSS) über restic
   `--use-fs-snapshot -o vss.timeout=5m` (Wechseldatenträger, FAT und exFAT als
   `vss.exclude-volumes`), wenn `useVss` am Rechner an ist. Das Ergebnis ist **dateikonsistent,
   nicht anwendungskonsistent**: restic fordert eine Kopie-Sicherung ohne Writer-Komponenten an,
@@ -1439,7 +1508,7 @@ Mandantentabellen (`packages/db/sql/rls.sql`).
 - Windows: Windows on ARM, Authenticode, Windows Bare Metal (Systemzustand, Registry),
   weitere Datenlaufwerke als Datenordner melden, Windows-Pfade im Snapshot-Browser.
 - mTLS je Agent.
-- LVM/ZFS/btrfs-Snapshots als Konsistenzquelle.
+- ZFS-Snapshots als Konsistenzquelle (LVM und btrfs seit 0.5.0, siehe "Konsistenz").
 - Löschen eines Endpunkts samt Repository (heute: Widerruf, Daten bleiben bis zur Aufbewahrung
   bzw. für immer, wenn kein Backup mehr kommt).
 - Die Speicherziel-Migration mit "verschieben" (docs/STORAGE.md, "restic repositories in a move")

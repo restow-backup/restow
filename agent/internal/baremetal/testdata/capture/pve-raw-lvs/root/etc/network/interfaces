@@ -1,0 +1,5 @@
+auto vmbr0
+iface vmbr0 inet static
+	address 192.0.2.10/24
+	bridge-ports eno1
+	hwaddress b4:2e:99:01:02:03

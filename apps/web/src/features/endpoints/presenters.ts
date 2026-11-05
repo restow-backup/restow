@@ -873,6 +873,8 @@ const PROBLEM_KEYS: Readonly<Record<string, string>> = {
   "urn:restow:problem:endpoint-removal-legal-hold": "endpoints:errors.removalLegalHold",
   "urn:restow:problem:endpoint-removal-suspicion-hold": "endpoints:errors.removalSuspicionHold",
   "urn:restow:problem:endpoint-removal-never-expires": "endpoints:errors.removalNeverExpires",
+  // The agent's state file and, for the restore role, LUKS key files (docs/BAREMETAL.md 5.4).
+  "urn:restow:problem:endpoint-restore-path-locked": "endpoints:errors.restorePathLocked",
   // The file restore of Proxmox VE containers (apps/api features/pve/files.ts, #62).
   "urn:restow:problem:pve-files-not-a-container": "endpoints:errors.containerNotBrowsable",
   "urn:restow:problem:pve-files-no-repository": "endpoints:errors.containerNoRepository",

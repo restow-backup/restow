@@ -576,7 +576,8 @@
         "denied": "Rechner wollte seine Sicherungen ändern",
         "password": {
           "revealed": "Repository-Passwort angezeigt"
-        }
+        },
+        "secret_file_revealed": "Schlüsseldatei eines verschlüsselten Volumes herausgegeben"
       },
       "update_requested": "Aktualisierung des Agenten angefordert"
     },

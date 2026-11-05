@@ -190,7 +190,13 @@ describe.skipIf(!testDatabaseAdminUrl)("agent policies against Postgres", () => 
     expect(row.configVersion).toBe(3);
     expect("policy" in row.config).toBe(false);
     const answer = await agentGet(who);
-    expect(answer).toEqual({ ...config(), configVersion: 3, startsPaused: false });
+    // A Linux machine also learns whether to take file system snapshots (0.5.0; off by default).
+    expect(answer).toEqual({
+      ...config(),
+      configVersion: 3,
+      startsPaused: false,
+      fsSnapshot: "off",
+    });
   });
 
   it("the installation's policy reaches every tenant's machines, once", async () => {

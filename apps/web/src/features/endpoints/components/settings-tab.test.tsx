@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import type * as React from "react";
+import { act } from "react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { json, routedFetch } from "@/features/updates/testing";
@@ -178,6 +179,59 @@ describe("SettingsTab", () => {
     expect(warning?.textContent).toContain("as root (administrator)");
     expect(warning?.textContent).toContain("backup fails too");
     expect(warning?.textContent).toContain("fingerprint");
+  });
+
+  it("offers the file system snapshot of a Linux machine and saves it, null for the default", async () => {
+    await open();
+    const select = field<HTMLSelectElement>("settings-fs-snapshot");
+    expect(select.value).toBe("default");
+    expect(page.text()).toContain("Default for this machine: off.");
+    await act(async () => {
+      select.value = "auto";
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await page.click(save());
+    await page.settle();
+    expect(updateEndpoint).toHaveBeenCalledWith(ID, { config: { fsSnapshot: "auto" } });
+    page.unmount();
+    // A machine that stores its own setting goes back to the default with null.
+    await open({
+      config: {
+        ...detail().config,
+        fsSnapshot: "off",
+        wholeMachine: true,
+        wholeMachineActive: true,
+      },
+    });
+    const own = field<HTMLSelectElement>("settings-fs-snapshot");
+    expect(own.value).toBe("off");
+    await act(async () => {
+      own.value = "default";
+      own.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(page.text()).toContain("Default for this machine: on");
+    await page.click(save());
+    await page.settle();
+    expect(updateEndpoint).toHaveBeenLastCalledWith(ID, { config: { fsSnapshot: null } });
+  });
+
+  it("names the default the agent gets: off while the preview is off, even with a stored whole machine", async () => {
+    await open({
+      config: {
+        ...detail().config,
+        fsSnapshot: null,
+        wholeMachine: true,
+        wholeMachineActive: false,
+      },
+    });
+    expect(field<HTMLSelectElement>("settings-fs-snapshot").value).toBe("default");
+    expect(page.text()).toContain("Default for this machine: off.");
+  });
+
+  it("offers no file system snapshot to a Windows machine", async () => {
+    await open({ os: "windows", config: { ...detail().config, useVss: true } });
+    expect(field("settings-fs-snapshot")).toBeNull();
+    expect(document.querySelector('[data-slot="settings-vss"]')).not.toBeNull();
   });
 
   it("saves only the part that changed", async () => {

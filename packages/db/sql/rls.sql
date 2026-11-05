@@ -126,6 +126,8 @@ DECLARE
     'endpoint_downloads',
     'endpoint_repository_locks',
     'endpoint_snapshot_flags',
+    -- The layout manifests of whole machine backups (0.5.0, docs/BAREMETAL.md 14.2).
+    'endpoint_layouts',
     'backup_jobs',
     'backup_job_members',
     'run_samples',

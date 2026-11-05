@@ -1,0 +1,108 @@
+  {
+      "report": [
+          {
+              "lv": [
+                  {
+                      "data_percent": "",
+                      "lv_active": "active",
+                      "lv_attr": "-wi-ao----",
+                      "lv_full_name": "srv01-vg/root",
+                      "lv_kernel_major": "253",
+                      "lv_kernel_minor": "1",
+                      "lv_layout": "linear",
+                      "lv_metadata_size": "",
+                      "lv_name": "root",
+                      "lv_size": "53687091200",
+                      "lv_tags": "",
+                      "lv_uuid": "lvroot-0001",
+                      "metadata_percent": "",
+                      "origin": "",
+                      "pool_lv": "",
+                      "snap_percent": ""
+                  },
+                  {
+                      "data_percent": "",
+                      "lv_active": "active",
+                      "lv_attr": "-wi-ao----",
+                      "lv_full_name": "srv01-vg/swap_1",
+                      "lv_kernel_major": "253",
+                      "lv_kernel_minor": "2",
+                      "lv_layout": "linear",
+                      "lv_metadata_size": "",
+                      "lv_name": "swap_1",
+                      "lv_size": "8589934592",
+                      "lv_tags": "",
+                      "lv_uuid": "lvswap-0002",
+                      "metadata_percent": "",
+                      "origin": "",
+                      "pool_lv": "",
+                      "snap_percent": ""
+                  },
+                  {
+                      "data_percent": "",
+                      "lv_active": "active",
+                      "lv_attr": "-wi-ao----",
+                      "lv_full_name": "srv01-vg/home",
+                      "lv_kernel_major": "253",
+                      "lv_kernel_minor": "3",
+                      "lv_layout": "linear",
+                      "lv_metadata_size": "",
+                      "lv_name": "home",
+                      "lv_size": "429496729600",
+                      "lv_tags": "",
+                      "lv_uuid": "lvhome-0003",
+                      "metadata_percent": "",
+                      "origin": "",
+                      "pool_lv": "",
+                      "snap_percent": ""
+                  }
+              ],
+              "pv": [
+                  {
+                      "dev_size": "510530977792",
+                      "pv_fmt": "lvm2",
+                      "pv_name": "/dev/mapper/nvme0n1p3_crypt",
+                      "pv_size": "510526783488",
+                      "pv_uuid": "Ab12Cd-34Ef-56Gh-78Ij-90Kl-12Mn-34OpQr",
+                      "vg_name": "srv01-vg"
+                  }
+              ],
+              "pvseg": [],
+              "seg": [
+                  {
+                      "chunk_size": "0",
+                      "lv_uuid": "lvroot-0001",
+                      "segtype": "linear",
+                      "stripe_size": "0",
+                      "stripes": "1"
+                  },
+                  {
+                      "chunk_size": "0",
+                      "lv_uuid": "lvswap-0002",
+                      "segtype": "linear",
+                      "stripe_size": "0",
+                      "stripes": "1"
+                  },
+                  {
+                      "chunk_size": "0",
+                      "lv_uuid": "lvhome-0003",
+                      "segtype": "linear",
+                      "stripe_size": "0",
+                      "stripes": "1"
+                  }
+              ],
+              "vg": [
+                  {
+                      "vg_attr": "wz--n-",
+                      "vg_extent_size": "4194304",
+                      "vg_fmt": "lvm2",
+                      "vg_free": "4194304",
+                      "vg_name": "srv01-vg",
+                      "vg_size": "510526783488",
+                      "vg_systemid": "",
+                      "vg_uuid": "Zy98Xw-76Vu-54Ts-32Rq-10Po-98Nm-76LkJi"
+                  }
+              ]
+          }
+      ]
+  }

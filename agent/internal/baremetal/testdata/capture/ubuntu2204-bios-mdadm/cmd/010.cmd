@@ -1,0 +1,3 @@
+filefrag
+-v
+/swap.img

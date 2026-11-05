@@ -26,6 +26,8 @@ export const ENDPOINT_AUDIT_ACTIONS = {
   download: "endpoint.snapshot.downloaded",
   repositoryDenied: "endpoint.repository.denied",
   repositoryPasswordRevealed: "endpoint.repository.password.revealed",
+  /** An admin downloaded or restored a LUKS key file of a snapshot (docs/BAREMETAL.md 5.4). */
+  secretFileRevealed: "endpoint.repository.secret_file_revealed",
   updatesPaused: "endpoint.updates.paused",
   updatesResumed: "endpoint.updates.resumed",
 } as const;

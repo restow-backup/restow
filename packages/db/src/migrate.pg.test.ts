@@ -2235,3 +2235,113 @@ describe.skipIf(!adminUrl)(
     }, 60_000);
   },
 );
+
+describe.skipIf(!adminUrl)("upgrading to 0.5.0: layouts of whole machine backups (0076)", () => {
+  const base = adminUrl as string;
+  const database = `restow_db_migrate_layouts_${suffix}`;
+  const owner: RoleLogin = {
+    name: `restow_mig_layouts_${suffix}`,
+    password: randomBytes(18).toString("base64url"),
+  };
+  const ids = { tenant: randomUUID(), endpoint: randomUUID(), run: randomUUID() };
+  let folder = "";
+
+  beforeAll(async () => {
+    folder = migrationsFolderUpTo("0075_archive_gap_index");
+    const admin = new pg.Pool({ connectionString: base });
+    try {
+      await admin.query(
+        `CREATE ROLE ${owner.name} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE PASSWORD '${owner.password}'`,
+      );
+      await admin.query(`CREATE DATABASE ${database} OWNER ${owner.name}`);
+    } finally {
+      await admin.end();
+    }
+  });
+
+  afterAll(async () => {
+    if (folder) rmSync(folder, { recursive: true, force: true });
+    await dropTestDatabase(base, database);
+    const admin = new pg.Pool({ connectionString: base });
+    try {
+      await admin.query(`DROP ROLE IF EXISTS ${owner.name}`);
+    } finally {
+      await admin.end();
+    }
+  });
+
+  it("applies on top of 0075, keeps every run and links a run to a layout", async () => {
+    const url = urlFor(base, database, owner);
+    await applyReleasedSchema(url, folder, null);
+    const pool = new pg.Pool({ connectionString: url });
+    try {
+      const providerId = await insertReturningId(
+        pool,
+        "INSERT INTO providers (name) VALUES ('Provider') RETURNING id",
+        [],
+      );
+      await asTenant(pool, ids.tenant, async (client) => {
+        await client.query(
+          "INSERT INTO tenants (id, provider_id, name, slug) VALUES ($1, $2, 'Contoso', $3)",
+          [ids.tenant, providerId, `contoso-${suffix}`],
+        );
+        await client.query(
+          `INSERT INTO endpoints (id, tenant_id, hostname, os, arch, profile, secret_hash, config)
+           VALUES ($1, $2, 'srv-01', 'linux', 'amd64', 'server', 'x', '{}'::jsonb)`,
+          [ids.endpoint, ids.tenant],
+        );
+        await client.query(
+          `INSERT INTO endpoint_runs (id, tenant_id, endpoint_id, kind, status, started_at, snapshot_id)
+           VALUES ($1, $2, $3, 'backup', 'succeeded', now(), $4)`,
+          [ids.run, ids.tenant, ids.endpoint, "a".repeat(64)],
+        );
+      });
+
+      await runMigrations(url);
+
+      await asTenant(pool, ids.tenant, async (client) => {
+        const run = await client.query("SELECT layout_id FROM endpoint_runs WHERE id = $1", [
+          ids.run,
+        ]);
+        expect(run.rows).toEqual([{ layout_id: null }]);
+        const layout = (sha: string, platform = "linux") =>
+          insertReturningId(
+            client,
+            `INSERT INTO endpoint_layouts (tenant_id, endpoint_id, sha256, format, schema_version, platform,
+                                           manifest, summary, verdict, layout_fingerprint)
+             VALUES ($1, $2, $3, 'restow-layout-v1', 1, $4, '{}'::jsonb, '{}'::jsonb, 'supported', 'f')
+             RETURNING id`,
+            [ids.tenant, ids.endpoint, sha, platform],
+          );
+        const layoutId = await layout("b".repeat(64));
+        await client.query("UPDATE endpoint_runs SET layout_id = $1 WHERE id = $2", [
+          layoutId,
+          ids.run,
+        ]);
+        // One row per machine and content, and only the two platforms.
+        await expect(
+          client.query("SAVEPOINT a").then(() => layout("b".repeat(64))),
+        ).rejects.toThrow(/endpoint_layouts_endpoint_sha_uq/);
+        await client.query("ROLLBACK TO SAVEPOINT a");
+        await expect(
+          client.query("SAVEPOINT b").then(() => layout("c".repeat(64), "windows")),
+        ).rejects.toThrow(/endpoint_layouts_platform_ck/);
+        await client.query("ROLLBACK TO SAVEPOINT b");
+        // A layout that goes leaves the run, without its link.
+        await client.query("DELETE FROM endpoint_layouts WHERE id = $1", [layoutId]);
+        const after = await client.query("SELECT layout_id FROM endpoint_runs WHERE id = $1", [
+          ids.run,
+        ]);
+        expect(after.rows).toEqual([{ layout_id: null }]);
+      });
+      // Isolated like every tenant table: unpinned, nothing is seen.
+      const { rows } = await pool.query<{ force: boolean }>(
+        "SELECT relforcerowsecurity AS force FROM pg_class WHERE relname = 'endpoint_layouts' AND relkind = 'r'",
+      );
+      expect(rows).toEqual([{ force: true }]);
+      expect((await pool.query("SELECT 1 FROM endpoint_layouts")).rowCount).toBe(0);
+    } finally {
+      await pool.end();
+    }
+  }, 120_000);
+});

@@ -1,0 +1,16 @@
+lsattr
+-d
+/boot
+/boot/grub
+/boot/grub/x86_64-efi
+/boot/grub2
+/boot/loader
+/boot/loader/entries
+/etc
+/etc/default
+/etc/dracut.conf.d
+/etc/selinux
+/lib
+/lib/modules
+/lib/modules/6.11.5-300.fc41.x86_64
+/swap

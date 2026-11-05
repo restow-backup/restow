@@ -230,6 +230,10 @@ export const finishRunSchema = z.object({
   // Whether a file system snapshot was used (agents from 0.5.0 on): checked and bounded where it is
   // kept (@restow/core parseRunConsistency); an older agent sends none, a malformed one is dropped.
   consistency: z.unknown().optional(),
+  // The layout manifest of a whole machine backup (agents from 0.5.0 on, docs/BAREMETAL.md 4.3):
+  // checked where it is stored (@restow/core parseLayoutManifest, at most 512 KiB canonical); a
+  // refused one leaves the run as reported and adds the hint `layout_rejected`.
+  layout: z.unknown().optional(),
 });
 
 export const runIdParamSchema = z.object({ runId: uuid });
@@ -322,6 +326,8 @@ export const updateEndpointSchema = z
         onlyOnAcPower: z.boolean().optional(),
         // The shadow copy of a Windows machine (VSS); refused for other systems.
         useVss: z.boolean().optional(),
+        // File system snapshots of a Linux machine (LVM, btrfs); null returns to the default.
+        fsSnapshot: z.enum(["auto", "off"]).nullable().optional(),
       })
       .optional(),
     settings: z
@@ -423,6 +429,8 @@ export const createDownloadSchema = z.object({
 });
 
 export const downloadParamSchema = z.object({ id: uuid, downloadId: uuid });
+
+export const layoutParamSchema = z.object({ id: uuid, layoutId: uuid });
 
 /**
  * A restore folder: its length and no control characters here; the rules of the machine's system

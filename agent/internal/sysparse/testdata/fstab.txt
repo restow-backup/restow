@@ -1,0 +1,8 @@
+# /etc/fstab: static file system information.
+/dev/mapper/vg0-root /               ext4    errors=remount-ro 0       1
+UUID=8b9c0d1e-2f3a-4b5c-6d7e-8f9a0b1c2d3e /boot ext4 defaults 0 2
+UUID=1A2B-3C4D  /boot/efi       vfat    umask=0077      0       1
+
+/dev/mapper/vg0-swap none            swap    sw              0       0
+LABEL=usb\040disk /media/usb ext4 noauto,nofail,x-systemd.automount
+nas:/backup /mnt/backup nfs4
