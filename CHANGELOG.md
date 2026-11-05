@@ -637,6 +637,11 @@ private repository.
   same run (or a file in a folder deleted later in the same run) stayed in the run's failed
   items and was tried again on the next run, although it no longer existed. Such failures are
   now taken back.
+- SharePoint backup: a document library that Microsoft refused to Restow (403, 404, 423) kept its
+  files from the previous run in the new restore point, with nothing in the restore point saying
+  so; it looked as current as the libraries that were read. The library folder is now marked as
+  carried forward from an earlier run, with the time its files were last read, and `site.json`
+  says the library was not read in this run. The run still reports the library as a failed item.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,

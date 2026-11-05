@@ -380,7 +380,7 @@ das vorab begrenzen).
 
 | Pfad im Sicherungsstand | Inhalt |
 | --- | --- |
-| `site.json` | Titel, URL, Beschreibung, Websitesammlung, `sharepointIds`; je Bibliothek Name, Drive-ID und die Freigaben ihres Stammordners (`/drives/{id}/root/permissions`); je Liste Name, Vorlage, Elementzahl |
+| `site.json` | Titel, URL, Beschreibung, Websitesammlung, `sharepointIds`; je Bibliothek Name, Drive-ID, die Freigaben ihres Stammordners (`/drives/{id}/root/permissions`), ob sie in diesem Lauf gelesen wurde (`readThisRun`) und wann zuletzt (`lastReadAt`); je Liste Name, Vorlage, Elementzahl |
 | `Libraries/<Bibliothek>/…` | jede Dokumentbibliothek (`/sites/{id}/drives`, auch „Websiteseiten" mit den Seiten und „Websiteobjekte") über den Drive-Lauf der OneDrive-Engine: Delta mit Token je Bibliothek, Elemente nach ID, gestreamte Downloads, optionale Versionen (`<Datei>:versions/<id>`), Wiederholung, 410-Neuaufzählung, Prüfpunkte, Freigabe-Facette je Element als Information (Freigabeänderungen über `Prefer: deltashowsharingchanges`, wie beim OneDrive) |
 | `Lists/<Liste>/_list.json` | Liste und Spalten (`/lists/{id}/columns`) |
 | `Lists/<Liste>/<Titel> (<id>).json` | je Listenelement alle Feldwerte (`/lists/{id}/items?expand=fields`), dazu Inhaltstyp, Autor, Daten |
@@ -391,8 +391,11 @@ haben kein Delta: Sie werden je Lauf vollständig gelesen (die Feldwerte kommen 
 200 je Seite), ein unverändertes Element (gleiches eTag) übernimmt seine gespeicherten Bytes, den
 Rest dedupliziert der Pack-Speicher. Versteckte Listen (Systemlisten) und Bibliotheken als Listen
 werden übergangen. Eine Bibliothek oder Liste, die Graph verweigert (403/404/423), wird als
-fehlgeschlagenes Element gemeldet und behält ihre letzte Kopie (Liste: als `stale` markiert); der
-Rest der Website wird gesichert. Eine gelöschte Website schlägt mit `graph.site_unavailable` fehl.
+fehlgeschlagenes Element gemeldet und behält ihre letzte Kopie (Liste: jedes Element als `stale`
+markiert; Bibliothek, ab 0.5.0: der Bibliotheksordner trägt `carriedForward: "true"` und
+`lastReadAt`, den Zeitpunkt, zu dem ihre Dateien zuletzt gelesen wurden, und `site.json` nennt sie
+mit `readThisRun: false`; die Dateien selbst werden nicht als `stale` markiert, damit ihre
+Wiederverwendung nach Inhaltskennung weiter greift); der Rest der Website wird gesichert. Eine gelöschte Website schlägt mit `graph.site_unavailable` fehl.
 Eine gesperrte Website (ab 0.4.7; ein Administrator hat sie gesperrt, oder sie gehört zu einem
 Konto ohne Lizenz) antwortet auf Website-Ebene (`/sites/{id}`, `/sites/{id}/drives`) oder in jeder
 Bibliothek mit 423 `notAllowed`/`resourceLocked`: Antworten alle Bibliotheken so, endet der Lauf
