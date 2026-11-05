@@ -14,7 +14,13 @@ import { InMemoryArchiveCatalog } from "./memory.js";
 import { readArchiveItemOriginal } from "./reader.js";
 import type { RetentionPolicy } from "./retention.js";
 import { ArchiveCatalogDuplicateError } from "./types.js";
-import { ArchiveWriteOnceError, writeArchiveItem } from "./writer.js";
+import {
+  ArchiveChunksMissingError,
+  ArchiveWriteOnceError,
+  commitArchiveItem,
+  storeArchiveContent,
+  writeArchiveItem,
+} from "./writer.js";
 
 const TENANT = "22222222-3333-4444-8555-666666666666";
 const DEK: Dek = { version: 1, material: Buffer.alloc(32, 0x77) };
@@ -50,6 +56,18 @@ class RecordingStorage implements StorageBackend {
 
   delete(key: string): Promise<void> {
     return this.inner.delete(key);
+  }
+}
+
+/** A chunk index on which scrub GC collects chunks once, right before a reference lands. */
+class GcRacingIndex extends MemoryChunkIndex {
+  beforeReference: ((ids: readonly string[]) => Promise<void>) | null = null;
+
+  override async addReferences(storedIds: readonly string[]): Promise<void> {
+    const hook = this.beforeReference;
+    this.beforeReference = null;
+    await hook?.(storedIds);
+    return super.addReferences(storedIds);
   }
 }
 
@@ -333,6 +351,79 @@ describe("writeArchiveItem", () => {
       // item that no backup shares chunks with.
       expect(index.chunks.get(chunkId)?.refcount).toBeGreaterThan(0);
     }
+  });
+
+  it("refuses to commit when a deduplicated chunk was collected before the reference", async () => {
+    const { primary, storage, keys, index } = fixture();
+    const original = Buffer.from("a PDF attachment a pruned backup left behind".repeat(400));
+    const receivedAt = new Date("2026-01-01T00:00:00.000Z");
+    const content = await storeArchiveContent({ tenantId: TENANT, storage, keys, index, original });
+    // Scrub GC re-packs between store and commit and drops the unreferenced chunk row.
+    const gone = content.chunks[0] as string;
+    index.chunks.delete(gone);
+
+    await expect(
+      commitArchiveItem({
+        tenantId: TENANT,
+        itemId: "item-gc",
+        storage,
+        keys,
+        index,
+        content,
+        receivedAt,
+        envelope: null,
+        flags: [],
+        source: "journal",
+        retentionPolicy: RETENTION,
+        prevChainHash: null,
+        createdAt: receivedAt,
+      }),
+    ).rejects.toBeInstanceOf(ArchiveChunksMissingError);
+    // No sealed record, and the references taken for the attempt are released again.
+    expect(await primary.head(archiveItemKey(TENANT, receivedAt, "item-gc"))).toBeNull();
+    for (const [, entry] of index.chunks) {
+      expect(entry.refcount).toBe(0);
+    }
+  });
+
+  it("stores the content again when a chunk vanished before the commit, and stays readable", async () => {
+    const { storage, keys } = fixture();
+    const index = new GcRacingIndex();
+    const original = Buffer.from("deduplicated against an old, unreferenced chunk".repeat(10));
+    // The same bytes were stored before (a pruned backup's chunk at refcount 0).
+    const earlier = await storeArchiveContent({ tenantId: TENANT, storage, keys, index, original });
+    const pack = index.chunks.get(earlier.chunks[0] as string)?.packPath as string;
+    let collected = false;
+    // GC wins the race once: row and pack file are gone before the reference lands.
+    index.beforeReference = async (ids) => {
+      collected = true;
+      for (const id of ids) {
+        index.chunks.delete(id);
+      }
+      await storage.primary.delete(pack);
+    };
+
+    const record = await writeArchiveItem({
+      tenantId: TENANT,
+      itemId: "item-rewritten",
+      storage,
+      keys,
+      index,
+      original,
+      receivedAt: new Date("2026-01-01T00:00:00.000Z"),
+      envelope: null,
+      flags: [],
+      source: "journal",
+      retentionPolicy: RETENTION,
+      prevChainHash: null,
+    });
+
+    expect(collected).toBe(true);
+    for (const id of record.chunks) {
+      expect(index.chunks.get(id)?.refcount).toBe(1);
+    }
+    const reader = new ChunkReader({ storage, keys, index });
+    expect((await readArchiveItemOriginal(reader, record)).equals(original)).toBe(true);
   });
 });
 

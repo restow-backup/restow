@@ -584,6 +584,13 @@ private repository.
   fetched again on the next passes, given up only after three failures; a message too large or
   not convertible is recorded as an open capture gap at once (`too_large`, `not_convertible`,
   `export_failed`), shown on the archive page and named by the capture alert.
+- Mail archive: a captured mail could be committed with a chunk that existed nowhere. Capture
+  reuses a chunk the store already holds, also one an expired backup left unreferenced, and
+  scrub's garbage collection does not wait for continuous capture or the journal receiver: when
+  it collected such a chunk between the upload and the commit, the reference landed on nothing
+  and the item could never be read back. The commit now checks after taking its references that
+  every chunk still exists; if one is gone it releases them, stores the mail again (the missing
+  chunks are written anew) and commits then.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,

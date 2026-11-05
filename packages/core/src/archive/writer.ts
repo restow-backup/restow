@@ -44,9 +44,15 @@
  *
  * Two halves (0.4.4): {@link storeArchiveContent} chunks and uploads the
  * original and pins nothing, so it can run outside the chain lock (the
- * upload is the slow part; scrub GC's grace period keeps the fresh chunks
- * alive until they are referenced); {@link commitArchiveItem} pins the
+ * upload is the slow part; scrub GC's grace period keeps freshly written
+ * chunks alive until they are referenced); {@link commitArchiveItem} pins the
  * chunks, links the record into the chain and writes it, under the lock.
+ * The grace period does not cover a chunk deduplication found already old
+ * and unreferenced (left over from a pruned backup): GC may collect it
+ * between the two halves. The commit therefore checks after pinning that
+ * every chunk is still locatable and otherwise throws
+ * {@link ArchiveChunksMissingError}; the caller stores the content again,
+ * which rewrites the missing chunks, and commits once more (0.5.0).
  * {@link writeArchiveItem} does both in one call, as before.
  */
 import type { ObjectInput } from "../engine/chunkstore.js";
@@ -120,6 +126,60 @@ export interface WriteArchiveItemOptions {
   readonly logger?: Logger;
 }
 
+/**
+ * Thrown by {@link commitArchiveItem} when a chunk of the content is gone by the time it is
+ * pinned: deduplication found it in the index, but scrub GC collected it (refcount 0 past
+ * its grace period) before the reference landed. The references just taken are released
+ * again; the caller stores the content once more (the missing chunks are then rewritten,
+ * since the index no longer has them) and commits again. Nothing is committed with a
+ * chunk that exists nowhere.
+ */
+export class ArchiveChunksMissingError extends Error {
+  constructor(readonly missing: readonly string[]) {
+    super(
+      `refusing to commit archive item: ${missing.length} chunk(s) are not locatable (first ${missing[0]}); the content must be stored again`,
+    );
+    this.name = "ArchiveChunksMissingError";
+  }
+}
+
+/** How often a commit is tried when chunks vanish in between (each try stores again). */
+export const ARCHIVE_COMMIT_ATTEMPTS = 3;
+
+/** Chunk ids per `locate`/reference call, as the snapshot commit batches them. */
+const PIN_BATCH = 1000;
+
+/**
+ * Take one reference per chunk occurrence, then check that every chunk is still locatable.
+ * The order matters (as in `engine/snapshot.ts`): scrub GC only drops chunks without
+ * references and re-checks that under row locks, so a chunk found after the reference
+ * stays; a chunk GC dropped before it is missing here, and the update of its refcount
+ * matched nothing. On a missing chunk the references are released and
+ * {@link ArchiveChunksMissingError} is thrown.
+ */
+async function pinChunks(index: ChunkIndex, chunks: readonly string[]): Promise<void> {
+  for (let i = 0; i < chunks.length; i += PIN_BATCH) {
+    await index.addReferences(chunks.slice(i, i + PIN_BATCH));
+  }
+  const unique = [...new Set(chunks)];
+  const missing: string[] = [];
+  for (let i = 0; i < unique.length; i += PIN_BATCH) {
+    const batch = unique.slice(i, i + PIN_BATCH);
+    const located = await index.locate(batch);
+    for (const id of batch) {
+      if (!located.has(id)) {
+        missing.push(id);
+      }
+    }
+  }
+  if (missing.length > 0) {
+    for (let i = 0; i < chunks.length; i += PIN_BATCH) {
+      await index.releaseReferences(chunks.slice(i, i + PIN_BATCH));
+    }
+    throw new ArchiveChunksMissingError(missing);
+  }
+}
+
 /** Thrown when an archive item's storage key already exists; archived items are write-once. */
 export class ArchiveWriteOnceError extends Error {
   constructor(readonly itemKey: string) {
@@ -164,7 +224,8 @@ export async function storeArchiveContent(
 /**
  * Pin a stored original's chunks, link it into the chain and write its sealed record.
  * Runs under the caller's chain lock; returns the record the caller appends to the
- * catalog in the same transaction.
+ * catalog in the same transaction. Throws {@link ArchiveChunksMissingError} (references
+ * released, nothing written) when a chunk vanished since it was stored.
  */
 export async function commitArchiveItem(
   options: CommitArchiveItemOptions,
@@ -177,7 +238,10 @@ export async function commitArchiveItem(
   // Pin the chunks this item needs: without a reference, scrub GC treats
   // them as unreferenced (no backup shares them) and reclaims them after its
   // grace period, which would silently break restore of this item later.
-  await options.index.addReferences(options.content.chunks);
+  // A deduplicated chunk may already be old and unreferenced, and GC does not
+  // wait for captures: pinChunks checks after the reference that every chunk
+  // still exists and throws ArchiveChunksMissingError otherwise.
+  await pinChunks(options.index, options.content.chunks);
 
   const chainHash = computeArchiveChainHash(
     options.prevChainHash,
@@ -235,10 +299,22 @@ export async function writeArchiveItem(
   if (await options.storage.primary.head(itemKey)) {
     throw new ArchiveWriteOnceError(itemKey);
   }
-  const content = await storeArchiveContent(options);
-  return commitArchiveItem({
-    ...options,
-    content,
-    createdAt: (options.now ?? (() => new Date()))(),
-  });
+  for (let attempt = 1; ; attempt++) {
+    const content = await storeArchiveContent(options);
+    try {
+      return await commitArchiveItem({
+        ...options,
+        content,
+        createdAt: (options.now ?? (() => new Date()))(),
+      });
+    } catch (error) {
+      if (!(error instanceof ArchiveChunksMissingError) || attempt >= ARCHIVE_COMMIT_ATTEMPTS) {
+        throw error;
+      }
+      options.logger?.warn("archive item chunks vanished before commit; storing again", {
+        itemId: options.itemId,
+        missing: error.missing.length,
+      });
+    }
+  }
 }

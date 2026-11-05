@@ -16,6 +16,7 @@ import { join } from "node:path";
 import {
   type ArchiveJobPayload,
   archive,
+  ChunkReader,
   generateDek,
   ImapAuthError,
   Keyring,
@@ -30,11 +31,13 @@ import {
   archiveItems,
   backupJobMembers,
   backupJobs,
+  chunks,
   createDb,
   type Database,
   jobs,
   notifications,
   PgArchiveAppendStore,
+  packs,
   protectedObjects,
   providers,
   sources,
@@ -43,11 +46,16 @@ import {
   tenants,
 } from "@restow/db";
 import { runMigrations } from "@restow/db/migrate";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { WorkerFeatureGate } from "../extensions.js";
 import { archiveHandler, configureArchiveHandler } from "../handlers/archive.js";
-import { TenantCache, type WorkerJobContext } from "../handlers/framework.js";
+import {
+  PgChunkIndex,
+  TenantCache,
+  tenantRunner,
+  type WorkerJobContext,
+} from "../handlers/framework.js";
 import { dropTestDatabase } from "../testing/database.js";
 import { reconcileCaptureStreams } from "./reconcile.js";
 import { ArchiveCaptureService, type ArchiveCaptureServiceDeps } from "./service.js";
@@ -863,6 +871,66 @@ describe.skipIf(!adminUrl)("archive capture (Postgres)", () => {
     const marked = await archiveHandler.run(ctx, { ...payload, mode: undefined });
     expect(marked).toMatchObject({ summary: { status: "marked_due", streams: 1 } });
     configureArchiveHandler(null);
+  });
+
+  it("stores a deduplicated chunk again when scrub GC collected it before the reference", async () => {
+    const original = mail("gc-race@contoso.example", "Old attachment");
+    const pgIndex = new PgChunkIndex(tenantRunner(db, tenantId), tenantId);
+    // A pruned backup left the same bytes behind: chunk rows at refcount 0.
+    const earlier = await archive.storeArchiveContent({
+      tenantId,
+      storage,
+      keys,
+      index: pgIndex,
+      original,
+    });
+    const [old] = await db
+      .select({ packId: chunks.packId, path: packs.path })
+      .from(chunks)
+      .innerJoin(packs, eq(chunks.packId, packs.id))
+      .where(and(eq(chunks.tenantId, tenantId), eq(chunks.storedId, earlier.chunks[0] as string)));
+    let collected = false;
+    // GC's pack swap commits between the capture's dedup and its reference.
+    const racing: typeof pgIndex = Object.create(pgIndex);
+    racing.addReferences = async (ids) => {
+      if (!collected) {
+        collected = true;
+        await db
+          .delete(chunks)
+          .where(and(eq(chunks.tenantId, tenantId), inArray(chunks.storedId, [...ids])));
+        await db.delete(packs).where(eq(packs.id, old?.packId as string));
+        await storage.primary.delete(old?.path as string);
+      }
+      return pgIndex.addReferences(ids);
+    };
+
+    const result = await archive.captureArchiveItem({
+      tenantId,
+      storage,
+      keys,
+      index: racing,
+      store: new PgArchiveAppendStore(db, tenantId),
+      original,
+      source: "journal",
+      receivedAt: new Date(),
+      envelope: null,
+      flags: [],
+      messageId: "gc-race@contoso.example",
+      retentionPolicy: { mode: "from_capture", years: 10 },
+      duplicates: "keep",
+    });
+
+    expect(collected).toBe(true);
+    expect(result.outcome).toBe("stored");
+    const record = (result as { record: archive.ArchiveItemRecord }).record;
+    const rows = await db
+      .select({ storedId: chunks.storedId, refcount: chunks.refcount })
+      .from(chunks)
+      .where(and(eq(chunks.tenantId, tenantId), inArray(chunks.storedId, [...record.chunks])));
+    expect(rows).toHaveLength(new Set(record.chunks).size);
+    expect(rows.every((row) => row.refcount === 1)).toBe(true);
+    const reader = new ChunkReader({ storage, keys, index: pgIndex });
+    expect((await archive.readArchiveItemOriginal(reader, record)).equals(original)).toBe(true);
   });
 
   it("keeps the chain linear under concurrent appends from two processes on one clock", async () => {
