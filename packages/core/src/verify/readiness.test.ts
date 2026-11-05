@@ -68,3 +68,38 @@ describe("isEmptyFinding", () => {
     expect(isEmptyFinding([{ code: "nothing_to_verify" }])).toBe(false);
   });
 });
+
+describe("assessReadiness: items the backup run left out", () => {
+  const readBack = {
+    checked: 20,
+    contentBytes: 9000,
+    contentObjects: 20,
+    outcomes: { verified: 20, mismatch: 0, missing: 0, unreadable: 0 },
+  };
+
+  it("is not green when the run that made the backup failed items, however well it reads back", () => {
+    expect(
+      assessReadiness(facts({ ...readBack, backupFailures: { failed: 300, persistent: 0 } })),
+    ).toEqual({
+      readiness: "yellow",
+      reasons: [{ code: "backup_incomplete", severity: "yellow", count: 300 }],
+    });
+  });
+
+  it("turns red for items that failed in each of the last runs", () => {
+    expect(
+      assessReadiness(facts({ ...readBack, backupFailures: { failed: 4, persistent: 4 } })),
+    ).toEqual({
+      readiness: "red",
+      reasons: [{ code: "backup_incomplete_persistent", severity: "red", count: 4 }],
+    });
+  });
+
+  it("stays green for a complete backup", () => {
+    expect(assessReadiness(facts({ ...readBack, backupFailures: null })).readiness).toBe("green");
+    expect(
+      assessReadiness(facts({ ...readBack, backupFailures: { failed: 0, persistent: 0 } }))
+        .readiness,
+    ).toBe("green");
+  });
+});

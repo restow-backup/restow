@@ -52,7 +52,12 @@ import { describeError, isAbortError, throwIfAborted, VerifyIncompleteError } fr
 import { isTestRestoreEvidence, readEvidence } from "./evidence.js";
 import type { RestoreProbe, TestRestoreOutcome } from "./probe.js";
 import { newSeed, seededRandom } from "./random.js";
-import { assessReadiness, DEFAULT_READINESS_POLICY, type ReadinessPolicy } from "./readiness.js";
+import {
+  assessReadiness,
+  type BackupFailureFacts,
+  DEFAULT_READINESS_POLICY,
+  type ReadinessPolicy,
+} from "./readiness.js";
 import {
   listedItems,
   READINESS_REPORT_FORMAT,
@@ -84,6 +89,11 @@ export type VerifyRunOptions = VerifyOptions & {
    */
   readonly unreadablePacks?: ReadonlySet<string>;
   readonly persistentlyUnreadablePacks?: ReadonlySet<string>;
+  /**
+   * The items the run that made `snapshot` could not back up (readiness `backup_incomplete`):
+   * the worker reads them from the run's job (`jobs.item_failure_summary`).
+   */
+  readonly backupFailures?: (snapshot: SnapshotRecord) => Promise<BackupFailureFacts | null>;
 };
 
 export type VerifyOutcome = VerifyResult & {
@@ -365,6 +375,8 @@ export async function verifyProtectedObject(
     ) ?? [];
   const testRestore = probed;
 
+  const backupFailures =
+    record && options.backupFailures ? await options.backupFailures(record) : null;
   const counts = tally(plan, checks);
   const content = manifest ? contentOf(manifest) : { bytes: 0, objects: 0 };
   const now = ctx.now();
@@ -389,6 +401,7 @@ export async function verifyProtectedObject(
             unconfirmed: testRestore.items.filter((item) => item.status === "unconfirmed").length,
           }
         : null,
+      backupFailures,
       now,
     },
     options.policy ?? DEFAULT_READINESS_POLICY,

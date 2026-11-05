@@ -161,6 +161,8 @@
     "nothing_to_verify": "Die letzte Sicherung enthält Daten ({size}) einer Art, die eine Prüfung nicht zurücklesen kann.",
     "nothing_to_verify_unsized": "Die letzte Sicherung enthält nichts, was geprüft werden könnte.",
     "test_restore_unconfirmed": "Das Prüfziel hat {count, plural, one {# wiederhergestelltes Element} other {# wiederhergestellte Elemente}} nicht bestätigt.",
+    "backup_incomplete": "Der Lauf, der diese Sicherung erstellt hat, konnte {count, plural, one {# Element} other {# Elemente}} nicht sichern; {count, plural, one {es fehlt} other {sie fehlen}} in der Sicherung.",
+    "backup_incomplete_persistent": "{count, plural, one {# Element konnte} other {# Elemente konnten}} in den letzten drei Läufen in Folge nicht gesichert werden; eine Wiederherstellung wäre unvollständig.",
     "unknown": "Der Befund „{code}“ stammt von einer neueren Version und kann hier nicht beschrieben werden."
   },
   "storage": {

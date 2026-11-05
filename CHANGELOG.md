@@ -634,6 +634,13 @@ private repository.
   sampled file its versions; a failing attachment or version counts against the message or
   file with its cause ("items missing" and so on). The health check reads every attachment and
   version, also one whose message is not in the snapshot.
+- Restore check: a backup whose run could not back up some items (a folder denied on every run,
+  hundreds of failed messages) was rated green as long as what it held read back fine, on the
+  readiness page, in the tenant rating, the statistics and the `verify.completed` webhook; only
+  the run in History said "partial". The rating now takes the failed items of the run that made
+  the checked backup into account: yellow ("the backup is incomplete") while items failed, red
+  for items that failed in each of the last three runs. Green needs an intact read-back of a
+  complete backup. The `job.completed` webhook of a backup now carries `failedItems`.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,

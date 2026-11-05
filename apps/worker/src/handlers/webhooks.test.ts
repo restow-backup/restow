@@ -482,6 +482,16 @@ describe("job events", () => {
     ).toBe("job.failed");
   });
 
+  it("names the failed items of a completed backup in job.completed", () => {
+    const backup = { ...job, queue: "backup" as const, status: "completed" as const };
+    expect(
+      jobEventData({ ...backup, itemFailureSummary: { total: 300, stored: 200, byCause: {} } }).job,
+    ).toMatchObject({ status: "completed", failedItems: 300 });
+    expect(jobEventData({ ...backup, itemFailureSummary: null }).job).toMatchObject({
+      failedItems: 0,
+    });
+  });
+
   it("raises job.failed for a restore that completed but restored nothing while items failed", () => {
     const restore = { ...job, queue: "restore" as const, status: "completed" as const };
     const nothing = {

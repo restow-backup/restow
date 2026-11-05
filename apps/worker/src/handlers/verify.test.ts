@@ -32,6 +32,7 @@ import {
   backupJobs,
   createDb,
   type Database,
+  itemFailures,
   jobs,
   type NewNotification,
   type NewVerifyReport,
@@ -551,6 +552,39 @@ describe("verify handler on the memory engine", () => {
     });
   });
 
+  it("rates a backup whose run left items out yellow, red when they fail run after run", async () => {
+    const engine = memoryEngine();
+    const { snapshotId } = await writeMailboxSnapshot(engine);
+    const { store, reports } = memoryStore();
+    const asked: (string | null)[] = [];
+    let facts = { failed: 300, persistent: 0 };
+    const withFailures: VerifyStore = {
+      ...store,
+      backupFailures: async (snapshot) => {
+        asked.push(snapshot.id);
+        return facts;
+      },
+    };
+    const events: VerifyCompletedEvent[] = [];
+
+    await handlerWith(withFailures, events).run(engine.ctx, payload);
+    expect(asked).toEqual([snapshotId]);
+    // Every sampled item reads back fine: still not green, the backup is incomplete.
+    expect(reports.at(-1)?.recoveryReadiness).toBe("yellow");
+    expect((reports.at(-1)?.details as { reasons?: unknown[] } | undefined)?.reasons).toEqual([
+      { code: "backup_incomplete", severity: "yellow", count: 300 },
+    ]);
+    expect(events[0]).toMatchObject({ readiness: "yellow" });
+
+    facts = { failed: 300, persistent: 12 };
+    await handlerWith(withFailures).run(engine.ctx, payload);
+    expect(reports.at(-1)?.recoveryReadiness).toBe("red");
+    expect((reports.at(-1)?.details as { reasons?: unknown[] } | undefined)?.reasons).toEqual([
+      { code: "backup_incomplete_persistent", severity: "red", count: 12 },
+      { code: "backup_incomplete", severity: "yellow", count: 288 },
+    ]);
+  });
+
   it("ends red when a stored chunk is corrupted, with the snapshot id on the report", async () => {
     const engine = memoryEngine();
     const { snapshotId, chunksByPath } = await writeMailboxSnapshot(engine);
@@ -1015,6 +1049,59 @@ describe.skipIf(!adminUrl)("verify handler against Postgres", () => {
       .where(eq(backupJobs.id, disabled?.id as string));
     expect(await store.withoutJob?.(object.id)).toBe(false);
     await db.delete(backupJobs).where(eq(backupJobs.id, disabled?.id as string));
+  });
+
+  it("reads the failed items of the run that made the snapshot, and which failed in each of the last runs", async () => {
+    const store = pgVerifyStore(db, tenantId);
+    const backupRun = async (at: string, summary: number | null, refs: string[]) => {
+      const id = randomUUID();
+      await db.insert(jobs).values({
+        id,
+        tenantId,
+        queue: "backup",
+        status: "completed",
+        protectedObjectId: object.id,
+        payload: { jobId: id, tenantId, protectedObjectId: object.id },
+        completedAt: new Date(at),
+        itemFailureSummary:
+          summary === null ? null : { total: summary, stored: refs.length, byCause: {} },
+      });
+      for (const ref of refs) {
+        await db.insert(itemFailures).values({
+          tenantId,
+          jobId: id,
+          protectedObjectId: object.id,
+          itemRef: ref,
+          reason: "403",
+        });
+      }
+      return id;
+    };
+    const snapshotOf = (job: string | null) => ({
+      id: randomUUID(),
+      tenantId,
+      protectedObjectId: object.id,
+      jobId: job,
+      sequence: 1,
+      manifestPath: "m",
+      status: "active" as const,
+      itemCount: 1,
+      byteSize: 1,
+      startedAt: null,
+      completedAt: null,
+    });
+    const clean = await backupRun("2026-09-01T00:00:00Z", null, []);
+    expect(await store.backupFailures?.(snapshotOf(clean))).toBeNull();
+    expect(await store.backupFailures?.(snapshotOf(null))).toBeNull();
+
+    await backupRun("2026-09-02T00:00:00Z", 2, ["folder-a", "msg-1"]);
+    const second = await backupRun("2026-09-03T00:00:00Z", 2, ["folder-a", "msg-2"]);
+    // Two runs in a row only: not yet persistent.
+    expect(await store.backupFailures?.(snapshotOf(second))).toEqual({ failed: 2, persistent: 0 });
+    const third = await backupRun("2026-09-04T00:00:00Z", 305, ["folder-a", "msg-3"]);
+    // folder-a failed in each of the last three runs; the summary keeps the full count.
+    expect(await store.backupFailures?.(snapshotOf(third))).toEqual({ failed: 305, persistent: 1 });
+    await db.delete(jobs).where(eq(jobs.queue, "backup"));
   });
 
   it("refuses to record a run of another tenant", async () => {

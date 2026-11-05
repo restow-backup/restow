@@ -114,6 +114,12 @@ Postgres-Service bereit und setzt die Variable.
   fehlerhafter Anhang oder eine fehlerhafte Version zählt gegen die Mail bzw. Datei (seit 0.5.0).
   Die Integritätsprüfung (Health Check) liest jedes Objekt mit Inhalt, Anhänge und Versionen
   eingeschlossen.
+  Grün setzt seit 0.5.0 auch eine vollständige Sicherung voraus: Hat der Lauf, der den geprüften
+  Sicherungsstand erstellt hat, Elemente nicht sichern können (`jobs.item_failure_summary`), ist
+  die Bewertung gelb ("Sicherung unvollständig"), rot für Elemente, die in den letzten drei
+  Läufen in Folge fehlschlugen. Das gilt für die Bewertung je Objekt, die Übersicht des
+  Mandanten, die Statistik und `verify.completed`; `job.completed` einer Sicherung nennt
+  `failedItems`.
   Rot nur mit Beleg: Daten fehlen (ein Chunk, den der Index nicht kennt, oder eine Datendatei,
   die jedes Speicherziel als nicht vorhanden meldet), stimmen nicht (Hash oder Größe, ein Chunk,
   der nicht der ist, den seine ID nennt) oder lassen sich nicht dekodieren (beschädigtes Pack,

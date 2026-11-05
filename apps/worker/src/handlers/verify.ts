@@ -11,6 +11,10 @@
  * This handler adds what only the worker knows:
  *   - packs the latest scrub left corrupt, so an object whose data sits in a
  *     damaged pack is never rated green just because the sample missed it
+ *   - the items the run that made the checked snapshot could not back up
+ *     (`jobs.item_failure_summary`; red when the same items failed in each of
+ *     the last runs), so a partial backup is never rated green just because
+ *     what it holds reads back fine
  *   - an optional test-restore probe per object (registered by the
  *     integration layer once a tenant has a test target)
  * and persists the outcome: a `verify_reports` row (the rating of the checked
@@ -43,15 +47,18 @@
  * check tries again.
  */
 import {
+  type BackupFailureFacts,
   DEFAULT_SAMPLE_SIZE,
   type FailureCause,
   isEmptyFinding,
   mailObjectEligible,
   mailObjectsInNoJob,
+  PERSISTENT_FAILURE_RUNS,
   type ProtectedObjectRef,
   type RecoveryReadiness,
   type RestoreProbe,
   readinessWithoutFreshness,
+  type SnapshotRecord,
   VerifyIncompleteError,
   type VerifyJobPayload,
   type VerifyKind,
@@ -63,6 +70,7 @@ import {
   backupJobs,
   type Database,
   emptyConfirmations,
+  itemFailures,
   jobs,
   type NewNotification,
   type NewVerifyReport,
@@ -394,6 +402,12 @@ export interface VerifyStore {
   /** Storage keys of the packs known damaged or unreadable (scrub.ts `loadPackFindings`). */
   packFindings(): Promise<PackFindings>;
   /**
+   * The items the run that made `snapshot` could not back up (`jobs.item_failure_summary`),
+   * and how many of them failed in each of the object's last PERSISTENT_FAILURE_RUNS backup
+   * runs (`item_failures`); null when the run had none or is not known. Absent: not known.
+   */
+  backupFailures?(snapshot: SnapshotRecord): Promise<BackupFailureFacts | null>;
+  /**
    * Record the report, the job result and the notification for a rating
    * change, all or nothing (one transaction in Postgres).
    */
@@ -429,6 +443,46 @@ export function pgVerifyStore(db: Database, tenantId: string): VerifyStore {
       return options?.withoutFreshness
         ? readinessWithoutFreshness(storedReasons(row.reasons))
         : row.readiness;
+    },
+
+    async backupFailures(snapshot) {
+      if (!snapshot.jobId) {
+        return null;
+      }
+      const jobId = snapshot.jobId;
+      return run(async (tx) => {
+        const [job] = await tx
+          .select({ summary: jobs.itemFailureSummary, completedAt: jobs.completedAt })
+          .from(jobs)
+          .where(and(eq(jobs.tenantId, tenantId), eq(jobs.id, jobId)))
+          .limit(1);
+        const failed = job?.summary?.total ?? 0;
+        if (!job || failed <= 0) {
+          return null;
+        }
+        // The same items failed in each of the object's last runs, the checked one included.
+        const result = await tx.execute<{ runs: number; persistent: number }>(sql`
+          with runs as (
+            select id from ${jobs}
+             where tenant_id = ${tenantId}::uuid
+               and protected_object_id = ${snapshot.protectedObjectId}::uuid
+               and queue = 'backup'
+               and completed_at is not null
+               and completed_at <= ${(job.completedAt ?? new Date()).toISOString()}::timestamptz
+             order by completed_at desc
+             limit ${PERSISTENT_FAILURE_RUNS}
+          ), failing as (
+            select item_ref from ${itemFailures}
+             where tenant_id = ${tenantId}::uuid and job_id in (select id from runs)
+             group by item_ref
+            having count(distinct job_id) = ${PERSISTENT_FAILURE_RUNS}
+          )
+          select (select count(*)::int from runs) as runs,
+                 (select count(*)::int from failing) as persistent`);
+        const row = result.rows[0];
+        const persistent = row && row.runs >= PERSISTENT_FAILURE_RUNS ? row.persistent : 0;
+        return { failed, persistent };
+      });
     },
 
     async objectStatus(protectedObjectId) {
@@ -637,6 +691,13 @@ export function createVerifyHandler(options: VerifyHandlerOptions): JobHandler<"
           unreadablePacks: findings.unreadable,
           persistentlyUnreadablePacks: findings.persistentlyUnreadable,
           probe,
+          // A backup that left items out is never green, however well the rest reads back.
+          ...(store.backupFailures
+            ? {
+                backupFailures: (snapshot) =>
+                  store.backupFailures?.(snapshot) ?? Promise.resolve(null),
+              }
+            : {}),
         });
       } catch (error) {
         if (!(error instanceof VerifyIncompleteError)) {

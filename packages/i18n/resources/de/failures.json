@@ -343,6 +343,14 @@
         "title": "Das letzte Backup wird alt",
         "why": "Das neueste Backup ist {ageHours, plural, one {# Stunde} other {# Stunden}} alt, mehr als ein Zeitplan normalerweise zulässt."
       },
+      "backup_incomplete": {
+        "title": "Die geprüfte Sicherung ist unvollständig",
+        "why": "{has_count, select, yes {{count, plural, one {# Element konnte} other {# Elemente konnten}}} other {Einige Elemente konnten}} beim Lauf, der diese Sicherung erstellt hat, nicht gesichert werden. Sie fehlen in der Sicherung, auch wenn alles andere einwandfrei zurückgelesen wird; der Lauf nennt sie mit ihrer Ursache. Der nächste Lauf versucht sie erneut."
+      },
+      "backup_incomplete_persistent": {
+        "title": "Dieselben Elemente fehlen in jeder Sicherung",
+        "why": "{has_count, select, yes {{count, plural, one {# Element konnte} other {# Elemente konnten}}} other {Einige Elemente konnten}} in den letzten drei Läufen in Folge nicht gesichert werden. Eine Wiederherstellung wäre unvollständig, bis die Ursache behoben ist; der Lauf nennt sie."
+      },
       "snapshot_empty": {
         "title": "Leer: Es gibt nichts wiederherzustellen",
         "why": "Das letzte Backup enthält nur Standardordner bzw. Systemseiten und 0 Bytes Inhalt. Das ist kein Fehler. Ein Administrator kann das Objekt als leer bestätigen, dann zählt es nicht mehr als „Achtung“. Sobald ein späteres Backup Inhalt enthält, wird es wieder wie jedes andere Objekt bewertet."

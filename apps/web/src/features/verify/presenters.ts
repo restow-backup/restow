@@ -270,6 +270,8 @@ const KNOWN_REASONS = new Set([
   "snapshot_empty",
   "nothing_to_verify",
   "test_restore_unconfirmed",
+  "backup_incomplete",
+  "backup_incomplete_persistent",
 ]);
 
 /** The finding of a check that found the object empty (core verify/readiness.ts). */

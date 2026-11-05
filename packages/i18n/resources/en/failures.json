@@ -343,6 +343,14 @@
         "title": "The latest backup is getting old",
         "why": "The newest backup is {ageHours, plural, one {# hour} other {# hours}} old, which is more than a schedule normally leaves."
       },
+      "backup_incomplete": {
+        "title": "The checked backup is incomplete",
+        "why": "{has_count, select, yes {{count, plural, one {# item} other {# items}}} other {Some items}} could not be backed up by the run that made this backup. They are missing from it, even though everything else reads back fine; the run lists them with their cause. The next run tries them again."
+      },
+      "backup_incomplete_persistent": {
+        "title": "The same items are missing from every backup",
+        "why": "{has_count, select, yes {{count, plural, one {# item} other {# items}}} other {Some items}} could not be backed up in each of the last three runs. A restore would be incomplete until the cause is fixed; the run names it."
+      },
       "snapshot_empty": {
         "title": "Empty: nothing to restore",
         "why": "The latest backup holds only default folders or system pages and 0 bytes of content. This is no failure. An admin can confirm the object as empty, and it no longer counts as needing attention. Once a later backup holds content, it is rated like any other object again."

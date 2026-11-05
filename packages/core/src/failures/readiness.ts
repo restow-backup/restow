@@ -25,6 +25,8 @@ const REASON_CODES: Readonly<Record<ReadinessReasonCode, FailureCode>> = {
   snapshot_empty: "verify.snapshot_empty",
   nothing_to_verify: "verify.nothing_to_verify",
   test_restore_unconfirmed: "verify.restore_test_unconfirmed",
+  backup_incomplete: "verify.backup_incomplete",
+  backup_incomplete_persistent: "verify.backup_incomplete_persistent",
 };
 
 /** The failure cause a readiness reason stands for, or null for a reason code this build does not know. */

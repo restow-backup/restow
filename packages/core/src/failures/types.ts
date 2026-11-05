@@ -109,6 +109,8 @@ export const FAILURE_CODES = [
   "verify.no_snapshot",
   "verify.snapshot_outdated",
   "verify.snapshot_stale",
+  "verify.backup_incomplete",
+  "verify.backup_incomplete_persistent",
   "verify.snapshot_empty",
   "verify.nothing_to_verify",
   "verify.restore_test_unconfirmed",

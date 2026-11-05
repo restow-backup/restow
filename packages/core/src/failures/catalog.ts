@@ -542,6 +542,20 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     retryable: false,
     steps: () => [step("run_backup_again", "jobs")],
   },
+  // The run that made the checked backup could not back up some items: they are missing from
+  // it (the run lists them with their causes); red once the same items failed run after run.
+  "verify.backup_incomplete": {
+    category: "verify",
+    transient: false,
+    retryable: true,
+    steps: () => [step("open_item_at_source", "source"), step("run_backup_again", "jobs")],
+  },
+  "verify.backup_incomplete_persistent": {
+    category: "verify",
+    transient: false,
+    retryable: true,
+    steps: () => [step("open_item_at_source", "source"), step("run_backup_again", "jobs")],
+  },
   // Nothing to restore (only default folders or system pages, 0 bytes): no failure. An admin
   // confirms it as empty, or the next backup that holds content ends it.
   "verify.snapshot_empty": {
