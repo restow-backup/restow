@@ -31,8 +31,9 @@ private repository.
   keeps failing (at once on a final answer, else after three failed attempts over at least 15
   minutes) raises one alert per episode. It always reaches the bell and the floor and is never
   sent through the channel that failed; the mail transport being down reaches the tenants'
-  webhooks that listen for it and names no tenant's rule, and a sender the SMTP server refuses
-  (5xx at MAIL FROM, new reason `smtp_sender_rejected`) counts as the transport being down, not
+  webhooks that listen for it and names no tenant's rule nor carries the server's answer, and a
+  sender the SMTP server refuses (5xx at MAIL FROM, or at RCPT TO or DATA with an answer that
+  names the sender, new reason `smtp_sender_rejected`) counts as the transport being down, not
   as every recipient failing; an alert about a failed delivery never raises another
   one. Recipients show a failure badge, webhooks their health (`health` in the webhook API, the
   matrix and `deliveryProblems` on the rules), and every episode ends with the next delivery that
@@ -56,7 +57,8 @@ private repository.
 - Branding (Business for the provider, Service Provider for a tenant's own): logo (PNG or JPEG,
   at most 512 KiB, metadata removed, every SVG refused; a PNG's header must be valid and its
   image data must inflate to exactly the size the header announces, so a decompression bomb is
-  refused without being inflated), accent colour (contrast-checked against white and dark text),
+  refused without being inflated, and every row must name a filter type the specification
+  defines, so a damaged logo cannot crash the PDF reports later), accent colour (contrast-checked against white and dark text),
   sender name, From (SMTP: only the configured sender or an allowed sender address, checked on
   save and again for every mail, so a From the mail settings no longer allow falls back to the
   configured sender; Microsoft 365 and Google Workspace keep their mailbox), Reply-To and a
@@ -370,12 +372,18 @@ private repository.
   00:00 to Sunday 24:00 in the tenant's time zone) instead of the seven days up to Monday 07:00.
 - An SMTP 550, 551, 553 or 554 answer to RCPT TO or DATA (and Microsoft Graph
   `ErrorInvalidRecipients`) is final: the mail is no longer retried four times, and the address
-  raises a delivery failure alert. A refused MAIL FROM is not: it is the transport's
-  `smtp_sender_rejected`, retried like the other transport failures.
+  raises a delivery failure alert. A refused sender is not: a refused MAIL FROM, or an answer to
+  RCPT TO or DATA that names the sender ("Sender address rejected", "not owned by user",
+  `5.2.252 SendAsDenied`), is the transport's `smtp_sender_rejected`, retried like the other
+  transport failures.
 - The delivery log across tenants (and its CSV export) lists the provider's own deliveries as
   "Installation", with the tenant an alert is about.
-- An installation with notification recipients but no mail transport now raises one delivery
-  failure alert per episode (bell and webhooks) instead of staying silent.
+- Every owner of the provider team is now an e-mail recipient of the critical events and the
+  installation's own events, without opting in. An installation without a mail transport
+  therefore raises one delivery failure alert (bell and webhooks) that lasts until a transport
+  is configured, instead of staying silent; with the notification mail marked as not needed (the
+  Start checklist) it stays quiet as before and no mail is planned for the provider's
+  recipients.
 - A new schedule rule starts on the calendar week ("Previous week (Monday to Sunday)") instead
   of an own weekly cron; an own interval or cron stays available as "Own interval or cron".
 - Tenant administrators can put "Notification could not be delivered" into an alert rule; the
@@ -1352,7 +1360,11 @@ Migration 0079 (0.5.0 notifications and branding) creates the tables `report_eve
 nullable or defaulted columns to `report_deliveries`, `report_rules`,
 `tenant_notification_recipients`, `tenant_contacts`, `webhooks` and `settings`; no table is
 rewritten. It moves the weekly report rule of the tenants' notification recipients to the
-calendar week. Before you brand a From address on SMTP, add it (or its `@domain`) to the allowed
+calendar week (also when the migrating owner is bound by Row Level Security). After the update
+the owners of the provider team receive the critical events and the installation's own events by
+e-mail; an installation without a mail transport shows a lasting "notification mail cannot be
+sent" alert until a transport is configured, unless the notification mail is marked as not
+needed. Before you brand a From address on SMTP, add it (or its `@domain`) to the allowed
 sender addresses of the notification mail and let your mail server send as it.
 
 Six database migrations run on start: 0073 creates the new table `storage_samples` and 0074

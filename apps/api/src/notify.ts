@@ -131,17 +131,34 @@ function smtpErrorFields(err: unknown): {
   responseCode?: unknown;
   command: string;
   code?: unknown;
+  /** The server's reply and the error's message, where the reply's wording is found. */
+  text: string;
 } {
   if (typeof err !== "object" || err === null) {
-    return { command: "" };
+    return { command: "", text: "" };
   }
-  const { responseCode, command, code } = err as {
+  const { responseCode, command, code, response } = err as {
     responseCode?: unknown;
     command?: unknown;
     code?: unknown;
+    response?: unknown;
   };
-  return { responseCode, code, command: typeof command === "string" ? command.toUpperCase() : "" };
+  return {
+    responseCode,
+    code,
+    command: typeof command === "string" ? command.toUpperCase() : "",
+    text: `${typeof response === "string" ? response : ""}\n${errorMessage(err)}`,
+  };
 }
+
+/**
+ * The wording of a server that refuses the sender after MAIL FROM: Postfix and its relatives
+ * (`reject_sender_login_mismatch`, `smtpd_delay_reject`) answer at RCPT TO with "Sender address
+ * rejected" or "not owned by user", Exchange Online after DATA with 5.2.252 `SendAsDenied` ("not
+ * allowed to send as") or 5.7.60 ("does not have permissions to send as this sender").
+ */
+const SENDER_REFUSAL_WORDING =
+  /sender address rejected|not owned by (?:the )?(?:auth(?:enticated)? )?user|\b5\.2\.252\b|sendasdenied|not (?:allowed|authori[sz]ed|permitted) to send (?:as|on behalf)|permissions? to send as/i;
 
 /**
  * Whether a nodemailer error is a permanent refusal of the recipient or the message: a 550, 551,
@@ -155,22 +172,29 @@ export function isPermanentSmtpRejection(err: unknown): boolean {
   if (typeof responseCode !== "number" || !PERMANENT_SMTP_CODES.has(responseCode)) {
     return false;
   }
+  if (isSmtpSenderRejection(err)) {
+    return false;
+  }
   return command.startsWith("RCPT") || command === "DATA" || command === "MESSAGE";
 }
 
 /**
- * Whether the server refused the sender (a 5xx answer to MAIL FROM), e.g. a branded From the
- * relay will not send as. That concerns every message, not one address: it is reported as
- * `smtp_sender_rejected`, a failure of the transport (one episode), and retried like one.
+ * Whether the server refused the sender, e.g. a branded From the relay will not send as: a 5xx
+ * answer to MAIL FROM, or a 5xx answer to RCPT TO or DATA whose wording names the sender
+ * ({@link SENDER_REFUSAL_WORDING}; many servers check the sender only there). That concerns every
+ * message, not one address: it is reported as `smtp_sender_rejected`, a failure of the transport
+ * (one episode), and retried like one.
  */
 export function isSmtpSenderRejection(err: unknown): boolean {
-  const { responseCode, command } = smtpErrorFields(err);
-  return (
-    command === "MAIL FROM" &&
-    typeof responseCode === "number" &&
-    responseCode >= 500 &&
-    responseCode < 600
-  );
+  const { responseCode, command, text } = smtpErrorFields(err);
+  if (typeof responseCode !== "number" || responseCode < 500 || responseCode >= 600) {
+    return false;
+  }
+  if (command === "MAIL FROM") {
+    return true;
+  }
+  const later = command.startsWith("RCPT") || command === "DATA" || command === "MESSAGE";
+  return later && SENDER_REFUSAL_WORDING.test(text);
 }
 
 /** nodemailer's attachment shape for ours (inline when it has a Content-ID). */

@@ -42,6 +42,9 @@ export interface FailedMail {
 
 const DAY_MS = 24 * 60 * 60_000;
 
+/** A transaction of the installation pool. */
+type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
+
 /** Whether the delivery is itself an alert about a failed delivery (or a test send). */
 export function isAlertAboutFailure(delivery: Pick<ReportDelivery, "event" | "payload">): boolean {
   const payload = delivery.payload ?? {};
@@ -62,7 +65,7 @@ function detailOf(error: string): string {
 }
 
 async function failedSince(
-  providerDb: Database,
+  providerDb: Pick<Database, "select">,
   delivery: ReportDelivery,
   recipient: string,
   since: Date,
@@ -84,36 +87,47 @@ async function failedSince(
   return Math.max(1, row?.count ?? 1);
 }
 
-/** The transport episode: started or counted; true when this failure is the one to alert about. */
+/**
+ * The transport episode, started or counted in the caller's transaction (which also raises the
+ * alert, so a claim never commits without it): the episode when this failure is the one to alert
+ * about, else null. The transport's own message stays here, for the installation only.
+ */
 async function transportEpisode(
-  providerDb: Database,
+  tx: Tx,
   reason: string,
   detail: string,
   now: Date,
 ): Promise<MailFailureState | null> {
-  return providerDb.transaction(async (tx) => {
-    const [row] = await tx
-      .select({ id: settings.id, mailFailure: settings.mailFailure })
-      .from(settings)
-      .limit(1)
-      .for("update");
-    if (!row) {
-      return null;
-    }
-    const current = row.mailFailure;
-    const next: MailFailureState = current
-      ? { ...current, reason, detail, failedDeliveries: (current.failedDeliveries ?? 0) + 1 }
-      : { since: now.toISOString(), reason, detail, alertedAt: null, failedDeliveries: 1 };
-    const alert = next.alertedAt === null;
-    if (alert) {
-      next.alertedAt = now.toISOString();
-    }
-    await tx
-      .update(settings)
-      .set({ mailFailure: next, updatedAt: sql`${settings.updatedAt}` })
-      .where(eq(settings.id, row.id));
-    return alert ? next : null;
-  });
+  const [row] = await tx
+    .select({ id: settings.id, mailFailure: settings.mailFailure })
+    .from(settings)
+    .limit(1)
+    .for("update");
+  if (!row) {
+    return null;
+  }
+  const current = row.mailFailure;
+  const next: MailFailureState = current
+    ? { ...current, reason, detail, failedDeliveries: (current.failedDeliveries ?? 0) + 1 }
+    : { since: now.toISOString(), reason, detail, alertedAt: null, failedDeliveries: 1 };
+  const alert = next.alertedAt === null;
+  if (alert) {
+    next.alertedAt = now.toISOString();
+  }
+  await tx
+    .update(settings)
+    .set({ mailFailure: next, updatedAt: sql`${settings.updatedAt}` })
+    .where(eq(settings.id, row.id));
+  return alert ? next : null;
+}
+
+/** Whether the operator marked the notification mail as not needed (the Start checklist). */
+async function mailNotNeeded(providerDb: Database): Promise<boolean> {
+  const [row] = await providerDb
+    .select({ notNeeded: settings.mailNotNeeded })
+    .from(settings)
+    .limit(1);
+  return row?.notNeeded ?? false;
 }
 
 /**
@@ -149,16 +163,24 @@ export async function onMailDeliveryFailed(
   };
 
   if (isTransportFailureReason(reason)) {
-    const episode = await transportEpisode(providerDb, reason, detail, now);
-    if (!episode) {
-      return "counted";
+    // No transport, and the operator said none is needed: as until 0.4, no alert about it.
+    if (reason === "mail_not_configured" && (await mailNotNeeded(providerDb))) {
+      return "ignored";
     }
-    // The transport concerns the whole installation, no single tenant: the details name no rule
-    // (the failed delivery was one tenant's, and every member of the provider team sees this
-    // alert), and the audience lets the tenants' webhooks hear of it (raiseInstallationEvent).
-    const { ruleId: _ruleId, ruleName: _ruleName, ...installationBase } = base;
-    await providerDb.transaction((tx) =>
-      raiseInstallationEvent(tx, {
+    // The claim and the alert commit together: a failed raise leaves the episode unalerted, so
+    // the next failure raises it again.
+    return providerDb.transaction(async (tx) => {
+      const episode = await transportEpisode(tx, reason, detail, now);
+      if (!episode) {
+        return "counted" as const;
+      }
+      // The transport concerns the whole installation, no single tenant: the details name no
+      // rule and carry none of the transport's message (the failed delivery was one tenant's;
+      // the server's answer can name that tenant's branded From, the relay or its login, and
+      // this alert reaches every tenant's webhooks and the bell of every member of the provider
+      // team). The message stays in `settings.mail_failure` and on the failed delivery's row.
+      const { ruleId: _ruleId, ruleName: _ruleName, detail: _detail, ...installationBase } = base;
+      await raiseInstallationEvent(tx, {
         event: DELIVERY_FAILED_EVENT,
         level: "error",
         message: `Notification mail cannot be sent: ${reason}.`,
@@ -171,9 +193,9 @@ export async function onMailDeliveryFailed(
           objectName: "Mail",
         },
         now,
-      }),
-    );
-    return "alerted";
+      });
+      return "alerted" as const;
+    });
   }
 
   // One address: a recipient's episode, or the 24 hours of an address a rule names alone.
@@ -251,8 +273,8 @@ export async function onMailDeliveryFailed(
     });
   }
 
-  // A provider recipient.
-  const alerted = await providerDb.transaction(async (tx) => {
+  // A provider recipient: the claim and the alert in one transaction, as above.
+  return providerDb.transaction(async (tx) => {
     const [row] = await tx
       .select()
       .from(providerNotificationRecipients)
@@ -264,7 +286,7 @@ export async function onMailDeliveryFailed(
       .limit(1)
       .for("update");
     if (!row) {
-      return null;
+      return "counted" as const;
     }
     const since = row.failingSince ?? now;
     await tx
@@ -275,14 +297,10 @@ export async function onMailDeliveryFailed(
         ...(row.failureAlertedAt ? {} : { failureAlertedAt: now }),
       })
       .where(eq(providerNotificationRecipients.id, row.id));
-    return row.failureAlertedAt ? null : since;
-  });
-  if (!alerted) {
-    return "counted";
-  }
-  const failedDeliveries = await failedSince(providerDb, delivery, recipient, alerted);
-  await providerDb.transaction((tx) =>
-    raiseInstallationEvent(tx, {
+    if (row.failureAlertedAt) {
+      return "counted" as const;
+    }
+    await raiseInstallationEvent(tx, {
       event: DELIVERY_FAILED_EVENT,
       level: "error",
       message: `Notification mail to ${recipient} cannot be delivered: ${reason}.`,
@@ -290,14 +308,14 @@ export async function onMailDeliveryFailed(
         ...base,
         scope: "recipient",
         recipient,
-        since: alerted.toISOString(),
-        failedDeliveries,
+        since: since.toISOString(),
+        failedDeliveries: await failedSince(tx, delivery, recipient, since),
         objectName: recipient,
       },
       now,
-    }),
-  );
-  return "alerted";
+    });
+    return "alerted" as const;
+  });
 }
 
 /** A sent e-mail ends the transport's episode and its recipient's. */

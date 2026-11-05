@@ -25,10 +25,11 @@ import {
   tenantNotificationRecipients,
   tenants,
   user,
+  webhookDeliveries,
   webhooks,
 } from "@restow/db";
 import { and, eq, isNull, sql } from "drizzle-orm";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { NotificationMessage, Notifier, NotifyResult } from "../../notify.js";
 import { provisionTestRoles, type TestDatabaseRoles } from "../../testing/database-roles.js";
 import {
@@ -596,6 +597,209 @@ describe.skipIf(!testDatabaseAdminUrl)(
         await dispatchAll();
         const [cleared] = await owner.select({ mailFailure: settings.mailFailure }).from(settings);
         expect(cleared?.mailFailure).toBeNull();
+      });
+
+      it("keeps the transport's message out of what other tenants receive", async () => {
+        const [provider] = await owner.select({ id: providers.id }).from(providers);
+        const [fabrikam] = await owner
+          .insert(tenants)
+          .values({
+            providerId: provider?.id ?? "",
+            name: "Fabrikam",
+            slug: `fabrikam-${randomUUID().slice(0, 8)}`,
+            language: "en",
+          })
+          .returning();
+        const fabrikamId = fabrikam?.id ?? "";
+        const [fabrikamHook] = await owner
+          .insert(webhooks)
+          .values({
+            tenantId: fabrikamId,
+            url: "https://hooks.example/fabrikam",
+            format: "restow",
+            events: ["notification.delivery_failed"],
+          })
+          .returning();
+        const [fabrikamRule] = await owner
+          .insert(reportRules)
+          .values({
+            tenantId: fabrikamId,
+            name: "Fabrikam alerts",
+            trigger: "event",
+            events: ["notification.delivery_failed"],
+            throttleMinutes: 0,
+            inApp: true,
+            webhookId: fabrikamHook?.id ?? null,
+          })
+          .returning();
+        try {
+          // Contoso's branded From, refused by the relay: the reply names it and the login.
+          notifier.answer = () => ({
+            ok: false,
+            reason: "smtp_sender_rejected",
+            error:
+              "Mail command failed: 553 5.7.1 <alerts@contoso-brand.example>: Sender address rejected: not owned by user msp-relay",
+          });
+          await raise("backup.failed", { protectedObjectId: randomUUID() });
+          await owner.update(reportDeliveries).set({ attempts: MAX_REPORT_ATTEMPTS - 1 });
+          await dispatchAll();
+          // The alert's own deliveries (Fabrikam's webhook and bell) go out.
+          notifier.answer = () => ({ ok: true });
+          await dispatchAll();
+
+          const fabrikamRows = await owner
+            .select()
+            .from(reportDeliveries)
+            .where(eq(reportDeliveries.tenantId, fabrikamId));
+          expect(fabrikamRows.map((row) => row.channel)).toContain("webhook");
+          const seen = JSON.stringify([
+            fabrikamRows,
+            await owner
+              .select()
+              .from(webhookDeliveries)
+              .where(eq(webhookDeliveries.tenantId, fabrikamId)),
+            await owner.select().from(notifications).where(eq(notifications.tenantId, fabrikamId)),
+            // The installation's bell, which members limited to other tenants read.
+            await owner.select().from(notifications).where(isNull(notifications.tenantId)),
+            await owner.select().from(reportEvents).where(isNull(reportEvents.tenantId)),
+          ]);
+          expect(seen).toContain("smtp_sender_rejected");
+          for (const part of ["contoso-brand", "msp-relay", "Sender address rejected", "553"]) {
+            expect(seen).not.toContain(part);
+          }
+          // The installation keeps the message for itself.
+          const [state] = await owner.select({ mailFailure: settings.mailFailure }).from(settings);
+          expect(state?.mailFailure?.detail).toContain("contoso-brand");
+        } finally {
+          await owner
+            .update(reportRules)
+            .set({ enabled: false })
+            .where(eq(reportRules.id, fabrikamRule?.id ?? ""));
+        }
+      });
+
+      describe("when raising the alert fails", () => {
+        beforeEach(async () => {
+          await owner.execute(sql`
+            CREATE OR REPLACE FUNCTION probe_fail_installation_event() RETURNS trigger
+              LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'probe: raise failed'; END $$`);
+          await owner.execute(sql`
+            CREATE TRIGGER probe_fail_installation_event BEFORE INSERT ON report_events
+              FOR EACH ROW WHEN (NEW.tenant_id IS NULL)
+              EXECUTE FUNCTION probe_fail_installation_event()`);
+        });
+
+        const dropTrigger = () =>
+          owner.execute(sql`DROP TRIGGER IF EXISTS probe_fail_installation_event ON report_events`);
+
+        afterEach(async () => {
+          await dropTrigger();
+          await owner.execute(sql`DROP FUNCTION IF EXISTS probe_fail_installation_event()`);
+        });
+
+        const installationAlerts = () =>
+          owner
+            .select()
+            .from(notifications)
+            .where(
+              and(
+                eq(notifications.event, "notification.delivery_failed"),
+                isNull(notifications.tenantId),
+              ),
+            );
+
+        it("claims no transport episode, so the next failure alerts", async () => {
+          notifier.answer = () => ({
+            ok: false,
+            reason: "smtp_connection_failed",
+            error: "connect ECONNREFUSED",
+          });
+          await raise("backup.failed", { protectedObjectId: randomUUID() });
+          await owner.update(reportDeliveries).set({ attempts: MAX_REPORT_ATTEMPTS - 1 });
+          await dispatchAll();
+          expect(await installationAlerts()).toHaveLength(0);
+          const [state] = await owner.select({ mailFailure: settings.mailFailure }).from(settings);
+          expect(state?.mailFailure?.alertedAt ?? null).toBeNull();
+
+          await dropTrigger();
+          await raise("backup.failed", { protectedObjectId: randomUUID() });
+          await owner
+            .update(reportDeliveries)
+            .set({ attempts: MAX_REPORT_ATTEMPTS - 1 })
+            .where(eq(reportDeliveries.status, "pending"));
+          await dispatchAll();
+          const alerts = await installationAlerts();
+          expect(alerts).toHaveLength(1);
+          expect(alerts[0]?.details).toMatchObject({ scope: "transport" });
+        });
+
+        it("claims no provider recipient's episode, so the next failure alerts", async () => {
+          notifier.answer = (message) =>
+            message.to === "noc@msp.example"
+              ? { ok: false, reason: "recipient_rejected", error: "550 gone", permanent: true }
+              : { ok: true };
+          await raise("backup.failed", { protectedObjectId: randomUUID() });
+          await mod.fanout.fanOutOnce(providerDb, clock);
+          await dispatchAll();
+          expect(await installationAlerts()).toHaveLength(0);
+          const noc = () =>
+            owner
+              .select()
+              .from(providerNotificationRecipients)
+              .where(eq(providerNotificationRecipients.email, "noc@msp.example"));
+          expect((await noc())[0]?.failureAlertedAt ?? null).toBeNull();
+
+          await dropTrigger();
+          await raise("backup.failed", { protectedObjectId: randomUUID() });
+          await mod.fanout.fanOutOnce(providerDb, clock);
+          await dispatchAll();
+          const alerts = await installationAlerts();
+          expect(alerts).toHaveLength(1);
+          expect(alerts[0]?.details).toMatchObject({
+            audience: "provider",
+            recipient: "noc@msp.example",
+          });
+          expect((await noc())[0]?.failureAlertedAt).not.toBeNull();
+        });
+      });
+
+      it("stays quiet without a transport while the mail is marked not needed", async () => {
+        await owner.update(settings).set({ mailNotNeeded: true });
+        try {
+          const quiet = { ...deps(), notifier: async () => null };
+          await raise("verify.red", { protectedObjectId: randomUUID() });
+          await mod.fanout.fanOutOnce(providerDb, clock);
+          // No mail planned for the provider's recipients, owners included.
+          expect((await rows()).filter((row: ReportDelivery) => row.tenantId === null)).toEqual([]);
+          // The tenant's own rules fail as until 0.4, without an alert about the transport.
+          await owner.update(reportDeliveries).set({ attempts: MAX_REPORT_ATTEMPTS - 1 });
+          await mod.dispatcher.dispatchOnce(quiet);
+          const failed = (await rows()).filter(
+            (row: ReportDelivery) => row.channel === "email" && row.status === "failed",
+          );
+          expect(failed.length).toBeGreaterThan(0);
+          const [state] = await owner.select({ mailFailure: settings.mailFailure }).from(settings);
+          expect(state?.mailFailure).toBeNull();
+          expect(
+            await owner
+              .select()
+              .from(notifications)
+              .where(
+                and(
+                  eq(notifications.event, "notification.delivery_failed"),
+                  isNull(notifications.tenantId),
+                ),
+              ),
+          ).toHaveLength(0);
+          // The bell still has the event.
+          expect(
+            (await owner.select().from(notifications)).some(
+              (row: { event: string }) => row.event === "verify.red",
+            ),
+          ).toBe(true);
+        } finally {
+          await owner.update(settings).set({ mailNotNeeded: false });
+        }
       });
 
       it("never raises an alert about the alert's own failure", async () => {

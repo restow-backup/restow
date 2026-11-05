@@ -730,6 +730,13 @@ Für Betreiber beschrieben in [NOTIFICATIONS.md](NOTIFICATIONS.md); hier, wie es
   den Wiederholungen), löst je Episode einmal `notification.delivery_failed` aus: der Versand
   insgesamt in `settings.mail_failure`, ein Empfänger an seiner Zeile (`failing_since`,
   `failure_alerted_at`), eine nur in einer Regel genannte Adresse höchstens einmal in 24 Stunden.
+  Die Episode wird in derselben Transaktion vermerkt, die den Alarm auslöst. Eine 5xx-Antwort an
+  RCPT/DATA, die den Absender nennt („Sender address rejected", „not owned by user",
+  `5.2.252 SendAsDenied`), zählt wie eine an MAIL FROM als `smtp_sender_rejected` zum Versand
+  insgesamt. Dessen Alarm erreicht die Webhooks aller Mandanten und trägt deshalb nur den Grund,
+  nie die Antwort des Servers (die bleibt in `settings.mail_failure` und an der gescheiterten
+  Zustellung). Ohne Transport und mit `settings.mail_not_needed` plant die Verteilung keine Mail an
+  die Empfänger des Providers, und `mail_not_configured` löst keinen Alarm aus.
   Ein Webhook führt `failing_since`, `consecutive_failures`, `failure_alerted_at` und
   `last_failure`; er meldet bei einem endgültigen Fehler sofort, sonst nach drei Fehlversuchen in
   Folge über mindestens 15 Minuten. Der gestörte Kanal wird beim Planen ausgelassen

@@ -144,4 +144,6 @@ CREATE INDEX "report_deliveries_provider_throttle_idx" ON "report_deliveries" US
 CREATE INDEX "report_deliveries_event_idx" ON "report_deliveries" USING btree ("report_event_id") WHERE "report_deliveries"."report_event_id" IS NOT NULL;--> statement-breakpoint
 ALTER TABLE "report_deliveries" ADD CONSTRAINT "report_deliveries_scope_ck" CHECK ("report_deliveries"."tenant_id" IS NOT NULL OR "report_deliveries"."rule_id" IS NULL);--> statement-breakpoint
 ALTER TABLE "report_rules" ADD CONSTRAINT "report_rules_cadence_ck" CHECK ("report_rules"."cadence" IS NULL OR "report_rules"."trigger" = 'schedule');--> statement-breakpoint
-UPDATE "report_rules" SET "cadence" = 'weekly' WHERE "recipient_category" = 'weeklyReport' AND "trigger" = 'schedule' AND "cron" = '0 7 * * 1';
+ALTER TABLE "report_rules" NO FORCE ROW LEVEL SECURITY;--> statement-breakpoint
+UPDATE "report_rules" SET "cadence" = 'weekly' WHERE "recipient_category" = 'weeklyReport' AND "trigger" = 'schedule' AND "cron" = '0 7 * * 1';--> statement-breakpoint
+ALTER TABLE "report_rules" FORCE ROW LEVEL SECURITY;

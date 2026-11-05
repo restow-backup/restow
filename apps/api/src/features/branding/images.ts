@@ -22,6 +22,9 @@ import { ProblemError } from "../../problem.js";
  *     dropped (an unknown critical chunk is refused, `corrupt`); of a JPEG the APP1 to APP15
  *     segments (EXIF, XMP, ICC and the rest) except APP14 (Adobe colour transform, which decoding
  *     needs) and comments. The image data itself is kept as it is.
+ *   - Every scanline of a PNG must name one of the five filter types (0 to 4): the PDF library
+ *     unfilters a PNG with transparency or interlacing in an asynchronous callback, where an
+ *     unknown filter type is an uncaught exception that ends the process, not a failed report.
  *   - The result is decoded once with the PDF library's image reader, so a report never fails on
  *     it later (`corrupt`).
  */
@@ -112,24 +115,55 @@ interface PngHeader {
   readonly interlace: number;
 }
 
+/** The bytes of one row of `width` pixels (without its filter byte). */
+function pngRowBytes(header: PngHeader, width: number): number {
+  const channels = PNG_COLOUR_TYPES.get(header.colourType)?.channels ?? 0;
+  return Math.ceil((width * channels * header.bitDepth) / 8);
+}
+
+/** Each pass of the image data as columns and rows: one pass, or the seven of Adam7. */
+function pngPasses(header: PngHeader): { width: number; height: number }[] {
+  if (header.interlace === 0) {
+    return [{ width: header.width, height: header.height }];
+  }
+  return ADAM7_PASSES.map(([x0, y0, dx, dy]) => ({
+    width: Math.max(0, Math.ceil((header.width - x0) / dx)),
+    height: Math.max(0, Math.ceil((header.height - y0) / dy)),
+  }));
+}
+
+/**
+ * Whether every scanline of the inflated image data (laid out as {@link pngRawSize} counts it)
+ * starts with a filter type the specification defines: 0 (None) to 4 (Paeth).
+ */
+export function pngFiltersValid(raw: Uint8Array, header: PngHeader): boolean {
+  let offset = 0;
+  for (const pass of pngPasses(header)) {
+    if (pass.width === 0 || pass.height === 0) {
+      continue;
+    }
+    const stride = 1 + pngRowBytes(header, pass.width);
+    for (let row = 0; row < pass.height; row++) {
+      const filter = raw[offset];
+      if (filter === undefined || filter > 4) {
+        return false;
+      }
+      offset += stride;
+    }
+  }
+  return offset === raw.length;
+}
+
 /**
  * The exact size of a PNG's image data once inflated: per row (of each Adam7 pass when
  * interlaced) one filter byte and the row's bytes. A pass without columns or rows has no rows.
  */
 export function pngRawSize(header: PngHeader): number {
-  const channels = PNG_COLOUR_TYPES.get(header.colourType)?.channels ?? 0;
-  const bitsPerPixel = channels * header.bitDepth;
-  const rows = (width: number, height: number) =>
-    width === 0 || height === 0 ? 0 : height * (1 + Math.ceil((width * bitsPerPixel) / 8));
-  if (header.interlace === 0) {
-    return rows(header.width, header.height);
-  }
   let total = 0;
-  for (const [x0, y0, dx, dy] of ADAM7_PASSES) {
-    total += rows(
-      Math.max(0, Math.ceil((header.width - x0) / dx)),
-      Math.max(0, Math.ceil((header.height - y0) / dy)),
-    );
+  for (const pass of pngPasses(header)) {
+    if (pass.width > 0 && pass.height > 0) {
+      total += pass.height * (1 + pngRowBytes(header, pass.width));
+    }
   }
   return total;
 }
@@ -334,6 +368,10 @@ async function decodeCheck(image: ParsedImage): Promise<void> {
       const raw = inflateSync(idat, { maxOutputLength: expected + 1 });
       if (raw.length !== expected) {
         throw new Error("The image data does not match the header.");
+      }
+      // A filter type beyond 4 would throw inside the PDF library's asynchronous decoder.
+      if (!pngFiltersValid(raw, image.png)) {
+        throw new Error("A scanline names an unknown filter type.");
       }
     }
     decoded = await resolveImage(

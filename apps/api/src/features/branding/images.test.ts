@@ -1,7 +1,8 @@
 import { deflateSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import { ProblemError } from "../../problem.js";
-import { MAX_LOGO_BYTES, pngRawSize, validateLogo } from "./images.js";
+import { renderCustomerReport } from "../../reports/customer-report.js";
+import { MAX_LOGO_BYTES, pngFiltersValid, pngRawSize, validateLogo } from "./images.js";
 import { pngChunk, testJpeg, testPng } from "./testing/images.js";
 
 /** A PNG with the given header fields and the given (uncompressed) image data. */
@@ -212,6 +213,108 @@ describe("validateLogo", () => {
       Buffer.alloc(pngRawSize({ width: 16, height: 16, bitDepth: 8, colourType: 0, interlace: 1 })),
     );
     expect((await validateLogo(interlaced, "image/png")).width).toBe(16);
+  });
+
+  it("refuses a scanline with an unknown filter type, whatever the colour type and interlace", async () => {
+    type Header = {
+      width: number;
+      height: number;
+      bitDepth: number;
+      colourType: number;
+      interlace: number;
+    };
+    const channels: Record<number, number> = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 };
+    /** The image data with each row's filter byte from `filterOf(row)`, pixels all zero. */
+    const rawWith = (header: Header, filterOf: (row: number) => number): Buffer => {
+      const passes =
+        header.interlace === 0
+          ? [[0, 0, 1, 1]]
+          : [
+              [0, 0, 8, 8],
+              [4, 0, 8, 8],
+              [0, 4, 4, 8],
+              [2, 0, 4, 4],
+              [0, 2, 2, 4],
+              [1, 0, 2, 2],
+              [0, 1, 1, 2],
+            ];
+      const rows: Buffer[] = [];
+      for (const [x0, y0, dx, dy] of passes as [number, number, number, number][]) {
+        const w = Math.ceil((header.width - x0) / dx);
+        const h = Math.ceil((header.height - y0) / dy);
+        const bytes = Math.ceil((w * (channels[header.colourType] ?? 0) * header.bitDepth) / 8);
+        for (let row = 0; row < h; row++) {
+          const line = Buffer.alloc(1 + bytes);
+          line[0] = filterOf(rows.length);
+          rows.push(line);
+        }
+      }
+      const raw = Buffer.concat(rows);
+      expect(raw.length).toBe(pngRawSize(header));
+      return raw;
+    };
+    const palette = [
+      pngChunk("PLTE", Buffer.from([0, 0, 0, 255, 255, 255])),
+      pngChunk("tRNS", Buffer.from([0, 255])),
+    ];
+    const cases: { header: Header; extra?: Buffer[] }[] = [
+      // RGB with alpha, greyscale with alpha: the PDF library splits the alpha channel.
+      { header: { width: 32, height: 32, bitDepth: 8, colourType: 6, interlace: 0 } },
+      { header: { width: 32, height: 32, bitDepth: 16, colourType: 4, interlace: 0 } },
+      // A palette with transparency: the PDF library decodes the indices.
+      {
+        header: { width: 32, height: 32, bitDepth: 8, colourType: 3, interlace: 0 },
+        extra: palette,
+      },
+      {
+        header: { width: 33, height: 17, bitDepth: 2, colourType: 3, interlace: 0 },
+        extra: palette,
+      },
+      // Interlaced: the PDF library always decodes.
+      { header: { width: 32, height: 32, bitDepth: 8, colourType: 2, interlace: 1 } },
+      { header: { width: 21, height: 19, bitDepth: 8, colourType: 6, interlace: 1 } },
+    ];
+    for (const { header, extra } of cases) {
+      // Every defined filter type, row after row, is fine.
+      const good = await validateLogo(
+        rawPng(
+          header,
+          rawWith(header, (row) => row % 5),
+          extra,
+        ),
+        "image/png",
+      );
+      expect(good.width).toBe(header.width);
+      // What the check lets through, the PDF reports render.
+      const pdf = await renderCustomerReport({
+        language: "en",
+        tenantName: "Contoso",
+        month: "2026-10",
+        figures: {
+          objectsByKind: [],
+          backupSuccessRate: null,
+          verifiedShare: null,
+          restores: null,
+          storedBytes: null,
+          causes: [],
+          suspicious: 0,
+        },
+        brand: {
+          name: "MSP",
+          logo: { data: good.bytes, format: "png", width: good.width, height: good.height },
+        },
+        generatedAt: new Date("2026-11-01T07:00:00Z"),
+      });
+      expect(pdf.subarray(0, 5).toString("latin1")).toBe("%PDF-");
+      for (const bad of [5, 9, 128, 255]) {
+        const raw = rawWith(header, (row) => (row === 7 ? bad : row % 5));
+        expect(pngFiltersValid(raw, header)).toBe(false);
+        expect(await problemOf(validateLogo(rawPng(header, raw, extra), "image/png"))).toEqual({
+          status: 422,
+          code: "corrupt",
+        });
+      }
+    }
   });
 
   it("drops the ICC profile and unknown chunks, and refuses an unknown critical chunk", async () => {

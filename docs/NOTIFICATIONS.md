@@ -77,16 +77,20 @@ reaches the bell and the floor, and it is never sent through the channel that fa
 What is detected:
 
 - **A refused address.** The mail server refused the recipient or the message for good (an SMTP
-  550, 551, 553 or 554 answer to RCPT TO or DATA, Microsoft Graph `ErrorInvalidRecipients`). Such a
-  mail is not retried any more (until 0.4 it was retried four times).
+  550, 551, 553 or 554 answer to RCPT TO or DATA that does not name the sender, Microsoft Graph
+  `ErrorInvalidRecipients`). Such a mail is not retried any more (until 0.4 it was retried four
+  times).
 - **A mail that failed after every retry** (1, 5, 15 and 60 minutes).
 - **The mail transport as a whole**: not configured, the login refused, the server unreachable,
-  TLS failing, the sender refused (an SMTP 5xx answer to MAIL FROM, e.g. a branded From the
-  server will not send as: `smtp_sender_rejected`, retried like the others), no token from
-  Microsoft 365 or Google Workspace, a timeout. Its alert is the installation's: it reaches the
-  provider's bell and recipients (never by e-mail) and the webhooks of every tenant whose rules
-  listen for `notification.delivery_failed`; it names no tenant's rule, since the transport
-  concerns them all.
+  TLS failing, the sender refused (`smtp_sender_rejected`, retried like the others: an SMTP 5xx
+  answer to MAIL FROM, or to RCPT TO or DATA that names the sender, such as "Sender address
+  rejected", "not owned by user" or Exchange's `5.2.252 SendAsDenied`, e.g. a branded From the
+  server will not send as), no token from Microsoft 365 or Google Workspace, a timeout. Its alert
+  is the installation's: it reaches the provider's bell and recipients (never by e-mail) and the
+  webhooks of every tenant whose rules listen for `notification.delivery_failed`. It names no
+  tenant's rule and carries only the reason, not the server's answer, since the transport
+  concerns them all and the answer can name one tenant's branded From, the relay or its login;
+  the answer stays with the failed delivery in that tenant's delivery log.
 - **A webhook that keeps failing**: at once on an answer a retry cannot change (410, a chat
   service's 400, 401, 403, 404, 413 or 422, a blocked address), otherwise after three failed
   attempts in a row whose first failure is at least 15 minutes old. A paused webhook is no failure.
@@ -105,8 +109,12 @@ Episodes, so that one problem gives one alert:
 An alert about a failed delivery that fails itself raises no further alert: it is only logged
 and recorded.
 
-An installation with recipients but without a mail transport now gets one such alert (in the bell
-and through webhooks), instead of silence.
+From 0.5.0 on every installation has recipients: the owners of the provider team, who receive
+the critical events and the installation's own events by e-mail. An installation without a mail
+transport therefore gets one such alert (in the bell and through webhooks) that lasts until a
+transport is configured, instead of silence. If the operator marked the notification mail as
+not needed (the Start checklist), no mail is planned for the provider's recipients and no alert
+about the missing transport is raised, as until 0.4; the bell still shows every event.
 
 ## Summary reports
 
@@ -146,10 +154,11 @@ Installation › Branding (Business) and the tenant page › Branding (Service P
   are refused too. A PNG's header must be one the PNG specification allows, and its image data
   must inflate to exactly the size the header announces; it is inflated with that size as the
   limit, so a small file that would inflate to far more (a decompression bomb) is refused without
-  costing memory. Metadata is removed before the logo is stored: of a PNG every chunk except the
-  image's own and the few that change how it looks (transparency, gamma, chromaticity, sRGB,
-  significant bits, background, pixel size), so text, time, EXIF, the ICC profile and unknown
-  chunks go; of a JPEG EXIF, XMP, ICC and comments. The picture itself stays as it was.
+  costing memory. Every row of the image data must name one of the five filter types the PNG
+  specification defines. Metadata is removed before the logo is stored: of a PNG every chunk
+  except the image's own and the few that change how it looks (transparency, gamma,
+  chromaticity, sRGB, significant bits, background, pixel size), so text, time, EXIF, the ICC
+  profile and unknown chunks go; of a JPEG EXIF, XMP, ICC and comments. The picture itself stays as it was.
 - **Accent colour**: text on the accent has to reach a contrast of 4.5:1, white or dark; a colour
   where neither does is refused, and the page shows both ratios. Links take the accent only when it
   reads on white, else they keep the default blue.

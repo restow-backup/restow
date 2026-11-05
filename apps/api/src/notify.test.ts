@@ -265,6 +265,85 @@ describe("permanent SMTP rejections (0.5.0)", () => {
     expect(isTransportFailureReason(result.reason)).toBe(true);
   });
 
+  it("tells a sender refused at RCPT TO or DATA from a refused recipient", () => {
+    const refusal = (responseCode: number, command: string, response: string, code = "EENVELOPE") =>
+      Object.assign(new Error(`Command failed: ${response}`), {
+        responseCode,
+        command,
+        code,
+        response,
+      });
+    // Postfix with reject_sender_login_mismatch answers at RCPT TO (smtpd_delay_reject).
+    const postfix = refusal(
+      553,
+      "RCPT TO",
+      "553 5.7.1 <alerts@brand.example>: Sender address rejected: not owned by user msp-relay",
+    );
+    // Exchange Online refuses a From the mailbox may not send as after DATA.
+    const exchange = refusal(
+      554,
+      "DATA",
+      "554 5.2.252 SendAsDenied; relay@msp.example not allowed to send as alerts@brand.example; STOREDRV.Submission.Exception:SendAsDeniedException",
+      "EMESSAGE",
+    );
+    for (const err of [postfix, exchange]) {
+      expect(isSmtpSenderRejection(err)).toBe(true);
+      expect(isPermanentSmtpRejection(err)).toBe(false);
+    }
+    // The wording in the reply alone is enough, the message may differ.
+    expect(
+      isSmtpSenderRejection(
+        Object.assign(new Error("Message failed"), {
+          responseCode: 550,
+          command: "DATA",
+          response: "550 5.7.60 SMTP; Client does not have permissions to send as this sender",
+        }),
+      ),
+    ).toBe(true);
+    // A refused recipient stays the recipient's, a temporary answer stays retried.
+    const unknown = refusal(
+      550,
+      "RCPT TO",
+      "550 5.1.1 <gone@example.com>: Recipient address rejected",
+    );
+    expect(isSmtpSenderRejection(unknown)).toBe(false);
+    expect(isPermanentSmtpRejection(unknown)).toBe(true);
+    expect(
+      isSmtpSenderRejection(
+        refusal(451, "RCPT TO", "451 4.7.1 Sender address rejected: try later"),
+      ),
+    ).toBe(false);
+  });
+
+  it("answers a branded From the server refuses at RCPT TO as smtp_sender_rejected", async () => {
+    const notifier = new SmtpNotifier({
+      host: "smtp.example.com",
+      port: 587,
+      secure: false,
+      from: "Alerts <alerts@example.com>",
+    } as SmtpConfig);
+    const transporter = (notifier as unknown as { transporter: { sendMail: unknown } }).transporter;
+    transporter.sendMail = async () => {
+      const response =
+        "553 5.7.1 <alerts@msp.example>: Sender address rejected: not owned by user relay";
+      throw Object.assign(new Error(`Recipient command failed: ${response}`), {
+        code: "EENVELOPE",
+        responseCode: 553,
+        command: "RCPT TO",
+        response,
+      });
+    };
+    const result = await notifier.send({
+      to: "ops@example.com",
+      subject: "s",
+      text: "t",
+      from: { name: "MSP", address: "alerts@msp.example" },
+    });
+    expect(result).toMatchObject({ ok: false, reason: "smtp_sender_rejected" });
+    expect(result.permanent).toBeUndefined();
+    expect(isTransportFailureReason(result.reason)).toBe(true);
+  });
+
   it("answers a refused recipient as recipient_rejected, permanent", async () => {
     const notifier = new SmtpNotifier({
       host: "smtp.example.com",

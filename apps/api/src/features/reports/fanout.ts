@@ -16,11 +16,13 @@ import {
   type ReportEventRow,
   reportDeliveries,
   reportEvents,
+  settings,
 } from "@restow/db";
 import { createI18n, defaultLanguage } from "@restow/i18n";
 import { and, eq, inArray, isNotNull, lt, max, sql } from "drizzle-orm";
 import { loadInstallationTimeZone } from "../../lib/installation-time-zone.js";
 import { isFloorRecipient, syncOwnerRecipients } from "../provider-notifications/service.js";
+import { notificationMailConfigured } from "../settings/service.js";
 
 /**
  * The fan-out to the provider's recipients (0.5.0, docs/NOTIFICATIONS.md): every event that reached
@@ -35,7 +37,10 @@ import { isFloorRecipient, syncOwnerRecipients } from "../provider-notifications
  *     critical events too); notices are not held back;
  *   - never to the address (or while the transport is down, through e-mail at all) whose failure
  *     the event is about;
- *   - at once, or held for the recipient's digest (installation time zone).
+ *   - at once, or held for the recipient's digest (installation time zone);
+ *   - not at all while no mail transport is configured and the operator marked the mail as not
+ *     needed (the Start checklist): such an installation stays as quiet as until 0.4, the events
+ *     still reach the bell.
  *
  * The rows carry no tenant (`tenant_id` null, `about_tenant_id` the tenant the event is about), so
  * Row Level Security keeps the provider's addresses out of every tenant session.
@@ -157,6 +162,15 @@ export async function fanOutOnce(providerDb: Database, now: Date): Promise<numbe
     return 0;
   }
   await syncOwnerRecipients(providerDb, now, { throttle: true });
+  const [mail] = await providerDb
+    .select({
+      mailTransport: settings.mailTransport,
+      mailConfig: settings.mailConfig,
+      mailNotNeeded: settings.mailNotNeeded,
+    })
+    .from(settings)
+    .limit(1);
+  const mailNotNeeded = Boolean(mail?.mailNotNeeded) && !notificationMailConfigured(mail);
   const timeZone = (await loadInstallationTimeZone(providerDb)).timeZone;
   const ruleName = String(createI18n({ lng: defaultLanguage }).t("reports:defaultRules.provider"));
   return providerDb.transaction(async (tx) => {
@@ -177,7 +191,7 @@ export async function fanOutOnce(providerDb: Database, now: Date): Promise<numbe
     events.sort(
       (a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id),
     );
-    for (const event of events) {
+    for (const event of mailNotNeeded ? [] : events) {
       const rows = await providerDeliveriesFor(tx, event, recipients, { now, timeZone, ruleName });
       if (rows.length > 0) {
         await tx.insert(reportDeliveries).values(rows);
