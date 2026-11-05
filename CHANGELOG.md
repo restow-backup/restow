@@ -619,6 +619,11 @@ private repository.
   notebook as a package, not as a folder, and the restore stopped at it with "a file with that
   name exists", so the notebook and every section below it failed in every mode. A notebook in the
   target is now treated as the folder it is, and the sections go into it.
+- SharePoint restore: a library Graph refused at a backup keeps the files of the last run that
+  could read it, but a restore and the restore explorer showed them as if they were that backup's
+  state. The library and every file restored from it now say that the library could not be read
+  at this backup and from when its files are, and the explorer shows "Library not readable at
+  this backup" with that date on the library. The files keep their normal verification.
 - OneDrive/SharePoint restore and mail restore: a large file started again from its first byte
   after any hiccup on one of its fragments. A 500 or 502 from SharePoint, a connection that broke
   while a fragment was sent, or a fragment sent once more after a timeout (which the session then

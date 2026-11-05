@@ -278,6 +278,11 @@
       "title": "Anhänge nicht gesichert",
       "description": "Anhänge wurden von Microsoft nicht herausgegeben und nicht gesichert. Eine Wiederherstellung oder ein Download liefert den Beitrag ohne sie."
     },
+    "carriedForward": {
+      "title": "Bibliothek bei dieser Sicherung nicht lesbar",
+      "description": "Bibliothek war bei dieser Sicherung nicht lesbar; Stand vom {date}, der letzten Sicherung, die sie lesen konnte.",
+      "descriptionUndated": "Bibliothek war bei dieser Sicherung nicht lesbar; ihre Dateien stammen aus einer früheren Sicherung."
+    },
     "reading": {
       "plainText": "Nur-Text-Nachricht",
       "attachmentsCount": "Anhänge ({count})",

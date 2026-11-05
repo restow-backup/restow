@@ -278,6 +278,11 @@
       "title": "Attachments not backed up",
       "description": "Microsoft did not hand out the attachments of this post (or some of them), so they are not in the backup. A restore or download brings the post back without them."
     },
+    "carriedForward": {
+      "title": "Library not readable at this backup",
+      "description": "The library could not be read at this backup; its files are as of {date}, the last backup that read it.",
+      "descriptionUndated": "The library could not be read at this backup; its files are those of an earlier backup."
+    },
     "reading": {
       "plainText": "Plain-text message",
       "attachmentsCount": "Attachments ({count})",

@@ -377,6 +377,12 @@ export interface TreeEntryDto {
   event: EventSummary | null;
   /** Content type hint the UI may show; never secrets. */
   contentType: string | null;
+  /**
+   * A SharePoint library the backup could not read: it holds the files of the
+   * last run that did (`carriedForward`, `lastReadAt` on the library's folder
+   * object). Absent for everything else.
+   */
+  carriedForward?: { lastReadAt: string | null };
 }
 
 export type EntryRow = Pick<
@@ -413,6 +419,9 @@ export function toTreeEntry(row: EntryRow): TreeEntryDto {
     mail: row.kind === "mail" ? mailSummaryOf(metadata) : null,
     event: row.kind === "event" ? eventSummaryOf(metadata) : null,
     contentType: metadata ? pickString(metadata, ["contentType", "mimeType"]) : null,
+    ...(row.kind === "folder" && metadata?.carriedForward === "true"
+      ? { carriedForward: { lastReadAt: pickString(metadata, ["lastReadAt"]) } }
+      : {}),
   };
 }
 

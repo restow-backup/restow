@@ -209,6 +209,25 @@ const emptyMailSummary: MailSummary = {
 };
 
 describe("toTreeEntry", () => {
+  it("marks a library carried forward from an earlier run, and nothing else", () => {
+    const row = {
+      id: "r-lib",
+      kind: "folder" as const,
+      name: "Documents",
+      path: "Libraries/Documents",
+      parentPath: "Libraries",
+      size: 0,
+      mtime: null,
+      itemId: null,
+      deleted: false,
+      metadata: { carriedForward: "true", lastReadAt: "2026-10-01T02:00:00.000Z" },
+    };
+    expect(toTreeEntry(row).carriedForward).toEqual({ lastReadAt: "2026-10-01T02:00:00.000Z" });
+    expect(toTreeEntry({ ...row, metadata: { driveId: "b!docs" } })).not.toHaveProperty(
+      "carriedForward",
+    );
+  });
+
   it("maps a row and attaches a mail summary for mail items", () => {
     const mtime = new Date("2026-02-01T10:00:00Z");
     const dto = toTreeEntry({

@@ -2,6 +2,7 @@ import {
   ArchiveRestore,
   Download,
   FolderOpen,
+  History,
   LocateFixed,
   Lock,
   Paperclip,
@@ -114,6 +115,20 @@ export function DetailsPanel({
         <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
           {t("details.deletedHint")}
         </p>
+      ) : null}
+
+      {entry.carriedForward ? (
+        <Alert variant="warning">
+          <History />
+          <AlertTitle>{t("details.carriedForward.title")}</AlertTitle>
+          <AlertDescription>
+            {entry.carriedForward.lastReadAt
+              ? t("details.carriedForward.description", {
+                  date: formatDateTime(entry.carriedForward.lastReadAt, language),
+                })
+              : t("details.carriedForward.descriptionUndated")}
+          </AlertDescription>
+        </Alert>
       ) : null}
 
       {mail?.attachmentsNotBackedUp ? (

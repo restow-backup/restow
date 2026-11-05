@@ -386,7 +386,11 @@ Elemente.
   wiederhergestellt, bekommt jede einen Ordner mit ihrem Namen. Modi: „Beide behalten"
   (umbenennen), „Überschreiben" (SharePoint behält die alte Datei als Version), „Vorhandene
   überspringen". Upload und Prüfung wie bei OneDrive (Upload-Session, Größe, SHA-256,
-  QuickXorHash).
+  QuickXorHash). Trägt der Ordner einer Bibliothek `carriedForward` (Graph hatte sie bei dieser
+  Sicherung verweigert, sie hält die Dateien des letzten Laufs, der sie lesen konnte,
+  `lastReadAt`), nennt das Ergebnis an der Bibliothek und an jeder daraus wiederhergestellten
+  Datei, von wann ihr Stand ist; die Prüfung der Dateien bleibt dieselbe. Der Explorer zeigt an
+  der Bibliothek „Bibliothek bei dieser Sicherung nicht lesbar“.
 - Listenelemente nur in ihre ursprüngliche Liste, als **neue** Elemente (neue IDs; Erstellt/Geändert
   und Autoren setzt SharePoint). Geschrieben werden nur beschreibbare Felder: System-, schreibgeschützte,
   versteckte und berechnete Spalten bleiben weg (nach `_list.json`). „Überschreiben" setzt bei einem

@@ -225,6 +225,8 @@ export interface TreeEntry {
   /** Present for calendar events (absent from an API older than 0.4.2). */
   event?: EventSummary | null;
   contentType: string | null;
+  /** A SharePoint library the backup could not read: its files are those of `lastReadAt`. */
+  carriedForward?: { lastReadAt: string | null };
 }
 
 /** One occurrence in a calendar view: a single event, or one of a series. */
