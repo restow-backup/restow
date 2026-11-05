@@ -125,6 +125,10 @@
         "title": "The online archive of this mailbox is not backed up",
         "why": "This mailbox has an online archive (In-Place Archive). Microsoft Graph offers no generally available interface for it, so {appName} backs up the primary mailbox only. Mail that a retention policy or the user moves to the online archive is missing from new restore points from then on; older restore points keep it until their retention ends."
       },
+      "group_event_attachments_not_covered": {
+        "title": "Attachments of events in the group calendar are not backed up",
+        "why": "{count, plural, one {# event} other {# events}} in this group's calendar {count, plural, one {has} other {have}} attachments. Microsoft Graph does not hand attachments of group events to the app, so {appName} backs up the events themselves only. A restore creates these events without their attachments."
+      },
       "item_not_found": {
         "title": "The item was changed or deleted at Microsoft in the meantime",
         "why": "{appName} listed this item but could not read it afterwards, because it was moved or deleted at Microsoft in between. The next run sees the new state."
@@ -697,6 +701,7 @@
     "enable_imap_access": "Make sure IMAP access is switched on for the account at the mail provider.",
     "show_gmail_all_mail_in_imap": "In Gmail, open Settings > Labels and tick \"Show in IMAP\" for All Mail. The next run then backs up each message only once.",
     "check_archive_policy": "Check whether a retention policy moves mail to the online archive. If needed, back up the archive another way (for example with an eDiscovery export), or keep the restore points for as long as you need that mail.",
+    "store_group_attachments_in_files": "Also keep important attachments in the files of the group (its SharePoint site); those are backed up with the site.",
     "reauthorize_oauth": "Connect the account again in the source settings so that {appName} receives a new OAuth token.",
     "set_object_password": "Set or correct the password of this account on the Protected objects page.",
     "check_host_reachable": "{has_host, select, yes {Check that {host}{has_port, select, yes {:{port}} other {}} is reachable from the {appName} server} other {Check that the server is reachable from the {appName} server}}: name, port, firewall and proxy.",

@@ -35,6 +35,10 @@ export interface FakeAttachment {
   odataType?: string;
   /** File attachments: the Content-ID the HTML body's `cid:` names. */
   contentId?: string;
+  /** Served for `$value` (or the item `$expand`) instead of the content, e.g. a 500. */
+  contentResponse?: FixtureResponse;
+  /** Item attachments: the attached item as Graph returns it under `item`. */
+  item?: Record<string, unknown>;
 }
 
 export interface FakeMessage {
@@ -80,6 +84,8 @@ export interface FakeEvent extends Event {
   calendarId: string;
   /** Modified occurrences, for series masters. */
   exceptions?: Event[];
+  /** `/events/{id}/attachments` (set `hasAttachments` to match, as Graph does). */
+  attachments?: FakeAttachment[];
 }
 
 export interface FakeContactFolder {
@@ -431,6 +437,18 @@ export class FakeMailbox {
     [/^\/calendars$/, () => ({ status: 200, json: { value: [...this.calendars.values()] } })],
     [/^\/calendars\/([^/]+)\/events$/, ([id = ""]) => this.eventPage(id)],
     [
+      /^\/events\/([^/]+)\/attachments$/,
+      ([id = ""], params) => this.eventAttachmentList(id, selectOf(params)),
+    ],
+    [
+      /^\/events\/([^/]+)\/attachments\/([^/]+)\/\$value$/,
+      ([id = "", attachmentId = ""]) => this.eventAttachmentContent(id, attachmentId, false),
+    ],
+    [
+      /^\/events\/([^/]+)\/attachments\/([^/]+)$/,
+      ([id = "", attachmentId = ""]) => this.eventAttachmentContent(id, attachmentId, true),
+    ],
+    [
       /^\/events\/([^/]+)\/instances$/,
       ([id = ""]) => {
         const master = this.events.get(id);
@@ -497,6 +515,60 @@ export class FakeMailbox {
         }),
       },
     };
+  }
+
+  private eventAttachmentList(eventId: string, select: string[]): FixtureResponse {
+    const event = this.events.get(eventId);
+    if (!event) {
+      return this.notFound("event");
+    }
+    const castContentId = select.includes("microsoft.graph.fileAttachment/contentId");
+    return {
+      status: 200,
+      json: {
+        value: (event.attachments ?? []).map((a) => {
+          const type = a.odataType ?? "#microsoft.graph.fileAttachment";
+          return {
+            "@odata.type": type,
+            id: a.id,
+            name: a.name,
+            contentType: a.contentType,
+            size: a.bytes.length,
+            isInline: a.isInline ?? false,
+            lastModifiedDateTime: event.lastModifiedDateTime,
+            ...(castContentId && type === "#microsoft.graph.fileAttachment"
+              ? { contentId: a.contentId ?? null }
+              : {}),
+          };
+        }),
+      },
+    };
+  }
+
+  private eventAttachmentContent(
+    eventId: string,
+    attachmentId: string,
+    expandItem: boolean,
+  ): FixtureResponse {
+    const attachment = this.events.get(eventId)?.attachments?.find((a) => a.id === attachmentId);
+    if (!attachment) {
+      return this.notFound("attachment");
+    }
+    if (attachment.contentResponse) {
+      return attachment.contentResponse;
+    }
+    if (expandItem) {
+      return {
+        status: 200,
+        json: {
+          "@odata.type": "#microsoft.graph.itemAttachment",
+          id: attachment.id,
+          name: attachment.name,
+          item: attachment.item ?? {},
+        },
+      };
+    }
+    return { status: 200, bytes: attachment.bytes };
   }
 
   private attachmentContent(messageId: string, attachmentId: string): FixtureResponse {
@@ -688,7 +760,12 @@ export class FakeMailbox {
   }
 
   private eventJson(event: FakeEvent): Event {
-    const { calendarId: _calendarId, exceptions: _exceptions, ...rest } = event;
+    const {
+      calendarId: _calendarId,
+      exceptions: _exceptions,
+      attachments: _attachments,
+      ...rest
+    } = event;
     return rest;
   }
 

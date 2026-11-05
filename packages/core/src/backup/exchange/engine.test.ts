@@ -1791,6 +1791,114 @@ describe("ExchangeBackupEngine", () => {
     expect(byId(manifest, "AAMkMsg1").metadata?.[META.fetchedInSnapshot]).toBe("snap-2");
   });
 
+  describe("event attachments (user calendars)", () => {
+    const agenda = new Uint8Array(Buffer.from("PK\u0003\u0004agenda"));
+
+    function meetingWithAgenda(): void {
+      box.addEvent({
+        id: "evt-att",
+        calendarId: "cal-default",
+        type: "singleInstance",
+        subject: "Board meeting",
+        changeKey: "ck-att-1",
+        hasAttachments: true,
+        start: { dateTime: "2026-10-05T08:00:00.0000000", timeZone: "UTC" },
+        end: { dateTime: "2026-10-05T09:00:00.0000000", timeZone: "UTC" },
+        attachments: [
+          {
+            id: "att-docx",
+            name: "agenda.docx",
+            contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            bytes: agenda,
+          },
+          {
+            id: "att-link",
+            name: "Budget sheet",
+            contentType: "application/octet-stream",
+            bytes: new Uint8Array(),
+            odataType: "#microsoft.graph.referenceAttachment",
+          },
+        ],
+      });
+    }
+
+    function attachmentCalls(): number {
+      return graph.calls.filter((call) =>
+        /\/events\/[^/]+\/attachments/.test(new URL(call.url).pathname),
+      ).length;
+    }
+
+    it("stores the file attachment of an event below the event", async () => {
+      meetingWithAgenda();
+      const ctx = newContext();
+      const result = await engine.run(ctx, mailbox, {});
+      expect(result.failures).toEqual([]);
+      const manifest = await manifestOf(result.snapshotId);
+      const eventPath = `calendar/Calendar/Board meeting.${shortId("evt-att")}.json`;
+      const attachment = byId(manifest, "evt-att/att-docx");
+      expect(attachment.type).toBe("event-attachment");
+      expect(attachment.path).toBe(
+        `calendar/Calendar/Board meeting.${shortId("evt-att")}.attachments/agenda.docx.${shortId("att-docx")}`,
+      );
+      expect(attachment.metadata).toMatchObject({
+        [META.eventItemId]: "evt-att",
+        [META.eventPath]: eventPath,
+        [META.name]: "agenda.docx",
+        [META.isInline]: "false",
+        calendarId: "cal-default",
+      });
+      expect(await readBytes(ctx, attachment)).toEqual(Buffer.from(agenda));
+      expect(byPath(manifest, eventPath).metadata).toMatchObject({
+        [META.attachmentsChangeKey]: "ck-att-1",
+        [META.attachmentCount]: "1",
+        [META.referenceAttachments]: '["Budget sheet"]',
+      });
+
+      // Unchanged event: nothing is listed again, the attachment is carried forward.
+      graph.calls.length = 0;
+      const second = await engine.run(newContext({ jobId: "job-2" }), mailbox, {});
+      expect(attachmentCalls()).toBe(0);
+      expect(byId(await manifestOf(second.snapshotId), "evt-att/att-docx").chunks).toEqual(
+        attachment.chunks,
+      );
+
+      // The attachment removed from the event: gone from the next restore point.
+      box.updateEvent("evt-att", { attachments: [], hasAttachments: false });
+      const third = await engine.run(newContext({ jobId: "job-3" }), mailbox, {});
+      const after = await manifestOf(third.snapshotId);
+      expect(after.objects.filter((o) => o.metadata?.[META.eventItemId] === "evt-att")).toEqual([]);
+    });
+
+    it("records an attachment that cannot be read as an item failure", async () => {
+      meetingWithAgenda();
+      const attachment = must(box.events.get("evt-att")?.attachments?.[0]);
+      attachment.contentResponse = {
+        status: 500,
+        json: graphError("UnknownError", "An internal server error occurred."),
+      };
+      const result = await engine.run(newContext(), mailbox, {});
+      expect(result.failures).toEqual([
+        expect.objectContaining({
+          itemRef: `calendar/Calendar/Board meeting.${shortId("evt-att")}.json`,
+        }),
+      ]);
+      const manifest = await manifestOf(result.snapshotId);
+      expect(manifest.objects.find((o) => o.id === "evt-att/att-docx")).toBeUndefined();
+      // Not marked as done: the next run reads the attachments again.
+      expect(
+        byPath(manifest, `calendar/Calendar/Board meeting.${shortId("evt-att")}.json`).metadata?.[
+          META.attachmentsChangeKey
+        ],
+      ).toBeUndefined();
+      delete attachment.contentResponse;
+      const next = await engine.run(newContext({ jobId: "job-2" }), mailbox, {});
+      expect(next.failures).toEqual([]);
+      expect(byId(await manifestOf(next.snapshotId), "evt-att/att-docx").type).toBe(
+        "event-attachment",
+      );
+    });
+  });
+
   describe("online archive (In-Place Archive)", () => {
     function archiveProbes(): number {
       return graph.callsTo("GET", "/settings/exchange").length;

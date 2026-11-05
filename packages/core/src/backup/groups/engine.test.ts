@@ -285,6 +285,23 @@ describe("GroupMailboxBackupEngine", () => {
     expect(byId(manifest, "P2").metadata?.missingAttachments).toBeUndefined();
   });
 
+  it("warns once that attachments of group events are not backed up", async () => {
+    const kickoff = must(group.events.get("G-E1"));
+    kickoff.hasAttachments = true;
+    const result = await engine().run(fixture.ctx, fixture.protectedObject);
+    expect(result.failures).toEqual([
+      expect.objectContaining({
+        itemRef: "calendar/Calendar",
+        cause: expect.objectContaining({
+          code: "graph.group_event_attachments_not_covered",
+          params: { count: 1 },
+        }),
+      }),
+    ]);
+    // Graph is not asked for them (it does not hand them to the app).
+    expect(graph.calls.filter((call) => call.url.includes("/attachments"))).toEqual([]);
+  });
+
   it("fails with GroupUnavailableError when the group no longer exists", async () => {
     group.exists = false;
     await expect(engine().run(fixture.ctx, fixture.protectedObject)).rejects.toBeInstanceOf(

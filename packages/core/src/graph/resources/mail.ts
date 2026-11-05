@@ -570,35 +570,47 @@ export type AttachmentMeta = Pick<Attachment, (typeof ATTACHMENT_SELECT)[number]
   contentId?: string | null;
 };
 
-export function listAttachments(
+/** The attachments of an item (`<parent>/attachments`): a message, an event or a post. */
+export function listAttachmentsAt(
   client: GraphClient,
-  userId: string,
-  messageId: string,
+  parentPath: string,
   options: { readonly contentId?: boolean } = {},
 ): AsyncGenerator<AttachmentMeta, void, unknown> {
   const select = [
     ...ATTACHMENT_SELECT,
     ...(options.contentId ? [ATTACHMENT_CONTENT_ID_SELECT] : []),
   ];
-  const url = `${userPath(userId)}/messages/${encodeURIComponent(messageId)}/attachments${query({
-    $select: select.join(","),
-  })}`;
-  return paginate<AttachmentMeta>(client, url);
+  return paginate<AttachmentMeta>(
+    client,
+    `${parentPath}/attachments${query({ $select: select.join(",") })}`,
+  );
 }
 
-/**
- * The attachments of a message with their Content-ID. Should Graph refuse the type-cast
- * `$select` (400), they are listed without it, and `contentIdUnavailable` says so: the caller
- * records that inline images may not resolve after a restore instead of staying silent.
- */
-export async function listAttachmentsWithContentId(
+export function listAttachments(
   client: GraphClient,
   userId: string,
   messageId: string,
+  options: { readonly contentId?: boolean } = {},
+): AsyncGenerator<AttachmentMeta, void, unknown> {
+  return listAttachmentsAt(client, messagePath(userId, messageId), options);
+}
+
+function messagePath(userId: string, messageId: string): string {
+  return `${userPath(userId)}/messages/${encodeURIComponent(messageId)}`;
+}
+
+/**
+ * The attachments of an item with their Content-ID. Should Graph refuse the type-cast
+ * `$select` (400), they are listed without it, and `contentIdUnavailable` says so: the caller
+ * records that inline images may not resolve after a restore instead of staying silent.
+ */
+export async function listAttachmentsWithContentIdAt(
+  client: GraphClient,
+  parentPath: string,
 ): Promise<{ attachments: AttachmentMeta[]; contentIdUnavailable: boolean }> {
   try {
     return {
-      attachments: await collect(listAttachments(client, userId, messageId, { contentId: true })),
+      attachments: await collect(listAttachmentsAt(client, parentPath, { contentId: true })),
       contentIdUnavailable: false,
     };
   } catch (error) {
@@ -606,22 +618,29 @@ export async function listAttachmentsWithContentId(
       throw error;
     }
     return {
-      attachments: await collect(listAttachments(client, userId, messageId)),
+      attachments: await collect(listAttachmentsAt(client, parentPath)),
       contentIdUnavailable: true,
     };
   }
 }
 
-/** Stream the raw bytes of a file attachment (or the MIME of an item attachment). */
-export async function openAttachmentContent(
+export function listAttachmentsWithContentId(
   client: GraphClient,
   userId: string,
   messageId: string,
+): Promise<{ attachments: AttachmentMeta[]; contentIdUnavailable: boolean }> {
+  return listAttachmentsWithContentIdAt(client, messagePath(userId, messageId));
+}
+
+/** Stream the raw bytes of an attachment of an item (`<parent>/attachments/{id}/$value`). */
+export async function openAttachmentContentAt(
+  client: GraphClient,
+  parentPath: string,
   attachmentId: string,
 ): Promise<Readable> {
   const req: GraphRequest = {
     method: "GET",
-    url: `${userPath(userId)}/messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}/$value`,
+    url: `${parentPath}/attachments/${encodeURIComponent(attachmentId)}/$value`,
     headers: { Accept: "*/*" },
   };
   const response = await client.stream(req);
@@ -635,6 +654,16 @@ export async function openAttachmentContent(
     });
   }
   return response.body;
+}
+
+/** Stream the raw bytes of a file attachment (or the MIME of an item attachment). */
+export function openAttachmentContent(
+  client: GraphClient,
+  userId: string,
+  messageId: string,
+  attachmentId: string,
+): Promise<Readable> {
+  return openAttachmentContentAt(client, messagePath(userId, messageId), attachmentId);
 }
 
 /** `$value` fails for very large messages (docs say above ~150 MB). */

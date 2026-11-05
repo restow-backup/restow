@@ -96,6 +96,29 @@ export function listEvents(
   return paginate<Event>(client, url, UTC_PREFER);
 }
 
+/** The URL of an event of a user or group mailbox. */
+export function eventPath(owner: MailboxOwner, eventId: string): string {
+  return `${ownerPath(owner)}/events/${encodeURIComponent(eventId)}`;
+}
+
+/**
+ * The item of an item attachment of an event (an attached message, event or contact) as Graph
+ * JSON: `$expand` of the derived property `item`.
+ */
+export async function getEventItemAttachment(
+  client: GraphClient,
+  owner: MailboxOwner,
+  eventId: string,
+  attachmentId: string,
+): Promise<Record<string, unknown>> {
+  return requestOk<Record<string, unknown>>(client, {
+    method: "GET",
+    url: `${eventPath(owner, eventId)}/attachments/${encodeURIComponent(attachmentId)}${query({
+      $expand: "microsoft.graph.itemAttachment/item",
+    })}`,
+  });
+}
+
 export async function getEvent(
   client: GraphClient,
   owner: MailboxOwner,

@@ -37,6 +37,8 @@ export const OBJECT_TYPES = {
   mail: "mail",
   attachment: "attachment",
   event: "event",
+  /** One attachment of a user calendar's event (./calendar.ts). */
+  eventAttachment: "event-attachment",
   contact: "contact",
   folder: "folder",
 } as const;
@@ -91,6 +93,14 @@ export const META = {
   fetchedInSnapshot: "fetchedInSnapshot",
   /** For attachments and their folder: the Graph id of the message they belong to. */
   messageItemId: "messageItemId",
+  /** For event attachments and their folder: the Graph id and object path of their event. */
+  eventItemId: "eventItemId",
+  eventPath: "eventPath",
+  /**
+   * On events: the changeKey the stored attachments belong to. Another changeKey (or none) and
+   * `hasAttachments` mean the attachments are listed again (./calendar.ts).
+   */
+  attachmentsChangeKey: "attachmentsChangeKey",
   /** For folder objects: `mail`, `calendar`, `contacts`, `attachments` or `root`. */
   folderKind: "folderKind",
   /**
@@ -147,13 +157,17 @@ export function groupOf(object: ManifestObject): string {
     case OBJECT_TYPES.attachment:
       return mailGroup(metadata[META.folderId] ?? "");
     case OBJECT_TYPES.event:
+    case OBJECT_TYPES.eventAttachment:
       return calendarGroup(metadata[META.calendarId] ?? "");
     case OBJECT_TYPES.contact:
       return contactsGroup(metadata[META.folderId] ?? "");
     case OBJECT_TYPES.folder:
-      // The attachments folder of a JSON message lives with the message.
-      return metadata[META.messageItemId] !== undefined
-        ? mailGroup(metadata[META.folderId] ?? "")
+      // The attachments folder of a JSON message (or an event) lives with its item.
+      if (metadata[META.messageItemId] !== undefined) {
+        return mailGroup(metadata[META.folderId] ?? "");
+      }
+      return metadata[META.eventItemId] !== undefined
+        ? calendarGroup(metadata[META.calendarId] ?? "")
         : FOLDERS_GROUP;
     default:
       return `other:${object.type ?? ""}`;
@@ -523,6 +537,28 @@ export class BackupRun {
     }
     this.counters.written++;
     this.reporter.advance(1, newBytes, size);
+    this.noteItem(size);
+  }
+
+  /**
+   * Record objects whose bytes were written in this run and that belong to an item recorded
+   * on its own (the attachments of an event): no item is counted.
+   */
+  recordRiders(objects: readonly FetchedObject[]): void {
+    let size = 0;
+    let newBytes = 0;
+    for (const { object, content } of objects) {
+      this.index.put({
+        ...object,
+        metadata: { ...(object.metadata ?? {}), [META.fetchedInSnapshot]: this.snapshotId },
+        size: content.size,
+        sha256: content.sha256,
+        chunks: content.chunks,
+      });
+      size += content.size;
+      newBytes += content.newBytes;
+    }
+    this.reporter.advance(0, newBytes, size);
     this.noteItem(size);
   }
 

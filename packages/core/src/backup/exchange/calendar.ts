@@ -5,8 +5,14 @@
  * never `calendarView`). Calendars have no delta in v1.0, so each run lists
  * them fully; unchanged events are recognised by their bytes and cost nothing.
  *
- * Event attachments are not part of the event JSON and are not backed up in
- * v1; `hasAttachments` in the metadata says when an event had any.
+ * Attachments of a user calendar's event (not part of the event JSON) are
+ * backed up as `event-attachment` objects below the event
+ * (`<event>.attachments/<name>.<id>`): a file attachment's bytes, an item
+ * attachment's Graph JSON, a link attachment's name on the event. They are
+ * listed again when the event's changeKey moved; a failed attachment is an
+ * item failure, never a silent gap. Group calendars do not hand attachments
+ * to the app: a run whose group calendar has events with attachments says so
+ * in one warning.
  *
  * The same phase backs up the one calendar of a Microsoft 365 group mailbox
  * (`run.owner` is the group): its events are listed with
@@ -17,9 +23,12 @@
  * backed up.
  */
 import type { Event } from "@microsoft/microsoft-graph-types";
+import { buildCause } from "../../failures/classify.js";
 import { isGraphError } from "../../graph/errors.js";
 import {
   type CalendarInfo,
+  eventPath as eventUrl,
+  getEventItemAttachment,
   groupCalendarViewWindow,
   type InstanceWindow,
   isGroupCalendarRefusal,
@@ -30,17 +39,32 @@ import {
 } from "../../graph/resources/calendar.js";
 import { collect, isGroupOwner } from "../../graph/resources/common.js";
 import {
+  type AttachmentMeta,
+  listAttachmentsWithContentIdAt,
+  openAttachmentContentAt,
+} from "../../graph/resources/mail.js";
+import type { ManifestObject } from "../../manifest.js";
+import {
   folderObjectAt,
   reconcileGroupFolders,
   removeGroupItems,
   removeUnseenItems,
   storeJsonItem,
 } from "./folders.js";
-import { assignFolderPaths, CALENDAR_ROOT, displayFolderPath, eventObjectPath } from "./paths.js";
+import {
+  assignFolderPaths,
+  attachmentObjectPath,
+  attachmentsFolderOf,
+  CALENDAR_ROOT,
+  displayFolderPath,
+  eventObjectPath,
+  rebasePath,
+} from "./paths.js";
 import {
   type BackupRun,
   calendarGroup,
   describeError,
+  type FetchedObject,
   ItemError,
   isAreaRefused,
   isItemLevelError,
@@ -130,6 +154,14 @@ export function eventMetadata(
   };
 }
 
+/** Event metadata written by the attachment step, carried with the event until it runs again. */
+const EVENT_ATTACHMENT_METADATA = [
+  META.attachmentsChangeKey,
+  META.attachmentCount,
+  META.referenceAttachments,
+  META.contentIdUnavailable,
+] as const;
+
 async function storeEvent(
   run: BackupRun,
   planned: PlannedCalendar,
@@ -141,14 +173,237 @@ async function storeEvent(
       ? await listSeriesExceptions(run.client, run.owner, event, options.window)
       : [];
   const payload: StoredEvent = { event, exceptions };
+  const metadata = eventMetadata(event, calendarLocation(planned), exceptions.length);
+  const existing = run.index.get(OBJECT_TYPES.event, event.id);
+  for (const key of EVENT_ATTACHMENT_METADATA) {
+    const value = existing?.metadata?.[key];
+    if (value !== undefined) {
+      metadata[key] = value;
+    }
+  }
+  const path = eventObjectPath(planned.path, event.subject, event.id);
   await storeJsonItem(run, {
     type: OBJECT_TYPES.event,
     id: event.id,
-    path: eventObjectPath(planned.path, event.subject, event.id),
+    path,
     mtime: toMillis(event.lastModifiedDateTime) || toMillis(event.createdDateTime),
-    metadata: eventMetadata(event, calendarLocation(planned), exceptions.length),
+    metadata,
     payload,
   });
+  if (!isGroupOwner(run.owner)) {
+    await syncEventAttachments(run, planned, event, path);
+  }
+}
+
+const FOLDER_KIND_ATTACHMENTS = "attachments";
+const REFERENCE_ATTACHMENT = "#microsoft.graph.referenceAttachment";
+const ITEM_ATTACHMENT = "#microsoft.graph.itemAttachment";
+
+/** Failure reason when an attachment 404s while its event still exists (no user content). */
+const EVENT_ATTACHMENT_REMOVED =
+  "an attachment was removed from the event while it was being backed up";
+
+/** The attachment objects (and their folder) stored for an event. */
+function eventRiders(run: BackupRun, calendarId: string, eventId: string): ManifestObject[] {
+  return run.index
+    .members(calendarGroup(calendarId))
+    .filter((member) => member.metadata?.[META.eventItemId] === eventId);
+}
+
+/**
+ * Bring the stored attachments of a user calendar's event in line with the event. Unchanged
+ * changeKey: they stay (re-pathed when the event was renamed). Otherwise every attachment is
+ * read again and the set replaces the stored one in one step; any attachment that cannot be
+ * read fails the event's attachments as an item failure and keeps the stored ones, so the next
+ * run tries again.
+ */
+async function syncEventAttachments(
+  run: BackupRun,
+  planned: PlannedCalendar,
+  event: Event & { id: string },
+  path: string,
+): Promise<void> {
+  const calendarId = planned.calendar.id;
+  const stored = eventRiders(run, calendarId, event.id);
+  const eventObject = run.index.get(OBJECT_TYPES.event, event.id);
+  if (!eventObject) {
+    return;
+  }
+  const folder = attachmentsFolderOf(path);
+  if (event.hasAttachments !== true) {
+    for (const rider of stored) {
+      run.index.removePath(rider.path);
+    }
+    putEventMetadata(run, eventObject, {});
+    return;
+  }
+  const changeKey = event.changeKey ?? event.lastModifiedDateTime ?? "";
+  const current =
+    eventObject.metadata?.[META.attachmentsChangeKey] === changeKey &&
+    (!run.full || stored.every((rider) => run.fetchedInThisRun(rider)));
+  if (current) {
+    repathRiders(run, stored, folder, path);
+    return;
+  }
+
+  const parent = eventUrl(run.owner, event.id);
+  const listed = await listAttachmentsWithContentIdAt(run.client, parent);
+  const location = calendarLocation(planned);
+  const objects: FetchedObject[] = [];
+  const references: string[] = [];
+  for (const meta of listed.attachments) {
+    run.throwIfAborted();
+    const type = meta["@odata.type"] ?? "#microsoft.graph.fileAttachment";
+    if (type === REFERENCE_ATTACHMENT) {
+      references.push(meta.name ?? "");
+      continue;
+    }
+    let content: FetchedObject["content"];
+    try {
+      content =
+        type === ITEM_ATTACHMENT
+          ? await run.writeContent(
+              Buffer.from(
+                JSON.stringify(
+                  await getEventItemAttachment(run.client, run.owner, event.id, meta.id),
+                ),
+                "utf8",
+              ),
+            )
+          : await run.writeContent(await openAttachmentContentAt(run.client, parent, meta.id));
+    } catch (error) {
+      throw isVanished(error) ? new ItemError(EVENT_ATTACHMENT_REMOVED, { cause: error }) : error;
+    }
+    objects.push({
+      object: {
+        path: attachmentObjectPath(folder, meta.name, meta.id),
+        id: `${event.id}/${meta.id}`,
+        type: OBJECT_TYPES.eventAttachment,
+        mtime: toMillis(meta.lastModifiedDateTime) || eventObject.mtime,
+        metadata: eventAttachmentMetadata(meta, type, location, event.id, path),
+      },
+      content,
+    });
+  }
+
+  for (const rider of stored) {
+    run.index.removePath(rider.path);
+  }
+  if (objects.length > 0) {
+    run.index.put({
+      path: folder,
+      id: `${event.id}/attachments`,
+      type: OBJECT_TYPES.folder,
+      size: 0,
+      mtime: 0,
+      chunks: [],
+      metadata: {
+        ...location,
+        [META.folderKind]: FOLDER_KIND_ATTACHMENTS,
+        [META.eventItemId]: event.id,
+        [META.eventPath]: path,
+      },
+    });
+    run.recordRiders(objects);
+  }
+  const update: Record<string, string> = {
+    [META.attachmentsChangeKey]: changeKey,
+    [META.attachmentCount]: String(objects.length),
+  };
+  if (references.length > 0) {
+    update[META.referenceAttachments] = JSON.stringify(references);
+  }
+  if (listed.contentIdUnavailable) {
+    update[META.contentIdUnavailable] = "true";
+  }
+  putEventMetadata(run, eventObject, update);
+}
+
+function eventAttachmentMetadata(
+  meta: AttachmentMeta,
+  type: string,
+  location: Record<string, string>,
+  eventId: string,
+  eventObjectPathValue: string,
+): Record<string, string> {
+  const metadata: Record<string, string> = {
+    ...location,
+    [META.eventItemId]: eventId,
+    [META.eventPath]: eventObjectPathValue,
+    [META.name]: meta.name ?? "",
+    [META.contentType]:
+      type === ITEM_ATTACHMENT
+        ? "application/json"
+        : (meta.contentType ?? "application/octet-stream"),
+    [META.isInline]: String(meta.isInline === true),
+    attachmentType: type,
+    declaredSize: String(meta.size ?? ""),
+  };
+  if (typeof meta.contentId === "string" && meta.contentId.trim().length > 0) {
+    metadata[META.contentId] = meta.contentId;
+  }
+  return metadata;
+}
+
+/** Replace the attachment facts on the stored event (without touching its bytes). */
+function putEventMetadata(
+  run: BackupRun,
+  eventObject: ManifestObject,
+  update: Record<string, string>,
+): void {
+  const metadata = { ...(eventObject.metadata ?? {}) };
+  for (const key of EVENT_ATTACHMENT_METADATA) {
+    delete metadata[key];
+  }
+  Object.assign(metadata, update);
+  const before = eventObject.metadata ?? {};
+  const same =
+    Object.keys(metadata).length === Object.keys(before).length &&
+    Object.entries(metadata).every(([key, value]) => before[key] === value);
+  if (!same) {
+    run.index.put({ ...eventObject, metadata });
+  }
+}
+
+/** A renamed event (or calendar) takes its stored attachments and their folder along. */
+function repathRiders(
+  run: BackupRun,
+  riders: readonly ManifestObject[],
+  folder: string,
+  path: string,
+): void {
+  const from = riders.find((rider) => rider.type === OBJECT_TYPES.folder)?.path ?? folder;
+  const moved = riders.map((rider) => ({
+    rider,
+    next: {
+      ...rider,
+      path: from === folder ? rider.path : rebasePath(rider.path, from, folder),
+      metadata: { ...(rider.metadata ?? {}), [META.eventPath]: path },
+    },
+  }));
+  const changed = moved.filter(
+    ({ rider, next }) => rider.path !== next.path || rider.metadata?.[META.eventPath] !== path,
+  );
+  for (const { rider } of changed) {
+    run.index.removePath(rider.path);
+  }
+  for (const { next } of changed) {
+    run.index.put(next);
+  }
+}
+
+/** Drop the attachments (and their folder) of events a complete listing no longer has. */
+function removeUnseenEventRiders(
+  run: BackupRun,
+  calendarId: string,
+  seen: ReadonlySet<string>,
+): void {
+  for (const member of run.index.members(calendarGroup(calendarId))) {
+    const owner = member.metadata?.[META.eventItemId];
+    if (member.type !== OBJECT_TYPES.event && owner !== undefined && !seen.has(owner)) {
+      run.index.removePath(member.path);
+    }
+  }
 }
 
 /** A calendar deleted while the backup ran: its events go with it. */
@@ -198,6 +453,8 @@ async function syncCalendar(
   options: CalendarPhaseOptions,
 ): Promise<void> {
   const seen = new Set<string>();
+  /** Group calendars: events with attachments, which Graph does not hand to the app. */
+  let groupEventsWithAttachments = 0;
   try {
     for await (const event of eventsOf(run, planned, options)) {
       run.throwIfAborted();
@@ -205,6 +462,9 @@ async function syncCalendar(
         continue;
       }
       seen.add(event.id);
+      if (isGroupOwner(run.owner) && event.hasAttachments === true) {
+        groupEventsWithAttachments++;
+      }
       run.expectMore(1);
       const itemRef = eventObjectPath(planned.path, event.subject, event.id);
       try {
@@ -235,6 +495,19 @@ async function syncCalendar(
     return;
   }
   removeUnseenItems(run, calendarGroup(planned.calendar.id), OBJECT_TYPES.event, seen);
+  removeUnseenEventRiders(run, planned.calendar.id, seen);
+  if (groupEventsWithAttachments > 0) {
+    const reason = `${groupEventsWithAttachments} event(s) of the group calendar have attachments, which are not backed up for group calendars`;
+    run.warn(
+      planned.path,
+      reason,
+      buildCause(
+        "graph.group_event_attachments_not_covered",
+        { count: groupEventsWithAttachments },
+        { message: reason },
+      ),
+    );
+  }
 }
 
 export async function backupCalendar(run: BackupRun, options: CalendarPhaseOptions): Promise<void> {

@@ -593,6 +593,12 @@ private repository.
   the Content-ID of its inline attachments, so after a restore the images in its HTML body were
   broken. The Content-ID is now backed up and restored. Messages stored as JSON by earlier
   versions do not have it and cannot be repaired.
+- Mail backup: attachments of calendar events (an agenda attached to a meeting, for example)
+  were not backed up and nothing said so. They are now backed up with each event of a user's
+  calendars and read again only when the event changes; an attachment that cannot be read is
+  reported as a failed item. The first run after the update adds them for all events that still
+  exist. Group calendars do not hand attachments to Restow: a run whose group calendar has
+  events with attachments now ends with a warning that says so.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,

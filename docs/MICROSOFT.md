@@ -146,6 +146,17 @@ ein Ordner liefert, bleibt ein Ordnerfehler.
   einem anderen Postfach freigegebener Kalender gehört diesem Postfach und wird mit ihm gesichert.
   Die Metadaten eines Termins nennen Betreff, Beginn und Ende (UTC), ganztägig, Organisator, Ort
   und bei einer Serie das letzte Datum ihres Bereichs (Ort und Serienende ab 0.4.2).
+- Terminanhänge (Nutzerkalender, ab 0.5.0): Hat ein Termin `hasAttachments`, listet der Lauf
+  `/users/{id}/events/{id}/attachments` (mit Content-ID) und speichert jeden Dateianhang als
+  Objekt `event-attachment` unter `<Termin>.attachments/<Name>.<id>` (Inhalt über `$value`;
+  Metadaten Name, Inhaltstyp, Größe, inline, Content-ID, `eventItemId`, `eventPath`), einen
+  Elementanhang als sein Graph-JSON (`$expand=microsoft.graph.itemAttachment/item`), einen
+  Linkanhang nur mit Namen am Termin (`referenceAttachments`). Der Termin trägt
+  `attachmentsChangeKey`: Solange sein `changeKey` gleich bleibt, werden die Anhänge nicht neu
+  gelesen, nur mitgeführt (auch bei Umbenennung). Ein Anhang, der sich nicht lesen lässt, ist ein
+  Elementfehler des Termins; die gespeicherten Anhänge bleiben, und der nächste Lauf liest sie
+  erneut. Sicherungen vor 0.5.0 haben keine Terminanhänge; der erste Lauf danach holt sie für
+  alle noch vorhandenen Termine nach.
 - Kalender im Restore-Explorer (ab 0.4.2): Ein Kalender listet seine Termine nach Beginn
   (neueste zuerst oder anstehende zuerst), mit Wann, Ort und Organisator, nicht nach Betreff.
   Eine Serie steht einmal in der Liste und klappt ihre Termine auf; die Monatsansicht zeigt
@@ -504,8 +515,10 @@ Wiederherstellung, Download, Export, Restore-Prüfung und Aufbewahrung unveränd
   sie wenigstens als Termine wiederherstellbar sind. Ereignisse vor dem Fenster sieht dieser
   Rückfallweg nicht. Kalender haben in v1.0 kein Delta: Jeder Lauf liest vollständig, unveränderte
   Ereignisse kosten über die Bytes nichts.
-- Ereignisanhänge: wie bei Nutzerkalendern nicht gesichert (`hasAttachments` steht in den
-  Metadaten); Graph dokumentiert `…/events/{id}/attachments` für Gruppen nicht.
+- Ereignisanhänge: anders als bei Nutzerkalendern nicht gesichert (`hasAttachments` steht in den
+  Metadaten); Graph dokumentiert `…/events/{id}/attachments` für Gruppen nicht. Hat mindestens
+  ein Termin des Gruppenkalenders Anhänge, endet der Lauf mit einer Warnung
+  `graph.group_event_attachments_not_covered` (Anzahl der Termine), nie einfach grün.
 - Unterhaltungen: `/groups/{id}/threads` vollständig je Lauf, Beiträge
   (`/threads/{id}/posts?$expand=attachments`) nur für Threads, deren `lastDeliveredDateTime` sich
   seit dem letzten Lauf bewegt hat (Zustand `conversationThreads` im Manifest), bei „Vollständig"
