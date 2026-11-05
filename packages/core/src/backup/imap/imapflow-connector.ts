@@ -33,6 +33,7 @@ import {
   type ImapEnvelopeMeta,
   type ImapFolderInfo,
   type ImapFolderStatus,
+  type ImapListFlagsOptions,
   type ImapMessageFlags,
   type ImapMessageMeta,
   type ImapMessageProtection,
@@ -291,24 +292,29 @@ class ImapFlowSession implements ImapSession {
     });
   }
 
-  async listFlags(options: { readonly labels?: boolean } = {}): Promise<ImapMessageFlags[]> {
+  async listFlags(options: ImapListFlagsOptions = {}): Promise<ImapMessageFlags[]> {
     const mailbox = this.client.mailbox;
     if (!mailbox || mailbox.exists === 0) {
       return [];
     }
-    // imapflow adds X-GM-LABELS only when the server announced X-GM-EXT-1.
+    // imapflow adds X-GM-LABELS and X-GM-MSGID only when the server announced X-GM-EXT-1.
     const labels = options.labels === true && this.gmailExtensions;
+    const gmailIds = options.gmailIds === true && this.gmailExtensions;
     return this.guard(async () => {
       const result: ImapMessageFlags[] = [];
       for await (const message of this.client.fetch("1:*", {
         uid: true,
         flags: true,
         ...(labels ? { labels: true } : {}),
+        ...(gmailIds ? { emailId: true } : {}),
       })) {
         result.push({
           uid: message.uid,
           flags: [...(message.flags ?? [])],
           ...(labels ? { labels: [...(message.labels ?? [])] } : {}),
+          ...(gmailIds && typeof message.emailId === "string" && message.emailId.length > 0
+            ? { gmailMessageId: message.emailId }
+            : {}),
         });
       }
       return result;

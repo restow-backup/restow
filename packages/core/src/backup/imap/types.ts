@@ -108,6 +108,12 @@ export interface ImapMessageFlags {
    * {@link ImapSession.listFlags} with `labels` on a server with X-GM-EXT-1 (./gmail.ts).
    */
   readonly labels?: readonly string[];
+  /**
+   * Gmail's message id (X-GM-MSGID, the same for a message's copy in All Mail and in every
+   * label folder), only from {@link ImapSession.listFlags} with `gmailIds` on a server with
+   * X-GM-EXT-1 (./gmail.ts).
+   */
+  readonly gmailMessageId?: string;
 }
 
 /** How a message is protected against casual reading, detected without a full MIME parse. */
@@ -154,16 +160,22 @@ export interface ImapMessageSource extends ImapMessageMeta {
  * One authenticated connection. Methods are called sequentially per session;
  * the engine never issues two commands on one session at the same time.
  */
+/** What {@link ImapSession.listFlags} asks for besides UID and FLAGS (Gmail only). */
+export interface ImapListFlagsOptions {
+  readonly labels?: boolean;
+  readonly gmailIds?: boolean;
+}
+
 export interface ImapSession {
   /** LIST with SPECIAL-USE where available. */
   listFolders(): Promise<ImapFolderInfo[]>;
   /** EXAMINE (read-only select). */
   openFolder(path: string): Promise<ImapFolderStatus>;
   /**
-   * UID and flags of every message in the open folder (one FETCH 1:* (UID FLAGS)); with
-   * `labels` on a Gmail server also X-GM-LABELS (./gmail.ts).
+   * UID and flags of every message in the open folder (one FETCH 1:* (UID FLAGS)); on a
+   * Gmail server with `labels` also X-GM-LABELS, with `gmailIds` also X-GM-MSGID (./gmail.ts).
    */
-  listFlags(options?: { readonly labels?: boolean }): Promise<ImapMessageFlags[]>;
+  listFlags(options?: ImapListFlagsOptions): Promise<ImapMessageFlags[]>;
   /** Size, flags, internal date, Message-ID and envelope metadata of the given UIDs (no bodies). */
   fetchMeta(uids: readonly number[]): Promise<ImapMessageMeta[]>;
   /** Byte-exact sources of the given UIDs, in server order. UIDs the server does not return are simply absent. */
@@ -235,9 +247,9 @@ export interface ImapEngineState {
     readonly version: 1;
     readonly folders: Record<string, ImapFolderState>;
     /**
-     * `gmail`: the snapshot holds Gmail's messages once, from All Mail, Spam and Trash, with
-     * their labels as metadata; the label folders are structure only (./gmail.ts). Absent:
-     * every folder holds its own messages.
+     * `gmail`: Gmail's messages were downloaded once, from All Mail, Spam and Trash, with
+     * their labels as metadata; the message objects of the label folders reuse the All Mail
+     * copy's content (./gmail.ts). Absent: every folder was read on its own.
      */
     readonly layout?: "gmail";
   };

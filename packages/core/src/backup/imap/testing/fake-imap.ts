@@ -17,6 +17,7 @@ import {
   type ImapEnvelopeMeta,
   type ImapFolderInfo,
   type ImapFolderStatus,
+  type ImapListFlagsOptions,
   type ImapMessageFlags,
   type ImapMessageMeta,
   type ImapMessageProtection,
@@ -42,6 +43,8 @@ export interface FakeMessage {
 
 /** One Gmail message (see {@link FakeImapServer.addGmailMessage}). */
 export interface FakeGmailMessage {
+  /** X-GM-MSGID: the same for every copy of the message. */
+  readonly id: string;
   labels: string[];
   readonly source: Buffer;
   readonly copies: Map<string, number>;
@@ -326,6 +329,7 @@ export class FakeImapServer implements ImapConnector {
     options: Omit<FakeAddOptions, "gmail"> = {},
   ): FakeGmailMessage {
     const gmail: FakeGmailMessage = {
+      id: String(1_600_000_000_000 + ++messageCounter),
       labels: [...labels],
       source: Buffer.isBuffer(source) ? source : Buffer.from(source, "utf8"),
       copies: new Map(),
@@ -586,11 +590,12 @@ class FakeSession implements ImapSession {
     return this.server.gmailExtensions;
   }
 
-  async listFlags(options: { readonly labels?: boolean } = {}): Promise<ImapMessageFlags[]> {
+  async listFlags(options: ImapListFlagsOptions = {}): Promise<ImapMessageFlags[]> {
     await this.command();
     this.server.stats.listFlags++;
     // As imapflow: X-GM-LABELS is only asked for on a server that announced X-GM-EXT-1.
     const labels = options.labels === true && this.server.gmailExtensions;
+    const gmailIds = options.gmailIds === true && this.server.gmailExtensions;
     if (labels) {
       this.server.stats.listFlagsWithLabels++;
     }
@@ -601,6 +606,7 @@ class FakeSession implements ImapSession {
         uid,
         flags: [...message.flags],
         ...(labels ? { labels: [...(message.gmail?.labels ?? [])] } : {}),
+        ...(gmailIds && message.gmail ? { gmailMessageId: message.gmail.id } : {}),
       };
     });
   }

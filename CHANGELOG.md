@@ -567,11 +567,12 @@ private repository.
   once more in All Mail, because Gmail shows every label as an IMAP folder. A first backup
   transferred several times the mailbox size against Gmail's daily download limit, every newly
   labelled message was downloaded again per label, and a restore to another provider created a
-  copy per label. Messages are now read once, from All Mail, Spam and Trash, and their labels are
-  kept with each message; the label folders are kept as folders. The first run after the update
-  no longer carries the per-label copies of earlier restore points forward (those keep them). If
-  All Mail is hidden from IMAP in the Gmail settings, the account is still backed up folder by
-  folder and every run says so in a warning.
+  copy per label. Messages are now downloaded once, from All Mail, Spam and Trash, and their
+  labels are kept with each message. INBOX, Sent and every label folder still hold their
+  messages in the restore point, so they can be browsed, exported and restored on their own as
+  before; their copies take the content of the All Mail message without a download. If All Mail
+  is hidden from IMAP in the Gmail settings, the account is still backed up folder by folder and
+  every run says so in a warning.
 - Mail backup: a Microsoft 365 mailbox with an online archive (In-Place Archive) gave no sign
   that the archive is not backed up. Mail that a retention policy or the user moved there was
   reported as removed by Graph, left the new restore points, and the run stayed green. Every run

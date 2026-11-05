@@ -741,6 +741,24 @@ describe("ImapFlowSession archive capture commands", () => {
     expect(queries.map((query) => query.labels === true)).toEqual([false, false, true]);
   });
 
+  it("asks for X-GM-MSGID (imapflow's emailId) only when asked and the server is Gmail", async () => {
+    const { client } = captureClient();
+    const queries: Record<string, unknown>[] = [];
+    Object.assign(client, {
+      async *fetch(_range: string, query: Record<string, unknown>) {
+        queries.push(query);
+        yield { uid: 7, flags: new Set<string>(), ...(query.emailId ? { emailId: "1781" } : {}) };
+      },
+    });
+    const { session } = await sessionOf(client);
+    expect(await session.listFlags({ gmailIds: true })).toEqual([{ uid: 7, flags: [] }]);
+    client.capabilities.set("X-GM-EXT-1", true);
+    expect(await session.listFlags({ gmailIds: true })).toEqual([
+      { uid: 7, flags: [], gmailMessageId: "1781" },
+    ]);
+    expect(queries.map((query) => query.emailId === true)).toEqual([false, true]);
+  });
+
   it("reads STATUS without selecting and passes maxIdleTime through", async () => {
     const { client, calls } = captureClient();
     const { session, options } = await sessionOf(client, 25 * 60_000);

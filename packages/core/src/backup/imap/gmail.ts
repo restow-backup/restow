@@ -11,7 +11,11 @@
  * The backup (./engine.ts) and the archive capture (../../archive/imap-capture.ts)
  * read bodies only from All Mail, Spam and Trash. The backup records the labels
  * of each All Mail message (X-GM-LABELS, Gmail's IMAP extension X-GM-EXT-1) as
- * metadata and keeps the label folders as structure only.
+ * metadata. A label folder is still backed up as a folder with its messages
+ * (INBOX restores, exports and browses as INBOX), but without a download: each
+ * of its UIDs is matched to the All Mail copy by X-GM-MSGID and its object
+ * reuses that copy's content. Only a message All Mail does not hold is read in
+ * the label folder itself.
  */
 import type { ImapFolderInfo } from "./types.js";
 

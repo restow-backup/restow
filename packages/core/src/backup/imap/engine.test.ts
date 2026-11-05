@@ -49,6 +49,13 @@ const protectedObject: ProtectedObjectRef = {
   userId: null,
 };
 
+function must<T>(value: T | undefined | null): T {
+  if (value === undefined || value === null) {
+    throw new Error("expected a value");
+  }
+  return value;
+}
+
 function eml(subject: string, body = "hello"): string {
   return `From: bob@example.test\r\nTo: alice@example.test\r\nSubject: ${subject}\r\n\r\n${body}\r\n`;
 }
@@ -1127,18 +1134,10 @@ describe("ImapBackupEngine", () => {
       );
       const manifest = await manifestOf(result.snapshotId);
       const stored = messages(manifest);
-      expect(stored.filter((o) => o.metadata?.[META.mailbox] === ALL)).toHaveLength(10);
-      expect(stored).toHaveLength(12);
-      expect(
-        stored.filter((o) =>
-          ["INBOX", "Projekte", "[Gmail]/Sent Mail"].includes(o.metadata?.[META.mailbox] ?? ""),
-        ),
-      ).toEqual([]);
+      const allMail = stored.filter((o) => o.metadata?.[META.mailbox] === ALL);
+      expect(allMail).toHaveLength(10);
 
-      const labels = stored
-        .filter((o) => o.metadata?.[META.mailbox] === ALL)
-        .map((o) => o.metadata?.[META.gmailLabels])
-        .sort();
+      const labels = allMail.map((o) => o.metadata?.[META.gmailLabels]).sort();
       expect(labels).toEqual([
         '["Projekte"]',
         '["Projekte"]',
@@ -1151,18 +1150,81 @@ describe("ImapBackupEngine", () => {
         "[]",
         "[]",
       ]);
-      // Label folders stay in the restore point as structure, with their special use.
-      const folderPaths = manifest.objects.filter((o) => o.type === "folder").map((o) => o.path);
-      expect(folderPaths).toEqual(
-        expect.arrayContaining(["mail/INBOX", "mail/Projekte", "mail/[Gmail]/Sent Mail"]),
-      );
-      const sent = manifest.objects.find((o) => o.path === "mail/[Gmail]/Sent Mail");
-      expect(sent?.metadata?.[META.specialUse]).toBe("\\Sent");
       const state = manifest.state as {
         imap: { layout?: string; folders: Record<string, unknown> };
       };
       expect(state.imap.layout).toBe("gmail");
       expect(state.imap.folders.INBOX).toMatchObject({ messages: 4 });
+    });
+
+    it("keeps every label folder's messages, with the All Mail copy's content and no download", async () => {
+      const mails = seedGmail();
+      const result = await engine().run(context(), protectedObject, {});
+      expect(result.failures).toEqual([]);
+      const manifest = await manifestOf(result.snapshotId);
+      const stored = messages(manifest);
+      // 10 in All Mail, 1 Spam, 1 Trash, and the label folders: INBOX 4, Projekte 3, Sent 1.
+      expect(stored).toHaveLength(20);
+      const inFolder = (mailbox: string) =>
+        stored.filter((o) => o.metadata?.[META.mailbox] === mailbox);
+      expect(inFolder("INBOX")).toHaveLength(4);
+      expect(inFolder("Projekte")).toHaveLength(3);
+      expect(inFolder("[Gmail]/Sent Mail")).toHaveLength(1);
+
+      const first = mails[0] as NonNullable<(typeof mails)[number]>;
+      const inAll = must(
+        stored.find((o) => o.path === `mail/[Gmail]/All Mail/${first.copies.get(ALL)}.eml`),
+      );
+      const inInbox = must(
+        stored.find((o) => o.path === `mail/INBOX/${first.copies.get("INBOX")}.eml`),
+      );
+      expect(inInbox.sha256).toBe(inAll.sha256);
+      expect(inInbox.chunks).toEqual(inAll.chunks);
+      expect(inInbox.metadata).toMatchObject({
+        [META.mailbox]: "INBOX",
+        [META.uid]: String(first.copies.get("INBOX")),
+        [META.gmailMessageId]: first.id,
+        [META.messageId]: inAll.metadata?.[META.messageId],
+      });
+      expect(inInbox.metadata?.[META.gmailLabels]).toBeUndefined();
+      expect(inAll.metadata?.[META.gmailMessageId]).toBe(first.id);
+      const sent = stored.find((o) => o.metadata?.[META.mailbox] === "[Gmail]/Sent Mail");
+      expect(sent?.metadata?.[META.specialUse]).toBe("\\Sent");
+      expect(Buffer.compare(await readBack(context(), inInbox), first.source)).toBe(0);
+    });
+
+    it("restores the INBOX of a Gmail backup on its own, with its messages", async () => {
+      seedGmail();
+      const backup = await engine().run(context(), protectedObject, {});
+      const target = new MemoryRestoreTarget("/");
+      const restore = new ImapRestoreEngine({ imap: async () => target });
+      const report = await restore.run(context(), {
+        restoreJobId: "restore-inbox",
+        snapshotId: backup.snapshotId,
+        protectedObject,
+        selection: { folderPaths: ["mail/INBOX"] },
+        target: { type: "original", ref: null },
+        mode: "skip",
+        actor: { userId: null, impersonated: false, reason: null },
+      });
+      expect(report.failures).toEqual([]);
+      expect(target.mailbox("INBOX")).toHaveLength(4);
+    });
+
+    it("reads a label folder's message itself when All Mail could not deliver it", async () => {
+      const mails = seedGmail();
+      const first = mails[0] as NonNullable<(typeof mails)[number]>;
+      server.faults.omitSource.add(`${ALL}:${first.copies.get(ALL)}`);
+      const result = await engine().run(context(), protectedObject, {});
+      expect(result.failures.map((failure) => failure.itemRef)).toEqual([
+        `mail/[Gmail]/All Mail/${first.copies.get(ALL)}.eml`,
+      ]);
+      expect(server.stats.sourcesDelivered).toContain(`INBOX:${first.copies.get("INBOX")}`);
+      expect(server.stats.sourcesDelivered).toHaveLength(12);
+      const manifest = await manifestOf(result.snapshotId);
+      expect(messages(manifest).filter((o) => o.metadata?.[META.mailbox] === "INBOX")).toHaveLength(
+        4,
+      );
     });
 
     it("updates the labels of a carried-forward message without downloading it again", async () => {
@@ -1178,10 +1240,14 @@ describe("ImapBackupEngine", () => {
       const uid = mails[0]?.copies.get(ALL);
       const object = manifest.objects.find((o) => o.path === `mail/[Gmail]/All Mail/${uid}.eml`);
       expect(object?.metadata?.[META.gmailLabels]).toBe('["Projekte"]');
-      expect(messages(manifest)).toHaveLength(12);
+      const inFolder = (mailbox: string) =>
+        messages(manifest).filter((o) => o.metadata?.[META.mailbox] === mailbox);
+      expect(inFolder("INBOX")).toHaveLength(3);
+      expect(inFolder("Projekte")).toHaveLength(4);
+      expect(messages(manifest)).toHaveLength(20);
     });
 
-    it("drops the per-label copies of a restore point taken before, keeping All Mail with labels", async () => {
+    it("keeps the per-label messages of a restore point taken before and adds the labels", async () => {
       seedGmail();
       // An earlier backup without the Gmail layout: every folder with its own messages.
       server.gmailExtensions = false;
@@ -1189,20 +1255,23 @@ describe("ImapBackupEngine", () => {
       expect(messages(await manifestOf(before.snapshotId))).toHaveLength(20);
       server.gmailExtensions = true;
       server.stats.sourcesDelivered.length = 0;
-      const logs: LogRecord[] = [];
 
-      const after = await engine().run(context({ logs }), protectedObject, {});
+      const after = await engine().run(context(), protectedObject, {});
+      expect(after.failures).toEqual([]);
       expect(server.stats.sourcesDelivered).toEqual([]);
       const manifest = await manifestOf(after.snapshotId);
-      expect(messages(manifest)).toHaveLength(12);
+      expect(messages(manifest)).toHaveLength(20);
+      expect(messages(manifest).filter((o) => o.metadata?.[META.mailbox] === "INBOX")).toHaveLength(
+        4,
+      );
       expect(
         messages(manifest).filter(
-          (o) => o.metadata?.[META.mailbox] === ALL && o.metadata?.[META.gmailLabels],
+          (o) =>
+            o.metadata?.[META.mailbox] === ALL &&
+            o.metadata?.[META.gmailLabels] &&
+            o.metadata?.[META.gmailMessageId],
         ),
       ).toHaveLength(10);
-      expect(
-        logs.some((record) => String(record.message).startsWith("gmail account now stored once")),
-      ).toBe(true);
     });
 
     it("warns that every label is a copy when All Mail is hidden from IMAP", async () => {

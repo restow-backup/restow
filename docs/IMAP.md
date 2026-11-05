@@ -69,12 +69,18 @@
   Labels jeder Nachricht in All Mail (`X-GM-LABELS`, mit den Flags im selben `FETCH 1:*`
   gelesen) stehen als `metadata.gmailLabels` (sortiertes JSON-Array, etwa
   `["\\Inbox","Projekte"]`) am Nachrichtenobjekt und werden wie die Flags bei jedem Lauf ohne
-  neuen Download aktualisiert. Die Label-Ordner stehen nur als Ordnerobjekte (mit
-  SPECIAL-USE) im Sicherungsstand, ohne eigene Nachrichten; der Zustand trägt
-  `imap.layout: "gmail"`. Ein Sicherungsstand von vor 0.5.0 enthielt jede Nachricht einmal je
-  Label: Der erste Lauf danach übernimmt diese Kopien nicht mehr (ältere Sicherungsstände
-  behalten sie), die Nachrichten in All Mail tragen die Labels. Ist All Mail in Gmail für IMAP
-  ausgeblendet (Einstellungen → Labels → „In IMAP anzeigen“), sichert Restow Ordner für Ordner
+  neuen Download aktualisiert; dazu kommt Gmails Nachrichten-ID `X-GM-MSGID` als
+  `metadata.gmailMessageId`. Die Label-Ordner werden danach gesichert, wenn All Mail, Spam und
+  Papierkorb fertig sind, und behalten ihre Nachrichten, jede mit eigener UID und eigenen
+  Flags, aber ohne Download: Das `FETCH 1:*` eines Label-Ordners fragt `X-GM-MSGID` mit ab, und
+  jedes Nachrichtenobjekt übernimmt Inhalt (Chunks, SHA-256) und Umschlag der Kopie in All
+  Mail. Nur eine Nachricht, die All Mail nicht gespeichert hat (dort fehlgeschlagen, oder nicht
+  in All Mail), wird im Label-Ordner selbst gelesen. INBOX, Gesendet und jedes Label lassen
+  sich so wie bei jedem anderen Server einzeln durchsuchen, exportieren und wiederherstellen.
+  Der Zustand trägt `imap.layout: "gmail"`. Ein Sicherungsstand von vor 0.5.0 enthielt jede
+  Nachricht einmal je Label mit eigenem Download: Der erste Lauf danach übernimmt diese Objekte
+  unverändert (keine Downloads), die Nachrichten in All Mail bekommen Labels und `X-GM-MSGID`.
+  Ist All Mail in Gmail für IMAP ausgeblendet (Einstellungen → Labels → „In IMAP anzeigen“), sichert Restow Ordner für Ordner
   wie bei jedem anderen Server, jede Nachricht also einmal je Label, und meldet das in jedem
   Lauf als Warnung `imap.gmail_all_mail_hidden`: Es fehlt nichts, aber eine Wiederherstellung zu
   einem anderen Anbieter legt jede Kopie an. Abhilfe: „In IMAP anzeigen“ für Alle Nachrichten
