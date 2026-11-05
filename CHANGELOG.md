@@ -1073,6 +1073,55 @@ private repository.
   Restow UI only shows the computer as offline. The installer now warns clearly at its start and
   at its end in evaluation mode, and both its texts say how to switch Smart App Control off and
   that this is for good (only a reset or a new installation of Windows switches it on again).
+- Proxmox VE: restore checks of VMs and containers stayed "Check queued" for good, with no
+  explanation, when the containers' repositories were on a write-once share (an NFS share that
+  takes new files but refuses to delete or overwrite them). Before a check the worker removed
+  stale lock files and then ran `restic unlock`; the share refused the deletion, the server's
+  restic listener answered restic with HTTP 500, and restic tried each lock file again for up to
+  a quarter of an hour. That `restic unlock` had no time limit and held the worker's whole PVE
+  pass: no further check, no retention, no restore test or boot test was planned, and no new
+  backups either, with nothing in the log but a misleading "the locks of a container repository
+  could not be listed". Now:
+  - A deletion the storage refuses for good (EPERM, EACCES, EROFS) reaches restic as 403, which
+    it takes as final, on the server's own listener and on the agents' restic routes.
+  - When stale lock files cannot be removed, the log says so ("cannot be removed: the storage
+    refuses deletes (write-once storage)"), `restic unlock` is not run, and retention leaves
+    `restic forget` and `prune` out for that container instead of failing on every pass.
+  - The restore check of a container runs `restic check --no-lock`: nothing else writes
+    meanwhile (the server's own repository lock, and no run of the guest going), so it never
+    waits for a lock, and on a write-once share it can run at all and leaves no lock behind
+    that would block the next backup.
+  - Every restic run of the PVE pass has a time limit (unlock 2 minutes, the snapshot list and
+    reading a lock's own time 10, check 60 minutes, forget 15, prune 60; `restic unlock` of
+    machines and file shares 2 minutes as well). A
+    check that runs out of time is tried again later and after two hours reads "could not
+    check", never "failed".
+  - Each step of the pass runs on its own, so one that fails no longer skips the others, and
+    the checks run last, after the planning; a restore test or boot test is not planned for a
+    guest whose check is due and can run (it would keep the guest busy until the test is over),
+    it follows on the next pass. One restore point whose check cannot start (its
+    repository password, the storage) is postponed with the new reason "the check could not
+    start" instead of failing the pass on every run and holding up the queue behind it. No new
+    check starts after 20 minutes in one pass, and whether a guest is busy is asked again right
+    before its check. A pass that runs longer than ten minutes says so in the log while it
+    runs, with its step; every pass logs its duration.
+- Proxmox VE: restore and boot test runs that nothing would close any more kept their guest
+  "busy", so its checks waited up to 48 hours: the extra restore run the server opened when a
+  container boot test restored through the storage, restores without a task that never got
+  their restic credential, and restore checks or boot tests whose task was over. The worker now
+  ends such a run the way it ends every run whose result never came (failed with "The node never
+  reported the end of this run", cancelled when it was stopped in the UI, a boot test with the
+  outcome "error"; never succeeded) once its task is over, once a restore without a task turns
+  out never to have got its credential, or once the boot test whose restore it was has ended. A
+  restore with a credential is not ended early: its credential lives as long as its run, so it
+  may still be reading. Runs left open by earlier versions end on the first pass after the
+  update.
+- Recovery readiness: a restore check of a VM or container that has been due for more than 30
+  minutes without running reads "Check overdue" instead of "Check queued", with the reason when
+  one is known (a run of the guest still recorded as running without a sign of life for two
+  hours, and since when), and the summary no longer says such checks wait "for the next pass".
+  A check that waits behind a run that is going (a long backup, a boot test) stays "Check
+  queued" and names that run on hover.
 
 ### Upgrade Notes
 

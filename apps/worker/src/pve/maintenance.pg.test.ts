@@ -58,7 +58,7 @@ import {
   secrets,
 } from "@restow/db";
 import { runMigrations } from "@restow/db/migrate";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   loadTenantKeyring,
@@ -71,13 +71,13 @@ import { dropTestDatabase } from "../testing/database.js";
 import {
   applyRetention,
   closeCancelledRunsOfSilentNodes,
+  closeOrphanedRuns,
   closeRunsNodesDropped,
   closeStaleRuns,
   coveredBy,
   dropPveTokenSecrets,
-  PVE_CHECK_LOCK_WAITS_PER_PASS,
-  PVE_CHECK_RETRY_LOCK,
   PVE_ORPHAN_SNAPSHOT_GRACE_MS,
+  PVE_ORPHANED_RUN_MESSAGE,
   PVE_RECONCILE_EVERY_MS,
   PVE_RECONCILE_RETRY_MS,
   type PveDeps,
@@ -1173,13 +1173,12 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
         .set({ verifyRequestedAt: committedAt })
         .where(eq(pveSnapshots.id, ct.pointId));
 
-      // Locked: stale locks are cleared first, restic waits for the lock, then the check is
-      // postponed. Not failed, not checked, the weekly clock untouched.
+      // Locked (a record of a server before 0.5.0; a check runs without a lock now): the check
+      // is postponed. Not failed, not checked, the weekly clock untouched. No restic unlock: a
+      // check without a lock needs none.
       expect(await verifyDue(deps, clock)).toBe(0);
-      expect(await checks()).toEqual([
-        `check --retry-lock=${PVE_CHECK_RETRY_LOCK} --read-data-subset=5%`,
-      ]);
-      expect(await readFile(calls, "utf8")).toMatch(/^unlock\n/);
+      expect(await checks()).toEqual(["check --no-lock --read-data-subset=5%"]);
+      expect(await readFile(calls, "utf8")).not.toContain("unlock");
       let row = await point(ct.pointId);
       expect(row?.verifyRequestedAt).toEqual(new Date(clock.getTime() + VERIFY_POSTPONE_MS));
       expect(row?.verify?.checkedAt).toBeUndefined();
@@ -1265,29 +1264,6 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
         .where(eq(pveSnapshots.id, ct.pointId));
       await owner.update(pveGuests).set({ lastVerifyAt: week }).where(eq(pveGuests.id, ct.guestId));
 
-      // Many locked repositories in one pass: only the first few wait for their lock.
-      const many = [];
-      for (const vmid of [311, 312, 313, 314]) {
-        many.push(await newGuest(vmid, committedAt));
-      }
-      await writeFile(calls, "");
-      await verifyDue(deps, clock);
-      const waited = (await checks()).filter((line) => line.includes("--retry-lock"));
-      expect(await checks()).toHaveLength(4);
-      expect(waited).toHaveLength(PVE_CHECK_LOCK_WAITS_PER_PASS);
-      for (const other of many) {
-        expect((await point(other.pointId))?.verify?.notChecked?.attempts).toBe(1);
-      }
-      await owner
-        .update(pveSnapshots)
-        .set({ verifyRequestedAt: null })
-        .where(
-          inArray(
-            pveSnapshots.id,
-            many.map((other) => other.pointId),
-          ),
-        );
-
       // A shutdown stops the check: nothing is recorded, the next worker checks it.
       const stopping = await newGuest(315, committedAt);
       const shutdown = new AbortController();
@@ -1309,6 +1285,431 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
       } else {
         process.env.RESTIC_BINARY = before;
       }
+    }
+  }, 60_000);
+
+  /** A container with a newest restore point, and a check asked for at `requestedAt`. */
+  async function containerWithPoint(
+    vmid: number,
+    requestedAt: Date | null,
+    options: { brokenSecret?: boolean } = {},
+  ): Promise<{ guestId: string; pointId: string }> {
+    const keys = await deps.runtime.keyrings.get(tenantId);
+    const secretId = randomUUID();
+    await owner.insert(secrets).values({
+      id: secretId,
+      tenantId,
+      kind: "pve_ct_repository",
+      // Sealed for another id: it cannot be opened (the check cannot start).
+      ciphertext: sealSecret(
+        keys.current,
+        options.brokenSecret ? randomUUID() : secretId,
+        "repository-password",
+      ),
+    });
+    const [ct] = await owner
+      .insert(pveGuests)
+      .values({ tenantId, clusterId, vmid, kind: "ct", node: "pve1", repositorySecretId: secretId })
+      .returning();
+    const [point] = await owner
+      .insert(pveSnapshots)
+      .values({
+        tenantId,
+        clusterId,
+        guestId: ct?.id ?? "",
+        sequence: 1,
+        kind: "ct",
+        archiveName: `ct/${vmid}/2026-10-10T11:00:00Z`,
+        storageId: "restow",
+        manifestPath: "unused",
+        resticSnapshotId: "f".repeat(64),
+        backupAt: clock,
+        verifyRequestedAt: requestedAt,
+      })
+      .returning();
+    await owner
+      .update(pveGuests)
+      .set({ lastSnapshotId: point?.id ?? null, lastVerifyAt: clock })
+      .where(eq(pveGuests.id, ct?.id ?? ""));
+    return { guestId: ct?.id ?? "", pointId: point?.id ?? "" };
+  }
+
+  /**
+   * A restic that logs every call; `check` hangs for the guests in `hangFor`, else passes.
+   * `snapshots` lists the restore points' snapshot (`containerWithPoint`) and an old one no
+   * restore point names (a run that never committed).
+   */
+  async function loggingRestic(name: string, hangFor: string[] = []) {
+    const fake = join(work, `${name}.sh`);
+    const calls = join(work, `${name}.calls`);
+    const listed = JSON.stringify([
+      { id: "f".repeat(64), time: "2026-10-10T11:00:00Z", tags: [] },
+      { id: "e".repeat(64), time: "2026-01-01T00:00:00Z", tags: [] },
+    ]);
+    await writeFile(
+      fake,
+      [
+        "#!/bin/sh",
+        `echo "$*" >> '${calls}'`,
+        `if [ "$1" = "snapshots" ]; then echo '${listed}'; exit 0; fi`,
+        'if [ "$1" != "check" ]; then exit 0; fi',
+        ...hangFor.map((id) => `case "$RESTIC_CACHE_DIR" in *${id}*) exec sleep 60;; esac`),
+        'echo "no errors were found"',
+      ].join("\n"),
+    );
+    await chmod(fake, 0o755);
+    await writeFile(calls, "");
+    return { fake, read: async () => (await readFile(calls, "utf8")).split("\n").filter(Boolean) };
+  }
+
+  async function withRestic<T>(fake: string, work: () => Promise<T>): Promise<T> {
+    const before = process.env.RESTIC_BINARY;
+    process.env.RESTIC_BINARY = fake;
+    try {
+      return await work();
+    } finally {
+      if (before === undefined) {
+        delete process.env.RESTIC_BINARY;
+      } else {
+        process.env.RESTIC_BINARY = before;
+      }
+    }
+  }
+
+  const pointRow = async (id: string) =>
+    (await owner.select().from(pveSnapshots).where(eq(pveSnapshots.id, id)))[0];
+
+  /** Leave only these restore points asked for, so the other tests' rows stay out of the way. */
+  async function onlyRequested(ids: string[]) {
+    await owner
+      .update(pveSnapshots)
+      .set({ verifyRequestedAt: null })
+      .where(ids.length > 0 ? notInArray(pveSnapshots.id, ids) : undefined);
+  }
+
+  it("checks a container on a write-once share without a lock, and never runs restic unlock there", async () => {
+    // The storage takes new files but refuses every deletion (EPERM), as a WORM NFS share does.
+    class WriteOnce extends LocalStorageBackend {
+      override async delete(key: string): Promise<void> {
+        throw Object.assign(new Error(`EPERM: operation not permitted, unlink '${key}'`), {
+          code: "EPERM",
+        });
+      }
+    }
+    const worm: StorageTargets = { primary: new WriteOnce(join(work, "storage")), copies: [] };
+    const warned: string[] = [];
+    const logger: typeof noopLogger = {
+      debug: () => undefined,
+      info: () => undefined,
+      error: () => undefined,
+      warn: (message: string) => {
+        warned.push(message);
+      },
+      child: () => logger,
+    };
+    const wormDeps: PveDeps = {
+      ...deps,
+      runtime: {
+        ...deps.runtime,
+        logger,
+        storage: new TenantCache<StorageTargets>(async () => worm),
+      },
+    };
+    const restic = await loggingRestic("restic-worm");
+    const ct = await containerWithPoint(330, new Date(clock.getTime() - 60_000));
+    await onlyRequested([ct.pointId]);
+    // A lock file left behind weeks ago: stale, and the share will not let it go.
+    const lock = `pve-guests/${ct.guestId}/locks/${"7".repeat(64)}`;
+    await storage.primary.put(lock, Buffer.from("lock"));
+    const weeksAgo = new Date(clock.getTime() - 18 * DAY);
+    await utimes(join(work, "storage", lock), weeksAgo, weeksAgo);
+    // And one of two hours ago: stale by the storage, its own time still to be read.
+    const recent = `pve-guests/${ct.guestId}/locks/${"8".repeat(64)}`;
+    await storage.primary.put(recent, Buffer.from("lock"));
+    const hoursAgo = new Date(clock.getTime() - 2 * 60 * 60_000);
+    await utimes(join(work, "storage", recent), hoursAgo, hoursAgo);
+
+    await withRestic(restic.fake, async () => {
+      expect(await verifyDue(wormDeps, clock)).toBe(1);
+      // A lock weeks old by the storage goes by that time alone: its own time is not read.
+      // Its removal is refused, so nothing can go: the recent lock is not read either. The
+      // snapshot list is read, the check runs without a lock; no restic unlock.
+      expect(await restic.read()).toEqual([
+        "snapshots --json --no-lock",
+        "check --no-lock --read-data-subset=5%",
+      ]);
+      const row = await pointRow(ct.pointId);
+      expect(typeof row?.verify?.checkedAt).toBe("string");
+      expect(row?.verify?.errors).toEqual([]);
+      expect(row?.verifyRequestedAt).toBeNull();
+      expect(warned).toContain(
+        "pve: stale locks of a container repository cannot be removed: the storage refuses deletes (write-once storage)",
+      );
+      expect(warned).not.toContain("pve: the locks of a container repository could not be listed");
+      expect(await storage.primary.head(lock)).not.toBeNull();
+
+      // Retention's comparison of the repository leaves restic unlock, forget and prune out
+      // there: they could only fail. It stays claimed and is tried again after the retry delay.
+      const guestRow = async () =>
+        (await owner.select().from(pveGuests).where(eq(pveGuests.id, ct.guestId)))[0];
+      await writeFile(join(work, "restic-worm.calls"), "");
+      const refused = await reconcileGuestRepository(wormDeps, (await guestRow()) as never, clock);
+      expect(refused).toEqual({ forgotten: [], deletesRefused: true });
+      expect(await restic.read()).toEqual([]);
+      expect((await guestRow())?.repositoryReconciledAt).toEqual(
+        new Date(clock.getTime() - PVE_RECONCILE_EVERY_MS + PVE_RECONCILE_RETRY_MS),
+      );
+      // Where deletes work, unlock, the list, forget and prune run (each with a time limit).
+      // The recent lock's own time is read first (unreadable here: it is kept, not a day old).
+      await storage.primary.delete(lock);
+      await writeFile(join(work, "restic-worm.calls"), "");
+      const done = await reconcileGuestRepository(deps, (await guestRow()) as never, clock);
+      expect(done).toEqual({ forgotten: ["e".repeat(64)], deletesRefused: false });
+      expect(await storage.primary.head(recent)).not.toBeNull();
+      await storage.primary.delete(recent);
+      expect((await restic.read()).map((line) => line.split(" ")[0])).toEqual([
+        "cat",
+        "unlock",
+        "snapshots",
+        "forget",
+        "prune",
+      ]);
+      expect((await guestRow())?.repositoryReconciledAt).toEqual(clock);
+    });
+  }, 60_000);
+
+  it("stops a check that takes too long, and one that cannot start, and checks the rest of the queue", async () => {
+    const hanging = await containerWithPoint(340, new Date(clock.getTime() - 3 * 60_000));
+    const broken = await containerWithPoint(341, new Date(clock.getTime() - 2 * 60_000), {
+      brokenSecret: true,
+    });
+    const fine = await containerWithPoint(342, new Date(clock.getTime() - 60_000));
+    await onlyRequested([hanging.pointId, broken.pointId, fine.pointId]);
+    const restic = await loggingRestic("restic-hang", [hanging.guestId]);
+    await withRestic(restic.fake, async () => {
+      const started = Date.now();
+      expect(await verifyDue({ ...deps, checkTimeoutMs: 300 }, clock)).toBe(1);
+      expect(Date.now() - started).toBeLessThan(20_000);
+    });
+    // Timed out: tried again later, never failed.
+    const timedOut = await pointRow(hanging.pointId);
+    expect(timedOut?.verify?.notChecked).toMatchObject({ reason: "interrupted", attempts: 1 });
+    expect(timedOut?.verify?.notChecked?.detail).toContain("did not finish within");
+    expect(timedOut?.verify?.errors).toEqual([]);
+    expect(timedOut?.verifyRequestedAt).toEqual(new Date(clock.getTime() + VERIFY_POSTPONE_MS));
+    // Could not start (its repository password cannot be opened): postponed with the reason.
+    const notStarted = await pointRow(broken.pointId);
+    expect(notStarted?.verify?.notChecked).toMatchObject({ reason: "error", attempts: 1 });
+    expect(notStarted?.verifyRequestedAt).toEqual(new Date(clock.getTime() + VERIFY_POSTPONE_MS));
+    // The one behind them was checked.
+    const checked = await pointRow(fine.pointId);
+    expect(typeof checked?.verify?.checkedAt).toBe("string");
+    expect(checked?.verifyRequestedAt).toBeNull();
+
+    // A pass out of time starts no new check: the rest waits for the next pass.
+    await owner
+      .update(pveSnapshots)
+      .set({ verifyRequestedAt: new Date(clock.getTime() - 60_000), verify: null })
+      .where(sql`${pveSnapshots.id} IN (${broken.pointId}::uuid, ${fine.pointId}::uuid)`);
+    await owner
+      .update(pveSnapshots)
+      .set({ verifyRequestedAt: null })
+      .where(eq(pveSnapshots.id, hanging.pointId));
+    await withRestic(restic.fake, () => verifyDue({ ...deps, verifyBudgetMs: 0 }, clock));
+    const left = [await pointRow(broken.pointId), await pointRow(fine.pointId)];
+    expect(left.filter((row) => row?.verify !== null)).toHaveLength(1);
+    await onlyRequested([]);
+  }, 60_000);
+
+  it("closes restore and boot test runs nothing will close any more, so their guest is checked again", async () => {
+    const ct = await containerWithPoint(350, null);
+    const [node] = await owner.select().from(pveNodes).where(eq(pveNodes.name, "pve1"));
+    const base = {
+      tenantId,
+      clusterId,
+      nodeId: node?.id ?? null,
+      guestId: ct.guestId,
+      snapshotId: ct.pointId,
+      origin: "pve" as const,
+    };
+    const ago = (ms: number) => new Date(clock.getTime() - ms);
+    const task = async (status: "delivered" | "done") =>
+      (
+        await owner
+          .insert(pveTasks)
+          .values({
+            tenantId,
+            nodeId: node?.id ?? "",
+            guestId: ct.guestId,
+            kind: "restore",
+            status,
+          })
+          .returning()
+      )[0]?.id ?? null;
+    const insert = async (values: Partial<typeof pveRuns.$inferInsert>) =>
+      (
+        await owner
+          .insert(pveRuns)
+          .values({ ...base, kind: "restore", ...values })
+          .returning()
+      )[0]?.id ?? "";
+    // A restore without a task that never got its restic credential: it cannot read anything.
+    const noCredential = await insert({ startedAt: ago(26 * 60 * 60_000), resticExpiresAt: null });
+    // A restore started in the PVE UI 26 hours ago, past its credential's own 24 hours: the
+    // credential lives as long as its open run (pveRunCredentialLive), so it may still read and
+    // is left to its report or the 48 hours.
+    const long = await insert({
+      startedAt: ago(26 * 60 * 60_000),
+      resticExpiresAt: ago(2 * 60 * 60_000),
+    });
+    // A boot test that ended 20 minutes ago, and the restore it ran (credential still valid).
+    await insert({
+      kind: "boot_test",
+      origin: "restow",
+      status: "failed",
+      startedAt: ago(60 * 60_000),
+      finishedAt: ago(20 * 60_000),
+    });
+    const ofBootTest = await insert({
+      startedAt: ago(58 * 60_000),
+      resticExpiresAt: new Date(clock.getTime() + DAY),
+    });
+    // A restore check whose task is done, and one whose task the node still holds.
+    const taskDone = await insert({
+      kind: "restore_test",
+      origin: "restow",
+      taskId: await task("done"),
+      startedAt: ago(60 * 60_000),
+    });
+    const taskOpen = await insert({
+      kind: "restore_test",
+      origin: "restow",
+      taskId: await task("delivered"),
+      startedAt: ago(60 * 60_000),
+    });
+    // A restore started in the PVE UI before the boot test that may still read, and one just
+    // opened.
+    const live = await insert({
+      startedAt: ago(90 * 60_000),
+      resticExpiresAt: new Date(clock.getTime() + DAY),
+    });
+    const fresh = await insert({ startedAt: ago(60_000), resticExpiresAt: ago(1) });
+
+    expect(await closeOrphanedRuns(deps, clock)).toBeGreaterThanOrEqual(3);
+    const status = async (id: string) =>
+      (await owner.select().from(pveRuns).where(eq(pveRuns.id, id)))[0];
+    for (const id of [noCredential, ofBootTest, taskDone]) {
+      const run = await status(id);
+      expect(run?.status).toBe("failed");
+      expect(run?.errorMessage).toBe(PVE_ORPHANED_RUN_MESSAGE);
+      expect(run?.finishedAt).toEqual(clock);
+    }
+    for (const id of [taskOpen, live, fresh, long]) {
+      expect((await status(id))?.status).toBe("running");
+    }
+    // A boot test run nothing closes any more gets the outcome "error", like a stale one.
+    const [bootTestTask] = await owner
+      .insert(pveTasks)
+      .values({
+        tenantId,
+        nodeId: node?.id ?? "",
+        guestId: ct.guestId,
+        kind: "boot_test",
+        status: "failed",
+      })
+      .returning();
+    const bootTest = await insert({
+      kind: "boot_test",
+      origin: "restow",
+      taskId: bootTestTask?.id ?? null,
+      startedAt: ago(60 * 60_000),
+    });
+    expect(await closeOrphanedRuns(deps, clock)).toBe(1);
+    const closedBootTest = await status(bootTest);
+    expect(closedBootTest).toMatchObject({
+      status: "failed",
+      errorMessage: PVE_ORPHANED_RUN_MESSAGE,
+    });
+    expect(closedBootTest?.stats.bootTest).toMatchObject({
+      outcome: "error",
+      reason: "node_error",
+      message: PVE_ORPHANED_RUN_MESSAGE,
+    });
+    // Once the rest is over too, the guest's check runs (it was busy before). A restore or
+    // restore check never ends succeeded without its result: they end failed here as well.
+    await owner
+      .update(pveRuns)
+      .set({ status: "failed", finishedAt: clock })
+      .where(inArray(pveRuns.id, [taskOpen, live, fresh, long]));
+    await owner
+      .update(pveSnapshots)
+      .set({ verifyRequestedAt: ago(60_000) })
+      .where(eq(pveSnapshots.id, ct.pointId));
+    await onlyRequested([ct.pointId]);
+    const restic = await loggingRestic("restic-orphans");
+    await withRestic(restic.fake, async () => {
+      expect(await verifyDue(deps, clock)).toBe(1);
+    });
+    expect(await closeOrphanedRuns(deps, clock)).toBe(0);
+  }, 60_000);
+
+  it("runs a due after-backup check before the boot test and restore test of the same pass", async () => {
+    const ct = await containerWithPoint(360, new Date(clock.getTime() - 60_000));
+    await onlyRequested([ct.pointId]);
+    const [node] = await owner.select().from(pveNodes).where(eq(pveNodes.name, "pve1"));
+    // A node that announced boot tests and calls in, a job with a boot test after every
+    // backup and a monthly restore test, for this container only.
+    await owner
+      .update(pveNodes)
+      .set({ facts: { ...node?.facts, capabilities: ["boot_test"] }, lastSeenAt: clock })
+      .where(eq(pveNodes.id, node?.id ?? ""));
+    const [job] = await owner
+      .insert(pveJobs)
+      .values({
+        tenantId,
+        name: "after-backup tests",
+        scopeAll: false,
+        settings: {
+          bootTest: { schedule: "after_backup" },
+          restoreTest: { enabled: true, targetStorage: "local-lvm" },
+        },
+      })
+      .returning();
+    await owner
+      .update(pveGuests)
+      .set({ jobId: job?.id ?? null })
+      .where(eq(pveGuests.id, ct.guestId));
+    const testsOf = (kind: "boot_test" | "restore_test") =>
+      owner
+        .select()
+        .from(pveRuns)
+        .where(and(eq(pveRuns.guestId, ct.guestId), eq(pveRuns.kind, kind)));
+    try {
+      const restic = await loggingRestic("restic-tests-after-check");
+      // The pass's order: the tests are planned first, the checks run last. A test planned now
+      // would keep the guest busy (its run counts as running at once) until the node is done.
+      expect(await planRestoreTests(deps, clock)).toBe(0);
+      expect(await planBootTests(deps, clock)).toBe(0);
+      expect(await testsOf("boot_test")).toHaveLength(0);
+      expect(await testsOf("restore_test")).toHaveLength(0);
+      await withRestic(restic.fake, async () => {
+        expect(await verifyDue(deps, clock)).toBe(1);
+      });
+      expect((await pointRow(ct.pointId))?.verifyRequestedAt).toBeNull();
+      // The next pass plans both tests.
+      expect(await planRestoreTests(deps, clock)).toBe(1);
+      expect(await planBootTests(deps, clock)).toBe(1);
+      expect(await testsOf("boot_test")).toHaveLength(1);
+      expect(await testsOf("restore_test")).toHaveLength(1);
+    } finally {
+      await owner.delete(pveRuns).where(eq(pveRuns.guestId, ct.guestId));
+      await owner.delete(pveTasks).where(eq(pveTasks.guestId, ct.guestId));
+      await owner.update(pveGuests).set({ jobId: null }).where(eq(pveGuests.id, ct.guestId));
+      await owner.delete(pveJobs).where(eq(pveJobs.id, job?.id ?? ""));
+      await owner
+        .update(pveNodes)
+        .set({ facts: node?.facts ?? {}, lastSeenAt: node?.lastSeenAt ?? null })
+        .where(eq(pveNodes.id, node?.id ?? ""));
     }
   }, 60_000);
 
@@ -1685,7 +2086,7 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
     await chmod(damaged, 0o755);
     const before = process.env.RESTIC_BINARY;
     try {
-      let vmid = 330;
+      let vmid = 370;
       for (const binary of [damaged, join(work, "no-such-restic")]) {
         process.env.RESTIC_BINARY = binary;
         const keys = await deps.runtime.keyrings.get(tenantId);

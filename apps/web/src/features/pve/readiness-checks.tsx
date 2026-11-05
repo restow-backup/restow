@@ -44,6 +44,7 @@ export function GuestChecksCallout({ guests }: { guests: readonly GuestReadiness
   });
   const unchecked = uncheckedGuests(guests);
   const waiting = guests.filter((row) => row.checkRequested).length;
+  const overdue = guests.filter((row) => row.checkRequested && row.checkOverdue).length;
   if (unchecked.length === 0 && waiting === 0) {
     return null;
   }
@@ -57,7 +58,13 @@ export function GuestChecksCallout({ guests }: { guests: readonly GuestReadiness
       </AlertTitle>
       <AlertDescription>
         {unchecked.length > 0 ? <p>{t("readiness.uncheckedBody")}</p> : null}
-        {waiting > 0 ? <p>{t("readiness.waiting", { count: waiting })}</p> : null}
+        {overdue > 0 ? (
+          <p data-slot="pve-readiness-overdue">
+            {t("readiness.waitingOverdue", { count: overdue })}
+          </p>
+        ) : waiting > 0 ? (
+          <p>{t("readiness.waiting", { count: waiting })}</p>
+        ) : null}
         {unchecked.length > 0 ? (
           <Button
             size="sm"

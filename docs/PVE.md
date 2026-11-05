@@ -240,8 +240,11 @@ unique per installation).
   are read in one statement, so a run that commits during the comparison is
   never taken for one that never committed. A snapshot the storage still locks
   stays. Forget and prune wait up to two minutes for another run's lock
-  (`--retry-lock`); a comparison that did not get through is repeated an hour
-  later, at most ten a pass beside the ones a prune asked for. A restore point
+  (`--retry-lock`), each within its time limit; on a storage that refuses to
+  delete a stale lock (write-once) the comparison forgets and prunes nothing. A
+  comparison that did not get through is repeated an hour later, at most ten a
+  pass beside the ones a prune asked for. One guest whose retention fails is
+  logged and the others go on. A restore point
   pruned while the comparison runs keeps it due, so the next pass (every five
   minutes) forgets that point's snapshot as well.
 - **Restore check.** The server reads a sample of the data blocks of a restore
@@ -265,34 +268,59 @@ unique per installation).
 
   A guest is not checked while a run of it is going (a backup, a restore, a
   boot test) or while its node has taken on a backup of it that has not started
-  yet; the check waits for a later pass. A container check first removes stale
-  restic locks (`restic unlock`: only locks no live run refreshes, i.e. older
-  than 30 minutes or of a process that is gone), as retention does before
-  `forget`/`prune`. A lock counts as stale only when both the time the storage
-  received it and the time restic wrote into it are more than 30 minutes old
-  (since 0.5.0), so a storage whose clock lags never has a live lock taken away;
-  a lock whose own time could not be read at that moment stays for the next
-  pass, and goes unread only once the storage received it more than a day ago;
-  when the two differ by more than 30 minutes the worker logs a warning about
-  the storage's clock. It then makes sure the restore point's restic snapshot
-  is in the repository and carries the tag of the restore point's run (a
-  missing or foreign snapshot fails the check, since `restic check` alone
-  passes without it; a snapshot list the storage or the network did not deliver
-  this time postpones it, while a restic that cannot be started or a damaged
-  repository fails it with restic's words), and
-  then waits up to two minutes for a lock another run
-  holds (`--retry-lock`; only the first two locked repositories of a pass wait,
-  so a pass stays bounded). A check another run's lock still keeps out, or one
-  that was stopped before it finished, did not run: nothing is recorded as
-  checked or failed, the previous result stands, and it is tried again ten
-  minutes later ("Check postponed: repository locked" on the guest page). After
-  two hours since it was asked for, the restore point reads **Could not check:
-  repository locked**: yellow (attention) in Recovery readiness, never red and
-  never green, with restic's report of who holds the lock (PID, host, user,
-  when it was created); the weekly clock tries the guest again after a day, the
-  next backup's check and "Check now" or "Check all unverified" sooner. The
-  postponement lives in `pve_snapshots.verify` (`notChecked`: reason, since,
-  attempts, restic's words, `gaveUpAt` once the worker gave up).
+  yet (asked again right before each check); the check waits for a later pass.
+  A container check first removes stale lock files from the storage, as
+  retention does before `forget`/`prune` (retention then also runs `restic
+  unlock`; a check needs none). A lock counts as stale only when both the time
+  the storage received it and the time restic wrote into it are more than 30
+  minutes old (since 0.5.0), so a storage whose clock lags never has a live lock
+  taken away; a lock whose own time could not be read at that moment stays for
+  the next pass, and goes unread only once the storage received it more than a
+  day ago; when the two differ by more than 30 minutes the worker logs a warning
+  about the storage's clock. On a write-once share (a storage that refuses
+  deletes) no lock file can ever be removed: the check still runs, the log says
+  so once per check, `restic unlock` is not run, and retention leaves
+  `forget`/`prune` out for that container. The check then makes sure the
+  restore point's restic snapshot is in the repository and carries the tag of
+  the restore point's run (a missing or foreign snapshot fails the check, since
+  `restic check` alone passes without it; a snapshot list the storage or the
+  network did not deliver this time postpones it, while a restic that cannot be
+  started or a damaged repository fails it with restic's words), and runs
+  `restic check --no-lock`: nothing else writes meanwhile (the server's own
+  repository lock and no run of the guest going), so it never waits for a lock
+  and leaves none behind. Every restic run of the pass has a time limit (unlock
+  2 minutes, the snapshot list and reading a lock's time 10, check 60, forget
+  15, prune 60), a pass starts no new check after 20 minutes, and the checks run
+  last in the pass, so they never hold up the planning of backups, restore tests
+  and boot tests. A restore test or boot test is not planned for a guest whose
+  check is due and can run: its run would keep the guest busy from the moment it
+  is planned, so it is planned on the next pass, after the check. A check that
+  was stopped before it finished (also by its time limit), that could not start
+  (its repository password, the tenant's keys or storage), or that an older server's lock
+  kept out did not run: nothing is recorded as checked or failed, the previous
+  result stands, and it is tried again ten minutes later ("Check postponed" on
+  the guest page). After two hours since it was asked for, the restore point
+  reads **Could not check**: yellow (attention) in Recovery readiness, never red
+  and never green, with what restic or the server said (for a lock: who holds
+  it, PID, host, user, when it was created); the weekly clock tries the guest
+  again after a day, the next backup's check and "Check now" or "Check all
+  unverified" sooner. The postponement lives in `pve_snapshots.verify`
+  (`notChecked`: reason `locked`, `interrupted` or `error`, since, attempts, the
+  words, `gaveUpAt` once the worker gave up). A check that has been due for more
+  than 30 minutes without running reads **Check overdue** in Recovery readiness
+  instead of "Check queued", naming the run of the guest still recorded as
+  running when one without a sign of life for two hours (no progress report,
+  not listed by its node) holds it back. Waiting behind a run that is going (a
+  long backup, a boot test) is not overdue: "Check queued" then names that run
+  on hover. A restore, restore check or boot test run whose task is over, or a
+  restore without a task that cannot read (it never got its restic credential,
+  or it belonged to a boot test that has ended), is ended by the worker ten
+  minutes on, so it does not keep the guest busy: the same way as every run
+  whose result never came (failed, cancelled when it was stopped in the UI, a
+  boot test with the outcome `error`; never succeeded), with "The node never
+  reported the end of this run; ...". A restore with a credential is not ended
+  early: the credential lives as long as its open run, so it may still be
+  reading; it ends with its report or after the 48 hours below.
 
   A red check shows what it found (the restic or read error stored in
   `pve_snapshots.verify`, with the lines of restic's output that explain it)

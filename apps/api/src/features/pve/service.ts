@@ -349,7 +349,7 @@ export interface GuestVerifyFact {
    * again), with what restic said; null when it ran.
    */
   notChecked: {
-    reason: "locked" | "interrupted";
+    reason: "locked" | "interrupted" | "error";
     detail: string;
     attempts: number;
     gaveUp: boolean;

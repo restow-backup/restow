@@ -401,8 +401,10 @@
     "verifyQueuedBadge": "Check queued",
     "verifyNotCheckedLocked": "Could not check: repository locked",
     "verifyNotCheckedInterrupted": "Could not check: check interrupted",
+    "verifyNotCheckedError": "Could not check: the check could not start",
     "verifyPostponedLocked": "Check postponed: repository locked",
     "verifyPostponedInterrupted": "Check postponed: check interrupted",
+    "verifyPostponedError": "Check postponed: the check could not start",
     "restoreFinding": {
       "leftover": "Temporary guest {vmid} could not be removed",
       "notStarted": "Restored, not started",
@@ -470,11 +472,16 @@
       "bootYellow": "The newest restore point started in its boot test, but its guest agent did not answer: no proof the system works.",
       "bootRed": "The newest restore point did not boot in its boot test.",
       "notCheckedLocked": "The restore check of the newest restore point could not run for two hours: another run held the lock of its repository. Nothing is known about the restore point yet; the check is tried again.",
-      "notCheckedInterrupted": "The restore check of the newest restore point was stopped again and again before it finished. Nothing is known about the restore point yet; the check is tried again."
+      "notCheckedInterrupted": "The restore check of the newest restore point was stopped again and again before it finished. Nothing is known about the restore point yet; the check is tried again.",
+      "notCheckedError": "The restore check of the newest restore point could not start for two hours (the reason is below). Nothing is known about the restore point yet; the check is tried again."
     },
     "checkNow": "Check now",
     "checkNowFor": "Check {name} now",
     "checkWaiting": "Check queued",
+    "checkOverdue": "Check overdue",
+    "checkStalled": "This check has been due for more than 30 minutes and has not run yet. The server's pass for VMs and containers has not got to it: it may still be busy with another check, or the worker is not running. The worker's log names the cause (lines that begin with \"pve\").",
+    "checkBlocked": "This check has been due for more than 30 minutes and waits because a run of the guest is still recorded as running, with no sign of life for more than two hours: {kind} since {since}. A guest is not checked while one of its runs goes. If that run has ended without its end reaching the server, the server closes it (48 hours after its start at the latest).",
+    "checkWaitsFor": "Waits for the run of the guest that is going: {kind} since {since}. A guest is not checked while one of its runs goes; the check follows it.",
     "checkQueued": "Restore check queued: it runs within a few minutes.",
     "checkAll": "Check all unverified",
     "checkAllQueued": "{count, plural, =0 {Nothing to queue: every restore point is checked or waits for its check.} one {# restore check queued.} other {# restore checks queued.}}",
@@ -482,6 +489,7 @@
     "uncheckedBody": "No restore check has read their newest restore point back yet.",
     "waitingTitle": "{count, plural, one {# restore check of a VM or container waits} other {# restore checks of VMs and containers wait}}",
     "waiting": "{count, plural, one {# restore check waits} other {# restore checks wait}} for the next pass (every five minutes).",
+    "waitingOverdue": "{count, plural, one {# restore check has} other {# restore checks have}} been due for more than 30 minutes without running. The row says why, where it is known.",
     "scheduleAfterBackup": "VMs and containers: every new restore point is checked within minutes of its backup, and the newest restore point of every guest at least every {days} days.",
     "schedulePeriodic": "VMs and containers: the newest restore point of every guest is checked every {days} days (checking right after each backup is switched off for this installation)."
   },

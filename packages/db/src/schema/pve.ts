@@ -602,8 +602,11 @@ export type PveSnapshotDisk = {
  * never "failed" and never proof.
  */
 export type PveVerifyNotChecked = {
-  /** `locked`: another run held the repository's lock; `interrupted`: restic was stopped. */
-  reason: "locked" | "interrupted";
+  /**
+   * `locked`: another run held the repository's lock; `interrupted`: restic was stopped (or ran
+   * out of time); `error`: the check could not start (its repository password, the storage).
+   */
+  reason: "locked" | "interrupted" | "error";
   /** When the check was asked for first; the postponements count from here. */
   since: string;
   /** How often it was tried. */

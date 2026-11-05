@@ -55,6 +55,8 @@ export type ResticFailure =
   | "interrupted"
   /** Stopped by a signal (killed, aborted, out of memory): its output is incomplete. */
   | "killed"
+  /** Stopped by the server because it ran longer than its time limit (`timeoutMs`). */
+  | "timeout"
   | "other";
 
 /** A restic run that ended with a non-zero exit code, or that a signal stopped. */
@@ -191,11 +193,35 @@ function failure(
   );
 }
 
-/** Run restic to completion and return its standard output. */
+/** After the time limit restic gets SIGTERM (it releases its lock), then SIGKILL after this. */
+export const RESTIC_KILL_GRACE_MS = 15_000;
+
+/** A time limit in words for a message: "90 seconds", "2 minutes", "1 hour". */
+function durationText(ms: number): string {
+  if (ms < 120_000) {
+    return `${Math.round(ms / 1000)} seconds`;
+  }
+  if (ms < 2 * 60 * 60 * 1000) {
+    return `${Math.round(ms / 60_000)} minutes`;
+  }
+  return `${Math.round(ms / 3_600_000)} hours`;
+}
+
+/**
+ * Run restic to completion and return its standard output. With `timeoutMs`, a run that takes
+ * longer is stopped (SIGTERM, then SIGKILL after {@link RESTIC_KILL_GRACE_MS}) and fails with
+ * the failure `timeout`: nothing it would have said is known, so it is no finding either.
+ */
 export async function runRestic(
   session: ResticSession,
   args: readonly string[],
-  options: { signal?: AbortSignal; acceptExitCodes?: readonly number[] } = {},
+  options: {
+    signal?: AbortSignal;
+    acceptExitCodes?: readonly number[];
+    timeoutMs?: number;
+    /** SIGTERM to SIGKILL after the time limit (tests shorten it). */
+    killGraceMs?: number;
+  } = {},
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   const { child, done } = spawnRestic(session, args, { signal: options.signal });
   const chunks: Buffer[] = [];
@@ -208,7 +234,36 @@ export async function runRestic(
     }
     chunks.push(chunk);
   });
-  const { exitCode, signal, stderr } = await done;
+  const timers: NodeJS.Timeout[] = [];
+  const limit = { reached: false };
+  if (options.timeoutMs !== undefined) {
+    timers.push(
+      setTimeout(() => {
+        limit.reached = true;
+        child.kill("SIGTERM");
+        timers.push(
+          setTimeout(() => child.kill("SIGKILL"), options.killGraceMs ?? RESTIC_KILL_GRACE_MS),
+        );
+      }, options.timeoutMs),
+    );
+  }
+  let ended: ResticExit;
+  try {
+    ended = await done;
+  } finally {
+    for (const timer of timers) {
+      clearTimeout(timer);
+    }
+  }
+  const { exitCode, signal, stderr } = ended;
+  if (limit.reached && exitCode !== 0) {
+    throw new ResticError(
+      `restic ${args[0] ?? ""} did not finish within ${durationText(options.timeoutMs ?? 0)} and was stopped`,
+      exitCode,
+      "timeout",
+      stderr,
+    );
+  }
   if (
     exitCode === null ||
     (exitCode !== 0 && !(options.acceptExitCodes ?? []).includes(exitCode))
@@ -362,13 +417,13 @@ export function firstJsonArray(output: string): unknown[] {
  */
 export async function resticSnapshots(
   session: ResticSession,
-  options: { noLock?: boolean } = {},
+  options: { noLock?: boolean; signal?: AbortSignal; timeoutMs?: number } = {},
 ): Promise<ResticSnapshot[]> {
-  const { stdout } = await runRestic(session, [
-    "snapshots",
-    "--json",
-    ...(options.noLock ? ["--no-lock"] : []),
-  ]);
+  const { stdout } = await runRestic(
+    session,
+    ["snapshots", "--json", ...(options.noLock ? ["--no-lock"] : [])],
+    { signal: options.signal, timeoutMs: options.timeoutMs },
+  );
   const rows = firstJsonArray(stdout) as SnapshotJson[];
   return rows
     .filter((row) => typeof row.id === "string")
@@ -687,7 +742,7 @@ const FORGET_BATCH = 100;
 export async function resticForget(
   session: ResticSession,
   snapshotIds: readonly string[],
-  options: { signal?: AbortSignal; retryLock?: string } = {},
+  options: { signal?: AbortSignal; retryLock?: string; timeoutMs?: number } = {},
 ): Promise<number> {
   for (const id of snapshotIds) {
     if (!/^[0-9a-f]{8,64}$/.test(id)) {
@@ -697,7 +752,10 @@ export async function resticForget(
   const retry = retryLockArgs(options.retryLock);
   for (let start = 0; start < snapshotIds.length; start += FORGET_BATCH) {
     const batch = snapshotIds.slice(start, start + FORGET_BATCH);
-    await runRestic(session, ["forget", ...retry, "--", ...batch], { signal: options.signal });
+    await runRestic(session, ["forget", ...retry, "--", ...batch], {
+      signal: options.signal,
+      timeoutMs: options.timeoutMs,
+    });
   }
   return snapshotIds.length;
 }
@@ -708,10 +766,11 @@ export async function resticForget(
  */
 export async function resticPrune(
   session: ResticSession,
-  options: { signal?: AbortSignal; retryLock?: string } = {},
+  options: { signal?: AbortSignal; retryLock?: string; timeoutMs?: number } = {},
 ): Promise<void> {
   await runRestic(session, ["prune", ...retryLockArgs(options.retryLock)], {
     signal: options.signal,
+    timeoutMs: options.timeoutMs,
   });
 }
 
@@ -730,18 +789,23 @@ function retryLockArgs(retryLock: string | undefined): string[] {
  * wrote it), read without taking a lock. A lock that could not be read (the file is gone, the
  * storage did not answer, restic failed, the content holds no time) is `unreadable` with what
  * went wrong: the caller tells "gone" from "still there" by the storage, never by a guess, and
- * keeps a lock it could not judge (@restow/core `locksToRemove`).
+ * keeps a lock it could not judge (@restow/core `locksToRemove`). A read stopped by `signal` or
+ * its time limit (`timeoutMs`) is unreadable as well.
  */
 export async function resticLockTime(
   session: ResticSession,
   name: string,
+  options: { signal?: AbortSignal; timeoutMs?: number } = {},
 ): Promise<{ time: Date } | { unreadable: string }> {
   if (!/^[0-9a-f]{64}$/.test(name)) {
     throw new TypeError("a lock name must be 64 lower-case hex digits");
   }
   let stdout: string;
   try {
-    ({ stdout } = await runRestic(session, ["cat", "lock", "--no-lock", name]));
+    ({ stdout } = await runRestic(session, ["cat", "lock", "--no-lock", name], {
+      signal: options.signal,
+      timeoutMs: options.timeoutMs,
+    }));
   } catch (error) {
     return { unreadable: resticErrorDetail(error, 300) };
   }
@@ -771,6 +835,15 @@ export async function resticCheck(
      * gives up with exit code 11; without it, a lock fails the check at once.
      */
     retryLock?: string;
+    /**
+     * Check without a lock (`--no-lock`): restic neither waits for other locks nor writes or
+     * removes one of its own. For a caller that keeps every writer away itself (the PVE check:
+     * its own repository lock and no run of the guest going); on write-once storage, where no
+     * lock is ever removed, the only way a check can run. Excludes `retryLock`.
+     */
+    noLock?: boolean;
+    /** Stop the check after this long (failure `timeout`, see `runRestic`). */
+    timeoutMs?: number;
   } = {},
 ): Promise<{ output: string }> {
   if (!/^(\d{1,3}%|\d{1,3}\/\d{1,3})$/.test(subset)) {
@@ -779,13 +852,18 @@ export async function resticCheck(
   if (options.retryLock !== undefined && !RETRY_LOCK.test(options.retryLock)) {
     throw new TypeError("retryLock must look like 30s, 5m or 1h");
   }
+  if (options.noLock && options.retryLock !== undefined) {
+    throw new TypeError("a check without a lock waits for no lock");
+  }
   const args = [
     "check",
+    ...(options.noLock ? ["--no-lock"] : []),
     ...(options.retryLock ? [`--retry-lock=${options.retryLock}`] : []),
     `--read-data-subset=${subset}`,
   ];
   const { stdout, stderr } = await runRestic(session, args, {
     signal: options.signal,
+    timeoutMs: options.timeoutMs,
   });
   return { output: `${stdout}\n${stderr}`.trim().slice(-4000) };
 }
@@ -821,9 +899,22 @@ export function resticErrorDetail(error: unknown, maxLength = 1000): string {
   return parts.join("\n").slice(0, maxLength);
 }
 
-/** `restic unlock`: removes stale locks only (never one a live run still refreshes). */
-export async function resticUnlock(session: ResticSession): Promise<void> {
-  await runRestic(session, ["unlock"]);
+/** How long `restic unlock` may take unless the caller says otherwise. */
+export const RESTIC_UNLOCK_TIMEOUT_MS = 2 * 60 * 1000;
+
+/**
+ * `restic unlock`: removes stale locks only (never one a live run still refreshes). Bounded
+ * ({@link RESTIC_UNLOCK_TIMEOUT_MS} by default): a storage that keeps failing a deletion with a
+ * temporary error would otherwise keep restic trying, a quarter of an hour per lock file.
+ */
+export async function resticUnlock(
+  session: ResticSession,
+  options: { signal?: AbortSignal; timeoutMs?: number } = {},
+): Promise<void> {
+  await runRestic(session, ["unlock"], {
+    signal: options.signal,
+    timeoutMs: options.timeoutMs ?? RESTIC_UNLOCK_TIMEOUT_MS,
+  });
 }
 
 /** Bytes the repository takes (`stats --mode raw-data`), and how many snapshots it holds. */

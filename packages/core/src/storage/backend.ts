@@ -212,3 +212,23 @@ export function lockedErrorOf(error: unknown): ObjectLockedError | null {
 export function isObjectLocked(error: unknown): boolean {
   return lockedErrorOf(error) !== null;
 }
+
+/** File system codes of a deletion the storage refuses for good (write-once share, read-only). */
+const DELETE_REFUSED_CODES = new Set(["EPERM", "EACCES", "EROFS"]);
+
+/**
+ * Whether `error` (or its cause) says the storage refuses to delete or overwrite: a write-once
+ * (WORM) share or a read-only mount answers EPERM, EACCES or EROFS. Trying again changes
+ * nothing, unlike a network error. An {@link ObjectLockedError} is not counted here: it ends.
+ */
+export function isDeleteRefused(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; depth < 4 && current; depth++) {
+    const code = (current as { code?: unknown }).code;
+    if (typeof code === "string" && DELETE_REFUSED_CODES.has(code)) {
+      return true;
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
+}

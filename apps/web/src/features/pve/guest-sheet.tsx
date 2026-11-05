@@ -41,6 +41,7 @@ import { activityHint, BackupProgress } from "./backup-progress.js";
 import { NEW_DATA_POINTS, newDataPoints, shortDate } from "./backup-size.js";
 import { GuestActionButton, GuestState, type SelfBackupGuard } from "./guest-cells.js";
 import { PVE_NAMESPACE } from "./i18n.js";
+import { notCheckedSuffix } from "./not-checked.js";
 import { guestTo } from "./paths.js";
 import { RestoreFindings } from "./restore-findings.js";
 import { runStatusLabel, runTone } from "./run-status.js";
@@ -335,9 +336,7 @@ export function GuestSheet({
                         ? t("readiness.result.red")
                         : verify?.state === "yellow" && verify.notChecked
                           ? t(
-                              verify.notChecked.reason === "locked"
-                                ? "readiness.result.notCheckedLocked"
-                                : "readiness.result.notCheckedInterrupted",
+                              `readiness.result.notChecked${notCheckedSuffix(verify.notChecked.reason)}`,
                             )
                           : verify?.state
                             ? t("sheet.verifyPostponed")
@@ -356,9 +355,7 @@ export function GuestSheet({
                     // Tried again shortly; the result above (if any) still stands.
                     <Fact label={t("sheet.next")}>
                       <span data-slot="pve-sheet-verify-postponed">
-                        {verify.notChecked.reason === "locked"
-                          ? t("guest.verifyPostponedLocked")
-                          : t("guest.verifyPostponedInterrupted")}
+                        {t(`guest.verifyPostponed${notCheckedSuffix(verify.notChecked.reason)}`)}
                       </span>
                     </Fact>
                   ) : verify?.requested ? (
