@@ -368,7 +368,7 @@ export interface CaptureGapDto {
   readonly kind: "folder" | "message";
   /** IMAP: the folder, or `<folder>;<uidvalidity>;<uid>`; Graph: the message's immutable id. */
   readonly ref: string;
-  /** A failure code, or `undelivered`, `too_large`, `not_convertible`, `export_failed`. */
+  /** A failure code, or `undelivered`, `too_large`, `not_convertible`, `export_failed`, `fetch_failed`. */
   readonly reason: string;
   readonly attempts: number;
   readonly firstSeenAt: string;

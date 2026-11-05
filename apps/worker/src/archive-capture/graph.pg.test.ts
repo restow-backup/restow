@@ -55,7 +55,7 @@ import {
   notificationTarget,
   SubscriptionBatcher,
 } from "./graph.js";
-import { ArchiveCaptureService } from "./service.js";
+import { ArchiveCaptureService, PENDING_MAX_ATTEMPTS } from "./service.js";
 import type { CaptureWay } from "./ways.js";
 
 const adminUrl = process.env.RESTOW_TEST_DATABASE_URL;
@@ -340,6 +340,56 @@ describe.skipIf(!adminUrl)("graph capture way (Postgres)", () => {
       ["flaky", "export_failed", false, true],
       ["huge", "too_large", true, false],
     ]);
+  });
+
+  it("never lets an announced mail that keeps failing block the pass; a gap after five attempts", async () => {
+    const { instance } = service(way());
+    await pass(instance);
+    const user = fake.mailboxes.keys().next().value as string;
+    // An item the app may not read (403 ErrorAccessDenied), in no folder the catch-up lists.
+    fake.addMessage(user, { id: "denied-1", folderId: "hidden", accessDenied: true });
+    await db.execute(sql`
+      insert into archive_capture_pending (tenant_id, protected_object_id, way, external_ref)
+      values (${tenantId}, ${objectId}, 'graph_sync', 'denied-1')
+    `);
+    const pendingRow = async () =>
+      (
+        await db.execute<{ attempts: number; last_error: string | null }>(
+          sql`select attempts, last_error from archive_capture_pending where external_ref = 'denied-1'`,
+        )
+      ).rows[0];
+    for (let attempt = 1; attempt < PENDING_MAX_ATTEMPTS; attempt++) {
+      const before = await streamState();
+      await pass(instance);
+      const row = await stream();
+      // The pass succeeds and runs its catch-up although nothing of the batch was handled.
+      expect(row?.failure).toBeNull();
+      expect((await streamState()).lastCatchUpAt).not.toBe(before.lastCatchUpAt);
+      expect(await pendingRow()).toMatchObject({ attempts: attempt });
+      expect((await pendingRow())?.last_error).toContain("403");
+    }
+    // A newer announced mail is not crowded out by the one that keeps failing.
+    fake.addMessage(user, {
+      id: "notified-2",
+      folderId: "hidden",
+      receivedDateTime: new Date(Date.now() + 2 * hour).toISOString(),
+    });
+    await db.execute(sql`
+      insert into archive_capture_pending (tenant_id, protected_object_id, way, external_ref)
+      values (${tenantId}, ${objectId}, 'graph_sync', 'notified-2')
+    `);
+    await pass(instance);
+    expect(await itemRefs()).toContain("notified-2");
+    // The fifth failure drops it from pending as an open capture gap.
+    expect(await pendingRow()).toBeUndefined();
+    const gaps = await db
+      .select()
+      .from(archiveCaptureGaps)
+      .where(eq(archiveCaptureGaps.ref, "denied-1"));
+    expect(gaps.map((gap) => [gap.reason, gap.openedAt !== null])).toEqual([
+      ["fetch_failed", true],
+    ]);
+    expect((await stream())?.failure).toBeNull();
   });
 
   it("polls without a public HTTPS URL and says why; a subscription is removed then", async () => {

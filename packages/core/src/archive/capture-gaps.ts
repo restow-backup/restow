@@ -22,7 +22,7 @@ export interface CaptureGap {
   readonly ref: string;
   /**
    * Why: a failure code of the catalog (`imap.server_limit`) or the way's own
-   * (`undelivered`, `too_large`, `not_convertible`, `export_failed`).
+   * (`undelivered`, `too_large`, `not_convertible`, `export_failed`, `fetch_failed`).
    */
   readonly reason: string;
 }

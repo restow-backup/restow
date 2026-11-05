@@ -385,6 +385,8 @@ export interface GraphDrainResult extends GraphCaptureCounts {
    * retries); its refs are not in `handled` and stay pending.
    */
   failure: GraphError | null;
+  /** Every ref whose fetch failed other than with 404 (403, 5xx after retries): still pending. */
+  failed: string[];
 }
 
 /**
@@ -397,6 +399,7 @@ export async function drainGraphPending(options: GraphDrainOptions): Promise<Gra
     missing: 0,
     drafts: 0,
     failure: null,
+    failed: [],
     ...emptyCounts(),
   };
   const refs = [...new Set(options.refs)];
@@ -435,6 +438,7 @@ export async function drainGraphPending(options: GraphDrainOptions): Promise<Gra
       continue;
     }
     if (response.status < 200 || response.status >= 300) {
+      result.failed.push(response.id);
       result.failure ??= new GraphError({
         status: response.status,
         method: "GET",

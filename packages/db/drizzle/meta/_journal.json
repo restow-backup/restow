@@ -589,6 +589,13 @@
       "when": 1793882635004,
       "tag": "0083_archive_record_deletions",
       "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1793884624969,
+      "tag": "0084_archive_capture_pending_attempts",
+      "breakpoints": true
     }
   ]
 }

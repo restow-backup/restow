@@ -641,6 +641,14 @@ private repository.
   the checked backup into account: yellow ("the backup is incomplete") while items failed, red
   for items that failed in each of the last three runs. Green needs an intact read-back of a
   complete backup. The `job.completed` webhook of a backup now carries `failedItems`.
+- Mail archive: an announced Graph message that could not be fetched other than with 404 (a
+  403 for an item the app may not read, a 5xx) stayed pending for good at the head of the
+  queue. A pass in which no announced message could be fetched failed and skipped the
+  catch-up, so a single such message could put the mailbox's capture into error with backoff,
+  and 500 of them blocked every newer notification. Such a pass now succeeds and runs the
+  catch-up; each pending message counts its failed attempts (migration 0084), those tried least
+  come first, and after five failures the message is recorded as an open capture gap
+  (`fetch_failed`) and left to the catch-up.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,

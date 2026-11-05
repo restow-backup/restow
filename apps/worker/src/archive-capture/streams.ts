@@ -291,14 +291,49 @@ export class PgStreamStore {
   }
 
   /** Refs notifications announced for a stream's mailbox, oldest first. */
+  /**
+   * The next refs to fetch: those tried least often first, then the longest untried, so refs
+   * that keep failing never crowd newer ones out of the batch.
+   */
   async pendingRefs(stream: CaptureStream, limit: number): Promise<string[]> {
     const result = await this.db.execute<{ external_ref: string }>(sql`
       select external_ref from archive_capture_pending
        where protected_object_id = ${stream.protectedObjectId}::uuid and way = ${stream.way}
-       order by created_at
+       order by attempts, last_attempt_at nulls first, created_at
        limit ${limit}
     `);
     return result.rows.map((row) => row.external_ref);
+  }
+
+  /**
+   * One more failed attempt for `refs`; those that reached `maxAttempts` are deleted from
+   * pending and returned (the caller records them as capture gaps).
+   */
+  async failPending(
+    stream: CaptureStream,
+    refs: readonly string[],
+    error: string,
+    maxAttempts: number,
+  ): Promise<string[]> {
+    if (refs.length === 0) {
+      return [];
+    }
+    const list = sql`ARRAY[${sql.join(
+      refs.map((ref) => sql`${ref}`),
+      sql`, `,
+    )}]::text[]`;
+    const counted = await this.db.execute<{ external_ref: string; attempts: number }>(sql`
+      update archive_capture_pending
+         set attempts = attempts + 1, last_error = ${error.slice(0, 500)}, last_attempt_at = now()
+       where protected_object_id = ${stream.protectedObjectId}::uuid and way = ${stream.way}
+         and external_ref = any(${list})
+      returning external_ref, attempts
+    `);
+    const exhausted = counted.rows
+      .filter((row) => Number(row.attempts) >= maxAttempts)
+      .map((row) => row.external_ref);
+    await this.deletePending(stream, exhausted);
+    return exhausted;
   }
 
   async deletePending(stream: CaptureStream, refs: readonly string[]): Promise<void> {

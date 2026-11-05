@@ -48,6 +48,10 @@ import { archiveRetentionPolicyFor } from "../handlers/import-archive.js";
 import { recordLoginFailure, recordLoginSuccess } from "../imap-login-state.js";
 import { alreadyCapturedFor, appendCapturedMail } from "./append.js";
 import { PgCaptureGaps } from "./gaps.js";
+
+/** Failed fetches after which an announced ref is dropped from pending as a capture gap. */
+export const PENDING_MAX_ATTEMPTS = 5;
+
 import { reconcileCaptureStreams } from "./reconcile.js";
 import { CAPTURE_WAYS } from "./registry.js";
 import { PgStreamStore, type StreamOutcome } from "./streams.js";
@@ -540,6 +544,26 @@ export class ArchiveCaptureService {
         const drained = await way.drain(ctx(), refs);
         state = drained.state ?? state;
         await this.store.deletePending(stream, drained.handled);
+        if (drained.failed && drained.failed.refs.length > 0) {
+          // Counted per ref; after PENDING_MAX_ATTEMPTS passes a ref is dropped as an open
+          // capture gap (shown, alerted) and left to the catch-up, which finds it in its
+          // folder if Graph lists it there.
+          const exhausted = await this.store.failPending(
+            stream,
+            drained.failed.refs,
+            drained.failed.error,
+            PENDING_MAX_ATTEMPTS,
+          );
+          for (const ref of exhausted) {
+            await gaps.gaveUp({ kind: "message", ref, reason: "fetch_failed" });
+          }
+          if (exhausted.length > 0) {
+            logger.warn("announced mail that could not be fetched repeatedly is a capture gap", {
+              refs: exhausted.length,
+              error: drained.failed.error,
+            });
+          }
+        }
         morePending = refs.length >= this.settings.drainBatch;
       }
 

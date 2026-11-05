@@ -173,6 +173,12 @@ export interface DrainResult {
   /** Refs that are done (captured, already archived, gone at the service): deleted from pending. */
   readonly handled: readonly string[];
   readonly captured: number;
+  /**
+   * Refs whose fetch failed (a 403, a 5xx after retries): they stay pending with one more
+   * attempt counted, and after PENDING_MAX_ATTEMPTS they are dropped as a capture gap
+   * (./service.ts), left to the catch-up. `error` says why, for the log and the pending row.
+   */
+  readonly failed?: { readonly refs: readonly string[]; readonly error: string };
 }
 
 export interface CatchUpResult {

@@ -49,6 +49,11 @@ export interface FakeMessage {
    * (`ErrorCorruptData`).
    */
   mimeError?: { status: number; code: string };
+  /**
+   * Reading the item (`GET /messages/{id}`, also inside `$batch`) answers 403
+   * `ErrorAccessDenied` every time, as Graph does for an item the app may not read.
+   */
+  accessDenied?: boolean;
 }
 
 export interface FakeSubscription {
@@ -305,6 +310,12 @@ export class FakeMailboxGraph {
     const message = /^\/messages\/([^/]+)$/.exec(rest);
     if (message) {
       const found = state.messages.get(message[1] as string);
+      if (found?.accessDenied) {
+        return json(
+          403,
+          graphError("ErrorAccessDenied", "Access is denied. Check credentials and try again."),
+        );
+      }
       return found ? json(200, this.messageJson(found)) : notFound("message");
     }
     return notFound(rest);

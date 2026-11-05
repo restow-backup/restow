@@ -183,7 +183,14 @@ dem nächsten Job fort, die laufende Erfassung beim nächsten Durchgang.
   kann (`not_convertible`), ist sofort eine offene Lücke; das Archiv hält nur MIME und baut aus
   den JSON-Teilen keine Mail nach. Scheitert der MIME-Export mit einem 5xx, bleibt die Mail
   ausstehend und wird bei den nächsten Durchgängen erneut geholt; nach drei Fehlschlägen ist sie
-  eine Lücke (`export_failed`). docs/MICROSOFT.md, "Abholen".
+  eine Lücke (`export_failed`). Eine gemeldete Mail, die sich nicht abrufen lässt (Graph
+  antwortet etwa 403 `ErrorAccessDenied` für ein Element, das die App nicht lesen darf), bleibt
+  ausstehend und zählt ihre Versuche (Migration 0084); seltener versuchte Meldungen kommen zuerst
+  an die Reihe, und nach fünf Fehlschlägen wird sie als offene Lücke (`fetch_failed`) aus der
+  Warteschlange genommen und dem Nachholen überlassen. Ein Durchgang, in dem keine Meldung
+  abgerufen werden konnte, schlägt nicht mehr fehl und überspringt das Nachholen nicht (vorher
+  blockierte schon eine solche Meldung jeden Durchgang des Postfachs). docs/MICROSOFT.md,
+  "Abholen".
 - **Anzeige:** Die Archiv-Seite zeigt beim Weg, wie viele Postfächer unvollständig sind, und je
   Postfach die Zahl der offenen Lücken (gelb, nie als in Ordnung).
   `GET /api/v1/archive/capture/mailboxes/:objectId/gaps` listet sie (Art, Ordner oder Nachricht,

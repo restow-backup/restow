@@ -120,6 +120,11 @@ export const archiveCapturePending = pgTable(
       .references(() => protectedObjects.id, { onDelete: "cascade" }),
     way: archiveCaptureWayEnum("way").notNull(),
     externalRef: text("external_ref").notNull(),
+    // Failed fetches so far (0.5.0): a ref that keeps failing is fetched after the others,
+    // and dropped as a capture gap after PENDING_MAX_ATTEMPTS (apps/worker archive-capture).
+    attempts: integer("attempts").notNull().default(0),
+    lastError: text("last_error"),
+    lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
     ...createdOnly(),
   },
   (t) => [

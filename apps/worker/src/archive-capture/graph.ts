@@ -801,13 +801,17 @@ export function createGraphCaptureWay(deps: GraphWayDeps): CaptureWay {
         sink: captureSink(ctx),
         signal: ctx.signal,
       });
-      if (result.failure && result.handled.length === 0) {
-        throw result.failure;
-      }
+      // A ref that keeps failing (an item the app cannot read) must never block the pass:
+      // before, a batch in which nothing was handled threw here, the pass skipped its
+      // catch-up and failed, again and again. It stays pending with its attempts counted,
+      // and the catch-up runs (forced) in the same pass.
       if (result.failure) {
-        ctx.logger.warn("some announced mail could not be fetched; it stays pending", {
-          status: result.failure.status,
-        });
+        ctx.logger.warn(
+          result.handled.length === 0
+            ? "no announced mail of this batch could be fetched; it stays pending, the catch-up runs"
+            : "some announced mail could not be fetched; it stays pending",
+          { status: result.failure.status, refs: result.failed.length },
+        );
       }
       logExportGaps(ctx, result);
       const state = stateOf(ctx);
@@ -815,6 +819,16 @@ export function createGraphCaptureWay(deps: GraphWayDeps): CaptureWay {
         state: result.missing > 0 || result.failure ? { ...state, forceCatchUp: true } : undefined,
         handled: result.handled,
         captured: result.captured,
+        ...(result.failed.length > 0
+          ? {
+              failed: {
+                refs: result.failed,
+                error: result.failure
+                  ? `HTTP ${result.failure.status}: ${safeErrorMessage(result.failure)}`
+                  : "fetch failed",
+              },
+            }
+          : {}),
       };
     },
 
