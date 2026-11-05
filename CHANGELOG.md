@@ -534,6 +534,13 @@ private repository.
   in the run's summary, and a JSON copy stored after a server error or by an earlier version
   without a reason gets its MIME asked for again on the next runs and is replaced by it when
   Microsoft hands it out.
+- Mail backup: one message that a Dovecot or Gmail server cannot read blocked the whole folder
+  over IMAP, on every run. Such servers refuse a whole `UID FETCH` ("Some messages could not be
+  FETCHed") when one message of the set is broken; the metadata request for all new messages
+  failed, the folder was retried once and then reported as failed with nothing new stored, and
+  on a first backup the folder was missing from the restore point altogether. The request is now
+  split until the unreadable messages are found: each of them is an item failure naming the
+  message, and the rest of the folder, new mail included, is backed up.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,

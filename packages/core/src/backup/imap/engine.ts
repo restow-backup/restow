@@ -98,6 +98,11 @@ export interface ImapEngineLimits {
   readonly fetchBatchMessages: number;
   /** UIDs per metadata FETCH. */
   readonly metaBatchMessages: number;
+  /**
+   * Extra metadata FETCHes allowed per refused batch to find the messages the server cannot
+   * read (bisection). Past it the server is taken to refuse the folder, not a message.
+   */
+  readonly metaIsolationCommands: number;
   readonly checkpointEveryMessages: number;
   readonly checkpointEveryBytes: number;
   /** Reconnects tolerated in one run before the job is failed (and resumed by the retry). */
@@ -108,6 +113,7 @@ export const DEFAULT_IMAP_LIMITS: ImapEngineLimits = {
   fetchBatchBytes: 32 * 1024 * 1024,
   fetchBatchMessages: 100,
   metaBatchMessages: 1000,
+  metaIsolationCommands: 100,
   checkpointEveryMessages: 250,
   checkpointEveryBytes: 128 * 1024 * 1024,
   maxReconnects: 5,
@@ -640,7 +646,7 @@ class BackupRun {
   ): Promise<void> {
     let metas: Map<number, ImapMessageMeta>;
     try {
-      metas = await this.fetchMetas(worker.session, uids);
+      metas = await this.fetchMetas(worker.session, uids, folder.path);
     } catch (error) {
       if (!isImapSessionError(error)) {
         throw error;
@@ -772,7 +778,7 @@ class BackupRun {
     if (uids.length === 0) {
       return;
     }
-    const metas = await this.fetchMetas(worker.session, uids);
+    const metas = await this.fetchMetas(worker.session, uids, folder.path);
     const ordered: Pick<ImapMessageMeta, "uid" | "size">[] = uids.map(
       (uid) => metas.get(uid) ?? { uid, size: 0 },
     );
@@ -920,19 +926,87 @@ class BackupRun {
     }
   }
 
+  /**
+   * Metadata of `uids`, slice by slice. Dovecot and Gmail refuse a whole UID FETCH with a NO
+   * ("Some messages could not be FETCHed") when one message of the set cannot be read; such a
+   * slice is split in halves until the unreadable UIDs are isolated, so they alone go without
+   * metadata (the body FETCH then records each as an item failure) and the rest of the folder
+   * is backed up. A dropped connection is rethrown (reconnect); a server that keeps refusing
+   * past {@link ImapEngineLimits.metaIsolationCommands} refuses the folder, not a message.
+   */
   private async fetchMetas(
     session: ImapSession,
     uids: readonly number[],
+    folderPath?: string,
   ): Promise<Map<number, ImapMessageMeta>> {
     const metas = new Map<number, ImapMessageMeta>();
+    const unreadable: number[] = [];
     for (let i = 0; i < uids.length; i += this.limits.metaBatchMessages) {
       this.throwIfStopping();
       const slice = uids.slice(i, i + this.limits.metaBatchMessages);
-      for (const meta of await session.fetchMeta(slice)) {
-        metas.set(meta.uid, meta);
+      try {
+        for (const meta of await session.fetchMeta(slice)) {
+          metas.set(meta.uid, meta);
+        }
+      } catch (error) {
+        if (!isImapSessionError(error) || error.connectionLost) {
+          throw error;
+        }
+        unreadable.push(...(await this.isolateUnreadable(session, slice, metas, error)));
       }
     }
+    if (unreadable.length > 0) {
+      this.logger.warn("imap messages whose metadata the server refuses, isolated", {
+        folder: folderPath,
+        uids: unreadable.slice(0, 50),
+        count: unreadable.length,
+      });
+    }
     return metas;
+  }
+
+  /** Bisect a refused metadata slice; the UIDs that are refused on their own. */
+  private async isolateUnreadable(
+    session: ImapSession,
+    slice: readonly number[],
+    metas: Map<number, ImapMessageMeta>,
+    refusal: ImapSessionError,
+  ): Promise<number[]> {
+    const unreadable: number[] = [];
+    let budget = this.limits.metaIsolationCommands;
+    const visit = async (part: readonly number[]): Promise<void> => {
+      if (part.length === 0) {
+        return;
+      }
+      this.throwIfStopping();
+      if (budget-- <= 0) {
+        throw refusal;
+      }
+      try {
+        for (const meta of await session.fetchMeta(part)) {
+          metas.set(meta.uid, meta);
+        }
+      } catch (error) {
+        if (!isImapSessionError(error) || error.connectionLost) {
+          throw error;
+        }
+        if (part.length === 1) {
+          unreadable.push(part[0] as number);
+          return;
+        }
+        await split(part);
+      }
+    };
+    const split = async (part: readonly number[]): Promise<void> => {
+      const middle = Math.ceil(part.length / 2);
+      await visit(part.slice(0, middle));
+      await visit(part.slice(middle));
+    };
+    if (slice.length === 1) {
+      return [slice[0] as number];
+    }
+    await split(slice);
+    return unreadable;
   }
 
   /**

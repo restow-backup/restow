@@ -195,6 +195,13 @@ export interface FakeServerFaults {
   refuseSourceCode: string | null;
   /** Folders whose metadata FETCH fails with a NO (EXAMINE and STATUS still work). */
   refuseMeta: Set<string>;
+  /**
+   * "<folder>:<uid>": a message the server cannot read (Dovecot with a corrupt or missing mail
+   * file, Gmail's "Failure"). Like those servers, any UID FETCH whose set contains it, metadata
+   * or body, answers `NO Some messages could not be FETCHed (Unknown error)` for the whole
+   * command; sets without it answer OK. FLAGS (from the index) still lists it.
+   */
+  unreadable: Set<string>;
 }
 
 export class FakeImapServer implements ImapConnector {
@@ -223,6 +230,7 @@ export class FakeImapServer implements ImapConnector {
     refuseSource: new Set(),
     refuseSourceCode: null,
     refuseMeta: new Set(),
+    unreadable: new Set(),
   };
   private readonly arrivalListeners = new Set<ArrivalListener>();
   /**
@@ -455,6 +463,7 @@ class FakeSession implements ImapSession {
         false,
       );
     }
+    this.refuseUnreadable(folder, uids, "(UID RFC822.SIZE FLAGS INTERNALDATE ENVELOPE)");
     const result: ImapMessageMeta[] = [];
     for (const uid of [...uids].sort((a, b) => a - b)) {
       const key = `${folder.path}:${uid}`;
@@ -488,6 +497,7 @@ class FakeSession implements ImapSession {
       });
       throw new ImapSessionError(`UID FETCH: NO ${text}`, false, { cause });
     }
+    this.refuseUnreadable(folder, uids, "(UID BODY.PEEK[])");
     for (const uid of [...uids].sort((a, b) => a - b)) {
       await tick();
       const key = `${folder.path}:${uid}`;
@@ -534,6 +544,20 @@ class FakeSession implements ImapSession {
     if (!this.usable) {
       throw new ImapSessionError("connection is closed", true);
     }
+  }
+
+  /** Dovecot's answer to a FETCH over a set with a message it cannot read: NO for all of it. */
+  private refuseUnreadable(folder: FakeFolder, uids: readonly number[], items: string): void {
+    if (!uids.some((uid) => this.server.faults.unreadable.has(`${folder.path}:${uid}`))) {
+      return;
+    }
+    const text = "Some messages could not be FETCHed (Unknown error)";
+    const cause = Object.assign(new Error("Command failed"), {
+      responseStatus: "NO",
+      responseText: text,
+      executedCommand: `1F UID FETCH ${uids.join(",")} ${items}`,
+    });
+    throw new ImapSessionError(`UID FETCH: NO ${text}`, false, { cause });
   }
 
   private requireFolder(): FakeFolder {

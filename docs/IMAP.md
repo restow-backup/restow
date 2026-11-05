@@ -13,6 +13,14 @@
   im Speicher).
 - Inhalt: RFC 5322 byte-genau (`BODY.PEEK[]`), Flags separat, interne Datumsangabe.
 - Gelöschte Mails: beim nächsten Lauf per UID-Vergleich erkannt; Snapshot behält sie.
+- Eine Nachricht, die der Server nicht lesen kann (Dovecot mit beschädigter oder fehlender
+  Mail-Datei, Gmail): Dovecot und Gmail lehnen dann jeden `UID FETCH`, dessen Menge sie enthält,
+  als Ganzes ab (`NO Some messages could not be FETCHed`). Die Engine teilt eine abgelehnte
+  Metadaten-Abfrage so lange in Hälften, bis die unlesbaren UIDs feststehen (höchstens 100
+  zusätzliche Befehle je Abfrage, `metaIsolationCommands`; darüber verweigert der Server den
+  Ordner, nicht eine Nachricht, und der Ordner schlägt fehl wie bisher). Jede unlesbare
+  Nachricht ist ein Elementfehler mit der Antwort des Servers, der Rest des Ordners wird
+  gesichert, und der nächste Lauf versucht sie erneut.
 - Parallelität: max. 2 Verbindungen je Konto (viele Server limitieren).
 - Restore: APPEND in Zielordner mit Original-Datum und Flags; Zielordner anlegen, falls
   fehlend; Duplikate über Message-ID prüfen. Geprüft wird gegen den Stand des Ordners,

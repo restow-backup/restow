@@ -432,6 +432,76 @@ describe("ImapBackupEngine", () => {
     ]);
   });
 
+  describe("a message the server cannot read (Dovecot/Gmail NO for the whole FETCH)", () => {
+    it("backs up the rest of the folder and records that one message on a first backup", async () => {
+      const inbox = server.addFolder("INBOX");
+      for (let i = 1; i <= 50; i++) {
+        inbox.add(eml(`m${i}`));
+      }
+      server.faults.unreadable.add("INBOX:23");
+      const logs: LogRecord[] = [];
+      const result = await engine({
+        limits: { checkpointEveryMessages: 3, fetchBatchMessages: 4, metaBatchMessages: 20 },
+      }).run(context({ logs }), protectedObject, {});
+
+      expect(result.failures).toEqual([
+        expect.objectContaining({
+          itemRef: "mail/INBOX/23.eml",
+          reason: expect.stringContaining("Some messages could not be FETCHed"),
+          cause: expect.objectContaining({ code: "imap.command_failed" }),
+        }),
+      ]);
+      const manifest = await manifestOf(result.snapshotId);
+      const stored = messages(manifest).map((o) => Number(o.metadata?.[META.uid]));
+      expect(stored).toHaveLength(49);
+      expect(stored).not.toContain(23);
+      // Envelope metadata of the other messages was fetched despite the refused slice.
+      expect(messages(manifest).every((o) => o.metadata?.[META.messageId] !== undefined)).toBe(
+        true,
+      );
+      expect(
+        logLine(logs, "imap messages whose metadata the server refuses, isolated"),
+      ).toMatchObject({ uids: [23], count: 1 });
+    });
+
+    it("still backs up new mail of the folder on the next run", async () => {
+      const inbox = server.addFolder("INBOX");
+      for (let i = 1; i <= 8; i++) {
+        inbox.add(eml(`m${i}`));
+      }
+      server.faults.unreadable.add("INBOX:3");
+      await engine().run(context(), protectedObject, {});
+      inbox.add(eml("new 1"));
+      inbox.add(eml("new 2"));
+
+      const result = await engine().run(context(), protectedObject, {});
+      expect(result.failures.map((f) => f.itemRef)).toEqual(["mail/INBOX/3.eml"]);
+      expect(result.objectsWritten).toBe(2);
+      const stored = messages(await manifestOf(result.snapshotId)).map((o) =>
+        Number(o.metadata?.[META.uid]),
+      );
+      expect(stored.sort((a, b) => a - b)).toEqual([1, 2, 4, 5, 6, 7, 8, 9, 10]);
+
+      // Readable again (the admin repaired the mail file): the next run takes it.
+      server.faults.unreadable.clear();
+      const healed = await engine().run(context(), protectedObject, {});
+      expect(healed.failures).toEqual([]);
+      expect(healed.objectsWritten).toBe(1);
+    });
+
+    it("fails the folder as before when the server refuses every metadata FETCH", async () => {
+      const inbox = server.addFolder("INBOX");
+      for (let i = 1; i <= 30; i++) {
+        inbox.add(eml(`m${i}`));
+      }
+      server.faults.refuseMeta.add("INBOX");
+      const result = await engine({
+        limits: { metaBatchMessages: 30, metaIsolationCommands: 8 },
+      }).run(context(), protectedObject, {});
+      expect(result.failures.map((f) => f.itemRef)).toEqual(["INBOX"]);
+    });
+  });
+
   it("does not count a message deleted during the run as a failure", async () => {
     const inbox = server.addFolder("INBOX");
     for (let i = 1; i <= 6; i++) {
