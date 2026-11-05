@@ -188,4 +188,12 @@ describe("parts of messages and files", () => {
     expect(plan.items.find((item) => item.object.path === orphan.path)?.category).toBe("mail");
     expect(plan.eligible).toMatchObject({ mail: 2, file: 1 });
   });
+
+  it("reads in a health check the versions of a file emptied to 0 bytes", () => {
+    const emptied = object("Documents/Notes.txt", "file", 0);
+    const earlier = object("Documents/Notes.txt:versions/3.0", "file-version", 4096);
+    const plan = planFull([emptied, earlier]);
+    expect(plan.items.map((item) => item.object.path)).toEqual([earlier.path]);
+    expect(plan.eligible.file).toBe(1);
+  });
 });

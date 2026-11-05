@@ -111,16 +111,21 @@ const VERSION_MARKER = ":versions/";
  * The parts of a snapshot's objects by the path of their owner: attachments by their message
  * (`messagePath`, or `messageItemId` resolved through the messages' ids, as
  * RestoreCatalog.attachmentOwner does), file versions by their file (`<file>:versions/<id>`).
- * Parts whose owner is not in the snapshot are returned separately.
+ * Parts whose owner is not an item of its own (not in the snapshot, or without content: a file
+ * emptied to 0 bytes whose versions hold the real data) are returned separately, so a health
+ * check still reads them.
  */
 export function partsByOwner(objects: readonly ManifestObject[]): {
   readonly byOwner: ReadonlyMap<string, readonly ManifestObject[]>;
   readonly orphans: readonly SampledObject[];
 } {
+  // Only owners that are read as items themselves (planSample, planFull draw eligible ones).
   const paths = new Set<string>();
   const pathById = new Map<string, string>();
   for (const object of objects) {
-    paths.add(object.path);
+    if (sampleCategoryOf(object) !== null) {
+      paths.add(object.path);
+    }
     const kind = objectTypeOf(object);
     if (kind === "mail" && object.id !== undefined) {
       pathById.set(object.id, object.path);

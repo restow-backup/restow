@@ -113,7 +113,8 @@ Postgres-Service bereit und setzt die Variable.
   werden alle Anhänge mitgelesen, zu einer gezogenen OneDrive-Datei ihre früheren Versionen; ein
   fehlerhafter Anhang oder eine fehlerhafte Version zählt gegen die Mail bzw. Datei (seit 0.5.0).
   Die Integritätsprüfung (Health Check) liest jedes Objekt mit Inhalt, Anhänge und Versionen
-  eingeschlossen.
+  eingeschlossen, auch die Versionen einer Datei, die auf 0 Byte geleert wurde (sie werden dann
+  als eigene Elemente gelesen).
   Grün setzt seit 0.5.0 auch eine vollständige Sicherung voraus: Hat der Lauf, der den geprüften
   Sicherungsstand erstellt hat, Elemente nicht sichern können (`jobs.item_failure_summary`), ist
   die Bewertung gelb ("Sicherung unvollständig"), rot für Elemente, die in den letzten drei

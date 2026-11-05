@@ -666,7 +666,8 @@ private repository.
   chunk index was rated green. A sampled message now has its attachments read with it and a
   sampled file its versions; a failing attachment or version counts against the message or
   file with its cause ("items missing" and so on). The health check reads every attachment and
-  version, also one whose message is not in the snapshot.
+  version, also one whose message is not in the snapshot, and the versions of a file emptied to
+  0 bytes (they hold its real data; the empty file itself is no item to read).
 - Restore check: a backup whose run could not back up some items (a folder denied on every run,
   hundreds of failed messages) was rated green as long as what it held read back fine, on the
   readiness page, in the tenant rating, the statistics and the `verify.completed` webhook; only
