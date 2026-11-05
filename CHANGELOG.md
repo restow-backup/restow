@@ -656,7 +656,7 @@ private repository.
 - OneDrive and SharePoint backup: a file that could not be read and was deleted later in the
   same run (or a file in a folder deleted later in the same run) stayed in the run's failed
   items and was tried again on the next run, although it no longer existed. Such failures are
-  now taken back.
+  now taken back; a folder moved out of the deleted one in the same run keeps its files' failures.
 - SharePoint backup: a document library that Microsoft refused to Restow (403, 404, 423) kept its
   files from the previous run in the new restore point, with nothing in the restore point saying
   so; it looked as current as the libraries that were read. The library folder is now marked as

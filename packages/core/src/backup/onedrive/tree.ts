@@ -119,6 +119,15 @@ export class DriveTree {
     return this.nodes.get(id)?.object;
   }
 
+  /**
+   * The parent an item hangs under in this tree (as recorded or moved in this run): its id,
+   * null at the top, undefined when the tree does not hold the item.
+   */
+  parentOf(id: string): string | null | undefined {
+    const node = this.nodes.get(id);
+    return node === undefined ? undefined : node.parentId;
+  }
+
   /** Stored versions of a file. */
   versionsOf(itemId: string): ManifestObject[] {
     const ids = this.versionIdsByItem.get(itemId) ?? new Set<string>();

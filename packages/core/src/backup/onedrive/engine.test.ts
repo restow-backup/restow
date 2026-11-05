@@ -1022,6 +1022,52 @@ describe("OneDriveBackupEngine", () => {
     expect(state(manifest).retry).toEqual([]);
   });
 
+  it("keeps the failure of a file whose folder was moved out of a folder deleted in the same run", async () => {
+    // Reports moves from Documents to the top level, then Documents is deleted, and a new file
+    // in Reports cannot be read: it is not below anything deleted.
+    const reportsMoved = {
+      ...(fixture.initialPage1.value[2] as DriveDeltaItem),
+      parentReference: { driveId: DRIVE, id: "01ROOT" },
+    };
+    const newFile = q3Item({
+      id: "01NEW",
+      name: "new.txt",
+      cTag: '"c:{NEW},1"',
+      size: 5,
+      file: { mimeType: "text/plain" },
+      "@microsoft.graph.downloadUrl": downloadLink("new"),
+      parentReference: { driveId: DRIVE, id: "01REPORTS" },
+    });
+    const graph = createFakeGraph([
+      ...initialRoutes(),
+      {
+        url: deltaUrl("DELTA1"),
+        respond: {
+          status: 200,
+          json: page(
+            [
+              reportsMoved,
+              newFile,
+              { id: "01DOCS", deleted: { state: "deleted" }, parentReference: { driveId: DRIVE } },
+            ],
+            "DELTA2",
+          ),
+        },
+      },
+      {
+        url: downloadUrl("new"),
+        respond: { status: 500, json: graphError("generalException", "General exception") },
+      },
+    ]);
+    const engine = harness.engine(graph);
+    await engine.run(harness.context({ jobId: "job-1" }), oneDrive, {});
+    const second = await engine.run(harness.context({ jobId: "job-2" }), oneDrive, {});
+    expect(second.failures.map((failure) => failure.itemRef)).toEqual(["Reports/new.txt"]);
+    const manifest = await harness.manifest(second);
+    expect(paths(manifest)).toContain("Reports/Q3 report.xlsx");
+    expect(state(manifest).retry).toEqual(["01NEW"]);
+  });
+
   it("reports a download that breaks off mid-stream as an item failure and carries on", async () => {
     const graph = createFakeGraph(initialRoutes());
     const client = graph.client({

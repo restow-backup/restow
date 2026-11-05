@@ -1223,15 +1223,32 @@ export class DriveBackupRun {
     }
     const deleted = new Set(this.tree.deletedIds());
     const dropped = new Set(cascaded);
+    // Where an item hangs now: a failed item where the delta put it, an ancestor where this
+    // run's tree has it (moved in this run, perhaps out of a folder deleted later), and only
+    // an ancestor the tree does not hold where the previous snapshot had it.
+    const parentOf = (id: string, failed: boolean): string | null | undefined => {
+      if (failed && this.failedParents.has(id)) {
+        return this.failedParents.get(id);
+      }
+      const current = this.tree.parentOf(id);
+      return current !== undefined ? current : this.previousById.get(id)?.metadata?.parentId;
+    };
     const below = (id: string, depth: number): boolean => {
       if (depth > 64) {
         return false;
       }
-      const parent = this.failedParents.get(id) ?? this.previousById.get(id)?.metadata?.parentId;
+      const parent = parentOf(id, depth === 0);
       if (parent === undefined || parent === null) {
         return false;
       }
-      return deleted.has(parent) || dropped.has(parent) || below(parent, depth + 1);
+      if (deleted.has(parent) || dropped.has(parent)) {
+        return true;
+      }
+      // An ancestor the tree holds and did not cascade survives, and so does what is below it.
+      if (this.tree.get(parent) !== undefined) {
+        return false;
+      }
+      return below(parent, depth + 1);
     };
     for (const id of [...this.failedById.keys()]) {
       if (dropped.has(id) || below(id, 0)) {
