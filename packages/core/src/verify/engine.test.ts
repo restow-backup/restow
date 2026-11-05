@@ -320,6 +320,70 @@ describe("verifyProtectedObject", () => {
     expect(outcome.readiness).toBe("red");
   });
 
+  it("reads the attachments of a JSON-format message with it: a missing attachment chunk is red", async () => {
+    const fixture = createStoreFixture();
+    // A 60 MB message stored as Graph JSON plus attachment objects (backup/exchange/mail.ts).
+    const message = "mail/Inbox/Big report (AAMk1).json";
+    const { objects } = await writeSnapshot(fixture, [
+      { path: "mail/Inbox", type: "folder", size: 0 },
+      { path: message, type: "mail", size: 900, seed: 3, metadata: { format: "json" } },
+      {
+        path: "mail/Inbox/Big report (AAMk1).attachments/report.pdf (AAMkA1)",
+        type: "attachment",
+        size: 4000,
+        seed: 4,
+        metadata: { messagePath: message, messageItemId: "AAMk1" },
+      },
+      {
+        path: "mail/Inbox/Big report (AAMk1).attachments/data.xlsx (AAMkA2)",
+        type: "attachment",
+        size: 3000,
+        seed: 5,
+        metadata: { messagePath: message, messageItemId: "AAMk1" },
+      },
+    ]);
+    const healthy = await verify(fixture);
+    expect(healthy.readiness).toBe("green");
+    expect(healthy.details.items.find((item) => item.path === message)).toMatchObject({
+      status: "verified",
+      parts: 2,
+    });
+
+    const attachment = objects.find((object) => object.path.endsWith("data.xlsx (AAMkA2)"));
+    fixture.index.chunks.delete(attachment?.chunks[0] as string);
+    const sample = await verify(fixture);
+    expect(sample.readiness).toBe("red");
+    expect(sample.details.reasons[0]).toMatchObject({ code: "items_missing", severity: "red" });
+    expect(sample.details.items[0]).toMatchObject({
+      path: message,
+      status: "missing",
+      failedPart: attachment?.path,
+    });
+    const health = await verify(fixture, { kind: "health_check" });
+    expect(health.readiness).toBe("red");
+    expect(health.missing).toBe(1);
+  });
+
+  it("reads a file's historical versions in a health check and with a sampled file", async () => {
+    const fixture = createStoreFixture({ kind: "onedrive" });
+    const { objects } = await writeSnapshot(fixture, [
+      { path: "Documents/Q3.xlsx", type: "file", size: 800, seed: 7 },
+      { path: "Documents/Q3.xlsx:versions/2.0", type: "file-version", size: 780, seed: 8 },
+      { path: "Documents/Q3.xlsx:versions/1.0", type: "file-version", size: 760, seed: 9 },
+    ]);
+    const version = objects.find((object) => object.path.endsWith(":versions/1.0"));
+    fixture.index.chunks.delete(version?.chunks[0] as string);
+    for (const kind of ["verify", "health_check"] as const) {
+      const outcome = await verify(fixture, { kind });
+      expect(outcome.readiness).toBe("red");
+      expect(outcome.details.items[0]).toMatchObject({
+        path: "Documents/Q3.xlsx",
+        status: "missing",
+        failedPart: version?.path,
+      });
+    }
+  });
+
   it("stops on cancellation instead of recording findings", async () => {
     const fixture = await mailboxFixture(3);
     const controller = new AbortController();

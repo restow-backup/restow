@@ -109,6 +109,11 @@ Postgres-Service bereit und setzt die Variable.
 - `verify`-Job wöchentlich je geschütztem Objekt: zufällig 20 Mails und 20 Dateien (dazu
   wenige Kalender- und Kontaktelemente) aus dem letzten Snapshot über den Restore-Pfad
   zurücklesen, mit dem Manifest vergleichen, Ergebnis speichern, Recovery-Readiness anzeigen.
+  Zu einer gezogenen Mail, die als JSON mit getrennten Anhängen gesichert ist (zu groß für MIME),
+  werden alle Anhänge mitgelesen, zu einer gezogenen OneDrive-Datei ihre früheren Versionen; ein
+  fehlerhafter Anhang oder eine fehlerhafte Version zählt gegen die Mail bzw. Datei (seit 0.5.0).
+  Die Integritätsprüfung (Health Check) liest jedes Objekt mit Inhalt, Anhänge und Versionen
+  eingeschlossen.
   Rot nur mit Beleg: Daten fehlen (ein Chunk, den der Index nicht kennt, oder eine Datendatei,
   die jedes Speicherziel als nicht vorhanden meldet), stimmen nicht (Hash oder Größe, ein Chunk,
   der nicht der ist, den seine ID nennt) oder lassen sich nicht dekodieren (beschädigtes Pack,

@@ -626,6 +626,14 @@ private repository.
   garbage collection decides), and deletes the sealed record on the primary and every copy. A
   target that refuses (Object Lock still active, an outage) keeps the record queued (migration
   0083) for the next run; the run reports it as deferred and audits it, never as deleted.
+- Restore check: the attachments of Exchange messages stored as JSON with separate attachments
+  (messages too large for a MIME export) and the earlier versions of OneDrive files were never
+  read back, not by the weekly check and not by a health check, although the health check is
+  described as reading every object. A message whose attachment chunk was missing from the
+  chunk index was rated green. A sampled message now has its attachments read with it and a
+  sampled file its versions; a failing attachment or version counts against the message or
+  file with its cause ("items missing" and so on). The health check reads every attachment and
+  version, also one whose message is not in the snapshot.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,

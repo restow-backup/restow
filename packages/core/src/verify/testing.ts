@@ -141,6 +141,8 @@ export type FixtureItem = {
   /** Content size in bytes; 0 for folders. */
   readonly size: number;
   readonly seed?: number;
+  /** Manifest metadata (an attachment's `messagePath`, a message's `format`). */
+  readonly metadata?: Readonly<Record<string, string>>;
 };
 
 export type StoreFixture = {
@@ -220,6 +222,7 @@ export async function writeSnapshot(
       mtime: Date.UTC(2026, 8, 1, 8, 0),
       id: `item-${position}`,
       ...(item.type !== undefined ? { type: item.type } : {}),
+      ...(item.metadata ? { metadata: { ...item.metadata } } : {}),
       ...(written ? { sha256: written.sha256 } : {}),
       chunks: written?.chunks ?? [],
     };

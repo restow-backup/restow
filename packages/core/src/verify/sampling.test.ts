@@ -39,6 +39,7 @@ describe("sampleCategoryOf", () => {
     expect(sampleCategoryOf(object("contacts/Contacts/1", "contact"))).toBe("contact");
     expect(sampleCategoryOf(object("mail/Inbox", "folder", 0))).toBeNull();
     expect(sampleCategoryOf(object("Documents/empty.txt", "file", 0))).toBeNull();
+    // Not drawn on their own: read back as parts of their file or message (planSample, planFull).
     expect(sampleCategoryOf(object("Documents/a.pdf:versions/1", "file-version"))).toBeNull();
     expect(sampleCategoryOf(object("Notebooks/Work", "package"))).toBeNull();
     expect(sampleCategoryOf(object("mail/Inbox/1/att", "attachment"))).toBeNull();
@@ -149,5 +150,42 @@ describe("pickRandom", () => {
       expect(count).toBeGreaterThan(850);
       expect(count).toBeLessThan(1150);
     }
+  });
+});
+
+describe("parts of messages and files", () => {
+  const message: ManifestObject = { ...object("mail/Inbox/Big (A1).json", "mail"), id: "A1" };
+  const byPath: ManifestObject = {
+    ...object("mail/Inbox/Big (A1).attachments/a.pdf", "attachment"),
+    metadata: { messagePath: message.path },
+  };
+  const byId: ManifestObject = {
+    ...object("mail/Inbox/Big (A1).attachments/b.pdf", "attachment"),
+    metadata: { messageItemId: "A1" },
+  };
+  const orphan: ManifestObject = {
+    ...object("mail/Gone (Z9).attachments/c.pdf", "attachment"),
+    metadata: { messagePath: "mail/Gone (Z9).json" },
+  };
+  const file = object("Documents/Q3.xlsx", "file");
+  const version = object("Documents/Q3.xlsx:versions/1.0", "file-version");
+  const objects = [message, byPath, byId, orphan, file, version];
+
+  it("reads a sampled message's attachments and a sampled file's versions with it", () => {
+    const plan = planSample(objects, quotaFor(), seededRandom(1));
+    const sampled = new Map(plan.items.map((item) => [item.object.path, item.parts ?? []]));
+    expect(sampled.get(message.path)?.map((part) => part.path)).toEqual([byPath.path, byId.path]);
+    expect(sampled.get(file.path)?.map((part) => part.path)).toEqual([version.path]);
+    expect(plan.eligible).toMatchObject({ mail: 1, file: 1 });
+  });
+
+  it("reads every part in a health check, an attachment without its message on its own", () => {
+    const plan = planFull(objects);
+    const read = plan.items.flatMap((item) => [item.object, ...(item.parts ?? [])]);
+    expect(read.map((entry) => entry.path).sort()).toEqual(
+      objects.map((entry) => entry.path).sort(),
+    );
+    expect(plan.items.find((item) => item.object.path === orphan.path)?.category).toBe("mail");
+    expect(plan.eligible).toMatchObject({ mail: 2, file: 1 });
   });
 });

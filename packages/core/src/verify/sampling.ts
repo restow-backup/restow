@@ -6,9 +6,14 @@
  * items; they are restored by different code paths, so a smaller share of
  * them is drawn as well. A health check reads every object instead.
  *
- * Only objects that hold content are eligible: folders, placeholders
- * (OneNote packages, shortcuts), historical file versions and attachments of
- * split messages are either empty or verified through their parent.
+ * Only objects that hold content are eligible: folders and placeholders
+ * (OneNote packages, shortcuts) are not. The attachments of a message stored as
+ * JSON parts (a message too large for MIME, backup/exchange/mail.ts) and the
+ * historical versions of a OneDrive file are separate objects with chunks of
+ * their own: they are not drawn on their own but read back as `parts` of their
+ * message or file, and a part that fails fails the item (0.5.0; before, they
+ * were never read, not even by a health check). A health check reads every
+ * part, an attachment or version whose owner the snapshot does not name too.
  *
  * A SharePoint site also records its own metadata (`site.json`), its lists'
  * schemas and their items as JSON objects with chunks of their own: they are
@@ -88,6 +93,76 @@ export function emptyCounts(): CategoryCounts {
 export interface SampledObject {
   readonly category: SampleCategory;
   readonly object: ManifestObject;
+  /**
+   * Objects read back with this one, whose failure counts against it: the attachments of a
+   * JSON-format message, the historical versions of a file.
+   */
+  readonly parts?: readonly ManifestObject[];
+}
+
+/** Whether an object carries content to read back (chunks and a size). */
+function hasContent(object: ManifestObject): boolean {
+  return object.chunks.length > 0 && object.size > 0;
+}
+
+const VERSION_MARKER = ":versions/";
+
+/**
+ * The parts of a snapshot's objects by the path of their owner: attachments by their message
+ * (`messagePath`, or `messageItemId` resolved through the messages' ids, as
+ * RestoreCatalog.attachmentOwner does), file versions by their file (`<file>:versions/<id>`).
+ * Parts whose owner is not in the snapshot are returned separately.
+ */
+export function partsByOwner(objects: readonly ManifestObject[]): {
+  readonly byOwner: ReadonlyMap<string, readonly ManifestObject[]>;
+  readonly orphans: readonly SampledObject[];
+} {
+  const paths = new Set<string>();
+  const pathById = new Map<string, string>();
+  for (const object of objects) {
+    paths.add(object.path);
+    const kind = objectTypeOf(object);
+    if (kind === "mail" && object.id !== undefined) {
+      pathById.set(object.id, object.path);
+    }
+  }
+  const byOwner = new Map<string, ManifestObject[]>();
+  const orphans: SampledObject[] = [];
+  for (const object of objects) {
+    const kind = objectTypeOf(object);
+    if ((kind !== "attachment" && kind !== "version") || !hasContent(object)) {
+      continue;
+    }
+    let owner: string | undefined;
+    if (kind === "attachment") {
+      const metadata = object.metadata ?? {};
+      const byPath = metadata.messagePath?.trim();
+      const byId = metadata.messageItemId?.trim();
+      owner = byPath ? byPath : byId ? pathById.get(byId) : undefined;
+    } else {
+      const at = object.path.lastIndexOf(VERSION_MARKER);
+      owner = at > 0 ? object.path.slice(0, at) : undefined;
+    }
+    if (owner !== undefined && paths.has(owner)) {
+      const list = byOwner.get(owner);
+      if (list) {
+        list.push(object);
+      } else {
+        byOwner.set(owner, [object]);
+      }
+    } else {
+      orphans.push({ category: kind === "attachment" ? "mail" : "file", object });
+    }
+  }
+  return { byOwner, orphans };
+}
+
+function withParts(
+  item: SampledObject,
+  byOwner: ReadonlyMap<string, readonly ManifestObject[]>,
+): SampledObject {
+  const parts = byOwner.get(item.object.path);
+  return parts && parts.length > 0 ? { ...item, parts } : item;
 }
 
 export interface SamplePlan {
@@ -132,23 +207,33 @@ export function planSample(
   random: RandomSource,
 ): SamplePlan {
   const groups = eligibleObjects(objects);
+  const { byOwner } = partsByOwner(objects);
   const items: SampledObject[] = [];
   for (const category of SAMPLE_CATEGORIES) {
     for (const object of pickRandom(groups[category], quota[category], random)) {
-      items.push({ category, object });
+      items.push(withParts({ category, object }, byOwner));
     }
   }
   return { items, eligible: countsOf(groups) };
 }
 
-/** Every eligible object (health check). */
+/**
+ * Every object with content (health check): each eligible object with its parts, and the
+ * attachments and versions whose owner the snapshot does not name as items of their own.
+ */
 export function planFull(objects: readonly ManifestObject[]): SamplePlan {
   const groups = eligibleObjects(objects);
+  const { byOwner, orphans } = partsByOwner(objects);
   const items: SampledObject[] = [];
   for (const category of SAMPLE_CATEGORIES) {
     for (const object of groups[category]) {
-      items.push({ category, object });
+      items.push(withParts({ category, object }, byOwner));
     }
   }
-  return { items, eligible: countsOf(groups) };
+  const eligible = countsOf(groups);
+  for (const orphan of orphans) {
+    items.push(orphan);
+    eligible[orphan.category]++;
+  }
+  return { items, eligible };
 }

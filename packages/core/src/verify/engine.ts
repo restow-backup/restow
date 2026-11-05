@@ -43,7 +43,7 @@ import type { FailureCause } from "../failures/types.js";
 import type { SnapshotManifest } from "../manifest.js";
 import { objectTypeOf } from "../restore/conventions.js";
 import {
-  checkObject,
+  checkObjectWithParts,
   type InconclusiveRead,
   type ItemCheck,
   type ItemCheckStatus,
@@ -315,7 +315,7 @@ export async function verifyProtectedObject(
   let inconclusive: InconclusiveRead | null = null;
   for (const item of plan.items) {
     throwIfAborted(ctx.signal);
-    const check = await checkObject(reader, item.object, item.category);
+    const check = await checkObjectWithParts(reader, item.object, item.category, item.parts);
     if (check.status === "inconclusive") {
       inconclusive = check;
       logger.warn("an item could not be read back, the check cannot complete", {
