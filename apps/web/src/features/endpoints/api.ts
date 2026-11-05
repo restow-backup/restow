@@ -840,24 +840,84 @@ export interface ReplacementHardware {
 
 // --- Bare metal recovery (docs/BAREMETAL.md 9, 11) ------------------------------------------
 
+/** How far the instance got with its own copy of the ISO (docs/BAREMETAL.md 26.13). */
+export const RECOVERY_ISO_LOCAL_STATUSES = [
+  "not_fetched",
+  "fetching",
+  "verified",
+  "failed",
+  "disabled",
+] as const;
+export type RecoveryIsoLocalStatus = (typeof RECOVERY_ISO_LOCAL_STATUSES)[number];
+
+/** Why the instance's last pass failed (or, with `verified`, why a rebuild was skipped). */
+export const RECOVERY_ISO_FETCH_PROBLEMS = [
+  "no_signed_release",
+  "no_key",
+  "signature_invalid",
+  "no_iso_line",
+  "wrong_release",
+  "not_published",
+  "network",
+  "http_status",
+  "too_large",
+  "truncated",
+  "hash_mismatch",
+  "store_not_writable",
+  "store_full",
+] as const;
+export type RecoveryIsoFetchProblem = (typeof RECOVERY_ISO_FETCH_PROBLEMS)[number];
+
+export interface RecoveryIsoLocal {
+  status: RecoveryIsoLocalStatus;
+  problem: RecoveryIsoFetchProblem | null;
+  detail: string | null;
+  bytesDone: number | null;
+  bytesTotal: number | null;
+  /** "store": fetched by the instance; "import": put into a drop folder by an operator. */
+  origin: "store" | "import" | null;
+  /** The drop folder on the server for installations without internet access. */
+  importDir: string | null;
+  updatedAt: string | null;
+}
+
 /** The recovery ISO this installation offers (GET /api/v1/recovery-iso). */
 export interface RecoveryIso {
   version: string | null;
+  /** null: the ISO of the release itself; n: a rebuild with newer security updates. */
+  rebuild?: number | null;
   fileName: string | null;
   url: string | null;
-  /** Where the download comes from: this instance (RESTOW_RECOVERY_ISO_DIR) or the GitHub release. */
+  /** Where the download comes from: this instance (its verified copy) or the GitHub release. */
   source?: "instance" | "github" | null;
   sha256: string | null;
   /** Known for the copy on this instance only. */
   sizeBytes?: number | null;
   releaseKeyFingerprint: string | null;
   releaseUrl?: string | null;
+  /** The ISO on the project's release page, the fallback when this instance has no copy. */
+  githubUrl?: string | null;
+  /** The signed checksums and their signature on the release page, for the commands. */
+  sumsUrl?: string | null;
+  signatureUrl?: string | null;
   /** The source bundle of the GPL packages in the image (release attachments). */
   sourcesUrl?: string | null;
   firmwareLicensesUrl?: string | null;
   /** Only a verified ISO lets codes be issued; until then the dialog and the wizard stay hidden. */
   verified: boolean;
+  local?: RecoveryIsoLocal;
   commands: { linux: string[]; macos: string[]; windows: string[] };
+}
+
+/**
+ * The address the download button opens. The copy on this instance sits behind the login and is a
+ * plain navigation, which cannot carry the tenant header: the tenant travels as `?tenant=`.
+ */
+export function recoveryIsoDownloadUrl(iso: RecoveryIso, tenantId: string | null): string | null {
+  if (!iso.url) return null;
+  if (iso.source !== "instance" || !tenantId) return iso.url;
+  const separator = iso.url.includes("?") ? "&" : "?";
+  return `${iso.url}${separator}tenant=${encodeURIComponent(tenantId)}`;
 }
 
 export const RECOVERY_STATUSES = [

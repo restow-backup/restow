@@ -167,6 +167,19 @@ refuse "no version" rr_parse_build_args --agent-dist /a --out /o
 refuse "a bad version" rr_parse_build_args --agent-dist /a --version latest --out /o
 refuse "an unknown option" rr_parse_build_args --agent-dist /a --version 0.5.0 --out /o --insecure
 refuse "an option without its value" rr_parse_build_args --agent-dist
+# Rebuilds of a release's ISO (docs/BAREMETAL.md 26.13).
+expect "a rebuild" rr_parse_build_args --agent-dist /a --version 0.5.0 --out /o --rebuild 2
+[ "$RR_REBUILD" = 2 ] && ok || fail "parsed rebuild number"
+[ "$(rr_iso_version "$RR_VERSION" "$RR_REBUILD")" = 0.5.0.2 ] && ok || fail "the file name version of a rebuild"
+rr_parse_build_args --agent-dist /a --version 0.5.0 --out /o >/dev/null 2>&1
+[ "$RR_REBUILD" = "" ] && [ "$(rr_iso_version "$RR_VERSION" "$RR_REBUILD")" = 0.5.0 ] && ok ||
+  fail "the release's own ISO has no rebuild number"
+[ "$(rr_iso_version 0.5.0-alpha.3 1)" = 0.5.0-alpha.3.1 ] && ok || fail "a rebuild of a pre-release"
+refuse "rebuild 0" rr_parse_build_args --agent-dist /a --version 0.5.0 --out /o --rebuild 0
+refuse "a rebuild with a leading zero" rr_parse_build_args --agent-dist /a --version 0.5.0 --out /o --rebuild 01
+refuse "rebuild 1000" rr_parse_build_args --agent-dist /a --version 0.5.0 --out /o --rebuild 1000
+refuse "a rebuild that is no number" rr_parse_build_args --agent-dist /a --version 0.5.0 --out /o --rebuild 1a
+refuse "a rebuild with --update-lock" rr_parse_build_args --agent-dist /a --version 0.5.0 --out /o --rebuild 1 --update-lock
 status=0
 rr_parse_build_args --help >/dev/null 2>&1 || status=$?
 [ "$status" = 3 ] && ok || fail "--help"

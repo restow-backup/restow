@@ -347,7 +347,11 @@ private repository.
   new disks: GPT and MBR, mdadm, LVM including thin, LUKS, ext4, XFS, btrfs, separate /boot and
   EFI system partition, smaller and larger disks, 4Kn; intact data disks can be kept; the boot
   chain, drivers and Secure Boot state are checked before anything is erased; initramfs and boot
-  loader are set up again with the restored system's own tools in an isolated environment.
+  loader are set up again with the restored system's own tools in an isolated environment (own
+  namespaces, a `/dev` with only the target devices, a reduced capability set and a seccomp
+  filter that also refuses the device-mapper commands that change mappings, NVMe passthrough,
+  `open_tree_attr` and system calls newer than its table; `CAP_SYS_ADMIN` only for the boot loader
+  and LVM tools on device-mapper volumes).
   Firmware packages: `firmware-bnx2`, `firmware-bnx2x`, `firmware-qlogic`, `firmware-realtek`,
   `firmware-misc-nonfree` and `firmware-intel-misc` (wired network cards and storage controllers
   only; their licences are in `restow-recovery_<v>_FIRMWARE-LICENSES.txt`, the reasons in
@@ -389,12 +393,37 @@ private repository.
 - With `RESTOW_BAREMETAL_PREVIEW` on, the machine list and the enroll dialog no longer say there is
   no bare-metal restore: Linux machines can be restored as a whole on new hardware (preview);
   there are still no disk images.
-- The recovery ISO can come from the instance itself for installations without internet access:
-  when `RESTOW_RECOVERY_ISO_DIR` holds `restow-recovery_<v>_amd64.iso` with exactly the SHA-256 of
-  the signed checksums, `GET /api/v1/recovery-iso` names `<instance>/install/recovery/<v>/<file>`
-  (`source: instance`, 10 downloads per address and hour), otherwise the GitHub release
-  (`source: github`). The answer adds the release page, the GPL sources and the firmware licences.
-  The check commands name the arguments of `verify-agent-signature.sh` in their right order.
+- The recovery ISO now comes from the instance itself: the worker fetches the ISO of the
+  installation's own release from the GitHub release once per installation and release (queue
+  `endpoint-recovery-iso`, every six hours, resumable, at most 2 GiB, honouring `HTTPS_PROXY` and
+  `NO_PROXY`), checks the signature of the release's `SHA256SUMS` itself with the release key of
+  the image (the same SSHSIG check as the agent, no new trust root) and the ISO's SHA-256, keeps it
+  in the data volume (`RESTOW_RECOVERY_ISO_STORE_DIR`, default `/data/recovery-iso`) and offers it
+  to tenant administrators at `GET /api/v1/recovery-iso/file/<file>`; the GitHub release stays the
+  fallback link. `GET /api/v1/recovery-iso` adds `rebuild`, `githubUrl`, `sumsUrl`,
+  `signatureUrl` and `local` (not fetched, fetching with bytes, verified, failed with a reason,
+  disabled), and the bare metal wizard shows that state in English and German. `verified` now
+  means the server checked the signature itself; before, a `.sig` file next to the checksums was
+  enough. The download needs the rest of the ISO plus 1 GiB free in the store and keeps that
+  reserve while it runs; short of it, or on a full disk, it removes its partial file and reports
+  `store_full` without retrying until the next pass. One pass works at a time (a lock file in the
+  store), and a pass ends itself half an hour before the queue's eight-hour expiry so the retry
+  continues the partial file instead of writing it at the same time. Installations without
+  internet access drop the ISO into `<store>/import/` or `RESTOW_RECOVERY_ISO_DIR`; the same check
+  applies, an unreachable release page is then no problem and no reason to retry, and the wizard
+  says the copy was put there rather than fetched. `RESTOW_RECOVERY_ISO_FETCH=false` turns the
+  download off. `GET /install/recovery/<v>/<file>` (10 downloads per address and hour) serves the
+  same selection. The check commands name the arguments of `verify-agent-signature.sh` in their
+  right order and the checksum file the ISO is listed in.
+- Rebuilds of the recovery ISO: a tag `recovery-v<v>.<n>` (`.github/workflows/recovery-rebuild.yml`)
+  rebuilds only the ISO of the published release `<v>` against a newer Debian snapshot (security
+  updates), with the agent of that release, twice and through every end-to-end case, and publishes
+  `restow-recovery_<v>.<n>_amd64.iso` with `recovery-SHA256SUMS`, which the maintainer signs with
+  the release key (`scripts/release/sign-agent.sh recovery-v<v>.<n> --iso <rebuilt ISO>`). The
+  list binds the rebuild to the release (`release/agent-SHA256SUMS` with the SHA-256 of the
+  release's signed checksums); installations of `<v>` take the newest rebuild that verifies and
+  never one for another release. `integrations/recovery/build.sh` and `sources.sh` take
+  `--rebuild <n>`.
 - The explanations of `snapshot_failed` and `snapshot_unavailable` no longer speak of the shadow
   copy only: they name it, LVM and btrfs, and the steps cover Windows and Linux.
 - The agent's systemd unit allows mount namespaces (`RestrictNamespaces=mnt`) so the snapshot
@@ -597,7 +626,10 @@ creates the tables `endpoint_recoveries` and `endpoint_recovery_log`, adds the e
 `endpoint_runs.activity_baseline` (false); nothing is rewritten. Whole
 machine backups stay off until `RESTOW_BAREMETAL_PREVIEW=true` is set for the api. Agents before
 0.5.0 ignore `snapshotOnFailure`, `wholeMachine` and `fsSnapshot`, and the release key keeps the
-fingerprint `SHA256:2LB7RPpIS0wqbcZ2NA8MjuQN7ZfFPqBX3CwrGFSu76o`.
+fingerprint `SHA256:2LB7RPpIS0wqbcZ2NA8MjuQN7ZfFPqBX3CwrGFSu76o`. Once the release carries a recovery
+ISO, the worker downloads it (under 900 MiB, leaving at least 1 GiB free) into the data volume
+once, in the background, and again only for a newer rebuild; set `RESTOW_RECOVERY_ISO_FETCH=false`
+to keep it from doing so.
 
 ### Known Issues
 
@@ -619,7 +651,9 @@ fingerprint `SHA256:2LB7RPpIS0wqbcZ2NA8MjuQN7ZfFPqBX3CwrGFSu76o`.
   (the old passphrase is asked on the console only), and the reasons of the plan steps are shown
   in English on a German console. The first `packages.lock` of the recovery ISO is written by the CI
   job `recovery-iso` (input `update-lock`) and committed by hand; until then the ISO is not
-  built, and it counts as reproducible only once two CI builds were equal.
+  built, and it counts as reproducible only once two CI builds were equal. The ISO download of the
+  instance does not support a proxy that is itself reached over https (`HTTPS_PROXY=https://…`),
+  and the rebuild workflow and the signing of a rebuild have not run against a real release yet.
 
 ## [0.4.12] - 2026-11-04
 

@@ -8,13 +8,14 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { NotFoundPage } from "@/routes/not-found";
 
-import type {
-  Baremetal,
-  BaremetalSnapshot,
-  EndpointDetail,
-  Recovery,
-  RecoveryIso,
-  ReplacementHardware,
+import {
+  type Baremetal,
+  type BaremetalSnapshot,
+  type EndpointDetail,
+  type Recovery,
+  type RecoveryIso,
+  type ReplacementHardware,
+  recoveryIsoDownloadUrl,
 } from "../api.js";
 import {
   useBaremetal,
@@ -23,6 +24,7 @@ import {
   useRecoveries,
   useRecovery,
   useRecoveryIso,
+  useTenantScope,
 } from "../hooks.js";
 import { endpointDetailTo } from "../paths.js";
 import { endpointName, recoveryOpen } from "../presenters.js";
@@ -102,14 +104,64 @@ function StepCard({
   );
 }
 
+/**
+ * How far this instance got with its own copy (docs/BAREMETAL.md 26.13): shown while the download
+ * still comes from the release page, and as a note when a newer rebuild was skipped.
+ */
+function IsoLocalState({ iso }: { iso: RecoveryIso }) {
+  const { t } = useTranslation("endpoints");
+  const format = useEndpointFormat();
+  const local = iso.local;
+  if (!local) return null;
+  const reason = local.problem ? t(`recovery.iso.local.problem.${local.problem}`) : null;
+  let text: string | null = null;
+  if (iso.source === "instance") {
+    // The copy is here; only a skipped rebuild is worth a word.
+    text = reason ? t("recovery.iso.local.skipped", { reason }) : null;
+  } else if (local.status === "fetching") {
+    text =
+      local.bytesTotal && local.bytesDone !== null
+        ? t("recovery.iso.local.fetching", {
+            done: format.bytes(local.bytesDone),
+            total: format.bytes(local.bytesTotal),
+          })
+        : t("recovery.iso.local.fetchingUnknown", { done: format.bytes(local.bytesDone ?? 0) });
+  } else if (local.status === "failed") {
+    text = t("recovery.iso.local.failed", {
+      reason: reason ?? t("recovery.iso.local.problem.network"),
+    });
+  } else if (local.status === "not_fetched") {
+    text = t("recovery.iso.local.notFetched");
+  } else if (local.status === "disabled") {
+    text = t("recovery.iso.local.disabled");
+  }
+  if (!text && !(iso.source !== "instance" && local.importDir)) return null;
+  return (
+    <div className="grid gap-0.5" data-slot="recovery-iso-local" data-status={local.status}>
+      {text ? <p className="text-xs text-muted-foreground">{text}</p> : null}
+      {iso.source !== "instance" && local.importDir ? (
+        <p className="text-xs text-muted-foreground" data-slot="recovery-iso-import">
+          {t("recovery.iso.local.importHint", { folder: local.importDir })}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function IsoStep({ iso }: { iso: RecoveryIso }) {
   const { t } = useTranslation("endpoints");
   const format = useEndpointFormat();
+  const { tenantId } = useTenantScope();
+  const href = recoveryIsoDownloadUrl(iso, tenantId);
   return (
     <>
       <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-sm">
         <dt className="text-muted-foreground">{t("recovery.iso.version")}</dt>
-        <dd>{iso.version}</dd>
+        <dd data-slot="recovery-iso-version">
+          {iso.rebuild
+            ? t("recovery.iso.rebuild", { version: iso.version, rebuild: iso.rebuild })
+            : iso.version}
+        </dd>
         <dt className="text-muted-foreground">{t("recovery.iso.file")}</dt>
         <dd className="font-mono text-xs break-all">{iso.fileName}</dd>
         {iso.sizeBytes ? (
@@ -128,13 +180,14 @@ function IsoStep({ iso }: { iso: RecoveryIso }) {
         ) : null}
       </dl>
       <p className="text-sm text-muted-foreground">{t("recovery.iso.fingerprintHint")}</p>
-      {iso.url ? (
+      {href ? (
         <div className="grid gap-1">
           <div>
             <a
-              href={iso.url}
+              href={href}
               className={buttonVariants({ variant: "outline", size: "sm" })}
               data-source={iso.source ?? undefined}
+              data-slot="recovery-iso-download"
             >
               <Download aria-hidden="true" />
               {t("recovery.iso.download")}
@@ -142,10 +195,40 @@ function IsoStep({ iso }: { iso: RecoveryIso }) {
           </div>
           {iso.source ? (
             <p className="text-xs text-muted-foreground" data-slot="recovery-iso-source">
-              {t(`recovery.iso.source.${iso.source}`)}
+              {t(
+                iso.source === "instance" && iso.local?.origin === "import"
+                  ? "recovery.iso.source.instanceImport"
+                  : `recovery.iso.source.${iso.source}`,
+              )}
             </p>
           ) : null}
+          {iso.source === "instance" && iso.githubUrl ? (
+            <p className="text-xs" data-slot="recovery-iso-fallback">
+              <a href={iso.githubUrl} className="underline underline-offset-2">
+                {t("recovery.iso.githubFallback")}
+              </a>
+            </p>
+          ) : null}
+          <IsoLocalState iso={iso} />
         </div>
+      ) : null}
+      {iso.sumsUrl || iso.signatureUrl ? (
+        <ul className="grid gap-0.5 text-sm" data-slot="recovery-iso-sums">
+          {iso.sumsUrl ? (
+            <li>
+              <a href={iso.sumsUrl} className="underline underline-offset-2">
+                {t("recovery.iso.checksums")}
+              </a>
+            </li>
+          ) : null}
+          {iso.signatureUrl ? (
+            <li>
+              <a href={iso.signatureUrl} className="underline underline-offset-2">
+                {t("recovery.iso.signature")}
+              </a>
+            </li>
+          ) : null}
+        </ul>
       ) : null}
       <p className="text-sm font-medium">{t("recovery.iso.verifyCommands")}</p>
       {(["linux", "macos", "windows"] as const).map((system) =>

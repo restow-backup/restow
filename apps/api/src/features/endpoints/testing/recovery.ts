@@ -4,7 +4,7 @@
  * a Linux machine with a sealed repository password and a whole machine backup with a layout, and
  * what the ISO computes from a code (proof, session secret, its hash).
  */
-import { randomBytes, randomUUID } from "node:crypto";
+import { generateKeyPairSync, randomBytes, randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,6 +13,8 @@ import {
   hashSecret,
   normalizeRecoveryCode,
   recoveryCodeProof,
+  releaseKeyLineForTests,
+  signReleaseForTests,
 } from "@restow/core";
 import {
   type Database,
@@ -34,16 +36,30 @@ export const CONFIG: EndpointConfig = {
   wholeMachine: true,
 };
 
-/** An agent root whose newest signed release lists the ISO (or does not). */
-export async function agentRootWithIso(withIso: boolean): Promise<string> {
+/**
+ * An agent root whose newest signed release lists the ISO (or does not): the checksums are signed
+ * with a throwaway key made here, whose public half is the root's `install/release-signing.pub`
+ * (the server checks the signature itself, docs/BAREMETAL.md 26.13).
+ */
+export async function agentRootWithIso(
+  withIso: boolean,
+  isoSha256: string = "b".repeat(64),
+): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "restow-recovery-iso-"));
   await mkdir(join(root, "0.5.0"), { recursive: true });
+  await mkdir(join(root, "install"), { recursive: true });
   const lines = [`${"a".repeat(64)}  linux-amd64/restow-agent`];
   if (withIso) {
-    lines.push(`${"b".repeat(64)}  recovery/restow-recovery_0.5.0_amd64.iso`);
+    lines.push(`${isoSha256}  recovery/restow-recovery_0.5.0_amd64.iso`);
   }
-  await writeFile(join(root, "0.5.0", "SHA256SUMS"), `${lines.join("\n")}\n`);
-  await writeFile(join(root, "0.5.0", "SHA256SUMS.sig"), "signature\n");
+  const sums = `${lines.join("\n")}\n`;
+  const { privateKey } = generateKeyPairSync("ed25519");
+  await writeFile(join(root, "0.5.0", "SHA256SUMS"), sums);
+  await writeFile(join(root, "0.5.0", "SHA256SUMS.sig"), signReleaseForTests(privateKey, sums));
+  await writeFile(
+    join(root, "install", "release-signing.pub"),
+    `${releaseKeyLineForTests(privateKey)}\n`,
+  );
   return root;
 }
 

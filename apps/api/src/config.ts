@@ -1,4 +1,4 @@
-import { docsTroubleshootingUrl, mailfiles } from "@restow/core";
+import { docsTroubleshootingUrl, mailfiles, recoveryIsoStoreDir } from "@restow/core";
 import { type DbPoolSizes, dbPoolSizesFromEnv } from "@restow/db";
 import { configureProductName, normalizeProductName, PRODUCT_NAME_ENV } from "@restow/i18n";
 import { trustedProxyEntries } from "./lib/forwarded.js";
@@ -162,6 +162,12 @@ export interface Config {
    * GitHub release.
    */
   recoveryIsoDir?: string | null;
+  /**
+   * `RESTOW_RECOVERY_ISO_STORE_DIR`: where the worker keeps the downloaded recovery ISO and its
+   * state (docs/BAREMETAL.md 26.13); default `/data/recovery-iso` in the data volume the api and
+   * the worker share. `<store>/import/` is a drop folder like `RESTOW_RECOVERY_ISO_DIR`.
+   */
+  recoveryIsoStoreDir?: string | null;
 }
 
 /**
@@ -445,6 +451,7 @@ export function loadConfig(env: Env = process.env): Config {
     baremetalPreview: bool(env, "RESTOW_BAREMETAL_PREVIEW"),
     publicTlsSpki: spkiHash(str(env, "RESTOW_PUBLIC_TLS_SPKI")),
     recoveryIsoDir: str(env, "RESTOW_RECOVERY_ISO_DIR") ?? null,
+    recoveryIsoStoreDir: recoveryIsoStoreDir(env),
   };
 }
 

@@ -677,6 +677,7 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   // password to the ISO, a session reads all of its backups, a rebind token gives the machine a
   // new agent secret. All of it, and the ISO's download facts, is configuration work.
   "GET /api/v1/recovery-iso": configure(),
+  "GET /api/v1/recovery-iso/file/:file": configure(),
   "POST /api/v1/endpoints/:id/recovery-codes": configure(),
   "POST /api/v1/endpoints/:id/recovery-codes/:codeId/revoke": configure(),
   "POST /api/v1/endpoints/:id/recovery-codes/:codeId/extend": configure(),

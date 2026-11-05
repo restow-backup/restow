@@ -10,6 +10,9 @@
 //   endpoint-baremetal-check  the newest whole machine snapshot of a Linux machine without a
 //                       stage 1 report (docs/BAREMETAL.md 12.1); the finish of the run queues it
 //                       at once, this catches up the ones that did not get queued
+//   endpoint-recovery-iso  every six hours, one for the installation: the recovery ISO of its
+//                       release, its rebuilds and the download (docs/BAREMETAL.md 26.13); the
+//                       first pass right after the start
 //
 // What is due comes from the endpoint rows themselves (last_retention_at,
 // last_check_at, the reports), so a restart or a second scheduler decides the
@@ -17,7 +20,12 @@
 // `singletonSeconds` spaces the retries of an endpoint whose job keeps failing,
 // so a broken repository is tried every hour, not on every tick.
 
-import { ENDPOINT_QUEUE_SETTINGS, ENDPOINT_QUEUES, endpointSingletonKey } from "@restow/core";
+import {
+  ENDPOINT_JOB_INTERVALS_MS,
+  ENDPOINT_QUEUE_SETTINGS,
+  ENDPOINT_QUEUES,
+  endpointSingletonKey,
+} from "@restow/core";
 import type { Pool } from "pg";
 import type PgBoss from "pg-boss";
 import { errorMessage, logger } from "./logger.js";
@@ -33,6 +41,7 @@ export interface EndpointJobCounts {
   readonly monitor: number;
   readonly removal: number;
   readonly baremetalCheck: number;
+  readonly recoveryIso: number;
 }
 
 /** The pg-boss options of an endpoint queue (settings shared with the worker, @restow/core). */
@@ -158,6 +167,7 @@ export class EndpointJobPlanner {
       monitor: 0,
       removal: 0,
       baremetalCheck: 0,
+      recoveryIso: 0,
     };
     try {
       const due = await this.due(now);
@@ -185,6 +195,17 @@ export class EndpointJobPlanner {
         { singletonKey: ENDPOINT_QUEUES.monitor, singletonSeconds: 4 * 60 },
       );
       if (monitor !== null) counts.monitor++;
+      // One pass for the installation every six hours (singletonSeconds spaces them; a failed
+      // download is retried by the queue itself, a cut-off one continues where it stopped).
+      const recoveryIso = await this.boss.send(
+        ENDPOINT_QUEUES.recoveryIso,
+        {},
+        {
+          singletonKey: ENDPOINT_QUEUES.recoveryIso,
+          singletonSeconds: ENDPOINT_JOB_INTERVALS_MS.recoveryIso / 1000,
+        },
+      );
+      if (recoveryIso !== null) counts.recoveryIso++;
     } catch (error) {
       logger.error("planning endpoint jobs failed", { err: errorMessage(error) });
     }

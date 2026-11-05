@@ -1893,12 +1893,41 @@
       },
       "writeUsb": "Schreiben Sie das ISO danach unverändert, Bit für Bit, auf einen USB-Stick (unter Linux etwa mit dd).",
       "source": {
-        "instance": "Der Download kommt von dieser Instanz; seine Prüfsumme passt zur signierten Liste.",
+        "instance": "Der Download kommt von dieser Instanz: Sie hat das ISO einmal geladen und gegen die signierten Prüfsummen geprüft.",
+        "instanceImport": "Der Download kommt von dieser Instanz: Das ISO wurde in ihren Import-Ordner gelegt und gegen die signierten Prüfsummen geprüft.",
         "github": "Der Download kommt von der öffentlichen Release-Seite des Projekts."
       },
       "sources": "Quellcode der GPL-Pakete im Abbild (Anhänge des Release)",
       "firmwareLicenses": "Lizenzen der Firmware im Abbild",
-      "size": "Größe"
+      "size": "Größe",
+      "rebuild": "{version}, Neubau {rebuild} (neuere Sicherheitsupdates des Basissystems)",
+      "githubFallback": "Stattdessen von der öffentlichen Release-Seite des Projekts herunterladen",
+      "checksums": "Signierte Prüfsummen",
+      "signature": "Signatur der Prüfsummen",
+      "local": {
+        "notFetched": "Diese Instanz hat das ISO noch nicht geladen. Sie lädt es im Hintergrund, einmal für die ganze Installation; bis dahin kommt der Download von der Release-Seite.",
+        "fetching": "Diese Instanz lädt das ISO im Hintergrund: {done} von {total}. Bis es geprüft ist, kommt der Download von der Release-Seite.",
+        "fetchingUnknown": "Diese Instanz lädt das ISO im Hintergrund (bisher {done}). Bis es geprüft ist, kommt der Download von der Release-Seite.",
+        "failed": "Diese Instanz konnte das ISO nicht laden: {reason}. Sie versucht es später erneut; bis dahin kommt der Download von der Release-Seite.",
+        "disabled": "Diese Instanz lädt das ISO nicht selbst.",
+        "skipped": "Ein neuerer Neubau des ISO wurde nicht übernommen: {reason}.",
+        "importHint": "Ohne Internetzugang legen Sie das ISO auf dem Server in {folder} ab (bei einem Neubau zusätzlich recovery-SHA256SUMS und recovery-SHA256SUMS.sig). Es wird genauso gegen die signierten Prüfsummen geprüft, bevor es angeboten wird.",
+        "problem": {
+          "no_signed_release": "diese Installation enthält kein signiertes Release",
+          "no_key": "diese Installation hat keinen Release-Schlüssel",
+          "signature_invalid": "die Signatur der Prüfsummen passt nicht zum Release-Schlüssel",
+          "no_iso_line": "die signierten Prüfsummen nennen kein Recovery-ISO",
+          "wrong_release": "die Prüfsummen gehören zu einem anderen Release",
+          "not_published": "die Release-Seite bietet die Datei (noch) nicht an",
+          "network": "die Release-Seite war nicht erreichbar (Netzwerk oder Proxy)",
+          "http_status": "die Release-Seite hat mit einem Fehler geantwortet",
+          "too_large": "die Datei ist größer als erlaubt",
+          "truncated": "der Download brach ab; der nächste Versuch setzt ihn fort",
+          "hash_mismatch": "die geladene Datei passt nicht zur signierten Prüfsumme und wurde verworfen",
+          "store_not_writable": "das Datenvolume ist nicht beschreibbar",
+          "store_full": "auf dem Datenvolume ist nicht genug Platz frei (das ISO braucht seine Größe und 1 GiB dazu); der angefangene Download wurde entfernt"
+        }
+      }
     },
     "reported": {
       "access_expired": "Der Zugang zu den Sicherungen endete (Code abgelaufen oder Sitzung beendet), bevor die Wiederherstellung fertig war.",

@@ -19,6 +19,21 @@ rr_valid_version() {
   printf '%s\n' "$1" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
 }
 
+# A rebuild number of the ISO (docs/BAREMETAL.md 26.13): 1 to 999, no leading zero.
+rr_valid_rebuild() {
+  printf '%s\n' "$1" | grep -Eq '^[1-9][0-9]{0,2}$'
+}
+
+# The version in the ISO's file names: <v> for the release's own ISO, <v>.<n> for rebuild n.
+#   rr_iso_version <version> [<rebuild>]
+rr_iso_version() {
+  if [ -n "${2:-}" ]; then
+    printf '%s.%s\n' "$1" "$2"
+  else
+    printf '%s\n' "$1"
+  fi
+}
+
 # snapshot.env must hold exactly the three values in their form.
 #   rr_check_snapshot_env <SNAPSHOT_TIMESTAMP> <DEBIAN_IMAGE_DIGEST> <LIVE_BUILD_VERSION>
 rr_check_snapshot_env() {
@@ -184,7 +199,7 @@ rr_no_secrets() {
   return $bad
 }
 
-# Arguments of build.sh. Sets RR_AGENT_DIST, RR_VERSION, RR_OUT, RR_UPDATE_LOCK
+# Arguments of build.sh. Sets RR_AGENT_DIST, RR_VERSION, RR_OUT, RR_REBUILD, RR_UPDATE_LOCK
 # (yes|no) and RR_SOURCES (yes|no); prints the problem and fails otherwise.
 # shellcheck disable=SC2034 # the variables are the result, read by the caller
 rr_parse_build_args() {
@@ -193,14 +208,16 @@ rr_parse_build_args() {
   RR_OUT=''
   RR_UPDATE_LOCK=no
   RR_SOURCES=no
+  RR_REBUILD=''
   while [ $# -gt 0 ]; do
     case "$1" in
-      --agent-dist | --version | --out)
+      --agent-dist | --version | --out | --rebuild)
         [ $# -ge 2 ] || { echo "$1 needs a value" >&2; return 2; }
         case "$1" in
           --agent-dist) RR_AGENT_DIST="$2" ;;
           --version) RR_VERSION="$2" ;;
           --out) RR_OUT="$2" ;;
+          --rebuild) RR_REBUILD="$2" ;;
         esac
         shift
         ;;
@@ -215,5 +232,9 @@ rr_parse_build_args() {
   [ -n "$RR_VERSION" ] || { echo "--version <v> is needed" >&2; return 2; }
   rr_valid_version "$RR_VERSION" || { echo "--version $RR_VERSION is not a release version" >&2; return 2; }
   [ -n "$RR_OUT" ] || { echo "--out <dir> is needed" >&2; return 2; }
+  if [ -n "$RR_REBUILD" ]; then
+    rr_valid_rebuild "$RR_REBUILD" || { echo "--rebuild $RR_REBUILD is not a rebuild number (1 to 999)" >&2; return 2; }
+    [ "$RR_UPDATE_LOCK" = no ] || { echo "--rebuild builds from a committed lock; --update-lock is not allowed with it" >&2; return 2; }
+  fi
   return 0
 }

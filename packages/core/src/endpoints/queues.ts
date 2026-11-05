@@ -18,6 +18,11 @@ export const ENDPOINT_QUEUES = {
   removal: "endpoint-removal",
   /** Bare metal stage 1 (docs/BAREMETAL.md 12.1): layout and boot chain of a whole machine snapshot. */
   baremetalCheck: "endpoint-baremetal-check",
+  /**
+   * The recovery ISO of the installation's release (docs/BAREMETAL.md 26.13): one job for the
+   * whole installation, no payload. Finds rebuilds, downloads and verifies the newest ISO.
+   */
+  recoveryIso: "endpoint-recovery-iso",
 } as const;
 
 export type EndpointQueue = (typeof ENDPOINT_QUEUES)[keyof typeof ENDPOINT_QUEUES];
@@ -88,6 +93,18 @@ export const ENDPOINT_QUEUE_SETTINGS: Readonly<Record<EndpointQueue, EndpointQue
     expireInHours: 6,
     retentionDays: 14,
   },
+  // A slow line needs hours for 900 MiB; a cut-off transfer continues in the retry. A pass ends
+  // itself half an hour before the expiry (RECOVERY_ISO_PASS_TIME_LIMIT_MS), so an expired job's
+  // handler is never still writing when its retry starts, and holds a lock on the store.
+  [ENDPOINT_QUEUES.recoveryIso]: {
+    name: ENDPOINT_QUEUES.recoveryIso,
+    policy: "stately",
+    retryLimit: 3,
+    retryDelay: 600,
+    retryBackoff: true,
+    expireInHours: 8,
+    retentionDays: 7,
+  },
 };
 
 export interface EndpointJobPayload {
@@ -114,6 +131,8 @@ export const ENDPOINT_JOB_INTERVALS_MS = {
   retention: 24 * 60 * 60 * 1000,
   check: 7 * 24 * 60 * 60 * 1000,
   monitor: 5 * 60 * 1000,
+  /** A pass of the recovery ISO download: new rebuilds, a failed download again. */
+  recoveryIso: 6 * 60 * 60 * 1000,
 } as const;
 
 /** Default share of the repository the weekly check reads back. */

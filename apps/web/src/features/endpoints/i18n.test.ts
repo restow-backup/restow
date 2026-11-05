@@ -168,6 +168,8 @@ const VALUES = {
   oldMac: "52:54:00:12:34:56",
   newMac: "52:54:00:65:43:21",
   phase: "Restoring files",
+  rebuild: 2,
+  folder: "/data/recovery-iso/import",
 };
 
 /** The planner's codes (agent/internal/baremetal/testdata/plan-codes.json, C-M2-6). */

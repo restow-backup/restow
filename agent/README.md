@@ -390,8 +390,12 @@ fresh `/proc` (with `/proc/sys`, `/proc/sysrq-trigger`, `/proc/irq`, `/proc/bus`
 read-only and `kcore`, `kallsyms` and the other kernel views masked, so a program cannot set a
 core pattern that runs outside the isolation), `/sys` read-only, a `/dev` with only the null
 devices and the target devices,
-a reduced capability bounding set, no new privileges and a seccomp filter (no `mount`,
-`mknod`, `chroot`, module loading, `ptrace`, `kexec`, namespaces, file handles). The
+a reduced capability bounding set (`CAP_SYS_ADMIN` only for the boot loader and LVM tools
+when a device-mapper volume is among the target devices), no new privileges, a new session
+without a controlling terminal and a seccomp filter (no `mount` or other mount API call
+including `open_tree_attr`, `mknod`, `chroot`, module loading, `ptrace`, `kexec`, namespaces,
+file handles, system calls newer than its table, device-mapper commands that change mappings,
+NVMe passthrough, `TIOCSTI`). The
 repository password is cleared and the session's read access ends before the first of
 them runs; the passphrases are cleared after the key files are written.
 
@@ -793,6 +797,24 @@ needs to be logged in with push rights to the repository either way.
 # from anywhere, for a release of another repository (a fork with its own key)
 scripts/release/sign-agent.sh v0.2.0 --repo my-org/restow --key ~/restow-keys/restow-agent-release
 ```
+
+### Signing a rebuild of the recovery ISO
+
+A rebuild of the recovery ISO of a published release against a newer Debian snapshot (tag
+`recovery-v<version>.<n>`, workflow `recovery-rebuild.yml`, docs/CI.md "Recovery ISO rebuilds")
+is signed with the same key and the same script, in the same namespace:
+
+```sh
+scripts/release/sign-agent.sh recovery-v0.5.0.1 --key ~/restow-keys/restow-agent-release --iso <rebuilt ISO>
+```
+
+The draft carries `recovery-SHA256SUMS` with exactly two lines: the rebuilt ISO
+(`recovery/restow-recovery_0.5.0.1_amd64.iso`) and `release/agent-SHA256SUMS`, the SHA-256 of
+the signed checksums of `v0.5.0`. The script refuses anything else, checks that `v0.5.0` is
+published and its `agent-SHA256SUMS` verifies against the key at the tag, compares the binding
+line with it, compares the ISO rebuilt on your machine (`--iso` is required here), signs, uploads
+`recovery-SHA256SUMS.sig` and approves the waiting job. Installations of 0.5.0 take only a
+rebuild whose signed list names their own release (docs/BAREMETAL.md 26.13).
 
 ### Checking a release by hand
 

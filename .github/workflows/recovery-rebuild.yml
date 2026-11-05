@@ -1,0 +1,537 @@
+name: Recovery ISO rebuild
+
+# Runs when a tag recovery-v<version>.<n> is pushed (docs/BAREMETAL.md 26.13, docs/CI.md
+# "Recovery ISO rebuilds"). It rebuilds only the recovery ISO of the published release
+# v<version> against the newer Debian snapshot committed at the tag (security updates) and
+# publishes it as the release recovery-v<version>.<n>. Nothing else of the release changes: no
+# image, no agent, no tag of v<version> is touched.
+#
+#   verify -> (the tag is annotated, n follows the newest published rebuild, the tag's tree
+#              differs from v<version> only in integrations/recovery/snapshot.env and
+#              packages.lock with a newer snapshot, v<version> is published and its
+#              agent-SHA256SUMS carries a valid signature of the release key)
+#          -> agent (the linux-amd64 agent and restic of v<version>, from its published image,
+#              each file checked against that signed agent-SHA256SUMS)
+#          -> recovery-iso, recovery-iso-rebuild (the ISO with --rebuild <n>, twice, on two
+#              runner images, as in release.yml; the first also writes the firmware licences
+#              and the source bundle)
+#          -> recovery-e2e-full (every restore case against the rebuilt ISO)
+#          -> sums (both builds equal: recovery-SHA256SUMS with the ISO's line and the line
+#              `<sha256>  release/agent-SHA256SUMS` that binds it to v<version>, on a DRAFT
+#              release recovery-v<version>.<n>)
+#          -> signature (waits in the environment agent-release-signing until the maintainer
+#              signed recovery-SHA256SUMS offline: scripts/release/sign-agent.sh
+#              recovery-v<version>.<n> --key <key> --iso <ISO rebuilt on their own host>)
+#          -> publish (the ISO, its licences and sources on the release; never marked latest)
+#
+# Instances of v<version> find the rebuild by its tag, check the signature with the release key
+# they ship and the binding line against their own signed checksums, and take the newest one
+# (apps/worker, packages/core/src/release). The release key never enters CI. Every third-party
+# action is pinned to a full commit SHA with its version in a comment.
+
+on:
+  push:
+    tags: ["recovery-v*"]
+
+concurrency:
+  group: recovery-rebuild-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify the rebuild tag
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write # read draft releases of earlier rebuilds (drafts are not visible with read access)
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
+      rebuild: ${{ steps.tag.outputs.rebuild }}
+      iso_version: ${{ steps.tag.outputs.iso_version }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
+      image: ${{ steps.release.outputs.image }}
+      snapshot: ${{ steps.tree.outputs.snapshot }}
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: The tag names a release and a rebuild number
+        id: tag
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # recovery-v<version>.<n>: the number is the last dot-separated part, 1 to 999.
+          if [[ ! "$TAG" =~ ^recovery-v([0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?)\.([1-9][0-9]{0,2})$ ]]; then
+            echo "::error::$TAG is not a rebuild tag. Expected recovery-v<version>.<n>, such as recovery-v0.5.0.1."
+            exit 1
+          fi
+          version="${BASH_REMATCH[1]}"
+          rebuild="${BASH_REMATCH[3]}"
+          {
+            echo "version=$version"
+            echo "rebuild=$rebuild"
+            echo "iso_version=$version.$rebuild"
+          } >> "$GITHUB_OUTPUT"
+          echo "::notice::Rebuild $rebuild of the recovery ISO of release v$version"
+
+      - name: The tag is annotated (and signed, see REQUIRE_SIGNED_TAGS)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          REQUIRE_SIGNED_TAGS: ${{ vars.REQUIRE_SIGNED_TAGS }}
+        run: |
+          set -euo pipefail
+          kind="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq '.object.type')"
+          if [ "$kind" != "tag" ]; then
+            echo "::error::$TAG is a lightweight tag. Rebuild tags are annotated and signed like release tags: git tag -s $TAG"
+            exit 1
+          fi
+          object="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq '.object.sha')"
+          verified="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$object" --jq '.verification.verified')"
+          reason="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$object" --jq '.verification.reason // "unknown"')"
+          if [ "$verified" != "true" ]; then
+            if [ "${REQUIRE_SIGNED_TAGS:-}" = "true" ]; then
+              echo "::error::GitHub cannot verify the signature of $TAG (reason: $reason); REQUIRE_SIGNED_TAGS is true. The reasons are explained in release.yml (job verify)."
+              exit 1
+            fi
+            echo "::warning::GitHub cannot verify the signature of $TAG (reason: $reason). This is only a warning; set REQUIRE_SIGNED_TAGS to true to refuse it."
+          fi
+
+      - name: The release is published and its checksums carry the release key's signature
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          if ! git rev-parse --verify --quiet "refs/tags/v$VERSION^{commit}" > /dev/null; then
+            echo "::error::There is no tag v$VERSION; a rebuild belongs to a release."
+            exit 1
+          fi
+          draft="$(gh release view "v$VERSION" --json isDraft --jq .isDraft 2>/dev/null || echo missing)"
+          if [ "$draft" != "false" ]; then
+            echo "::error::The release v$VERSION is not published ($draft); only a published release gets rebuilds of its ISO."
+            exit 1
+          fi
+          gh release view "v$VERSION" --json isPrerelease --jq '"prerelease=" + (.isPrerelease | tostring)' >> "$GITHUB_OUTPUT"
+          gh release download "v$VERSION" --dir "$RUNNER_TEMP/release" --pattern agent-SHA256SUMS --pattern agent-SHA256SUMS.sig
+          # The key of the release itself; the tree check below makes sure the tag has the same.
+          git show "v$VERSION:agent/release-signing.pub" > "$RUNNER_TEMP/release-signing.pub"
+          sh scripts/release/verify-agent-signature.sh "$RUNNER_TEMP/release/agent-SHA256SUMS" \
+            "$RUNNER_TEMP/release/agent-SHA256SUMS.sig" "$RUNNER_TEMP/release-signing.pub"
+          if ! grep -Eq "^[0-9a-f]{64}  recovery/restow-recovery_${VERSION}_amd64\.iso$" "$RUNNER_TEMP/release/agent-SHA256SUMS"; then
+            echo "::error::The release v$VERSION has no recovery ISO; there is nothing to rebuild."
+            exit 1
+          fi
+          echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Keep the release's signed checksums
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-agent-sums
+          path: ${{ runner.temp }}/release
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: The tag changes only the Debian snapshot of the ISO, to a newer one
+        id: tree
+        env:
+          VERSION: ${{ steps.tag.outputs.version }}
+        run: |
+          set -euo pipefail
+          allowed="integrations/recovery/snapshot.env integrations/recovery/packages.lock"
+          changed="$(git diff --name-only "v$VERSION" "$GITHUB_SHA")"
+          for file in $changed; do
+            case " $allowed " in
+              *" $file "*) ;;
+              *)
+                echo "::error::$file differs from v$VERSION. A rebuild changes only integrations/recovery/snapshot.env and packages.lock; anything else needs a new release."
+                exit 1
+                ;;
+            esac
+          done
+          old="$(git show "v$VERSION:integrations/recovery/snapshot.env" | sed -n 's/^SNAPSHOT_TIMESTAMP=//p')"
+          new="$(sed -n 's/^SNAPSHOT_TIMESTAMP=//p' integrations/recovery/snapshot.env)"
+          # 20261020T000000Z sorts as text in time order.
+          if [ -z "$new" ] || [[ ! "$new" > "$old" ]]; then
+            echo "::error::The snapshot of the tag ($new) is not newer than the one of v$VERSION ($old)."
+            exit 1
+          fi
+          echo "snapshot=$new" >> "$GITHUB_OUTPUT"
+          echo "::notice::Debian snapshot $old (v$VERSION) -> $new"
+
+      - name: The number follows the newest published rebuild
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.tag.outputs.version }}
+          REBUILD: ${{ steps.tag.outputs.rebuild }}
+        run: |
+          set -euo pipefail
+          # Instances look for recovery-v<version>.1, .2, ... and stop at the first missing one.
+          if [ "$REBUILD" -gt 1 ]; then
+            previous="recovery-v$VERSION.$((REBUILD - 1))"
+            draft="$(gh release view "$previous" --json isDraft --jq .isDraft 2>/dev/null || echo missing)"
+            if [ "$draft" != "false" ]; then
+              echo "::error::$previous is not published ($draft); instances would never reach rebuild $REBUILD."
+              exit 1
+            fi
+          fi
+          draft="$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft 2>/dev/null || echo missing)"
+          if [ "$draft" = "false" ]; then
+            echo "::error::$GITHUB_REF_NAME is published already; a rebuild is never built twice."
+            exit 1
+          fi
+
+  agent:
+    name: The agent of the release (from its published image)
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+      IMAGE: ${{ needs.verify.outputs.image }}
+    steps:
+      - name: The release's signed checksums
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-agent-sums
+          path: ${{ runner.temp }}/release
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Take linux-amd64 out of the image and check every file against the signed list
+        run: |
+          set -euo pipefail
+          container="$(docker create --platform linux/amd64 "$IMAGE:$VERSION")"
+          mkdir -p "$RUNNER_TEMP/agent-dist"
+          docker cp "$container:/srv/agent/$VERSION/linux-amd64" "$RUNNER_TEMP/agent-dist/linux-amd64"
+          docker rm "$container" > /dev/null
+          sums="$RUNNER_TEMP/release/agent-SHA256SUMS"
+          for file in restow-agent restic THIRD_PARTY_NOTICES.txt; do
+            have="$(sha256sum "$RUNNER_TEMP/agent-dist/linux-amd64/$file" | cut -d ' ' -f 1)"
+            if ! grep -qx "$have  linux-amd64/$file" "$sums"; then
+              echo "::error::linux-amd64/$file of $IMAGE:$VERSION is not the file the signed agent-SHA256SUMS names."
+              exit 1
+            fi
+          done
+          chmod +x "$RUNNER_TEMP/agent-dist/linux-amd64/restow-agent" "$RUNNER_TEMP/agent-dist/linux-amd64/restic"
+          reported="$("$RUNNER_TEMP/agent-dist/linux-amd64/restow-agent" version --short)"
+          if [ "$reported" != "$VERSION" ]; then
+            echo "::error::restow-agent reports $reported, not $VERSION"
+            exit 1
+          fi
+          # The release's own checksums, as the end-to-end test instance expects them.
+          cp "$sums" "$RUNNER_TEMP/agent-dist/SHA256SUMS"
+          printf '%s\n' "$VERSION" > "$RUNNER_TEMP/agent-dist/VERSION"
+
+      - name: Keep the agent for the ISO builds
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rebuild-agent-dist
+          path: ${{ runner.temp }}/agent-dist
+          if-no-files-found: error
+          retention-days: 7
+
+  recovery-iso:
+    name: Recovery ISO rebuild (build, image checks, licences, sources)
+    needs: [verify, agent]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+      REBUILD: ${{ needs.verify.outputs.rebuild }}
+      ISO_VERSION: ${{ needs.verify.outputs.iso_version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Download the agent
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: rebuild-agent-dist
+          path: ${{ runner.temp }}/agent-dist
+
+      - name: Build the ISO and the source bundle
+        run: |
+          set -euo pipefail
+          chmod +x "$RUNNER_TEMP"/agent-dist/linux-amd64/restow-agent "$RUNNER_TEMP"/agent-dist/linux-amd64/restic
+          sh integrations/recovery/build.sh --agent-dist "$RUNNER_TEMP/agent-dist/linux-amd64" \
+            --version "$VERSION" --rebuild "$REBUILD" --out "$RUNNER_TEMP/recovery" --sources
+          rm -rf "$RUNNER_TEMP/recovery/build" "$RUNNER_TEMP/recovery/sources" "$RUNNER_TEMP/recovery/build.env"
+
+      - name: Image checks
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends squashfs-tools xorriso
+          sudo sh integrations/recovery/test/check-image.sh "$RUNNER_TEMP/recovery/restow-recovery_${ISO_VERSION}_amd64.iso" "$VERSION"
+
+      - name: The same bytes under the release's ISO name, for the end-to-end test instance
+        run: |
+          mkdir -p "$RUNNER_TEMP/e2e"
+          cp "$RUNNER_TEMP/recovery/restow-recovery_${ISO_VERSION}_amd64.iso" "$RUNNER_TEMP/e2e/restow-recovery_${VERSION}_amd64.iso"
+
+      - name: Keep the ISO, its licences and sources
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rebuild-recovery-iso
+          path: ${{ runner.temp }}/recovery
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Keep the copy for the end-to-end test
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rebuild-recovery-iso-e2e
+          path: ${{ runner.temp }}/e2e
+          if-no-files-found: error
+          retention-days: 2
+
+  recovery-iso-rebuild:
+    name: Recovery ISO rebuild (second build on another runner image)
+    needs: [verify, agent]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+      REBUILD: ${{ needs.verify.outputs.rebuild }}
+      TZ: Pacific/Auckland
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Download the agent
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: rebuild-agent-dist
+          path: ${{ runner.temp }}/agent-dist
+
+      - name: Build the ISO again
+        run: |
+          set -euo pipefail
+          umask 077
+          chmod +x "$RUNNER_TEMP"/agent-dist/linux-amd64/restow-agent "$RUNNER_TEMP"/agent-dist/linux-amd64/restic
+          sh integrations/recovery/build.sh --agent-dist "$RUNNER_TEMP/agent-dist/linux-amd64" \
+            --version "$VERSION" --rebuild "$REBUILD" --out "$RUNNER_TEMP/recovery"
+
+      - name: Keep the hash
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rebuild-recovery-iso-second
+          path: ${{ runner.temp }}/recovery/restow-recovery_*_amd64.iso.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+  recovery-e2e-full:
+    name: Recovery end to end (every case, rebuilt ISO)
+    needs: [verify, agent, recovery-iso]
+    uses: ./.github/workflows/recovery-nightly.yml
+    permissions:
+      contents: read
+    with:
+      cases: all
+      iso-artifact: rebuild-recovery-iso-e2e
+      agent-artifact: rebuild-agent-dist
+
+  sums:
+    name: Rebuild checksums on the draft
+    needs: [verify, recovery-iso, recovery-iso-rebuild, recovery-e2e-full]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write # the draft release
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+      ISO_VERSION: ${{ needs.verify.outputs.iso_version }}
+      SNAPSHOT: ${{ needs.verify.outputs.snapshot }}
+    steps:
+      - name: The first ISO build
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: rebuild-recovery-iso
+          path: ${{ runner.temp }}/recovery/rebuild-recovery-iso
+
+      - name: The hash of the second build
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: rebuild-recovery-iso-second
+          path: ${{ runner.temp }}/second
+
+      - name: The release's signed checksums
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-agent-sums
+          path: ${{ runner.temp }}/release
+
+      - name: recovery-SHA256SUMS when both builds agree (the ISO, bound to the release)
+        run: |
+          set -euo pipefail
+          name="restow-recovery_${ISO_VERSION}_amd64.iso"
+          first="$(cut -d ' ' -f 1 "$RUNNER_TEMP/recovery/rebuild-recovery-iso/$name.sha256")"
+          second="$(cut -d ' ' -f 1 "$RUNNER_TEMP/second/$name.sha256")"
+          have="$(sha256sum "$RUNNER_TEMP/recovery/rebuild-recovery-iso/$name" | cut -d ' ' -f 1)"
+          if [ "$first" != "$second" ] || [ "$first" != "$have" ]; then
+            echo "::error::the two builds of the rebuilt ISO differ ($first, $second); it is not listed or released."
+            exit 1
+          fi
+          release="$(sha256sum "$RUNNER_TEMP/release/agent-SHA256SUMS" | cut -d ' ' -f 1)"
+          # The format packages/core/src/release/recovery-iso.ts (rebuildSumsText) reads.
+          printf '%s  recovery/%s\n%s  release/agent-SHA256SUMS\n' "$first" "$name" "$release" \
+            > "$RUNNER_TEMP/recovery-SHA256SUMS"
+          cat "$RUNNER_TEMP/recovery-SHA256SUMS"
+          echo "::notice::recovery/$name SHA-256 $first (both builds), bound to agent-SHA256SUMS of v$VERSION ($release)"
+
+      - name: Hand the checksums to the signature job
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: rebuild-sums
+          path: ${{ runner.temp }}/recovery-SHA256SUMS
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Put recovery-SHA256SUMS on the draft release (the maintainer signs it)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if gh release view "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft > "$RUNNER_TEMP/draft" 2>/dev/null; then
+            if [ "$(cat "$RUNNER_TEMP/draft")" != "true" ]; then
+              echo "::error::$GITHUB_REF_NAME is already published; a rebuild is never built twice."
+              exit 1
+            fi
+            gh release upload "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --clobber "$RUNNER_TEMP/recovery-SHA256SUMS"
+          else
+            gh release create "$GITHUB_REF_NAME" -R "$GITHUB_REPOSITORY" --draft --verify-tag \
+              --title "Restow $VERSION recovery ISO, rebuild ${ISO_VERSION##*.}" \
+              --notes "Draft: waiting for the signature (scripts/release/sign-agent.sh $GITHUB_REF_NAME)." \
+              "$RUNNER_TEMP/recovery-SHA256SUMS"
+          fi
+          echo "::notice::Rebuild the ISO from $GITHUB_REF_NAME on your own Docker host (integrations/recovery/build.sh --rebuild ${ISO_VERSION##*.}, snapshot $SNAPSHOT; docs/CI.md), then sign: scripts/release/sign-agent.sh $GITHUB_REF_NAME --key <private key> --iso <rebuilt ISO>"
+
+  signature:
+    name: Rebuild signature (maintainer, offline)
+    needs: [verify, sums]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # The maintainer approves this job after signing (sign-agent.sh does it).
+    environment: agent-release-signing
+    permissions:
+      contents: write # read the draft release (drafts are not visible with read access)
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: The checksums of this run
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: rebuild-sums
+          path: built
+
+      - name: Download the signature from the draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download "$GITHUB_REF_NAME" --dir signed --pattern recovery-SHA256SUMS --pattern recovery-SHA256SUMS.sig || true
+          if [ ! -f signed/recovery-SHA256SUMS.sig ]; then
+            echo "::error::The draft release has no recovery-SHA256SUMS.sig. Run scripts/release/sign-agent.sh $GITHUB_REF_NAME --iso <rebuilt ISO> on the signing machine; it re-runs this job."
+            exit 1
+          fi
+
+      - name: The signature covers exactly these checksums and matches the committed key
+        run: |
+          set -euo pipefail
+          cmp signed/recovery-SHA256SUMS built/recovery-SHA256SUMS || {
+            echo "::error::recovery-SHA256SUMS on the draft is not the checksum list of this run."
+            exit 1
+          }
+          sh scripts/release/verify-agent-signature.sh built/recovery-SHA256SUMS signed/recovery-SHA256SUMS.sig agent/release-signing.pub
+
+  publish:
+    name: Publish the rebuild
+    needs: [verify, recovery-iso, signature]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write # the GitHub release and its assets
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+      ISO_VERSION: ${{ needs.verify.outputs.iso_version }}
+      SNAPSHOT: ${{ needs.verify.outputs.snapshot }}
+      PRERELEASE: ${{ needs.verify.outputs.prerelease }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: The ISO, its firmware licences and the GPL source bundle
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: rebuild-recovery-iso
+          path: recovery-assets
+
+      - name: The signed checksums from the draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release download "$GITHUB_REF_NAME" --dir signed --pattern recovery-SHA256SUMS --pattern recovery-SHA256SUMS.sig
+
+      - name: The ISO is the one the signed checksums name
+        run: |
+          set -euo pipefail
+          sh scripts/release/verify-agent-signature.sh signed/recovery-SHA256SUMS signed/recovery-SHA256SUMS.sig agent/release-signing.pub
+          name="restow-recovery_${ISO_VERSION}_amd64.iso"
+          sum="$(sha256sum "recovery-assets/$name" | cut -d ' ' -f 1)"
+          grep -qx "$sum  recovery/$name" signed/recovery-SHA256SUMS || {
+            echo "::error::recovery-assets/$name is not the ISO of the signed recovery-SHA256SUMS."
+            exit 1
+          }
+          rm -f "recovery-assets/$name.sha256"
+          ls -l recovery-assets
+
+      - name: The release notes
+        run: |
+          set -euo pipefail
+          name="restow-recovery_${ISO_VERSION}_amd64.iso"
+          {
+            echo "Rebuild ${ISO_VERSION##*.} of the recovery ISO of Restow $VERSION against the Debian snapshot $SNAPSHOT (security updates). The agent and restic in it are those of v$VERSION, unchanged; nothing else of the release changes."
+            echo
+            echo "Installations of Restow $VERSION fetch it on their own (docs/BAREMETAL.md 26.13): they check the signature of recovery-SHA256SUMS with the release key they ship and take a rebuild only when its checksums name agent-SHA256SUMS of their own release. Installations without internet access put $name, recovery-SHA256SUMS and recovery-SHA256SUMS.sig into the drop folder of the data volume."
+            echo
+            echo "Check it with the key of the Git tag (agent/release-signing.pub), not with one an instance shows:"
+            echo
+            echo "\`\`\`"
+            echo "scripts/release/verify-agent-signature.sh recovery-SHA256SUMS recovery-SHA256SUMS.sig release-signing.pub"
+            echo "grep ' recovery/$name\$' recovery-SHA256SUMS | sed 's# recovery/# #' | sha256sum -c -"
+            echo "\`\`\`"
+            echo
+            echo "The second line of recovery-SHA256SUMS is the SHA-256 of agent-SHA256SUMS of v$VERSION. restow-recovery_${ISO_VERSION}_FIRMWARE-LICENSES.txt holds the licences of the non-free firmware in the image; restow-recovery_${ISO_VERSION}_sources.txt and restow-recovery_${ISO_VERSION}_sources.tar (in parts when large) are the source code of every package in it."
+          } > notes.md
+
+      - name: Publish the GitHub release (never as the latest release)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          flags=(--latest=false)
+          if [ "$PRERELEASE" = "true" ]; then
+            flags+=(--prerelease)
+          fi
+          gh release upload "$GITHUB_REF_NAME" --clobber recovery-assets/*
+          gh release edit "$GITHUB_REF_NAME" --title "Restow $VERSION recovery ISO, rebuild ${ISO_VERSION##*.}" \
+            --notes-file notes.md --draft=false "${flags[@]}"

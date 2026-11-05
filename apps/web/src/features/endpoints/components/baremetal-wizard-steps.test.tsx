@@ -4,7 +4,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { i18n } from "@/i18n";
 
-import type { Baremetal, RecoveryIso, ReplacementHardware } from "../api.js";
+import type { Baremetal, RecoveryIso, RecoveryIsoLocal, ReplacementHardware } from "../api.js";
 import { type Mounted, mount } from "../dom-harness.js";
 import "../i18n.js";
 import { BaremetalWizardPage, defaultSnapshot } from "./baremetal-wizard.js";
@@ -143,11 +143,29 @@ vi.mock("../api.js", async (importOriginal) => {
   };
 });
 
+const GITHUB_ISO =
+  "https://github.com/restow-backup/restow/releases/download/v0.5.0/restow-recovery_0.5.0_amd64.iso";
+
+function local(over: Partial<RecoveryIsoLocal> = {}): RecoveryIsoLocal {
+  return {
+    status: "not_fetched",
+    problem: null,
+    detail: null,
+    bytesDone: null,
+    bytesTotal: null,
+    origin: null,
+    importDir: "/data/recovery-iso/import",
+    updatedAt: null,
+    ...over,
+  };
+}
+
 function iso(over: Partial<RecoveryIso> = {}): RecoveryIso {
   return {
     version: "0.5.0",
     fileName: "restow-recovery_0.5.0_amd64.iso",
-    url: "https://github.com/restow-backup/restow/releases/download/v0.5.0/restow-recovery_0.5.0_amd64.iso",
+    url: GITHUB_ISO,
+    githubUrl: GITHUB_ISO,
     source: "github",
     sha256: "c".repeat(64),
     sizeBytes: null,
@@ -225,13 +243,19 @@ describe("the bare metal wizard (docs/BAREMETAL.md 14.6)", () => {
   });
 
   it("says where the ISO comes from and links the GPL sources and the firmware licences", async () => {
-    for (const source of ["github", "instance"] as const) {
+    const variants = [
+      ["github", null],
+      ["instance", "import"],
+      ["instance", "store"],
+    ] as const;
+    for (const [source, origin] of variants) {
       state.iso = iso(
         source === "instance"
           ? {
               source,
-              url: "https://restow.firma.de/install/recovery/0.5.0/restow-recovery_0.5.0_amd64.iso",
+              url: "https://restow.firma.de/api/v1/recovery-iso/file/restow-recovery_0.5.0_amd64.iso",
               sizeBytes: 734_003_200,
+              local: local({ status: "verified", origin }),
             }
           : {},
       );
@@ -240,6 +264,12 @@ describe("the bare metal wizard (docs/BAREMETAL.md 14.6)", () => {
       await page.settle();
       const slot = document.querySelector('[data-slot="recovery-iso-source"]')?.textContent ?? "";
       expect(slot).toContain(source === "instance" ? "this instance" : "public release page");
+      // A copy from the drop folder was never fetched by the instance.
+      if (origin === "import") {
+        expect(slot).toContain("import folder");
+        expect(slot).not.toContain("fetched");
+      }
+      if (origin === "store") expect(slot).toContain("fetched the ISO once");
       const links = [...document.querySelectorAll('[data-slot="recovery-iso-licences"] a')].map(
         (link) => link.getAttribute("href"),
       );
@@ -247,8 +277,74 @@ describe("the bare metal wizard (docs/BAREMETAL.md 14.6)", () => {
         "https://github.com/restow-backup/restow/releases/tag/v0.5.0",
         "https://github.com/restow-backup/restow/releases/download/v0.5.0/restow-recovery_0.5.0_FIRMWARE-LICENSES.txt",
       ]);
-      if (source === "github") page.unmount();
+      const download = document.querySelector('[data-slot="recovery-iso-download"]');
+      const fallback = document.querySelector('[data-slot="recovery-iso-fallback"] a');
+      if (source === "instance") {
+        // A plain navigation behind the login: the tenant travels in the address.
+        expect(download?.getAttribute("href")).toBe(
+          "https://restow.firma.de/api/v1/recovery-iso/file/restow-recovery_0.5.0_amd64.iso?tenant=t-1",
+        );
+        // The release page stays the fallback.
+        expect(fallback?.getAttribute("href")).toBe(GITHUB_ISO);
+      } else {
+        expect(download?.getAttribute("href")).toBe(GITHUB_ISO);
+        expect(fallback).toBeNull();
+      }
+      if (origin !== "store") page.unmount();
     }
+  });
+
+  it("tells how far the instance got with its own copy, in both languages", async () => {
+    const cases = [
+      [local({ status: "not_fetched" }), "has not fetched the ISO yet", "noch nicht geladen"],
+      [
+        local({ status: "fetching", bytesDone: 1024 ** 3 / 4, bytesTotal: 1024 ** 3 }),
+        "is fetching the ISO in the background: 256 MB of 1 GB",
+        "lädt das ISO im Hintergrund: 256",
+      ],
+      [
+        local({ status: "failed", problem: "hash_mismatch" }),
+        "does not match the signed checksum",
+        "passt nicht zur signierten Prüfsumme",
+      ],
+      [local({ status: "disabled" }), "does not fetch the ISO itself", "nicht selbst"],
+    ] as const;
+    for (const language of ["en", "de"] as const) {
+      await i18n.changeLanguage(language);
+      for (const [state_, en, de] of cases) {
+        state.iso = iso({ local: state_ });
+        page = mount();
+        await page.render(<BaremetalWizardPage endpointId={ID} />);
+        await page.settle();
+        const block = document.querySelector('[data-slot="recovery-iso-local"]');
+        expect(block?.getAttribute("data-status")).toBe(state_.status);
+        expect(block?.textContent ?? "").toContain(language === "en" ? en : de);
+        // The drop folder for installations without internet access.
+        expect(document.querySelector('[data-slot="recovery-iso-import"]')?.textContent).toContain(
+          "/data/recovery-iso/import",
+        );
+        page.unmount();
+      }
+    }
+    await i18n.changeLanguage("en");
+    // A rebuild names its number; a skipped one is a note next to the instance's copy.
+    state.iso = iso({
+      rebuild: 2,
+      fileName: "restow-recovery_0.5.0.2_amd64.iso",
+      source: "instance",
+      url: "https://restow.firma.de/api/v1/recovery-iso/file/restow-recovery_0.5.0.2_amd64.iso",
+      local: local({ status: "verified", origin: "store", problem: "signature_invalid" }),
+    });
+    page = mount();
+    await page.render(<BaremetalWizardPage endpointId={ID} />);
+    await page.settle();
+    expect(document.querySelector('[data-slot="recovery-iso-version"]')?.textContent).toBe(
+      "0.5.0, rebuild 2 (newer security updates of the base system)",
+    );
+    expect(document.querySelector('[data-slot="recovery-iso-local"]')?.textContent).toContain(
+      "A newer rebuild of the ISO was not taken: the signature of the checksums does not match",
+    );
+    expect(document.querySelector('[data-slot="recovery-iso-import"]')).toBeNull();
   });
 
   it("shows the ISO's hints for afterwards once the session ended", async () => {

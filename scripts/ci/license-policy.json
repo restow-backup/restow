@@ -87,6 +87,7 @@
       "allowedReferences": [
         ".github/workflows/ci.yml",
         ".github/workflows/recovery-nightly.yml",
+        ".github/workflows/recovery-rebuild.yml",
         ".github/workflows/release.yml",
         "CHANGELOG.md",
         "NOTICE",

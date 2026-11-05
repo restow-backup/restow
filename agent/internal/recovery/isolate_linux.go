@@ -35,8 +35,9 @@ const (
 // (the agent binary; "/proc/self/exe" on the ISO): self is started as
 // `chroot-exec --spec 3` in new PID, network, IPC, UTS and cgroup
 // namespaces (Cloneflags, so the helper is PID 1 of the new PID
-// namespace; R5) and a new mount namespace, with an empty environment and
-// SIGKILL when recover dies. Output is stdout and stderr together, capped.
+// namespace; R5) and a new mount namespace, in a new session, with an
+// empty environment and SIGKILL when recover dies. Output is stdout and
+// stderr together, capped.
 func RunIsolated(ctx context.Context, self string, spec IsolateSpec, maxOut int) (*IsolationResult, error) {
 	if err := CheckIsolateSpec(spec); err != nil {
 		return nil, err
@@ -70,6 +71,9 @@ func RunIsolated(ctx context.Context, self string, spec IsolateSpec, maxOut int)
 		Cloneflags:   syscall.CLONE_NEWPID | syscall.CLONE_NEWNET | syscall.CLONE_NEWIPC | syscall.CLONE_NEWUTS | cloneNewCgroup,
 		Unshareflags: syscall.CLONE_NEWNS,
 		Pdeathsig:    syscall.SIGKILL,
+		// A new session without a controlling terminal: /dev/tty of the
+		// isolation is not the console of recover.
+		Setsid: true,
 	}
 	if err := cmd.Start(); err != nil {
 		pw.Close()

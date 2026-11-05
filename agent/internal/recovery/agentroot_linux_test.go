@@ -16,7 +16,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -89,6 +91,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unsafe"
 )
 
 func main() {
@@ -105,8 +108,9 @@ func main() {
 		c.Close()
 	}
 	try("net", err)
-	_, err = os.ReadFile("/proc/1/environ")
+	envb, err := os.ReadFile("/proc/1/environ")
 	try("environ", err)
+	res["environ_len"] = strconv.Itoa(len(envb))
 	_, err = os.ReadFile("/proc/1/mem")
 	try("mem", err)
 	ents, _ := os.ReadDir("/proc")
@@ -164,6 +168,62 @@ func main() {
 	res["kcore"] = kcore
 	_, err = os.Stat("/sys/firmware/efi/efivars/BootOrder-8be4df61-93ca-11d2-aa0d-00e098032b8c")
 	try("efivars", err)
+	if st, err := os.ReadFile("/proc/self/status"); err == nil {
+		for _, l := range strings.Split(string(st), "\n") {
+			if strings.HasPrefix(l, "CapEff:") {
+				res["capeff"] = strings.TrimSpace(strings.TrimPrefix(l, "CapEff:"))
+			}
+		}
+	}
+	errno := func(name string, e syscall.Errno) {
+		if e == 0 {
+			res[name] = "ok"
+		} else {
+			res[name] = e.Error()
+		}
+	}
+	atFdcwd := -100
+	procSys, _ := syscall.BytePtrFromString("/proc/sys")
+	// open_tree(AT_FDCWD, "/proc/sys", OPEN_TREE_CLONE|AT_RECURSIVE)
+	fd, _, e := syscall.Syscall(428, uintptr(atFdcwd), uintptr(unsafe.Pointer(procSys)), 1|0x8000)
+	if e == 0 {
+		syscall.Close(int(fd))
+	}
+	errno("open_tree", e)
+	// open_tree_attr with attr_clr MOUNT_ATTR_RDONLY: a writable copy of
+	// the read-only /proc/sys; core_pattern is then opened, never written.
+	attr := [4]uint64{0, 1, 0, 0}
+	fd, _, e = syscall.Syscall6(467, uintptr(atFdcwd), uintptr(unsafe.Pointer(procSys)), 1|0x8000, uintptr(unsafe.Pointer(&attr[0])), 32, 0)
+	errno("open_tree_attr", e)
+	if e == 0 {
+		cp, _ := syscall.BytePtrFromString("kernel/core_pattern")
+		w, _, e2 := syscall.Syscall6(syscall.SYS_OPENAT, fd, uintptr(unsafe.Pointer(cp)), syscall.O_WRONLY, 0, 0, 0)
+		if e2 == 0 {
+			syscall.Close(int(w))
+		}
+		errno("core_pattern_clone", e2)
+		syscall.Close(int(fd))
+	}
+	// file_getattr (468): newer than the filter's table.
+	_, _, e = syscall.Syscall6(468, ^uintptr(0), 0, 0, 0, 0, 0)
+	errno("unknown_syscall", e)
+	// ioctl requests on /dev/null: the filter answers before the driver
+	// (EPERM); a request it lets through gets ENOTTY from /dev/null.
+	null, err := os.Open("/dev/null")
+	if err == nil {
+		for name, req := range map[string]uintptr{"dm_version": 0xc138fd00, "dm_remove_all": 0xc138fd01, "dm_create": 0xc138fd03,
+			"dm_suspend": 0xc138fd06, "dm_table_load": 0xc138fd09, "dm_target_msg": 0xc138fd0e, "nvme_admin": 0xc0484e41,
+			"nvme_io": 0xc0484e43, "tiocsti": 0x5412} {
+			_, _, e := syscall.Syscall(syscall.SYS_IOCTL, null.Fd(), req, 0)
+			errno("ioctl_"+name, e)
+		}
+		null.Close()
+	}
+	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
+	if err == nil {
+		tty.Close()
+	}
+	try("tty", err)
 	res["env"] = strings.Join(os.Environ(), " ")
 	b, _ := json.Marshal(res)
 	_ = os.WriteFile("/result.json", b, 0o644)
@@ -195,22 +255,84 @@ func TestRootIsolation(t *testing.T) {
 	other := loopDev(t, work, "other", 4)
 	allowed := loopDev(t, work, "allowed", 4)
 	spec := IsolateSpec{Root: root, Argv: []string{"/hook", other, allowed}, Devices: []string{allowed}, TimeoutSeconds: 60}
-	res, err := RunIsolated(context.Background(), agent, spec, 0)
-	if err != nil || res.ExitCode != 0 {
-		t.Fatalf("isolated run: %v exit %d\n%s", err, res.ExitCode, res.Output)
+	// Without and with CAP_SYS_ADMIN (the grub steps on LVM or LUKS keep
+	// it): every attempt must fail in both.
+	for _, sysAdmin := range []bool{false, true} {
+		t.Run(fmt.Sprintf("CapSysAdmin=%v", sysAdmin), func(t *testing.T) {
+			_ = os.Remove(filepath.Join(root, "result.json"))
+			if err := os.WriteFile(allowed, make([]byte, 2), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			spec := spec
+			spec.CapSysAdmin = sysAdmin
+			res, err := RunIsolated(context.Background(), agent, spec, 0)
+			if err != nil || res.ExitCode != 0 {
+				t.Fatalf("isolated run: %v exit %d\n%s", err, res.ExitCode, res.Output)
+			}
+			checkIsolationResult(t, root, allowed, sysAdmin, res.Output)
+		})
 	}
+	// A symlink as a mount point of the target is refused.
+	_ = os.Remove(filepath.Join(root, "run"))
+	_ = os.Symlink("/", filepath.Join(root, "run"))
+	if res, err := RunIsolated(context.Background(), agent, spec, 0); err == nil && res.ExitCode == 0 {
+		t.Error("a symlinked /run was accepted")
+	}
+}
+
+// checkIsolationResult checks what the hook of TestRootIsolation wrote.
+func checkIsolationResult(t *testing.T, root, allowed string, sysAdmin bool, output []byte) {
+	t.Helper()
 	b, err := os.ReadFile(filepath.Join(root, "result.json"))
 	if err != nil {
-		t.Fatalf("no result: %v\n%s", err, res.Output)
+		t.Fatalf("no result: %v\n%s", err, output)
 	}
 	var r map[string]string
 	if err := json.Unmarshal(b, &r); err != nil {
 		t.Fatal(err)
 	}
 	t.Logf("results: %v", r)
-	for _, k := range []string{"net", "environ", "mem", "otherdev", "mknod", "mount", "chroot", "unshare", "open_by_handle_at", "ptrace", "syswrite", "efivars", "core_pattern", "sysrq", "procirq", "kcore"} {
+	// With CAP_SYS_ADMIN the kernel (6.18 here) lets a reader open
+	// /proc/1/environ and /proc/1/auxv of the non-dumpable helper (read
+	// mode); its environment is empty, and /proc/1/mem (attach mode) stays
+	// closed.
+	if r["environ"] == "ok" && (!sysAdmin || r["environ_len"] != "0") {
+		t.Errorf("/proc/1/environ is readable (%s bytes)", r["environ_len"])
+	}
+	for _, k := range []string{"net", "mem", "otherdev", "mknod", "mount", "chroot", "unshare", "open_by_handle_at", "ptrace",
+		"syswrite", "efivars", "core_pattern", "sysrq", "procirq", "kcore", "open_tree", "tty"} {
 		if r[k] == "ok" || r[k] == "" {
 			t.Errorf("%s did not fail: %q", k, r[k])
+		}
+	}
+	eperm, enosys := syscall.EPERM.Error(), syscall.ENOSYS.Error()
+	for _, k := range []string{"open_tree_attr", "ioctl_dm_remove_all", "ioctl_dm_create", "ioctl_dm_suspend", "ioctl_dm_table_load",
+		"ioctl_dm_target_msg", "ioctl_nvme_admin", "ioctl_nvme_io", "ioctl_tiocsti"} {
+		if r[k] != eperm {
+			t.Errorf("%s: %q, want %q from the filter", k, r[k], eperm)
+		}
+	}
+	if v, ok := r["core_pattern_clone"]; ok {
+		t.Errorf("open_tree_attr gave a copy of /proc/sys; core_pattern through it: %q", v)
+	}
+	if r["unknown_syscall"] != enosys {
+		t.Errorf("a system call newer than the table: %q, want %q", r["unknown_syscall"], enosys)
+	}
+	// A read-only device-mapper request passes the filter (and /dev/null
+	// refuses it itself).
+	if r["ioctl_dm_version"] == eperm || r["ioctl_dm_version"] == "" {
+		t.Errorf("DM_VERSION was refused by the filter: %q", r["ioctl_dm_version"])
+	}
+	capEff, err := strconv.ParseUint(r["capeff"], 16, 64)
+	if err != nil {
+		t.Fatalf("CapEff %q: %v", r["capeff"], err)
+	}
+	if got := capEff&(1<<capSysAdmin) != 0; got != sysAdmin {
+		t.Errorf("CapEff %#x: CAP_SYS_ADMIN %v, want %v", capEff, got, sysAdmin)
+	}
+	for _, c := range capsToDrop(sysAdmin) {
+		if capEff&(1<<uint(c)) != 0 {
+			t.Errorf("CapEff %#x has capability %d", capEff, c)
 		}
 	}
 	if r["allowed"] != "ok" {
@@ -230,12 +352,6 @@ func TestRootIsolation(t *testing.T) {
 	f.Close()
 	if string(head) != "ok" {
 		t.Errorf("the write to the allowed device did not arrive: %q", head)
-	}
-	// A symlink as a mount point of the target is refused.
-	_ = os.Remove(filepath.Join(root, "run"))
-	_ = os.Symlink("/", filepath.Join(root, "run"))
-	if res, err := RunIsolated(context.Background(), agent, spec, 0); err == nil && res.ExitCode == 0 {
-		t.Error("a symlinked /run was accepted")
 	}
 }
 

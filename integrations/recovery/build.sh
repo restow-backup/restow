@@ -6,7 +6,7 @@
 # exactly the packages of packages.lock, in a container pinned by digest.
 #
 #   integrations/recovery/build.sh --agent-dist <dir> --version <v> --out <dir>
-#                                  [--update-lock] [--sources]
+#                                  [--rebuild <n>] [--update-lock] [--sources]
 #
 #   --agent-dist <dir>  the linux-amd64 folder of the agent build (restow-agent,
 #                       restic, THIRD_PARTY_NOTICES.txt): they go into the image
@@ -14,6 +14,9 @@
 #   --version <v>       the release version; restow-agent version --short must say it
 #   --out <dir>         where the ISO, its .sha256, the firmware licences (and with
 #                       --sources the source bundle) go
+#   --rebuild <n>       a rebuild of the ISO of release <v> against a newer snapshot
+#                       (docs/BAREMETAL.md 26.13; tag recovery-v<v>.<n>): the agent of
+#                       <v> stays, the files are named restow-recovery_<v>.<n>_*
 #   --update-lock       write packages.lock anew from what the snapshot installs
 #                       instead of comparing with it (by hand only; review the diff)
 #   --sources           also write the source bundle of every package (sources.sh)
@@ -41,6 +44,7 @@ esac
 # shellcheck source=snapshot.env
 . "$HERE/snapshot.env"
 rr_check_snapshot_env "$SNAPSHOT_TIMESTAMP" "$DEBIAN_IMAGE_DIGEST" "$LIVE_BUILD_VERSION" || exit 1
+iso_version=$(rr_iso_version "$RR_VERSION" "$RR_REBUILD")
 epoch=$(rr_epoch_of_snapshot "$SNAPSHOT_TIMESTAMP") || rr_die "cannot read the time $SNAPSHOT_TIMESTAMP"
 
 entries=$(rr_lock_count "$HERE/packages.lock") || rr_die "packages.lock is malformed"
@@ -96,7 +100,7 @@ LC_ALL=C.UTF-8
 LANG=C.UTF-8
 VARS
 
-echo "Building restow-recovery_${RR_VERSION}_amd64.iso from snapshot $SNAPSHOT_TIMESTAMP in $DEBIAN_IMAGE_DIGEST"
+echo "Building restow-recovery_${iso_version}_amd64.iso from snapshot $SNAPSHOT_TIMESTAMP in $DEBIAN_IMAGE_DIGEST"
 docker run --rm --privileged \
   --hostname restow-recovery-build \
   --env-file "$env_file" \
@@ -105,9 +109,9 @@ docker run --rm --privileged \
   "$DEBIAN_IMAGE_DIGEST" \
   sh /build/build-inner.sh
 
-iso="$out/restow-recovery_${RR_VERSION}_amd64.iso"
+iso="$out/restow-recovery_${iso_version}_amd64.iso"
 mv "$work/live-image-amd64.hybrid.iso" "$iso"
-cp "$work/FIRMWARE-LICENSES.txt" "$out/restow-recovery_${RR_VERSION}_FIRMWARE-LICENSES.txt"
+cp "$work/FIRMWARE-LICENSES.txt" "$out/restow-recovery_${iso_version}_FIRMWARE-LICENSES.txt"
 if [ "$RR_UPDATE_LOCK" = yes ]; then
   cp "$work/config/restow/packages.lock.new" "$out/packages.lock"
   echo "Wrote $out/packages.lock; review it and copy it to integrations/recovery/packages.lock."
@@ -118,5 +122,9 @@ cat "$iso.sha256"
 if [ "$RR_SOURCES" = yes ]; then
   lock="$HERE/packages.lock"
   [ "$RR_UPDATE_LOCK" = yes ] && lock="$out/packages.lock"
-  sh "$HERE/sources.sh" --version "$RR_VERSION" --lock "$lock" --out "$out"
+  if [ -n "$RR_REBUILD" ]; then
+    sh "$HERE/sources.sh" --version "$RR_VERSION" --rebuild "$RR_REBUILD" --lock "$lock" --out "$out"
+  else
+    sh "$HERE/sources.sh" --version "$RR_VERSION" --lock "$lock" --out "$out"
+  fi
 fi

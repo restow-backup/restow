@@ -1893,12 +1893,41 @@
       },
       "writeUsb": "Then write the ISO to a USB stick as it is, bit for bit (for example with dd on Linux).",
       "source": {
-        "instance": "The download comes from this instance; its checksum matches the signed list.",
+        "instance": "The download comes from this instance: it fetched the ISO once and checked it against the signed checksums.",
+        "instanceImport": "The download comes from this instance: the ISO was put into its import folder and checked against the signed checksums.",
         "github": "The download comes from the project's public release page."
       },
       "sources": "Source code of the GPL packages in the image (release attachments)",
       "firmwareLicenses": "Licences of the firmware in the image",
-      "size": "Size"
+      "size": "Size",
+      "rebuild": "{version}, rebuild {rebuild} (newer security updates of the base system)",
+      "githubFallback": "Download from the project's public release page instead",
+      "checksums": "Signed checksums",
+      "signature": "Signature of the checksums",
+      "local": {
+        "notFetched": "This instance has not fetched the ISO yet. It does so in the background, once for the whole installation; until then the download comes from the release page.",
+        "fetching": "This instance is fetching the ISO in the background: {done} of {total}. Until it is checked, the download comes from the release page.",
+        "fetchingUnknown": "This instance is fetching the ISO in the background ({done} so far). Until it is checked, the download comes from the release page.",
+        "failed": "This instance could not fetch the ISO: {reason}. It tries again later; until then the download comes from the release page.",
+        "disabled": "This instance does not fetch the ISO itself.",
+        "skipped": "A newer rebuild of the ISO was not taken: {reason}.",
+        "importHint": "Without internet access, put the ISO into {folder} on the server (for a rebuild also recovery-SHA256SUMS and recovery-SHA256SUMS.sig). It is checked against the signed checksums the same way before it is offered.",
+        "problem": {
+          "no_signed_release": "this installation ships no signed release",
+          "no_key": "this installation has no release key",
+          "signature_invalid": "the signature of the checksums does not match the release key",
+          "no_iso_line": "the signed checksums list no recovery ISO",
+          "wrong_release": "the checksums belong to another release",
+          "not_published": "the release page does not offer the file (yet)",
+          "network": "the release page could not be reached (network or proxy)",
+          "http_status": "the release page answered with an error",
+          "too_large": "the file is larger than allowed",
+          "truncated": "the download broke off; the next attempt continues it",
+          "hash_mismatch": "the downloaded file does not match the signed checksum and was discarded",
+          "store_not_writable": "the data volume cannot be written",
+          "store_full": "the data volume does not have enough free space (the ISO needs its size plus 1 GiB); the partial download was removed"
+        }
+      }
     },
     "reported": {
       "access_expired": "The access to the backups ended (code expired or session ended) before the restore was done.",

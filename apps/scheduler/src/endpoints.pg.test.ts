@@ -151,7 +151,7 @@ describe.skipIf(!adminUrl)("endpoint jobs of the scheduler", () => {
     }
   });
 
-  it("names the six queues and creates them with the shared settings", () => {
+  it("names the seven queues and creates them with the shared settings", () => {
     expect(Object.values(ENDPOINT_QUEUES)).toEqual([
       "endpoint-retention",
       "endpoint-check",
@@ -159,6 +159,7 @@ describe.skipIf(!adminUrl)("endpoint jobs of the scheduler", () => {
       "endpoint-monitor",
       "endpoint-removal",
       "endpoint-baremetal-check",
+      "endpoint-recovery-iso",
     ]);
     expect(Object.keys(ENDPOINT_QUEUE_OPTIONS).sort()).toEqual(
       Object.values(ENDPOINT_QUEUES).sort(),
@@ -338,6 +339,13 @@ describe.skipIf(!adminUrl)("endpoint jobs of the scheduler", () => {
     const monitor = sent.filter((entry) => entry.queue === "endpoint-monitor");
     expect(monitor).toHaveLength(1);
     expect(monitor[0]?.options.singletonKey).toBe("endpoint-monitor");
+    // One recovery ISO pass for the installation, spaced six hours.
+    const recoveryIso = sent.filter((entry) => entry.queue === "endpoint-recovery-iso");
+    expect(recoveryIso).toHaveLength(1);
+    expect(recoveryIso[0]?.data).toEqual({});
+    expect(recoveryIso[0]?.options.singletonKey).toBe("endpoint-recovery-iso");
+    expect(recoveryIso[0]?.options.singletonSeconds).toBe(6 * 60 * 60);
+    expect(counts?.recoveryIso).toBe(1);
 
     // A second pass within the interval does nothing.
     const before = sent.length;

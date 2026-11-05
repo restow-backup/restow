@@ -20,6 +20,7 @@ import { BaremetalCheckIncompleteError, endpointBaremetalCheck } from "./baremet
 import { endpointCheck } from "./check.js";
 import type { EndpointJobDeps } from "./common.js";
 import { endpointMonitor } from "./monitor.js";
+import { endpointRecoveryIso, RecoveryIsoRetryError } from "./recovery-iso.js";
 import { endpointRemoval } from "./removal.js";
 import { endpointRetention } from "./retention.js";
 import { endpointVerify, RestoreTestIncompleteError } from "./verify.js";
@@ -84,6 +85,14 @@ export async function registerEndpointJobs(
             });
             throw error;
           }
+          if (error instanceof RecoveryIsoRetryError) {
+            // The network or a cut-off download: retried, the next attempt continues the file.
+            logger.warn("recovery ISO download will retry", {
+              queue,
+              problem: error.result.state.problem,
+            });
+            throw error;
+          }
           if (error instanceof RestoreTestIncompleteError) {
             // A sampled file could not be read for a reason that proves nothing about the backup.
             logger.warn("endpoint restore test could not complete, job will retry", {
@@ -108,6 +117,7 @@ export async function registerEndpointJobs(
   await work(ENDPOINT_QUEUES.baremetalCheck, (job) =>
     endpointBaremetalCheck(deps, payloadOf(job.data)),
   );
+  await work(ENDPOINT_QUEUES.recoveryIso, () => endpointRecoveryIso(deps));
   await work(ENDPOINT_QUEUES.monitor, async () => {
     const summary = await endpointMonitor(deps);
     if (Object.values(summary).some((count) => count > 0)) {

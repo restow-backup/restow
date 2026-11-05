@@ -7,7 +7,7 @@
 # parts of 1900 MiB when it reaches 2 GiB, the limit of a release attachment)
 # and a list of package, version and URL. Both become release attachments.
 #
-#   integrations/recovery/sources.sh --version <v> --out <dir> [--lock <packages.lock>]
+#   integrations/recovery/sources.sh --version <v> --out <dir> [--rebuild <n>] [--lock <packages.lock>]
 #
 # Runs in the same pinned container as build.sh (Docker), so apt resolves the
 # sources of that snapshot and nothing else.
@@ -20,11 +20,13 @@ HERE=$(cd "$(dirname "$0")" && pwd -P)
 . "$HERE/snapshot.env"
 
 version=''
+rebuild=''
 out=''
 lock="$HERE/packages.lock"
 while [ $# -gt 0 ]; do
   case "$1" in
     --version) version="$2"; shift ;;
+    --rebuild) rebuild="$2"; shift ;;
     --out) out="$2"; shift ;;
     --lock) lock="$2"; shift ;;
     -h | --help) awk 'NR > 1 { if ($0 !~ /^#/) exit; sub(/^# ?/, ""); print }' "$0"; exit 0 ;;
@@ -33,6 +35,9 @@ while [ $# -gt 0 ]; do
   shift
 done
 rr_valid_version "$version" || rr_die "--version <v> is needed"
+[ -z "$rebuild" ] || rr_valid_rebuild "$rebuild" || rr_die "--rebuild $rebuild is not a rebuild number"
+# The attachments carry the name of the ISO they belong to (<v> or <v>.<n>).
+version=$(rr_iso_version "$version" "$rebuild")
 [ -n "$out" ] || rr_die "--out <dir> is needed"
 [ "$(rr_lock_count "$lock")" -gt 0 ] || rr_die "$lock has no entries"
 rr_check_snapshot_env "$SNAPSHOT_TIMESTAMP" "$DEBIAN_IMAGE_DIGEST" "$LIVE_BUILD_VERSION" || exit 1

@@ -536,19 +536,27 @@ Firmwareliste) und der Quellcode jedes Pakets (`…_sources.tar`, ab 2 GiB in Te
   `grep ' recovery/<datei>$' agent-SHA256SUMS | sed 's# recovery/# #' | sha256sum -c -`. Den
   Fingerabdruck des Release-Schlüssels außerhalb der Instanz vergleichen (README und Release-Notes):
   Eine kompromittierte Instanz könnte ISO, Prüfsumme und Fingerabdruck zugleich fälschen.
-- **`GET /api/v1/recovery-iso`** (Mandanten-Admin): Version, Dateiname, `url`, `source`
-  (`instance` oder `github`), SHA-256 aus den signierten `SHA256SUMS` der neuesten signierten
-  Agent-Version, `sizeBytes` (nur für die Kopie der Instanz), Fingerabdruck des Release-Schlüssels,
-  `verified`, `releaseUrl`, `sourcesUrl`, `firmwareLicensesUrl` und die Prüfbefehle. Die
-  GitHub-Adresse ist das Release des Projekts (bei einer Installation, die dem Alpha-Repository
-  folgt, dessen Release).
-- **Ohne Internet:** Liegt das ISO in `RESTOW_RECOVERY_ISO_DIR` (ein Volume) und hat genau die
-  SHA-256 der Zeile, liefert `GET /install/recovery/<version>/<datei>` es aus (`source: instance`):
-  nur eine SemVer-Version mit `SHA256SUMS.sig`, nur der Dateiname der `recovery/`-Zeile (kein `/`,
-  kein `..`), gestreamt mit `content-length`, 10 je Stunde und Adresse (429 mit `Retry-After`).
-  Die SHA-256 rechnet der Server einmal je Pfad, Größe und Änderungszeit. Die Signatur selbst prüft
-  der Server nicht (das tun die Installationsskripte und wer den Stick schreibt); er liefert nur
-  aus, was eine signierte Liste nennt.
+- **`GET /api/v1/recovery-iso`** (Mandanten-Admin): Version, Neubau-Nummer (`rebuild`),
+  Dateiname, `url`, `source` (`instance` oder `github`), SHA-256 aus der geprüften Liste,
+  `sizeBytes` (nur für die Kopie der Instanz), Fingerabdruck des Release-Schlüssels, `verified`,
+  `releaseUrl`, `githubUrl` (Ausweichlink), `sumsUrl`, `signatureUrl`, `sourcesUrl`,
+  `firmwareLicensesUrl`, `local` (Stand der eigenen Kopie: `not_fetched`, `fetching`, `verified`,
+  `failed` mit Grund, `disabled`) und die Prüfbefehle. `verified` heißt: Der Server hat die
+  Signatur von `SHA256SUMS` selbst mit dem Release-Schlüssel des Images geprüft (dieselbe Prüfung
+  wie der Agent, docs/BAREMETAL.md 26.13). Die GitHub-Adresse ist das Release des Projekts (bei
+  einer Installation, die dem Alpha-Repository folgt, dessen Release).
+- **Die Instanz lädt das ISO selbst:** Der Worker holt das ISO des eigenen Release (und den
+  neuesten signierten Neubau `recovery-v<v>.<n>`) einmal je Installation und Release vom
+  GitHub-Release in das Datenvolume (`RESTOW_RECOVERY_ISO_STORE_DIR`, Standard
+  `/data/recovery-iso`), fortsetzbar, höchstens 2 GiB, über `HTTPS_PROXY`/`NO_PROXY`; erst nach
+  Signatur- und Hash-Prüfung bietet die api es unter `GET /api/v1/recovery-iso/file/<datei>` an
+  (nur Mandanten-Admins, `?tenant=`). `RESTOW_RECOVERY_ISO_FETCH=false` schaltet das Laden ab.
+- **Ohne Internet:** Liegt das ISO in `<store>/import/` oder `RESTOW_RECOVERY_ISO_DIR` (ein
+  Volume; für einen Neubau mit `recovery-SHA256SUMS` und `.sig`) und besteht es dieselbe Prüfung,
+  bietet die Instanz es ebenso an; `GET /install/recovery/<version>/<datei>` liefert dieselbe
+  Auswahl öffentlich (für virtuelle Medien eines BMC): nur der Dateiname der geprüften Zeile (kein
+  `/`, kein `..`), gestreamt mit `content-length`, 10 je Stunde und Adresse (429 mit
+  `Retry-After`). Die SHA-256 rechnet der Server einmal je Pfad, Größe und Änderungszeit.
 - **Im ISO** startet `restow-agent recover` auf tty1 (bzw. `restow.console=ttyS0|ttyS1`):
   Tastaturbelegung, Netzwerk, Uhrzeit, TLS (System-CA, CA-Datei oder der Prüfwert der Instanz),
   Adresse und Code, Freigabe der Sitzung, Snapshot, Manifest, Hardware, Plan mit jedem Befehl,

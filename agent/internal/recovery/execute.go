@@ -1156,12 +1156,13 @@ func (x *Executor) isolated(ctx context.Context, s *baremetal.Step, argv []strin
 		return errors.New("chroot-exec without a program")
 	}
 	prog := argv[0]
-	spec := IsolateSpec{Root: x.TargetRoot, Argv: argv, CapSysAdmin: needsSysAdmin(prog, argv), TimeoutSeconds: int(stepTimeout(s.Kind) / time.Second)}
+	spec := IsolateSpec{Root: x.TargetRoot, Argv: argv, TimeoutSeconds: int(stepTimeout(s.Kind) / time.Second)}
 	if strings.Contains(prog, "grub") && strings.HasSuffix(prog, "mkconfig") {
 		spec.Env = append(spec.Env, "GRUB_DISABLE_OS_PROBER=true")
 	}
 	disks, extra := x.isolatedDevices(s.Kind)
 	spec.Devices, spec.DevLinks = x.Ops.DeviceSet(disks, extra)
+	spec.CapSysAdmin = needsSysAdmin(prog, spec.Devices)
 	switch s.Kind {
 	case "initramfs_extra":
 		ok, why := x.bootRoomFor(deref(s.Target))
@@ -1221,12 +1222,22 @@ func (x *Executor) isolated(ctx context.Context, s *baremetal.Step, argv []strin
 	return nil
 }
 
-// needsSysAdmin: device-mapper ioctls of grub-probe on LVM or LUKS
-// (grub-install, grub-mkconfig), and vgimportdevices (10.14).
-func needsSysAdmin(prog string, argv []string) bool {
+// needsSysAdmin: the device-mapper ioctls of grub-probe (grub-install,
+// grub-mkconfig) and of vgimportdevices need CAP_SYS_ADMIN, but only when
+// a device-mapper node (LVM, LUKS) is among the devices of the step; on a
+// plain system they run without it and without /dev/mapper/control. The
+// seccomp filter still lets only read-only device-mapper commands through
+// (10.14).
+func needsSysAdmin(prog string, devices []string) bool {
 	switch prog {
 	case "grub-install", "grub2-install", "grub-mkconfig", "grub2-mkconfig", "update-grub", "vgimportdevices":
-		return true
+	default:
+		return false
+	}
+	for _, d := range devices {
+		if strings.HasPrefix(d, "/dev/dm-") || (strings.HasPrefix(d, "/dev/mapper/") && d != "/dev/mapper/control") {
+			return true
+		}
 	}
 	return false
 }

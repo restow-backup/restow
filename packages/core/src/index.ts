@@ -53,6 +53,8 @@ export * from "./pack.js";
 export * from "./pve/index.js";
 // Ransomware detection on backups: signals, signatures, baselines (docs/RANSOMWARE.md)
 export * from "./ransomware/index.js";
+// Release files, the release signature and the recovery ISO (docs/BAREMETAL.md 8.5)
+export * from "./release/index.js";
 export * from "./reports/index.js";
 // Restore engines
 export * from "./restore/index.js";

@@ -1253,6 +1253,11 @@ von `firmware.md` mit Begründung im CHANGELOG.
   `SHA256SUMS` entsprechen (nach dem Präfix `recovery/`, ohne weiteren Pfadanteil, keine
   `..`, kein `/`), `:version` ist eine gültige SemVer-Version; eigene Ratenbegrenzung
   (`RECOVERY_ISO_DOWNLOAD_LIMIT`, 10 je Stunde und Adresse).
+- **Seit der Entscheidung nach M4 (26.13)** lädt die Instanz das ISO ihres Release selbst (Worker,
+  einmal je Installation und Release, in das Datenvolume), prüft die Signatur von `SHA256SUMS`
+  selbst mit dem Release-Schlüssel des Images und liefert das ISO angemeldeten
+  Mandanten-Administratoren aus; GitHub bleibt der Ausweichlink. Neubauten des ISO gegen einen
+  neueren Debian-Snapshot kommen als Tags `recovery-v<v>.<n>` (26.13).
 - Kompatibilität: Das ISO einer Version spricht `/agent/v1/recovery` (versioniert); der
   Server nennt in der Antwort auf den Code-Tausch `minRecoveryVersion` und lehnt ein zu altes
   ISO mit klarer Meldung ab. Ein neueres ISO mit älterem Server geht, solange das
@@ -2169,16 +2174,29 @@ fremder Teile) und die NVRAM beschädigen. Darum läuft jeder dieser Schritte ü
   dm-Knoten).
 - Vor dem `exec` setzt der Helfer `PR_SET_NO_NEW_PRIVS` und entfernt aus der
   Bounding-Menge `CAP_SYS_MODULE`, `CAP_SYS_RAWIO`, `CAP_SYS_BOOT`, `CAP_SYS_PTRACE`,
-  `CAP_NET_ADMIN`, `CAP_MKNOD`, `CAP_SYS_TIME`; `CAP_SYS_ADMIN` nur für die Schritte, die
-  device-mapper-ioctls brauchen (`grub-install`/`grub-probe` auf LVM oder LUKS,
-  `grub2-mkconfig`, `vgimportdevices`), sonst ebenfalls weg. Zusätzlich ein seccomp-Filter
-  (von Hand gebautes BPF-Programm, `prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER)` als
-  Rohaufruf, kein Modul), der `mount`, `umount2`, `pivot_root`, `open_tree`, `move_mount`,
-  `fsopen`, `fsmount`, `fsconfig`, `mknod`, `mknodat`, `init_module`, `finit_module`,
-  `kexec_load`, `kexec_file_load`, `reboot`, `ptrace`, `process_vm_readv`,
-  `process_vm_writev`, `bpf`, `perf_event_open` und `unshare`/`setns` mit `EPERM`
-  beantwortet. Damit kann auch ein Schritt mit `CAP_SYS_ADMIN` weder ein `devtmpfs` mit allen
-  Platten einhängen noch Module laden oder fremde Prozesse lesen. [CI] Ob jeder der drei
+  `CAP_NET_ADMIN`, `CAP_MKNOD`, `CAP_SYS_TIME`; `CAP_SYS_ADMIN` (und `/dev/mapper/control`)
+  nur für die Schritte, die device-mapper-ioctls brauchen (`grub-install`/`grub-probe`,
+  `grub2-mkconfig`, `update-grub`, `vgimportdevices`), und nur, wenn unter den Geräten des
+  Schritts ein dm-Knoten ist (LVM oder LUKS); auf einem schlichten System ebenfalls weg.
+  Zusätzlich ein seccomp-Filter (von Hand gebautes BPF-Programm,
+  `prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER)` als Rohaufruf, kein Modul), der `mount`,
+  `umount2`, `pivot_root`, `open_tree`, `open_tree_attr`, `move_mount`, `fsopen`, `fsmount`,
+  `fsconfig`, `mknod`, `mknodat`, `init_module`, `finit_module`, `kexec_load`,
+  `kexec_file_load`, `reboot`, `ptrace`, `process_vm_readv`, `process_vm_writev`, `bpf`,
+  `perf_event_open` und `unshare`/`setns` mit `EPERM` beantwortet und jeden Systemaufruf, der
+  neuer ist als seine Tabelle (ab 467), mit `ENOSYS`, damit ein neuerer Kernel keinen
+  Einhänge-Aufruf unbemerkt durchlässt. `ioctl` prüft er nach Typ und Nummer: von
+  device-mapper nur die lesenden Befehle (`DM_VERSION`, `DM_LIST_DEVICES`, `DM_DEV_STATUS`,
+  `DM_TABLE_DEPS`, `DM_TABLE_STATUS`, `DM_LIST_VERSIONS`, `DM_GET_TARGET_VERSION`), jede
+  NVMe-Durchreichung (Typ `N`: mit `CAP_SYS_ADMIN` beliebige Admin-Befehle auf jedem
+  Namensraum) und `TIOCSTI`/`TIOCLINUX` nie; der Helfer startet zudem in einer neuen Sitzung
+  ohne steuerndes Terminal. Damit kann auch ein Schritt mit `CAP_SYS_ADMIN` weder ein
+  `devtmpfs` mit allen Platten einhängen noch eine dm-Tabelle auf eine fremde Platte
+  umlenken (eine Tabelle nennt ihr Gerät als `major:minor`, ohne Knoten in `/dev`), Module
+  laden oder fremde Prozesse lesen. Was bleibt: `DM_TABLE_STATUS` liefert den Schlüssel einer
+  dm-crypt-Zuordnung, die nicht über den Schlüsselbund verschlüsselt ist (LUKS1, plain); ein
+  Schritt ohne Netz, der nur die Zielgeräte schreiben kann, könnte ihn dort ablegen
+  (grub braucht die Tabelle linearer Zuordnungen). [CI] Ob jeder der drei
   initramfs-Erzeuger, `grub-install`, `grub2-mkconfig`, `bootctl`, `vgimportdevices`,
   `restorecon` und `kernel-install` mit dieser Menge läuft; was einer zusätzlich braucht,
   steht mit Begründung in `isolate_linux.go` und in diesem Abschnitt.
@@ -4058,7 +4076,9 @@ Teile von 10.6, 10.7 und 10.20) sind umgesetzt**, hinter
 eines Wiederherstellungscodes, 26.8, und seit M4 an den Texten "kein Bare-Metal-Restore" der Liste
 und des Enroll-Dialogs; die Wiederanbindung ist davon unabhängig). M5 und M6 sind offen; für sie
 bleibt dieses Dokument der Entwurf. Was M2 liefert und abweichend entschieden hat, steht in 26.4 bis
-26.6, für M3 in 26.7 bis 26.9, für M4 in 26.10 bis 26.12. Die Migrationen auf diesem Zweig sind
+26.6, für M3 in 26.7 bis 26.9, für M4 in 26.10 bis 26.12; die Verteilung des ISO durch die
+Instanz und die Neubauten des ISO (Entscheidung des Maintainers nach M4) stehen in 26.13 und
+26.14. Die Migrationen auf diesem Zweig sind
 0076 (M1), 0077 (M2), 0078 und 0079 (M3); die Nummern in 14.2 sind die des Entwurfs. **M4 bringt
 keine Migration** (alles passt in vorhandene Spalten: `endpoint_recoveries.verification` und
 `warnings` sind JSONB, der Zustand des ISO liegt in Dateien, der Hash-Zwischenspeicher im
@@ -4848,7 +4868,9 @@ Prüfung, jeder Hinweis mit genau seinen Platzhaltern); `check-separate-works.te
   `GET /api/v1/endpoints/capabilities` (neu, Restore-Rolle).
 - **R19 Download von der Instanz:** Der Server vergleicht die SHA-256 mit der Zeile der
   `SHA256SUMS` eines Release, das eine `.sig` hat; die Signatur prüft er nicht selbst (wie `verified`
-  seit M3). Die Route liegt in `install-routes.ts`, nicht in `recovery-iso.ts`.
+  seit M3). Die Route liegt in `install-routes.ts`, nicht in `recovery-iso.ts`. **Überholt durch
+  26.13:** Der Server prüft die Signatur jetzt selbst; die Route bleibt, dazu kommt die
+  angemeldete Route `GET /api/v1/recovery-iso/file/:file`.
 - **R20 Verweise:** Nur `agent/README.md` darf im Agenten den Pfad des Werks nennen; erlaubt sind
   zusätzlich CHANGELOG, README, docs/GLOSSARY.md und die Dateien unter `scripts/recovery-e2e/`.
 - **R21 Aufteilung:** `integrations/recovery`, `scripts/`, `.github/`, `.env.example`, `NOTICE`,
@@ -4896,6 +4918,20 @@ Prüfung, jeder Hinweis mit genau seinen Platzhaltern); `check-separate-works.te
   `sysrq-trigger`, `irq`, `bus` und `fs` nur lesend und überdeckt `kcore`, `kallsyms` und weitere
   mit `/dev/null` (10.14, nach dem Review ergänzt); geprüft im Job `agent-root` (in dieser
   Umgebung als root gelaufen).
+- **`CAP_SYS_ADMIN` und ioctl in der Isolation (nach dem Review ergänzt):** `CAP_SYS_ADMIN`
+  behalten die grub-Schritte und `vgimportdevices` nur, wenn ein dm-Knoten unter ihren Geräten
+  ist (vorher nach Programmname allein, also auch auf ext4). Seccomp lässt von device-mapper
+  nur die lesenden Befehle 0, 2, 7, 11, 12, 13 und 17 durch, verweigert jede NVMe-ioctl
+  (Typ `N`), `TIOCSTI` und `TIOCLINUX`, verweigert `open_tree_attr` (467, ab Linux 6.15: mit
+  `CAP_SYS_ADMIN` eine beschreibbare Kopie des nur lesenden `/proc/sys`, also
+  `core_pattern`) und antwortet auf jeden Aufruf ab 467 mit `ENOSYS`. Der Helfer startet mit
+  `Setsid`. Der Test im Job `agent-root` läuft mit und ohne `CAP_SYS_ADMIN` und prüft die
+  verweigerten ioctls, `open_tree_attr` mit Öffnen von `core_pattern` (ohne Schreiben) und
+  einen unbekannten Aufruf; ohne die neuen Regeln scheitert er (hier als root auf 6.18
+  gelaufen). Abweichung von R6: Mit `CAP_SYS_ADMIN` lässt dieser Kernel `/proc/1/environ` und
+  `/proc/1/auxv` des Helfers öffnen (Lesemodus); die Umgebung des Helfers ist leer, und
+  `/proc/1/mem` bleibt zu. Ohne device-mapper in dieser Umgebung ist ein echtes
+  `DM_TABLE_LOAD` nicht gelaufen; der Filter antwortet vor dem Treiber.
 - **`luks_open` mit vorhandener Zuordnung:** Gibt es `/dev/mapper/<name>` schon, nimmt der
   Ausführer sie nur, wenn sie laut sysfs (`slaves`) auf genau der Partition des Plans liegt;
   sonst bricht der Schritt mit der Zuordnung und ihrem Gerät ab. So bekommt eine gleichnamige
@@ -4932,7 +4968,8 @@ Prüfung, jeder Hinweis mit genau seinen Platzhaltern); `check-separate-works.te
   bis 40 aus 21.4, insbesondere `sign-agent.sh --iso` in einem echten Release und der Nachbau auf
   einem zweiten Docker-Host.
 - Die Startprobe in `recovery-e2e` über die Queue `endpoint-boot-probe` (M5, mit dem Labor).
-- Eine Prüfung der Signatur von `SHA256SUMS.sig` durch den Server selbst (R19).
+- ~~Eine Prüfung der Signatur von `SHA256SUMS.sig` durch den Server selbst (R19).~~ Umgesetzt in
+  26.13.
 - Ein schriftliches Angebot des Quellcodes im ISO (24.1: nur das Bündel als Anhang) und ein
   arm64-ISO (24.6).
 - **Freigabe einer SAN-LUN je Gerät (10.6):** Der Dialog von `recover` fragt nicht "SAN-LUN
@@ -4945,6 +4982,200 @@ Prüfung, jeder Hinweis mit genau seinen Platzhaltern); `check-separate-works.te
 - **Deutsche Schritttexte:** Die Begründungen der Planschritte (`steps[].reason`) kommen vom Planer
   auf Englisch und erscheinen so auch auf der deutschen Konsole und im Fortschritt der Sitzung;
   die übrigen Texte von `recover` sind de und en.
+
+### 26.13 Verteilung des ISO durch die Instanz und Neubauten (nach M4, "wie empfohlen")
+
+Entscheidung des Maintainers nach M4: Die Instanz holt das Recovery-ISO ihres eigenen Release
+selbst, prüft es wie den Agenten und liefert es lokal aus; GitHub bleibt der Ausweichlink.
+Sicherheitsupdates des Basissystems kommen als Neubau nur des ISO für ein bestehendes Release.
+Keine Migration (der Zustand liegt in Dateien im Datenvolume).
+
+**Vertrauensanker.** Es gibt keinen neuen: Der Server prüft die SSHSIG-Signatur (Namensraum
+`restow-agent-release`, Ed25519, SHA-512 oder SHA-256) über die Bytes von `SHA256SUMS` mit dem
+Release-Schlüssel, den das Image für die Installationsskripte mitbringt (`release-signing.pub`,
+`readReleaseKey`), genau wie der Agent (`agent/internal/release/sshsig.go`) und
+`verify-agent-signature.sh` (`ssh-keygen -Y verify`). Die Prüfung ist eine eigene
+TypeScript-Umsetzung in `packages/core/src/release/sshsig.ts`; ihr Test nimmt die mit
+`ssh-keygen` erzeugten Prüfdateien des Agenten (`agent/internal/release/testdata`), beide Seiten
+nehmen und verweigern also dieselben Dateien. Kein Schlüssel kommt aus dem Netz, der Datenbank
+oder einer Datei im Datenvolume. Ohne nutzbaren Schlüssel (Platzhalter eines Entwicklungsbaus)
+ist das ISO nie `verified`. `verified` heißt seitdem: Der Server hat die Signatur selbst geprüft
+(bisher nur: es gibt eine `.sig`, R19).
+
+**Welches ISO.** Das neueste signierte Release des Images (`/srv/agent/<v>/SHA256SUMS` mit
+`.sig`) legt die Version fest. Kandidaten sind das ISO des Release
+(`recovery/restow-recovery_<v>_amd64.iso` in dessen `SHA256SUMS`) und dessen Neubauten
+(unten); angeboten wird der neueste geprüfte Kandidat, von dem die Instanz eine Kopie hat, sonst
+der neueste geprüfte von GitHub. So bleibt ein schon geladenes älteres ISO lokal verfügbar, bis
+der neuere Neubau geladen und geprüft ist.
+
+**Download (Worker).** Queue `endpoint-recovery-iso` (neu, `packages/core/src/endpoints/queues.ts`,
+`stately`, 3 Wiederholungen ab 10 Minuten mit Backoff, Ablauf nach 8 Stunden): der Scheduler legt
+**einen** Job für die ganze Installation an, alle sechs Stunden (`singletonKey`,
+`singletonSeconds`), nie je Person oder Mandant. Ein Durchlauf (`fetchRecoveryIso`,
+`packages/core/src/release/recovery-iso-fetch.ts`):
+
+1. prüft die Signatur des Release im Image; scheitert sie, fragt er nichts im Netz;
+2. sucht das Repository, das das Release trägt (das öffentliche, sonst das Alpha-Repository: das
+   erste, das unter dem Tag `v<v>` `agent-SHA256SUMS` hat; fest im Code, nie aus Datenbank oder
+   Einstellungen);
+3. fragt `recovery-v<v>.1`, `.2`, … bis zur ersten fehlenden Nummer (höchstens 20 Anfragen je
+   Durchlauf; schon geprüfte werden übersprungen); ein Neubau zählt nur mit gültiger Signatur
+   und Bindung (unten) und wird dann mit Signatur unter `<store>/<v>/rebuilds/<n>/` abgelegt;
+4. lädt das neueste geprüfte ISO, wenn weder der Speicher noch ein Abgabeordner es schon hat:
+   in `<datei>.part` (mit `.part.json`, das den erwarteten Hash festhält), nach einem Abbruch mit
+   `Range` fortgesetzt (206 mit passendem `Content-Range`, 416 heißt: schon vollständig, 200
+   beginnt neu), höchstens 2 GiB (angekündigt oder tatsächlich), dann SHA-256 gegen die geprüfte
+   Zeile und erst danach `rename` auf den endgültigen Namen. Falscher Hash: Datei weg, kein
+   erneuter Versuch bis zum nächsten Durchlauf. Ältere ISOs, Teile und Ordner älterer Releases
+   werden danach entfernt (`import/` bleibt unberührt).
+
+**Platz.** Der Speicher liegt im Datenvolume neben den Sicherungen (beim lokalen Speicherziel
+`/data/chunks`). Vor dem Schreiben muss dort der Rest der Datei plus 1 GiB frei sein
+(`statfs`, `RECOVERY_ISO_MIN_FREE_BYTES`), und die 1 GiB müssen während des Downloads frei
+bleiben (geprüft mit jeder Fortschrittsmeldung, etwa alle zwei Sekunden). Sonst, und bei
+`ENOSPC`/`EDQUOT`, löscht der Durchlauf `.part` und `.part.json` und endet mit `store_full`
+(nicht vorübergehend: kein erneuter Versuch bis zum nächsten Durchlauf). Gebraucht werden die
+Größe des ISO (unter 900 MiB, höchstens 2 GiB), beim Wechsel auf einen Neubau zeitweise das
+Doppelte, weil das ältere ISO bleibt, bis das neue geprüft ist. Wer den Platz nicht hergeben will,
+setzt `RESTOW_RECOVERY_ISO_FETCH=false` (Abgabeordner bleiben möglich).
+
+**Ein Durchlauf zur Zeit, mit eigener Frist.** pg-boss lässt einen abgelaufenen Job weiterlaufen
+(`Promise.race` mit dem Ablauf) und plant schon die Wiederholung. Darum endet ein Durchlauf selbst
+30 Minuten vor dem Ablauf (`RECOVERY_ISO_PASS_TIME_LIMIT_MS`, 7,5 Stunden; ein `AbortSignal` auf
+allen Anfragen) mit `truncated` (`detail: deadline`), das Teil bleibt, die Wiederholung setzt es
+fort. Zusätzlich hält ein Durchlauf `<store>/.fetch.lock` (exklusiv angelegt mit Kennung, Rechner
+und PID, die mtime wird bei jedem Speichern des Zustands und je Neubau-Anfrage erneuert): Ist die
+Datei jünger als 15 Minuten, ändert ein zweiter Durchlauf nichts (`busy`, nur ein Protokolleintrag);
+eine ältere gehört einem verschwundenen Durchlauf und wird übernommen. So schreiben nie zwei
+Durchläufe dasselbe `.part`.
+
+Weiterleitungen (GitHub liefert Anhänge von einem anderen Host) folgen nur über https, höchstens
+fünf. Ausgehend gelten die üblichen Proxy-Variablen `HTTPS_PROXY`/`HTTP_PROXY`/`NO_PROXY` (eine
+eigene Proxy-Einstellung hat die Installation nicht): mit Proxy ein CONNECT-Tunnel, ohne Proxy
+die gesicherte Namensauflösung (`guardedLookup`), die private Adressen verweigert. Netzwerkfehler
+und abgebrochene Übertragungen sind vorübergehend (der Job wirft `RecoveryIsoRetryError`, pg-boss
+wiederholt), alles andere wartet auf den nächsten Durchlauf. Liegt das neueste geprüfte ISO schon
+vor (Speicher oder Abgabeordner), ist ein Problem beim Nachfragen (`network`, `http_status`,
+`not_published`) kein Problem des Zustands und kein Grund für eine Wiederholung: Es steht nur im
+Protokoll ("rebuilds could not be checked", Stufe info); ohne Internet ist das der Dauerzustand.
+Neben der Kopie nennt der Zustand nur einen gefundenen und verweigerten Neubau
+(`signature_invalid`, `wrong_release`, `too_large`). `RESTOW_RECOVERY_ISO_FETCH=false` schaltet
+das Laden ab (nur Abgabeordner).
+
+**Speicher und Zustand.** `RESTOW_RECOVERY_ISO_STORE_DIR`, Standard `/data/recovery-iso` im
+Volume `restow-data`, das api und worker teilen (ohne `/data` und ohne Variable: kein Speicher,
+Zustand `disabled`). `state.json` (atomar geschrieben) trägt `status` (`not_fetched`, `fetching`,
+`verified`, `failed`, `disabled`), Bytes, `problem` (`no_signed_release`, `no_key`,
+`signature_invalid`, `no_iso_line`, `wrong_release`, `not_published`, `network`, `http_status`,
+`too_large`, `truncated`, `hash_mismatch`, `store_not_writable`, `store_full`), ein kurzes `detail` (HTTP-Status,
+Fehlercode, nie eine URL mit Query) und die gefundene GitHub-Basis (nur einer der zwei bekannten
+Werte wird gelesen). Die api vertraut nichts im Speicher, weil es dort liegt: Sie wählt selbst
+aus den Dateien (`selectRecoveryIso`, dieselbe Funktion wie der Worker) und vergleicht die
+SHA-256 jeder Kopie (Zwischenspeicher je Pfad, Größe und mtime). Ein Zustand `fetching` ohne
+Meldung seit 15 Minuten gilt als `failed`/`truncated` (Worker gestoppt); ein Zustand über ein
+anderes ISO als das neueste zählt nicht.
+
+**Ohne Internet.** Abgabeordner sind `<store>/import/` (legt der Worker an) und weiterhin
+`RESTOW_RECOVERY_ISO_DIR`. Hinein kommt das ISO, für einen Neubau zusätzlich
+`recovery-SHA256SUMS` und `recovery-SHA256SUMS.sig`; es gilt dieselbe Prüfung (Signatur, Bindung,
+SHA-256), bevor es angeboten wird.
+
+**Auslieferung.** `GET /api/v1/recovery-iso` (Mandanten-Administratoren) liefert zusätzlich
+`rebuild`, `githubUrl` (Ausweichlink), `sumsUrl`, `signatureUrl` und `local` (Status, Problem,
+Bytes, Herkunft `store` oder `import`, Abgabeordner). Mit Kopie zeigt `url` auf
+`GET /api/v1/recovery-iso/file/:file` (neu, `configure()` in `provider-access.ts`): nur
+Mandanten-Administratoren, als einfache Navigation mit `?tenant=` (wie die anderen Downloads),
+nur genau die Datei, die die Installation gerade anbietet, `cache-control: private`. Die
+öffentliche Route `GET /install/recovery/:version/:file` (R19, für virtuelle Medien eines BMC)
+bleibt mit Ratenbegrenzung und liefert dieselbe Auswahl. Die Prüfbefehle nennen die
+Checksummendatei des angebotenen ISO (`agent-SHA256SUMS` bzw. `recovery-SHA256SUMS`).
+
+**Oberfläche.** Der ISO-Schritt des Assistenten zeigt die Version mit Neubau-Nummer, den Download
+(von der Instanz mit `?tenant=`), bei einer Kopie den Ausweichlink zur Release-Seite, die Links zu
+signierten Prüfsummen und Signatur und, solange der Download von der Release-Seite kommt, den
+Stand der Instanz (noch nicht geladen, lädt mit Fortschritt, fehlgeschlagen mit Grund,
+abgeschaltet) samt Abgabeordner; einen übersprungenen Neubau nennt er neben der Kopie. Die
+Herkunft sagt bei einer Kopie aus dem Abgabeordner, dass sie dort abgelegt wurde
+(`recovery.iso.source.instanceImport`), nicht, dass die Instanz sie geladen hat. Texte de und en
+(`recovery.iso.local.*`, `recovery.iso.rebuild`, `githubFallback`, `checksums`, `signature`).
+
+**Neubau nur des ISO (`recovery-v<v>.<n>`).**
+
+- **Versionsschema:** Tag `recovery-v<v>.<n>` mit n = 1 bis 999 ohne führende Null und ohne
+  Lücke; Dateien `restow-recovery_<v>.<n>_amd64.iso` und
+  `restow-recovery_<v>.<n>_FIRMWARE-LICENSES.txt`, Quellbündel `restow-recovery_<v>.<n>_sources.*`.
+  Der Updater (`parseVersion`) und `previous-release.mjs` übergehen solche Tags; das Release
+  wird nie "latest". Das ISO selbst enthält Agent und restic des Release unverändert, meldet also
+  die Version `<v>`.
+- **Workflow** `.github/workflows/recovery-rebuild.yml` (docs/CI.md "Recovery ISO rebuilds"):
+  Tag annotiert (signiert wie bei `release.yml`), `v<v>` veröffentlicht, dessen
+  `agent-SHA256SUMS` gegen den Schlüssel am Tag `v<v>` gültig und mit ISO-Zeile, der Baum des Tags
+  unterscheidet sich von `v<v>` nur in `snapshot.env` und `packages.lock` mit neuerem
+  `SNAPSHOT_TIMESTAMP`, Neubau `n-1` veröffentlicht; Agent und restic aus dem veröffentlichten
+  Image, jede Datei gegen das signierte `agent-SHA256SUMS`; zwei Bauten mit
+  `build.sh --rebuild <n>`, Image-Prüfung, alle E2E-Fälle; `recovery-SHA256SUMS` als Entwurf;
+  Signatur beim Maintainer; Veröffentlichung.
+- **Bindung an das Release:** `recovery-SHA256SUMS` hat genau zwei Zeilen,
+  `<sha256>  recovery/restow-recovery_<v>.<n>_amd64.iso` und
+  `<sha256 von agent-SHA256SUMS des Release>  release/agent-SHA256SUMS`. Die Instanz nimmt einen
+  Neubau nur, wenn die Signatur gilt, die ISO-Zeile genau `<v>.<n>` nennt **und** die zweite Zeile
+  der SHA-256 ihres eigenen signierten `SHA256SUMS` ist. Damit gilt eine Liste für genau ein
+  Release; auch das ISO eines Release `0.5.0-alpha.3.1`, dessen Name dem Neubau 1 von
+  `0.5.0-alpha.3` gleicht, wird nie als dieser Neubau genommen (`wrong_release`).
+- **Signatur:** im selben Schritt beim Maintainer wie bisher:
+  `scripts/release/sign-agent.sh recovery-v<v>.<n> --key <schlüssel> --iso <hier gebautes ISO>`
+  (`--iso` ist hier Pflicht). Das Skript verweigert jeden anderen Inhalt, prüft Release und
+  Bindung, vergleicht das ISO, signiert mit demselben Schlüssel im selben Namensraum, lädt
+  `recovery-SHA256SUMS.sig` hoch und gibt den wartenden Job frei (Umgebung
+  `agent-release-signing`). Kein Schlüssel in der CI.
+- `integrations/recovery/build.sh --rebuild <n>` (und `sources.sh --rebuild <n>`): nur die
+  Dateinamen ändern sich; `--rebuild` mit `--update-lock` wird verweigert (das Lock kommt wie
+  sonst aus der CI und wird eingecheckt).
+
+Dateien: `packages/core/src/release/` (neu: `agent-files.ts`, aus `apps/api` verschoben,
+`sshsig.ts`, `recovery-iso.ts`, `recovery-iso-fetch.ts`), `packages/core/src/endpoints/queues.ts`,
+`apps/worker/src/endpoints/recovery-iso.ts` (neu), `register.ts`, `apps/scheduler/src/endpoints.ts`,
+`apps/api/src/features/endpoints/recovery-iso.ts`, `distribution.ts`, `install-routes.ts`,
+`apps/api/src/config.ts`, `apps/api/src/lib/provider-access.ts`, `apps/web` (ISO-Schritt, Typen),
+`packages/i18n` (de, en), `integrations/recovery/build.sh`, `sources.sh`, `lib/functions.sh`,
+`test/unit.sh`, `scripts/release/sign-agent.sh`, `.github/workflows/recovery-rebuild.yml` (neu),
+`scripts/ci/license-policy.json` (der neue Workflow darf das Werk nennen), `.env.example`,
+docs/CI.md, docs/AGENT.md, agent/README.md, CHANGELOG.
+
+Tests: `sshsig.test.ts` (Prüfdateien von `ssh-keygen`: SHA-512 und SHA-256, geänderte Bytes,
+anderer Namensraum, anderer Schlüssel, kein Schlüssel, Unsinn); `recovery-iso-fetch.test.ts` gegen
+einen nachgebauten Release-Server mit Weiterleitung auf einen anderen Pfad (einmal laden, danach
+nicht wieder; falscher Hash; abgebrochener Download mit `Range` fortgesetzt; Größengrenze mit und
+ohne Längenangabe; neuester Neubau, Halt bei der ersten fehlenden Nummer, älterer Neubau ersetzt;
+falsche oder fehlende Signatur; Neubau für ein anderes Release, mit anderer Nummer, ohne oder mit
+fremder Bindung, die Namensgleichheit `0.5.0-alpha.3.1`; Alpha-Repository und nicht
+veröffentlichtes Release; keine Anfrage bei ungültiger Signatur im Image; Abgabeordner mit und
+ohne passenden Hash; kein Speicher; Proxy-Variablen und Download durch einen CONNECT-Proxy; zu
+wenig Platz vor und während des Downloads; Frist mit fortsetzbarem Teil; Sperre eines anderen
+Durchlaufs und Übernahme einer alten; unerreichbare Release-Seite neben einer Kopie). Der
+Range-Test wartet, bis die ersten Bytes auf der Platte sind, bevor der Server die Verbindung
+kappt (vorher kamen Bytes und Abbruch manchmal im selben Tick, und es wurde nichts gelesen);
+30 Läufe hintereinander ohne Fehler;
+`apps/api` `recovery-iso.test.ts` (Signaturprüfung selbst, Zustände des Workers einschließlich
+veraltetem `fetching`, Kopie im Speicher, Neubau mit seinen Links, fremde Bindung, öffentliche
+Route mit falscher Signatur); `recovery-iso.pg.test.ts` (Datei-Route für Administratoren per
+`?tenant=` und Header, 401, 403 für Mitglieder, 400 ohne Mandant, 404 für andere Bytes, andere
+Dateien und Pfade); Worker `recovery-iso.test.ts` (Wiederholung nur bei vorübergehenden Fehlern,
+keine bei unerreichbarer Release-Seite neben einer Kopie, Umgebung); Scheduler `endpoints.pg.test.ts` (ein Job je sechs Stunden); Web (Ausweichlink,
+`?tenant=`, Zustände in beiden Sprachen, Neubau, Herkunft aus dem Abgabeordner); `integrations/recovery/test/unit.sh`
+(`--rebuild`); actionlint, shellcheck.
+
+### 26.14 Zurückgestellt (26.13)
+
+- **[CI]**: der erste echte Lauf von `recovery-rebuild.yml` (braucht ein veröffentlichtes Release
+  mit ISO; die Jobs entsprechen denen von `release.yml`), `sign-agent.sh recovery-v…` gegen ein
+  echtes Release und mit echtem `ssh-keygen` (in dieser Umgebung nur mit Platzhaltern für `gh`
+  und `ssh-keygen` durchlaufen: Inhalt, Bindung, Nummer, ISO-Vergleich, fehlendes `--iso`).
+- Ein Download über einen Proxy, der selbst https spricht (`HTTPS_PROXY=https://…`), wird nicht
+  unterstützt (dann ohne Proxy); ebenso wenig eine eigene Proxy-Einstellung der Installation.
+- Die Oberfläche fragt den Zustand nicht laufend ab (5 Minuten `staleTime`); der Fortschritt
+  erscheint beim nächsten Laden.
 
 ## 27. Nur auf echter Hardware zu prüfen
 

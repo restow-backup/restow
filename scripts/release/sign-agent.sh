@@ -6,6 +6,9 @@
 #   scripts/release/sign-agent.sh --keygen <path>        create the key pair (once)
 #   scripts/release/sign-agent.sh <tag> --key <path> [--iso <path>] [--repo <owner/name>] [--yes]
 #                                                        sign the agent of a release
+#   scripts/release/sign-agent.sh recovery-v<v>.<n> --key <path> --iso <path> [--repo <owner/name>] [--yes]
+#                                                        sign a rebuild of the recovery ISO of
+#                                                        release <v> (docs/BAREMETAL.md 26.13)
 #
 #   --key <path>        the private key (default: $RESTOW_AGENT_SIGNING_KEY)
 #   --iso <path>        the recovery ISO rebuilt on this machine from <tag>
@@ -46,6 +49,23 @@
 # folder> --version <version> --out <dir>) on a Docker host of your own. Then
 # pass the ISO it wrote with --iso. A runner that produced the same tampered
 # ISO twice is caught here, because this host builds it a third time.
+#
+# Signing a rebuild of the recovery ISO (tag recovery-v<v>.<n>, the workflow
+# recovery-rebuild.yml; docs/BAREMETAL.md 26.13, docs/CI.md):
+#   1. the workflow rebuilt only the ISO of the published release v<v> against the
+#      newer Debian snapshot committed at the tag, twice, and put recovery-SHA256SUMS
+#      on the DRAFT release recovery-v<v>.<n>: the line of the ISO
+#      (recovery/restow-recovery_<v>.<n>_amd64.iso) and the line
+#      `<sha256>  release/agent-SHA256SUMS` that binds the rebuild to release v<v>;
+#   2. this script refuses any other content, checks that release v<v> is published,
+#      that its agent-SHA256SUMS carries a valid signature of the release key and has
+#      exactly the hash of the binding line, compares the ISO rebuilt here (--iso, always
+#      needed: check out the tag and run integrations/recovery/build.sh with --rebuild
+#      <n> and the linux-amd64 agent of v<v>, see docs/CI.md), signs recovery-SHA256SUMS
+#      with the same key in the same namespace, uploads recovery-SHA256SUMS.sig and
+#      approves the waiting job of recovery-rebuild.yml.
+# Instances of v<v> then take the newest rebuild whose signed list names their own
+# release; a rebuild for another release is never taken.
 #
 # Needs: gh (logged in, push rights), ssh-keygen (OpenSSH 8.1 or newer; every
 # supported macOS has it). git is used only to find the tag in a local clone.
@@ -157,6 +177,48 @@ tag_from_github() {
     die "$tag has no agent/release-signing.pub in $repo: $(gh_error)"
 }
 
+# A rebuild tag recovery-v<v>.<n>: prints "<v> <n>", or fails.
+rebuild_of_tag() {
+  rest=${1#recovery-v}
+  [ "$rest" != "$1" ] || return 1
+  number=${rest##*.}
+  version=${rest%.*}
+  printf '%s\n' "$number" | grep -Eq '^[1-9][0-9]{0,2}$' || return 1
+  printf '%s\n' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' || return 1
+  printf '%s %s\n' "$version" "$number"
+}
+
+# The checksums of a rebuild hold exactly the two lines the workflow writes; checks
+# them against release v<version> and sets $want_release (the binding hash).
+check_rebuild_sums() {
+  sums="$1"
+  version="$2"
+  number="$3"
+  name="restow-recovery_${version}.${number}_amd64.iso"
+  [ "$(grep -c . "$sums")" -eq 2 ] || die "recovery-SHA256SUMS must hold exactly two lines; not signed"
+  grep -Eq "^[0-9a-f]{64}  recovery/${name}\$" "$sums" ||
+    die "recovery-SHA256SUMS does not name recovery/$name; not signed"
+  want_release=$(sed -n 's#^\([0-9a-f]\{64\}\)  release/agent-SHA256SUMS$#\1#p' "$sums")
+  [ -n "$want_release" ] || die "recovery-SHA256SUMS does not bind the rebuild to release v$version; not signed"
+
+  draft=$(gh release view "v$version" -R "$repo" --json isDraft --jq .isDraft 2>/dev/null) ||
+    die "there is no release v$version in $repo; a rebuild belongs to a published release"
+  [ "$draft" = false ] || die "the release v$version is still a draft; sign the release first"
+  mkdir -p "$work/release"
+  gh release download "v$version" -R "$repo" --dir "$work/release" \
+    --pattern agent-SHA256SUMS --pattern agent-SHA256SUMS.sig ||
+    die "the release v$version has no signed agent-SHA256SUMS"
+  sh "$ROOT/scripts/release/verify-agent-signature.sh" "$work/release/agent-SHA256SUMS" \
+    "$work/release/agent-SHA256SUMS.sig" "$work/release-signing.pub" ||
+    die "the signature of agent-SHA256SUMS of v$version does not verify against the release key at $tag"
+  [ -n "$(iso_line "$work/release/agent-SHA256SUMS")" ] ||
+    die "the release v$version has no recovery ISO; there is nothing to rebuild"
+  have_release=$(sha256_of "$work/release/agent-SHA256SUMS")
+  echo "Release v$version: agent-SHA256SUMS $have_release (signature verified)"
+  [ "$have_release" = "$want_release" ] ||
+    die "recovery-SHA256SUMS binds to $want_release, not to agent-SHA256SUMS of v$version; not signed"
+}
+
 # The recovery ISO line of a checksum list: "<sha256> <file name>", or nothing.
 iso_line() {
   sed -n 's#^\([0-9a-fA-F]\{64\}\)[ *][ *]*recovery/\([^/ ]*\)$#\1 \2#p' "$1" | head -n 1
@@ -168,12 +230,12 @@ check_iso() {
   iso="$2"
   line=$(iso_line "$sums")
   if [ -z "$line" ]; then
-    [ -z "$iso" ] || die "--iso was given, but agent-SHA256SUMS lists no recovery ISO"
+    [ -z "$iso" ] || die "--iso was given, but $sums_name lists no recovery ISO"
     return 0
   fi
   want=$(lower "${line%% *}")
   name=${line#* }
-  [ -n "$iso" ] || die "agent-SHA256SUMS lists recovery/$name; rebuild it from the tag and pass it with --iso <path> (see --help)"
+  [ -n "$iso" ] || die "$sums_name lists recovery/$name; rebuild it from the tag and pass it with --iso <path> (see --help)"
   [ -f "$iso" ] || die "the ISO $iso does not exist"
   have=$(sha256_of "$iso")
   echo "Recovery ISO:   recovery/$name"
@@ -193,6 +255,19 @@ sign() {
   [ -f "$key" ] || die "the private key $key does not exist"
   case "$tag" in
     '' | *[!A-Za-z0-9._-]*) die "$tag is not a release tag (expected something like v1.2.3)" ;;
+  esac
+  # A release signs agent-SHA256SUMS; a rebuild of the ISO signs recovery-SHA256SUMS.
+  sums_name=agent-SHA256SUMS
+  workflow=release.yml
+  rebuild=''
+  case "$tag" in
+    recovery-v*)
+      rebuild=$(rebuild_of_tag "$tag") ||
+        die "$tag is not a rebuild tag (expected recovery-v<version>.<n>, such as recovery-v0.5.0.1)"
+      [ -n "$iso" ] || die "a rebuild is signed only with the ISO rebuilt here: --iso <path> (see --help)"
+      sums_name=recovery-SHA256SUMS
+      workflow=recovery-rebuild.yml
+      ;;
   esac
   for tool in gh ssh-keygen; do
     command -v "$tool" >/dev/null 2>&1 || die "$tool is needed"
@@ -220,12 +295,12 @@ sign() {
     die "agent/release-signing.pub at $tag is still the placeholder; commit the public key first"
 
   draft=$(gh release view "$tag" -R "$repo" --json isDraft --jq .isDraft 2>/dev/null) ||
-    die "there is no release $tag in $repo yet; wait until the agent-sums job of the release workflow created the draft"
+    die "there is no release $tag in $repo yet; wait until the workflow ($workflow) created the draft"
   [ "$draft" = true ] || die "the release $tag is already published; a published release is never signed again"
 
-  gh release download "$tag" -R "$repo" --dir "$work" --pattern agent-SHA256SUMS ||
-    die "the draft $tag has no agent-SHA256SUMS yet"
-  sums="$work/agent-SHA256SUMS"
+  gh release download "$tag" -R "$repo" --dir "$work" --pattern "$sums_name" ||
+    die "the draft $tag has no $sums_name yet"
+  sums="$work/$sums_name"
 
   if [ "$origin" = clone ]; then
     echo "Repository:     $repo (tag read from the local clone)"
@@ -234,12 +309,18 @@ sign() {
   fi
   echo "Release:        $tag ($(printf '%.7s' "$commit"))"
   echo "Release key:    $(ssh-keygen -l -f "$work/release-signing.pub" | cut -d ' ' -f 2)"
-  echo "agent-SHA256SUMS ($(wc -l <"$sums" | tr -d ' ') files, SHA-256 $(sha256_of "$sums")):"
+  echo "$sums_name ($(wc -l <"$sums" | tr -d ' ') files, SHA-256 $(sha256_of "$sums")):"
   sed 's/^/    /' "$sums"
   echo
+  if [ -n "$rebuild" ]; then
+    # shellcheck disable=SC2086 # "<version> <n>", split on purpose
+    check_rebuild_sums "$sums" $rebuild
+  fi
   check_iso "$sums" "$iso"
+  what="this agent release"
+  [ -z "$rebuild" ] || what="this rebuild of the recovery ISO"
   if [ "$yes" != yes ]; then
-    printf 'Sign this agent release with %s? [y/N] ' "$key"
+    printf 'Sign %s with %s? [y/N] ' "$what" "$key"
     read -r answer </dev/tty || answer=''
     case "$answer" in
       y | Y | yes) ;;
@@ -250,13 +331,13 @@ sign() {
   ssh-keygen -q -Y sign -f "$key" -n "$NAMESPACE" "$sums" || die "signing failed"
   sh "$ROOT/scripts/release/verify-agent-signature.sh" "$sums" "$sums.sig" "$work/release-signing.pub" ||
     die "the new signature does not verify against agent/release-signing.pub at $tag (wrong key?); nothing was uploaded"
-  gh release upload "$tag" -R "$repo" --clobber "$sums.sig" || die "uploading agent-SHA256SUMS.sig failed"
-  echo "Uploaded agent-SHA256SUMS.sig to the draft release $tag."
+  gh release upload "$tag" -R "$repo" --clobber "$sums.sig" || die "uploading $sums_name.sig failed"
+  echo "Uploaded $sums_name.sig to the draft release $tag."
 
   # Let the release workflow continue.
-  run=$(gh run list -R "$repo" --workflow release.yml --branch "$tag" --limit 1 --json databaseId --jq '.[0].databaseId' 2>/dev/null || true)
+  run=$(gh run list -R "$repo" --workflow "$workflow" --branch "$tag" --limit 1 --json databaseId --jq '.[0].databaseId' 2>/dev/null || true)
   if [ -z "$run" ] || [ "$run" = null ]; then
-    echo "No run of the release workflow for $tag was found; continue it by hand in GitHub Actions."
+    echo "No run of $workflow for $tag was found; continue it by hand in GitHub Actions."
     return 0
   fi
   pending=$(gh api "repos/$repo/actions/runs/$run/pending_deployments" --jq '[.[] | select(.environment.name == "agent-release-signing") | .environment.id] | join(",")' 2>/dev/null || true)
@@ -271,7 +352,7 @@ sign() {
   if [ "$conclusion" = failure ]; then
     gh run rerun "$run" -R "$repo" --failed && echo "Re-ran the failed jobs of run $run; the release continues." && return 0
   fi
-  echo "The release workflow (run $run) picks the signature up in its signature job."
+  echo "The workflow $workflow (run $run) picks the signature up in its signature job."
 }
 
 case "${1:-}" in
