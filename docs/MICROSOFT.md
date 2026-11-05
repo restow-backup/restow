@@ -201,6 +201,21 @@ Zustand und lässt ihn nachträglich bestätigen, bei IMAP setzt ihn die Antwort
   Sicherung keiner war (`isDraft` der Exchange-Sicherung, `\Draft` einer IMAP-Sicherung oder
   eines Imports), etwa weil Date oder From im Header fehlen, ist das Element „Nicht bestätigt“
   mit dem Grund; ist der Entwurfsstatus der Sicherung unbekannt, steht es nur als Hinweis da.
+- Größe: Graph nimmt in einer Anfrage höchstens 4 MB an (sonst 413). Base64 macht aus 3 MB MIME
+  4 MB, deshalb importiert Restow eine Nachricht nur dann in einem Stück als MIME, wenn ihr Base64
+  höchstens 3,5 MiB lang ist (`MIME_IMPORT_LIMIT_BASE64_BYTES`, also etwa 2,6 MiB MIME). Eine
+  größere Nachricht (bis 150 MB sichert die Sicherung als MIME) wird in zwei Durchgängen über die
+  Sicherung zerlegt (`packages/core/src/restore/mime-parts.ts`, mailparser, ohne einen Anhang im
+  Speicher zu halten): zuerst aus Kopf und Text als JSON angelegt (Betreff, Text oder HTML,
+  Absender, Empfänger, Antwort an, Wichtigkeit, Message-ID, `x-`-Header und die erweiterten
+  Eigenschaften für Entwurfsstatus und Daten wie unten), dann bekommt sie ihre Anhänge einzeln:
+  unter 3 MB mit einem POST, ab 3 MB über `createUploadSession` (bis 150 MB je Anhang, Fragmente
+  bis 4 MiB), eingebettete Bilder mit ihrer Content-ID (`cid:` im HTML), eine angehängte
+  Nachricht als `.eml`. Stimmen Message-ID oder Zahl der Anhänge danach nicht, ist das Element
+  „Nicht bestätigt“ mit dem Grund. Was dabei nicht zurückkommt (die Header, die Graph beim
+  Anlegen nicht nimmt, etwa Received und References, und die genaue MIME-Struktur), nennt der
+  Hinweis des Elements; die Originalbytes gibt es als EML-Download. Den Hinweis „als Download
+  (EML) wiederherstellen“ gibt es nur noch, wenn Exchange eine Anfrage wirklich ablehnt.
 - Nachricht aus dem JSON-Format anlegen (Graph hatte den MIME-Export verweigert, siehe
   „Sichern"): `POST /users/{id}/mailFolders/{fid}/messages` mit dem gesicherten JSON ohne die
   schreibgeschützten Felder (`toCreatableMessage`, `packages/core/src/graph/resources/mail.ts`).

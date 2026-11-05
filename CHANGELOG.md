@@ -520,6 +520,16 @@ private repository.
   `PidTagMessageDeliveryTime` and `PidTagClientSubmitTime` are set when it is created); if
   Exchange still shows it as a draft or with other dates, the message is "Not confirmed" with the
   reason.
+- Mail restore: no message larger than about 3 MB could be restored into a mailbox. The restore
+  sent every message as one base64 MIME upload, Graph takes at most 4 MB in one request and
+  refused it (413), and the item failed with "restore it as a download (EML) instead"; an ordinary
+  mail with a 5 MB PDF was enough. Before Graph refused it, a 100 MB message also took about
+  230 MB of memory. A message whose base64 MIME is larger than 3.5 MiB is now created from its
+  header and body, and its attachments are added one by one (from 3 MB through an upload
+  session, up to 150 MB each), with inline images and attached messages (as .eml); the backup
+  is read twice as a stream and no attachment is held in memory. What does not come back
+  (transport headers such as Received and References, the exact MIME) is said on the item; a
+  missing attachment or a different Message-ID makes it "Not confirmed".
 - Mail restore: a message that Exchange created as a draft (a MIME import whose header lacks Date
   or From, for example) counted as confirmed as soon as its Message-ID matched, although it was
   no draft in the backup and Outlook shows it as an unsent draft. The draft state of every

@@ -5,9 +5,12 @@
  *
  * Mail      MIME is POSTed base64-encoded into the target folder; flags,
  *           categories and importance are PATCHed afterwards because a MIME
- *           import does not carry them. Messages backed up as parts (Graph
- *           refused the MIME export) are created from their JSON and get their
- *           attachments back one by one. A duplicate is detected by
+ *           import does not carry them. Graph refuses a request over 4 MB, so
+ *           a MIME whose base64 is larger than MIME_IMPORT_LIMIT_BASE64_BYTES
+ *           is created from its header and body as JSON (./mime-parts.ts) and
+ *           its attachments are added one by one (upload sessions from 3 MB).
+ *           Messages backed up as parts (Graph refused the MIME export) are
+ *           created from their JSON and get their attachments back one by one. A duplicate is detected by
  *           internetMessageId in the target folder before anything is imported,
  *           against what the folder held before this run wrote to it
  *           (./duplicates.ts: two backed-up messages may share one Message-ID).
@@ -73,10 +76,12 @@ import {
 } from "../graph/resources/contacts.js";
 import {
   addFileAttachment,
+  base64Length,
   createMessageFromJson,
   createMessageFromMime,
   ensureMailFolderPath,
   findMessagesByInternetMessageId,
+  MIME_IMPORT_LIMIT_BASE64_BYTES,
   PID_TAG_CLIENT_SUBMIT_TIME,
   PID_TAG_MESSAGE_DELIVERY_TIME,
   patchMessage,
@@ -109,12 +114,19 @@ import {
 import {
   attachmentFactsOf,
   type CalendarFacts,
+  imapInternalDateOf,
   messageFlagsOf,
   messageFormatOf,
   messageIsDraftOf,
   referenceAttachmentsOf,
 } from "./conventions.js";
 import { type DuplicateSlot, MessageIdDuplicates } from "./duplicates.js";
+import {
+  forEachMimeAttachment,
+  graphMessageFromMime,
+  type MimeOutline,
+  outlineMime,
+} from "./mime-parts.js";
 import {
   describeRestoreError,
   failureCodeOf,
@@ -430,10 +442,21 @@ type AttachmentRecorder = () => void;
 /** A created message and what its create could not carry over. */
 interface ImportedMessage {
   readonly created: Message & { id: string };
+  /** Created from JSON (the JSON fallback, or a MIME too large for one request). */
+  readonly fromJson: boolean;
   /** JSON creates only: backed-up headers Graph does not take on create. */
   readonly droppedHeaders: number;
   /** JSON creates only: the times sent as extended properties, to compare with the result. */
   readonly sentTimes: { readonly received?: string; readonly sent?: string };
+  /** A MIME too large for one request: its attachments, added after the create. */
+  readonly mimeParts?: MimeOutline;
+}
+
+function withId(message: Message): Message & { id: string } {
+  if (!message.id) {
+    throw new Error("Graph created the message but returned no id");
+  }
+  return { ...message, id: message.id };
 }
 
 /** Whether two Graph timestamps name the same second. */
@@ -636,6 +659,13 @@ export class ExchangeRestoreSession {
       );
     }
 
+    if (imported.mimeParts !== undefined) {
+      problems.push(...(await this.addMimeAttachments(message, created.id, imported.mimeParts)));
+      notes.push(
+        "Exchange takes at most 4 MB in one request, so the message was created from its header and body and its attachments were added one by one; the header lines Exchange does not take (Received, References and similar) and the exact MIME stay in the backup (download it as EML for the original bytes)",
+      );
+    }
+
     const recorders: AttachmentRecorder[] = [];
     let attachmentFailures = 0;
     for (const attachment of attachments) {
@@ -660,8 +690,8 @@ export class ExchangeRestoreSession {
           : "Exchange shows the restored message as a draft",
       );
     }
-    if (isJson) {
-      this.checkJsonCreate(imported, problems, notes);
+    if (imported.fromJson) {
+      this.checkJsonCreate(imported, problems, imported.mimeParts === undefined ? notes : []);
     }
     const links = referenceAttachmentsOf(message);
     if (links.length > 0) {
@@ -727,34 +757,111 @@ export class ExchangeRestoreSession {
     isJson: boolean,
   ): Promise<ImportedMessage> {
     const { client, userId, reader } = this.o;
-    let result: Message;
-    let droppedHeaders = 0;
-    let sentTimes: ImportedMessage["sentTimes"] = {};
-    if (isJson) {
-      const { body, loss } = prepareMessageCreate(
-        (await readJsonObject(reader, message)) as Message,
-        { isDraft: messageIsDraftOf(message) },
-      );
-      droppedHeaders = loss.droppedHeaders;
-      const property = (id: string) =>
-        body.singleValueExtendedProperties?.find((entry) => entry.id === id)?.value ?? undefined;
-      sentTimes = {
-        received: property(PID_TAG_MESSAGE_DELIVERY_TIME),
-        sent: property(PID_TAG_CLIENT_SUBMIT_TIME),
-      };
-      result = await createMessageFromJson(client, userId, folderId, body);
-    } else {
-      result = await createMessageFromMime(
+    if (!isJson && base64Length(message.size) <= MIME_IMPORT_LIMIT_BASE64_BYTES) {
+      const result = await createMessageFromMime(
         client,
         userId,
         folderId,
         (await reader.readObjectToBuffer(message)).toString("base64"),
       );
+      return { created: withId(result), fromJson: false, droppedHeaders: 0, sentTimes: {} };
     }
-    if (!result.id) {
-      throw new Error("Graph created the message but returned no id");
+    // The JSON fallback, or a MIME whose base64 would exceed Graph's 4 MB
+    // request limit: created from JSON, attachments added afterwards. The
+    // MIME pass reads (and so verifies) the whole backup before the create.
+    const mimeParts = isJson ? undefined : await outlineMime(reader.objectStream(message));
+    const json = mimeParts
+      ? graphMessageFromMime(mimeParts, {
+          receivedDateTime: this.recordedReceivedTime(message),
+          isRead: messageFlagsOf(message).isRead,
+        })
+      : ((await readJsonObject(reader, message)) as Message);
+    const { body, loss } = prepareMessageCreate(json, { isDraft: messageIsDraftOf(message) });
+    const property = (id: string) =>
+      body.singleValueExtendedProperties?.find((entry) => entry.id === id)?.value ?? undefined;
+    const result = await createMessageFromJson(client, userId, folderId, body);
+    return {
+      created: withId(result),
+      fromJson: true,
+      droppedHeaders: loss.droppedHeaders,
+      sentTimes: {
+        received: property(PID_TAG_MESSAGE_DELIVERY_TIME),
+        sent: property(PID_TAG_CLIENT_SUBMIT_TIME),
+      },
+      ...(mimeParts ? { mimeParts } : {}),
+    };
+  }
+
+  /** When the backup says the message arrived: Exchange's receivedDateTime, IMAP's internal date. */
+  private recordedReceivedTime(message: ManifestObject): string | undefined {
+    const recorded = message.metadata?.receivedDateTime;
+    if (recorded !== undefined && !Number.isNaN(Date.parse(recorded))) {
+      return recorded;
     }
-    return { created: { ...result, id: result.id }, droppedHeaders, sentTimes };
+    return message.metadata?.internalDate !== undefined
+      ? imapInternalDateOf(message)?.toISOString()
+      : undefined;
+  }
+
+  /**
+   * Add the attachments of a MIME too large for one request, in a second pass
+   * over the backup: below 3 MB each in one POST, larger ones through an
+   * upload session. Returns the problems for the message's outcome.
+   */
+  private async addMimeAttachments(
+    message: ManifestObject,
+    messageGraphId: string,
+    outline: MimeOutline,
+  ): Promise<string[]> {
+    const { ctx, client, userId, reader } = this.o;
+    const failed: string[] = [];
+    let seen = 0;
+    try {
+      await forEachMimeAttachment(reader.objectStream(message), async (index, content) => {
+        seen = index + 1;
+        const facts = outline.attachments[index];
+        if (facts === undefined) {
+          failed.push(`attachment ${index + 1}: not found in the first reading of the backup`);
+          return;
+        }
+        throwIfAborted(ctx);
+        try {
+          await addFileAttachment(
+            client,
+            userId,
+            messageGraphId,
+            {
+              name: facts.name,
+              contentType: facts.contentType,
+              size: facts.size,
+              isInline: facts.isInline,
+              contentId: facts.contentId,
+            },
+            content,
+          );
+        } catch (error) {
+          if (isAbortError(error)) {
+            throw error;
+          }
+          failed.push(`${facts.name}: ${describeRestoreError(error)}`);
+        }
+      });
+    } catch (error) {
+      if (isAbortError(error)) {
+        throw error;
+      }
+      failed.push(`reading the attachments failed: ${describeRestoreError(error)}`);
+    }
+    const missing = Math.max(0, outline.attachments.length - seen);
+    const problems: string[] = [];
+    if (failed.length > 0 || missing > 0) {
+      problems.push(
+        `${failed.length + missing} of ${outline.attachments.length} attachments could not be added${
+          failed.length > 0 ? ` (${failed.join("; ")})` : ""
+        }`,
+      );
+    }
+    return problems;
   }
 
   /** Attach one backed-up attachment; the ledger entry is recorded after the message's. */

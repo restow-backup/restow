@@ -36,6 +36,9 @@ export interface FakeMessage {
   sentDateTime: string | null;
 }
 
+/** Host of the pre-authenticated attachment upload URLs. */
+const UPLOAD_HOST = "outlook.office.example";
+
 /** The time the fake stamps on an item created without its own dates. */
 export const FAKE_CREATED_AT = "2026-09-22T14:31:07Z";
 
@@ -93,6 +96,10 @@ export interface FakeContact {
 }
 
 const NOT_FOUND: FixtureResponse = { status: 404, json: graphError("ErrorItemNotFound") };
+const TOO_LARGE: FixtureResponse = {
+  status: 413,
+  json: graphError("RequestBodyTooLarge", "The request body exceeds the maximum size"),
+};
 
 function unquote(filterValue: string): string {
   const match = /^'(.*)'$/.exec(filterValue);
@@ -129,6 +136,23 @@ export class FakeMailbox {
   ignoresExtendedProperties = false;
   /** When set, MIME imports with a longer base64 body are refused with 413. */
   maxMimeBytes: number | null = null;
+  /** Graph's limit for one request body; a longer POST is refused with 413. */
+  maxRequestBytes = 4 * 1024 * 1024;
+  /** Attachments of at least this size need an upload session; a POST of one is refused. */
+  readonly minUploadSessionBytes = 3 * 1024 * 1024;
+  /** Largest attachment an upload session takes. */
+  maxAttachmentBytes = 150 * 1024 * 1024;
+  /** Open attachment upload sessions by id. */
+  private readonly uploads = new Map<
+    string,
+    {
+      messageId: string;
+      item: Record<string, unknown>;
+      size: number;
+      parts: Buffer[];
+      received: number;
+    }
+  >();
 
   constructor() {
     this.addFolder("Inbox", null, "wk-inbox");
@@ -262,11 +286,12 @@ export class FakeMailbox {
       return NOT_FOUND;
     }
     const isMime = (call.headers["content-type"] ?? "").startsWith("text/plain");
-    if (isMime && this.maxMimeBytes !== null && String(call.body).length > this.maxMimeBytes) {
-      return {
-        status: 413,
-        json: graphError("RequestBodyTooLarge", "The request body exceeds the maximum size"),
-      };
+    const length = String(call.body ?? "").length;
+    if (
+      length > this.maxRequestBytes ||
+      (isMime && this.maxMimeBytes !== null && length > this.maxMimeBytes)
+    ) {
+      return TOO_LARGE;
     }
     const json = isMime ? undefined : (call.json as Record<string, unknown>);
     if (json !== undefined && Array.isArray(json.internetMessageHeaders)) {
@@ -427,9 +452,32 @@ export class FakeMailbox {
           if (!message) {
             return NOT_FOUND;
           }
-          message.attachments.push(call.json as Record<string, unknown>);
-          return { status: 201, json: { id: this.nextId("att") } };
+          const json = call.json as Record<string, unknown>;
+          const bytes =
+            typeof json.contentBytes === "string"
+              ? Buffer.from(json.contentBytes, "base64").length
+              : 0;
+          // Graph takes an attachment of 3 MB or more only through an upload session.
+          if (
+            String(call.body ?? "").length > this.maxRequestBytes ||
+            bytes >= this.minUploadSessionBytes
+          ) {
+            return TOO_LARGE;
+          }
+          const id = this.nextId("att");
+          message.attachments.push({ id, ...json });
+          return { status: 201, json: { id } };
         },
+      },
+      {
+        method: "POST",
+        url: path(/\/users\/[^/]+\/messages\/[^/]+\/attachments\/createUploadSession$/),
+        respond: (call) => this.createUploadSession(call),
+      },
+      {
+        method: "PUT",
+        url: (url: URL) => url.hostname === UPLOAD_HOST,
+        respond: (call) => this.uploadFragment(call),
       },
       // Calendars and events.
       {
@@ -553,6 +601,81 @@ export class FakeMailbox {
         },
       },
     ];
+  }
+
+  private createUploadSession(call: RecordedCall): FixtureResponse {
+    const messageId = segment(new URL(call.url), "messages") ?? "";
+    if (!this.messages.has(messageId)) {
+      return NOT_FOUND;
+    }
+    const item = ((call.json as { AttachmentItem?: Record<string, unknown> }).AttachmentItem ??
+      {}) as Record<string, unknown>;
+    const size = typeof item.size === "number" ? item.size : -1;
+    if (size < this.minUploadSessionBytes) {
+      return {
+        status: 400,
+        json: graphError(
+          "ErrorAttachmentSizeShouldNotBeLessThanMinimumSize",
+          "Attachment size must be at least 3 MB for an upload session",
+        ),
+      };
+    }
+    if (size > this.maxAttachmentBytes) {
+      return {
+        status: 400,
+        json: graphError(
+          "ErrorAttachmentSizeShouldNotBeGreaterThanMaximumSize",
+          "Attachment size must not exceed 150 MB",
+        ),
+      };
+    }
+    const id = this.nextId("upload");
+    this.uploads.set(id, { messageId, item, size, parts: [], received: 0 });
+    return {
+      status: 201,
+      json: {
+        uploadUrl: `https://${UPLOAD_HOST}/api/gv1.0/users('x')/messages('${messageId}')/AttachmentSessions('${id}')?authtoken=fake`,
+        expirationDateTime: "2026-09-22T18:00:00Z",
+        nextExpectedRanges: ["0-"],
+      },
+    };
+  }
+
+  private uploadFragment(call: RecordedCall): FixtureResponse {
+    const id = /AttachmentSessions\('([^']+)'\)/.exec(decodeURIComponent(call.url))?.[1] ?? "";
+    const upload = this.uploads.get(id);
+    if (!upload) {
+      return NOT_FOUND;
+    }
+    const body = Buffer.from((call.body as Uint8Array | undefined) ?? new Uint8Array());
+    const range = /^bytes (\d+)-(\d+)\/(\d+)$/.exec(call.headers["content-range"] ?? "");
+    if (!range || Number(range[1]) !== upload.received || body.length > 4 * 1024 * 1024) {
+      return { status: 416, json: graphError("InvalidRange") };
+    }
+    upload.parts.push(body);
+    upload.received += body.length;
+    if (upload.received < upload.size) {
+      return { status: 200, json: { nextExpectedRanges: [`${upload.received}-`] } };
+    }
+    this.uploads.delete(id);
+    const message = this.messages.get(upload.messageId);
+    if (!message) {
+      return NOT_FOUND;
+    }
+    const attachmentId = this.nextId("att");
+    const { attachmentType: _type, ...facts } = upload.item;
+    message.attachments.push({
+      id: attachmentId,
+      "@odata.type": "#microsoft.graph.fileAttachment",
+      ...facts,
+      contentBytes: Buffer.concat(upload.parts).toString("base64"),
+    });
+    return {
+      status: 201,
+      headers: {
+        location: `https://${UPLOAD_HOST}/api/v2.0/Users('x')/Messages('${upload.messageId}')/Attachments('${attachmentId}')`,
+      },
+    };
   }
 
   private contactFolderList(parentId: string | null, url: URL): FixtureResponse {

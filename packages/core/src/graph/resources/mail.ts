@@ -821,8 +821,24 @@ export async function createMessageFromJson(
   });
 }
 
-/** Attachments up to this size are posted inline as base64 `contentBytes`. */
+/**
+ * Attachments below this size are posted inline as base64 `contentBytes`;
+ * Graph takes one of this size or larger (up to 150 MB) only through an
+ * upload session, and refuses an upload session for a smaller one.
+ */
 export const INLINE_ATTACHMENT_LIMIT_BYTES = 3 * 1024 * 1024;
+
+/**
+ * Largest base64 MIME Restow imports in one request: Graph refuses a request
+ * body over 4 MB (413), so a larger message is created without its
+ * attachments and gets them one by one (restore/exchange.ts).
+ */
+export const MIME_IMPORT_LIMIT_BASE64_BYTES = 3.5 * 1024 * 1024;
+
+/** Length of the base64 form of `bytes` bytes. */
+export function base64Length(bytes: number): number {
+  return Math.ceil(bytes / 3) * 4;
+}
 
 /**
  * Add a file attachment to an existing message: inline for small files, via an
@@ -843,7 +859,7 @@ export async function addFileAttachment(
   options: UploadOptions = {},
 ): Promise<{ id: string | undefined; location: string | undefined }> {
   const base = `${userPath(userId)}/messages/${encodeURIComponent(messageId)}/attachments`;
-  if (file.size <= INLINE_ATTACHMENT_LIMIT_BYTES) {
+  if (file.size < INLINE_ATTACHMENT_LIMIT_BYTES) {
     const bytes = await readAll(source, file.size);
     const created = await requestOk<{ id?: string }>(client, {
       method: "POST",

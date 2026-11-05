@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import type { ProtectedObjectRef } from "../engine/types.js";
 import { must } from "../graph/testing/fake-graph.js";
@@ -8,6 +9,7 @@ import {
   createSnapshotFixture,
   type FixtureObject,
   mimeMessage,
+  pseudoRandomBytes,
   restoreRequestFor,
   type SnapshotFixture,
 } from "./testing/fixtures.js";
@@ -15,6 +17,8 @@ import {
 const USER = "anna@example.org";
 const NOW = new Date(Date.UTC(2026, 8, 22, 14, 30));
 const RESTORE_FOLDER = "Restow 2026-09-22 1430";
+
+const sha256 = (bytes: Buffer): string => createHash("sha256").update(bytes).digest("hex");
 
 function engineFor(mailbox: FakeMailbox): ExchangeRestoreEngine {
   return new ExchangeRestoreEngine({ graph: () => mailbox.graph.client() });
@@ -908,6 +912,227 @@ describe("ExchangeRestoreEngine", () => {
     // Unknown draft state: said, not judged.
     expect(item("AAMk22").verified).toBe(true);
     expect(item("AAMk22").reason).toMatch(/shows the restored message as a draft/);
+  });
+
+  it("restores a MIME message larger than one Graph request with its attachments, not as a draft", async () => {
+    const pdf = pseudoRandomBytes(6 * 1024 * 1024 + 4321, 7);
+    const logo = pseudoRandomBytes(2048, 3);
+    const forwarded = mimeMessage({ messageId: "<fwd-1@example.org>", subject: "Forwarded" });
+    const base64Lines = (bytes: Buffer) => bytes.toString("base64").replace(/.{76}/g, "$&\r\n");
+    const big = [
+      "Message-ID: <report-6mb@example.org>",
+      "Date: Mon, 02 Mar 2026 08:15:30 +0100",
+      "From: Bob Example <bob@example.org>",
+      "To: Anna Example <anna@example.org>",
+      "Cc: Carla <carla@example.org>",
+      "Subject: Monatsbericht",
+      "X-Mailer: Contoso Mailer 4.2",
+      "Received: from mx.example.org by mail.example.org",
+      "MIME-Version: 1.0",
+      'Content-Type: multipart/mixed; boundary="outer"',
+      "",
+      "--outer",
+      'Content-Type: multipart/related; boundary="rel"',
+      "",
+      "--rel",
+      "Content-Type: text/html; charset=utf-8",
+      "",
+      '<p>Bericht anbei <img src="cid:logo@example.org"></p>',
+      "--rel",
+      "Content-Type: image/png",
+      "Content-Transfer-Encoding: base64",
+      "Content-ID: <logo@example.org>",
+      "Content-Disposition: inline",
+      "",
+      base64Lines(logo),
+      "--rel--",
+      "--outer",
+      'Content-Type: application/pdf; name="Bericht.pdf"',
+      "Content-Transfer-Encoding: base64",
+      'Content-Disposition: attachment; filename="Bericht.pdf"',
+      "",
+      base64Lines(pdf),
+      "--outer",
+      "Content-Type: message/rfc822",
+      'Content-Disposition: attachment; filename="Forwarded"',
+      "",
+      forwarded,
+      "--outer--",
+      "",
+    ].join("\r\n");
+    const object: FixtureObject = {
+      path: "mail/Posteingang/Monatsbericht.0030.eml",
+      type: "mail",
+      id: "AAMk30",
+      content: big,
+      metadata: {
+        messageId: "<report-6mb@example.org>",
+        folderPath: "Posteingang",
+        wellKnownFolder: "inbox",
+        format: "mime",
+        isRead: "true",
+        isDraft: "false",
+        receivedDateTime: "2026-03-02T07:15:42Z",
+      },
+    };
+    const small: FixtureObject = {
+      // 2 MB of MIME: its base64 fits one request.
+      path: "mail/Posteingang/Klein.0031.eml",
+      type: "mail",
+      id: "AAMk31",
+      content: [
+        "Message-ID: <small-2mb@example.org>",
+        "Date: Mon, 02 Mar 2026 08:15:30 +0100",
+        "From: Bob Example <bob@example.org>",
+        "Subject: Klein",
+        "MIME-Version: 1.0",
+        'Content-Type: multipart/mixed; boundary="b"',
+        "",
+        "--b",
+        "Content-Type: text/plain",
+        "",
+        "two megabytes",
+        "--b",
+        "Content-Type: application/octet-stream",
+        "Content-Transfer-Encoding: base64",
+        'Content-Disposition: attachment; filename="data.bin"',
+        "",
+        base64Lines(pseudoRandomBytes(1536 * 1024, 9)),
+        "--b--",
+        "",
+      ].join("\r\n"),
+      metadata: {
+        messageId: "<small-2mb@example.org>",
+        folderPath: "Posteingang",
+        wellKnownFolder: "inbox",
+        format: "mime",
+        isDraft: "false",
+      },
+    };
+    fixture = await createSnapshotFixture({
+      kind: "mailbox",
+      externalId: USER,
+      objects: [object, small],
+    });
+    const mailbox = new FakeMailbox();
+
+    const report = await engineFor(mailbox).run(
+      fixture.ctx,
+      restoreRequestFor(fixture, { mode: "skip" }),
+    );
+
+    expect(report.failures).toEqual([]);
+    expect(report.restored).toBe(2);
+    // No request body ever exceeded Graph's limit.
+    for (const call of mailbox.graph.calls) {
+      const length =
+        typeof call.body === "string" ? call.body.length : (call.body?.byteLength ?? 0);
+      expect(length, call.url).toBeLessThanOrEqual(4 * 1024 * 1024);
+    }
+    const restored = (id: string) =>
+      must(
+        [...mailbox.messages.values()].find((m) => m.internetMessageId === id),
+        id,
+      );
+
+    const report6 = restored("<report-6mb@example.org>");
+    expect(report6.mime).toBeUndefined();
+    expect(report6.isDraft).toBe(false);
+    expect(Date.parse(report6.receivedDateTime)).toBe(Date.parse("2026-03-02T07:15:42Z"));
+    expect(report6.json).toMatchObject({
+      subject: "Monatsbericht",
+      body: { contentType: "html", content: expect.stringContaining("cid:logo@example.org") },
+      from: { emailAddress: { address: "bob@example.org", name: "Bob Example" } },
+      toRecipients: [{ emailAddress: { address: "anna@example.org", name: "Anna Example" } }],
+      ccRecipients: [{ emailAddress: { address: "carla@example.org", name: "Carla" } }],
+      internetMessageHeaders: [{ name: "X-Mailer", value: "Contoso Mailer 4.2" }],
+    });
+    const attachments = report6.attachments.map((a) => ({
+      name: a.name,
+      contentType: a.contentType,
+      isInline: a.isInline,
+      contentId: a.contentId,
+      sha256: sha256(Buffer.from(String(a.contentBytes), "base64")),
+    }));
+    expect(attachments).toEqual([
+      {
+        name: "attachment-1",
+        contentType: "image/png",
+        isInline: true,
+        contentId: "logo@example.org",
+        sha256: sha256(logo),
+      },
+      {
+        name: "Bericht.pdf",
+        contentType: "application/pdf",
+        isInline: false,
+        contentId: undefined,
+        sha256: sha256(pdf),
+      },
+      {
+        name: "Forwarded.eml",
+        contentType: "message/rfc822",
+        isInline: false,
+        contentId: undefined,
+        sha256: sha256(Buffer.from(forwarded)),
+      },
+    ]);
+    // The PDF went through an upload session in fragments of at most 4 MiB.
+    expect(mailbox.graph.callsTo("POST", "/attachments/createUploadSession")).toHaveLength(1);
+    expect(mailbox.graph.calls.filter((call) => call.method === "PUT")).toHaveLength(2);
+    const item = must(report.items.find((entry) => entry.id === "AAMk30"));
+    expect(item.verified).toBe(true);
+    expect(item.reason).toMatch(/at most 4 MB in one request/);
+
+    // A message below the limit is still imported as MIME, byte for byte.
+    expect(restored("<small-2mb@example.org>").mime).toBe(must(small.content).toString());
+  });
+
+  it("reports the attachments of a large MIME message that Exchange refuses", async () => {
+    const huge = pseudoRandomBytes(5 * 1024 * 1024, 11);
+    const object: FixtureObject = {
+      path: "mail/Posteingang/Huge.0032.eml",
+      type: "mail",
+      id: "AAMk32",
+      content: [
+        "Message-ID: <huge@example.org>",
+        "Date: Mon, 02 Mar 2026 08:15:30 +0100",
+        "From: Bob Example <bob@example.org>",
+        "Subject: Huge",
+        'Content-Type: multipart/mixed; boundary="b"',
+        "",
+        "--b",
+        "Content-Type: text/plain",
+        "",
+        "see attachment",
+        "--b",
+        "Content-Type: application/octet-stream",
+        "Content-Transfer-Encoding: base64",
+        'Content-Disposition: attachment; filename="huge.bin"',
+        "",
+        huge.toString("base64"),
+        "--b--",
+        "",
+      ].join("\r\n"),
+      metadata: {
+        messageId: "<huge@example.org>",
+        format: "mime",
+        folderPath: "Posteingang",
+        wellKnownFolder: "inbox",
+      },
+    };
+    fixture = await createSnapshotFixture({ kind: "mailbox", externalId: USER, objects: [object] });
+    const mailbox = new FakeMailbox();
+    mailbox.maxAttachmentBytes = 4 * 1024 * 1024;
+
+    const report = await engineFor(mailbox).run(
+      fixture.ctx,
+      restoreRequestFor(fixture, { mode: "skip" }),
+    );
+
+    const item = must(report.items[0]);
+    expect(item).toMatchObject({ status: "restored", verified: false });
+    expect(item.reason).toMatch(/1 of 1 attachments could not be added \(huge\.bin: /);
   });
 
   it("explains a message Graph refuses as too large", async () => {
