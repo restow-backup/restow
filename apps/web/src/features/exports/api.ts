@@ -76,6 +76,10 @@ export interface ExportReport {
   skipped: { calendar: number; contacts: number; other: number };
   /** Messages that could not be exported, capped by the API. */
   items: { ref: string; reason: string }[];
+  /** Mails in the file without parts the backup does not hold (absent from older APIs). */
+  incomplete?: number;
+  /** Those mails with the reason, capped by the API. */
+  incompleteItems?: { ref: string; reason: string }[];
 }
 
 export interface ExportFailure {

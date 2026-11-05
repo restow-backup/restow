@@ -503,6 +503,10 @@ export function createExportHandler(options: ExportHandlerOptions = {}): JobHand
         recorder.phase("writing");
         const failures: { ref: string; reason: string }[] = [];
         let failedCount = 0;
+        // Written, but without parts the backup does not hold (a group post without its
+        // attachments): in the file, yet never reported as a clean copy.
+        const incomplete: { ref: string; reason: string }[] = [];
+        let incompleteCount = 0;
         const writerOptions: mailfiles.ExportOptions = {
           signal: ctx.signal,
           extraFolders,
@@ -510,6 +514,12 @@ export function createExportHandler(options: ExportHandlerOptions = {}): JobHand
           onEntry: (entry) => {
             if (entry.status === "added") {
               ctx.progress.advance(1, entry.bytes);
+              if (entry.incomplete !== undefined) {
+                incompleteCount++;
+                if (incomplete.length < MAX_REPORT_ITEMS) {
+                  incomplete.push({ ref: entry.name, reason: entry.incomplete });
+                }
+              }
               return;
             }
             failedCount++;
@@ -572,12 +582,14 @@ export function createExportHandler(options: ExportHandlerOptions = {}): JobHand
           folders: counts.folders,
           bytes: summary.bytes,
           failed: failedCount,
+          incomplete: incompleteCount,
           skipped: {
             calendar: counts.calendar,
             contacts: counts.contacts,
             other: counts.other,
           },
           items: failures,
+          incompleteItems: incomplete,
         };
         const recorded = await store.persistResult(row.id, {
           fileName,
@@ -599,10 +611,23 @@ export function createExportHandler(options: ExportHandlerOptions = {}): JobHand
           sha256: file.sha256,
           messages: summary.messages,
           failed: failedCount,
+          incomplete: incompleteCount,
           expiresAt: expiresAt.toISOString(),
         });
-        logger.info("export finished", { fileName, size: file.size, messages: summary.messages });
-        return { summary: { messages: summary.messages, failed: failedCount, bytes: file.size } };
+        logger.info("export finished", {
+          fileName,
+          size: file.size,
+          messages: summary.messages,
+          incomplete: incompleteCount,
+        });
+        return {
+          summary: {
+            messages: summary.messages,
+            failed: failedCount,
+            incomplete: incompleteCount,
+            bytes: file.size,
+          },
+        };
       };
       try {
         return await execute();

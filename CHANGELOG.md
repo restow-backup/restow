@@ -620,7 +620,11 @@ private repository.
   confirmed, and the restore explorer showed it like any other post, although its files were
   never backed up. Such a post is now "Not confirmed" with the attachments it lacks, and the
   explorer shows "Not all attachments backed up" on it, naming both causes (Microsoft did not
-  hand them out, or they are link or item attachments the backup does not hold).
+  hand them out, or they are link or item attachments the backup does not hold). An EML ZIP or
+  MBOX export of such posts reported every one of them as exported and finished clean; they are
+  now listed with the status `incomplete` and the reason in `MANIFEST.csv`, counted and named
+  on the export page ("Mails without all their attachments"), and the export shows "Completed
+  with issues".
 - Restore job page: the explanation of a skipped item did not always fit. An event attachment
   read "Belongs to a message that was not restored", also when its event was skipped because the
   calendar already had it; an attachment inside a restored message's MIME, a Gmail message under

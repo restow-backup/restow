@@ -7,13 +7,15 @@ import { statusKey, statusTone } from "@/features/exports/lib/exports";
 
 /**
  * The status of an export, including "completed with issues" when messages
- * failed. A running export also gets the shared `ActivityOrb`, `decorative`
+ * failed or are in the file without all their parts. A running export also gets the shared `ActivityOrb`, `decorative`
  * because the badge text ("Running") already names the activity.
  */
 export function ExportStatusBadge({
   item,
 }: {
-  item: Pick<MailExport, "status" | "progress"> & { report?: { failed: number } | null };
+  item: Pick<MailExport, "status" | "progress"> & {
+    report?: { failed: number; incomplete?: number } | null;
+  };
 }) {
   const { t } = useTranslation("exports");
   return (

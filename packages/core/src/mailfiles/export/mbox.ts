@@ -136,7 +136,13 @@ export function createMbox(
         await writeMboxMessage(opened, message, write);
         scope.release(opened.source);
         const streamed = opened.result();
-        record({ name, status: "added", sha256: streamed.sha256, bytes: streamed.bytes });
+        record({
+          name,
+          status: "added",
+          sha256: streamed.sha256,
+          bytes: streamed.bytes,
+          ...(message.incomplete !== undefined ? { incomplete: message.incomplete } : {}),
+        });
       }
       finished = true;
       out.end();
@@ -296,7 +302,13 @@ export function createMboxZip(
         scope.release(opened.source);
         file.count++;
         const streamed = opened.result();
-        record({ name, status: "added", sha256: streamed.sha256, bytes: streamed.bytes });
+        record({
+          name,
+          status: "added",
+          sha256: streamed.sha256,
+          bytes: streamed.bytes,
+          ...(message.incomplete !== undefined ? { incomplete: message.incomplete } : {}),
+        });
       }
       if (current !== null) {
         await closeFile(current);
