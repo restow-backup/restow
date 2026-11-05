@@ -36,9 +36,22 @@ PVE node                                                 Restow instance
   over the directory PVE prepares, into one restic repository per guest
   (`pve-guests/<guest id>/` in the tenant's primary storage target). The node
   gets a credential per run that expires with the run and only adds data.
-  The `lost+found` at the root of the container and of each mount point is left
-  out (on ext4 it belongs to the host's root, which an unprivileged container's
-  ID map does not include). When restic cannot read some files (exit code 3),
+  The `lost+found` at the root of the container and of each mount point it
+  backs up (a volume with `backup=1`, in every backup mode) is left out (on ext4
+  it belongs to the host's root, which an unprivileged container's ID map does
+  not include). In snapshot mode restic reads PVE's snapshot mount
+  (`/mnt/vzsnap0`). In suspend and stop mode, PVE's fallback on storage without
+  snapshots (dir, NFS, CIFS, thick LVM), it hands over a copy in a folder that
+  is new on every run (`/var/tmp/vzdumptmp<pid>_<vmid>`); `restow-pve` mounts it
+  onto `/run/restow-pve/ctroot-<vmid>` in a mount namespace only restic sees, so
+  restic finds the last backup as its parent, and compares the copy's files by
+  size and modification time (`--ignore-inode --ignore-ctime`). Where PVE's
+  user namespace may not make a mount namespace, the task log says so and
+  restic reads the whole copy every time, as before. restic keeps its cache per
+  container in `/var/cache/restow-pve/ct-<vmid>` (owned by the uid the backup
+  runs as), so a backup does not download the repository's index again; with
+  less than 1 GB free there it runs without a cache.
+  When restic cannot read some files (exit code 3),
   the restore point is kept; the run records how many there were and the
   first of them. VMs & containers then shows "Last backup incomplete" instead
   of "succeeded", the restore point carries "N items not readable", and the
@@ -189,18 +202,32 @@ unique per installation).
   drops them.
 - **Backups started in PVE** (the PVE UI or a PVE backup job onto the Restow
   storage) work the same way and show up as runs started in PVE.
+- **One vzdump at a time per node.** vzdump holds one lock per node for all its
+  backups and waits for it up to `lockwait` (3 hours by default). A Restow
+  backup that starts while a PVE backup job runs on the node waits for it; the
+  node's log says "waiting for another backup on node ...", the run's log says
+  from when it waited, and a lock timeout fails with a message that names the
+  other job. Keep the schedules of Restow jobs and PVE backup jobs apart.
+- **A guest that migrated** between two inventories is not backed up on its old
+  node: vzdump starts nothing there, and the task fails with "guest 101 now
+  runs on node pve2; Restow backs it up there after the next inventory" (the
+  node sends its inventory at once).
 - **Incremental or not.** A VM's dirty bitmap lives in QEMU's memory. After a
   VM stop and start, a `stop` mode backup, a disk resize or move, or a backup of
   a powered-off VM (PVE starts it paused), the whole disk is read again; only
   changed blocks are uploaded all the same. Every 30th backup of a disk is a
   full read on purpose (verify read). The guest list shows "Incremental" or
   "Full read".
-- **Retention** runs on the server only. PVE's "remove" and prune are refused
-  by the plugin. Pruning a restore point releases exactly the chunk references
-  it holds; the storage check's garbage collection reclaims the chunks later.
-  Retention leaves a guest alone while a run of it is going (a backup, a
-  restore, a check, a boot test) or its node took on a backup of it, and tries
-  again in a later pass.
+- **Retention** runs on the server only. Removing a restore point in PVE is
+  refused by the plugin. PVE's prune (the Retention tab of a PVE backup job onto
+  the Restow storage, `pvesm prune-backups`, the storage's Prune dialog) prunes
+  nothing: the plugin lists no backups and logs "restow: retention is managed in
+  Restow; PVE's retention settings are ignored", so such a job stays OK instead
+  of failing each guest after its restore point was committed. Pruning a
+  restore point releases exactly the chunk references it holds; the storage
+  check's garbage collection reclaims the chunks later. Retention leaves a guest
+  alone while a run of it is going (a backup, a restore, a check, a boot test)
+  or its node took on a backup of it, and tries again in a later pass.
 - **A container's repository** is compared with the guest's restore points
   (since 0.5.0): after a restore point was pruned, and at least once a day. The
   worker lists the restic snapshots (`restic snapshots`) and forgets, then
@@ -317,6 +344,31 @@ unique per installation).
   "Succeeded with warnings". The commit records the state; the task log, sent
   after it, completes a state the commit could not read (`unknown`) and adds
   its warnings, but never replaces a recorded state.
+- **Notifications of vzdump.** From PVE 8.1 on, vzdump sends a notification
+  after every backup (also a successful one) through PVE's notification system,
+  which mails root@pam by default. Restow reports every outcome itself, so on
+  PVE 8.1 and newer restow-pve starts vzdump with
+  `notification-mode=legacy-sendmail` and no `mailto`: PVE sends nothing for a
+  backup Restow started. A `mailto` in `/etc/vzdump.conf` still gets its mail
+  (the admin's own choice). Backups started in PVE (a PVE backup job, the PVE
+  UI) notify as that job says. Should a PVE version refuse the parameter,
+  restow-pve starts the backup again without it (the backup does not fail for
+  it) and PVE notifies as before; please report that version. To silence
+  successful backups on such a version, let the matcher that mails root@pam
+  (by default `default-matcher` in `/etc/pve/notifications.cfg`, Datacenter >
+  Notifications) leave them out:
+
+  ```
+  matcher: default-matcher
+          mode all
+          match-field exact:type=vzdump
+          match-severity info
+          invert-match 1
+          target mail-to-root
+  ```
+
+  This drops the mails of every successful backup on the cluster, also those of
+  PVE backup jobs; failed backups are still mailed.
 - **Boot test** (off by default): weekly, or after every backup, the guest's
   node boots the newest restore point in isolation and destroys it again; see
   "Boot test" below.
@@ -377,9 +429,21 @@ with the operate permission). Every stop asks first and is audited
   (`cancel.tasks`, `cancel.runs`). A backup Restow asked for: the node stops its
   vzdump task through the PVE API (`DELETE /nodes/{node}/tasks/{upid}`); vzdump
   ends the guest, removes its snapshot and the fleecing image. A backup started
-  in PVE (a PVE backup job of several guests): the node ends the provider of that
-  guest with SIGTERM, so vzdump goes on with the other guests; when no provider
-  of it runs, it stops a vzdump task that backs up this guest alone.
+  in PVE (a PVE backup job of one or several guests): the node ends the provider
+  of that guest with SIGTERM, so vzdump goes on with the other guests. A VM's
+  provider records itself in `/run/restow-pve/providers/<vmid>.pid`; a container's
+  provider runs as the mapped container root and records itself in its run folder
+  (`/run/restow-pve/run-<id>/provider-<vmid>.pid`, prepared by root), and counts
+  only while it holds that guest's backup open. The node stops a vzdump task
+  itself only when it is its own: stopping the task of a PVE backup job (root@pam)
+  needs `Sys.Modify`, which the node's token does not hold. When no provider is
+  found, the log says that the backup ends at its next upload, which the server
+  refuses (below). A restore or restore check that runs (also one the node waits
+  for again after a restart) has its restore task stopped: as the node's token,
+  or as root (`pvesh`) for a VM restored as root; a check then removes its
+  guest. A stopped
+  provider asks restic to stop with SIGINT (killed after 15 seconds), so restic
+  removes its lock from the container's repository.
 - **Older nodes.** The server refuses every upload of a cancelled run (blocks,
   commit, restic), so a node before 0.4.2 ends the backup at its next call.
   The restic credential of a cancelled or ended run still opens the repository
@@ -412,8 +476,21 @@ API: `POST /api/v1/pve/guests/:id/cancel`, `POST /api/v1/pve/nodes/:id/queue/pau
 ## Updates of the node
 
 restow-pve looks for a newer signed release by itself (two minutes after it
-starts, then every six hours) and installs it only while no backup or restore
-runs on the node. Since 0.4.2 the server can also ask for it now:
+starts, then every six hours) and installs it only while nothing works on the
+node: no task of the service runs or waits (a backup, a restore, a restore check,
+a boot test), no `vzdump` task of PVE runs, and no backup or restore of PVE is
+open. Only live work counts: an open backup (its job file in
+`/run/restow-pve/jobs` with a running provider of that guest, or while a vzdump
+task runs on the node, whose worker process PVE names `task UPID:...:vzdump:...`)
+or a restore server that serves a VM disk (`/run/restow-pve/restore/<key>.pid`
+naming a running `restow-pve serve-restore`). Logs, sockets and pid files a
+finished or interrupted restore left behind do not count, nor does the job file
+of a backup whose provider was killed or whose node crashed (it is deleted after
+two days); boot tests use the same check.
+From that check until the restart the service starts no task (a task handed out
+meanwhile runs after the restart, or right away when the update fails). An offer
+that waited for work is tried again after 15 minutes, not six hours.
+Since 0.4.2 the server can also ask for it now:
 
 - **Update now** on the node (nodes table, next to the version, when a newer
   release is offered): the heartbeat says `update.now`, and the node installs the
@@ -449,7 +526,8 @@ Guests count everywhere the mailboxes and the machines do, by one rule
 - **Readiness** is the restore check and the boot test of the newest restore
   point (`pveRestorePointRating`, packages/core/src/pve/boot-test.ts): red when
   either failed; by a boot test green only when the restored guest's QEMU guest
-  agent answered (a container: its init runs), yellow when the VM only started;
+  agent answered (a container: systemd reports the system running), yellow when
+  the guest only started;
   without a boot test the read-back decides (green when the sample matched);
   unverified until a check ran, no backup without a restore point. The readiness
   row says which check decided.
@@ -560,32 +638,148 @@ by hand, it is backed up like any other guest. Restores started from the PVE UI
 (storage `restow` > Backups > Restore) work through the same plugin, with the
 admin's own PVE permissions.
 
-IP addresses stay the same: those in the guest's configuration and those set
-inside the guest. Only the MAC addresses are new (PVE regenerates them for a
-restore into a new guest). Before you start the copy next to the original,
-change its addresses or keep it off the network; the dialog says so.
+**Start after restore** never asks PVE for `start=1` (PVE would start the guest in a task of
+its own, whose failure the restore does not show, and the start needs `VM.PowerMgmt`). After a
+successful restore the node starts the copy as root (`qm start` / `pct start`) and waits up to a
+minute until it runs; the result says `started: true`, or `started: false` with the error
+(`startError`), and the restore stays successful. The copy is not started, with the reason
+(`startSkipped`), when the restore left mount points out (`omitted_mounts`), when it has the
+original's host devices (`host_devices`), or when its configuration has a static IP and its
+original runs in the cluster or its state cannot be read (`static_ip`): a container's `ip=` /
+`ip6=` ("the original CT 113 runs with 192.168.1.20; change the IP, then start it"), a VM's
+cloud-init `ipconfigN` with `ip=` / `ip6=` ("the original VM 114 runs with 10.0.0.5; change the
+IP (cloud-init ipconfig), then start it"). An address set inside the guest (its own network
+configuration, not cloud-init) cannot be seen from the node: such a copy is started, and its
+address clashes with the running original's.
+
+The restored guest gets new MAC addresses (PVE's `unique=1`, for VMs and containers); a
+container does not start with its node (`onboot 0`, the result says so when the original did).
+IP addresses stay the same, in the configuration (a container's `ip=`, a VM's `ipconfigN`) and
+inside the guest: change them, or keep the copy off the network, before it runs beside the
+original; the restore dialog says so.
+
+A VM whose configuration holds what PVE restores only for root@pam is restored as root with
+`qmrestore <storage>:backup/<volume> <vmid> --storage <target> --unique 1 --pool
+restow-restore` (never `--force`, never `--start`): PCI passthrough (`hostpciN`, also a mapped
+one: a mapping needs `Mapping.Use`, which the node's token does not hold), USB host and mapped
+devices (`usbN`, not `spice`), `virtiofsN`, serial and parallel ports on host devices, raw
+`args` and a hook script. The node's API token restores everything else; no role is widened. The
+result says so (`restoredAsRoot`); a copy restored with host devices (`keptDevices`: they are the
+original's, which may use them now) is never started by the restore: check them before you
+start it. Restore tests and boot tests of such a VM take the same way; a boot test removes the
+devices before the start.
+
+A container is restored with its rootfs and its volume mount points named explicitly (the same
+options, each a new volume on the target storage) and without its bind and device mount points
+(`mp0: /mnt/paperless,mp=/data`, `mp1: /dev/sdb1,mp=...`): PVE restores those only for root@pam,
+not for the node's API token, and their data lives on the host, not in the backup. restow-pve
+does not restore such a container as root instead: the copy would get the original's bind
+mounts and, once started, write into the original's live data. The result names the left-out
+mount points (`omittedMounts`) with the commands to put them back as root
+(`pct set <vmid> -mp0 /mnt/paperless,mp=/data`); a bind mount point put back shares the
+original's live data, and on another node the host path may not exist. Such a copy is never
+started by the restore. A volume without a size (`size=0`, a ZFS or directory subvolume
+without a quota) is restored as such where the target storage has subvolumes (zfspool, dir,
+btrfs); elsewhere it gets the size the restore point recorded, else the restore point's size
+and a fifth; with nothing to size it the restore fails before it starts and names the storage
+type. Restow does not restore a restore point of a privileged container (see "Known limits");
+should a node be given one anyway, it restores it unprivileged (`madeUnprivileged` in the
+result).
+
+A container restore (also a restore check, a boot test and a restore from the PVE UI) unpacks
+the restore point with `restic restore --sparse` into a folder of its own below the restore
+folder, `/var/tmp/restow-pve` by default, from which PVE copies it into the new volumes; the
+folder goes when the restore ends. That folder lies on the node's root file system unless
+`restow-pve config --restore-tmp <folder on a data storage>` names another, and it needs the
+whole container once. Before restic starts the node checks it: the restore point's size and a
+tenth must fit, and 5% of the file system stay free; otherwise the restore fails at once with
+"The temporary folder ... has X GB free, the restore needs about Y GB; set restow-pve config
+--restore-tmp ...". An unknown size (a server before 0.5.0) or free space is not checked.
+`restow-pve diagnose` shows the folder, its free space and whether it is on the root file
+system. Every restore gets its own folder (`ct-<hash>-<random>`, the PVE worker that restores
+recorded in it), so two restores of one restore point (a boot test beside a restore from the
+PVE UI) never touch each other's tree; one whose worker is gone (a crash, a stopped task) is
+removed by the next container restore. restic waits up to 15 minutes for the lock the server
+holds while it checks or prunes the repository (typically right after a backup); after that the
+restore says "the Restow server is checking or pruning this container's repository; try again
+in a few minutes". A container restore counts as running work for the self-update and boot
+tests.
+
+A restore task that PVE ends with `WARNINGS: n` ran to its end and warned beside it: Restow
+shows "Restored with warnings" (amber) with the warning lines, never a plain success and never
+a failure. The usual cause is a container with raw `lxc.*` lines (GPU or Coral passthrough with
+`lxc.cgroup2.devices.allow` and `lxc.mount.entry`, `/dev/net/tun` for Docker or Tailscale, a
+custom `lxc.idmap`): PVE restores those only for root@pam and skips them for the node's API
+token. The result names the skipped lines (`skippedLxc`); add them to the restored container as
+root (`/etc/pve/lxc/<vmid>.conf`). With a custom `lxc.idmap` the restored container uses the
+default map, so files owned by ids outside it cannot be unpacked; the failed restore says so.
 
 A restore is green only when it ran to `OK` with nothing to report. It is amber
 when it did, but left something to do, and the run on the guest's page lists
 it with what to do:
 
-- **Restored without N mount points**: bind and device mount points are not in
-  a PVE backup and only root@pam may set them, so the copy has none. The run
-  names the lines (`mp0: /mnt/paperless,mp=/data`) and the `pct set` commands
-  that put them back as root. A bind mount point put back shares the
-  original's live data: never run both on the same data. On another node the
-  host path may not exist.
+- **Restored without N mount points**: the bind and device mount points left
+  out (above). The run names the lines (`mp0: /mnt/paperless,mp=/data`) and the
+  `pct set` commands that put them back as root.
 - **Restored with warnings**: the restore task ended `WARNINGS: n` (its warning
   lines), PVE skipped raw `lxc.*` options for the node's token (add them as
   root; a custom `lxc.idmap` among them means the copy uses the default map),
   or the copy uses the same host devices (PCI, USB) as the original (check them
   before both run).
 - **Restored, not started**: "Start after the restore" was asked for, but the
-  copy did not start (the run says why).
+  copy did not start (the run says why: `startError` or `startSkipped`).
 
-A copy restored unprivileged from a privileged container, and one that no
-longer starts with its node (`onboot=0`), say so in the run as well, without
+A copy restored unprivileged from a privileged container, and a container that
+no longer starts with its node (`onboot=0`), say so in the run as well, without
 turning it amber.
+
+### Temporary guests of restore tests and boot tests
+
+The monthly restore test of a backup job (`restoreTest`) and a boot test restore into the pool
+`restow-restore` and remove the guest again. Both share one lifecycle on the node:
+
+- **Marker before the restore.** `/var/lib/restow-pve/tempguests/<vmid>.json` records the
+  VMID, the kind, the purpose, the start time, then the UPID of the restore task and the
+  guest's creation time. It survives a crash or a reboot of the node.
+- **Tag and name right after the restore.** A restore test's guest becomes
+  `restow-restorecheck-<vmid of the original>` with the tag `restow-restorecheck`, `onboot 0`
+  and `protection 0` (a container gets the name already with the restore); a boot test's guest
+  `restow-boottest-<vmid>` with the tag `restow-boottest` (step 4 of the boot test).
+- **Removal only with proof.** A guest is removed only when it is on this node and carries the
+  tag and the name of a temporary guest in `restow-restore`, or its marker's restore task still
+  runs for it, or it has the creation time (a container: the name) the marker recorded. A guest
+  in the pool without that proof is never touched (real restores land there too; a VMID may
+  have been given to another guest since): its marker is dropped and the log says why. When
+  PVE cannot be asked (the node boots, pveproxy restarts, an API error), that proves nothing
+  either way: the guest is not touched, its marker stays, and the service tries again.
+- **Removal in every case.** Also after a failed restore, a restore with warnings, a wait that
+  ended or a cancelled test: a restore task that still runs is stopped first (and waited for, at
+  most two minutes), then `qm|pct unlock`, `set --protection 0`, `stop`, and `qm destroy --purge
+  1 --destroy-unreferenced-disks 1 --skiplock 1` or `pct destroy --purge 1
+  --destroy-unreferenced-disks 1 --force 1`, as root. The node's token stops its own restore
+  tasks through the API; a restore task of root@pam (a VM restored as root with `qmrestore`)
+  needs `Sys.Modify`, which the token does not hold, so the node stops it as root with `pvesh
+  delete /nodes/<node>/tasks/<upid>`. While the task's state is unknown or it cannot be stopped,
+  nothing is destroyed under it: the guest stays and is tried again. A removal counts only when
+  the guest's configuration is gone afterwards: a restore test then reports `deleted: true`,
+  else `deleted: false` with `leftoverVmid`, and the marker stays.
+- **Tried again until gone.** Leftovers are removed when the service starts and before every
+  boot test; one that could not be decided or removed then is tried again between tasks, after
+  a minute and then less often (at most every 30 minutes), until it is gone.
+- **Not in the inventory.** The node leaves these guests out of the inventory it sends: those
+  tagged and named so, and those in `restow-restore` with the tag, the name or a marker of the
+  node (a restore still running). They are no guests of a job, never count as unprotected and
+  never take over the row of a deleted guest whose VMID they got. A real restore in
+  `restow-restore` has none of them and is reported.
+- **Leftovers** go when the service starts (also when boot tests or restores are switched off
+  on the node since) and before every boot test: the guests of the markers, and every guest of
+  this node in `restow-restore` with the tag and name of a temporary guest. A restore test the
+  service waits for again after a restart (PVE-PROTOCOL.md, "Task results") keeps its guest
+  until it ends.
+- **A VMID taken meanwhile** (two restores that got the same VMID from `/cluster/nextid`) is
+  asked for again, up to three times; the other guest is never touched. A restore PVE did not
+  run (a VMID taken, a refused call, a mount point that could not be planned) makes a boot test
+  end with an error, never red.
 
 ### Files of a container
 
@@ -655,7 +849,14 @@ folder list and ZIP download as for a container; the same routes, roles and audi
   systems through the QEMU guest agent (then it is consistent). ext journals are replayed in
   memory; the XFS log and NTFS's `$LogFile` are not, so a crash-consistent XFS or NTFS restore
   point can lack the last seconds of writes, or show a damaged folder that a mount (with log
-  replay) would have repaired. Restore the whole VM for that.
+  replay) would have repaired. Restore the whole VM for that. Which case applies is read from
+  vzdump's log of the backup and recorded with the restore point (`vmConsistency`):
+  `frozen` (fs-freeze and thaw issued), `stopped` (the guest did not run), `no_agent` (the agent
+  is configured but did not answer), `crash_consistent` (no agent enabled, or the freeze
+  switched off in its options), `freeze_failed` (the freeze was issued and failed, for example
+  a VSS writer error in Windows; a warning in the task log as well) or `unknown` (the log says
+  nothing about it; never taken for either). A freeze whose thaw failed or was never logged is
+  a warning: check that the guest can write.
 
 #### Threat model of the VM file restore
 
@@ -681,7 +882,46 @@ the first; it needs KVM on the Restow server and is not part of this release.
 
 **Without Restow:** `restow-restore` (packages/cli) writes a VM restore point's
 disks as sparse raw images (`disks/<device>.raw`) from the storage target and
-the master key alone. Container restore points are plain restic repositories.
+the master key alone.
+
+A container restore point is a restic snapshot in the guest's repository
+(`pve-guests/<guest id>/` of the tenant's primary target), with the repository
+password next to it in `restow-repository-password.json`, sealed with the
+tenant key as for machines. `restow-restore endpoint-password` opens only the
+passwords under `endpoints/` in this release, not those of containers. What the
+snapshot holds and what it does not:
+
+- **Files only.** The snapshot is the container's root file system and its
+  volume mount points with `backup=1`, as the container sees them. Its `pct`
+  configuration and its firewall configuration are not in the snapshot: they
+  go to the Restow server with the commit and are kept there with the restore
+  point (PVE's "Show configuration" reads them from there). Without the Restow
+  server take them from `/etc/pve/lxc/<vmid>.conf` and
+  `/etc/pve/firewall/<vmid>.fw` of the cluster, if the original still exists,
+  or from your own copy of `/etc/pve`.
+- **Container-view owners.** The files belong to the ids inside the container
+  (root 0, a user 1000). A `restic restore` as root on the host writes exactly
+  those ids. Copied into an unprivileged container as they are, every file
+  would be owned by the host's root and read as nobody:nogroup inside. Let PVE
+  map the ids instead: restore the snapshot as root into an empty folder, then
+  hand it to `pct restore` as a tar stream on stdin (`-`), which PVE unpacks in
+  the container's user namespace:
+
+  ```sh
+  restic -r <repository> --password-file <file> restore <snapshot id> --target /root/ct-restore
+  tar -C /root/ct-restore --numeric-owner -cpf - . | \
+    pct restore <new vmid> - --unprivileged 1 --rootfs <storage>:<GiB>
+  ```
+
+  Without the configuration in the archive PVE creates the container with
+  defaults: set hostname, memory, cores and network afterwards (`pct set`),
+  from the configuration above, and add every volume mount point again (its
+  files are in the tar stream below the mount path, so give the rootfs room
+  for them, or move them onto a new mount point afterwards). A privileged
+  container takes `--unprivileged 0`: its ids are the host's. A container with
+  a custom `lxc.idmap` is restored with the default map this way; add the
+  `lxc.idmap` lines as root afterwards and change the owners of the files of
+  the remapped ids to match before it starts.
 
 ## The Restow server's own VM
 
@@ -738,6 +978,8 @@ restow-pve diagnose          every check a backup needs, with the findings (--js
 restow-pve test              like diagnose, exit code 0 only when all is in order
 restow-pve config --allow-restores=false    refuse restores the server asks for (node's own decision)
 restow-pve config --pve-cert-sha256 <sha>   pin a custom pveproxy certificate
+restow-pve config --restore-tmp <dir>       where container restores unpack (default /var/tmp/restow-pve,
+                                            on the root file system; see "Restore")
 restow-pve config --boot-tests=false        do not run boot tests (the node stops announcing them)
 restow-pve config --boot-test-storage <id>  storage for the temporary guests (default: the fleecing storage)
 restow-pve config --boot-test-bridge <br>   connect the NICs of boot tests to this isolated bridge
@@ -749,7 +991,9 @@ restow-pve uninstall --yes   remove helper, plugin and credentials (backups stay
 Files: `/etc/restow-pve/state.json` (node secret and API token, root 0600, local
 disk), `/var/lib/restow-pve` (block hash caches, journal, the caches the plugin
 reads; `boottest/current.json` names the temporary guest of a running boot test),
-`/run/restow-pve` (per-job state, `boottest.lock`), `journalctl -u restow-pve`.
+`/run/restow-pve` (per-job state, `boottest.lock`), `/var/cache/restow-pve`
+(the restic cache of each container, `ct-<vmid>`, kept between its backups and
+removed when the container is no longer on the node), `journalctl -u restow-pve`.
 
 ## Boot test
 
@@ -767,35 +1011,66 @@ What the guest's node does:
    backup. The node checks again: a Restow backup or restore in progress, or any running
    `vzdump` task of PVE, skips the test ("A backup runs on this node").
 2. **Resources first.** The guest's memory (from the restore point's configuration) must not
-   exceed the job's limit, the node must have that much available plus 1 GiB (`MemAvailable`),
-   and the boot test storage must hold the restore point's data plus a tenth and 1 GiB. The
+   exceed the job's limit, the node must have that much available plus 1 GiB (`MemAvailable`,
+   plus what the ZFS ARC holds above `zfs_arc_min` on a node with ZFS: it gives that back),
+   and the boot test storage must hold what the restore allocates there plus a tenth and 1 GiB:
+   on a thin storage (`lvmthin`, `rbd`, `btrfs`, a `zfspool` with `sparse 1`, a container's
+   subvolumes on a `zfspool`, a file storage without `preallocation full` or `falloc`) the
+   restore point's data, on a thick one (`lvm`, a `zfspool` without `sparse`, whose zvols get a
+   refreservation of their full size, a preallocating or unknown storage) the full size of its
+   disks (a container: rootfs and volume mount points). The options come from
+   `/etc/pve/storage.cfg`, which the service reads as root. A restore that still runs out of
+   space (`insufficient free space`, `out of space`, `No space left on device`) skips the test
+   (`storage_space`) instead of making it red. The
    storage is the node's own choice (`--boot-test-storage`), by default its fleecing storage: a
-   thin, local storage every node with backups has. Otherwise the test is skipped with the
-   reason, which the guest's page shows.
+   thin, local storage every node with backups has. A VM with raw QEMU `args` that do more than
+   tune the CPU, SMBIOS or the clock (`-cpu`, `-smbios`, `-rtc`, `-overcommit`, `-msg`) is not
+   booted (`custom_qemu_args`): such arguments can add a host disk, a host device or a network
+   (`-drive file=/dev/...`, `-device vfio-pci`, `-netdev user`) that no other key shows, and the
+   copy may need them to boot. With `--boot-test-bridge` the bridge must be a Linux bridge whose
+   ports are only those of guests (`tap`, `veth`, `fwpr`); a network card, bond, VLAN or tunnel
+   on it skips the test (`bridge_not_isolated`). Otherwise the test is skipped with the reason,
+   which the guest's page shows.
 3. **Restore** through the normal restore path (the PVE API, a new VMID from the cluster, the
    pool `restow-restore`, no start; the original guest is never touched). A failing restore is
-   red. A container with a bind or device mount point is restored with its rootfs and volume
-   mount points named explicitly and without the bind and device ones: PVE restores those
-   only for root@pam, not for the node's API token, and their data is not in the backup. The
-   restore check (`restoreTest`) does the same; the log names what was left out.
+   red; a restore that ends with warnings (`WARNINGS: n`, for example the skipped raw `lxc.*`
+   lines of a container) goes on to the boot, and the result carries the warnings. A container
+   is restored as every container restore is (see "Restore": rootfs and volume mount points
+   named, bind and device mount points left out); the log names what was left out.
 4. **Isolate before the start.** The temporary guest gets the tag `restow-boottest` and the
    name `restow-boottest-<vmid>`; every NIC `link_down=1` (or the isolated bridge the node
    names with `--boot-test-bridge`; a container loses its interfaces); PCI and USB passthrough,
-   host serial and parallel ports, virtiofs, a container's device and bind mounts and the hook
-   script are removed; ISO drives are emptied; `onboot 0`, `protection 0`; the QEMU guest agent
-   device is switched on so an installed agent can answer. The configuration is read back; a
-   guest with a NIC still connected is never started.
+   host serial and parallel ports, virtiofs, `ivshmem`, `audio0`, `rng0` (the host's random
+   source), `hugepages`, `keephugepages` and the NUMA binding `numaN` (the running original holds
+   those pages; the copy runs on normal memory), a container's device and bind mounts and the
+   hook script are removed; ISO drives are emptied; `onboot 0`, `protection 0`; the QEMU guest
+   agent device is switched on so an installed agent can answer. The configuration is read
+   back; a guest with a NIC still connected, or with any of these keys (or a raw
+   `lxc.net`, `lxc.mount.entry` or `lxc.hook` line) left, is never started. A restored disk on
+   a host path (`scsi1: /dev/disk/by-id/...`) skips the test (`host_disk`): the copy would open
+   the original's device.
 5. **Boot and wait.** `qm start`, then every five seconds `qm guest cmd <id> ping`: green as
-   soon as the agent answers (proof the operating system came up). A VM that stops on its own
-   is red; one that keeps running without an answer until the wait is over is yellow
-   ("started, no answer": install the QEMU guest agent for proof). A container is green once
-   `pct exec <id> -- cat /proc/1/comm` shows its init.
-6. **Destroy in every case** (`qm stop`, `qm destroy --purge --destroy-unreferenced-disks`).
-   A marker file under `/var/lib/restow-pve/boottest` records the temporary guest with the
-   UPID of its restore task before it exists; when the service starts, and before every boot
-   test, a leftover is destroyed: the marker's guest (only when the UPID proves this node
-   restored it), and every guest of this node in `restow-restore` that carries both the tag
-   and the name.
+   soon as the agent answers (proof the operating system came up). `qm status --verbose` is
+   read beside it: a VM that stops on its own, or whose QEMU status turns `guest-panicked` or
+   `internal-error`, is red; `io-error` (its disks on the boot test storage, for example a full
+   thin pool) skips the test. One that keeps running without an answer until the wait is over
+   is yellow: when the test switched the agent on, "started, no answer" (install the QEMU guest
+   agent for proof); when the guest has the agent enabled itself, "the agent did not answer
+   within N s" (the guest probably did not finish booting); a paused VM is yellow too. A start
+   that fails because the node cannot allocate the memory (hugepages, a memory backend) is
+   skipped (`node_resources`), not red. A container's PID 1 is read from the host (`lxc-info -n
+   <id> -p -H`, then `/proc/<pid>/comm` and `exe`; `pct exec -- cat /proc/1/comm` only as
+   fallback, so OCI and minimal images need no `cat`). With systemd the node asks
+   `systemctl is-system-running` until the wait is over: `running` is green; `degraded` is
+   green when only units that need the network failed (`networking`, `ifup@*`,
+   `ifupdown-wait-online`, `systemd-networkd-wait-online`, `NetworkManager-wait-online`; the
+   test takes the network away), else yellow with the failed units; `maintenance` (emergency or
+   rescue mode) is red; still starting at the end of the wait is yellow. Another init (OpenRC,
+   an application) that keeps running is yellow: Restow cannot ask it whether the boot
+   finished.
+6. **Destroy in every case**, with proof that the guest is the test's own, and leftovers when
+   the service starts and before every boot test: see "Temporary guests of restore tests and
+   boot tests" above.
 
 The result (outcome, reason, boot time, duration, the node's log of the test) is kept with the
 run and, when it rates (green, yellow, red), with the restore point. A red boot test raises
@@ -821,7 +1096,10 @@ API token needs no new privilege.
 
 Not part of the test: a check of ports or applications inside the isolated network, a
 screenshot or serial console heuristic, Windows without the guest agent (yellow at best), and
-guests that need passthrough hardware to boot (removed for the test, so they may fail it).
+guests that need passthrough hardware to boot (a VM with PCI or USB passthrough, a device
+mapping or virtiofs is restored as root, and these are removed before its start, so a guest
+that needs them to boot may fail the test), and VMs with raw QEMU `args` beyond CPU, SMBIOS and
+clock tuning (skipped).
 
 ## Security
 
@@ -852,13 +1130,15 @@ guests that need passthrough hardware to boot (removed for the test, so they may
 ## Known limits of this release
 
 Not possible: backing up VM templates (PVE disables fleecing for them), live
-restore (PVE refuses it for providers), restoring restore points of privileged
-containers (Restow restores containers only as unprivileged, and files with ids
-above 65535 and device nodes would not restore; restore such a point by hand).
-Whether a restore point is of a privileged container is read from its own
-configuration (`unprivileged: 1` or not), not from what the guest is now; the
-restore, the monthly restore check and the boot test pass it over, and the
-guest's page says "Not checked: privileged container". Restoring single files back into
+restore (PVE refuses it for providers), restoring the bind and device mount
+points of a container (put them back by hand, see "Restore"), restoring restore
+points of privileged containers (Restow restores containers only as
+unprivileged, and files with ids above 65535 and device nodes would not
+restore; restore such a point by hand). Whether a restore point is of a
+privileged container is read from its own configuration (`unprivileged: 1` or
+not), not from what the guest is now; the restore, the monthly restore check
+and the boot test pass it over, and the guest's page says "Not checked:
+privileged container". Not possible either: restoring single files back into
 a running guest (they are browsed and downloaded as a ZIP, see "Files of a
 container" and "Files of a VM"), files of VMs on btrfs, ZFS, ReFS, LVM thin or
 RAID volumes, BitLocker or LUKS, NTFS-compressed or EFS files (see "Files of a

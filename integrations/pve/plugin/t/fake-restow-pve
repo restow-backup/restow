@@ -20,6 +20,21 @@ close($log);
 print STDERR "info: $verb called\n";
 print STDERR "warn: a warning";    # no newline: the shim must still relay it
 
+# A new archive directory per container restore, numbered across the calls of one test run.
+sub next_init {
+    my $file = "$ENV{FAKE_RESTOW_LOG}.inits";
+    my $n = 0;
+    if (open(my $fh, '<', $file)) {
+        $n = <$fh> // 0;
+        close($fh);
+    }
+    $n++;
+    open(my $fh, '>', $file) or die "inits: $!\n";
+    print {$fh} $n;
+    close($fh);
+    return $n;
+}
+
 my %results = (
     'backup-init' => { archiveName => "vm/" . ($req->{vmid} // 0) . "/2026-10-03T22:00:00Z" },
     'backup-get-mechanism' => { mechanism => (($req->{vmtype} // '') eq 'lxc' ? 'directory' : 'nbd') },
@@ -30,12 +45,25 @@ my %results = (
     'archive-get-firewall-config' => { config => undef },
     'restore-vm-init' => { devices => { 'drive-scsi0' => { size => 4194304 } } },
     'restore-vm-volume-init' => { qemuImgPath => 'nbd+unix:///drive-scsi0?socket=/run/x.sock' },
-    'restore-container-init' => { archiveDirectory => '/var/tmp/restow-pve/ct' },
     'storage-status' => { total => 100, avail => 60, used => 40, active => JSON::PP::true },
     'list-volumes' => { volumes => [
         { volname => 'backup/vm/101/2026-10-03T22:00:00Z', vmid => 101, ctime => 1, size => 5, subtype => 'qemu', format => 'restow-vm' },
     ] },
 );
+
+$results{'restore-container-init'} = { archiveDirectory => '/var/tmp/restow-pve/ct-' . ($req->{volname} // '') . '-' . next_init() . '/root' }
+    if $verb eq 'restore-container-init';
+
+# volume-size knows a restore point older than the listing's page (as the Restow
+# server does), and none of VMID 999.
+if ($verb eq 'volume-size') {
+    my $volname = $req->{volname} // '';
+    if ($volname =~ m!/999/!) {
+        print JSON::PP->new->encode({ ok => JSON::PP::false, error => "restore point $volname not found in Restow" });
+        exit 1;
+    }
+    $results{'volume-size'} = { size => ($volname eq 'backup/vm/101/2025-01-05T22:00:00Z' ? 4096 : 5) };
+}
 
 if ($verb eq 'fail') {
     print JSON::PP->new->encode({ ok => JSON::PP::false, error => 'it failed on purpose' });

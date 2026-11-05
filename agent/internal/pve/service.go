@@ -53,6 +53,10 @@ type Service struct {
 	// idle (`restow-pve run` sets it: verify, install, restart); nil means never.
 	OnUpdate func(ctx context.Context, version string)
 
+	// VzdumpRunning reports a vzdump task of PVE on this node (an update waits for it); nil
+	// asks the PVE API.
+	VzdumpRunning func(ctx context.Context) bool
+
 	// Cmd runs qm and pct (boot tests); nil means the real commands.
 	Cmd CommandRunner
 	// BootTests runs the boot tests; nil means one built from the fields above.
@@ -66,11 +70,78 @@ type Service struct {
 	cancelled map[string]bool
 	stopped   map[string]bool
 	wake      chan struct{}
+	// updateMu keeps tasks and a self-update apart: the worker holds it while it takes and runs
+	// a task, an update from its check until the process exits (UpdateWhenIdle).
+	updateMu sync.Mutex
 
 	// Owned by the heartbeat loop.
 	lastInvent   time.Time
-	pveVersion   string
 	lastProblems []string
+	// pveVersion is the node's PVE version as the last heartbeat read it (s.mu; the worker reads
+	// it for vzdump's parameters).
+	pveVersion string
+	// cleanupPending: a temporary guest is left that a removal could not decide about or remove
+	// (s.mu); the worker tries again (retryCleanup).
+	cleanupPending bool
+}
+
+// cleanupRetry is when the worker tries a leftover temporary guest again: after Min, then
+// doubling up to Max, until nothing is left. Tests shorten it.
+var cleanupRetry = struct{ Min, Max time.Duration }{Min: time.Minute, Max: 30 * time.Minute}
+
+func (s *Service) setCleanupPending(v bool) {
+	s.mu.Lock()
+	s.cleanupPending = v
+	s.mu.Unlock()
+}
+
+func (s *Service) isCleanupPending() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cleanupPending
+}
+
+// retryCleanup runs the cleanup of temporary guests again, between tasks (never beside a boot
+// test or a restore, and not beside a self-update), and returns the wait before the next try.
+func (s *Service) retryCleanup(ctx context.Context, wait time.Duration) time.Duration {
+	s.updateMu.Lock()
+	done := s.bootTester().Cleanup(ctx)
+	s.updateMu.Unlock()
+	s.setCleanupPending(!done)
+	if done {
+		s.Logf("the leftover temporary guests are removed")
+		return cleanupRetry.Min
+	}
+	if wait *= 2; wait > cleanupRetry.Max {
+		wait = cleanupRetry.Max
+	}
+	return wait
+}
+
+func (s *Service) setPVEVersion(v string) {
+	s.mu.Lock()
+	s.pveVersion = v
+	s.mu.Unlock()
+}
+
+func (s *Service) knownPVEVersion() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.pveVersion
+}
+
+// backupPVEVersion is the PVE version a backup starts vzdump with: the heartbeat's, else asked
+// for now ("" when the API does not say).
+func (s *Service) backupPVEVersion(ctx context.Context) string {
+	if v := s.knownPVEVersion(); v != "" {
+		return v
+	}
+	v, err := s.PVE.Version(ctx)
+	if err != nil {
+		return ""
+	}
+	s.setPVEVersion(v)
+	return v
 }
 
 // lazyLocked creates the task state; s.mu is held.
@@ -113,6 +184,38 @@ func (s *Service) enqueue(tasks []Task) {
 	}
 }
 
+// maxHeldTasks bounds heldTasks.queued (the server refuses a longer list).
+const maxHeldTasks = 64
+
+// heldTasks lists the task the worker runs, the queued ones and those whose result waits to be
+// sent again (docs/PVE-PROTOCOL.md, "Tasks the node holds"), at most maxHeldTasks queued.
+func (s *Service) heldTasks() HeldTasks {
+	pendingMu.Lock()
+	pending := s.loadPending()
+	pendingMu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	h := HeldTasks{Queued: []string{}}
+	seen := map[string]bool{}
+	if s.cur != nil {
+		h.Current = s.cur.id
+		seen[s.cur.id] = true
+	}
+	add := func(id string) {
+		if id != "" && !seen[id] && len(h.Queued) < maxHeldTasks {
+			seen[id] = true
+			h.Queued = append(h.Queued, id)
+		}
+	}
+	for _, q := range s.queue {
+		add(q.ID)
+	}
+	for _, r := range pending {
+		add(r.TaskID)
+	}
+	return h
+}
+
 // dropQueued removes a task that waits in the queue; false when it does not wait there.
 func (s *Service) dropQueued(id string) bool {
 	s.mu.Lock()
@@ -132,9 +235,9 @@ func (s *Service) isCancelled(id string) bool {
 	return s.cancelled[id]
 }
 
-// startedVzdump records the vzdump task of the running task. True when the task was cancelled
-// meanwhile: the caller stops the vzdump task at once.
-func (s *Service) startedVzdump(id, upid string, vmid int) bool {
+// startedTask records the PVE task (vzdump, a restore) of the running task. True when the task
+// was cancelled meanwhile: the caller stops the PVE task at once.
+func (s *Service) startedTask(id, upid string, vmid int) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.lazyLocked()
@@ -148,11 +251,42 @@ func (s *Service) startedVzdump(id, upid string, vmid int) bool {
 	return false
 }
 
-// work runs the queued tasks one after another until ctx ends.
+// work runs the queued tasks one after another until ctx ends. It takes a task only while no
+// self-update runs (updateMu): an update that found the node idle restarts it before the next.
+// Between tasks it tries again to remove a temporary guest a removal had to leave (PVE did not
+// answer, its restore task could not be stopped, the destroy failed).
 func (s *Service) work(ctx context.Context) {
+	wait := cleanupRetry.Min
+	var retry <-chan time.Time
 	for {
+		if retry == nil && s.isCleanupPending() {
+			retry = time.After(wait)
+		}
+		select {
+		case <-retry:
+			retry = nil
+			wait = s.retryCleanup(ctx, wait)
+			continue
+		default:
+		}
 		s.mu.Lock()
 		s.lazyLocked()
+		waiting := len(s.queue) > 0
+		wake := s.wake
+		s.mu.Unlock()
+		if !waiting {
+			select {
+			case <-ctx.Done():
+				return
+			case <-wake:
+			case <-retry:
+				retry = nil
+				wait = s.retryCleanup(ctx, wait)
+			}
+			continue
+		}
+		s.updateMu.Lock()
+		s.mu.Lock()
 		var next *Task
 		if len(s.queue) > 0 {
 			t := s.queue[0]
@@ -160,18 +294,51 @@ func (s *Service) work(ctx context.Context) {
 			next = &t
 			s.cur = &current{id: t.ID, kind: t.Kind}
 		}
-		wake := s.wake
 		s.mu.Unlock()
 		if next != nil {
 			s.runTask(ctx, *next)
-			continue
+			if (next.Kind == "boot_test" || next.Kind == "restore") && s.bootTester().leftovers() {
+				s.setCleanupPending(true)
+			}
 		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-wake:
-		}
+		s.updateMu.Unlock()
 	}
+}
+
+// UpdateWhenIdle calls install (a self-update, or the restart of the PVE daemons) only while
+// nothing works on this node: no task of the service runs or waits, no backup or restore of PVE
+// works here (busy), no vzdump task runs. From the check until install returns the worker
+// starts no task; a successful update exits the process inside install, so none starts before
+// the restart. It returns why install was not called ("" when it was).
+func (s *Service) UpdateWhenIdle(ctx context.Context, install func(context.Context)) string {
+	if !s.updateMu.TryLock() {
+		return "a task runs on this node"
+	}
+	defer s.updateMu.Unlock()
+	if s.Busy() {
+		return "a task runs or waits on this node"
+	}
+	if busy(s.Layout) {
+		return "a backup or restore runs on this node"
+	}
+	if s.vzdumpRunning(ctx) {
+		return "a PVE backup (vzdump) runs on this node"
+	}
+	install(ctx)
+	return ""
+}
+
+// vzdumpRunning: a vzdump task runs on this node (also one before its first call of the
+// provider, which leaves no job file yet). Unknown counts as none.
+func (s *Service) vzdumpRunning(ctx context.Context) bool {
+	if s.VzdumpRunning != nil {
+		return s.VzdumpRunning(ctx)
+	}
+	if s.PVE == nil {
+		return false
+	}
+	tasks, err := s.PVE.ActiveTasks(ctx, s.State.NodeName, "vzdump")
+	return err == nil && len(tasks) > 0
 }
 
 // Capabilities are the task kinds beyond the original set this node announces.
@@ -215,9 +382,17 @@ func (s *Service) Run(ctx context.Context) error {
 	if s.BusyInterval == 0 {
 		s.BusyInterval = 15 * time.Second
 	}
-	// A boot test the last run of the service could not finish leaves a temporary guest.
-	if !s.State.BootTestsDisabled {
-		s.bootTester().Cleanup(ctx)
+	// A boot test or restore check the last run of the service could not finish leaves a
+	// temporary guest; it goes also when boot tests or restores are switched off since. While
+	// PVE does not answer yet (the node boots, pveproxy restarts) nothing is decided: the worker
+	// tries again until it is gone.
+	if !s.bootTester().Cleanup(ctx) {
+		s.setCleanupPending(true)
+	}
+	// Backups and restores PVE went on with while the service was stopped are waited for again.
+	for _, e := range loadInflight(s.Layout) {
+		s.Logf("task %s (%s): waiting again for %s, which PVE started before restow-pve stopped", e.TaskID, e.Kind, e.UPID)
+		s.enqueue([]Task{{ID: e.TaskID, Kind: e.Kind, Params: e.Params}})
 	}
 	done := make(chan struct{})
 	go func() {
@@ -263,7 +438,7 @@ func (s *Service) Problems(ctx context.Context) []string {
 		}
 		return out
 	}
-	s.pveVersion = v
+	s.setPVEVersion(v)
 	if !VersionAtLeast(v, 8, 4) {
 		out = append(out, "pve.version_unsupported")
 	}
@@ -329,13 +504,14 @@ func (s *Service) Tick(ctx context.Context) error {
 	if s.Busy() {
 		state = "running"
 	}
+	pveVersion := s.knownPVEVersion()
 	hb, err := s.Server.Heartbeat(ctx, HeartbeatRequest{
-		HelperVersion: buildinfo.Version, PVEVersion: s.pveVersion, FleecingStorage: s.State.FleecingStorage,
+		HelperVersion: buildinfo.Version, PVEVersion: pveVersion, FleecingStorage: s.State.FleecingStorage,
 		PluginLoaded: !contains(problems, "pve.plugin_not_loaded"), State: state, Problems: problems,
 		RestoresAllowed: s.State.RestoresAllowed(), ActiveRuns: activeRuns(s.Layout),
-		Capabilities: s.Capabilities(),
+		Capabilities: s.Capabilities(), HeldTasks: s.heldTasks(),
 	})
-	status := ServiceStatus{LastHeartbeat: time.Now().UTC().Format(time.RFC3339), PVEVersion: s.pveVersion, Problems: problems}
+	status := ServiceStatus{LastHeartbeat: time.Now().UTC().Format(time.RFC3339), PVEVersion: pveVersion, Problems: problems}
 	if err != nil {
 		status.LastError = err.Error()
 		_ = writeJSONAtomic(s.Layout.ServiceStatus(), status, 0o644)
@@ -360,12 +536,16 @@ func (s *Service) Tick(ctx context.Context) error {
 		}
 	}
 	_ = writeJSONAtomic(s.Layout.ServiceStatus(), status, 0o644)
-	s.applyCancel(ctx, hb.Cancel)
-	s.enqueue(hb.Tasks)
+	s.reportRestoreEnds(ctx)
+	handled := s.applyCancel(ctx, hb.Cancel)
+	s.enqueue(s.withoutCancelled(ctx, hb.Tasks, hb.Cancel, handled))
 	// "Update now": installed only while nothing runs here (no task, no backup PVE started).
-	if hb.Update != nil && hb.Update.Now && s.OnUpdate != nil && !s.Busy() && !busy(s.Layout) {
-		s.Logf("the Restow server asks this node to update to %s now", hb.Update.Version)
-		s.OnUpdate(ctx, hb.Update.Version)
+	if hb.Update != nil && hb.Update.Now && s.OnUpdate != nil {
+		v := hb.Update.Version
+		s.UpdateWhenIdle(ctx, func(ctx context.Context) {
+			s.Logf("the Restow server asks this node to update to %s now", v)
+			s.OnUpdate(ctx, v)
+		})
 	}
 	return nil
 }
@@ -394,6 +574,24 @@ func ParseDiskSize(value string) uint64 {
 	return uint64(f * mult)
 }
 
+// mountFlag reads a boolean option of a disk or mount point line (PVE takes 1, yes, true, on and
+// 0, no, false, off); set is false when the option is not there. The leading volume and other
+// options (mp=/backup=1 is a path) never count.
+func mountFlag(value, name string) (on, set bool) {
+	for _, opt := range mountOptions(value) {
+		k, v, ok := strings.Cut(opt, "=")
+		if !ok || strings.TrimSpace(k) != name {
+			continue
+		}
+		switch strings.ToLower(strings.TrimSpace(v)) {
+		case "1", "yes", "true", "on":
+			return true, true
+		}
+		return false, true
+	}
+	return false, false
+}
+
 // GuestDisks lists the disks of a guest configuration. VM device names are
 // QEMU drive ids as PVE passes them to the provider (drive-scsi0; the TPM
 // state appears as drive-tpmstate0-backup).
@@ -412,11 +610,22 @@ func GuestDisks(kind string, conf map[string]any) []InventoryDisk {
 			if strings.HasPrefix(k, "tpmstate") {
 				dev += "-backup"
 			}
-			out = append(out, InventoryDisk{Device: dev, Size: ParseDiskSize(s), Backup: !strings.Contains(s, "backup=0")})
+			backup, set := mountFlag(s, "backup")
+			out = append(out, InventoryDisk{Device: dev, Size: ParseDiskSize(s), Backup: backup || !set})
 		}
 		if kind == "ct" && mpKeyRE.MatchString(k) {
-			backup := k == "rootfs" || strings.Contains(s, "backup=1")
-			out = append(out, InventoryDisk{Device: k, Size: ParseDiskSize(s), Backup: backup})
+			d := InventoryDisk{Device: k, Size: ParseDiskSize(s), Backup: k == "rootfs"}
+			if k != "rootfs" {
+				// vzdump backs up a volume mount point with backup=1 and never a bind or device
+				// mount point (an absolute host path), whatever its flag says (files.ts
+				// containerBackupPaths reads restore points the same way).
+				backup, _ := mountFlag(s, "backup")
+				d.Backup = backup && isVolumeMount(s)
+				if !isVolumeMount(s) {
+					d.Reason = "not part of the backup"
+				}
+			}
+			out = append(out, d)
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Device < out[j].Device })
@@ -430,13 +639,31 @@ func (s *Service) ReportInventory(ctx context.Context) (int, error) {
 		return 0, err
 	}
 	var guests []InventoryGuest
+	containers := map[int]bool{}
+	temp := (&BootTester{Layout: s.Layout}).markedVMIDs()
+	// The whole cluster's guests with their nodes, from the same answer: a guest that moved to
+	// a node without restow-pve stays known with that node instead of reading absent.
+	cluster := []ClusterGuest{}
+	for _, r := range res {
+		if r.VMID > 0 && r.Node != "" && (r.Type == "qemu" || r.Type == "lxc") && !inventoryTemp(r, temp) &&
+			len(cluster) < maxClusterGuests {
+			cluster = append(cluster, ClusterGuest{VMID: r.VMID, Node: r.Node, Type: r.Type})
+		}
+	}
 	for _, r := range res {
 		if r.Node != s.State.NodeName {
+			continue
+		}
+		if inventoryTemp(r, temp) {
+			// A boot test's or restore check's guest is gone again in minutes: as a guest of
+			// the inventory it would count as unprotected, be planned for backups, and take
+			// over the row of a deleted guest whose VMID it got.
 			continue
 		}
 		kind := "vm"
 		if r.Type == "lxc" {
 			kind = "ct"
+			containers[r.VMID] = true
 		}
 		g := InventoryGuest{VMID: r.VMID, Kind: kind, Name: r.Name, Node: r.Node, Status: r.Status,
 			Template: r.Template == 1, Pool: r.Pool, Tags: splitTags(r.Tags)}
@@ -451,7 +678,23 @@ func (s *Service) ReportInventory(ctx context.Context) (int, error) {
 		}
 		guests = append(guests, g)
 	}
-	return len(guests), s.Server.ReportInventory(ctx, guests)
+	pruneContainerCaches(s.Layout, containers)
+	return len(guests), s.Server.ReportInventory(ctx, guests, cluster)
+}
+
+// inventoryTemp says whether a guest is a temporary guest of a boot test or a restore check:
+// tagged and named so, or in the restore pool with the tag, the name or a marker of this node
+// (temp, before the tag and name are set). A real restore in the restore pool has none of them
+// and stays in the inventory.
+func inventoryTemp(r Resource, temp map[int]bool) bool {
+	if tempTagged(r) {
+		return true
+	}
+	if r.Pool != BootTestPool {
+		return false
+	}
+	return temp[r.VMID] || hasTag(r.Tags, BootTestTag) || hasTag(r.Tags, RestoreCheckTag) ||
+		strings.HasPrefix(r.Name, BootTestNamePrefix) || strings.HasPrefix(r.Name, RestoreCheckNamePrefix)
 }
 
 // SMBIOSUUID is the SMBIOS UUID of a VM (`smbios1: uuid=...`), lower case, or "". The guest
@@ -488,22 +731,12 @@ type backupParams struct {
 	VerifyRead bool   `json:"verifyRead"`
 }
 
-type restoreParams struct {
-	Volname       string `json:"volname"`
-	Kind          string `json:"kind"`
-	TargetVMID    int    `json:"targetVmid"`
-	TargetStorage string `json:"targetStorage"`
-	Pool          string `json:"pool"`
-	Start         bool   `json:"start"`
-	// RestoreTest deletes the guest again after a successful restore.
-	RestoreTest bool `json:"restoreTest"`
-}
-
 func (s *Service) runTask(ctx context.Context, t Task) {
 	// A task whose result is still waiting to be sent ran already: the server delivered it
 	// again because the result never reached it. It is not run a second time.
 	if s.pendingResult(t.ID) {
 		s.Logf("task %s ran already; its result is sent again", t.ID)
+		s.dropInflight(t.ID)
 		s.flushResults(ctx)
 		return
 	}
@@ -513,7 +746,24 @@ func (s *Service) runTask(ctx context.Context, t Task) {
 		delete(s.cancelled, t.ID)
 		s.mu.Unlock()
 	}()
-	result, err := s.task(ctx, t)
+	var result map[string]any
+	var err error
+	if e := s.inflight(t.ID); e != nil {
+		result, err = s.resume(ctx, *e)
+	} else {
+		result, err = s.task(ctx, t)
+	}
+	if err != nil && ctx.Err() != nil {
+		// The service stops (systemctl restart, the installer, a self-update, a reboot): that
+		// says nothing about the task. A PVE task that runs is waited for again after the
+		// restart; a task that had not started one is delivered again by the server.
+		if e := s.inflight(t.ID); e != nil {
+			s.Logf("task %s (%s): the service stops; %s is waited for again after the restart", t.ID, t.Kind, e.UPID)
+		} else {
+			s.Logf("task %s (%s) was interrupted by the stop of the service; no result is reported", t.ID, t.Kind)
+		}
+		return
+	}
 	status, msg := "done", ""
 	if err != nil {
 		status, msg = "failed", err.Error()
@@ -525,12 +775,43 @@ func (s *Service) runTask(ctx context.Context, t Task) {
 		s.Logf("task %s (%s) done with warnings: %s", t.ID, t.Kind, strings.Join(w, " | "))
 	}
 	s.reportResult(ctx, PendingResult{TaskID: t.ID, Status: status, Error: msg, Result: result})
+	s.dropInflight(t.ID)
 }
 
-// VzdumpWarnings says whether a vzdump exit status is "WARNINGS: n": the backup ran to its
-// end, and vzdump logged warnings beside it (notes, a hook script, the log file).
-func VzdumpWarnings(exit string) bool {
-	return strings.HasPrefix(strings.ToUpper(strings.TrimSpace(exit)), "WARNINGS")
+// resume waits again for the PVE task of a backup or restore that ran when the service stopped,
+// and ends the task as it would have ended without the stop.
+func (s *Service) resume(ctx context.Context, e inflightTask) (map[string]any, error) {
+	switch e.Kind {
+	case "backup":
+		if s.startedTask(e.TaskID, e.UPID, e.VMID) {
+			if err := s.PVE.StopTask(ctx, s.State.NodeName, e.UPID); err != nil {
+				s.Logf("stopping %s: %v", e.UPID, err)
+			}
+		}
+		return s.finishBackup(ctx, e.UPID, e.VMID)
+	case "restore":
+		var p restoreParams
+		if err := json.Unmarshal(e.Params, &p); err != nil || e.Restore == nil {
+			return nil, errors.New("invalid restore task")
+		}
+		// Cancelled in Restow while it waited in the queue: its restore task is stopped, and
+		// the wait reports how it ended (a check still removes its guest).
+		if s.startedTask(e.TaskID, e.UPID, e.Restore.VMID) {
+			s.stopRestoreTask(ctx, e.TaskID, e.UPID)
+		}
+		return s.finishRestore(ctx, e.TaskID, p, *e.Restore)
+	}
+	return nil, fmt.Errorf("a task of kind %q cannot be waited for again", e.Kind)
+}
+
+var taskWarningsRE = regexp.MustCompile(`^WARNINGS:\s*\d+$`)
+
+// TaskWarnings says whether the exit status of a PVE task is "WARNINGS: n": the task ran to its
+// end and logged warnings beside it. vzdump ends so for a notes template or a hook script; a
+// restore ends so when it skipped what only root@pam may restore (raw lxc.* keys) or its
+// autostart failed. Any other status but "OK" is an error.
+func TaskWarnings(exit string) bool {
+	return taskWarningsRE.MatchString(strings.ToUpper(strings.TrimSpace(exit)))
 }
 
 // WarningLines picks the warning lines of a task log tail (at most max, the last ones).
@@ -542,7 +823,9 @@ func WarningLines(tail string, max int) []string {
 		if line == "" || strings.HasPrefix(upper, "TASK WARNINGS") {
 			continue
 		}
-		if strings.Contains(upper, "WARN") {
+		// A failed fs-freeze or thaw is an ERROR line of vzdump that does not fail the backup.
+		if strings.Contains(upper, "WARN") || (strings.HasPrefix(upper, "ERROR:") &&
+			(strings.Contains(line, freezeCommand) || strings.Contains(line, thawCommand))) {
 			if len(line) > 500 {
 				line = line[:500]
 			}
@@ -577,98 +860,28 @@ func (s *Service) task(ctx context.Context, t Task) (map[string]any, error) {
 		if s.isCancelled(t.ID) {
 			return nil, ErrCancelled
 		}
-		upid, err := s.PVE.StartBackup(ctx, s.State.NodeName, p.VMID, s.State.StorageID, mode, fleecing)
+		upid, err := s.PVE.StartBackup(ctx, s.State.NodeName, p.VMID, s.State.StorageID, mode, fleecing, s.backupPVEVersion(ctx))
 		if err != nil {
+			// No backup ran, so no full read is owed to it.
+			_ = os.Remove(s.Layout.forceNewFile(p.VMID))
+			var none *NoTaskError
+			if errors.As(err, &none) {
+				return nil, s.whereIsGuest(ctx, p.VMID)
+			}
 			return nil, err
 		}
 		s.Logf("backup of %d started: %s", p.VMID, upid)
-		if s.startedVzdump(t.ID, upid, p.VMID) {
+		s.keepInflight(inflightTask{TaskID: t.ID, Kind: t.Kind, Params: t.Params, UPID: upid, VMID: p.VMID,
+			StartedAt: time.Now().UTC().Format(time.RFC3339)})
+		if s.startedTask(t.ID, upid, p.VMID) {
 			// Cancelled while vzdump was being started.
 			if err := s.PVE.StopTask(ctx, s.State.NodeName, upid); err != nil {
 				s.Logf("stopping %s: %v", upid, err)
 			}
 		}
-		exit, err := s.PVE.WaitTask(ctx, s.State.NodeName, upid, 5*time.Second)
-		if err != nil {
-			return nil, err
-		}
-		result := map[string]any{"upid": upid, "exitStatus": exit}
-		if exit == "OK" {
-			return result, nil
-		}
-		tail, _ := s.PVE.TaskLogTail(ctx, s.State.NodeName, upid, 200)
-		if VzdumpWarnings(exit) {
-			// vzdump finished the backup and warned about something beside it: the task is done;
-			// the server decides by the run's restore point whether the backup succeeded, and
-			// shows the warnings with it (docs/PVE-PROTOCOL.md, "Task results").
-			result["warnings"] = WarningLines(tail, 10)
-			return result, nil
-		}
-		return result, fmt.Errorf("vzdump ended with %q: %s", exit, lastLines(tail, 8))
+		return s.finishBackup(ctx, upid, p.VMID)
 	case "restore":
-		if !s.State.RestoresAllowed() {
-			return nil, errors.New("restores are switched off on this node")
-		}
-		var p restoreParams
-		if err := json.Unmarshal(t.Params, &p); err != nil || p.Volname == "" || p.TargetStorage == "" {
-			return nil, errors.New("invalid restore task")
-		}
-		if p.Pool == "" {
-			p.Pool = "restow-restore"
-		}
-		vmid := p.TargetVMID
-		if vmid == 0 {
-			var err error
-			if vmid, err = s.PVE.NextID(ctx); err != nil {
-				return nil, err
-			}
-		}
-		archive := s.State.StorageID + ":backup/" + strings.TrimPrefix(p.Volname, "backup/")
-		var mounts map[string]string
-		var omitted []string
-		if p.RestoreTest && p.Kind == "ct" {
-			// A check leaves bind and device mount points out (TestRestoreMounts).
-			rp, err := s.Server.ResolveVolname(ctx, p.Volname)
-			if err != nil {
-				return nil, fmt.Errorf("restore point: %w", err)
-			}
-			if mounts, omitted, err = TestRestoreMounts(parseConfigText(rp.GuestConfig), p.TargetStorage); err != nil {
-				return nil, err
-			}
-			if len(omitted) > 0 {
-				s.Logf("restore test of %s: left out (not part of the backup): %s", p.Volname, strings.Join(omitted, ", "))
-			}
-		}
-		upid, err := s.PVE.RestoreGuest(ctx, s.State.NodeName, p.Kind, vmid, archive, p.TargetStorage, p.Pool, p.Start && !p.RestoreTest, mounts)
-		if err != nil {
-			return nil, err
-		}
-		exit, err := s.PVE.WaitTask(ctx, s.State.NodeName, upid, 5*time.Second)
-		result := map[string]any{"vmid": vmid, "upid": upid}
-		if len(omitted) > 0 {
-			result["omittedMounts"] = omitted
-		}
-		if err != nil {
-			return result, err
-		}
-		if exit != "OK" {
-			tail, _ := s.PVE.TaskLogTail(ctx, s.State.NodeName, upid, 20)
-			return result, fmt.Errorf("restore ended with %q: %s", exit, lastLines(tail, 8))
-		}
-		if p.RestoreTest {
-			conf, cerr := s.PVE.GuestConfig(ctx, s.State.NodeName, p.Kind, vmid)
-			result["disks"] = len(GuestDisks(p.Kind, conf))
-			if dupid, derr := s.PVE.DeleteGuest(ctx, s.State.NodeName, p.Kind, vmid); derr == nil {
-				_, _ = s.PVE.WaitTask(ctx, s.State.NodeName, dupid, 5*time.Second)
-				result["deleted"] = true
-			} else {
-				s.Logf("restore test: could not delete guest %d: %v", vmid, derr)
-			}
-			if cerr != nil {
-				return result, fmt.Errorf("the restored guest has no readable configuration: %w", cerr)
-			}
-		}
-		return result, nil
+		return s.restoreTask(ctx, t)
 	case "boot_test":
 		var p BootTestParams
 		if err := json.Unmarshal(t.Params, &p); err != nil {
@@ -681,4 +894,109 @@ func (s *Service) task(ctx context.Context, t Task) (map[string]any, error) {
 		return map[string]any{"guests": n}, err
 	}
 	return nil, fmt.Errorf("unknown task kind %q", t.Kind)
+}
+
+// whereIsGuest explains why vzdump started no task for the guest: it is on another node now
+// (Restow backs it up there once the inventory says so, which this asks for at once), or in no
+// node of the cluster any more.
+func (s *Service) whereIsGuest(ctx context.Context, vmid int) error {
+	node := s.State.NodeName
+	guests, err := s.PVE.Guests(ctx)
+	if err != nil {
+		return fmt.Errorf("vzdump started no task; guest %d is probably no longer on node %s (the cluster's guests cannot be read: %v)", vmid, node, err)
+	}
+	for _, g := range guests {
+		if g.VMID != vmid {
+			continue
+		}
+		if g.Node == node {
+			return fmt.Errorf("vzdump started no task for guest %d on node %s, where PVE lists it", vmid, node)
+		}
+		if _, err := s.ReportInventory(ctx); err != nil {
+			s.Logf("inventory: %v", err)
+		}
+		return fmt.Errorf("guest %d now runs on node %s; Restow backs it up there after the next inventory", vmid, g.Node)
+	}
+	return fmt.Errorf("guest %d was not found in the cluster", vmid)
+}
+
+// backupTaskPoll is how often a running vzdump task is asked for its status, lockWaitPoll how
+// often its log is read for a wait on the node's backup lock (tests shorten them).
+var (
+	backupTaskPoll = 5 * time.Second
+	lockWaitPoll   = time.Minute
+)
+
+// watchLockWait reads the log of the vzdump task upid of guest vmid while it runs and says once
+// when it waits for the node's backup lock (another backup, a PVE backup job, holds it), in the
+// service's log and, through a note backup_init takes, in the run's log. The returned function
+// stops it.
+func (s *Service) watchLockWait(ctx context.Context, upid string, vmid int) func() {
+	ctx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		t := time.NewTicker(lockWaitPoll)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+			}
+			tail, err := s.PVE.TaskLogTail(ctx, s.State.NodeName, upid, 50)
+			if err != nil {
+				continue
+			}
+			if !vzdumpLockState(tail) {
+				if vzdumpBackupBegun(tail) {
+					// The lock is taken (or was free): nothing more to watch.
+					return
+				}
+				continue
+			}
+			s.Logf("backup of %d: waiting for another backup on node %s (a Proxmox VE backup job holds vzdump's lock)", vmid, s.State.NodeName)
+			if vmid > 0 {
+				note := s.Layout.lockWaitNote(vmid)
+				_ = os.MkdirAll(filepath.Dir(note), 0o700)
+				_ = os.WriteFile(note, []byte(time.Now().UTC().Format(time.RFC3339)), 0o600)
+			}
+			return
+		}
+	}()
+	return func() {
+		cancel()
+		<-done
+	}
+}
+
+// finishBackup waits for a vzdump task and makes the task's result of its end.
+func (s *Service) finishBackup(ctx context.Context, upid string, vmid int) (map[string]any, error) {
+	stop := s.watchLockWait(ctx, upid, vmid)
+	exit, err := s.PVE.WaitTask(ctx, s.State.NodeName, upid, backupTaskPoll)
+	stop()
+	if vmid > 0 {
+		// Taken by backup_init when the backup got the lock; a note of a backup that never got it
+		// would only mislead a later run.
+		_ = os.Remove(s.Layout.lockWaitNote(vmid))
+	}
+	if err != nil {
+		return nil, err
+	}
+	result := map[string]any{"upid": upid, "exitStatus": exit}
+	if exit == "OK" {
+		return result, nil
+	}
+	tail, _ := s.PVE.TaskLogTail(ctx, s.State.NodeName, upid, 200)
+	if TaskWarnings(exit) {
+		// vzdump finished the backup and warned about something beside it: the task is done;
+		// the server decides by the run's restore point whether the backup succeeded, and
+		// shows the warnings with it (docs/PVE-PROTOCOL.md, "Task results").
+		result["warnings"] = WarningLines(tail, 10)
+		return result, nil
+	}
+	if err := lockTimeoutError(exit, s.State.NodeName); err != nil {
+		return result, err
+	}
+	return result, fmt.Errorf("vzdump ended with %q: %s", exit, lastLines(tail, 8))
 }

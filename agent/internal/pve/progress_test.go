@@ -113,7 +113,8 @@ func TestReadResticBackupOutputTurnsStatusIntoProgress(t *testing.T) {
 		ctSummary,
 	}, "\n")
 	var res ctResult
-	others := readResticBackupOutput(strings.NewReader(out), &res, r)
+	errs := &resticErrors{}
+	readResticBackupOutput(strings.NewReader(out), &res, r, errs)
 	r.Stop()
 	if res.SnapshotID == "" || res.TotalBytes != 4194304 || res.BytesAdded != 2097152 ||
 		res.FilesNew != 3 || res.FilesChanged != 2 || res.FilesTotal != 40 || res.BytesAddedPacked != 1048576 {
@@ -122,12 +123,8 @@ func TestReadResticBackupOutputTurnsStatusIntoProgress(t *testing.T) {
 	if len(got) != 1 || got[0].BytesDone != 2000 || got[0].BytesTotal == nil || *got[0].BytesTotal != 4000 {
 		t.Fatalf("progress: %+v", got)
 	}
-	if !strings.Contains(string(others), `"item":"/x"`) || !strings.Contains(string(others), "not json") ||
-		strings.Contains(string(others), "status") || strings.Contains(string(others), "summary") {
-		t.Fatalf("other lines: %q", others)
-	}
-	if items := unreadableItems(nil, others); len(items) != 1 || items[0] != "/x" {
-		t.Fatalf("unreadable items from stdout: %v", items)
+	if count, items := errs.result(); count != 1 || len(items) != 1 || items[0] != "/x" {
+		t.Fatalf("unreadable items from stdout: %d %v", count, items)
 	}
 }
 

@@ -131,7 +131,9 @@ func dirtyBlocks(src BlockSource, plan DiskPlan) ([]bool, error) {
 // frames, and discards (TRIM) every block once it is handled so the fleecing
 // image on the PVE side does not grow. A block is trimmed only after the
 // server acknowledged it. Any error ends the backup of the disk: PVE then
-// keeps the dirty bitmap (it merges it back on failure).
+// keeps the dirty bitmap (it merges it back on failure). An upload that fails
+// for good stops the reading at once: reading on would hold the backup access
+// (and its growing fleecing image) open for hours only to fail at the end.
 func BackupDisk(ctx context.Context, src BlockSource, sink BlockSink, runID string, plan DiskPlan, limit *RateLimiter, logf func(string, ...any)) (DiskResult, error) {
 	res := DiskResult{CommitDevice: CommitDevice{Device: plan.Device, Size: plan.Size, BitmapMode: plan.BitmapMode}}
 	if src.Size() != plan.Size {
@@ -174,6 +176,9 @@ func BackupDisk(ctx context.Context, src BlockSource, sink BlockSink, runID stri
 	}
 	frames := make(chan pending, 2)
 	uploadErr := make(chan error, 1)
+	// upCtx ends when an upload failed for good (or ctx ends): the read loop stops with it.
+	upCtx, stopUpload := context.WithCancel(ctx)
+	defer stopUpload()
 	var trimMu sync.Mutex
 	trim := func(index uint32) {
 		if !canTrim {
@@ -193,11 +198,13 @@ func BackupDisk(ctx context.Context, src BlockSource, sink BlockSink, runID stri
 			var buf bytes.Buffer
 			if err := EncodeFrame(&buf, f.blocks); err != nil {
 				firstErr = err
+				stopUpload()
 				continue
 			}
 			limit.Wait(buf.Len())
-			if err := sink.PutBlocks(ctx, runID, buf.Bytes()); err != nil {
+			if err := sink.PutBlocks(upCtx, runID, buf.Bytes()); err != nil {
 				firstErr = fmt.Errorf("%s: upload blocks: %w", plan.Device, err)
+				stopUpload()
 				continue
 			}
 			for _, b := range f.blocks {
@@ -210,7 +217,11 @@ func BackupDisk(ctx context.Context, src BlockSource, sink BlockSink, runID stri
 	var batch pending
 	flush := func() {
 		if len(batch.blocks) > 0 {
-			frames <- batch
+			select {
+			case frames <- batch:
+			case <-upCtx.Done():
+				// The upload failed: the frame goes nowhere.
+			}
 			batch = pending{}
 		}
 	}
@@ -222,7 +233,8 @@ func BackupDisk(ctx context.Context, src BlockSource, sink BlockSink, runID stri
 		if !read[i] {
 			continue
 		}
-		if err := ctx.Err(); err != nil {
+		if err := upCtx.Err(); err != nil {
+			// ctx ended, or the upload failed (its error takes precedence below).
 			readErr = err
 			break
 		}

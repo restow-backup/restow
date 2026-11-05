@@ -607,6 +607,314 @@ private repository.
   without a result. The machine now shows "No restore check possible" in amber, the readiness
   overview says "No sample files recorded; restore check not possible for this backup", and a
   check asked for is refused with that reason (`endpoint-no-samples`). It is never green.
+- Proxmox VE: after the first VM restore on a node (a restore into a new guest, a restore check or
+  a VM boot test) the node counted as busy until it rebooted. The restore server's log stayed in
+  `/run/restow-pve/restore`, and restow-pve took any file there for a running restore. Every
+  later boot test on the node was skipped with "A backup or a restore runs on this node", and the
+  self-update (the automatic one, **Update now** and `restow-pve update`) was refused with "a
+  backup or restore is running; the update waits". The node now counts only live work: a restore
+  server whose pid file names a running `restow-pve serve-restore` of that disk, and an open
+  backup job (with a running provider, or while a vzdump task runs on the node); the job file of
+  a backup whose provider was killed (OOM, a crash of the node) no longer holds back boot tests
+  and the self-update for two days. The cleanup of a restore
+  removes the log as well, and a restore server that fails to start, ends early or whose call is
+  cancelled is stopped and its files removed, so it no longer serves for up to two days. A pid
+  file is checked against `/proc/<pid>/cmdline` before restow-pve signals it, so a stale one
+  never stops another process that has the pid since.
+- Proxmox VE: one failed status call of the PVE API failed a running backup or restore. During a
+  long vzdump or restore pveproxy restarts now and then (an upgrade of pve-manager, a renewed
+  certificate); restow-pve then reported the task failed, the server closed the backup's run,
+  and the backup vzdump went on with was refused at its commit after hours of upload. A restart
+  of restow-pve itself (`systemctl restart restow-pve`, which `restow-pve config` asks for, the
+  installer, a self-update) did the same with "context canceled". The wait now asks again for
+  up to ten minutes while the PVE API does not answer (no connection, a timeout, 5xx including
+  595 and 596) and ends at once only on an answer of PVE itself. A stop of the service reports
+  nothing: the node keeps the running PVE task in `/var/lib/restow-pve/inflight.json`, waits for
+  it again when the service starts and reports how it really ended. Every `qm` and `pct` call
+  of a boot test has a deadline now (a hung storage blocked the node's only task worker, and
+  every backup of the node waited behind it), and so has the boot as a whole.
+- Proxmox VE: a restore task that PVE ended with `WARNINGS: n` counted as failed. PVE ends so a
+  restore by the node's API token of a container with raw `lxc.*` lines (GPU or Coral
+  passthrough, `/dev/net/tun` for Docker or Tailscale, a custom idmap): it skips those lines,
+  which it restores only for root@pam, and creates the container completely. Every restore of
+  such a container failed although the container was there, its restore checks failed and left
+  their restored copy behind, and its boot tests were red with "restore_failed". A restore with
+  warnings now succeeds with them (`result.warnings`, the warning lines of the task log) once the
+  guest's configuration can be read; the skipped lines are listed (`skippedLxc`, to add as root),
+  a restore check goes on to remove its guest, and a boot test goes on to the boot. Any other
+  exit status but `OK` still fails; a failed restore of a container with a custom `lxc.idmap`
+  says that the default map was used.
+- Proxmox VE: a container restored as a new guest kept the original's MAC addresses and
+  `onboot`. Only VMs were restored with `unique=1`. "Start after restore" brought up a copy with
+  the production container's MAC (and, with a static configuration, its IP) beside the running
+  original, and a copy without the start came up so at the next reboot of the node; the same held
+  for the copies restore checks left behind. Container restores, checks and boot tests now ask
+  PVE for new MAC addresses (`unique=1`) and `onboot=0`; the result says when the original
+  started with its node (`onbootCleared`). IP addresses stay the same, which docs/PVE.md now
+  says.
+- Proxmox VE: restore tests left their restored guest behind, and boot tests could remove the
+  wrong guest. A restore test removed its guest only on the happy path: not after a restore with
+  warnings, an error or a failed wait, not when the copy was protected (PVE copies `protection`
+  from the backup), and it said "deleted" even when the delete task failed. Nothing found these
+  copies again; they kept the original's `onboot` and network and came up at the next reboot of
+  the node. The delete also sent `purge` and `destroy-unreferenced-disks` in the body of a
+  DELETE, where PVE does not read them. A boot test's marker, on the other hand, destroyed
+  whatever guest had its VMID by then. Restore tests and boot tests now share one lifecycle: a
+  marker per guest in `/var/lib/restow-pve/tempguests` written before the restore, tag and name
+  (`restow-restorecheck-<vmid>`, `onboot 0`, `protection 0`) right after it, removal on every way
+  out only with proof that the guest is ours (tag and name in `restow-restore`, the marker's
+  running restore task, or the creation time the marker recorded), with a running restore task
+  stopped first, the lock and the protection cleared, and the removal counted only when the
+  guest is gone (`deleted: false` with `leftoverVmid` otherwise). Leftovers go when the service
+  starts, also with boot tests or restores switched off. When PVE cannot be asked (the node
+  boots and pveproxy is not up yet, pveproxy restarts), the marker stays and the service tries
+  again between tasks until the guest is gone, instead of forgetting a guest it could not yet
+  prove its own. A restore task of root@pam (a VM restored as root) is stopped as root with
+  `pvesh`, which the node's token may not do, and nothing is destroyed while the restore may
+  still run. A VMID that another restore got at the
+  same moment is asked for again instead of failing, and a boot test whose restore PVE never ran
+  ends with an error, never red. DELETE parameters go into the query string.
+- Proxmox VE: a restore into a new guest of a container with a bind or device mount point still
+  failed with "restoring 'mp0' to bind mount is only possible for root" (the known issue of
+  0.4.10): only checks and boot tests named the mount points themselves. Every container
+  restore now names rootfs and its volume mount points (same options, new volumes on the target
+  storage) and leaves bind and device mount points out, whose data is not in the backup. The
+  result lists them as configuration lines (`omittedMounts`) with the commands to put them back
+  as root (`remountCommands`), and such a copy is never started by the restore. A volume
+  without a size (`size=0T`, a ZFS or directory subvolume without a quota) broke the checks and
+  boot tests of such containers; it is now restored as a subvolume where the target storage has
+  them (zfspool, dir, btrfs), else with the size the restore point knows; with nothing to size it
+  the restore fails before it starts and names the storage type (a boot test: an error, not
+  red). A privileged container restored unprivileged says so (`madeUnprivileged`).
+- Proxmox VE: VMs with PCI or USB passthrough (`hostpci0: 0000:01:00.0`, `usb0: host=1-2`), a
+  device mapping (`hostpci0: mapping=gpu`), virtiofs, serial or parallel ports on host devices
+  or raw `args` could not be restored by the node's API token: PVE's restore permission check
+  lets only root@pam restore these (a mapping needs `Mapping.Use`, which the token does not
+  hold). Every restore into a new guest, restore test and boot test of such a VM failed, and the
+  boot tests were red although the backup was fine (the isolation that removes the devices came
+  only after the restore). restow-pve now restores such a VM as root with `qmrestore ...
+  --unique 1 --pool restow-restore` (never `--force`, never `--start`) and follows root's restore
+  task like any other (wait, stop, removal, restart of the service). The result says so
+  (`restoredAsRoot`); a copy restored with the original's host devices (`keptDevices`) is never
+  started by the restore. A boot test removes the devices, and now also raw `args`, before the
+  start. The node's role is not widened.
+- Proxmox VE: "Start after restore" was never verified. PVE starts the guest of a restore with
+  `start=1` in a task of its own, so the restore read succeeded although the start failed (a
+  bridge or VLAN missing on another node, a busy passthrough device), and the start may need
+  `VM.PowerMgmt`, which the node's role does not hold. restow-pve now always restores without
+  start and, when asked, starts the copy as root afterwards and waits until it runs: the result
+  says `started`, or `started: false` with `startError`, and the restore stays successful. A
+  copy that may not run is not started, with the reason (`startSkipped`): mount points the
+  restore left out, the original's host devices, or a static IP in the configuration while the
+  original runs in the cluster, a container's `ip=` ("the original CT 113 runs with
+  192.168.1.20; change the IP, then start it") or a VM's cloud-init `ipconfig0: ip=` (the copy's
+  new MAC makes cloud-init configure the same address again). An address set inside the guest
+  cannot be seen from the node.
+- Proxmox VE: the boot test's isolation left keys in place that reach out of the guest, and
+  trusted the isolated bridge blindly. A VM with raw QEMU `args` (`-netdev user`, `-device
+  vfio-pci`, `-drive file=/dev/disk/by-id/...`) could boot with its own network or open the disk
+  the running original uses; `ivshmem`, `audio0`, `rng0`, `hugepages`, `keephugepages` and the
+  NUMA binding (`numa0: ...,hostnodes=1,policy=bind`) stayed, so a VM with 1 GiB pages beside its
+  running original often failed to start and the restore point read red. The read-back looked
+  at the NICs only. A VM whose `args` do more than tune the CPU, SMBIOS or the clock is now
+  skipped (`custom_qemu_args`) before anything is restored, a restored disk on a host path skips
+  the test (`host_disk`), the other keys are removed before the start, and the read-back fails
+  (the guest is never started) when any removed key, a device or bind mount point or a raw
+  `lxc.net`, `lxc.mount.entry` or `lxc.hook` line is still there. With `--boot-test-bridge` the
+  bridge may have only ports of guests (`tap`, `veth`, `fwpr`); a network card, bond, VLAN or
+  tunnel on it skips the test (`bridge_not_isolated`). A start that fails because the node
+  cannot allocate the memory is skipped (`node_resources`), not red.
+- Proxmox VE: the boot test's space check counted only the restore point's data, also on thick
+  storage. On a `lvm` storage or a `zfspool` without "Thin provision" (zvols with a
+  refreservation of their full size) a VM with a 500 GiB disk and 40 GiB of data passed the
+  check, the restore then failed with "insufficient free space", and the boot test was red
+  (`restore_failed`, the notification `boot_test.failed`), which blamed the restore point. The
+  check now asks for the full size of the disks on thick storage (for a container its rootfs
+  and volume mount points) and for the data on thin storage, reading `sparse` and
+  `preallocation` from `/etc/pve/storage.cfg`; an unknown storage counts as thick. A restore
+  that runs out of space anyway is skipped (`storage_space`), never red.
+- Proxmox VE: the boot test's evidence was weaker than its colours said. A container was green
+  as soon as `pct exec -- cat /proc/1/comm` answered, which `pct start` alone proves, also for a
+  container whose systemd dropped to emergency mode; OCI and minimal containers without `cat`
+  were never green. A VM in a BSOD loop or a kernel panic was yellow with "its QEMU guest agent
+  did not answer (not installed?)", although its configuration had the agent enabled, and a VM
+  paused by an I/O error of the boot test storage was yellow as well. On ZFS nodes the
+  reclaimable ARC was not counted, so larger VMs were skipped for "not enough memory". Now a
+  container's PID 1 is read from the host (`lxc-info`, `/proc`); with systemd the node asks
+  `systemctl is-system-running`: `running` is green, `degraded` green only when the failed
+  units are network units (the test takes the network away) and yellow with the failed units
+  otherwise, emergency or rescue mode is red, still starting is yellow. Another init is yellow
+  (`init_running_unverified`), no longer green. A VM's `qm status --verbose` makes
+  `guest-panicked` and `internal-error` red and `io-error` skipped; the yellow text blames a
+  missing agent only when the test switched it on, and otherwise says that the agent of the
+  guest did not answer within the wait. The ARC above `zfs_arc_min` counts as available memory,
+  and the skip text names it.
+- Proxmox VE: the six-hourly self-update of restow-pve did not look at the service's own task.
+  It reloaded pvedaemon, pveproxy, pvestatd and pvescheduler and restarted the service in the
+  middle of a boot test (while the guest booted), a restore check, a container restore or a
+  backup whose vzdump had not called the provider yet: the result was never sent, and the boot
+  test's temporary guest waited for the next start. Only **Update now** checked for a running
+  task. Both now install only while no task of the service runs or waits, no `vzdump` task runs
+  and no backup or restore is open, and the service starts no task from that check until the
+  restart. An offer that waited is tried again after 15 minutes instead of six hours.
+- Proxmox VE: a container restore (also a restore check, a boot test and a restore from the PVE
+  UI) unpacked the whole restore point into `/var/tmp/restow-pve` on the node's root file system
+  without looking at its free space, and without `--sparse`. A 300 GB container on a default
+  install filled `/`, where pmxcfs, the journal and vzdump keep their files, and failed after
+  hours with a bare restic error. The restore did not wait for the repository lock the server
+  holds while it checks or prunes, typical right after a backup, so a boot test after every
+  backup was red (`restore_failed`). Two restores of one restore point shared one folder: the
+  second deleted the tree the first one's PVE was copying, and either cleanup removed the
+  other's. Now the node checks the folder before restic starts (the restore point's size and a
+  tenth, 5% of the file system stay free) and refuses with the free space and
+  `restow-pve config --restore-tmp`; restic runs with `--sparse` and `--retry-lock 15m` and says
+  "the Restow server is checking or pruning this container's repository; try again in a few
+  minutes" when the lock stays; every restore gets its own folder, which the shim names to the
+  cleanup, and a folder whose PVE worker is gone is removed by the next restore. `restow-pve
+  diagnose` shows the restore folder and its free space, and a running container restore holds
+  back the self-update and boot tests.
+- Proxmox VE: two restores of one VM restore point at the same time (a boot test or restore
+  check beside a restore from the PVE UI, two GUI restores of one backup as clones) killed each
+  other's restore servers. The server was keyed by the volume and the disk only: the second
+  restore's init stopped the first one's server mid-copy, and either cleanup stopped every
+  server of the volume, so `qemu-img convert` failed with an NBD error. A restore server now
+  belongs to the PVE worker that restores, and a cleanup stops only its own worker's servers;
+  an init stops another worker's server only when that worker is gone. The restore server also
+  stopped after 48 hours whatever it was doing and fetched one batch of blocks at a time, so
+  disks of many terabytes could not be restored: it now stops after an hour without a request
+  (30 days at most), keeps two batches in flight, and the init waits up to ten minutes for a
+  server that is still loading the hash list of a large disk.
+- Proxmox VE: a restart of the Restow server (an update applies its migrations for a minute or
+  two) or one bad block read failed a running VM restore or VM boot test. The restore server's
+  block reads had five attempts, about 30 seconds, where the calls of a backup wait five
+  minutes, and the first failed read stayed with the restore server for good: every later read
+  of every block failed, `qemu-img convert` stopped, and PVE removed the half-written disks of a
+  restore that had copied for hours (a boot test was red). The block reads, the lookup of the
+  restore point and a container's restic credential now ride out a server restart like a
+  backup's calls, and a failed read fails only the reads waiting for it: the blocks are fetched
+  again (three attempts), and a fetch that keeps failing still ends the restore with its error.
+- Proxmox VE: after an upload failed for good (a run closed or cancelled on the server, a quota,
+  the end of the outage window), the VM backup went on reading, hashing and copying every
+  remaining block of the disk, possibly for hours on a disk of several TB, and only then
+  reported the error. All that time vzdump held the backup access open and no block was trimmed
+  any more, so every guest write went into the fleecing image, which can fill the thin pool it
+  shares with the guests' disks. The read loop now stops at the first failed upload, and the
+  backup ends at once with the upload's error.
+- Proxmox VE: every backup of an unprivileged container with an ext4 volume mount point ended
+  "Last backup incomplete" ("Succeeded with gaps", "could not read .../srv/data/lost+found") when
+  vzdump backed it up in suspend or stop mode, its fallback on storage without snapshots (dir,
+  NFS, CIFS, thick LVM). In those modes PVE copies or mounts every mount point below the backup
+  folder and names only `.`, so only the root file system's `lost+found` was left out. The node
+  now takes the mount points with `backup=1` from the container's configuration and leaves out
+  each one's `lost+found` in every mode; bind and device mount points are not in the backup.
+- Proxmox VE: a container backed up in suspend or stop mode was read and hashed completely on
+  every run, hours for a large container, and every file counted as new or changed, which made
+  the change rate (the ransomware signal) meaningless for it. PVE hands over its copy in a folder
+  that is new on every run (`/var/tmp/vzdumptmp<pid>_<vmid>`), and restic chooses its parent
+  snapshot by host and path, so it never found one. The node now backs such a copy up through
+  the same folder every time, `/run/restow-pve/ctroot-<vmid>`, mounted in a mount namespace only
+  restic sees, and compares the copy's files by size and modification time; the restore point
+  records that folder, and older restore points restore as before. Where the mount namespace is
+  not possible the task log says so and the backup reads everything, as before.
+- Proxmox VE: every container backup started with an empty restic cache in `/run/restow-pve`,
+  a tmpfs of a tenth of the node's RAM, and downloaded the repository's index and the parent's
+  trees again, which for a container with millions of files could fill `/run` during the backup.
+  The cache now stays between backups in `/var/cache/restow-pve/ct-<vmid>`, owned by the uid the
+  backup runs as (handed to the new uid after a change of the ID map), and goes when the
+  container is no longer on the node; with less than 1 GB free there restic runs without a cache.
+- Proxmox VE: a container backup or restore that was stopped (cancelled in Restow, a stopped
+  vzdump or restore task) killed restic with SIGKILL, which left its lock in the container's
+  repository: the server's check and retention of it waited until the lock was stale, 30
+  minutes. restic is now asked to stop with SIGINT and removes its lock; it is killed only
+  after 15 seconds. restic's error output is also read while it runs, in bounded memory: after
+  a change of the ID map, with millions of unreadable files, the provider kept every error line
+  and could use gigabytes on the node; it now counts them and keeps the first 20, and a line
+  longer than 1 MiB no longer stops the reading.
+- Proxmox VE: stopping in Restow a container backup that a PVE backup job started did not stop
+  it, and the node logged "no backup of it runs on this node" while restic went on reading. The
+  provider of an unprivileged container runs as the mapped container root and could not write
+  its pid file into the root-only `/run/restow-pve/providers`, a vzdump task of several guests
+  has no guest id to match, and stopping the task of a PVE job (root@pam) needs `Sys.Modify`,
+  which the node's token does not hold. The provider now records itself in its run folder,
+  which root prepares for it, and the node stops it there; the record counts only for a
+  container provider that holds that guest's backup open, so another container's provider is
+  never stopped. The node stops only vzdump tasks of its own, and when it finds no provider the
+  log says that the backup ends at its next upload, which the server refuses.
+- Proxmox VE: a restore or restore check that the server withdrew (cancelled in Restow, or
+  closed by the server) ran on to its end on the node, which logged "it will not start" or "its
+  PVE task is stopped when the node takes it up again" although nothing stopped it: only backups
+  had their PVE task recorded. A check still restored, tested and removed its guest. restow-pve
+  now stops the restore task of a running restore or check, also of one it waits for again after
+  a restart, as its token or, for a VM restored as root, as root; one cancelled before PVE was
+  asked never starts. The task ends failed with "cancelled in Restow", and a check still removes
+  its guest.
+- Proxmox VE: a backup of a guest that had just migrated to another node (live migration, HA,
+  maintenance mode, between two inventories) failed with "PVE API answered 400 ... unable to
+  parse worker upid". vzdump answers `OK` and starts nothing for a guest that is not on its
+  node, and restow-pve waited for a task called "OK". A call that should start a PVE task (a
+  backup, a restore) and answers anything but a UPID now fails at once. For a backup the node
+  looks the guest up in the cluster and says "guest 101 now runs on node pve2; Restow backs it
+  up there after the next inventory" (and sends its inventory at once), "guest 101 was not found
+  in the cluster", or, when the cluster cannot be read, that the guest is probably no longer on
+  the node; it never stops a task that does not exist, and a full read asked for with the
+  backup is not left over for the next one.
+- Proxmox VE: a Restow backup that started while a Proxmox VE backup job ran on the same node
+  waited up to three hours for vzdump's lock of the node (`lockwait`) without a word, and then
+  failed with `vzdump ended with "can't acquire lock '/var/run/vzdump.lock' - got timeout"`. The
+  node now reads the task's log while it waits; the service's log says "waiting for another
+  backup on node pve1 (a Proxmox VE backup job holds vzdump's lock)", and the run's log says from
+  when the backup waited. A lock timeout fails with "another Proxmox VE backup job held the
+  backup lock of node pve1 for all of vzdump's lock wait ...; move the schedule of the Restow job
+  or of the PVE backup job". PVE's own lock wait stays as configured.
+- Proxmox VE: a VM restore point did not say whether PVE froze the guest's file systems. With
+  the guest agent configured but not running, or a freeze that failed (a Windows VSS writer
+  error, a timeout), vzdump went on crash-consistent and the restore point looked like a frozen
+  one; the failed freeze's ERROR line was not among the task's warnings. The node now reads
+  vzdump's log of the backup and records with the restore point whether it was frozen, taken
+  from a stopped guest, without an answering agent, crash-consistent (no agent enabled or the
+  freeze switched off), with a failed freeze, or unknown (`vmConsistency`, with a line for the
+  restore point where it is not frozen). A failed freeze, a failed thaw and a freeze without a
+  logged thaw are warnings in the task log.
+- Proxmox VE: a PVE backup job onto the Restow storage with retention settings (the Retention
+  tab, `prune-backups`) failed every guest after Restow had committed its restore point: the
+  storage plugin died when vzdump pruned, so the PVE task ended with an error and the job mail
+  said failed while Restow showed the backup green. PVE's prune is now a no-op that removes
+  nothing and logs "restow: retention is managed in Restow; PVE's retention settings are
+  ignored", as the notes update does; `pvesm prune-backups` on the Restow storage lists nothing.
+  Retention stays Restow's.
+- Proxmox VE: every backup Restow started sent a Proxmox VE notification. From PVE 8.1 on,
+  vzdump without `mailto` notifies after every backup, also a successful one, and the default
+  matcher mails it to root@pam: an hourly job for 30 guests meant about 720 mails a day, and
+  admins who muted them lost PVE's real alerts as well. restow-pve now starts vzdump on PVE 8.1
+  and newer with `notification-mode=legacy-sendmail` and no `mailto`, so PVE sends nothing for
+  it; Restow reports the outcome itself. A PVE that refused the parameter would get the backup
+  started again without it, never a failed backup. Backups started in PVE notify as before.
+- Proxmox VE: the guest's disk list showed a container's bind or device mount point with
+  `backup=1` (`mp0: /srv/media,mp=/media,backup=1`) as backed up. PVE never backs those up,
+  whatever the flag says, so /media looked protected although none of it is in any restore
+  point. The node now reads the mount point's options one by one (`backup=1`, `yes`, `true` or
+  `on`; a path such as `mp=/backup=1` no longer counts) and reports a bind or device mount point
+  as not backed up, with the reason "not part of the backup", as the server's file view of a
+  restore point does.
+- Proxmox VE: the temporary guests of boot tests and restore checks (`restow-boottest-<vmid>`,
+  `restow-restorecheck-<vmid>` in the pool `restow-restore`) were reported in the node's
+  inventory as ordinary guests. They counted as unprotected or "in no job", a job for all guests
+  could plan a backup of one that failed once the guest was gone, and as they take the lowest
+  free VMID they could take over the guest row (name, kind, restore points, job) of a deleted
+  guest with that VMID. The node now leaves them out: guests tagged and named so, and guests in
+  `restow-restore` with that tag, that name or a marker of the node (a restore still running).
+  A real restore in `restow-restore` is still reported.
+- Proxmox VE: docs/PVE.md said that container restore points are plain restic repositories, as
+  if a container could be recovered without Restow with restic alone. It could not as written:
+  the snapshot holds no `pct` configuration (the configuration is kept by the Restow server),
+  and files restored with restic belong to the ids as the container sees them, so copied into
+  a new unprivileged container they are owned by the host's root and read as nobody:nogroup.
+  The section "Without Restow" now says where the configuration is, that `restow-restore
+  endpoint-password` does not open a container's password in this release, and how to recover
+  a container: `restic restore` as root, then `tar --numeric-owner -cpf - . | pct restore
+  <vmid> - --unprivileged 1 --rootfs <storage>:<GiB>`, which lets PVE map the ids, with notes for
+  privileged containers and a custom `lxc.idmap`. docs/PROXMOX.md no longer plans the
+  configuration as a file in the snapshot.
 
 ### Upgrade Notes
 
@@ -630,6 +938,12 @@ the owners and members of every Microsoft 365 group once (three Graph reads per 
 `$batch`); until it has run, a person's "Teams & sites" is empty and says that it may be
 incomplete. Agents before 0.5.0 ignore `snapshotOnFailure`, and the release key keeps the
 fingerprint `SHA256:2LB7RPpIS0wqbcZ2NA8MjuQN7ZfFPqBX3CwrGFSu76o`.
+
+- Proxmox VE nodes that ran a VM restore, restore check or VM boot test since their last reboot
+  refuse the update to this release: their current restow-pve still counts the leftover restore
+  log as a running restore (see Fixed). On such a node run `rm -f /run/restow-pve/restore/*.log`
+  as root once (or reboot it, or run the installer again), then the update installs by itself,
+  with **Update now** or with `/opt/restow-pve/bin/restow-pve update`.
 
 ### Known Issues
 

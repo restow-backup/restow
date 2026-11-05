@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -29,7 +30,7 @@ var ReleaseFiles = append([]string{"restow-pve"}, PluginFiles...)
 // SHA256SUMS is checked with the key compiled into this binary, every file
 // against its signed hash, and the new binary must report the version before
 // anything is renamed into place. Refused while a backup or restore is
-// running on this node (a job file or a restore server exists).
+// running on this node (busy: an open backup job or a live restore server).
 func SelfUpdate(ctx context.Context, l Layout, srv *Server, current, next string) error {
 	cur, err := update.ParseVersion(current)
 	if err != nil {
@@ -116,16 +117,121 @@ func activeRuns(l Layout) []string {
 	return runs
 }
 
+// staleJobAge is when job-cleanup deletes a job file a backup left behind (a provider that was
+// killed, a node that crashed). It never makes a job count as open (openJobs).
+const staleJobAge = 48 * time.Hour
+
+// busy says whether a backup or a restore works on this node now: a restore server that
+// runs (its pid file names a live `restow-pve serve-restore` of that disk), a container restore
+// whose folder's owner runs (ctrestore.go), or an open backup (a job file whose guest has a live
+// provider process, or any job file while a vzdump task runs on the node). Logs, sockets and the
+// files a finished or crashed backup or restore left behind do not count: only live work may
+// hold back a self-update or a boot test.
 func busy(l Layout) bool {
-	for _, dir := range []string{filepath.Join(l.RunDir, "jobs"), filepath.Join(l.RunDir, "restore")} {
-		entries, _ := os.ReadDir(dir)
-		for _, e := range entries {
-			if !bytes.HasPrefix([]byte(e.Name()), []byte(".")) {
-				return true
+	return len(liveRestoreServers(l)) > 0 || openJobs(l) > 0 || liveContainerRestores(restoreTmpOf(l)) > 0
+}
+
+// liveRestoreServers lists the keys of the restore servers that run now.
+func liveRestoreServers(l Layout) []string {
+	var out []string
+	entries, _ := os.ReadDir(filepath.Join(l.RunDir, "restore"))
+	for _, e := range entries {
+		name := e.Name()
+		if strings.HasPrefix(name, ".") || !strings.HasSuffix(name, ".pid") {
+			continue
+		}
+		key := strings.TrimSuffix(name, ".pid")
+		if pid := readPID(filepath.Join(l.RunDir, "restore", name)); pid > 1 && liveProcess(pid, "restow-pve", "serve-restore", key) {
+			out = append(out, key)
+		}
+	}
+	return out
+}
+
+// openJobs counts the backups open on this node: a job file (backup-init writes it, the end of
+// the backup removes it) whose guest has a live provider, or, between the provider's calls
+// (each is a process of its own), while a vzdump task runs on the node. A job file that a
+// killed provider or a crash of the node left behind counts for nothing, however young.
+func openJobs(l Layout) int {
+	n := 0
+	vzdump := -1 // vzdumpRuns, asked once
+	dir := filepath.Join(l.RunDir, "jobs")
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if e.IsDir() || strings.HasPrefix(e.Name(), ".") || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		var j jobState
+		if readJSON(filepath.Join(dir, e.Name()), &j) != nil || j.RunID == "" {
+			continue
+		}
+		if providerAlive(l, j.VMID) {
+			n++
+			continue
+		}
+		if vzdump < 0 {
+			vzdump = 0
+			if vzdumpRuns() {
+				vzdump = 1
 			}
+		}
+		n += vzdump
+	}
+	return n
+}
+
+// vzdumpRuns says whether a vzdump task runs on this node. PVE names the worker process of every
+// task "task UPID:<node>:...:vzdump:<vmid or empty>:<user>:" (fork_worker sets $0), for a
+// backup job of the scheduler, a backup asked for through the API and the vzdump command alike;
+// it reads the process table, so it needs no PVE API.
+func vzdumpRuns() bool {
+	entries, err := os.ReadDir(procRoot)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if _, err := strconv.Atoi(e.Name()); err != nil {
+			continue
+		}
+		cmdline, err := os.ReadFile(filepath.Join(procRoot, e.Name(), "cmdline"))
+		if err == nil && bytes.HasPrefix(cmdline, []byte("task UPID:")) && bytes.Contains(cmdline, []byte(":vzdump:")) {
+			return true
 		}
 	}
 	return false
+}
+
+// providerAlive says whether a provider process backs up the guest now.
+func providerAlive(l Layout, vmid int) bool {
+	return findProvider(l, vmid) > 1
+}
+
+// readPID reads a pid file; 0 when it is missing or damaged.
+func readPID(path string) int {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+	if err != nil {
+		return 0
+	}
+	return pid
+}
+
+// liveProcess says whether the process pid runs and its command line holds every word: a pid
+// file may outlive its process, and the pid may belong to another process since.
+func liveProcess(pid int, words ...string) bool {
+	cmdline, err := os.ReadFile(filepath.Join(procRoot, strconv.Itoa(pid), "cmdline"))
+	if err != nil {
+		return false
+	}
+	for _, w := range words {
+		if !bytes.Contains(cmdline, []byte(w)) {
+			return false
+		}
+	}
+	return true
 }
 
 // PVEDaemons are the Proxmox VE services that load the storage plugin when they start; they

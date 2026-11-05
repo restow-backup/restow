@@ -61,6 +61,9 @@ PLUGIN_FILE="$ROOT/usr/share/perl5/PVE/Storage/Custom/RestowPlugin.pm"
 PROVIDER_FILE="$ROOT/usr/share/perl5/PVE/BackupProvider/Plugin/Restow.pm"
 STATE_FILE="$ROOT/etc/restow-pve/state.json"
 RESTORE_POOL=restow-restore
+# What the token restores with in the restore pool. No VM.PowerMgmt: restow-pve never restores
+# with start=1, it starts a restored guest as root; and no Mapping.Use: a VM with passthrough,
+# a device mapping or virtiofs is restored as root with qmrestore (docs/PVE.md, "Restore").
 RESTORE_PRIVS="VM.Allocate,VM.Config.Disk,VM.Config.CDROM,VM.Config.CPU,VM.Config.Memory,VM.Config.Network,VM.Config.HWType,VM.Config.Options,VM.Config.Cloudinit,Datastore.AllocateSpace,SDN.Use"
 
 PVE_TOKEN_ID="${RESTOW_PVE_TOKEN_ID:-}"
@@ -613,7 +616,7 @@ uninstall() {
     "$PVE_BIN" uninstall --yes || true
   else
     rm -f "$ROOT/etc/systemd/system/restow-pve.service" "$PLUGIN_FILE" "$PROVIDER_FILE"
-    rm -rf "$PREFIX" "$ROOT/etc/restow-pve" "$ROOT/var/lib/restow-pve"
+    rm -rf "$PREFIX" "$ROOT/etc/restow-pve" "$ROOT/var/lib/restow-pve" "$ROOT/var/cache/restow-pve"
   fi
   if [ -z "$SKIP_SERVICE" ]; then systemctl daemon-reload 2>/dev/null || true; fi
   [ -z "$SKIP_SERVICE" ] && restart_pve_daemons

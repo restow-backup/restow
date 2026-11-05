@@ -5,6 +5,7 @@ package pve
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -24,6 +25,7 @@ type cancelNode struct {
 	mu       sync.Mutex
 	beats    []map[string]any // answered in turn; the last one again and again
 	states   []string         // the `state` of every heartbeat
+	sent     []map[string]any // every heartbeat's body
 	results  map[string]map[string]any
 	deleted  []string
 	vzdumps  int
@@ -50,6 +52,7 @@ func newCancelNode(t *testing.T, beats ...map[string]any) *cancelNode {
 			_ = json.NewDecoder(r.Body).Decode(&in)
 			state, _ := in["state"].(string)
 			f.states = append(f.states, state)
+			f.sent = append(f.sent, in)
 			answer := map[string]any{"tasks": []any{}, "storageId": "restow", "usage": map[string]any{}}
 			if len(f.beats) > 0 {
 				answer = f.beats[0]
@@ -128,7 +131,7 @@ func (f *cancelNode) service(t *testing.T) *Service {
 		Layout: Layout{DataDir: filepath.Join(root, "data"), RunDir: filepath.Join(root, "run"),
 			PluginDir: root, ProviderDir: root},
 		State: &State{NodeName: "pve1", StorageID: "restow", FleecingStorage: "local-lvm",
-			BootTestsDisabled: true},
+			BootTestsDisabled: true, PVETokenID: "restow@pve!restow"},
 		Server: srv, PVE: api,
 		Logf:     func(f string, a ...any) { t.Logf(f, a...) },
 		Interval: 20 * time.Millisecond, BusyInterval: 20 * time.Millisecond,
@@ -221,7 +224,10 @@ func TestCancelledTaskNeverStartsVzdump(t *testing.T) {
 func TestCancelOrderStopsTheProviderOfABackupStartedInPVE(t *testing.T) {
 	f := newCancelNode(t)
 	s := f.service(t)
-	done := markProvider(s.Layout, 101)
+	done, err := markProvider(s.Layout.providerPIDFile(101))
+	if err != nil {
+		t.Fatal(err)
+	}
 	defer done()
 	proc := t.TempDir()
 	pid := strconv.Itoa(os.Getpid())
@@ -244,9 +250,10 @@ func TestCancelOrderStopsTheProviderOfABackupStartedInPVE(t *testing.T) {
 	}
 }
 
-func TestCancelOrderStopsTheVzdumpTaskOfAGuestWithoutProvider(t *testing.T) {
+func TestCancelOrderStopsOnlyAVzdumpTaskOfTheNodesOwn(t *testing.T) {
 	f := newCancelNode(t)
-	f.active = []NodeTask{{UPID: "UPID:other", Type: "vzdump", ID: "102"}, {UPID: testUPID, Type: "vzdump", ID: "101"}}
+	f.active = []NodeTask{{UPID: "UPID:other", Type: "vzdump", ID: "102", User: "restow@pve!restow"},
+		{UPID: testUPID, Type: "vzdump", ID: "101", User: "restow@pve!restow"}}
 	s := f.service(t)
 	oldProc := procRoot
 	procRoot = t.TempDir()
@@ -254,6 +261,111 @@ func TestCancelOrderStopsTheVzdumpTaskOfAGuestWithoutProvider(t *testing.T) {
 	s.applyCancel(context.Background(), &CancelOrders{Runs: []CancelRun{{ID: "run-2", VMID: 101}}})
 	if len(f.deleted) != 1 || !strings.Contains(f.deleted[0], "vzdump:101") {
 		t.Fatalf("stopped %v, want the vzdump task of guest 101", f.deleted)
+	}
+}
+
+// A PVE backup job runs as root@pam; stopping its task needs Sys.Modify, which the token does
+// not hold. Without a provider the log says how the backup ends instead of "nothing runs".
+func TestCancelOrderLeavesAPVEJobsTaskAndSaysHowTheBackupEnds(t *testing.T) {
+	f := newCancelNode(t)
+	f.active = []NodeTask{{UPID: testUPID, Type: "vzdump", ID: "101", User: "root@pam"}}
+	s := f.service(t)
+	var log []string
+	s.Logf = func(format string, a ...any) { log = append(log, fmt.Sprintf(format, a...)) }
+	oldProc := procRoot
+	procRoot = t.TempDir()
+	defer func() { procRoot = oldProc }()
+	s.applyCancel(context.Background(), &CancelOrders{Runs: []CancelRun{{ID: "run-2", VMID: 101}}})
+	if len(f.deleted) != 0 {
+		t.Fatalf("stopped root's task %v", f.deleted)
+	}
+	joined := strings.Join(log, "\n")
+	if !strings.Contains(joined, "no provider of it was found on this node, so it ends at its next upload") ||
+		strings.Contains(joined, "no backup of it runs") {
+		t.Fatalf("log %q", joined)
+	}
+}
+
+// fakeProcFDs is a /proc with one process: its command line and the files it holds open.
+func fakeProcFDs(t *testing.T, pid int, cmdline string, open ...string) {
+	t.Helper()
+	proc := t.TempDir()
+	dir := filepath.Join(proc, strconv.Itoa(pid))
+	if err := os.MkdirAll(filepath.Join(dir, "fd"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "cmdline"), []byte(cmdline), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for i, f := range open {
+		if err := os.Symlink(f, filepath.Join(dir, "fd", strconv.Itoa(i+3))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old := procRoot
+	procRoot = proc
+	t.Cleanup(func() { procRoot = old })
+}
+
+const ctProviderCmdline = "/opt/restow-pve/bin/restow-pve\x00provider\x00backup-container\x00"
+
+// The provider of an unprivileged container cannot write the root-only providers folder; its
+// record is in its run folder, also for a vzdump task of several guests (no task id).
+func TestCancelOrderStopsAContainerProviderThroughItsRunFolder(t *testing.T) {
+	f := newCancelNode(t)
+	f.active = []NodeTask{{UPID: "UPID:pve1:0001:0002:0003:vzdump::root@pam:", Type: "vzdump", ID: "", User: "root@pam"}}
+	s := f.service(t)
+	// The providers folder cannot be made (as for the mapped root of a container).
+	if err := os.WriteFile(filepath.Join(s.Layout.RunDir, "providers"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := markProvider(s.Layout.providerPIDFile(105)); err == nil {
+		t.Fatal("the providers folder is writable in this test")
+	}
+	runDir := filepath.Join(s.Layout.RunDir, "run-abc")
+	if err := os.MkdirAll(runDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	done, err := markProvider(ctProviderPIDFile(runDir, 105))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer done()
+	fakeProcFDs(t, os.Getpid(), ctProviderCmdline, filepath.Join(s.Layout.RunDir, "ct-restow-105.json"))
+	var signalled []int
+	oldSignal := signalProcess
+	signalProcess = func(p int) error { signalled = append(signalled, p); return nil }
+	defer func() { signalProcess = oldSignal }()
+	if !providerAlive(s.Layout, 105) {
+		t.Fatal("a running container provider does not count as running")
+	}
+	s.applyCancel(context.Background(), &CancelOrders{Runs: []CancelRun{{ID: "run-1", VMID: 105}}})
+	if len(signalled) != 1 || signalled[0] != os.Getpid() || len(f.deleted) != 0 {
+		t.Fatalf("signalled %v, stopped %v", signalled, f.deleted)
+	}
+}
+
+// A record in a run folder can be written by the mapped root of every container: it counts only
+// for a container provider that holds this guest's pointer open.
+func TestForgedContainerProviderRecordIsNeverSignalled(t *testing.T) {
+	l := Layout{RunDir: t.TempDir()}
+	runDir := filepath.Join(l.RunDir, "run-x")
+	_ = os.MkdirAll(runDir, 0o700)
+	_ = os.WriteFile(ctProviderPIDFile(runDir, 105), []byte(strconv.Itoa(os.Getpid())), 0o600)
+	oldSignal := signalProcess
+	signalProcess = func(int) error { t.Fatal("signalled a process that is not this guest's provider"); return nil }
+	defer func() { signalProcess = oldSignal }()
+	for name, proc := range map[string][]string{
+		"another guest's provider": {ctProviderCmdline, filepath.Join(l.RunDir, "ct-restow-106.json")},
+		"another guest, same tail": {ctProviderCmdline, filepath.Join(l.RunDir, "ct-restow-1105.json")},
+		"a pointer elsewhere":      {ctProviderCmdline, "/tmp/ct-restow-105.json"},
+		"a VM provider":            {"/opt/restow-pve/bin/restow-pve\x00provider\x00backup-vm\x00", filepath.Join(l.RunDir, "ct-restow-105.json")},
+		"another process":          {"/usr/sbin/sshd\x00", filepath.Join(l.RunDir, "ct-restow-105.json")},
+	} {
+		fakeProcFDs(t, os.Getpid(), proc[0], proc[1])
+		if stopProvider(l, 105) {
+			t.Fatalf("%s: stopProvider = true", name)
+		}
 	}
 }
 
@@ -352,5 +464,123 @@ func TestUpdateNowWaitsForQueuedRunsAndInstallsBeforeTheNextFromTheServer(t *tes
 	tick()
 	if len(installed) != 1 {
 		t.Fatalf("installed %v together with a new task", installed)
+	}
+}
+
+// lastHeld is the heldTasks of the last heartbeat.
+func (f *cancelNode) lastHeld(t *testing.T) map[string]any {
+	t.Helper()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.sent) == 0 {
+		t.Fatal("no heartbeat")
+	}
+	held, ok := f.sent[len(f.sent)-1]["heldTasks"].(map[string]any)
+	if !ok {
+		t.Fatalf("heartbeat without heldTasks: %v", f.sent[len(f.sent)-1])
+	}
+	return held
+}
+
+// The heartbeat names the task the node works on and those in its queue, so the server keeps
+// them from expiring while the node holds them.
+func TestHeartbeatListsTheTasksTheNodeHolds(t *testing.T) {
+	f := newCancelNode(t)
+	s := f.service(t)
+	if err := s.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	held := f.lastHeld(t)
+	if _, ok := held["current"]; ok {
+		t.Fatalf("idle node reports a current task: %v", held)
+	}
+	if q, ok := held["queued"].([]any); !ok || len(q) != 0 {
+		t.Fatalf("idle node: queued = %#v, want []", held["queued"])
+	}
+	s.mu.Lock()
+	s.lazyLocked()
+	s.cur = &current{id: "task-a", kind: "backup"}
+	s.mu.Unlock()
+	s.enqueue([]Task{{ID: "task-b", Kind: "backup"}, {ID: "task-c", Kind: "boot_test"}})
+	if err := s.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	held = f.lastHeld(t)
+	q, _ := held["queued"].([]any)
+	if held["current"] != "task-a" || len(q) != 2 || q[0] != "task-b" || q[1] != "task-c" {
+		t.Fatalf("heldTasks = %v", held)
+	}
+	// A result the server could not take yet: the node still holds that task.
+	s.savePending([]PendingResult{{TaskID: "task-z", Status: "done"}})
+	if h := s.heldTasks(); len(h.Queued) != 3 || h.Queued[2] != "task-z" {
+		t.Fatalf("heldTasks with a kept result = %v", h)
+	}
+	// At most 64.
+	var many []Task
+	for i := 0; i < 80; i++ {
+		many = append(many, Task{ID: fmt.Sprintf("task-%02d", i), Kind: "backup"})
+	}
+	s.enqueue(many)
+	if h := s.heldTasks(); len(h.Queued) != 64 || h.Current != "task-a" {
+		t.Fatalf("heldTasks of a long queue: %d queued, current %q", len(h.Queued), h.Current)
+	}
+}
+
+// A queued task the server cancels is dropped before it starts and reported cancelled; one
+// delivered and cancelled in the same heartbeat never enters the queue.
+func TestACancelledQueuedTaskNeverRuns(t *testing.T) {
+	f := newCancelNode(t, map[string]any{"tasks": []any{cancelBackupTask("task-d")},
+		"cancel": map[string]any{"tasks": []any{"task-d", "task-e"}}})
+	s := f.service(t)
+	s.enqueue([]Task{{ID: "task-e", Kind: "backup", Params: json.RawMessage(`{"vmid":101}`)}})
+	if err := s.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if s.Busy() {
+		t.Fatalf("cancelled tasks wait in the queue: %v", s.heldTasks())
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { defer close(done); s.work(ctx) }()
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	<-done
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.vzdumps != 0 {
+		t.Fatalf("vzdump started %d times for cancelled tasks", f.vzdumps)
+	}
+	for _, id := range []string{"task-d", "task-e"} {
+		if f.results[id]["status"] != "failed" || f.results[id]["error"] != "cancelled in Restow" {
+			t.Errorf("result of %s = %v", id, f.results[id])
+		}
+	}
+}
+
+// A queued task whose vzdump runs already (taken up again after a restart) is not dropped, which
+// would leave the vzdump running: its wait stops the vzdump task and reports how it ended.
+func TestACancelledTaskWaitedForAgainStopsItsVzdump(t *testing.T) {
+	f := newCancelNode(t, map[string]any{"tasks": []any{}, "cancel": map[string]any{"tasks": []any{"task-f"}}})
+	s := f.service(t)
+	params := json.RawMessage(`{"vmid":101}`)
+	s.keepInflight(inflightTask{TaskID: "task-f", Kind: "backup", Params: params, UPID: testUPID, VMID: 101})
+	s.enqueue([]Task{{ID: "task-f", Kind: "backup", Params: params}})
+	if err := s.Tick(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if h := s.heldTasks(); len(h.Queued) != 1 {
+		t.Fatalf("the task waited for again was dropped: %v", h)
+	}
+	s.runTask(context.Background(), Task{ID: "task-f", Kind: "backup", Params: params})
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.deleted) != 1 || !strings.Contains(f.deleted[0], "vzdump") {
+		t.Fatalf("vzdump task not stopped: %v", f.deleted)
+	}
+	if f.vzdumps != 0 {
+		t.Fatal("a second vzdump was started")
+	}
+	if r := f.results["task-f"]; r["status"] != "failed" || !strings.Contains(fmt.Sprint(r["error"]), "cancelled in Restow") {
+		t.Fatalf("result = %v", r)
 	}
 }

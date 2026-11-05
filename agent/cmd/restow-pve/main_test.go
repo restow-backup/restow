@@ -95,7 +95,7 @@ func TestUpdateLoopChecksSoonAfterStart(t *testing.T) {
 	var checks atomic.Int32
 	done := make(chan struct{})
 	go func() {
-		updateLoop(ctx, 10*time.Millisecond, time.Hour, func(context.Context) { checks.Add(1) })
+		updateLoop(ctx, 10*time.Millisecond, time.Hour, time.Hour, func(context.Context) bool { checks.Add(1); return false })
 		close(done)
 	}()
 	deadline := time.Now().Add(5 * time.Second)
@@ -115,5 +115,35 @@ func TestUpdateLoopChecksSoonAfterStart(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("the loop does not end with its context")
+	}
+}
+
+// An offer that found the node busy is tried again after busyRetry, not after six hours.
+func TestUpdateLoopRetriesSoonAfterABusyNode(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var checks atomic.Int32
+	done := make(chan struct{})
+	go func() {
+		updateLoop(ctx, time.Millisecond, time.Hour, 20*time.Millisecond, func(context.Context) bool {
+			return checks.Add(1) < 3 // busy twice, then idle
+		})
+		close(done)
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for checks.Load() < 3 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if checks.Load() != 3 {
+		t.Fatalf("checks %d, want 3 (two busy retries)", checks.Load())
+	}
+	time.Sleep(100 * time.Millisecond)
+	if checks.Load() != 3 {
+		t.Fatalf("checked again before the interval after an idle check: %d", checks.Load())
+	}
+	cancel()
+	<-done
+	if updateBusyRetry >= updateCheckInterval || updateBusyRetry > 30*time.Minute {
+		t.Fatalf("busy retry %s", updateBusyRetry)
 	}
 }
