@@ -717,6 +717,55 @@ describe("ExchangeRestoreEngine", () => {
     expect(alone.items[0]).toMatchObject({ status: "skipped", code: "parent_not_restored" });
   });
 
+  it("says that the attachments of an event the calendar already has belong to an existing item", async () => {
+    const review: FixtureObject = {
+      path: "calendar/Kalender/Review.0012.json",
+      type: "event",
+      id: "EV12",
+      metadata: { calendarName: "Kalender", isDefaultCalendar: "true", hasAttachments: "true" },
+      content: JSON.stringify({
+        event: {
+          subject: "Review",
+          iCalUId: "uid-review-12",
+          hasAttachments: true,
+          start: { dateTime: "2026-03-04T10:00:00.0000000", timeZone: "UTC" },
+          end: { dateTime: "2026-03-04T11:00:00.0000000", timeZone: "UTC" },
+        },
+        exceptions: [],
+      }),
+    };
+    fixture = await createSnapshotFixture({
+      kind: "mailbox",
+      externalId: USER,
+      objects: [
+        review,
+        {
+          path: "calendar/Kalender/Review.0012.attachments/notes.txt",
+          type: "event-attachment",
+          id: "EA12",
+          content: "notes",
+          metadata: { eventItemId: "EV12", name: "notes.txt", contentType: "text/plain" },
+        },
+      ],
+    });
+    const mailbox = new FakeMailbox();
+    mailbox.addEvent("cal-default", { subject: "Review" }, "uid-review-12");
+
+    const report = await engineFor(mailbox).run(
+      fixture.ctx,
+      restoreRequestFor(fixture, { mode: "skip" }),
+    );
+
+    expect(must(report.items.find((item) => item.id === "EV12"))).toMatchObject({
+      status: "skipped",
+      code: "exists",
+    });
+    expect(must(report.items.find((item) => item.id === "EA12"))).toMatchObject({
+      status: "skipped",
+      code: "parent_exists",
+    });
+  });
+
   it("does not confirm an event whose attachments the backup does not hold", async () => {
     const withFiles: FixtureObject = {
       path: "calendar/Kalender/Review.0011.json",
@@ -2131,10 +2180,14 @@ describe("ExchangeRestoreEngine", () => {
     expect(item("mail/INBOX/1.eml").reason).toMatch(
       /Gmail labels kept as categories: Kunden, Important/,
     );
-    expect(item("mail/Kunden/21.eml")).toMatchObject({ status: "skipped", code: "exists" });
+    expect(item("mail/Kunden/21.eml")).toMatchObject({ status: "skipped", code: "merged" });
     expect(item("mail/Kunden/21.eml").reason).toMatch(
       /label "Kunden" is kept as the category "Kunden"/,
     );
+    expect(item("mail/[Gmail]/Important")).toMatchObject({
+      status: "skipped",
+      code: "not_applicable",
+    });
     expect(item("mail/[Gmail]/Important").reason).toMatch(/is a label, not a folder/);
   });
 

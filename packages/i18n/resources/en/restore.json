@@ -275,8 +275,8 @@
       "downloadHint": "{kind, select, purview {Rights-protected by Microsoft Purview} smime {S/MIME-encrypted} other {Protected}}: the downloaded EML needs the recipient's rights to open. Restoring into the mailbox works for messages up to about 2.6 MB; a larger one can only be downloaded."
     },
     "attachmentsNotBackedUp": {
-      "title": "Attachments not backed up",
-      "description": "Microsoft did not hand out the attachments of this post (or some of them), so they are not in the backup. A restore or download brings the post back without them."
+      "title": "Not all attachments backed up",
+      "description": "Not all attachments of this post are in the backup: Microsoft did not hand them out (or some of them), or they are link or item attachments, which the backup does not hold. A restore, a download or an export brings back the post without them."
     },
     "carriedForward": {
       "title": "Library not readable at this backup",
@@ -554,7 +554,10 @@
       "unverified": "Restored, but the target's confirmation did not match the backup.",
       "exists": "The target already holds this item.",
       "not_restorable": "The backup holds no restorable content for this kind of item.",
-      "parent_not_restored": "Belongs to a message that was not restored.",
+      "parent_not_restored": "Belongs to an item (a message or an event) that was not restored.",
+      "parent_exists": "Belongs to an item that already exists in the target and was therefore skipped.",
+      "merged": "Restored with another item: as an attachment inside its MIME, or as the same Gmail message under another label.",
+      "not_applicable": "No item of its own in the target: it is carried another way, as a label, category or flag.",
       "wrong_target": "This kind of item cannot be restored into this target.",
       "data_missing": "Data of this item is missing from the storage.",
       "integrity": "The data did not pass the integrity check and was not restored.",

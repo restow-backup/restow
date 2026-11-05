@@ -897,7 +897,7 @@ describe("ImapRestoreEngine with a Gmail backup", () => {
     expect(item("mail/INBOX/1.eml").reason).toMatch(
       /Gmail labels kept as keywords: Work Important/,
     );
-    expect(item("mail/Work/21.eml")).toMatchObject({ status: "skipped", code: "exists" });
+    expect(item("mail/Work/21.eml")).toMatchObject({ status: "skipped", code: "merged" });
     expect(item("mail/Work/21.eml").reason).toMatch(/label "Work" is kept as the keyword "Work"/);
     expect(item("mail/[Gmail]/All Mail/11.eml").reason).toMatch(/All Mail holds every message/);
     expect(item("mail/[Gmail]/Starred/41.eml").reason).toMatch(/kept as the flag \\Flagged/);

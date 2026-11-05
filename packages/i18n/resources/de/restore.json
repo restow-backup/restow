@@ -275,8 +275,8 @@
       "downloadHint": "{kind, select, purview {Rechteverwaltet durch Microsoft Purview} smime {S/MIME-verschlüsselt} other {Geschützt}}: Die heruntergeladene EML lässt sich nur mit den Rechten der Empfängerin oder des Empfängers öffnen. Die Wiederherstellung ins Postfach funktioniert für Nachrichten bis etwa 2,6 MB; eine größere lässt sich nur herunterladen."
     },
     "attachmentsNotBackedUp": {
-      "title": "Anhänge nicht gesichert",
-      "description": "Anhänge wurden von Microsoft nicht herausgegeben und nicht gesichert. Eine Wiederherstellung oder ein Download liefert den Beitrag ohne sie."
+      "title": "Nicht alle Anhänge gesichert",
+      "description": "Nicht alle Anhänge dieses Beitrags sind in der Sicherung: Microsoft hat sie (oder einige davon) nicht herausgegeben, oder es sind Link- oder Elementanhänge, die die Sicherung nicht aufnimmt. Eine Wiederherstellung, ein Download oder ein Export liefert den Beitrag ohne sie."
     },
     "carriedForward": {
       "title": "Bibliothek bei dieser Sicherung nicht lesbar",
@@ -554,7 +554,10 @@
       "unverified": "Wiederhergestellt, aber die Bestätigung des Ziels stimmte nicht mit der Sicherung überein.",
       "exists": "Das Ziel enthält dieses Element bereits.",
       "not_restorable": "Die Sicherung enthält für diese Art von Element keinen wiederherstellbaren Inhalt.",
-      "parent_not_restored": "Gehört zu einer E-Mail, die nicht wiederhergestellt wurde.",
+      "parent_not_restored": "Gehört zu einem Element (E-Mail oder Termin), das nicht wiederhergestellt wurde.",
+      "parent_exists": "Gehört zu einem Element, das im Ziel bereits vorhanden ist und deshalb übersprungen wurde.",
+      "merged": "Mit einem anderen Element wiederhergestellt: als Anhang in dessen MIME oder als dieselbe Gmail-Nachricht unter einem weiteren Label.",
+      "not_applicable": "Im Ziel kein eigenes Element: Es wird anders nachgebildet, als Label, Kategorie oder Kennzeichnung.",
       "wrong_target": "Diese Art von Element lässt sich in dieses Ziel nicht wiederherstellen.",
       "data_missing": "Daten dieses Elements fehlen im Speicher.",
       "integrity": "Die Daten haben die Integritätsprüfung nicht bestanden und wurden nicht wiederhergestellt.",

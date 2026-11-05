@@ -704,7 +704,7 @@ export class ExchangeRestoreSession {
     throwIfAborted(ctx);
     const label = gmailLabelFolderNote(folder, catalog, "exchange");
     if (label !== undefined) {
-      ledger.skipped(folder, "exists", this.legacyNote(label));
+      ledger.skipped(folder, "not_applicable", this.legacyNote(label));
       return;
     }
     try {
@@ -743,9 +743,12 @@ export class ExchangeRestoreSession {
   ): Promise<void> {
     const { ctx, client, userId, ledger, progress } = this.o;
     throwIfAborted(ctx);
-    const skipAttachments = (reason: string): void => {
+    const skipAttachments = (
+      reason: string,
+      code: "parent_not_restored" | "parent_exists" = "parent_not_restored",
+    ): void => {
       for (const attachment of attachments) {
-        ledger.skipped(attachment, "parent_not_restored", reason);
+        ledger.skipped(attachment, code, reason);
       }
     };
 
@@ -779,7 +782,7 @@ export class ExchangeRestoreSession {
               note: RESTORED_BY_EARLIER_ATTEMPT,
             });
           } else {
-            ledger.skipped(attachment, "exists", "contained in the restored message's MIME");
+            ledger.skipped(attachment, "merged", "contained in the restored message's MIME");
           }
         }
         return;
@@ -834,7 +837,7 @@ export class ExchangeRestoreSession {
             this.legacyNote(this.skipReason("a message with this Message-ID", "folder")),
             earlier,
           );
-          skipAttachments("the message already exists in the target folder");
+          skipAttachments("the message already exists in the target folder", "parent_exists");
           return;
         } else {
           imported = await this.importMessage(message, folderId, isJson, duplicates);
@@ -1549,7 +1552,7 @@ export class ExchangeRestoreSession {
       record: () => ledger.skipped(attachment, code, reason),
     });
     if (!ownerIsJson) {
-      return skip("exists", "contained in the restored message's MIME");
+      return skip("merged", "contained in the restored message's MIME");
     }
     const facts = attachmentFactsOf(attachment);
     if (facts.kind === "reference") {
@@ -1682,7 +1685,7 @@ export class ExchangeRestoreSession {
           for (const attachment of attachments) {
             ledger.skipped(
               attachment,
-              "parent_not_restored",
+              "parent_exists",
               "the event already exists in the target calendar",
             );
           }

@@ -29,8 +29,17 @@ export type RestoreItemCode =
   | "exists"
   /** The backup holds no restorable content for this kind of item. */
   | "not_restorable"
-  /** Belongs to a message that was not restored in this run. */
+  /** Belongs to an item (a message, an event) that was not restored in this run. */
   | "parent_not_restored"
+  /** Belongs to an item that already exists in the target and was skipped. */
+  | "parent_exists"
+  /**
+   * Restored as part of another item: an attachment inside its message's
+   * MIME, the same Gmail message under another label.
+   */
+  | "merged"
+  /** No item of its own in the target: carried another way (a label, a category, a flag). */
+  | "not_applicable"
   /** The item does not belong in this kind of target (a file in a mailbox, ...). */
   | "wrong_target"
   /** The snapshot references data the chunk store does not have. */

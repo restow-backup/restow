@@ -619,7 +619,16 @@ private repository.
   link attachment the backup could not keep) came back from a restore or a ZIP download as
   confirmed, and the restore explorer showed it like any other post, although its files were
   never backed up. Such a post is now "Not confirmed" with the attachments it lacks, and the
-  explorer shows "Attachments not backed up" on it.
+  explorer shows "Not all attachments backed up" on it, naming both causes (Microsoft did not
+  hand them out, or they are link or item attachments the backup does not hold).
+- Restore job page: the explanation of a skipped item did not always fit. An event attachment
+  read "Belongs to a message that was not restored", also when its event was skipped because the
+  calendar already had it; an attachment inside a restored message's MIME, a Gmail message under
+  a further label, and Gmail's Important and Starred folders read "The target already holds this
+  item", although the target held no such item. Such items now say that they belong to an item
+  (a message or an event) that was not restored, belong to an item that already exists, were
+  restored with another item, or are no item of their own in the target (carried as a label,
+  category or flag).
 - Restore into another IMAP account: the target was stored as the bare login and looked up without
   order, source or status, so with two IMAP sources that know the same login (an old and a new
   server during a migration) a restore could write into the wrong server while the job reported

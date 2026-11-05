@@ -440,7 +440,7 @@ export function reportGmailCopies(
       const keptLabel = copy.label === null ? undefined : labels.kept.get(copy.label);
       ledger.skipped(
         copy.object,
-        outcome.code === "restored" || outcome.code === "unverified" ? "exists" : outcome.code,
+        outcome.code === "restored" || outcome.code === "unverified" ? "merged" : outcome.code,
         keptLabel !== undefined
           ? `the same Gmail message is already restored, as ${where}; its label ${describeLabel(copy.label)} ${keptLabel}`
           : `the same Gmail message as ${unit.object.path} (restored once for all its labels): ${outcome.reason ?? "skipped"}`,
@@ -453,7 +453,7 @@ export function reportGmailCopies(
     if (lost !== undefined) {
       ledger.skipped(
         copy.object,
-        "exists",
+        "merged",
         `the same Gmail message is restored once, as ${where}; its label ${describeLabel(label)} is not kept: ${lost}`,
         outcome.targetRef,
       );
@@ -467,7 +467,7 @@ export function reportGmailCopies(
           : labels.kept.get(label);
     ledger.skipped(
       copy.object,
-      "exists",
+      "merged",
       label === null
         ? `Gmail's All Mail holds every message; this one is restored once, as ${where}`
         : label === unit.home

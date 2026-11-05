@@ -437,7 +437,7 @@ class ImapRestoreRun {
       this.session.isGmail === true ? "gmail" : "imap",
     );
     if (label !== undefined) {
-      this.ledger.skipped(folder, "exists", this.legacyNote(label));
+      this.ledger.skipped(folder, "not_applicable", this.legacyNote(label));
       return;
     }
     try {

@@ -129,10 +129,10 @@ describe("DetailsPanel", () => {
   });
 
   it("says when the backup holds a group post without its attachments", () => {
-    expect(render(mailEntry)).not.toContain("Attachments not backed up");
+    expect(render(mailEntry)).not.toContain("Not all attachments backed up");
     const html = render({ ...mailEntry, mail: { ...mail, attachmentsNotBackedUp: true } });
-    expect(html).toContain("Attachments not backed up");
-    expect(html).toContain("Microsoft did not hand out the attachments of this post");
+    expect(html).toContain("Not all attachments backed up");
+    expect(html).toContain("or they are link or item attachments, which the backup does not hold");
   });
 
   it("says when a SharePoint library holds the files of an earlier backup", () => {
