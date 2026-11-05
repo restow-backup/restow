@@ -412,7 +412,38 @@ export async function archiveMirrorItems(
 export interface MetadataMirrorOptions {
   /** The archive records' retention (archive_items); see {@link archiveMirrorItems}. */
   readonly archiveRetention?: ArchiveRecordRetention;
+  /** Leave the sealed archive records out (the caller mirrors them from the catalog). */
+  readonly withoutArchive?: boolean;
 }
+
+/** Where a mirror of the archive records stands: the catalog's keyset (created_at, id). */
+export interface ArchiveRecordPosition {
+  /** `archive_items.created_at` exactly as Postgres prints it (microseconds kept). */
+  readonly createdAt: string;
+  readonly id: string;
+}
+
+/** One sealed record as the archive catalog (archive_items) knows it. */
+export interface ArchiveRecordEntry {
+  readonly key: string;
+  readonly position: ArchiveRecordPosition;
+  readonly retainUntil: Date | null;
+}
+
+/**
+ * The archive catalog's sealed records in keyset order: those after `after`, created before
+ * `before`, oldest first, at most `limit`. Only items the catalog still holds.
+ */
+export interface ArchiveRecordCatalog {
+  page(
+    after: ArchiveRecordPosition | null,
+    before: Date,
+    limit: number,
+  ): Promise<readonly ArchiveRecordEntry[]>;
+}
+
+/** Records mirrored per page of the catalog. */
+export const ARCHIVE_MIRROR_PAGE = 1000;
 
 /**
  * Committed manifests, wrapped keys and sealed archive records on the primary (no recorded
@@ -426,7 +457,9 @@ export async function metadataMirrorItems(
   const [listed, keys, archive] = await Promise.all([
     source.list(manifestPrefix(tenantId)),
     source.list(keyPrefix(tenantId)),
-    archiveMirrorItems(tenantId, source, options.archiveRetention),
+    options.withoutArchive
+      ? Promise.resolve([])
+      : archiveMirrorItems(tenantId, source, options.archiveRetention),
   ]);
   const manifests = listed.filter((key) => !key.endsWith(PARTIAL_MANIFEST_SUFFIX));
   return [...[...keys, ...manifests].map((key) => ({ key, size: null, sha256: null })), ...archive];
@@ -620,6 +653,18 @@ export interface TenantMirrorOptions {
   readonly packs: readonly Pick<PackRecord, "path" | "size" | "sha256">[];
   /** The archive records' retention (archive_items); see {@link archiveMirrorItems}. */
   readonly archiveRetention?: ArchiveRecordRetention;
+  /**
+   * Mirror the sealed archive records from the catalog instead of a listing of the primary:
+   * page by page in keyset order, only those after `after` (the position an earlier mirror
+   * reached for the same copies; null: every record) and created before `before`. A listing
+   * of the archive prefix is one in-memory array of every record (millions for a large
+   * tenant) plus a catalog lookup and a check of each on every copy, on every scrub.
+   */
+  readonly archiveRecords?: {
+    readonly catalog: ArchiveRecordCatalog;
+    readonly after: ArchiveRecordPosition | null;
+    readonly before: Date;
+  };
   readonly verify?: MirrorVerifyMode;
   readonly concurrency?: number;
   readonly signal?: AbortSignal;
@@ -632,6 +677,30 @@ export interface TenantMirrorReport {
   /** One report per copy, in the order of `storage.copies`. */
   readonly copies: readonly MirrorReport[];
   readonly complete: boolean;
+  /**
+   * With `archiveRecords`: every record up to here is on every copy (the next mirror may start
+   * after it); `after` again when a record of the first page did not make it. Absent without.
+   */
+  readonly archiveThrough?: ArchiveRecordPosition | null;
+}
+
+/** Two reports of one copy as one (pages of the archive records). */
+function mergeReports(a: MirrorReport, b: MirrorReport, maxProblems: number): MirrorReport {
+  const problems = [...a.problems, ...b.problems];
+  return {
+    total: a.total + b.total,
+    present: a.present + b.present,
+    copied: a.copied + b.copied,
+    repaired: a.repaired + b.repaired,
+    failed: a.failed + b.failed,
+    bytesWritten: a.bytesWritten + b.bytesWritten,
+    complete: a.complete && b.complete,
+    problems: problems.slice(0, maxProblems),
+    problemsOmitted:
+      a.problemsOmitted + b.problemsOmitted + Math.max(0, problems.length - maxProblems),
+    startedAt: a.startedAt,
+    finishedAt: b.finishedAt,
+  };
 }
 
 /**
@@ -650,19 +719,18 @@ export async function mirrorTenantStorage(
   const items = [
     ...(await metadataMirrorItems(tenantId, storage.primary, {
       archiveRetention: options.archiveRetention,
+      withoutArchive: options.archiveRecords !== undefined,
     })),
     ...packMirrorItems(options.packs),
   ];
-  options.progress?.total(items.length * storage.copies.length);
+  let expected = items.length * storage.copies.length;
+  options.progress?.total(expected);
   options.progress?.phase("mirror");
-
-  const copies: MirrorReport[] = [];
-  for (const [index, target] of storage.copies.entries()) {
-    throwIfAborted(options.signal);
-    const report = await mirrorObjects({
+  const mirror = (target: StorageBackend, index: number, list: readonly MirrorItem[]) =>
+    mirrorObjects({
       source: storage.primary,
       target,
-      items,
+      items: list,
       verify: options.verify,
       concurrency: options.concurrency,
       signal: options.signal,
@@ -670,6 +738,54 @@ export async function mirrorTenantStorage(
       logger: options.logger?.child({ copy: index }),
       now: options.now,
     });
+
+  const copies: MirrorReport[] = [];
+  for (const [index, target] of storage.copies.entries()) {
+    throwIfAborted(options.signal);
+    copies.push(await mirror(target, index, items));
+  }
+
+  // The archive records from the catalog, a page at a time, so neither the listing nor the
+  // records of a large tenant are held at once.
+  let archiveThrough: ArchiveRecordPosition | null | undefined;
+  const records = options.archiveRecords;
+  if (records) {
+    archiveThrough = records.after;
+    let after = records.after;
+    let intact = true;
+    for (;;) {
+      throwIfAborted(options.signal);
+      const page = await records.catalog.page(after, records.before, ARCHIVE_MIRROR_PAGE);
+      if (page.length === 0) {
+        break;
+      }
+      const list: MirrorItem[] = page.map((entry) => ({
+        key: entry.key,
+        size: null,
+        sha256: null,
+        retainUntil: entry.retainUntil,
+      }));
+      expected += list.length * storage.copies.length;
+      options.progress?.total(expected);
+      let pageComplete = true;
+      for (const [index, target] of storage.copies.entries()) {
+        const report = await mirror(target, index, list);
+        pageComplete &&= report.complete;
+        copies[index] = mergeReports(copies[index] as MirrorReport, report, DEFAULT_MAX_PROBLEMS);
+      }
+      after = (page[page.length - 1] as ArchiveRecordEntry).position;
+      // The position moves only while every page so far is complete on every copy: a record
+      // that did not make it is mirrored again by the next run.
+      intact &&= pageComplete;
+      if (intact) {
+        archiveThrough = after;
+      }
+      if (page.length < ARCHIVE_MIRROR_PAGE) {
+        break;
+      }
+    }
+  }
+  for (const [index, report] of copies.entries()) {
     options.logger?.info("copy target mirrored", {
       copy: index,
       total: report.total,
@@ -678,9 +794,12 @@ export async function mirrorTenantStorage(
       failed: report.failed,
       bytesWritten: report.bytesWritten,
     });
-    copies.push(report);
   }
-  return { copies, complete: copies.every((report) => report.complete) };
+  return {
+    copies,
+    complete: copies.every((report) => report.complete),
+    ...(archiveThrough !== undefined ? { archiveThrough } : {}),
+  };
 }
 
 // ---------------------------------------------------------------------------

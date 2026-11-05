@@ -855,7 +855,13 @@ scrub's mirror onto a copy added later, a `move` migration, and the completeness
 before a copy is promoted (it counts them under "Sealed archive records"). Each record is
 copied with the `retention_until` of its catalog row, so on an Object Lock target it is
 locked exactly as long as on the target it was first written to; records of items deleted
-after their retention are not copied. Before 0.5.0 none of these paths knew the archive
+after their retention are not copied. The scrub's mirror reads the records from the catalog
+(`archive_items`, by creation time, a thousand at a time), not from a listing of the archive
+prefix: a scheduled (sample) check takes only the records written since the position the last
+check reached for the same copies (kept in its result, `copies.archiveThrough`, and moved only
+while every record before it is on every copy); a full check, and the first check after a copy
+is added, replaced or pointed elsewhere, goes through every record. Records younger than 15
+minutes wait for the next check (their row may not be committed yet). Before 0.5.0 none of these paths knew the archive
 prefix: a target added later never received the records written before it, and after a
 `move` they existed only on the retired location.
 

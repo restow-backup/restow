@@ -635,7 +635,14 @@ private repository.
   Lock retention. The copy mirror of the storage check, the migration and the completeness
   check now include them, each written with the item's retention (records of items deleted
   after their retention are left out), and removing an old location is refused while it holds
-  a record no current target has. The copy dialog lists "Sealed archive records".
+  a record no current target has. The copy dialog lists "Sealed archive records". The storage
+  check's mirror reads the records from the catalog, a page at a time, instead of listing the
+  whole archive prefix and looking up every record's retention on every check (for a tenant
+  with millions of archived mails: a listing of several hundred MB in the worker, thousands of
+  catalog queries and a check of every record on every copy each time, so the check ran for
+  hours and the pack mirror and garbage collection after it were delayed): a scheduled check
+  copies only the records written since the last one reached, a full check and the first check
+  after a copy is added or changed go through every record.
 - Mail archive: the deletion run after the retention period read the legal holds and every
   due item of a tenant once (a whole capture year under the default "end of year" rule) and
   then deleted item by item. A legal hold placed while it ran did not stop it for the items it

@@ -64,6 +64,8 @@
  */
 import {
   type ActiveManifest,
+  type ArchiveRecordCatalog,
+  type ArchiveRecordPosition,
   type ArchiveRecordRetention,
   type CatalogChunk,
   type CatalogPack,
@@ -102,7 +104,7 @@ import {
 import { and, asc, desc, eq, inArray, isNotNull, lt, sql } from "drizzle-orm";
 import type { TenantTx, TenantTxRunner } from "../progress.js";
 import { raiseEvents } from "../reporting.js";
-import { archiveRecordRetention } from "./archive-records.js";
+import { archiveRecordRetention, pgArchiveRecordCatalog } from "./archive-records.js";
 import {
   abandonedCheckpointProbe,
   discardAbandonedSnapshots,
@@ -1052,6 +1054,13 @@ export interface CopyMirrorSummary {
   readonly repaired: number;
   readonly failed: number;
   readonly bytesWritten: number;
+  /**
+   * The sealed archive records from the catalog: every record up to this position is on
+   * every copy of `copySet`; the next scheduled check starts after it.
+   */
+  readonly archiveThrough?: ArchiveRecordPosition | null;
+  /** Which copies `archiveThrough` holds for (see {@link copyTargetSet}). */
+  readonly copySet?: string;
 }
 
 export function copyMirrorSummary(report: TenantMirrorReport): CopyMirrorSummary {
@@ -1064,7 +1073,92 @@ export function copyMirrorSummary(report: TenantMirrorReport): CopyMirrorSummary
     repaired: sum("repaired"),
     failed: sum("failed"),
     bytesWritten: sum("bytesWritten"),
+    ...(report.archiveThrough !== undefined ? { archiveThrough: report.archiveThrough } : {}),
   };
+}
+
+/**
+ * Records younger than this are left to the next check: a record's `created_at` is taken when
+ * its row is inserted, before the append commits, so a check must not move its position past
+ * a record that is not visible yet.
+ */
+export const ARCHIVE_MIRROR_SETTLE_MS = 15 * 60_000;
+
+/** The sealed archive records the copy mirror takes from the catalog, and from where. */
+export interface ArchiveMirrorInput {
+  readonly catalog: ArchiveRecordCatalog;
+  /** The position the last check reached for these copies; null: every record. */
+  readonly after: ArchiveRecordPosition | null;
+  readonly copySet: string;
+}
+
+/**
+ * The tenant's primary and copies (ids, roles and configuration) and how many copies the
+ * resolved storage has: the archive mirror's position holds only for these. A copy added,
+ * replaced or pointed elsewhere starts the records over, so it receives every old record.
+ */
+export async function copyTargetSet(
+  run: TenantTxRunner,
+  tenantId: string,
+  copies: number,
+): Promise<string> {
+  const [row] = await run((tx) =>
+    tx.execute<{ targets: string | null }>(sql`
+      SELECT md5(string_agg(id::text || ':' || role::text || ':' || md5(config::text), ',' ORDER BY id))
+               AS targets
+        FROM ${storageTargets}
+       WHERE tenant_id = ${tenantId}::uuid AND role IN ('primary', 'copy')
+    `),
+  ).then((result) => result.rows);
+  return `${row?.targets ?? "installation"}:${copies}`;
+}
+
+/**
+ * Where the newest completed check left the archive records, when it mirrored the same copies;
+ * null otherwise (every record again).
+ */
+export async function previousArchiveMirror(
+  run: TenantTxRunner,
+  tenantId: string,
+  copySet: string,
+): Promise<ArchiveRecordPosition | null> {
+  const [row] = await run((tx) =>
+    tx
+      .select({ copies: sql<unknown>`${jobs.payload}->'result'->'copies'` })
+      .from(jobs)
+      .where(
+        and(
+          eq(jobs.tenantId, tenantId),
+          eq(jobs.queue, "scrub"),
+          eq(jobs.status, "completed"),
+          isNotNull(jobs.completedAt),
+          sql`${jobs.payload}->'result'->'copies' IS NOT NULL`,
+          sql`jsonb_typeof(${jobs.payload}->'result'->'copies') = 'object'`,
+        ),
+      )
+      .orderBy(desc(jobs.completedAt))
+      .limit(1),
+  );
+  const copies = row?.copies as { copySet?: unknown; archiveThrough?: unknown } | undefined;
+  const through = copies?.archiveThrough as
+    | { createdAt?: unknown; id?: unknown }
+    | null
+    | undefined;
+  return copies?.copySet === copySet &&
+    typeof through?.createdAt === "string" &&
+    typeof through.id === "string"
+    ? { createdAt: through.createdAt, id: through.id }
+    : null;
+}
+
+/** The copy set and where its archive mirror stands. */
+async function archiveMirrorStart(
+  run: TenantTxRunner,
+  tenantId: string,
+  copies: number,
+): Promise<{ copySet: string; after: ArchiveRecordPosition | null }> {
+  const copySet = await copyTargetSet(run, tenantId, copies);
+  return { copySet, after: await previousArchiveMirror(run, tenantId, copySet) };
 }
 
 /** Bring every copy target up to the primary; null when the tenant has no copy. */
@@ -1073,6 +1167,7 @@ export async function mirrorCopies(
   catalog: Pick<PackCatalog, "listPacks">,
   mode: ScrubJobPayload["mode"],
   archiveRetention?: ArchiveRecordRetention,
+  archive?: ArchiveMirrorInput,
 ): Promise<CopyMirrorSummary | null> {
   const storage = ctx.storage;
   if (storage.copies.length === 0) {
@@ -1084,12 +1179,27 @@ export async function mirrorCopies(
     storage,
     packs: await catalog.listPacks(),
     archiveRetention,
+    // The sealed archive records from the catalog: a scheduled check only those written since
+    // the last one reached for the same copies, a full check (and a copy set that changed)
+    // every one, page by page.
+    ...(archive
+      ? {
+          archiveRecords: {
+            catalog: archive.catalog,
+            after: mode === "full" ? null : archive.after,
+            before: new Date(ctx.now().getTime() - ARCHIVE_MIRROR_SETTLE_MS),
+          },
+        }
+      : {}),
     verify: mode === "full" ? "hash" : "size",
     signal: ctx.signal,
     logger,
     now: ctx.now,
   });
-  const summary = copyMirrorSummary(report);
+  const summary = {
+    ...copyMirrorSummary(report),
+    ...(archive ? { copySet: archive.copySet } : {}),
+  };
   if (!summary.complete) {
     logger.warn("copy targets incomplete after mirror", {
       failed: summary.failed,
@@ -1134,7 +1244,10 @@ export const scrubHandler: JobHandler<"scrub"> = {
     const copies =
       mode === "recheck"
         ? null
-        : await mirrorCopies(ctx, catalog, mode, archiveRecordRetention(run, ctx.tenantId));
+        : await mirrorCopies(ctx, catalog, mode, archiveRecordRetention(run, ctx.tenantId), {
+            catalog: pgArchiveRecordCatalog(run, ctx.tenantId),
+            ...(await archiveMirrorStart(run, ctx.tenantId, ctx.storage.copies.length)),
+          });
     const previous = await loadPreviousScrub(run, ctx.tenantId);
     // A storage migration reads the primary's packs to copy them elsewhere
     // and, once verified, retires it to `previous`; garbage collection must

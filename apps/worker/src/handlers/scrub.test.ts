@@ -14,6 +14,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  archive,
   type ChunkIndex,
   type ChunkLocation,
   ChunkReader,
@@ -35,6 +36,7 @@ import {
   wrappedKeyKey,
 } from "@restow/core";
 import {
+  archiveItems,
   createDb,
   type Database,
   jobs,
@@ -583,6 +585,75 @@ describe.skipIf(!adminUrl)("garbage collection against Postgres", SLOW_UNDER_LOA
         .from(verifyReports)
         .where(eq(verifyReports.tenantId, tenantId)),
     ).toHaveLength(1);
+  });
+
+  it("mirrors only the archive records written since the last scheduled check, every one on a full check", async () => {
+    const tenant = await createTenant();
+    const copy = new LocalStorageBackend(join(root, `${tenant.tenantId}-copy`));
+    const withCopy = { ...tenant, storage: { ...tenant.storage, copies: [copy] } };
+    const archived = async (count: number, at: Date) => {
+      for (let n = 0; n < count; n++) {
+        const id = randomUUID();
+        const key = archive.archiveItemKey(tenant.tenantId, at, id);
+        await tenant.storage.primary.put(key, Buffer.from(`sealed record ${id}`));
+        await db.insert(archiveItems).values({
+          id,
+          tenantId: tenant.tenantId,
+          messageId: `<${id}@contoso.example>`,
+          itemHash: `hash-${id}`,
+          prevChainHash: null,
+          chainHash: `chain-${id}`,
+          receivedAt: at,
+          capturedVia: "journal",
+          storagePath: key,
+          createdAt: at,
+        });
+      }
+    };
+    const archiveHeads = () => {
+      const seen: string[] = [];
+      const head = copy.head.bind(copy);
+      copy.head = async (key: string) => {
+        if (key.includes("/archive/")) {
+          seen.push(key);
+        }
+        return head(key);
+      };
+      return seen;
+    };
+    const day = (n: number) => new Date(Date.UTC(2026, 9, n, 12));
+    await archived(1200, day(1));
+    // The first scheduled check knows no position yet: every record, a page at a time.
+    let seen = archiveHeads();
+    const first = await scrubAt(withCopy, day(2), "sample");
+    expect(seen).toHaveLength(1200);
+    expect((first as { copies?: unknown }).copies).toMatchObject({ complete: true, copied: 1200 });
+    // A second one with nothing new looks at no record; one after three new looks at three.
+    seen = archiveHeads();
+    await scrubAt(withCopy, day(3), "sample");
+    expect(seen).toHaveLength(0);
+    await archived(3, day(3));
+    seen = archiveHeads();
+    const third = await scrubAt(withCopy, day(4), "sample");
+    expect(seen).toHaveLength(3);
+    expect((third as { copies?: unknown }).copies).toMatchObject({ complete: true, copied: 3 });
+    // A full check sweeps every record again (verified by hash).
+    seen = archiveHeads();
+    await scrubAt(withCopy, day(5), "full");
+    expect(seen).toHaveLength(1203);
+    // A record younger than the settle time waits for the next check.
+    await archived(1, new Date(day(6).getTime() - 60_000));
+    seen = archiveHeads();
+    await scrubAt(withCopy, day(6), "sample");
+    expect(seen).toHaveLength(0);
+    seen = archiveHeads();
+    await scrubAt(withCopy, day(7), "sample");
+    expect(seen).toHaveLength(1);
+    // A copy added later receives every record written before it, on its first scheduled check.
+    const second = new LocalStorageBackend(join(root, `${tenant.tenantId}-copy-2`));
+    const both = { ...tenant, storage: { ...tenant.storage, copies: [copy, second] } };
+    await scrubAt(both, day(8), "sample");
+    expect((await second.list(archive.archivePrefix(tenant.tenantId))).length).toBe(1204);
   });
 
   it("deletes no pack a running restore or verify of the tenant reads", async () => {
