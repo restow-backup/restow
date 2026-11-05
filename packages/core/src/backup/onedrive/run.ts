@@ -18,6 +18,7 @@ import { classifyFailure, FailureError } from "../../failures/classify.js";
 import type { GraphClient } from "../../graph/client.js";
 import type { DeltaMode } from "../../graph/delta.js";
 import { GraphError, isNotFound } from "../../graph/errors.js";
+import { QuickXorHash } from "../../graph/quickxorhash.js";
 import { collect } from "../../graph/resources/common.js";
 import {
   type DriveDeltaItem,
@@ -35,7 +36,6 @@ import {
   type ActivityReport,
   EntropyWindows,
 } from "../../ransomware/activity.js";
-import { QuickXorHash } from "../../graph/quickxorhash.js";
 import { entropyExpectation, entropySampleOf } from "../../ransomware/entropy.js";
 import { type DriveWalkOutcome, walkDriveDelta } from "./delta.js";
 import {
