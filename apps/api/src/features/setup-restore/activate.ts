@@ -70,6 +70,18 @@ function stampOf(at: Date): string {
     .toLowerCase();
 }
 
+/**
+ * A pool of one connection for this step. Its sessions may be ended by the step itself
+ * (endSessions ends every other session of the scratch database, also the one `prepared` is
+ * still closing): a connection ended that way while idle or closing is dropped quietly, never an "Unhandled 'error' event" that ends the process half way through the
+ * swap. A query running on it still fails with the error.
+ */
+export function stepPool(url: string): ReturnType<typeof createDb>["$client"] {
+  const pool = createDb(url, { max: 1 }).$client;
+  pool.on("error", () => undefined);
+  return pool;
+}
+
 async function exists(admin: Queryable, name: string): Promise<boolean> {
   const { rows } = await admin.query<{ exists: boolean }>(
     "SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1) AS exists",
@@ -87,7 +99,7 @@ async function endSessions(admin: Queryable, name: string): Promise<void> {
 
 /** Restore mode with source `setup` is on and the migrations are this release's. */
 async function prepared(url: string): Promise<{ ok: boolean; reason: string }> {
-  const pool = createDb(url, { max: 1 }).$client;
+  const pool = stepPool(url);
   const client: Queryable = pool;
   try {
     const state = await readRestoreMode(client);
@@ -117,7 +129,7 @@ export async function activateRestoredDatabase(options: {
   const live = databaseOf(options.ownerUrl);
   const scratch = options.scratch ?? SCRATCH_DATABASE;
   quoted(scratch);
-  const pool = createDb(withDatabase(options.ownerUrl, "postgres"), { max: 1 }).$client;
+  const pool = stepPool(withDatabase(options.ownerUrl, "postgres"));
   const admin: Queryable = pool;
   try {
     const liveExists = await exists(admin, live);
@@ -161,7 +173,7 @@ export async function dropScratchDatabase(
   ownerUrl: string,
   scratch = SCRATCH_DATABASE,
 ): Promise<void> {
-  const pool = createDb(withDatabase(ownerUrl, "postgres"), { max: 1 }).$client;
+  const pool = stepPool(withDatabase(ownerUrl, "postgres"));
   try {
     await pool.query(`DROP DATABASE IF EXISTS ${quoted(scratch)} WITH (FORCE)`);
   } finally {

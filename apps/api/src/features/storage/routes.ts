@@ -1,12 +1,16 @@
-import type { Database } from "@restow/db";
+import { validateStorageLocation } from "@restow/core";
+import { type Database, storageTargets } from "@restow/db";
+import { and, eq } from "drizzle-orm";
 import { type Context, Hono, type MiddlewareHandler } from "hono";
 import { db } from "../../db.js";
 import { assertRecentSignIn } from "../../lib/recent-sign-in.js";
 import { clientIp } from "../../lib/request.js";
+import { withTenantTx } from "../../lib/tenant-context.js";
 import { requireTenant, type TenantEnv } from "../../middleware/session.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
 import { assertNotInRestoreMode } from "../restore-mode/service.js";
 import { backupDestination } from "./destination.js";
+import { locationOf } from "./dto.js";
 import { setImmutability, verifyImmutabilityNow } from "./immutability.js";
 import {
   repositoryRepairs,
@@ -14,7 +18,9 @@ import {
   requestRepositoryRepair,
   requestRepositoryScan,
 } from "./repository-repair.js";
+import { movesLocation } from "./rules.js";
 import {
+  configSchemaFor,
   createStorageTargetSchema,
   migrationIdParamSchema,
   probeStorageSchema,
@@ -104,6 +110,43 @@ function targetId(c: Context<TenantEnv>): string {
 }
 
 /**
+ * Whether a PATCH points the tenant's primary at another location: the same as replacing the
+ * primary, which restore mode refuses (a config that cannot be read as a location counts as a
+ * move; the service then refuses it for what it is).
+ */
+async function patchMovesPrimary(
+  database: Database,
+  tenantId: string,
+  id: string,
+  config: unknown,
+): Promise<boolean> {
+  if (config === undefined) {
+    return false;
+  }
+  const [row] = await withTenantTx(database, tenantId, (tx) =>
+    tx
+      .select({
+        role: storageTargets.role,
+        kind: storageTargets.kind,
+        config: storageTargets.config,
+      })
+      .from(storageTargets)
+      .where(and(eq(storageTargets.id, id), eq(storageTargets.tenantId, tenantId)))
+      .limit(1),
+  );
+  if (row?.role !== "primary" || (row.kind !== "local" && row.kind !== "s3")) {
+    return false;
+  }
+  const current = locationOf(row);
+  const parsed = configSchemaFor(row.kind).safeParse(config);
+  if (!current || !parsed.success) {
+    return true;
+  }
+  const next = validateStorageLocation(row.kind, parsed.data);
+  return !next.ok || movesLocation(current, next.location);
+}
+
+/**
  * Build the storage routes against injected dependencies, same style as
  * schedules/dashboard: production wires the real `db` and `requireTenant`
  * once below (`storageRoutes`), a test wires its own scratch database and a
@@ -154,7 +197,13 @@ export function buildStorageRoutes(deps: StorageRoutesDeps): Hono<TenantEnv> {
 
   routes.patch("/targets/:id", deps.requireAdmin, async (c) => {
     const patch = await parseJsonBody(c.req, updateStorageTargetSchema);
-    return c.json(await updateTarget(deps.db, c.get("tenantId"), targetId(c), patch, actorOf(c)));
+    const id = targetId(c);
+    // Restore mode: a primary pointed elsewhere is a primary replacement (as POST /targets and
+    // promote): data written after the dump would stay behind at the old location.
+    if (await patchMovesPrimary(deps.db, c.get("tenantId"), id, patch.config)) {
+      await assertNotInRestoreMode("primary_replacement", c.get("tenantId"));
+    }
+    return c.json(await updateTarget(deps.db, c.get("tenantId"), id, patch, actorOf(c)));
   });
 
   routes.delete("/targets/:id", deps.requireAdmin, async (c) => {

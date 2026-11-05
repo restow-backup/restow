@@ -438,14 +438,15 @@ export function createExportHandler(options: ExportHandlerOptions = {}): JobHand
       const progress = { ...ctx, progress: recorder };
       const segments = new mailfiles.SegmentStore({ storage: ctx.storage.primary, keys: ctx.keys });
       const scope = { tenantId: ctx.tenantId, kind: "export" as const, id: row.id };
-      // A retry starts the file over: leftovers of the failed attempt must not mix in. In restore
-      // mode only an export requested after it began may do so (storage/deletion-guard.ts).
-      const resetPermit = {
-        pass: "export_reset" as const,
-        tenantId: ctx.tenantId,
-        createdAt: row.createdAt ?? null,
-      };
-      await withDeletionPermit(resetPermit, () => segments.delete(scope));
+      // A retry starts the file over: leftovers of the failed attempt must not mix in. The scope
+      // is named by this export's own id, so only its own output goes: export_reset is an
+      // own_scope pass, never held by restore mode or by a copy target that cannot be compared
+      // (storage/deletion-guard.ts). A first attempt finds nothing and asks for no permit.
+      const resetPermit = { pass: "export_reset" as const, tenantId: ctx.tenantId };
+      const leftovers = await ctx.storage.primary.list(mailfiles.segmentPrefix(scope));
+      if (leftovers.length > 0) {
+        await withDeletionPermit(resetPermit, () => segments.delete(scope));
+      }
       // What is left of the tenant's room for exports: nothing is written when there is none.
       const usedByOtherExports = await store.usedBytes(row.id);
       const room = maxTenantBytes - usedByOtherExports;

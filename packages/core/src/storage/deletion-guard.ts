@@ -15,9 +15,11 @@
  *
  * The storage backends themselves call {@link assertDeletionPermitted} before every delete, so
  * a construction site that forgot its permit cannot delete while restore mode is on either.
- * What may always go: restic lock files, probe objects and objects the same operation wrote
- * itself ({@link withStorageOperation}). Without an installed guard (the standalone restore,
- * plain unit tests) nothing is checked.
+ * What may always go: restic lock files, probe objects, objects the same operation wrote
+ * itself ({@link withStorageOperation}) and the scope a row owns under its own fresh id (an
+ * `own_scope` pass: an export starting its file over, a failed enrollment removing the
+ * repository it began). Without an installed guard (the standalone restore, plain unit tests)
+ * nothing is checked.
  */
 import { AsyncLocalStorage } from "node:async_hooks";
 
@@ -58,8 +60,14 @@ export type DeletionPass = (typeof DELETION_PASSES)[number];
  *   post_activation_only  delete what belongs to a row created after restore mode began
  *                         (`createdAt` of the permit request)
  *   own_writes            delete only objects the same operation wrote (always allowed)
+ *   own_scope             delete inside the scope named by the fresh id of the row whose job
+ *                         deletes it (an export's own segments, the repository a failed
+ *                         enrollment began under its fresh endpoint id): whatever is there is that
+ *                         row's own output, which nothing else references and the row writes
+ *                         again, so neither restore mode nor a storage target that cannot be
+ *                         compared with the database holds it (always allowed, no comparison)
  */
-export type RestoreModeBehaviour = "refuse" | "post_activation_only" | "own_writes";
+export type RestoreModeBehaviour = "refuse" | "post_activation_only" | "own_writes" | "own_scope";
 
 export const DELETION_PASS_BEHAVIOUR: Readonly<Record<DeletionPass, RestoreModeBehaviour>> = {
   orphan_sweep: "refuse",
@@ -70,7 +78,7 @@ export const DELETION_PASS_BEHAVIOUR: Readonly<Record<DeletionPass, RestoreModeB
   snapshot_retention: "refuse",
   mail_files_cleanup: "refuse",
   import_staging: "refuse",
-  export_reset: "post_activation_only",
+  export_reset: "own_scope",
   archive_retention: "refuse",
   file_share_purge: "refuse",
   file_share_retention: "refuse",
@@ -81,7 +89,7 @@ export const DELETION_PASS_BEHAVIOUR: Readonly<Record<DeletionPass, RestoreModeB
   pve_repository_reset: "refuse",
   pve_chain_clear: "refuse",
   repository_repair_apply: "refuse",
-  enrollment_cleanup: "own_writes",
+  enrollment_cleanup: "own_scope",
   progress_marker_prune: "refuse",
   storage_target_removal: "refuse",
   primary_replacement: "refuse",
@@ -113,7 +121,7 @@ export type DeletionDecision =
        * with "keep"): the orphan sweep and the other passes over storage-only data skip it.
        */
       readonly keepUnknownBefore: Date | null;
-      /** Granted while restore mode is on (a `post_activation_only` pass). */
+      /** Granted while restore mode is on (a `post_activation_only` or `own_scope` pass). */
       readonly inRestoreMode: boolean;
     }
   | {
@@ -191,7 +199,7 @@ interface OperationContext {
 interface PermitContext {
   readonly pass: DeletionPass;
   readonly tenantId: string | null;
-  /** Granted while restore mode was on (only a `post_activation_only` pass can be). */
+  /** Granted while restore mode was on (only a `post_activation_only` or `own_scope` pass can be). */
   readonly inRestoreMode: boolean;
 }
 
@@ -330,8 +338,13 @@ export function assertDeletionPermitted(key: string): void {
   }
   const permit = current?.permit ?? null;
   if (permit) {
-    // Restore mode may have come on (another process detected it) after the permit was given.
-    if (!permit.inRestoreMode && installed.guard.holding()) {
+    // Restore mode may have come on (another process detected it) after the permit was given;
+    // an own_scope pass deletes only its row's own output and is never held by it.
+    if (
+      !permit.inRestoreMode &&
+      DELETION_PASS_BEHAVIOUR[permit.pass] !== "own_scope" &&
+      installed.guard.holding()
+    ) {
       throw new DeletionsHeldError(permit.pass, "restore_mode", null);
     }
     return;

@@ -418,10 +418,13 @@ export async function enrollEndpoint(
       const backend =
         initBackend ?? (await tenantStorage(db, tenantId).catch(() => null))?.storage ?? null;
       if (backend) {
-        // In restore mode only what this request wrote may go (storage/deletion-guard.ts).
+        // Only the repository this request began under its fresh endpoint id goes: an own_scope
+        // pass, held neither by restore mode nor by a target that cannot be compared
+        // (storage/deletion-guard.ts). A guard that cannot read the restore mode leaves it; the
+        // token is released all the same.
         await withDeletionPermit({ pass: "enrollment_cleanup", tenantId }, () =>
           removeRepositoryObjects(backend, `endpoints/${endpointId}/`),
-        ).catch(() => removeRepositoryObjects(backend, `endpoints/${endpointId}/`));
+        ).catch(() => undefined);
       }
       await releaseToken(claimed.id);
     } catch {

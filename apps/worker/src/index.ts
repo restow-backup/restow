@@ -469,6 +469,8 @@ async function main(): Promise<void> {
       flushEveryItems: config.progressFlushEveryItems,
       flushIntervalMs: config.progressFlushIntervalMs,
     },
+    // Restore mode coming on stops a running job of the restored dump and ends it for good.
+    restoreModeHold: jobHold,
     // An interrupted job that made progress keeps its attempts (#47).
     continueInterrupted: (queue, pgBossJobId) => grantContinuation(providerDb, queue, pgBossJobId),
     // job.completed / job.failed for the tenant's webhooks (RMM tickets), and

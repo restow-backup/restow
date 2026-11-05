@@ -10,7 +10,8 @@
  *   - writes progress markers next to the data it stores ({@link withTenantProgressMarkers});
  *   - compares every tenant at its start, before it consumes a queue ({@link checkAtStart});
  *   - holds every job created before restore mode began instead of running or resuming it
- *     ({@link RestoreModeJobHold}, used by the job gate and by the reconcile pass).
+ *     ({@link RestoreModeJobHold}, used by the job gate, by the job runner for a job that waits
+ *     or runs when restore mode comes on, and by the reconcile pass).
  *
  * Everything runs on the installation pool.
  */
@@ -490,7 +491,9 @@ interface DeliveredJob {
 /**
  * Jobs created before restore mode began are held: their `jobs` row is cancelled with the
  * explanation, their pg-boss job is cancelled, and they never run (a backup from the dump could
- * otherwise resume a checkpoint the restored index does not know). New jobs run as usual.
+ * otherwise resume a checkpoint the restored index does not know). A job that already runs when
+ * restore mode comes on is stopped by the runner (framework.ts `runJob`, abort reason
+ * `restore_mode_hold`) and ends here as well, without a retry. New jobs run as usual.
  */
 export class RestoreModeJobHold {
   constructor(
@@ -535,7 +538,10 @@ export class RestoreModeJobHold {
     return true;
   }
 
-  /** Cancel the pg-boss job `bossJobId` and its row (the reconcile pass and the gate). */
+  /**
+   * Cancel the pg-boss job `bossJobId` and its row (the reconcile pass, the gate and the runner);
+   * the row keeps no checkpoint: nothing resumes it.
+   */
   async cancel(queue: string, bossJobId: string): Promise<void> {
     const now = new Date();
     const failure = restoreModeHoldFailure(queue, now);
@@ -548,6 +554,7 @@ export class RestoreModeJobHold {
            SET status = 'cancelled',
                failure = ${JSON.stringify(failure)}::jsonb,
                error_message = ${RESTORE_MODE_HOLD_MESSAGE},
+               cursor = NULL,
                completed_at = ${now.toISOString()}::timestamptz,
                updated_at = now()
          WHERE pg_boss_job_id = ${bossJobId}

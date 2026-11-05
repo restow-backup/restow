@@ -178,6 +178,12 @@ document the master key no longer opens), the check is skipped: nothing can be r
 from or written to it as it stands, and the operator is repairing it. Enter the same
 location again in that case.
 
+While restore mode is on ([Restore mode and progress
+markers](#restore-mode-and-progress-markers)), a change or removal that moves a usable
+default's location is refused (`409`, `urn:restow:problem:restore-mode`) even when the
+database knows no tenant data on it: the restored database may not know data written there
+after the dump.
+
 Before saving, the new location is probed exactly like a tenant target (write, read,
 list and delete a small object below `installation/probes/`, Object Lock detection);
 a directory must already exist. A failing probe refuses the change (`422`,
@@ -276,23 +282,33 @@ While it is on, for the whole installation:
 
 - **Nothing is deleted.** Refused are the orphan sweep and garbage collection of the
   storage check, the release of superseded packs, abandoned checkpoints, snapshot
-  retention, the clean-up of staging and export areas, archive retention (no item row, no
+  retention, the clean-up of staging areas, archive retention (no item row, no
   chunk reference and no sealed record goes; records queued for deletion stay queued), restic forget
   and prune of machines, file shares and Proxmox VE containers (including the comparison
   that forgets restic snapshots no restore point names), the removal of a machine's
   backups, the purge of a file share, repository repairs, a container's repository reset,
   the pruning of old progress markers, the removal of a storage target and the replacement
-  of the primary. Each refusal is logged (`deletion held: restore mode`) and counted on the
-  Restore mode page. The api answers such an action with 409
-  `urn:restow:problem:restore-mode`.
+  of the primary (also pointing a local or S3 primary at another location with `PATCH
+  /api/v1/storage/targets/:id`, and moving or removing the installation default when that
+  moves its location; repairing a default that is not usable stays possible). Each refusal is
+  logged (`deletion held: restore mode`) and counted on the Restore mode page. The api answers
+  such an action with 409 `urn:restow:problem:restore-mode`. Snapshot and Proxmox VE retention
+  take the permit before they change anything in the database and stop the run at the first
+  refusal, so a restore point due when restore mode comes on mid-run stays active with its
+  chunk references.
 - **Jobs from before the restore are held.** Every job created before the hold point is
   cancelled with the explanation `job.restore_mode_hold` instead of being run or resumed
   (a backup from the dump could otherwise continue a checkpoint the restored index does not
   know, a restore could write into a mailbox again). The same holds for what is not a queued
   job: file share runs (a restore into a share, a mirror copy) are cancelled instead of
   started, and the tasks machines and Proxmox VE nodes fetch with their heartbeat (a restore
-  over a guest, an uninstall) are cancelled instead of handed out or handed out again. Start a
-  job again if it is still needed. A held job's cursor entries go with it (a restore's
+  over a guest, an uninstall) are cancelled instead of handed out or handed out again. When the
+  api cannot read the restore mode and never read it (or the guard has seen it on since),
+  the heartbeat answers 503 `urn:restow:problem:restore-mode-unknown` and hands out nothing; a
+  restore mode last seen on keeps its hold point. A job from before the hold point that is
+  already waiting for a tenant slot or running when restore mode comes on is stopped by the
+  worker within a few seconds and ends cancelled (`job.restore_mode_hold`), without a retry.
+  Start a job again if it is still needed. A held job's cursor entries go with it (a restore's
   record of what it restored); a held archive backfill is queued again by the next capture
   pass and continues from the stream's own position. The hold point is the moment restore mode was switched on by
   hand; for a detection it is the start of the processes that run on the restored database (the
@@ -309,8 +325,11 @@ While it is on, for the whole installation:
 
 The storage backends themselves refuse a delete outside a registered deletion pass while
 restore mode is on, so a pass that forgot to ask cannot delete either. Restic lock files,
-probe objects and objects an operation wrote itself (a failed enrollment's own repository)
-may always go.
+probe objects and objects an operation wrote itself may always go, and so may the scope a row
+owns under its own fresh id: an EML or MBOX export starting its own file over (only its own
+leftover segments, and only when there are some) and a failed enrollment removing the
+repository it began under its new machine id. Neither restore mode nor a copy target that
+cannot be compared with the database holds these.
 
 ### Switching it on
 

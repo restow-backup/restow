@@ -35,7 +35,9 @@
  */
 import {
   classifyFailure,
+  type DeletionsHeldError,
   deletionDecision,
+  deletionsHeldErrorOf,
   type JobRetentionAssignment,
   jobRetentionAssignments,
   type LegalHoldScope,
@@ -382,22 +384,26 @@ export async function pruneSnapshot(
   snapshot: SnapshotCandidate,
   logger: Logger,
 ): Promise<PruneOutcome | null> {
-  if (!(await store.markPruned(snapshot.id))) {
-    return null;
-  }
-  const manifestPath = store.manifestPathOf(snapshot.id);
-  const ids = await referencedChunkIds(ctx, store, snapshot, manifestPath, logger);
-  if (ids === null) {
-    logger.warn("no chunk references found for pruned snapshot; scrub will reconcile", {
-      snapshotId: snapshot.id,
-    });
-  } else {
-    for (let i = 0; i < ids.length; i += RELEASE_BATCH) {
-      await ctx.chunkIndex.releaseReferences(ids.slice(i, i + RELEASE_BATCH));
+  // The permit covers the whole prune, the database changes too: a restore point refused here
+  // (restore mode, a storage not compared) stays active and keeps its chunk references, so
+  // garbage collection after restore mode cannot take chunks a restored backup still needs.
+  // Throws DeletionsHeldError before anything changed when deleting is paused.
+  return withDeletionPermit({ pass: "snapshot_retention", tenantId: ctx.tenantId }, async () => {
+    if (!(await store.markPruned(snapshot.id))) {
+      return null;
     }
-  }
-  const manifestObjectsDeleted = await store.deleteManifestObjects(snapshot.id);
-  await withDeletionPermit({ pass: "snapshot_retention", tenantId: ctx.tenantId }, async () => {
+    const manifestPath = store.manifestPathOf(snapshot.id);
+    const ids = await referencedChunkIds(ctx, store, snapshot, manifestPath, logger);
+    if (ids === null) {
+      logger.warn("no chunk references found for pruned snapshot; scrub will reconcile", {
+        snapshotId: snapshot.id,
+      });
+    } else {
+      for (let i = 0; i < ids.length; i += RELEASE_BATCH) {
+        await ctx.chunkIndex.releaseReferences(ids.slice(i, i + RELEASE_BATCH));
+      }
+    }
+    const manifestObjectsDeleted = await store.deleteManifestObjects(snapshot.id);
     for (const target of [ctx.storage.primary, ...ctx.storage.copies]) {
       try {
         await target.delete(manifestPath);
@@ -421,14 +427,14 @@ export async function pruneSnapshot(
         );
       }
     }
+    logger.info("snapshot pruned", {
+      snapshotId: snapshot.id,
+      sequence: snapshot.sequence,
+      chunkReferences: ids?.length ?? 0,
+      bytes: snapshot.byteSize,
+    });
+    return { chunkReferencesReleased: ids?.length ?? 0, manifestObjectsDeleted };
   });
-  logger.info("snapshot pruned", {
-    snapshotId: snapshot.id,
-    sequence: snapshot.sequence,
-    chunkReferences: ids?.length ?? 0,
-    bytes: snapshot.byteSize,
-  });
-  return { chunkReferencesReleased: ids?.length ?? 0, manifestObjectsDeleted };
 }
 
 // ---------------------------------------------------------------------------
@@ -568,6 +574,9 @@ export function createSnapshotRetentionTask(
       ctx.progress.total(expired.length);
       ctx.progress.phase(options.dryRun ? "evaluate" : "prune");
 
+      // Deleting paused while the run goes (restore mode came on, a storage could not be
+      // compared): every remaining restore point stays, the run ends as held.
+      let heldMidRun: DeletionsHeldError | null = null;
       for (const snapshot of expired) {
         if (ctx.signal.aborted) {
           break;
@@ -597,6 +606,11 @@ export function createSnapshotRetentionTask(
           }
           ctx.progress.advance(1, snapshot.byteSize);
         } catch (error) {
+          const held = deletionsHeldErrorOf(error);
+          if (held) {
+            heldMidRun = held;
+            break;
+          }
           ctx.progress.fail(
             snapshot.id,
             `prune failed: ${safeErrorMessage(error)}`,
@@ -608,6 +622,13 @@ export function createSnapshotRetentionTask(
         logger.info("expired restore points kept while their storage still locks them", {
           restorePoints: summary.deferredByLock,
         });
+      }
+      if (heldMidRun) {
+        logger.warn("snapshot retention held: deleting is paused", {
+          reason: heldMidRun.reason,
+          pruned: summary.pruned,
+        });
+        return { ...summary, restoreMode: true };
       }
       return { ...summary };
     },

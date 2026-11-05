@@ -6,6 +6,8 @@
  *
  * A pass asks {@link RestoreModeGuard.decide}:
  *
+ *   - an `own_scope` pass (a row deleting its own output under its own id) is always allowed,
+ *     without a comparison: a copy target that cannot be read never holds it;
  *   - restore mode on: refused (a `post_activation_only` pass for a row created after restore
  *     mode began is allowed), counted and logged;
  *   - otherwise the tenant's targets are compared with the database (cached for a while): a
@@ -479,6 +481,14 @@ export class RestoreModeGuard implements DeletionGuard {
   async decide(request: DeletionRequest): Promise<DeletionDecision> {
     const { store, logger } = this.options;
     let state = await this.restoreMode();
+    if (DELETION_PASS_BEHAVIOUR[request.pass] === "own_scope") {
+      // Only the row's own output goes: nothing the database could have lost is in its scope.
+      return {
+        allowed: true,
+        keepUnknownBefore: state.keepUnknownBefore,
+        inRestoreMode: state.active,
+      };
+    }
     if (!state.active && request.tenantId) {
       const check = await this.checkTenant(request.tenantId);
       if (check.activated) {

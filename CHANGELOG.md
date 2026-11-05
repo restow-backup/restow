@@ -475,6 +475,30 @@ private repository.
   restic repository: a file share whose first backup ran after the dump got a new password and
   its stored password was replaced, which made those backups unreadable; now the stored password
   is never replaced and the share begins a new repository next to the old one.
+- Restore mode: snapshot and Proxmox VE retention now take the deletion permit before changing
+  anything in the database and stop the run as soon as deleting is paused, so restore points due
+  when restore mode (or a storage that cannot be compared) comes on mid-run stay active and keep
+  their chunk references instead of being pruned in the database and losing their chunks to
+  garbage collection after restore mode.
+- Restore mode: EML and MBOX exports no longer fail when a copy storage target is unreachable or
+  when restore mode is on: an export only resets its own leftover segments, and only when there
+  are some. A failed machine enrollment likewise removes the repository it began under its new
+  machine id in either case, under its permit, instead of retrying the removal outside it.
+- Restore mode now also stops jobs from the restored database dump that were already running or
+  waiting for a tenant slot when it came on (for example a mail restore or an archive backfill):
+  they end cancelled (`job.restore_mode_hold`) within a few seconds, without a retry, instead of
+  running to the end and writing into mailboxes.
+- Restore mode now also refuses pointing a tenant's primary storage target at another location
+  (`PATCH /api/v1/storage/targets/:id`) and moving or removing the installation default storage,
+  and agent and Proxmox VE heartbeats no longer hand out tasks from the restored dump when the
+  restore mode cannot be read (they answer 503 instead).
+- Restore from a dump: `restow restore activate` could end with an unhandled database error
+  half way through the swap, when ending the scratch database's other sessions also ended the
+  connection its own check was still closing. Such a connection is now dropped quietly.
+- The storage deletion-sites check now resolves aliased imports, namespace and element access,
+  bound and destructured deletes and raw SQL on `archive_items` through the TypeScript checker,
+  and counts each delete separately, so a second delete in a registered function is no longer
+  missed.
 - The API now writes an unexpected error to its log before it answers with HTTP 500: the method,
   the path, the error's name and message (with secrets masked) and the first frames of its stack.
   Until now such a request failed in the browser while `docker compose logs api` showed nothing,

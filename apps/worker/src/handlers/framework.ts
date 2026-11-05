@@ -1616,20 +1616,41 @@ export function parseJobPayload<Q extends QueueName>(queue: Q, data: unknown): J
 /**
  * Why a job's abort signal fired: the process is shutting down, an update
  * drains the worker (#46: new starts paused, running jobs stop cleanly), the
- * API cancelled it, or the pg-boss expiration is about to hit. Shutdown,
- * update and expiry all mean "checkpoint now, continue in the retry".
+ * API cancelled it, the pg-boss expiration is about to hit, or restore mode
+ * came on while a job of the restored database dump ran (restore-mode.ts).
+ * Shutdown, update and expiry all mean "checkpoint now, continue in the
+ * retry"; a restore mode hold ends the job for good, like a cancel.
  */
-export type AbortReason = "shutdown" | "update" | "cancelled" | "expired";
+export type AbortReason = "shutdown" | "update" | "cancelled" | "expired" | "restore_mode_hold";
 
 export function abortReasonOf(signal: AbortSignal): AbortReason | null {
   if (!signal.aborted) {
     return null;
   }
-  if (signal.reason === "cancelled" || signal.reason === "expired" || signal.reason === "update") {
+  if (
+    signal.reason === "cancelled" ||
+    signal.reason === "expired" ||
+    signal.reason === "update" ||
+    signal.reason === "restore_mode_hold"
+  ) {
     return signal.reason;
   }
   return "shutdown";
 }
+
+/**
+ * Restore mode's hold on jobs from before a restored database dump
+ * (restore-mode.ts `RestoreModeJobHold`): `holds` is non-null while restore
+ * mode is on and the job was created before its hold point; `cancel` ends the
+ * pg-boss job and its row with the explanation (`job.restore_mode_hold`).
+ */
+export interface RunningJobHold {
+  holds(createdOn: Date | null): Promise<unknown | null>;
+  cancel(queue: string, bossJobId: string): Promise<void>;
+}
+
+/** How often a running job asks whether restore mode holds it (the guard reads every 5 s). */
+export const RESTORE_MODE_HOLD_POLL_MS = 5_000;
 
 /**
  * An update's drain (#46, job-pause.ts): while it is on, every running job is
@@ -1853,6 +1874,15 @@ export interface WorkerRuntime {
     queue: QueueName,
     pgBossJobId: string,
   ) => Promise<RetryBudget | null>;
+  /**
+   * Restore mode (restore-mode.ts): a job created before its hold point is
+   * stopped while it waits for a slot or runs (abort reason
+   * `restore_mode_hold`) and ends through the hold's `cancel`, never in a
+   * retry. The job gate only checks a job when it is handed out.
+   */
+  readonly restoreModeHold?: RunningJobHold;
+  /** How often a running job asks the hold (default {@link RESTORE_MODE_HOLD_POLL_MS}). */
+  readonly restoreModeHoldPollMs?: number;
 }
 
 // A failed query's own message carries the SQL and the bound parameters; logs
@@ -1911,6 +1941,7 @@ export async function runJob(
     }
   });
   let cancelPoll: ReturnType<typeof setInterval> | null = null;
+  let holdPoll: ReturnType<typeof setInterval> | null = null;
   let expiryTimer: ReturnType<typeof setTimeout> | null = null;
   let reporter: ReturnType<typeof createProgressReporter>["reporter"] | null = null;
   const cursorStore = new CheckpointTrackingCursorStore(new PgCursorStore(run, payload.jobId));
@@ -1922,6 +1953,34 @@ export async function runJob(
   if (expiryDelay !== null) {
     expiryTimer = setTimeout(() => controller.abort("expired"), expiryDelay);
     expiryTimer.unref();
+  }
+
+  // Restore mode may come on while the job waits or runs: a job of the restored dump stops
+  // then and ends through the hold (a mail restore or a backfill would otherwise keep writing).
+  const restoreModeHold = runtime.restoreModeHold;
+  const createdOn = job.createdOn ? new Date(job.createdOn) : null;
+  /** Ask the hold; true (and the signal aborted) when restore mode holds this job. */
+  const checkRestoreModeHold = async (): Promise<boolean> => {
+    if (!restoreModeHold) {
+      return false;
+    }
+    let held: boolean;
+    try {
+      held = (await restoreModeHold.holds(createdOn)) !== null;
+    } catch (error) {
+      logger.debug("restore mode probe failed", errorFields(error));
+      return false;
+    }
+    if (held && !controller.signal.aborted) {
+      controller.abort("restore_mode_hold");
+    }
+    return held;
+  };
+  if (restoreModeHold) {
+    holdPoll = setInterval(() => {
+      void checkRestoreModeHold();
+    }, runtime.restoreModeHoldPollMs ?? RESTORE_MODE_HOLD_POLL_MS);
+    holdPoll.unref();
   }
 
   /**
@@ -2067,6 +2126,10 @@ export async function runJob(
     // The tenant's slots are shared by all queues; the wait ends with the job's own signal
     // (expiry, shutdown, an update's drain) and then fails the attempt like any interruption.
     release = await runtime.tenantLimiter.acquire(payload.tenantId, controller.signal);
+    // The slot may have come long after the gate checked the job: ask restore mode again.
+    if (await checkRestoreModeHold()) {
+      throw new JobAbortedError();
+    }
     if ((await currentStatus(run, payload.jobId)) === "cancelled") {
       await endCancelledBeforeStart();
       return;
@@ -2173,6 +2236,21 @@ export async function runJob(
       logger.info("job cancelled", { progress: snapshot });
       return;
     }
+    if (reason === "restore_mode_hold" && restoreModeHold) {
+      // A job of the restored dump: it ends for good (no checkpoint, no retry).
+      try {
+        await restoreModeHold.cancel(queue, job.id);
+        logger.warn("job stopped: it is from before the database restore", {
+          progress: snapshot,
+        });
+        return;
+      } catch (holdError) {
+        // It fails below and the gate holds it when pg-boss hands it out again.
+        logger.warn("could not hold the job from before the database restore", {
+          ...errorFields(holdError),
+        });
+      }
+    }
     const failedAt = runtime.now();
     if (error instanceof InvalidPayloadError) {
       const failure = jobFailureRecord({
@@ -2202,7 +2280,7 @@ export async function runJob(
           ? // Stopped while waiting for a tenant slot: it never ran, the wait was not its doing.
             reason === "expired" || reason === "shutdown" || reason === "update"
           : mayContinueForFree({
-              reason,
+              reason: reason === "restore_mode_hold" ? null : reason,
               checkpointed: cursorStore.checkpointed,
               startedAt: await firstStartedAt(run, payload.jobId).catch(() => null),
               now: failedAt,
@@ -2246,6 +2324,9 @@ export async function runJob(
   } finally {
     if (cancelPoll) {
       clearInterval(cancelPoll);
+    }
+    if (holdPoll) {
+      clearInterval(holdPoll);
     }
     if (expiryTimer) {
       clearTimeout(expiryTimer);

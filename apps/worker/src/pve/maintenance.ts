@@ -47,6 +47,7 @@ import {
   decodeBlockMap,
   deleteOnAllTargets,
   deletionDecision,
+  deletionsHeldErrorOf,
   INSTALLATION_DEFAULT_TARGET_ID,
   isDeleteRefused,
   isObjectLocked,
@@ -675,39 +676,43 @@ async function guestRepositoryPassword(deps: PveDeps, guest: PveGuest): Promise<
 export async function pruneSnapshot(deps: PveDeps, snap: PveSnapshot, now: Date): Promise<void> {
   const ctx = await chunkContext(deps, snap.tenantId);
   const refs = await referencesOf(ctx, snap);
-  // Marked pruned first: nothing builds on it or restores it from here on.
-  const marked = await withTenantTx(deps.db, snap.tenantId, async (tx) => {
-    const [row] = await tx
-      .update(pveSnapshots)
-      .set({ status: "pruned", prunedAt: now })
-      .where(and(eq(pveSnapshots.id, snap.id), eq(pveSnapshots.status, "active")))
-      .returning();
-    if (row?.resticSnapshotId) {
-      // Its restic snapshot is forgotten by the next comparison of the repository.
-      await tx
-        .update(pveGuests)
-        .set({ repositoryReconciledAt: null })
-        .where(eq(pveGuests.id, snap.guestId));
+  // The permit covers the whole prune, the database changes too: a restore point refused here
+  // (restore mode, a storage not compared) stays active and keeps its chunk references, so
+  // garbage collection after restore mode cannot take chunks a restored backup still needs.
+  // Throws DeletionsHeldError before anything changed when deleting is paused.
+  await withDeletionPermit({ pass: "pve_retention", tenantId: snap.tenantId }, async () => {
+    // Marked pruned first: nothing builds on it or restores it from here on.
+    const marked = await withTenantTx(deps.db, snap.tenantId, async (tx) => {
+      const [row] = await tx
+        .update(pveSnapshots)
+        .set({ status: "pruned", prunedAt: now })
+        .where(and(eq(pveSnapshots.id, snap.id), eq(pveSnapshots.status, "active")))
+        .returning();
+      if (row?.resticSnapshotId) {
+        // Its restic snapshot is forgotten by the next comparison of the repository.
+        await tx
+          .update(pveGuests)
+          .set({ repositoryReconciledAt: null })
+          .where(eq(pveGuests.id, snap.guestId));
+      }
+      if (row) {
+        await appendAuditEntry(tx, {
+          tenantId: snap.tenantId,
+          actor: "system",
+          action: "pve.snapshot.pruned",
+          target: snap.id,
+          targetType: "pve_snapshot",
+          details: { archiveName: snap.archiveName, sequence: snap.sequence },
+        });
+      }
+      return Boolean(row);
+    });
+    if (!marked) {
+      return;
     }
-    if (row) {
-      await appendAuditEntry(tx, {
-        tenantId: snap.tenantId,
-        actor: "system",
-        action: "pve.snapshot.pruned",
-        target: snap.id,
-        targetType: "pve_snapshot",
-        details: { archiveName: snap.archiveName, sequence: snap.sequence },
-      });
-    }
-    return Boolean(row);
+    await ctx.index.releaseReferences(refs);
+    await deleteOnAllTargets(ctx.storage, snap.manifestPath as string, deps.runtime.logger);
   });
-  if (!marked) {
-    return;
-  }
-  await ctx.index.releaseReferences(refs);
-  await withDeletionPermit({ pass: "pve_retention", tenantId: snap.tenantId }, () =>
-    deleteOnAllTargets(ctx.storage, snap.manifestPath as string, deps.runtime.logger),
-  );
 }
 
 /** A restic snapshot no restore point names is forgotten once it is this old (6 hours). */
@@ -871,6 +876,18 @@ async function retainGuest(
         pruned++;
         prunedContainerPoint ||= snap.resticSnapshotId !== null;
       } catch (error) {
+        const held = deletionsHeldErrorOf(error);
+        if (held) {
+          // Deleting paused while the pass goes (restore mode came on, a storage could not be
+          // compared): every remaining restore point stays, and nothing is forgotten. A prune
+          // that landed before cleared the repository's comparison, so a later pass does it.
+          deps.runtime.logger.warn("pve retention held: deleting is paused", {
+            guestId: guest.id,
+            reason: held.reason,
+            pruned,
+          });
+          return pruned;
+        }
         deps.runtime.logger.warn("pve retention: could not prune a restore point", {
           snapshotId: id,
           error: error instanceof Error ? error.message : String(error),

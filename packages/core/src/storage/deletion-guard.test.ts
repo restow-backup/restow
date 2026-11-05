@@ -31,7 +31,7 @@ class TestGuard implements DeletionGuard {
   async decide(request: DeletionRequest): Promise<DeletionDecision> {
     if (this.active) {
       if (
-        request.pass === "export_reset" &&
+        request.pass === "job_checkpoint_discard" &&
         request.createdAt &&
         request.createdAt > this.activatedAt
       ) {
@@ -151,12 +151,16 @@ describe("the deletion guard", () => {
     await storage.put(`tenants/${T}/exports/x/0`, Buffer.from("x"));
     await expect(
       withDeletionPermit(
-        { pass: "export_reset", tenantId: T, createdAt: new Date("2026-10-01T00:00:00Z") },
+        {
+          pass: "job_checkpoint_discard",
+          tenantId: T,
+          createdAt: new Date("2026-10-01T00:00:00Z"),
+        },
         () => storage.delete(`tenants/${T}/exports/x/0`),
       ),
     ).rejects.toBeInstanceOf(DeletionsHeldError);
     await withDeletionPermit(
-      { pass: "export_reset", tenantId: T, createdAt: new Date("2026-11-02T00:00:00Z") },
+      { pass: "job_checkpoint_discard", tenantId: T, createdAt: new Date("2026-11-02T00:00:00Z") },
       () => storage.delete(`tenants/${T}/exports/x/0`),
     );
     expect(await storage.head(`tenants/${T}/exports/x/0`)).toBeNull();

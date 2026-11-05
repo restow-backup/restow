@@ -9,13 +9,13 @@
  */
 import { randomBytes } from "node:crypto";
 import { activateRestoreMode, createDb } from "@restow/db";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   dropDatabase,
   recreateDatabase,
   testDatabaseAdminUrl,
 } from "../snapshots/testing/explorer-fixture.js";
-import { ActivationRefusedError, activateRestoredDatabase } from "./activate.js";
+import { ActivationRefusedError, activateRestoredDatabase, stepPool } from "./activate.js";
 
 const suffix = randomBytes(3).toString("hex");
 const LIVE = `restow_api_activate_live_${suffix}`;
@@ -27,6 +27,8 @@ function urlFor(base: string, database: string): string {
   return url.toString();
 }
 
+// Every case creates or drops whole databases and renames them (WITH (FORCE) ends sessions):
+// seconds each, more than vitest's default 5 s on a busy CI runner.
 describe.skipIf(!testDatabaseAdminUrl)("activating a prepared restore against Postgres", () => {
   const admin = testDatabaseAdminUrl as string;
   const liveUrl = urlFor(admin, LIVE);
@@ -80,7 +82,7 @@ describe.skipIf(!testDatabaseAdminUrl)("activating a prepared restore against Po
     for (const name of await databases()) {
       await dropDatabase(admin, name);
     }
-  });
+  }, 60_000);
 
   it("refuses a scratch database without restore mode of the restore and renames nothing", async () => {
     await prepareScratch(false);
@@ -89,7 +91,7 @@ describe.skipIf(!testDatabaseAdminUrl)("activating a prepared restore against Po
     ).rejects.toBeInstanceOf(ActivationRefusedError);
     expect(await databases()).toEqual([LIVE, SCRATCH].sort());
     expect(await liveRestoreMode()).toEqual([]);
-  });
+  }, 60_000);
 
   it("puts a prepared restore live with restore mode on and keeps the fresh database aside", async () => {
     await prepareScratch(true);
@@ -107,7 +109,7 @@ describe.skipIf(!testDatabaseAdminUrl)("activating a prepared restore against Po
       status: "already_active",
       previous: null,
     });
-  });
+  }, 60_000);
 
   it("finishes a swap that was cut off after the live database was renamed away", async () => {
     await prepareScratch(true);
@@ -121,5 +123,28 @@ describe.skipIf(!testDatabaseAdminUrl)("activating a prepared restore against Po
     expect(result).toEqual({ status: "activated", previous: null });
     expect(await liveRestoreMode()).toEqual(["setup"]);
     expect(await databases()).not.toContain(SCRATCH);
-  });
+  }, 60_000);
+
+  // The swap ends the scratch database's other sessions, among them the connection `prepared`
+  // may still be closing: that must not become an unhandled error that ends the process.
+  it("drops a connection of its own that another session ends, without an unhandled error", async () => {
+    await prepareScratch(false);
+    const pool = stepPool(urlFor(admin, SCRATCH));
+    try {
+      await pool.query("SELECT 1");
+      const db = createDb(admin, { max: 1 });
+      try {
+        await db.$client.query(
+          "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = $1 AND pid <> pg_backend_pid()",
+          [SCRATCH],
+        );
+      } finally {
+        await db.$client.end();
+      }
+      await vi.waitFor(() => expect(pool.totalCount).toBe(0));
+      expect((await pool.query<{ one: number }>("SELECT 1 AS one")).rows).toEqual([{ one: 1 }]);
+    } finally {
+      await pool.end();
+    }
+  }, 60_000);
 });

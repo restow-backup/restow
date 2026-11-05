@@ -78,6 +78,7 @@ export const DELETION_SITES: Readonly<
   "packages/core/src/storage/immutability.ts#ImmutableStorageBackend.delete#.deleteAllVersions":
     "delegate",
   "packages/core/src/storage/progress-marker.ts#delete#.delete": "delegate",
+  "packages/core/src/storage/progress-marker.ts#withProgressMarkers#.deleteAllVersions": "delegate",
   "packages/core/src/storage/progress-marker.ts#pruneProgressMarkers#.delete":
     "progress_marker_prune",
   "packages/core/src/verify/gc.ts#chunksHeldByPartialManifests#deleteOnAllTargets":

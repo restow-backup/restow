@@ -17,9 +17,11 @@ import {
   buildPveManifest,
   ChunkWriter,
   collectGarbage,
+  type DeletionDecision,
   EnvKeyProvider,
   encodeBlockMap,
   generateDek,
+  installDeletionEnforcement,
   LocalStorageBackend,
   manifestKey,
   noopLogger,
@@ -29,6 +31,7 @@ import {
   resticInit,
   resticSnapshots,
   runRestic,
+  type StorageBackend,
   type StorageTargets,
   sealManifest,
   sealSecret,
@@ -2592,5 +2595,92 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
         process.env.RESTIC_BINARY = before;
       }
     }
+  });
+
+  it("stops pruning when restore mode comes on mid-pass: the rest stays active with its references", async () => {
+    const [job] = await owner
+      .insert(pveJobs)
+      .values({
+        tenantId,
+        name: "keep one",
+        scopeAll: false,
+        schedule: { kind: "daily", timeOfDay: "22:00", timeZone: "Europe/Berlin" },
+        settings: { retention: { keepDaily: 1, keepWeekly: 0, keepMonthly: 0 } },
+      })
+      .returning();
+    const [row] = await owner
+      .insert(pveGuests)
+      .values({ tenantId, clusterId, vmid: 103, kind: "vm", node: "pve1", jobId: job?.id ?? null })
+      .returning();
+    const vm = { id: row?.id ?? "", vmid: 103 };
+    // Four restore points; the job keeps one daily, so three are due.
+    const points: string[] = [];
+    for (const [index, fill] of [30, 31, 32, 33].entries()) {
+      points.push(
+        await commit(
+          index + 1,
+          [blockOf(fill)],
+          new Date(clock.getTime() - (4 - index) * DAY),
+          false,
+          vm,
+        ),
+      );
+    }
+    const pointsOf = async () =>
+      owner.select().from(pveSnapshots).where(eq(pveSnapshots.guestId, vm.id));
+    const before = await refTotal();
+
+    // Restore mode comes on (another process detected it) right after the first manifest went.
+    let restoreMode = false;
+    const manifests = new Set(points.map((id) => manifestKey(tenantId, id)));
+    const primary = storage.primary;
+    const watched = new Proxy(primary, {
+      get(target, prop, receiver) {
+        if (prop === "delete") {
+          return async (key: string) => {
+            await target.delete(key);
+            if (manifests.has(key)) {
+              restoreMode = true;
+            }
+          };
+        }
+        const value = Reflect.get(target, prop, receiver);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    }) as StorageBackend;
+    const watchedDeps: PveDeps = {
+      ...deps,
+      runtime: {
+        ...deps.runtime,
+        storage: new TenantCache<StorageTargets>(async () => ({ primary: watched, copies: [] })),
+      },
+    };
+    const uninstall = installDeletionEnforcement({
+      async decide(): Promise<DeletionDecision> {
+        if (!restoreMode) {
+          return { allowed: true, keepUnknownBefore: null, inRestoreMode: false };
+        }
+        return { allowed: false, reason: "restore_mode", restoreModeId: null };
+      },
+      holding: () => restoreMode,
+    });
+    try {
+      await applyRetention(watchedDeps, clock);
+    } finally {
+      uninstall();
+    }
+
+    const after = await pointsOf();
+    const pruned = after.filter((snap) => snap.status === "pruned");
+    expect(pruned).toHaveLength(1);
+    expect(points.slice(0, 3)).toContain(pruned[0]?.id);
+    // The two due restore points after it stay active, their manifests and references too: a
+    // garbage collection after restore mode keeps their chunks.
+    const active = after.filter((snap) => snap.status === "active");
+    expect(active).toHaveLength(3);
+    for (const snap of active) {
+      expect(await storage.primary.head(manifestKey(tenantId, snap.id))).not.toBeNull();
+    }
+    expect(await refTotal()).toBe(before - (pruned[0]?.chunkRefs ?? 0));
   });
 });

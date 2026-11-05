@@ -47,6 +47,7 @@ import {
 import type { DbExecutor } from "../../lib/tenant-context.js";
 import { recordDefaultWriteOnce } from "../../lib/write-once.js";
 import { ProblemError } from "../../problem.js";
+import { assertNotInRestoreMode } from "../restore-mode/service.js";
 import { accessKeyIdHint } from "../storage/dto.js";
 import { credentialsBoundElsewhere } from "../storage/rules.js";
 import {
@@ -579,7 +580,11 @@ export async function testDefaultStorage(
   return { probe, objectLock, view: await getDefaultStorage(db, deps) };
 }
 
-/** Refuse moving the default away from `current` while tenants keep data there. */
+/**
+ * Refuse moving the default away from `current` while tenants keep data there, and while restore
+ * mode is on: it replaces the primary of every tenant without one of its own, and the restored
+ * database may not know the data written there after the dump (docs/STORAGE.md).
+ */
 async function assertMayMove(
   tx: DbExecutor,
   current: InstallationDefaultResolution,
@@ -593,6 +598,7 @@ async function assertMayMove(
   if (!storageLocationMoves(current.storage.primary, next)) {
     return;
   }
+  await assertNotInRestoreMode("primary_replacement");
   const blockers = await defaultStorageBlockers(tx);
   if (blockers.length > 0) {
     throw inUse(blockers);
