@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"math/big"
 	"path"
@@ -53,6 +54,9 @@ type Ops interface {
 	DeviceSet(disks, extra []string) (devices, links []string)
 	// UnmountAll unmounts everything below the target root.
 	UnmountAll(ctx context.Context, root string) error
+	// ThawFrozen thaws every frozen file system at or below the target
+	// root and names the mount points it thawed.
+	ThawFrozen(root string) ([]string, error)
 	// MappingOn reports whether the device-mapper device name sits on
 	// exactly dev (and nothing else), and what it sits on.
 	MappingOn(name, dev string) (bool, string)
@@ -192,10 +196,11 @@ type Executor struct {
 	// TargetDevices are the target disks of the mapping (their device
 	// paths); isolated steps see these and what sits on them.
 	TargetDevices []string
-	// ResumeCheck is called once, before the first restore step of a
-	// resumed plan, with the mounted root: it checks the marker and may
-	// return the plan to continue with (the unclean one after a power
-	// loss).
+	// ResumeCheck is called once, as soon as the root of a resumed plan
+	// is mounted and before recover writes anything there (its own marker
+	// included): it checks the marker of the started run and may return
+	// the plan to continue with from the first restore step (the unclean
+	// one after a power loss). An error fails the mount step.
 	ResumeCheck func(r Rootfs) (*baremetal.RestorePlan, error)
 
 	askCancel atomic.Bool
@@ -210,6 +215,11 @@ type Executor struct {
 	released    bool
 	resumeOff   map[string]int64
 	stepTimeout func(kind string) time.Duration
+	// resumeChecked: ResumeCheck ran (in rootMounted); resumeNext is its
+	// plan, taken at the first restore step (resumeApplied).
+	resumeChecked bool
+	resumeApplied bool
+	resumeNext    *baremetal.RestorePlan
 }
 
 // ExecReport is what the execution produced.
@@ -307,7 +317,7 @@ func (x *Executor) Run(ctx context.Context) (*ExecReport, error) {
 	defer stop()
 	total := len(x.Plan.Steps)
 	lastSecret := lastSecretStep(x.Plan)
-	resumeChecked := false
+	x.resumeChecked, x.resumeApplied, x.resumeNext = false, false, nil
 	if err := x.PreflightMappings(); err != nil {
 		x.report.Problem, x.report.FailedKind, x.report.FailedError = ProblemForeignMappingOpen, "preflight", redact.Redact(err.Error())
 		x.log("before the first step: %v", err)
@@ -319,15 +329,21 @@ func (x *Executor) Run(ctx context.Context) (*ExecReport, error) {
 			return x.stopCleanly(ctx)
 		}
 		// A resumed plan has opened and mounted what the first run made;
-		// the marker on the root now says how that run ended (10.18).
-		if s.Phase == "restore" && x.ResumeCheck != nil && !resumeChecked {
-			resumeChecked = true
-			next, err := x.ResumeCheck(x.rootfs)
-			if err != nil {
-				x.report.Problem = ProblemStepFailed
-				return &x.report, &StepError{N: s.N, Kind: s.Kind, Problem: ProblemStepFailed, Err: err}
+		// the marker on the root, read in rootMounted before recover wrote
+		// its own, said how that run ended (10.18). Without a mounted root
+		// the check runs here and fails.
+		if s.Phase == "restore" && x.ResumeCheck != nil && !x.resumeApplied {
+			x.resumeApplied = true
+			if !x.resumeChecked {
+				x.resumeChecked = true
+				next, err := x.ResumeCheck(x.rootfs)
+				if err != nil {
+					x.report.Problem = ProblemStepFailed
+					return &x.report, &StepError{N: s.N, Kind: s.Kind, Problem: ProblemStepFailed, Err: err}
+				}
+				x.resumeNext = next
 			}
-			if next != nil && next != x.Plan {
+			if next := x.resumeNext; next != nil && next != x.Plan {
 				x.Plan = next
 				total, lastSecret = len(next.Steps), lastSecretStep(next)
 				for j, ns := range next.Steps {
@@ -812,7 +828,12 @@ func (x *Executor) mkdirInTarget(p string, mode fs.FileMode) error {
 	return nil
 }
 
-// rootMounted opens the target root and writes the first marker.
+// rootMounted opens the target root and writes the first marker. A
+// resumed plan first reads the marker that is there (ResumeCheck): the
+// marker recover is about to write would always match, and a disk that
+// only carries the disk GUID of the manifest (the source machine's own,
+// with its file system as an attacker left it) would get restored over in
+// place without the erase confirmation (10.18).
 func (x *Executor) rootMounted() error {
 	if x.OpenRootfs == nil {
 		return nil
@@ -820,6 +841,19 @@ func (x *Executor) rootMounted() error {
 	r, err := x.OpenRootfs()
 	if err != nil {
 		return err
+	}
+	if x.ResumeCheck != nil && !x.resumeChecked {
+		x.resumeChecked = true
+		next, err := x.ResumeCheck(r)
+		if err != nil {
+			// The root is not recover's: it is not kept open (an open
+			// folder would keep the file system busy for the operator).
+			if c, ok := r.(io.Closer); ok {
+				_ = c.Close()
+			}
+			return err
+		}
+		x.resumeNext = next
 	}
 	x.rootfs = r
 	x.markerOn = true
@@ -1248,6 +1282,13 @@ func (x *Executor) isolated(ctx context.Context, s *baremetal.Step, argv []strin
 	}
 	x.log("$ chroot-exec %s", strings.Join(argv, " "))
 	res, err := x.Isolator.Run(ctx, spec)
+	// Before recover writes again: a file system the program froze.
+	if ferr := x.thawAfter(prog); ferr != nil {
+		if err != nil {
+			x.log("%s: %v", prog, err)
+		}
+		return ferr
+	}
 	if res != nil {
 		for i, l := range strings.Split(strings.TrimRight(string(res.Output), "\n"), "\n") {
 			if i >= 400 {
@@ -1277,6 +1318,19 @@ func (x *Executor) isolated(ctx context.Context, s *baremetal.Step, argv []strin
 		x.report.RebuiltKernels = append(x.report.RebuiltKernels, deref(s.Target))
 	}
 	return nil
+}
+
+// thawAfter thaws the file systems of the target after an isolated
+// program. A file system the program left frozen fails the step: the next
+// write of recover or of the next step would wait for good (10.14). A
+// program stuck in such a write ends once the file system is thawed.
+func (x *Executor) thawAfter(prog string) error {
+	thawed, err := x.Ops.ThawFrozen(x.TargetRoot)
+	if len(thawed) > 0 {
+		return fmt.Errorf("%s froze the file system on %s; recover thawed it, the step failed (a program of the target must not freeze its file systems)",
+			prog, strings.Join(thawed, ", "))
+	}
+	return err
 }
 
 // needsSysAdmin: the device-mapper ioctls of grub-probe (grub-install,

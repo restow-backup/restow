@@ -119,6 +119,51 @@ func PlanWith(m *Manifest, t *Target, f *Facts, c Choices, o PlanOptions) (*Rest
 	return plan, append(append([]Finding{}, plan.Problems...), plan.Warnings...)
 }
 
+// AnswersLabel is the label of the medium the recovery ISO reads its
+// answers from (restow.answers=media, docs/BAREMETAL.md 10.20).
+const AnswersLabel = "RESTOWANS"
+
+// IsAnswersLabel reports whether a file system, LUKS or md label would be
+// taken for the answers medium (vfat labels are compared without case).
+func IsAnswersLabel(label string) bool {
+	label = strings.TrimSpace(label)
+	if i := strings.LastIndexByte(label, ':'); i >= 0 {
+		label = label[i+1:]
+	}
+	return strings.EqualFold(label, AnswersLabel)
+}
+
+// checkReservedLabels refuses a layout whose file systems, swap areas,
+// LUKS volumes or md arrays carry the label of the answers medium: the
+// restore would put a medium on the target that a later run of the ISO
+// with restow.answers=media could take for the operator's (10.20).
+func (pl *planner) checkReservedLabels() {
+	var objs []string
+	for _, fs := range pl.l.Filesystems {
+		if fs.Label != nil && IsAnswersLabel(*fs.Label) {
+			objs = append(objs, "file system "+fs.ID)
+		}
+	}
+	for i, sw := range pl.l.Swap {
+		if sw.Label != nil && IsAnswersLabel(*sw.Label) {
+			objs = append(objs, "swap "+itoa(int64(i)))
+		}
+	}
+	for _, c := range pl.l.LUKS {
+		if c.Label != nil && IsAnswersLabel(*c.Label) {
+			objs = append(objs, "LUKS volume "+c.ID)
+		}
+	}
+	for _, md := range pl.l.MD {
+		if md.Name != nil && IsAnswersLabel(*md.Name) {
+			objs = append(objs, "md array "+md.ID)
+		}
+	}
+	for _, o := range objs {
+		pl.add(newFinding(ProblemLayoutUnsupported, "", "reason", o+" is labelled "+AnswersLabel+", the label reserved for the answers medium of the recovery ISO"))
+	}
+}
+
 func (pl *planner) finish() {
 	seen := map[string]bool{}
 	for _, f := range pl.findings {
@@ -171,6 +216,7 @@ func (pl *planner) run() {
 		return
 	}
 	pl.add(pl.x.raidGeometryFindings()...)
+	pl.checkReservedLabels()
 	pl.checkFirmwareMode()
 	minimum := map[string]int64{}
 	for _, d := range pl.plan.MinimumSizes.Disks {

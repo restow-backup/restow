@@ -3,8 +3,10 @@ package recovery
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -334,6 +336,83 @@ func TestExecuteResume(t *testing.T) {
 		}
 		golden(t, c.plan+".calls", []byte(lines))
 	}
+}
+
+// TestExecuteResumeCheckBeforeMarker: the resume check reads the marker
+// that is on the mounted root before recover writes its own. Without a
+// marker of a started run (a disk that only carries the manifest's disk
+// GUID, as the source machine's own) the mount step fails, nothing is
+// restored and no marker is left behind; with one, the check sees that
+// marker (its plan checksum and phase), not the one of this run.
+func TestExecuteResumeCheckBeforeMarker(t *testing.T) {
+	h := newHarness(t, "debian12-uefi-luks-lvm.resume-unclean", "debian12-uefi-luks-lvm")
+	h.root.put("/etc/ld.so.preload", "/usr/local/lib/evil.so\n")
+	var seen []*Marker
+	h.x.ResumeCheck = func(r Rootfs) (*baremetal.RestorePlan, error) {
+		m, _ := ReadMarker(r)
+		seen = append(seen, m)
+		_, err := ResumeMarker(r, h.x.Snapshot, h.x.LayoutSHA256)
+		return nil, err
+	}
+	rep, err := h.x.Run(context.Background())
+	if !errors.Is(err, ErrNoStartedRecovery) {
+		t.Fatalf("err %v", err)
+	}
+	if len(seen) != 1 || seen[0] != nil {
+		t.Errorf("the check saw a marker that recover wrote itself: %+v", seen)
+	}
+	if rep.FailedKind != "mount" {
+		t.Errorf("failed at %q, not at the mount of the root", rep.FailedKind)
+	}
+	if lines := h.exec.lines(); strings.Contains(lines, "restic restore") || strings.Contains(lines, "chroot-exec") {
+		t.Errorf("the run went on without a marker of a started run:\n%s", lines)
+	}
+	if _, err := ReadMarker(h.root); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("a marker was written on a root that had none: %v", err)
+	}
+
+	h = newHarness(t, "debian12-uefi-luks-lvm.resume-unclean", "debian12-uefi-luks-lvm")
+	first := Marker{SnapshotID: h.x.Snapshot, LayoutSHA256: h.x.LayoutSHA256, PlanSHA256: strings.Repeat("77", 32), LastStep: 12, Phase: "restore"}
+	if err := WriteMarker(h.root, first); err != nil {
+		t.Fatal(err)
+	}
+	seen = nil
+	h.x.ResumeCheck = func(r Rootfs) (*baremetal.RestorePlan, error) {
+		m, _ := ReadMarker(r)
+		seen = append(seen, m)
+		mk, err := ResumeMarker(r, h.x.Snapshot, h.x.LayoutSHA256)
+		if err == nil {
+			h.x.OriginalPlanSHA256 = mk.PlanSHA256
+		}
+		return nil, err
+	}
+	var written []Marker
+	h.x.OpenRootfs = func() (Rootfs, error) { return &markerSpy{memRootfs: h.root, seen: &written}, nil }
+	if _, err := h.x.Run(context.Background()); err != nil {
+		t.Fatalf("resume with the marker of a started run: %v", err)
+	}
+	if len(seen) != 1 || seen[0] == nil || seen[0].Phase != "restore" || seen[0].PlanSHA256 != first.PlanSHA256 {
+		t.Errorf("the check did not see the marker of the first run: %+v", seen)
+	}
+	if len(written) == 0 || written[0].PlanSHA256 != first.PlanSHA256 {
+		t.Errorf("the first marker of the resumed run does not carry the plan checksum of the first run: %+v", written)
+	}
+}
+
+// markerSpy records every marker written to the root.
+type markerSpy struct {
+	*memRootfs
+	seen *[]Marker
+}
+
+func (m *markerSpy) WriteFileAtomic(p string, data []byte, mode fs.FileMode, uid, gid int, backup string) error {
+	if p == MarkerPath {
+		var mk Marker
+		if err := json.Unmarshal(data, &mk); err == nil {
+			*m.seen = append(*m.seen, mk)
+		}
+	}
+	return m.memRootfs.WriteFileAtomic(p, data, mode, uid, gid, backup)
 }
 
 func TestExecuteSystemFilesIncomplete(t *testing.T) {

@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -400,6 +401,69 @@ func (o *LinuxOps) UnmountAll(ctx context.Context, root string) error {
 		return errors.New(strings.Join(errs, "; "))
 	}
 	return nil
+}
+
+// ThawFrozen implements Ops: FITHAW on every file system mounted at or
+// below root. A file system frozen by a program of the target (FIFREEZE
+// keeps the superblock frozen after the namespaces have ended) would make
+// the next write of recover or of the next step wait for good in an
+// unkillable state; a successful thaw names the mount point. EINVAL (not
+// frozen) and EOPNOTSUPP (cannot be frozen) are the normal answers. Each
+// mount point is a mount of recover and is opened without following any
+// symlink; a thaw of a file system that is not frozen changes nothing.
+func (o *LinuxOps) ThawFrozen(root string) ([]string, error) {
+	root = filepath.Clean(root)
+	var thawed, errs []string
+	for _, m := range mountPoints() {
+		if m != root && !strings.HasPrefix(m, root+"/") {
+			continue
+		}
+		ok, err := thawMount(m)
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("%s: %v", m, err))
+		}
+		if ok {
+			thawed = append(thawed, m)
+		}
+	}
+	if len(errs) > 0 {
+		return thawed, errors.New("thaw the file systems of the target: " + strings.Join(errs, "; "))
+	}
+	return thawed, nil
+}
+
+// fiThawRequest is FITHAW _IOWR('X', 120, int).
+const fiThawRequest = 0xc0045878
+
+func thawMount(m string) (bool, error) {
+	name, err := syscall.BytePtrFromString(m)
+	if err != nil {
+		return false, err
+	}
+	how := openHow{Flags: uint64(syscall.O_RDONLY | syscall.O_DIRECTORY | syscall.O_NOFOLLOW | syscall.O_CLOEXEC),
+		Resolve: resolveNoSymlinks | resolveNoMagiclinks}
+	atFdcwd := -100
+	var fd uintptr
+	var e syscall.Errno
+	for {
+		fd, _, e = syscall.Syscall6(sysOpenat2, uintptr(atFdcwd), uintptr(unsafe.Pointer(name)), uintptr(unsafe.Pointer(&how)), unsafe.Sizeof(how), 0, 0)
+		if e != syscall.EINTR && e != syscall.EAGAIN {
+			break
+		}
+	}
+	runtime.KeepAlive(name)
+	if e != 0 {
+		return false, e
+	}
+	defer syscall.Close(int(fd))
+	_, _, e = syscall.Syscall(syscall.SYS_IOCTL, fd, fiThawRequest, 0)
+	switch e {
+	case 0:
+		return true, nil
+	case syscall.EINVAL, syscall.EOPNOTSUPP, syscall.ENOTTY:
+		return false, nil
+	}
+	return false, e
 }
 
 // Flush syncs and flushes the buffers of the target disks before the

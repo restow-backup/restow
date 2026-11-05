@@ -180,3 +180,35 @@ func TestExecuteForeignMappingNoSysAdmin(t *testing.T) {
 		t.Errorf("grub on a plain stack: %v", err)
 	}
 }
+
+// TestExecuteThawFrozen: a program of the target that leaves a file
+// system of the target frozen fails its step; recover thaws it before it
+// writes again, and no further isolated step runs.
+func TestExecuteThawFrozen(t *testing.T) {
+	h := newHarness(t, "debian12-uefi-luks-lvm.same", "debian12-uefi-luks-lvm")
+	h.ops.stack = goldenStack
+	h.ops.setDM(goldenDM...)
+	h.iso.reply = func(spec IsolateSpec) string {
+		if spec.Argv[0] == "update-initramfs" {
+			h.ops.mu.Lock()
+			h.ops.frozen = []string{"/mnt/restow-target/boot"}
+			h.ops.mu.Unlock()
+		}
+		return ""
+	}
+	_, err := h.x.Run(context.Background())
+	var se *StepError
+	if !errors.As(err, &se) || se.Kind != "initramfs" || !strings.Contains(err.Error(), "update-initramfs froze the file system on /mnt/restow-target/boot") {
+		t.Fatalf("err %v", err)
+	}
+	for _, r := range h.iso.runs {
+		if r.Argv[0] == "grub-mkconfig" {
+			t.Fatal("grub-mkconfig ran after a frozen file system")
+		}
+	}
+	h.ops.mu.Lock()
+	defer h.ops.mu.Unlock()
+	if h.ops.frozen != nil {
+		t.Error("the file system was not thawed")
+	}
+}

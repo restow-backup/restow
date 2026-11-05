@@ -13,7 +13,7 @@ var syscallTables = map[string]syscallTable{
 			"reboot": 169, "ptrace": 101, "process_vm_readv": 310, "process_vm_writev": 311, "bpf": 321,
 			"perf_event_open": 298, "unshare": 272, "setns": 308, "chroot": 161, "open_by_handle_at": 304,
 			"name_to_handle_at": 303, "swapon": 167, "swapoff": 168, "io_uring_setup": 425, "io_uring_enter": 426,
-			"io_uring_register": 427, "iopl": 172, "ioperm": 173,
+			"io_uring_register": 427, "iopl": 172, "ioperm": 173, "syslog": 103,
 		},
 	},
 	"arm64": {
@@ -25,7 +25,7 @@ var syscallTables = map[string]syscallTable{
 			"reboot": 142, "ptrace": 117, "process_vm_readv": 270, "process_vm_writev": 271, "bpf": 280,
 			"perf_event_open": 241, "unshare": 97, "setns": 268, "chroot": 51, "open_by_handle_at": 265,
 			"name_to_handle_at": 264, "swapon": 224, "swapoff": 225, "io_uring_setup": 425, "io_uring_enter": 426,
-			"io_uring_register": 427,
+			"io_uring_register": 427, "syslog": 116,
 		},
 	},
 }

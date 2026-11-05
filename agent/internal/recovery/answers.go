@@ -72,6 +72,17 @@ type Answers struct {
 
 	// Source is where the answers came from (not part of the file).
 	Source Source `json:"-"`
+	// Medium is the medium they were read from (SourceMedia; not part of
+	// the file): its disk is never a target (10.20).
+	Medium *AnswersMedium `json:"-"`
+}
+
+// AnswersMedium is the medium of restow.answers=media: the device with the
+// label, its disk (kernel name) and the disk's model.
+type AnswersMedium struct {
+	Device string
+	Disk   string
+	Model  string
 }
 
 // AnswersNetwork is the network of the answers: dhcp (the default) or

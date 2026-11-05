@@ -89,7 +89,7 @@ func RunIsolated(ctx context.Context, self string, spec IsolateSpec, maxOut int)
 	if timeout == 0 {
 		timeout = 30 * time.Minute
 	}
-	cctx, cancel := context.WithTimeout(ctx, timeout+time.Minute)
+	cctx, cancel := context.WithTimeout(ctx, timeout+isolateKillAfter)
 	defer cancel()
 	cmd := exec.CommandContext(cctx, self, "chroot-exec", "--spec", "3")
 	cmd.Env = []string{}
@@ -115,7 +115,25 @@ func RunIsolated(ctx context.Context, self string, spec IsolateSpec, maxOut int)
 	}
 	_, werr := pw.Write(b)
 	pw.Close()
-	err = cmd.Wait()
+	// SIGKILL does not end a task in uninterruptible sleep (a write to a
+	// frozen file system): PID 1 of the namespace then never ends, and
+	// neither would Wait. recover gives up on it after a grace period and
+	// fails the step; the caller thaws the target (Executor.thawAfter),
+	// and the stuck task ends then.
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	select {
+	case err = <-done:
+	case <-cctx.Done():
+		t := time.NewTimer(isolateStuckGrace)
+		select {
+		case err = <-done:
+			t.Stop()
+		case <-t.C:
+			return &IsolationResult{ExitCode: -1}, fmt.Errorf("%s did not end within %s and does not end after SIGKILL either (a task of the isolation is stuck in the kernel, for example in a write to a frozen file system)",
+				spec.Argv[0], timeout)
+		}
+	}
 	res := &IsolationResult{Output: out.Bytes(), ExitCode: -1}
 	if cmd.ProcessState != nil {
 		res.ExitCode = cmd.ProcessState.ExitCode()
@@ -132,6 +150,14 @@ func RunIsolated(ctx context.Context, self string, spec IsolateSpec, maxOut int)
 	}
 	return res, err
 }
+
+// isolateKillAfter is how long after the timeout of the step recover
+// kills the helper itself; isolateStuckGrace is how long it then waits
+// for the helper to end (variables for the tests).
+var (
+	isolateKillAfter  = time.Minute
+	isolateStuckGrace = time.Minute
+)
 
 type cappedBuffer struct {
 	buf  bytes.Buffer

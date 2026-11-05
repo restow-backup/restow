@@ -351,7 +351,8 @@ private repository.
   namespaces, a `/dev` with only the target devices, the restored tree and all its mounts
   `nodev` and `nosuid` so that device nodes from the backup cannot be opened, a reduced capability
   set and a seccomp filter that also refuses the device-mapper commands that change mappings, the
-  md commands that change arrays, NVMe passthrough, sockets other than Unix, IPv4, IPv6 and
+  md commands that change arrays, NVMe passthrough, freezing, thawing and shutting down a file
+  system (`FIFREEZE`, `FITHAW`, `FS_IOC_SHUTDOWN`), sockets other than Unix, IPv4, IPv6 and
   netlink (AF_VSOCK is not network-namespaced and reaches the hypervisor of a VM), io_uring,
   `open_tree_attr` and system calls newer than its table; `CAP_SYS_ADMIN` only for the boot loader
   and LVM tools on device-mapper volumes, and only while no device-mapper device outside the target
@@ -360,7 +361,32 @@ private repository.
   (for example an old disk opened in the shell) before anything is erased and offers a shell to
   close it; one opened while such a program runs stops the recovery with
   `foreign_mapping_open`). The ISO mounts the target file systems `nodev` and `nosuid` for the
-  recovery and never opens a file of the restored system that is not a regular file.
+  recovery and never opens a file of the restored system that is not a regular file. After every
+  program of the restored system it thaws the target file systems: one the program left frozen
+  fails the step before the ISO writes again (a write to a frozen file system waits for good and
+  cannot be killed), and a program that does not end after `SIGKILL` fails its step after a grace
+  period instead of leaving the recovery hung.
+  Such programs also lose `CAP_SYSLOG` and the other capabilities that act on the whole machine
+  (`CAP_SYS_RESOURCE`, `CAP_SYS_NICE`, `CAP_IPC_LOCK`, `CAP_SYS_TTY_CONFIG`, the audit and MAC
+  capabilities and a few more), and the filter refuses `syslog(2)`: with it a program could
+  raise the console log level and have the kernel print text it chose, escape sequences included,
+  on the operator's console (a serial BMC console passes them on unchanged). Unattended answers
+  from a medium (`restow.answers=media`) are read only when exactly one device carries the label
+  `RESTOWANS` and it is a removable or USB medium other than the ISO's; a file system of the
+  restored system with that label is no longer taken for the operator's medium, the medium's
+  disk is never a target, and the console names the medium and the instance before anything is
+  typed. The planner refuses a layout that labels a file system, swap area, LUKS volume or md
+  array `RESTOWANS`. Switching remote access from the one-time password to the administrator's
+  keys now also ends the SSH sessions already open with the password (and what they started),
+  not only the listening `sshd`, and is not reported until none is left.
+  Resuming a started recovery now reads the marker on the target's root file system before the
+  ISO writes anything there: before, the ISO wrote its own marker right after mounting the root
+  and then checked that one, so the check always passed and any disk carrying the backed-up
+  machine's disk GUID (its own disks, for example) was restored over in place without the erase
+  confirmation, keeping files that are not in the snapshot and reporting success. Without a
+  marker of a started recovery of the chosen snapshot the run now stops at the mount of the root
+  before restoring anything and explains that a new start that declines the offer erases the
+  disks after the confirmation; the offer names the chosen snapshot and says the marker decides.
   Firmware packages: `firmware-bnx2`, `firmware-bnx2x`, `firmware-qlogic`, `firmware-realtek`,
   `firmware-misc-nonfree` and `firmware-intel-misc` (wired network cards and storage controllers
   only; their licences are in `restow-recovery_<v>_FIRMWARE-LICENSES.txt`, the reasons in

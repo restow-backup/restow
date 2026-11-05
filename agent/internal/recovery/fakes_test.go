@@ -260,6 +260,8 @@ type fakeOps struct {
 	stack []string
 	// dm are the device-mapper devices of the machine.
 	dm []DMMapping
+	// frozen are the mount points ThawFrozen thaws once.
+	frozen []string
 }
 
 func (f *fakeExec) note(s string) {
@@ -338,6 +340,13 @@ func (o *fakeOps) setDM(ms ...DMMapping) {
 	o.mu.Unlock()
 }
 func (o *fakeOps) UnmountAll(ctx context.Context, root string) error { return o.rec("unmount " + root) }
+func (o *fakeOps) ThawFrozen(root string) ([]string, error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	f := o.frozen
+	o.frozen = nil
+	return f, nil
+}
 
 // fakeIsolator records the isolated programs.
 type fakeIsolator struct {

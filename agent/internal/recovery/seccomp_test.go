@@ -68,7 +68,7 @@ func TestSeccompFilter(t *testing.T) {
 			}
 		}
 		for _, name := range []string{"mount", "umount2", "pivot_root", "mknodat", "init_module", "finit_module", "ptrace", "process_vm_readv",
-			"bpf", "perf_event_open", "unshare", "setns", "chroot", "open_by_handle_at", "name_to_handle_at", "kexec_load", "reboot", "open_tree", "open_tree_attr", "move_mount", "fsopen"} {
+			"bpf", "perf_event_open", "unshare", "setns", "chroot", "open_by_handle_at", "name_to_handle_at", "kexec_load", "reboot", "open_tree", "open_tree_attr", "move_mount", "fsopen", "syslog"} {
 			if _, ok := tab.denied[name]; !ok {
 				t.Errorf("%s: %s is not denied", arch, name)
 			}
@@ -132,7 +132,15 @@ func TestSeccompFilter(t *testing.T) {
 				t.Errorf("%s ioctl %#x: %#x, want EPERM", arch, req, got)
 			}
 		}
-		for _, req := range []uint64{0x5401, 0x80081272, 0x1260, 0x5413, 0x40086602, 0x125d} {
+		// FIFREEZE, FITHAW and FS_IOC_SHUTDOWN (also with other size and
+		// direction bits and high bits) answer EPERM; FITRIM and
+		// FS_IOC_FSGETXATTR of the same type pass.
+		for _, req := range []uint64{0xc0045877, 0xc0045878, 0x8004587d, 0x5877, 0x40085878, 0xffffffff8004587d} {
+			if got := runBPF(t, prog, tab.ioctl, tab.audit, 3, req); got != eperm {
+				t.Errorf("%s freeze/shutdown ioctl %#x: %#x, want EPERM", arch, req, got)
+			}
+		}
+		for _, req := range []uint64{0x5401, 0x80081272, 0x1260, 0x5413, 0x40086602, 0x125d, 0xc0185879, 0x801c581f} {
 			if got := runBPF(t, prog, tab.ioctl, tab.audit, 3, req); got != seccompOK {
 				t.Errorf("%s ioctl %#x: %#x, want allow", arch, req, got)
 			}
@@ -199,7 +207,8 @@ func TestCapsAndSpec(t *testing.T) {
 		}
 		return false
 	}
-	for _, c := range []int{capSysModule, capSysRawio, capSysBoot, capSysPtrace, capNetAdmin, capMknod, capSysTime, capSysChroot, capDacReadSearch} {
+	for _, c := range []int{capSysModule, capSysRawio, capSysBoot, capSysPtrace, capNetAdmin, capMknod, capSysTime, capSysChroot, capDacReadSearch,
+		capSyslog, capSysResource, capSysNice, capIPCLock, capSysTTYConfig} {
 		if !has(capsToDrop(true), c) || !has(capsToDrop(false), c) {
 			t.Errorf("capability %d kept", c)
 		}

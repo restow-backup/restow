@@ -3,6 +3,7 @@
 package recovery
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"errors"
@@ -11,8 +12,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/restow-backup/restow/agent/internal/api"
@@ -26,6 +30,9 @@ import (
 type Remote struct {
 	Exec   Exec
 	RunDir string
+	// SSHD is the sshd binary; "" resolves it among the ISO's tools
+	// (tests set a stand-in).
+	SSHD string
 
 	mu   sync.Mutex
 	sshd *exec.Cmd
@@ -94,8 +101,11 @@ func (r *Remote) EnablePassword(ctx context.Context) (string, []api.RecoverySSHH
 }
 
 // UseKeys switches to the keys from the web interface: authorized_keys is
-// written, sshd restarts with PasswordAuthentication no (a running
-// password session ends).
+// written, the password is locked, sshd and every process below it (the
+// per-connection children OpenSSH starts in their own session, their
+// shells and what those started) are killed, and sshd starts again with
+// PasswordAuthentication no. It fails, and the switch is not reported,
+// when a process of the password phase is still alive afterwards.
 func (r *Remote) UseKeys(ctx context.Context, keys []string) error {
 	r.mu.Lock()
 	running := r.sshd != nil
@@ -117,9 +127,12 @@ func (r *Remote) UseKeys(ctx context.Context, keys []string) error {
 	}
 	// Locking the password makes it useless even if sshd kept it.
 	_, _ = r.Exec.Run(ctx, RunSpec{Argv: []string{"chpasswd", "-e"}, Stdin: []byte("root:!\n"), Timeout: time.Minute})
-	r.stop()
+	stopErr := r.stop()
 	if err := r.start(SSHDConfig(false, ak)); err != nil {
 		return err
+	}
+	if stopErr != nil {
+		return stopErr
 	}
 	r.mu.Lock()
 	r.keys = true
@@ -135,9 +148,12 @@ func (r *Remote) start(config string) error {
 	if err := os.WriteFile(cfg, []byte(config), 0o600); err != nil {
 		return err
 	}
-	bin, err := Resolve("sshd")
-	if err != nil {
-		return err
+	bin := r.SSHD
+	if bin == "" {
+		var err error
+		if bin, err = Resolve("sshd"); err != nil {
+			return err
+		}
 	}
 	_ = os.MkdirAll("/run/sshd", 0o755)
 	cmd := exec.Command(bin, "-D", "-e", "-f", cfg)
@@ -152,13 +168,125 @@ func (r *Remote) start(config string) error {
 	return nil
 }
 
-func (r *Remote) stop() {
+// stop ends sshd and every process below it. Killing the listener alone
+// leaves the established connections running (OpenSSH forks one child per
+// connection, sshd-session from 9.8 on, and that child calls setsid, so
+// neither the listener's process group nor a death signal reaches it).
+func (r *Remote) stop() error {
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.sshd != nil && r.sshd.Process != nil {
-		_ = r.sshd.Process.Kill()
-	}
+	cmd := r.sshd
 	r.sshd = nil
+	r.mu.Unlock()
+	if cmd == nil || cmd.Process == nil {
+		return nil
+	}
+	return killTree("/proc", cmd.Process.Pid, 5*time.Second)
+}
+
+// procEntry is one process of /proc: its parent, state and start time
+// (field 22 of stat, which tells a reused pid apart).
+type procEntry struct {
+	ppid  int
+	state byte
+	start string
+}
+
+func readProcStat(proc string, pid int) (procEntry, bool) {
+	b, err := os.ReadFile(filepath.Join(proc, strconv.Itoa(pid), "stat"))
+	if err != nil {
+		return procEntry{}, false
+	}
+	// The command name is in parentheses and may hold spaces and ')'.
+	i := bytes.LastIndexByte(b, ')')
+	if i < 0 {
+		return procEntry{}, false
+	}
+	f := strings.Fields(string(b[i+1:]))
+	// f[0] is field 3 (state), f[1] field 4 (ppid), f[19] field 22.
+	if len(f) < 20 || len(f[0]) != 1 {
+		return procEntry{}, false
+	}
+	ppid, err := strconv.Atoi(f[1])
+	if err != nil {
+		return procEntry{}, false
+	}
+	return procEntry{ppid: ppid, state: f[0][0], start: f[19]}, true
+}
+
+// descendants are root and every process below it, with their start times.
+func descendants(proc string, root int) map[int]string {
+	ents, _ := os.ReadDir(proc)
+	children := map[int][]int{}
+	starts := map[int]string{}
+	for _, e := range ents {
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil {
+			continue
+		}
+		if pe, ok := readProcStat(proc, pid); ok {
+			children[pe.ppid] = append(children[pe.ppid], pid)
+			starts[pid] = pe.start
+		}
+	}
+	out := map[int]string{}
+	if pe, ok := readProcStat(proc, root); ok {
+		out[root] = pe.start
+	}
+	queue := []int{root}
+	for len(queue) > 0 {
+		p := queue[0]
+		queue = queue[1:]
+		for _, c := range children[p] {
+			if _, seen := out[c]; !seen {
+				out[c] = starts[c]
+				queue = append(queue, c)
+			}
+		}
+	}
+	return out
+}
+
+// killTree stops root and everything below it with SIGSTOP until a scan
+// finds nothing new (a stopped process cannot fork, and a child of a
+// stopped process is not reparented), kills them all with SIGKILL and
+// waits until none of them is alive any more (gone, a zombie or its pid
+// reused by another start time).
+func killTree(proc string, root int, wait time.Duration) error {
+	seen := map[int]string{}
+	for round := 0; round < 64; round++ {
+		found := false
+		for pid, start := range descendants(proc, root) {
+			if _, ok := seen[pid]; ok {
+				continue
+			}
+			found = true
+			seen[pid] = start
+			_ = syscall.Kill(pid, syscall.SIGSTOP)
+		}
+		if !found {
+			break
+		}
+	}
+	for pid := range seen {
+		_ = syscall.Kill(pid, syscall.SIGKILL)
+	}
+	deadline := time.Now().Add(wait)
+	for {
+		var alive []int
+		for pid, start := range seen {
+			if pe, ok := readProcStat(proc, pid); ok && pe.start == start && pe.state != 'Z' && pe.state != 'X' {
+				alive = append(alive, pid)
+			}
+		}
+		if len(alive) == 0 {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			sort.Ints(alive)
+			return fmt.Errorf("remote access: processes of the previous sshd still run: %v", alive)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 // Running reports whether remote access is on.

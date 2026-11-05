@@ -11,6 +11,7 @@ package recovery
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -215,7 +216,10 @@ func main() {
 			"dm_suspend": 0xc138fd06, "dm_table_load": 0xc138fd09, "dm_target_msg": 0xc138fd0e, "nvme_admin": 0xc0484e41,
 			"nvme_io": 0xc0484e43, "tiocsti": 0x5412, "md_raid_version": 0x800c0910, "md_get_array_info": 0x80480911,
 			"md_get_disk_info": 0x80140912, "md_add_new_disk": 0x40140921, "md_set_array_info": 0x40480923, "md_hot_add_disk": 0x928,
-			"md_set_disk_faulty": 0x929, "md_run_array": 0x400c0930, "md_stop_array": 0x932} {
+			"md_set_disk_faulty": 0x929, "md_run_array": 0x400c0930, "md_stop_array": 0x932,
+			// FIFREEZE, FITHAW, FS_IOC_SHUTDOWN: /dev/null is on tmpfs,
+			// which cannot be frozen (EOPNOTSUPP) or shut down (ENOTTY).
+			"fifreeze": 0xc0045877, "fithaw": 0xc0045878, "fs_shutdown": 0x8004587d} {
 			_, _, e := syscall.Syscall(syscall.SYS_IOCTL, null.Fd(), req, 0)
 			errno("ioctl_"+name, e)
 		}
@@ -256,6 +260,15 @@ func main() {
 		syscall.Close(int(ring))
 	}
 	errno("io_uring_setup", e)
+	// syslog(2): SYSLOG_ACTION_SIZE_BUFFER (10) needs no capability while
+	// dmesg_restrict is 0, so only the filter refuses it;
+	// SYSLOG_ACTION_CONSOLE_ON (7) needs CAP_SYSLOG (or the CAP_SYS_ADMIN
+	// fallback) and only restores a level CONSOLE_OFF saved, so it
+	// changes nothing on a failed isolation.
+	_, _, e = syscall.Syscall(syscall.SYS_SYSLOG, 10, 0, 0)
+	errno("syslog_size", e)
+	_, _, e = syscall.Syscall(syscall.SYS_SYSLOG, 7, 0, 0)
+	errno("syslog_console_on", e)
 	tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
 	if err == nil {
 		tty.Close()
@@ -333,6 +346,129 @@ func TestRootIsolation(t *testing.T) {
 	}
 }
 
+// TestRootIsolationFrozenFS: a program stuck in a write to a frozen file
+// system of the target does not end on SIGKILL; RunIsolated gives up on
+// it after a grace period instead of waiting for good, and ThawFrozen
+// thaws the file system (and names it), after which the program ends.
+func TestRootIsolationFrozenFS(t *testing.T) {
+	work := rootOnly(t)
+	for _, tool := range []string{"mkfs.ext4", "fsfreeze"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skipf("%s missing", tool)
+		}
+	}
+	root := filepath.Join(work, "root")
+	for _, d := range []string{"proc", "sys", "dev", "run", "tmp", "srv"} {
+		if err := os.MkdirAll(filepath.Join(root, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	hookDir := filepath.Join(work, "hook")
+	_ = os.MkdirAll(hookDir, 0o755)
+	_ = os.WriteFile(filepath.Join(hookDir, "main.go"), []byte(frozenHookSource), 0o644)
+	_ = os.WriteFile(filepath.Join(hookDir, "go.mod"), []byte("module hook\n\ngo 1.22\n"), 0o644)
+	cmd := exec.Command("go", "build", "-o", filepath.Join(root, "hook"), ".")
+	cmd.Dir, cmd.Env = hookDir, append(os.Environ(), "CGO_ENABLED=0", "GOFLAGS=")
+	if b, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("build the hook: %v\n%s", err, b)
+	}
+	agent := filepath.Join(work, "restow-agent")
+	goBuild(t, agent, "../../cmd/restow-agent")
+	dev := loopDev(t, work, "frozen", 16)
+	sh(t, "mkfs.ext4", "-q", "-F", dev)
+	srv := filepath.Join(root, "srv")
+	sh(t, "mount", "-o", "nodev,nosuid", dev, srv)
+	t.Cleanup(func() {
+		_ = exec.Command("fsfreeze", "-u", srv).Run()
+		for i := 0; i < 50 && syscall.Unmount(srv, 0) != nil; i++ {
+			time.Sleep(100 * time.Millisecond)
+		}
+		_ = syscall.Unmount(srv, syscall.MNT_DETACH)
+	})
+	sh(t, "fsfreeze", "-f", srv)
+	oldKill, oldGrace := isolateKillAfter, isolateStuckGrace
+	isolateKillAfter, isolateStuckGrace = time.Second, 2*time.Second
+	defer func() { isolateKillAfter, isolateStuckGrace = oldKill, oldGrace }()
+	type result struct {
+		res *IsolationResult
+		err error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		res, err := RunIsolated(context.Background(), agent, IsolateSpec{Root: root, Argv: []string{"/hook"}, TimeoutSeconds: 1}, 0)
+		ch <- result{res, err}
+	}()
+	select {
+	case r := <-ch:
+		if r.err == nil || !strings.Contains(r.err.Error(), "does not end after SIGKILL") {
+			t.Errorf("RunIsolated: %v", r.err)
+		}
+	case <-time.After(60 * time.Second):
+		_ = exec.Command("fsfreeze", "-u", srv).Run()
+		<-ch
+		t.Fatal("RunIsolated waited for good for a program stuck on a frozen file system")
+	}
+	thawed, err := (&LinuxOps{}).ThawFrozen(root)
+	if err != nil || len(thawed) != 1 || thawed[0] != srv {
+		t.Errorf("ThawFrozen: %v %v, want [%s]", thawed, err, srv)
+	}
+	if exec.Command("fsfreeze", "-u", srv).Run() == nil {
+		t.Error("the file system was still frozen")
+	}
+	if thawed, err := (&LinuxOps{}).ThawFrozen(root); err != nil || len(thawed) != 0 {
+		t.Errorf("ThawFrozen on a thawed target: %v %v", thawed, err)
+	}
+	// With CAP_SYS_ADMIN (the grub and LVM steps on LVM or LUKS) the
+	// program cannot freeze, thaw or shut down the file system itself
+	// (the loop image of the test, never a file system of this machine).
+	isolateKillAfter, isolateStuckGrace = oldKill, oldGrace
+	res, err := RunIsolated(context.Background(), agent, IsolateSpec{Root: root, Argv: []string{"/hook", "freeze"}, TimeoutSeconds: 30, CapSysAdmin: true}, 0)
+	if thawed, terr := (&LinuxOps{}).ThawFrozen(root); terr != nil || len(thawed) != 0 {
+		t.Errorf("the program froze the file system: %v %v", thawed, terr)
+	}
+	if err != nil || res.ExitCode != 0 {
+		t.Fatalf("isolated run: %v %+v", err, res)
+	}
+	want := "FIFREEZE operation not permitted\nFITHAW operation not permitted\nFS_IOC_SHUTDOWN operation not permitted\n"
+	if string(res.Output) != want {
+		t.Errorf("output %q, want %q", res.Output, want)
+	}
+}
+
+// frozenHookSource writes to /srv (TestRootIsolationFrozenFS), or with
+// "freeze" sends FIFREEZE, FITHAW and FS_IOC_SHUTDOWN (flag
+// EXT4_GOING_FLAGS_NOLOGFLUSH) to /srv and prints the answers.
+const frozenHookSource = `package main
+
+import (
+	"fmt"
+	"os"
+	"syscall"
+	"unsafe"
+)
+
+func main() {
+	if len(os.Args) < 2 {
+		_ = os.WriteFile("/srv/x", []byte("x"), 0o644)
+		return
+	}
+	f, err := os.Open("/srv")
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+	flags := uint32(2)
+	for _, r := range []struct {
+		name string
+		req  uintptr
+		arg  uintptr
+	}{{"FIFREEZE", 0xc0045877, 0}, {"FITHAW", 0xc0045878, 0}, {"FS_IOC_SHUTDOWN", 0x8004587d, uintptr(unsafe.Pointer(&flags))}} {
+		_, _, e := syscall.Syscall(syscall.SYS_IOCTL, f.Fd(), r.req, r.arg)
+		fmt.Println(r.name, e.Error())
+	}
+}
+`
+
 // checkIsolationResult checks what the hook of TestRootIsolation wrote.
 func checkIsolationResult(t *testing.T, root, allowed string, sysAdmin bool, output []byte) {
 	t.Helper()
@@ -361,7 +497,8 @@ func checkIsolationResult(t *testing.T, root, allowed string, sysAdmin bool, out
 	eperm, enosys := syscall.EPERM.Error(), syscall.ENOSYS.Error()
 	for _, k := range []string{"open_tree_attr", "ioctl_dm_remove_all", "ioctl_dm_create", "ioctl_dm_suspend", "ioctl_dm_table_load",
 		"ioctl_dm_target_msg", "ioctl_nvme_admin", "ioctl_nvme_io", "ioctl_tiocsti", "ioctl_md_add_new_disk", "ioctl_md_set_array_info",
-		"ioctl_md_hot_add_disk", "ioctl_md_set_disk_faulty", "ioctl_md_run_array", "ioctl_md_stop_array"} {
+		"ioctl_md_hot_add_disk", "ioctl_md_set_disk_faulty", "ioctl_md_run_array", "ioctl_md_stop_array", "ioctl_fifreeze",
+		"ioctl_fithaw", "ioctl_fs_shutdown", "syslog_size", "syslog_console_on"} {
 		if r[k] != eperm {
 			t.Errorf("%s: %q, want %q from the filter", k, r[k], eperm)
 		}
@@ -411,6 +548,14 @@ func checkIsolationResult(t *testing.T, root, allowed string, sysAdmin bool, out
 		t.Errorf("CapEff %#x: CAP_SYS_ADMIN %v, want %v", capEff, got, sysAdmin)
 	}
 	for _, c := range capsToDrop(sysAdmin) {
+		if capEff&(1<<uint(c)) != 0 {
+			t.Errorf("CapEff %#x has capability %d", capEff, c)
+		}
+	}
+	// The global capabilities no step needs (the kernel log and console
+	// level, oom_score_adj, real-time priority), named here so a shorter
+	// capsToDrop does not pass unnoticed.
+	for _, c := range []int{capSyslog, capSysResource, capSysNice, capIPCLock, capSysTTYConfig} {
 		if capEff&(1<<uint(c)) != 0 {
 			t.Errorf("CapEff %#x has capability %d", capEff, c)
 		}
@@ -543,6 +688,108 @@ func TestRootExecuteExt4WholeDisk(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(target, MarkerPath)); err == nil {
 		t.Error("the marker is still there")
+	}
+}
+
+// TestRootResumeNeedsMarker: a resumed plan (mount, restore with
+// --overwrite always) on a real ext4 that only an attacker prepared (the
+// source machine's own disk: a preload file, no marker). recover mounts
+// the root, reads the marker before writing its own and stops at the
+// mount: restic does not run, the snapshot is not restored over the
+// attacker's file system and no marker is on the disk afterwards. With
+// the marker of a started run of this snapshot the same plan resumes.
+func TestRootResumeNeedsMarker(t *testing.T) {
+	work := rootOnly(t)
+	bin := os.Getenv("RESTIC_BINARY")
+	if bin == "" {
+		t.Skip("set RESTIC_BINARY")
+	}
+	if miss := missingTools("mkfs.ext4", "mount", "umount"); len(miss) > 0 {
+		t.Skipf("needs %s", strings.Join(miss, ", "))
+	}
+	src := filepath.Join(work, "src")
+	_ = os.MkdirAll(filepath.Join(src, "etc"), 0o755)
+	_ = os.WriteFile(filepath.Join(src, "etc/hostname"), []byte("clean\n"), 0o644)
+	repo := filepath.Join(work, "repo")
+	env := append(os.Environ(), "RESTIC_PASSWORD=pw", "RESTIC_REPOSITORY="+repo, "RESTIC_CACHE_DIR="+filepath.Join(work, "cache"))
+	for _, args := range [][]string{{"init", "-q"}, {"backup", "-q", "."}} {
+		c := exec.Command(bin, args...)
+		c.Env, c.Dir = env, src
+		if b, err := c.CombinedOutput(); err != nil {
+			t.Fatalf("restic %v: %v\n%s", args, err, b)
+		}
+	}
+	const snapshot, layout = "latest", "1a2b"
+	for _, withMarker := range []bool{false, true} {
+		dev := loopDev(t, work, fmt.Sprintf("own%v", withMarker), 64)
+		sh(t, "mkfs.ext4", "-q", "-F", dev)
+		prep := filepath.Join(work, fmt.Sprintf("prep%v", withMarker))
+		_ = os.MkdirAll(prep, 0o755)
+		sh(t, "mount", dev, prep)
+		_ = os.MkdirAll(filepath.Join(prep, "etc"), 0o755)
+		_ = os.WriteFile(filepath.Join(prep, "etc/ld.so.preload"), []byte("/usr/local/lib/evil.so\n"), 0o644)
+		if withMarker {
+			r, err := OpenRootfs(prep)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := WriteMarker(r, Marker{SnapshotID: snapshot, LayoutSHA256: layout, PlanSHA256: "first", LastStep: 2, Phase: "restore"}); err != nil {
+				t.Fatal(err)
+			}
+			r.Close()
+		}
+		sh(t, "umount", prep)
+		target := filepath.Join(work, fmt.Sprintf("target%v", withMarker))
+		d := dev
+		steps := []baremetal.Step{
+			{N: 1, Phase: "mount", Kind: "mount", Target: &d, Reason: "mount", Args: []string{"mount", "-t", "ext4", dev, "{target_root}"}},
+			{N: 2, Phase: "restore", Kind: "restore", Reason: "restore", Args: []string{"restic", "restore", "--json", "--no-lock", "--no-cache", "--target", "{target_root}", "--sparse", "--verify", "--overwrite", "always", snapshot}},
+		}
+		var logs []string
+		exe := CmdExec{Runner: cmdrun.ExecRunner{OwnProcessGroup: true}, Log: func(s string) { logs = append(logs, s) }}
+		var rootfs *DirRootfs
+		ops := &LinuxOps{Exec: exe, Holders: &Holders{Exec: exe}, TmpDir: filepath.Join(work, "tmp"), Rootfs: func() *DirRootfs { return rootfs }}
+		x := &Executor{Plan: &baremetal.RestorePlan{Format: baremetal.PlanFormat, OK: true, Steps: steps}, PlanSHA256: "p", Snapshot: snapshot, LayoutSHA256: layout,
+			TargetRoot: target, Exec: exe, Ops: ops, Restic: ResticExec{Runner: &restic.Runner{Bin: bin, Repo: repo, PasswordBytes: []byte("pw"), TmpDir: filepath.Join(work, "rtmp")}},
+			Secrets: &Secrets{}, Log: func(s string) { logs = append(logs, s) },
+			OpenRootfs: func() (Rootfs, error) { r, err := OpenRootfs(target); rootfs = r; return r, err }}
+		var seenPlan string
+		x.ResumeCheck = func(r Rootfs) (*baremetal.RestorePlan, error) {
+			mk, err := ResumeMarker(r, snapshot, layout)
+			if err != nil {
+				return nil, err
+			}
+			seenPlan = mk.PlanSHA256
+			x.OriginalPlanSHA256 = mk.PlanSHA256
+			return nil, nil
+		}
+		rep, err := x.Run(context.Background())
+		if rootfs != nil {
+			rootfs.Close()
+		}
+		_ = ops.UnmountAll(context.Background(), target)
+		sh(t, "mount", "-o", "ro", dev, prep)
+		_, markerErr := os.Lstat(filepath.Join(prep, MarkerPath))
+		restored, _ := os.ReadFile(filepath.Join(prep, "etc/hostname"))
+		sh(t, "umount", prep)
+		if !withMarker {
+			if !errors.Is(err, ErrNoStartedRecovery) || rep.FailedKind != "mount" {
+				t.Errorf("without a marker: err %v, failed at %q\n%s", err, rep.FailedKind, strings.Join(logs, "\n"))
+			}
+			if markerErr == nil {
+				t.Error("without a marker: recover left its own marker on the disk")
+			}
+			if len(restored) != 0 {
+				t.Errorf("without a marker: the snapshot was restored over the disk (%q)", restored)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("with the marker of a started run: %v\n%s", err, strings.Join(logs, "\n"))
+		}
+		if seenPlan != "first" || string(restored) != "clean\n" || markerErr == nil {
+			t.Errorf("with the marker: seen plan %q, restored %q, marker left: %v", seenPlan, restored, markerErr == nil)
+		}
 	}
 }
 
@@ -799,5 +1046,35 @@ func TestRootExecuteStack(t *testing.T) {
 	}
 	if strings.Contains(strings.Join(logs, "\n"), "correct-horse") {
 		t.Error("the passphrase is in the log")
+	}
+}
+
+// TestRootAnswersMediumLabel: two loop devices labelled RESTOWANS, as an
+// operator's stick next to a target file system the backup labelled so
+// (10.20). The real blkid finds both and recover takes neither (blkid -L
+// alone would pick one by scan order); with one left, a loop device is
+// still no removable medium.
+func TestRootAnswersMediumLabel(t *testing.T) {
+	work := rootOnly(t)
+	if _, err := exec.LookPath("mkfs.ext4"); err != nil {
+		t.Skip("mkfs.ext4 missing")
+	}
+	exe := CmdExec{Runner: cmdrun.ExecRunner{}}
+	ctx := context.Background()
+	if res, err := exe.Run(ctx, RunSpec{Argv: []string{"blkid", "-c", "/dev/null", "-t", "LABEL=RESTOWANS", "-o", "device"}, Timeout: time.Minute}); err == nil && len(strings.TrimSpace(string(res.Output))) > 0 {
+		t.Skipf("this machine already has a RESTOWANS device: %s", res.Output)
+	}
+	op := loopDev(t, work, "operator", 64)
+	att := loopDev(t, work, "target", 64)
+	for _, d := range []string{op, att} {
+		sh(t, "mkfs.ext4", "-q", "-F", "-L", "RESTOWANS", d)
+	}
+	_, err := findAnswersMedium(ctx, exe, "/sys", "")
+	if err == nil || !strings.Contains(err.Error(), "2 devices are labelled RESTOWANS") || !strings.Contains(err.Error(), op) || !strings.Contains(err.Error(), att) {
+		t.Errorf("two RESTOWANS devices: %v", err)
+	}
+	sh(t, "e2label", op, "OTHER")
+	if m, err := findAnswersMedium(ctx, exe, "/sys", ""); err == nil || !strings.Contains(err.Error(), "not a partition or disk of a removable medium") {
+		t.Errorf("a loop device was taken for the answers medium: %+v %v", m, err)
 	}
 }

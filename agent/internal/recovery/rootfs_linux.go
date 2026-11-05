@@ -21,6 +21,7 @@ import (
 const (
 	sysOpenat2          = 437
 	resolveNoMagiclinks = 0x02
+	resolveNoSymlinks   = 0x04
 	resolveInRoot       = 0x10
 	oPath               = 0x200000
 	atRemoveDir         = 0x200

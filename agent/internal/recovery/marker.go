@@ -81,6 +81,29 @@ func FindResumable(r Rootfs, snapshotID, layoutSHA256 string) (*Marker, error) {
 	return m, nil
 }
 
+// ErrNoStartedRecovery: a resumed run found no marker of a started
+// recovery of this snapshot on the mounted root.
+var ErrNoStartedRecovery = errors.New("no recovery of this snapshot was started on these disks; nothing was restored. Start again and decline the offer to continue: the plan then erases the disks after the confirmation")
+
+// ResumeMarker is the check of a resumed run (10.18): the root of the
+// target is mounted and recover has written nothing there yet; the marker
+// must be one of a started recovery of this snapshot and layout. A disk
+// that only carries the manifest's disk GUID (the source machine's own,
+// one an earlier recovery partitioned) has none and is not restored over.
+func ResumeMarker(r Rootfs, snapshotID, layoutSHA256 string) (*Marker, error) {
+	if r == nil {
+		return nil, errors.New("the root of the started recovery could not be mounted")
+	}
+	m, err := FindResumable(r, snapshotID, layoutSHA256)
+	if err != nil {
+		return nil, fmt.Errorf("%w (%v)", ErrNoStartedRecovery, err)
+	}
+	if m == nil {
+		return nil, ErrNoStartedRecovery
+	}
+	return m, nil
+}
+
 // ResumeMode is the planner's resume option for a marker: clean after a
 // clean stop, unclean otherwise.
 func ResumeMode(m *Marker) string {

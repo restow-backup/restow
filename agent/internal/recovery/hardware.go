@@ -18,8 +18,11 @@ type HardwareInput struct {
 	RAMBytes int64                    `json:"ramBytes"`
 	Blocks   []BlockInfo              `json:"blocks"`
 	// LiveMedium is the kernel name of the disk the ISO started from.
-	LiveMedium string                `json:"liveMedium"`
-	NICs       []baremetal.TargetNIC `json:"nics"`
+	LiveMedium string `json:"liveMedium"`
+	// AnswersMedium is the kernel name of the disk the answers came from
+	// (restow.answers=media); set by recover, never a target.
+	AnswersMedium string                `json:"answersMedium,omitempty"`
+	NICs          []baremetal.TargetNIC `json:"nics"`
 }
 
 // BlockInfo is one entry of /sys/block.
@@ -54,15 +57,16 @@ type TargetNote struct {
 
 // Reasons of TargetNote.
 const (
-	NoteLiveMedium   = "live_medium"
-	NoteHiddenNVMe   = "hidden_nvme_path"
-	NoteMMCBoot      = "mmc_boot_or_rpmb"
-	NoteZoned        = "zoned"
-	NoteReadOnly     = "read_only"
-	NoteZeroSize     = "zero_size"
-	NoteVirtual      = "virtual"
-	NoteInvalidName  = "invalid_name"
-	NoteTooManyDisks = "too_many_disks"
+	NoteLiveMedium    = "live_medium"
+	NoteAnswersMedium = "answers_medium"
+	NoteHiddenNVMe    = "hidden_nvme_path"
+	NoteMMCBoot       = "mmc_boot_or_rpmb"
+	NoteZoned         = "zoned"
+	NoteReadOnly      = "read_only"
+	NoteZeroSize      = "zero_size"
+	NoteVirtual       = "virtual"
+	NoteInvalidName   = "invalid_name"
+	NoteTooManyDisks  = "too_many_disks"
 )
 
 var (
@@ -112,7 +116,7 @@ func strp(s string) *string {
 }
 
 // BuildTarget builds the planner's target from the collected hardware.
-// Excluded devices (the ISO medium, hidden NVMe paths, mmc boot areas,
+// Excluded devices (the ISO medium, the answers medium, hidden NVMe paths, mmc boot areas,
 // zoned, read-only and empty devices) are noted; those with signatures
 // become Others, so identity conflicts are still found. Removable disks
 // and SAN LUNs stay candidates: the planner maps them only on an explicit
@@ -149,6 +153,8 @@ func BuildTarget(in HardwareInput) (*baremetal.Target, []TargetNote) {
 			reason = NoteMMCBoot
 		case b.KName == in.LiveMedium && in.LiveMedium != "":
 			reason = NoteLiveMedium
+		case b.KName == in.AnswersMedium && in.AnswersMedium != "":
+			reason = NoteAnswersMedium
 		case b.SizeBytes <= 0:
 			reason = NoteZeroSize
 		case b.Zoned != "" && b.Zoned != "none":
@@ -164,7 +170,7 @@ func BuildTarget(in HardwareInput) (*baremetal.Target, []TargetNote) {
 			if reason != NoteInvalidName {
 				notes = append(notes, TargetNote{Device: "/dev/" + b.KName, Reason: reason})
 			}
-			if len(b.Signatures) > 0 && reason != NoteInvalidName && reason != NoteLiveMedium && o < 256 {
+			if len(b.Signatures) > 0 && reason != NoteInvalidName && reason != NoteLiveMedium && reason != NoteAnswersMedium && o < 256 {
 				td.ID = "o" + strconv.Itoa(o)
 				o++
 				t.Others = append(t.Others, td)

@@ -176,6 +176,17 @@ func (r *Recover) Run(ctx context.Context) (*Result, error) {
 func (r *Recover) run(ctx context.Context) (*Result, error) {
 	r.UI.Menu = func() { r.menu(ctx) }
 	r.UI.Say("start.title", "version", r.Version)
+	var answersDisk string
+	if r.Answers != nil && r.Answers.Source == SourceMedia {
+		// The medium decides the instance and the disks to erase: it is
+		// named before anything is typed, and its disk is never a target.
+		md := r.Answers.Medium
+		if md == nil || md.Disk == "" {
+			return nil, errors.New("restow.answers=media: the disk of the answers medium is not known")
+		}
+		answersDisk = md.Disk
+		r.UI.Say("answers.medium", "device", md.Device, "model", md.Model, "instance", r.Answers.InstanceURL)
+	}
 	if err := r.keyboard(ctx); err != nil {
 		return nil, err
 	}
@@ -190,6 +201,7 @@ func (r *Recover) run(ctx context.Context) (*Result, error) {
 	if err != nil {
 		return nil, fmt.Errorf("detect the hardware: %w", err)
 	}
+	hw.AnswersMedium = answersDisk
 	target, notes := BuildTarget(hw)
 	for _, n := range notes {
 		r.logf("not a target: %s (%s)", n.Device, n.Reason)
@@ -238,7 +250,7 @@ func (r *Recover) run(ctx context.Context) (*Result, error) {
 	choices, nicMap := r.choices(m, target)
 	plan, _ := baremetal.PlanWith(m, target, facts, choices, baremetal.PlanOptions{Snapshot: snapshot})
 	plan, choices = r.refinePlan(ctx, m, target, facts, choices, plan, snapshot)
-	resume := r.offerResume(m, target, plan)
+	resume := r.offerResume(m, target, plan, snapshot)
 	if resume {
 		t2 := clearManifestSignatures(target, m)
 		plan, _ = baremetal.PlanWith(m, t2, facts, choices, baremetal.PlanOptions{Snapshot: snapshot, Resume: baremetal.ResumeClean})
@@ -294,12 +306,9 @@ func (r *Recover) run(ctx context.Context) (*Result, error) {
 	r.curMu.Unlock()
 	if resume {
 		x.ResumeCheck = func(rf Rootfs) (*baremetal.RestorePlan, error) {
-			if rf == nil {
-				return nil, errors.New("the root of the started recovery could not be mounted")
-			}
-			mk, err := FindResumable(rf, snapshot, layoutSHA)
-			if err != nil || mk == nil {
-				return nil, errors.New("no recovery of this snapshot was started on these disks; nothing was changed")
+			mk, err := ResumeMarker(rf, snapshot, layoutSHA)
+			if err != nil {
+				return nil, err
 			}
 			x.OriginalPlanSHA256 = mk.PlanSHA256
 			if mk.CleanStop {
@@ -348,6 +357,8 @@ func (r *Recover) run(ctx context.Context) (*Result, error) {
 		case code == ProblemForeignMappingOpen && errors.As(execErr, &pe):
 			r.UI.Line(TParams(r.UI.Lang, "code."+code, pe.params))
 			r.UI.Say("dm.foreign.resume")
+		case errors.Is(execErr, ErrNoStartedRecovery):
+			r.UI.Say("resume.no_marker")
 		}
 		if rep.FailedStep > 0 {
 			r.UI.Say("exec.failed", "n", rep.FailedStep)
@@ -761,6 +772,9 @@ func (r *Recover) exchange(ctx context.Context, target *baremetal.Target) error 
 			if keys, err := s.SSHKeys(ctx); err == nil {
 				if err := r.Env.RemoteKeys(ctx, keys); err == nil {
 					r.UI.Say("remote.keys")
+				} else {
+					r.logf("remote access: the switch to keys failed: %v", err)
+					r.UI.Raw(redact.Redact(err.Error()))
 				}
 			}
 		}
@@ -951,8 +965,10 @@ func (r *Recover) askMapping(m *baremetal.Manifest, t *baremetal.Target, p *bare
 
 // offerResume: the target disks carry the disk identities of the manifest
 // that the planner would not erase; a recovery of this snapshot may have
-// been started on them (10.18).
-func (r *Recover) offerResume(m *baremetal.Manifest, t *baremetal.Target, p *baremetal.RestorePlan) bool {
+// been started on them (10.18). The GUID alone proves nothing (the source
+// machine's own disks carry it): the marker decides once the root is
+// mounted (ResumeMarker), before anything is written there.
+func (r *Recover) offerResume(m *baremetal.Manifest, t *baremetal.Target, p *baremetal.RestorePlan, snapshot string) bool {
 	guids := map[string]bool{}
 	for _, d := range m.Linux.Disks {
 		if d.Table != nil && d.Table.ID != "" {
@@ -973,7 +989,7 @@ func (r *Recover) offerResume(m *baremetal.Manifest, t *baremetal.Target, p *bar
 	if r.unattended() {
 		return false
 	}
-	ok, err := r.UI.YesNo(r.UI.Text("resume.offer", "id", "?", "step", "?"), true)
+	ok, err := r.UI.YesNo(r.UI.Text("resume.offer", "id", shortID(snapshot)), true)
 	return err == nil && ok
 }
 
@@ -1421,6 +1437,9 @@ func (r *Recover) menu(ctx context.Context) {
 			if ks, err := r.session.SSHKeys(ctx); err == nil && len(ks) > 0 {
 				if err := r.Env.RemoteKeys(ctx, ks); err == nil {
 					r.UI.Say("remote.keys")
+				} else {
+					r.logf("remote access: the switch to keys failed: %v", err)
+					r.UI.Raw(redact.Redact(err.Error()))
 				}
 			}
 		}

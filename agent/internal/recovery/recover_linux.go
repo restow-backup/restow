@@ -308,20 +308,79 @@ func loadAnswers(ctx context.Context, file string, cl CmdlineOptions, x Exec) (*
 	if !cl.AnswersMedia {
 		return nil, nil
 	}
-	res, err := x.Run(ctx, RunSpec{Argv: []string{"blkid", "-L", "RESTOWANS"}, Timeout: time.Minute})
+	medium, err := findAnswersMedium(ctx, x, "/sys", (&HardwareCollector{Exec: x}).liveMedium(ctx))
 	if err != nil {
-		return nil, errors.New("restow.answers=media: no medium labelled RESTOWANS")
+		return nil, err
 	}
-	dev := strings.TrimSpace(string(res.Output))
 	media := filepath.Join(paths.RecoveryRunDir, "media")
-	if _, err := x.Run(ctx, RunSpec{Argv: []string{"mount", "-o", "ro,nosuid,nodev,noexec", dev, media}, Timeout: time.Minute}); err != nil {
+	if _, err := x.Run(ctx, RunSpec{Argv: []string{"mount", "-o", "ro,nosuid,nodev,noexec", medium.Device, media}, Timeout: time.Minute}); err != nil {
 		return nil, err
 	}
 	b, err := readCapped(filepath.Join(media, "answers.json"))
 	if err != nil {
 		return nil, err
 	}
-	return LoadAnswers(SourceMedia, b, isQEMU)
+	a, err := LoadAnswers(SourceMedia, b, isQEMU)
+	if err != nil {
+		return nil, err
+	}
+	a.Medium = &medium
+	return a, nil
+}
+
+// findAnswersMedium finds the medium of restow.answers=media (10.20).
+// Labels are chosen by whoever made the file system, the backup among
+// them (a restored target can carry a RESTOWANS file system), so the
+// label alone is not enough: exactly one device may carry it, it must be
+// a plain partition or disk (no dm, md or loop device), its disk must be
+// removable or on USB, and it must not be the disk the ISO started from
+// (live). sysRoot is /sys (tests use a fake tree).
+func findAnswersMedium(ctx context.Context, x Exec, sysRoot, live string) (AnswersMedium, error) {
+	label := baremetal.AnswersLabel
+	res, err := x.Run(ctx, RunSpec{Argv: []string{"blkid", "-c", "/dev/null", "-t", "LABEL=" + label, "-o", "device"}, Timeout: time.Minute})
+	var devs []string
+	if err == nil {
+		for _, l := range strings.Split(string(res.Output), "\n") {
+			if l = strings.TrimSpace(l); l != "" {
+				devs = append(devs, l)
+			}
+		}
+	}
+	switch {
+	case len(devs) == 0:
+		return AnswersMedium{}, fmt.Errorf("restow.answers=media: no medium labelled %s", label)
+	case len(devs) > 1:
+		return AnswersMedium{}, fmt.Errorf("restow.answers=media: %d devices are labelled %s (%s); a disk of the machine may carry the label, so none is used: connect only the medium with the answers, or start without restow.answers=media",
+			len(devs), label, strings.Join(devs, ", "))
+	}
+	dev := devs[0]
+	kname, ok := strings.CutPrefix(dev, "/dev/")
+	if !ok || !reKName.MatchString(kname) || reVirtual.MatchString(kname) {
+		return AnswersMedium{}, fmt.Errorf("restow.answers=media: %s is not a partition or disk of a removable medium", dev)
+	}
+	disk := kname
+	t, err := filepath.EvalSymlinks(filepath.Join(sysRoot, "class/block", kname))
+	if err != nil {
+		return AnswersMedium{}, fmt.Errorf("restow.answers=media: %s: %v", dev, err)
+	}
+	if _, err := os.Stat(filepath.Join(t, "partition")); err == nil {
+		disk = filepath.Base(filepath.Dir(t))
+	}
+	if !reKName.MatchString(disk) || reVirtual.MatchString(disk) {
+		return AnswersMedium{}, fmt.Errorf("restow.answers=media: %s is not on a removable medium", dev)
+	}
+	if live != "" && disk == live {
+		return AnswersMedium{}, fmt.Errorf("restow.answers=media: %s is on the disk the ISO started from; put the answers on a separate medium", dev)
+	}
+	base := filepath.Join(sysRoot, "block", disk)
+	usb := false
+	if p, err := filepath.EvalSymlinks(base); err == nil && strings.Contains(p, "/usb") {
+		usb = true
+	}
+	if readTrim(filepath.Join(base, "removable")) != "1" && !usb {
+		return AnswersMedium{}, fmt.Errorf("restow.answers=media: %s is on %s, which is neither removable nor on USB; answers are read only from a separate medium", dev, disk)
+	}
+	return AnswersMedium{Device: dev, Disk: disk, Model: readTrim(filepath.Join(base, "device/model"))}, nil
 }
 
 func readCapped(p string) ([]byte, error) {

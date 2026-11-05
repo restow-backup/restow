@@ -92,27 +92,51 @@ func IsolatedEnv(extra []string) []string {
 
 // Capabilities (linux/capability.h).
 const (
-	capDacReadSearch = 2
-	capNetAdmin      = 12
-	capSysModule     = 16
-	capSysRawio      = 17
-	capSysChroot     = 18
-	capSysPtrace     = 19
-	capSysAdmin      = 21
-	capSysBoot       = 22
-	capSysTime       = 25
-	capMknod         = 27
-	capPerfmon       = 38
-	capBPF           = 39
+	capDacReadSearch     = 2
+	capNetAdmin          = 12
+	capIPCLock           = 14
+	capSysModule         = 16
+	capSysRawio          = 17
+	capSysChroot         = 18
+	capSysPtrace         = 19
+	capSysPacct          = 20
+	capSysAdmin          = 21
+	capSysBoot           = 22
+	capSysNice           = 23
+	capSysResource       = 24
+	capSysTime           = 25
+	capSysTTYConfig      = 26
+	capMknod             = 27
+	capAuditWrite        = 29
+	capAuditControl      = 30
+	capMacOverride       = 32
+	capMacAdmin          = 33
+	capSyslog            = 34
+	capWakeAlarm         = 35
+	capBlockSuspend      = 36
+	capAuditRead         = 37
+	capPerfmon           = 38
+	capBPF               = 39
+	capCheckpointRestore = 40
 )
 
 // capsToDrop are the capabilities removed from the bounding set (10.14,
 // plus CAP_SYS_CHROOT and CAP_DAC_READ_SEARCH for R4, CAP_SYS_PTRACE for
 // R6, CAP_BPF and CAP_PERFMON); CAP_SYS_ADMIN only when the step does not
-// need it.
+// need it. The others act on the whole machine, past every namespace, and
+// no step needs them: CAP_SYSLOG (the kernel log and the console log
+// level: raised, the kernel would print text the step controls, escape
+// sequences included, on the operator's console), CAP_SYS_RESOURCE
+// (oom_score_adj -1000, so the OOM killer picks recover), CAP_SYS_NICE
+// (real-time priority that starves recover), CAP_IPC_LOCK,
+// CAP_SYS_TTY_CONFIG, CAP_SYS_PACCT, CAP_WAKE_ALARM, CAP_BLOCK_SUSPEND,
+// the audit and MAC capabilities and CAP_CHECKPOINT_RESTORE. Reserved
+// ext4 blocks stay usable: they are reserved for uid 0, which the step
+// keeps.
 func capsToDrop(keepSysAdmin bool) []int {
-	caps := []int{capDacReadSearch, capNetAdmin, capSysModule, capSysRawio, capSysChroot, capSysPtrace, capSysBoot,
-		capSysTime, capMknod, capPerfmon, capBPF}
+	caps := []int{capDacReadSearch, capNetAdmin, capIPCLock, capSysModule, capSysRawio, capSysChroot, capSysPtrace, capSysPacct,
+		capSysBoot, capSysNice, capSysResource, capSysTime, capSysTTYConfig, capMknod, capAuditWrite, capAuditControl,
+		capMacOverride, capMacAdmin, capSyslog, capWakeAlarm, capBlockSuspend, capAuditRead, capPerfmon, capBPF, capCheckpointRestore}
 	if !keepSysAdmin {
 		caps = append(caps, capSysAdmin)
 	}
@@ -191,6 +215,20 @@ const (
 	// type into the console of recover.
 	tiocsti   = 0x5412
 	tioclinux = 0x541c
+	// ioctlTypeNrMask is type and number of a request without the size
+	// and direction bits.
+	ioctlTypeNrMask = 0xffff
+	// fiFreeze, fiThaw and fsShutdown are FIFREEZE _IOWR('X', 119, int),
+	// FITHAW _IOWR('X', 120, int) and FS_IOC_SHUTDOWN _IOR('X', 125,
+	// __u32) (EXT4_IOC_SHUTDOWN, XFS_IOC_GOINGDOWN, F2FS_IOC_SHUTDOWN), by
+	// type and number. With CAP_SYS_ADMIN a step could freeze a file
+	// system of the target: the freeze belongs to the superblock and
+	// outlives the namespaces, and the next write (the helper's, recover's
+	// own) waits for good in an unkillable state. A shutdown makes the
+	// file system refuse every later write.
+	fiFreeze   = 0x5877
+	fiThaw     = 0x5878
+	fsShutdown = 0x587d
 )
 
 // dmReadOnlyCommands are the device-mapper commands a step may send: the
@@ -240,8 +278,10 @@ type syscallTable struct {
 // calls; plus delete_module, fspick, mount_setattr, open_tree_attr,
 // swapon, swapoff, the io_uring calls (IORING_OP_SOCKET and
 // IORING_OP_CONNECT run past seccomp, so a ring could open an AF_VSOCK
-// socket) and, on amd64, iopl and ioperm).
-var deniedSyscalls = []string{"mount", "umount2", "pivot_root", "open_tree", "open_tree_attr", "move_mount", "fsopen", "fsmount",
+// socket) and, on amd64, iopl and ioperm), and syslog: with
+// CAP_SYS_ADMIN the kernel lets it change the console log level even
+// without CAP_SYSLOG.
+var deniedSyscalls = []string{"syslog", "mount", "umount2", "pivot_root", "open_tree", "open_tree_attr", "move_mount", "fsopen", "fsmount",
 	"fsconfig", "fspick", "mount_setattr", "mknod", "mknodat", "init_module", "finit_module", "delete_module", "kexec_load",
 	"kexec_file_load", "reboot", "ptrace", "process_vm_readv", "process_vm_writev", "bpf", "perf_event_open", "unshare",
 	"setns", "chroot", "open_by_handle_at", "name_to_handle_at", "swapon", "swapoff", "io_uring_setup", "io_uring_enter",
@@ -305,8 +345,8 @@ func (a *bpfAsm) assemble() ([]SockFilter, error) {
 // get EAFNOSUPPORT for every family but AF_UNIX, AF_INET, AF_INET6 and
 // AF_NETLINK, ioctl gets EPERM for the device-mapper commands that change
 // mappings, for every md command but the queries, for every NVMe
-// passthrough command and for TIOCSTI and TIOCLINUX; everything else is
-// allowed.
+// passthrough command, for FIFREEZE, FITHAW and FS_IOC_SHUTDOWN and for
+// TIOCSTI and TIOCLINUX; everything else is allowed.
 func BuildSeccomp(arch string) ([]SockFilter, error) {
 	tab, ok := syscallTables[arch]
 	if !ok {
@@ -355,6 +395,11 @@ func BuildSeccomp(arch string) ([]SockFilter, error) {
 	a.jump(bpfJeqK, ioctlTypeDM, "dm", "")
 	a.jump(bpfJeqK, ioctlTypeMD, "md", "")
 	a.retIf(ioctlTypeNVMe, eperm)
+	a.ins(bpfLdWAbs, offArg1)
+	a.ins(bpfAndK, ioctlTypeNrMask)
+	a.retIf(fiFreeze, eperm)
+	a.retIf(fiThaw, eperm)
+	a.retIf(fsShutdown, eperm)
 	a.ins(bpfLdWAbs, offArg1)
 	a.retIf(tiocsti, eperm)
 	a.retIf(tioclinux, eperm)

@@ -11,6 +11,7 @@ package recovery
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -293,7 +294,7 @@ func TestRecoverAttendedResume(t *testing.T) {
 	if a.err != nil {
 		t.Fatalf("run: %v\n%s\n%s", a.err, a.out.String(), a.exe.lines())
 	}
-	offer := T(LangEN, "resume.offer", "id", "?", "step", "?")
+	offer := T(LangEN, "resume.offer", "id", shortID(a.f.snapshotID))
 	if !strings.Contains(a.out.String(), offer) || strings.Contains(a.out.String(), T(LangEN, "ui.confirm_erase", "word", "ERASE")) {
 		t.Errorf("no resume offer, or an erase confirmation:\n%s", a.out.String())
 	}
@@ -312,5 +313,49 @@ func TestRecoverAttendedResume(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(a.env.actions, ","), "shell") {
 		t.Errorf("after success (shell): %v", a.env.actions)
+	}
+}
+
+// TestRecoverAttendedResumeWithoutMarker: the target disk carries the disk
+// GUID of the manifest (the source machine's own disk, or one an earlier
+// recovery partitioned), but its root holds no marker of a started run,
+// only what an attacker left there. The operator takes the offer (default
+// yes); recover mounts the root, finds no marker before writing its own,
+// and stops: nothing is restored, no program of the target runs, no boot
+// entry is written, no marker is left and the run does not succeed.
+func TestRecoverAttendedResumeWithoutMarker(t *testing.T) {
+	a := newAttended(t)
+	m, _ := baremetal.Decode(a.raw)
+	a.env.hw.Blocks[0].Signatures = []baremetal.TargetSignature{{Kind: "disk_guid", UUID: m.Linux.Disks[0].Table.ID}}
+	if err := os.MkdirAll(filepath.Join(a.env.target, "etc"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(a.env.target, "etc/ld.so.preload"), []byte("/usr/local/lib/evil.so\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	script := append(a.upToCode(spkiOf(t, a.f)), "")
+	script = append(script, passLines...)
+	a.run(script, "", "3")
+	if a.res == nil || a.res.Status != api.RecoveryFailed || !strings.Contains(a.out.String(), T(LangEN, "resume.no_marker")) {
+		t.Errorf("err %v, result %+v\n%s", a.err, a.res, a.out.String())
+	}
+	fin := a.finish()
+	if fin == nil || fin.Status != api.RecoveryFailed || !strings.Contains(fmt.Sprint(fin.Warnings), "no recovery of this snapshot was started") {
+		t.Errorf("finish %+v", fin)
+	}
+	lines := a.exe.lines()
+	for _, never := range []string{"restic restore", "chroot-exec", "update-initramfs", "grub-", "efibootmgr", "bootentry", "wipefs", "sfdisk", "mkfs."} {
+		if strings.Contains(lines, never) {
+			t.Errorf("%s after a resume without a marker:\n%s", never, lines)
+		}
+	}
+	if _, err := os.Lstat(filepath.Join(a.env.target, MarkerPath)); err == nil {
+		t.Error("recover wrote its marker on a root without one")
+	}
+	if _, err := os.Lstat(filepath.Join(a.env.target, "home/alice/notes.txt")); err == nil {
+		t.Error("the snapshot was restored over the root without a marker")
+	}
+	if b, _ := os.ReadFile(filepath.Join(a.env.target, "etc/ld.so.preload")); string(b) != "/usr/local/lib/evil.so\n" {
+		t.Errorf("the target was changed: %q", b)
 	}
 }

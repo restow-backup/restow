@@ -701,6 +701,37 @@ func TestPlanUnsupported(t *testing.T) {
 	}
 }
 
+// TestPlanAnswersLabel: a file system, swap area, LUKS volume or md array
+// labelled like the answers medium (RESTOWANS, any case) blocks the plan,
+// so the restore never creates a second answers medium on the target.
+func TestPlanAnswersLabel(t *testing.T) {
+	m := capturedManifest("ubuntu2404-default")
+	tg, c, _ := SyntheticTarget(m, TargetSame, nil)
+	if p, _ := Plan(m, tg, nil, c); !p.OK {
+		t.Fatalf("the unchanged manifest: %+v", p.Problems)
+	}
+	for _, label := range []string{"RESTOWANS", "restowans", "host:RESTOWANS"} {
+		m := capturedManifest("ubuntu2404-default")
+		m.Linux.Filesystems[0].Label = strPtr(label)
+		tg, c, _ := SyntheticTarget(m, TargetSame, nil)
+		p, _ := Plan(m, tg, nil, c)
+		found := false
+		for _, f := range p.Problems {
+			if f.Code == ProblemLayoutUnsupported && strings.Contains(f.Message, "RESTOWANS") {
+				found = true
+			}
+		}
+		if p.OK || !found {
+			t.Errorf("label %q: ok %v, problems %+v", label, p.OK, p.Problems)
+		}
+	}
+	for _, label := range []string{"RESTOWANS2", "boot"} {
+		if IsAnswersLabel(label) {
+			t.Errorf("%q taken for the answers label", label)
+		}
+	}
+}
+
 // TestPlanDeterministic: the same input gives the same bytes.
 func TestPlanDeterministic(t *testing.T) {
 	m := loadManifest(t, "raid5-spare")

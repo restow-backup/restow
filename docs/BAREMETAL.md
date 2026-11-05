@@ -1608,8 +1608,19 @@ Konsolen alle 5 s eine neue Zeile).
      `LoginGraceTime 30`.
    - **Nach dem Tausch** holt `recover` die öffentlichen Schlüssel, die der Admin im
      Assistenten eingefügt hat (`GET .../ssh-keys`), schreibt sie nach
-     `/root/.ssh/authorized_keys` und startet `sshd` neu mit `PasswordAuthentication no`,
-     `PubkeyAuthentication yes`. Ein schon laufender Passwort-Zugang endet damit.
+     `/run/restow-recovery/authorized_keys` (`AuthorizedKeysFile` der eigenen
+     `sshd_config`), sperrt das Passwort (`chpasswd -e root:!`) und startet `sshd` neu mit
+     `PasswordAuthentication no`, `PubkeyAuthentication yes`. Ein schon laufender
+     Passwort-Zugang endet damit: OpenSSH führt jede Verbindung in einem eigenen Kind
+     (`sshd-session` ab 9.8), das `setsid` aufruft, also weder in der Prozessgruppe des
+     lauschenden `sshd` liegt noch mit ihm endet. `recover` hält darum den `sshd` und alles
+     darunter (Sitzungen, ihre Shells und was diese gestartet haben) mit `SIGSTOP` an, bis ein
+     Durchgang durch `/proc` nichts Neues findet, beendet alle mit `SIGKILL` und prüft
+     (Startzeit gegen wiederverwendete PIDs), dass keiner mehr läuft; sonst meldet es den
+     Wechsel nicht ("remote access: processes of the previous sshd still run"). Was eine
+     Passwort-Sitzung als root schon vom `sshd` gelöst hat (`setsid` mit Doppel-`fork`,
+     `systemd-run`), erreicht das nicht; wer fürchtet, dass das Passwort mitgelesen wurde,
+     startet das ISO neu.
    - `recover` zeigt Adresse und die Fingerabdrücke der eben erzeugten Hostschlüssel und
      meldet sie per `progress` (`sshHostKeys`); die Oberfläche zeigt sie, damit der Admin
      sie aus der Ferne prüfen kann. Audit `endpoint.recovery.remote_access_enabled` über
@@ -2196,7 +2207,17 @@ fremder Teile) und die NVRAM beschädigen. Darum läuft jeder dieser Schritte ü
   dm-Knoten).
 - Vor dem `exec` setzt der Helfer `PR_SET_NO_NEW_PRIVS` und entfernt aus der
   Bounding-Menge `CAP_SYS_MODULE`, `CAP_SYS_RAWIO`, `CAP_SYS_BOOT`, `CAP_SYS_PTRACE`,
-  `CAP_NET_ADMIN`, `CAP_MKNOD`, `CAP_SYS_TIME`; `CAP_SYS_ADMIN` (und `/dev/mapper/control`)
+  `CAP_NET_ADMIN`, `CAP_MKNOD`, `CAP_SYS_TIME` und die Capabilities, die auf den ganzen Rechner
+  wirken, an jedem Namensraum vorbei, und die kein Schritt braucht: `CAP_SYSLOG`
+  (Kernel-Protokoll und Konsolen-Loglevel: hochgesetzt gäbe der Kernel Text, den der Schritt
+  bestimmt, samt Escape-Folgen auf der Konsole des Bedieners aus, etwa Name und Pfad eines
+  absichtlich abstürzenden Programms in der `segfault`-Meldung, auf seriellen BMC-Konsolen
+  unverändert; dazu Lesen und Leeren des Kernel-Protokolls), `CAP_SYS_RESOURCE`
+  (`oom_score_adj` -1000, der OOM-Killer träfe `recover`), `CAP_SYS_NICE` (Echtzeit-Priorität,
+  die `recover` aushungert), `CAP_IPC_LOCK`, `CAP_SYS_TTY_CONFIG`, `CAP_SYS_PACCT`,
+  `CAP_WAKE_ALARM`, `CAP_BLOCK_SUSPEND`, `CAP_AUDIT_CONTROL`, `CAP_AUDIT_WRITE`,
+  `CAP_AUDIT_READ`, `CAP_MAC_ADMIN`, `CAP_MAC_OVERRIDE`, `CAP_CHECKPOINT_RESTORE`
+  (reservierte ext4-Blöcke bleiben nutzbar, sie gehören uid 0); `CAP_SYS_ADMIN` (und `/dev/mapper/control`)
   nur für die Schritte, die device-mapper-ioctls brauchen (`grub-install`/`grub-probe`,
   `grub2-mkconfig`, `update-grub`, `vgimportdevices`), und nur, wenn unter den Geräten des
   Schritts ein dm-Knoten ist (LVM oder LUKS); auf einem schlichten System ebenfalls weg.
@@ -2205,7 +2226,8 @@ fremder Teile) und die NVRAM beschädigen. Darum läuft jeder dieser Schritte ü
   `umount2`, `pivot_root`, `open_tree`, `open_tree_attr`, `move_mount`, `fsopen`, `fsmount`,
   `fsconfig`, `mknod`, `mknodat`, `init_module`, `finit_module`, `kexec_load`,
   `kexec_file_load`, `reboot`, `ptrace`, `process_vm_readv`, `process_vm_writev`, `bpf`,
-  `perf_event_open`, `unshare`/`setns` und `io_uring_setup`, `io_uring_enter`,
+  `perf_event_open`, `unshare`/`setns`, `syslog` (mit `CAP_SYS_ADMIN` setzt der Kernel den
+  Konsolen-Loglevel auch ohne `CAP_SYSLOG`) und `io_uring_setup`, `io_uring_enter`,
   `io_uring_register` mit `EPERM` beantwortet (`IORING_OP_SOCKET` und `IORING_OP_CONNECT`
   liefen an seccomp vorbei) und jeden Systemaufruf, der
   neuer ist als seine Tabelle (ab 467), mit `ENOSYS`, damit ein neuerer Kernel keinen
@@ -2215,9 +2237,10 @@ fremder Teile) und die NVRAM beschädigen. Darum läuft jeder dieser Schritte ü
   (Typ `0x09`, `MD_MAJOR`) nur die Abfragen `RAID_VERSION`, `GET_ARRAY_INFO`, `GET_DISK_INFO`
   und `GET_BITMAP_FILE` (Nummern `0x10`, `0x11`, `0x12`, `0x15`; grub-probe, LVM, `mdadm
   --detail`), jede NVMe-Durchreichung (Typ `N`: mit `CAP_SYS_ADMIN` beliebige Admin-Befehle auf
-  jedem Namensraum) und `TIOCSTI`/`TIOCLINUX` nie. md braucht für jeden anderen Befehl nur
-  `CAP_SYS_ADMIN` (`md_ioctl_valid`), und `ADD_NEW_DISK` nennt das neue Mitglied als
-  `major:minor`: Ein grub- oder `vgimportdevices`-Schritt auf LVM oder LUKS über md hätte sonst
+  jedem Namensraum), `FIFREEZE`, `FITHAW` und `FS_IOC_SHUTDOWN` (Typ `X`, Nummern 119, 120,
+  125, auch `EXT4_IOC_SHUTDOWN`, `XFS_IOC_GOINGDOWN`) und `TIOCSTI`/`TIOCLINUX` nie. md
+  braucht für jeden anderen Befehl nur `CAP_SYS_ADMIN` (`md_ioctl_valid`), und `ADD_NEW_DISK`
+  nennt das neue Mitglied als `major:minor`: Ein grub- oder `vgimportdevices`-Schritt auf LVM oder LUKS über md hätte sonst
   ein ruhendes Ziel-Array über den eingebundenen `/dev/mdN` anhalten (`STOP_ARRAY`), mit
   `SET_ARRAY_INFO` (Version 0, ohne Superblock) und `ADD_NEW_DISK` über eine beliebige Platte
   neu bauen und mit `RUN_ARRAY` beschreiben können, oder einem laufenden Array eine fremde
@@ -2229,7 +2252,17 @@ fremder Teile) und die NVRAM beschädigen. Darum läuft jeder dieser Schritte ü
   startet zudem in einer neuen Sitzung ohne steuerndes Terminal. Damit kann auch ein Schritt
   mit `CAP_SYS_ADMIN` weder ein `devtmpfs` mit allen Platten einhängen noch eine dm-Tabelle
   oder ein md-Array auf eine fremde Platte umlenken (beide nennen ihr Gerät als
-  `major:minor`, ohne Knoten in `/dev`), Module laden oder fremde Prozesse lesen. [CI] Ob jeder der drei
+  `major:minor`, ohne Knoten in `/dev`), Module laden oder fremde Prozesse lesen.
+  **Eingefrorene Dateisysteme:** Ein Einfrieren gehört zum Superblock und überdauert die
+  Namensräume; jeder spätere Schreibzugriff (des nächsten Schritts, von `recover` selbst, etwa
+  `/.autorelabel` oder `state.json`) wartet dann für immer im Zustand D, auch `SIGKILL` beendet
+  ihn nicht. Neben dem Filter taut `recover` darum nach jedem isolierten Programm (auch
+  `lsinitrd` & Co. der Prüfung) jedes Dateisystem unter der Zielwurzel mit `FITHAW` auf
+  (`ThawFrozen`, Einhängepunkte ohne Symlinks geöffnet; `EINVAL` heißt "nicht eingefroren");
+  ein erfolgreiches Auftauen lässt den Schritt scheitern ("froze the file system on …"), bevor
+  `recover` wieder schreibt. Endet der Helfer nach Zeitlimit und `SIGKILL` nicht (ein Task hängt
+  im Kernel), wartet `RunIsolated` nach einer Minute Nachfrist nicht weiter, der Schritt
+  scheitert, das Auftauen danach löst den hängenden Task. [CI] Ob jeder der drei
   initramfs-Erzeuger, `grub-install`, `grub2-mkconfig`, `bootctl`, `vgimportdevices`,
   `restorecon` und `kernel-install` mit dieser Menge läuft; was einer zusätzlich braucht,
   steht mit Begründung in `isolate_linux.go` und in diesem Abschnitt.
@@ -2275,12 +2308,17 @@ fremder Teile) und die NVRAM beschädigen. Darum läuft jeder dieser Schritte ü
   --no-variables`; `Boot####` und `BootOrder` schreibt `recover` selbst
   (`efivars_linux.go` mit `BuildLoadOption`, Attribut `NV|BS|RT`, `immutable` über
   `FS_IOC_SETFLAGS` nur für die eigene Datei aufheben).
+- Die Entscheidungen von `recover` hängen nicht an Daten, die es selbst gerade geschrieben hat:
+  Ob ein Lauf ohne Löschen fortsetzt, entscheidet der Marker, den `recover` vor seinem ersten
+  Schreibzugriff auf die eingehängte Wurzel liest (10.18); die Plattenkennung allein genügt nicht.
 - CI-Test im Job `agent-root`: Ein initramfs-Hook im Testsystem versucht `ping 1.1.1.1`,
   `cat /proc/1/environ`, `ls /proc` (erwartet nur eigene PIDs), Schreiben auf eine nicht
   ausgewählte Loop-Platte, `mknod` und Öffnen eines neuen Knotens, das Öffnen
   wiederhergestellter Knoten im Zielbaum (Block-Knoten der nicht ausgewählten Loop-Platte und
   Zeichenknoten `1:3` auf der Wurzel und auf einer Untereinhängung ohne `nodev`: `EACCES`),
-  `mount -t tmpfs`, die verändernden md-ioctls, `socket(AF_VSOCK)`, `io_uring_setup` und das
+  `mount -t tmpfs`, die verändernden md-ioctls, `FIFREEZE`/`FITHAW`/`FS_IOC_SHUTDOWN`,
+  `socket(AF_VSOCK)`, `io_uring_setup`, `syslog` (Puffergröße und `CONSOLE_ON`; `CapEff` ohne
+  `CAP_SYSLOG`, `CAP_SYS_RESOURCE`, `CAP_SYS_NICE`) und das
   Öffnen von `/proc/sys/kernel/core_pattern`, `/proc/sysrq-trigger` und
   `/proc/irq/default_smp_affinity` zum Schreiben; alles muss scheitern, der Hook schreibt das Ergebnis in eine Datei, die der Test prüft.
 
@@ -2429,7 +2467,18 @@ aushängen, LUKS schließen.
   Sitzungsgeheimnis war nur im Speicher. Der Admin stellt einen neuen Code aus. `recover`
   erkennt die angefangene Wiederherstellung am Marker und bietet an, mit demselben Snapshot
   ohne Partitionieren fortzusetzen (LUKS mit der Passphrase öffnen, Arrays zusammensetzen,
-  `vgchange -ay --devices …`, einhängen). Nach einem **unsauberen** Ende (`cleanStop` nicht
+  `vgchange -ay --devices …`, einhängen). Das Angebot selbst stützt sich nur auf die
+  Plattenkennung (GUID) des Manifests auf einer Zielplatte; die tragen auch die eigenen Platten
+  des gesicherten Rechners und jede Platte, die eine frühere Wiederherstellung partitioniert hat.
+  Es nennt darum nur den gewählten Snapshot und sagt, dass erst der Marker entscheidet. Den
+  Marker liest `recover`, sobald die Wurzel eingehängt ist und **bevor** es dort irgendetwas
+  schreibt, den eigenen Marker eingeschlossen (`ResumeMarker` in `rootMounted`). Fehlt er oder
+  gehört er zu einem anderen Snapshot oder Layout, scheitert das Einhängen der Wurzel: kein
+  Restore, kein Programm des Ziels, kein Boot-Eintrag, kein Marker, Ergebnis `failed`, und die
+  Konsole sagt, dass ein neuer Start mit "Nein" auf das Angebot den Plan mit Löschen und
+  Bestätigung ergibt. Ohne den Marker würde sonst ein fremdes Dateisystem (etwa das des
+  kompromittierten Rechners) ohne Löschbestätigung überschrieben, und was nicht im Snapshot
+  ist, bliebe stehen (`restic restore` ohne `--delete`). Nach einem **unsauberen** Ende (`cleanStop` nicht
   gesetzt) gilt immer `--overwrite always`: Nach einem Stromausfall gibt es auf XFS und bei
   verzögerter Allokation Dateien mit richtiger Größe und mtime, aber genullten Blöcken, die
   `if-changed` voraussichtlich nicht erkennt (1.2 Punkt 3). restic vergleicht dann den Inhalt
@@ -2464,7 +2513,17 @@ Für CI, Startprobe und Massenwiederherstellungen. Inhalt (JSON): `instanceUrl`,
 - Antworten werden nur gelesen, wenn die Quelle ausdrücklich gewählt ist:
   - `restow.answers=media` auf der Kernel-Kommandozeile (nur der Eintrag
     "Erweitert > Antworten von Medium lesen", kein Standard-Menüeintrag), dann vom Medium
-    mit dem Label `RESTOWANS`;
+    mit dem Label `RESTOWANS`. Ein Label setzt, wer das Dateisystem anlegt, auch die Sicherung
+    (ein wiederhergestelltes Ziel kann ein `RESTOWANS`-Dateisystem tragen, ein gestartetes
+    System sich eines anlegen); darum gilt das Label allein nicht: `recover` listet jedes Gerät
+    mit dem Label (`blkid -c /dev/null -t LABEL=RESTOWANS -o device`) und nimmt keines, wenn es
+    nicht genau eines ist; das Gerät muss eine Partition oder Platte sein (kein dm, md, loop),
+    seine Platte wechselbar (`removable`) oder am USB und nicht die, von der das ISO
+    gestartet ist. Die Platte des Mediums ist nie Ziel und nie unter den übrigen Platten
+    (`answers_medium`); die Konsole nennt Gerät, Modell und Instanz, bevor etwas eingegeben
+    wird. Der Planer lehnt ein Layout ab, dessen Dateisystem, Swap, LUKS-Volume oder md-Array
+    `RESTOWANS` heißt (`layout_unsupported`, ohne Rücksicht auf Groß- und Kleinschreibung), so
+    legt die Wiederherstellung selbst kein zweites Medium an;
   - `fw_cfg` (`/sys/firmware/qemu_fw_cfg/by_name/opt/restow/answers/raw`) nur, wenn DMI
     `sys_vendor` `QEMU` ist. `fw_cfg` gibt es nur in einer VM, und wer es setzt, kontrolliert
     den Hypervisor; ein fremder USB-Stick kann es nicht.
@@ -5045,6 +5104,69 @@ Prüfung, jeder Hinweis mit genau seinen Platzhaltern); `check-separate-works.te
   startet es normal (mit `restow-recover.service`) und führt `test/no-autoactivation.sh` von einem
   ISO-9660-Träger aus; der Job `recovery-iso` in `ci.yml` schlägt bei `FAIL` fehl.
 
+- **Einfrieren des Ziel-Dateisystems (nach dem Review ergänzt):** Ein Schritt mit
+  `CAP_SYS_ADMIN` (`vgimportdevices`, die grub-Programme auf LVM oder LUKS) konnte mit
+  `FIFREEZE` die Wurzel oder `/boot` des Ziels einfrieren und enden; der nächste Schritt (etwa
+  dracut nach `vgimportdevices` auf RHEL 9, `restorecon` nach `grub2-mkconfig`) oder der eigene
+  Schreibzugriff von `recover` hing danach für immer im Zustand D, `RunIsolated` wartete ohne
+  Ende auf den Helfer (hier als root auf 6.18 mit einem ext4-Loop-Abbild nachgestellt). Der
+  Filter beantwortet `FIFREEZE`, `FITHAW` und `FS_IOC_SHUTDOWN` nach Typ und Nummer mit `EPERM`
+  (`FITRIM` und `FS_IOC_FSGETXATTR` desselben Typs bleiben erlaubt). Zusätzlich taut `recover`
+  nach jedem isolierten Programm die Dateisysteme des Ziels auf und lässt den Schritt scheitern,
+  wenn eines eingefroren war, und `RunIsolated` gibt einen Helfer, der nach `SIGKILL` nicht
+  endet, nach einer Nachfrist auf (10.14). Die Tests (Filter, Ausführer mit Fake, Job
+  `agent-root` mit einem eingefrorenen ext4-Loop-Abbild und `FIFREEZE` mit `CAP_SYS_ADMIN`)
+  scheitern ohne die Änderungen.
+- **Medium der Antworten (nach dem Review ergänzt):** `restow.answers=media` nahm das Gerät,
+  das `blkid -L RESTOWANS` nannte. Gibt es zwei (der Stick des Bedieners und ein Dateisystem des
+  Ziels, das die Sicherung so benannt hat; `mkfs -L`/`-n` und `cryptsetup --label` übernehmen
+  das Label aus dem Manifest), entscheidet die Reihenfolge des Scans (hier als root mit zwei
+  ext4-Loop-Abbildern nachgestellt: `blkid -L` nannte eines, `-t LABEL=… -o device` beide).
+  Die Antworten des Ziels hätten dann Instanz, `caFile`, `spkiCheck` und `confirmErase`
+  bestimmt. Jetzt nimmt `recover` nur genau ein Gerät mit dem Label, nur eine Partition oder
+  Platte eines wechselbaren oder USB-Datenträgers, der nicht das ISO trägt, nimmt dessen Platte
+  aus Ziel und übrigen Platten heraus und nennt Gerät, Modell und Instanz vor jeder Eingabe; der
+  Planer lehnt `RESTOWANS` als Label des Layouts ab (10.20). Tests: Fake-sysfs für alle Fälle,
+  `BuildTarget`, der Lauf ohne bekannte Platte des Mediums, der Planer und im Job `agent-root`
+  zwei echte `RESTOWANS`-Loop-Geräte; alle scheitern ohne die Änderung.
+- **Ende der Passwort-Sitzungen beim Wechsel auf Schlüssel (nach dem Review ergänzt):**
+  `UseKeys` beendete nur den lauschenden `sshd`; die Kinder je Verbindung rufen `setsid` auf
+  und liefen weiter, eine root-Shell aus der Passwort-Phase blieb offen, entgegen 10.2. Eine
+  eigene Prozessgruppe (`Setpgid`) hätte daran nichts geändert. `recover` hält jetzt den
+  `sshd` und alles darunter an, beendet es und prüft das Ende, bevor es `remote.keys` meldet;
+  `authorized_keys` liegt in `/run/restow-recovery`, nicht in `/root/.ssh` wie zuvor hier
+  beschrieben (10.2). Der Test startet einen Ersatz-`sshd` mit einem `setsid`-Kind und dessen
+  Kind und scheitert ohne die Änderung.
+- **Kernel-Protokoll und Konsole aus der Isolation (nach dem Review ergänzt):** Ein isolierter
+  Schritt behielt `CAP_SYSLOG`, der Filter ließ `syslog(2)` zu. Der Konsolen-Loglevel ist global
+  (kein Namensraum): Hochgesetzt hätte der Kernel Text des Schritts samt Escape-Folgen auf die
+  Konsole des Bedieners gegeben, etwa den Pfad eines absichtlich abstürzenden Programms in der
+  `segfault`-Meldung, über eine serielle BMC-Konsole unverändert, bis zum Zeitlimit des Schritts
+  und darüber hinaus (hier als root auf 6.18 nachgestellt: `CONSOLE_ON` gelang in der Isolation,
+  `READ_ALL` zeigte die ESC-Bytes ungefiltert). Jetzt fehlen `CAP_SYSLOG` und die übrigen
+  globalen Capabilities, die kein Schritt braucht (10.14), und der Filter beantwortet `syslog`
+  mit `EPERM`, weil der Kernel mit `CAP_SYS_ADMIN` auf `CAP_SYSLOG` verzichtet. Ein Zurücksetzen
+  des Loglevels nach jedem Schritt entfällt damit: Ohne `syslog`, mit nur lesendem `/proc/sys`
+  und ohne `/dev/kmsg` im neuen `/dev` kann der Schritt den Loglevel nicht ändern. Der Test im
+  Job `agent-root` (Puffergröße und `CONSOLE_ON` mit `EPERM`, `CapEff` ohne die Bits) scheitert
+  ohne die Änderung.
+- **Marker beim Fortsetzen (nach dem Review ergänzt):** Die Prüfung des Markers lief erst vor
+  dem ersten Restore-Schritt, `rootMounted` hatte den eigenen Marker (aktueller Snapshot, Layout,
+  `cleanStop: false`) da schon geschrieben. Sie bestand darum immer, der Lauf ging auf den
+  unsauberen Plan (`--overwrite always`), und die Meldung "no recovery of this snapshot was
+  started" kam nie. Einziges Tor war die Plattenkennung des Manifests, die auch die eigenen
+  Platten des gesicherten Rechners tragen; "Ja" (Vorgabe) übersprang die Löschbestätigung. Ein
+  Restore auf die Platten des kompromittierten Rechners öffnete dessen LUKS-Volume, hängte das
+  vorhandene Dateisystem ein, ließ alles stehen, was nicht im Snapshot ist (`/etc/ld.so.preload`,
+  systemd-Units, Cronjobs, setuid-Programme), und meldete `succeeded`. Jetzt prüft `rootMounted`
+  den Marker vor jedem Schreibzugriff (10.18); ohne passenden Marker scheitert das Einhängen der
+  Wurzel, die Wurzel wird wieder geschlossen und die Konsole erklärt den Neustart mit Löschen. Als
+  Nebenwirkung trägt der erste Marker eines fortgesetzten Laufs jetzt die `planSha256` des
+  ursprünglichen Plans (R13), vorher die des neuen. Das Angebot nennt den gewählten Snapshot statt
+  "?" und sagt, dass der Marker entscheidet. Die Tests (`TestExecuteResumeCheckBeforeMarker`,
+  `TestRecoverAttendedResumeWithoutMarker`, im Job `agent-root` `TestRootResumeNeedsMarker` auf
+  einem echten ext4) scheitern ohne die Änderung.
+
 ### 26.12 Zurückgestellt (M4)
 
 - **[CI]**: das erste `packages.lock` (R14), danach der Doppelbau und `diffoscope` (8.3; M4 erst
@@ -5075,6 +5197,13 @@ Prüfung, jeder Hinweis mit genau seinen Platzhaltern); `check-separate-works.te
   alte Passphrase nicht tragen; ein Plan, der ein LUKS-Volume übernimmt, bricht unbeaufsichtigt vor
   jeder Änderung ab ("adopted LUKS volumes need their old passphrase"). Beaufsichtigt fragt
   `recover` danach.
+- **Marker ohne Bindung an die Instanz (10.18):** Der Marker ist eine Datei im Ziel. Auf den
+  eigenen Platten eines kompromittierten Rechners kann ein Angreifer einen passenden Marker
+  vorab ablegen, wenn er den Snapshot errät, den der Bediener wählt (die Snapshot-IDs und das
+  Manifest kennt der Rechner). Ein fester Schutz bräuchte einen Nachweis, den nur `recover` und
+  die Instanz kennen (etwa ein von der Instanz je Sitzung vergebenes Kennzeichen im Marker, das
+  sie beim Fortsetzen bestätigt). Bis dahin: auf einen kompromittierten Rechner nie fortsetzen,
+  sondern das Angebot ablehnen und löschen lassen.
 - **Deutsche Schritttexte:** Die Begründungen der Planschritte (`steps[].reason`) kommen vom Planer
   auf Englisch und erscheinen so auch auf der deutschen Konsole und im Fortschritt der Sitzung;
   die übrigen Texte von `recover` sind de und en.

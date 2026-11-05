@@ -289,6 +289,9 @@ func (v StandardVerifier) initramfs(ctx context.Context, x *Executor, r Rootfs) 
 	spec := IsolateSpec{Root: x.TargetRoot, Argv: lister, TimeoutSeconds: 600}
 	spec.Devices, spec.DevLinks = x.Ops.DeviceSet(disks, extra)
 	res, err := x.Isolator.Run(ctx, spec)
+	if ferr := x.thawAfter(lister[0]); ferr != nil {
+		return c.Fail(ProblemVerifyFailed, img, ferr.Error(), nil)
+	}
 	if err != nil || res == nil || res.ExitCode != 0 {
 		c.Set("readable", false)
 		return c.Fail(ProblemVerifyFailed, img, img+" is not completely readable", nil)
