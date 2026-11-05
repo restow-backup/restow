@@ -6,6 +6,7 @@ import {
   planFull,
   planSample,
   quotaFor,
+  SAMPLED_VERSIONS_PER_FILE,
   sampleCategoryOf,
 } from "./sampling.js";
 
@@ -187,6 +188,26 @@ describe("parts of messages and files", () => {
     );
     expect(plan.items.find((item) => item.object.path === orphan.path)?.category).toBe("mail");
     expect(plan.eligible).toMatchObject({ mail: 2, file: 1 });
+  });
+
+  it("reads a bounded share of a sampled file's many versions, all of them in a health check", () => {
+    const big = object("Documents/Budget.xlsx", "file", 1024);
+    const versions = Array.from({ length: 100 }, (_, n) => ({
+      ...object(`Documents/Budget.xlsx:versions/${n + 1}.0`, "file-version", 1024),
+      mtime: Date.UTC(2026, 0, 1) + n * 86_400_000,
+    }));
+    const all = [big, ...versions];
+    for (const seed of [1, 2, 3]) {
+      const plan = planSample(all, quotaFor(), seededRandom(seed));
+      const parts = plan.items.find((item) => item.object.path === big.path)?.parts ?? [];
+      expect(parts).toHaveLength(SAMPLED_VERSIONS_PER_FILE);
+      // The newest and the oldest version are always among them.
+      expect(parts.map((part) => part.path)).toEqual(
+        expect.arrayContaining([versions[0]?.path, versions[99]?.path]),
+      );
+    }
+    const full = planFull(all);
+    expect(full.items.find((item) => item.object.path === big.path)?.parts).toHaveLength(100);
   });
 
   it("reads in a health check the versions of a file emptied to 0 bytes", () => {

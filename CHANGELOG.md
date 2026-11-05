@@ -664,7 +664,9 @@ private repository.
   read back, not by the weekly check and not by a health check, although the health check is
   described as reading every object. A message whose attachment chunk was missing from the
   chunk index was rated green. A sampled message now has its attachments read with it and a
-  sampled file its versions; a failing attachment or version counts against the message or
+  sampled file three of its versions (the newest, the oldest and one at random; OneDrive keeps
+  up to 500, and reading all of a sampled 1 GB file would read hundreds of GB and run the weekly
+  check into its deadline); a failing attachment or version counts against the message or
   file with its cause ("items missing" and so on). The health check reads every attachment and
   version, also one whose message is not in the snapshot, and the versions of a file emptied to
   0 bytes (they hold its real data; the empty file itself is no item to read).

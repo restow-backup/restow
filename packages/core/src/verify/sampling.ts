@@ -162,12 +162,38 @@ export function partsByOwner(objects: readonly ManifestObject[]): {
   return { byOwner, orphans };
 }
 
+/**
+ * Versions of one sampled file a sample reads: the newest, the oldest and one more drawn at
+ * random. OneDrive keeps up to 500 versions and the backup stores them all: reading every one
+ * of a sampled 1 GB file would read hundreds of GB and let the quota bound nothing. A health
+ * check reads them all ({@link planFull}).
+ */
+export const SAMPLED_VERSIONS_PER_FILE = 3;
+
 function withParts(
   item: SampledObject,
   byOwner: ReadonlyMap<string, readonly ManifestObject[]>,
+  random?: RandomSource,
 ): SampledObject {
-  const parts = byOwner.get(item.object.path);
-  return parts && parts.length > 0 ? { ...item, parts } : item;
+  const all = byOwner.get(item.object.path);
+  if (!all || all.length === 0) {
+    return item;
+  }
+  return { ...item, parts: random ? boundedParts(all, random) : all };
+}
+
+/** A sample's share of a file's versions (attachments of a message are all read). */
+function boundedParts(parts: readonly ManifestObject[], random: RandomSource): ManifestObject[] {
+  const versions = parts.filter((part) => objectTypeOf(part) === "version");
+  if (versions.length <= SAMPLED_VERSIONS_PER_FILE) {
+    return [...parts];
+  }
+  const byAge = [...versions].sort((a, b) => a.mtime - b.mtime || a.path.localeCompare(b.path));
+  const oldest = byAge[0] as ManifestObject;
+  const newest = byAge[byAge.length - 1] as ManifestObject;
+  const between = pickRandom(byAge.slice(1, -1), SAMPLED_VERSIONS_PER_FILE - 2, random);
+  const kept = new Set<ManifestObject>([newest, oldest, ...between]);
+  return parts.filter((part) => objectTypeOf(part) !== "version" || kept.has(part));
 }
 
 export interface SamplePlan {
@@ -216,7 +242,7 @@ export function planSample(
   const items: SampledObject[] = [];
   for (const category of SAMPLE_CATEGORIES) {
     for (const object of pickRandom(groups[category], quota[category], random)) {
-      items.push(withParts({ category, object }, byOwner));
+      items.push(withParts({ category, object }, byOwner, random));
     }
   }
   return { items, eligible: countsOf(groups) };

@@ -110,8 +110,10 @@ Postgres-Service bereit und setzt die Variable.
   wenige Kalender- und Kontaktelemente) aus dem letzten Snapshot über den Restore-Pfad
   zurücklesen, mit dem Manifest vergleichen, Ergebnis speichern, Recovery-Readiness anzeigen.
   Zu einer gezogenen Mail, die als JSON mit getrennten Anhängen gesichert ist (zu groß für MIME),
-  werden alle Anhänge mitgelesen, zu einer gezogenen OneDrive-Datei ihre früheren Versionen; ein
-  fehlerhafter Anhang oder eine fehlerhafte Version zählt gegen die Mail bzw. Datei (seit 0.5.0).
+  werden alle Anhänge mitgelesen, zu einer gezogenen OneDrive-Datei von ihren früheren Versionen
+  die neueste, die älteste und eine zufällige (OneDrive hält bis zu 500 Versionen; alle zu lesen
+  hieße, für eine Datei von 1 GB Hunderte GB zu lesen); ein fehlerhafter Anhang oder eine
+  fehlerhafte Version zählt gegen die Mail bzw. Datei (seit 0.5.0).
   Die Integritätsprüfung (Health Check) liest jedes Objekt mit Inhalt, Anhänge und Versionen
   eingeschlossen, auch die Versionen einer Datei, die auf 0 Byte geleert wurde (sie werden dann
   als eigene Elemente gelesen).
