@@ -612,7 +612,111 @@ describe("IMAP archive capture", () => {
     }
     expect(results.map((result) => result.completed)).toEqual([false, false, true]);
     expect(results.at(-1)?.gaveUp).toBe(1);
-    expect(gaps.open()).toEqual(["folder:Broken"]);
+    expect(gaps.open()).toEqual(["backfill_folder:Broken"]);
+  });
+
+  describe("live capture and backfill on one gap sink", () => {
+    /** One live catch-up and one backfill job per pass, as the capture service runs them. */
+    async function interleave(
+      server: FakeImapServer,
+      passes: number,
+      between?: (pass: number) => void,
+    ) {
+      const session = await connect(server);
+      const { sink, appended } = memorySink();
+      const gaps = new MemoryCaptureGaps();
+      let state = await activateImapCapture(session);
+      const activated = state;
+      let saved = readImapBackfillCursor(null);
+      let backfillDone = false;
+      const pass = async (n: number) => {
+        between?.(n);
+        state = (await catchUpImapCapture(session, state, sink, { logger: silent, gaps })).state;
+        if (!backfillDone) {
+          const result = await backfillImapCapture(session, activated, saved, sink, {
+            logger: silent,
+            gaps,
+            saveCursor: async (cursor) => {
+              saved = cursor;
+            },
+          });
+          backfillDone = result.completed;
+        }
+      };
+      for (let n = 1; n <= passes; n++) {
+        await pass(n);
+      }
+      return {
+        session,
+        sink,
+        appended,
+        gaps,
+        state: () => state,
+        backfillDone: () => backfillDone,
+        pass,
+      };
+    }
+
+    it("keeps a folder that refuses EXAMINE but answers STATUS as the backfill's open gap", async () => {
+      const server = new FakeImapServer();
+      server.addFolder("INBOX");
+      const locked = server.addFolder("Gesperrt");
+      put(locked, "old-1@x");
+      put(locked, "old-2@x");
+      // Mid mailbox move, a lock or an ACL problem: EXAMINE is refused, STATUS works, and no
+      // new mail arrives, so every live pass only asks STATUS (and finds nothing to read).
+      server.faults.refuseOpen.set("Gesperrt", { code: null, remaining: Number.POSITIVE_INFINITY });
+      const run = await interleave(server, GAP_OPEN_AFTER_ATTEMPTS + 2);
+      // The live passes did not reset the backfill's count: it gave the folder up as its own
+      // gap, which stays open however many live passes follow.
+      expect(run.backfillDone()).toBe(true);
+      expect(run.gaps.open()).toEqual(["backfill_folder:Gesperrt"]);
+      expect(run.gaps.gaps.get("backfill_folder:Gesperrt")?.attempts).toBe(GAP_OPEN_AFTER_ATTEMPTS);
+      expect(run.appended).toEqual([]);
+      for (let n = 0; n < 3; n++) {
+        await run.pass(100 + n);
+      }
+      expect(run.gaps.open()).toEqual(["backfill_folder:Gesperrt"]);
+
+      // Once the folder answers, a resync reads it from its first UID and takes the old mail
+      // over: only that resolves the gap.
+      server.faults.refuseOpen.clear();
+      await run.pass(200);
+      expect(run.gaps.open()).toEqual(["backfill_folder:Gesperrt"]);
+      await catchUpImapCapture(run.session, run.state(), run.sink, {
+        logger: silent,
+        gaps: run.gaps,
+        rescan: true,
+      });
+      expect(run.appended.map((item) => item.messageId).sort()).toEqual(["old-1@x", "old-2@x"]);
+      expect(run.gaps.open()).toEqual([]);
+    });
+
+    it("takes a briefly refused folder's old mail over instead of completing without it", async () => {
+      const server = new FakeImapServer();
+      server.addFolder("INBOX");
+      const busy = server.addFolder("Projekte");
+      put(busy, "old-1@x");
+      put(busy, "old-2@x");
+      // STATUS and EXAMINE refused for two passes (a short outage of that folder), and new
+      // mail arrives meanwhile, so the live passes fail on it too.
+      const run = await interleave(server, 4, (n) => {
+        if (n === 1) {
+          server.faults.openFailures.add("Projekte");
+          put(busy, "new@x");
+        }
+        if (n === 3) {
+          server.faults.openFailures.clear();
+        }
+      });
+      expect(run.backfillDone()).toBe(true);
+      expect(run.appended.map((item) => item.messageId).sort()).toEqual([
+        "new@x",
+        "old-1@x",
+        "old-2@x",
+      ]);
+      expect(run.gaps.open()).toEqual([]);
+    });
   });
 
   it("asks again for a backfill message the server did not deliver, then records it as a gap", async () => {

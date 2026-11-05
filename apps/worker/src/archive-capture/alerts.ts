@@ -157,7 +157,7 @@ async function streamsWithNewGaps(deps: Deps): Promise<GapRow[]> {
   const result = await deps.providerDb.execute<GapRow>(sql`
     with open_gaps as (
       select g.stream_id, count(*)::int as gaps,
-             count(*) filter (where g.kind = 'folder')::int as folders,
+             count(*) filter (where g.kind in ('folder', 'backfill_folder'))::int as folders,
              count(*) filter (where g.kind = 'message')::int as messages,
              max(g.opened_at) as opened_at
         from archive_capture_gaps g

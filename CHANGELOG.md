@@ -564,7 +564,13 @@ private repository.
   the archive. The catch-up skipped folders whose STATUS or EXAMINE failed and dropped the count
   of messages it gave up on. Now a server limit stops the takeover and the next job resumes; a
   folder refused otherwise and an undelivered message are tried again by the next jobs and only
-  given up after three. Whatever is given up, by the takeover or the catch-up, is kept as a
+  given up after three. The takeover counts a folder as a gap of its own (`backfill_folder`,
+  migration 0086), apart from the live capture's: a live pass that only asked STATUS no longer
+  resets its attempts (a folder that refuses EXAMINE was never given up), and failures of both
+  no longer add up, so a folder refused for two passes is not given up and then marked done by
+  the next live pass with its older mail missing; only a takeover of that older mail (the
+  backfill, or a resync that reads the folder from the start) resolves it. Whatever is given up,
+  by the takeover or the catch-up, is kept as a
   capture gap (migration 0080 `archive_capture_gaps`): the archive page shows the way and the
   mailbox as incomplete with the count, `GET /api/v1/archive/capture/mailboxes/:objectId/gaps`
   lists them, the capture alert `capture_gap` names them, and a gap that is taken in later is

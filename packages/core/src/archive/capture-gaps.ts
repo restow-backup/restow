@@ -14,8 +14,19 @@
  * fine, and the capture alert `capture_gap` names it.
  */
 
-/** A whole folder (IMAP path) or one message (IMAP `<folder>;<uidvalidity>;<uid>`, Graph id). */
-export type CaptureGapKind = "folder" | "message";
+/**
+ * What a gap is about:
+ *
+ *   - `folder`: a whole folder the live capture could not read (IMAP path);
+ *   - `backfill_folder`: the mail a folder held when live capture started (the UIDs up to its
+ *     `backfillUpTo`, IMAP path), which only the backfill takes over. Kept apart from `folder`:
+ *     a live pass that reads the folder's new mail (or only its STATUS) says nothing about
+ *     that older mail, so it neither counts nor resolves this gap. Only a takeover of the
+ *     older mail resolves it (the backfill, or a live pass that reads the folder from its
+ *     first UID: a resync);
+ *   - `message`: one message (IMAP `<folder>;<uidvalidity>;<uid>`, Graph immutable id).
+ */
+export type CaptureGapKind = "folder" | "backfill_folder" | "message";
 
 export interface CaptureGap {
   readonly kind: CaptureGapKind;

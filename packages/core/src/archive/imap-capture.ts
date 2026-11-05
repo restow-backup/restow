@@ -588,6 +588,11 @@ export async function catchUpImapCapture(
       }
       await session.closeFolder();
       await gaps?.resolved("folder", folder.path);
+      if (from === 0 && outcome.missing.length === 0 && !outcome.stopped) {
+        // Read from the first UID without a gap (a resync, a UIDVALIDITY change): the mail
+        // the backfill was to take over is in the archive too.
+        await gaps?.resolved("backfill_folder", folder.path);
+      }
     } catch (error) {
       if (!isImapSessionError(error) || error.connectionLost) {
         throw error;
@@ -694,7 +699,10 @@ export interface ImapBackfillResult {
  * (the account's cap; the next job resumes), another NO keeps the folder pending and counts
  * an attempt in the gap sink, and a message listed but not delivered stays in the cursor's
  * `retry` list. After {@link GAP_OPEN_AFTER_ATTEMPTS} runs the folder or message is given
- * up as an open gap (the stream shows it) and the backfill can complete.
+ * up as an open gap (the stream shows it) and the backfill can complete. A folder's gap is
+ * the backfill's own (`backfill_folder`), apart from the live capture's `folder` gap: a live
+ * pass that only asks STATUS, or reads the new mail, neither resets the backfill's attempts
+ * nor resolves the gap of older mail it never read.
  */
 export async function backfillImapCapture(
   session: ImapSession,
@@ -778,7 +786,9 @@ export async function backfillImapCapture(
         await options.saveCursor(cursor());
         return result(false, true);
       }
-      if (await failedAttempt({ kind: "folder", ref: path, reason })) {
+      // Counted as the backfill's own gap (`backfill_folder`): the live capture's passes over
+      // this folder (STATUS, its new mail) say nothing about the older mail taken over here.
+      if (await failedAttempt({ kind: "backfill_folder", ref: path, reason })) {
         options.logger?.warn("imap archive backfill gave up on a folder; recorded as a gap", {
           folder: path,
           errorMessage: error.message,
@@ -795,9 +805,11 @@ export async function backfillImapCapture(
       continue;
     }
     worked = true;
-    await gaps?.resolved("folder", path);
     if (opened.uidValidity !== folder.uidValidity) {
+      // The live capture reads the whole folder again (it rescans after a UIDVALIDITY change),
+      // its older mail included: the backfill's part of it is that rescan's now.
       done(path);
+      await gaps?.resolved("backfill_folder", path);
       await session.closeFolder();
       continue;
     }
@@ -876,7 +888,9 @@ export async function backfillImapCapture(
       retry[path] = kept;
       retryLater = true;
     } else {
+      // Taken over: every UID up to backfillUpTo is in the archive or an open message gap.
       done(path);
+      await gaps?.resolved("backfill_folder", path);
     }
     await options.saveCursor(cursor());
   }

@@ -365,7 +365,11 @@ export interface CaptureMailboxDto {
 /** One open gap of a mailbox's capture (`archive_capture_gaps`). */
 export interface CaptureGapDto {
   readonly way: MailboxWay;
-  readonly kind: "folder" | "message";
+  /**
+   * `folder`: a folder the live capture could not read; `backfill_folder`: the mail a folder
+   * held when capture started, which the backfill could not take over; `message`: one message.
+   */
+  readonly kind: "folder" | "backfill_folder" | "message";
   /** IMAP: the folder, or `<folder>;<uidvalidity>;<uid>`; Graph: the message's immutable id. */
   readonly ref: string;
   /** A failure code, or `undelivered`, `too_large`, `not_convertible`, `export_failed`, `fetch_failed`. */
@@ -388,7 +392,7 @@ export async function captureGaps(
   return withTenantTx(db, tenantId, async (tx) => {
     const result = await tx.execute<{
       way: MailboxWay;
-      kind: "folder" | "message";
+      kind: CaptureGapDto["kind"];
       ref: string;
       reason: string;
       attempts: number;

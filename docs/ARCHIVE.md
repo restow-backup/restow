@@ -176,7 +176,12 @@ dem nächsten Job fort, die laufende Erfassung beim nächsten Durchgang.
   nächsten Jobs erneut versucht, eine nicht ausgelieferte Nachricht bleibt in der Position der
   Übernahme und wird erneut angefordert; erst nach drei Jobs wird sie als Lücke aufgegeben und
   die Übernahme kann abschließen. Vorher galt ein solcher Ordner nach dem ersten Fehler als
-  erledigt, eine solche Nachricht nach einem Versuch.
+  erledigt, eine solche Nachricht nach einem Versuch. Die Übernahme zählt einen Ordner als
+  eigene Lücke (Art `backfill_folder`, Migration 0086), getrennt von der laufenden Erfassung:
+  Ein Durchgang, der nur STATUS fragt oder die neue Mail liest, setzt ihre Versuche nicht
+  zurück und schließt sie nicht, denn den Altbestand des Ordners hat er nicht gelesen. Erledigt
+  ist sie erst, wenn der Altbestand übernommen ist (durch die Übernahme oder einen Neuabgleich,
+  der den Ordner von vorn liest).
 - **Laufende Erfassung (IMAP):** Ein Ordner, der drei Durchgänge in Folge verweigert wird, ist
   eine offene Lücke; eine Nachricht, die nach drei Durchgängen aufgegeben wird, ebenso.
 - **Graph:** Eine Mail über ~150 MB (`too_large`) oder eine, die Exchange nicht in MIME umwandeln

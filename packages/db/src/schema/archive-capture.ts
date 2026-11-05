@@ -137,8 +137,16 @@ export const archiveCapturePending = pgTable(
   ],
 );
 
-/** What a capture gap is about: a whole folder, or one message. */
-export const archiveCaptureGapKindEnum = pgEnum("archive_capture_gap_kind", ["folder", "message"]);
+/**
+ * What a capture gap is about: a whole folder the live capture could not read, the older mail
+ * of a folder the backfill could not take over (`backfill_folder`, 0.5.0: kept apart, so a live
+ * pass neither resets nor resolves it), or one message.
+ */
+export const archiveCaptureGapKindEnum = pgEnum("archive_capture_gap_kind", [
+  "folder",
+  "message",
+  "backfill_folder",
+]);
 
 /**
  * Mail a capture way could not take into the archive (0.5.0, docs/ARCHIVE.md
