@@ -224,8 +224,10 @@ weitergeleitete Kopie (`.forward`, siehe "Weiterleitung"). Beide dürfen zusamme
 beide erfassen, liegt einmal im Archiv.
 
 **Was erfasst wird.** Jeder auswählbare Ordner, auch Gesendet, Papierkorb und Spam; Entwürfe
-nicht (Ordner mit `\Drafts` oder dem Namen Drafts/Entwürfe, und jede Mail mit dem Flag
-`\Draft`). Bei Gmail und Google Workspace erscheint jede Mail einmal je Label: gelesen werden
+nicht: der Ordner mit `\Drafts` und jede Mail mit dem Flag `\Draft` in jedem Ordner. Markiert
+der Server keinen Ordner mit `\Drafts`, bleibt ein Ordner mit einem Entwurfsnamen (Drafts,
+Entwürfe, Brouillons, Borradores, Bozze, Concepten) nur auf oberster Ebene oder direkt unter
+INBOX außen vor; ein gleichnamiger Ordner tiefer im Baum ("Kunden/Bozze") wird erfasst. Bei Gmail und Google Workspace erscheint jede Mail einmal je Label: gelesen werden
 dort nur `[Gmail]/All Mail` (Alle Nachrichten), Spam und Papierkorb, die jede Mail genau einmal
 halten. Erkannt wird ein Google-Konto an der OAuth2-Quelle von Google, am Host
 `imap.gmail.com`/`imap.googlemail.com` oder an der Ordnerliste (`\All` unter `[Gmail]`).

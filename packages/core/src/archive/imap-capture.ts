@@ -4,8 +4,11 @@
  * (apps/worker/src/archive-capture/imap.ts). Works on an {@link ImapSession} only, so the
  * same code runs against imapflow and the in-process fake (../backup/imap/testing).
  *
- * Which folders: every selectable folder, Sent, Trash and Junk included, Drafts excluded
- * (a draft is not mail anyone sent or received); a message flagged `\Draft` is skipped in
+ * Which folders: every selectable folder, Sent, Trash and Junk included, the Drafts folder
+ * excluded (a draft is not mail anyone sent or received): the folder with the `\Drafts`
+ * special-use attribute, or, only when no folder carries it, a top-level folder (or direct
+ * child of INBOX) named like one. A folder elsewhere in the tree with such a name
+ * ("Kunden/Bozze") is a user's folder and captured. A message flagged `\Draft` is skipped in
  * every folder. A Gmail account (Google Workspace, Gmail) shows every mail once more per
  * label: only `[Gmail]/All Mail`, Spam and Trash are read there, which hold every mail
  * exactly once.
@@ -148,8 +151,19 @@ export interface CaptureFolderPlan {
   readonly gmail: boolean;
 }
 
-function isDrafts(folder: ImapFolderInfo): boolean {
-  return folder.specialUse === "\\Drafts" || DRAFT_NAMES.test(folder.name);
+/**
+ * The account's Drafts folder: the one marked `\Drafts`. Only a server that marks none is
+ * judged by the name, and only for a folder at the top level or directly under INBOX, where
+ * clients create it; a nested "Kunden/Bozze" or "Projekte/Acme/Drafts" holds received mail.
+ */
+function draftsFilter(listed: readonly ImapFolderInfo[]): (folder: ImapFolderInfo) => boolean {
+  if (listed.some((folder) => folder.specialUse === "\\Drafts")) {
+    return (folder) => folder.specialUse === "\\Drafts";
+  }
+  return (folder) =>
+    DRAFT_NAMES.test(folder.name) &&
+    (folder.parent.length === 0 ||
+      (folder.parent.length === 1 && folder.parent[0]?.toUpperCase() === "INBOX"));
 }
 
 /** Which folders the capture reads (see the module docstring). */
@@ -174,6 +188,7 @@ export function captureFolderPlan(
       return { folders: [all, ...others], idleFolder: all.path, gmail: true };
     }
   }
+  const isDrafts = draftsFilter(listed);
   const folders = selectable.filter((folder) => !isDrafts(folder));
   const inbox = folders.find(isInbox);
   return { folders, idleFolder: inbox?.path ?? null, gmail: false };

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { type FakeFolder, FakeImapServer } from "../backup/imap/testing/fake-imap.js";
-import type { ImapAccountConfig, ImapSession } from "../backup/imap/types.js";
+import type { ImapAccountConfig, ImapFolderInfo, ImapSession } from "../backup/imap/types.js";
 import { GAP_OPEN_AFTER_ATTEMPTS, MemoryCaptureGaps } from "./capture-gaps.js";
 import { type HeldMails, holdMail, messageKey } from "./identity.js";
 import {
@@ -86,6 +86,19 @@ function memorySink() {
   return { sink, appended, held };
 }
 
+function folderList(
+  folders: readonly { path: string; specialUse?: string; selectable?: boolean }[],
+): ImapFolderInfo[] {
+  return folders.map((folder) => ({
+    path: folder.path,
+    name: folder.path.split("/").pop() as string,
+    parent: folder.path.split("/").slice(0, -1),
+    delimiter: "/",
+    selectable: folder.selectable ?? true,
+    ...(folder.specialUse ? { specialUse: folder.specialUse } : {}),
+  }));
+}
+
 describe("captureFolderPlan", () => {
   it("reads every selectable folder but Drafts, INBOX first and watched", () => {
     const server = new FakeImapServer();
@@ -105,9 +118,49 @@ describe("captureFolderPlan", () => {
       ...(folder.specialUse ? { specialUse: folder.specialUse } : {}),
     }));
     const plan = captureFolderPlan(listed);
-    expect(plan.folders.map((folder) => folder.path)).toEqual(["INBOX", "Junk", "Sent", "Trash"]);
+    // "Entwürfe" without \\Drafts is not the Drafts folder when another one is marked; its
+    // drafts are still skipped by the \\Draft flag.
+    expect(plan.folders.map((folder) => folder.path)).toEqual([
+      "INBOX",
+      "Entwürfe",
+      "Junk",
+      "Sent",
+      "Trash",
+    ]);
     expect(plan.idleFolder).toBe("INBOX");
     expect(plan.gmail).toBe(false);
+  });
+
+  it("captures folders named like Drafts below the top level and only skips the marked one", () => {
+    const listed = folderList([
+      { path: "INBOX", specialUse: "\\Inbox" },
+      { path: "Entwürfe", specialUse: "\\Drafts" },
+      { path: "Drafts" },
+      { path: "Kunden", selectable: false },
+      { path: "Kunden/Bozze" },
+      { path: "Archiv/Concepten" },
+      { path: "Projekte/Acme/Drafts" },
+    ]);
+    expect(captureFolderPlan(listed).folders.map((folder) => folder.path)).toEqual([
+      "INBOX",
+      "Archiv/Concepten",
+      "Drafts",
+      "Kunden/Bozze",
+      "Projekte/Acme/Drafts",
+    ]);
+  });
+
+  it("skips a Drafts folder by name only at the top level or under INBOX when none is marked", () => {
+    const listed = folderList([
+      { path: "INBOX", specialUse: "\\Inbox" },
+      { path: "Drafts" },
+      { path: "INBOX/Entwürfe" },
+      { path: "Kunden/Bozze" },
+    ]);
+    expect(captureFolderPlan(listed).folders.map((folder) => folder.path)).toEqual([
+      "INBOX",
+      "Kunden/Bozze",
+    ]);
   });
 
   it("reads only All Mail, Spam and Trash of a Gmail account and watches All Mail", () => {

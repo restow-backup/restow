@@ -649,6 +649,12 @@ private repository.
   catch-up; each pending message counts its failed attempts (migration 0084), those tried least
   come first, and after five failures the message is recorded as an open capture gap
   (`fetch_failed`) and left to the catch-up.
+- Mail archive: IMAP capture left out every folder whose name was a Drafts name (Drafts,
+  Entwürfe, Brouillons, Borradores, Bozze, Concepten) wherever it sat, so the received mail a user
+  filed under "Kunden/Bozze" or "Projekte/Acme/Drafts" never reached the archive, without a
+  warning. Only the folder marked `\Drafts` is now left out; a server that marks none has a
+  folder skipped by its name only at the top level or directly under INBOX. Drafts in any other
+  folder are still skipped by their `\Draft` flag.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,
