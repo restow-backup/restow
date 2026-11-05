@@ -253,7 +253,10 @@ export class ImapRestoreEngine implements RestoreEngine {
       mode,
     });
 
-    const progress = await RestoreProgress.open(ctx.cursor, request.restoreJobId);
+    const progress = await RestoreProgress.open(ctx.cursor, {
+      restoreJobId: request.restoreJobId,
+      retry: ctx.attempt > 0,
+    });
     const session = await this.options.imap(ctx, request.protectedObject, request.target);
     try {
       const run = new ImapRestoreRun(

@@ -209,7 +209,10 @@ export class SharePointRestoreEngine implements RestoreEngine {
     const reader = chunkReaderFor(ctx);
     if (libraries.size > 0) {
       ctx.progress.phase("files");
-      const progress = await RestoreProgress.open(ctx.cursor, request.restoreJobId);
+      const progress = await RestoreProgress.open(ctx.cursor, {
+        restoreJobId: request.restoreJobId,
+        retry: ctx.attempt > 0,
+      });
       try {
         await this.restoreLibraries(
           ctx,

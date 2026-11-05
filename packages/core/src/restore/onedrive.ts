@@ -180,7 +180,10 @@ export class OneDriveRestoreEngine implements RestoreEngine {
       mode: request.mode,
     });
 
-    const progress = await RestoreProgress.open(ctx.cursor, request.restoreJobId);
+    const progress = await RestoreProgress.open(ctx.cursor, {
+      restoreJobId: request.restoreJobId,
+      retry: ctx.attempt > 0,
+    });
     const session = new OneDriveRestoreSession({
       ctx,
       client,

@@ -23,6 +23,7 @@ import {
   LocalStorageBackend,
   noopLogger,
   partialManifestKey,
+  RestoreProgress,
   SnapshotWriter,
   type StorageTargets,
   wrapDek,
@@ -32,6 +33,7 @@ import {
   createDb,
   type Database,
   itemFailures,
+  jobCursorEntries,
   jobProgress,
   jobs,
   manifestEntries,
@@ -1123,6 +1125,84 @@ describe.skipIf(!adminUrl)("framework against Postgres", () => {
       expect(granted).toEqual([last.id, stoppedJob.id]);
       expect((await jobRow(stopped)).status).toBe("queued");
       // Its own time limit needs a checkpoint to earn the attempt back (continuation.test.ts).
+    });
+
+    it("gives an expired restore attempt its attempt back only when it recorded progress", async () => {
+      // A restore that hangs on one item until its time limit: it opens its record and saves
+      // it in a finally block, as the restore engines do (core restore/progress.ts).
+      const handler = (restores: number) =>
+        handlerFor(async (ctx) => {
+          const progress = await RestoreProgress.open(ctx.cursor, {
+            restoreJobId: ctx.jobId,
+            retry: ctx.attempt > 0,
+          });
+          try {
+            for (let i = 0; i < restores; i++) {
+              await progress.done(`mail/${i}.eml`, true);
+            }
+            await new Promise<void>((resolve) =>
+              ctx.signal.addEventListener("abort", () => resolve(), { once: true }),
+            );
+            throw new JobAbortedError();
+          } finally {
+            await progress.flush();
+          }
+        });
+      const granted: string[] = [];
+      const continueInterrupted = async (_queue: string, pgBossJobId: string) => {
+        granted.push(pgBossJobId);
+        return { retryCount: 2, retryLimit: 3 };
+      };
+      const expiring = (jobId: string) => ({
+        ...pgBossJob({ jobId, tenantId: fixture.tenantId }, 3, 3),
+        expireInSeconds: 0.2,
+      });
+      // Nothing restored: the attempt counts, and on its last one the job fails.
+      const stuck = randomUUID();
+      const stuckJob = expiring(stuck);
+      await expect(
+        runJob(runtime({ continueInterrupted }), handler(0), stuckJob),
+      ).rejects.toBeInstanceOf(JobAbortedError);
+      expect(granted).toEqual([]);
+      expect((await jobRow(stuck)).status).toBe("failed");
+      // Two messages restored before the time limit: progress, the attempt is given back.
+      const moving = randomUUID();
+      const movingJob = expiring(moving);
+      await expect(
+        runJob(runtime({ continueInterrupted }), handler(2), movingJob),
+      ).rejects.toBeInstanceOf(JobAbortedError);
+      expect(granted).toEqual([movingJob.id]);
+      expect((await jobRow(moving)).status).toBe("queued");
+      const kept = await db
+        .select()
+        .from(jobCursorEntries)
+        .where(eq(jobCursorEntries.jobId, moving));
+      expect(kept).toHaveLength(2);
+    });
+
+    it("keeps a job's entries per key across attempts and drops them when the job ends", async () => {
+      const jobId = randomUUID();
+      await db
+        .insert(jobs)
+        .values({ id: jobId, tenantId: fixture.tenantId, queue: "restore", status: "active" });
+      const store = new PgCursorStore(tenantRunner(db, fixture.tenantId), jobId);
+      await store.save({ page: 3 });
+      await store.putEntries({ a: "d1", b: "c:AAMk1" });
+      await store.putEntries({ b: "d1:INBOX:7", c: "d?" });
+      await store.putEntries({});
+      expect(await store.loadEntries()).toEqual({ a: "d1", b: "d1:INBOX:7", c: "d?" });
+      // Putting entries never rewrites the cursor, and the cursor never the entries.
+      expect((await jobRow(jobId)).cursor).toEqual({ page: 3 });
+      // A retry keeps them.
+      await db.update(jobs).set({ status: "queued" }).where(eq(jobs.id, jobId));
+      expect(Object.keys(await store.loadEntries())).toHaveLength(3);
+      // Any path that ends the job (here a cancel as the API writes it) drops them.
+      await db.update(jobs).set({ status: "cancelled", cursor: null }).where(eq(jobs.id, jobId));
+      expect(await store.loadEntries()).toEqual({});
+      // clear() drops them as well.
+      await store.putEntries({ z: "d1" });
+      await store.clear();
+      expect(await store.loadEntries()).toEqual({});
     });
 
     it("never gives back the attempt of a job that failed with an error", async () => {

@@ -62,6 +62,7 @@ import {
   type Database,
   type FailureRecordJson,
   type Job,
+  jobCursorEntries,
   jobs,
   type ManifestMirrorEntry,
   type ManifestObjectKind,
@@ -485,7 +486,35 @@ export class PgCursorStore implements CursorStore {
   }
 
   async clear(): Promise<void> {
-    await this.run((tx) => tx.update(jobs).set({ cursor: null }).where(eq(jobs.id, this.jobId)));
+    await this.run(async (tx) => {
+      await tx.update(jobs).set({ cursor: null }).where(eq(jobs.id, this.jobId));
+      await tx.delete(jobCursorEntries).where(eq(jobCursorEntries.jobId, this.jobId));
+    });
+  }
+
+  async loadEntries(): Promise<Record<string, string>> {
+    const rows = await this.run((tx) =>
+      tx
+        .select({ key: jobCursorEntries.key, value: jobCursorEntries.value })
+        .from(jobCursorEntries)
+        .where(eq(jobCursorEntries.jobId, this.jobId)),
+    );
+    return Object.fromEntries(rows.map((row) => [row.key, row.value]));
+  }
+
+  /** One statement for the batch, whatever the job's other entries hold; the tenant is the job's. */
+  async putEntries(entries: Readonly<Record<string, string>>): Promise<void> {
+    if (Object.keys(entries).length === 0) {
+      return;
+    }
+    await this.run((tx) =>
+      tx.execute(sql`
+        INSERT INTO job_cursor_entries (tenant_id, job_id, key, value)
+        SELECT j.tenant_id, j.id, e.key, e.value
+          FROM jobs j, jsonb_each_text(${JSON.stringify(entries)}::jsonb) AS e(key, value)
+         WHERE j.id = ${this.jobId}::uuid
+        ON CONFLICT (job_id, key) DO UPDATE SET value = EXCLUDED.value`),
+    );
   }
 }
 
@@ -511,6 +540,18 @@ export class CheckpointTrackingCursorStore implements CursorStore {
 
   clear(): Promise<void> {
     return this.inner.clear();
+  }
+
+  loadEntries(): Promise<Record<string, string>> {
+    return this.inner.loadEntries();
+  }
+
+  /** Entries are progress only when there are any: an empty batch is no checkpoint. */
+  async putEntries(entries: Readonly<Record<string, string>>): Promise<void> {
+    await this.inner.putEntries(entries);
+    if (Object.keys(entries).length > 0) {
+      this.saves += 1;
+    }
   }
 }
 

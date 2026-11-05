@@ -554,6 +554,13 @@
       "when": 1793846420254,
       "tag": "0078_write_once_storage",
       "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1793882583405,
+      "tag": "0079_job_cursor_entries",
+      "breakpoints": true
     }
   ]
 }

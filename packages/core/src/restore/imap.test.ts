@@ -496,12 +496,12 @@ describe("ImapRestoreEngine", () => {
     await expect(engineFor(target).run(fixture.ctx, request)).rejects.toThrow(
       /connection was lost/,
     );
-    // The attempt ended before its record was saved.
-    await fixture.ctx.cursor.save({ restoreProgress: { job: request.restoreJobId, items: {} } });
+    // The worker was killed before the attempt saved its record; pg-boss hands the job out again.
+    await fixture.ctx.cursor.clear();
 
     target.connectionLost = false;
     target.dropAfterAppends = null;
-    const retry = await engineFor(target).run(fixture.ctx, request);
+    const retry = await engineFor(target).run({ ...fixture.ctx, attempt: 1 }, request);
 
     const mailbox = `${RESTORE_FOLDER}.INBOX`;
     expect(target.messages(mailbox)).toHaveLength(3);

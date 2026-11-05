@@ -549,8 +549,12 @@ private repository.
   first attempt had appended was appended again, as was every message without Message-ID; in
   Exchange a message whose create had gone through but whose attachments or flags never followed
   was skipped as "already restored", without its attachments and without a failure. A restore job
-  now keeps its own record of what it restored in the job's cursor (a finished message, or one
-  that exists but still waits for its attachments). A retry reports what an earlier attempt
+  now keeps its own record of what it restored (a finished message, or one that exists but still
+  waits for its attachments), one database row per item, written in batches of only what is new,
+  so the record of a mailbox with a million messages costs no more per batch than that of a small
+  one; it is dropped when the job ends. An attempt that restored nothing writes nothing, so a
+  restore stuck on one item until its time limit still uses up its retries and fails instead of
+  continuing for free for up to 21 days. A retry reports what an earlier attempt
   restored as "restored by an earlier attempt of this job" with that attempt's verdict, finishes a
   message that still lacks attachments (only the missing ones are added) and never restores a
   message twice. For the moments the record does not cover yet, a rename-mode retry now also takes
@@ -1382,7 +1386,7 @@ private repository.
 
 ### Upgrade Notes
 
-Six database migrations run on start: 0073 creates the new table `storage_samples` and 0074
+Seven database migrations run on start: 0073 creates the new table `storage_samples` and 0074
 the new table `directory_memberships`; neither rewrites anything. 0075 serves the restore
 explorer's "From the archive": an index on `archive_items` (tenant, mailbox, capture time), the
 index on `archive_item_mailboxes` (tenant, mailbox) replaced by one that adds the time of the
@@ -1405,7 +1409,9 @@ of every tenant that ever changed its primary (see Fixed). 0078 adds the nullabl
 `settings.default_storage_write_once`, empty for every row, without a rewrite. A repository counts
 as write-once only once a test of this version found it so: after the update, run "Test" on every
 repository (and on the installation default) that lies on a WORM share, so that retention stops
-trying to delete there and a reset begins its new chain under a fresh prefix at once. The first directory sync after the
+trying to delete there and a reset begins its new chain under a fresh prefix at once. 0079
+creates the new table `job_cursor_entries` (a restore job's record of what it restored) and a
+trigger on `jobs` that empties it for a job that ends; nothing is rewritten. The first directory sync after the
 update reads the owners and members of every Microsoft 365 group once (three Graph reads per group, through
 `$batch`); until it has run, a person's "Teams & sites" is empty and says that it may be
 incomplete. Agents before 0.5.0 ignore `snapshotOnFailure`, and the release key keeps the
