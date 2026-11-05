@@ -560,6 +560,13 @@ describe("webhooks", () => {
       createdAt: NOW.toISOString(),
       updatedAt: NOW.toISOString(),
       stats: { pending: 0, failedLast24h: 0, deliveredLast24h: 0, lastDelivery: null },
+      health: {
+        status: "ok",
+        failingSince: null,
+        consecutiveFailures: 0,
+        lastError: null,
+        alertedAt: null,
+      },
       secret: "whsec_example",
     };
     const mapped = toV1WebhookWithSecret(created);
@@ -581,6 +588,13 @@ describe("webhooks", () => {
       createdAt: NOW.toISOString(),
       updatedAt: NOW.toISOString(),
       stats: { pending: 0, failedLast24h: 0, deliveredLast24h: 0, lastDelivery: null },
+      health: {
+        status: "ok",
+        failingSince: null,
+        consecutiveFailures: 0,
+        lastError: null,
+        alertedAt: null,
+      },
       secret: "whsec_example",
     });
     expect(webhookWithSecretSchema.parse(mapped).format).toBe("discord");

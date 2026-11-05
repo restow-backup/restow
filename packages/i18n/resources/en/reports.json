@@ -226,7 +226,18 @@
     },
     "panelTitle": "Alert and report rules",
     "panelDescription": "An alert is sent when something happens, a report at a point in time. The recipients above feed the rules marked with them.",
-    "noChannel": "Sends nothing: no channel"
+    "noChannel": "Sends nothing: no channel",
+    "calendar": {
+      "daily": "Previous day, at 07:00",
+      "weekly": "Previous week (Monday to Sunday), Mondays at 07:00",
+      "monthly": "Previous month, on the 1st at 07:00"
+    },
+    "withPdf": "with PDF",
+    "deliveryProblems": {
+      "title": "Deliveries fail",
+      "email": "{recipient}: failing since {since}. {reason}",
+      "webhook": "Webhook: failing since {since}. {reason}"
+    }
   },
   "deliveries": {
     "title": "Delivery log",
@@ -240,7 +251,8 @@
       "what": "About",
       "channel": "Channel",
       "status": "Status",
-      "tenant": "Tenant"
+      "tenant": "Tenant",
+      "audience": "For"
     },
     "channel": {
       "email": "E-mail",
@@ -281,7 +293,22 @@
     },
     "loadMore": "Load older",
     "openRule": "Open the rule under Tenant › Notifications",
-    "openWebhook": "See the delivery at the webhook"
+    "openWebhook": "See the delivery at the webhook",
+    "audience": {
+      "installation": "Installation",
+      "about": "about {tenant}",
+      "tenant": "Tenant",
+      "provider": "Provider"
+    },
+    "digestWaiting": {
+      "hourly": "Waiting for the hourly digest",
+      "daily": "Waiting for the daily digest"
+    },
+    "digestDue": "Goes out",
+    "digestSent": {
+      "hourly": "Sent in the hourly digest",
+      "daily": "Sent in the daily digest"
+    }
   },
   "editor": {
     "title": {
@@ -365,7 +392,25 @@
       "timezone": "This time zone is unknown. Choose one from the list, e.g. Europe/Berlin.",
       "overdueHours": "Enter a whole number of hours between 24 and 720."
     },
-    "recipientsManaged": "These are the recipients who chose this category under Recipients. Change them there."
+    "recipientsManaged": "These are the recipients who chose this category under Recipients. Change them there.",
+    "cadence": {
+      "label": "Period",
+      "options": {
+        "daily": "Previous day",
+        "weekly": "Previous week (Monday to Sunday)",
+        "monthly": "Previous month",
+        "custom": "Own interval or cron"
+      },
+      "hints": {
+        "daily": "Sent every day at 07:00 in the time zone below, about the day before.",
+        "weekly": "Sent every Monday at 07:00 in the time zone below, about the calendar week before.",
+        "monthly": "Sent on the 1st at 07:00 in the time zone below, about the calendar month before.",
+        "custom": "Your own schedule, about the last days chosen below."
+      }
+    },
+    "attachPdf": "Attach PDF statistics",
+    "attachPdfHint": "The report mail carries the PDF statistics of the period.",
+    "attachPdfUnavailable": "The PDF statistics are not available on this installation."
   },
   "eventGroups": {
     "jobs": "Runs",
@@ -429,6 +474,9 @@
     "object": {
       "inactive": "Object no longer backed up, please confirm",
       "inactive_many": "Many objects no longer backed up"
+    },
+    "notification": {
+      "delivery_failed": "Notification could not be delivered"
     }
   },
   "eventHints": {
@@ -487,6 +535,9 @@
     "object": {
       "inactive": "Once per object when {appName} stops backing it up because the source no longer has it, the account is disabled or unlicensed, or Microsoft locked the OneDrive or site. Also once per IMAP account when its login has been refused for several days and an answer is needed whether the account was shut down. Not a failure: confirm or answer under Protection.",
       "inactive_many": "One warning instead of many notices when more than 10 objects, or more than 20% of a tenant's protected objects, stop being backed up within a day, for example because licences were removed or the sync scope is wrong. The same for IMAP accounts whose login questions are raised at once, for example after the source's password changed."
+    },
+    "notification": {
+      "delivery_failed": "A notification could not be delivered: the mail server refused an address, the mail transport is down, or a webhook keeps failing. Raised once per episode, never through the channel that failed, always in the bell and to the provider's mandatory recipients."
     }
   },
   "sections": {
@@ -578,7 +629,20 @@
     "inactiveCount": "Objects",
     "inactiveConfirm": "Check under Protection whether this is intended and confirm it with \"Yes, intended\". Existing backups are kept. When the object becomes active at the source again, {appName} backs it up again by itself.",
     "loginQuestionConfirm": "Answer under Protection whether this account was shut down. \"Yes, shut down\" stops the backups and shows the account grey; \"No, fix the login\" keeps it protected. Existing backups are kept either way.",
-    "loginQuestionSourceFirst": "The login is refused for several accounts of the same source. Check the source's password first, then answer under Protection whether the accounts were shut down. Existing backups are kept either way."
+    "loginQuestionSourceFirst": "The login is refused for several accounts of the same source. Check the source's password first, then answer under Protection whether the accounts were shut down. Existing backups are kept either way.",
+    "installation": "Installation",
+    "deliveryFailed": {
+      "channel": "Channel",
+      "email": "E-mail",
+      "webhook": "Webhook",
+      "webhookName": "Webhook",
+      "recipient": "Recipient",
+      "transport": "The notification mail as a whole",
+      "reason": "Reason",
+      "since": "Failing since",
+      "count": "Undelivered notifications",
+      "rule": "Rule"
+    }
   },
   "summary": {
     "previous": "previous period",
@@ -591,7 +655,8 @@
     "noFailures": "None in this period",
     "logicalBytes": "Protected data",
     "physicalBytes": "Stored after deduplication",
-    "restores": "Restores"
+    "restores": "Restores",
+    "tenants": "Tenants"
   },
   "bell": {
     "label": "Notifications",
@@ -687,6 +752,11 @@
       "inactive_many": "{count} objects are not backed up any more since today, please check and confirm",
       "login_question": "{object}: the login is refused for several days, was the account shut down?",
       "login_question_many": "{count} IMAP accounts: the login is refused for several days, please check the source's password and answer whether they were shut down"
+    },
+    "notification": {
+      "delivery_failed_transport": "Notification mail cannot be sent",
+      "delivery_failed_recipient": "Mail to {recipient} cannot be delivered",
+      "delivery_failed_webhook": "Webhook keeps failing: {webhook}"
     }
   },
   "toasts": {
@@ -729,7 +799,11 @@
     "weeklyReport": "Weekly report",
     "errors": "Other errors",
     "warnings": "Warnings",
-    "notices": "Notices"
+    "notices": "Notices",
+    "dailyReport": "Daily report",
+    "monthlyReport": "Monthly report",
+    "customerReport": "Monthly customer report",
+    "provider": "Provider notifications"
   },
   "history": {
     "title": "Notifications",
@@ -748,5 +822,55 @@
     "empty": "No notifications.",
     "loadError": "The notifications could not be loaded.",
     "loadMore": "Load older"
+  },
+  "digest": {
+    "subject": "{count, plural, one {# notification} other {# notifications}} in the digest",
+    "subjectProvider": "{appName}: {count, plural, one {# notification} other {# notifications}} in the digest",
+    "intro": "{count, plural, one {# notification} other {# notifications}} from {from} to {to} (UTC).",
+    "more": "And {count, plural, one {# more} other {# more}}.",
+    "tenantHeading": "{tenant}",
+    "hourly": "Hourly digest",
+    "daily": "Daily digest",
+    "footer": "You receive this digest because your notification settings in {appName} collect these notifications. Critical events are always sent at once.",
+    "level": {
+      "error": "Error",
+      "warning": "Warning",
+      "info": "Notice"
+    }
+  },
+  "customer": {
+    "title": "Monthly report",
+    "subtitle": "{tenant}, {month}",
+    "period": "Reporting period: {month}",
+    "kpis": {
+      "title": "At a glance",
+      "backupSuccessRate": "Successful backups",
+      "verifiedShare": "Proven restorable",
+      "restores": "Restores",
+      "storedBytes": "Storage used",
+      "suspicious": "Suspicious findings"
+    },
+    "objects": {
+      "title": "What is protected",
+      "kind": "Kind",
+      "count": "Count",
+      "empty": "Nothing is protected yet."
+    },
+    "incidents": {
+      "title": "Most frequent causes of failed backups",
+      "cause": "Cause",
+      "count": "Count",
+      "empty": "No failed backups in this month."
+    },
+    "kinds": {
+      "mailbox": "Mailboxes",
+      "onedrive": "OneDrive",
+      "imap": "IMAP accounts",
+      "site": "SharePoint sites",
+      "group": "Microsoft 365 groups",
+      "endpoint": "Servers and clients",
+      "file_share": "File shares",
+      "pve_guest": "Virtual machines and containers"
+    }
   }
 }

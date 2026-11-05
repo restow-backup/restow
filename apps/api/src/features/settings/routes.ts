@@ -6,8 +6,10 @@ import { assertRecentSignIn } from "../../lib/recent-sign-in.js";
 import { clientIp } from "../../lib/request.js";
 import { refuseApiKeys, requireProviderAdmin, type SessionEnv } from "../../middleware/session.js";
 import { acceptDisclaimerSchema, parseJsonBody, parseOrProblem } from "../../schemas.js";
+import { buildBrandingRoutes } from "../branding/routes.js";
 import { getGlobalAgentPolicy, updateGlobalAgentPolicy } from "../endpoints/agent-policy.js";
 import { globalAgentPolicySchema } from "../endpoints/schemas.js";
+import { buildProviderNotificationRoutes } from "../provider-notifications/routes.js";
 import { getPveSettings, pveSettingsSchema, updatePveSettings } from "../pve/settings.js";
 import { ransomwareSettingsSchema } from "../suspicion/schemas.js";
 import { getRansomwareSettings, updateRansomwareSettings } from "../suspicion/service.js";
@@ -42,6 +44,7 @@ import {
 import {
   type Actor,
   checkPasskeyReadiness,
+  createInstallationNotifier,
   getSettings,
   type RequestContext,
   removeMailConfiguration,
@@ -103,6 +106,11 @@ import {
  *   POST   /default-storage/test  write/read/list/delete probe and Object Lock detection on the
  *                                  default; recorded in the installation audit chain
  *
+ *   GET    /branding ...          the provider's branding (features/branding/routes.ts)
+ *   GET    /notification-recipients, /summary-reports
+ *                                  the provider's recipients and its summary reports
+ *                                  (features/provider-notifications/routes.ts)
+ *
  * Responses never contain secrets; the SMTP password, the client secret and the
  * certificate's private key are write-only. API keys are refused (403): these
  * are web UI routes.
@@ -115,6 +123,14 @@ import {
 export const settingsRoutes = new Hono<SessionEnv>();
 
 settingsRoutes.use("*", refuseApiKeys, requireProviderAdmin);
+
+// The provider's branding, notification recipients and summary reports (0.5.0).
+const settingsNotifier = () => createInstallationNotifier(providerDb);
+settingsRoutes.route("/branding", buildBrandingRoutes({ providerDb, notifier: settingsNotifier }));
+settingsRoutes.route(
+  "/",
+  buildProviderNotificationRoutes({ providerDb, notifier: settingsNotifier }),
+);
 
 function actorOf(c: Context<SessionEnv>): Actor {
   const user = c.get("user");

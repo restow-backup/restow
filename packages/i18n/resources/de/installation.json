@@ -21,7 +21,9 @@
     "ransomware": "Ransomware-Erkennung",
     "agentPolicy": "Richtlinie der Agenten",
     "proxmox": "Proxmox VE",
-    "pricing": "Preise"
+    "pricing": "Preise",
+    "notifications": "Benachrichtigungen",
+    "branding": "Branding"
   },
   "descriptions": {
     "server": "Wie Browser diesen Server erreichen, ob Passkeys angeboten werden und die Zeitzone der Installation. Gilt für {scope, select, organisation {Ihre Organisation} other {alle Mandanten}}.",
@@ -39,7 +41,9 @@
     "ransomware": "Wie Sicherungsstände auf Anzeichen von Ransomware geprüft werden, und die Schwellenwerte jedes Signals, für {scope, select, organisation {Ihre Organisation} other {alle Mandanten}}.",
     "agentPolicy": "Sicherungsfenster, verpasste Sicherungen, Bandbreite, Netzteil und Wiederholungen der Server und Clients, und was Mandanten ändern dürfen.",
     "proxmox": "Wie die Sicherungsstände von VMs und Containern geprüft werden, für {scope, select, organisation {Ihre Organisation} other {alle Mandanten}}.",
-    "pricing": "Was Sie Ihren Kunden je Monat berechnen: je Postfach und je GB oder TB gesicherter Daten. Das Dashboard und die Übersicht jedes Mandanten zeigen, was er zu diesen Preisen ausmacht. Abgerechnet wird damit nichts."
+    "pricing": "Was Sie Ihren Kunden je Monat berechnen: je Postfach und je GB oder TB gesicherter Daten. Das Dashboard und die Übersicht jedes Mandanten zeigen, was er zu diesen Preisen ausmacht. Abgerechnet wird damit nichts.",
+    "notifications": "Wer auf Ihrer Seite was über {scope, select, organisation {Ihre Organisation} other {jeden Mandanten}} und die Installation erfährt: die Empfänger, die verpflichtenden, Sammelmails und die Zusammenfassungen.",
+    "branding": "Ihr Logo, Absender, Akzentfarbe und Fußzeile in den Mails und Chat-Nachrichten {scope, select, organisation {Ihrer Organisation} other {aller Mandanten}}."
   },
   "access": {
     "owner": "Sie können diese Einstellungen ansehen. Zum Ändern brauchen Sie die Rolle Inhaber im Provider-Team.",
@@ -623,5 +627,6 @@
       "storage": "{price} je {unit}",
       "loadError": "Die Liste der Mandanten mit eigenen Preisen konnte nicht geladen werden."
     }
-  }
+  },
+  "featureLocked": "Nicht Teil dieses Builds"
 }

@@ -12,6 +12,77 @@ private repository.
 
 ### Added
 
+- Notification recipients of the provider (docs/NOTIFICATIONS.md): Installation › Notifications
+  lists who receives alerts about every tenant and about the installation itself, each with a
+  column of events, the summary reports it wants and a delivery mode per severity. The owners of
+  the provider team are recipients of their own and cannot be removed; an owner can mark further
+  recipients as mandatory, and only an owner can change a mandatory recipient's address or remove
+  it (the API refuses an administrator's list that leaves one out or redirects it, 403
+  `owner-required`). Owners and mandatory recipients are the floor: they always receive the
+  critical events and failed deliveries, whatever their column says, so such an alert can never
+  end with nobody. The provider's deliveries carry no tenant, and Row Level Security keeps them
+  (and the provider's addresses) from every tenant session (`GET`/`PUT
+  /api/v1/settings/notification-recipients`, `POST …/:id/test`).
+- Critical events: `backup.suspicious`, `endpoint.suspicious_snapshot`, `scrub.corrupt`,
+  `verify.red` and `installation.disk_low` are marked critical in the catalog: always sent at
+  once, always to the floor, always in the bell.
+- Alerts about failed deliveries (`notification.delivery_failed`): a mail the server refused for
+  good, a mail that failed after every retry, the mail transport being down, or a webhook that
+  keeps failing (at once on a final answer, else after three failed attempts over at least 15
+  minutes) raises one alert per episode. It always reaches the bell and the floor and is never
+  sent through the channel that failed; the mail transport being down reaches the tenants'
+  webhooks that listen for it and names no tenant's rule, and a sender the SMTP server refuses
+  (5xx at MAIL FROM, new reason `smtp_sender_rejected`) counts as the transport being down, not
+  as every recipient failing; an alert about a failed delivery never raises another
+  one. Recipients show a failure badge, webhooks their health (`health` in the webhook API, the
+  matrix and `deliveryProblems` on the rules), and every episode ends with the next delivery that
+  gets through. Asynchronous bounces are not detected (the notification mail has no inbox).
+- Digests: every e-mail recipient chooses per severity whether alerts come at once, in an hourly
+  digest (at the next full hour) or in a daily digest (07:00 in the tenant's time zone, else the
+  installation's as chosen in the setup wizard or under Installation › Server, whichever process
+  raised the alert). Critical
+  events and failed deliveries always come at once; webhooks and the bell never collect. The
+  delivery log shows held rows with the time their digest goes out.
+- Summary reports daily, weekly and monthly (Business): a schedule rule takes a calendar cadence
+  (the previous day, Monday to Sunday or calendar month in its time zone) and can attach the PDF
+  statistics report. Tenant notification recipients can choose the daily and the monthly report
+  next to the weekly one. The provider gets its own daily, weekly or monthly summary across every
+  active tenant, with the PDF (`/api/v1/settings/summary-reports`).
+- Customer monthly report (Service Provider): an HTML mail and a PDF for a tenant's contacts that
+  receive it (contacts gain "Receives the monthly report"), on the day and hour the provider
+  chooses, in plain language and without prices: what is protected, backup success, proven
+  restorability, restores, storage used, the most frequent causes of failed backups and the
+  suspicious findings (`/api/v1/tenants/:id/customer-report`, with a preview and a test send).
+- Branding (Business for the provider, Service Provider for a tenant's own): logo (PNG or JPEG,
+  at most 512 KiB, metadata removed, every SVG refused; a PNG's header must be valid and its
+  image data must inflate to exactly the size the header announces, so a decompression bomb is
+  refused without being inflated), accent colour (contrast-checked against white and dark text),
+  sender name, From (SMTP: only the configured sender or an allowed sender address, checked on
+  save and again for every mail, so a From the mail settings no longer allow falls back to the
+  configured sender; Microsoft 365 and Google Workspace keep their mailbox), Reply-To and a
+  footer with the imprint. Mails carry the logo as an inline attachment (nothing is loaded from outside, no
+  tracking); the PDF reports carry logo, accent and name. Discord posts with the brand as sender
+  and avatar, Teams cards get the logo and an accent band, Slack the name (newer Slack apps ignore
+  it). The logo and the band are served from `/api/v1/public/branding/…` on the public https
+  address, by an unguessable token and nothing else (`/api/v1/settings/branding`,
+  `/api/v1/tenants/:id/branding`). Community keeps the product name only; stored branding is
+  ignored while its edition is not in effect.
+- Allowed sender addresses for the SMTP transport (`mail.allowedSenders`, exact addresses or
+  `@domain`, at most 20).
+- The web interface of these: Installation › Notifications (the provider's recipients with
+  Owner and Mandatory badges, a matrix whose floor cells are locked, a delivery mode per
+  severity, the summary report rows with their PDF switch, a test send and a failure badge per
+  recipient) and Installation › Branding (logo upload checked for type and size before it goes
+  out, contrast readout that keeps the save closed below 4.5:1, From checked against the allowed
+  senders and locked for Microsoft 365 and Google Workspace, a preview of alert, digest and
+  summary in a frame without any permission, a test mail). The tenant page gains Branding
+  (provider administrators only: use the provider's branding, or the tenant's own) and, under
+  Notifications, the delivery modes, the daily, weekly and monthly reports and failure badges per
+  recipient plus the customer monthly report card; contacts gain "Receives the monthly report".
+  The notification matrix shows locked bell cells, digest chips and a warning sign on failing
+  channels; webhooks show a failing badge and a health banner; the report dialog offers the
+  calendar cadence and "Attach PDF statistics"; the delivery log says which digest a row waits
+  for and, across tenants, whose audience it is. A locked feature names the edition that adds it.
 - Installation › Capacity planning (`/resources`, formerly announced as "Soon"): utilisation and
   growth per tenant and per repository, with a plain forecast such as "full in about 120 days".
   Provider admins only; a member of the provider team limited to some tenants sees those. Key
@@ -293,6 +364,24 @@ private repository.
 
 ### Changed
 
+- The bell always shows the critical events and failed deliveries: its column can no longer
+  switch them off (a column saved earlier keeps everything else as it was).
+- The weekly report of the tenants' notification recipients covers the calendar week (Monday
+  00:00 to Sunday 24:00 in the tenant's time zone) instead of the seven days up to Monday 07:00.
+- An SMTP 550, 551, 553 or 554 answer to RCPT TO or DATA (and Microsoft Graph
+  `ErrorInvalidRecipients`) is final: the mail is no longer retried four times, and the address
+  raises a delivery failure alert. A refused MAIL FROM is not: it is the transport's
+  `smtp_sender_rejected`, retried like the other transport failures.
+- The delivery log across tenants (and its CSV export) lists the provider's own deliveries as
+  "Installation", with the tenant an alert is about.
+- An installation with notification recipients but no mail transport now raises one delivery
+  failure alert per episode (bell and webhooks) instead of staying silent.
+- A new schedule rule starts on the calendar week ("Previous week (Monday to Sunday)") instead
+  of an own weekly cron; an own interval or cron stays available as "Own interval or cron".
+- Tenant administrators can put "Notification could not be delivered" into an alert rule; the
+  System group of the rule dialog shows it, the installation's own events stay with the provider.
+- The tenant page's Branding section is closed in the public demo, like the other settings this
+  release adds.
 - Proxmox VE inventory (#58): a guest's row says how large its first backup was and when
   ("First backup: 32 GB on 3 Oct"), what the last follow-up added ("Last follow-up: +210 MB", or
   "No follow-up backup yet") and the average follow-up ("Average follow-up: +180 MB (last 7
@@ -1256,6 +1345,15 @@ private repository.
   queued" and names that run on hover.
 
 ### Upgrade Notes
+
+Migration 0079 (0.5.0 notifications and branding) creates the tables `report_events`,
+`provider_notification_recipients`, `provider_report_rules`, `provider_branding`,
+`tenant_branding` and `branding_images`, makes `report_deliveries.tenant_id` nullable and adds
+nullable or defaulted columns to `report_deliveries`, `report_rules`,
+`tenant_notification_recipients`, `tenant_contacts`, `webhooks` and `settings`; no table is
+rewritten. It moves the weekly report rule of the tenants' notification recipients to the
+calendar week. Before you brand a From address on SMTP, add it (or its `@domain`) to the allowed
+sender addresses of the notification mail and let your mail server send as it.
 
 Six database migrations run on start: 0073 creates the new table `storage_samples` and 0074
 the new table `directory_memberships`; neither rewrites anything. 0075 serves the restore

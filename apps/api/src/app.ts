@@ -1,6 +1,10 @@
 import { Hono } from "hono";
 import { auth } from "./auth.js";
-import { isDatabaseReachable, readWorkerAndScheduler } from "./db.js";
+import {
+  providerDb as brandingProviderDb,
+  isDatabaseReachable,
+  readWorkerAndScheduler,
+} from "./db.js";
 import { authRouteGuards, sessionRouteContributions } from "./extensions.js";
 import {
   mountPath as accountsMountPath,
@@ -18,6 +22,10 @@ import {
 } from "./features/archive-capture/routes.js";
 import { mountPath as backupJobsMountPath } from "./features/backup-jobs/meta.js";
 import { backupJobsRoutes } from "./features/backup-jobs/routes.js";
+import {
+  buildPublicBrandingRoutes,
+  PUBLIC_BRANDING_MOUNT_PATH,
+} from "./features/branding/public.js";
 import { mountPath as capacityMountPath } from "./features/capacity/meta.js";
 import { capacityRoutes } from "./features/capacity/routes.js";
 import { mountPath as dashboardMountPath } from "./features/dashboard/meta.js";
@@ -226,6 +234,12 @@ export function buildApp() {
   // session, each post checked against its subscription's clientState; 404 while the gate
   // archive.mailboxCapture is closed.
   app.route(`${API_V1}${graphHooksMountPath}`, graphHookRoutes);
+  // The public branding images (0.5.0, features/branding/public.ts): the logo and the accent
+  // band chat services fetch themselves. No session; only image bytes by an unguessable token.
+  app.route(
+    `${API_V1}${PUBLIC_BRANDING_MOUNT_PATH}`,
+    buildPublicBrandingRoutes({ providerDb: brandingProviderDb }),
+  );
 
   // Web UI (session) routes, in navigation order.
   app.route(`${API_V1}/status`, status);

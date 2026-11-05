@@ -89,7 +89,7 @@ function OpenTenantPage({
     }
   }, [tenant.id, allTenants]);
 
-  const states = tenantSectionStates(tenantSections(), session);
+  const states = tenantSectionStates(tenantSections(session.isProviderAdmin), session);
   const active =
     states.find(({ spec }) => spec.id === section) ??
     states.find(({ spec }) => spec.id === "overview") ??

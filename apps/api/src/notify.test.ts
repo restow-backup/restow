@@ -5,7 +5,11 @@ import {
   createNotifier,
   GoogleNotifier,
   GraphNotifier,
+  isPermanentSmtpRejection,
+  isSmtpSenderRejection,
+  isTransportFailureReason,
   NoopNotifier,
+  nodemailerAttachments,
   notifierForTransport,
   SMTP_TIMEOUTS,
   SmtpNotifier,
@@ -212,6 +216,115 @@ describe("smtpFailureReason", () => {
       "transport_error",
     );
     expect(smtpFailureReason("odd")).toBe("transport_error");
+  });
+});
+
+describe("permanent SMTP rejections (0.5.0)", () => {
+  const smtpError = (responseCode: number, command: string, code = "EENVELOPE") =>
+    Object.assign(new Error(`${responseCode} rejected`), { responseCode, command, code });
+
+  it("treats 550, 551, 553 and 554 at RCPT or DATA as final", () => {
+    expect(isPermanentSmtpRejection(smtpError(550, "RCPT TO"))).toBe(true);
+    expect(isPermanentSmtpRejection(smtpError(554, "DATA", "EMESSAGE"))).toBe(true);
+    expect(isPermanentSmtpRejection(smtpError(553, "RCPT TO", "EENVELOPE"))).toBe(true);
+    // A temporary answer, or one to the login, is retried as before.
+    expect(isPermanentSmtpRejection(smtpError(451, "RCPT TO"))).toBe(false);
+    expect(isPermanentSmtpRejection(smtpError(535, "AUTH PLAIN", "EAUTH"))).toBe(false);
+    expect(isPermanentSmtpRejection(new Error("boom"))).toBe(false);
+    // nodemailer reports a refused MAIL FROM as EENVELOPE too: that is the sender, not the
+    // recipient.
+    expect(isPermanentSmtpRejection(smtpError(553, "MAIL FROM"))).toBe(false);
+    expect(isSmtpSenderRejection(smtpError(553, "MAIL FROM"))).toBe(true);
+    expect(isSmtpSenderRejection(smtpError(550, "RCPT TO"))).toBe(false);
+    expect(isSmtpSenderRejection(smtpError(451, "MAIL FROM"))).toBe(false);
+  });
+
+  it("answers a refused sender as smtp_sender_rejected, a failure of the transport", async () => {
+    const notifier = new SmtpNotifier({
+      host: "smtp.example.com",
+      port: 25,
+      secure: false,
+      from: "Alerts <alerts@example.com>",
+    } as SmtpConfig);
+    const transporter = (notifier as unknown as { transporter: { sendMail: unknown } }).transporter;
+    transporter.sendMail = async () => {
+      throw Object.assign(new Error("Mail command failed: 553 5.7.1 Sender address rejected"), {
+        code: "EENVELOPE",
+        responseCode: 553,
+        command: "MAIL FROM",
+      });
+    };
+    const result = await notifier.send({
+      to: "ops@example.com",
+      subject: "s",
+      text: "t",
+      from: { name: "MSP", address: "alerts@msp.example" },
+    });
+    expect(result).toMatchObject({ ok: false, reason: "smtp_sender_rejected" });
+    expect(result.permanent).toBeUndefined();
+    expect(isTransportFailureReason(result.reason)).toBe(true);
+  });
+
+  it("answers a refused recipient as recipient_rejected, permanent", async () => {
+    const notifier = new SmtpNotifier({
+      host: "smtp.example.com",
+      port: 25,
+      secure: false,
+      from: "Alerts <alerts@example.com>",
+    } as SmtpConfig);
+    const transporter = (notifier as unknown as { transporter: { sendMail: unknown } }).transporter;
+    const sent: Record<string, unknown>[] = [];
+    transporter.sendMail = async (options: Record<string, unknown>) => {
+      sent.push(options);
+      throw smtpError(550, "RCPT TO");
+    };
+    const result = await notifier.send({
+      to: "gone@example.com",
+      subject: "s",
+      text: "t",
+      from: { name: "MSP\r\nBcc: x@example.com", address: null },
+      replyTo: "help@msp.example",
+    });
+    expect(result).toMatchObject({ ok: false, reason: "recipient_rejected", permanent: true });
+    // The branded name, the configured address; Reply-To as given.
+    expect(sent[0]?.from).toEqual({
+      name: "MSP Bcc: x@example.com",
+      address: "alerts@example.com",
+    });
+    expect(sent[0]?.replyTo).toBe("help@msp.example");
+  });
+
+  it("makes an attachment with a Content-ID inline", () => {
+    expect(
+      nodemailerAttachments({
+        to: "a@example.com",
+        subject: "s",
+        text: "t",
+        attachments: [
+          { filename: "logo.png", contentType: "image/png", content: Buffer.from("x"), cid: "c@x" },
+          { filename: "r.pdf", contentType: "application/pdf", content: Buffer.from("y") },
+        ],
+      }),
+    ).toEqual([
+      {
+        filename: "logo.png",
+        contentType: "image/png",
+        content: Buffer.from("x"),
+        cid: "c@x",
+        contentDisposition: "inline",
+      },
+      { filename: "r.pdf", contentType: "application/pdf", content: Buffer.from("y") },
+    ]);
+  });
+
+  it("tells transport-wide reasons from a recipient's", () => {
+    expect(isTransportFailureReason("smtp_auth_failed")).toBe(true);
+    expect(isTransportFailureReason("smtp_sender_rejected")).toBe(true);
+    expect(isTransportFailureReason("mail_not_configured")).toBe(true);
+    expect(isTransportFailureReason("graph_token_failed")).toBe(true);
+    expect(isTransportFailureReason("google_send_denied")).toBe(true);
+    expect(isTransportFailureReason("recipient_rejected")).toBe(false);
+    expect(isTransportFailureReason("transport_error")).toBe(false);
   });
 });
 

@@ -139,6 +139,16 @@ describe("licenseFeatureGate", () => {
     expect(await licenseFeatureGate.isEnabled(fakeDb("business"), "reports.timed")).toBe(true);
   });
 
+  it("opens provider branding from Business, tenant branding and the customer report from Service Provider", async () => {
+    expect(await licenseFeatureGate.isEnabled(fakeDb(), "branding.provider")).toBe(false);
+    expect(await licenseFeatureGate.isEnabled(fakeDb("business"), "branding.provider")).toBe(true);
+    for (const feature of ["branding.tenant", "reports.customer"] as const) {
+      expect(await licenseFeatureGate.isEnabled(fakeDb(), feature)).toBe(false);
+      expect(await licenseFeatureGate.isEnabled(fakeDb("business"), feature)).toBe(false);
+      expect(await licenseFeatureGate.isEnabled(fakeDb("service_provider"), feature)).toBe(true);
+    }
+  });
+
   it("opens archive capture from the mailbox and by SMTP from Business on", async () => {
     for (const feature of ["archive.mailboxCapture", "archive.smtpCapture"] as const) {
       expect(await licenseFeatureGate.isEnabled(fakeDb(), feature)).toBe(false);

@@ -9,12 +9,17 @@ import {
   REPORT_EVENTS,
 } from "./catalog.js";
 import {
+  completeDeliveryModes,
+  deliveryFailureExclusion,
+  deliveryModeFor,
+  digestDueAt,
   isAlertThrottled,
   MAX_REPORT_ATTEMPTS,
   nextAttemptAfter,
   plannedDeliveries,
   type RuleForDelivery,
   rulesForEvent,
+  storedDeliveryModes,
   subjectKeyOf,
 } from "./rules.js";
 
@@ -95,7 +100,7 @@ describe("plannedDeliveries", () => {
         ["discord", ["backup.failed", "job.failed"]],
         ["json", ["backup.failed", "backup.succeeded", "job.failed", "job.completed"]],
       ]),
-      recipients: new Map([["ops@x.de", ["backup.failed"]]]),
+      recipients: new Map([["ops@x.de", { events: ["backup.failed"], delivery: {} }]]),
     };
     const failing = rule({ emailRecipients: ["Ops@x.de", "adhoc@x.de"], webhookId: "discord" });
     expect(plannedDeliveries(failing, "event", { event: "backup.succeeded", columns })).toEqual([
@@ -122,7 +127,10 @@ describe("plannedDeliveries", () => {
   });
 
   it("never filters a summary report", () => {
-    const columns = { webhooks: new Map([["w1", []]]), recipients: new Map([["a@x.de", []]]) };
+    const columns = {
+      webhooks: new Map([["w1", []]]),
+      recipients: new Map([["a@x.de", { events: [], delivery: {} }]]),
+    };
     expect(
       plannedDeliveries(rule({ emailRecipients: ["a@x.de"], webhookId: "w1" }), "summary", {
         event: "backup.failed",
@@ -215,5 +223,128 @@ describe("nextAttemptAfter", () => {
     expect(nextAttemptAfter(1, now)?.toISOString()).toBe("2026-09-30T12:01:00.000Z");
     expect(nextAttemptAfter(4, now)?.toISOString()).toBe("2026-09-30T13:00:00.000Z");
     expect(nextAttemptAfter(MAX_REPORT_ATTEMPTS, now)).toBeNull();
+  });
+});
+
+describe("digests (0.5.0)", () => {
+  const columns = {
+    webhooks: new Map([["hook", ["backup.failed", "verify.red", "notification.delivery_failed"]]]),
+    recipients: new Map([
+      [
+        "ops@x.de",
+        {
+          events: ["backup.failed", "verify.red", "backup.overdue"],
+          delivery: { error: "hourly" as const, warning: "daily" as const },
+        },
+      ],
+    ]),
+  };
+
+  it("holds an alert for the recipient's digest of its severity", () => {
+    const r = rule({ emailRecipients: ["ops@x.de", "adhoc@x.de"], webhookId: "hook" });
+    expect(plannedDeliveries(r, "event", { event: "backup.failed", columns })).toEqual([
+      { channel: "email", recipient: "ops@x.de", digest: "hourly" },
+      { channel: "email", recipient: "adhoc@x.de" },
+      { channel: "webhook", recipient: "hook" },
+    ]);
+    expect(
+      plannedDeliveries(r, "event", { event: "backup.overdue", columns, level: "warning" })[0],
+    ).toEqual({ channel: "email", recipient: "ops@x.de", digest: "daily" });
+  });
+
+  it("sends critical events at once", () => {
+    const r = rule({ emailRecipients: ["ops@x.de"] });
+    expect(plannedDeliveries(r, "event", { event: "verify.red", columns })).toEqual([
+      { channel: "email", recipient: "ops@x.de" },
+    ]);
+    expect(deliveryModeFor({ error: "daily" }, "notification.delivery_failed")).toBe("immediate");
+    expect(deliveryModeFor({ error: "daily" }, "backup.failed")).toBe("daily");
+    expect(deliveryModeFor({ error: "daily" }, "backup.failed", "info")).toBe("immediate");
+  });
+
+  it("never digests a summary report", () => {
+    const r = rule({ emailRecipients: ["ops@x.de"] });
+    expect(plannedDeliveries(r, "summary", { event: "backup.failed", columns })).toEqual([
+      { channel: "email", recipient: "ops@x.de" },
+    ]);
+  });
+
+  it("completes and stores the modes", () => {
+    expect(completeDeliveryModes({ warning: "daily" })).toEqual({
+      error: "immediate",
+      warning: "daily",
+      info: "immediate",
+    });
+    expect(storedDeliveryModes({ error: "immediate", info: "hourly" })).toEqual({ info: "hourly" });
+  });
+
+  it("is due at the next full hour, or at the next 07:00 in the zone", () => {
+    const now = new Date("2026-03-28T10:15:00Z");
+    expect(digestDueAt("hourly", now, "UTC").toISOString()).toBe("2026-03-28T11:00:00.000Z");
+    expect(digestDueAt("hourly", new Date("2026-03-28T10:00:00Z"), "UTC").toISOString()).toBe(
+      "2026-03-28T11:00:00.000Z",
+    );
+    // Berlin is UTC+1 on 28 March and UTC+2 from 29 March (daylight saving).
+    expect(digestDueAt("daily", now, "Europe/Berlin").toISOString()).toBe(
+      "2026-03-29T05:00:00.000Z",
+    );
+    expect(
+      digestDueAt("daily", new Date("2026-03-28T05:00:00Z"), "Europe/Berlin").toISOString(),
+    ).toBe("2026-03-28T06:00:00.000Z");
+    expect(digestDueAt("daily", now, "Not/AZone").toISOString()).toBe("2026-03-29T07:00:00.000Z");
+  });
+});
+
+describe("delivery failure exclusion (0.5.0)", () => {
+  const columns = {
+    webhooks: new Map([["hook", ["notification.delivery_failed"]]]),
+    recipients: new Map(),
+  };
+  const r = rule({ emailRecipients: ["Ops@x.de", "b@x.de"], webhookId: "hook" });
+  const plan = (details: Record<string, unknown>) =>
+    plannedDeliveries(
+      r,
+      "event",
+      { event: "notification.delivery_failed", columns },
+      { exclude: deliveryFailureExclusion("notification.delivery_failed", details) },
+    );
+
+  it("never sends the alert through the webhook that failed", () => {
+    expect(plan({ channel: "webhook", webhookId: "hook" })).toEqual([
+      { channel: "email", recipient: "Ops@x.de" },
+      { channel: "email", recipient: "b@x.de" },
+    ]);
+  });
+
+  it("never mails the address that failed, and no mail while the transport is down", () => {
+    expect(plan({ channel: "email", scope: "recipient", recipient: "ops@X.de" })).toEqual([
+      { channel: "email", recipient: "b@x.de" },
+      { channel: "webhook", recipient: "hook" },
+    ]);
+    expect(plan({ channel: "email", scope: "transport" })).toEqual([
+      { channel: "webhook", recipient: "hook" },
+    ]);
+  });
+
+  it("excludes nothing for other events", () => {
+    expect(
+      deliveryFailureExclusion("backup.failed", { channel: "webhook", webhookId: "x" }),
+    ).toEqual({});
+  });
+
+  it("gives every failing channel its own subject", () => {
+    expect(
+      subjectKeyOf("notification.delivery_failed", { channel: "webhook", webhookId: "w1" }),
+    ).toBe("delivery:webhook:w1");
+    expect(
+      subjectKeyOf("notification.delivery_failed", { channel: "email", scope: "transport" }),
+    ).toBe("delivery:email:transport");
+    expect(
+      subjectKeyOf("notification.delivery_failed", {
+        channel: "email",
+        scope: "recipient",
+        recipient: " A@X.de ",
+      }),
+    ).toBe("delivery:email:a@x.de");
   });
 });

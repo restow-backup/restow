@@ -5,9 +5,12 @@ import type { NotificationMatrix } from "@/features/reports/api";
 import {
   applyPreset,
   changedChannels,
+  channelFailure,
   channelKey,
+  digestModesOf,
   draftFrom,
   groupedRows,
+  lockedEventsOf,
   presetEvents,
   presetOf,
   toggleCell,
@@ -93,5 +96,91 @@ describe("the notification matrix", () => {
 
   it("names the columns", () => {
     expect(MATRIX.channels.map(channelKey)).toEqual(["bell", "webhook:w1", "email:r1"]);
+  });
+});
+
+describe("locked cells, digest chips and failing channels (0.5.0)", () => {
+  const rows = MATRIX.events;
+  const bell = {
+    kind: "bell" as const,
+    id: "bell" as const,
+    events: ["backup.failed" as const, "verify.red" as const],
+    custom: true,
+    locked: ["verify.red" as const],
+  };
+  const email = {
+    kind: "email" as const,
+    id: "e1",
+    email: "ops@contoso.example",
+    name: null,
+    events: [],
+    weeklyReport: false,
+    delivery: { error: "immediate" as const, warning: "daily" as const, info: "hourly" as const },
+    failure: { since: "2026-11-05T08:00:00.000Z", reason: "recipient_rejected", detail: null },
+  };
+  const webhook = {
+    kind: "webhook" as const,
+    id: "w9",
+    name: "Ops",
+    host: "discord.com",
+    format: "discord" as const,
+    active: true,
+    events: [],
+    health: {
+      status: "failing" as const,
+      failingSince: "2026-11-05T07:00:00.000Z",
+      consecutiveFailures: 4,
+      lastError: "http_error 500",
+      alertedAt: "2026-11-05T07:30:00.000Z",
+    },
+  };
+
+  it("locks the bell's critical events and nothing of the other columns", () => {
+    expect(lockedEventsOf(bell)).toEqual(["verify.red"]);
+    expect(lockedEventsOf({ ...bell, locked: undefined })).toEqual([]);
+    expect(lockedEventsOf(email)).toEqual([]);
+  });
+
+  it("keeps the locked events on when a preset is applied", () => {
+    const draft = draftFrom({ events: rows, channels: [bell] });
+    const next = applyPreset(draft, "bell", "errors", rows, ["verify.red"]);
+    expect(next.bell).toContain("verify.red");
+    const info = applyPreset(draft, "bell", "all", rows, ["verify.red"]);
+    expect(info.bell).toEqual(rows.map((row) => row.name));
+  });
+
+  it("lists the digest modes of an e-mail column that are not at once", () => {
+    expect(digestModesOf(email)).toEqual([
+      ["warning", "daily"],
+      ["info", "hourly"],
+    ]);
+    expect(
+      digestModesOf({
+        ...email,
+        delivery: { error: "immediate", warning: "immediate", info: "immediate" },
+      }),
+    ).toEqual([]);
+    expect(digestModesOf(webhook)).toEqual([]);
+  });
+
+  it("says why a webhook or an address fails, and nothing while they get through", () => {
+    expect(channelFailure(webhook)).toEqual({
+      since: "2026-11-05T07:00:00.000Z",
+      reason: "http_error 500",
+      attempts: 4,
+    });
+    expect(channelFailure(email)).toEqual({
+      since: "2026-11-05T08:00:00.000Z",
+      reason: "recipient_rejected",
+      attempts: null,
+    });
+    expect(
+      channelFailure({
+        ...webhook,
+        health: { ...webhook.health, status: "ok", failingSince: null, consecutiveFailures: 0 },
+      }),
+    ).toBeNull();
+    expect(channelFailure({ ...email, failure: null })).toBeNull();
+    expect(channelFailure(bell)).toBeNull();
   });
 });

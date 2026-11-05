@@ -55,6 +55,7 @@ import {
   type Database,
   type Job,
   protectedObjects,
+  raiseReportEvents,
   safeErrorMessage,
   settings,
   tenants,
@@ -63,6 +64,9 @@ import {
 } from "@restow/db";
 import { defaultLanguage, type SupportedLanguage } from "@restow/i18n";
 import { and, eq, inArray, lt, sql } from "drizzle-orm";
+import { loadChatBrand } from "../branding.js";
+import type { WorkerFeatureGate } from "../extensions.js";
+import { reportInstallationTimeZone } from "../reporting.js";
 import {
   loadRestoreCounts,
   nothingRestoredMessage,
@@ -836,6 +840,65 @@ export interface LoadedDelivery extends DueDelivery {
   active: boolean;
   secretRef: string | null;
   format: WebhookFormat;
+  /** The webhook's own name, for the alert about it failing. */
+  name?: string | null;
+}
+
+/** What an attempt tells about its webhook's health (0.5.0), recorded with the attempt. */
+export interface WebhookHealthInput {
+  readonly delivery: LoadedDelivery;
+  /** The attempt's failure; null when the receiver accepted it. */
+  readonly failure: DeliveryFailure | null;
+}
+
+/** A webhook that failed this often in a row, the first failure this long ago, raises an alert. */
+export const WEBHOOK_ALERT_AFTER_FAILURES = 3;
+export const WEBHOOK_ALERT_AFTER_MS = 15 * 60_000;
+
+/**
+ * Whether a webhook's failure episode is worth an alert now: a permanent failure at once, else
+ * at least three failed attempts in a row whose first failure is at least 15 minutes old (with the
+ * retry delays of 1, 5 and 15 minutes: the third or fourth attempt).
+ */
+export function webhookFailureAlertDue(input: {
+  readonly failure: DeliveryFailure;
+  readonly format: WebhookFormat;
+  readonly consecutiveFailures: number;
+  readonly failingSince: Date;
+  readonly now: Date;
+}): boolean {
+  if (isPermanentFailure(input.failure, input.format)) {
+    return true;
+  }
+  return (
+    input.consecutiveFailures >= WEBHOOK_ALERT_AFTER_FAILURES &&
+    input.now.getTime() - input.failingSince.getTime() >= WEBHOOK_ALERT_AFTER_MS
+  );
+}
+
+/** Failures that say nothing about the receiver: a paused webhook, a hiccup of our own. */
+const NOT_A_WEBHOOK_FAILURE: ReadonlySet<DeliveryErrorCode> = new Set([
+  "webhook_disabled",
+  "internal",
+]);
+
+/** Whether the delivery is itself the alert about a failed delivery (it never raises another). */
+export function isDeliveryFailureAlert(payload: Record<string, unknown>): boolean {
+  const data = payload.data;
+  if (data === null || typeof data !== "object") {
+    return false;
+  }
+  const record = data as Record<string, unknown>;
+  if (record.deliveryFailure === true) {
+    return true;
+  }
+  const details = record.details;
+  return (
+    record.event === "notification.delivery_failed" ||
+    (details !== null &&
+      typeof details === "object" &&
+      (details as Record<string, unknown>).deliveryFailure === true)
+  );
 }
 
 export interface DeliveryStore {
@@ -843,7 +906,16 @@ export interface DeliveryStore {
   claimDue(now: Date, limit: number, leaseUntil: Date): Promise<DueDelivery[]>;
   /** The delivery with its webhook, or null when it (or its webhook) is gone. */
   load(due: DueDelivery): Promise<LoadedDelivery | null>;
-  record(due: DueDelivery, plan: AttemptPlan, now: Date): Promise<void>;
+  /**
+   * Record the attempt and, in the same transaction, the webhook's health: an alert about a
+   * webhook that keeps failing is raised there (0.5.0).
+   */
+  record(
+    due: DueDelivery,
+    plan: AttemptPlan,
+    now: Date,
+    health?: WebhookHealthInput,
+  ): Promise<void>;
   /** Delete finished deliveries last touched before `before`; returns how many. */
   prune(before: Date): Promise<number>;
 }
@@ -894,6 +966,7 @@ export class PgDeliveryStore implements DeliveryStore {
           active: webhooks.active,
           secretRef: webhooks.secretRef,
           format: webhooks.format,
+          name: webhooks.name,
         })
         .from(webhookDeliveries)
         .innerJoin(webhooks, eq(webhooks.id, webhookDeliveries.webhookId))
@@ -903,9 +976,14 @@ export class PgDeliveryStore implements DeliveryStore {
     return row ?? null;
   }
 
-  async record(due: DueDelivery, plan: AttemptPlan, now: Date): Promise<void> {
-    await withTenantTx(this.db, due.tenantId, (tx) =>
-      tx
+  async record(
+    due: DueDelivery,
+    plan: AttemptPlan,
+    now: Date,
+    health?: WebhookHealthInput,
+  ): Promise<void> {
+    await withTenantTx(this.db, due.tenantId, async (tx) => {
+      await tx
         .update(webhookDeliveries)
         .set({
           status: plan.status,
@@ -915,8 +993,11 @@ export class PgDeliveryStore implements DeliveryStore {
           deliveredAt: plan.deliveredAt,
           updatedAt: now,
         })
-        .where(and(eq(webhookDeliveries.tenantId, due.tenantId), eq(webhookDeliveries.id, due.id))),
-    );
+        .where(and(eq(webhookDeliveries.tenantId, due.tenantId), eq(webhookDeliveries.id, due.id)));
+      if (health) {
+        await recordWebhookHealth(tx, due.tenantId, plan, now, health);
+      }
+    });
   }
 
   async prune(before: Date): Promise<number> {
@@ -931,6 +1012,138 @@ export class PgDeliveryStore implements DeliveryStore {
       .returning({ id: webhookDeliveries.id });
     return deleted.length;
   }
+}
+
+type HealthTx = Parameters<Parameters<typeof withTenantTx>[2]>[0];
+
+/**
+ * A webhook's health after an attempt (0.5.0): a delivered attempt ends the failure episode; a
+ * failed one counts it, and raises `notification.delivery_failed` once per episode when
+ * {@link webhookFailureAlertDue} says so. The alert goes through every channel but this webhook
+ * (the planner excludes it) and always reaches the bell. A delivery that is itself such an alert
+ * never raises another one.
+ */
+export async function recordWebhookHealth(
+  tx: HealthTx,
+  tenantId: string,
+  plan: AttemptPlan,
+  now: Date,
+  health: WebhookHealthInput,
+): Promise<"reset" | "counted" | "alerted" | "unchanged"> {
+  const { delivery, failure } = health;
+  if (plan.status === "delivered" || failure === null) {
+    const reset = await tx
+      .update(webhooks)
+      .set({
+        consecutiveFailures: 0,
+        failingSince: null,
+        failureAlertedAt: null,
+        lastFailure: null,
+      })
+      .where(
+        and(
+          eq(webhooks.tenantId, tenantId),
+          eq(webhooks.id, delivery.webhookId),
+          sql`(${webhooks.consecutiveFailures} > 0 OR ${webhooks.failingSince} IS NOT NULL OR ${webhooks.failureAlertedAt} IS NOT NULL)`,
+        ),
+      )
+      .returning({ id: webhooks.id });
+    return reset.length > 0 ? "reset" : "unchanged";
+  }
+  if (NOT_A_WEBHOOK_FAILURE.has(failure.code)) {
+    return "unchanged";
+  }
+  const lastError = plan.lastError ?? formatDeliveryError(failure);
+  const [row] = await tx
+    .update(webhooks)
+    .set({
+      consecutiveFailures: sql`${webhooks.consecutiveFailures} + 1`,
+      failingSince: sql`coalesce(${webhooks.failingSince}, ${now.toISOString()}::timestamptz)`,
+      lastFailure: lastError,
+    })
+    .where(and(eq(webhooks.tenantId, tenantId), eq(webhooks.id, delivery.webhookId)))
+    .returning({
+      name: webhooks.name,
+      url: webhooks.url,
+      format: webhooks.format,
+      consecutiveFailures: webhooks.consecutiveFailures,
+      failingSince: webhooks.failingSince,
+      failureAlertedAt: webhooks.failureAlertedAt,
+    });
+  if (!row || row.failureAlertedAt !== null || isDeliveryFailureAlert(delivery.payload)) {
+    return "counted";
+  }
+  const failingSince = row.failingSince ?? now;
+  if (
+    !webhookFailureAlertDue({
+      failure,
+      format: row.format,
+      consecutiveFailures: row.consecutiveFailures,
+      failingSince,
+      now,
+    })
+  ) {
+    return "counted";
+  }
+  const claimed = await tx
+    .update(webhooks)
+    .set({ failureAlertedAt: now })
+    .where(
+      and(
+        eq(webhooks.tenantId, tenantId),
+        eq(webhooks.id, delivery.webhookId),
+        sql`${webhooks.failureAlertedAt} IS NULL`,
+      ),
+    )
+    .returning({ id: webhooks.id });
+  if (claimed.length === 0) {
+    return "counted";
+  }
+  const [failed] = await tx
+    .select({ count: sql<number>`count(*)::int` })
+    .from(webhookDeliveries)
+    .where(
+      and(
+        eq(webhookDeliveries.tenantId, tenantId),
+        eq(webhookDeliveries.webhookId, delivery.webhookId),
+        sql`${webhookDeliveries.status} <> 'delivered'`,
+        sql`${webhookDeliveries.attempts} > 0`,
+        sql`${webhookDeliveries.updatedAt} >= ${failingSince.toISOString()}::timestamptz`,
+      ),
+    );
+  const host = hostOf(row.url);
+  await raiseReportEvents(
+    tx,
+    [
+      {
+        tenantId,
+        level: "error",
+        event: "notification.delivery_failed",
+        message: `The webhook ${row.name ?? host} keeps failing: ${lastError}`,
+        details: {
+          channel: "webhook",
+          scope: "webhook",
+          audience: "tenant",
+          webhookId: delivery.webhookId,
+          webhookName: row.name,
+          host,
+          format: row.format,
+          reason: failure.code,
+          httpStatus: failure.httpStatus,
+          detail: failure.detail ? sanitizeDetail(failure.detail) : null,
+          since: failingSince.toISOString(),
+          failedDeliveries: Math.max(1, failed?.count ?? 1),
+          // Read as the subject of the mail and the chat message.
+          objectName: row.name ?? host,
+          deliveryFailure: true,
+        },
+        createdAt: now,
+      },
+    ],
+    now,
+    { installationTimeZone: reportInstallationTimeZone },
+  );
+  return "alerted";
 }
 
 /** What a chat message needs besides the envelope: language, tenant name, link base, object name. */
@@ -962,7 +1175,11 @@ function jobObjectId(payload: Record<string, unknown>): string | null {
  * RESTOW_PUBLIC_URL) and the protected object's name. Reads run on the
  * dispatcher's installation pool, the tenant's rows tenant-pinned.
  */
-export function pgChatContextSource(db: Database, env: Env = process.env): ChatContextSource {
+export function pgChatContextSource(
+  db: Database,
+  env: Env = process.env,
+  gate?: WorkerFeatureGate,
+): ChatContextSource {
   return async (delivery) => {
     const [installation] = await db
       .select({ publicUrl: settings.publicUrl })
@@ -995,11 +1212,13 @@ export function pgChatContextSource(db: Database, env: Env = process.env): ChatC
       return { tenant: row ?? null, objectName: name };
     });
     const language: SupportedLanguage = tenant?.language ?? defaultLanguage;
+    const publicUrl = originOf(installation?.publicUrl) ?? originOf(env.RESTOW_PUBLIC_URL);
     return {
       language,
       tenantName: tenant?.name ?? delivery.tenantId,
-      publicUrl: originOf(installation?.publicUrl) ?? originOf(env.RESTOW_PUBLIC_URL),
+      publicUrl,
       objectName,
+      brand: await loadChatBrand(db, delivery.tenantId, gate, publicUrl),
     };
   };
 }
@@ -1166,7 +1385,7 @@ export class WebhookDispatcher {
         random: this.deps.random,
         format: delivery.format,
       });
-      await this.deps.store.record(due, plan, now);
+      await this.deps.store.record(due, plan, now, { delivery, failure });
       const fields = {
         webhookId: delivery.webhookId,
         event: delivery.event,
@@ -1368,12 +1587,14 @@ export const webhooksHandler = {
   start(
     runtime: Pick<WorkerRuntime, "db" | "keyrings" | "logger" | "now" | "shutdownSignal">,
     options: WebhookDispatcherOptions = webhookOptionsFromEnv(),
+    /** The worker's feature gate: whether chat messages carry the branding (0.5.0). */
+    gate?: WorkerFeatureGate,
   ): WebhookDispatcher {
     const dispatcher = new WebhookDispatcher(
       {
         store: new PgDeliveryStore(runtime.db),
         secrets: keyringSecretSource(runtime),
-        chatContext: pgChatContextSource(runtime.db),
+        chatContext: pgChatContextSource(runtime.db, process.env, gate),
         transport: createHttpTransport({ allowPrivateNetworks: options.allowPrivateNetworks }),
         logger: runtime.logger.child({ component: "webhooks" }),
         now: runtime.now,

@@ -47,6 +47,14 @@ export function bellEventKey(item: Pick<BellNotification, "event" | "details">):
       ? "bellEvents.object.login_question"
       : "bellEvents.object.login_question_many";
   }
+  // A notification that could not be delivered names what failed (0.5.0): the notification mail
+  // as a whole, one address, or a webhook.
+  if (item.event === "notification.delivery_failed") {
+    const scope = item.details?.scope;
+    return scope === "transport" || scope === "webhook"
+      ? `bellEvents.notification.delivery_failed_${scope}`
+      : "bellEvents.notification.delivery_failed_recipient";
+  }
   // An alert of the archive capture names what stopped (apps/worker archive-capture/alerts.ts).
   const reason = item.details?.reason;
   if (
@@ -84,6 +92,13 @@ export function useNotificationText() {
         typeof item.details?.freeBytes === "number"
           ? `${(item.details.freeBytes / 1024 ** 3).toFixed(1)} GiB`
           : "",
+      recipient: typeof item.details?.recipient === "string" ? item.details.recipient : "",
+      webhook:
+        typeof item.details?.webhookName === "string" && item.details.webhookName
+          ? item.details.webhookName
+          : typeof item.details?.host === "string"
+            ? item.details.host
+            : "",
     });
 }
 

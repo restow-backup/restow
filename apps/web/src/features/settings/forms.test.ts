@@ -5,13 +5,16 @@ import {
   changePasswordSchema,
   fieldMessageKey,
   generalFormSchema,
+  isAllowedSender,
   leavesPublicMode,
+  MAX_ALLOWED_SENDERS,
   type MailFormContext,
   type MailFormValues,
   mailFormContext,
   mailFormFromSettings,
   mailFormSchema,
   mayKeepStoredPassword,
+  parseAllowedSenders,
   passkeyLoss,
   passwordConfirmSchema,
   portForSecurity,
@@ -165,6 +168,7 @@ describe("mail form", () => {
         username: "restow",
         password: "",
         from: "restow@example.com",
+        allowedSenders: "",
       },
       graph: {
         app: "own",
@@ -272,6 +276,7 @@ describe("mail form", () => {
         security: "starttls",
         from: "restow@example.com",
         username: null,
+        allowedSenders: [],
       },
     });
     expect(toMailInput(smtpValues({ password: "rotated" }))).toMatchObject({
@@ -389,5 +394,48 @@ describe("changePasswordSchema", () => {
       }),
     ).toContain("samePassword");
     expect(reasons({ ...valid, current: "" })).toContain("required");
+  });
+});
+
+describe("allowed sender addresses (0.5.0)", () => {
+  it("reads one entry per line or comma, lower-cased and without repeats", () => {
+    expect(
+      parseAllowedSenders(" Alerts@Brand.example\n@brand.example, alerts@brand.example;\n\n"),
+    ).toEqual(["alerts@brand.example", "@brand.example"]);
+    expect(parseAllowedSenders("")).toEqual([]);
+  });
+
+  it("takes an exact address or @domain", () => {
+    expect(isAllowedSender("alerts@brand.example")).toBe(true);
+    expect(isAllowedSender("@brand.example")).toBe(true);
+    expect(isAllowedSender("@brand")).toBe(false);
+    expect(isAllowedSender("brand.example")).toBe(false);
+  });
+
+  it("starts from the stored list and sends it with every SMTP save", () => {
+    const stored = mailFormFromSettings({
+      ...settings.mail,
+      smtp: {
+        ...(settings.mail as { smtp: object }).smtp,
+        allowedSenders: ["@brand.example", "alerts@other.example"],
+      },
+    } as InstallationSettings["mail"]);
+    expect(stored.smtp.allowedSenders).toBe("@brand.example\nalerts@other.example");
+    expect(toMailInput(stored)).toMatchObject({
+      smtp: { allowedSenders: ["@brand.example", "alerts@other.example"] },
+    });
+  });
+
+  it("refuses an invalid entry and more than the maximum", () => {
+    expect(
+      messages(mailFormSchema(context).safeParse(smtpValues({ allowedSenders: "nope" }))),
+    ).toEqual([["smtp.allowedSenders", "allowedSenders"]]);
+    const many = Array.from({ length: MAX_ALLOWED_SENDERS + 1 }, (_, i) => `a${i}@x.example`);
+    expect(
+      messages(mailFormSchema(context).safeParse(smtpValues({ allowedSenders: many.join("\n") }))),
+    ).toEqual([["smtp.allowedSenders", "allowedSenders"]]);
+    expect(
+      mailFormSchema(context).safeParse(smtpValues({ allowedSenders: "@brand.example" })).success,
+    ).toBe(true);
   });
 });

@@ -74,6 +74,9 @@ export type MailConfig =
       security: "starttls" | "implicit" | "none";
       from: string;
       username?: string;
+      // Further From addresses branding may use (0.5.0): exact addresses or `@domain`. The
+      // configured `from` is always allowed.
+      allowedSenders?: string[];
     }
   | {
       transport: "graph";
@@ -98,6 +101,19 @@ export type MailConfig =
       serviceAccountEmail: string;
       clientId: string;
     };
+
+/**
+ * An episode of the mail transport failing as a whole (0.5.0): not configured, the login refused,
+ * the server unreachable, a token that cannot be had. One `notification.delivery_failed` alert per
+ * episode (`alertedAt`); the next successful send clears it.
+ */
+export type MailFailureState = {
+  since: string;
+  reason: string;
+  detail: string | null;
+  alertedAt: string | null;
+  failedDeliveries: number;
+};
 
 /** One release as the update check keeps it (docs/ARCHITECTURE.md, Updates). */
 export type StoredUpdateRelease = {
@@ -350,6 +366,8 @@ export const settings = pgTable(
     // The expiry reminders sent for the central app registration's secret or certificate
     // (apps/api features/updates/secret-watch.ts, see AppSecretAlertState); `{}` before the first.
     appSecretAlerts: jsonb("app_secret_alerts").$type<AppSecretAlertState>().notNull().default({}),
+    // The mail transport's failure episode (0.5.0, MailFailureState); null while it works.
+    mailFailure: jsonb("mail_failure").$type<MailFailureState>(),
     ...timestamps(),
   },
   (t) => [uniqueIndex("settings_singleton_uq").on(t.singleton)],

@@ -8,6 +8,7 @@ import {
   Hourglass,
   LayoutDashboard,
   type LucideIcon,
+  Palette,
   Plug,
   Shield,
   Users,
@@ -25,8 +26,8 @@ import type { TenantSectionId } from "@/lib/tenant-paths";
  *
  *   10 Overview   20 Connections   30 Protection   40 Jobs & schedules
  *   50 Backup retention   60 Storage   70 Agents   80 Archive
- *   90 Notifications   100 Integrations   110 Members   120 Audit log (extension)
- *   130 Master data
+ *   90 Notifications   95 Branding (provider administrators)   100 Integrations
+ *   110 Members   120 Audit log (extension)   130 Master data
  */
 
 export interface TenantSectionMeta {
@@ -37,6 +38,11 @@ export interface TenantSectionMeta {
   readonly descriptionKey: string;
   readonly icon: LucideIcon;
   readonly order: number;
+  /**
+   * Only for provider administrators (0.5.0, the tenant's own branding): the tenant's own
+   * administrators never see the section, in the sub-navigation, the overview or the palette.
+   */
+  readonly providerOnly?: boolean;
 }
 
 export const TENANT_SECTION_META: readonly TenantSectionMeta[] = [
@@ -104,6 +110,14 @@ export const TENANT_SECTION_META: readonly TenantSectionMeta[] = [
     order: 90,
   },
   {
+    id: "branding",
+    labelKey: "tenantpage:sections.branding",
+    descriptionKey: "tenantpage:descriptions.branding",
+    icon: Palette,
+    order: 95,
+    providerOnly: true,
+  },
+  {
     id: "integrations",
     labelKey: "tenantpage:sections.integrations",
     descriptionKey: "tenantpage:descriptions.integrations",
@@ -125,6 +139,11 @@ export const TENANT_SECTION_META: readonly TenantSectionMeta[] = [
     order: 130,
   },
 ];
+
+/** The core's sections the viewer may open: the provider's own only for provider admins. */
+export function visibleSectionMeta(isProviderAdmin: boolean): readonly TenantSectionMeta[] {
+  return TENANT_SECTION_META.filter((meta) => isProviderAdmin || !meta.providerOnly);
+}
 
 export function sectionMeta(id: string): TenantSectionMeta | undefined {
   return TENANT_SECTION_META.find((meta) => meta.id === id);

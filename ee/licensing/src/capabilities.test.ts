@@ -38,4 +38,12 @@ describe("minEditionFor", () => {
     expect(minEditionFor("provider.teamTenantScope")).toBe("service_provider");
     expect((CAPABILITIES as readonly string[]).includes("provider.team")).toBe(false);
   });
+
+  it("places branding and the customer report (0.5.0)", () => {
+    // Provider-level branding is Business; a tenant's own branding and the customer monthly
+    // report are Service Provider.
+    expect(minEditionFor("branding.provider")).toBe("business");
+    expect(minEditionFor("branding.tenant")).toBe("service_provider");
+    expect(minEditionFor("reports.customer")).toBe("service_provider");
+  });
 });

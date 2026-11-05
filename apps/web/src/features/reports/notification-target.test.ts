@@ -124,3 +124,60 @@ describe("where a notification leads", () => {
     }
   });
 });
+
+describe("where a failed delivery leads (0.5.0)", () => {
+  const provider = { canManage: true, isProviderAdmin: true };
+  const looker = { canManage: false, isProviderAdmin: false };
+  const event = "notification.delivery_failed";
+  const webhookId = "22222222-2222-4222-8222-222222222222";
+
+  it("leads a failing webhook to its page", () => {
+    expect(
+      notificationTarget(
+        { event, tenantId, details: { channel: "webhook", scope: "webhook", webhookId } },
+        admin,
+      ),
+    ).toEqual({ to: `/tenants/${tenantId}/integrations/webhooks/${webhookId}`, tenantId });
+    expect(
+      notificationTarget(
+        { event, tenantId, details: { channel: "webhook", scope: "webhook", webhookId } },
+        looker,
+      ),
+    ).toBeNull();
+  });
+
+  it("leads a tenant's failing address to the tenant's notifications", () => {
+    const item = {
+      event,
+      tenantId,
+      details: { channel: "email", scope: "recipient", audience: "tenant", recipient: "a@x.de" },
+    };
+    expect(notificationTarget(item, admin)).toEqual({
+      to: `/tenants/${tenantId}/notifications`,
+      tenantId,
+    });
+    expect(notificationTarget(item, looker)).toBeNull();
+  });
+
+  it("leads a provider recipient to Installation, Notifications, for provider administrators", () => {
+    const item = {
+      event,
+      tenantId: null,
+      details: { channel: "email", scope: "recipient", audience: "provider", recipient: "a@x.de" },
+    };
+    expect(notificationTarget(item, provider)).toEqual({
+      to: "/installation/notifications",
+      tenantId: null,
+    });
+    expect(notificationTarget(item, admin)).toBeNull();
+  });
+
+  it("leads a transport that is down to Installation, Notification mail", () => {
+    const item = { event, tenantId: null, details: { channel: "email", scope: "transport" } };
+    expect(notificationTarget(item, provider)).toEqual({
+      to: "/installation/mail",
+      tenantId: null,
+    });
+    expect(notificationTarget({ ...item, tenantId }, admin)).toBeNull();
+  });
+});

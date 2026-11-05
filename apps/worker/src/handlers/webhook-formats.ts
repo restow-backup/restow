@@ -17,7 +17,7 @@
  *
  * Nothing here talks to the network or the database.
  */
-import { guidanceFor } from "@restow/core";
+import { discordUsername, guidanceFor } from "@restow/core";
 import { createI18n, failureVariables, type SupportedLanguage } from "@restow/i18n";
 import { restoreCountsOf, restoreOutcome } from "../restore-outcome.js";
 
@@ -49,6 +49,29 @@ export interface ChatMessage {
   timestamp: string | null;
   link: { label: string; url: string } | null;
   footer: string;
+  /** The brand the message is sent with (0.5.0); null or absent sends it as the product. */
+  brand?: ChatBrand | null;
+  /** A summary report: Discord colours it with the accent instead of a severity. */
+  summary?: boolean;
+}
+
+/**
+ * The branding of a chat message (0.5.0, docs/NOTIFICATIONS.md "Webhook branding"): the name in
+ * the footer (all formats) and as the sender (Discord `username`, Slack `username`, which incoming
+ * webhooks of newer Slack apps ignore), the logo (Discord `avatar_url`, Teams header) and the
+ * accent (Discord summary colour, Teams band). Image URLs are https URLs the instance serves, or
+ * null: the chat services fetch them themselves.
+ */
+export interface ChatBrand {
+  name: string;
+  /** Discord avatar: the logo's public https URL. */
+  avatarUrl: string | null;
+  /** Teams header image: the logo's public https URL. */
+  logoUrl: string | null;
+  /** Teams band: the public https URL of the accent's 1×1 image. */
+  accentPngUrl: string | null;
+  /** `#rrggbb`. */
+  accentColor: string | null;
 }
 
 /** What rendering needs besides the envelope; loaded by the dispatcher. */
@@ -59,6 +82,8 @@ export interface ChatContext {
   publicUrl: string | null;
   /** Display name of the protected object a job event names, when there is one. */
   objectName: string | null;
+  /** The effective brand of the tenant (0.5.0); null or absent: the product name. */
+  brand?: ChatBrand | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -266,9 +291,12 @@ export function buildChatMessage(
   const envelope = readEnvelope(event, payload);
   const { data } = envelope;
   const tenant = context.tenantName;
+  const brand = context.brand ?? null;
   const base = {
     timestamp: envelope.createdAt,
-    footer: t("notifications:chat.footer", { tenant }),
+    footer: t("notifications:chat.footer", brand ? { tenant, appName: brand.name } : { tenant }),
+    brand,
+    summary: envelope.event === "report.summary",
   };
   const tenantField: ChatField = { name: t("notifications:chat.fields.tenant"), value: tenant };
   const link = (path: string | null): ChatMessage["link"] => {
@@ -518,9 +546,13 @@ export function renderDiscord(message: ChatMessage): Record<string, unknown> {
   } else if (linkLine && linkLine.length <= room) {
     description = linkLine;
   }
+  const accent =
+    message.summary && message.brand?.accentColor
+      ? Number.parseInt(message.brand.accentColor.slice(1), 16)
+      : null;
   const embed: Record<string, unknown> = {
     title,
-    color: DISCORD_COLORS[message.severity],
+    color: accent !== null && Number.isFinite(accent) ? accent : DISCORD_COLORS[message.severity],
     fields,
     footer: { text: footer },
   };
@@ -533,12 +565,22 @@ export function renderDiscord(message: ChatMessage): Record<string, unknown> {
   if (message.timestamp && !Number.isNaN(Date.parse(message.timestamp))) {
     embed.timestamp = new Date(message.timestamp).toISOString();
   }
-  return {
+  const body: Record<string, unknown> = {
     content: truncate(escapeDiscord(message.title), DISCORD_LIMITS.content),
     embeds: [embed],
     // Names from data never ping anyone (@everyone, roles, users).
     allowed_mentions: { parse: [] },
   };
+  // The brand as the sender: Discord refuses names with "discord" or "clyde" (left out then,
+  // the webhook's own name shows) and fetches the avatar itself (https only).
+  const username = message.brand ? discordUsername(message.brand.name) : null;
+  if (username) {
+    body.username = username;
+  }
+  if (message.brand?.avatarUrl?.startsWith("https://")) {
+    body.avatar_url = message.brand.avatarUrl;
+  }
+  return body;
 }
 
 // ---------------------------------------------------------------------------
@@ -620,10 +662,17 @@ export function renderSlack(message: ChatMessage): Record<string, unknown> {
     elements: [{ type: "mrkdwn", text: truncate(context.join(" · "), SLACK_LIMITS.contextText) }],
   });
   const fallback = [message.title, message.text].filter(Boolean).join("\n");
-  return {
+  const body: Record<string, unknown> = {
     text: truncate(escapeSlack(fallback), SLACK_LIMITS.text),
     blocks: blocks.slice(0, SLACK_LIMITS.blocks),
   };
+  // Only the name: incoming webhooks of newer Slack apps ignore it (and every icon override),
+  // older ones show it as the sender (docs/NOTIFICATIONS.md).
+  const username = message.brand?.name.replace(/\s+/g, " ").trim();
+  if (username) {
+    body.username = truncate(username, 80);
+  }
+  return body;
 }
 
 // ---------------------------------------------------------------------------
@@ -657,23 +706,61 @@ export function escapeTeams(value: string): string {
 
 export function renderTeams(message: ChatMessage): Record<string, unknown> {
   const severity = TEAMS_STYLES[message.severity];
-  const body: Record<string, unknown>[] = [
-    {
+  const titleBlock = {
+    type: "TextBlock",
+    text: truncate(escapeTeams(message.title), TEAMS_LIMITS.title),
+    weight: "Bolder",
+    size: "Medium",
+    color: severity.color,
+    wrap: true,
+  };
+  const https = (url: string | null | undefined) => (url?.startsWith("https://") ? url : null);
+  const logo = https(message.brand?.logoUrl);
+  const band = https(message.brand?.accentPngUrl);
+  const body: Record<string, unknown>[] = [];
+  // Teams knows only named colours: the accent is a band of an image the instance serves.
+  if (band) {
+    body.push({
       type: "Container",
-      style: severity.style,
+      minHeight: "4px",
       bleed: true,
-      items: [
-        {
-          type: "TextBlock",
-          text: truncate(escapeTeams(message.title), TEAMS_LIMITS.title),
-          weight: "Bolder",
-          size: "Medium",
-          color: severity.color,
-          wrap: true,
-        },
-      ],
-    },
-  ];
+      backgroundImage: { url: band, fillMode: "Repeat" },
+      items: [],
+    });
+  }
+  body.push({
+    type: "Container",
+    style: severity.style,
+    bleed: true,
+    items: logo
+      ? [
+          {
+            type: "ColumnSet",
+            columns: [
+              {
+                type: "Column",
+                width: "auto",
+                verticalContentAlignment: "Center",
+                items: [
+                  {
+                    type: "Image",
+                    url: logo,
+                    size: "Small",
+                    altText: truncate(message.brand?.name ?? "", 100),
+                  },
+                ],
+              },
+              {
+                type: "Column",
+                width: "stretch",
+                verticalContentAlignment: "Center",
+                items: [titleBlock],
+              },
+            ],
+          },
+        ]
+      : [titleBlock],
+  });
   if (message.text) {
     body.push({
       type: "TextBlock",

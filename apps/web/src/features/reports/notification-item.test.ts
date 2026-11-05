@@ -56,3 +56,41 @@ describe("the words of every stage", () => {
     ).toContain("in 1 day");
   });
 });
+
+describe("the bell line of a failed delivery (0.5.0)", () => {
+  const event = "notification.delivery_failed";
+
+  it("names the transport, the address or the webhook", () => {
+    expect(bellEventKey({ event, details: { scope: "transport" } })).toBe(
+      "bellEvents.notification.delivery_failed_transport",
+    );
+    expect(bellEventKey({ event, details: { scope: "webhook" } })).toBe(
+      "bellEvents.notification.delivery_failed_webhook",
+    );
+    expect(bellEventKey({ event, details: { scope: "recipient" } })).toBe(
+      "bellEvents.notification.delivery_failed_recipient",
+    );
+    expect(bellEventKey({ event, details: null })).toBe(
+      "bellEvents.notification.delivery_failed_recipient",
+    );
+  });
+
+  it("exists in both languages with the address and the webhook in it", async () => {
+    for (const language of ["en", "de"]) {
+      await i18n.changeLanguage(language);
+      for (const scope of ["transport", "recipient", "webhook"]) {
+        const key = `reports:bellEvents.notification.delivery_failed_${scope}`;
+        expect(i18n.exists(key), `${language} ${key}`).toBe(true);
+      }
+      expect(
+        i18n.t("reports:bellEvents.notification.delivery_failed_recipient", {
+          recipient: "ops@contoso.example",
+        }),
+      ).toContain("ops@contoso.example");
+      expect(
+        i18n.t("reports:bellEvents.notification.delivery_failed_webhook", { webhook: "Ops" }),
+      ).toContain("Ops");
+    }
+    await i18n.changeLanguage("en");
+  });
+});

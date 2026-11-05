@@ -145,7 +145,10 @@ async function readProblem(response: Response): Promise<ProblemDetails | null> {
 }
 
 export interface ApiRequestInit extends Omit<RequestInit, "body"> {
-  /** JSON-serialisable body; encoded and typed for you. */
+  /**
+   * JSON-serialisable body; encoded and typed for you. A `Blob` (a `File`) goes out as it is,
+   * with its own type as the content type (an upload of raw bytes, such as a logo).
+   */
   body?: unknown;
   /** Override the tenant header for this call (`null` sends none). */
   tenantId?: string | null;
@@ -156,7 +159,10 @@ export async function apiFetch<T>(path: string, init: ApiRequestInit = {}): Prom
   const { body, tenantId, headers: extraHeaders, ...rest } = init;
   const headers = new Headers(extraHeaders);
   headers.set("accept", "application/json");
-  if (body !== undefined) {
+  const raw = typeof Blob !== "undefined" && body instanceof Blob ? body : null;
+  if (raw) {
+    headers.set("content-type", raw.type || "application/octet-stream");
+  } else if (body !== undefined) {
     headers.set("content-type", "application/json");
   }
   // Texts the server writes for the operator (test mails) follow the UI
@@ -177,7 +183,7 @@ export async function apiFetch<T>(path: string, init: ApiRequestInit = {}): Prom
       credentials: "include",
       ...rest,
       headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: raw ?? (body === undefined ? undefined : JSON.stringify(body)),
     });
   } catch (cause) {
     throw new NetworkError(cause);
@@ -415,6 +421,9 @@ export type ProviderRole = "owner" | "administrator" | "technician" | "read_only
  * - `providerTeam.tenantScope` limiting a member of the provider team to chosen tenants
  * - `archive.mailboxCapture` archive capture from the mailbox (Graph, IMAP)
  * - `archive.smtpCapture`  archive capture by SMTP (journaling, forwarded copies)
+ * - `branding.provider`    the provider's branding of mails and chat webhooks (0.5.0)
+ * - `branding.tenant`      a tenant's own branding, instead of the provider's (0.5.0)
+ * - `reports.customer`     the customer monthly report to a tenant's contacts (0.5.0)
  */
 export const GATED_FEATURES = [
   "tenants.additional",
@@ -425,6 +434,9 @@ export const GATED_FEATURES = [
   "providerTeam.tenantScope",
   "archive.mailboxCapture",
   "archive.smtpCapture",
+  "branding.provider",
+  "branding.tenant",
+  "reports.customer",
 ] as const;
 
 export type GatedFeature = (typeof GATED_FEATURES)[number];

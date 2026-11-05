@@ -696,6 +696,59 @@ gesicherten Daten werden nie ein zweites Mal gelesen (Einzelheiten, Schwellenwer
   Fehlalarm mit Notiz (`/api/v1/suspicions`, auditiert), Schwellenwerte je Installation unter
   Installation > Ransomware-Erkennung (`/api/v1/settings/ransomware`, Inhaber).
 
+### Empfänger des Providers, Sammelmails, Zustellfehler und Branding (0.5.0)
+
+Für Betreiber beschrieben in [NOTIFICATIONS.md](NOTIFICATIONS.md); hier, wie es gebaut ist.
+
+- **Ein Weg für Ereignisse**: `raiseReportEvents` in `packages/db/src/report-events.ts` schreibt
+  in der Mandanten-Transaktion die Glocke, plant die Zustellungen der Regeln (Drossel, Spalten der
+  Matrix, Sammelmail) und legt für jedes Katalog-Ereignis eine Zeile in `report_events` an. Der
+  Worker (`apps/worker/src/reporting.ts`) und die API (Zustellfehler) rufen ihn auf;
+  `raiseInstallationEvent` (`apps/api/src/features/updates/notify.ts`) schreibt die
+  Installations-Ereignisse mit `tenant_id` NULL.
+- **Kritische Ereignisse** (`critical` im Katalog: `backup.suspicious`,
+  `endpoint.suspicious_snapshot`, `scrub.corrupt`, `verify.red`, `installation.disk_low`) und
+  `notification.delivery_failed` gehen immer sofort, immer an die Pflichtempfänger und immer in
+  die Glocke (`bellEventsOf`, `BELL_LOCKED_EVENTS`).
+- **Empfänger des Providers** (`provider_notification_recipients`, Installationsrolle): die
+  Inhaber des Provider-Teams (`kind = 'owner'`, abgeglichen mit dem Team,
+  `syncOwnerRecipients`) und weitere Adressen; Inhaber und `mandatory` sind die
+  Pflichtempfänger.
+- **Verteilung** (`apps/api/src/features/reports/fanout.ts`): Der Dispatcher holt je Takt die
+  nicht verteilten Zeilen aus `report_events` (`FOR UPDATE SKIP LOCKED`) und plant je Empfänger
+  des Providers eine Mail mit `tenant_id` NULL und `about_tenant_id`, ohne Adressen, die das
+  Ereignis schon über eine Regel des Mandanten bekommen, mit 60 Minuten Drossel je Empfänger und
+  Gegenstand (Hinweise ungedrosselt). Row Level Security verbirgt diese Zeilen vor jeder
+  Mandanten-Sitzung. Verteilte Ereignisse werden nach sieben Tagen gelöscht.
+- **Sammelmails**: `report_deliveries.digest` (`hourly`, `daily`) hält eine Mail bis
+  `next_attempt_at` (volle Stunde UTC, 07:00 in der Zeitzone des Mandanten, sonst der
+  Installation); `dispatchDigestsOnce` schickt je Mandant (oder Provider), Adresse und Fenster eine
+  Mail und vermerkt alle Zeilen mit derselben `digest_group`. Webhooks und die Glocke sammeln nie.
+- **Zustellfehler** (`apps/api/src/features/reports/delivery-failure.ts`, Worker
+  `handlers/webhooks.ts` `recordWebhookHealth`): Eine Mail, die endgültig scheitert (SMTP 5xx
+  an RCPT/DATA und Graph `ErrorInvalidRecipients` sofort und ohne Wiederholung, alles andere nach
+  den Wiederholungen), löst je Episode einmal `notification.delivery_failed` aus: der Versand
+  insgesamt in `settings.mail_failure`, ein Empfänger an seiner Zeile (`failing_since`,
+  `failure_alerted_at`), eine nur in einer Regel genannte Adresse höchstens einmal in 24 Stunden.
+  Ein Webhook führt `failing_since`, `consecutive_failures`, `failure_alerted_at` und
+  `last_failure`; er meldet bei einem endgültigen Fehler sofort, sonst nach drei Fehlversuchen in
+  Folge über mindestens 15 Minuten. Der gestörte Kanal wird beim Planen ausgelassen
+  (`deliveryFailureExclusion`); ein Alarm über einen Zustellfehler löst nie einen weiteren aus.
+- **Zusammenfassungen**: `report_rules.cadence` (`daily`, `weekly`, `monthly`) wählt den
+  Kalenderzeitraum in der Zeitzone der Regel (`packages/core/src/reports/period.ts`),
+  `attach_pdf` hängt den Statistikbericht an, `kind = 'customer'` ist der Kundenmonatsbericht.
+  Die Zusammenfassungen des Providers über alle Mandanten stehen in `provider_report_rules`; der
+  Scheduler legt ihre Zustellungen ohne Mandanten an, `ee/api/src/reports/summary.ts` summiert
+  jeden aktiven Mandanten in einer eigenen Mandanten-Transaktion.
+- **Branding** (`apps/api/src/features/branding`): `provider_branding` (Installation),
+  `tenant_branding` (Row Level Security) und `branding_images` (Installationsrolle, PNG und JPEG
+  ohne Metadaten, SVG abgelehnt). `effectiveBrand` wählt nach den Gates (`branding.tenant`, sonst
+  `branding.provider`, sonst der Produktname) und hält das Ergebnis eine Minute. Mails tragen das
+  Logo als Inline-Anhang (`cid:`); `GET /api/v1/public/branding/:token.(png|jpg)` und
+  `/accent/:hex.png` liefern ohne Sitzung nur das Bild, für Discord und Teams.
+- **Neue Gates**: `branding.provider` (Business), `branding.tenant` und `reports.customer`
+  (Service Provider); im Worker `branding.provider` und `branding.tenant`.
+
 ## Setup und Betriebsmodi
 
 Erststart läuft über einen Setup-Wizard. Konfiguration in `settings` (ein Datensatz je

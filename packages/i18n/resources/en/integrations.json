@@ -229,7 +229,8 @@
       "rules": "{count, plural, one {This rule sends to the webhook:} other {These # rules send to the webhook:}}",
       "rulesAlone": "{count, plural, one {One of them has no other channel and will send nothing afterwards.} other {# of them have no other channel and will send nothing afterwards.}}"
     },
-    "loadError": "The webhooks could not be loaded."
+    "loadError": "The webhooks could not be loaded.",
+    "failingSince": "Failing since {since}"
   },
   "webhookForm": {
     "createTitle": "Add webhook",
@@ -309,6 +310,13 @@
     "pausedNotice": {
       "title": "This webhook is paused",
       "description": "It receives no events and no test events until it is activated."
+    },
+    "health": {
+      "title": "Deliveries keep failing",
+      "since": "Failing since {since}, {count, plural, one {# attempt} other {# attempts}} in a row.",
+      "lastError": "Last error:",
+      "alerted": "An alert went out through the other channels on {at}.",
+      "notAlerted": "No alert has gone out yet: it is raised once the failures last a while."
     }
   },
   "deliveries": {
@@ -434,6 +442,22 @@
     "discard": "Discard",
     "save": "Save",
     "saved": "Notifications saved.",
-    "loadError": "The notification matrix could not be loaded."
+    "loadError": "The notification matrix could not be loaded.",
+    "critical": "Critical",
+    "locked": "Always on: critical events and failed deliveries always reach the bell.",
+    "digestChip": "{level}: {mode}",
+    "delivery": {
+      "immediate": "At once",
+      "hourly": "Hourly digest",
+      "daily": "Daily digest"
+    },
+    "failing": "Deliveries fail since {since}: {reason}",
+    "failingUnknown": "no reason given",
+    "failingLabel": "Why deliveries to {channel} fail",
+    "reports": {
+      "daily": "Daily report",
+      "weekly": "Weekly report",
+      "monthly": "Monthly report"
+    }
   }
 }

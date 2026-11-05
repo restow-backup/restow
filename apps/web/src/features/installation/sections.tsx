@@ -1,5 +1,6 @@
 import {
   AppWindow,
+  BellRing,
   CalendarClock,
   Coins,
   Container,
@@ -9,12 +10,15 @@ import {
   Info,
   Layers,
   Mail,
+  Palette,
   Server,
   ShieldAlert,
 } from "lucide-react";
 
+import { BrandingSection } from "@/features/branding/branding-section";
 import { GlobalAgentPolicySection } from "@/features/endpoints/components/global-agent-policy-section";
 import { PricingSection } from "@/features/pricing/pricing-section";
+import { ProviderNotificationsSection } from "@/features/provider-notifications/provider-notifications-section";
 import { PveSettingsSection } from "@/features/pve/settings-section";
 import { AboutSection } from "@/features/settings/sections/about-section";
 import { RansomwareSection } from "@/features/suspicion/components/ransomware-section";
@@ -34,7 +38,8 @@ import { MailSectionPage, ServerSectionPage } from "./sections/settings-sections
  * the license) take the places between (lib/extensions.tsx
  * `InstallationSectionSpec`):
  *
- *   10 Server   20 Notification mail   30 Microsoft multi-tenant app
+ *   10 Server   20 Notification mail   25 Notifications (recipients)   27 Branding
+ *   30 Microsoft multi-tenant app
  *   40 Journal receiving (Business)    50 Default repository & network shares
  *   55 Database      57 Ransomware detection   58 Agent policy   59 Proxmox VE
  *   60 Provider API (Service Provider) 65 Prices 70 Updates
@@ -65,6 +70,24 @@ export const CORE_INSTALLATION_SECTIONS: readonly InstallationSectionSpec[] = [
     icon: Mail,
     order: 20,
     component: MailSectionPage,
+  },
+  {
+    // The provider's notification recipients, the floor and the summary reports (0.5.0).
+    id: "notifications",
+    labelKey: "installation:sections.notifications",
+    descriptionKey: "installation:descriptions.notifications",
+    icon: BellRing,
+    order: 25,
+    component: ProviderNotificationsSection,
+  },
+  {
+    // The provider's branding of mails and chat messages (0.5.0, edition Business).
+    id: "branding",
+    labelKey: "installation:sections.branding",
+    descriptionKey: "installation:descriptions.branding",
+    icon: Palette,
+    order: 27,
+    component: BrandingSection,
   },
   {
     id: "microsoft-app",

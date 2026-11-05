@@ -34,6 +34,7 @@
     "migrate": "tsc -p tsconfig.build.json && node -e \"import('./dist/migrate.js').then((m) => m.migrateFromEnvironment()).catch((e) => { console.error(e.message); process.exit(1); })\""
   },
   "dependencies": {
+    "@restow/core": "workspace:*",
     "drizzle-orm": "^0.45.4",
     "pg": "^8.23.1"
   },

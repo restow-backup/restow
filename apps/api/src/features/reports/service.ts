@@ -1,8 +1,13 @@
 import {
+  BELL_LOCKED_EVENTS,
   nextRunAt as cadenceNextRunAt,
   DEFAULT_BELL_EVENTS,
+  isCriticalReportEvent,
   isInstallationReportEvent,
   plannedDeliveries,
+  REPORT_CADENCE_CRON,
+  REPORT_CADENCE_DAYS,
+  REPORT_CADENCES,
   REPORT_EVENT_INFO,
   REPORT_EVENTS,
   REPORT_PERIOD_DAYS,
@@ -18,11 +23,13 @@ import {
   type ReportRule,
   reportDeliveries,
   reportRules,
+  tenantNotificationRecipients,
   tenants,
   webhookDeliveries,
   webhooks,
 } from "@restow/db";
-import { and, desc, eq, inArray, isNull, lt, ne, type SQL, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, lt, ne, type SQL, sql } from "drizzle-orm";
+import { featureHook } from "../../extensions.js";
 import { audit } from "../../lib/audit.js";
 import { featureEnabled, requireFeature } from "../../lib/features.js";
 import { type DbExecutor, withTenantTx } from "../../lib/tenant-context.js";
@@ -99,6 +106,19 @@ export interface ReportRuleDto {
   locked: boolean;
   /** When the rule last sent something, and whether the newest delivery failed. */
   lastDelivery: { at: string; status: ReportDelivery["status"] } | null;
+  /** A schedule rule's calendar cadence (0.5.0); null for an own interval or cron. */
+  cadence: "daily" | "weekly" | "monthly" | null;
+  /** The PDF goes along (0.5.0). */
+  attachPdf: boolean;
+  /** A summary report, or the customer monthly report (0.5.0). */
+  kind: "summary" | "customer";
+  /** The rule's channels that are failing right now (0.5.0). */
+  deliveryProblems: {
+    channel: "email" | "webhook";
+    recipient: string;
+    since: string;
+    reason: string;
+  }[];
   createdAt: string;
   updatedAt: string;
 }
@@ -127,6 +147,16 @@ export interface ReportDeliveryDto {
   webhook: { id: string; deliveryId: string | null } | null;
   /** Set in the view across tenants: whose alert it is. */
   tenant?: { id: string; name: string };
+  /** Held for the recipient's hourly or daily digest (0.5.0). */
+  digest: "hourly" | "daily" | null;
+  /** Shared by the rows one digest mail carried. */
+  digestGroup: string | null;
+  /** When a pending row goes out (its digest, or its next attempt). */
+  scheduledFor: string | null;
+  /** A tenant's own delivery, or one of the provider's recipients (0.5.0). */
+  audience: "tenant" | "provider";
+  /** The tenant a provider delivery is about; null for the installation's own events. */
+  aboutTenant: { id: string; name: string } | null;
 }
 
 export interface DeliverySubjectDto {
@@ -138,11 +168,17 @@ export interface DeliverySubjectDto {
 }
 
 export interface ReportCatalogDto {
-  events: { name: ReportEvent; group: string; level: string }[];
+  events: { name: ReportEvent; group: string; level: string; critical: boolean }[];
   sections: string[];
   periods: number[];
   /** Whether time-triggered reports can be created (`reports.timed` is on). */
   scheduledAvailable: boolean;
+  /** The calendar cadences of a summary report (0.5.0). */
+  cadences: string[];
+  /** A summary report can carry the PDF statistics (with `reports.timed`). */
+  pdfAvailable: boolean;
+  /** The customer monthly report is offered (`reports.customer`). */
+  customerAvailable: boolean;
 }
 
 const iso = (value: Date | null) => (value ? value.toISOString() : null);
@@ -151,6 +187,7 @@ export function toRuleDto(
   row: ReportRule,
   scheduledAvailable: boolean,
   last: { at: Date; status: ReportDelivery["status"] } | null = null,
+  deliveryProblems: ReportRuleDto["deliveryProblems"] = [],
 ): ReportRuleDto {
   return {
     id: row.id,
@@ -174,6 +211,10 @@ export function toRuleDto(
     overdueAfterHours: row.overdueAfterHours,
     locked: row.trigger === "schedule" && !scheduledAvailable,
     lastDelivery: last ? { at: last.at.toISOString(), status: last.status } : null,
+    cadence: row.cadence ?? null,
+    attachPdf: row.attachPdf,
+    kind: row.kind,
+    deliveryProblems,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -246,6 +287,11 @@ export function toDeliveryDto(
       row.channel === "webhook" && row.recipient
         ? { id: row.recipient, deliveryId: webhookDeliveryIdOf(row) }
         : null,
+    digest: row.digest ?? null,
+    digestGroup: row.digestGroup ?? null,
+    scheduledFor: row.status === "pending" ? row.nextAttemptAt.toISOString() : null,
+    audience: row.tenantId ? "tenant" : "provider",
+    aboutTenant: null,
   };
 }
 
@@ -440,11 +486,78 @@ export async function reportCatalog(
   return {
     events: REPORT_EVENTS.filter(
       (name) => options.providerAdmin === true || !isInstallationReportEvent(name),
-    ).map((name) => ({ name, ...REPORT_EVENT_INFO[name] })),
+    ).map((name) => ({
+      name,
+      group: REPORT_EVENT_INFO[name].group,
+      level: REPORT_EVENT_INFO[name].level,
+      ...(REPORT_EVENT_INFO[name].webhookEvent
+        ? { webhookEvent: REPORT_EVENT_INFO[name].webhookEvent }
+        : {}),
+      critical: isCriticalReportEvent(name),
+    })),
     sections: [...REPORT_SECTIONS],
     periods: [...REPORT_PERIOD_DAYS],
     scheduledAvailable: await featureEnabled("reports.timed"),
+    cadences: [...REPORT_CADENCES],
+    pdfAvailable:
+      (await featureEnabled("reports.timed")) && featureHook("reportSummary") !== undefined,
+    customerAvailable: await featureEnabled("reports.customer"),
   };
+}
+
+/**
+ * The failing channels of a tenant's rules (0.5.0): the addresses whose mails fail (a recipient's
+ * episode, or the transport as a whole) and the webhooks that keep failing.
+ */
+async function ruleDeliveryProblems(
+  tx: DbExecutor,
+  tenantId: string,
+  rows: readonly ReportRule[],
+): Promise<Map<string, ReportRuleDto["deliveryProblems"]>> {
+  const failingRecipients = await tx
+    .select({
+      email: tenantNotificationRecipients.email,
+      since: tenantNotificationRecipients.failingSince,
+      reason: tenantNotificationRecipients.lastFailureReason,
+    })
+    .from(tenantNotificationRecipients)
+    .where(
+      and(
+        eq(tenantNotificationRecipients.tenantId, tenantId),
+        isNotNull(tenantNotificationRecipients.failingSince),
+      ),
+    );
+  const failingHooks = await tx
+    .select({ id: webhooks.id, since: webhooks.failingSince, lastFailure: webhooks.lastFailure })
+    .from(webhooks)
+    .where(and(eq(webhooks.tenantId, tenantId), isNotNull(webhooks.failingSince)));
+  const byEmail = new Map(failingRecipients.map((row) => [row.email.trim().toLowerCase(), row]));
+  const result = new Map<string, ReportRuleDto["deliveryProblems"]>();
+  for (const rule of rows) {
+    const problems: ReportRuleDto["deliveryProblems"] = [];
+    for (const address of rule.emailRecipients) {
+      const failing = byEmail.get(address.trim().toLowerCase());
+      if (failing?.since) {
+        problems.push({
+          channel: "email",
+          recipient: address,
+          since: failing.since.toISOString(),
+          reason: failing.reason ?? "transport_error",
+        });
+      }
+    }
+    const hook = rule.webhookId ? failingHooks.find((row) => row.id === rule.webhookId) : null;
+    if (hook?.since) {
+      problems.push({
+        channel: "webhook",
+        recipient: hook.id,
+        since: hook.since.toISOString(),
+        reason: (hook.lastFailure ?? "").split(/[ :]/)[0] || "http_error",
+      });
+    }
+    result.set(rule.id, problems);
+  }
+  return result;
 }
 
 export async function listRules(db: Database, tenantId: string): Promise<ReportRuleDto[]> {
@@ -471,7 +584,10 @@ export async function listRules(db: Database, tenantId: string): Promise<ReportR
         { at: row.createdAt, status: dtos[index]?.status ?? row.status },
       ]),
     );
-    return rows.map((row) => toRuleDto(row, scheduledAvailable, byRule.get(row.id) ?? null));
+    const problems = await ruleDeliveryProblems(tx, tenantId, rows);
+    return rows.map((row) =>
+      toRuleDto(row, scheduledAvailable, byRule.get(row.id) ?? null, problems.get(row.id) ?? []),
+    );
   });
 }
 
@@ -482,11 +598,34 @@ export async function createRule(
   actor: ReportActor,
   now: Date,
 ): Promise<ReportRuleDto> {
+  const cadence = input.cadence ?? null;
+  if (cadence) {
+    if (input.trigger !== "schedule") {
+      throw reportRuleProblem(
+        "cadence",
+        "cadence_needs_schedule",
+        "A cadence is for schedule rules.",
+      );
+    }
+    if (input.intervalMinutes || input.cron) {
+      throw reportRuleProblem(
+        "cadence",
+        "cadence_exclusive",
+        "Choose a cadence, or an own interval or cron, not both.",
+      );
+    }
+  }
   const shape: RuleShape = {
     trigger: input.trigger,
     events: input.trigger === "event" ? input.events : [],
-    intervalMinutes: input.trigger === "schedule" ? (input.intervalMinutes ?? null) : null,
-    cron: input.trigger === "schedule" ? (input.cron ?? null) : null,
+    intervalMinutes:
+      input.trigger === "schedule" && !cadence ? (input.intervalMinutes ?? null) : null,
+    cron:
+      input.trigger === "schedule"
+        ? cadence
+          ? REPORT_CADENCE_CRON[cadence]
+          : (input.cron ?? null)
+        : null,
     timezone: input.timezone,
     sections: input.trigger === "schedule" ? input.sections : [],
     emailRecipients: input.emailRecipients,
@@ -510,7 +649,9 @@ export async function createRule(
         sections: [...shape.sections],
         emailRecipients: [...shape.emailRecipients],
         throttleMinutes: input.throttleMinutes,
-        periodDays: input.periodDays,
+        periodDays: cadence ? REPORT_CADENCE_DAYS[cadence] : input.periodDays,
+        cadence,
+        attachPdf: input.trigger === "schedule" ? (input.attachPdf ?? false) : false,
         language: input.language,
         nextRunAt: firstRun(shape, now),
         createdBy: actor.userId,
@@ -593,6 +734,35 @@ export async function updateRule(
     }
     if (patch.intervalMinutes !== undefined && patch.intervalMinutes !== null) after.cron = null;
     if (patch.cron !== undefined && patch.cron !== null) after.intervalMinutes = null;
+    // A calendar cadence sets its own cron; an own interval or cron ends it.
+    if (patch.cadence) {
+      if (after.trigger !== "schedule") {
+        throw reportRuleProblem(
+          "cadence",
+          "cadence_needs_schedule",
+          "A cadence is for schedule rules.",
+        );
+      }
+      if ((patch.intervalMinutes ?? null) !== null || (patch.cron ?? null) !== null) {
+        throw reportRuleProblem(
+          "cadence",
+          "cadence_exclusive",
+          "Choose a cadence, or an own interval or cron, not both.",
+        );
+      }
+      after.cron = REPORT_CADENCE_CRON[patch.cadence];
+      after.intervalMinutes = null;
+      after.periodDays = REPORT_CADENCE_DAYS[patch.cadence];
+    } else if (
+      patch.cadence === undefined &&
+      ((patch.intervalMinutes ?? null) !== null || (patch.cron ?? null) !== null)
+    ) {
+      after.cadence = null;
+    }
+    if (after.trigger !== "schedule") {
+      after.cadence = null;
+      after.attachPdf = false;
+    }
     if (after.enabled) {
       assertRuleShape(after, now);
     } else {
@@ -622,6 +792,8 @@ export async function updateRule(
         webhookId: after.webhookId,
         language: after.language,
         overdueAfterHours: after.overdueAfterHours,
+        cadence: after.cadence ?? null,
+        attachPdf: after.attachPdf,
         nextRunAt: cadenceChanged && after.enabled ? firstRun(after, now) : before.nextRunAt,
         updatedAt: now,
       })
@@ -753,9 +925,17 @@ async function readDeliveries(
     .where(where)
     .orderBy(desc(reportDeliveries.createdAt), desc(reportDeliveries.id))
     .limit(query.limit);
-  const dtos = (await deliveryDtos(tx, rows)).map((dto, index) =>
-    withTenant ? { ...dto, tenant: { id: rows[index]?.tenantId ?? "", name: "" } } : dto,
-  );
+  const dtos = (await deliveryDtos(tx, rows)).map((dto, index) => {
+    const row = rows[index];
+    if (!withTenant || !row) return dto;
+    // A provider delivery (0.5.0) has no tenant: the log shows "Installation" and the tenant
+    // the alert is about, if any.
+    return {
+      ...dto,
+      ...(row.tenantId ? { tenant: { id: row.tenantId, name: "" } } : {}),
+      aboutTenant: row.aboutTenantId ? { id: row.aboutTenantId, name: "" } : null,
+    };
+  });
   return query.status ? dtos.filter((dto) => dto.status === query.status) : dtos;
 }
 
@@ -793,7 +973,27 @@ export async function listProviderDeliveries(
     query,
     true,
   );
-  return withTenantNames(installation, dtos, (dto) => dto.tenant?.id ?? "");
+  const named = await withTenantNames(installation, dtos, (dto) => dto.tenant?.id ?? "");
+  const aboutIds = [
+    ...new Set(named.flatMap((dto) => (dto.aboutTenant ? [dto.aboutTenant.id] : []))),
+  ];
+  if (aboutIds.length === 0) return named;
+  const names = await installation
+    .select({ id: tenants.id, name: tenants.name })
+    .from(tenants)
+    .where(inArray(tenants.id, aboutIds));
+  const byId = new Map(names.map((row) => [row.id, row.name]));
+  return named.map((dto) =>
+    dto.aboutTenant
+      ? {
+          ...dto,
+          aboutTenant: {
+            id: dto.aboutTenant.id,
+            name: byId.get(dto.aboutTenant.id) ?? dto.aboutTenant.id,
+          },
+        }
+      : dto,
+  );
 }
 
 async function withTenantNames<T extends { tenant?: { id: string; name: string } }>(
@@ -836,7 +1036,8 @@ export function deliveriesCsv(items: readonly ReportDeliveryDto[]): string {
     DELIVERY_CSV_COLUMNS,
     items.map((item) => [
       item.createdAt,
-      item.tenant?.name ?? null,
+      // A provider delivery (0.5.0) is the installation's own.
+      item.tenant?.name ?? (item.audience === "provider" ? "Installation" : null),
       item.ruleName,
       item.kind,
       item.event,
@@ -910,7 +1111,7 @@ function namesLiteral(names: readonly string[]): SQL {
  * (a report was sent) always, a catalog event when the tenant's bell column has it on
  * (`tenants.bell_events`, null for the default). The rows of events switched off stay, hidden.
  */
-const BELL_SHOWS: SQL = sql`(${notifications.tenantId} IS NULL OR NOT (${notifications.event} = ANY(${namesLiteral(REPORT_EVENTS)})) OR ${notifications.event} = ANY(COALESCE((SELECT bell.bell_events FROM tenants AS bell WHERE bell.id = ${notifications.tenantId}), ${namesLiteral(DEFAULT_BELL_EVENTS)})))`;
+const BELL_SHOWS: SQL = sql`(${notifications.tenantId} IS NULL OR NOT (${notifications.event} = ANY(${namesLiteral(REPORT_EVENTS)})) OR ${notifications.event} = ANY(${namesLiteral(BELL_LOCKED_EVENTS)}) OR ${notifications.event} = ANY(COALESCE((SELECT bell.bell_events FROM tenants AS bell WHERE bell.id = ${notifications.tenantId}), ${namesLiteral(DEFAULT_BELL_EVENTS)})))`;
 
 function toNotificationDto(row: typeof notifications.$inferSelect): NotificationDto {
   return {

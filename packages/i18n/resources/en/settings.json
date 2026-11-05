@@ -195,6 +195,7 @@
         "smtp_auth_failed": "The SMTP server refused the sign-in. Check username and password.",
         "smtp_connection_failed": "The SMTP server cannot be reached. Check host, port and firewall.",
         "smtp_tls_failed": "The encrypted connection failed. Check the connection security, the port and the server certificate.",
+        "smtp_sender_rejected": "The SMTP server refused the sender address. Check the From address of the notification mail and of the branding, and whether the server allows sending as it.",
         "graph_app_missing": "No backup app registration is set up (Installation › Server & operation › Microsoft multi-tenant app).",
         "graph_credential_missing": "No secret is stored for the own app registration. Enter it again.",
         "graph_tenant_missing": "No Entra tenant is set for the sender mailbox.",
@@ -213,7 +214,8 @@
         "google_sender_not_found": "The sender mailbox does not exist in your Workspace domain, or Gmail is not enabled for this user.",
         "google_api_disabled": "The Gmail API is not enabled in the service account project.",
         "google_send_denied": "Google refused to send as this mailbox.",
-        "google_token_failed": "Google did not issue a sign-in for the service account. The technical response below names the reason."
+        "google_token_failed": "Google did not issue a sign-in for the service account. The technical response below names the reason.",
+        "recipient_rejected": "The mail server refused the recipient for good. Check the address."
       }
     },
     "switchRemovesCredential": "Saving deletes the stored credentials of the previous transport.",
@@ -331,6 +333,11 @@
           "description": "Paste the key, enter the sender mailbox and send a test message before saving."
         }
       }
+    },
+    "allowedSenders": {
+      "label": "Allowed sender addresses",
+      "hint": "Further From addresses the branding may use, one per line: an exact address or @domain (at most {max}). The From address above is always allowed. Allow only addresses your mail server may send as.",
+      "placeholder": "alerts@example.com\n@example.com"
     }
   },
   "microsoftApp": {
@@ -730,7 +737,8 @@
     "host": "Enter a host name or an IP address.",
     "tenantGuid": "Enter the directory ID (GUID) from the app registration overview.",
     "serviceAccountKey": "This is not a service account key. Paste the complete content of the JSON key file.",
-    "samePassword": "The new password must differ from the current one."
+    "samePassword": "The new password must differ from the current one.",
+    "allowedSenders": "One exact address or @domain per line, at most 20."
   },
   "errors": {
     "setupIncomplete": "The setup is not complete yet. Finish the setup wizard first.",
@@ -756,5 +764,156 @@
     "thirdPartyLink": "Third-party notices",
     "thirdPartyGitHub": "on GitHub",
     "opensInNewTab": "(opens in a new tab)"
+  },
+  "branding": {
+    "loadError": "The branding could not be loaded.",
+    "httpsNote": "Logo in Discord and Teams needs a public HTTPS address. Set it under Server; until then chat messages carry the sender name only.",
+    "locked": {
+      "title": "Branding",
+      "description": "Your logo, sender name, accent colour and footer on every mail and chat message. Without it, messages carry {appName} only."
+    },
+    "logo": {
+      "title": "Logo",
+      "description": "Shown at the top of every mail and report, embedded in the mail itself. Nothing is loaded from outside when the mail is opened.",
+      "alt": "Current logo",
+      "none": "No logo",
+      "drop": "Drop a PNG or JPEG file here",
+      "choose": "Choose a file",
+      "replace": "Replace",
+      "remove": "Remove",
+      "removed": "Logo removed.",
+      "uploaded": "Logo saved.",
+      "rules": "PNG or JPEG, at most 512 KiB, 16 to 2000 pixels per side. SVG is not accepted, since it can carry scripts. Metadata is removed when it is saved.",
+      "current": "Current logo: {width} × {height} pixels, {size} KiB."
+    },
+    "errors": {
+      "svg-not-supported": "SVG is not accepted, since it can carry scripts. Please upload the logo as PNG or JPEG.",
+      "unsupported-type": "Only PNG and JPEG files can be the logo.",
+      "unsupported-image": "Only PNG and JPEG files can be the logo.",
+      "too-large": "The logo may be at most 512 KiB.",
+      "dimensions": "The logo has to be 16 to 2000 pixels wide and high.",
+      "corrupt": "The file could not be read as an image.",
+      "animated": "Animated images are not accepted.",
+      "accent-contrast": "Neither white nor dark text reaches a contrast of 4.5:1 on this colour. Please choose a darker or a lighter shade.",
+      "accent-invalid": "Enter the colour as #rrggbb.",
+      "sender-not-allowed": "This From address is not allowed yet. Add it, or its @domain, to the allowed sender addresses under Notification mail.",
+      "from-locked": "Microsoft 365 and Google Workspace always send from the configured mailbox. Only the sender name and Reply-To can be changed.",
+      "invalid-email": "This is not a valid e-mail address.",
+      "too-long": "This text is too long.",
+      "invalid": "The branding could not be saved. Please check the fields."
+    },
+    "fields": {
+      "title": "Sender, colour and footer",
+      "description": "How your mails introduce themselves and how they look. Empty fields keep the defaults.",
+      "senderName": "Sender name",
+      "senderNameHint": "Shown as the sender and in chat messages instead of {appName}. One line, at most 80 characters.",
+      "from": "From address",
+      "fromHint": "Empty sends from {sender}. Other addresses need to be listed as allowed sender addresses under Notification mail.",
+      "fromLocked": "Microsoft 365 and Google Workspace always send from {sender}. Only the sender name and Reply-To apply. Exchange may show the mailbox's own name.",
+      "fromNoTransport": "No mail transport is set up yet (Notification mail).",
+      "replyTo": "Reply-To",
+      "replyToHint": "Where replies to notifications go, for example your service desk.",
+      "accent": "Accent colour",
+      "accentHint": "Used for the band at the top, buttons and, where it reads on white, links.",
+      "accentPicker": "Pick the accent colour",
+      "accentClear": "No accent",
+      "footer": "Footer and imprint",
+      "footerHint": "Shown at the end of every mail. Line breaks are kept. {used} of {max} characters."
+    },
+    "contrast": {
+      "sample": "Sample",
+      "white": "White text",
+      "dark": "Dark text",
+      "ratio": "{label}: {ratio}:1, {verdict}",
+      "pass": "passes",
+      "fail": "too low",
+      "fails": "Needs a contrast of at least {min}:1 with white or dark text. Saving is not possible with this colour.",
+      "links": "Links take the accent colour.",
+      "linksDefault": "Links stay blue: the accent is too light to read as text on white."
+    },
+    "save": "Save branding",
+    "discard": "Discard",
+    "saved": "Branding saved.",
+    "preview": {
+      "title": "Preview",
+      "description": "How the saved branding looks in a mail. Save your changes to see them here.",
+      "kinds": "Kind of message",
+      "tabs": {
+        "alert": "Alert",
+        "digest": "Digest",
+        "summary": "Summary report",
+        "customer": "Customer report"
+      },
+      "subject": "Subject:",
+      "frame": "Preview of the mail"
+    },
+    "test": {
+      "description": "Sends a sample alert in this branding to your own address.",
+      "send": "Send test mail",
+      "sent": "Test mail sent to {to}."
+    }
+  },
+  "providerRecipients": {
+    "loadError": "The notification recipients could not be loaded.",
+    "readOnly": "You can look at this list. Changing it needs the Administrator role in the provider team or higher.",
+    "title": "Recipients",
+    "description": "Who on your side receives alerts about every tenant and the installation. The owners of the provider team are always on the list and cannot be removed: they always receive security and data-loss events, so an alert never ends with nobody.",
+    "add": "Add recipient",
+    "save": "Save recipients",
+    "discard": "Discard",
+    "saved": "Recipients saved.",
+    "unsaved": "Unsaved changes",
+    "owner": "Owner",
+    "ownerHint": "An owner of the provider team; the address is the sign-in address.",
+    "mandatoryLockedHint": "A mandatory recipient: only an owner of the provider team can change its address or remove it.",
+    "mandatory": "Mandatory",
+    "mandatoryToggle": "Mandatory: always receives critical events",
+    "floorHint": "Always receives critical events and failed deliveries.",
+    "email": "E-mail address",
+    "name": "Name",
+    "language": "Language",
+    "languageDefault": "Installation default",
+    "failing": "Mail fails since {since}",
+    "test": "Send test",
+    "testSaveFirst": "Save the list first.",
+    "testSent": "Test notification sent to {to}.",
+    "remove": "Remove {email}",
+    "unnamed": "New recipient",
+    "errors": {
+      "required": "Enter an e-mail address.",
+      "email": "This is not a valid e-mail address.",
+      "invalid-email": "One of the addresses is not valid.",
+      "duplicate": "This address is listed twice.",
+      "owner-required": "The owners of the provider team cannot be removed from the list.",
+      "unknown-event": "The list names an event this server does not know. Please reload the page.",
+      "mandatoryOwner": "Only an owner of the provider team can make a recipient mandatory or release it."
+    },
+    "matrix": {
+      "title": "What each recipient receives",
+      "description": "Tick the events per recipient and choose per severity whether mail comes at once or collected in an hourly or daily digest.",
+      "criticalNote": "Critical events always come at once and always reach the owners and mandatory recipients; their cells are locked.",
+      "deliveryFor": "{level} for {recipient}",
+      "reports": "Summary reports",
+      "lockedHint": "Always on: owners and mandatory recipients always receive critical events and failed deliveries."
+    }
+  },
+  "summaryReports": {
+    "title": "Summary reports across tenants",
+    "description": "A report of the previous day, week (Monday to Sunday) or month, with the figures of every tenant, as a mail and optionally with the PDF statistics. Tick who receives it in the list above.",
+    "loadError": "The summary reports could not be loaded.",
+    "saved": "Summary report saved.",
+    "never": "never",
+    "cadences": {
+      "daily": "Daily report",
+      "weekly": "Weekly report",
+      "monthly": "Monthly report"
+    },
+    "recipients": "{count, plural, one {# recipient} other {# recipients}}: {list}",
+    "noRecipients": "Nobody receives it yet.",
+    "runs": "Next: {next} · Last: {last}",
+    "attachPdf": "Attach PDF",
+    "sendHour": "At",
+    "test": "Send test to me",
+    "testSent": "The report is queued for {to}."
   }
 }

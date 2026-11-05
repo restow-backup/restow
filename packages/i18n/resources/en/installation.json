@@ -21,7 +21,9 @@
     "ransomware": "Ransomware detection",
     "agentPolicy": "Agent policy",
     "proxmox": "Proxmox VE",
-    "pricing": "Prices"
+    "pricing": "Prices",
+    "notifications": "Notifications",
+    "branding": "Branding"
   },
   "descriptions": {
     "server": "How browsers reach this server, whether passkeys are offered and the installation's time zone. Applies to {scope, select, organisation {your organisation} other {all tenants}}.",
@@ -39,7 +41,9 @@
     "ransomware": "How restore points are checked for signs of ransomware, and the thresholds of each signal, for {scope, select, organisation {your organisation} other {all tenants}}.",
     "agentPolicy": "Backup window, missed backups, bandwidth, AC power and retries of servers and clients, and what tenants may change.",
     "proxmox": "How the restore points of VMs and containers are checked, for {scope, select, organisation {your organisation} other {all tenants}}.",
-    "pricing": "What you charge your customers per month: per mailbox and per GB or TB of backups. The dashboard and each tenant's overview show what it comes to at these prices. Nothing is billed."
+    "pricing": "What you charge your customers per month: per mailbox and per GB or TB of backups. The dashboard and each tenant's overview show what it comes to at these prices. Nothing is billed.",
+    "notifications": "Who on your side is told what about {scope, select, organisation {your organisation} other {every tenant}} and the installation: the recipients, the mandatory ones, digests and the summary reports.",
+    "branding": "Your logo, sender, accent colour and footer on the mails and chat messages of {scope, select, organisation {your organisation} other {every tenant}}."
   },
   "access": {
     "owner": "You can look at these settings. Changing them needs the Owner role in the provider team.",
@@ -623,5 +627,6 @@
       "storage": "{price} per {unit}",
       "loadError": "The list of tenants with their own prices could not be loaded."
     }
-  }
+  },
+  "featureLocked": "Not part of this build"
 }

@@ -166,6 +166,10 @@ export const PUBLIC_ROUTES: ReadonlySet<string> = new Set([
   // (features/archive-capture/hooks.ts).
   "POST /api/v1/hooks/graph/notifications",
   "POST /api/v1/hooks/graph/lifecycle",
+  // The public branding images (0.5.0, features/branding/public.ts): chat services fetch the
+  // logo and the accent band themselves; only image bytes, by an unguessable token.
+  "GET /api/v1/public/branding/:file",
+  "GET /api/v1/public/branding/accent/:file",
 ]);
 
 /**
@@ -200,6 +204,17 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "PATCH /api/v1/tenants/:id/customer": configure(byParam("id")),
   "PUT /api/v1/tenants/:id/contacts": configure(byParam("id")),
   "PUT /api/v1/tenants/:id/notification-recipients": configure(byParam("id")),
+  // A tenant's own branding (0.5.0, Service Provider): the provider's admins set it up.
+  "GET /api/v1/tenants/:id/branding": view(byParam("id")),
+  "PUT /api/v1/tenants/:id/branding": configure(byParam("id")),
+  "PUT /api/v1/tenants/:id/branding/logo": configure(byParam("id")),
+  "DELETE /api/v1/tenants/:id/branding/logo": configure(byParam("id")),
+  // The customer monthly report (0.5.0, Service Provider).
+  "GET /api/v1/tenants/:id/customer-report": view(byParam("id")),
+  "PUT /api/v1/tenants/:id/customer-report": configure(byParam("id")),
+  "GET /api/v1/tenants/:id/customer-report/preview": view(byParam("id")),
+  "GET /api/v1/tenants/:id/customer-report/preview.pdf": view(byParam("id")),
+  "POST /api/v1/tenants/:id/customer-report/test": configure(byParam("id")),
   // A tenant's own prices (settings/tenant-pricing.ts): business figures of the provider, read by
   // its admins for the tenants they may enter, changed by the owner (and only while the gate
   // `tenants.additional` is open).
@@ -264,6 +279,22 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "GET /api/v1/settings/pricing/estimate": view(LIST),
   // The installation's agent policy (docs/AGENT.md, "Richtlinien"): it reaches every tenant's
   // machines, so changing it needs an administrator with every tenant.
+  // The provider's branding (0.5.0, features/branding): everyone on the team sees it and the
+  // preview, the owner changes it; a test mail goes to the one who asks.
+  "GET /api/v1/settings/branding": view(PROVIDER),
+  "PUT /api/v1/settings/branding": own(),
+  "PUT /api/v1/settings/branding/logo": own(),
+  "DELETE /api/v1/settings/branding/logo": own(),
+  "GET /api/v1/settings/branding/preview": view(PROVIDER),
+  "POST /api/v1/settings/branding/test": configure(PROVIDER),
+  // The provider's notification recipients and its summary reports across tenants (0.5.0):
+  // administrators keep the list (only owners mark recipients mandatory, checked by the handler).
+  "GET /api/v1/settings/notification-recipients": view(PROVIDER),
+  "PUT /api/v1/settings/notification-recipients": configure(PROVIDER),
+  "POST /api/v1/settings/notification-recipients/:id/test": configure(PROVIDER),
+  "GET /api/v1/settings/summary-reports": view(PROVIDER),
+  "PUT /api/v1/settings/summary-reports/:cadence": configure(PROVIDER),
+  "POST /api/v1/settings/summary-reports/:cadence/test": configure(PROVIDER),
   "GET /api/v1/settings/agent-policy": view(PROVIDER),
   "PUT /api/v1/settings/agent-policy": configure(PROVIDER),
 

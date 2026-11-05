@@ -57,6 +57,8 @@ const DEMO_CLOSED_SECTIONS: ReadonlySet<string> = new Set([
   "agents",
   "archive",
   "notifications",
+  // The tenant's own branding (0.5.0): a logo upload is nothing for a public demo.
+  "branding",
   "master-data",
 ]);
 

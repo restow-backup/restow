@@ -5,13 +5,31 @@ import { createI18n, failureVariables, type SupportedLanguage } from "@restow/i1
  * Turning an outbox row into what a person reads: the subject, a plain-text
  * body and a small HTML body, in the rule's (or tenant's) language. Every
  * value that came from data (object names, error texts) is escaped for HTML;
- * nothing is fetched from outside and there are no images or tracking.
+ * nothing is fetched from outside and there is no tracking. A branded mail
+ * (0.5.0, docs/NOTIFICATIONS.md "Branding") carries its logo as an inline
+ * attachment the HTML refers to by Content-ID (`cid:`), its colours only as
+ * validated `#rrggbb` values (cssHex), and its footer text escaped.
  */
 
 export interface RenderedMessage {
   subject: string;
   text: string;
   html: string;
+}
+
+/** What a mail is branded with (from the effective brand, packages/core reports/branding.ts). */
+export interface MailBrand {
+  /** The sender name; it also replaces the product name in the texts. */
+  readonly senderName: string;
+  readonly accentColor: string | null;
+  readonly onAccent: "light" | "dark" | null;
+  readonly linkColor: string | null;
+  readonly footerText: string | null;
+  /**
+   * The logo: `src` is `cid:<content id>` in a mail (the dispatcher attaches the image) or the
+   * public image path in a preview. Width and height are the image's own pixels.
+   */
+  readonly logo: { readonly src: string; readonly width: number; readonly height: number } | null;
 }
 
 export interface AlertInput {
@@ -21,6 +39,54 @@ export interface AlertInput {
   readonly payload: Record<string, unknown>;
   /** A test send from the rule editor: marked as such in the subject and body. */
   readonly test?: boolean;
+  /** The brand of the mail; absent renders today's unbranded mail, byte for byte. */
+  readonly brand?: MailBrand | null;
+}
+
+/** A colour for a style attribute: only ever an exact `#rrggbb`, anything else throws. */
+export function cssHex(value: string): string {
+  if (!/^#[0-9a-f]{6}$/.test(value)) {
+    throw new RangeError("not a validated #rrggbb colour");
+  }
+  return value;
+}
+
+/** The Content-ID of a logo: stable per image, so a client may cache it. */
+export function logoContentId(sha256: string): string {
+  return `brand-logo.${sha256
+    .slice(0, 12)
+    .toLowerCase()
+    .replace(/[^0-9a-f]/g, "0")}@mail.invalid`;
+}
+
+/** The size a logo is shown at: at most 200 × 60 CSS pixels, its aspect ratio kept. */
+export function logoDisplaySize(width: number, height: number): { width: number; height: number } {
+  if (width <= 0 || height <= 0) {
+    return { width: 200, height: 60 };
+  }
+  const scale = Math.min(200 / width, 60 / height, 1);
+  return {
+    width: Math.max(1, Math.round(width * scale)),
+    height: Math.max(1, Math.round(height * scale)),
+  };
+}
+
+/** A `src` an <img> of a mail may carry: a Content-ID or a path on this instance, nothing else. */
+function safeImageSource(src: string): string | null {
+  if (/^cid:[A-Za-z0-9._@-]+$/.test(src)) {
+    return src;
+  }
+  if (/^\/api\/v1\/public\/branding\/[A-Za-z0-9_-]+\.(png|jpg)$/.test(src)) {
+    return src;
+  }
+  return null;
+}
+
+/** An i18n instance whose `{appName}` is the brand's sender name when the mail is branded. */
+function mailI18n(language: SupportedLanguage, brand: MailBrand | null | undefined) {
+  return brand
+    ? createI18n({ lng: language, appName: brand.senderName })
+    : createI18n({ lng: language });
 }
 
 export function escapeHtml(value: string): string {
@@ -141,20 +207,78 @@ export function suspicionFindingLines(
   return lines;
 }
 
+/** The rows of a labelled line list as HTML table rows. */
+function htmlRowsOf(rows: readonly [string, string][]): string {
+  return rows
+    .map(
+      ([label, value]) =>
+        `<tr><td style="padding:4px 12px 4px 0;color:#555;vertical-align:top">${escapeHtml(label)}</td><td style="padding:4px 0">${escapeHtml(value)}</td></tr>`,
+    )
+    .join("");
+}
+
+/** The footer text of a brand (imprint): escaped, each line break a <br>. */
+function brandFooterHtml(text: string): string {
+  return text
+    .split(/\r?\n/)
+    .map((line) => escapeHtml(line))
+    .join("<br>");
+}
+
+/**
+ * The branded frame around a mail's content: the logo (inline by Content-ID) and a 4 px rule in
+ * the accent colour above the heading, the brand's footer text under the product footer. Every
+ * value from data is escaped; colours go through cssHex.
+ */
+function brandedHtml(brand: MailBrand, content: string, footer: string): string {
+  const parts: string[] = [];
+  const src = brand.logo ? safeImageSource(brand.logo.src) : null;
+  if (brand.logo && src) {
+    const size = logoDisplaySize(brand.logo.width, brand.logo.height);
+    parts.push(
+      `<table role="presentation" style="border-collapse:collapse;margin:0 0 12px"><tr><td style="padding:0"><img src="${escapeHtml(src)}" width="${size.width}" height="${size.height}" alt="${escapeHtml(brand.senderName)}" style="display:block;border:0;width:${size.width}px;height:${size.height}px"></td></tr></table>`,
+    );
+  }
+  if (brand.accentColor) {
+    parts.push(
+      `<div style="height:4px;line-height:4px;font-size:0;background:${cssHex(brand.accentColor)};margin:0 0 16px">&nbsp;</div>`,
+    );
+  }
+  parts.push(content);
+  parts.push(`<p style="margin-top:24px;color:#666;font-size:12px">${escapeHtml(footer)}</p>`);
+  if (brand.footerText) {
+    parts.push(
+      `<p style="margin-top:12px;color:#666;font-size:12px">${brandFooterHtml(brand.footerText)}</p>`,
+    );
+  }
+  return `<!doctype html><html><body style="font-family:-apple-system,Segoe UI,Arial,sans-serif;font-size:14px;color:#111;max-width:640px">${parts.join("")}</body></html>`;
+}
+
+/** The plain-text footer: the product footer, then the brand's footer text. */
+function textFooter(footer: string, brand: MailBrand | null | undefined): string[] {
+  return brand?.footerText ? ["--", footer, "", brand.footerText] : ["--", footer];
+}
+
 /** A labelled line list as text and as an HTML table. */
 function layout(
   heading: string,
   intro: string,
   rows: readonly [string, string][],
   footer: string,
+  brand?: MailBrand | null,
 ): { text: string; html: string } {
   const textRows = rows.map(([label, value]) => `${label}: ${value}`).join("\n");
-  const htmlRows = rows
-    .map(
-      ([label, value]) =>
-        `<tr><td style="padding:4px 12px 4px 0;color:#555;vertical-align:top">${escapeHtml(label)}</td><td style="padding:4px 0">${escapeHtml(value)}</td></tr>`,
-    )
-    .join("");
+  const htmlRows = htmlRowsOf(rows);
+  if (brand) {
+    return {
+      text: [heading, "", intro, "", textRows, "", ...textFooter(footer, brand)].join("\n"),
+      html: brandedHtml(
+        brand,
+        `<h2 style="font-size:18px;margin:0 0 12px">${escapeHtml(heading)}</h2><p>${escapeHtml(intro)}</p><table style="border-collapse:collapse">${htmlRows}</table>`,
+        footer,
+      ),
+    };
+  }
   return {
     text: [heading, "", intro, "", textRows, "", "--", footer].join("\n"),
     html: `<!doctype html><html><body style="font-family:-apple-system,Segoe UI,Arial,sans-serif;font-size:14px;color:#111;max-width:640px"><h2 style="font-size:18px;margin:0 0 12px">${escapeHtml(heading)}</h2><p>${escapeHtml(intro)}</p><table style="border-collapse:collapse">${htmlRows}</table><p style="margin-top:24px;color:#666;font-size:12px">${escapeHtml(footer)}</p></body></html>`,
@@ -188,7 +312,7 @@ function alertFailure(value: unknown): AlertFailure | null {
 
 /** An alert for one event. Unknown events render with their raw name, never fail. */
 export function renderAlert(input: AlertInput): RenderedMessage {
-  const i18n = createI18n({ lng: input.language });
+  const i18n = mailI18n(input.language, input.brand);
   const t = (key: string, values?: Record<string, unknown>) => String(i18n.t(key, values));
   const event = text(input.payload.event) ?? "";
   const details = (input.payload.details ?? {}) as Record<string, unknown>;
@@ -356,6 +480,9 @@ export function renderAlert(input: AlertInput): RenderedMessage {
     const last = formatWhen(text(details.lastCopyAt) ?? text(details.lastReportAt), input.language);
     if (last) rows.push([t("reports:mail.archiveLast"), `${last} UTC`]);
   }
+  if (event === "notification.delivery_failed") {
+    rows.push(...renderDeliveryFailureRows(details, input.language, i18n.exists.bind(i18n), t));
+  }
   // A failed job says why and what to do, in the recipient's language; the raw message follows.
   const failure = alertFailure(details.failure);
   if (failure) {
@@ -387,8 +514,66 @@ export function renderAlert(input: AlertInput): RenderedMessage {
     t("reports:mail.alertIntro", { event: eventLabel, target, tenant: input.tenantName }),
     rows,
     t("reports:mail.footer", { rule: input.ruleName }),
+    input.brand,
   );
   return { subject: `[${input.tenantName}] ${heading}`, text: body, html };
+}
+
+/**
+ * The rows of a `notification.delivery_failed` alert: which channel failed, for whom or which
+ * webhook, why (the same texts the settings and the webhook log use), since when and how many
+ * deliveries.
+ */
+export function renderDeliveryFailureRows(
+  details: Record<string, unknown>,
+  language: SupportedLanguage,
+  exists: (key: string) => boolean,
+  t: (key: string, values?: Record<string, unknown>) => string,
+): [string, string][] {
+  const rows: [string, string][] = [];
+  const channel = details.channel === "webhook" ? "webhook" : "email";
+  rows.push([
+    t("reports:mail.deliveryFailed.channel"),
+    t(
+      channel === "webhook"
+        ? "reports:mail.deliveryFailed.webhook"
+        : "reports:mail.deliveryFailed.email",
+    ),
+  ]);
+  if (channel === "webhook") {
+    const name = text(details.webhookName) ?? text(details.host);
+    if (name) rows.push([t("reports:mail.deliveryFailed.webhookName"), name]);
+  } else if (details.scope === "transport") {
+    rows.push([
+      t("reports:mail.deliveryFailed.recipient"),
+      t("reports:mail.deliveryFailed.transport"),
+    ]);
+  } else {
+    const recipient = text(details.recipient);
+    if (recipient) rows.push([t("reports:mail.deliveryFailed.recipient"), recipient]);
+  }
+  const reason = text(details.reason);
+  if (reason) {
+    const key =
+      channel === "webhook"
+        ? `integrations:deliveries.errors.${reason}`
+        : `settings:mail.test.reasons.${reason}`;
+    const status = typeof details.httpStatus === "number" ? details.httpStatus : "";
+    rows.push([t("reports:mail.deliveryFailed.reason"), exists(key) ? t(key, { status }) : reason]);
+  }
+  const detail = text(details.detail);
+  if (detail) rows.push([t("reports:mail.error"), detail.slice(0, 300)]);
+  const since = formatWhen(text(details.since), language);
+  if (since) rows.push([t("reports:mail.deliveryFailed.since"), `${since} UTC`]);
+  if (typeof details.failedDeliveries === "number") {
+    rows.push([
+      t("reports:mail.deliveryFailed.count"),
+      formatCount(details.failedDeliveries, language),
+    ]);
+  }
+  const ruleName = text(details.ruleName);
+  if (ruleName) rows.push([t("reports:mail.deliveryFailed.rule"), ruleName]);
+  return rows;
 }
 
 /** A summary report as rendered by the extension that renders them (see hooks.ts). */
@@ -398,6 +583,8 @@ export interface SummaryInput {
   readonly ruleName: string;
   readonly payload: Record<string, unknown>;
   readonly test?: boolean;
+  /** The brand of the mail; absent renders the unbranded frame. */
+  readonly brand?: MailBrand | null;
 }
 
 /** Shared frame for summary reports, so the renderer only supplies the rows. */
@@ -405,7 +592,7 @@ export function renderSummaryFrame(
   input: SummaryInput,
   rows: readonly [string, string][],
 ): RenderedMessage {
-  const i18n = createI18n({ lng: input.language });
+  const i18n = mailI18n(input.language, input.brand);
   const t = (key: string, values?: Record<string, unknown>) => String(i18n.t(key, values));
   const from = formatWhen(text(input.payload.periodStart), input.language) ?? "";
   const to = formatWhen(text(input.payload.periodEnd), input.language) ?? "";
@@ -416,6 +603,130 @@ export function renderSummaryFrame(
     t("reports:mail.summaryIntro", { tenant: input.tenantName, from, to }),
     rows,
     t("reports:mail.footer", { rule: input.ruleName }),
+    input.brand,
   );
   return { subject: `[${input.tenantName}] ${heading}`, text: body, html };
+}
+
+/** One alert in a digest. */
+export interface DigestItem {
+  /** The tenant the alert is about; null for an installation event. */
+  readonly tenantName: string | null;
+  readonly event: string;
+  readonly level: "info" | "warning" | "error";
+  readonly occurredAt: string | null;
+  /** What it is about (object, queue), as the alert mail names it. */
+  readonly target: string | null;
+}
+
+export interface DigestInput {
+  readonly language: SupportedLanguage;
+  readonly audience: "tenant" | "provider";
+  /** The tenant of a tenant digest (its name goes into the subject). */
+  readonly tenantName?: string | null;
+  readonly windowStart: string | null;
+  readonly windowEnd: string;
+  readonly window: "hourly" | "daily";
+  readonly items: readonly DigestItem[];
+  readonly brand?: MailBrand | null;
+  readonly test?: boolean;
+}
+
+/** At most this many lines in one digest; the rest is counted. */
+export const DIGEST_MAX_LINES = 200;
+
+const LEVEL_ORDER: readonly DigestItem["level"][] = ["error", "warning", "info"];
+
+/**
+ * One mail for the alerts a recipient collects in a digest: grouped by tenant (installation
+ * events under the installation's own heading), then by severity, oldest first, at most
+ * {@link DIGEST_MAX_LINES} lines and "and N more". Every value is escaped.
+ */
+export function renderDigest(input: DigestInput): RenderedMessage {
+  const i18n = mailI18n(input.language, input.brand);
+  const t = (key: string, values?: Record<string, unknown>) => String(i18n.t(key, values));
+  const installation = t("reports:mail.installation");
+  const groups = new Map<string, DigestItem[]>();
+  for (const item of input.items) {
+    const key = item.tenantName ?? installation;
+    const list = groups.get(key) ?? [];
+    list.push(item);
+    groups.set(key, list);
+  }
+  const tenantNames = [...groups.keys()].sort((a, b) =>
+    a === installation ? -1 : b === installation ? 1 : a.localeCompare(b, input.language),
+  );
+  let shown = 0;
+  const textParts: string[] = [];
+  const htmlParts: string[] = [];
+  for (const tenant of tenantNames) {
+    if (shown >= DIGEST_MAX_LINES) break;
+    const items = [...(groups.get(tenant) ?? [])].sort(
+      (a, b) =>
+        LEVEL_ORDER.indexOf(a.level) - LEVEL_ORDER.indexOf(b.level) ||
+        (a.occurredAt ?? "").localeCompare(b.occurredAt ?? ""),
+    );
+    const lines: { label: string; when: string; target: string }[] = [];
+    for (const item of items) {
+      if (shown >= DIGEST_MAX_LINES) break;
+      const label = isReportEvent(item.event)
+        ? t(`reports:events.${item.event as ReportEvent}`)
+        : item.event;
+      const when = formatWhen(item.occurredAt, input.language);
+      lines.push({
+        label: `${t(`reports:digest.level.${item.level}`)}: ${label}`,
+        when: when ? `${when} UTC` : "",
+        target: item.target ?? "",
+      });
+      shown++;
+    }
+    const heading =
+      input.audience === "provider" || groups.size > 1
+        ? t("reports:digest.tenantHeading", { tenant })
+        : null;
+    if (heading) {
+      textParts.push("", heading);
+      htmlParts.push(`<h3 style="font-size:15px;margin:16px 0 6px">${escapeHtml(heading)}</h3>`);
+    }
+    textParts.push(
+      ...lines.map((line) =>
+        [line.label, line.target, line.when].filter((part) => part.length > 0).join(" · "),
+      ),
+    );
+    htmlParts.push(
+      `<table style="border-collapse:collapse">${lines
+        .map(
+          (line) =>
+            `<tr><td style="padding:3px 12px 3px 0;vertical-align:top">${escapeHtml(line.label)}</td><td style="padding:3px 12px 3px 0;vertical-align:top">${escapeHtml(line.target)}</td><td style="padding:3px 0;color:#555;white-space:nowrap">${escapeHtml(line.when)}</td></tr>`,
+        )
+        .join("")}</table>`,
+    );
+  }
+  const more = input.items.length - shown;
+  if (more > 0) {
+    const line = t("reports:digest.more", { count: more });
+    textParts.push("", line);
+    htmlParts.push(`<p>${escapeHtml(line)}</p>`);
+  }
+  const from = formatWhen(input.windowStart, input.language) ?? "";
+  const to = formatWhen(input.windowEnd, input.language) ?? "";
+  const prefix = input.test ? t("reports:mail.testPrefix") : "";
+  const heading = `${prefix}${t(
+    input.window === "hourly" ? "reports:digest.hourly" : "reports:digest.daily",
+  )}`;
+  const intro = t("reports:digest.intro", { count: input.items.length, from, to });
+  const subject =
+    input.audience === "provider" || !input.tenantName
+      ? `${prefix}${t("reports:digest.subjectProvider", { count: input.items.length })}`
+      : `[${input.tenantName}] ${prefix}${t("reports:digest.subject", { count: input.items.length })}`;
+  const footer = t("reports:digest.footer");
+  const content = `<h2 style="font-size:18px;margin:0 0 12px">${escapeHtml(heading)}</h2><p>${escapeHtml(intro)}</p>${htmlParts.join("")}`;
+  const html = input.brand
+    ? brandedHtml(input.brand, content, footer)
+    : `<!doctype html><html><body style="font-family:-apple-system,Segoe UI,Arial,sans-serif;font-size:14px;color:#111;max-width:640px">${content}<p style="margin-top:24px;color:#666;font-size:12px">${escapeHtml(footer)}</p></body></html>`;
+  return {
+    subject,
+    text: [heading, "", intro, ...textParts, "", ...textFooter(footer, input.brand)].join("\n"),
+    html,
+  };
 }

@@ -38,6 +38,7 @@ export const REPORT_EVENTS = [
   "update.available",
   "installation.disk_low",
   "installation.app_secret_expiring",
+  "notification.delivery_failed",
 ] as const;
 
 export type ReportEvent = (typeof REPORT_EVENTS)[number];
@@ -60,6 +61,12 @@ export interface ReportEventInfo {
    * subscribed to it gets that payload for this event as long as its column has the event on.
    */
   readonly webhookEvent?: WebhookEvent;
+  /**
+   * A security or data-loss event (0.5.0): always sent at once (never held for a digest),
+   * always delivered to the provider's mandatory recipients (the floor) whatever their column
+   * says, and always written to the bell, whose column cannot switch it off.
+   */
+  readonly critical?: true;
 }
 
 export const REPORT_EVENT_INFO: Readonly<Record<ReportEvent, ReportEventInfo>> = {
@@ -76,7 +83,7 @@ export const REPORT_EVENT_INFO: Readonly<Record<ReportEvent, ReportEventInfo>> =
   // What a backup saw looks like ransomware at work (docs/RANSOMWARE.md): mass changes far above
   // the object's baseline, mass deletions or extension renames, known ransomware extensions or
   // ransom notes, sampled files that look encrypted. Once per object and episode.
-  "backup.suspicious": { group: "recoverability", level: "error" },
+  "backup.suspicious": { group: "recoverability", level: "error", critical: true },
   // Retention of an object with a suspicious restore point is still paused after
   // `retentionHold.reminderDays` (14), and every that many days after: nobody resolved it.
   "backup.suspicious_hold": { group: "recoverability", level: "warning" },
@@ -92,7 +99,7 @@ export const REPORT_EVENT_INFO: Readonly<Record<ReportEvent, ReportEventInfo>> =
   // objects in one sync or day): one warning instead of a notice per object, since a mass change
   // at the source (licences removed, a wrong sync scope) is worth a look before confirming.
   "object.inactive_many": { group: "jobs", level: "warning" },
-  "verify.red": { group: "recoverability", level: "error" },
+  "verify.red": { group: "recoverability", level: "error", critical: true },
   "verify.yellow": { group: "recoverability", level: "warning" },
   "verify.recovered": { group: "recoverability", level: "info" },
   // A restore check finished, whatever its rating (the same name on the webhook stream).
@@ -111,13 +118,13 @@ export const REPORT_EVENT_INFO: Readonly<Record<ReportEvent, ReportEventInfo>> =
   // allows (two days after every backup, eight weekly): each was skipped or could not be carried
   // out. Once per guest until a boot test comes to a result again.
   "boot_test.skipped": { group: "recoverability", level: "warning" },
-  "scrub.corrupt": { group: "storage", level: "error" },
+  "scrub.corrupt": { group: "storage", level: "error", critical: true },
   "scrub.repaired": { group: "storage", level: "info" },
   // An endpoint (server or client, docs/AGENT.md) went silent or missed its backups.
   "endpoint.stale": { group: "jobs", level: "warning" },
   // A snapshot no backup run reported, or one dated in the future, appeared in an endpoint's
   // repository: retention leaves it alone, and the machine may be compromised.
-  "endpoint.suspicious_snapshot": { group: "storage", level: "error" },
+  "endpoint.suspicious_snapshot": { group: "storage", level: "error", critical: true },
   // An endpoint's repository (or all of a tenant's) reached 90 % of its storage budget, or
   // an upload was refused because the budget is used up.
   "endpoint.storage_quota": { group: "storage", level: "warning" },
@@ -136,11 +143,41 @@ export const REPORT_EVENT_INFO: Readonly<Record<ReportEvent, ReportEventInfo>> =
   "update.available": { group: "system", level: "info" },
   // The disk under the database or under the installation's local default repository runs low
   // (apps/api features/updates/disk-watch.ts, docs/DATABASE.md "Disk space"): once per episode.
-  "installation.disk_low": { group: "system", level: "warning" },
+  "installation.disk_low": { group: "system", level: "warning", critical: true },
   // The same for the central backup app registration (Settings, Microsoft 365, or the
   // environment): apps/api features/updates/secret-watch.ts, once per stage and date.
   "installation.app_secret_expiring": { group: "system", level: "warning" },
+  // A notification could not be delivered (0.5.0, docs/NOTIFICATIONS.md): a mail the transport
+  // refused or that failed after every retry, a mail transport that is down, a webhook that keeps
+  // failing. Raised once per episode, through every channel but the one that failed; it always
+  // reaches the bell and the provider's mandatory recipients, and is never held for a digest.
+  "notification.delivery_failed": { group: "system", level: "error" },
 };
+
+/** The event of a failed delivery (see {@link REPORT_EVENT_INFO}). */
+export const DELIVERY_FAILED_EVENT = "notification.delivery_failed" satisfies ReportEvent;
+
+/** The security and data-loss events ({@link ReportEventInfo.critical}), in catalog order. */
+export const CRITICAL_REPORT_EVENTS: readonly ReportEvent[] = REPORT_EVENTS.filter(
+  (event) => REPORT_EVENT_INFO[event].critical === true,
+);
+
+export function isCriticalReportEvent(event: string): boolean {
+  return (CRITICAL_REPORT_EVENTS as readonly string[]).includes(event);
+}
+
+/**
+ * The events the floor (the provider's owners and mandatory recipients) always gets and the bell
+ * always shows: the critical ones and the failed delivery. They are always sent at once.
+ */
+export const FLOOR_REPORT_EVENTS: readonly ReportEvent[] = [
+  ...CRITICAL_REPORT_EVENTS,
+  DELIVERY_FAILED_EVENT,
+];
+
+export function isFloorReportEvent(event: string): boolean {
+  return (FLOOR_REPORT_EVENTS as readonly string[]).includes(event);
+}
 
 /**
  * Events about the installation, not about one tenant's data. They are raised
@@ -250,12 +287,18 @@ export const DEFAULT_BELL_EVENTS: readonly ReportEvent[] = REPORT_EVENTS.filter(
   (event) => !ROUTINE_REPORT_EVENTS.includes(event),
 );
 
-/** The bell's column: what the tenant chose, or the default. Unknown names are dropped. */
+/**
+ * The bell's column: what the tenant chose, or the default. Unknown names are dropped. The
+ * critical events and the failed delivery are always on (0.5.0): nobody can switch them off.
+ */
 export function bellEventsOf(stored: readonly string[] | null | undefined): ReportEvent[] {
   return stored
-    ? REPORT_EVENTS.filter((event) => stored.includes(event))
+    ? REPORT_EVENTS.filter((event) => stored.includes(event) || isFloorReportEvent(event))
     : [...DEFAULT_BELL_EVENTS];
 }
+
+/** The bell's events its column cannot switch off ({@link FLOOR_REPORT_EVENTS}). */
+export const BELL_LOCKED_EVENTS: readonly ReportEvent[] = FLOOR_REPORT_EVENTS;
 
 /** The catalog events of a stored event list, in catalog order (webhook and recipient lists). */
 export function catalogEventsOf(stored: readonly string[]): ReportEvent[] {
@@ -343,6 +386,46 @@ export type ReportSection = (typeof REPORT_SECTIONS)[number];
 
 export function isReportSection(value: string): value is ReportSection {
   return (REPORT_SECTIONS as readonly string[]).includes(value);
+}
+
+/**
+ * The calendar cadences of a summary report (0.5.0): the previous day, the previous Monday to
+ * Sunday, the previous calendar month, in the rule's time zone (reports/period.ts).
+ */
+export const REPORT_CADENCES = ["daily", "weekly", "monthly"] as const;
+
+export type ReportCadence = (typeof REPORT_CADENCES)[number];
+
+export function isReportCadence(value: unknown): value is ReportCadence {
+  return typeof value === "string" && (REPORT_CADENCES as readonly string[]).includes(value);
+}
+
+/** The cron a calendar cadence fires on (07:00 in the rule's time zone). */
+export const REPORT_CADENCE_CRON: Readonly<Record<ReportCadence, string>> = {
+  daily: "0 7 * * *",
+  weekly: "0 7 * * 1",
+  monthly: "0 7 1 * *",
+};
+
+/** The `periodDays` a calendar cadence stands for (the log and older clients read it). */
+export const REPORT_CADENCE_DAYS: Readonly<Record<ReportCadence, number>> = {
+  daily: 1,
+  weekly: 7,
+  monthly: 30,
+};
+
+/** A recipient's entries for the summary reports (no events): `report.<cadence>`. */
+export const SUMMARY_ENTRIES = ["report.daily", "report.weekly", "report.monthly"] as const;
+
+export type SummaryEntry = (typeof SUMMARY_ENTRIES)[number];
+
+export function isSummaryEntry(value: string): value is SummaryEntry {
+  return (SUMMARY_ENTRIES as readonly string[]).includes(value);
+}
+
+/** The cadence of a summary entry. */
+export function cadenceOfSummaryEntry(entry: SummaryEntry): ReportCadence {
+  return entry.slice("report.".length) as ReportCadence;
 }
 
 /** Periods a summary report can cover, in days. */

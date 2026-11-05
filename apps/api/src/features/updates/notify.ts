@@ -1,16 +1,20 @@
-import { type ChannelColumns, plannedDeliveries, subjectKeyOf } from "@restow/core";
+import { type ChannelColumns, DELIVERY_FAILED_EVENT, subjectKeyOf } from "@restow/core";
 import {
   type Database,
   type NewNotification,
   type NewReportDelivery,
   notifications,
+  planRuleDeliveries,
   reportDeliveries,
+  reportEvents,
   reportRules,
   type StoredUpdateRelease,
   settings,
+  tenantDigestZone,
   tenants,
 } from "@restow/db";
 import { and, eq, sql } from "drizzle-orm";
+import { loadInstallationTimeZone } from "../../lib/installation-time-zone.js";
 import { compareVersions, parseVersion } from "../../routes/v1/version.js";
 import { channelColumnsOf } from "../reports/channels.js";
 
@@ -93,7 +97,11 @@ export async function raiseUpdateAvailable(
 type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
 export interface InstallationEventInput {
-  event: "update.available" | "installation.disk_low" | "installation.app_secret_expiring";
+  event:
+    | "update.available"
+    | "installation.disk_low"
+    | "installation.app_secret_expiring"
+    | "notification.delivery_failed";
   level: "info" | "warning" | "error";
   /** English, for the log and the delivery log; the bell and the mails translate the event. */
   message: string;
@@ -104,11 +112,15 @@ export interface InstallationEventInput {
 
 /**
  * An installation event (not about one tenant's data): one notification without a tenant,
- * which provider administrators see in the bell, and the deliveries of every tenant's
+ * which provider administrators see in the bell, a `report_events` row the dispatcher fans out to
+ * the provider's recipients (features/reports/fanout.ts), and the deliveries of every tenant's
  * enabled event rule that lists the event, in the same outbox a failed backup's alert goes
- * through, each only to the channels whose column in the notification matrix has it on.
- * Runs inside the caller's transaction, so the caller's "once" claim and the alert commit
- * together.
+ * through, each only to the channels whose column in the notification matrix has it on (at once,
+ * or held for a recipient's digest). A failed delivery of the provider's own (a provider
+ * recipient's address, `audience: "provider"`) concerns no tenant and reaches no tenant rule; the
+ * mail transport being down (`audience: "installation"`, `scope: "transport"`) reaches the
+ * tenants' webhooks (never their e-mail, deliveryFailureExclusion). Runs inside the caller's
+ * transaction, so the caller's "once" claim and the alert commit together.
  */
 export async function raiseInstallationEvent(tx: Tx, input: InstallationEventInput): Promise<void> {
   const { event, level, message, details, now } = input;
@@ -122,20 +134,27 @@ export async function raiseInstallationEvent(tx: Tx, input: InstallationEventInp
   };
   await tx.insert(notifications).values(notification);
 
-  const rules = await tx
-    .select({
-      id: reportRules.id,
-      tenantId: reportRules.tenantId,
-      name: reportRules.name,
-      enabled: reportRules.enabled,
-      trigger: reportRules.trigger,
-      events: reportRules.events,
-      throttleMinutes: reportRules.throttleMinutes,
-      emailRecipients: reportRules.emailRecipients,
-      inApp: reportRules.inApp,
-      webhookId: reportRules.webhookId,
-      language: reportRules.language,
+  const subjectKey = subjectKeyOf(event, details);
+  const [reportEvent] = await tx
+    .insert(reportEvents)
+    .values({
+      tenantId: null,
+      event,
+      level,
+      subjectKey,
+      message,
+      details,
+      occurredAt: now,
+      createdAt: now,
     })
+    .returning({ id: reportEvents.id });
+
+  if (event === DELIVERY_FAILED_EVENT && details.audience === "provider") {
+    return;
+  }
+
+  const rules = await tx
+    .select({ rule: reportRules })
     .from(reportRules)
     .innerJoin(tenants, eq(tenants.id, reportRules.tenantId))
     .where(
@@ -147,36 +166,25 @@ export async function raiseInstallationEvent(tx: Tx, input: InstallationEventInp
       ),
     );
 
-  const subjectKey = subjectKeyOf(event, details);
-  const payload = { event, level, message, details, occurredAt: now.toISOString() };
+  const installationZone = (await loadInstallationTimeZone(tx)).timeZone;
   const rows: NewReportDelivery[] = [];
-  const columns = new Map<string, ChannelColumns>();
-  for (const rule of rules) {
-    let tenantColumns = columns.get(rule.tenantId);
-    if (!tenantColumns) {
-      tenantColumns = await channelColumnsOf(tx, rule.tenantId);
-      columns.set(rule.tenantId, tenantColumns);
+  const contexts = new Map<string, { columns: ChannelColumns; timeZone: string }>();
+  for (const { rule } of rules) {
+    let context = contexts.get(rule.tenantId);
+    if (!context) {
+      context = {
+        columns: await channelColumnsOf(tx, rule.tenantId),
+        timeZone: await tenantDigestZone(tx, rule.tenantId, installationZone),
+      };
+      contexts.set(rule.tenantId, context);
     }
     // Only the channels whose column has the event on (the notification matrix).
-    const channels = { event, columns: tenantColumns };
-    for (const planned of plannedDeliveries(rule, "event", channels)) {
-      rows.push({
-        tenantId: rule.tenantId,
-        ruleId: rule.id,
-        ruleName: rule.name,
-        kind: "event",
-        event,
-        subjectKey,
-        payload,
-        channel: planned.channel,
-        recipient: planned.recipient,
-        language: rule.language,
-        status: "pending",
-        nextAttemptAt: now,
-        createdAt: now,
-        updatedAt: now,
-      });
-    }
+    rows.push(
+      ...(await planRuleDeliveries(tx, rule.tenantId, rule, notification, now, {
+        ...context,
+        reportEventId: reportEvent?.id ?? null,
+      })),
+    );
   }
   if (rows.length > 0) {
     await tx.insert(reportDeliveries).values(rows);

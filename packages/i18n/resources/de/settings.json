@@ -195,6 +195,7 @@
         "smtp_auth_failed": "Der SMTP-Server hat die Anmeldung abgelehnt. Prüfen Sie Benutzername und Passwort.",
         "smtp_connection_failed": "Der SMTP-Server ist nicht erreichbar. Prüfen Sie Host, Port und Firewall.",
         "smtp_tls_failed": "Die verschlüsselte Verbindung kam nicht zustande. Prüfen Sie die Verbindungssicherheit, den Port und das Zertifikat des Servers.",
+        "smtp_sender_rejected": "Der SMTP-Server hat die Absenderadresse abgelehnt. Prüfen Sie die Absenderadresse der Benachrichtigungs-Mail und des Brandings und ob der Server das Senden mit ihr erlaubt.",
         "graph_app_missing": "Es ist keine App-Registrierung der Sicherung eingerichtet (Installation › Server & Betrieb › Microsoft-Multi-Tenant-App).",
         "graph_credential_missing": "Für die eigene App-Registrierung ist kein Schlüssel gespeichert. Tragen Sie ihn erneut ein.",
         "graph_tenant_missing": "Für das Absenderpostfach ist kein Entra-Tenant gesetzt.",
@@ -213,7 +214,8 @@
         "google_sender_not_found": "Das Absenderpostfach gibt es in Ihrer Workspace-Domain nicht, oder Gmail ist für diesen Benutzer nicht aktiviert.",
         "google_api_disabled": "Die Gmail-API ist im Projekt des Dienstkontos nicht aktiviert.",
         "google_send_denied": "Google hat das Senden als dieses Postfach verweigert.",
-        "google_token_failed": "Google hat keine Anmeldung für das Dienstkonto ausgestellt. Die technische Antwort unten nennt den Grund."
+        "google_token_failed": "Google hat keine Anmeldung für das Dienstkonto ausgestellt. Die technische Antwort unten nennt den Grund.",
+        "recipient_rejected": "Der Mailserver hat den Empfänger endgültig abgewiesen. Prüfen Sie die Adresse."
       }
     },
     "switchRemovesCredential": "Beim Speichern werden die gespeicherten Zugangsdaten des bisherigen Transports gelöscht.",
@@ -331,6 +333,11 @@
           "description": "Fügen Sie den Schlüssel ein, tragen Sie das Absenderpostfach ein und senden Sie eine Testnachricht, bevor Sie speichern."
         }
       }
+    },
+    "allowedSenders": {
+      "label": "Erlaubte Absenderadressen",
+      "hint": "Weitere Absenderadressen, die das Branding verwenden darf, eine je Zeile: eine genaue Adresse oder @domain (höchstens {max}). Die Absenderadresse oben ist immer erlaubt. Erlauben Sie nur Adressen, mit denen Ihr Mailserver senden darf.",
+      "placeholder": "alerts@example.com\n@example.com"
     }
   },
   "microsoftApp": {
@@ -730,7 +737,8 @@
     "host": "Geben Sie einen Hostnamen oder eine IP-Adresse ein.",
     "tenantGuid": "Tragen Sie die Verzeichnis-ID (GUID) aus der Übersicht der App-Registrierung ein.",
     "serviceAccountKey": "Das ist kein Schlüssel eines Dienstkontos. Fügen Sie den vollständigen Inhalt der JSON-Schlüsseldatei ein.",
-    "samePassword": "Das neue Passwort muss sich vom aktuellen unterscheiden."
+    "samePassword": "Das neue Passwort muss sich vom aktuellen unterscheiden.",
+    "allowedSenders": "Eine genaue Adresse oder @domain je Zeile, höchstens 20."
   },
   "errors": {
     "setupIncomplete": "Die Einrichtung ist noch nicht abgeschlossen. Schließen Sie zuerst den Einrichtungsassistenten ab.",
@@ -756,5 +764,156 @@
     "thirdPartyLink": "Hinweise zu Drittanbieter-Software",
     "thirdPartyGitHub": "auf GitHub",
     "opensInNewTab": "(öffnet in einem neuen Tab)"
+  },
+  "branding": {
+    "loadError": "Das Branding konnte nicht geladen werden.",
+    "httpsNote": "Das Logo in Discord und Teams braucht eine öffentliche HTTPS-Adresse. Legen Sie sie unter Server fest; bis dahin tragen Chat-Nachrichten nur den Absendernamen.",
+    "locked": {
+      "title": "Branding",
+      "description": "Ihr Logo, Absendername, Akzentfarbe und Fußzeile in jeder Mail und Chat-Nachricht. Ohne Branding tragen Nachrichten nur {appName}."
+    },
+    "logo": {
+      "title": "Logo",
+      "description": "Erscheint oben in jeder Mail und jedem Bericht, eingebettet in die Mail selbst. Beim Öffnen der Mail wird nichts von außen geladen.",
+      "alt": "Aktuelles Logo",
+      "none": "Kein Logo",
+      "drop": "PNG- oder JPEG-Datei hier ablegen",
+      "choose": "Datei auswählen",
+      "replace": "Ersetzen",
+      "remove": "Entfernen",
+      "removed": "Logo entfernt.",
+      "uploaded": "Logo gespeichert.",
+      "rules": "PNG oder JPEG, höchstens 512 KiB, 16 bis 2000 Pixel je Seite. SVG wird nicht angenommen, da es Skripte enthalten kann. Metadaten werden beim Speichern entfernt.",
+      "current": "Aktuelles Logo: {width} × {height} Pixel, {size} KiB."
+    },
+    "errors": {
+      "svg-not-supported": "SVG wird nicht angenommen, da es Skripte enthalten kann. Bitte laden Sie das Logo als PNG oder JPEG hoch.",
+      "unsupported-type": "Nur PNG- und JPEG-Dateien können das Logo sein.",
+      "unsupported-image": "Nur PNG- und JPEG-Dateien können das Logo sein.",
+      "too-large": "Das Logo darf höchstens 512 KiB groß sein.",
+      "dimensions": "Das Logo muss 16 bis 2000 Pixel breit und hoch sein.",
+      "corrupt": "Die Datei konnte nicht als Bild gelesen werden.",
+      "animated": "Animierte Bilder werden nicht angenommen.",
+      "accent-contrast": "Weder weiße noch dunkle Schrift erreicht auf dieser Farbe einen Kontrast von 4,5:1. Bitte wählen Sie einen dunkleren oder helleren Ton.",
+      "accent-invalid": "Geben Sie die Farbe als #rrggbb an.",
+      "sender-not-allowed": "Diese Absenderadresse ist noch nicht erlaubt. Tragen Sie sie oder ihre @domain unter Benachrichtigungsmail bei den erlaubten Absenderadressen ein.",
+      "from-locked": "Microsoft 365 und Google Workspace senden immer aus dem eingerichteten Postfach. Nur Absendername und Antwortadresse lassen sich ändern.",
+      "invalid-email": "Das ist keine gültige E-Mail-Adresse.",
+      "too-long": "Dieser Text ist zu lang.",
+      "invalid": "Das Branding konnte nicht gespeichert werden. Bitte prüfen Sie die Felder."
+    },
+    "fields": {
+      "title": "Absender, Farbe und Fußzeile",
+      "description": "Wie sich Ihre Mails vorstellen und wie sie aussehen. Leere Felder behalten die Voreinstellung.",
+      "senderName": "Absendername",
+      "senderNameHint": "Erscheint als Absender und in Chat-Nachrichten statt {appName}. Eine Zeile, höchstens 80 Zeichen.",
+      "from": "Absenderadresse",
+      "fromHint": "Leer sendet von {sender}. Andere Adressen müssen unter Benachrichtigungsmail als erlaubte Absenderadressen eingetragen sein.",
+      "fromLocked": "Microsoft 365 und Google Workspace senden immer von {sender}. Es gelten nur Absendername und Antwortadresse. Exchange zeigt unter Umständen den eigenen Namen des Postfachs.",
+      "fromNoTransport": "Es ist noch kein Mailversand eingerichtet (Benachrichtigungsmail).",
+      "replyTo": "Antwortadresse (Reply-To)",
+      "replyToHint": "Wohin Antworten auf Benachrichtigungen gehen, zum Beispiel an Ihren Service Desk.",
+      "accent": "Akzentfarbe",
+      "accentHint": "Für das Band oben, Schaltflächen und, wo sie auf Weiß lesbar ist, Links.",
+      "accentPicker": "Akzentfarbe wählen",
+      "accentClear": "Kein Akzent",
+      "footer": "Fußzeile und Impressum",
+      "footerHint": "Erscheint am Ende jeder Mail. Zeilenumbrüche bleiben erhalten. {used} von {max} Zeichen."
+    },
+    "contrast": {
+      "sample": "Beispiel",
+      "white": "Weiße Schrift",
+      "dark": "Dunkle Schrift",
+      "ratio": "{label}: {ratio}:1, {verdict}",
+      "pass": "ausreichend",
+      "fail": "zu gering",
+      "fails": "Braucht einen Kontrast von mindestens {min}:1 zu weißer oder dunkler Schrift. Mit dieser Farbe lässt sich nicht speichern.",
+      "links": "Links erhalten die Akzentfarbe.",
+      "linksDefault": "Links bleiben blau: Der Akzent ist zu hell, um auf Weiß als Schrift lesbar zu sein."
+    },
+    "save": "Branding speichern",
+    "discard": "Verwerfen",
+    "saved": "Branding gespeichert.",
+    "preview": {
+      "title": "Vorschau",
+      "description": "So sieht das gespeicherte Branding in einer Mail aus. Speichern Sie Ihre Änderungen, um sie hier zu sehen.",
+      "kinds": "Art der Nachricht",
+      "tabs": {
+        "alert": "Alarm",
+        "digest": "Sammelmail",
+        "summary": "Zusammenfassung",
+        "customer": "Kundenbericht"
+      },
+      "subject": "Betreff:",
+      "frame": "Vorschau der Mail"
+    },
+    "test": {
+      "description": "Sendet einen Beispielalarm in diesem Branding an Ihre eigene Adresse.",
+      "send": "Testmail senden",
+      "sent": "Testmail an {to} gesendet."
+    }
+  },
+  "providerRecipients": {
+    "loadError": "Die Empfänger der Benachrichtigungen konnten nicht geladen werden.",
+    "readOnly": "Sie können diese Liste ansehen. Zum Ändern brauchen Sie mindestens die Rolle Administrator im Provider-Team.",
+    "title": "Empfänger",
+    "description": "Wer auf Ihrer Seite Alarme über jeden Mandanten und die Installation erhält. Die Inhaber des Provider-Teams stehen immer auf der Liste und lassen sich nicht entfernen: Sie erhalten immer Sicherheits- und Datenverlust-Ereignisse, damit kein Alarm ins Leere geht.",
+    "add": "Empfänger hinzufügen",
+    "save": "Empfänger speichern",
+    "discard": "Verwerfen",
+    "saved": "Empfänger gespeichert.",
+    "unsaved": "Ungespeicherte Änderungen",
+    "owner": "Inhaber",
+    "ownerHint": "Ein Inhaber des Provider-Teams; die Adresse ist die Anmeldeadresse.",
+    "mandatoryLockedHint": "Ein verpflichtender Empfänger: Nur ein Inhaber des Provider-Teams kann seine Adresse ändern oder ihn entfernen.",
+    "mandatory": "Verpflichtend",
+    "mandatoryToggle": "Verpflichtend: erhält immer kritische Ereignisse",
+    "floorHint": "Erhält immer kritische Ereignisse und fehlgeschlagene Zustellungen.",
+    "email": "E-Mail-Adresse",
+    "name": "Name",
+    "language": "Sprache",
+    "languageDefault": "Voreinstellung der Installation",
+    "failing": "Mail scheitert seit {since}",
+    "test": "Test senden",
+    "testSaveFirst": "Speichern Sie zuerst die Liste.",
+    "testSent": "Testbenachrichtigung an {to} gesendet.",
+    "remove": "{email} entfernen",
+    "unnamed": "Neuer Empfänger",
+    "errors": {
+      "required": "Geben Sie eine E-Mail-Adresse ein.",
+      "email": "Das ist keine gültige E-Mail-Adresse.",
+      "invalid-email": "Eine der Adressen ist nicht gültig.",
+      "duplicate": "Diese Adresse steht zweimal in der Liste.",
+      "owner-required": "Die Inhaber des Provider-Teams lassen sich nicht von der Liste entfernen.",
+      "unknown-event": "Die Liste nennt ein Ereignis, das dieser Server nicht kennt. Bitte laden Sie die Seite neu.",
+      "mandatoryOwner": "Nur ein Inhaber des Provider-Teams kann einen Empfänger verpflichtend machen oder davon lösen."
+    },
+    "matrix": {
+      "title": "Was jeder Empfänger erhält",
+      "description": "Haken Sie je Empfänger die Ereignisse an und wählen Sie je Schweregrad, ob Mails sofort kommen oder gesammelt in einer stündlichen oder täglichen Sammelmail.",
+      "criticalNote": "Kritische Ereignisse kommen immer sofort und erreichen immer die Inhaber und die verpflichtenden Empfänger; ihre Zellen sind gesperrt.",
+      "deliveryFor": "{level} für {recipient}",
+      "reports": "Zusammenfassungen",
+      "lockedHint": "Immer an: Inhaber und verpflichtende Empfänger erhalten immer kritische Ereignisse und fehlgeschlagene Zustellungen."
+    }
+  },
+  "summaryReports": {
+    "title": "Zusammenfassungen über alle Mandanten",
+    "description": "Ein Bericht über den Vortag, die Vorwoche (Montag bis Sonntag) oder den Vormonat mit den Zahlen jedes Mandanten, als Mail und auf Wunsch mit der PDF-Statistik. Wer ihn erhält, haken Sie in der Liste oben an.",
+    "loadError": "Die Zusammenfassungen konnten nicht geladen werden.",
+    "saved": "Zusammenfassung gespeichert.",
+    "never": "nie",
+    "cadences": {
+      "daily": "Tagesbericht",
+      "weekly": "Wochenbericht",
+      "monthly": "Monatsbericht"
+    },
+    "recipients": "{count, plural, one {# Empfänger} other {# Empfänger}}: {list}",
+    "noRecipients": "Noch erhält ihn niemand.",
+    "runs": "Nächster: {next} · Letzter: {last}",
+    "attachPdf": "PDF anhängen",
+    "sendHour": "Um",
+    "test": "Test an mich senden",
+    "testSent": "Der Bericht ist für {to} eingereiht."
   }
 }
