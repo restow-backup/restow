@@ -454,6 +454,11 @@ export interface ImapCatchUpResult {
   readonly undeliverable: number;
   /** Folders the server refused this pass (STATUS, EXAMINE, SEARCH or FETCH); counted as gaps. */
   readonly foldersFailed: number;
+  /**
+   * The pass stopped at the account's limit (`imap.server_limit`): the folder it hit and
+   * those after it keep their state for the next pass, nothing counts against them.
+   */
+  readonly serverLimited: boolean;
 }
 
 /** The live catch-up of an activated account (see the module docstring). */
@@ -491,6 +496,7 @@ export async function catchUpImapCapture(
   let foldersRead = 0;
   let undeliverable = 0;
   let foldersFailed = 0;
+  let serverLimited = false;
   const gaps = options.gaps;
   /** A folder the server refused this pass: one more attempt; open from the third pass on. */
   const folderFailed = async (path: string, error: unknown) => {
@@ -531,14 +537,24 @@ export async function catchUpImapCapture(
       if (!isImapSessionError(error) || error.connectionLost) {
         throw error;
       }
+      if (known) {
+        folders[folder.path] = known;
+      }
+      if (isServerLimit(error)) {
+        // The account's cap (Gmail's OVERQUOTA lasts hours while a backfill downloads), not
+        // this folder's: nothing counts against it, the folders after it keep their state.
+        options.logger?.warn("imap archive capture stopped at the server's limit", {
+          folder: folder.path,
+          errorMessage: error.message,
+        });
+        serverLimited = true;
+        break;
+      }
       options.logger?.warn("imap archive capture could not read a folder", {
         folder: folder.path,
         errorMessage: error.message,
       });
       await folderFailed(folder.path, error);
-      if (known) {
-        folders[folder.path] = known;
-      }
       continue;
     }
     const sameValidity = known !== undefined && known.uidValidity === status.uidValidity;
@@ -673,24 +689,38 @@ export async function catchUpImapCapture(
       if (!isImapSessionError(error) || error.connectionLost) {
         throw error;
       }
-      options.logger?.warn("imap archive capture could not read a folder", {
-        folder: folder.path,
-        errorMessage: error.message,
-      });
-      await folderFailed(folder.path, error);
       // What a checkpoint recorded before the error stays; otherwise what was known.
       if (folders[folder.path] === undefined && known) {
         folders[folder.path] = known;
       }
       await session.closeFolder().catch(() => undefined);
       if (isServerLimit(error)) {
-        // The account's cap, not this folder's: the next folders would only hit it again.
-        // They keep their previous entries (see snapshot) and are read on the next pass.
+        // The account's cap, not this folder's: no attempt against it, and the next folders
+        // would only hit it again. They keep their previous entries (see snapshot) and are
+        // read on the next pass.
+        options.logger?.warn("imap archive capture stopped at the server's limit", {
+          folder: folder.path,
+          errorMessage: error.message,
+        });
+        serverLimited = true;
         break;
       }
+      options.logger?.warn("imap archive capture could not read a folder", {
+        folder: folder.path,
+        errorMessage: error.message,
+      });
+      await folderFailed(folder.path, error);
     }
   }
-  return { state: snapshot(), captured, skipped, foldersRead, undeliverable, foldersFailed };
+  return {
+    state: snapshot(),
+    captured,
+    skipped,
+    foldersRead,
+    undeliverable,
+    foldersFailed,
+    serverLimited,
+  };
 }
 
 /**

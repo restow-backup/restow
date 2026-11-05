@@ -353,6 +353,11 @@ export function createImapCaptureWay(options: ImapCaptureWayOptions = {}): Captu
           checkpoint: (state) => ctx.checkpoint(withImapState(ctx.stream.state, state)),
         }),
       );
+      if (result.serverLimited) {
+        ctx.logger.warn(
+          "imap archive capture stopped at the account's server limit; the next pass resumes",
+        );
+      }
       if (result.foldersFailed > 0 || result.undeliverable > 0) {
         // Recorded as gaps (./gaps.ts): the stream shows them, the capture alert names them.
         ctx.logger.warn("imap archive capture left folders or messages out this pass", {

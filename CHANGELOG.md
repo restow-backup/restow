@@ -562,9 +562,11 @@ private repository.
   included, and gave up a message the server listed but did not deliver after one try; live
   capture never reads below that point, so the folder's or message's older mail never reached
   the archive. The catch-up skipped folders whose STATUS or EXAMINE failed and dropped the count
-  of messages it gave up on. Now a server limit stops the takeover and the next job resumes; a
-  folder refused otherwise and an undelivered message are tried again by the next jobs and only
-  given up after three. The takeover counts a folder as a gap of its own (`backfill_folder`,
+  of messages it gave up on. Now a server limit stops the takeover and the catch-up without
+  counting against any folder (on STATUS, EXAMINE or FETCH; Gmail's cap lasts hours while a
+  takeover downloads the account, and every live pass would have counted it), the next job or
+  pass resumes; a folder refused otherwise and an undelivered message are tried again by the
+  next jobs and only given up after three. The takeover counts a folder as a gap of its own (`backfill_folder`,
   migration 0086), apart from the live capture's: a live pass that only asked STATUS no longer
   resets its attempts (a folder that refuses EXAMINE was never given up), and failures of both
   no longer add up, so a folder refused for two passes is not given up and then marked done by

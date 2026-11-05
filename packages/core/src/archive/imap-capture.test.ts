@@ -939,6 +939,54 @@ describe("IMAP capture gaps over time", () => {
     expect(state.folders.Umzug?.lastUid).toBe(2);
   });
 
+  it("counts the account's server limit against no folder in the live capture", async () => {
+    const server = new FakeImapServer();
+    const inbox = server.addFolder("INBOX");
+    const all = server.addFolder("Archiv");
+    const session = await connect(server);
+    const { sink, appended } = memorySink();
+    const { gaps, later } = clocked();
+    let state = await activateImapCapture(session);
+    put(inbox, "in@x");
+    put(all, "a@x");
+    // Gmail while the backfill downloads the account: [OVERQUOTA] for hours, on EXAMINE, on
+    // STATUS and on FETCH, passes every ten minutes and then hourly.
+    const passes = 3 * GAP_OPEN_AFTER_ATTEMPTS;
+    server.faults.refuseOpen.set("INBOX", {
+      code: "OVERQUOTA",
+      remaining: GAP_OPEN_AFTER_ATTEMPTS,
+    });
+    server.faults.refuseStatus.set("Archiv", {
+      code: "OVERQUOTA",
+      remaining: Number.POSITIVE_INFINITY,
+    });
+    for (let pass = 1; pass <= passes; pass++) {
+      if (pass === GAP_OPEN_AFTER_ATTEMPTS + 1) {
+        server.faults.refuseSource.add("INBOX:1");
+        server.faults.refuseSourceCode = "OVERQUOTA";
+      }
+      if (pass === 2 * GAP_OPEN_AFTER_ATTEMPTS + 1) {
+        // INBOX is read now; STATUS of the next folder still hits the cap.
+        server.faults.refuseSource.clear();
+        server.faults.refuseSourceCode = null;
+      }
+      const result = await catchUpImapCapture(session, state, sink, { logger: silent, gaps });
+      expect(result.serverLimited).toBe(true);
+      expect(result.foldersFailed).toBe(0);
+      state = result.state;
+      later(GAP_ATTEMPT_SPACING_MS);
+    }
+    expect(gaps.gaps.size).toBe(0);
+    expect(gaps.open()).toEqual([]);
+    expect(appended.map((item) => item.messageId)).toEqual(["in@x"]);
+    // The cap is lifted: everything is read, nothing was lost or given up.
+    server.faults.refuseStatus.clear();
+    const result = await catchUpImapCapture(session, state, sink, { logger: silent, gaps });
+    expect(result.serverLimited).toBe(false);
+    expect(appended.map((item) => item.messageId).sort()).toEqual(["a@x", "in@x"]);
+    expect(gaps.open()).toEqual([]);
+  });
+
   it("parses the refs it writes, folder names with ';' included", () => {
     expect(parseImapExternalRef("Kunden;Acme;77;12")).toEqual({
       path: "Kunden;Acme",

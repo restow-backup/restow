@@ -204,6 +204,29 @@ export interface FakeServerFaults {
    * null for a plain NO.
    */
   refuseOpen: Map<string, { code: string | null; remaining: number }>;
+  /** Like {@link refuseOpen}, for STATUS (Gmail's cap answers every command with the NO). */
+  refuseStatus: Map<string, { code: string | null; remaining: number }>;
+}
+
+/**
+ * A NO as imapflow reports it: Gmail's and Exchange's throttling carries an RFC 5530 code
+ * ("OVERQUOTA", "LIMIT") with "Account exceeded command or bandwidth limits", a plain NO
+ * Exchange's "Server Unavailable. 15".
+ */
+function refusedCommand(
+  verb: "EXAMINE" | "STATUS",
+  path: string,
+  code: string | null,
+): ImapSessionError {
+  const text = code ? "Account exceeded command or bandwidth limits" : "Server Unavailable. 15";
+  const cause = Object.assign(new Error("Command failed"), {
+    responseStatus: "NO",
+    responseText: text,
+    executedCommand:
+      verb === "STATUS" ? `1A STATUS "${path}" (UIDNEXT UIDVALIDITY)` : `1A EXAMINE "${path}"`,
+    ...(code ? { serverResponseCode: code } : {}),
+  });
+  return new ImapSessionError(`${verb} ${path}: NO ${text}`, false, { cause });
 }
 
 export class FakeImapServer implements ImapConnector {
@@ -234,6 +257,7 @@ export class FakeImapServer implements ImapConnector {
     refuseSourceCode: null,
     refuseMeta: new Set(),
     refuseOpen: new Map(),
+    refuseStatus: new Map(),
   };
   private readonly arrivalListeners = new Set<ArrivalListener>();
   /**
@@ -349,6 +373,11 @@ class FakeSession implements ImapSession {
     if (!folder?.selectable || this.server.faults.openFailures.has(path)) {
       throw new ImapSessionError(`STATUS ${path}: NO Mailbox does not exist`, false);
     }
+    const refusal = this.server.faults.refuseStatus.get(path);
+    if (refusal && refusal.remaining > 0) {
+      refusal.remaining--;
+      throw refusedCommand("STATUS", path, refusal.code);
+    }
     return {
       path,
       uidValidity: String(folder.uidValidity),
@@ -436,16 +465,7 @@ class FakeSession implements ImapSession {
     const refusal = this.server.faults.refuseOpen.get(path);
     if (refusal && refusal.remaining > 0) {
       refusal.remaining--;
-      const text = refusal.code
-        ? "Account exceeded command or bandwidth limits"
-        : "Server Unavailable. 15";
-      const cause = Object.assign(new Error("Command failed"), {
-        responseStatus: "NO",
-        responseText: text,
-        executedCommand: `1A EXAMINE "${path}"`,
-        ...(refusal.code ? { serverResponseCode: refusal.code } : {}),
-      });
-      throw new ImapSessionError(`EXAMINE ${path}: NO ${text}`, false, { cause });
+      throw refusedCommand("EXAMINE", path, refusal.code);
     }
     const folder = this.server.folders.get(path);
     if (!folder?.selectable) {
