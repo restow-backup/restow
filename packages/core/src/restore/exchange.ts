@@ -53,7 +53,7 @@
  * the original item ids) is documented; the report never pretends otherwise.
  */
 import { createHash } from "node:crypto";
-import type { Readable } from "node:stream";
+import { Readable } from "node:stream";
 import type { Contact, Event, Message } from "@microsoft/microsoft-graph-types";
 import type { ChunkReader } from "../engine/chunkstore.js";
 import type { JobContext, Logger, RestoreEngine, RestoreRequest } from "../engine/types.js";
@@ -146,9 +146,13 @@ import {
 import { type DuplicateSlot, MessageIdDuplicates } from "./duplicates.js";
 import { finishGmailMessageForExchange, gmailLabelFolderNote, planGmailMail } from "./gmail.js";
 import {
+  type BodyImage,
+  extractBodyImages,
   forEachMimeAttachment,
   graphMessageFromMime,
   type MimeOutline,
+  type MimeProtection,
+  mimeImportIsDraft,
   outlineMime,
 } from "./mime-parts.js";
 import { ObjectRangeSource } from "./object-range.js";
@@ -159,6 +163,7 @@ import {
   isAbortError,
   type RestoreItemCode,
   RestoreLedger,
+  RestoreNotPossibleError,
   type RestoreReport,
 } from "./results.js";
 import { planRestore, type RestorePlan, resolveRestoreSource } from "./selection.js";
@@ -506,6 +511,27 @@ function explainCreateFailure(error: unknown): unknown {
   return error;
 }
 
+/**
+ * Largest JSON body Restow sends to create a message: Graph refuses a request
+ * over 4 MB, and the envelope around the body needs a little room.
+ */
+const JSON_CREATE_LIMIT_BYTES = 4 * 1024 * 1024 - 64 * 1024;
+
+const MB = 1024 * 1024;
+
+/** Why a protected message too large for one MIME import is not rebuilt from its parts. */
+function protectedTooLarge(protection: Exclude<MimeProtection, "signed">): Error {
+  const what =
+    protection === "rights-protected"
+      ? "rights-protected (Microsoft Purview)"
+      : protection === "opaque-signed"
+        ? "signed as one S/MIME part"
+        : "encrypted (S/MIME or PGP)";
+  return new RestoreNotPossibleError(
+    `the message is ${what} and larger than the 4 MB Graph takes in one request: Exchange keeps such a message only as it was received, and rebuilt from its parts it could not be opened or checked; restore it as a download (EML) and open it in the mail program that holds the key or the rights`,
+  );
+}
+
 /** Where the message ended up, for the skip reasons of its attachments. */
 type AttachmentRecorder = () => void;
 
@@ -520,6 +546,14 @@ interface ImportedMessage {
   readonly sentTimes: { readonly received?: string; readonly sent?: string };
   /** A MIME too large for one request: its attachments, added after the create. */
   readonly mimeParts?: MimeOutline;
+  /** Images the body embedded as `data:` URIs, moved into inline attachments so the body fits. */
+  readonly bodyImages?: readonly BodyImage[];
+  /**
+   * Whether the message should come back as a draft when the backup does not
+   * record it: a MIME created from its parts is what its MIME import would
+   * be (a draft only when Date or From is missing).
+   */
+  readonly expectedDraft?: boolean;
   /**
    * Graph did not answer the create; the message it had made was found by
    * its Message-ID and taken (or, when there was none, the create was sent
@@ -841,17 +875,38 @@ export class ExchangeRestoreSession {
     }
 
     let attachmentsComplete = true;
+    /** Every attachment this restore added or found, to be confirmed on the message afterwards. */
+    const sent: Array<{ readonly name: string; readonly size: number }> = [];
     if (imported.mimeParts !== undefined) {
       const mimeProblems = await this.addMimeAttachments(
         message,
         created.id,
         imported.mimeParts,
         imported.present,
+        sent,
       );
       attachmentsComplete = mimeProblems.length === 0;
       problems.push(...mimeProblems);
       notes.push(
         "Exchange takes at most 4 MB in one request, so the message was created from its header and body and its attachments were added one by one; the header lines Exchange does not take (Received, References and similar) and the exact MIME stay in the backup (download it as EML for the original bytes)",
+      );
+      if (imported.mimeParts.protection === "signed") {
+        problems.push(
+          "the message is signed (S/MIME or PGP): rebuilt from its parts, its signature no longer matches and Outlook shows it as an attachment; the signed original stays in the backup (download it as EML)",
+        );
+      }
+    }
+    if (imported.bodyImages !== undefined) {
+      const imageProblems = await this.addBodyImages(
+        created.id,
+        imported.bodyImages,
+        imported.present,
+        sent,
+      );
+      attachmentsComplete &&= imageProblems.length === 0;
+      problems.push(...imageProblems);
+      notes.push(
+        `the text embedded ${imported.bodyImages.length} images; to fit the 4 MB Graph takes in one request they were added as inline attachments the text refers to`,
       );
     }
 
@@ -873,6 +928,9 @@ export class ExchangeRestoreSession {
       if (outcome.twin === true) {
         attachmentTwins++;
       }
+      if (outcome.sent !== undefined) {
+        sent.push(outcome.sent);
+      }
       recorders.push(outcome.record);
     }
     if (attachmentTwins > 0) {
@@ -884,15 +942,27 @@ export class ExchangeRestoreSession {
         `${attachmentFailures} of ${attachments.length} attachments could not be added`,
       );
     }
-    const wasDraft = messageIsDraftOf(message);
+    if (sent.length > 0) {
+      const missing = await this.attachmentsNotOnMessage(created.id, sent);
+      if (missing.length > 0) {
+        attachmentsComplete = false;
+        problems.push(
+          `${missing.length} of ${sent.length} attachments are not on the restored message: ${missing.join(", ")}`,
+        );
+      }
+    }
+    const wasDraft = messageIsDraftOf(message) ?? imported.expectedDraft;
     if (created.isDraft === true && wasDraft === false) {
       problems.push("Exchange created the restored message as a draft, the backup is no draft");
     } else if (created.isDraft === true && wasDraft === undefined) {
-      notes.push(
-        isJson
-          ? "restored from the JSON fallback of an oversized message; Exchange shows it as a draft"
-          : "Exchange shows the restored message as a draft",
-      );
+      if (imported.fromJson) {
+        // Graph makes a JSON create a draft dated now unless told otherwise: not proof of anything.
+        problems.push(
+          "the backup does not record whether this was a draft, so it was created from its JSON without the received state; Exchange shows it as a draft dated today",
+        );
+      } else {
+        notes.push("Exchange shows the restored message as a draft");
+      }
     }
     if (imported.fromJson) {
       this.checkJsonCreate(imported, problems, imported.mimeParts === undefined ? notes : []);
@@ -973,15 +1043,17 @@ export class ExchangeRestoreSession {
     existing: Message & { id: string },
     note: string,
   ): Promise<ImportedMessage> {
-    const { client, userId, reader } = this.o;
+    const { client, userId } = this.o;
     const large = !isJson && base64Length(message.size) > MIME_IMPORT_LIMIT_BASE64_BYTES;
-    const mimeParts = large ? await outlineMime(reader.objectStream(message)) : undefined;
+    const plan = isJson || large ? await this.jsonCreateOf(message, isJson) : undefined;
     return {
       created: existing,
       fromJson: isJson || large,
       droppedHeaders: 0,
       sentTimes: {},
-      ...(mimeParts ? { mimeParts } : {}),
+      ...(plan?.mimeParts ? { mimeParts: plan.mimeParts } : {}),
+      ...(plan && plan.images.length > 0 ? { bodyImages: plan.images } : {}),
+      ...(plan?.expectedDraft !== undefined ? { expectedDraft: plan.expectedDraft } : {}),
       present: await collect(listAttachments(client, userId, existing.id)),
       recovered: { adopted: true, note },
     };
@@ -1046,14 +1118,10 @@ export class ExchangeRestoreSession {
     // The JSON fallback, or a MIME whose base64 would exceed Graph's 4 MB
     // request limit: created from JSON, attachments added afterwards. The
     // MIME pass reads (and so verifies) the whole backup before the create.
-    const mimeParts = isJson ? undefined : await outlineMime(reader.objectStream(message));
-    const json = mimeParts
-      ? graphMessageFromMime(mimeParts, {
-          receivedDateTime: this.recordedReceivedTime(message),
-          isRead: messageFlagsOf(message).isRead,
-        })
-      : ((await readJsonObject(reader, message)) as Message);
-    const { body, loss } = prepareMessageCreate(json, { isDraft: messageIsDraftOf(message) });
+    const { body, loss, mimeParts, images, expectedDraft } = await this.jsonCreateOf(
+      message,
+      isJson,
+    );
     const property = (id: string) =>
       body.singleValueExtendedProperties?.find((entry) => entry.id === id)?.value ?? undefined;
     const { result, recovered } = await this.createMessageOnce(folderId, slot, () =>
@@ -1069,7 +1137,64 @@ export class ExchangeRestoreSession {
         sent: property(PID_TAG_CLIENT_SUBMIT_TIME),
       },
       ...(mimeParts ? { mimeParts } : {}),
+      ...(images.length > 0 ? { bodyImages: images } : {}),
+      ...(expectedDraft !== undefined ? { expectedDraft } : {}),
     };
+  }
+
+  /**
+   * The JSON a message is created from: its backed-up JSON, or for a MIME too
+   * large for one request its header and body (./mime-parts.ts). A protected
+   * MIME (encrypted, rights-protected, opaquely signed) is refused: rebuilt
+   * from its parts it cannot be opened. A body Graph would refuse as too
+   * large has its `data:` images moved into inline attachments; one that is
+   * still too large is refused with the way out (EML).
+   */
+  private async jsonCreateOf(
+    message: ManifestObject,
+    isJson: boolean,
+  ): Promise<{
+    body: Partial<Message>;
+    loss: ReturnType<typeof prepareMessageCreate>["loss"];
+    mimeParts: MimeOutline | undefined;
+    images: BodyImage[];
+    expectedDraft: boolean | undefined;
+  }> {
+    const { reader } = this.o;
+    const mimeParts = isJson ? undefined : await outlineMime(reader.objectStream(message));
+    if (mimeParts?.protection !== undefined && mimeParts.protection !== "signed") {
+      throw protectedTooLarge(mimeParts.protection);
+    }
+    const json = mimeParts
+      ? graphMessageFromMime(mimeParts, {
+          receivedDateTime: this.recordedReceivedTime(message),
+          isRead: messageFlagsOf(message).isRead,
+        })
+      : ((await readJsonObject(reader, message)) as Message);
+    const expectedDraft =
+      messageIsDraftOf(message) ?? (mimeParts ? mimeImportIsDraft(mimeParts) : undefined);
+    let prepared = prepareMessageCreate(json, { isDraft: expectedDraft });
+    let images: BodyImage[] = [];
+    const sizeOf = (body: Partial<Message>) => Buffer.byteLength(JSON.stringify(body));
+    if (
+      sizeOf(prepared.body) > JSON_CREATE_LIMIT_BYTES &&
+      json.body?.contentType === "html" &&
+      typeof json.body.content === "string"
+    ) {
+      const extracted = extractBodyImages(json.body.content);
+      images = extracted.images;
+      prepared = prepareMessageCreate(
+        { ...json, body: { contentType: "html", content: extracted.html } },
+        { isDraft: expectedDraft },
+      );
+    }
+    const size = sizeOf(prepared.body);
+    if (size > JSON_CREATE_LIMIT_BYTES) {
+      throw new RestoreNotPossibleError(
+        `the text of the message alone is ${(size / MB).toFixed(1)} MB, more than the 4 MB Graph takes in one request; restore it as a download (EML) instead`,
+      );
+    }
+    return { ...prepared, mimeParts, images, expectedDraft };
   }
 
   /**
@@ -1272,7 +1397,8 @@ export class ExchangeRestoreSession {
     message: ManifestObject,
     messageGraphId: string,
     outline: MimeOutline,
-    present?: readonly AttachmentMeta[],
+    present: readonly AttachmentMeta[] | undefined,
+    sent: Array<{ readonly name: string; readonly size: number }>,
   ): Promise<string[]> {
     const { ctx, reader } = this.o;
     const failed: string[] = [];
@@ -1302,6 +1428,7 @@ export class ExchangeRestoreSession {
             taken,
             present,
           );
+          sent.push({ name: facts.name, size: facts.size });
         } catch (error) {
           if (isAbortError(error)) {
             throw error;
@@ -1327,6 +1454,72 @@ export class ExchangeRestoreSession {
     return problems;
   }
 
+  /** Add the images moved out of the body (./mime-parts.ts, extractBodyImages) as inline attachments. */
+  private async addBodyImages(
+    messageGraphId: string,
+    images: readonly BodyImage[],
+    present: readonly AttachmentMeta[] | undefined,
+    sent: Array<{ readonly name: string; readonly size: number }>,
+  ): Promise<string[]> {
+    const failed: string[] = [];
+    const taken = new Set<string>();
+    for (const image of images) {
+      throwIfAborted(this.o.ctx);
+      const { content, ...facts } = image;
+      const source = Readable.from([content]);
+      try {
+        await this.addFileAttachmentOnce(
+          messageGraphId,
+          facts,
+          source,
+          () => Readable.from([content]),
+          taken,
+          present,
+        );
+        sent.push({ name: facts.name, size: facts.size });
+      } catch (error) {
+        if (isAbortError(error)) {
+          throw error;
+        }
+        failed.push(`${facts.name}: ${describeRestoreError(error)}`);
+      } finally {
+        source.destroy();
+      }
+    }
+    return failed.length > 0
+      ? [
+          `${failed.length} of ${images.length} images of the text could not be added (${failed.join("; ")})`,
+        ]
+      : [];
+  }
+
+  /**
+   * The names of `sent` the message does not list: each is matched once, by
+   * name and a size at least its own (Graph counts a little more).
+   */
+  private async attachmentsNotOnMessage(
+    messageGraphId: string,
+    sent: ReadonlyArray<{ readonly name: string; readonly size: number }>,
+  ): Promise<string[]> {
+    const listed = await collect(listAttachments(this.o.client, this.o.userId, messageGraphId));
+    const used = new Set<string>();
+    const missing: string[] = [];
+    for (const entry of sent) {
+      const match = listed.find(
+        (candidate) =>
+          !used.has(candidate.id) &&
+          candidate.name === entry.name &&
+          (candidate.size ?? -1) >= entry.size,
+      );
+      if (match === undefined) {
+        missing.push(entry.name);
+      } else {
+        used.add(match.id);
+      }
+    }
+    return missing;
+  }
+
   /** Attach one backed-up attachment; the ledger entry is recorded after the message's. */
   private async addAttachment(
     messageGraphId: string,
@@ -1334,7 +1527,13 @@ export class ExchangeRestoreSession {
     ownerIsJson: boolean,
     taken: Set<string>,
     present?: readonly AttachmentMeta[],
-  ): Promise<{ failed: boolean; twin?: boolean; record: AttachmentRecorder }> {
+  ): Promise<{
+    failed: boolean;
+    twin?: boolean;
+    /** Name and size it was added under, to be confirmed on the message. */
+    sent?: { readonly name: string; readonly size: number };
+    record: AttachmentRecorder;
+  }> {
     const { ctx, reader, ledger } = this.o;
     throwIfAborted(ctx);
     const skip = (code: Exclude<RestoreItemCode, "restored" | "unverified">, reason: string) => ({
@@ -1375,6 +1574,7 @@ export class ExchangeRestoreSession {
       return {
         failed: false,
         ...(added.twin ? { twin: true } : {}),
+        sent: { name, size: attachment.size },
         record: () =>
           ledger.restored(attachment, {
             targetRef: added.id,

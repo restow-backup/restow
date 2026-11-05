@@ -853,8 +853,11 @@ describe("ExchangeRestoreEngine", () => {
       }),
     ]);
     const messageItem = must(report.items.find((item) => item.id === "AAMk9"));
-    expect(messageItem.verified).toBe(true);
-    expect(messageItem.reason).toMatch(/shows it as a draft/);
+    // Its JSON does not say whether it was a draft, so Graph made one dated today: not confirmed.
+    expect(messageItem.verified).toBe(false);
+    expect(messageItem.reason).toMatch(
+      /does not record whether this was a draft.*draft dated today/,
+    );
     expect(messageItem.reason).toMatch(/Budget\.xlsx/);
     expect(fixture.ctx.progress.snapshot()).toMatchObject({ total: 6, done: 4, failed: 2 });
   });
@@ -1265,6 +1268,252 @@ describe("ExchangeRestoreEngine", () => {
     const item = must(report.items[0]);
     expect(item).toMatchObject({ status: "restored", verified: false });
     expect(item.reason).toMatch(/1 of 1 attachments could not be added \(huge\.bin: /);
+  });
+
+  describe("a message too large for one MIME import", () => {
+    const base64Lines = (bytes: Buffer) => bytes.toString("base64").replace(/.{76}/g, "$&\r\n");
+    const large = (id: string, content: string, metadata: Record<string, string> = {}) => ({
+      path: `mail/Posteingang/Large.${id}.eml`,
+      type: "mail",
+      id,
+      content,
+      metadata: {
+        messageId: `<${id}@example.org>`,
+        folderPath: "Posteingang",
+        wellKnownFolder: "inbox",
+        format: "mime",
+        isDraft: "false",
+        ...metadata,
+      },
+    });
+    const header = (id: string, contentType: string) =>
+      [
+        `Message-ID: <${id}@example.org>`,
+        "Date: Mon, 02 Mar 2026 08:15:30 +0100",
+        "From: Bob Example <bob@example.org>",
+        "To: Anna Example <anna@example.org>",
+        "Subject: Vertrag",
+        "MIME-Version: 1.0",
+        `Content-Type: ${contentType}`,
+      ].join("\r\n");
+    const run = async (objects: FixtureObject[], mailbox = new FakeMailbox()) => {
+      fixture = await createSnapshotFixture({ kind: "mailbox", externalId: USER, objects });
+      const report = await engineFor(mailbox).run(
+        fixture.ctx,
+        restoreRequestFor(fixture, { mode: "skip" }),
+      );
+      return { report, mailbox };
+    };
+
+    it("refuses an encrypted S/MIME or PGP message instead of rebuilding an unreadable one", async () => {
+      const cipher = pseudoRandomBytes(4 * 1024 * 1024, 31);
+      // As Outlook sends an S/MIME-encrypted mail: one enveloped-data part, the whole message.
+      const smime = [
+        header("smime-4mb", 'application/pkcs7-mime; smime-type=enveloped-data; name="smime.p7m"'),
+        "Content-Transfer-Encoding: base64",
+        'Content-Disposition: attachment; filename="smime.p7m"',
+        "",
+        base64Lines(cipher),
+        "",
+      ].join("\r\n");
+      // PGP/MIME (RFC 3156): a version part and the armored ciphertext.
+      const pgp = [
+        header(
+          "pgp-4mb",
+          'multipart/encrypted; protocol="application/pgp-encrypted"; boundary="pgp"',
+        ),
+        "",
+        "--pgp",
+        "Content-Type: application/pgp-encrypted",
+        "",
+        "Version: 1",
+        "--pgp",
+        'Content-Type: application/octet-stream; name="encrypted.asc"',
+        "",
+        "-----BEGIN PGP MESSAGE-----",
+        base64Lines(cipher),
+        "-----END PGP MESSAGE-----",
+        "--pgp--",
+        "",
+      ].join("\r\n");
+      const { report, mailbox } = await run([large("smime-4mb", smime), large("pgp-4mb", pgp)]);
+
+      expect(mailbox.messages.size).toBe(0);
+      for (const id of ["smime-4mb", "pgp-4mb"]) {
+        const item = must(report.items.find((entry) => entry.id === id));
+        expect(item).toMatchObject({ status: "failed", code: "not_restorable" });
+        expect(item.reason).toMatch(/encrypted \(S\/MIME or PGP\).*download \(EML\)/);
+      }
+    });
+
+    it("never confirms a signed message rebuilt from its parts", async () => {
+      const pdf = pseudoRandomBytes(4 * 1024 * 1024, 32);
+      const signed = [
+        header(
+          "signed-4mb",
+          'multipart/signed; protocol="application/pkcs7-signature"; micalg=sha-256; boundary="sig"',
+        ),
+        "",
+        "--sig",
+        'Content-Type: multipart/mixed; boundary="inner"',
+        "",
+        "--inner",
+        "Content-Type: text/plain",
+        "",
+        "Vertrag anbei",
+        "--inner",
+        'Content-Type: application/pdf; name="Vertrag.pdf"',
+        "Content-Transfer-Encoding: base64",
+        'Content-Disposition: attachment; filename="Vertrag.pdf"',
+        "",
+        base64Lines(pdf),
+        "--inner--",
+        "--sig",
+        'Content-Type: application/pkcs7-signature; name="smime.p7s"',
+        "Content-Transfer-Encoding: base64",
+        'Content-Disposition: attachment; filename="smime.p7s"',
+        "",
+        base64Lines(pseudoRandomBytes(2048, 33)),
+        "--sig--",
+        "",
+      ].join("\r\n");
+      const { report, mailbox } = await run([large("signed-4mb", signed)]);
+
+      const restored = must([...mailbox.messages.values()][0]);
+      expect(restored.attachments.map((a) => a.name)).toEqual(["Vertrag.pdf", "smime.p7s"]);
+      const item = must(report.items.find((entry) => entry.id === "signed-4mb"));
+      expect(item).toMatchObject({ status: "restored", verified: false });
+      expect(item.reason).toMatch(/signed \(S\/MIME or PGP\).*signature no longer matches/);
+    });
+
+    it("restores a large group post as a received message, not as a draft dated today", async () => {
+      const pdf = pseudoRandomBytes(4 * 1024 * 1024, 34);
+      const post = [
+        "Message-ID: <post-AAQk1@groups.restow.invalid>",
+        "Date: Tue, 03 Mar 2026 09:00:00 +0000",
+        "From: Carla <carla@example.org>",
+        "To: Projekt Nord <nord@example.org>",
+        "Subject: Plan",
+        "MIME-Version: 1.0",
+        'Content-Type: multipart/mixed; boundary="p"',
+        "",
+        "--p",
+        "Content-Type: text/html; charset=utf-8",
+        "",
+        "<p>Plan anbei</p>",
+        "--p",
+        'Content-Type: application/pdf; name="Plan.pdf"',
+        "Content-Transfer-Encoding: base64",
+        'Content-Disposition: attachment; filename="Plan.pdf"',
+        "",
+        base64Lines(pdf),
+        "--p--",
+        "",
+      ].join("\r\n");
+      // Metadata as the group conversation backup writes it: no draft state, no IMAP flags.
+      const object: FixtureObject = {
+        path: "mail/Conversations/Plan.AAQk1.eml",
+        type: "mail",
+        id: "AAQk1",
+        content: post,
+        metadata: {
+          subject: "Plan",
+          receivedDateTime: "2026-03-03T09:00:05Z",
+          isRead: "true",
+          flagStatus: "notFlagged",
+          categories: "[]",
+          hasAttachments: "true",
+          messageId: "<post-AAQk1@groups.restow.invalid>",
+          folderId: "thread:T1",
+          folderPath: "Conversations",
+          format: "mime",
+          conversationThreadId: "T1",
+          postId: "AAQk1",
+        },
+      };
+      const { report, mailbox } = await run([object]);
+
+      const restored = must([...mailbox.messages.values()][0]);
+      expect(restored.isDraft).toBe(false);
+      expect(Date.parse(restored.receivedDateTime)).toBe(Date.parse("2026-03-03T09:00:05Z"));
+      expect(must(report.items.find((entry) => entry.id === "AAQk1")).verified).toBe(true);
+    });
+
+    it("moves the images of a large HTML body into inline attachments, refuses a text too large", async () => {
+      const picture = pseudoRandomBytes(5 * 1024 * 1024, 35);
+      const newsletter = [
+        header("news-5mb", "text/html; charset=utf-8"),
+        "",
+        `<p>Neuigkeiten</p><img alt="Titel" src="data:image/png;base64,${picture.toString("base64")}">`,
+        "",
+      ].join("\r\n");
+      const longText = [
+        header("text-5mb", "text/plain; charset=utf-8"),
+        "",
+        "Protokoll ".repeat(500_000),
+        "",
+      ].join("\r\n");
+      const { report, mailbox } = await run([
+        large("news-5mb", newsletter),
+        large("text-5mb", longText),
+      ]);
+
+      for (const call of mailbox.graph.calls) {
+        const length =
+          typeof call.body === "string" ? call.body.length : (call.body?.byteLength ?? 0);
+        expect(length, call.url).toBeLessThanOrEqual(4 * 1024 * 1024);
+      }
+      const news = must(
+        [...mailbox.messages.values()].find(
+          (m) => m.internetMessageId === "<news-5mb@example.org>",
+        ),
+      );
+      const body = (must(news.json).body as { content: string }).content;
+      expect(body).toContain('src="cid:restow-body-image-1@restow.invalid"');
+      expect(body).not.toContain("data:image");
+      expect(news.attachments).toEqual([
+        expect.objectContaining({
+          name: "image-1.png",
+          contentType: "image/png",
+          isInline: true,
+          contentId: "restow-body-image-1@restow.invalid",
+          contentBytes: picture.toString("base64"),
+        }),
+      ]);
+      const newsItem = must(report.items.find((entry) => entry.id === "news-5mb"));
+      expect(newsItem.verified).toBe(true);
+      expect(newsItem.reason).toMatch(/embedded 1 images/);
+      const textItem = must(report.items.find((entry) => entry.id === "text-5mb"));
+      expect(textItem).toMatchObject({ status: "failed", code: "not_restorable" });
+      expect(textItem.reason).toMatch(/text of the message alone is 4\.8 MB.*download \(EML\)/);
+    });
+
+    it("never confirms a message whose attachment Exchange answered but does not list", async () => {
+      const pdf = pseudoRandomBytes(4 * 1024 * 1024, 36);
+      const mime = [
+        header("dropped-4mb", 'multipart/mixed; boundary="d"'),
+        "",
+        "--d",
+        "Content-Type: text/plain",
+        "",
+        "Anhang",
+        "--d",
+        'Content-Type: application/octet-stream; name="tool.exe"',
+        "Content-Transfer-Encoding: base64",
+        'Content-Disposition: attachment; filename="tool.exe"',
+        "",
+        base64Lines(pdf),
+        "--d--",
+        "",
+      ].join("\r\n");
+      const mailbox = new FakeMailbox();
+      mailbox.dropsAttachmentsNamed.add("tool.exe");
+      const { report } = await run([large("dropped-4mb", mime)], mailbox);
+
+      const item = must(report.items.find((entry) => entry.id === "dropped-4mb"));
+      expect(item).toMatchObject({ status: "restored", verified: false });
+      expect(item.reason).toMatch(/1 of 1 attachments are not on the restored message: tool\.exe/);
+    });
   });
 
   describe("when Exchange carries out a POST but its answer is lost", () => {

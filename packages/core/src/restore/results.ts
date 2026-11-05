@@ -100,7 +100,22 @@ export function describeRestoreError(error: unknown): string {
 export { RestoreIntegrityError };
 
 /** The outcome code of a thrown error. */
+/**
+ * The item cannot be restored into this target as it is (an encrypted
+ * message too large for one Graph request, a body Graph cannot take); the
+ * message says what to do instead. Recorded as `not_restorable`.
+ */
+export class RestoreNotPossibleError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RestoreNotPossibleError";
+  }
+}
+
 export function failureCodeOf(error: unknown): RestoreItemCode {
+  if (error instanceof RestoreNotPossibleError) {
+    return "not_restorable";
+  }
   if (error instanceof MissingChunkError) {
     return "data_missing";
   }

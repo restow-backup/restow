@@ -271,8 +271,8 @@
       "sent": "Sent"
     },
     "protection": {
-      "notice": "{kind, select, purview {Rights-protected by Microsoft Purview} smime {S/MIME-encrypted} other {Protected}}: opening the EML needs the recipient's rights; restoring into the mailbox works.",
-      "downloadHint": "{kind, select, purview {Rights-protected by Microsoft Purview} smime {S/MIME-encrypted} other {Protected}}: the downloaded EML needs the recipient's rights to open; restoring into the mailbox works."
+      "notice": "{kind, select, purview {Rights-protected by Microsoft Purview} smime {S/MIME-encrypted} other {Protected}}: opening the EML needs the recipient's rights. Restoring into the mailbox works for messages up to about 2.6 MB; Exchange cannot take a larger one protected, so it can only be downloaded as EML.",
+      "downloadHint": "{kind, select, purview {Rights-protected by Microsoft Purview} smime {S/MIME-encrypted} other {Protected}}: the downloaded EML needs the recipient's rights to open. Restoring into the mailbox works for messages up to about 2.6 MB; a larger one can only be downloaded."
     },
     "attachmentsNotBackedUp": {
       "title": "Attachments not backed up",

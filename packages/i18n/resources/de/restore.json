@@ -271,8 +271,8 @@
       "sent": "Gesendet"
     },
     "protection": {
-      "notice": "{kind, select, purview {Rechteverwaltet durch Microsoft Purview} smime {S/MIME-verschlüsselt} other {Geschützt}}: Zum Öffnen der EML sind die Rechte der Empfängerin oder des Empfängers nötig; die Wiederherstellung ins Postfach funktioniert.",
-      "downloadHint": "{kind, select, purview {Rechteverwaltet durch Microsoft Purview} smime {S/MIME-verschlüsselt} other {Geschützt}}: Die heruntergeladene EML lässt sich nur mit den Rechten der Empfängerin oder des Empfängers öffnen; die Wiederherstellung ins Postfach funktioniert."
+      "notice": "{kind, select, purview {Rechteverwaltet durch Microsoft Purview} smime {S/MIME-verschlüsselt} other {Geschützt}}: Zum Öffnen der EML sind die Rechte der Empfängerin oder des Empfängers nötig. Die Wiederherstellung ins Postfach funktioniert für Nachrichten bis etwa 2,6 MB; eine größere kann Exchange nicht geschützt übernehmen, sie lässt sich nur als EML herunterladen.",
+      "downloadHint": "{kind, select, purview {Rechteverwaltet durch Microsoft Purview} smime {S/MIME-verschlüsselt} other {Geschützt}}: Die heruntergeladene EML lässt sich nur mit den Rechten der Empfängerin oder des Empfängers öffnen. Die Wiederherstellung ins Postfach funktioniert für Nachrichten bis etwa 2,6 MB; eine größere lässt sich nur herunterladen."
     },
     "attachmentsNotBackedUp": {
       "title": "Anhänge nicht gesichert",

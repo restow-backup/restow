@@ -221,8 +221,22 @@ Zustand und lässt ihn nachträglich bestätigen, bei IMAP setzt ihn die Antwort
   Eigenschaften für Entwurfsstatus und Daten wie unten), dann bekommt sie ihre Anhänge einzeln:
   unter 3 MB mit einem POST, ab 3 MB über `createUploadSession` (bis 150 MB je Anhang, Fragmente
   bis 4 MiB), eingebettete Bilder mit ihrer Content-ID (`cid:` im HTML), eine angehängte
-  Nachricht als `.eml`. Stimmen Message-ID oder Zahl der Anhänge danach nicht, ist das Element
-  „Nicht bestätigt“ mit dem Grund. Was dabei nicht zurückkommt (die Header, die Graph beim
+  Nachricht als `.eml`. Danach listet Restow die Anhänge der Nachricht und vergleicht Name und
+  Größe mit dem, was es hinzugefügt hat. Scheitert ein Anhang, fehlt einer in der Liste oder
+  stimmt die Message-ID nicht, ist das Element „Nicht bestätigt“ mit dem Grund. Der Text selbst
+  muss in die 4 MB einer Anfrage passen: Bilder, die ein HTML-Text als `data:`-URI enthält (ein
+  Newsletter), werden zu eingebetteten Anhängen mit Content-ID; ein Text, der auch ohne sie
+  größer ist, lässt sich nicht ins Postfach legen und scheitert mit dem Hinweis auf den
+  EML-Download. Den Entwurfsstatus legt die Sicherung fest; wo sie ihn nicht kennt (Beiträge
+  aus Gruppenunterhaltungen), gilt, was ein MIME-Import ergäbe: kein Entwurf, wenn Date und From
+  im Header stehen. Eine verschlüsselte (S/MIME `application/pkcs7-mime`, PGP
+  `multipart/encrypted`), undurchsichtig signierte (`smime-type=signed-data`) oder
+  rechtegeschützte Nachricht (Purview, `.rpmsg`) dieser Größe baut Restow nicht nach: Exchange
+  speichert solche Nachrichten als eigene Nachrichtenklasse mit dem Original-MIME, ein Nachbau
+  aus Teilen ließe sich weder öffnen noch prüfen. Sie scheitert mit dem Hinweis auf den
+  EML-Download. Eine signierte Nachricht (`multipart/signed`) kommt lesbar mit der Signaturdatei
+  als Anhang zurück, aber „Nicht bestätigt“, weil die Signatur nicht mehr passt. Bis zur Grenze
+  des MIME-Imports behalten alle diese Nachrichten ihren Schutz. Was dabei nicht zurückkommt (die Header, die Graph beim
   Anlegen nicht nimmt, etwa Received und References, und die genaue MIME-Struktur), nennt der
   Hinweis des Elements; die Originalbytes gibt es als EML-Download. Den Hinweis „als Download
   (EML) wiederherstellen“ gibt es nur noch, wenn Exchange eine Anfrage wirklich ablehnt.
@@ -235,7 +249,8 @@ Zustand und lässt ihn nachträglich bestätigen, bei IMAP setzt ihn die Antwort
   Exchange beim Zustellen gestempelten (`X-MS-*`, `X-Microsoft-*`, `X-Forefront-*`), höchstens 5
   und zusammen höchstens 2 KB; die übrigen bleiben in der Sicherung, die Wiederherstellung nennt
   ihre Anzahl. Ohne weitere Angaben legt Graph eine JSON-Nachricht als Entwurf mit dem heutigen
-  Datum an. War die gesicherte Nachricht kein Entwurf (`isDraft` im JSON oder in den Metadaten),
+  Datum an; kennt die Sicherung den Entwurfsstatus nicht und zeigt Exchange die Nachricht als
+  Entwurf, ist sie „Nicht bestätigt“. War die gesicherte Nachricht kein Entwurf (`isDraft` im JSON oder in den Metadaten),
   setzt Restow beim Anlegen die erweiterten Eigenschaften `PidTagMessageFlags` (`Integer 0x0E07`,
   gelesen-Bit aus `isRead`, nie das Entwurfs-Bit 0x8), `PidTagMessageDeliveryTime`
   (`SystemTime 0x0E06` = `receivedDateTime`) und `PidTagClientSubmitTime` (`SystemTime 0x0039` =

@@ -48,12 +48,82 @@ export interface MimeAttachmentFacts {
   readonly contentId: string | undefined;
 }
 
+/**
+ * How a message protects its content, as its structure shows it:
+ *
+ *   encrypted          S/MIME enveloped data (application/pkcs7-mime) or
+ *                      PGP/MIME (multipart/encrypted): the body is ciphertext
+ *   opaque-signed      S/MIME signed data (application/pkcs7-mime,
+ *                      smime-type=signed-data): body and signature are one
+ *                      binary part
+ *   signed             multipart/signed (S/MIME or PGP): readable body, the
+ *                      signature over its exact bytes in a second part
+ *   rights-protected   Microsoft Purview / IRM (an .rpmsg part)
+ *
+ * Rebuilt from its parts, none of these is what it was: Exchange stores
+ * protected mail as a message class of its own with the original MIME, and a
+ * signature covers bytes a rebuild does not keep.
+ */
+export type MimeProtection = "encrypted" | "opaque-signed" | "signed" | "rights-protected";
+
 export interface MimeOutline {
   readonly headers: Headers;
   readonly headerLines: HeaderLines;
   readonly html: string | undefined;
   readonly text: string | undefined;
   readonly attachments: readonly MimeAttachmentFacts[];
+  readonly protection: MimeProtection | undefined;
+}
+
+const PKCS7_MIME = new Set(["application/pkcs7-mime", "application/x-pkcs7-mime"]);
+const RPMSG = "application/x-microsoft-rpmsg-message";
+
+/** The structured value of a Content-Type header (mailparser keeps it as value and params). */
+function contentTypeOf(headers: Headers): { type: string; params: Record<string, string> } {
+  const value = headers.get("content-type");
+  if (value && typeof value === "object" && !Array.isArray(value) && "value" in value) {
+    const structured = value as { value: unknown; params?: Record<string, string> };
+    if (typeof structured.value === "string") {
+      return { type: structured.value.toLowerCase(), params: structured.params ?? {} };
+    }
+  }
+  return { type: typeof value === "string" ? value.toLowerCase() : "", params: {} };
+}
+
+function protectionOf(
+  headers: Headers,
+  attachments: readonly MimeAttachmentFacts[],
+): MimeProtection | undefined {
+  const { type, params } = contentTypeOf(headers);
+  if (PKCS7_MIME.has(type)) {
+    const smimeType = (params["smime-type"] ?? "").toLowerCase();
+    return smimeType === "signed-data" ? "opaque-signed" : "encrypted";
+  }
+  if (type === "multipart/encrypted") {
+    return "encrypted";
+  }
+  if (type === "multipart/signed") {
+    return "signed";
+  }
+  if (
+    attachments.some(
+      (attachment) =>
+        attachment.contentType === RPMSG || attachment.name.toLowerCase().endsWith(".rpmsg"),
+    )
+  ) {
+    return "rights-protected";
+  }
+  return undefined;
+}
+
+/**
+ * Whether a MIME import of these headers would be a draft: Exchange makes
+ * one of a message whose header lacks Date or From (docs/MICROSOFT.md).
+ */
+export function mimeImportIsDraft(outline: Pick<MimeOutline, "headerLines">): boolean {
+  const has = (name: string) =>
+    outline.headerLines.some((entry) => entry.key.toLowerCase() === name);
+  return !(has("date") && has("from"));
 }
 
 function newParser(source: Readable): MailParser {
@@ -121,7 +191,59 @@ export async function outlineMime(source: Readable): Promise<MimeOutline> {
     }
     attachments.push(attachmentFacts(data, attachments.length, size));
   }
-  return { headers, headerLines, html, text, attachments };
+  return {
+    headers,
+    headerLines,
+    html,
+    text,
+    attachments,
+    protection: protectionOf(headers, attachments),
+  };
+}
+
+/** An image the HTML body carried as a `data:` URI, to be added as an inline attachment. */
+export interface BodyImage extends MimeAttachmentFacts {
+  readonly content: Buffer;
+}
+
+const DATA_IMAGE = /(\bsrc\s*=\s*)(["'])data:(image\/[a-z0-9.+-]+);base64,([A-Za-z0-9+/=\s]+)\2/gi;
+
+const IMAGE_EXTENSIONS: Readonly<Record<string, string>> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/gif": "gif",
+  "image/webp": "webp",
+  "image/svg+xml": "svg",
+  "image/bmp": "bmp",
+};
+
+/**
+ * Move the images an HTML body embeds as `data:` URIs (a newsletter with its
+ * pictures inline) out of the body: each becomes an inline attachment the
+ * body refers to by `cid:`, as a mail program would send it. A body Graph
+ * would refuse as too large for one request then fits.
+ */
+export function extractBodyImages(html: string): { html: string; images: BodyImage[] } {
+  const images: BodyImage[] = [];
+  const rewritten = html.replace(
+    DATA_IMAGE,
+    (_match, attribute: string, quote: string, type: string, data: string) => {
+      const contentType = type.toLowerCase();
+      const content = Buffer.from(data.replace(/\s+/g, ""), "base64");
+      const index = images.length + 1;
+      const contentId = `restow-body-image-${index}@restow.invalid`;
+      images.push({
+        name: `image-${index}.${IMAGE_EXTENSIONS[contentType] ?? "bin"}`,
+        contentType,
+        size: content.length,
+        isInline: true,
+        contentId,
+        content,
+      });
+      return `${attribute}${quote}cid:${contentId}${quote}`;
+    },
+  );
+  return { html: rewritten, images };
 }
 
 /**

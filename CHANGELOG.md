@@ -527,9 +527,22 @@ private repository.
   230 MB of memory. A message whose base64 MIME is larger than 3.5 MiB is now created from its
   header and body, and its attachments are added one by one (from 3 MB through an upload
   session, up to 150 MB each), with inline images and attached messages (as .eml); the backup
-  is read twice as a stream and no attachment is held in memory. What does not come back
-  (transport headers such as Received and References, the exact MIME) is said on the item; a
-  missing attachment or a different Message-ID makes it "Not confirmed".
+  is read twice as a stream and no attachment is held in memory. Afterwards the message's
+  attachments are listed and compared by name and size. What does not come back (transport
+  headers such as Received and References, the exact MIME) is said on the item; an attachment
+  that could not be added or that the message does not list, or a different Message-ID, makes it
+  "Not confirmed". Images an HTML body carries inline as `data:` URIs (a newsletter) become inline
+  attachments so the body fits one request; a text that is larger than 4 MB on its own still
+  cannot go into a mailbox and fails with "restore it as a download (EML)". A message of this
+  size without a recorded draft state (a group conversation post) is created as what its MIME
+  import would be, received mail when its header has Date and From, instead of a draft dated the
+  day of the restore that still counted as confirmed; a message from the JSON fallback whose
+  draft state the backup does not record and that Exchange shows as a draft is "Not confirmed".
+  An encrypted (S/MIME, PGP/MIME), opaquely signed or rights-protected (Purview) message of this
+  size is not rebuilt, since Exchange could not open or check the result: it fails with the hint
+  to restore it as a download (EML). A signed message (multipart/signed) is restored readable,
+  with its signature file attached, but "Not confirmed", because the signature no longer
+  matches. Up to that size such messages are imported as they are and keep their protection.
 - Mail restore: when Exchange carried out a create but its answer was lost (the gateway answered
   504, no answer came in time, or the connection broke), nothing checked whether the item already
   existed. A message was then reported as failed although it was in the folder, or, sent again,

@@ -150,6 +150,11 @@ export class FakeMailbox {
   maxAttachmentBytes = 150 * 1024 * 1024;
   /** The next attachment fragments PUT at these offsets are refused with 502 (once each). */
   readonly failAttachmentFragmentsAt: number[] = [];
+  /**
+   * Attachments of these names are answered as created but never show on
+   * their message, as with a file type the mailbox's policy strips.
+   */
+  readonly dropsAttachmentsNamed = new Set<string>();
   /** Upload sessions cancelled with DELETE. */
   readonly cancelledUploads: string[] = [];
   /** Open attachment upload sessions by id. */
@@ -612,7 +617,9 @@ export class FakeMailbox {
             return TOO_LARGE;
           }
           const id = this.nextId("att");
-          message.attachments.push(this.created({ id, ...json }));
+          if (!this.dropsAttachmentsNamed.has(String(json.name))) {
+            message.attachments.push(this.created({ id, ...json }));
+          }
           return { status: 201, json: { id } };
         },
       },
@@ -881,6 +888,14 @@ export class FakeMailbox {
     const message = upload.holder;
     const attachmentId = this.nextId("att");
     const { attachmentType: _type, ...facts } = upload.item;
+    if (this.dropsAttachmentsNamed.has(String(facts.name))) {
+      return {
+        status: 201,
+        headers: {
+          location: `https://${UPLOAD_HOST}/api/v2.0/Users('x')/Messages('${upload.messageId}')/Attachments('${attachmentId}')`,
+        },
+      };
+    }
     message.attachments.push(
       this.created({
         id: attachmentId,

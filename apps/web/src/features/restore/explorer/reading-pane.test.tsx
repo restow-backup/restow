@@ -154,7 +154,7 @@ describe("ReadingPaneView", () => {
     expect(html).not.toContain("<iframe");
     expect(html).not.toContain("<pre");
     expect(html).toContain("Rights-protected by Microsoft Purview");
-    expect(html).toContain("restoring into the mailbox works");
+    expect(html).toContain("Restoring into the mailbox works for messages up to about 2.6 MB");
   });
 
   it("shows an explanatory notice for an S/MIME-encrypted mail", () => {
