@@ -422,37 +422,78 @@ describe("ImapBackupEngine", () => {
       );
     });
 
-    it("keeps the previous copy and state after a UIDVALIDITY change, and reads it in full next run", async () => {
+    it("keeps what it read under a new UIDVALIDITY and the older copies of the rest, and goes on next run", async () => {
       const inbox = server.addFolder("INBOX");
       for (let i = 1; i <= 6; i++) {
         inbox.add(eml(`m${i}`));
       }
-      const first = await engine().run(context(), protectedObject, {});
-      const before = await manifestOf(first.snapshotId);
+      await engine().run(context(), protectedObject, {});
       inbox.resetUidValidity(2000);
       capAfterFour();
 
       const failed = await engine().run(context(), protectedObject, {});
       expect(failed.failures.map((f) => f.itemRef)).toEqual(["INBOX"]);
       const manifest = await manifestOf(failed.snapshotId);
-      expect(inboxOf(manifest)).toEqual(inboxOf(before));
-      expect(inboxOf(manifest).every(([, validity]) => validity === "1000")).toBe(true);
+      // Messages 1-4 under the new UIDs, 5 and 6 as their older copies: all six, once each.
+      expect(inboxOf(manifest)).toEqual([
+        [1, "2000"],
+        [2, "2000"],
+        [3, "2000"],
+        [4, "2000"],
+        [5, "1000"],
+        [6, "1000"],
+      ]);
+      expect(
+        messages(manifest)
+          .filter((o) => o.metadata?.[META.uidValidity] === "1000")
+          .map((o) => o.path)
+          .sort(),
+      ).toEqual(["mail/INBOX/5.v1000.eml", "mail/INBOX/6.v1000.eml"]);
       const state = manifest.state as {
         imap: { folders: Record<string, { uidValidity: string }> };
       };
-      expect(state.imap.folders.INBOX.uidValidity).toBe("1000");
+      expect(state.imap.folders.INBOX.uidValidity).toBe("2000");
 
       server.faults.refuseSource.clear();
+      server.stats.sourcesDelivered.length = 0;
       const logs: LogRecord[] = [];
       const next = await engine().run(context({ logs }), protectedObject, {});
       expect(next.failures).toEqual([]);
       expect(logLine(logs, "imap folder planned", "INBOX")).toMatchObject({
-        mode: "full",
-        reason: "uidvalidity_changed",
+        mode: "incremental",
+        toFetch: 2,
       });
+      expect(server.stats.sourcesDelivered).toEqual(["INBOX:5", "INBOX:6"]);
       const healed = inboxOf(await manifestOf(next.snapshotId));
       expect(healed).toHaveLength(6);
       expect(healed.every(([, validity]) => validity === "2000")).toBe(true);
+    });
+
+    it("converges under a download cap that recurs every run after a UIDVALIDITY change", async () => {
+      const inbox = server.addFolder("INBOX");
+      for (let i = 1; i <= 12; i++) {
+        inbox.add(eml(`m${i}`));
+      }
+      await engine().run(context(), protectedObject, {});
+      inbox.resetUidValidity(2000);
+
+      const newCopies: number[] = [];
+      for (let run = 1; run <= 3; run++) {
+        server.faults.downloadCap = 4;
+        const result = await engine().run(context(), protectedObject, {});
+        const inboxNow = inboxOf(await manifestOf(result.snapshotId));
+        // Never a message lost or doubled while the folder is read again.
+        expect(inboxNow).toHaveLength(12);
+        newCopies.push(inboxNow.filter(([, validity]) => validity === "2000").length);
+        if (run < 3) {
+          expect(result.failures.map((f) => [f.itemRef, f.cause?.code])).toEqual([
+            ["INBOX", "imap.server_limit"],
+          ]);
+        } else {
+          expect(result.failures).toEqual([]);
+        }
+      }
+      expect(newCopies).toEqual([4, 8, 12]);
     });
   });
 

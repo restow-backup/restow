@@ -548,8 +548,11 @@ private repository.
   the server changed its UIDVALIDITY, for example after a migration) kept only what that attempt
   had downloaded, often nothing, although the previous restore point held all of its mail. In a
   requested full backup the previous messages that were not read again are now carried forward
-  with their current flags; after a UIDVALIDITY change the previous copy of the folder is kept
-  as it was and the next run reads the folder in full again.
+  with their current flags. After a UIDVALIDITY change the messages already read under the new
+  UIDs are kept together with the previous copy of every message not read again yet, and the
+  next run goes on with the rest instead of starting over, so a folder larger than a daily
+  download limit gets through after a few runs; once it is read completely, the previous
+  copies go.
 - Mail backup: when an interrupted IMAP backup was resumed after a folder had been renamed or
   deleted in between, the restore point kept the folder the earlier attempt had already stored
   next to its new name, so a restore brought back a folder that no longer existed and every

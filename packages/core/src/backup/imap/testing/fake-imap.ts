@@ -239,6 +239,12 @@ export interface FakeServerFaults {
   /** Folders whose metadata FETCH fails with a NO (EXAMINE and STATUS still work). */
   refuseMeta: Set<string>;
   /**
+   * A provider's download cap: this many more sources are delivered, then every FETCH of a
+   * source answers `NO [OVERQUOTA] Account exceeded download limits` (null: no cap). Tests set
+   * it again before each run to model a cap that resets every day.
+   */
+  downloadCap: number | null;
+  /**
    * Folders whose metadata FETCH Gmail refuses for its command or bandwidth cap:
    * `NO [ALERT] Account exceeded command or bandwidth limits. (Failure)`.
    */
@@ -279,6 +285,7 @@ export class FakeImapServer implements ImapConnector {
     refuseSource: new Set(),
     refuseSourceCode: null,
     refuseMeta: new Set(),
+    downloadCap: null,
     limitMeta: new Set(),
     unreadable: new Set(),
   };
@@ -684,6 +691,19 @@ class FakeSession implements ImapSession {
       const message = folder.messages.get(uid);
       if (!message || this.server.faults.omit.has(key) || this.server.faults.omitSource.has(key)) {
         continue;
+      }
+      if (this.server.faults.downloadCap !== null) {
+        if (this.server.faults.downloadCap <= 0) {
+          const text = "Account exceeded download limits";
+          const cause = Object.assign(new Error("Command failed"), {
+            responseStatus: "NO",
+            responseText: text,
+            serverResponseCode: "OVERQUOTA",
+            executedCommand: `1F UID FETCH ${uids.join(",")} (UID BODY.PEEK[])`,
+          });
+          throw new ImapSessionError(`UID FETCH: NO ${text}`, false, { cause });
+        }
+        this.server.faults.downloadCap--;
       }
       this.server.stats.sourcesDelivered.push(key);
       yield {

@@ -30,9 +30,10 @@
  * Failures are scoped: a message the server does not return is recorded and
  * retried on the next run; a folder that keeps failing is recorded and its
  * previous objects are carried forward (in a full read under the same
- * UIDVALIDITY those not read again yet; after a UIDVALIDITY change the
- * previous picture as a whole, so the restore point is never worse than the
- * last one); a dropped connection is re-opened. The
+ * UIDVALIDITY those not read again yet; after a UIDVALIDITY change the older
+ * copy of every message not read again yet, until the new read covers the
+ * folder, so the restore point is never worse than the last one and the
+ * re-read goes on where it stopped); a dropped connection is re-opened. The
  * job checkpoints (packs, partial manifest, cursor) after every folder that
  * changed something and, while downloading, every few hundred messages but at
  * most once a minute, so a restarted worker resumes without downloading
@@ -675,6 +676,7 @@ class BackupRun {
     });
 
     await this.downloadAll(worker, folder, status, components, toFetch, gmailIds);
+    this.settleOlderCopies(folder, status, components, liveFlags);
 
     this.writer.add(this.folderObject(folder, status, components));
     this.folderState[folder.path] = folderStateOf(folder, status);
@@ -861,6 +863,7 @@ class BackupRun {
       this.fullReadFailed(folder, status, planned.liveFlags);
     } else if (this.reconciled.has(folder.path) && status) {
       // Reconciled against the live folder: what was not downloaded is absent and retried next run.
+      this.settleOlderCopies(folder, status, folderComponents(folder), planned?.liveFlags);
       this.folderState[folder.path] = folderStateOf(folder, status);
     } else if (this.partialByFolder.has(folder.path)) {
       // An earlier attempt of this run already reconciled it; its objects are in the partial manifest.
@@ -895,9 +898,11 @@ class BackupRun {
    *    whose UID was not read again and is still in the folder are carried forward with
    *    their current flags. The live state is kept only when that covers every live UID;
    *    otherwise the previous state stays and the next run plans the folder again.
-   *  - UIDVALIDITY changed: the old objects cannot be mixed with the new UIDs (same paths,
-   *    other messages). What this attempt stored for the folder is dropped and the previous
-   *    picture is kept as it was, state included, so the next run reads it in full again.
+   *  - UIDVALIDITY changed: what this attempt read under the new UIDVALIDITY is kept, and
+   *    every previous message it did not read again yet stays as its older copy
+   *    ({@link settleOlderCopies}). The state moves to the new UIDVALIDITY, so the next run
+   *    goes on with the UIDs not stored yet instead of starting over (a download cap that
+   *    recurs every night still lets the folder converge).
    */
   private fullReadFailed(
     folder: ImapFolderInfo,
@@ -911,28 +916,17 @@ class BackupRun {
       this.folderState[folder.path] = folderStateOf(folder, status);
       return;
     }
+    const components = folderComponents(folder);
     if (previousState.uidValidity !== status.uidValidity) {
-      let dropped = 0;
-      for (const object of this.writer.listObjects()) {
-        if (objectMailbox(object) === folder.path && this.writer.remove(object.path)) {
-          dropped++;
-        }
-      }
-      for (const object of previousObjects) {
-        this.writer.add(object);
-      }
-      this.folderState[folder.path] = previousState;
+      const older = this.settleOlderCopies(folder, status, components, liveFlags);
+      this.writer.add(this.folderObject(folder, status, components));
+      this.folderState[folder.path] = folderStateOf(folder, status);
       this.logger.warn(
-        "imap folder re-read after a UIDVALIDITY change failed, previous copy kept",
-        {
-          folder: folder.path,
-          dropped,
-          carried: previousObjects.length,
-        },
+        "imap folder re-read after a UIDVALIDITY change failed, older copies kept for what is not read yet",
+        { folder: folder.path, olderCopies: older },
       );
       return;
     }
-    const components = folderComponents(folder);
     let carried = 0;
     for (const object of previousObjects) {
       if (!isMessageObject(object) || object.metadata?.[META.uidValidity] !== status.uidValidity) {
@@ -949,6 +943,7 @@ class BackupRun {
     const covered = [...liveFlags.keys()].every((uid) =>
       this.writer.has(messageObjectPath(components, uid)),
     );
+    this.settleOlderCopies(folder, status, components, liveFlags);
     this.writer.add(this.folderObject(folder, status, components));
     this.folderState[folder.path] = covered ? folderStateOf(folder, status) : previousState;
     this.logger.warn("imap folder full read failed, previous messages carried forward", {
@@ -956,6 +951,79 @@ class BackupRun {
       carried,
       covered,
     });
+  }
+
+  /**
+   * After a UIDVALIDITY change the folder is read again under its new UIDs, which can take
+   * several runs (a daily download cap, a run that fails half-way). Until every live UID is
+   * stored under the new UIDVALIDITY, each previous message (any older UIDVALIDITY) that was
+   * not read again yet stays in the restore point as its older copy: matched by Message-ID,
+   * SHA-256 and size against what the new read stored, one for one, and kept at a path of its
+   * own (`<uid>.v<uidvalidity>.eml`, the new UIDs take the plain paths). Once the new read
+   * covers the folder, the older copies go. Returns how many older copies stay.
+   */
+  private settleOlderCopies(
+    folder: ImapFolderInfo,
+    status: ImapFolderStatus,
+    components: readonly string[],
+    liveFlags: ReadonlyMap<number, readonly string[]> | undefined,
+  ): number {
+    const older = (this.previousByFolder.get(folder.path) ?? []).filter(
+      (object) =>
+        isMessageObject(object) && object.metadata?.[META.uidValidity] !== status.uidValidity,
+    );
+    if (older.length === 0) {
+      return 0;
+    }
+    const current = (uid: number): boolean =>
+      this.writer.get(messageObjectPath(components, uid))?.metadata?.[META.uidValidity] ===
+      status.uidValidity;
+    const covered = liveFlags !== undefined && [...liveFlags.keys()].every(current);
+    if (covered) {
+      this.changedFolders.add(folder.path);
+      this.logger.info("imap folder read in full under its new UIDVALIDITY, older copies dropped", {
+        folder: folder.path,
+        dropped: older.length,
+      });
+      return 0;
+    }
+    const readAgain = new Map<string, number>();
+    for (const object of this.writer.listObjects()) {
+      if (
+        objectMailbox(object) === folder.path &&
+        isMessageObject(object) &&
+        object.metadata?.[META.uidValidity] === status.uidValidity
+      ) {
+        const key = contentKey(object);
+        readAgain.set(key, (readAgain.get(key) ?? 0) + 1);
+      }
+    }
+    let kept = 0;
+    for (const object of older) {
+      const key = contentKey(object);
+      const matches = readAgain.get(key) ?? 0;
+      if (matches > 0) {
+        readAgain.set(key, matches - 1);
+        continue;
+      }
+      const uid = objectUid(object);
+      const validity = object.metadata?.[META.uidValidity] ?? "";
+      const path = uid === null ? object.path : olderCopyPath(components, uid, validity);
+      if (!this.writer.has(path)) {
+        this.writer.add({ ...object, path });
+      }
+      kept++;
+    }
+    this.changedFolders.add(folder.path);
+    this.logger.info(
+      "imap folder not read in full under its new UIDVALIDITY yet, older copies kept",
+      {
+        folder: folder.path,
+        olderCopies: kept,
+        readAgain: older.length - kept,
+      },
+    );
+    return kept;
   }
 
   private logVanishedFolders(folders: readonly ImapFolderInfo[]): void {
@@ -1613,6 +1681,16 @@ function isMetadataRefusal(error: unknown): error is ImapSessionError {
     !error.connectionLost &&
     classifyFailure(error, { role: "imap" }).code !== "imap.server_limit"
   );
+}
+
+/** What identifies a message's content across UIDVALIDITYs: Message-ID, SHA-256 and size. */
+function contentKey(object: ManifestObject): string {
+  return `${object.metadata?.[META.messageId] ?? ""}\n${object.sha256 ?? object.path}\n${object.size}`;
+}
+
+/** The path of an older copy kept during a re-read after a UIDVALIDITY change. */
+function olderCopyPath(components: readonly string[], uid: number, uidValidity: string): string {
+  return `${folderObjectPath(components)}/${uid}.v${uidValidity}.eml`;
 }
 
 function folderStateOf(folder: ImapFolderInfo, status: ImapFolderStatus): ImapFolderState {

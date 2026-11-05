@@ -21,16 +21,25 @@
   Mail-Datei, Gmail): Dovecot und Gmail lehnen dann jeden `UID FETCH`, dessen Menge sie enthält,
   als Ganzes ab (`NO Some messages could not be FETCHed`). Die Engine teilt eine abgelehnte
   Metadaten-Abfrage so lange in Hälften, bis die unlesbaren UIDs feststehen (höchstens 100
-  zusätzliche Befehle je Abfrage, `metaIsolationCommands`; darüber verweigert der Server den
-  Ordner, nicht eine Nachricht, und der Ordner schlägt fehl wie bisher). Jede unlesbare
-  Nachricht ist ein Elementfehler mit der Antwort des Servers, der Rest des Ordners wird
-  gesichert, und der nächste Lauf versucht sie erneut.
+  zusätzliche Befehle je Abfrage, `metaIsolationCommands`). Ist das Budget aufgebraucht (eine
+  lange Folge defekter Nachrichten), geht der noch nicht geprüfte Teil ohne Metadaten weiter;
+  der Body-Abruf mit seinem Einzelabruf findet die unlesbaren. Nur wenn keiner der Befehle der
+  Teilung eine Antwort bekommt, verweigert der Server den Ordner, und der Ordner schlägt fehl.
+  Jede unlesbare Nachricht ist ein Elementfehler mit der Antwort des Servers, der Rest des
+  Ordners wird gesichert, und der nächste Lauf versucht sie erneut. Eine Befehls- oder
+  Download-Grenze (`[OVERQUOTA]`, `[LIMIT]`, Gmails „Account exceeded command or bandwidth
+  limits“, Ursache `imap.server_limit`) wird nie geteilt: Der Ordner schlägt einmal fehl, der
+  nächste Lauf setzt fort.
 - Ein Ordner, der in einem Voll-Lauf auch beim zweiten Versuch scheitert, macht den
   Sicherungsstand nicht schlechter als den vorigen: Bei verlangtem Voll-Lauf und gleicher
   UIDVALIDITY kommen die vorigen Nachrichten, die noch nicht neu gelesen wurden und noch im Ordner
-  liegen, mit ihren aktuellen Flags mit. Nach einem UIDVALIDITY-Wechsel bleibt der vorige Stand des
-  Ordners samt Ordnerzustand unverändert (alte und neue UIDs lassen sich nicht mischen); der
-  nächste Lauf liest ihn erneut voll.
+  liegen, mit ihren aktuellen Flags mit. Nach einem UIDVALIDITY-Wechsel bleibt, was unter den
+  neuen UIDs schon gelesen ist, und jede vorige Nachricht, die noch nicht neu gelesen wurde,
+  bleibt als ältere Kopie (Abgleich über Message-ID, SHA-256 und Größe, eins zu eins; Pfad
+  `<uid>.v<uidvalidity>.eml`, damit sie nicht mit einer neuen UID zusammenfällt). Der
+  Ordnerzustand trägt die neue UIDVALIDITY, der nächste Lauf lädt nur die noch fehlenden UIDs;
+  so kommt der Ordner auch unter einer täglichen Download-Grenze nach einigen Läufen durch.
+  Sobald jede UID unter der neuen UIDVALIDITY gesichert ist, fallen die älteren Kopien weg.
 - Wiederaufnahme nach einem abgebrochenen Versuch: Ein Ordner, den der frühere Versuch schon
   fertig oder halb gesichert hatte und den der Server inzwischen nicht mehr listet (umbenannt
   oder gelöscht), verschwindet samt Objekten und Zustand aus dem Sicherungsstand; ein
