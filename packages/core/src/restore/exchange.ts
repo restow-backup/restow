@@ -394,7 +394,7 @@ export class ExchangeRestoreEngine implements RestoreEngine {
         );
         const unit = gmail.units.get(message.path);
         if (unit !== undefined) {
-          finishGmailMessageForExchange(unit, ledger);
+          finishGmailMessageForExchange(unit, ledger, session.flagsApplied(message.path));
         }
         // A group post whose attachments Graph never handed out comes back without them.
         const missing = attachmentsNotBackedUpOf(message);
@@ -623,6 +623,13 @@ export class ExchangeRestoreSession {
 
   /** Whose calendar the events go into (see {@link SessionOptions.owner}). */
   private readonly owner: MailboxOwner;
+  /** Messages whose read state, flag and categories Exchange did not take. */
+  private readonly unpatched = new Set<string>();
+
+  /** Whether the read state, flag and categories of a restored message were applied. */
+  flagsApplied(path: string): boolean {
+    return !this.unpatched.has(path);
+  }
 
   constructor(private readonly o: SessionOptions) {
     this.owner = o.owner ?? o.userId;
@@ -869,6 +876,7 @@ export class ExchangeRestoreSession {
       if (isAbortError(error)) {
         throw error;
       }
+      this.unpatched.add(message.path);
       problems.push(
         `read state, flag and categories were not applied: ${describeRestoreError(error)}`,
       );

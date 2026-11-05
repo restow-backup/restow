@@ -2138,6 +2138,57 @@ describe("ExchangeRestoreEngine", () => {
     expect(item("mail/[Gmail]/Important").reason).toMatch(/is a label, not a folder/);
   });
 
+  it("never reports Gmail labels as kept categories when Exchange refused the categories", async () => {
+    const gmail = (mailbox: string, uid: number, specialUse?: string): FixtureObject => ({
+      path: `mail/${mailbox}/${uid}.eml`,
+      type: "message",
+      id: `imap:${mailbox}:9:${uid}`,
+      content: mimeMessage({ messageId: "<label@example.org>", subject: "Gmail label" }),
+      metadata: {
+        mailbox,
+        delimiter: "/",
+        uid: String(uid),
+        uidValidity: "9",
+        flags: "\\Seen",
+        messageId: "<label@example.org>",
+        ...(specialUse ? { specialUse } : {}),
+      },
+    });
+    fixture = await createSnapshotFixture({
+      kind: "imap",
+      externalId: "anna@gmail.example",
+      objects: [
+        {
+          path: "mail/[Gmail]/All Mail",
+          type: "folder",
+          id: "imap:[Gmail]/All Mail:9",
+          content: "",
+          metadata: { mailbox: "[Gmail]/All Mail", delimiter: "/", specialUse: "\\All" },
+        },
+        gmail("INBOX", 1, "\\Inbox"),
+        gmail("Kunden", 21),
+        gmail("[Gmail]/Starred", 51, "\\Flagged"),
+      ],
+    });
+    const mailbox = new FakeMailbox();
+    mailbox.refusesMessagePatches = true;
+
+    const report = await engineFor(mailbox).run(
+      fixture.ctx,
+      restoreRequestFor(fixture, { mode: "skip", target: { type: "other", ref: USER } }),
+    );
+
+    const item = (path: string) => must(report.items.find((entry) => entry.path === path));
+    const message = item("mail/INBOX/1.eml");
+    expect(message).toMatchObject({ status: "restored", verified: false });
+    expect(message.reason).toMatch(/read state, flag and categories were not applied/);
+    expect(message.reason).not.toMatch(/kept as categories/);
+    for (const path of ["mail/Kunden/21.eml", "mail/[Gmail]/Starred/51.eml"]) {
+      expect(item(path).reason).toMatch(/is not kept: Exchange did not take the categories/);
+      expect(item(path).reason).not.toMatch(/is kept as/);
+    }
+  });
+
   it("explains a message Graph refuses as too large", async () => {
     fixture = await createSnapshotFixture({
       kind: "mailbox",

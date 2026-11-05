@@ -602,7 +602,7 @@ private repository.
   own label, else the archive), and its other labels follow: into Gmail as labels again, on
   another IMAP server as keywords, in Microsoft 365 as categories; Starred becomes the flag. A
   server that keeps no new keywords is not sent any, and the result names the labels that are
-  lost. The objects of the backup that stood for the other labels are listed as skipped with
+  lost, as it does when Microsoft 365 refuses the categories and the flag of a message. The objects of the backup that stood for the other labels are listed as skipped with
   what became of their label, and Gmail's Important and Starred are not created as folders on
   another server.
 - Mail restore: an event that had attachments counted as confirmed although nothing of its

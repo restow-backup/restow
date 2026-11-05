@@ -495,11 +495,25 @@ export function gmailLabelFolderNote(
 /**
  * Microsoft 365 after a Gmail message was written once: what became of its
  * labels (categories), on the message and on the objects that stood for them.
+ * `flagsApplied` is whether the PATCH that sets categories and the follow-up
+ * flag went through; when it did not, the labels are lost, not kept.
  */
-export function finishGmailMessageForExchange(unit: GmailUnit, ledger: RestoreLedger): void {
+export function finishGmailMessageForExchange(
+  unit: GmailUnit,
+  ledger: RestoreLedger,
+  flagsApplied = true,
+): void {
   const outcome = ledger.resultOf(unit.object.path);
   const kept = new Map<string, string>();
-  if (outcome?.status === "restored" && unit.keywords.length > 0) {
+  const lost = new Map<string, string>();
+  if (outcome?.status === "restored" && !flagsApplied) {
+    const reason =
+      "Exchange did not take the categories and the flag of the restored message (see its reason)";
+    for (const { label } of unit.keywords) {
+      lost.set(label, reason);
+    }
+    lost.set("\\Starred", reason);
+  } else if (outcome?.status === "restored" && unit.keywords.length > 0) {
     for (const { label, keyword } of unit.keywords) {
       kept.set(label, `is kept as the category "${keyword}"`);
     }
@@ -508,5 +522,5 @@ export function finishGmailMessageForExchange(unit: GmailUnit, ledger: RestoreLe
       `Gmail labels kept as categories: ${unit.keywords.map((entry) => entry.keyword).join(", ")}`,
     );
   }
-  reportGmailCopies(unit, outcome, { kept, lost: new Map() }, ledger);
+  reportGmailCopies(unit, outcome, { kept, lost }, ledger);
 }

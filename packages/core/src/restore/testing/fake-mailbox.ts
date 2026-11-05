@@ -140,6 +140,8 @@ export class FakeMailbox {
   readonly occurrences = new Map<string, Array<Record<string, unknown>>>();
   /** Graph without support for the extended properties of a create: every JSON create is a draft dated now. */
   ignoresExtendedProperties = false;
+  /** When set, a PATCH of a message (read state, flag, categories) is refused with 400. */
+  refusesMessagePatches = false;
   /** When set, MIME imports with a longer base64 body are refused with 413. */
   maxMimeBytes: number | null = null;
   /** Graph's limit for one request body; a longer POST is refused with 413. */
@@ -583,6 +585,12 @@ export class FakeMailbox {
           const message = this.messages.get(segment(new URL(call.url), "messages") ?? "");
           if (!message) {
             return NOT_FOUND;
+          }
+          if (this.refusesMessagePatches) {
+            return {
+              status: 400,
+              json: graphError("ErrorInvalidProperty", "The categories could not be set."),
+            };
           }
           message.patches.push(call.json as Record<string, unknown>);
           return { status: 200, json: { id: message.id } };
