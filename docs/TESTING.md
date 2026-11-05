@@ -134,7 +134,11 @@ Postgres-Service bereit und setzt die Variable.
   wenn dieselben Ziele die übrigen Daten des Mandanten noch halten (seine Schlüssel unter
   `tenants/<tid>/keys/` oder ein anderes Manifest): rot `manifest_missing`; ein geleertes oder
   nicht eingehängtes Ziel bleibt "nicht abgeschlossen". Eine zu alte neueste Sicherung (sieben Tage oder mehr) ist
-  ein eigener roter Grund ("Sicherung zu alt").
+  ein eigener roter Grund ("Sicherung zu alt"). Seit 0.5.0 bewerten die Readiness-Seite, die
+  Bewertung des Mandanten, die Integrations-API und die Statistik das Alter der neuesten
+  Sicherung beim Anzeigen, nicht nur bei der Prüfung: Hören die Sicherungen nach einer grünen
+  Prüfung auf, wird das Objekt nach 48 Stunden gelb und nach sieben Tagen rot, ohne auf die
+  nächste Prüfung zu warten (nicht für Objekte, die ohne Alter bewertet werden).
   Ein zusätzlicher Test-Restore in ein Prüfziel (Testpostfach des Mandanten) ist als
   optionale Sonde vorgesehen, in 0.1.0 aber nicht verdrahtet: Die Prüfung stellt nichts in ein
   Microsoft-365- oder IMAP-Ziel wieder her.

@@ -144,7 +144,13 @@ function ageInHours(from: Date, now: Date): number {
   return Math.max(0, Math.floor((now.getTime() - from.getTime()) / 3_600_000));
 }
 
-function freshnessReason(
+/**
+ * The age reason of a backup completed at `completedAt`, judged at `now`: red when recent data
+ * is no longer recoverable, yellow when it is getting old, null while it is current. Applied by
+ * a verify run at check time, and by the readiness views at view time (the age keeps growing
+ * after the check).
+ */
+export function freshnessReason(
   completedAt: Date | null,
   now: Date,
   policy: ReadinessPolicy,

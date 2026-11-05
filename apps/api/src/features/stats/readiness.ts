@@ -1,4 +1,9 @@
-import { readinessWithoutFreshness } from "@restow/core";
+import {
+  DEFAULT_READINESS_POLICY,
+  freshnessReason,
+  readinessWithoutFreshness,
+  worstReadiness,
+} from "@restow/core";
 import { parseReasons } from "../verify/details.js";
 import { restsOnEmpty } from "../verify/empty.js";
 import {
@@ -25,6 +30,9 @@ import type {
  *     newest check of exactly that snapshot, or a storage finding newer than
  *     it. A backup taken after a green check is unverified until a check of
  *     that backup ran, whatever the older snapshot scored;
+ *   - the age of that backup counts at the moment, not at its check (0.5.0, as on the
+ *     readiness page): yellow 48 hours after it completed, red after 7 days, unless the object
+ *     is rated without the age (orphaned, in no job) or confirmed as empty;
  *   - an object with a backup that no check rates is unverified, an object
  *     without any backup yet has no backup. The statistics count both as
  *     unverified: a backup without a verified restore counts as failed
@@ -259,11 +267,20 @@ export class ReadinessTimeline {
         report !== null &&
         !isStorageFinding(report) &&
         restsOnEmpty(parseReasons(report.reasons), unaged);
-      const state: ObjectState = empty
+      const checkedState: ObjectState = empty
         ? "empty"
         : unaged && report
           ? readinessWithoutFreshness(parseReasons(report.reasons))
           : verification.state;
+      // The backup's age at that moment, not at its check (verify/service.ts `liveFreshness`).
+      const age =
+        !unaged && !empty && report && snapshot
+          ? freshnessReason(snapshot.completedAt, moment, DEFAULT_READINESS_POLICY)
+          : null;
+      const state: ObjectState =
+        age && (checkedState === "green" || checkedState === "yellow" || checkedState === "red")
+          ? worstReadiness([checkedState, age.severity])
+          : checkedState;
       states.set(object.id, state);
       if (!isProtected(object.status, snapshot !== null)) {
         continue;

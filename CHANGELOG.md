@@ -653,6 +653,13 @@ private repository.
   `scrub.corrupt` alert. Three checks of the same backup in a row that could not complete now
   rate it yellow ("the last checks could not complete", `check_incomplete`) with a "needs
   attention" alert, so an old green no longer counts as proof while nobody can read the backup.
+- Restore check: a mailbox whose backups stopped right after a green check (an expired Entra
+  secret, say) stayed green on the readiness page, in the tenant rating, the integration API and
+  the statistics until the next weekly check, although the check itself rates a backup older
+  than 48 hours yellow and one older than 7 days red. The age of the newest backup was rated only
+  when a check ran. It is now judged when the view is built, the worse of the check's rating and
+  the age counts, and the reason ("the latest backup is n hours old") is listed with the current
+  age. Objects removed from their source or in no backup job are still rated without it.
 - Mail archive: an announced Graph message that could not be fetched other than with 404 (a
   403 for an item the app may not read, a 5xx) stayed pending for good at the head of the
   queue. A pass in which no announced message could be fetched failed and skipped the

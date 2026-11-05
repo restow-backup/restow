@@ -96,19 +96,20 @@ describe("ReadinessTimeline", () => {
       [object("dora", 1), object("emil", 1), object("ida", 1)],
       [snapshot("dora", 1, 2), snapshot("emil", 1, 2), snapshot("ida", 1, 2)],
       [
-        check("dora", 1, 3, "green"),
-        finding("dora", 6),
+        check("dora", 1, 2, "green"),
+        finding("dora", 3),
         // Checked after the damage was found: the check already accounted for it.
-        finding("emil", 3),
-        check("emil", 1, 4, "yellow"),
+        finding("emil", 2),
+        check("emil", 1, 3, "yellow"),
         // Never checked, but damaged.
-        finding("ida", 5),
+        finding("ida", 2),
       ],
     );
-    const before = timeline.at(day(6));
+    // Moments within 48 hours of the backups: their age does not count yet.
+    const before = timeline.at(day(3));
     expect(before.states.get("dora")).toBe("green");
     expect(before.states.get("ida")).toBe("red");
-    const after = timeline.at(day(7));
+    const after = timeline.at(day(4));
     expect(after.states.get("dora")).toBe("red");
     expect(after.states.get("emil")).toBe("yellow");
     expect(after.counts).toEqual({ green: 0, yellow: 1, red: 2, unverified: 0 });
@@ -156,8 +157,8 @@ describe("ReadinessTimeline", () => {
         object("left", 1, "excluded"),
         object("lost", 1, "orphaned"),
       ],
-      [snapshot("anna", 1, 2), snapshot("left", 1, 2)],
-      [check("anna", 1, 3, "green"), check("left", 1, 3, "green")],
+      [snapshot("anna", 1, 11), snapshot("left", 1, 11)],
+      [check("anna", 1, 11, "green"), check("left", 1, 11, "green")],
     );
     const moment = timeline.at(day(12));
     // The excluded object keeps a state (it still has backups) but is not counted.
@@ -261,20 +262,24 @@ describe("ReadinessTimeline", () => {
     };
     const aside = new ReadinessTimeline(
       [confirmed],
-      [snapshot("drive", 1, 2)],
-      [emptyCheck, stale],
+      [snapshot("drive", 1, 2), snapshot("drive", 2, 19)],
+      [emptyCheck, { ...stale, snapshotId: "drive-2" }],
     );
     expect(aside.at(day(25)).states.get("drive")).toBe("yellow");
   });
 
-  it("rates a tenant yellow when every backup is fine but its check is overdue", () => {
+  it("rates a backup by its age at the moment, not at its check", () => {
     const fine = new ReadinessTimeline(
       [object("anna", 1)],
       [snapshot("anna", 1, 2)],
-      [check("anna", 1, 3, "green")],
+      [check("anna", 1, 2, "green")],
     );
-    expect(fine.at(day(5)).overall).toBe("green");
-    expect(fine.at(day(20)).overall).toBe("yellow");
+    expect(fine.at(day(4)).overall).toBe("green");
+    // Green when checked; three days later the backup is getting old, after seven too old.
+    expect(fine.at(day(5)).states.get("anna")).toBe("yellow");
+    expect(fine.at(day(10)).states.get("anna")).toBe("red");
+    // An overdue check (eight days) always comes with a backup at least that old: red.
+    expect(fine.at(day(20)).overall).toBe("red");
     expect(new ReadinessTimeline([], [], []).at(day(20)).overall).toBeNull();
   });
 });

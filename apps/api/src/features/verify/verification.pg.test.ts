@@ -57,7 +57,8 @@ vi.mock("../jobs/queue.js", async (importOriginal) => {
 });
 
 const DATABASE = "restow_api_verification_test";
-const NOW = new Date("2026-09-23T12:00:00.000Z");
+// Within 48 hours of the newest backups (day 21): their age does not count against them yet.
+const NOW = new Date("2026-09-22T23:00:00.000Z");
 const day = (n: number, hour = 2) => new Date(Date.UTC(2026, 8, n, hour));
 
 /** Reads come from a documentation address (RFC 5737). */

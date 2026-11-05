@@ -1,9 +1,12 @@
 import { randomUUID } from "node:crypto";
 import {
+  DEFAULT_READINESS_POLICY,
+  freshnessReason,
   inactiveState,
   readinessWithoutFreshness,
   type ScrubJobPayload,
   type VerifyJobPayload,
+  worstReadiness,
 } from "@restow/core";
 import {
   type Database,
@@ -368,6 +371,41 @@ function toLatestReport(report: ReportFact, withoutAge: boolean): LatestReportDt
   };
 }
 
+/**
+ * The age of the newest backup, judged now: the check judged it when it ran, but the backup
+ * keeps getting older after that (a backup that stopped right after a green check would stay
+ * green until the next weekly check). Null while it is current, and for an object rated without
+ * the age of its last backup ({@link ratedWithoutAge}).
+ */
+export function liveFreshness(
+  completedAt: Date | null | undefined,
+  now: Date,
+  withoutAge: boolean,
+): ReasonDto | null {
+  const reason = withoutAge
+    ? null
+    : freshnessReason(completedAt ?? null, now, DEFAULT_READINESS_POLICY);
+  return reason ? (parseReasons([reason], now)[0] ?? null) : null;
+}
+
+/** The worse of a stored rating and the backup's age now. */
+export function withLiveAge<T extends string>(state: T, live: ReasonDto | null): T | Readiness {
+  return live && isRating(state) ? worstReadiness([state, live.severity]) : state;
+}
+
+const isRating = (state: string): state is Readiness =>
+  state === "green" || state === "yellow" || state === "red";
+
+/** A report's reasons with the age reason replaced by the one judged now. */
+function withLiveReasons(report: LatestReportDto, live: ReasonDto | null): LatestReportDto {
+  if (!live) {
+    return report;
+  }
+  const reasons = [...report.reasons.filter((reason) => !isFreshnessReason(reason.code)), live];
+  reasons.sort((a, b) => (a.severity === b.severity ? 0 : a.severity === "red" ? -1 : 1));
+  return { ...report, reasons };
+}
+
 function toPreviousCheck(report: ReportFact): PreviousCheckDto {
   return {
     reportId: report.id,
@@ -652,6 +690,9 @@ export async function readinessOverview(
       const withoutAge = ratedWithoutAge(object.status, withoutJob);
       const rating =
         withoutAge && report ? readinessWithoutFreshness(parseReasons(report.reasons)) : null;
+      // The backup's age now, not at the check: a rated backup that stopped being renewed turns
+      // yellow after 48 hours and red after 7 days without waiting for the next check.
+      const live = report ? liveFreshness(latestSnapshot?.completedAt, now, withoutAge) : null;
       // Confirmed as empty, and the newest check still finds nothing to restore: neutral grey,
       // never overdue (there is nothing whose check could be due), counted for no attention.
       const confirmation = emptyConfirmations.get(object.id) ?? null;
@@ -675,12 +716,13 @@ export async function readinessOverview(
               : isOverdue(checkedAt, now);
       items.push({
         object,
-        state: confirmedEmpty ? "empty" : (rating ?? verification.state),
-        readiness: rating ?? report?.readiness ?? null,
+        state: confirmedEmpty ? "empty" : (rating ?? withLiveAge(verification.state, live)),
+        readiness:
+          rating ?? (report?.readiness ? withLiveAge(report.readiness, live) : null) ?? null,
         checkedAt: checkedAt?.toISOString() ?? null,
         overdue,
         latestSnapshotAt: latestSnapshot?.completedAt?.toISOString() ?? null,
-        report: report ? toLatestReport(report, withoutAge) : null,
+        report: report ? withLiveReasons(toLatestReport(report, withoutAge), live) : null,
         running: runningByObject.get(object.id) ?? null,
         latestSnapshotId: latestSnapshot?.id ?? null,
         previousCheck: facts?.verification.previous
