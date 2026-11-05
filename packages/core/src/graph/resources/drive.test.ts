@@ -286,6 +286,24 @@ describe("drive", () => {
     });
   });
 
+  it("descends into a OneNote notebook, which Graph returns as a package without a folder facet", async () => {
+    const graph = createFakeGraph([
+      {
+        url: (u) => u.pathname === `/v1.0/drives/${DRIVE}/root:/Notebook`,
+        respond: {
+          status: 200,
+          json: { id: "01NB", name: "Notebook", package: { type: "oneNote" } },
+        },
+      },
+      {
+        url: (u) => u.pathname === `/v1.0/drives/${DRIVE}/items/01NB:/Sections`,
+        respond: { status: 200, json: { id: "01SG", name: "Sections", folder: {} } },
+      },
+    ]);
+    expect(await ensureDriveFolderPath(graph.client(), DRIVE, "Notebook/Sections")).toBe("01SG");
+    expect(graph.callsTo("POST", "/children")).toEqual([]);
+  });
+
   it("refuses to treat a file as a folder", async () => {
     const graph = createFakeGraph([
       {

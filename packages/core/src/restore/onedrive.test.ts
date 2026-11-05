@@ -167,6 +167,54 @@ describe("OneDriveRestoreEngine", () => {
     expect(current.content.equals(report)).toBe(true);
   });
 
+  it("restores a OneNote section into the notebook that is still in the target (a package item)", async () => {
+    const section = Buffer.from("OneNote section bytes");
+    fixture = await createSnapshotFixture({
+      kind: "onedrive",
+      externalId: DRIVE,
+      objects: [
+        // The backup records a notebook as a folder with packageType (backup/onedrive/items.ts).
+        {
+          path: "Notebook",
+          type: "folder",
+          id: "NB",
+          content: "",
+          metadata: { packageType: "oneNote" },
+        },
+        {
+          path: "Notebook/Section.one",
+          type: "file",
+          id: "SEC",
+          content: section,
+          metadata: { quickXorHash: quickXorHash(section) },
+        },
+      ],
+    });
+    const drive = new FakeDrive(DRIVE);
+    const notebook = drive.addNotebook("root", "Notebook");
+    drive.addFile(notebook.id, "Other.one", Buffer.from("a section nobody deleted"));
+
+    for (const mode of ["rename", "replace", "skip"] as const) {
+      const result = await engineFor(drive).run(fixture.ctx, restoreRequestFor(fixture, { mode }));
+      expect(result.failures).toEqual([]);
+      expect(result.items.find((item) => item.id === "NB")).toMatchObject({
+        status: "restored",
+        targetRef: notebook.id,
+      });
+      if (mode === "skip") {
+        expect(result.items.find((item) => item.id === "SEC")?.status).toBe("skipped");
+      } else {
+        expect(result.items.find((item) => item.id === "SEC")?.status).toBe("restored");
+      }
+    }
+    // The section went into the live notebook; no second "Notebook" folder appeared.
+    expect(
+      [...drive.items.values()].filter((item) => item.name.toLowerCase() === "notebook"),
+    ).toHaveLength(1);
+    expect(must(drive.child(notebook.id, "Section.one")).content.equals(section)).toBe(true);
+    expect(drive.child(notebook.id, "Other.one")).toBeDefined();
+  });
+
   it("recognises the copies an earlier attempt uploaded when a rename-mode job is retried", async () => {
     fixture = await createSnapshotFixture({
       kind: "onedrive",

@@ -19,7 +19,8 @@ export interface FakeDriveItem {
   id: string;
   name: string;
   parentId: string;
-  kind: "folder" | "file";
+  /** A package is what OneDrive returns for a OneNote notebook: a container without a folder facet. */
+  kind: "folder" | "file" | "package";
   content: Buffer;
   fileSystemInfo: Record<string, unknown> | undefined;
   conflictBehavior: string | undefined;
@@ -87,10 +88,15 @@ export class FakeDrive {
     return this.add(parentId, name, "file", content);
   }
 
+  /** A OneNote notebook as OneDrive lists it: `package: { type: "oneNote" }`, no `folder` facet. */
+  addNotebook(parentId: string, name: string): FakeDriveItem {
+    return this.add(parentId, name, "package", Buffer.alloc(0));
+  }
+
   private add(
     parentId: string,
     name: string,
-    kind: "folder" | "file",
+    kind: FakeDriveItem["kind"],
     content: Buffer,
   ): FakeDriveItem {
     this.counter++;
@@ -137,6 +143,9 @@ export class FakeDrive {
     };
     if (item.kind === "folder") {
       return { ...base, folder: { childCount: 0 } };
+    }
+    if (item.kind === "package") {
+      return { ...base, package: { type: "oneNote" } };
     }
     return {
       ...base,

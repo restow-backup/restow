@@ -465,8 +465,19 @@ export async function createFolder(
 }
 
 /**
+ * Items a path walk descends into: folders and packages. A OneNote notebook is
+ * a `package` item without a `folder` facet, yet it holds its sections (`.one`
+ * files) as children the way a folder does, and the backup records it as a
+ * folder (backup/onedrive/items.ts).
+ */
+export function isContainerItem(item: DriveItem): boolean {
+  return isFolderItem(item) || isPackageItem(item);
+}
+
+/**
  * Walk (and create where missing) a folder path below `parentId` (default: root)
- * and return the id of the last folder. A file in the way is an error, not
+ * and return the id of the last folder. An existing folder or package (a
+ * OneNote notebook) is descended into; a file in the way is an error, not
  * silently replaced.
  */
 export async function ensureDriveFolderPath(
@@ -482,7 +493,7 @@ export async function ensureDriveFolderPath(
     let id = cache.get(cacheKey);
     if (!id) {
       const existing = await getChildByName(client, driveId, parentId, segment);
-      if (existing && !isFolderItem(existing)) {
+      if (existing && !isContainerItem(existing)) {
         throw new Error(`Cannot create folder "${segment}": a file with that name exists`);
       }
       if (existing) {
@@ -498,6 +509,9 @@ export async function ensureDriveFolderPath(
           const raced = await getChildByName(client, driveId, parentId, segment);
           if (!raced) {
             throw error;
+          }
+          if (!isContainerItem(raced)) {
+            throw new Error(`Cannot create folder "${segment}": a file with that name exists`);
           }
           id = raced.id;
         }

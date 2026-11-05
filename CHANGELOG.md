@@ -592,6 +592,11 @@ private repository.
   records which item it uploaded for which file, so a retry never uploads it again. Such files
   were also marked "Not confirmed" after every restore because their hash was compared with the
   library's; they are confirmed now when what was sent matches the backup.
+- OneDrive/SharePoint restore: a OneNote section could not be restored into its notebook while
+  the notebook was still there (the usual case: one section deleted or damaged). OneDrive lists a
+  notebook as a package, not as a folder, and the restore stopped at it with "a file with that
+  name exists", so the notebook and every section below it failed in every mode. A notebook in the
+  target is now treated as the folder it is, and the sections go into it.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,
