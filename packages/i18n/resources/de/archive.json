@@ -100,7 +100,8 @@
     "empty": "Noch nichts zu prüfen: Das Archiv ist leer.",
     "links": {
       "ok": "Verkettung: {count, plural, one {# Eintrag} other {alle # Einträge}} lückenlos verkettet. Geprüft wurden die in der Datenbank gespeicherten Prüfsummen.",
-      "broken": "Verkettung unterbrochen bei Eintrag {position} von {total}: „{subject}“, empfangen am {date}."
+      "broken": "Verkettung unterbrochen bei Eintrag {position} von {total}: „{subject}“, empfangen am {date}.",
+      "deleted": "Davon {count, plural, one {wurde # Eintrag} other {wurden # Einträge}} nach Ablauf der Aufbewahrungsfrist gelöscht, zuletzt am {date}. Jede Löschung steht im Audit-Log, ihr Kettenglied bleibt erhalten; das ist kein Bruch der Kette."
     },
     "noSubject": "ohne Betreff",
     "openItem": "Nachricht öffnen",

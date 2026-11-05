@@ -294,8 +294,17 @@ class PgArchiveChainSession {
       created_ms: string;
     }>(sql`
       select chain_hash, ceil(extract(epoch from created_at) * 1000)::bigint::text as created_ms
-        from archive_items
-       where tenant_id = ${this.tenantId}::uuid
+        from (
+          (select chain_hash, created_at, id from archive_items
+            where tenant_id = ${this.tenantId}::uuid
+            order by created_at desc, id desc limit 1)
+          union all
+          -- The newest entry may be the tombstone of an item deleted after its retention:
+          -- the next item links to it, or the chain would fork at the deletion.
+          (select chain_hash, item_created_at, item_id from archive_chain_tombstones
+            where tenant_id = ${this.tenantId}::uuid
+            order by item_created_at desc, item_id desc limit 1)
+        ) tip
        order by created_at desc, id desc
        limit 1
     `);

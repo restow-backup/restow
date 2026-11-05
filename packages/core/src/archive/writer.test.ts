@@ -204,7 +204,7 @@ describe("writeArchiveItem", () => {
 
     expect(second.prevChainHash).toBe(first.chainHash);
     const chain = await catalog.chain(TENANT);
-    expect(verifyChain(chain)).toEqual({ ok: true, brokenAt: null });
+    expect(verifyChain(chain)).toEqual({ ok: true, brokenAt: null, deleted: 0 });
   });
 
   it("deduplicates identical content across two different items", async () => {

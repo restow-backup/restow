@@ -608,6 +608,16 @@ private repository.
   index, migration 0081), checks the legal hold inside the delete statement itself and writes
   the audit entries in the same transaction, and stops between batches when the job is
   cancelled.
+- Mail archive: the first deletion after the retention period made the archive check report a
+  broken chain for good. The deletion run removed the item and with it its chain link, so the
+  check recomputed the next entry against a predecessor that was gone, and every daily anchor
+  after the deletion pointed at a shifted position; a real deletion by hand could no longer be
+  told apart. The run now keeps the link of each deleted item as a tombstone (hash, time,
+  previous and own chain hash, position; no content; migration 0082, append-only), written in
+  the same statement as the delete. The check walks items and tombstones together, counts them
+  for the anchors (so do the nightly anchors) and reports "deleted after the retention period"
+  separately from a break; a row removed without a tombstone is still a break. The next capture
+  after a deleted newest item links to its tombstone.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,

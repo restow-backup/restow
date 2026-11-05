@@ -1,5 +1,5 @@
 {
-  "id": "10fef8e5-0865-4539-9796-ed17542d7f70",
+  "id": "3d6c974c-61e2-4866-a3d5-f1e3163a8965",
   "prevId": "20f54ac8-4988-4182-95cc-24cddb73efbd",
   "version": "7",
   "dialect": "postgresql",
@@ -941,6 +941,7 @@
             }
           ],
           "isUnique": false,
+          "where": "\"archive_items\".\"retention_until\" IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}

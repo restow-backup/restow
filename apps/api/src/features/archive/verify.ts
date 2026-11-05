@@ -5,7 +5,10 @@
  *
  * 1. Links: every entry's chain hash is recomputed from its predecessor
  *    (@restow/core archive/chain.ts). Catches a changed hash, a removed or a
- *    reordered entry anywhere but at the very end.
+ *    reordered entry anywhere but at the very end. An item the deletion run
+ *    removed after its retention left a tombstone (`archive_chain_tombstones`)
+ *    that takes its place in the walk and is verified the same way; the
+ *    result counts those as documented deletions, never as a break.
  * 2. Daily anchors: the chain must still reach every sealed anchor
  *    (`archive_anchor`, written nightly by the worker) with the same hash at
  *    the same position. Catches entries cut off the end of the chain up to
@@ -18,8 +21,8 @@
  */
 import type { ChunkReader } from "@restow/core";
 import { archive } from "@restow/core";
-import { archiveAnchor, archiveItems } from "@restow/db";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { archiveAnchor, archiveChainTombstones, archiveItems } from "@restow/db";
+import { asc, desc, eq, sql } from "drizzle-orm";
 import { audit } from "../../lib/audit.js";
 import { type DbExecutor, type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { openContentReader } from "../snapshots/content.js";
@@ -72,8 +75,17 @@ export interface ChainVerificationDto {
   /** All three checks passed (an empty archive counts as passed). */
   ok: boolean;
   checkedAt: string;
-  /** Entries whose links were recomputed: the whole chain. */
+  /** Entries whose links were recomputed: the whole chain, tombstones included. */
   checked: number;
+  /**
+   * Entries of items deleted after their retention: their tombstone keeps the link and the
+   * position (documented in the audit log, `archive.item.deleted`). Not a break.
+   */
+  deleted: {
+    count: number;
+    /** When the last deletion ran, or null. */
+    lastDeletedAt: string | null;
+  };
   /** The first broken link, or null. */
   brokenAt: ChainBreakDto | null;
   anchors: {
@@ -116,6 +128,8 @@ interface WalkedRow {
   chainHash: string;
   subject: string | null;
   createdAt: string;
+  /** A tombstone: the item was deleted after its retention, its chain link stays. */
+  deleted: boolean;
 }
 
 function refOf(row: WalkedRow, index: number): ChainEntryRef {
@@ -126,6 +140,64 @@ function refOf(row: WalkedRow, index: number): ChainEntryRef {
     subject: row.subject,
     receivedAt: row.receivedAt.toISOString(),
   };
+}
+
+/** `received_at` as an ISO 8601 string with milliseconds, the precision the hash covers. */
+const ISO_MS = `YYYY-MM-DD"T"HH24:MI:SS.MS"Z"`;
+
+/**
+ * One page of the chain: items and the tombstones of items deleted after their retention
+ * (`archive_chain_tombstones`, written by the deletion run), merged in (created_at, id) order,
+ * the order the chain was appended in.
+ */
+async function chainPage(
+  tx: Transaction,
+  tenantId: string,
+  after: { createdAt: string; id: string } | null,
+): Promise<WalkedRow[]> {
+  const itemsAfter = after
+    ? sql`and (ai.created_at, ai.id) > (${after.createdAt}::timestamptz, ${after.id}::uuid)`
+    : sql``;
+  const tombstonesAfter = after
+    ? sql`and (t.item_created_at, t.item_id) > (${after.createdAt}::timestamptz, ${after.id}::uuid)`
+    : sql``;
+  const result = await tx.execute<{
+    id: string;
+    item_hash: string;
+    received_text: string;
+    chain_hash: string;
+    subject: string | null;
+    created_text: string;
+    deleted: boolean;
+  }>(sql`
+    select id, item_hash, received_text, chain_hash, subject, created_text, deleted from (
+      (select ai.id, ai.item_hash, to_char(ai.received_at at time zone 'UTC', ${ISO_MS}) as received_text, ai.chain_hash,
+              ai.subject, ai.created_at::text as created_text, false as deleted,
+              ai.created_at as sort_at
+         from ${archiveItems} ai
+        where ai.tenant_id = ${tenantId}::uuid ${itemsAfter}
+        order by ai.created_at, ai.id
+        limit ${CHAIN_PAGE})
+      union all
+      (select t.item_id, t.item_hash, to_char(t.received_at at time zone 'UTC', ${ISO_MS}), t.chain_hash, null,
+              t.item_created_at::text, true, t.item_created_at
+         from ${archiveChainTombstones} t
+        where t.tenant_id = ${tenantId}::uuid ${tombstonesAfter}
+        order by t.item_created_at, t.item_id
+        limit ${CHAIN_PAGE})
+    ) merged
+    order by sort_at, id
+    limit ${CHAIN_PAGE}`);
+  return result.rows.map((row) => ({
+    id: row.id,
+    itemHash: row.item_hash,
+    receivedAt: new Date(row.received_text),
+    chainHash: row.chain_hash,
+    subject: row.subject,
+    // Full database precision for the page boundary (a Date drops microseconds).
+    createdAt: row.created_text,
+    deleted: row.deleted,
+  }));
 }
 
 /** Walk the chain in append order, page by page, checking links and anchors on the way. */
@@ -149,31 +221,15 @@ async function walkChain(tx: Transaction, tenantId: string) {
   let brokenAt: ChainBreakDto | null = null;
   let prev: string | null = null;
   let index = 0;
+  let deleted = 0;
+  let lastDeletedAt: Date | null = null;
   let after: { createdAt: string; id: string } | null = null;
   for (;;) {
-    const page: WalkedRow[] = await tx
-      .select({
-        id: archiveItems.id,
-        itemHash: archiveItems.itemHash,
-        receivedAt: archiveItems.receivedAt,
-        chainHash: archiveItems.chainHash,
-        subject: archiveItems.subject,
-        // Full database precision for the page boundary (a Date drops microseconds).
-        createdAt: sql<string>`${archiveItems.createdAt}::text`,
-      })
-      .from(archiveItems)
-      .where(
-        and(
-          eq(archiveItems.tenantId, tenantId),
-          after
-            ? sql`(${archiveItems.createdAt}, ${archiveItems.id}) > (${after.createdAt}::timestamptz, ${after.id}::uuid)`
-            : undefined,
-        ),
-      )
-      .orderBy(asc(archiveItems.createdAt), asc(archiveItems.id))
-      .limit(CHAIN_PAGE);
+    const page = await chainPage(tx, tenantId, after);
     for (const row of page) {
       if (brokenAt === null) {
+        // A tombstone is verified exactly like the item it replaces: a forged or moved one
+        // breaks the chain, and a row removed without one still leaves a gap that does.
         const expected = archive.computeArchiveChainHash(prev, row.itemHash, row.receivedAt);
         if (expected !== row.chainHash) {
           brokenAt = {
@@ -182,6 +238,9 @@ async function walkChain(tx: Transaction, tenantId: string) {
             actualChainHash: row.chainHash,
           };
         }
+      }
+      if (row.deleted) {
+        deleted += 1;
       }
       prev = row.chainHash;
       index += 1;
@@ -197,6 +256,15 @@ async function walkChain(tx: Transaction, tenantId: string) {
     }
     after = { createdAt: last.createdAt, id: last.id };
   }
+  if (deleted > 0) {
+    const [latest] = await tx
+      .select({ deletedAt: archiveChainTombstones.deletedAt })
+      .from(archiveChainTombstones)
+      .where(eq(archiveChainTombstones.tenantId, tenantId))
+      .orderBy(desc(archiveChainTombstones.deletedAt))
+      .limit(1);
+    lastDeletedAt = latest?.deletedAt ?? null;
+  }
   const length = index;
   for (const anchor of anchors) {
     if (anchor.count > length) {
@@ -208,6 +276,7 @@ async function walkChain(tx: Transaction, tenantId: string) {
   return {
     length,
     brokenAt,
+    deleted: { count: deleted, lastDeletedAt: lastDeletedAt?.toISOString() ?? null },
     anchors: {
       checked: anchors.length,
       latestDate: newest?.date ?? null,
@@ -294,6 +363,7 @@ export async function verifyArchive(
       ok,
       checkedAt: now().toISOString(),
       checked: walked.length,
+      deleted: walked.deleted,
       brokenAt: walked.brokenAt,
       anchors: walked.anchors,
       content,
@@ -309,6 +379,7 @@ export async function verifyArchive(
       details: {
         ok,
         checked: result.checked,
+        deleted: result.deleted.count,
         brokenAtPosition: result.brokenAt?.position ?? null,
         brokenAtItem: result.brokenAt?.itemId ?? null,
         anchorsChecked: result.anchors.checked,

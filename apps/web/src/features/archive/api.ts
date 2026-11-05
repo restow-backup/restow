@@ -152,8 +152,10 @@ export type ArchiveContentProblem = "not_recorded" | "mismatch" | "unreadable";
 export interface ChainVerification {
   ok: boolean;
   checkedAt: string;
-  /** Entries whose links were recomputed: the whole chain. */
+  /** Entries whose links were recomputed: the whole chain, tombstones of deleted items included. */
   checked: number;
+  /** Entries deleted after their retention whose tombstone keeps the link (not a break). */
+  deleted?: { count: number; lastDeletedAt: string | null };
   brokenAt: ChainBreak | null;
   anchors: {
     checked: number;

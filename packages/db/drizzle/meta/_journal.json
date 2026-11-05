@@ -572,8 +572,15 @@
     {
       "idx": 81,
       "version": "7",
-      "when": 1793880980744,
+      "when": 1793882097266,
       "tag": "0081_archive_retention_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1793882104286,
+      "tag": "0082_archive_chain_tombstones",
       "breakpoints": true
     }
   ]

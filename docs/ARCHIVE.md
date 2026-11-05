@@ -493,7 +493,8 @@ Wann was:
   ab 1 und Element), den Abgleich mit jedem Anker (erkennt am Ende abgeschnittene Einträge bis
   zum neuesten Anker; Einträge danach sind noch nicht versiegelt) und optional eine Stichprobe
   von Nachrichten, die aus dem Speicher gelesen und mit Größe und SHA-256 der Erfassung
-  verglichen werden. Jede Prüfung steht im Audit-Log (`archive.chain.verified`). Zielbild:
+  verglichen werden. Nach Fristablauf gelöschte Objekte zählen über ihren Löschvermerk mit
+  (Abschnitt "Löschkonzept"). Jede Prüfung steht im Audit-Log (`archive.chain.verified`). Zielbild:
   Versand der Anker per E-Mail und externe Zeitstempel (RFC 3161).
 - Dedupe: Gleiche Inhalte liegen im Chunk-Store einmal je Mandant. Seit 0.4.4 erkennt das
   Archiv dieselbe Mail aus mehreren Erfassungswegen an Message-ID und Inhalt (exakte Bytes oder
@@ -549,8 +550,31 @@ und Legal Hold sind Edition Business und Service Provider.
   fällige Objekte in der Reihenfolge des Fristendes (Index aus Migration 0081), je Seite eine
   Transaktion; der Legal Hold wird in der Löschanweisung selbst geprüft, ein während des Laufs
   gesetzter Hold schützt also alles, was der Lauf noch nicht erreicht hat. Ein abgebrochener
-  Job hört nach der laufenden Seite auf. Zielbild: ein Löschprotokoll
-  (Anzahl, Zeitraum, Hashes der gelöschten Objekte) als eigener Eintrag der Kette.
+  Job hört nach der laufenden Seite auf.
+
+### Löschkonzept
+
+Was der Löschlauf für ein Objekt nach Fristablauf tut, in einer Transaktion je Seite:
+
+- Die Zeile in `archive_items` wird gelöscht, mit ihr Betreff, Text, Umschlag, Zuordnungen zu
+  Postfächern (`archive_item_mailboxes`) und weitere Erfassungen (`archive_item_captures`).
+- Das Kettenglied bleibt als Löschvermerk (`archive_chain_tombstones`, Migration 0082, seit
+  0.5.0): ID und SHA-256 des Objekts, Eingangszeit, Kettenwert des Vorgängers und eigener
+  Kettenwert, Position (`created_at` der gelöschten Zeile), Fristende und Löschzeit. Kein Inhalt,
+  kein Betreff, keine Adresse. Die Vermerke sind für beide Datenbankrollen nur anfügbar.
+- Das Audit-Log erhält je Objekt `archive.item.deleted` mit Hash, Kettenwert und Frist.
+
+Die Archivprüfung geht Objekte und Löschvermerke zusammen in Kettenreihenfolge durch: Ein
+Vermerk wird geprüft wie das Objekt, dessen Platz er einnimmt, liefert dem nächsten Eintrag den
+Vorgänger und zählt für die Positionen der Tagesanker mit (der Ankerlauf zählt beide). Das
+Ergebnis nennt die Zahl der nach Fristablauf gelöschten Einträge ("dokumentiert gelöscht"),
+kein Bruch. Eine Zeile, die ohne Vermerk fehlt (von Hand gelöscht), bleibt ein Bruch, ebenso ein
+geänderter oder verschobener Vermerk. Das gilt für eine gelöschte Spitze der Kette (die ältesten
+Objekte), für Lücken mitten in der Kette (neben Objekten unter Legal Hold oder spät erfassten)
+und für das jüngste Objekt: Der nächste Schreiber hängt an den Vermerk an. Vor 0.5.0 löschte der
+Lauf auch das Kettenglied, und die Prüfung meldete ab der ersten berechtigten Löschung für immer
+einen Bruch; Löschungen aus dieser Zeit (frühestens nach acht Jahren möglich) lassen sich nicht
+nachträglich mit Vermerken versehen.
 
 ## Suche und Export
 

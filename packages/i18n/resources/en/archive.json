@@ -100,7 +100,8 @@
     "empty": "Nothing to verify yet: the archive is empty.",
     "links": {
       "ok": "Links: {count, plural, one {# entry} other {all # entries}} chained without a gap. This checked the checksums stored in the database.",
-      "broken": "Chain broken at entry {position} of {total}: “{subject}”, received on {date}."
+      "broken": "Chain broken at entry {position} of {total}: “{subject}”, received on {date}.",
+      "deleted": "Of these, {count, plural, one {# entry was} other {# entries were}} deleted after the retention period, last on {date}. Every deletion is in the audit log and its chain link is kept; this is not a break of the chain."
     },
     "noSubject": "no subject",
     "openItem": "Open message",

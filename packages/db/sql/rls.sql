@@ -101,6 +101,8 @@ DECLARE
     'archive_item_mailboxes',
     'archive_item_captures',
     'archive_anchor',
+    -- Chain links of items deleted after their retention (0.5.0).
+    'archive_chain_tombstones',
     -- Archive capture from the mailbox (0.4.4, docs/ARCHIVE.md "Erfassungswege").
     'archive_capture_streams',
     'archive_capture_pending',
@@ -232,6 +234,17 @@ BEGIN
     DROP TRIGGER IF EXISTS archive_item_captures_append_only ON archive_item_captures;
     CREATE TRIGGER archive_item_captures_append_only
       BEFORE UPDATE ON archive_item_captures
+      FOR EACH ROW EXECUTE FUNCTION restow_forbid_mutation();
+  END IF;
+END $$;
+
+-- The chain links of deleted items stay for good (0.5.0, docs/ARCHIVE.md "Löschkonzept").
+DO $$
+BEGIN
+  IF to_regclass('public.archive_chain_tombstones') IS NOT NULL THEN
+    DROP TRIGGER IF EXISTS archive_chain_tombstones_append_only ON archive_chain_tombstones;
+    CREATE TRIGGER archive_chain_tombstones_append_only
+      BEFORE UPDATE OR DELETE ON archive_chain_tombstones
       FOR EACH ROW EXECUTE FUNCTION restow_forbid_mutation();
   END IF;
 END $$;

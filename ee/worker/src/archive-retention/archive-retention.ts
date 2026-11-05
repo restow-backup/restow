@@ -28,6 +28,11 @@
  * under end_of_year) and then deleted item by item: a hold placed meanwhile did not stop it.
  * The job's signal is checked between batches.
  *
+ * Chain (0.5.0): every deleted row leaves a tombstone in `archive_chain_tombstones`, written
+ * by the same statement as the delete, so the chain check (apps/api features/archive
+ * verify.ts) still links the next entry and counts the position; a gap without a tombstone
+ * remains tampering.
+ *
  * Legal hold coverage: a tenant-wide hold (no `protected_object_id`) blocks
  * every item; a hold scoped to a mailbox blocks items captured for that
  * mailbox and journal reports assigned to it (archive_item_mailboxes). A hold scoped to a search query (`legal_holds.scope`) is not
@@ -35,7 +40,13 @@
  * search machinery as features/archive/search.ts.
  */
 import { type archive, JobAbortedError } from "@restow/core";
-import { archiveItems, type Database, legalHolds, retentionPolicies } from "@restow/db";
+import {
+  archiveChainTombstones,
+  archiveItems,
+  type Database,
+  legalHolds,
+  retentionPolicies,
+} from "@restow/db";
 import { and, asc, count, eq, inArray, lte, type SQL, sql } from "drizzle-orm";
 import { appendAuditEntry } from "../../../../apps/worker/src/audit.js";
 import type { WorkerJobContext } from "../../../../apps/worker/src/handlers/framework.js";
@@ -189,14 +200,28 @@ export async function runArchiveRetention(
       held += page.length - (free?.value ?? 0);
     } else {
       const removed = await providerDb.transaction(async (tx) => {
+        // The row goes, its chain link stays: a tombstone per deleted row, in the same
+        // statement (and so at the same full timestamp precision) as the delete.
         const rows = await tx.execute<DeletedRow>(sql`
-          delete from ${archiveItems}
-           where ${archiveItems.tenantId} = ${tenantId}::uuid
-             and ${inArray(archiveItems.id, ids)}
-             and ${archiveItems.retentionUntil} <= ${currentTime.toISOString()}::timestamptz
-             and ${notHeld(tenantId)}
-          returning id, item_hash, chain_hash, prev_chain_hash, received_at::text,
-                    created_at::text, retention_until::text, storage_path, chunks`);
+          with deleted as (
+            delete from ${archiveItems}
+             where ${archiveItems.tenantId} = ${tenantId}::uuid
+               and ${inArray(archiveItems.id, ids)}
+               and ${archiveItems.retentionUntil} <= ${currentTime.toISOString()}::timestamptz
+               and ${notHeld(tenantId)}
+            returning id, tenant_id, item_hash, chain_hash, prev_chain_hash, received_at,
+                      created_at, retention_until, storage_path, chunks
+          ), tombstones as (
+            insert into ${archiveChainTombstones}
+              (tenant_id, item_id, item_hash, prev_chain_hash, chain_hash, received_at,
+               item_created_at, retention_until, deleted_at)
+            select tenant_id, id, item_hash, prev_chain_hash, chain_hash, received_at,
+                   created_at, retention_until, ${currentTime.toISOString()}::timestamptz
+              from deleted
+          )
+          select id, item_hash, chain_hash, prev_chain_hash, received_at::text,
+                 created_at::text, retention_until::text, storage_path, chunks
+            from deleted`);
         for (const row of rows.rows) {
           await appendAuditEntry(tx, {
             tenantId,

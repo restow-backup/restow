@@ -50,11 +50,11 @@ describe("computeArchiveChainHash", () => {
 describe("verifyChain", () => {
   it("verifies a correctly built chain", () => {
     const chain = buildValidChain(5);
-    expect(verifyChain(chain)).toEqual({ ok: true, brokenAt: null });
+    expect(verifyChain(chain)).toEqual({ ok: true, brokenAt: null, deleted: 0 });
   });
 
   it("verifies an empty chain", () => {
-    expect(verifyChain([])).toEqual({ ok: true, brokenAt: null });
+    expect(verifyChain([])).toEqual({ ok: true, brokenAt: null, deleted: 0 });
   });
 
   it("detects a tampered item at the position it was tampered", () => {
@@ -77,6 +77,34 @@ describe("verifyChain", () => {
     expect(result.brokenAt?.index).toBe(2);
   });
 
+  it("accepts items deleted after their retention where a tombstone keeps the link", () => {
+    const chain = buildValidChain(6);
+    // A deleted prefix (0, 1) and an item deleted mid-chain (4), next to a held one (3).
+    const withTombstones = chain.map((entry, index) =>
+      index === 0 || index === 1 || index === 4 ? { ...entry, deleted: true } : entry,
+    );
+    expect(verifyChain(withTombstones)).toEqual({ ok: true, brokenAt: null, deleted: 3 });
+    // Anchors keep their positions: an anchor sealed before the deletions still agrees.
+    const anchor = buildDailyAnchor(utcDateKey((chain[4] as ArchiveChainEntry).receivedAt), chain);
+    expect(anchor && verifyAnchor(anchor, withTombstones)).toBe(true);
+  });
+
+  it("still detects a row removed without a tombstone, also next to tombstones", () => {
+    const chain = buildValidChain(6);
+    const tombstoned = chain.map((entry, index) =>
+      index < 2 ? { ...entry, deleted: true } : entry,
+    );
+    const gap = [...tombstoned.slice(0, 3), ...tombstoned.slice(4)];
+    const result = verifyChain(gap);
+    expect(result.ok).toBe(false);
+    expect(result.brokenAt?.index).toBe(3);
+    // A forged tombstone (another hash) breaks just like a changed item.
+    const forged = tombstoned.map((entry, index) =>
+      index === 1 ? { ...entry, itemHash: itemHashOf("forged") } : entry,
+    );
+    expect(verifyChain(forged).brokenAt?.index).toBe(1);
+  });
+
   it("detects two reordered items at the first position the swap affects", () => {
     const chain = buildValidChain(5);
     const reordered = [
@@ -95,7 +123,7 @@ describe("verifyChain", () => {
     const chain = buildValidChain(5);
     const suffix = chain.slice(2);
     const result = verifyChain(suffix, (chain[1] as ArchiveChainEntry).chainHash);
-    expect(result).toEqual({ ok: true, brokenAt: null });
+    expect(result).toEqual({ ok: true, brokenAt: null, deleted: 0 });
   });
 });
 

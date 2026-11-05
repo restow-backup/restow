@@ -120,6 +120,12 @@ export function ChainResult({
             ) : (
               t("chain.links.ok", { count: result.checked })
             )}
+            {!result.brokenAt && (result.deleted?.count ?? 0) > 0
+              ? ` ${t("chain.links.deleted", {
+                  count: result.deleted?.count ?? 0,
+                  date: result.deleted?.lastDeletedAt ? date(result.deleted.lastDeletedAt) : "–",
+                })}`
+              : null}
           </li>
           {anchors ? (
             <li data-chain-part="anchors">
