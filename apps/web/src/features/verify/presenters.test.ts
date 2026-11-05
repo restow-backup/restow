@@ -82,11 +82,12 @@ describe("sortByUrgency", () => {
       item("Dora", "unverified"),
       item("Emil", "red"),
     ]);
+    // Not restorable, No backup yet, Needs attention, Unverified, Ready (status meta).
     expect(sorted.map((entry) => entry.object.displayName)).toEqual([
       "Emil",
-      "Dora",
       "Carl",
       "Bert",
+      "Dora",
       "Anna",
       "Zoe",
     ]);
@@ -208,9 +209,9 @@ describe("sortRowsByUrgency", () => {
     );
     expect(sorted.map(rowName)).toEqual([
       "m-red",
-      "Dora",
       "m-none",
       "m-yellow",
+      "Dora",
       "Anna",
       "m-green",
       "Zoe",
@@ -248,22 +249,36 @@ describe("isWaitingForFirstBackup", () => {
 
 describe("stateBadgeView", () => {
   it("gives a fresh no_backup object a warning tone and a distinct label", () => {
-    expect(stateBadgeView(item("a", "no_backup"))).toEqual({
+    expect(stateBadgeView(item("a", "no_backup"))).toMatchObject({
       tone: "warning",
-      key: "state.waitingForFirstBackup",
+      key: "ui:status.readiness.waitingForFirstBackup",
     });
   });
 
   it("keeps the red tone once no_backup is overdue", () => {
-    expect(stateBadgeView(item("a", "no_backup", true))).toEqual({
+    expect(stateBadgeView(item("a", "no_backup", true))).toMatchObject({
       tone: "destructive",
-      key: "state.no_backup",
+      key: "ui:status.readiness.noBackup",
     });
   });
 
-  it("falls back to the static map for every other state", () => {
-    expect(stateBadgeView(item("a", "green"))).toEqual({ tone: "success", key: "state.green" });
-    expect(stateBadgeView(item("a", "red"))).toEqual({ tone: "destructive", key: "state.red" });
+  it("takes every other state from its category", () => {
+    expect(stateBadgeView(item("a", "green"))).toMatchObject({
+      tone: "success",
+      key: "ui:status.readiness.ready",
+    });
+    expect(stateBadgeView(item("a", "red"))).toMatchObject({
+      tone: "destructive",
+      key: "ui:status.readiness.notRestorable",
+    });
+    expect(stateBadgeView(item("a", "yellow"))).toMatchObject({
+      tone: "attention",
+      key: "ui:status.readiness.needsAttention",
+    });
+    expect(stateBadgeView(item("a", "unverified"))).toMatchObject({
+      tone: "warning",
+      key: "ui:status.readiness.unverified",
+    });
   });
 });
 
@@ -307,9 +322,10 @@ describe("objectName and objectAddress", () => {
 });
 
 describe("STATE_BADGE", () => {
-  it("never shows an unproven backup as fine", () => {
-    expect(STATE_BADGE.unverified).toBe("destructive");
+  it("never shows an unproven backup as fine, and keeps Unverified apart from Needs attention", () => {
+    expect(STATE_BADGE.unverified).toBe("warning");
     expect(STATE_BADGE.no_backup).toBe("destructive");
+    expect(STATE_BADGE.yellow).toBe("attention");
     expect(STATE_BADGE.green).toBe("success");
   });
 });
@@ -339,7 +355,7 @@ describe("snapshot verification", () => {
       label: { key: "snapshot.state.green" },
       hint: { key: "snapshot.hint.checked", values: { date: `on ${at}` } },
     });
-    expect(SNAPSHOT_VERIFICATION_TONE.yellow).toBe("warning");
+    expect(SNAPSHOT_VERIFICATION_TONE.yellow).toBe("attention");
     expect(SNAPSHOT_VERIFICATION_TONE.red).toBe("destructive");
     const successes = states.filter((state) => SNAPSHOT_VERIFICATION_TONE[state] === "success");
     expect(successes).toEqual(["green"]);
@@ -495,9 +511,9 @@ describe("empty objects", () => {
   });
 
   it("rates a confirmed empty object neutral, last in the order, needing no attention", () => {
-    expect(stateBadgeView({ state: "empty", overdue: false })).toEqual({
+    expect(stateBadgeView({ state: "empty", overdue: false })).toMatchObject({
       tone: "muted",
-      key: "state.empty",
+      key: "ui:status.readiness.empty",
     });
     expect(needsAttention({ state: "empty", overdue: true })).toBe(false);
     expect(typeof lookup(enVerify, "state.empty")).toBe("string");

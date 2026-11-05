@@ -63,7 +63,7 @@
       },
       "readiness": {
         "title": "Wiederherstellbarkeit",
-        "description": "Geschützte Objekte nach der Restore-Prüfung ihrer jeweils neuesten Sicherung am Ende jedes Intervalls. Eine Sicherung, die neuer ist als die letzte Prüfung oder nie geprüft wurde, gilt als nicht nachgewiesen."
+        "description": "Geschützte Objekte nach der Restore-Prüfung ihrer jeweils neuesten Sicherung am Ende jedes Intervalls. Eine Sicherung, die neuer ist als die letzte Prüfung oder nie geprüft wurde, gilt als nicht nachgewiesen; ein nie gesichertes Objekt als „Noch keine Sicherung“."
       },
       "throttling": {
         "title": "Drosselung durch Microsoft 365",
@@ -99,9 +99,10 @@
       "waitSeconds": "Wartezeit",
       "completed": "Abgeschlossen",
       "green": "Bereit",
-      "yellow": "Achtung",
+      "yellow": "Braucht Aufmerksamkeit",
       "red": "Nicht wiederherstellbar",
-      "unverified": "Nicht nachgewiesen"
+      "unverified": "Nicht nachgewiesen",
+      "noBackup": "Noch keine Sicherung"
     },
     "column": {
       "kind": "Lauf",
@@ -142,7 +143,7 @@
     },
     "state": {
       "green": "Bereit",
-      "yellow": "Achtung",
+      "yellow": "Braucht Aufmerksamkeit",
       "red": "Nicht wiederherstellbar",
       "unverified": "Nicht nachgewiesen",
       "no_backup": "Noch keine Sicherung",
@@ -150,8 +151,8 @@
     },
     "readiness": {
       "green": "Bereit",
-      "yellow": "Achtung",
-      "red": "Nicht nachgewiesen",
+      "yellow": "Nicht vollständig nachgewiesen",
+      "red": "Nicht wiederherstellbar",
       "none": "Nichts geschützt"
     },
     "method": {
@@ -159,7 +160,7 @@
       "successRate": "Erfolgsquote: erfolgreiche Läufe geteilt durch erfolgreiche und fehlgeschlagene Läufe, die im Zeitraum abgeschlossen wurden. Abgebrochene Läufe wurden bewusst gestoppt und zählen nicht mit.",
       "volume": "Geschützte Daten sind die jeweils neueste Sicherung jedes geschützten Objekts. Gespeicherte Bytes sind die verschlüsselten, deduplizierten Pack-Dateien; von der Speicherbereinigung entfernte Packs erscheinen auch in früheren Intervallen nicht mehr.",
       "dedup": "Deduplizierungsfaktor: alle aufbewahrten Sicherungen zusammengezählt, geteilt durch die gespeicherten Bytes.",
-      "readiness": "Nachweislich wiederherstellbar: Objekte, deren neueste Sicherung eine Restore-Prüfung genau dieser Sicherung mit „Bereit“ oder „Achtung“ bewertet hat. Eine nach der letzten Prüfung erstellte Sicherung bleibt unbewiesen, bis sie selbst geprüft wurde; nie geprüfte oder nie gesicherte Objekte gelten als nicht nachgewiesen, und ein Schaden, den die Speicherprüfung nach einer Prüfung findet, gilt als nicht wiederherstellbar.",
+      "readiness": "Nachweislich wiederherstellbar: Objekte, deren neueste Sicherung eine Restore-Prüfung genau dieser Sicherung mit „Bereit“ oder „Braucht Aufmerksamkeit“ bewertet hat. Eine nach der letzten Prüfung erstellte Sicherung bleibt unbewiesen, bis sie selbst geprüft wurde; nie geprüfte Objekte gelten als nicht nachgewiesen, nie gesicherte als „Noch keine Sicherung“ (eine eigene Kategorie), und ein Schaden, den die Speicherprüfung nach einer Prüfung findet, gilt als nicht wiederherstellbar.",
       "status": "Ausgeschlossene Objekte sind nicht geschützt, aus ihrer Quelle entfernte Objekte zählen, solange sie noch eine Sicherung haben. Gespeichert ist nur der aktuelle Schutzstatus eines Objekts; ein heute ausgeschlossenes Objekt fehlt deshalb auch in früheren Intervallen.",
       "throttling": "Drosselungswartezeiten hat Microsoft Graph abgeschlossenen Läufen auferlegt; {appName} wartet so lange, wie Microsoft verlangt, statt früher erneut anzufragen."
     }

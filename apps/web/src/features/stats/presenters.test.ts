@@ -17,7 +17,6 @@ import {
   longLabel,
   maxStacked,
   objectStateTone,
-  readinessTone,
   runRateTone,
   sumOf,
 } from "./presenters.js";
@@ -212,15 +211,15 @@ describe("key figures", () => {
 });
 
 describe("status tones", () => {
-  it("maps readiness and object states", () => {
-    expect(readinessTone("green")).toBe("success");
-    expect(readinessTone("yellow")).toBe("warning");
-    expect(readinessTone("red")).toBe("destructive");
-    expect(readinessTone("unverified")).toBe("muted");
-    expect(readinessTone(null)).toBe("muted");
+  it("maps object states, readiness ones by their category", () => {
     // A protected object is in scope and backed up; only a Ready rating is proof.
     expect(objectStateTone("active")).toBe("neutral");
     expect(objectStateTone("green")).toBe("success");
+    // Needs attention is orange, Unverified amber, No backup yet danger (status meta).
+    expect(objectStateTone("yellow")).toBe("attention");
+    expect(objectStateTone("unverified")).toBe("warning");
+    expect(objectStateTone("red")).toBe("destructive");
+    expect(objectStateTone("no_backup")).toBe("destructive");
     expect(objectStateTone("orphaned")).toBe("warning");
     expect(objectStateTone("failed")).toBe("destructive");
     expect(objectStateTone("something new")).toBe("muted");

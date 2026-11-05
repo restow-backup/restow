@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import { RUN_STATUS_META, STATUS_FILL, toneOf } from "@/components/kit";
+
 import type { Run, RunEvent } from "./api";
 import {
   barPercent,
@@ -13,6 +15,7 @@ import {
   parseHistorySearch,
   QUIET_AFTER_MS,
   remainingSeconds,
+  runBarFill,
   runDurationSeconds,
   savingsPercent,
   stateView,
@@ -21,6 +24,32 @@ import {
 } from "./presenters";
 
 const ID = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
+
+describe("runBarFill", () => {
+  const fill = (
+    overrides: Partial<Pick<Run, "state" | "kind" | "serviceLimited" | "notBackedUp">>,
+  ) => runBarFill({ state: "succeeded", kind: "backup", ...overrides });
+
+  it("fills a bar in the run's status meta tone, as its badge", () => {
+    expect(fill({ state: "running" })).toBe(STATUS_FILL[toneOf(RUN_STATUS_META.running)]);
+    expect(fill({ state: "succeeded" })).toBe(STATUS_FILL.neutral);
+    expect(fill({ state: "succeeded", kind: "restore" })).toBe(STATUS_FILL.success);
+    expect(fill({ state: "failed" })).toBe(STATUS_FILL.destructive);
+    expect(fill({ state: "cancelled" })).toBe(STATUS_FILL.muted);
+  });
+
+  it("tells a partial run from one that completed (amber, not grey)", () => {
+    expect(fill({ state: "partial" })).toBe(STATUS_FILL.warning);
+    expect(fill({ state: "partial" })).not.toBe(fill({ state: "succeeded" }));
+  });
+
+  it("keeps a held-back backup amber and an account not backed up muted, never red", () => {
+    expect(fill({ state: "failed", serviceLimited: true })).toBe(
+      STATUS_FILL[toneOf(RUN_STATUS_META.limited)],
+    );
+    expect(fill({ state: "failed", notBackedUp: "account_disabled" })).toBe(STATUS_FILL.muted);
+  });
+});
 
 describe("stateView", () => {
   const view = (
@@ -87,7 +116,9 @@ describe("checkView", () => {
     for (const state of ["warning", "failed", "running", "queued", "unverified", "none"] as const) {
       expect(checkView({ state }).tone).not.toBe("success");
     }
-    expect(checkView({ state: "warning" }).tone).toBe("warning");
+    // A check with warnings needs attention; a backup not checked yet is not proven (amber).
+    expect(checkView({ state: "warning" }).tone).toBe("attention");
+    expect(checkView({ state: "unverified" }).tone).toBe("warning");
     expect(checkView({ state: "failed" }).tone).toBe("destructive");
     expect(checkView({ state: "running" }).tone).toBe("info");
   });

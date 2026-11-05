@@ -247,7 +247,7 @@
   },
   "readiness": {
     "green": "Bereit",
-    "yellow": "Achtung",
+    "yellow": "Braucht Aufmerksamkeit",
     "red": "Restore-Prüfung fehlgeschlagen",
     "none": "Nicht nachgewiesen",
     "checked": "geprüft {time}"

@@ -101,7 +101,7 @@ export interface ReadinessWidget {
   /** Objects confirmed as empty: neutral, never needing attention (absent from an older server). */
   empty?: number;
   overdue: number;
-  /** Machines and mail objects in no backup job; any of them keeps `overall` from green. */
+  /** Machines and mail objects in no backup job; a callout of their own, never `overall` (decision 2). */
   withoutJob: number;
   /** The mailboxes, OneDrives, sites, groups and IMAP accounts among `withoutJob` (absent from an older server). */
   objectsWithoutJob?: number;
@@ -110,8 +110,9 @@ export interface ReadinessWidget {
   /** File shares in no backup job that keep a restore point (absent from an older server). */
   sharesWithoutJob?: number;
   /**
-   * Objects no longer backed up that wait for an admin's confirmation; they keep `overall` from
-   * green (absent from an older server).
+   * Objects no longer backed up that wait for an admin's confirmation; a callout of their own
+   * that never changes `overall` (decision 2), shown even when nothing is rated (absent from an
+   * older server).
    */
   toConfirm?: number;
   running: number;
@@ -416,6 +417,8 @@ export interface LoadedTenantRow extends ProviderTenantRowBase {
   notRestorable: number;
   unverified: number;
   noBackup: number;
+  /** Objects an admin confirmed as empty: neutral, in no category (absent from an older server). */
+  empty?: number;
   failures24h: number;
   failuresPrevious24h: number;
   lastBackupAt: string | null;
@@ -452,6 +455,7 @@ export interface UnavailableTenantRow extends ProviderTenantRowBase {
   notRestorable: null;
   unverified: null;
   noBackup: null;
+  empty?: null;
   failures24h: null;
   failuresPrevious24h: null;
   lastBackupAt: null;
@@ -513,7 +517,7 @@ export interface ProviderKpis {
   tenants: number;
   suspendedTenants: number;
   unavailableTenants: number;
-  /** Customers whose overall readiness is red. */
+  /** Customers whose overall readiness is not Ready (red: not restorable, yellow: not proven). */
   tenantsNotReady: number;
   /** The objects of every tenant that could be read, the own organisation included, by state. */
   readiness: {
@@ -523,6 +527,8 @@ export interface ProviderKpis {
     red: number;
     unverified: number;
     noBackup: number;
+    /** Confirmed as empty (absent from an older server). */
+    empty?: number;
   };
   protectedObjects: number;
   unverifiedObjects: number;

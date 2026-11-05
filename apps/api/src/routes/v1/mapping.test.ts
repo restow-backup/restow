@@ -423,7 +423,7 @@ describe("verification report", () => {
     expect(second.next).toBeNull();
   });
 
-  it("serves an object confirmed as empty as green, and v1 reasons without bytes", () => {
+  it("serves an object confirmed as empty as `empty`, counted apart from green, and v1 reasons without bytes", () => {
     const empty = objectEntry(ids[0] as string);
     const withEmpty: ReadinessOverviewDto = {
       ...overview,
@@ -451,9 +451,11 @@ describe("verification report", () => {
     };
     const page = pageOverview(withEmpty, 10, null);
     expect(verifyLatestSchema.parse(page)).toEqual(page);
-    expect(page.summary).not.toHaveProperty("empty");
-    expect(page.summary.green).toBe(3);
-    expect(page.items[0]).toMatchObject({ state: "green", rating: "green" });
+    // UI rework decision 3 (contract 1.10.0): empty counts as on the dashboard, not as green, and
+    // the object keeps its real rating.
+    expect(page.summary.empty).toBe(1);
+    expect(page.summary.green).toBe(2);
+    expect(page.items[0]).toMatchObject({ state: "empty", rating: "yellow" });
     expect(page.items[0]?.report?.reasons[0]).not.toHaveProperty("bytes");
   });
 });

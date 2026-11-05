@@ -4,6 +4,7 @@ import {
   CircleAlert,
   ExternalLink,
   Info,
+  type LucideIcon,
   RotateCcw,
   TriangleAlert,
 } from "lucide-react";
@@ -74,9 +75,12 @@ export interface FailureExplanationProps {
    * warning and everything else an error; failed items of a run that
    * finished are a warning too (the run itself went through). `info` is for a
    * check that could not complete: it explains the cause but proves nothing
-   * broken, so it is neither amber nor red.
+   * broken, so it is neither amber nor red. `attention` is for a finding a
+   * person must look at (a restore check's yellow finding, status meta).
    */
-  tone?: "warning" | "destructive" | "info";
+  tone?: "warning" | "attention" | "destructive" | "info";
+  /** Force the icon (the status meta's icon of what the explanation is about). */
+  icon?: LucideIcon;
   /** Targets not to link to, because the operator is already on that page. */
   skipTargets?: readonly string[];
   className?: string;
@@ -100,6 +104,7 @@ export function FailureExplanation({
   retryPending = false,
   hideWhat = false,
   tone: forcedTone,
+  icon: forcedIcon,
   skipTargets = [],
   className,
 }: FailureExplanationProps) {
@@ -110,7 +115,8 @@ export function FailureExplanation({
   const code = known && failure ? failure.code : "unknown";
   const variables = textVariables(failure ?? { params: {} });
   const tone = forcedTone ?? failureTone(failure, { willRetry: retrying });
-  const Icon = tone === "warning" ? TriangleAlert : tone === "info" ? Info : CircleAlert;
+  const Icon =
+    forcedIcon ?? (tone === "warning" ? TriangleAlert : tone === "info" ? Info : CircleAlert);
   const titleId = React.useId();
 
   const when = formatRelative(failure?.occurredAt ?? at, language) ?? "";

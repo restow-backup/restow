@@ -3,7 +3,14 @@ import { Building2, ChevronRight, ShieldQuestion } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
-import { DataTable, EmptyState, ErrorState, StatusBadge } from "@/components/kit";
+import {
+  DataTable,
+  EmptyState,
+  ErrorState,
+  READINESS_CATEGORY_META,
+  READINESS_TILE_ORDER,
+  StatusBadge,
+} from "@/components/kit";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { LoadedTenantRow, ProviderTenantRow } from "@/features/dashboard/api";
@@ -96,12 +103,14 @@ function useColumns(
         meta: { label: t("byTenant.columns.tenant") },
       },
     ];
-    for (const column of READINESS_STATES) {
+    // One column per category, in the overview's order, labelled by the status meta.
+    for (const column of READINESS_TILE_ORDER) {
+      const label = t(READINESS_CATEGORY_META[column].labelKey);
       columns.push({
         id: column,
         size: 118,
         accessorFn: (row) => countInState(row, column),
-        header: t(`state.${column}`),
+        header: label,
         enableGlobalFilter: false,
         cell: ({ row }) => {
           const count = countInState(row.original, column);
@@ -110,10 +119,7 @@ function useColumns(
               type="button"
               data-count={column}
               onClick={() => onOpen(row.original.id, column)}
-              title={t("byTenant.openState", {
-                name: row.original.name,
-                state: t(`state.${column}`),
-              })}
+              title={t("byTenant.openState", { name: row.original.name, state: label })}
               className={cn(
                 "rounded-sm underline-offset-4 outline-none hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50",
                 column === state && "font-semibold",
@@ -122,10 +128,12 @@ function useColumns(
               {formatInteger(count, language)}
             </button>
           ) : (
-            <span className="text-muted-foreground">{formatInteger(0, language)}</span>
+            <span className="text-muted-foreground" data-empty="true">
+              {formatInteger(0, language)}
+            </span>
           );
         },
-        meta: { numeric: true, label: t(`state.${column}`) },
+        meta: { numeric: true, label },
       });
     }
     columns.push({

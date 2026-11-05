@@ -11,15 +11,11 @@ import {
   LoaderCircle,
   type LucideIcon,
   Pause,
-  ShieldAlert,
-  ShieldCheck,
-  ShieldQuestion,
-  ShieldX,
   TriangleAlert,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { RelativeTime, StatusBadge } from "@/components/kit";
+import { OVERALL_META, RelativeTime, StatusBadge } from "@/components/kit";
 import { Countdown } from "@/features/history/components/countdown";
 import { OpenRunLink, RunProgressCell } from "@/features/history/components/run-cells";
 import { useRunningRunsOf } from "@/features/history/live/provider";
@@ -87,16 +83,16 @@ export function JobLivePercent({ jobId }: { jobId: string }) {
 }
 
 const RESTORE_ICON = {
-  passed: ShieldCheck,
-  attention: ShieldAlert,
-  failed: ShieldX,
-  none: ShieldQuestion,
+  passed: OVERALL_META.green.icon,
+  notProven: OVERALL_META.yellow.icon,
+  failed: OVERALL_META.red.icon,
+  none: OVERALL_META.none.icon,
 } as const;
 
 /**
- * The restore checks of a job's scope: "5 of 6 passed". Green only when every
- * object or machine passed, red when one failed, amber for warnings, objects not
- * checked yet and objects without a backup. The facts that are not "passed" are
+ * The restore checks of a job's scope: "5 of 6 passed", in the tone of the aggregate rule:
+ * green only when every object or machine passed, red (Not restorable) when one failed or has
+ * no backup yet, amber (Not proven) for warnings and objects not checked yet. The facts that are not "passed" are
  * said in words, so the colour never carries the meaning alone.
  */
 export function RestoreCheckBadge({

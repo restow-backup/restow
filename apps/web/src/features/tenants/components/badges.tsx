@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 
+import { StatusBadge } from "@/components/kit";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatDateTime, formatRelative } from "@/lib/format";
@@ -22,7 +23,11 @@ export function TenantStatusBadge({ status }: { status: TenantStatus }) {
 export function ReadinessBadge({ readiness }: { readiness: Readiness | null }) {
   const { t } = useTranslation("tenants");
   const badge = readinessBadge(readiness);
-  return <Badge variant={badge.variant}>{t(badge.labelKey)}</Badge>;
+  return (
+    <StatusBadge tone={badge.tone} icon={badge.icon}>
+      {t(badge.labelKey)}
+    </StatusBadge>
+  );
 }
 
 interface HealthSummaryProps {

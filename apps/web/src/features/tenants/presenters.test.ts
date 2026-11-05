@@ -95,14 +95,23 @@ describe("mailbox usage", () => {
 });
 
 describe("badges and health", () => {
-  it("shows a backup without a proven restore like a failure", () => {
-    expect(readinessBadge("red").variant).toBe("destructive");
-    expect(readinessBadge("yellow").variant).toBe("warning");
-    expect(readinessBadge("green")).toEqual({
-      variant: "success",
-      labelKey: "tenants:readiness.green",
+  it("shows the tenant's aggregate by the status meta: yellow is Not proven, in amber", () => {
+    expect(readinessBadge("red")).toMatchObject({
+      tone: "destructive",
+      labelKey: "ui:status.overall.notRestorable",
     });
-    expect(readinessBadge(null)).toEqual({ variant: "muted", labelKey: "tenants:readiness.none" });
+    expect(readinessBadge("yellow")).toMatchObject({
+      tone: "warning",
+      labelKey: "ui:status.overall.notProven",
+    });
+    expect(readinessBadge("green")).toMatchObject({
+      tone: "success",
+      labelKey: "ui:status.overall.ready",
+    });
+    expect(readinessBadge(null)).toMatchObject({
+      tone: "muted",
+      labelKey: "tenants:readiness.none",
+    });
   });
 
   it("has a badge for every tenant status", () => {

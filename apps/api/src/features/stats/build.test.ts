@@ -244,10 +244,11 @@ describe("buildStats", () => {
     expect(stats.kpis.protectedObjects).toEqual({ value: 2, previous: 1 });
     // Contoso's backup is proven, Fabrikam's object was never backed up.
     expect(stats.kpis.verifiedShare).toEqual({ value: 0.5, previous: 0 });
+    // Fabrikam's object counts as No backup yet, apart from unverified.
     expect(stats.series.readiness).toEqual([
-      { t: "2026-09-21", green: 1, yellow: 0, red: 0, unverified: 0 },
-      { t: "2026-09-22", green: 1, yellow: 0, red: 0, unverified: 1 },
-      { t: "2026-09-23", green: 1, yellow: 0, red: 0, unverified: 1 },
+      { t: "2026-09-21", green: 1, yellow: 0, red: 0, unverified: 0, noBackup: 0 },
+      { t: "2026-09-22", green: 1, yellow: 0, red: 0, unverified: 0, noBackup: 1 },
+      { t: "2026-09-23", green: 1, yellow: 0, red: 0, unverified: 0, noBackup: 1 },
     ]);
     expect(stats.kpis.failedItems).toEqual({ value: 2, previous: 0 });
     // Available as soon as one tenant has the source.

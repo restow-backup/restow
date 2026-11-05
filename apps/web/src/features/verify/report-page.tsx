@@ -12,9 +12,15 @@ import {
 import type * as React from "react";
 
 import { ErrorState } from "@/components/error-state";
+import {
+  CHECKED_ITEM_STATE,
+  StatusBadge,
+  TEST_RESTORE_ITEM_STATE,
+  toneOf,
+  VERIFICATION_META,
+} from "@/components/kit";
 import { PageHeader } from "@/components/page-header";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -30,7 +36,6 @@ import {
 import { FailureExplanation } from "@/features/failures";
 import { jobDetailTo } from "@/features/jobs/paths";
 import type {
-  CheckedItem,
   LatestBackup,
   ObjectStatusReason,
   Reason,
@@ -57,18 +62,21 @@ import {
 } from "@/features/verify/use-verify";
 import { ApiError } from "@/lib/api";
 
-const ITEM_STATUS_BADGE: Record<CheckedItem["status"], NonNullable<BadgeProps["variant"]>> = {
-  verified: "success",
-  mismatch: "destructive",
-  missing: "destructive",
-  unreadable: "destructive",
-};
-
-const TEST_STATUS_BADGE = {
-  confirmed: "success",
-  unconfirmed: "warning",
-  failed: "destructive",
-} as const satisfies Record<string, NonNullable<BadgeProps["variant"]>>;
+/** A read-back or test-restored item in the look of its verification (status meta), with its icon. */
+function ItemStatusBadge({
+  state,
+  children,
+}: {
+  state: keyof typeof VERIFICATION_META;
+  children: React.ReactNode;
+}) {
+  const meta = VERIFICATION_META[state];
+  return (
+    <StatusBadge tone={toneOf(meta)} icon={meta.icon} data-category={meta.id}>
+      {children}
+    </StatusBadge>
+  );
+}
 
 const CATEGORIES = ["mail", "file", "event", "contact", "site"] as const;
 
@@ -137,9 +145,9 @@ function ItemsTable({ details, format }: { details: VerifyDetails; format: Verif
                     {format.bytes(item.size)}
                   </TableCell>
                   <TableCell className="align-top">
-                    <Badge variant={ITEM_STATUS_BADGE[item.status]}>
+                    <ItemStatusBadge state={CHECKED_ITEM_STATE[item.status]}>
                       {t(`report.itemStatus.${item.status}`)}
-                    </Badge>
+                    </ItemStatusBadge>
                   </TableCell>
                   <TableCell className="pr-6 align-top text-xs text-muted-foreground">
                     {t(`report.hash.${item.objectHash}`)}
@@ -319,9 +327,9 @@ function VerifyDetailsView({
                     ) : null}
                     {item.failure ? <ItemCause failure={item.failure} item={item.path} /> : null}
                   </div>
-                  <Badge variant={TEST_STATUS_BADGE[item.status]}>
+                  <ItemStatusBadge state={TEST_RESTORE_ITEM_STATE[item.status]}>
                     {t(`report.testRestore.status.${item.status}`)}
-                  </Badge>
+                  </ItemStatusBadge>
                 </li>
               ))}
             </ul>

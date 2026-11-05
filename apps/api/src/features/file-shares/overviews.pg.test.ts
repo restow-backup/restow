@@ -525,7 +525,13 @@ describe.skipIf(!testDatabaseAdminUrl)("file shares in the overviews against Pos
     expect(stats.kpis.protectedObjects.value).toBe(4);
     expect(Array.isArray(stats.series.readiness)).toBe(true);
     if (Array.isArray(stats.series.readiness)) {
-      expect(stats.series.readiness.at(-1)).toMatchObject({ green: 1, red: 1, unverified: 2 });
+      // Fresh has no restore point yet: No backup yet, apart from unverified.
+      expect(stats.series.readiness.at(-1)).toMatchObject({
+        green: 1,
+        red: 1,
+        unverified: 1,
+        noBackup: 1,
+      });
     }
     if (Array.isArray(stats.series.backups)) {
       const total = stats.series.backups.reduce(

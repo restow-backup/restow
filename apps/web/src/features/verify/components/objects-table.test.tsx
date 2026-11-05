@@ -361,6 +361,10 @@ describe("ObjectsTable", () => {
     };
     const noJob = table([readiness({ inJob: false, report })]);
     expect(noJob).toContain("In no backup job");
+    // The readiness flag (status meta): attention, with its icon, as on the PVE and share pages.
+    expect(noJob).toMatch(
+      /data-tone="attention"[^>]*data-flag="no_job"|data-flag="no_job"[^>]*data-tone="attention"/,
+    );
     expect(noJob).toContain("30 of 30 items restored byte-exact");
     expect(noJob).not.toContain("The latest backup is 15 days old");
     // In a job (or from an older server that does not say): no badge, and the age stays a finding.

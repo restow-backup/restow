@@ -147,5 +147,24 @@
   "detail": {
     "close": "Schließen",
     "loading": "Wird geladen…"
+  },
+  "status": {
+    "readiness": {
+      "ready": "Bereit",
+      "needsAttention": "Braucht Aufmerksamkeit",
+      "unverified": "Nicht nachgewiesen",
+      "notRestorable": "Nicht wiederherstellbar",
+      "noBackup": "Noch keine Sicherung",
+      "empty": "Als leer bestätigt",
+      "waitingForFirstBackup": "Wartet auf erste Sicherung",
+      "overdue": "Prüfung überfällig",
+      "noJob": "In keinem Backup-Job"
+    },
+    "overall": {
+      "ready": "Bereit",
+      "notProven": "Nicht vollständig nachgewiesen",
+      "notRestorable": "Nicht wiederherstellbar",
+      "none": "Nichts zu bewerten"
+    }
   }
 }

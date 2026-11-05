@@ -7,15 +7,11 @@ import {
   Mail,
   Network,
   Server,
-  ShieldAlert,
-  ShieldCheck,
-  ShieldQuestion,
-  ShieldX,
   UsersRound,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { StatusBadge } from "@/components/kit";
+import { RESTORE_CHECK_META, StatusBadge } from "@/components/kit";
 import { cn } from "@/lib/utils";
 
 import type { Run, RunRestoreCheck, RunState, SubjectKind } from "../api";
@@ -62,16 +58,6 @@ export function SubjectIcon({ kind, className }: { kind: SubjectKind; className?
   return <Icon aria-hidden="true" className={cn("size-4 shrink-0", className)} />;
 }
 
-const CHECK_ICON = {
-  passed: ShieldCheck,
-  warning: ShieldAlert,
-  failed: ShieldX,
-  running: ShieldQuestion,
-  queued: ShieldQuestion,
-  unverified: ShieldQuestion,
-  none: ShieldQuestion,
-} as const;
-
 /**
  * The restore check of a backup, in words: green only when it read the backup back and found it
  * whole. Nothing for a run that has no backup to check.
@@ -91,7 +77,7 @@ export function RestoreCheckChip({
   return (
     <StatusBadge
       tone={view.tone}
-      icon={CHECK_ICON[view.key]}
+      icon={RESTORE_CHECK_META[view.key].icon}
       className={cn("whitespace-nowrap", className)}
       data-check={view.key}
     >

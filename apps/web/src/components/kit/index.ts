@@ -19,7 +19,7 @@ export {
   type ActivityOrbSize,
 } from "./activity-orb.js";
 export { ChartCard, type ChartCardProps } from "./chart-card.js";
-export { type ChartStatusTone, STATUS_CHART_COLOR } from "./chart-colors.js";
+export { type ChartStatusTone, chartTone, STATUS_CHART_COLOR } from "./chart-colors.js";
 export {
   byteAxisTicks,
   HORIZONTAL_GRID,
@@ -101,8 +101,17 @@ export {
 } from "./restore-timeline-model.js";
 export { SetInInstallation } from "./set-in-installation.js";
 export {
+  STATUS_BADGE_VARIANT,
   STATUS_TONE_ICON,
   StatusBadge,
   type StatusBadgeProps,
   type StatusTone,
 } from "./status-badge.js";
+export * from "./status-meta.js";
+export {
+  CHART_HATCH,
+  ChartHatchDefs,
+  StatusIcon,
+  StatusSegment,
+  StatusSwatch,
+} from "./status-swatch.js";

@@ -123,13 +123,16 @@ describe("restoreCheckView: green only when every one passed", () => {
     });
   });
 
-  it("is amber for warnings, objects not checked yet and objects without a backup", () => {
-    expect(restoreCheckView(restoreCheck()).tone).toBe("warning");
+  it("is amber (Not proven) for warnings and objects not checked yet", () => {
+    expect(restoreCheckView(restoreCheck())).toMatchObject({ tone: "warning", state: "notProven" });
     expect(restoreCheckView(restoreCheck({ passed: 5, unverified: 0, warning: 1 })).tone).toBe(
       "warning",
     );
-    expect(restoreCheckView(restoreCheck({ passed: 5, unverified: 0, noBackup: 1 })).tone).toBe(
-      "warning",
+  });
+
+  it("is red (Not restorable) for an object without a backup, by the aggregate rule", () => {
+    expect(restoreCheckView(restoreCheck({ passed: 5, unverified: 0, noBackup: 1 }))).toMatchObject(
+      { tone: "destructive", state: "failed" },
     );
   });
 
@@ -163,10 +166,12 @@ describe("state, runs and the next run", () => {
     expect(stateView("queued")).toMatchObject({ tone: "muted", key: "queued", live: false });
     // A job that backs up nothing on its own never reads as the neutral "Active".
     expect(stateView("manual")).toMatchObject({ tone: "warning", key: "manual" });
-    expect(stateView("overdue")).toMatchObject({ tone: "warning", key: "overdue" });
+    // Overdue is the readiness flag's attention tone, as beside every object's readiness.
+    expect(stateView("overdue")).toMatchObject({ tone: "attention", key: "overdue" });
     expect(stateView("storage_error")).toMatchObject({ tone: "destructive", key: "storage_error" });
     expect(stateView("failing").tone).toBe("destructive");
-    expect(stateView("attention").tone).toBe("warning");
+    // "Needs attention" is orange (attention), never the amber of Unverified (phase 1.3).
+    expect(stateView("attention").tone).toBe("attention");
     expect(stateView("paused").tone).toBe("muted");
     expect(stateView("empty").tone).toBe("muted");
     // Green is for a passed restore check: no state is green.

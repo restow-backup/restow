@@ -46,7 +46,7 @@
   },
   "readiness": {
     "green": "Bereit",
-    "yellow": "Achtung",
+    "yellow": "Nicht vollständig nachgewiesen",
     "red": "Nicht wiederherstellbar",
     "none": "Nichts geschützt",
     "loading": "Wiederherstellbarkeit wird geprüft …",

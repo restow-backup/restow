@@ -1,9 +1,14 @@
+import { aggregateReadiness, countReadinessStates } from "@restow/core";
 import type { Readiness } from "./details.js";
 
 /**
  * How the readiness overview rates objects and the tenant as a whole. A
- * backup without a verified restore counts as failed (docs/TESTING.md), so an
+ * backup without a verified restore is not proven (docs/TESTING.md), so an
  * object that was never verified, or never backed up, is never shown as fine.
+ * The tenant reads as the worst category that has objects (@restow/core
+ * `aggregateReadiness`): red when something cannot be restored or has no
+ * backup yet, yellow (not proven) when something needs attention or is
+ * unverified, green otherwise.
  */
 
 /** Verify runs weekly; a rating older than this is overdue. */
@@ -65,8 +70,8 @@ export interface RatedObject {
   readonly checkedAt: Date | null;
   /**
    * A machine or a mail object in no backup job: nothing backs it up any more, whatever its old
-   * backups score. It never lets the tenant read as fine (at least yellow) and is counted on its
-   * own.
+   * backups score. It is counted on its own and listed as a callout; it does not change
+   * `overall`.
    */
   readonly withoutJob?: boolean;
   /**
@@ -88,8 +93,8 @@ export interface RatedObject {
   /**
    * An object Restow stopped backing up (removed, disabled, unlicensed, locked at the source)
    * that no admin confirmed yet (@restow/core `inactiveState` `to_confirm`). Its own rating is
-   * kept (a red check stays red), but it never lets the tenant read as fine (at least yellow)
-   * until someone decides, and it is counted in `toConfirm`.
+   * kept (a red check stays red, and counts as such); it is counted in `toConfirm` and listed as
+   * a callout until someone decides, but it does not change `overall` by itself.
    */
   readonly toConfirm?: boolean;
 }
@@ -103,14 +108,15 @@ export interface ReadinessSummaryDto {
   noBackup: number;
   /**
    * Objects an admin confirmed as empty (their newest check found nothing to restore): neutral,
-   * neither green nor yellow, and they never keep the tenant from green.
+   * neither green nor yellow, and they never keep the tenant from green (left out of `overall`).
    */
   empty: number;
   overdue: number;
   /**
    * Machines and protected objects (mailboxes, OneDrives, sites, groups, IMAP accounts) in no
-   * backup job: they are rated by their old backups, but nothing backs them up. Any of them
-   * keeps the tenant from green. The guests and shares are counted in their own figures.
+   * backup job: they are rated by their old backups, but nothing backs them up. They are listed
+   * as a callout; they do not change `overall`. The guests and shares are counted in their own
+   * figures.
    */
   withoutJob: number;
   /**
@@ -121,20 +127,23 @@ export interface ReadinessSummaryDto {
   objectsWithoutJob: number;
   /**
    * VMs and containers in no backup job that keep a restore point: rated by it, but nothing backs
-   * them up any more. Like `withoutJob`, any of them keeps the tenant from green.
+   * them up any more. Like `withoutJob`, listed as a callout; it does not change `overall`.
    */
   guestsWithoutJob: number;
   /**
    * File shares in no backup job that keep a restore point: rated by it, but nothing backs them
-   * up any more. Like `withoutJob`, any of them keeps the tenant from green.
+   * up any more. Like `withoutJob`, listed as a callout; it does not change `overall`.
    */
   sharesWithoutJob: number;
   /**
    * Objects no longer backed up that wait for an admin's "Yes, intended", with or without a
-   * backup of their own. Any of them keeps the tenant from green (yellow, never red).
+   * backup of their own. Listed as a callout; they do not change `overall`.
    */
   toConfirm: number;
-  /** Worst state across all objects; null when the tenant protects nothing yet. */
+  /**
+   * Worst populated readiness category (@restow/core `aggregateReadiness`); null when the tenant
+   * protects nothing yet.
+   */
   overall: Readiness | null;
   /** Newest rating date across all objects. */
   lastCheckedAt: string | null;
@@ -143,38 +152,26 @@ export interface ReadinessSummaryDto {
 }
 
 /**
- * Red if anything cannot be restored or is unproven; yellow if anything needs attention. An
- * object confirmed as empty (`empty`) counts for neither.
- * `unratedToConfirm` counts objects no longer backed up that wait for a confirmation but have no
- * backup to rate (so they are no {@link RatedObject}): they make the tenant yellow as well.
+ * The worst readiness category that has objects (UI rework, decision 1): red when one cannot be
+ * restored or has no backup yet, yellow (not proven) when one needs attention or is unverified,
+ * green otherwise; null without objects. An object confirmed as empty (`empty`) counts for
+ * neither, and overdue checks, objects in no job and objects waiting for a confirmation do not
+ * change it (decision 2): views list them as callouts.
  */
-export function overallReadiness(
-  objects: readonly RatedObject[],
-  unratedToConfirm = 0,
-): Readiness | null {
-  if (objects.length === 0) {
-    return unratedToConfirm > 0 ? "yellow" : null;
-  }
-  const unproven = new Set<ObjectState>(["red", "unverified", "no_backup"]);
-  if (objects.some((object) => unproven.has(object.state))) {
-    return "red";
-  }
-  if (
-    unratedToConfirm > 0 ||
-    objects.some(
-      (object) =>
-        object.state === "yellow" || object.overdue || object.withoutJob || object.toConfirm,
-    )
-  ) {
-    return "yellow";
-  }
-  return "green";
+export function overallReadiness(objects: readonly RatedObject[]): Readiness | null {
+  return aggregateReadiness(
+    countReadinessStates(objects.map((object) => object.state)),
+    objects.length,
+  );
 }
 
 export function summarize(
   objects: readonly RatedObject[],
   running: number,
-  /** Unconfirmed objects no longer backed up that have no backup (see {@link overallReadiness}). */
+  /**
+   * Unconfirmed objects no longer backed up that have no backup to rate (so they are no
+   * {@link RatedObject}): counted in `toConfirm` only.
+   */
   unratedToConfirm = 0,
 ): ReadinessSummaryDto {
   const countOf = (state: ObjectState) => objects.filter((object) => object.state === state).length;
@@ -205,7 +202,7 @@ export function summarize(
       (object) => object.withoutJob === true && object.share === true,
     ).length,
     toConfirm: objects.filter((object) => object.toConfirm === true).length + unratedToConfirm,
-    overall: overallReadiness(objects, unratedToConfirm),
+    overall: overallReadiness(objects),
     lastCheckedAt: newest?.toISOString() ?? null,
     running,
   };

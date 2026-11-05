@@ -20,8 +20,13 @@ import { colors, toneColor } from "./theme.js";
 
 /** Every `r g b` triple a PDF paints with, from its (Flate-compressed) content streams. */
 function paintedColours(pdf: Buffer): Set<string> {
+  return new Set(paintCounts(pdf).keys());
+}
+
+/** How often a PDF sets each `r g b` triple, from its (Flate-compressed) content streams. */
+function paintCounts(pdf: Buffer): Map<string, number> {
   const text = pdf.toString("latin1");
-  const found = new Set<string>();
+  const found = new Map<string, number>();
   let from = 0;
   for (;;) {
     const start = text.indexOf("stream", from);
@@ -44,7 +49,8 @@ function paintedColours(pdf: Buffer): Set<string> {
       continue;
     }
     for (const [, r, g, b] of content.matchAll(/([\d.]+) ([\d.]+) ([\d.]+) (?:scn|SCN|rg|RG)\b/g)) {
-      found.add(rgbKey([Number(r), Number(g), Number(b)]));
+      const key = rgbKey([Number(r), Number(g), Number(b)]);
+      found.set(key, (found.get(key) ?? 0) + 1);
     }
   }
   return found;
@@ -121,6 +127,46 @@ describe("green is proof in the statistics report", () => {
     for (const green of GREENS) {
       expect(painted.has(green), `green ${green} is drawn without proof`).toBe(false);
     }
+  });
+
+  describe("the readiness categories (UI rework, Phase 1)", () => {
+    it("paints Needs attention orange and No backup yet in its own dark red, apart from the amber Unverified", async () => {
+      const stats = sampleStats();
+      const points = Array.isArray(stats.series.readiness) ? stats.series.readiness : [];
+      expect(points.some((point) => point.noBackup > 0)).toBe(true);
+      const painted = paintedColours(await renderStatsReport({ stats, subject, language: "en" }));
+      expect(painted.has(hexKey(colors.attention))).toBe(true);
+      expect(painted.has(hexKey(colors.noBackup))).toBe(true);
+      expect(painted.has(hexKey(colors.warning))).toBe(true);
+      expect(hexKey(colors.attention)).not.toBe(hexKey(colors.warning));
+      expect(hexKey(colors.noBackup)).not.toBe(hexKey(colors.destructive));
+    });
+
+    it("writes an object without a backup in the danger tone, not in grey", async () => {
+      const base = withoutProof(sampleStats());
+      const objects = Array.isArray(base.tables.largestObjects) ? base.tables.largestObjects : [];
+      const one = objects[0];
+      expect(one).toBeDefined();
+      const render = (state: "no_backup" | "empty") =>
+        renderStatsReport({
+          stats: {
+            ...base,
+            tables: {
+              ...base.tables,
+              largestObjects: [{ ...(one as (typeof objects)[0]), state }],
+            },
+          },
+          subject,
+          language: "en",
+        });
+      // The two reports differ in that one cell only: it is set in the danger colour once more,
+      // and in the neutral grey once less.
+      const noBackup = paintCounts(await render("no_backup"));
+      const empty = paintCounts(await render("empty"));
+      const count = (counts: Map<string, number>, hex: string) => counts.get(hexKey(hex)) ?? 0;
+      expect(count(noBackup, toneColor.destructive)).toBe(count(empty, toneColor.destructive) + 1);
+      expect(count(noBackup, toneColor.neutral)).toBe(count(empty, toneColor.neutral) - 1);
+    });
   });
 
   describe("the tone of a change", () => {

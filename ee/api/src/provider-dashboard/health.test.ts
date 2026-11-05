@@ -37,6 +37,7 @@ function summary(overrides: Partial<TenantSummaryDto> = {}): TenantSummaryDto {
       red: 0,
       unverified: 0,
       noBackup: 0,
+      empty: 0,
       overdue: 0,
       withoutJob: 0,
       objectsWithoutJob: 0,
@@ -78,8 +79,9 @@ function row(name: string, overrides: Partial<LoadedTenantRowDto> = {}): LoadedT
 
 describe("tenant matrix rows", () => {
   it("takes readiness, unverified objects and the newest backup from the summary", () => {
+    // Unverified only: Not proven (yellow) under the aggregate rule (UI rework decision 1).
     const unverified = summary({
-      readiness: { ...summary().readiness, unverified: 2, green: 2, overall: "red" },
+      readiness: { ...summary().readiness, unverified: 2, green: 2, overall: "yellow" },
     });
     const result = tenantRow(
       tenant("Contoso"),
@@ -88,7 +90,7 @@ describe("tenant matrix rows", () => {
     );
     expect(result).toMatchObject({
       loaded: true,
-      readiness: "red",
+      readiness: "yellow",
       unverified: 2,
       protectedObjects: 4,
       ready: 2,
@@ -123,6 +125,7 @@ describe("tenant matrix rows", () => {
       notRestorable: null,
       unverified: null,
       noBackup: null,
+      empty: null,
       failures24h: null,
       failuresPrevious24h: null,
       lastBackupAt: null,
@@ -227,7 +230,8 @@ describe("file shares in the matrix", () => {
             yellow: 0,
             withoutJob: 1,
             objectsWithoutJob: 1,
-            overall: "yellow",
+            // In no job is a callout; it does not change overall (UI rework decision 2).
+            overall: "green",
           },
         }),
         ...HEALTHY,
@@ -235,7 +239,7 @@ describe("file shares in the matrix", () => {
       { mailboxes: 3, cap: null },
     );
     expect(result).toMatchObject({
-      readiness: "yellow",
+      readiness: "green",
       objectsWithoutJob: 1,
       protectedObjects: 4,
     });
@@ -343,13 +347,14 @@ describe("provider alerts", () => {
       }),
       NOW,
     ).map((alert) => [alert.kind, alert.severity, alert.count]);
+    // No backup yet is Not restorable (UI rework decision 1): destructive, next to not_restorable.
     expect(kinds).toEqual([
       ["storage_error", "destructive", null],
       ["not_restorable", "destructive", 2],
+      ["no_backup", "destructive", 1],
       ["failed_jobs", "destructive", 4],
       ["over_cap", "warning", 2],
       ["unverified", "warning", 3],
-      ["no_backup", "warning", 1],
       ["stale_backup", "warning", STALE_BACKUP_HOURS],
     ]);
   });
@@ -431,7 +436,7 @@ describe("provider figures", () => {
       suspendedTenants: 1,
       unavailableTenants: 0,
       tenantsNotReady: 1,
-      readiness: { total: 10, green: 8, yellow: 0, red: 0, unverified: 2, noBackup: 0 },
+      readiness: { total: 10, green: 8, yellow: 0, red: 0, unverified: 2, noBackup: 0, empty: 0 },
       protectedObjects: 8,
       unverifiedObjects: 2,
       failures24h: 1,
@@ -450,6 +455,7 @@ describe("provider figures", () => {
         notRestorable: 1,
         unverified: 3,
         noBackup: 1,
+        empty: 2,
       }),
       row("Fabrikam", {
         ready: 5,
@@ -459,14 +465,26 @@ describe("provider figures", () => {
         noBackup: 0,
       }),
     ]);
+    // Confirmed-empty objects are part of the total, not of green.
     expect(kpis.readiness).toEqual({
-      total: 24,
+      total: 26,
       green: 15,
       yellow: 2,
       red: 3,
       unverified: 3,
       noBackup: 1,
+      empty: 2,
     });
+  });
+
+  it("counts every customer that is not Ready as not ready, yellow (not proven) included", () => {
+    const kpis = providerKpis([
+      row("Contoso", { readiness: "yellow", unverified: 4 }),
+      row("Fabrikam", { readiness: "red", noBackup: 1 }),
+      row("Northwind", { readiness: "green" }),
+      row("Tailspin", { readiness: null, ready: 0, protectedObjects: 0 }),
+    ]);
+    expect(kpis.tenantsNotReady).toBe(2);
   });
 
   it("does not count the operator's own organisation as a customer", () => {

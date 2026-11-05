@@ -43,7 +43,7 @@
   },
   "readiness": {
     "green": "Bereit",
-    "yellow": "Prüfung überfällig",
+    "yellow": "Braucht Aufmerksamkeit",
     "red": "Nicht wiederherstellbar",
     "unverified": "Nicht nachgewiesen",
     "no_backup": "Noch keine Sicherung"

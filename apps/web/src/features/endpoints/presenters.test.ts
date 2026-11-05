@@ -252,14 +252,14 @@ describe("attention", () => {
     ).toEqual(["repository_damaged", "silent", "backup_overdue", "never_seen"]);
   });
 
-  it("puts a machine without backup after a silent one and before lateness, in amber", () => {
+  it("puts a machine without backup after a silent one and before lateness, in the attention tone", () => {
     expect(sortAttention(["never_seen", "no_job", "silent", "backup_overdue"])).toEqual([
       "silent",
       "no_job",
       "backup_overdue",
       "never_seen",
     ]);
-    expect(attentionTone("no_job")).toBe("warning");
+    expect(attentionTone("no_job")).toBe("attention");
     expect(isKnownAttention("no_job")).toBe(true);
   });
 
@@ -286,10 +286,12 @@ describe("attention", () => {
     expect(isKnownAttention("something_new")).toBe(false);
   });
 
-  it("colours damage and failures red and lateness amber", () => {
+  it("colours damage and failures red, and lateness and silence for a look (attention)", () => {
     expect(attentionTone("repository_damaged")).toBe("destructive");
     expect(attentionTone("restore_test_failed")).toBe("destructive");
-    expect(attentionTone("backup_overdue")).toBe("warning");
+    expect(attentionTone("last_backup_failed")).toBe("destructive");
+    expect(attentionTone("backup_overdue")).toBe("attention");
+    expect(attentionTone("silent")).toBe("attention");
   });
 
   it("names the limit that applies in the message", () => {
@@ -325,6 +327,11 @@ describe("runs", () => {
     // Whatever the kind, a failure is a failure.
     expect(runStatusView("failed", "restore")).toMatchObject({ tone: "destructive" });
     expect(runStatusView("partial", "backup")).toMatchObject({ tone: "warning" });
+    // A status a newer server sends: no claim of failure.
+    expect(runStatusView("bogus" as never)).toMatchObject({
+      tone: "muted",
+      key: "runStatus.unknown",
+    });
   });
 
   it("shows a restore test that could not complete neutrally, never green or red", () => {

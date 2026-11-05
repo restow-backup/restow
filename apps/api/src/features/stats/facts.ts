@@ -55,7 +55,7 @@ export interface ReadinessObject {
   /**
    * An active object that no enabled mail job covers (@restow/core `mailObjectsInNoJob`): rated
    * like an orphaned one, by whether its newest backup restores and not by its age, and never
-   * overdue; it keeps the moment from green. Like the status, only the current state is stored,
+   * overdue; it is counted apart and does not change the moment's overall rating. Like the status, only the current state is stored,
    * so it applies to earlier moments as well. Absent reads as in a job.
    */
   readonly withoutJob?: boolean;

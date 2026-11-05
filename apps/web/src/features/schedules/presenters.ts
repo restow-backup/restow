@@ -9,7 +9,7 @@ import {
   UsersRound,
 } from "lucide-react";
 
-import type { StatusTone } from "@/components/kit";
+import { JOB_STATUS_META, type StatusTone, toneOf } from "@/components/kit";
 import { ApiError } from "@/lib/api";
 
 import {
@@ -46,13 +46,16 @@ export const KIND_ICON: Readonly<Record<ScheduleKind, LucideIcon>> = {
   archive: Archive,
 };
 
-/** A run that completed is neutral: green is for a passed restore check, not for a job that ended. */
+/**
+ * A run that completed is neutral: green is for a passed restore check, not for a job that
+ * ended. The tones follow the status meta, so a cancelled job is muted here as everywhere.
+ */
 export const JOB_STATUS_TONE: Readonly<Record<JobStatus, StatusTone>> = {
-  queued: "muted",
-  active: "info",
-  completed: "neutral",
-  failed: "destructive",
-  cancelled: "warning",
+  queued: toneOf(JOB_STATUS_META.queued),
+  active: toneOf(JOB_STATUS_META.active),
+  completed: toneOf(JOB_STATUS_META.completed),
+  failed: toneOf(JOB_STATUS_META.failed),
+  cancelled: toneOf(JOB_STATUS_META.cancelled),
 };
 
 /** Shortest and longest interval the API accepts (mirrors @restow/core). */

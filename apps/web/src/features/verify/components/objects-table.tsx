@@ -2,7 +2,14 @@ import { Link } from "@tanstack/react-router";
 import { CircleDashed, FileSearch, ShieldCheck, Undo2 } from "lucide-react";
 import * as React from "react";
 
-import { ConfirmDialog, DataTableLoadMore, RelativeTime, StatusBadge } from "@/components/kit";
+import {
+  ConfirmDialog,
+  DataTableLoadMore,
+  READINESS_FLAG_META,
+  RelativeTime,
+  StatusBadge,
+  toneOf,
+} from "@/components/kit";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -93,10 +100,13 @@ function ObjectCell({
         {inJob ? null : (
           // Nothing backs it up (no enabled backup job covers it): rated by whether its newest
           // backup restores, not by its age, like a guest or share in no job.
+          // The readiness flag's look (attention), as on the guest and share readiness rows.
           <StatusBadge
-            tone="warning"
+            tone={toneOf(READINESS_FLAG_META.noJob)}
+            icon={READINESS_FLAG_META.noJob.icon}
             className="mt-1 whitespace-nowrap"
             title={t("table.noJobHint")}
+            data-flag="no_job"
           >
             {t("table.noJob")}
           </StatusBadge>
@@ -630,7 +640,13 @@ function ObjectRow({
               a second badge would only repeat that for it. The cell
               itself is whitespace-nowrap, so this one needs no class. */}
           {item.overdue && item.state !== "no_backup" ? (
-            <StatusBadge tone="warning">{t("table.overdue")}</StatusBadge>
+            <StatusBadge
+              tone={toneOf(READINESS_FLAG_META.overdue)}
+              icon={READINESS_FLAG_META.overdue.icon}
+              data-flag="overdue"
+            >
+              {t("table.overdue")}
+            </StatusBadge>
           ) : null}
         </div>
       </TableCell>

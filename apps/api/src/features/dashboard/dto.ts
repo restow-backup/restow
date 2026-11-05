@@ -102,7 +102,10 @@ export type ProtectedObjectsWidget = TenantSummaryDto["objects"] & {
 };
 
 export interface ReadinessWidget {
-  /** Worst rating over all objects; null without protected objects. */
+  /**
+   * Worst populated readiness category (@restow/core `aggregateReadiness`); null without
+   * protected objects.
+   */
   overall: Readiness | null;
   total: number;
   green: number;
@@ -114,15 +117,15 @@ export interface ReadinessWidget {
   /** Objects an admin confirmed as empty: neutral, counted in `total` but never as needing attention. */
   empty: number;
   overdue: number;
-  /** Machines and mail objects in no backup job; any of them keeps `overall` from green. */
+  /** Machines and mail objects in no backup job; listed as a callout, they do not change `overall`. */
   withoutJob: number;
   /** The mailboxes, OneDrives, sites, groups and IMAP accounts among `withoutJob`. */
   objectsWithoutJob: number;
-  /** VMs and containers in no backup job that keep a restore point; they keep `overall` from green too. */
+  /** VMs and containers in no backup job that keep a restore point; a callout, like `withoutJob`. */
   guestsWithoutJob: number;
-  /** File shares in no backup job that keep a restore point; they keep `overall` from green too. */
+  /** File shares in no backup job that keep a restore point; a callout, like `withoutJob`. */
   sharesWithoutJob: number;
-  /** Objects no longer backed up that wait for an admin's confirmation; they keep `overall` from green too. */
+  /** Objects no longer backed up that wait for an admin's confirmation; a callout, like `withoutJob`. */
   toConfirm: number;
   running: number;
   lastCheckedAt: string | null;
@@ -402,7 +405,10 @@ export interface EndpointsWidget {
     unverified: number;
     noBackup: number;
   };
-  /** Machines not proven restorable: red, unverified and without a backup. */
+  /**
+   * Machines not proven restorable: red, unverified and without a backup (a count, not the
+   * aggregate rule).
+   */
   notReady: number;
   /** Machines whose newest backup run failed (a restart of the agent is no failure). */
   failedLastBackup: number;
@@ -451,7 +457,10 @@ interface ProviderTenantRowBase {
 /** A tenant whose figures were read. */
 export interface LoadedTenantRowDto extends ProviderTenantRowBase {
   loaded: true;
-  /** Worst rating over the tenant's objects; null without protected objects. */
+  /**
+   * Worst populated readiness category over the tenant's objects (@restow/core
+   * `aggregateReadiness`); null without protected objects.
+   */
   readiness: Readiness | null;
   protectedObjects: number;
   /**
@@ -465,6 +474,11 @@ export interface LoadedTenantRowDto extends ProviderTenantRowBase {
   notRestorable: number;
   unverified: number;
   noBackup: number;
+  /**
+   * Objects an admin confirmed as empty: neutral, neither ready nor a problem, and counted apart
+   * from `ready` (UI rework decision 3).
+   */
+  empty: number;
   /**
    * Jobs of any kind, and backups and restores of servers and clients, of VMs and containers and
    * of file shares, that failed in the last 24 hours.
@@ -505,7 +519,8 @@ export interface LoadedTenantRowDto extends ProviderTenantRowBase {
   immutabilityWarnings: number;
   /**
    * Objects no longer backed up (removed, disabled, unlicensed, locked) that the tenant did not
-   * confirm as intended yet: apart from the rated states, they keep `readiness` from green.
+   * confirm as intended yet: counted apart from the rated states and listed as a callout; they do
+   * not change `readiness`.
    */
   toConfirm: number;
   /**
@@ -531,6 +546,7 @@ export interface UnavailableTenantRowDto extends ProviderTenantRowBase {
   notRestorable: null;
   unverified: null;
   noBackup: null;
+  empty: null;
   failures24h: null;
   failuresPrevious24h: null;
   lastBackupAt: null;
@@ -602,7 +618,10 @@ export interface ProviderKpisDto {
   suspendedTenants: number;
   /** Tenants whose figures could not be read and are left out of the sums below. */
   unavailableTenants: number;
-  /** Customers whose overall readiness is red (something cannot be restored or is unproven). */
+  /**
+   * Customers whose overall readiness is not Ready (red: something cannot be restored or has no
+   * backup yet; yellow: not proven).
+   */
   tenantsNotReady: number;
   /**
    * The objects of every tenant that could be read, the operator's own organisation included
@@ -615,6 +634,8 @@ export interface ProviderKpisDto {
     red: number;
     unverified: number;
     noBackup: number;
+    /** Confirmed as empty: neutral, part of `total`, not of `green`. */
+    empty: number;
   };
   protectedObjects: number;
   unverifiedObjects: number;

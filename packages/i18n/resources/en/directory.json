@@ -73,11 +73,11 @@
   },
   "readiness": {
     "green": "Ready",
-    "yellow": "Attention",
+    "yellow": "Needs attention",
     "red": "Not restorable",
     "unverified": "Unverified",
     "none": "No backup",
-    "needs_credential": "Needs attention",
+    "needs_credential": "Password needed",
     "checked": "Checked {when}",
     "unverifiedHint": "Backups exist, but no restore check has confirmed them yet. An unverified backup does not count as protected.",
     "noneHint": "There is nothing to verify until the first backup completed.",

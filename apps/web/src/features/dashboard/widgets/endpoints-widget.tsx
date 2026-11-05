@@ -1,22 +1,15 @@
 import { Server } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { RelativeTime, StatusBadge } from "@/components/kit";
+import { overallMeta, RelativeTime, StatusBadge, toneOf } from "@/components/kit";
 import { Skeleton } from "@/components/ui/skeleton";
 import { inventoryTo } from "@/features/endpoints/paths";
-import { formatInteger } from "@/lib/format";
-import { cn } from "@/lib/utils";
 
 import type { EndpointsWidget as EndpointsData } from "../api.js";
 import { LinkButton } from "../components/link-button.js";
+import { ReadinessBar, ReadinessLegend } from "../components/readiness-legend.js";
 import { WidgetCard, type WidgetStateProps } from "../components/widget-frame.js";
-import {
-  endpointFindings,
-  endpointsOverall,
-  readinessSegments,
-  readinessTone,
-} from "../presenters.js";
-import { SEGMENT_FILL } from "./readiness-widget.js";
+import { endpointFindings, endpointsOverall } from "../presenters.js";
 
 function EndpointsSkeleton() {
   return (
@@ -30,17 +23,22 @@ function EndpointsSkeleton() {
 }
 
 function EndpointsBody({ data }: { data: EndpointsData }) {
-  const { t, i18n } = useTranslation("dashboard");
-  const language = i18n.resolvedLanguage ?? i18n.language;
-  const overall = endpointsOverall(data);
+  const { t } = useTranslation("dashboard");
+  const overall = overallMeta(endpointsOverall(data));
   const findings = endpointFindings(data);
-  const segments = readinessSegments(data.readiness);
+  const counts = { ...data.readiness, total: data.machines };
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <StatusBadge tone={readinessTone(overall)} icon className="text-sm">
-          {t(`readiness.overall.${overall ?? "none"}`)}
+        <StatusBadge
+          tone={toneOf(overall)}
+          icon={overall.icon}
+          className="text-sm"
+          data-slot="readiness-overall"
+          data-category={overall.id}
+        >
+          {t(overall.labelKey)}
         </StatusBadge>
         <span className="text-xs text-muted-foreground">
           {data.lastSuccessAt ? (
@@ -61,36 +59,14 @@ function EndpointsBody({ data }: { data: EndpointsData }) {
         })}
       </p>
 
-      <div
-        className="flex h-2 w-full gap-0.5 overflow-hidden rounded-full bg-muted"
-        aria-hidden="true"
-      >
-        {segments.map((segment) => (
-          <div
-            key={segment.key}
-            className={cn("h-full", SEGMENT_FILL[segment.tone])}
-            style={{ width: `${(segment.count / Math.max(1, data.machines)) * 100}%` }}
-          />
-        ))}
-      </div>
-      <dl className="grid grid-cols-1 gap-x-6 gap-y-1.5 text-sm sm:grid-cols-2">
-        {segments.map((segment) => (
-          <div
-            key={segment.key}
-            data-segment={segment.key}
-            className="flex items-center justify-between gap-2"
-          >
-            <dt className="flex items-center gap-2 text-muted-foreground">
-              <span
-                aria-hidden="true"
-                className={cn("size-2 rounded-full", SEGMENT_FILL[segment.tone])}
-              />
-              {t(`readiness.segments.${segment.key}`)}
-            </dt>
-            <dd className="font-medium tabular-nums">{formatInteger(segment.count, language)}</dd>
-          </div>
-        ))}
-      </dl>
+      {/* The same bar and legend as the readiness card: all five categories, the empty ones dimmed. */}
+      <ReadinessBar counts={counts} />
+      <ReadinessLegend
+        counts={counts}
+        scope="tenant"
+        linkable={false}
+        label={t("endpoints.legend")}
+      />
 
       {findings.length === 0 ? (
         <p className="text-sm text-muted-foreground" data-flag="all-good">

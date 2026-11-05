@@ -1,4 +1,13 @@
-import type { StatusTone } from "@/components/kit";
+import {
+  READINESS_CATEGORY_META,
+  readinessBadgeMeta,
+  readinessStateRank,
+  STORAGE_INTEGRITY_META,
+  type StatusMeta,
+  type StatusTone,
+  toneOf,
+  VERIFICATION_META,
+} from "@/components/kit";
 import type { Failure } from "@/features/failures/api";
 import type {
   EndpointReadinessRow,
@@ -32,27 +41,30 @@ export interface Message {
   values?: Record<string, unknown>;
 }
 
-/** A backup without a verified restore counts as failed, so it looks like one. */
+/**
+ * The tone of each object state, from the status meta: Unverified is a warning (amber, not
+ * proven), Needs attention an attention (orange), Not restorable and No backup yet danger.
+ */
 export const STATE_BADGE: Record<ObjectState, StatusTone> = {
-  green: "success",
-  yellow: "warning",
-  red: "destructive",
-  unverified: "destructive",
-  no_backup: "destructive",
+  green: toneOf(READINESS_CATEGORY_META.green),
+  yellow: toneOf(READINESS_CATEGORY_META.yellow),
+  red: toneOf(READINESS_CATEGORY_META.red),
+  unverified: toneOf(READINESS_CATEGORY_META.unverified),
+  no_backup: toneOf(READINESS_CATEGORY_META.no_backup),
   // Confirmed as empty: nothing to restore, nothing needs attention.
-  empty: "muted",
+  empty: toneOf(READINESS_CATEGORY_META.empty),
 };
 
 /**
- * The tone of one backup's verification in the snapshot lists. Only a check
- * that passed is a success; a backup no check has read back yet is a warning
- * (it is not known to be broken, but it is not proven either).
+ * The tone of one backup's verification in the snapshot lists (status meta). Only a check
+ * that passed is a success; a check with findings needs attention; a backup no check has read
+ * back yet is a warning (it is not known to be broken, but it is not proven either).
  */
 export const SNAPSHOT_VERIFICATION_TONE: Record<VerificationState, StatusTone> = {
-  green: "success",
-  yellow: "warning",
-  red: "destructive",
-  unverified: "warning",
+  green: toneOf(VERIFICATION_META.green),
+  yellow: toneOf(VERIFICATION_META.yellow),
+  red: toneOf(VERIFICATION_META.red),
+  unverified: toneOf(VERIFICATION_META.unverified),
 };
 
 export interface SnapshotVerificationView {
@@ -84,20 +96,11 @@ export function snapshotVerificationView(
 }
 
 export const STORAGE_BADGE: Record<StorageState, StatusTone> = {
-  ok: "success",
-  repaired: "warning",
-  unreadable: "warning",
-  corrupt: "destructive",
-  never: "muted",
-};
-
-const URGENCY: Record<ObjectState, number> = {
-  red: 0,
-  unverified: 1,
-  no_backup: 2,
-  yellow: 3,
-  green: 4,
-  empty: 5,
+  ok: toneOf(STORAGE_INTEGRITY_META.ok),
+  repaired: toneOf(STORAGE_INTEGRITY_META.repaired),
+  unreadable: toneOf(STORAGE_INTEGRITY_META.unreadable),
+  corrupt: toneOf(STORAGE_INTEGRITY_META.corrupt),
+  never: toneOf(STORAGE_INTEGRITY_META.never),
 };
 
 /**
@@ -156,24 +159,28 @@ export function isWaitingForFirstBackup(item: Pick<ObjectReadiness, "state" | "o
   return item.state === "no_backup" && !item.overdue;
 }
 
-/** Tone and label key of the readiness badge; the one place that combines state and overdue. */
+/**
+ * Meta, tone and label key of the readiness badge; the one place that combines state and
+ * overdue (a `no_backup` object inside its grace period reads "Waiting for first backup").
+ * The key is fully qualified (`ui:status.readiness.*`), so any namespace can translate it.
+ */
 export function stateBadgeView(item: Pick<ObjectReadiness, "state" | "overdue">): {
   tone: StatusTone;
   key: string;
+  meta: StatusMeta;
 } {
-  if (item.state === "no_backup") {
-    return isWaitingForFirstBackup(item)
-      ? { tone: "warning", key: "state.waitingForFirstBackup" }
-      : { tone: "destructive", key: "state.no_backup" };
-  }
-  return { tone: STATE_BADGE[item.state], key: `state.${item.state}` };
+  const meta = readinessBadgeMeta(item);
+  return { tone: toneOf(meta), key: meta.labelKey, meta };
 }
 
-/** Worst first; overdue before current within a state; then by name. */
+/**
+ * Worst first (Not restorable, No backup yet, Needs attention, Unverified, Ready, Confirmed
+ * empty); overdue before current within a state; then by name.
+ */
 export function sortByUrgency(items: readonly ObjectReadiness[]): ObjectReadiness[] {
   return [...items].sort(
     (a, b) =>
-      URGENCY[a.state] - URGENCY[b.state] ||
+      readinessStateRank(a.state) - readinessStateRank(b.state) ||
       Number(b.overdue) - Number(a.overdue) ||
       objectName(a.object).localeCompare(objectName(b.object)),
   );
@@ -248,7 +255,7 @@ export function sortRowsByUrgency(rows: readonly ReadinessRow[]): ReadinessRow[]
     const left = rowRating(a);
     const right = rowRating(b);
     return (
-      URGENCY[left.state] - URGENCY[right.state] ||
+      readinessStateRank(left.state) - readinessStateRank(right.state) ||
       Number(right.overdue) - Number(left.overdue) ||
       rowName(a).localeCompare(rowName(b))
     );

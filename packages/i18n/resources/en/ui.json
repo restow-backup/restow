@@ -147,5 +147,24 @@
   "detail": {
     "close": "Close",
     "loading": "Loading…"
+  },
+  "status": {
+    "readiness": {
+      "ready": "Ready",
+      "needsAttention": "Needs attention",
+      "unverified": "Unverified",
+      "notRestorable": "Not restorable",
+      "noBackup": "No backup yet",
+      "empty": "Confirmed empty",
+      "waitingForFirstBackup": "Waiting for first backup",
+      "overdue": "Check overdue",
+      "noJob": "In no backup job"
+    },
+    "overall": {
+      "ready": "Ready",
+      "notProven": "Not proven",
+      "notRestorable": "Not restorable",
+      "none": "Nothing to rate"
+    }
   }
 }

@@ -157,7 +157,7 @@
         "title": "Keine geschützten Objekte",
         "description": "In diesem Zeitraum gab es keine geschützten Objekte."
       },
-      "summary": "Am Ende des Zeitraums waren {green} Objekte bereit, {yellow} brauchten Aufmerksamkeit, {red} waren nicht wiederherstellbar und {unverified} nicht geprüft."
+      "summary": "Am Ende des Zeitraums waren {green} Objekte bereit, {yellow} brauchten Aufmerksamkeit, {unverified} waren nicht geprüft, {red} waren nicht wiederherstellbar und {noBackup} hatten noch keine Sicherung."
     },
     "volume": {
       "title": "Logisches und physisches Volumen",
@@ -285,9 +285,10 @@
   },
   "readiness": {
     "green": "Bereit",
-    "yellow": "Achtung",
+    "yellow": "Braucht Aufmerksamkeit",
     "red": "Nicht wiederherstellbar",
     "unverified": "Nicht nachgewiesen",
+    "noBackup": "Noch keine Sicherung",
     "unknown": "Unbekannt"
   },
   "jobKinds": {
@@ -315,7 +316,7 @@
     "orphaned": "Verwaist",
     "failed": "Fehlgeschlagen",
     "green": "Bereit",
-    "yellow": "Achtung",
+    "yellow": "Braucht Aufmerksamkeit",
     "red": "Nicht wiederherstellbar",
     "unverified": "Nicht nachgewiesen",
     "none": "Unbekannt",

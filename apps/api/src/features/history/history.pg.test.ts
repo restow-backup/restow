@@ -685,6 +685,24 @@ describe.skipIf(!testDatabaseAdminUrl)("history against Postgres", () => {
     expect(run).toMatchObject({ kind: "restore_check", restoreCheck: { state: "passed" } });
   });
 
+  it("leaves the check unset for a restore check whose result names no rating", async () => {
+    const id = await mailRun("bogusVerify", {
+      queue: "verify",
+      objectId: objects.anna,
+      createdAt: minutes(300),
+      completedAt: minutes(299),
+      payload: { result: { readiness: "bogus", completedAt: minutes(299).toISOString() } },
+    });
+    try {
+      const run = await detail(id);
+      // Only a rating maps to a check state; anything else is no check, never "unverified".
+      expect(run).toMatchObject({ kind: "restore_check", restoreCheck: { state: "none" } });
+    } finally {
+      await owner.delete(jobs).where(eq(jobs.id, id));
+      delete runs.bogusVerify;
+    }
+  });
+
   it("opens an agent backup with its errors, log, wave and the machine's own restore test", async () => {
     const run = await detail(runs.machineBackup as string);
     expect(run).toMatchObject({

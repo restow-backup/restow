@@ -339,6 +339,10 @@ describe("jobStatusDisplay", () => {
   it("draws a completed backup snapshot and its progress bar without green", () => {
     expect(SNAPSHOT_STATE_VARIANT.completed).toBe("outline");
     expect(STATUS_VARIANT.completed).toBe("outline");
+    // The run tones of the status meta: running is info (Lapis), never the primary colour.
+    expect(SNAPSHOT_STATE_VARIANT.running).toBe("info");
+    expect(SNAPSHOT_STATE_VARIANT.incomplete).toBe("warning");
+    expect(SNAPSHOT_STATE_VARIANT.pruned).toBe("muted");
   });
 
   it("never shows a completed run with failed items as a plain success", () => {
@@ -356,6 +360,8 @@ describe("jobStatusDisplay", () => {
       variant: "destructive",
     });
     expect(jobStatusDisplay("active", 2).key).toBe("jobStatus.active");
-    expect(jobStatusDisplay("cancelled", 1).variant).toBe("secondary");
+    // Cancelled is muted and active info, as on every page (status meta).
+    expect(jobStatusDisplay("cancelled", 1).variant).toBe("muted");
+    expect(jobStatusDisplay("active").variant).toBe("info");
   });
 });

@@ -63,7 +63,7 @@
       },
       "readiness": {
         "title": "Recovery readiness",
-        "description": "Protected objects by the restore check of their newest backup at the end of each interval. A backup newer than its last check, or never checked, counts as not proven."
+        "description": "Protected objects by the restore check of their newest backup at the end of each interval. A backup newer than its last check, or never checked, counts as unverified; an object never backed up counts as no backup yet."
       },
       "throttling": {
         "title": "Microsoft 365 throttling",
@@ -99,9 +99,10 @@
       "waitSeconds": "Waiting time",
       "completed": "Completed",
       "green": "Ready",
-      "yellow": "Attention",
+      "yellow": "Needs attention",
       "red": "Not restorable",
-      "unverified": "Not proven"
+      "unverified": "Unverified",
+      "noBackup": "No backup yet"
     },
     "column": {
       "kind": "Run",
@@ -142,7 +143,7 @@
     },
     "state": {
       "green": "Ready",
-      "yellow": "Attention",
+      "yellow": "Needs attention",
       "red": "Not restorable",
       "unverified": "Unverified",
       "no_backup": "No backup yet",
@@ -150,8 +151,8 @@
     },
     "readiness": {
       "green": "Ready",
-      "yellow": "Attention",
-      "red": "Not proven",
+      "yellow": "Not proven",
+      "red": "Not restorable",
       "none": "Nothing protected"
     },
     "method": {
@@ -159,7 +160,7 @@
       "successRate": "Backup success rate: succeeded runs divided by succeeded and failed runs that finished in the period. Cancelled runs were stopped on purpose and are not counted.",
       "volume": "Protected data is the newest backup of every protected object. Stored bytes are the encrypted, deduplicated pack files; packs removed by garbage collection no longer appear in earlier intervals.",
       "dedup": "Deduplication ratio: all retained backups added up, divided by the bytes stored.",
-      "readiness": "Proven restorable: objects whose newest backup was rated “Ready” or “Attention” by a restore check of that very backup. A backup taken after the last check stays unproven until it is checked itself; objects never checked or never backed up are not proven, and damage the storage check finds after a check counts as not restorable.",
+      "readiness": "Proven restorable: objects whose newest backup was rated “Ready” or “Needs attention” by a restore check of that very backup. A backup taken after the last check stays unproven until it is checked itself; objects never checked count as unverified, objects never backed up as no backup yet (a category of its own), and damage the storage check finds after a check counts as not restorable.",
       "status": "Excluded objects are not protected and objects removed from their source count while they still have a backup. Only an object's current status is stored, so an object excluded today is left out of earlier intervals too.",
       "throttling": "Throttling waits are what Microsoft Graph imposed on finished runs; {appName} waits as long as Microsoft asks instead of retrying sooner."
     }

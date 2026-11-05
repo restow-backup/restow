@@ -30,7 +30,7 @@ function stats(overrides: Partial<StatsDto> = {}): StatsDto {
       jobDurations: [{ kind: "backup", p50Seconds: 30, p95Seconds: 90.5, count: 4 }],
       throttling: { unavailable: "no_microsoft_365_source" },
       restores: [{ t: "2026-09-01", completed: 1, failed: 0 }],
-      readiness: [{ t: "2026-09-01", green: 1, yellow: 1, red: 0, unverified: 1 }],
+      readiness: [{ t: "2026-09-01", green: 1, yellow: 1, red: 0, unverified: 1, noBackup: 2 }],
     },
     tables: {
       failuresByCause: [
@@ -108,6 +108,13 @@ describe("datasetTable", () => {
         ["2026-09-01", 2, 1, 0],
         ["2026-09-02", 1, 0, 1],
       ],
+    });
+  });
+
+  it("exports the readiness with No backup yet in its own column, apart from unverified", () => {
+    expect(datasetTable(stats(), "readiness")).toEqual({
+      header: ["t", "green", "yellow", "red", "unverified", "noBackup"],
+      rows: [["2026-09-01", 1, 1, 0, 1, 2]],
     });
   });
 

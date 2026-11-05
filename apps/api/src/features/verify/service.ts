@@ -104,8 +104,8 @@ export interface ObjectDto {
   statusReason: ProtectedObject["statusReason"];
   /**
    * When an orphaned object stopped being backed up, and who confirmed that this is intended
-   * (@restow/core `inactiveState`; ISO strings on the wire). Unconfirmed: amber, the tenant
-   * reads at least yellow. Null for every other object.
+   * (@restow/core `inactiveState`; ISO strings on the wire). Unconfirmed: amber, counted in the
+   * summary's `toConfirm` and listed as a callout. Null for every other object.
    */
   inactiveSince: Date | null;
   statusConfirmedAt: Date | null;
@@ -169,7 +169,7 @@ export interface ObjectReadinessDto {
   /**
    * False for an active object that no enabled mail job covers (@restow/core
    * `mailObjectsInNoJob`; the guests' and shares' `inJob`): nothing backs it up any more. It is
-   * rated without the age of its last backup, is never overdue, and keeps the tenant from green.
+   * rated without the age of its last backup, is never overdue, and is counted in `withoutJob`.
    * Always set by the service; true for every other object.
    */
   inJob?: boolean;
@@ -623,7 +623,7 @@ export async function readinessOverview(
     const items: ObjectReadinessDto[] = [];
     const lastLookedAt: (Date | null)[] = [];
     // Unconfirmed objects no longer backed up that have no backup: nothing to rate, but they wait
-    // for a decision all the same (summary.ts `toConfirm`).
+    // for a decision all the same and are listed as a callout (summary.ts `toConfirm`).
     let unratedToConfirm = 0;
     for (const { protectedSince, ...object } of objects) {
       const facts = verifications.get(object.id);
@@ -646,7 +646,7 @@ export async function readinessOverview(
       // An active object in no enabled job is no different in what matters here: its last backup
       // is all there will be (until a job takes it up again), so it is rated by whether that
       // restores, not by its age. It is not "retained" (an orphan's never-overdue and the
-      // one-time last check), but it keeps the tenant from green (summary `withoutJob`), and is
+      // one-time last check), but it is listed as a callout (summary `withoutJob`), and is
       // never overdue either once it has a backup: no backup is due, none is missing.
       const withoutJob = object.status === "active" && noJob.has(object.id);
       const withoutAge = ratedWithoutAge(object.status, withoutJob);

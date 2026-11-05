@@ -5,7 +5,7 @@
   "subtitle": "Zufällig ausgewählte Mails, Dateien, Termine und Kontakte werden aus der jeweils letzten Sicherung über den Weg der Wiederherstellung zurückgelesen und Byte für Byte mit ihren Prüfsummen verglichen. Nur eine nachgewiesene Wiederherstellung zählt: Eine Sicherung, die noch keine Prüfung zurückgelesen hat, gilt als nicht nachgewiesen, auch wenn sie nach einer erfolgreichen Prüfung entstand.",
   "state": {
     "green": "Bereit",
-    "yellow": "Achtung",
+    "yellow": "Braucht Aufmerksamkeit",
     "red": "Nicht wiederherstellbar",
     "unverified": "Nicht nachgewiesen",
     "no_backup": "Noch keine Sicherung",
@@ -57,12 +57,12 @@
       "description": "{total, plural, one {Das geschützte Objekt hat} other {Alle # geschützten Objekte haben}} die letzte Restore-Prüfung bestanden."
     },
     "yellow": {
-      "title": "Wiederherstellbar, aber etwas braucht Aufmerksamkeit",
-      "description": "{count, plural, one {# Objekt braucht} other {# Objekte brauchen}} Aufmerksamkeit: eine Warnung in der letzten Prüfung oder eine überfällige Prüfung."
+      "title": "Soweit geprüft wiederherstellbar, aber nicht für jedes Objekt nachgewiesen",
+      "description": "{count, plural, one {# Objekt ist} other {# Objekte sind}} noch nicht als wiederherstellbar nachgewiesen: eine Sicherung, die noch keine Restore-Prüfung zurückgelesen hat, oder eine Prüfung mit einem Befund."
     },
     "red": {
-      "title": "Nicht jede Sicherung ist nachweislich wiederherstellbar",
-      "description": "{count, plural, one {# Objekt lässt sich nicht vollständig wiederherstellen, oder seine letzte Sicherung ist} other {# Objekte lassen sich nicht vollständig wiederherstellen, oder ihre letzten Sicherungen sind}} noch nicht als wiederherstellbar nachgewiesen. Eine Sicherung ohne bestandene Restore-Prüfung gilt als fehlgeschlagen."
+      "title": "Nicht jedes Objekt ist wiederherstellbar",
+      "description": "{count, plural, one {# Objekt lässt sich nicht vollständig wiederherstellen oder hat} other {# Objekte lassen sich nicht vollständig wiederherstellen oder haben}} noch keine Sicherung."
     },
     "empty": {
       "title": "Noch nichts geschützt",
@@ -75,14 +75,13 @@
     "running": "{count, plural, one {# Prüfung ist bereits eingeplant oder aktiv.} other {# Prüfungen sind bereits eingeplant oder aktiv.}}"
   },
   "summary": {
-    "ready": "Bereit",
-    "readyHint": "Letzte Restore-Prüfung bestanden",
-    "attention": "Achtung",
-    "attentionHint": "{overdue, plural, =0 {Warnungen in der letzten Prüfung} one {Warnungen und # überfällige Prüfung} other {Warnungen und # überfällige Prüfungen}}",
-    "failed": "Nicht wiederherstellbar",
-    "failedHint": "Letzte Restore-Prüfung fehlgeschlagen",
-    "unproven": "Nicht nachgewiesen",
-    "unprovenHint": "Letzte Sicherung nicht geprüft: {unverified} · Noch keine Sicherung: {noBackup}",
+    "hint": {
+      "green": "Letzte Restore-Prüfung bestanden",
+      "yellow": "{overdue, plural, =0 {Die letzte Prüfung hat einen Befund} one {Befunde in der letzten Prüfung; # Prüfung überfällig} other {Befunde in der letzten Prüfung; # Prüfungen überfällig}}",
+      "unverified": "Letzte Sicherung noch von keiner Restore-Prüfung zurückgelesen",
+      "red": "Letzte Restore-Prüfung fehlgeschlagen",
+      "no_backup": "Noch keine Sicherung abgeschlossen"
+    },
     "toConfirm": "{count, plural, one {# Objekt nicht mehr gesichert, bitte bestätigen} other {# Objekte nicht mehr gesichert, bitte bestätigen}}"
   },
   "table": {
@@ -423,7 +422,7 @@
   },
   "confirmEmpty": {
     "title": "{count, plural, one {Objekt} other {# Objekte}} als leer bestätigen?",
-    "description": "Die neueste Restore-Prüfung hat {count, plural, one {in diesem Objekt} other {in diesen Objekten}} nur Standardordner bzw. Systemseiten mit 0 Bytes gefunden. Als leer bestätigt, {count, plural, one {zählt es nicht mehr als „Achtung“ und erscheint} other {zählen sie nicht mehr als „Achtung“ und erscheinen}} grau. Sobald eine spätere Prüfung Inhalt findet, endet die Bestätigung von selbst.",
+    "description": "Die neueste Restore-Prüfung hat {count, plural, one {in diesem Objekt} other {in diesen Objekten}} nur Standardordner bzw. Systemseiten mit 0 Bytes gefunden. Als leer bestätigt, {count, plural, one {zählt es nicht mehr als „Braucht Aufmerksamkeit“ und erscheint} other {zählen sie nicht mehr als „Braucht Aufmerksamkeit“ und erscheinen}} grau. Sobald eine spätere Prüfung Inhalt findet, endet die Bestätigung von selbst.",
     "confirm": "Als leer bestätigen"
   },
   "allScope": "Bei welchen Mandanten lässt sich heute etwas nicht wiederherstellen?",

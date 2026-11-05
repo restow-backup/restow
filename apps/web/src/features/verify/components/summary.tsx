@@ -1,91 +1,121 @@
-import { ShieldAlert, ShieldCheck, ShieldQuestion, ShieldX } from "lucide-react";
-import type * as React from "react";
 import { useTranslation } from "react-i18next";
 
+import {
+  EMPTY_ICON_CLASS,
+  overallMeta,
+  READINESS_CATEGORY_META,
+  READINESS_TILE_ORDER,
+  STATUS_TEXT,
+  type StatusMeta,
+  toneOf,
+} from "@/components/kit";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent } from "@/components/ui/card";
 import type { ReadinessSummary } from "@/features/verify/api";
 import type { VerifyFormat } from "@/features/verify/use-verify";
 import { cn } from "@/lib/utils";
 
-/** The tenant verdict in one sentence: what can be restored today. */
+/** The alert variant of each aggregate (an alert has no attention variant; the aggregate needs none). */
+const BANNER_VARIANT = {
+  green: "success",
+  yellow: "warning",
+  red: "destructive",
+} as const;
+
+/**
+ * The tenant verdict in one sentence: what can be restored today. The aggregate is the worst
+ * category that has objects (UI rework, decision 1): Not restorable counts the objects that
+ * cannot be restored or have no backup yet, Not proven the ones that need attention or are
+ * unverified. Objects to confirm are a sentence of their own, whatever the verdict.
+ */
 export function OverallBanner({ summary }: { summary: ReadinessSummary }) {
   const { t } = useTranslation("verify");
+  const meta = overallMeta(summary.overall);
+  const Icon = meta.icon;
+  const toConfirm = summary.toConfirm ?? 0;
+  const toConfirmSentence =
+    toConfirm > 0 ? (
+      <p data-flag="to-confirm">{t("summary.toConfirm", { count: toConfirm })}</p>
+    ) : null;
   if (summary.overall === null) {
+    // Nothing is rated, but objects may still wait for a confirmation (orphaned, never backed
+    // up): they no longer decide the aggregate (decision 2) and must not vanish with it.
     return (
-      <Alert variant="info">
-        <ShieldQuestion />
+      <Alert variant="info" data-overall="none">
+        <Icon />
         <AlertTitle>{t("overall.empty.title")}</AlertTitle>
-        <AlertDescription>{t("overall.empty.description")}</AlertDescription>
+        <AlertDescription>
+          {t("overall.empty.description")}
+          {toConfirmSentence}
+        </AlertDescription>
       </Alert>
     );
   }
-  const unproven = summary.red + summary.unverified + summary.noBackup;
-  const toConfirm = summary.toConfirm ?? 0;
-  // Unconfirmed objects have their own sentence: the generic yellow one names a warning or an
-  // overdue check, and an object both rated yellow and unconfirmed must not count twice.
-  const attention = summary.yellow + summary.overdue;
-  const generic = summary.overall !== "yellow" || attention > 0 || toConfirm === 0;
-  const variant =
-    summary.overall === "green"
-      ? "success"
+  const count =
+    summary.overall === "red"
+      ? summary.red + summary.noBackup
       : summary.overall === "yellow"
-        ? "warning"
-        : "destructive";
-  const Icon =
-    summary.overall === "green"
-      ? ShieldCheck
-      : summary.overall === "yellow"
-        ? ShieldAlert
-        : ShieldX;
+        ? summary.yellow + summary.unverified
+        : 0;
   return (
-    <Alert variant={variant}>
+    <Alert variant={BANNER_VARIANT[summary.overall]} data-overall={summary.overall}>
       <Icon />
       <AlertTitle>{t(`overall.${summary.overall}.title`)}</AlertTitle>
       <AlertDescription>
-        {generic
-          ? t(`overall.${summary.overall}.description`, {
-              count: summary.overall === "red" ? unproven : attention,
-              total: summary.total,
-            })
-          : null}
-        {toConfirm > 0 ? <p>{t("summary.toConfirm", { count: toConfirm })}</p> : null}
+        {t(`overall.${summary.overall}.description`, { count, total: summary.total })}
+        {toConfirmSentence}
       </AlertDescription>
     </Alert>
   );
 }
 
-interface TileProps {
+function Tile({
+  meta,
+  label,
+  hint,
+  value,
+  empty,
+}: {
+  meta: StatusMeta;
   label: string;
   hint: string;
   value: string;
-  tone: "success" | "warning" | "destructive" | "muted";
-  icon: React.ReactNode;
-}
-
-const TONE: Record<TileProps["tone"], string> = {
-  success: "text-success",
-  warning: "text-warning-foreground dark:text-warning",
-  destructive: "text-destructive",
-  muted: "text-muted-foreground",
-};
-
-function Tile({ label, hint, value, tone, icon }: TileProps) {
+  /** Nothing in this category: the tile is dimmed (UI rework, phase 1). */
+  empty: boolean;
+}) {
+  const Icon = meta.icon;
   return (
-    <Card className="py-0">
+    <Card
+      className="py-0"
+      data-category={meta.id}
+      data-severity={meta.severity}
+      data-empty={empty ? "true" : undefined}
+    >
       <CardContent className="flex items-start justify-between gap-3 p-4">
-        <div className="min-w-0 space-y-1">
+        <div className={cn("min-w-0 space-y-1", empty && "text-muted-foreground")}>
           <p className="text-sm font-medium">{label}</p>
           <p className="text-2xl font-semibold tabular-nums">{value}</p>
           <p className="text-xs text-muted-foreground">{hint}</p>
         </div>
-        <span className={cn("[&>svg]:size-5", TONE[tone])}>{icon}</span>
+        <Icon
+          aria-hidden="true"
+          data-category={meta.id}
+          className={cn("size-5 shrink-0", empty ? EMPTY_ICON_CLASS : STATUS_TEXT[toneOf(meta)])}
+        />
       </CardContent>
     </Card>
   );
 }
 
-/** Four counters: ready, attention, not restorable, not proven. */
+/** The count of each tile's state in a summary. */
+function countOf(summary: ReadinessSummary, state: (typeof READINESS_TILE_ORDER)[number]): number {
+  return state === "no_backup" ? summary.noBackup : summary[state];
+}
+
+/**
+ * Five counters, one per category, in the overview's order: Ready, Needs attention,
+ * Unverified, Not restorable, No backup yet. A category with nothing in it is dimmed.
+ */
 export function SummaryTiles({
   summary,
   format,
@@ -94,40 +124,22 @@ export function SummaryTiles({
   format: VerifyFormat;
 }) {
   const { t } = format;
-  const notProven = summary.unverified + summary.noBackup;
   return (
-    <div className="grid grid-cols-1 gap-4 *:min-w-0 sm:grid-cols-2 xl:grid-cols-4">
-      <Tile
-        label={t("summary.ready")}
-        hint={t("summary.readyHint")}
-        value={format.integer(summary.green)}
-        tone="success"
-        icon={<ShieldCheck aria-hidden="true" />}
-      />
-      <Tile
-        label={t("summary.attention")}
-        hint={t("summary.attentionHint", { overdue: summary.overdue })}
-        value={format.integer(summary.yellow)}
-        tone={summary.yellow + summary.overdue > 0 ? "warning" : "muted"}
-        icon={<ShieldAlert aria-hidden="true" />}
-      />
-      <Tile
-        label={t("summary.failed")}
-        hint={t("summary.failedHint")}
-        value={format.integer(summary.red)}
-        tone={summary.red > 0 ? "destructive" : "muted"}
-        icon={<ShieldX aria-hidden="true" />}
-      />
-      <Tile
-        label={t("summary.unproven")}
-        hint={t("summary.unprovenHint", {
-          unverified: summary.unverified,
-          noBackup: summary.noBackup,
-        })}
-        value={format.integer(notProven)}
-        tone={notProven > 0 ? "destructive" : "muted"}
-        icon={<ShieldQuestion aria-hidden="true" />}
-      />
+    <div className="grid grid-cols-1 gap-4 *:min-w-0 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+      {READINESS_TILE_ORDER.map((state) => {
+        const meta = READINESS_CATEGORY_META[state];
+        const count = countOf(summary, state);
+        return (
+          <Tile
+            key={state}
+            meta={meta}
+            label={t(meta.labelKey)}
+            hint={t(`summary.hint.${state}`, { overdue: summary.overdue })}
+            value={format.integer(count)}
+            empty={count === 0}
+          />
+        );
+      })}
     </div>
   );
 }

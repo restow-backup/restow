@@ -6,7 +6,9 @@ import type * as React from "react";
  * Status variants use a 10 % tint of the tone; icon and title take the tone's
  * text-safe `-text` token (4.5:1 or better, enforced by tokens.test.ts, which
  * reads the tint alphas from this file) and the description stays in the
- * foreground colour for long-form reading.
+ * foreground colour for long-form reading. `attention` ("Needs attention",
+ * orange) has no base tone to tint: it takes its opaque set per look
+ * (--attention-bg, -border, -fg), as the badge does.
  */
 const alertVariants = cva(
   "relative grid w-full grid-cols-[0_1fr] items-start gap-y-0.5 rounded-lg border px-4 py-3 text-sm has-[>svg]:grid-cols-[calc(var(--spacing)*4)_1fr] has-[>svg]:gap-x-3 [&>svg]:size-4 [&>svg]:translate-y-0.5 [&>svg]:text-current",
@@ -21,6 +23,8 @@ const alertVariants = cva(
           "border-warning/40 bg-warning/10 text-warning-text *:data-[slot=alert-description]:text-foreground",
         destructive:
           "border-destructive/30 bg-destructive/10 text-destructive-text *:data-[slot=alert-description]:text-foreground",
+        attention:
+          "border-attention-border bg-attention-bg text-attention-fg *:data-[slot=alert-description]:text-foreground",
       },
     },
     defaultVariants: {
@@ -32,11 +36,11 @@ const alertVariants = cva(
 type AlertVariant = NonNullable<VariantProps<typeof alertVariants>["variant"]>;
 
 /**
- * Only problems interrupt a screen reader: destructive and warning alerts are
- * live `role="alert"` regions, informational ones are plain content. Pass
- * `role` explicitly to override.
+ * Only problems interrupt a screen reader: destructive, attention and warning
+ * alerts are live `role="alert"` regions, informational ones are plain content.
+ * Pass `role` explicitly to override.
  */
-const INTERRUPTING: ReadonlySet<AlertVariant> = new Set(["destructive", "warning"]);
+const INTERRUPTING: ReadonlySet<AlertVariant> = new Set(["destructive", "attention", "warning"]);
 
 function Alert({
   className,

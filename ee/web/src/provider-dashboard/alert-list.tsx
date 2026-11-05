@@ -2,7 +2,13 @@ import { BellRing, CircleCheck } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
-import { EmptyState, RelativeTime, StatusBadge } from "@/components/kit";
+import {
+  EmptyState,
+  PROVIDER_ALERT_SEVERITY,
+  RelativeTime,
+  SEVERITY_TONE,
+  StatusBadge,
+} from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -32,7 +38,7 @@ function AlertRow({
     >
       <div className="min-w-0 space-y-1">
         <div className="flex flex-wrap items-center gap-2">
-          <StatusBadge tone={alert.severity} icon>
+          <StatusBadge tone={SEVERITY_TONE[PROVIDER_ALERT_SEVERITY[alert.severity]]} icon>
             {t(`provider.alerts.severity.${alert.severity}`)}
           </StatusBadge>
           <span className="text-sm font-medium">{alert.tenantName}</span>

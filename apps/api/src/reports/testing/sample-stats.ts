@@ -1,3 +1,4 @@
+import { aggregateReadiness } from "@restow/core";
 import type {
   BackupCounts,
   RestoreCounts,
@@ -43,15 +44,9 @@ function sum<T extends object>(rows: readonly T[], keys: readonly (keyof T)[]): 
   return total as T;
 }
 
-/** The worst state, as the readiness overview rates a tenant. */
+/** The worst populated category, as the readiness overview rates a tenant. */
 function overall(counts: ReadinessCounts): TenantAggregate["overallEnd"] {
-  if (countedTotal(counts) === 0) {
-    return null;
-  }
-  if (counts.red > 0 || counts.unverified > 0) {
-    return "red";
-  }
-  return counts.yellow > 0 ? "yellow" : "green";
+  return aggregateReadiness(counts, countedTotal(counts));
 }
 
 interface SampleTenant {
@@ -174,9 +169,17 @@ function fabrikam(): SampleTenant {
       const total = 205 + Math.floor(((index + 1) * 7) / BUCKETS);
       const red = index > 20 ? 1 : 2;
       const unverified = 18 - Math.floor(index / 3);
-      return { green: total - 12 - red - unverified, yellow: 12, red, unverified };
+      // One account added late in the period waits for its first backup.
+      const noBackup = index > 25 ? 1 : 0;
+      return {
+        green: total - 12 - red - unverified - noBackup,
+        yellow: 12,
+        red,
+        unverified,
+        noBackup,
+      };
     }),
-    readinessStart: { green: 172, yellow: 12, red: 2, unverified: 19 },
+    readinessStart: { green: 172, yellow: 12, red: 2, unverified: 19, noBackup: 0 },
     logicalBytes: { start: 1741 * GIB, end: 1843 * GIB },
     dedup: { start: 6.1, end: 6.42 },
     durations: new Map([
@@ -260,9 +263,9 @@ function contoso(): SampleTenant {
       const total = 146 + Math.floor(((index + 1) * 4) / BUCKETS);
       const red = index > 15 && index < 25 ? 1 : 0;
       const unverified = Math.max(0, 7 - Math.floor(index / 4));
-      return { green: total - 6 - red - unverified, yellow: 6, red, unverified };
+      return { green: total - 6 - red - unverified, yellow: 6, red, unverified, noBackup: 0 };
     }),
-    readinessStart: { green: 131, yellow: 6, red: 0, unverified: 9 },
+    readinessStart: { green: 131, yellow: 6, red: 0, unverified: 9, noBackup: 0 },
     logicalBytes: { start: 1180 * GIB, end: 1230 * GIB },
     dedup: { start: 3.1, end: 3.2 },
     durations: new Map([
@@ -302,7 +305,7 @@ function contoso(): SampleTenant {
 
 function adatum(): SampleTenant {
   const zeroRuns = { succeeded: 0, failed: 0, cancelled: 0 };
-  const none = { green: 0, yellow: 0, red: 0, unverified: 0 };
+  const none = { green: 0, yellow: 0, red: 0, unverified: 0, noBackup: 0 };
   return {
     tenant: { id: "9b2c4d6e-8f01-4a23-b456-c789d0e1f234", name: "Adatum KG" },
     microsoft365: false,
@@ -315,8 +318,8 @@ function adatum(): SampleTenant {
     previousThrottling: NO_THROTTLING,
     volume: perBucket(() => ({ logicalBytes: 0, physicalBytes: 0 })),
     physicalAtStart: 0,
-    // Three accounts added on 2026-09-21, none backed up yet: not proven.
-    readiness: perBucket((index) => (index >= 27 ? { ...none, unverified: 3 } : { ...none })),
+    // Three accounts added on 2026-09-21, none backed up yet: No backup yet.
+    readiness: perBucket((index) => (index >= 27 ? { ...none, noBackup: 3 } : { ...none })),
     readinessStart: none,
     logicalBytes: { start: 0, end: 0 },
     dedup: { start: 0, end: 0 },

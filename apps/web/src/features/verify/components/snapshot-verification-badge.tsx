@@ -1,17 +1,15 @@
-import { ShieldAlert, ShieldCheck, ShieldQuestion, ShieldX } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { absoluteLabel, HintTooltip, StatusBadge, toDate } from "@/components/kit";
-import type { SnapshotVerification, VerificationState } from "@/features/verify/api";
+import {
+  absoluteLabel,
+  HintTooltip,
+  StatusBadge,
+  toDate,
+  VERIFICATION_META,
+} from "@/components/kit";
+import type { SnapshotVerification } from "@/features/verify/api";
 import "@/features/verify/i18n";
 import { snapshotVerificationView } from "@/features/verify/presenters";
-
-const ICON = {
-  green: ShieldCheck,
-  yellow: ShieldAlert,
-  red: ShieldX,
-  unverified: ShieldQuestion,
-} as const satisfies Record<VerificationState, unknown>;
 
 export interface SnapshotVerificationBadgeProps {
   verification: SnapshotVerification;
@@ -45,7 +43,7 @@ export function SnapshotVerificationBadge({
     <HintTooltip content={hint}>
       <StatusBadge
         tone={view.tone}
-        icon={ICON[verification.state] ?? ShieldQuestion}
+        icon={(VERIFICATION_META[verification.state] ?? VERIFICATION_META.unverified).icon}
         tabIndex={focusable ? 0 : undefined}
         className={className}
         data-verification={verification.state}

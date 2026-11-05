@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { HintTooltip, StatusBadge } from "@/components/kit";
+import { HintTooltip, READINESS_FLAG_META, StatusBadge, toneOf } from "@/components/kit";
 import { StateBadge } from "@/features/verify/components/status";
 import { stateBadgeView } from "@/features/verify/presenters";
 import { formatRelative } from "@/lib/format";
@@ -194,7 +194,12 @@ export function ReadinessBadge({
       <StateBadge state={readiness.state} overdue={readiness.overdue} />
       {readiness.overdue && readiness.state !== "no_backup" ? (
         <HintTooltip content={t("readiness.overdueHint")}>
-          <StatusBadge tone="warning" tabIndex={0} className="whitespace-nowrap">
+          <StatusBadge
+            tone={toneOf(READINESS_FLAG_META.overdue)}
+            icon={READINESS_FLAG_META.overdue.icon}
+            tabIndex={0}
+            className="whitespace-nowrap"
+          >
             {t("readiness.overdue")}
           </StatusBadge>
         </HintTooltip>

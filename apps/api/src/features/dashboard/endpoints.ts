@@ -36,9 +36,9 @@ export function summarizeEndpoints(items: readonly EndpointSummaryDto[]): Endpoi
     servers: counts.servers,
     clients: counts.clients,
     readiness,
-    // Not proven restorable, by the rule every overview follows: a backup without
-    // a verified restore counts as failed (docs/TESTING.md), so neither an
-    // unverified machine nor one without a backup is ever counted as fine.
+    // Not proven restorable (a count, not the aggregate rule): a backup without a
+    // verified restore is not proven (docs/TESTING.md), so neither an unverified
+    // machine nor one without a backup is ever counted as fine.
     notReady: readiness.red + readiness.unverified + readiness.noBackup,
     failedLastBackup: counts.failedLastBackup,
     needingAttention: counts.needingAttention,

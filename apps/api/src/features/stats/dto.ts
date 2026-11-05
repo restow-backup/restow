@@ -150,8 +150,8 @@ export interface RestorePointDto {
 
 /**
  * Protected objects by the rating of their newest backup at the end of a
- * bucket; a backup no check rated yet, and an object never backed up, count
- * as unverified.
+ * bucket; a backup no check rated yet counts as unverified, an object never
+ * backed up as `noBackup` (No backup yet).
  */
 export interface ReadinessPointDto {
   t: string;
@@ -159,6 +159,7 @@ export interface ReadinessPointDto {
   yellow: number;
   red: number;
   unverified: number;
+  noBackup: number;
 }
 
 export interface FailureCauseDto {

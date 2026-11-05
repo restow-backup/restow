@@ -13,7 +13,9 @@ import type * as React from "react";
  * tone (20 % for the lighter amber of warning) with its text-safe `-text`
  * token, which keeps the label at 4.5:1 or
  * better in light and dark (enforced by tokens.test.ts, which reads the tint
- * alphas from this file). Pair a status badge with an icon or a word, never
+ * alphas from this file). `attention` ("Needs attention", orange) is the
+ * exception: its background and text are opaque tokens of their own
+ * (--attention-bg, --attention-fg), set per look. Pair a status badge with an icon or a word, never
  * colour alone.
  *
  * Unlike the registry badge, the label is never clipped: there is no
@@ -43,6 +45,8 @@ const badgeVariants = cva(
         destructive:
           "bg-destructive/15 text-destructive-text focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40",
         info: "bg-info/15 text-info-text",
+        // Opaque per-look tokens (index.css), not a tint: orange for something to look at.
+        attention: "bg-attention-bg text-attention-fg",
         muted: "bg-muted text-muted-foreground",
       },
     },

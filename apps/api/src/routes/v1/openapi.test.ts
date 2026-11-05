@@ -282,7 +282,7 @@ describe("the v1 OpenAPI document", () => {
 
   it("carries the contract version and the running build", async () => {
     const info = (await load()).info as JsonSchema;
-    expect(info.version).toBe("1.9.0");
+    expect(info.version).toBe("1.10.0");
     expect(info["x-restow-build"]).toBe("1.4.0");
   });
 });

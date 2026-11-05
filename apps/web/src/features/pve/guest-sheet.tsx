@@ -10,8 +10,9 @@ import {
   LogBlock as KitLogBlock,
   NativeSelect,
   RelativeTime,
+  StatusBadge,
+  toneOf,
 } from "@/components/kit";
-import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Sheet,
@@ -42,7 +43,7 @@ import { NEW_DATA_POINTS, newDataPoints, shortDate } from "./backup-size.js";
 import { GuestActionButton, GuestState, type SelfBackupGuard } from "./guest-cells.js";
 import { PVE_NAMESPACE } from "./i18n.js";
 import { guestTo } from "./paths.js";
-import { runStatusKey, runTone } from "./run-status.js";
+import { runMeta, runStatusKey } from "./run-status.js";
 import { RestowServerNote } from "./self-backup.js";
 
 /**
@@ -76,28 +77,18 @@ function RecentRuns({ runs, shown }: { runs: readonly PveRun[]; shown?: string |
         // that ran to "red" is not "Succeeded".
         const bootTest =
           run.kind === "boot_test" && run.status !== "running" && run.stats?.bootTest;
-        const variant = bootTest
-          ? runTone(run)
-          : run.status === "failed"
-            ? "destructive"
-            : run.status === "running"
-              ? "info"
-              : run.status === "cancelled"
-                ? "muted"
-                : warnings.length > 0
-                  ? "warning"
-                  : "outline";
+        const meta = runMeta(run, { warnings: !bootTest && warnings.length > 0 });
         return (
           <li key={run.id} className="space-y-1.5">
             <div className="flex flex-wrap items-center gap-2 text-sm">
               <span className="font-medium">{t(`guest.kind.${run.kind}`)}</span>
-              <Badge variant={variant}>
+              <StatusBadge tone={toneOf(meta)} icon={meta.icon} live={meta.live}>
                 {bootTest
                   ? t(runStatusKey(run))
                   : run.status === "succeeded" && warnings.length > 0
                     ? t("guests.succeededWithWarnings")
                     : t(`guest.${run.status}`)}
-              </Badge>
+              </StatusBadge>
               <span className="text-muted-foreground tabular-nums">
                 {formatDateTime(run.startedAt, language)}
               </span>

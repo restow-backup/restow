@@ -209,7 +209,8 @@ describe.skipIf(!testDatabaseAdminUrl)("confirm as empty against Postgres", () =
     expect(item.contentStats).toEqual({ items: 6, bytes: 0 });
     expect(item.report?.reasons.map((reason) => reason.code)).toEqual(["snapshot_empty"]);
     const { summary } = await overview();
-    expect(summary).toMatchObject({ yellow: 2, empty: 0, overall: "red" });
+    // The fixture's other objects are unverified at worst: Not proven (UI rework decision 1).
+    expect(summary).toMatchObject({ yellow: 2, empty: 0, overall: "yellow" });
   });
 
   it("confirms only objects whose newest check found them empty, and says why not", async () => {
@@ -256,16 +257,20 @@ describe.skipIf(!testDatabaseAdminUrl)("confirm as empty against Postgres", () =
     });
     const { summary } = await overview();
     expect(summary).toMatchObject({ yellow: 1, empty: 1, toConfirm: 0 });
-    // v1 knows no "empty": the object is green there, and the summary adds it to green.
+    // v1 counts "empty" as the readiness page does, not as green (UI rework decision 3, contract
+    // 1.10.0), and keeps the object's real rating.
     const v1 = await latestVerification(
       db,
       contoso.tenantId,
       verifyLatestQuerySchema.parse({}),
       NOW,
     );
-    expect(v1.summary).not.toHaveProperty("empty");
-    expect(v1.summary.green).toBe(summary.green + 1);
-    expect(v1.items.find((row) => row.protectedObjectId === empty.id)?.state).toBe("green");
+    expect(v1.summary.empty).toBe(1);
+    expect(v1.summary.green).toBe(summary.green);
+    expect(v1.items.find((row) => row.protectedObjectId === empty.id)).toMatchObject({
+      state: "empty",
+      rating: "yellow",
+    });
   });
 
   it("is never overdue, even when its check is weeks old", async () => {

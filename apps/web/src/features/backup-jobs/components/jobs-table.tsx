@@ -99,7 +99,7 @@ export const JOB_COLUMN_SIZES = {
 const PINNED = ["name"] as const;
 
 /** Worst first, the order an administrator should look at restore checks in. */
-const CHECK_RANK = { failed: 0, attention: 1, none: 2, passed: 3 } as const;
+const CHECK_RANK = { failed: 0, notProven: 1, none: 2, passed: 3 } as const;
 
 function timeValue(value: string | null | undefined): number {
   const parsed = value ? Date.parse(value) : Number.NaN;

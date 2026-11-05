@@ -1,3 +1,4 @@
+import { STATUS_BADGE_VARIANT, STORAGE_TARGET_META, toneOf } from "@/components/kit";
 import type { BadgeProps } from "@/components/ui/badge";
 import { ApiError, errorMessageKey } from "@/lib/api";
 import type {
@@ -36,10 +37,11 @@ export interface ToneMessage extends Message {
   tone: Tone;
 }
 
+/** A repository's status (status meta): never tested is a warning here as on the overview. */
 export const STATUS_VARIANT: Record<TargetStatus, NonNullable<BadgeProps["variant"]>> = {
-  ok: "outline",
-  error: "destructive",
-  unverified: "muted",
+  ok: STATUS_BADGE_VARIANT[toneOf(STORAGE_TARGET_META.ok)],
+  error: STATUS_BADGE_VARIANT[toneOf(STORAGE_TARGET_META.error)],
+  unverified: STATUS_BADGE_VARIANT[toneOf(STORAGE_TARGET_META.unverified)],
 };
 
 /** What the last test says about a target. */

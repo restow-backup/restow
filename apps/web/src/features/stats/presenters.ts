@@ -1,3 +1,4 @@
+import { READINESS_CATEGORY_META, type StatusTone, toneOf } from "@/components/kit";
 import { dedupSavings, formatPercent, parseTimestamp } from "@/lib/format";
 
 import type { Kpi, KpiName, StatsOverview } from "./api.js";
@@ -349,21 +350,7 @@ export function dedupUnavailableReason(kpis: StatsOverview["kpis"]): string | nu
 
 // --- Status tones -------------------------------------------------------------
 
-export type Tone = "success" | "warning" | "destructive" | "muted" | "info" | "neutral";
-
-/** Recovery readiness as a status tone (unverified counts as not ready to trust). */
-export function readinessTone(readiness: string | null): Tone {
-  switch (readiness) {
-    case "green":
-      return "success";
-    case "yellow":
-      return "warning";
-    case "red":
-      return "destructive";
-    default:
-      return "muted";
-  }
-}
+export type Tone = StatusTone;
 
 /** Object states the page can name; anything else is shown as sent. */
 export const KNOWN_OBJECT_STATES = [
@@ -380,21 +367,25 @@ export const KNOWN_OBJECT_STATES = [
 
 /**
  * An object's state as a tone. A protected (active) object is neutral: it is in
- * scope and backed up, which no restore check has proven. Only a rating of
- * green, a passed restore check, is a success.
+ * scope and backed up, which no restore check has proven. Readiness states take
+ * their category's tone from the status meta: only Ready (a passed restore
+ * check) is a success, Needs attention is an attention, Unverified a warning,
+ * Not restorable and No backup yet danger.
  */
 export function objectStateTone(state: string | null): Tone {
   switch (state) {
     case "active":
       return "neutral";
-    case "green":
-      return "success";
     case "orphaned":
-    case "yellow":
       return "warning";
     case "failed":
-    case "red":
       return "destructive";
+    case "green":
+    case "yellow":
+    case "red":
+    case "unverified":
+    case "no_backup":
+      return toneOf(READINESS_CATEGORY_META[state]);
     default:
       return "muted";
   }

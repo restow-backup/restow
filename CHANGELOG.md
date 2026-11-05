@@ -10,6 +10,21 @@ private repository.
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- The overall recovery readiness follows the worst category that actually has objects: Not
+  restorable (red) when an object cannot be restored or has no backup yet; Not proven (yellow)
+  when one needs attention or is unverified; Ready (green) otherwise. A backup no restore check
+  has read back yet no longer makes a tenant red by itself, and overdue checks, objects in no
+  backup job and objects waiting for a confirmation no longer turn it yellow; they are listed on
+  their own. This applies to the start page, Recovery readiness, the tenant list, the provider
+  view, the statistics, the PDF report and `/api/v1` (`recoveryReadiness` of `GET /status` and
+  `GET /users`, `summary.overall` of `GET /verify/latest`). The integration API contract moves
+  from 1.9.0 to 1.10.0. Additively: `summary.empty` and the object state `empty` of
+  `GET /verify/latest`; an object confirmed as empty is no longer counted as green, and its
+  `rating` is its real rating. An integration that alerted on `red` for unverified backups should
+  alert on `summary.unverified > 0` (or `overall != green`).
+
 ### Added
 
 - Installation › Capacity planning (`/resources`, formerly announced as "Soon"): utilisation and
@@ -213,6 +228,22 @@ private repository.
 
 ### Changed
 
+- One status vocabulary everywhere (badges, dots, bars, legends, chips, table columns, filters,
+  charts): Ready, Needs attention (orange, a new attention tone in all four themes), Unverified
+  (amber, hatched in bars), Not restorable, No backup yet, each with its own icon, so colour never
+  carries the meaning alone. Categories without objects are dimmed and cannot be clicked.
+  "Attention" reads "Needs attention" throughout.
+- The same vocabulary on the feature pages: the state badges of Servers & clients, VMs &
+  containers, file shares and backup jobs, the run badges and progress bars of History and the
+  Proxmox guest pages, boot tests, the findings and items of a restore check report, the snapshot
+  states and the Protected objects tile take their tone and icon from the one status table. "In no
+  backup job", "Overdue", "Needs attention" and a boot test that started without an answer are
+  orange (attention) everywhere, a backup not read back yet stays amber; a partial run's bar is no
+  longer grey like a completed one.
+- Statistics, their CSV export (new column `noBackup` in the readiness series) and the PDF report
+  count objects without a backup apart from unverified ones.
+- Provider view: "No backup yet" alerts are critical; "Tenants needing action" counts every tenant
+  that is not Ready.
 - Proxmox VE inventory (#58): a guest's row says how large its first backup was and when
   ("First backup: 32 GB on 3 Oct"), what the last follow-up added ("Last follow-up: +210 MB", or
   "No follow-up backup yet") and the average follow-up ("Average follow-up: +180 MB (last 7
@@ -353,6 +384,8 @@ private repository.
   restores of what it copies and were not counted as the job's.
 
 ### Upgrade Notes
+
+No migration for the new readiness rule. Integrations: see Breaking Changes.
 
 Two database migrations run on start: 0073 creates the new table `storage_samples` and 0074 the
 new table `directory_memberships`; neither rewrites anything. The first directory sync after the

@@ -18,8 +18,9 @@ import { emptyReadinessCounts, lastIndexBefore, pushTo, type RatedSet } from "./
  *   - the restore tests of exactly that snapshot checked before the moment, and
  *     the newest repository check before the moment, are the evidence. A backup
  *     taken after a green test is unverified until a test of it ran;
- *   - an endpoint without a backup, and one whose newest backup no test rates,
- *     count as unverified (the statistics do the same for protected objects).
+ *   - an endpoint whose newest backup no test rates counts as unverified, one
+ *     without a backup as No backup yet (the statistics count the two apart for
+ *     protected objects as well).
  *
  * An endpoint is protected at a moment when it existed (created before it) and
  * was not revoked yet (not revoked before it). A revoked endpoint keeps its
@@ -129,8 +130,8 @@ export class EndpointTimeline {
         reports: [...tests, ...(check ? [check] : [])].map(toFact),
       });
       states.set(endpoint.id, result.state);
-      if (result.state === "no_backup" || result.state === "unverified") {
-        counts.unverified += 1;
+      if (result.state === "no_backup") {
+        counts.noBackup += 1;
       } else {
         counts[result.state] += 1;
       }

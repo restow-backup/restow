@@ -160,8 +160,21 @@ describe("fileshares translations", () => {
 describe("words and tones", () => {
   it("keeps green for proof: a passed restore check and a restore that completed", () => {
     expect(readinessView("green").tone).toBe("success");
-    expect(readinessView("unverified").tone).toBe("muted");
+    // Readiness by its category (status meta): Unverified amber, No backup yet danger.
+    expect(readinessView("unverified").tone).toBe("warning");
+    expect(readinessView("yellow").tone).toBe("attention");
+    expect(readinessView("no_backup").tone).toBe("destructive");
     expect(standingView("ok").tone).toBe("neutral");
+    // "No backup yet" reads the same as the Readiness column beside it, so it is the same
+    // danger; overdue and In no job are the readiness flags' attention, as on the readiness row.
+    expect(standingView("no_backup").tone).toBe(readinessView("no_backup").tone);
+    expect(standingView("no_backup").tone).toBe("destructive");
+    expect(standingView("overdue").tone).toBe("attention");
+    expect(standingView("no_job").tone).toBe("attention");
+    expect(standingView("warning").tone).toBe("warning");
+    expect(standingView("failed").tone).toBe("destructive");
+    expect(standingView("running").tone).toBe("info");
+    expect(standingView("retired").tone).toBe("muted");
     expect(runStatusView({ status: "succeeded", kind: "backup" }).tone).toBe("neutral");
     expect(runStatusView({ status: "succeeded", kind: "restore", trigger: "manual" })).toEqual({
       key: "runs.status.restored",
@@ -171,6 +184,21 @@ describe("words and tones", () => {
     expect(runStatusView({ status: "succeeded", kind: "restore", trigger: "copy" }).tone).toBe(
       "neutral",
     );
+    // The other run states take the status meta's run tones (RUN_STATUS_META).
+    expect(runStatusView({ status: "warning", kind: "backup" })).toEqual({
+      key: "runs.status.warning",
+      tone: "warning",
+    });
+    expect(runStatusView({ status: "failed", kind: "backup" }).tone).toBe("destructive");
+    expect(runStatusView({ status: "starting", kind: "backup" })).toEqual({
+      key: "runs.status.starting",
+      tone: "info",
+    });
+    expect(runStatusView({ status: "queued", kind: "backup" }).tone).toBe("muted");
+    expect(runStatusView({ status: "cancelled", kind: "backup" })).toEqual({
+      key: "runs.status.cancelled",
+      tone: "muted",
+    });
   });
 
   it("measures progress by bytes, else by files, else not at all", () => {

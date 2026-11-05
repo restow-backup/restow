@@ -96,20 +96,6 @@
     "description": "Ob eine Restore-Prüfung die Sicherungen als wiederherstellbar nachgewiesen hat.",
     "lastCheck": "Letzte Prüfung",
     "neverChecked": "Noch keine Restore-Prüfung",
-    "overall": {
-      "green": "Bereit",
-      "yellow": "Braucht Aufmerksamkeit",
-      "red": "Nicht wiederherstellbar",
-      "none": "Nichts zu bewerten"
-    },
-    "segments": {
-      "green": "Bereit",
-      "yellow": "Braucht Aufmerksamkeit",
-      "red": "Nicht wiederherstellbar",
-      "unverified": "Nicht nachgewiesen",
-      "noBackup": "Noch keine Sicherung",
-      "empty": "Als leer bestätigt"
-    },
     "unverified": {
       "title": "{count, plural, one {# Sicherung noch nicht geprüft} other {# Sicherungen noch nicht geprüft}}",
       "description": "Den neuesten Sicherungsstand dieser Objekte hat noch keine Restore-Prüfung zurückgelesen. Eine Sicherung zählt erst, wenn eine Wiederherstellung sie bestätigt hat.",
@@ -152,7 +138,7 @@
     },
     "toConfirm": {
       "title": "{count, plural, one {# Objekt nicht mehr gesichert, bitte bestätigen} other {# Objekte nicht mehr gesichert, bitte bestätigen}}",
-      "description": "Die Quelle meldet diese Objekte als entfernt, deaktiviert, ohne Lizenz oder gesperrt. Das ist kein Fehler, aber bis jemand bestätigt, dass es beabsichtigt ist, bleibt die Bereitschaft gelb.",
+      "description": "Die Quelle meldet diese Objekte als entfernt, deaktiviert, ohne Lizenz oder gesperrt. Das ist kein Fehler; bitte bestätigen Sie, dass es beabsichtigt ist.",
       "action": "Prüfen und bestätigen"
     }
   },
@@ -315,11 +301,13 @@
     "lastBackup": "Letzte Sicherung",
     "neverBacked": "Noch keine erfolgreiche Sicherung",
     "allGood": "Jeder Rechner ist nachweislich wiederherstellbar und seine letzte Sicherung war erfolgreich.",
+    "legend": "Rechner nach Wiederherstellungszustand",
     "findings": {
-      "notReady": "{count, plural, one {# Rechner nicht nachweislich wiederherstellbar} other {# Rechner nicht nachweislich wiederherstellbar}}",
+      "notRestorable": "{count, plural, one {# Rechner nicht wiederherstellbar oder noch ohne Sicherung} other {# Rechner nicht wiederherstellbar oder noch ohne Sicherung}}",
       "failedLastBackup": "{count, plural, one {# Rechner: letzte Sicherung fehlgeschlagen} other {# Rechner: letzte Sicherung fehlgeschlagen}}",
-      "attention": "{count, plural, one {# Rechner braucht Aufmerksamkeit} other {# Rechner brauchen Aufmerksamkeit}}",
-      "withoutJob": "{count, plural, one {# Rechner in keinem Backup-Job, wird nicht gesichert} other {# Rechner in keinem Backup-Job, werden nicht gesichert}}"
+      "unverified": "{count, plural, one {# Rechner: neueste Sicherung noch nicht als wiederherstellbar nachgewiesen} other {# Rechner: neueste Sicherung noch nicht als wiederherstellbar nachgewiesen}}",
+      "withoutJob": "{count, plural, one {# Rechner in keinem Backup-Job, wird nicht gesichert} other {# Rechner in keinem Backup-Job, werden nicht gesichert}}",
+      "attention": "{count, plural, one {# Rechner braucht Aufmerksamkeit} other {# Rechner brauchen Aufmerksamkeit}}"
     }
   },
   "backupSuccess": {

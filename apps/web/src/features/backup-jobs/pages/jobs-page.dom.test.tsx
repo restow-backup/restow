@@ -110,17 +110,18 @@ describe("the list of mail jobs", () => {
     expect(document.querySelector('[data-state="running"]')?.textContent).toContain("Running");
   });
 
-  it("colours the restore check by what it proves: green only when every object passed", async () => {
+  it("colours the restore check by the aggregate rule: green only when every object passed", async () => {
     opened = await openJobs("/jobs?type=mail", mailRoutes());
     await flush(5);
     const passed = [...document.querySelectorAll('[data-restore-check="passed"]')];
     const failed = [...document.querySelectorAll('[data-restore-check="failed"]')];
-    const attention = [...document.querySelectorAll('[data-restore-check="attention"]')];
+    const notProven = [...document.querySelectorAll('[data-restore-check="notProven"]')];
     expect(passed.map((node) => node.textContent)).toEqual(["4 of 4 passed"]);
     expect(failed.map((node) => node.textContent?.split(":")[0])).toEqual(["5 of 6 passed"]);
-    expect(attention.map((node) => node.textContent?.split(":")[0])).toEqual(["210 of 220 passed"]);
+    expect(notProven.map((node) => node.textContent?.split(":")[0])).toEqual(["210 of 220 passed"]);
     expect(failed[0]?.getAttribute("data-tone")).toBe("destructive");
-    expect(attention[0]?.getAttribute("data-tone")).toBe("warning");
+    // Not proven (objects not checked yet): amber.
+    expect(notProven[0]?.getAttribute("data-tone")).toBe("warning");
     expect(passed[0]?.getAttribute("data-tone")).toBe("success");
     // The facts behind an amber or red badge are in words for screen readers (the panel shows them).
     expect(text()).toContain("1 failed");

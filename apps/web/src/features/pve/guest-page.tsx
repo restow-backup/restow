@@ -11,6 +11,8 @@ import {
   PageHeader,
   RefreshButton,
   RelativeTime,
+  StatusBadge,
+  toneOf,
 } from "@/components/kit";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -74,7 +76,7 @@ import { BootTestBadge, BootTestFacts } from "./boot-test.js";
 import { CancelBackupButton, CancelledBadge, CancellingBadge } from "./cancel-controls.js";
 import { PVE_NAMESPACE } from "./i18n.js";
 import { pveTo } from "./paths.js";
-import { runStatusKey, runTone } from "./run-status.js";
+import { runMeta, runStatusKey } from "./run-status.js";
 import { RestowServerNote, useSelfBackupGuard } from "./self-backup.js";
 
 /** File restore with this container chosen, as `<Link>` takes it. */
@@ -295,6 +297,17 @@ function PointType({ point }: { point: PveRestorePoint }) {
   );
 }
 
+/** A run's status in the look of the status meta: its tone and icon, live while it runs. */
+function RunStatusBadge({ run }: { run: PveRun }) {
+  const { t } = useTranslation(PVE_NAMESPACE);
+  const meta = runMeta(run);
+  return (
+    <StatusBadge tone={toneOf(meta)} icon={meta.icon} live={meta.live} data-status={run.status}>
+      {t(runStatusKey(run))}
+    </StatusBadge>
+  );
+}
+
 /** How many unreadable items a run names in its row before "and N more". */
 const SHOWN_UNREADABLE = 3;
 
@@ -329,7 +342,7 @@ function RunStatus({ run, name }: { run: PveRun; name: string }) {
       {run.status === "running" && run.cancelRequestedAt ? (
         <CancellingBadge by={run.cancelledBy} />
       ) : (
-        <Badge variant={runTone(run)}>{t(runStatusKey(run))}</Badge>
+        <RunStatusBadge run={run} />
       )}
       {run.status === "running" && run.kind === "backup" ? (
         <BackupProgress progress={run.progress} name={name} node={run.node} />

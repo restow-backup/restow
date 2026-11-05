@@ -47,6 +47,10 @@
  *   --<tone>-text        text-safe tone for text on the tone's tint; at least
  *                        4.5:1 on the badge (15-20 %) and alert (10 %) tints
  *                        over card, background and muted surfaces
+ * --attention-{bg,border,fg}: one opaque set per look (UI rework brief), not a
+ * base tone with tints: orange for something a person must look at ("Needs
+ * attention"), kept apart from the amber --warning ("Unverified"). All four
+ * looks set it, the Neutral blocks included.
  * --success is green, and green means proof (brand guide, section 4): a restore
  * check that passed, a restore that completed, a storage or hash chain check
  * that came back intact. It is never the colour of a backup that merely
@@ -103,6 +107,10 @@
   --info: oklch(0.437 0.135 264.438);
   --info-foreground: oklch(1 0 0);
   --info-text: oklch(0.437 0.135 264.438);
+  /* Attention (UI rework): something a person must look at; orange, apart from the amber warning. */
+  --attention-bg: oklch(0.966 0.021 60.752);
+  --attention-border: oklch(0.862 0.074 60.556);
+  --attention-fg: oklch(0.554 0.174 38.402);
 
   --chart-1: oklch(0.45 0.162 258);
   --chart-2: oklch(0.67 0.19 45);
@@ -180,6 +188,9 @@
   --info: oklch(0.77 0.076 265.415);
   --info-foreground: oklch(0.221 0.039 258.275);
   --info-text: oklch(0.77 0.076 265.415);
+  --attention-bg: oklch(0.246 0.031 57.013);
+  --attention-border: oklch(0.368 0.067 55.805);
+  --attention-fg: oklch(0.758 0.159 55.934);
 
   --chart-1: oklch(0.66 0.152 258);
   /* Slots 2 and 4 are one step lighter (0.55 before) so they keep 3:1 on the lighter Nile-based card. */
@@ -221,7 +232,9 @@
  *
  * Not overridden, so they are the brand values in both schemes: the status
  * tones (green is proof, amber, red, Lapis for running work and information),
- * the chart tokens, --radius and the sizes. Nor are --mark-hold and
+ * the chart tokens, --radius and the sizes. The exception is the attention set
+ * (--attention-bg, -border, -fg), which the UI rework brief gives each look
+ * its own values for; both Neutral blocks set all three. Nor are --mark-hold and
  * --mark-beam: the mark keeps its brand colours.
  *
  * Differences from the 0.1.0 sidebar: a hovered entry is the muted surface
@@ -257,6 +270,11 @@
   --sidebar-hover: oklch(0.967 0.001 286.375);
   --sidebar-border: oklch(0.92 0.004 286.32);
   --sidebar-ring: oklch(0.705 0.015 286.067);
+
+  /* The attention set is per look (UI rework brief), so Neutral sets its own. */
+  --attention-bg: oklch(0.966 0.021 60.752);
+  --attention-border: oklch(0.862 0.074 60.556);
+  --attention-fg: oklch(0.554 0.174 38.402);
 }
 
 .dark[data-palette="neutral"] {
@@ -287,6 +305,10 @@
   --sidebar-hover: oklch(0.274 0.006 286.033);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.552 0.016 285.938);
+
+  --attention-bg: oklch(0.235 0.033 57.163);
+  --attention-border: oklch(0.355 0.063 53.695);
+  --attention-fg: oklch(0.758 0.159 55.934);
 }
 
 /*
@@ -373,6 +395,10 @@
   --color-info: var(--info);
   --color-info-foreground: var(--info-foreground);
   --color-info-text: var(--info-text);
+
+  --color-attention-bg: var(--attention-bg);
+  --color-attention-border: var(--attention-border);
+  --color-attention-fg: var(--attention-fg);
 
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);

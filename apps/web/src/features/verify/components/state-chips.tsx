@@ -1,10 +1,14 @@
 import { useTranslation } from "react-i18next";
 
-import { READINESS_LEGEND, SEGMENT_FILL } from "@/features/dashboard/components/readiness-legend";
+import {
+  READINESS_CATEGORY_META,
+  READINESS_TILE_ORDER,
+  STATUS_FILL,
+  StatusIcon,
+} from "@/components/kit";
 import {
   EMPTY_FILTERS,
   type EmptyFilter,
-  READINESS_STATES,
   type ReadinessState,
   type TableFilter,
 } from "@/features/verify/search";
@@ -16,8 +20,10 @@ import "@/features/verify/i18n";
 /**
  * The filter chips of Recovery readiness: "All" and one chip per state, each with its
  * count. Choosing one sets the address (`?state=`), so a filtered table can be linked,
- * bookmarked and reached from the overview. The dots carry the colours of the
- * overview's readiness tile the chips continue from; the words say the state.
+ * bookmarked and reached from the overview. The chips follow the overview's tiles (Ready,
+ * Needs attention, Unverified, Not restorable, No backup yet) with their icons and colours from
+ * the status meta; the words say the state. A chip with nothing in it is dimmed and cannot be
+ * chosen, unless it is the current filter (so it can still be cleared).
  */
 
 export type StateCounts = Readonly<Record<ReadinessState, number>>;
@@ -88,20 +94,20 @@ export function StateChips<T extends ReadinessState | TableFilter = ReadinessSta
         {t("chips.all")}
         <Figure>{count(total)}</Figure>
       </Chip>
-      {READINESS_STATES.map((state) => {
-        const tone = READINESS_LEGEND.find((row) => row.state === state)?.tone ?? "muted";
+      {READINESS_TILE_ORDER.map((state) => {
+        const meta = READINESS_CATEGORY_META[state];
+        const pressed = value === state;
+        const disabled = counts[state] === 0 && !pressed;
         return (
           <Chip
             key={state}
-            pressed={value === state}
-            onClick={() => onChange((value === state ? undefined : state) as T | undefined)}
+            pressed={pressed}
+            disabled={disabled}
+            onClick={() => onChange((pressed ? undefined : state) as T | undefined)}
             data-state={state}
           >
-            <span
-              aria-hidden="true"
-              className={cn("size-2 shrink-0 rounded-full", SEGMENT_FILL[tone])}
-            />
-            {t(`state.${state}`)}
+            <StatusIcon meta={meta} dimmed={disabled} />
+            {t(meta.labelKey)}
             <Figure>{count(counts[state])}</Figure>
           </Chip>
         );
@@ -117,7 +123,7 @@ export function StateChips<T extends ReadinessState | TableFilter = ReadinessSta
               >
                 <span
                   aria-hidden="true"
-                  className={cn("size-2 shrink-0 rounded-full", SEGMENT_FILL[EMPTY_TONE[filter]])}
+                  className={cn("size-2 shrink-0 rounded-full", STATUS_FILL[EMPTY_TONE[filter]])}
                 />
                 {t(`chips.${filter}`)}
                 <Figure>{count(emptyCounts[filter])}</Figure>
@@ -135,11 +141,14 @@ function Figure({ children }: { children: React.ReactNode }) {
 
 function Chip({
   pressed,
+  disabled = false,
   onClick,
   children,
   ...props
 }: {
   pressed: boolean;
+  /** Nothing in this state: dimmed, not clickable (UI rework, phase 1). */
+  disabled?: boolean;
   onClick: () => void;
   children: React.ReactNode;
   "data-state": string;
@@ -148,10 +157,14 @@ function Chip({
     <button
       type="button"
       aria-pressed={pressed}
+      disabled={disabled}
+      aria-disabled={disabled || undefined}
+      data-empty={disabled ? "true" : undefined}
       onClick={onClick}
       className={cn(
         "inline-flex h-8 items-center gap-2 rounded-full border px-3 text-sm font-medium whitespace-nowrap outline-none transition-colors",
-        "hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50",
+        "focus-visible:ring-[3px] focus-visible:ring-ring/50",
+        disabled ? "cursor-default text-muted-foreground" : "hover:bg-accent",
         pressed && "border-primary/40 bg-primary/10 text-primary [&_span]:text-primary",
       )}
       {...props}

@@ -1,6 +1,12 @@
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 
-import { ChartCard, HORIZONTAL_GRID, STATUS_CHART_COLOR } from "@/components/kit";
+import {
+  CHART_HATCH,
+  ChartCard,
+  ChartHatchDefs,
+  HORIZONTAL_GRID,
+  STATUS_CHART_COLOR,
+} from "@/components/kit";
 import {
   type ChartConfig,
   ChartLegend,
@@ -27,9 +33,9 @@ import {
  * readiness over time. Outcomes are states, so they wear the status chart
  * colours the dashboard uses for them too. Green (success) means proof: a
  * restore that completed and a rating of Ready. A backup run that completed is
- * info (Lapis): nothing has read it back yet. Warning for Attention,
- * destructive for failures and Not restorable, muted for cancelled and
- * unverified.
+ * info (Lapis): nothing has read it back yet. Warning for Needs attention and
+ * Unverified (hatched), destructive for failures, Not restorable and No backup
+ * yet (hatched), muted for cancelled.
  */
 
 const BACKUP_KEYS = ["succeeded", "failed", "cancelled"] as const;
@@ -167,7 +173,20 @@ export function RestoresChart({ data, granularity }: SeriesChartProps<RestorePoi
   );
 }
 
-const READINESS_KEYS = ["green", "yellow", "red", "unverified"] as const;
+const READINESS_KEYS = ["green", "yellow", "unverified", "red", "noBackup"] as const;
+
+/**
+ * The area fill of each readiness series. Needs attention and Unverified share the chart
+ * warning orange until --chart-attention exists, so Unverified is hatched; No backup yet is
+ * hatched next to the solid Not restorable for the same reason (status meta, UI rework).
+ */
+const READINESS_FILL: Readonly<Record<(typeof READINESS_KEYS)[number], string>> = {
+  green: "var(--color-green)",
+  yellow: "var(--color-yellow)",
+  unverified: `url(#${CHART_HATCH.warning})`,
+  red: "var(--color-red)",
+  noBackup: `url(#${CHART_HATCH.destructive})`,
+};
 
 export function ReadinessChart({ data, granularity }: SeriesChartProps<ReadinessPoint>) {
   const format = useStatsFormat();
@@ -175,9 +194,11 @@ export function ReadinessChart({ data, granularity }: SeriesChartProps<Readiness
   const title = t("charts.readiness.title");
   const config = {
     green: { label: t("readiness.green"), color: STATUS_CHART_COLOR.success },
+    // Needs attention: the attention tone, drawn in the chart warning orange for now (chartTone).
     yellow: { label: t("readiness.yellow"), color: STATUS_CHART_COLOR.warning },
+    unverified: { label: t("readiness.unverified"), color: STATUS_CHART_COLOR.warning },
     red: { label: t("readiness.red"), color: STATUS_CHART_COLOR.destructive },
-    unverified: { label: t("readiness.unverified"), color: STATUS_CHART_COLOR.muted },
+    noBackup: { label: t("readiness.noBackup"), color: STATUS_CHART_COLOR.destructive },
   } satisfies ChartConfig;
   const order = seriesOrder(Object.keys(config));
   const state = datasetState(data, format, (rows) => isEmptySeries(rows, READINESS_KEYS));
@@ -204,6 +225,7 @@ export function ReadinessChart({ data, granularity }: SeriesChartProps<Readiness
               yellow: format.integer(last.yellow),
               red: format.integer(last.red),
               unverified: format.integer(last.unverified),
+              noBackup: format.integer(last.noBackup),
             })
           : undefined
       }
@@ -226,6 +248,7 @@ export function ReadinessChart({ data, granularity }: SeriesChartProps<Readiness
           }
         />
         <ChartLegend itemSorter={order} content={<ChartLegendContent />} />
+        <ChartHatchDefs />
         {READINESS_KEYS.map((key) => (
           <Area
             {...STATIC_SERIES}
@@ -234,8 +257,8 @@ export function ReadinessChart({ data, granularity }: SeriesChartProps<Readiness
             type="linear"
             stackId="objects"
             stroke={`var(--color-${key})`}
-            fill={`var(--color-${key})`}
-            fillOpacity={0.35}
+            fill={READINESS_FILL[key]}
+            fillOpacity={READINESS_FILL[key].startsWith("url(") ? 0.6 : 0.35}
             strokeWidth={2}
           />
         ))}

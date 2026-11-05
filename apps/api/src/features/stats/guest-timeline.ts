@@ -11,8 +11,8 @@ import { emptyReadinessCounts, pushTo, type RatedSet } from "./readiness.js";
  *   - the newest restore point made before the moment and not pruned before it decides;
  *   - its restore check counts once it ran before the moment: green when the sample read back
  *     matched, red when it did not; otherwise it is unverified;
- *   - a guest without a restore point counts as unverified (the statistics count "no backup"
- *     as unverified for every kind: a backup without a verified restore counts as failed).
+ *   - a guest without a restore point counts as No backup yet, apart from unverified (the
+ *     statistics count the two apart for every kind; neither is ever shown as fine).
  *
  * A guest counts at a moment when it was known then (created before it) and is protected now (in
  * an enabled job), or had a restore point at the moment.
@@ -71,8 +71,8 @@ export class GuestTimeline {
         point?.check && point.check.at.getTime() < moment.getTime() ? point.check : null;
       const state: ObjectState = check ? check.readiness : point ? "unverified" : "no_backup";
       states.set(guest.id, state);
-      if (state === "no_backup" || state === "unverified") {
-        counts.unverified += 1;
+      if (state === "no_backup") {
+        counts.noBackup += 1;
       } else {
         counts[state] += 1;
       }

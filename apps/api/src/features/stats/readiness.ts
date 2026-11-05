@@ -26,9 +26,10 @@ import type {
  *     it. A backup taken after a green check is unverified until a check of
  *     that backup ran, whatever the older snapshot scored;
  *   - an object with a backup that no check rates is unverified, an object
- *     without any backup yet has no backup. The statistics count both as
- *     unverified: a backup without a verified restore counts as failed
- *     (docs/TESTING.md), so neither is ever shown as fine.
+ *     without any backup yet has no backup. The statistics count them apart,
+ *     as Unverified and No backup yet (the categories of @restow/core
+ *     `aggregateReadiness`): a backup without a verified restore is not
+ *     proven (docs/TESTING.md), so neither is ever shown as fine.
  *
  * Which objects count follows the recovery-readiness page as well: excluded
  * objects are not protected, orphaned ones count while they have a backup.
@@ -42,8 +43,8 @@ import type {
  * schedules checks for it any more. Like the status, this applies to earlier
  * moments of the period as well.
  *
- * Whether an orphaned object waits for an admin's confirmation (amber "please confirm", which
- * keeps the live readiness at yellow, verify/summary.ts `toConfirm`) is left out here: like the
+ * Whether an orphaned object waits for an admin's confirmation (amber "please confirm", listed
+ * as a callout on the live readiness, verify/summary.ts `toConfirm`) is left out here: like the
  * status, only the current confirmation is stored, not when it was given, so the timeline cannot
  * say which earlier moment it applied to.
  *
@@ -58,13 +59,15 @@ export interface ReadinessCounts {
   yellow: number;
   red: number;
   unverified: number;
+  /** Protected objects without any backup yet (No backup yet), apart from `unverified`. */
+  noBackup: number;
 }
 
 export interface ReadinessAt {
   readonly counts: ReadinessCounts;
   /** Objects counted at the moment: the protected objects. */
   readonly total: number;
-  /** Worst state of the counted objects; null when none is counted. */
+  /** Worst populated category of the counted objects; null when none is counted. */
   readonly overall: ReadinessRating | null;
   /** State of every object that existed at the moment, counted or not. */
   readonly states: ReadonlyMap<string, ObjectState>;
@@ -73,7 +76,7 @@ export interface ReadinessAt {
 }
 
 export function emptyReadinessCounts(): ReadinessCounts {
-  return { green: 0, yellow: 0, red: 0, unverified: 0 };
+  return { green: 0, yellow: 0, red: 0, unverified: 0, noBackup: 0 };
 }
 
 /** Proven restorable by the check of its newest backup: green, or yellow (restorable, needs attention). */
@@ -82,7 +85,7 @@ export function provenCount(counts: ReadinessCounts): number {
 }
 
 export function countedTotal(counts: ReadinessCounts): number {
-  return counts.green + counts.yellow + counts.red + counts.unverified;
+  return counts.green + counts.yellow + counts.red + counts.unverified + counts.noBackup;
 }
 
 /**
@@ -268,8 +271,8 @@ export class ReadinessTimeline {
       if (!isProtected(object.status, snapshot !== null)) {
         continue;
       }
-      if (state === "no_backup" || state === "unverified") {
-        counts.unverified += 1;
+      if (state === "no_backup") {
+        counts.noBackup += 1;
       } else if (state === "empty") {
         counts.green += 1;
       } else {
@@ -312,6 +315,7 @@ export function mergeReadiness(objects: ReadinessAt, other: RatedSet): Readiness
       yellow: objects.counts.yellow + other.counts.yellow,
       red: objects.counts.red + other.counts.red,
       unverified: objects.counts.unverified + other.counts.unverified,
+      noBackup: objects.counts.noBackup + other.counts.noBackup,
     },
     total: objects.total + other.total,
     overall: overallReadiness(rated),

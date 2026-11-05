@@ -108,6 +108,8 @@ export interface ReadinessPoint {
   yellow: number;
   red: number;
   unverified: number;
+  /** Objects without a backup, counted apart from unverified ones (0 from an older server). */
+  noBackup: number;
 }
 
 export interface FailureCauseRow {
@@ -379,6 +381,7 @@ const ROWS = {
     yellow: num(raw.yellow),
     red: num(raw.red),
     unverified: num(raw.unverified),
+    noBackup: num(raw.noBackup ?? 0),
   })),
   failuresByCause: (raw: Record<string, unknown>): FailureCauseRow | null => {
     const cause = str(raw.cause);

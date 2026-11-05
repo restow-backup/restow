@@ -22,6 +22,7 @@ import {
   livenessOf,
   notBackedUpOf,
   remainingSeconds,
+  runBarFill,
   runDurationSeconds,
   savingsPercent,
   stateView,
@@ -248,16 +249,7 @@ function ProgressSection({
         <div
           className={cn(
             "h-full rounded-full transition-[width] duration-700 ease-linear motion-reduce:transition-none",
-            run.state === "running" && "bg-info",
-            run.state === "queued" && "bg-muted-foreground/30",
-            (run.state === "succeeded" || run.state === "partial") && "bg-muted-foreground",
-            run.state === "failed" &&
-              (isHeldBack(run)
-                ? "bg-warning"
-                : notBackedUpOf(run)
-                  ? "bg-muted-foreground/50"
-                  : "bg-destructive"),
-            run.state === "cancelled" && "bg-muted-foreground/50",
+            runBarFill(run),
             indeterminate && "w-full opacity-40 motion-safe:animate-pulse",
           )}
           style={indeterminate ? undefined : { width: `${percent ?? 0}%` }}

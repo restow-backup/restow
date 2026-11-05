@@ -308,6 +308,8 @@ export function VerificationHistoryWidget({
   const language = useLanguage();
   const config = {
     green: { label: t("verificationHistory.series.green"), color: STATUS_CHART_COLOR.success },
+    // Needs attention is the attention tone; charts draw it in the chart warning orange until
+    // the theme rework adds --chart-attention (see chartTone).
     yellow: { label: t("verificationHistory.series.yellow"), color: STATUS_CHART_COLOR.warning },
     red: { label: t("verificationHistory.series.red"), color: STATUS_CHART_COLOR.destructive },
   } satisfies ChartConfig;

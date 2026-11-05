@@ -11,7 +11,17 @@ import {
   UsersRound,
 } from "lucide-react";
 
-import type { StatusTone } from "@/components/kit";
+import {
+  aggregateReadiness,
+  type OverallReadiness,
+  overallMeta,
+  READINESS_FLAG_META,
+  RUN_STATUS_META,
+  SEVERITY_TONE,
+  STORAGE_TARGET_META,
+  type StatusTone,
+  toneOf,
+} from "@/components/kit";
 import type { Run } from "@/features/history/api";
 import { isHeldBack, notBackedUpOf } from "@/features/history/presenters";
 import { describeCadence } from "@/features/schedules/presenters";
@@ -158,33 +168,33 @@ export interface StateView {
 }
 
 /**
- * The badge of a job's state. A running job is Lapis (info), a queued one waits (muted), problems are amber or
- * red, a job that is merely fine is the neutral outline: green is for a restore
- * check that passed, which is what the restore check column says.
+ * The tone of each job state, from the status meta wherever the state is one of its facts (UI
+ * rework, phase 1): a running or a queued run, a failed one, an overdue check, a failing
+ * repository. "Needs attention" (a partial backup, a failed or missing restore check) is the
+ * attention severity (orange), never the amber of Unverified. A job that is merely fine is the
+ * neutral outline: green is for a restore check that passed, which the restore check column says.
  */
+const STATE_TONE: Readonly<Record<JobState, StatusTone>> = {
+  paused: "muted",
+  failing: toneOf(RUN_STATUS_META.failed),
+  running: toneOf(RUN_STATUS_META.running),
+  queued: toneOf(RUN_STATUS_META.queued),
+  attention: SEVERITY_TONE.attention,
+  empty: "muted",
+  // Each of these looks active but backs up nothing on its own: never the neutral "Active".
+  storage_error: toneOf(STORAGE_TARGET_META.error),
+  overdue: toneOf(READINESS_FLAG_META.overdue),
+  manual: "warning",
+  ok: "neutral",
+};
+
+/** The badge of a job's state; a state a newer server sends that this page does not know is "ok". */
 export function stateView(state: JobState): StateView {
-  switch (state) {
-    case "paused":
-      return { tone: "muted", key: state, live: false };
-    case "failing":
-      return { tone: "destructive", key: state, live: false };
-    case "running":
-      return { tone: "info", key: state, live: true };
-    case "queued":
-      return { tone: "muted", key: state, live: false };
-    case "attention":
-      return { tone: "warning", key: state, live: false };
-    case "empty":
-      return { tone: "muted", key: state, live: false };
-    // Each of these looks active but backs up nothing on its own: never the neutral "Active".
-    case "storage_error":
-      return { tone: "destructive", key: state, live: false };
-    case "overdue":
-    case "manual":
-      return { tone: "warning", key: state, live: false };
-    default:
-      return { tone: "neutral", key: "ok", live: false };
+  const tone = (STATE_TONE as Partial<Record<string, StatusTone>>)[state];
+  if (!tone) {
+    return { tone: "neutral", key: "ok", live: false };
   }
+  return { tone, key: state, live: state === "running" && RUN_STATUS_META.running.live === true };
 }
 
 // --- Restore check -------------------------------------------------------------------------------
@@ -196,14 +206,21 @@ export interface RestoreCheckView {
   passed: number;
   /** The facts that are not "passed", in the order of their weight; the badge's tooltip lists them. */
   details: { key: "failed" | "warning" | "unverified" | "noBackup"; count: number }[];
-  /** `none`: nothing in scope to check. */
-  state: "none" | "passed" | "attention" | "failed";
+  /** `none`: nothing in scope to check; else the aggregate (Ready, Not proven, Not restorable). */
+  state: "none" | "passed" | "notProven" | "failed";
 }
 
+const CHECK_STATE: Readonly<Record<OverallReadiness, RestoreCheckView["state"]>> = {
+  green: "passed",
+  yellow: "notProven",
+  red: "failed",
+};
+
 /**
- * The restore checks of a scope in one badge: "5 of 6 passed". Green only when
- * every object passed, red when one failed, amber for warnings, objects not
- * checked yet and objects without a backup.
+ * The restore checks of a scope in one badge: "5 of 6 passed", in the tone of the aggregate
+ * rule (status meta, UI rework decision 1): green only when every object passed, red (Not
+ * restorable) when one failed or has no backup yet, amber (Not proven) for warnings and
+ * objects not checked yet.
  */
 export function restoreCheckView(check: JobRestoreCheck): RestoreCheckView {
   const details = (
@@ -217,16 +234,22 @@ export function restoreCheckView(check: JobRestoreCheck): RestoreCheckView {
     .filter(([, count]) => count > 0)
     .map(([key, count]) => ({ key, count }));
   const base = { total: check.total, passed: check.passed, details };
-  if (check.total === 0) {
+  // Anything in scope the counts do not place is not proven either.
+  const counted = check.passed + check.failed + check.warning + check.unverified + check.noBackup;
+  const overall = aggregateReadiness(
+    {
+      green: check.passed,
+      yellow: check.warning,
+      red: check.failed,
+      unverified: check.unverified + Math.max(0, check.total - counted),
+      noBackup: check.noBackup,
+    },
+    check.total,
+  );
+  if (overall === null) {
     return { ...base, tone: "muted", state: "none" };
   }
-  if (check.failed > 0) {
-    return { ...base, tone: "destructive", state: "failed" };
-  }
-  if (check.passed === check.total) {
-    return { ...base, tone: "success", state: "passed" };
-  }
-  return { ...base, tone: "warning", state: "attention" };
+  return { ...base, tone: toneOf(overallMeta(overall)), state: CHECK_STATE[overall] };
 }
 
 // --- Runs -------------------------------------------------------------------------------------------
@@ -326,18 +349,15 @@ export function retentionLabel(job: Pick<BackupJob, "kind" | "retention">, t: TF
 
 // --- Members ----------------------------------------------------------------------------------------------
 
-/** Whether a member's last backup needs a word: running, failed or partial. */
+/** Whether a member's last backup needs a word: running, failed or partial (run status meta). */
 export function memberOutcomeTone(outcome: JobMember["lastBackup"]["outcome"]): StatusTone | null {
   switch (outcome) {
     case "running":
-      return "info";
     case "failed":
-      return "destructive";
     case "partial":
-      return "warning";
     case "queued":
     case "cancelled":
-      return "muted";
+      return toneOf(RUN_STATUS_META[outcome]);
     default:
       return null;
   }

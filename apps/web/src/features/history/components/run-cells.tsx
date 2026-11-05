@@ -9,20 +9,13 @@ import { cn } from "@/lib/utils";
 
 import type { Run, RunFirstBackup } from "../api";
 import { useSecondClock } from "../live/clock";
-import {
-  barPercent,
-  estimateParts,
-  isHeldBack,
-  notBackedUpOf,
-  runDurationSeconds,
-  withRun,
-} from "../presenters";
+import { barPercent, estimateParts, runBarFill, runDurationSeconds, withRun } from "../presenters";
 import { formatClock } from "../samples";
 import { Sparkline } from "./sparkline";
 
 /** The cells of a row that shows a run, shared by History and the job list. */
 
-/** The bar of a row: Lapis while the run runs, neutral once it completed (green is proof, not completion). */
+/** The bar of a row, in its run's status meta fill (runBarFill): green is proof, not completion. */
 export function RunBar({
   run,
   className,
@@ -40,16 +33,7 @@ export function RunBar({
       <div
         className={cn(
           "h-full rounded-full transition-[width] duration-500 ease-out motion-reduce:transition-none",
-          run.state === "running" && "bg-info",
-          run.state === "queued" && "bg-muted-foreground/30",
-          (run.state === "succeeded" || run.state === "partial") && "bg-muted-foreground",
-          run.state === "failed" &&
-            (isHeldBack(run)
-              ? "bg-warning"
-              : notBackedUpOf(run)
-                ? "bg-muted-foreground/50"
-                : "bg-destructive"),
-          run.state === "cancelled" && "bg-muted-foreground/50",
+          runBarFill(run),
           indeterminate && "w-full opacity-40 motion-safe:animate-pulse",
         )}
         style={indeterminate ? undefined : { width: `${percent ?? 0}%` }}

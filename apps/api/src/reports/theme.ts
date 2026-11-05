@@ -40,9 +40,20 @@ export const colors = {
   successText: "#007152",
   warning: "#d69e2e",
   warningText: "#825700",
+  /**
+   * Needs attention (--attention-fg of the light looks): orange, apart from the amber warning
+   * (Unverified, Not proven). 5.2:1 on white, so it serves as text colour as well.
+   */
+  attention: "#c2410c",
+  attentionText: "#c2410c",
   /** The brand red one step darker (--destructive). */
   destructive: "#c63437",
   destructiveText: "#ad2e30",
+  /**
+   * No backup yet: a darker red than `destructive`, so the two danger series of the readiness
+   * chart stay apart (10.3:1 on white, ΔE 17 from `destructive`).
+   */
+  noBackup: "#7a1f22",
   neutral: "#8a93a3",
   /** Categorical chart palette (--chart-1 .. --chart-5). */
   chart: ["#0650ad", "#ef6505", "#a23070", "#9874ff", "#089883"] as const,
@@ -87,12 +98,13 @@ export const contentWidth = page.width - 2 * page.marginX;
  * Tones a figure or a badge can carry. `success` is green and means proof
  * only; `positive` is good news in plain text colour.
  */
-export type Tone = "neutral" | "positive" | "success" | "warning" | "destructive";
+export type Tone = "neutral" | "positive" | "success" | "attention" | "warning" | "destructive";
 
 export const toneColor: Record<Tone, string> = {
   neutral: colors.muted,
   positive: colors.text,
   success: colors.successText,
+  attention: colors.attentionText,
   warning: colors.warningText,
   destructive: colors.destructiveText,
 };

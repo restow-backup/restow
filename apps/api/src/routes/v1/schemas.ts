@@ -28,9 +28,9 @@ export const readinessSchema = component(
 export const readinessStateSchema = component(
   "ReadinessState",
   z
-    .enum(["green", "yellow", "red", "unverified", "no_backup"])
+    .enum(["green", "yellow", "red", "unverified", "no_backup", "empty"])
     .describe(
-      "Readiness of an object: the latest rating, `unverified` (backed up but never proven by a test restore) or `no_backup`.",
+      "Readiness of an object: the latest rating, `unverified` (backed up but never proven by a test restore), `no_backup`, or `empty` (an admin confirmed the newest check found nothing to restore; /verify/latest only, since contract 1.10.0).",
     ),
 );
 

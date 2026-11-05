@@ -283,6 +283,12 @@ const data: WidgetData = {
 // Widgets
 // ---------------------------------------------------------------------------
 
+/** The aggregate badge of a readiness card (the legend lists every category's name as well). */
+function overallBadge(html: string): string {
+  const start = html.lastIndexOf("<span", html.indexOf('data-slot="readiness-overall"'));
+  return html.slice(start, html.indexOf("</span>", html.indexOf('data-slot="readiness-overall"')));
+}
+
 describe("recovery readiness", () => {
   it("flags unverified backups visibly and never in a success tone", () => {
     const html = render(<ReadinessWidget view={ready(data.readiness)} {...state} canAdminister />);
@@ -291,7 +297,9 @@ describe("recovery readiness", () => {
     expect(html).toContain("2 backups not verified yet");
     expect(html).toContain('data-segment="unverified"');
     expect(html).toContain("1 object without a backup");
-    expect(html).toContain("Not restorable");
+    // The badge itself (the legend lists "Not restorable" whatever the badge says).
+    expect(overallBadge(html)).toContain('data-tone="destructive"');
+    expect(overallBadge(html)).toContain("Not restorable");
     // The alert's button leads to the unverified objects.
     expect(html).toContain('href="/verify?state=unverified"');
     const flag = html.slice(
@@ -314,15 +322,75 @@ describe("recovery readiness", () => {
     expect(row("red")).toContain('href="/verify?state=red"');
     expect(row("unverified")).toContain('href="/verify?state=unverified"');
     expect(row("noBackup")).toContain('href="/verify?state=no_backup"');
-    // A row with none is plain text: shown, with its 0, but not a link.
+    // A row with none is plain text: shown, dimmed, with its 0, but not a link.
     expect(row("yellow")).not.toContain("href=");
     expect(row("yellow")).toContain(">0<");
-    // In the order of the readiness page's filter: ready, attention, cannot be restored ...
-    const order = ["green", "yellow", "red", "unverified", "noBackup"].map((key) =>
+    expect(row("yellow")).toContain('data-empty="true"');
+    // In the order of the overview's tiles: ready, needs attention, unverified, not restorable,
+    // no backup yet.
+    const order = ["green", "yellow", "unverified", "red", "noBackup"].map((key) =>
       html.indexOf(`data-segment="${key}"`),
     );
     expect(order).toEqual([...order].sort((a, b) => a - b));
     expect(order.every((position) => position > 0)).toBe(true);
+  });
+
+  it("reads 0/0/1/1/18 as Not proven in amber, with the empty categories dimmed", () => {
+    const html = render(
+      <ReadinessWidget
+        view={ready({
+          ...data.readiness,
+          overall: "yellow",
+          total: 20,
+          green: 1,
+          yellow: 1,
+          red: 0,
+          unverified: 18,
+          noBackup: 0,
+          empty: 0,
+        })}
+        {...state}
+        canAdminister
+      />,
+    );
+    const badge = overallBadge(html);
+    expect(badge).toContain('data-tone="warning"');
+    expect(badge).toContain("Not proven");
+    const row = (segment: string) => {
+      const start = html.indexOf(`data-segment="${segment}"`);
+      return html.slice(start, html.indexOf("</li>", start));
+    };
+    for (const empty of ["red", "noBackup"]) {
+      expect(row(empty), empty).toContain('data-empty="true"');
+      expect(row(empty), empty).not.toContain("<a");
+    }
+    for (const linked of ["green", "yellow", "unverified"]) {
+      expect(row(linked), linked).toContain("<a");
+      expect(row(linked), linked).not.toContain('data-empty="true"');
+    }
+    // Every row carries its own icon, so colour never carries the category alone.
+    const categories = ["green", "yellow", "unverified", "red", "noBackup"].map((segment) => {
+      const match = /<svg[^>]*data-category="([\w-]+)"/.exec(row(segment));
+      return match?.[1];
+    });
+    expect(categories).toEqual([
+      "ready",
+      "needs_attention",
+      "unverified",
+      "not_restorable",
+      "no_backup",
+    ]);
+    // The bar: Unverified hatched, Needs attention solid in the attention tone.
+    const bar = html.slice(html.indexOf('data-slot="readiness-bar"'));
+    const segment = (category: string) => {
+      const start = bar.indexOf(`data-category="${category}"`);
+      return bar.slice(bar.lastIndexOf("<div", start), bar.indexOf(">", start));
+    };
+    expect(segment("unverified")).toContain('data-pattern="hatched"');
+    expect(segment("needs_attention")).toContain('data-severity="attention"');
+    expect(segment("needs_attention")).toContain('data-pattern="solid"');
+    // Ready is 1 of 20.
+    expect(segment("ready")).toContain("width:5%");
   });
 
   it("gives a plain member the legend as text, with no link to a page they cannot open", () => {
@@ -349,6 +417,28 @@ describe("recovery readiness", () => {
     // A plain member gets no link to a page they cannot open.
     expect(empty).not.toContain('href="/protected-objects"');
   });
+
+  it("keeps the to-confirm callout when nothing is rated but objects wait for a confirmation", () => {
+    const html = render(
+      <ReadinessWidget
+        view={ready({
+          ...data.readiness,
+          overall: null,
+          total: 0,
+          green: 0,
+          unverified: 0,
+          noBackup: 0,
+          running: 0,
+          toConfirm: 1,
+        })}
+        {...state}
+        canAdminister
+      />,
+    );
+    expect(html).not.toContain('data-state="empty"');
+    expect(html).toContain('data-flag="to-confirm"');
+    expect(html).toContain("status=to_confirm");
+  });
 });
 
 describe("servers and clients", () => {
@@ -358,7 +448,8 @@ describe("servers and clients", () => {
     expect(html).toContain('data-widget="endpoints"');
     expect(html).toContain("Servers and clients");
     expect(html).toContain("6 machines protected (4 servers, 2 clients in total).");
-    expect(html).toContain("3 machines not proven restorable");
+    expect(html).toContain("2 machines cannot be restored or have no backup yet");
+    expect(html).toContain("1 machine: the newest backup is not proven restorable yet");
     expect(html).toContain("1 machine: the last backup failed");
     expect(html).toContain("3 machines need attention");
     expect(html).toContain("Last backup");
@@ -366,20 +457,39 @@ describe("servers and clients", () => {
     expect(html).toContain('href="/inventory"');
   });
 
-  it("colours the machines by the rules of the readiness card", () => {
+  it("colours the machines by the aggregate rule of the readiness card", () => {
     const html = render(<EndpointsWidget view={ready(data.endpoints)} {...state} />);
-    // Anything not proven restorable is "Not restorable", in the destructive tone, as for the objects.
-    expect(html).toContain("Not restorable");
-    expect(html).toMatch(/data-tone="destructive"[^>]*><svg[\s\S]*?<\/svg>Not restorable/);
-    expect(html).toMatch(/data-segment="red"/);
-    expect(html).toMatch(/data-segment="noBackup"/);
-    expect(html).toMatch(/data-segment="unverified"/);
-    expect(html).toMatch(/data-segment="green"/);
-    expect(html).not.toContain('data-segment="yellow"');
-    // The failures carry the destructive tone, the look-at-it finding the warning tone.
-    expect(html).toMatch(/data-finding="notReady"[^>]*><span[^>]*data-tone="destructive"/);
+    // A machine that cannot be restored or has no backup yet makes it "Not restorable".
+    expect(overallBadge(html)).toContain('data-tone="destructive"');
+    expect(overallBadge(html)).toContain("Not restorable");
+    // The shared legend: all five categories, the empty ones dimmed and never links.
+    for (const segment of ["green", "yellow", "unverified", "red", "noBackup"]) {
+      expect(html).toContain(`data-segment="${segment}"`);
+    }
+    expect(html).not.toContain('<a href="/verify');
+    const yellow = html.slice(html.indexOf('data-segment="yellow"'));
+    expect(yellow.slice(0, yellow.indexOf("</li>"))).toContain('data-empty="true"');
+    // Failures are destructive, not proven is a warning, the look-at-it findings attention.
+    expect(html).toMatch(/data-finding="notRestorable"[^>]*><span[^>]*data-tone="destructive"/);
     expect(html).toMatch(/data-finding="failedLastBackup"[^>]*><span[^>]*data-tone="destructive"/);
-    expect(html).toMatch(/data-finding="attention"[^>]*><span[^>]*data-tone="warning"/);
+    expect(html).toMatch(/data-finding="unverified"[^>]*><span[^>]*data-tone="warning"/);
+    expect(html).toMatch(/data-finding="attention"[^>]*><span[^>]*data-tone="attention"/);
+  });
+
+  it("reads machines that are only unverified as Not proven, in amber", () => {
+    const html = render(
+      <EndpointsWidget
+        view={ready({
+          ...data.endpoints,
+          readiness: { green: 5, yellow: 0, red: 0, unverified: 1, noBackup: 0 },
+          notReady: 1,
+          failedLastBackup: 1,
+        })}
+        {...state}
+      />,
+    );
+    expect(overallBadge(html)).toContain('data-tone="warning"');
+    expect(overallBadge(html)).toContain("Not proven");
   });
 
   it("reports a healthy fleet as ready, with no finding and no success claim it cannot back", () => {
@@ -423,7 +533,7 @@ describe("servers and clients", () => {
     );
     expect(html).toContain("No successful backup yet");
     expect(html).toContain("1 machine protected (1 server, 0 clients in total).");
-    expect(html).toContain("1 machine not proven restorable");
+    expect(html).toContain("1 machine cannot be restored or has no backup yet");
   });
 
   it("speaks German too, with the same counts", async () => {
@@ -432,7 +542,7 @@ describe("servers and clients", () => {
       const html = render(<EndpointsWidget view={ready(data.endpoints)} {...state} />);
       expect(html).toContain("Server und Clients");
       expect(html).toContain("6 Rechner geschützt (4 Server, 2 Clients insgesamt).");
-      expect(html).toContain("3 Rechner nicht nachweislich wiederherstellbar");
+      expect(html).toContain("2 Rechner nicht wiederherstellbar oder noch ohne Sicherung");
       expect(html).toContain("1 Rechner: letzte Sicherung fehlgeschlagen");
       expect(html).toContain("3 Rechner brauchen Aufmerksamkeit");
       expect(html).toContain("Nicht wiederherstellbar");
@@ -577,6 +687,8 @@ describe("mailboxes and drives in no backup job", () => {
     );
     expectTranslated(html);
     expect(html).toContain('data-flag="objects-without-job"');
+    // In no backup job is the attention callout (orange), never the amber of Unverified.
+    expect(html).toMatch(/data-variant="attention"[^>]*data-flag="objects-without-job"/);
     expect(html).toContain("2 mailboxes and drives in no backup job");
     // `withoutJob` counts both: the machines are what is left of it.
     expect(html).toContain("1 machine in no backup job");
@@ -617,6 +729,17 @@ describe("mailboxes and drives in no backup job", () => {
     expectTranslated(html);
     expect(html).toContain("2 objects in no backup job");
     expect(html).not.toContain("No failures in the latest runs");
+    // The readiness flag's look (status meta): attention, as on the readiness card beside it.
+    expect(html).toMatch(/data-tone="attention"[^>]*data-count="objects-without-job"/);
+    const noBackup = render(
+      <ProtectedObjectsWidget
+        view={ready({ ...data.protectedObjects, withoutJob: 0, noBackup: 3, failed: 0 })}
+        {...state}
+        canAdminister
+      />,
+    );
+    // No backup yet is the readiness category's danger, as on the readiness card.
+    expect(noBackup).toMatch(/data-tone="destructive"[^>]*data-count="no-backup"/);
   });
 });
 

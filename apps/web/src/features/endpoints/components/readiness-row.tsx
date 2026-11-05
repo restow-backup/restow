@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { ArrowRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { RelativeTime, StatusBadge } from "@/components/kit";
+import { READINESS_FLAG_META, RelativeTime, StatusBadge, toneOf } from "@/components/kit";
 import { buttonVariants } from "@/components/ui/button";
 import { PIN_FIRST, TableCell, TableRow } from "@/components/ui/table";
 import type { EndpointReadinessRow } from "@/features/verify/api";
@@ -62,7 +62,12 @@ export function EndpointReadinessRowView({ row }: { row: EndpointReadinessRow })
         <div className="flex flex-wrap items-center gap-1.5">
           <StateBadge state={row.state} overdue={row.overdue} />
           {row.overdue && row.state !== "no_backup" ? (
-            <StatusBadge tone="warning">{t("readinessSection.overdue")}</StatusBadge>
+            <StatusBadge
+              tone={toneOf(READINESS_FLAG_META.overdue)}
+              icon={READINESS_FLAG_META.overdue.icon}
+            >
+              {t("readinessSection.overdue")}
+            </StatusBadge>
           ) : null}
         </div>
       </TableCell>

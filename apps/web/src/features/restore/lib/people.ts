@@ -1,3 +1,4 @@
+import { READINESS_CATEGORY_META, SEVERITY_RANK } from "@/components/kit";
 import type { PersonEntry, SnapshotObject } from "@/features/restore/api";
 import type { ObjectState } from "@/features/verify/api";
 
@@ -30,13 +31,21 @@ export function latestBackupOf(objects: readonly SnapshotObject[]): string | nul
   return latest;
 }
 
+const rankOf = (state: "red" | "yellow" | "unverified" | "green") =>
+  SEVERITY_RANK[READINESS_CATEGORY_META[state].severity];
+
+/**
+ * Worst first by the status meta's severities (Not restorable, Needs attention, Unverified,
+ * Ready). `no_backup` and `empty` come last: only objects with a restore point are compared,
+ * and a person reads "No backup yet" only when nothing of theirs is backed up.
+ */
 const STATE_RANK: Readonly<Record<ObjectState, number>> = {
-  red: 0,
-  yellow: 1,
-  unverified: 2,
-  green: 3,
-  no_backup: 4,
-  empty: 5,
+  red: rankOf("red"),
+  yellow: rankOf("yellow"),
+  unverified: rankOf("unverified"),
+  green: rankOf("green"),
+  no_backup: SEVERITY_RANK.muted + 1,
+  empty: SEVERITY_RANK.muted + 2,
 };
 
 /** The least proven readiness among the person's objects that have a restore point. */

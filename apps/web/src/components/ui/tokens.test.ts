@@ -448,6 +448,85 @@ describe("status text tokens", () => {
   });
 });
 
+describe("attention tone", () => {
+  // UI rework brief, phase 5 table: one opaque set per look, not a base tone with tints.
+  const ATTENTION = ["attention-bg", "attention-border", "attention-fg"] as const;
+  const PINS = {
+    "Restow light": {
+      "attention-bg": "#FFF1E6",
+      "attention-border": "#F6C7A1",
+      "attention-fg": "#C2410C",
+    },
+    "Restow dark": {
+      "attention-bg": "#2C1D12",
+      "attention-border": "#5A3519",
+      "attention-fg": "#FB923C",
+    },
+    "Neutral light": {
+      "attention-bg": "#FFF1E6",
+      "attention-border": "#F6C7A1",
+      "attention-fg": "#C2410C",
+    },
+    "Neutral dark": {
+      "attention-bg": "#2A1A0E",
+      "attention-border": "#55321A",
+      "attention-fg": "#FB923C",
+    },
+  } as const;
+
+  it("is defined in every look's block: :root, .dark and both Neutral blocks", () => {
+    for (const [block, tokens] of [
+      [":root", light],
+      [".dark", darkOverrides],
+      [NEUTRAL_LIGHT_SELECTOR, neutralLightOverrides],
+      [NEUTRAL_DARK_SELECTOR, neutralDarkOverrides],
+    ] as const) {
+      for (const name of ATTENTION) {
+        expect(tokens.has(name), `${block} --${name}`).toBe(true);
+      }
+    }
+  });
+
+  for (const [look, tokens] of LOOKS) {
+    it(`${look} keeps the brief's values`, () => {
+      for (const [name, expected] of Object.entries(PINS[look])) {
+        expect(toHex(token(tokens, name)), `${look}: --${name}`).toBe(expected);
+      }
+    });
+  }
+
+  it(`its text reaches ${TEXT_MIN}:1 on its own background, on the card and on the page in every look`, () => {
+    for (const [look, tokens] of LOOKS) {
+      const fg = token(tokens, "attention-fg");
+      for (const surface of ["attention-bg", "card", "background"]) {
+        const ratio = contrast(fg, token(tokens, surface));
+        expect(ratio, `${look}: --attention-fg on --${surface}`).toBeGreaterThanOrEqual(TEXT_MIN);
+      }
+    }
+  });
+
+  it(`its fill (dots, bar segments) reaches ${CHART_CONTRAST_MIN}:1 against the card in every look`, () => {
+    for (const [look, tokens] of LOOKS) {
+      const ratio = contrast(token(tokens, "attention-fg"), token(tokens, "card"));
+      expect(ratio, `${look}: --attention-fg on --card`).toBeGreaterThanOrEqual(CHART_CONTRAST_MIN);
+    }
+  });
+
+  it("is the badge's and the alert's attention variant and is exposed as Tailwind colours", () => {
+    expect(badgeSource).toMatch(/attention: "bg-attention-bg text-attention-fg"/);
+    // The alert takes the opaque set too (border, surface, text), never a tint of another tone.
+    expect(alertSource).toMatch(
+      /attention:\s*"border-attention-border bg-attention-bg text-attention-fg /,
+    );
+    const theme = /@theme inline\s*\{([^}]*)\}/.exec(css)?.[1] ?? "";
+    for (const name of ATTENTION) {
+      expect(theme, `--color-${name}`).toMatch(
+        new RegExp(`--color-${name}:\\s*var\\(--${name}\\)`),
+      );
+    }
+  });
+});
+
 describe("Soon badge of upcoming menu entries", () => {
   // components/layout/soon-badge.tsx: the warning badge (amber, never green)
   // on the sidebar, a hovered or active sidebar entry and an open menu.
@@ -708,9 +787,10 @@ describe('colour scheme "Neutral"', () => {
     );
   });
 
-  it("overrides only surfaces, text, lines, input, ring, primary and sidebar tokens", () => {
+  it("overrides only surfaces, text, lines, input, ring, primary, sidebar and attention tokens", () => {
+    // The attention set is per look (UI rework brief), so Neutral sets its own.
     const OWNED =
-      /^(?:background|foreground|card(?:-foreground)?|popover(?:-foreground)?|primary(?:-foreground)?|secondary(?:-foreground)?|muted(?:-foreground)?|accent(?:-foreground)?|border|input|ring|sidebar(?:-[a-z]+)*)$/;
+      /^(?:background|foreground|card(?:-foreground)?|popover(?:-foreground)?|primary(?:-foreground)?|secondary(?:-foreground)?|muted(?:-foreground)?|accent(?:-foreground)?|border|input|ring|sidebar(?:-[a-z]+)*|attention-(?:bg|border|fg))$/;
     for (const name of [...neutralLightOverrides.keys(), ...neutralDarkOverrides.keys()]) {
       expect(name, `--${name} is not Neutral's to override`).toMatch(OWNED);
     }

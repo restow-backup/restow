@@ -462,7 +462,7 @@ describe.skipIf(!testDatabaseAdminUrl)("dashboard against Postgres", () => {
         suspendedTenants: 0,
         unavailableTenants: 0,
         tenantsNotReady: 2,
-        readiness: { total: 5, green: 1, yellow: 0, red: 0, unverified: 2, noBackup: 2 },
+        readiness: { total: 5, green: 1, yellow: 0, red: 0, unverified: 2, noBackup: 2, empty: 0 },
         protectedObjects: 5,
         unverifiedObjects: 2,
         failures24h: 2,
@@ -525,6 +525,7 @@ describe.skipIf(!testDatabaseAdminUrl)("dashboard against Postgres", () => {
           red: 0,
           unverified: 2,
           noBackup: 2,
+          empty: 0,
         });
       } finally {
         await owner.delete(tenants).where(eq(tenants.id, ownId));

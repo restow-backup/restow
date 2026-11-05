@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Play } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { StatusBadge } from "@/components/kit";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
@@ -14,7 +15,7 @@ import { backupNow, type PveGuest, type PveNode, pveKeys } from "./api.js";
 import { progressPercent } from "./backup-progress.js";
 import { lastFollowUp, shortDate } from "./backup-size.js";
 import { CancelBackupButton } from "./cancel-controls.js";
-import { type GuestStatus, guestStatuses } from "./guest-status.js";
+import { GUEST_STATUS_META, type GuestStatus, guestStatuses } from "./guest-status.js";
 import { PVE_NAMESPACE } from "./i18n.js";
 
 /**
@@ -53,16 +54,20 @@ export function GuestStatusBadge({
 }) {
   const label = useStatusLabel();
   const text = label(status);
+  // The icon of the state (status meta): Needs attention and Unverified differ by more than words.
+  const look = GUEST_STATUS_META[status.key];
   return (
-    <Badge
-      variant={status.tone}
+    <StatusBadge
+      tone={status.tone}
+      icon={look.icon}
+      live={look.live}
       data-slot="pve-guest-status"
       data-status={status.key}
       title={text}
       className={cn("justify-start", className)}
     >
       <span className="min-w-0 truncate">{text}</span>
-    </Badge>
+    </StatusBadge>
   );
 }
 

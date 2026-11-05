@@ -31,39 +31,22 @@ const ALLOWED: Readonly<Record<string, string>> = {
   "./components/ui/badge.tsx": "the success variant of the badge",
   "./components/kit/status-badge.tsx": "the success tone and its variant",
   "./components/kit/chart-colors.ts": "the success series colour",
+  // The pages that take their tones from the status meta (a report's items, the states of a
+  // machine, a guest and a share, PVE runs and boot tests) name no green themselves: the meta
+  // decides it, and only for its proof entries.
+  "./components/kit/status-meta.ts":
+    "Ready, Verified, a passed restore check, a restore that completed: the success entries of the status meta",
   "./features/updates/components/version-card.tsx":
     "a key the icon tone record needs for the type; no state maps to it",
   // -- the result of a restore check: Ready, Verified, a rating of green
-  "./features/verify/presenters.ts": "Ready / Verified / storage check intact",
-  "./features/verify/components/summary.tsx": "the Ready banner and tile",
-  "./features/verify/report-page.tsx": "items that came back byte-exact",
-  "./features/dashboard/presenters.ts": "the green readiness segment; a completed restore",
-  "./features/dashboard/components/readiness-legend.tsx":
-    "the fill of the green segment: the objects a restore check proved",
+  "./features/verify/components/summary.tsx": "the Ready banner",
   "./features/dashboard/widgets/trend-widgets.tsx": "restore checks that passed, over time",
-  "./features/stats/presenters.ts": "a rating of green",
   "./features/stats/components/outcome-charts.tsx": "restores that completed; Ready over time",
-  "./features/tenants/presenters.ts": "the readiness of a tenant",
-  "./features/directory/presenters.ts": "the readiness of a protected object",
-  "./features/backup-jobs/presenters.ts":
-    "the restore checks of a job: green only when every object or machine passed",
   "./features/jobs/presenters.ts": "the readiness badge; a restore that completed",
-  "./features/history/presenters.ts":
-    "a restore check that passed, and a restore that completed (the data is back)",
   "./features/endpoints/presenters.ts":
     "restore and restore test runs; a green restore test report; a restore request that went through",
-  "./features/file-shares/presenters.ts":
-    "a file share whose restore check passed; a restore into a share that completed",
   "./features/pve/guest-page.tsx":
     "a restore point whose restore check passed; a restore or restore check of a guest that completed",
-  "./features/pve/run-status.ts":
-    "a restore or restore check of a guest that completed (the run badge of the guest page and its detail panel)",
-  "./features/pve/guest-status.ts":
-    "the state of a guest whose newest restore point passed its restore check (the only green state)",
-  "./features/endpoints/machine-status.ts":
-    "the state of a machine whose newest backup a restore check rated green, while a job renews it (the only green state)",
-  "./features/pve/boot-test.tsx":
-    "a boot test whose restored guest answered (its QEMU guest agent, or a container's init)",
   "./features/storage/components/restore-point-immutability.tsx":
     "a restore point whose COMPLIANCE lock the storage itself confirmed (HeadObject retention): nobody can delete it before then",
   "./features/archive/chain-check.tsx":

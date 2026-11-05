@@ -4,7 +4,7 @@ import { ChevronRight, Container } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
-import { NativeSelect, RelativeTime } from "@/components/kit";
+import { NativeSelect, RelativeTime, StatusBadge } from "@/components/kit";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -37,6 +37,7 @@ import {
 import { activityHint, BackupProgress } from "./backup-progress.js";
 import { BackupSizeCell } from "./backup-size.js";
 import { CancelBackupButton } from "./cancel-controls.js";
+import { GUEST_STATUS_META, type GuestStatusKey } from "./guest-status.js";
 import { PVE_NAMESPACE } from "./i18n.js";
 import { guestTo, PVE_ROLES, pveTo } from "./paths.js";
 import { JobDialog } from "./pve-page.js";
@@ -74,15 +75,37 @@ export function guestProtection(guest: PveGuest): GuestProtection {
   return (guest.backups?.last?.unreadable ?? 0) > 0 ? "incomplete" : "protected";
 }
 
-const PROTECTION_BADGE = {
-  protected: "outline",
-  failed: "destructive",
-  incomplete: "warning",
-  noJob: "warning",
-  never: "warning",
-  excluded: "muted",
-  unsupported: "muted",
-} as const;
+/**
+ * The guest state (guest-status.ts) whose look each protection takes, so the inventory says the
+ * same as the guest table and the readiness row (In no backup job is the attention flag).
+ */
+const PROTECTION_STATE: Readonly<Record<GuestProtection, GuestStatusKey>> = {
+  protected: "succeeded",
+  failed: "failed",
+  incomplete: "incomplete",
+  noJob: "no_job",
+  never: "never",
+  excluded: "excluded",
+  unsupported: "absent",
+};
+
+/** The badge of a protection, in its guest state's tone and with its icon. */
+function ProtectionBadge({
+  protection,
+  children,
+  title,
+}: {
+  protection: GuestProtection;
+  children: React.ReactNode;
+  title?: string;
+}) {
+  const look = GUEST_STATUS_META[PROTECTION_STATE[protection]];
+  return (
+    <StatusBadge tone={look.tone} icon={look.icon} title={title} data-protection={protection}>
+      {children}
+    </StatusBadge>
+  );
+}
 
 interface NodeGroup {
   key: string;
@@ -299,9 +322,9 @@ function NodeRow({ group, jobs }: { group: NodeGroup; jobs: PveJob[] }) {
           {(["protected", "failed", "incomplete", "noJob", "never", "excluded"] as const).map(
             (state) =>
               counts[state] > 0 ? (
-                <Badge key={state} variant={PROTECTION_BADGE[state]}>
+                <ProtectionBadge key={state} protection={state}>
                   {t(`inventory.count.${state}`, { count: counts[state] })}
-                </Badge>
+                </ProtectionBadge>
               ) : null,
           )}
         </span>
@@ -479,8 +502,8 @@ function NodeRow({ group, jobs }: { group: NodeGroup; jobs: PveJob[] }) {
                       </TableCell>
                       <TableCell>
                         <span className="flex flex-wrap items-center gap-2">
-                          <Badge
-                            variant={PROTECTION_BADGE[protection]}
+                          <ProtectionBadge
+                            protection={protection}
                             title={
                               protection === "failed"
                                 ? (guest.lastRunError ?? undefined)
@@ -488,7 +511,7 @@ function NodeRow({ group, jobs }: { group: NodeGroup; jobs: PveJob[] }) {
                             }
                           >
                             {t(`inventory.state.${protection}`)}
-                          </Badge>
+                          </ProtectionBadge>
                           {guest.lastSuccessAt ? (
                             <span className="text-xs text-muted-foreground">
                               <RelativeTime value={guest.lastSuccessAt} />

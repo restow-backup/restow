@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { StatusBadge, toneOf, VERIFICATION_META } from "@/components/kit";
 import { Badge, badgeVariants } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type {
@@ -23,7 +24,7 @@ import type {
 import {
   jobStatusDisplay,
   type NotBackedUpReason,
-  READINESS_VARIANT,
+  SNAPSHOT_STATE_META,
   SNAPSHOT_STATE_VARIANT,
 } from "@/features/jobs/presenters";
 import { useJobFormat } from "@/features/jobs/use-format";
@@ -78,6 +79,8 @@ export function JobStatusBadge({
 
 export function SnapshotStateBadge({ state }: { state: SnapshotState }) {
   const { t } = useTranslation("backup");
+  // The icon of the state (status meta): colour never carries the meaning alone.
+  const Icon = SNAPSHOT_STATE_META[state].icon;
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -88,6 +91,7 @@ export function SnapshotStateBadge({ state }: { state: SnapshotState }) {
             "cursor-default outline-none focus-visible:ring-2 focus-visible:ring-ring",
           )}
         >
+          <Icon aria-hidden="true" />
           {t(`snapshots.state.${state}`)}
         </button>
       </TooltipTrigger>
@@ -100,13 +104,21 @@ export function SnapshotStateBadge({ state }: { state: SnapshotState }) {
 export function ReadinessBadge({ verify }: { verify: VerifySummary | null }) {
   const { t, relative } = useJobFormat();
   if (!verify) {
-    return <Badge variant="warning">{t("readiness.none")}</Badge>;
+    const meta = VERIFICATION_META.unverified;
+    return (
+      <StatusBadge tone={toneOf(meta)} icon={meta.icon}>
+        {t("readiness.none")}
+      </StatusBadge>
+    );
   }
   const readiness: RecoveryReadiness = verify.recoveryReadiness;
+  const meta = VERIFICATION_META[readiness];
   const checked = relative(verify.checkedAt);
   return (
     <span className="inline-flex flex-col items-start gap-0.5">
-      <Badge variant={READINESS_VARIANT[readiness]}>{t(`readiness.${readiness}`)}</Badge>
+      <StatusBadge tone={toneOf(meta)} icon={meta.icon}>
+        {t(`readiness.${readiness}`)}
+      </StatusBadge>
       {checked ? (
         <span className="text-xs text-muted-foreground">
           {t("readiness.checked", { time: checked })}

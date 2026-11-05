@@ -241,7 +241,7 @@ export interface ProtectedObjectDto {
   } | null;
   /**
    * An `orphaned` object's confirmation (@restow/core `inactiveState`): `to_confirm` reads amber
-   * "Not backed up any more, please confirm" and keeps the tenant from green, `confirmed` grey
+   * "Not backed up any more, please confirm" and is listed as a callout, `confirmed` grey
    * "Intentionally no longer backed up". Null for every other object.
    */
   inactiveState: InactiveState | null;
@@ -304,7 +304,7 @@ export interface ProtectedObjectDto {
   /**
    * An active object that no ENABLED mail job covers ("In no backup job"): nothing backs it up,
    * whether no job names it or only a disabled one. Its readiness is the rating of its newest
-   * backup without that backup's age, it is never overdue and keeps the tenant from green.
+   * backup without that backup's age, it is never overdue and it is listed as a callout.
    */
   withoutJob: boolean;
   /**
@@ -1650,7 +1650,7 @@ export interface ConfirmInactiveResult {
 /**
  * Confirm "Yes, intended" for objects Restow stopped backing up (status `orphaned`, with or
  * without a reason): they turn from amber "please confirm" to grey "intentionally no longer
- * backed up, confirmed by <who> on <date>" and stop keeping the tenant from green. Only
+ * backed up, confirmed by <who> on <date>" and leave the tenant's callouts. Only
  * unconfirmed orphans change; one audit entry names them. The confirmation lasts until the
  * object becomes active again, which drops it (migration 0069 trigger).
  */

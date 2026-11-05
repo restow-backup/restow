@@ -1,38 +1,16 @@
-import {
-  AlertTriangle,
-  CircleDashed,
-  Cloud,
-  Globe,
-  Inbox,
-  Mail,
-  ShieldAlert,
-  ShieldCheck,
-  ShieldQuestion,
-  ShieldX,
-  UsersRound,
-  XCircle,
-} from "lucide-react";
+import { Cloud, Globe, Inbox, Mail, UsersRound } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { StatusBadge } from "@/components/kit";
+import { STATUS_TEXT, StatusBadge, toneOf, VERIFICATION_META } from "@/components/kit";
 import type { ObjectKind, ObjectState, Reason, StorageState } from "@/features/verify/api";
 import { reasonMessage, STORAGE_BADGE, stateBadgeView } from "@/features/verify/presenters";
 import { formatBytes } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-const STATE_ICON = {
-  green: ShieldCheck,
-  yellow: ShieldAlert,
-  red: ShieldX,
-  unverified: ShieldQuestion,
-  no_backup: ShieldQuestion,
-  empty: CircleDashed,
-} as const;
-
 /**
- * The rating of an object, with an icon so it never relies on colour alone.
- * `overdue` decides the tone and label of a `no_backup` state: waiting for
- * its first backup (warning) or a real problem past the grace period (red).
+ * The rating of an object, with the icon of its category (status meta) so it never relies on
+ * colour alone. `overdue` decides the tone and label of a `no_backup` state: waiting for its
+ * first backup (warning) or a real problem past the grace period (No backup yet, danger).
  *
  * Unlike the base `StatusBadge` (which wraps by design so a long dynamic
  * status stays readable), this one's vocabulary is a handful of short fixed
@@ -49,12 +27,13 @@ export function StateBadge({
   className?: string;
 }) {
   const { t } = useTranslation("verify");
-  const { tone, key } = stateBadgeView({ state, overdue });
+  const { tone, key, meta } = stateBadgeView({ state, overdue });
   return (
     <StatusBadge
       tone={tone}
-      icon={STATE_ICON[state]}
+      icon={meta.icon}
       className={cn("whitespace-nowrap", className)}
+      data-category={meta.id}
     >
       {t(key)}
     </StatusBadge>
@@ -123,7 +102,9 @@ export function ReasonList({
     <ul className={cn("space-y-2", className)}>
       {reasons.map((reason) => {
         const { key, values } = reasonMessage(reason, (bytes) => formatBytes(bytes, language));
-        const Icon = reason.severity === "red" ? XCircle : AlertTriangle;
+        // A red finding cannot be restored; a yellow one needs attention (status meta).
+        const meta = VERIFICATION_META[reason.severity];
+        const Icon = meta.icon;
         return (
           <li
             key={`${reason.code}-${reason.count ?? ""}`}
@@ -131,12 +112,7 @@ export function ReasonList({
           >
             <Icon
               aria-hidden="true"
-              className={cn(
-                "mt-0.5 size-4 shrink-0",
-                reason.severity === "red"
-                  ? "text-destructive"
-                  : "text-warning-foreground dark:text-warning",
-              )}
+              className={cn("mt-0.5 size-4 shrink-0", STATUS_TEXT[toneOf(meta)])}
             />
             <span>{t(key, values)}</span>
           </li>

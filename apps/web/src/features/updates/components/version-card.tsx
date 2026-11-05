@@ -45,6 +45,8 @@ const STATUS_ICON = {
 
 const ICON_TONE: Record<CheckStatus["tone"], string> = {
   success: "text-success-text bg-success/10",
+  // A key the record needs for the type; no update state maps to it.
+  attention: "text-attention-fg bg-attention-bg",
   neutral: "text-foreground bg-muted",
   warning: "text-warning-text bg-warning/10",
   destructive: "text-destructive-text bg-destructive/10",

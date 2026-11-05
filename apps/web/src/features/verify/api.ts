@@ -167,13 +167,13 @@ export interface ReadinessSummary {
   empty?: number;
   overdue: number;
   /**
-   * Objects no longer backed up that nobody confirmed as intended yet: they keep `overall` from
-   * green (absent from an older server).
+   * Objects no longer backed up that nobody confirmed as intended yet: listed as a callout, they
+   * do not change `overall` (absent from an older server).
    */
   toConfirm?: number;
   /**
-   * Machines and protected objects in no backup job: any of them keeps `overall` from green
-   * (absent from an older server).
+   * Machines and protected objects in no backup job: listed as a callout, they do not change
+   * `overall` (absent from an older server).
    */
   withoutJob?: number;
   /** The mailboxes, OneDrives, sites, groups and IMAP accounts among `withoutJob`. */

@@ -1,10 +1,16 @@
-import type { StatusTone } from "@/components/kit";
+import {
+  aggregateReadiness,
+  JOB_STATUS_META,
+  type JobStatusKey,
+  jobStatusTone,
+  type StatusTone,
+  toneOf,
+} from "@/components/kit";
 
 import type {
   BackupDay,
   EndpointsWidget,
   Readiness,
-  ReadinessWidget,
   RecentJob,
   StorageGrowthWidget,
   WidgetId,
@@ -115,59 +121,10 @@ export function successRateDelta(current: SuccessRate, previous: SuccessRate): n
 // Tones
 // ---------------------------------------------------------------------------
 
-export const READINESS_TONE: Readonly<Record<Readiness, StatusTone>> = {
-  green: "success",
-  yellow: "warning",
-  red: "destructive",
-};
-
-export function readinessTone(readiness: Readiness | null): StatusTone {
-  return readiness ? READINESS_TONE[readiness] : "muted";
-}
-
+/** The legend rows and bar segments of a readiness breakdown (the counts' field names). */
 export type ReadinessSegmentKey = "green" | "yellow" | "red" | "unverified" | "noBackup" | "empty";
 
-export interface ReadinessSegment {
-  key: ReadinessSegmentKey;
-  count: number;
-  tone: StatusTone;
-}
-
-/**
- * The objects by state, worst first. Unverified backups and objects without a
- * backup are never rated fine: they carry the warning and destructive tones.
- */
-export function readinessSegments(
-  widget: Pick<ReadinessWidget, "green" | "yellow" | "red" | "unverified" | "noBackup">,
-): ReadinessSegment[] {
-  const segments: ReadinessSegment[] = [
-    { key: "red", count: widget.red, tone: "destructive" },
-    { key: "noBackup", count: widget.noBackup, tone: "destructive" },
-    { key: "unverified", count: widget.unverified, tone: "warning" },
-    { key: "yellow", count: widget.yellow, tone: "warning" },
-    { key: "green", count: widget.green, tone: "success" },
-  ];
-  return segments.filter((segment) => segment.count > 0);
-}
-
-/** Sort rank for readiness: the worst first, unknown last. */
-export function readinessRank(readiness: Readiness | null): number {
-  return readiness === "red" ? 0 : readiness === "yellow" ? 1 : readiness === "green" ? 2 : 3;
-}
-
-export type JobStatusKey =
-  | "queued"
-  | "active"
-  | "throttled"
-  | "completed"
-  | "completedWithFailures"
-  | "failed"
-  | "limited"
-  | "notBackedUp_account_disabled"
-  | "notBackedUp_no_license"
-  | "notBackedUp_locked"
-  | "notBackedUp_login_refused"
-  | "cancelled";
+export type { JobStatusKey };
 
 /**
  * A job's status for the badge. A run that completed with failed items is
@@ -181,28 +138,30 @@ export function jobStatusView(job: RecentJob): {
   tone: StatusTone;
   live: boolean;
 } {
+  const view = (key: JobStatusKey) => {
+    const meta = JOB_STATUS_META[key];
+    return { key, tone: toneOf(meta), live: meta.live === true };
+  };
   switch (job.status) {
     case "queued":
-      return { key: "queued", tone: "muted", live: false };
+      return view("queued");
     case "active":
-      return job.throttledUntil
-        ? { key: "throttled", tone: "warning", live: true }
-        : { key: "active", tone: "info", live: true };
+      return view(job.throttledUntil ? "throttled" : "active");
     case "completed":
-      return (job.progress?.failed ?? 0) > 0
-        ? { key: "completedWithFailures", tone: "warning", live: false }
-        : { key: "completed", tone: job.queue === "restore" ? "success" : "neutral", live: false };
+      if ((job.progress?.failed ?? 0) > 0) {
+        return view("completedWithFailures");
+      }
+      // A restore that completed brought the data back: the only completed job that is green.
+      return { ...view("completed"), tone: jobStatusTone("completed", job.queue) };
     case "failed":
       // A backup a service held back is no failure: amber, the next scheduled run tries again.
       if (job.serviceLimited) {
-        return { key: "limited", tone: "warning", live: false };
+        return view("limited");
       }
       // A disabled or unlicensed account: not backed up, neutral, no failure.
-      return job.notBackedUp
-        ? { key: `notBackedUp_${job.notBackedUp}`, tone: "muted", live: false }
-        : { key: "failed", tone: "destructive", live: false };
+      return job.notBackedUp ? view(`notBackedUp_${job.notBackedUp}`) : view("failed");
     case "cancelled":
-      return { key: "cancelled", tone: "muted", live: false };
+      return view("cancelled");
   }
 }
 
@@ -249,32 +208,27 @@ export function showEndpoints(view: WidgetView<EndpointsWidget>): boolean {
 }
 
 /**
- * The machines' overall standing, by the rules of the readiness card: red when
- * any machine is not proven restorable (a failed restore test, a backup no
- * restore test has read back, no backup yet), otherwise yellow when something
- * needs attention (a backup proven with gaps, a failed last backup, a silent
- * server, a client without a recent backup, a machine in no backup job),
- * otherwise green. Null without machines.
+ * The machines' overall standing, by the rule of the readiness card (aggregateReadiness, UI
+ * rework decision 1): red (Not restorable) when a machine's newest backup cannot be restored or
+ * it has no backup yet, yellow (Not proven) when one needs attention or is unverified, otherwise
+ * green. A failed last backup, a silent server and a machine in no backup job are findings of
+ * their own (decision 2): they no longer turn the badge yellow. Null without machines, and
+ * while no protected machine is rated.
  */
 export function endpointsOverall(widget: EndpointsWidget): Readiness | null {
   if (widget.machines === 0) {
     return null;
   }
-  if (widget.notReady > 0) {
-    return "red";
-  }
-  if (
-    widget.readiness.yellow > 0 ||
-    widget.failedLastBackup > 0 ||
-    widget.needingAttention > 0 ||
-    widget.withoutJob > 0
-  ) {
-    return "yellow";
-  }
-  return "green";
+  const { green, yellow, red, unverified, noBackup } = widget.readiness;
+  return aggregateReadiness(widget.readiness, green + yellow + red + unverified + noBackup);
 }
 
-export type EndpointFindingKey = "notReady" | "failedLastBackup" | "withoutJob" | "attention";
+export type EndpointFindingKey =
+  | "notRestorable"
+  | "unverified"
+  | "failedLastBackup"
+  | "withoutJob"
+  | "attention";
 
 export interface EndpointFinding {
   key: EndpointFindingKey;
@@ -284,17 +238,24 @@ export interface EndpointFinding {
 
 /**
  * What the admin has to look at, worst first; a finding with no machine is
- * left out. Not proven restorable and a failed last backup are failures, the
- * rest (a silent server, a client without a recent backup) asks for a look.
+ * left out. Not restorable (a failed restore test or no backup yet) and a
+ * failed last backup are failures, a backup no restore test has read back is
+ * not proven (warning), and the rest (a machine in no job, a silent server, a
+ * client without a recent backup) asks for a look (attention).
  */
 export function endpointFindings(widget: EndpointsWidget): EndpointFinding[] {
   const findings: EndpointFinding[] = [
-    { key: "notReady", count: widget.notReady, tone: "destructive" },
+    {
+      key: "notRestorable",
+      count: widget.readiness.red + widget.readiness.noBackup,
+      tone: "destructive",
+    },
     { key: "failedLastBackup", count: widget.failedLastBackup, tone: "destructive" },
+    { key: "unverified", count: widget.readiness.unverified, tone: "warning" },
     // Nothing backs these up: not protected, whatever an old backup of them scores.
-    { key: "withoutJob", count: widget.withoutJob, tone: "warning" },
+    { key: "withoutJob", count: widget.withoutJob, tone: "attention" },
     // The other reasons to look at a machine; one in no job is already counted above.
-    { key: "attention", count: widget.otherAttention, tone: "warning" },
+    { key: "attention", count: widget.otherAttention, tone: "attention" },
   ];
   return findings.filter((finding) => finding.count > 0);
 }

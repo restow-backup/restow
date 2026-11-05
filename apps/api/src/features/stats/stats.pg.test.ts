@@ -696,19 +696,27 @@ describe.skipIf(!testDatabaseAdminUrl)("statistics against Postgres", () => {
     });
 
     it("rates readiness at the end of each day", () => {
-      const ready = (green: number, yellow: number, red: number, unverified: number) => ({
+      const ready = (
+        green: number,
+        yellow: number,
+        red: number,
+        unverified: number,
+        noBackup = 0,
+      ) => ({
         green,
         yellow,
         red,
         unverified,
+        noBackup,
       });
       expect(stats.series.readiness).toEqual(
         [
           ready(1, 0, 0, 1),
           // Anna's backup of 09-02 is newer than her green check: not proven until 09-03.
           ready(0, 0, 0, 2),
-          ready(0, 1, 0, 2),
-          ready(0, 1, 0, 2),
+          // An object without a backup yet counts as No backup yet, apart from unverified.
+          ready(0, 1, 0, 1, 1),
+          ready(0, 1, 0, 1, 1),
           ready(0, 1, 1, 1),
           ready(0, 1, 1, 1),
           ready(0, 1, 1, 1),
@@ -800,11 +808,18 @@ describe.skipIf(!testDatabaseAdminUrl)("statistics against Postgres", () => {
     });
 
     it("rates each object by the check of its newest backup and by later storage findings", () => {
-      const ready = (green: number, yellow: number, red: number, unverified: number) => ({
+      const ready = (
+        green: number,
+        yellow: number,
+        red: number,
+        unverified: number,
+        noBackup = 0,
+      ) => ({
         green,
         yellow,
         red,
         unverified,
+        noBackup,
       });
       expect(stats.series.readiness).toEqual(
         [
@@ -859,7 +874,8 @@ describe.skipIf(!testDatabaseAdminUrl)("statistics against Postgres", () => {
           green: page.summary.green,
           yellow: page.summary.yellow,
           red: page.summary.red,
-          unverified: page.summary.unverified + page.summary.noBackup,
+          unverified: page.summary.unverified,
+          noBackup: page.summary.noBackup,
         });
         expect(figures.kpis.protectedObjects.value).toBe(page.summary.total);
         const pageStates = new Map(page.objects.map((entry) => [entry.object.id, entry.state]));
@@ -927,7 +943,8 @@ describe.skipIf(!testDatabaseAdminUrl)("statistics against Postgres", () => {
           successRate: 1,
           logicalBytes: 700,
           physicalBytes: 350,
-          readiness: "red",
+          // Its one object is unverified: Not proven (UI rework decision 1).
+          readiness: "yellow",
           failures: 1,
         },
         {

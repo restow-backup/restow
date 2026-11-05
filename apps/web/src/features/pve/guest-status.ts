@@ -1,3 +1,24 @@
+import {
+  Ban,
+  Box,
+  CircleSlash,
+  type LucideIcon,
+  Server,
+  ShieldEllipsis,
+  ShieldQuestionMark,
+  WifiOff,
+} from "lucide-react";
+
+import {
+  type StatusMeta as KitStatusMeta,
+  READINESS_FLAG_META,
+  RUN_STATUS_META,
+  STATUS_TONE_ICON,
+  type StatusTone,
+  toneOf,
+  VERIFICATION_META,
+} from "@/components/kit";
+
 import type { PveGuest, PveNode, PveVerifyFact } from "./api.js";
 
 /**
@@ -51,8 +72,8 @@ export const GUEST_STATUS_ORDER = [
 
 export type GuestStatusKey = (typeof GUEST_STATUS_ORDER)[number];
 
-/** Badge variants a state may use (components/ui/badge.tsx). */
-export type GuestStatusTone = "success" | "outline" | "info" | "warning" | "destructive" | "muted";
+/** The tone of a state (status-badge.tsx); the badge maps it to its variant. */
+export type GuestStatusTone = StatusTone;
 
 /**
  * The groups of the state filter (`?state=` of the page). `problems` is not a group of its
@@ -73,37 +94,59 @@ export type GuestStateFilter = (typeof GUEST_STATE_FILTERS)[number];
 
 interface StatusMeta {
   tone: GuestStatusTone;
+  /** The icon of the badge: Needs attention and Unverified differ by more than words. */
+  icon: LucideIcon;
+  /** Something runs right now: a pulsing dot instead of the icon. */
+  live?: boolean;
   /** Counts as a problem ("Problems only"). */
   problem: boolean;
   /** The group of the state filter it belongs to; null: only "all" shows it. */
   group: Exclude<GuestStateFilter, "problems"> | null;
 }
 
+/** The look of a status meta entry (components/kit/status-meta.ts), the one source of status. */
+function fromMeta(meta: KitStatusMeta, problem: boolean, group: StatusMeta["group"]): StatusMeta {
+  return { tone: toneOf(meta), icon: meta.icon, live: meta.live, problem, group };
+}
+
+/** A guest-only state (no status meta family has it): its tone, and the tone's icon by default. */
+function local(
+  tone: GuestStatusTone,
+  problem: boolean,
+  group: StatusMeta["group"],
+  icon: LucideIcon = STATUS_TONE_ICON[tone],
+  live?: boolean,
+): StatusMeta {
+  return { tone, icon, live, problem, group };
+}
+
 export const GUEST_STATUS_META: Record<GuestStatusKey, StatusMeta> = {
-  cancelling: { tone: "warning", problem: false, group: "running" },
-  running: { tone: "info", problem: false, group: "running" },
+  cancelling: local("warning", false, "running", STATUS_TONE_ICON.warning, true),
+  running: fromMeta(RUN_STATUS_META.running, false, "running"),
   // Waiting for a node that is disconnected or whose queue is paused: nothing starts.
-  waiting_offline: { tone: "warning", problem: true, group: "waiting" },
-  waiting: { tone: "muted", problem: false, group: "waiting" },
-  failed: { tone: "destructive", problem: true, group: "failed" },
-  verify_failed: { tone: "destructive", problem: true, group: "verify" },
+  waiting_offline: local("warning", true, "waiting", WifiOff),
+  waiting: fromMeta(RUN_STATUS_META.queued, false, "waiting"),
+  failed: fromMeta(RUN_STATUS_META.failed, true, "failed"),
+  verify_failed: fromMeta(VERIFICATION_META.red, true, "verify"),
   // The restore check could not run for two hours (repository locked, check stopped): amber.
-  verify_not_checked: { tone: "warning", problem: true, group: "verify" },
+  verify_not_checked: local("warning", true, "verify", ShieldQuestionMark),
   // The newest check could not run yet and is tried again shortly: amber, not yet a problem.
-  verify_postponed: { tone: "warning", problem: false, group: "verify" },
-  incomplete: { tone: "warning", problem: true, group: "warnings" },
-  warnings: { tone: "warning", problem: true, group: "warnings" },
-  restow_server: { tone: "warning", problem: false, group: null },
-  no_job: { tone: "warning", problem: true, group: "no_backup" },
-  never: { tone: "warning", problem: true, group: "no_backup" },
+  verify_postponed: local("warning", false, "verify", ShieldEllipsis),
+  incomplete: fromMeta(RUN_STATUS_META.partial, true, "warnings"),
+  warnings: local("warning", true, "warnings"),
+  restow_server: local("warning", false, null, Server),
+  // In no backup job: the readiness flag's look, as on the guest's readiness row.
+  no_job: fromMeta(READINESS_FLAG_META.noJob, true, "no_backup"),
+  // Never backed up (an open point of the UI rework: amber like a first backup still to come).
+  never: local("warning", true, "no_backup", ShieldEllipsis),
   // Excluded from backup by an administrator on purpose: not a problem, a filter of its own.
-  excluded: { tone: "muted", problem: false, group: "excluded" },
-  cancelled: { tone: "muted", problem: false, group: null },
-  template: { tone: "muted", problem: false, group: null },
-  absent: { tone: "muted", problem: false, group: null },
-  verified: { tone: "success", problem: false, group: "ok" },
-  succeeded: { tone: "outline", problem: false, group: "ok" },
-  unknown: { tone: "muted", problem: false, group: null },
+  excluded: local("muted", false, "excluded", Ban),
+  cancelled: fromMeta(RUN_STATUS_META.cancelled, false, null),
+  template: local("muted", false, null, Box),
+  absent: local("muted", false, null, CircleSlash),
+  verified: fromMeta(VERIFICATION_META.green, false, "ok"),
+  succeeded: fromMeta(RUN_STATUS_META.succeeded, false, "ok"),
+  unknown: local("muted", false, null),
 };
 
 export interface GuestStatus {

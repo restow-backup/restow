@@ -96,20 +96,6 @@
     "description": "Whether the backups have been proven restorable by a restore check.",
     "lastCheck": "Last check",
     "neverChecked": "No restore check yet",
-    "overall": {
-      "green": "Ready",
-      "yellow": "Needs attention",
-      "red": "Not restorable",
-      "none": "Nothing to rate"
-    },
-    "segments": {
-      "green": "Ready",
-      "yellow": "Needs attention",
-      "red": "Not restorable",
-      "unverified": "Unverified",
-      "noBackup": "No backup yet",
-      "empty": "Confirmed empty"
-    },
     "unverified": {
       "title": "{count, plural, one {# backup not verified yet} other {# backups not verified yet}}",
       "description": "The newest backup of these objects has not been read back by a restore check. A backup only counts once a restore proved it.",
@@ -152,7 +138,7 @@
     },
     "toConfirm": {
       "title": "{count, plural, one {# object no longer backed up, please confirm} other {# objects no longer backed up, please confirm}}",
-      "description": "The source reports these objects as removed, disabled, unlicensed or locked. That is not a failure, but readiness stays yellow until someone confirms that it is intended.",
+      "description": "The source reports these objects as removed, disabled, unlicensed or locked. That is not a failure; please confirm that it is intended.",
       "action": "Check and confirm"
     }
   },
@@ -315,11 +301,13 @@
     "lastBackup": "Last backup",
     "neverBacked": "No successful backup yet",
     "allGood": "Every machine is proven restorable and its last backup succeeded.",
+    "legend": "Machines by recovery state",
     "findings": {
-      "notReady": "{count, plural, one {# machine not proven restorable} other {# machines not proven restorable}}",
+      "notRestorable": "{count, plural, one {# machine cannot be restored or has no backup yet} other {# machines cannot be restored or have no backup yet}}",
       "failedLastBackup": "{count, plural, one {# machine: the last backup failed} other {# machines: the last backup failed}}",
-      "attention": "{count, plural, one {# machine needs attention} other {# machines need attention}}",
-      "withoutJob": "{count, plural, one {# machine in no backup job, not backed up} other {# machines in no backup job, not backed up}}"
+      "unverified": "{count, plural, one {# machine: the newest backup is not proven restorable yet} other {# machines: the newest backup is not proven restorable yet}}",
+      "withoutJob": "{count, plural, one {# machine in no backup job, not backed up} other {# machines in no backup job, not backed up}}",
+      "attention": "{count, plural, one {# machine needs attention} other {# machines need attention}}"
     }
   },
   "backupSuccess": {

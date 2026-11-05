@@ -113,8 +113,15 @@ export function datasetTable(
       return isUnavailable(series.readiness)
         ? series.readiness
         : {
-            header: ["t", "green", "yellow", "red", "unverified"],
-            rows: series.readiness.map((p) => [p.t, p.green, p.yellow, p.red, p.unverified]),
+            header: ["t", "green", "yellow", "red", "unverified", "noBackup"],
+            rows: series.readiness.map((p) => [
+              p.t,
+              p.green,
+              p.yellow,
+              p.red,
+              p.unverified,
+              p.noBackup,
+            ]),
           };
     case "failuresByCause":
       return isUnavailable(tables.failuresByCause)

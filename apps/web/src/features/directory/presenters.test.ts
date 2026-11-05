@@ -283,15 +283,21 @@ describe("objectStatusView", () => {
 });
 
 describe("readinessView", () => {
-  it("never shows an unverified backup as fine", () => {
+  it("never shows an unverified backup as fine, and an object without a backup as No backup yet", () => {
     expect(readinessView(object({ snapshotCount: 2 }))).toEqual({
       variant: "warning",
-      key: "readiness.unverified",
+      key: "ui:status.readiness.unverified",
     });
-    expect(readinessView(object())).toEqual({ variant: "muted", key: "readiness.none" });
+    expect(readinessView(object())).toEqual({
+      variant: "destructive",
+      key: "ui:status.readiness.noBackup",
+    });
     expect(
       readinessView(object({ readiness: { rating: "red", checkedAt: "2026-09-22T00:00:00Z" } })),
-    ).toEqual({ variant: "destructive", key: "readiness.red" });
+    ).toEqual({ variant: "destructive", key: "ui:status.readiness.notRestorable" });
+    expect(
+      readinessView(object({ readiness: { rating: "yellow", checkedAt: "2026-09-22T00:00:00Z" } })),
+    ).toEqual({ variant: "attention", key: "ui:status.readiness.needsAttention" });
   });
 
   it("never shows a per_mailbox account as ready while it has no working password of its own, even from an older verified restore point", () => {
@@ -302,20 +308,21 @@ describe("readinessView", () => {
       { readiness: { rating: "green", checkedAt: "2026-09-22T00:00:00Z" }, snapshotCount: 3 },
       { hasPassword: false },
     );
+    // "Password needed", in the attention tone: a word of its own, not the category.
     expect(readinessView(stillGreen)).toEqual({
-      variant: "warning",
-      key: "readiness.needs_credential",
+      variant: "attention",
+      key: "directory:readiness.needs_credential",
     });
     expect(readinessView(perMailboxObject({ snapshotCount: 3 }, { status: "failed" }))).toEqual({
-      variant: "warning",
-      key: "readiness.needs_credential",
+      variant: "attention",
+      key: "directory:readiness.needs_credential",
     });
     // A working credential is unaffected: the ordinary readiness rating shows.
     expect(
       readinessView(
         perMailboxObject({ readiness: { rating: "green", checkedAt: "2026-09-22T00:00:00Z" } }),
       ),
-    ).toEqual({ variant: "success", key: "readiness.green" });
+    ).toEqual({ variant: "success", key: "ui:status.readiness.ready" });
   });
 });
 

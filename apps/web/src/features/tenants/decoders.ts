@@ -252,6 +252,7 @@ export function decodeTenantHealth(payload: unknown): TenantHealth {
   return {
     readiness: nullableOneOf(READINESS, summary.overall),
     protectedObjects: asCount(summary.total),
+    // A count of the objects not proven restorable (the detail line), not the aggregate rule.
     notReady: asCount(summary.red) + asCount(summary.unverified) + asCount(summary.noBackup),
     lastBackupAt,
     lastCheckedAt: asNullableString(summary.lastCheckedAt),

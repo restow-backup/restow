@@ -75,8 +75,15 @@ describe("ReadinessTimeline", () => {
     // A newer backup than the green check: unverified until a check of that backup ran.
     const afterNewBackup = timeline.at(day(6));
     expect(afterNewBackup.states.get("anna")).toBe("unverified");
-    expect(afterNewBackup.counts).toEqual({ green: 0, yellow: 0, red: 0, unverified: 1 });
-    expect(afterNewBackup.overall).toBe("red");
+    expect(afterNewBackup.counts).toEqual({
+      green: 0,
+      yellow: 0,
+      red: 0,
+      unverified: 1,
+      noBackup: 0,
+    });
+    // UI rework decision 1: unverified only is Not proven, not red.
+    expect(afterNewBackup.overall).toBe("yellow");
     // The check of backup 3 rates it once it ran; backup 2 was never checked, that is history.
     expect(timeline.at(day(10)).states.get("anna")).toBe("unverified");
     expect(timeline.at(day(11)).states.get("anna")).toBe("yellow");
@@ -111,7 +118,7 @@ describe("ReadinessTimeline", () => {
     const after = timeline.at(day(7));
     expect(after.states.get("dora")).toBe("red");
     expect(after.states.get("emil")).toBe("yellow");
-    expect(after.counts).toEqual({ green: 0, yellow: 1, red: 2, unverified: 0 });
+    expect(after.counts).toEqual({ green: 0, yellow: 1, red: 2, unverified: 0, noBackup: 0 });
   });
 
   it("knows no backup before the first one completed, and none after all were pruned", () => {
@@ -122,8 +129,10 @@ describe("ReadinessTimeline", () => {
     );
     const early = timeline.at(day(2));
     expect(early.states.get("carl")).toBe("no_backup");
-    // An object without a backup is not proven: it counts as unverified.
-    expect(early.counts.unverified).toBe(1);
+    // An object without a backup counts as No backup yet, apart from unverified.
+    expect(early.counts.noBackup).toBe(1);
+    expect(early.counts.unverified).toBe(0);
+    expect(early.overall).toBe("red");
     expect(early.total).toBe(1);
     // The orphan counts while it has a backup ...
     expect(timeline.at(day(5)).states.get("gone")).toBe("green");
@@ -190,7 +199,7 @@ describe("ReadinessTimeline", () => {
     expect(moment.states.get("gone")).toBe("green");
     expect(moment.states.get("kept")).toBe("red");
     expect(moment.states.get("anna")).toBe("red");
-    expect(moment.counts).toEqual({ green: 1, yellow: 0, red: 2, unverified: 0 });
+    expect(moment.counts).toEqual({ green: 1, yellow: 0, red: 2, unverified: 0, noBackup: 0 });
     expect(moment.rated.map((rated) => rated.overdue)).toEqual([false, false, true]);
     const orphanOnly = new ReadinessTimeline(
       [object("gone", 1, "orphaned")],
@@ -200,7 +209,7 @@ describe("ReadinessTimeline", () => {
     expect(orphanOnly.at(day(25)).overall).toBe("green");
   });
 
-  it("rates an active object in no backup job like an orphan: without the age, never overdue, not green overall", () => {
+  it("rates an active object in no backup job like an orphan: without the age, never overdue", () => {
     const outdated = {
       ...check("lost", 1, 3, "red"),
       reasons: [{ code: "snapshot_outdated", severity: "red", ageHours: 378 }],
@@ -216,10 +225,11 @@ describe("ReadinessTimeline", () => {
     expect(moment.states.get("lost")).toBe("green");
     expect(moment.rated.map((rated) => rated.overdue)).toEqual([false, true]);
     expect(moment.rated.map((rated) => rated.withoutJob)).toEqual([true, false]);
-    // Alone it is green by its rating but never green overall: nothing backs it up.
+    // Alone it is green by its rating, and green overall: being in no job is a callout, not a
+    // rating (UI rework decision 2).
     const alone = new ReadinessTimeline([withoutJob], [snapshot("lost", 1, 2)], [outdated]);
     expect(alone.at(day(25)).states.get("lost")).toBe("green");
-    expect(alone.at(day(25)).overall).toBe("yellow");
+    expect(alone.at(day(25)).overall).toBe("green");
     // A backup that does not restore stays red without a job.
     const damaged = {
       ...check("lost", 1, 3, "red"),
@@ -248,7 +258,7 @@ describe("ReadinessTimeline", () => {
     expect(timeline.at(day(5)).overall).toBe("yellow");
     const after = timeline.at(day(25));
     expect(after.states.get("drive")).toBe("empty");
-    expect(after.counts).toEqual({ green: 1, yellow: 0, red: 0, unverified: 0 });
+    expect(after.counts).toEqual({ green: 1, yellow: 0, red: 0, unverified: 0, noBackup: 0 });
     expect(after.rated.map((rated) => rated.overdue)).toEqual([false]);
     expect(after.overall).toBe("green");
     // A check that says anything else sets the confirmation aside.
@@ -267,21 +277,23 @@ describe("ReadinessTimeline", () => {
     expect(aside.at(day(25)).states.get("drive")).toBe("yellow");
   });
 
-  it("rates a tenant yellow when every backup is fine but its check is overdue", () => {
+  it("rates a tenant green when every backup is fine, no longer yellow when only its check is overdue", () => {
     const fine = new ReadinessTimeline(
       [object("anna", 1)],
       [snapshot("anna", 1, 2)],
       [check("anna", 1, 3, "green")],
     );
     expect(fine.at(day(5)).overall).toBe("green");
-    expect(fine.at(day(20)).overall).toBe("yellow");
+    // Decision 2: an overdue check is a callout; the rating stays green.
+    expect(fine.at(day(20)).rated.map((rated) => rated.overdue)).toEqual([true]);
+    expect(fine.at(day(20)).overall).toBe("green");
     expect(new ReadinessTimeline([], [], []).at(day(20)).overall).toBeNull();
   });
 });
 
 describe("counting", () => {
   it("counts green and yellow as proven restorable", () => {
-    expect(provenCount({ green: 2, yellow: 1, red: 3, unverified: 4 })).toBe(3);
+    expect(provenCount({ green: 2, yellow: 1, red: 3, unverified: 4, noBackup: 5 })).toBe(3);
   });
 
   it("protects active objects, and orphaned ones while they have a backup", () => {

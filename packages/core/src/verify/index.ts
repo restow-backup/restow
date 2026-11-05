@@ -16,6 +16,7 @@ export * from "./integrity.js";
 export * from "./probe.js";
 export * from "./random.js";
 export * from "./readiness.js";
+export * from "./readiness-aggregate.js";
 export * from "./report.js";
 export * from "./sampling.js";
 export * from "./scrub.js";

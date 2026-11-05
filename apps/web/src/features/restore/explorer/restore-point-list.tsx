@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import {
   absoluteLabel,
-  type ChartStatusTone,
+  chartTone,
   relativeLabel,
   STATUS_CHART_COLOR,
   type StatusTone,
@@ -338,10 +338,6 @@ const MARKER_SHAPE: Record<VerificationState, string> = {
   /** A hollow ring: not proven, no check has read this backup back. */
   unverified: "size-[11px] rounded-full border-2 bg-card",
 };
-
-function chartTone(tone: StatusTone): ChartStatusTone {
-  return tone === "neutral" ? "muted" : tone;
-}
 
 function VerificationMarker({
   verification,

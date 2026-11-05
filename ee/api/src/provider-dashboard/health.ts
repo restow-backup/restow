@@ -107,6 +107,7 @@ export function tenantRow(
       notRestorable: null,
       unverified: null,
       noBackup: null,
+      empty: null,
       failures24h: null,
       failuresPrevious24h: null,
       lastBackupAt: null,
@@ -143,6 +144,8 @@ export function tenantRow(
     notRestorable: summary.readiness.red,
     unverified: summary.readiness.unverified,
     noBackup: summary.readiness.noBackup,
+    // Confirmed as empty: neutral, counted apart from `ready` (UI rework decision 3).
+    empty: summary.readiness.empty,
     failures24h: facts.failures24h,
     failuresPrevious24h: facts.failuresPrevious24h,
     lastBackupAt: newest([
@@ -200,6 +203,10 @@ export function alertsFor(row: ProviderTenantRowDto, now: Date): ProviderAlertDt
   if (row.notRestorable > 0) {
     alerts.push(alert("not_restorable", "destructive", row.notRestorable));
   }
+  if (row.noBackup > 0) {
+    // No backup yet is Not restorable (UI rework decision 1).
+    alerts.push(alert("no_backup", "destructive", row.noBackup));
+  }
   if (row.failures24h > 0) {
     alerts.push(alert("failed_jobs", "destructive", row.failures24h));
   }
@@ -218,9 +225,6 @@ export function alertsFor(row: ProviderTenantRowDto, now: Date): ProviderAlertDt
   if (row.unverified > 0) {
     alerts.push(alert("unverified", "warning", row.unverified));
   }
-  if (row.noBackup > 0) {
-    alerts.push(alert("no_backup", "warning", row.noBackup));
-  }
   if (row.machinesWithoutJob > 0) {
     alerts.push(alert("machines_without_job", "warning", row.machinesWithoutJob));
   }
@@ -238,7 +242,8 @@ export function alertsFor(row: ProviderTenantRowDto, now: Date): ProviderAlertDt
     alerts.push(alert("immutability_warning", "warning", row.immutabilityWarnings));
   }
   if (row.toConfirm > 0) {
-    // Objects no longer backed up that wait for the tenant's "Yes, intended" (yellow, not red).
+    // Objects no longer backed up that wait for the tenant's "Yes, intended" (a callout; it does
+    // not change the tenant's readiness).
     alerts.push(alert("inactive_to_confirm", "warning", row.toConfirm));
   }
   if (row.loginQuestions > 0) {
@@ -308,16 +313,27 @@ export function providerKpis(rows: readonly ProviderTenantRowDto[]): ProviderKpi
     tenants: customers.length,
     suspendedTenants: customers.filter((row) => row.status === "suspended").length,
     unavailableTenants: rows.length - loaded.length,
-    tenantsNotReady: customers.filter((row) => row.loaded && row.readiness === "red").length,
+    // Not Ready: red (not restorable) and yellow (not proven) alike, so a tenant whose objects are
+    // only unverified stays counted under the aggregate rule (UI rework decision 1).
+    tenantsNotReady: customers.filter(
+      (row) => row.loaded && row.readiness !== null && row.readiness !== "green",
+    ).length,
     readiness: {
       total: sum(
-        (row) => row.ready + row.needsAttention + row.notRestorable + row.unverified + row.noBackup,
+        (row) =>
+          row.ready +
+          row.needsAttention +
+          row.notRestorable +
+          row.unverified +
+          row.noBackup +
+          row.empty,
       ),
       green: sum((row) => row.ready),
       yellow: sum((row) => row.needsAttention),
       red: sum((row) => row.notRestorable),
       unverified: sum((row) => row.unverified),
       noBackup: sum((row) => row.noBackup),
+      empty: sum((row) => row.empty),
     },
     protectedObjects: sum((row) => row.protectedObjects),
     unverifiedObjects: sum((row) => row.unverified),

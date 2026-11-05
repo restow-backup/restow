@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { ArrowRight, Network } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { RelativeTime, StatusBadge } from "@/components/kit";
+import { READINESS_FLAG_META, RelativeTime, StatusBadge, toneOf } from "@/components/kit";
 import { buttonVariants } from "@/components/ui/button";
 import { PIN_FIRST, TableCell, TableRow } from "@/components/ui/table";
 import type { ShareReadinessRow } from "@/features/verify/api";
@@ -47,9 +47,21 @@ export function ShareReadinessRowView({ row }: { row: ShareReadinessRow }) {
         <div className="flex flex-wrap items-center gap-1.5">
           <StateBadge state={row.state} overdue={row.overdue} />
           {row.overdue && row.state !== "no_backup" ? (
-            <StatusBadge tone="warning">{t("readinessRow.overdue")}</StatusBadge>
+            <StatusBadge
+              tone={toneOf(READINESS_FLAG_META.overdue)}
+              icon={READINESS_FLAG_META.overdue.icon}
+            >
+              {t("readinessRow.overdue")}
+            </StatusBadge>
           ) : null}
-          {row.inJob ? null : <StatusBadge tone="warning">{t("readinessRow.noJob")}</StatusBadge>}
+          {row.inJob ? null : (
+            <StatusBadge
+              tone={toneOf(READINESS_FLAG_META.noJob)}
+              icon={READINESS_FLAG_META.noJob.icon}
+            >
+              {t("readinessRow.noJob")}
+            </StatusBadge>
+          )}
         </div>
       </TableCell>
       <TableCell className="whitespace-nowrap">

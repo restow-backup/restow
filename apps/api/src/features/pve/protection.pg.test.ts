@@ -420,7 +420,14 @@ describe.skipIf(!testDatabaseAdminUrl)("VMs and containers in the overviews", ()
       collectTenantFacts(tx, { id: f.contoso, name: "Contoso" }, period),
     );
     const aggregate = aggregateTenant(tenantFacts, period, "tenant");
-    expect(aggregate.readinessEnd).toEqual({ green: 2, yellow: 0, red: 1, unverified: 2 });
+    // The guest without a restore point counts as No backup yet, apart from unverified.
+    expect(aggregate.readinessEnd).toEqual({
+      green: 2,
+      yellow: 0,
+      red: 1,
+      unverified: 1,
+      noBackup: 1,
+    });
     expect(aggregate.available.objects).toBe(true);
   });
 });

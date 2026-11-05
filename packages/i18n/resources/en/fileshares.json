@@ -43,7 +43,7 @@
   },
   "readiness": {
     "green": "Ready",
-    "yellow": "Check overdue",
+    "yellow": "Needs attention",
     "red": "Not restorable",
     "unverified": "Unverified",
     "no_backup": "No backup yet"

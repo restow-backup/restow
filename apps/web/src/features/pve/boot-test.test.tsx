@@ -2,11 +2,12 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { I18nextProvider } from "react-i18next";
 import { beforeAll, describe, expect, it } from "vitest";
 
+import { toneOf, VERIFICATION_META } from "@/components/kit";
 import { i18n } from "@/i18n";
 
 import "./i18n";
 import type { PveBootTest } from "./api";
-import { BootTestBadge, BootTestFacts, bootTestDetailKey, bootTestVariant } from "./boot-test";
+import { BootTestBadge, BootTestFacts, bootTestDetailKey, bootTestMeta } from "./boot-test";
 import { guestResultKey } from "./readiness-row";
 
 /** Boot tests on the guest page and in readiness: green only when the guest agent answered. */
@@ -33,12 +34,14 @@ const render = (node: React.ReactNode) =>
   renderToStaticMarkup(<I18nextProvider i18n={i18n}>{node}</I18nextProvider>);
 
 describe("the tone of a boot test", () => {
-  it("is green only for an answer, amber for a start without one, red for a failure", () => {
-    expect(bootTestVariant("green")).toBe("success");
-    expect(bootTestVariant("yellow")).toBe("warning");
-    expect(bootTestVariant("red")).toBe("destructive");
-    expect(bootTestVariant("skipped")).toBe("muted");
-    expect(bootTestVariant("error")).toBe("muted");
+  it("is green only for an answer, attention for a start without one, red for a failure", () => {
+    // A boot test is a verification: its tones are VERIFICATION_META's (status meta).
+    expect(bootTestMeta("green")).toBe(VERIFICATION_META.green);
+    expect(toneOf(bootTestMeta("green"))).toBe("success");
+    expect(toneOf(bootTestMeta("yellow"))).toBe("attention");
+    expect(toneOf(bootTestMeta("red"))).toBe("destructive");
+    expect(toneOf(bootTestMeta("skipped"))).toBe("muted");
+    expect(toneOf(bootTestMeta("error"))).toBe("muted");
   });
 
   it("explains what proved it, or why there is no proof", () => {
@@ -84,7 +87,7 @@ describe("BootTestBadge", () => {
       <BootTestBadge test={test({ outcome: "yellow", guestAgent: false })} kind="vm" />,
     );
     expect(yellow).toContain("Started, no answer");
-    expect(yellow).toContain('data-variant="warning"');
+    expect(yellow).toContain('data-variant="attention"');
     expect(render(<BootTestBadge test={null} kind="vm" />)).toContain("Not tested");
   });
 });

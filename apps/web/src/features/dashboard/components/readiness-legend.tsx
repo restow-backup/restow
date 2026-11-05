@@ -1,22 +1,20 @@
 import { Link } from "@tanstack/react-router";
 import { ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { StatusTone } from "@/components/kit";
+import {
+  READINESS_BAR_ORDER,
+  READINESS_CATEGORY_META,
+  READINESS_TILE_ORDER,
+  type ReadinessObjectState,
+  StatusIcon,
+  type StatusMeta,
+  StatusSegment,
+} from "@/components/kit";
 import { type TableFilter, verifyLink } from "@/features/verify/search";
 import { formatInteger } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { ReadinessSegmentKey } from "../presenters.js";
 import "../i18n.js";
-
-/** The fill of each tone in the breakdown bar and its legend (shared with the endpoints card). */
-export const SEGMENT_FILL = {
-  success: "bg-success",
-  warning: "bg-warning",
-  destructive: "bg-destructive",
-  muted: "bg-muted-foreground",
-  info: "bg-info",
-  neutral: "bg-foreground",
-} as const;
 
 /** The objects by state, as the readiness tile counts them. */
 export interface ReadinessCounts {
@@ -30,24 +28,31 @@ export interface ReadinessCounts {
   empty?: number;
 }
 
+/** The legend key (a count of {@link ReadinessCounts}) of each object state. */
+const SEGMENT_KEY: Readonly<Record<ReadinessObjectState, ReadinessSegmentKey>> = {
+  green: "green",
+  yellow: "yellow",
+  red: "red",
+  unverified: "unverified",
+  no_backup: "noBackup",
+  empty: "empty",
+};
+
 /**
- * The legend of the readiness tile, in the order of the recovery-readiness
- * page's filter: what is proven first, what cannot be restored third. Each row
- * names the `state` of the address it links to (`/verify?state=...`).
+ * The legend of the readiness tile: the five categories in the order of the overview's tiles
+ * (Ready, Needs attention, Unverified, Not restorable, No backup yet), then Confirmed empty
+ * while there are some. Each row names the `state` of the address it links to
+ * (`/verify?state=...`); severity, label and icon come from the status meta.
  */
 export const READINESS_LEGEND: readonly {
   key: ReadinessSegmentKey;
   state: TableFilter;
-  tone: StatusTone;
-}[] = [
-  { key: "green", state: "green", tone: "success" },
-  { key: "yellow", state: "yellow", tone: "warning" },
-  { key: "red", state: "red", tone: "destructive" },
-  { key: "unverified", state: "unverified", tone: "warning" },
-  { key: "noBackup", state: "no_backup", tone: "destructive" },
-  // Neutral: confirmed as empty. Listed only while there are some.
-  { key: "empty", state: "empty", tone: "muted" },
-];
+  meta: StatusMeta;
+}[] = [...READINESS_TILE_ORDER, "empty" as const].map((state) => ({
+  key: SEGMENT_KEY[state],
+  state,
+  meta: READINESS_CATEGORY_META[state],
+}));
 
 /** The count of a legend row. */
 export function legendCount(counts: ReadinessCounts, key: ReadinessSegmentKey): number {
@@ -64,38 +69,45 @@ export function ReadinessLegend({
   counts,
   scope,
   linkable,
+  label,
 }: {
   counts: ReadinessCounts;
   scope: "tenant" | "all";
   linkable: boolean;
+  /** The list's accessible name; "Objects by recovery state" by default. */
+  label?: string;
 }) {
   const { t, i18n } = useTranslation("dashboard");
   const language = i18n.resolvedLanguage ?? i18n.language;
   return (
     <ul
-      aria-label={t("readiness.legend")}
+      aria-label={label ?? t("readiness.legend")}
       className="grid grid-cols-1 gap-x-6 gap-y-0.5 text-sm sm:grid-cols-2"
     >
       {READINESS_LEGEND.filter(({ key }) => key !== "empty" || legendCount(counts, key) > 0).map(
-        ({ key, state, tone }) => {
+        ({ key, state, meta }) => {
           const count = legendCount(counts, key);
-          const label = t(`readiness.segments.${key}`);
+          const empty = count === 0;
+          const rowLabel = t(meta.labelKey);
           const row = (
             <>
-              <span
-                aria-hidden="true"
-                className={cn("size-2 shrink-0 rounded-full", SEGMENT_FILL[tone])}
-              />
-              <span className="min-w-0 flex-1 truncate">{label}</span>
+              <StatusIcon meta={meta} dimmed={empty} />
+              <span className="min-w-0 flex-1 truncate">{rowLabel}</span>
               <span className="font-medium tabular-nums">{formatInteger(count, language)}</span>
             </>
           );
           return (
-            <li key={key} data-segment={key} data-state={state}>
-              {linkable && count > 0 ? (
+            <li
+              key={key}
+              data-segment={key}
+              data-state={state}
+              data-severity={meta.severity}
+              data-empty={empty ? "true" : undefined}
+            >
+              {linkable && !empty ? (
                 <Link
                   {...verifyLink(state, scope === "all" ? "all" : undefined)}
-                  title={t("readiness.open", { count, label })}
+                  title={t("readiness.open", { count, label: rowLabel })}
                   className="group -mx-2 flex items-center gap-2 rounded-md px-2 py-1.5 outline-none transition-colors hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50"
                 >
                   {row}
@@ -105,10 +117,11 @@ export function ReadinessLegend({
                   />
                 </Link>
               ) : (
+                // A category with nothing in it is dimmed and never a link (UI rework, phase 1).
                 <span
                   className={cn(
                     "-mx-2 flex items-center gap-2 px-2 py-1.5",
-                    count === 0 && "text-muted-foreground",
+                    empty && "text-muted-foreground",
                   )}
                 >
                   {row}
@@ -124,30 +137,24 @@ export function ReadinessLegend({
   );
 }
 
-/** The share of the objects, as one bar; only the states that have objects. */
+/**
+ * The share of the objects, as one bar, worst first; only the states that have objects.
+ * Unverified is hatched, so it reads apart from Needs attention without its colour.
+ */
 export function ReadinessBar({ counts }: { counts: ReadinessCounts }) {
-  const segments = (
-    [
-      ["red", counts.red, "destructive"],
-      ["noBackup", counts.noBackup, "destructive"],
-      ["unverified", counts.unverified, "warning"],
-      ["yellow", counts.yellow, "warning"],
-      ["green", counts.green, "success"],
-      ["empty", counts.empty ?? 0, "muted"],
-    ] as const
-  ).filter(([, count]) => count > 0);
+  const total = Math.max(1, counts.total);
   return (
     <div
       className="flex h-2 w-full gap-0.5 overflow-hidden rounded-full bg-muted"
       aria-hidden="true"
+      data-slot="readiness-bar"
     >
-      {segments.map(([key, count, tone]) => (
-        <div
-          key={key}
-          className={cn("h-full", SEGMENT_FILL[tone])}
-          style={{ width: `${(count / Math.max(1, counts.total)) * 100}%` }}
-        />
-      ))}
+      {READINESS_BAR_ORDER.map((state) => {
+        const count = legendCount(counts, SEGMENT_KEY[state]);
+        return count > 0 ? (
+          <StatusSegment key={state} meta={READINESS_CATEGORY_META[state]} width={count / total} />
+        ) : null;
+      })}
     </div>
   );
 }

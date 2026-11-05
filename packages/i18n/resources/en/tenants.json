@@ -46,7 +46,7 @@
   },
   "readiness": {
     "green": "Ready",
-    "yellow": "Attention",
+    "yellow": "Not proven",
     "red": "Not restorable",
     "none": "Nothing protected",
     "loading": "Checking recovery readiness …",

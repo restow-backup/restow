@@ -1,5 +1,7 @@
 import { failureVariables } from "@restow/i18n";
 
+import { SEVERITY_TONE, type Severity } from "@/components/kit";
+
 import type { Failure } from "./api";
 
 /**
@@ -71,12 +73,20 @@ export function textVariables(failure: Pick<Failure, "params">): Record<string, 
  * failure Restow is retrying by itself is a warning, one that needs a person
  * is an error.
  */
+export function failureSeverity(
+  failure: (Pick<Failure, "transient" | "retry"> & { code?: string }) | null,
+  options: { willRetry: boolean },
+): Extract<Severity, "info" | "warning" | "danger"> {
+  if (failure?.code === "job.interrupted" && options.willRetry) {
+    return "info";
+  }
+  return failure?.transient === true && options.willRetry ? "warning" : "danger";
+}
+
+/** The tone of {@link failureSeverity} (status meta). */
 export function failureTone(
   failure: (Pick<Failure, "transient" | "retry"> & { code?: string }) | null,
   options: { willRetry: boolean },
 ): "info" | "warning" | "destructive" {
-  if (failure?.code === "job.interrupted" && options.willRetry) {
-    return "info";
-  }
-  return failure?.transient === true && options.willRetry ? "warning" : "destructive";
+  return SEVERITY_TONE[failureSeverity(failure, options)] as "info" | "warning" | "destructive";
 }

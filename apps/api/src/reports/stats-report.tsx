@@ -300,7 +300,7 @@ function Charts({ stats, context }: { stats: StatsDto; context: Context }) {
           ),
           line(
             "yellow",
-            colors.warning,
+            colors.attention,
             rows.map((row) => row.yellow),
           ),
           line(
@@ -310,8 +310,13 @@ function Charts({ stats, context }: { stats: StatsDto; context: Context }) {
           ),
           line(
             "unverified",
-            colors.neutral,
+            colors.warning,
             rows.map((row) => row.unverified),
+          ),
+          line(
+            "noBackup",
+            colors.noBackup,
+            rows.map((row) => row.noBackup),
           ),
         ]}
       />
@@ -340,15 +345,17 @@ function Charts({ stats, context }: { stats: StatsDto; context: Context }) {
 // Derived from the shared queue list so a new queue is never missed here.
 const JOB_KINDS = new Set<string>(JOB_QUEUES);
 
+/** One object's state: its readiness category (@restow/core `READINESS_CATEGORY_SEVERITY`). */
 const STATE_TONE: Record<ObjectState, Tone> = {
   green: "success",
-  yellow: "warning",
+  yellow: "attention",
   red: "destructive",
   unverified: "warning",
-  no_backup: "neutral",
+  no_backup: "destructive",
   empty: "neutral",
 };
 
+/** A tenant's overall readiness: its `yellow` is "Not proven", a warning (`AGGREGATE_SEVERITY`). */
 const READINESS_TONE: Record<NonNullable<TenantRowDto["readiness"]>, Tone> = {
   green: "success",
   yellow: "warning",

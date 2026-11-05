@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import type {
-  BackupDay,
-  EndpointsWidget,
-  ReadinessWidget,
-  RecentJob,
-  StorageGrowthWidget,
-} from "./api.js";
+import {
+  OVERALL_META,
+  overallMeta,
+  overallRank,
+  READINESS_BAR_ORDER,
+  READINESS_CATEGORY_META,
+  toneOf,
+} from "@/components/kit";
+
+import type { BackupDay, EndpointsWidget, RecentJob, StorageGrowthWidget } from "./api.js";
 import {
   byteTicks,
   dayLabel,
@@ -18,9 +21,6 @@ import {
   lastDays,
   monthLabel,
   previousDays,
-  readinessRank,
-  readinessSegments,
-  readinessTone,
   showEndpoints,
   storageChartMax,
   storageChartRows,
@@ -80,49 +80,46 @@ describe("backup success", () => {
 });
 
 describe("tones", () => {
-  it("never shows unverified or unrated objects in a success tone", () => {
-    const readiness: ReadinessWidget = {
-      overall: "red",
-      total: 10,
-      green: 5,
-      yellow: 1,
-      red: 1,
-      unverified: 2,
-      noBackup: 1,
-      overdue: 0,
-      withoutJob: 0,
-      running: 0,
-      lastCheckedAt: null,
-    };
-    const segments = readinessSegments(readiness);
-    expect(segments.map((segment) => segment.key)).toEqual([
+  it("orders the bar worst first and never shows unverified or unrated objects in a success tone", () => {
+    expect([...READINESS_BAR_ORDER]).toEqual([
       "red",
-      "noBackup",
-      "unverified",
+      "no_backup",
       "yellow",
-      "green",
-    ]);
-    const unverified = segments.find((segment) => segment.key === "unverified");
-    expect(unverified?.tone).toBe("warning");
-    expect(segments.filter((segment) => segment.tone === "success").map((s) => s.key)).toEqual([
-      "green",
-    ]);
-    expect(readinessSegments({ ...readiness, unverified: 0 }).map((s) => s.key)).not.toContain(
       "unverified",
-    );
+      "green",
+      "empty",
+    ]);
+    const tones = READINESS_BAR_ORDER.map((state) => [
+      state,
+      toneOf(READINESS_CATEGORY_META[state]),
+    ]);
+    expect(tones).toEqual([
+      ["red", "destructive"],
+      ["no_backup", "destructive"],
+      ["yellow", "attention"],
+      ["unverified", "warning"],
+      ["green", "success"],
+      ["empty", "muted"],
+    ]);
+    // Unverified is hatched, so it stays apart from Needs attention without its colour.
+    expect(READINESS_CATEGORY_META.unverified.pattern).toBe("hatched");
+    expect(READINESS_CATEGORY_META.yellow.pattern).toBe("solid");
   });
 
-  it("rates readiness from worst to unknown", () => {
-    expect(readinessTone("green")).toBe("success");
-    expect(readinessTone("yellow")).toBe("warning");
-    expect(readinessTone("red")).toBe("destructive");
-    expect(readinessTone(null)).toBe("muted");
-    expect([
-      readinessRank("red"),
-      readinessRank("yellow"),
-      readinessRank("green"),
-      readinessRank(null),
-    ]).toEqual([0, 1, 2, 3]);
+  it("rates the aggregate from worst to unknown; its yellow is Not proven in amber", () => {
+    expect(toneOf(overallMeta("green"))).toBe("success");
+    expect(toneOf(overallMeta("yellow"))).toBe("warning");
+    expect(overallMeta("yellow")).toBe(OVERALL_META.yellow);
+    expect(toneOf(overallMeta("red"))).toBe("destructive");
+    expect(toneOf(overallMeta(null))).toBe("muted");
+    const ranks = [
+      overallRank("red"),
+      overallRank("yellow"),
+      overallRank("green"),
+      overallRank(null),
+    ];
+    expect([...ranks].sort((a, b) => a - b)).toEqual(ranks);
+    expect(new Set(ranks).size).toBe(4);
   });
 
   it("shows a completed run with failed items and a throttled run honestly", () => {
@@ -307,11 +304,21 @@ describe("servers and clients", () => {
     expect(showEndpoints({ kind: "error", error: new WidgetUnavailableError() })).toBe(true);
   });
 
-  it("rates the machines by the rules of the readiness card", () => {
+  it("rates the machines by the aggregate rule of the readiness card", () => {
     expect(endpointsOverall(none)).toBeNull();
     expect(endpointsOverall(widget())).toBe("green");
-    // Not proven restorable in any way is red, like for the objects.
-    expect(endpointsOverall(widget({ notReady: 1 }))).toBe("red");
+    // Not restorable or no backup yet is red, like for the objects.
+    expect(
+      endpointsOverall(
+        widget({ readiness: { green: 3, yellow: 0, red: 1, unverified: 0, noBackup: 0 } }),
+      ),
+    ).toBe("red");
+    expect(
+      endpointsOverall(
+        widget({ readiness: { green: 3, yellow: 0, red: 0, unverified: 0, noBackup: 1 } }),
+      ),
+    ).toBe("red");
+    // A backup no restore test has read back is not proven: yellow, no longer red.
     expect(
       endpointsOverall(
         widget({
@@ -319,17 +326,36 @@ describe("servers and clients", () => {
           notReady: 1,
         }),
       ),
-    ).toBe("red");
-    // A backup proven with gaps, a failed last backup or a silent machine ask for a look.
+    ).toBe("yellow");
+    // A backup proven with gaps needs attention: yellow (Not proven).
     expect(
       endpointsOverall(
         widget({ readiness: { green: 3, yellow: 1, red: 0, unverified: 0, noBackup: 0 } }),
       ),
     ).toBe("yellow");
-    expect(endpointsOverall(widget({ failedLastBackup: 1 }))).toBe("yellow");
-    expect(endpointsOverall(widget({ needingAttention: 2 }))).toBe("yellow");
+    // UI rework decision 2: a failed last backup, a silent machine or one in no job are findings
+    // of their own; they no longer turn the badge yellow.
+    expect(endpointsOverall(widget({ failedLastBackup: 1 }))).toBe("green");
+    expect(endpointsOverall(widget({ needingAttention: 2 }))).toBe("green");
+    expect(endpointsOverall(widget({ withoutJob: 1, needingAttention: 1 }))).toBe("green");
+    // `notReady` is a count, not the rule: the categories decide.
+    expect(
+      endpointsOverall(
+        widget({
+          readiness: { green: 0, yellow: 0, red: 0, unverified: 0, noBackup: 0 },
+          notReady: 1,
+        }),
+      ),
+    ).toBeNull();
     // The worst wins.
-    expect(endpointsOverall(widget({ notReady: 1, failedLastBackup: 1 }))).toBe("red");
+    expect(
+      endpointsOverall(
+        widget({
+          readiness: { green: 1, yellow: 1, red: 0, unverified: 1, noBackup: 1 },
+          failedLastBackup: 1,
+        }),
+      ),
+    ).toBe("red");
   });
 
   it("lists what needs an admin, worst first, and leaves out what is fine", () => {
@@ -337,7 +363,8 @@ describe("servers and clients", () => {
     expect(
       endpointFindings(
         widget({
-          notReady: 3,
+          readiness: { green: 0, yellow: 0, red: 2, unverified: 4, noBackup: 1 },
+          notReady: 7,
           failedLastBackup: 1,
           withoutJob: 1,
           needingAttention: 4,
@@ -345,28 +372,14 @@ describe("servers and clients", () => {
         }),
       ),
     ).toEqual([
-      { key: "notReady", count: 3, tone: "destructive" },
+      { key: "notRestorable", count: 3, tone: "destructive" },
       { key: "failedLastBackup", count: 1, tone: "destructive" },
-      { key: "withoutJob", count: 1, tone: "warning" },
-      { key: "attention", count: 3, tone: "warning" },
+      { key: "unverified", count: 4, tone: "warning" },
+      { key: "withoutJob", count: 1, tone: "attention" },
+      { key: "attention", count: 3, tone: "attention" },
     ]);
-    // A machine in no job alone keeps the fleet from green.
-    expect(endpointsOverall(widget({ withoutJob: 1, needingAttention: 1 }))).toBe("yellow");
     expect(endpointFindings(widget({ needingAttention: 1, otherAttention: 1 }))).toEqual([
-      { key: "attention", count: 1, tone: "warning" },
-    ]);
-  });
-
-  it("segments the machines like the readiness card: unproven ones never in a success tone", () => {
-    const segments = readinessSegments(
-      widget({ readiness: { green: 2, yellow: 1, red: 1, unverified: 1, noBackup: 1 } }).readiness,
-    );
-    expect(segments.map((segment) => [segment.key, segment.tone])).toEqual([
-      ["red", "destructive"],
-      ["noBackup", "destructive"],
-      ["unverified", "warning"],
-      ["yellow", "warning"],
-      ["green", "success"],
+      { key: "attention", count: 1, tone: "attention" },
     ]);
   });
 });

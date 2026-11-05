@@ -1,7 +1,14 @@
 import { HardDrive, Inbox, ShieldCheck } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { KpiTile, StatusBadge } from "@/components/kit";
+import {
+  KpiTile,
+  READINESS_CATEGORY_META,
+  READINESS_FLAG_META,
+  STORAGE_TARGET_META,
+  StatusBadge,
+  toneOf,
+} from "@/components/kit";
 import { formatBytes, formatDateTime, formatInteger, formatPercent } from "@/lib/format";
 
 import type {
@@ -13,6 +20,12 @@ import { LinkButton } from "../components/link-button.js";
 import { TileWidget, type WidgetStateProps } from "../components/widget-frame.js";
 import { PATHS, to } from "../paths.js";
 import { dedupSaving } from "../presenters.js";
+
+/** In no backup job: the readiness flag's look (attention, with its icon), as on every readiness row. */
+const NO_JOB_BADGE = {
+  tone: toneOf(READINESS_FLAG_META.noJob),
+  icon: READINESS_FLAG_META.noJob.icon,
+} as const;
 
 /** The VMs and containers of the tile; zeros from a server that does not count them yet. */
 export function guestsOf(data: ObjectsData): NonNullable<ObjectsData["guests"]> {
@@ -157,28 +170,33 @@ export function ProtectedObjectsWidget({
                     {t("protectedObjects.failed", { count: failed })}
                   </StatusBadge>
                 ) : null}
+                {/* The readiness category No backup yet (danger), as on the readiness card. */}
                 {data.noBackup > 0 ? (
-                  <StatusBadge tone="warning">
+                  <StatusBadge
+                    tone={toneOf(READINESS_CATEGORY_META.no_backup)}
+                    icon={READINESS_CATEGORY_META.no_backup.icon}
+                    data-count="no-backup"
+                  >
                     {t("protectedObjects.noBackup", { count: data.noBackup })}
                   </StatusBadge>
                 ) : null}
                 {(data.withoutJob ?? 0) > 0 ? (
-                  <StatusBadge tone="warning">
+                  <StatusBadge {...NO_JOB_BADGE} data-count="objects-without-job">
                     {t("protectedObjects.objectsWithoutJob", { count: data.withoutJob ?? 0 })}
                   </StatusBadge>
                 ) : null}
                 {data.machines.withoutJob > 0 ? (
-                  <StatusBadge tone="warning">
+                  <StatusBadge {...NO_JOB_BADGE} data-count="without-job">
                     {t("protectedObjects.withoutJob", { count: data.machines.withoutJob })}
                   </StatusBadge>
                 ) : null}
                 {guests.withoutJob > 0 ? (
-                  <StatusBadge tone="warning">
+                  <StatusBadge {...NO_JOB_BADGE} data-count="guests-without-job">
                     {t("protectedObjects.guestsWithoutJob", { count: guests.withoutJob })}
                   </StatusBadge>
                 ) : null}
                 {shares.withoutJob > 0 ? (
-                  <StatusBadge tone="warning">
+                  <StatusBadge {...NO_JOB_BADGE} data-count="shares-without-job">
                     {t("protectedObjects.sharesWithoutJob", { count: shares.withoutJob })}
                   </StatusBadge>
                 ) : null}
@@ -239,28 +257,16 @@ export function ProtectedObjectsWidget({
 
 function StorageTargetBadge({ target }: { target: StorageData["target"] }) {
   const { t } = useTranslation("dashboard");
-  switch (target.status) {
-    case "ok":
-      return null;
-    case "unverified":
-      return (
-        <StatusBadge tone="warning" icon>
-          {t("storage.target.unverified")}
-        </StatusBadge>
-      );
-    case "error":
-      return (
-        <StatusBadge tone="destructive" icon>
-          {t("storage.target.error")}
-        </StatusBadge>
-      );
-    case "misconfigured":
-      return (
-        <StatusBadge tone="destructive" icon>
-          {t("storage.target.misconfigured")}
-        </StatusBadge>
-      );
+  if (target.status === "ok") {
+    return null;
   }
+  // The storage page's tones (status meta): never tested is a warning, failing is danger.
+  const meta = STORAGE_TARGET_META[target.status === "unverified" ? "unverified" : "error"];
+  return (
+    <StatusBadge tone={toneOf(meta)} icon={meta.icon}>
+      {t(`storage.target.${target.status}`)}
+    </StatusBadge>
+  );
 }
 
 /**

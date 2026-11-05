@@ -2,7 +2,13 @@ import { BadgeCheck, CircleAlert, ShieldQuestion, TriangleAlert } from "lucide-r
 import type * as React from "react";
 import { useTranslation } from "react-i18next";
 
-import { RelativeTime, StatusBadge } from "@/components/kit";
+import {
+  overallMeta,
+  READINESS_FLAG_META,
+  RelativeTime,
+  StatusBadge,
+  toneOf,
+} from "@/components/kit";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -15,10 +21,6 @@ import { LinkButton } from "../components/link-button.js";
 import { ReadinessBar, ReadinessLegend } from "../components/readiness-legend.js";
 import { WidgetCard, type WidgetStateProps } from "../components/widget-frame.js";
 import { PATHS, to } from "../paths.js";
-import { readinessTone } from "../presenters.js";
-
-// The endpoints card builds its bar and legend from the same fills.
-export { SEGMENT_FILL } from "../components/readiness-legend.js";
 
 function ReadinessSkeleton() {
   return (
@@ -44,15 +46,25 @@ function ReadinessBody({
   protectAction?: React.ReactNode;
 }) {
   const { t } = useTranslation("dashboard");
+  const overall = overallMeta(data.overall);
   // `withoutJob` counts the machines and the mail objects; the objects have their own sentence.
   const objectsWithoutJob = data.objectsWithoutJob ?? 0;
+  // In no backup job is the readiness flag (attention, its icon), as on every readiness row.
+  const NoJobIcon = READINESS_FLAG_META.noJob.icon;
   const machinesWithoutJob = Math.max(0, data.withoutJob - objectsWithoutJob);
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <StatusBadge tone={readinessTone(data.overall)} icon className="text-sm">
-          {t(`readiness.overall.${data.overall ?? "none"}`)}
+        {/* The aggregate: its yellow is "Not proven" (amber), never the object state "Needs attention". */}
+        <StatusBadge
+          tone={toneOf(overall)}
+          icon={overall.icon}
+          className="text-sm"
+          data-slot="readiness-overall"
+          data-category={overall.id}
+        >
+          {t(overall.labelKey)}
         </StatusBadge>
         <span className="text-xs text-muted-foreground">
           {data.lastCheckedAt ? (
@@ -101,8 +113,8 @@ function ReadinessBody({
         </Alert>
       ) : null}
       {objectsWithoutJob > 0 ? (
-        <Alert variant="warning" data-flag="objects-without-job">
-          <TriangleAlert />
+        <Alert variant="attention" data-flag="objects-without-job">
+          <NoJobIcon />
           <AlertTitle>
             {t("readiness.objectsWithoutJob.title", { count: objectsWithoutJob })}
           </AlertTitle>
@@ -117,8 +129,8 @@ function ReadinessBody({
         </Alert>
       ) : null}
       {machinesWithoutJob > 0 ? (
-        <Alert variant="warning" data-flag="without-job">
-          <TriangleAlert />
+        <Alert variant="attention" data-flag="without-job">
+          <NoJobIcon />
           <AlertTitle>{t("readiness.withoutJob.title", { count: machinesWithoutJob })}</AlertTitle>
           <AlertDescription className="gap-2">
             <p>{t("readiness.withoutJob.description")}</p>
@@ -131,8 +143,8 @@ function ReadinessBody({
         </Alert>
       ) : null}
       {(data.guestsWithoutJob ?? 0) > 0 ? (
-        <Alert variant="warning" data-flag="guests-without-job">
-          <TriangleAlert />
+        <Alert variant="attention" data-flag="guests-without-job">
+          <NoJobIcon />
           <AlertTitle>
             {t("readiness.guestsWithoutJob.title", { count: data.guestsWithoutJob ?? 0 })}
           </AlertTitle>
@@ -153,8 +165,8 @@ function ReadinessBody({
         <div data-flag="protect-everything">{protectAction}</div>
       ) : null}
       {(data.sharesWithoutJob ?? 0) > 0 ? (
-        <Alert variant="warning" data-flag="shares-without-job">
-          <TriangleAlert />
+        <Alert variant="attention" data-flag="shares-without-job">
+          <NoJobIcon />
           <AlertTitle>
             {t("readiness.sharesWithoutJob.title", { count: data.sharesWithoutJob ?? 0 })}
           </AlertTitle>
@@ -192,7 +204,11 @@ function ReadinessBody({
       {data.overdue > 0 || data.running > 0 ? (
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
           {data.overdue > 0 ? (
-            <StatusBadge tone="warning">
+            <StatusBadge
+              tone={toneOf(READINESS_FLAG_META.overdue)}
+              icon={READINESS_FLAG_META.overdue.icon}
+              data-flag="overdue"
+            >
               {t("readiness.overdue", { count: data.overdue })}
             </StatusBadge>
           ) : null}
@@ -208,9 +224,10 @@ function ReadinessBody({
 }
 
 /**
- * Recovery readiness: the tenant's worst rating, the objects by state and,
- * flagged on their own, backups whose newest snapshot was never read back.
- * A backup without a verified restore never counts as fine.
+ * Recovery readiness: the tenant's aggregate (the worst category that has objects), the objects
+ * by category and, flagged on their own, what needs doing: backups whose newest snapshot was
+ * never read back, objects without a backup, objects in no job, objects to confirm.
+ * A backup without a verified restore never counts as Ready.
  */
 export function ReadinessWidget({
   canAdminister,
@@ -240,8 +257,10 @@ export function ReadinessWidget({
           </LinkButton>
         ) : null
       }
+      // Nothing rated and nothing to confirm: objects waiting for a confirmation are not rated
+      // (decision 2), but their callout must still show while nothing else is there.
       empty={(data) =>
-        data.total === 0
+        data.total === 0 && (data.toConfirm ?? 0) === 0
           ? {
               icon: ShieldQuestion,
               title: t("readiness.empty.title"),

@@ -1,5 +1,6 @@
 import {
   Circle,
+  CircleAlert,
   CircleCheck,
   CircleDashed,
   CircleX,
@@ -13,7 +14,7 @@ import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
 /**
- * The six status tones every page uses; each maps to a badge variant.
+ * The seven status tones every page uses; each maps to a badge variant.
  *
  * Green (`success`) is reserved for proof (brand guide, section 4): a restore
  * check that passed ("Ready", "Verified"), a restore that completed, a storage
@@ -21,13 +22,26 @@ import { cn } from "@/lib/utils";
  * object that is protected, a machine that is online or a member who is active
  * is `neutral` (an outline in the text colour); something running, or news that
  * asks for nothing, is `info` (Lapis); `muted` is for what is switched off or
- * unknown. Only real problems are `warning` or `destructive`.
+ * unknown. Only real problems are `attention`, `warning` or `destructive`:
+ * `attention` (orange) is something a person must look at, such as a restore
+ * check that found something ("Needs attention") or a check that is overdue;
+ * `warning` (amber) is what is not proven yet, such as a backup no restore
+ * check has read back ("Unverified"). The status meta
+ * (components/kit/status-meta.ts) decides which state takes which tone.
  */
-export type StatusTone = "success" | "warning" | "destructive" | "muted" | "info" | "neutral";
+export type StatusTone =
+  | "success"
+  | "attention"
+  | "warning"
+  | "destructive"
+  | "muted"
+  | "info"
+  | "neutral";
 
 /** The standard icon of each tone, used by `icon={true}`. */
 export const STATUS_TONE_ICON: Readonly<Record<StatusTone, LucideIcon>> = {
   success: CircleCheck,
+  attention: CircleAlert,
   warning: TriangleAlert,
   destructive: CircleX,
   muted: CircleDashed,
@@ -37,6 +51,7 @@ export const STATUS_TONE_ICON: Readonly<Record<StatusTone, LucideIcon>> = {
 
 const DOT_CLASS: Readonly<Record<StatusTone, string>> = {
   success: "bg-success",
+  attention: "bg-attention-fg",
   warning: "bg-warning",
   destructive: "bg-destructive",
   muted: "bg-muted-foreground",
@@ -45,8 +60,11 @@ const DOT_CLASS: Readonly<Record<StatusTone, string>> = {
 };
 
 /** The badge variant of each tone: every tone has its own, `neutral` is the outline. */
-const BADGE_VARIANT: Readonly<Record<StatusTone, NonNullable<BadgeProps["variant"]>>> = {
+export const STATUS_BADGE_VARIANT: Readonly<
+  Record<StatusTone, NonNullable<BadgeProps["variant"]>>
+> = {
   success: "success",
+  attention: "attention",
   warning: "warning",
   destructive: "destructive",
   muted: "muted",
@@ -65,8 +83,8 @@ export interface StatusBadgeProps extends Omit<React.ComponentProps<"span">, "ch
 }
 
 /**
- * A status label in one of six tones (success, warning, destructive, muted,
- * info, neutral), optionally with an icon or a live pulse for running work.
+ * A status label in one of seven tones (success, attention, warning,
+ * destructive, muted, info, neutral), optionally with an icon or a live pulse for running work.
  * The text uses each tone's text-safe token, so it stays readable in light and
  * dark.
  */
@@ -80,7 +98,7 @@ export function StatusBadge({
 }: StatusBadgeProps) {
   const Icon = icon === true ? STATUS_TONE_ICON[tone] : icon || null;
   return (
-    <Badge variant={BADGE_VARIANT[tone]} data-tone={tone} className={className} {...props}>
+    <Badge variant={STATUS_BADGE_VARIANT[tone]} data-tone={tone} className={className} {...props}>
       {live ? (
         <span aria-hidden="true" className="relative flex size-2 shrink-0">
           <span

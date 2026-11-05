@@ -10,13 +10,15 @@ import {
   EmptyState,
   type FacetOption,
   matchesAnyOf,
+  overallMeta,
   rowActionsColumn,
   StatusBadge,
+  toneOf,
 } from "@/components/kit";
 import { tenantDetailTo } from "@/features/tenants/paths";
 
 import type { Dataset, TenantRow } from "../api.js";
-import { readinessTone, runRateTone } from "../presenters.js";
+import { runRateTone } from "../presenters.js";
 import { useStatsFormat } from "../use-stats-format.js";
 import { MISSING_LAST, rowsOf, TableCard } from "./table-card.js";
 
@@ -26,8 +28,15 @@ const PINNED = ["name"] as const;
 /** Filter value of a tenant without readiness: it protects nothing yet. */
 const NOTHING_PROTECTED = "none";
 
-/** Readiness values in the order a filter lists them. */
-const READINESS_ORDER = ["green", "yellow", "red", "unverified"] as const;
+/** A tenant's overall readiness values, worst first, in the order a filter lists them. */
+const READINESS_ORDER = ["red", "yellow", "green"] as const;
+
+/** The label of an overall readiness: the status meta's, or the value as sent when unknown. */
+function readinessLabel(value: string, t: (key: string) => string): string {
+  return (READINESS_ORDER as readonly string[]).includes(value)
+    ? t(overallMeta(value).labelKey)
+    : value;
+}
 
 interface TenantsTableProps {
   data: Dataset<TenantRow> | undefined;
@@ -58,9 +67,9 @@ export function TenantsTable({ data, onOpenTenantStats }: TenantsTableProps) {
       label:
         value === NOTHING_PROTECTED
           ? t("tables.tenants.nothingProtected")
-          : format.readiness(value),
+          : readinessLabel(value, t),
     }));
-  }, [rows, format, t]);
+  }, [rows, t]);
 
   const columns = React.useMemo<ColumnDef<TenantRow, unknown>[]>(
     () => [
@@ -120,13 +129,17 @@ export function TenantsTable({ data, onOpenTenantStats }: TenantsTableProps) {
         header: t("tables.tenants.columns.readiness"),
         filterFn: matchesAnyOf,
         enableGlobalFilter: false,
-        cell: ({ row }) => (
-          <StatusBadge tone={readinessTone(row.original.readiness)}>
-            {row.original.readiness === null
-              ? t("tables.tenants.nothingProtected")
-              : format.readiness(row.original.readiness)}
-          </StatusBadge>
-        ),
+        cell: ({ row }) => {
+          // The aggregate (status meta): its yellow is "Not proven", in amber.
+          const meta = overallMeta(row.original.readiness);
+          return (
+            <StatusBadge tone={toneOf(meta)} icon={meta.icon} data-category={meta.id}>
+              {row.original.readiness === null
+                ? t("tables.tenants.nothingProtected")
+                : readinessLabel(row.original.readiness, t)}
+            </StatusBadge>
+          );
+        },
       },
       {
         accessorKey: "failures",

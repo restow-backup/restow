@@ -7,7 +7,7 @@ import type { Reason } from "@/features/verify/api";
 import { i18n } from "@/i18n";
 
 import "../i18n";
-import { ItemCause, ReasonFindings } from "./reason-findings";
+import { findingTone, ItemCause, ReasonFindings } from "./reason-findings";
 
 /**
  * The findings of a report explained: red before yellow, each with why and
@@ -120,11 +120,16 @@ describe("ReasonFindings", () => {
     expect(yellow).toBeGreaterThan(red);
   });
 
-  it("gives a yellow finding the warning tone and a red one the failure tone", () => {
+  it("gives a yellow finding the attention tone and a red one the failure tone", () => {
     const html = render(<ReasonFindings reasons={[stale, mismatched]} objectName="Ada Example" />);
     expect(count(html, 'data-slot="alert"')).toBe(2);
-    expect(count(html, "bg-warning/10")).toBe(1);
+    // The verification meta's tones, as in the plain list: never the amber of Unverified.
+    expect(count(html, 'data-variant="attention"')).toBe(1);
+    expect(count(html, "bg-attention-bg")).toBe(1);
+    expect(count(html, "bg-warning/10")).toBe(0);
     expect(count(html, "bg-destructive/10")).toBe(1);
+    expect(findingTone("yellow")).toBe("attention");
+    expect(findingTone("red")).toBe("destructive");
   });
 
   it("keeps the translated line for findings the server could not explain", () => {

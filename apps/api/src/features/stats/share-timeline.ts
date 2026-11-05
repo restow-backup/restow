@@ -11,8 +11,8 @@ import type { ShareCheck, ShareRestorePoint, ShareRow } from "./share-facts.js";
  *   - the newest restore point made before the moment and not pruned before it decides;
  *   - its newest restore check that ran before the moment counts (green, yellow or red as the
  *     check rated it); otherwise it is unverified;
- *   - a share without a restore point counts as unverified (the statistics count "no backup" as
- *     unverified for every kind: a backup without a verified restore counts as failed).
+ *   - a share without a restore point counts as No backup yet, apart from unverified (the
+ *     statistics count the two apart for every kind; neither is ever shown as fine).
  *
  * A share counts at a moment when it was known then (created before it) and is protected now (in
  * an enabled share job), or had a restore point at the moment.
@@ -81,8 +81,8 @@ export class ShareTimeline {
       const check = ShareTimeline.checkAt(point, moment);
       const state: ObjectState = check ? check.readiness : point ? "unverified" : "no_backup";
       states.set(share.id, state);
-      if (state === "no_backup" || state === "unverified") {
-        counts.unverified += 1;
+      if (state === "no_backup") {
+        counts.noBackup += 1;
       } else {
         counts[state] += 1;
       }

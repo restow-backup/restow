@@ -158,7 +158,7 @@ export const objectReadinessSchema = component(
     inJob: z
       .boolean()
       .describe(
-        "False for an active object that no enabled backup job covers: nothing backs it up any more. It is then rated by whether its newest backup restores, not by that backup's age, and is never `overdue`; the tenant's overall readiness is at least yellow. An object without any backup stays `no_backup`.",
+        "False for an active object that no enabled backup job covers: nothing backs it up any more. It is then rated by whether its newest backup restores, not by that backup's age, and is never `overdue`; it is listed apart and does not change the tenant's overall readiness. An object without any backup stays `no_backup`.",
       ),
   }),
 );
@@ -170,7 +170,7 @@ export type ObjectReadinessDto = z.infer<typeof objectReadinessSchema>;
  * its last backup restores, without the age of that backup, and is never overdue, since nothing
  * schedules checks for it any more. So is an active object in no enabled backup job
  * (`withoutJob`, @restow/core `mailObjectsInNoJob`): no new backup is due, so the age of the last
- * one is no fault (the tenant is still kept from green, see summary `withoutJob`).
+ * one is no fault (it is counted apart, see summary `withoutJob`).
  */
 export function readinessOf(
   facts: ObjectFacts,

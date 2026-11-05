@@ -42,7 +42,7 @@
   "readiness": {
     "state": {
       "green": "Ready",
-      "yellow": "Attention",
+      "yellow": "Needs attention",
       "red": "Not restorable",
       "unverified": "Unverified",
       "no_backup": "No backup yet"
@@ -66,7 +66,8 @@
     "interrupted": "Interrupted",
     "incomplete": "Not completed, will be retried",
     "incompleteFinal": "Not completed",
-    "cancelled": "Cancelled"
+    "cancelled": "Cancelled",
+    "unknown": "Unknown"
   },
   "attention": {
     "none": "Nothing to do",
@@ -1383,7 +1384,7 @@
     "never_seen": "Never connected",
     "revoke_suggested": "Revoke suggested",
     "never": "No backup yet",
-    "restore_warning": "Restore check: attention",
+    "restore_warning": "Restore check: needs attention",
     "check_overdue": "Restore check overdue",
     "interrupted": "Interrupted",
     "offline": "Offline",

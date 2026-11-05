@@ -3,7 +3,13 @@ import { Link } from "@tanstack/react-router";
 import { ArrowRight, Box, Monitor } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { DetailHover, RelativeTime, StatusBadge } from "@/components/kit";
+import {
+  DetailHover,
+  READINESS_FLAG_META,
+  RelativeTime,
+  StatusBadge,
+  toneOf,
+} from "@/components/kit";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
 import { PIN_FIRST, TableCell, TableRow } from "@/components/ui/table";
@@ -101,9 +107,21 @@ export function GuestReadinessRowView({
         <div className="flex flex-wrap items-center gap-1.5">
           <StateBadge state={row.state} overdue={row.overdue} />
           {row.overdue && row.state !== "no_backup" ? (
-            <StatusBadge tone="warning">{t("readiness.overdue")}</StatusBadge>
+            <StatusBadge
+              tone={toneOf(READINESS_FLAG_META.overdue)}
+              icon={READINESS_FLAG_META.overdue.icon}
+            >
+              {t("readiness.overdue")}
+            </StatusBadge>
           ) : null}
-          {row.inJob ? null : <StatusBadge tone="warning">{t("readiness.noJob")}</StatusBadge>}
+          {row.inJob ? null : (
+            <StatusBadge
+              tone={toneOf(READINESS_FLAG_META.noJob)}
+              icon={READINESS_FLAG_META.noJob.icon}
+            >
+              {t("readiness.noJob")}
+            </StatusBadge>
+          )}
         </div>
       </TableCell>
       <TableCell className="whitespace-nowrap">

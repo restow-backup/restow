@@ -5,7 +5,7 @@
   "subtitle": "Random mails, files, calendar items and contacts are read back from each latest backup through the restore path and compared byte by byte with their checksums. Only a proven restore counts: a backup no check has read back yet, even one taken after a successful check, is shown as not proven.",
   "state": {
     "green": "Ready",
-    "yellow": "Attention",
+    "yellow": "Needs attention",
     "red": "Not restorable",
     "unverified": "Unverified",
     "no_backup": "No backup yet",
@@ -57,12 +57,12 @@
       "description": "{total, plural, one {The protected object} other {All # protected objects}} passed the latest restore check."
     },
     "yellow": {
-      "title": "Restorable, but something needs attention",
-      "description": "{count, plural, one {# object needs} other {# objects need}} attention: a warning in the latest check, or a check that is overdue."
+      "title": "Restorable as far as checked, but not proven for every object",
+      "description": "{count, plural, one {# object is} other {# objects are}} not proven restorable yet: a backup no restore check has read back, or a check that found something to look at."
     },
     "red": {
-      "title": "Not every backup is proven restorable",
-      "description": "{count, plural, one {# object cannot be restored completely, or its latest backup is} other {# objects cannot be restored completely, or their latest backups are}} not proven restorable yet. A backup without a passed restore check counts as failed."
+      "title": "Not every object can be restored",
+      "description": "{count, plural, one {# object cannot be restored completely or has} other {# objects cannot be restored completely or have}} no backup yet."
     },
     "empty": {
       "title": "Nothing protected yet",
@@ -75,14 +75,13 @@
     "running": "{count, plural, one {# check is already queued or running.} other {# checks are already queued or running.}}"
   },
   "summary": {
-    "ready": "Ready",
-    "readyHint": "Latest restore check passed",
-    "attention": "Attention",
-    "attentionHint": "{overdue, plural, =0 {Warnings in the latest check} one {Warnings, and # overdue check} other {Warnings, and # overdue checks}}",
-    "failed": "Not restorable",
-    "failedHint": "Latest restore check failed",
-    "unproven": "Not proven",
-    "unprovenHint": "Latest backup not verified: {unverified} · No backup yet: {noBackup}",
+    "hint": {
+      "green": "Latest restore check passed",
+      "yellow": "{overdue, plural, =0 {The latest check found something to look at} one {Findings in the latest check; # check overdue} other {Findings in the latest check; # checks overdue}}",
+      "unverified": "Latest backup not read back by a restore check yet",
+      "red": "Latest restore check failed",
+      "no_backup": "No backup has completed yet"
+    },
     "toConfirm": "{count, plural, one {# object no longer backed up, please confirm} other {# objects no longer backed up, please confirm}}"
   },
   "table": {

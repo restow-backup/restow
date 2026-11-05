@@ -1,3 +1,16 @@
+import { Ban, type LucideIcon, Moon, ShieldEllipsis, UserX, WifiOff } from "lucide-react";
+
+import {
+  READINESS_CATEGORY_META,
+  READINESS_FLAG_META,
+  RUN_STATUS_META,
+  STATUS_TONE_ICON,
+  STORAGE_INTEGRITY_META,
+  type StatusMeta,
+  type StatusTone,
+  toneOf,
+} from "@/components/kit";
+
 import type { EndpointSummary } from "./api.js";
 
 /**
@@ -10,9 +23,15 @@ import type { EndpointSummary } from "./api.js";
  * What happens right now comes first, then what failed, then what only warns, then the quiet
  * states.
  *
- * Adding a state is three steps: a key in {@link MACHINE_STATUS_ORDER} at its priority, its tone
+ * Adding a state is three steps: a key in {@link MACHINE_STATUS_ORDER} at its priority, its look
  * in {@link MACHINE_STATUS_META}, and a label `machineStatus.<key>` in en and de
  * (packages/i18n/resources/<lang>/endpoints.json).
+ *
+ * The look of a state is the status meta's (components/kit/status-meta.ts) wherever the state is
+ * one of its facts (UI rework, phase 1): a readiness category, a readiness flag, a run, a storage
+ * check. Needs attention (orange) and Unverified (amber) differ by tone and icon, as everywhere;
+ * the attention list of the machine (presenters.ts) takes its tones from this table, so the two
+ * cannot drift apart.
  *
  * Green is proof (green-is-proof.test.ts): only `verified`, a newest backup a restore test or a
  * repository check rated green, is green, and not while the machine is in no job (an old backup
@@ -46,44 +65,63 @@ export const MACHINE_STATUS_ORDER = [
 
 export type MachineStatusKey = (typeof MACHINE_STATUS_ORDER)[number];
 
-/** Badge variants a state may use (components/ui/badge.tsx). */
-export type MachineStatusTone =
-  | "success"
-  | "outline"
-  | "info"
-  | "warning"
-  | "destructive"
-  | "muted";
+/** The tone of a state (status-badge.tsx); the badge maps it to its variant. */
+export type MachineStatusTone = StatusTone;
 
-export const MACHINE_STATUS_META: Record<
-  MachineStatusKey,
-  { tone: MachineStatusTone; problem: boolean }
-> = {
-  cancelling: { tone: "warning", problem: false },
-  running: { tone: "info", problem: false },
+/** How a state looks: its tone and icon, whether it is live, and whether it is a problem. */
+export interface MachineStatusLook {
+  tone: MachineStatusTone;
+  icon: LucideIcon;
+  /** Something runs right now: a pulsing dot instead of the icon. */
+  live?: boolean;
+  problem: boolean;
+}
+
+/** The look of a status meta entry. */
+function fromMeta(meta: StatusMeta, problem: boolean): MachineStatusLook {
+  return { tone: toneOf(meta), icon: meta.icon, live: meta.live, problem };
+}
+
+/** A machine-only state (no status meta family has it): its tone, and the tone's icon by default. */
+function local(
+  tone: MachineStatusTone,
+  problem: boolean,
+  icon: LucideIcon = STATUS_TONE_ICON[tone],
+  live?: boolean,
+): MachineStatusLook {
+  return { tone, icon, live, problem };
+}
+
+export const MACHINE_STATUS_META: Readonly<Record<MachineStatusKey, MachineStatusLook>> = {
+  cancelling: local("warning", false, STATUS_TONE_ICON.warning, true),
+  running: fromMeta(RUN_STATUS_META.running, false),
   // The agent works on something else (a restore, a restore test).
-  busy: { tone: "info", problem: false },
-  revoked: { tone: "muted", problem: false },
-  failed: { tone: "destructive", problem: true },
-  restore_failed: { tone: "destructive", problem: true },
-  repository_damaged: { tone: "destructive", problem: true },
-  silent: { tone: "warning", problem: true },
-  backup_overdue: { tone: "warning", problem: true },
-  partial: { tone: "warning", problem: true },
-  no_job: { tone: "warning", problem: true },
-  never_seen: { tone: "warning", problem: true },
+  busy: local("info", false, STATUS_TONE_ICON.info, true),
+  revoked: local("muted", false, Ban),
+  failed: fromMeta(RUN_STATUS_META.failed, true),
+  restore_failed: fromMeta(READINESS_CATEGORY_META.red, true),
+  repository_damaged: fromMeta(STORAGE_INTEGRITY_META.corrupt, true),
+  // Facts a person must look at (the attention tone, as in the machine's attention list).
+  silent: local("attention", true, Moon),
+  backup_overdue: fromMeta(READINESS_FLAG_META.overdue, true),
+  partial: fromMeta(RUN_STATUS_META.partial, true),
+  no_job: fromMeta(READINESS_FLAG_META.noJob, true),
+  never_seen: local("attention", true, WifiOff),
   // No contact for longer than the machine's `revokeHintAfterDays` (#65): revoke, then remove.
-  revoke_suggested: { tone: "warning", problem: true },
-  never: { tone: "warning", problem: true },
-  restore_warning: { tone: "warning", problem: true },
-  check_overdue: { tone: "warning", problem: false },
+  revoke_suggested: local("attention", true, UserX),
+  // Never backed up (an open point of the UI rework: amber like a first backup still to come).
+  never: local("warning", true, ShieldEllipsis),
+  // The machine's readiness: a restore check found something (Needs attention, orange).
+  restore_warning: fromMeta(READINESS_CATEGORY_META.yellow, true),
+  check_overdue: fromMeta(READINESS_FLAG_META.overdue, false),
   // The agent restarted during the backup and carries on: neither failed nor done.
-  interrupted: { tone: "info", problem: false },
-  offline: { tone: "muted", problem: false },
-  unverified: { tone: "muted", problem: false },
-  verified: { tone: "success", problem: false },
-  succeeded: { tone: "outline", problem: false },
-  unknown: { tone: "muted", problem: false },
+  interrupted: fromMeta(RUN_STATUS_META.incomplete, false),
+  offline: local("muted", false, WifiOff),
+  // A backup no restore test has read back is not proven (Unverified, amber).
+  unverified: fromMeta(READINESS_CATEGORY_META.unverified, false),
+  verified: fromMeta(READINESS_CATEGORY_META.green, false),
+  succeeded: fromMeta(RUN_STATUS_META.succeeded, false),
+  unknown: local("muted", false),
 };
 
 export interface MachineStatus {
@@ -180,7 +218,8 @@ export function machineStatuses(machine: StatusMachine): MachineStatus[] {
   }
   return MACHINE_STATUS_ORDER.filter((key) => keys.has(key)).map((key) => ({
     key,
-    ...MACHINE_STATUS_META[key],
+    tone: MACHINE_STATUS_META[key].tone,
+    problem: MACHINE_STATUS_META[key].problem,
   }));
 }
 

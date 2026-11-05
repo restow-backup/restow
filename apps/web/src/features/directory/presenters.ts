@@ -1,3 +1,10 @@
+import {
+  READINESS_CATEGORY_META,
+  type ReadinessObjectState,
+  STATUS_BADGE_VARIANT,
+  type StatusMeta,
+  toneOf,
+} from "@/components/kit";
 import type { BadgeProps } from "@/components/ui/badge";
 import type { Failure } from "@/features/failures/api";
 import { ApiError, errorMessageKey } from "@/lib/api";
@@ -139,10 +146,16 @@ export function inactiveDetail(object: ProtectedObject): {
   };
 }
 
+/** The badge variant of a status meta entry. */
+function variantOf(meta: StatusMeta): BadgeVariant {
+  return STATUS_BADGE_VARIANT[toneOf(meta)];
+}
+
+/** The rating of an object's newest check, by its category (status meta). */
 export const READINESS_VARIANT: Record<RecoveryReadiness, BadgeVariant> = {
-  green: "success",
-  yellow: "warning",
-  red: "destructive",
+  green: variantOf(READINESS_CATEGORY_META.green),
+  yellow: variantOf(READINESS_CATEGORY_META.yellow),
+  red: variantOf(READINESS_CATEGORY_META.red),
 };
 
 /** Primary line of an object: its name, else its address, else its id. */
@@ -190,28 +203,28 @@ export function backupState(object: ProtectedObject): BackupState {
 }
 
 /**
- * Readiness badge: an unverified backup is shown as such, never as fine, and
- * a `per_mailbox` mailbox with no working password of its own never reads as
- * ready even from an older verified restore point (a migration from
- * `shared`, or a password that stopped working) - it is not currently
- * protected, whatever an earlier snapshot once proved.
+ * Readiness badge, by the categories of the status meta: an unverified backup is shown as such
+ * (warning), never as fine; an object without any backup is No backup yet (danger: the directory
+ * knows no grace period); and a `per_mailbox` mailbox with no working password of its own
+ * never reads as ready even from an older verified restore point (a migration from `shared`,
+ * or a password that stopped working) - it is not currently protected, whatever an earlier
+ * snapshot once proved. That one is "Password needed" in the attention tone, a word of its own
+ * so it never reads as the category Needs attention. Keys are fully qualified.
  */
 export function readinessView(object: ProtectedObject): {
   variant: BadgeVariant;
   key: string;
 } {
   if (hasCredentialProblem(object)) {
-    return { variant: "warning", key: "readiness.needs_credential" };
+    return { variant: STATUS_BADGE_VARIANT.attention, key: "directory:readiness.needs_credential" };
   }
-  if (object.readiness) {
-    return {
-      variant: READINESS_VARIANT[object.readiness.rating],
-      key: `readiness.${object.readiness.rating}`,
-    };
-  }
-  return object.snapshotCount > 0
-    ? { variant: "warning", key: "readiness.unverified" }
-    : { variant: "muted", key: "readiness.none" };
+  const state: ReadinessObjectState = object.readiness
+    ? object.readiness.rating
+    : object.snapshotCount > 0
+      ? "unverified"
+      : "no_backup";
+  const meta = READINESS_CATEGORY_META[state];
+  return { variant: variantOf(meta), key: meta.labelKey };
 }
 
 /**

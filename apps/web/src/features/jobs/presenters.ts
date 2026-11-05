@@ -1,3 +1,11 @@
+import {
+  JOB_STATUS_META,
+  RUN_STATUS_META,
+  STATUS_BADGE_VARIANT,
+  type StatusMeta,
+  toneOf,
+  VERIFICATION_META,
+} from "@/components/kit";
 import type { BadgeProps } from "@/components/ui/badge";
 import type {
   BackupTarget,
@@ -25,28 +33,42 @@ type BadgeVariant = NonNullable<BadgeProps["variant"]>;
 /**
  * A job that completed is neutral, not green: green means proof (brand guide,
  * section 4), and a backup that merely completed has not been read back. Only a
- * restore that completed is a success (see `jobStatusDisplay`).
+ * restore that completed is a success (see `jobStatusDisplay`). The variants
+ * follow the status meta: active is info, cancelled muted, on every page.
  */
 export const STATUS_VARIANT: Record<JobStatus, BadgeVariant> = {
-  queued: "muted",
-  active: "default",
-  completed: "outline",
-  failed: "destructive",
-  cancelled: "secondary",
+  queued: STATUS_BADGE_VARIANT[toneOf(JOB_STATUS_META.queued)],
+  active: STATUS_BADGE_VARIANT[toneOf(JOB_STATUS_META.active)],
+  completed: STATUS_BADGE_VARIANT[toneOf(JOB_STATUS_META.completed)],
+  failed: STATUS_BADGE_VARIANT[toneOf(JOB_STATUS_META.failed)],
+  cancelled: STATUS_BADGE_VARIANT[toneOf(JOB_STATUS_META.cancelled)],
 };
 
-/** A backup that completed is stowed, not checked: neutral until a restore check reads it back. */
+/**
+ * A backup's snapshot in the run tones of the status meta: running is info (Lapis), one that
+ * completed is stowed, not checked (neutral until a restore check reads it back), an incomplete
+ * one is the amber of a partial run, a pruned one is gone (muted).
+ */
+export const SNAPSHOT_STATE_META: Readonly<Record<SnapshotState, StatusMeta>> = {
+  running: RUN_STATUS_META.running,
+  completed: RUN_STATUS_META.succeeded,
+  incomplete: RUN_STATUS_META.partial,
+  pruned: { ...RUN_STATUS_META.cancelled, id: "pruned", labelKey: "backup:snapshots.state.pruned" },
+};
+
+/** The badge variant of each snapshot state ({@link SNAPSHOT_STATE_META}). */
 export const SNAPSHOT_STATE_VARIANT: Record<SnapshotState, BadgeVariant> = {
-  running: "default",
-  completed: "outline",
-  incomplete: "warning",
-  pruned: "muted",
+  running: STATUS_BADGE_VARIANT[toneOf(SNAPSHOT_STATE_META.running)],
+  completed: STATUS_BADGE_VARIANT[toneOf(SNAPSHOT_STATE_META.completed)],
+  incomplete: STATUS_BADGE_VARIANT[toneOf(SNAPSHOT_STATE_META.incomplete)],
+  pruned: STATUS_BADGE_VARIANT[toneOf(SNAPSHOT_STATE_META.pruned)],
 };
 
+/** The rating of a job's restore check (status meta): a check with findings needs attention. */
 export const READINESS_VARIANT: Record<RecoveryReadiness, BadgeVariant> = {
-  green: "success",
-  yellow: "warning",
-  red: "destructive",
+  green: STATUS_BADGE_VARIANT[toneOf(VERIFICATION_META.green)],
+  yellow: STATUS_BADGE_VARIANT[toneOf(VERIFICATION_META.yellow)],
+  red: STATUS_BADGE_VARIANT[toneOf(VERIFICATION_META.red)],
 };
 
 /** What a job status badge says and how it looks. */

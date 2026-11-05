@@ -5,8 +5,9 @@ import { toDirectoryUser, type UserObjectRow } from "./users.js";
 
 /**
  * The per-user `recoveryReadiness` of GET /v1/users follows the tenant readiness (verify
- * summary.ts `toConfirm`): an object no longer backed up that waits for an admin's "Yes,
- * intended" keeps the user yellow, with or without a backup of its own.
+ * summary.ts `overallReadiness`): an object no longer backed up that waits for an admin's "Yes,
+ * intended" is rated by its own backup only; waiting for the confirmation does not change the
+ * user's readiness (UI rework decision 2, contract 1.10.0).
  */
 const NOW = new Date("2026-10-29T12:00:00Z");
 
@@ -57,8 +58,9 @@ const readinessOf = (row: UserObjectRow, facts: ObjectFacts) =>
   toDirectoryUser(user, [row], new Map([[row.id, facts]]), NOW).recoveryReadiness;
 
 describe("v1 users: recoveryReadiness and the confirmation", () => {
-  it("reads yellow for an unconfirmed locked OneDrive with a green check, green once confirmed", () => {
-    expect(readinessOf(object(), greenFacts)).toBe("yellow");
+  it("reads green for a locked OneDrive with a green check, confirmed or not", () => {
+    // Decision 2: waiting for a confirmation is a callout, not a rating.
+    expect(readinessOf(object(), greenFacts)).toBe("green");
     expect(
       readinessOf(object({ statusConfirmedAt: new Date("2026-10-29T10:00:00Z") }), greenFacts),
     ).toBe("green");
@@ -78,9 +80,9 @@ describe("v1 users: recoveryReadiness and the confirmation", () => {
     expect(dto.objects[0]).toMatchObject({ status: "orphaned", statusReason: "login_refused" });
   });
 
-  it("reads yellow, not null, for an unconfirmed orphan without a backup", () => {
+  it("reads null for an orphan without a backup, confirmed or not: nothing to rate", () => {
     const mailbox = object({ id: "mb-1", kind: "mailbox", statusReason: "no_license" });
-    expect(readinessOf(mailbox, NO_FACTS)).toBe("yellow");
+    expect(readinessOf(mailbox, NO_FACTS)).toBeNull();
     expect(
       readinessOf({ ...mailbox, statusConfirmedAt: new Date("2026-10-29T10:00:00Z") }, NO_FACTS),
     ).toBeNull();

@@ -1,3 +1,6 @@
+import type { LucideIcon } from "lucide-react";
+
+import { overallMeta, type StatusTone, toneOf } from "@/components/kit";
 import type { BadgeProps } from "@/components/ui/badge";
 import { ApiError, errorMessageKey, isFeatureUnavailable, type TenantRole } from "@/lib/api";
 
@@ -114,21 +117,21 @@ export function ownOrganisationPrompt(input: {
 
 // --- Badges ---------------------------------------------------------------------
 
-/** A backup without a verified restore counts as failed, so "not ready" looks like one. */
-const READINESS_BADGE: Record<Readiness, BadgeVariant> = {
-  green: "success",
-  yellow: "warning",
-  red: "destructive",
-};
-
+/**
+ * A tenant's overall readiness as a badge (status meta): the worst category that has objects,
+ * so its yellow reads "Not proven" in amber, never the orange of an object's "Needs attention".
+ */
 export function readinessBadge(readiness: Readiness | null): {
-  variant: BadgeVariant;
+  tone: StatusTone;
+  icon: LucideIcon;
   labelKey: string;
 } {
-  if (readiness === null) {
-    return { variant: "muted", labelKey: "tenants:readiness.none" };
-  }
-  return { variant: READINESS_BADGE[readiness], labelKey: `tenants:readiness.${readiness}` };
+  const meta = overallMeta(readiness);
+  return {
+    tone: toneOf(meta),
+    icon: meta.icon,
+    labelKey: readiness === null ? "tenants:readiness.none" : meta.labelKey,
+  };
 }
 
 // An active tenant is a state, shown as the neutral outline; green is for the readiness above.

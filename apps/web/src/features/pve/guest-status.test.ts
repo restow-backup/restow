@@ -48,7 +48,7 @@ describe("guest states", () => {
   it("shows a plain successful backup as backed up, neutral, never green", () => {
     const status = primaryStatus(testGuest());
     expect(status.key).toBe("succeeded");
-    expect(status.tone).toBe("outline");
+    expect(status.tone).toBe("neutral");
   });
 
   it("is green only for a restore check that passed", () => {

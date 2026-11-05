@@ -108,12 +108,18 @@ export const readinessSummarySchema = component(
       .int()
       .describe("Objects whose newest backup was not verified yet, whatever older backups scored."),
     noBackup: z.number().int(),
+    empty: z
+      .number()
+      .int()
+      .describe(
+        "Objects an admin confirmed as empty (their newest check found nothing to restore): neutral, neither ready nor a problem, and left out of `overall`. Not counted in `green` since contract 1.10.0.",
+      ),
     overdue: z.number().int(),
     withoutJob: z
       .number()
       .int()
       .describe(
-        "Servers and clients, and Microsoft 365 and IMAP objects (mailboxes, OneDrives, sites, groups), in no enabled backup job: rated by their old backups, but nothing backs them up. Any of them makes `overall` at least yellow. `objectsWithoutJob` counts the objects among them. Up to contract 1.7.0 this counted servers and clients only.",
+        "Servers and clients, and Microsoft 365 and IMAP objects (mailboxes, OneDrives, sites, groups), in no enabled backup job: rated by their old backups, but nothing backs them up. Listed apart; it does not change `overall` (since contract 1.10.0). `objectsWithoutJob` counts the objects among them. Up to contract 1.7.0 this counted servers and clients only.",
       ),
     objectsWithoutJob: z
       .number()
@@ -125,24 +131,24 @@ export const readinessSummarySchema = component(
       .number()
       .int()
       .describe(
-        "VMs and containers of Proxmox VE in no backup job that keep a restore point: rated by it, but nothing backs them up. Any of them makes `overall` at least yellow.",
+        "VMs and containers of Proxmox VE in no backup job that keep a restore point: rated by it, but nothing backs them up. Listed apart; it does not change `overall` (since contract 1.10.0).",
       ),
     sharesWithoutJob: z
       .number()
       .int()
       .describe(
-        "File shares in no backup job that keep a restore point: rated by it, but nothing backs them up. Any of them makes `overall` at least yellow.",
+        "File shares in no backup job that keep a restore point: rated by it, but nothing backs them up. Listed apart; it does not change `overall` (since contract 1.10.0).",
       ),
     toConfirm: z
       .number()
       .int()
       .describe(
-        "Objects no longer backed up (removed, disabled, unlicensed or locked at the source) that no admin confirmed as intended yet. Any of them makes `overall` at least yellow.",
+        "Objects no longer backed up (removed, disabled, unlicensed or locked at the source) that no admin confirmed as intended yet. Listed apart; it does not change `overall` (since contract 1.10.0).",
       ),
     overall: readinessSchema
       .nullable()
       .describe(
-        "Worst state over all objects (unverified or no backup rate red); null without objects.",
+        "Worst populated readiness category: `red` when an object cannot be restored or has no backup yet, `yellow` (not proven) when one needs attention or is unverified, `green` otherwise; null without objects. Up to contract 1.9.0 an unverified object made it `red`, and overdue checks, objects in no job and unconfirmed objects made it at least `yellow`.",
       ),
     lastCheckedAt: timestampSchema.nullable(),
     running: z.number().int().describe("Checks queued or running right now."),
@@ -193,7 +199,7 @@ export const objectVerifySchema = component(
       inJob: z
         .boolean()
         .describe(
-          "False for an active object that no enabled backup job covers: nothing backs it up any more. It is then rated without the age of its newest backup and never `overdue`, but keeps the tenant from green.",
+          "False for an active object that no enabled backup job covers: nothing backs it up any more. It is then rated without the age of its newest backup and never `overdue`; it is counted in the summary's `withoutJob`.",
         ),
       latestSnapshotId: uuidSchema.nullable().describe("The newest completed backup."),
       latestSnapshotAt: timestampSchema.nullable(),
@@ -235,15 +241,14 @@ export type VerifyLatestDto = z.infer<typeof verifyLatestSchema>;
 // ---------------------------------------------------------------------------
 
 /**
- * The summary as v1 counts it. An object an admin confirmed as empty (verify/empty.ts) is neutral
- * on the readiness page (`empty`); v1 knows no such state and counts it as green: nothing about it
- * needs attention, and `overall` already leaves it out.
+ * The summary as v1 counts it. An object an admin confirmed as empty (verify/empty.ts) is counted
+ * in `empty`, as on the readiness page: neutral, not green (UI rework decision 3, contract
+ * 1.10.0), and `overall` leaves it out.
  */
 export function toV1ReadinessSummary(
   summary: ReadinessSummaryDto,
 ): z.infer<typeof readinessSummarySchema> {
-  const { empty, ...rest } = summary;
-  return { ...rest, green: rest.green + empty };
+  return { ...summary };
 }
 
 /** The reasons as v1 describes them (no `bytes`, which v1 does not list). */
@@ -258,8 +263,9 @@ function toV1Reasons(reasons: readonly ReasonDto[]): z.infer<typeof reasonSchema
 }
 
 function toObjectVerify(entry: ReadinessOverviewDto["objects"][number]): ObjectVerifyDto {
-  // Confirmed as empty: green in v1 (see toV1ReadinessSummary).
-  const state = entry.state === "empty" ? "green" : entry.state;
+  // Confirmed as empty: `empty` with its real rating, as on the readiness page (see
+  // toV1ReadinessSummary).
+  const state = entry.state;
   return {
     protectedObjectId: entry.object.id,
     kind: entry.object.kind,
@@ -267,7 +273,7 @@ function toObjectVerify(entry: ReadinessOverviewDto["objects"][number]): ObjectV
     externalId: entry.object.externalId,
     status: entry.object.status,
     state,
-    rating: entry.state === "empty" ? "green" : entry.readiness,
+    rating: entry.readiness,
     checkedAt: entry.checkedAt,
     overdue: entry.overdue,
     inJob: entry.inJob ?? true,

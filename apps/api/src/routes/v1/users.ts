@@ -80,7 +80,7 @@ export const userObjectSchema = component(
       .nullable()
       .optional()
       .describe(
-        "When an admin confirmed that an `orphaned` object is intentionally no longer backed up. Null while unconfirmed (the tenant's readiness reads at least yellow then) and for every other object.",
+        "When an admin confirmed that an `orphaned` object is intentionally no longer backed up. Null while unconfirmed (counted in the readiness summary's `toConfirm` then) and for every other object.",
       ),
     externalId: z.string(),
     displayName: z.string().nullable(),
@@ -110,7 +110,7 @@ export const directoryUserSchema = component(
     recoveryReadiness: readinessSchema
       .nullable()
       .describe(
-        "Worst rating over the user's protected objects; yellow while an object waits for confirmation (no longer backed up, `statusConfirmedAt` null), even one without a backup; null without any.",
+        "Worst readiness category over the user's protected objects: `red` when one cannot be restored or has no backup yet, `yellow` when one needs attention or is unverified, `green` otherwise; null without any. An object waiting for confirmation (no longer backed up, `statusConfirmedAt` null) does not change it since contract 1.10.0.",
       ),
     objects: z.array(userObjectSchema),
     createdAt: timestampSchema,
@@ -246,13 +246,6 @@ export function toDirectoryUser(
         mail: true,
       };
     });
-  // Unconfirmed objects no longer backed up without a backup to rate still wait for a decision:
-  // yellow like the tenant readiness, /v1/status and /v1/verify (verify/summary.ts `toConfirm`).
-  const unratedToConfirm = withFacts.filter(
-    (entry) =>
-      !countsForReadiness(entry.object.status, entry.facts.snapshot !== null) &&
-      inactiveState(entry.object) === "to_confirm",
-  ).length;
   const protectedMailboxes = countProtectedMailboxes(
     objects.map((object) => ({ kind: object.kind, status: object.status, userId: user.id })),
   );
@@ -269,7 +262,7 @@ export function toDirectoryUser(
     lastBackupAt:
       latest(withFacts.map((entry) => entry.facts.snapshot?.completedAt ?? null))?.toISOString() ??
       null,
-    recoveryReadiness: overallReadiness(rated, unratedToConfirm),
+    recoveryReadiness: overallReadiness(rated),
     objects: withFacts.map(({ object, facts: objectFacts }) => ({
       id: object.id,
       kind: object.kind,

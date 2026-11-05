@@ -1,4 +1,11 @@
-import type { StatusTone } from "@/components/kit/status-badge";
+import {
+  fillClass,
+  RESTORE_CHECK_META,
+  RUN_STATUS_META,
+  type RunStatusKey,
+  type StatusTone,
+  toneOf,
+} from "@/components/kit";
 import { throttleRemainingMs } from "@/features/jobs/presenters";
 
 import type {
@@ -52,34 +59,49 @@ export function stateView(
   run: Pick<Run, "state" | "kind" | "checkIncomplete" | "serviceLimited"> &
     Partial<Pick<Run, "notBackedUp">>,
 ): StateView {
+  const view = (key: RunStatusKey): StateView => {
+    const meta = RUN_STATUS_META[key];
+    return { key, tone: toneOf(meta), live: meta.live === true };
+  };
   if (run.checkIncomplete && run.state !== "running" && run.state !== "queued") {
-    return { key: "incomplete", tone: "info", live: false };
+    return view("incomplete");
   }
   // Held back by Graph or the storage: amber, not red; the next scheduled run tries again.
   if (isHeldBack(run)) {
-    return { key: "limited", tone: "warning", live: false };
+    return view("limited");
   }
   // The account is disabled or unlicensed: neutral, nothing failed, nothing to fix here.
   const inactive = notBackedUpOf(run);
   if (inactive) {
-    return { key: `notBackedUp_${inactive}`, tone: "muted", live: false };
+    return view(`notBackedUp_${inactive}`);
   }
   switch (run.state) {
     case "running":
-      return { key: "running", tone: "info", live: true };
+      return view("running");
     case "queued":
-      return { key: "queued", tone: "muted", live: false };
+      return view("queued");
     case "succeeded":
-      return run.kind === "restore"
-        ? { key: "restored", tone: "success", live: false }
-        : { key: "succeeded", tone: "neutral", live: false };
+      return view(run.kind === "restore" ? "restored" : "succeeded");
     case "partial":
-      return { key: "partial", tone: "warning", live: false };
+      return view("partial");
     case "failed":
-      return { key: "failed", tone: "destructive", live: false };
+      return view("failed");
     default:
-      return { key: "cancelled", tone: "muted", live: false };
+      return view("cancelled");
   }
+}
+
+/**
+ * The fill of a run's progress bar (History rows, the job list, the run view), from the status
+ * meta like its badge: Lapis while it runs, neutral once a backup completed, green for a restore
+ * that completed, amber for a partial run or one a service held back, red for a failure, muted
+ * for a cancelled run or an account not backed up on purpose. A restore check that could not
+ * complete keeps the fill of how its run ended (the badge says the rest).
+ */
+export function runBarFill(
+  run: Pick<Run, "state" | "kind" | "serviceLimited"> & Partial<Pick<Run, "notBackedUp">>,
+): string {
+  return fillClass(RUN_STATUS_META[stateView({ ...run, checkIncomplete: false }).key]);
 }
 
 /**
@@ -117,24 +139,13 @@ export interface CheckView {
   tone: StatusTone;
 }
 
-/** Green only for a check that read the backup back and found it whole (brand guide, section 4). */
+/**
+ * Green only for a check that read the backup back and found it whole (brand guide, section 4);
+ * a check with warnings needs attention, a backup not checked yet is not proven (status meta).
+ */
 export function checkView(check: Pick<RunRestoreCheck, "state">): CheckView {
-  switch (check.state) {
-    case "passed":
-      return { key: "passed", tone: "success" };
-    case "warning":
-      return { key: "warning", tone: "warning" };
-    case "failed":
-      return { key: "failed", tone: "destructive" };
-    case "running":
-      return { key: "running", tone: "info" };
-    case "queued":
-      return { key: "queued", tone: "muted" };
-    case "unverified":
-      return { key: "unverified", tone: "muted" };
-    default:
-      return { key: "none", tone: "muted" };
-  }
+  const key = check.state in RESTORE_CHECK_META ? check.state : "none";
+  return { key, tone: toneOf(RESTORE_CHECK_META[key]) };
 }
 
 // --- Numbers -----------------------------------------------------------------------------------------

@@ -247,7 +247,7 @@
   },
   "readiness": {
     "green": "Ready",
-    "yellow": "Attention",
+    "yellow": "Needs attention",
     "red": "Restore check failed",
     "none": "Unverified",
     "checked": "checked {time}"

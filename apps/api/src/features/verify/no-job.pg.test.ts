@@ -301,7 +301,7 @@ describe.skipIf(!testDatabaseAdminUrl)("mail objects in no backup job against Po
       expect(byObject(overview.objects, f.excluded)).toBeUndefined();
     });
 
-    it("counts them in the summary withoutJob and keeps the tenant from green", async () => {
+    it("counts them in the summary withoutJob; the damaged one and the one without a backup make it red", async () => {
       const { summary } = await readinessOverview(db, f.tenantId, NOW);
       // removed, ofDisabled and damaged have a backup; never has none.
       expect(summary).toMatchObject({
@@ -314,7 +314,7 @@ describe.skipIf(!testDatabaseAdminUrl)("mail objects in no backup job against Po
       expect(summary.overall).toBe("red");
     });
 
-    it("is yellow, not red, when the only trouble is that nothing backs the objects up", async () => {
+    it("is green when the only trouble is that nothing backs the objects up: a callout, not a rating", async () => {
       const second = one(await db.insert(providers).values({ name: "Provider 2" }).returning());
       const tenant = one(
         await db
@@ -381,10 +381,11 @@ describe.skipIf(!testDatabaseAdminUrl)("mail objects in no backup job against Po
         overdue: 0,
         withoutJob: 1,
         objectsWithoutJob: 1,
-        overall: "yellow",
+        // In no job is a callout; it does not change overall (UI rework decision 2).
+        overall: "green",
       });
       // The integration API reads the same.
-      expect((await loadTenantSummary(db, tenant.id, NOW)).recoveryReadiness).toBe("yellow");
+      expect((await loadTenantSummary(db, tenant.id, NOW)).recoveryReadiness).toBe("green");
     });
   });
 

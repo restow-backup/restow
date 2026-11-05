@@ -20,6 +20,9 @@ literally (use `{appName}`).
 | Readiness: proven by a passed restore check | ready | Bereit | Verifiziert, Wiederherstellbar (as a state label) |
 | Readiness: backed up, but no recent restore check | unverified | Nicht nachgewiesen | Ungeprüft, Unbestätigt |
 | Readiness: last restore check failed or no usable backup | not restorable | Nicht wiederherstellbar | Nicht bereit |
+| Readiness: proven restorable, but the latest check found something to look at | needs attention | Braucht Aufmerksamkeit | Achtung, Attention |
+| Readiness: no backup completed yet | no backup yet | Noch keine Sicherung | Keine Sicherung |
+| Overall readiness when something needs attention or is unverified | not proven | Nicht vollständig nachgewiesen | Nicht nachgewiesen (that is Unverified) |
 | Getting data back | restore | Wiederherstellung (verb: wiederherstellen) | Restore (alone), Rücksicherung |
 | Mailbox, OneDrive, IMAP account or machine that a job covers | protected object | geschütztes Objekt | Element, Quelle (for the object) |
 | A run that went through but could not back up some items | warning (with warnings) | Warnung (mit Warnungen) | Teilfehler, teilweise erfolgreich |

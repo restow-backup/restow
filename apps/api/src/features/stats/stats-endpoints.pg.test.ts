@@ -80,11 +80,12 @@ interface Fixture {
   mailboxes: string;
 }
 
-const ready = (green: number, yellow: number, red: number, unverified: number) => ({
+const ready = (green: number, yellow: number, red: number, unverified: number, noBackup = 0) => ({
   green,
   yellow,
   red,
   unverified,
+  noBackup,
 });
 
 /** One point per day of the period, labelled like the series. */
@@ -378,17 +379,17 @@ describe.skipIf(!testDatabaseAdminUrl)("statistics of endpoints against Postgres
     it("rates each endpoint at the end of each day by the restore test of its newest backup", () => {
       // web: green, then unverified (newest backup of 09-02 untested until 09-03 18:00), yellow
       // (partial), red from 09-05 (the test of backup D failed). The repository check of 09-06
-      // was green and changes nothing. laptop: unverified from 09-03 (no backup). old: green
-      // until it is revoked at noon of 09-04.
+      // was green and changes nothing. laptop: No backup yet from 09-03 (counted apart from
+      // unverified). old: green until it is revoked at noon of 09-04.
       expect(stats.series.readiness).toEqual(
         days([
           ready(2, 0, 0, 0),
           ready(1, 0, 0, 1),
-          ready(1, 1, 0, 1),
-          ready(0, 1, 0, 1),
-          ready(0, 0, 1, 1),
-          ready(0, 0, 1, 1),
-          ready(0, 0, 1, 1),
+          ready(1, 1, 0, 0, 1),
+          ready(0, 1, 0, 0, 1),
+          ready(0, 0, 1, 0, 1),
+          ready(0, 0, 1, 0, 1),
+          ready(0, 0, 1, 0, 1),
         ]),
       );
     });
@@ -436,7 +437,8 @@ describe.skipIf(!testDatabaseAdminUrl)("statistics of endpoints against Postgres
         green: page.summary.green,
         yellow: page.summary.yellow,
         red: page.summary.red,
-        unverified: page.summary.unverified + page.summary.noBackup,
+        unverified: page.summary.unverified,
+        noBackup: page.summary.noBackup,
       });
       expect(stats.kpis.protectedObjects.value).toBe(page.summary.total);
     });
@@ -445,10 +447,11 @@ describe.skipIf(!testDatabaseAdminUrl)("statistics of endpoints against Postgres
   describe("a tenant with mailbox objects and endpoints", () => {
     it("sums both in the readiness series and the protected objects", async () => {
       const stats = await load(f.mixed, "Mixed");
-      // Anna's mailbox is proven on its one backup; the server was backed up and never tested.
+      // Anna's mailbox is proven on its one backup; the server was backed up and never tested
+      // (no backup yet at the end of the first day).
       expect(stats.series.readiness).toEqual(
         days([
-          ready(1, 0, 0, 1),
+          ready(1, 0, 0, 0, 1),
           ready(1, 0, 0, 1),
           ready(1, 0, 0, 1),
           ready(1, 0, 0, 1),
@@ -486,7 +489,8 @@ describe.skipIf(!testDatabaseAdminUrl)("statistics of endpoints against Postgres
         green: page.summary.green,
         yellow: page.summary.yellow,
         red: page.summary.red,
-        unverified: page.summary.unverified + page.summary.noBackup,
+        unverified: page.summary.unverified,
+        noBackup: page.summary.noBackup,
       });
       expect(stats.kpis.protectedObjects.value).toBe(page.summary.total);
     });
@@ -498,8 +502,8 @@ describe.skipIf(!testDatabaseAdminUrl)("statistics of endpoints against Postgres
       expect(stats.kpis.protectedObjects).toEqual({ value: 1, previous: 1 });
       expect(stats.series.readiness).toEqual(
         days([
-          // Backed up on 09-02 at noon, tested at noon of 09-03.
-          ready(0, 0, 0, 1),
+          // Backed up on 09-02 at noon (no backup yet before), tested at noon of 09-03.
+          ready(0, 0, 0, 0, 1),
           ready(0, 0, 0, 1),
           ready(1, 0, 0, 0),
           ready(1, 0, 0, 0),
@@ -514,7 +518,7 @@ describe.skipIf(!testDatabaseAdminUrl)("statistics of endpoints against Postgres
       const mailboxes = await load(f.mailboxes, "Mailboxes");
       expect(mailboxes.kpis.protectedObjects).toEqual({ value: 1, previous: 1 });
       expect(mailboxes.series.readiness).toEqual(
-        days(Array.from({ length: 7 }, () => ready(0, 0, 0, 1))),
+        days(Array.from({ length: 7 }, () => ready(0, 0, 0, 0, 1))),
       );
       const empty = await load(f.empty, "Empty");
       expect(empty.series.readiness).toEqual({ unavailable: "no_protected_objects" });
@@ -530,10 +534,11 @@ describe.skipIf(!testDatabaseAdminUrl)("statistics of endpoints against Postgres
         expect.objectContaining({ name: "Empty", objects: 0, readiness: null }),
         expect.objectContaining({ name: "Machines", objects: 2, readiness: "red" }),
         expect.objectContaining({ name: "Mailboxes", objects: 1, readiness: "red" }),
+        // The never tested server is unverified: Not proven (UI rework decision 1).
         expect.objectContaining({
           name: "Mixed",
           objects: 2,
-          readiness: "red",
+          readiness: "yellow",
           successRate: 0.6667,
         }),
         expect.objectContaining({ name: "Neighbour", objects: 1, readiness: "green" }),

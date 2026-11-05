@@ -148,7 +148,7 @@ describe("the people list", () => {
       "Mailbox, OneDrive · carla@example.com",
     );
     // The least proven of the person's restore points: the OneDrive's.
-    expect(carla?.textContent).toContain("Attention");
+    expect(carla?.textContent).toContain("Needs attention");
     expect(carla?.getAttribute("aria-current")).toBe("true");
     expect(dieter?.textContent).toContain("Account deleted");
     // Sites and Microsoft 365 group mailboxes share the heading (0.4.5).

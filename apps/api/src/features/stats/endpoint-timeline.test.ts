@@ -65,14 +65,14 @@ describe("EndpointTimeline", () => {
     expect(timeline.at(day(3, 12)).states.get("web")).toBe("unverified");
     const proven = timeline.at(day(4));
     expect(proven.states.get("web")).toBe("green");
-    expect(proven.counts).toEqual({ green: 1, yellow: 0, red: 0, unverified: 0 });
+    expect(proven.counts).toEqual({ green: 1, yellow: 0, red: 0, unverified: 0, noBackup: 0 });
     expect(proven.total).toBe(1);
   });
 
-  it("counts an endpoint that never delivered a backup as unverified", () => {
+  it("counts an endpoint that never delivered a backup as No backup yet, apart from unverified", () => {
     const moment = new EndpointTimeline([endpoint("web", 1)], [], []).at(day(5));
     expect(moment.states.get("web")).toBe("no_backup");
-    expect(moment.counts).toEqual({ green: 0, yellow: 0, red: 0, unverified: 1 });
+    expect(moment.counts).toEqual({ green: 0, yellow: 0, red: 0, unverified: 0, noBackup: 1 });
     expect(moment.rated).toEqual([{ state: "no_backup", overdue: false, checkedAt: null }]);
   });
 
@@ -118,7 +118,7 @@ describe("EndpointTimeline", () => {
     const moment = timeline.at(day(4));
     expect(moment.states.get("server")).toBe("red");
     expect(moment.states.get("client")).toBe("red");
-    expect(moment.counts).toEqual({ green: 0, yellow: 0, red: 2, unverified: 0 });
+    expect(moment.counts).toEqual({ green: 0, yellow: 0, red: 2, unverified: 0, noBackup: 0 });
   });
 
   it("rates red when a repository check found damage after the last test, and not before it", () => {
@@ -158,7 +158,7 @@ describe("EndpointTimeline", () => {
     expect(timeline.at(day(3)).states.get("web")).toBe("unverified");
     const moment = timeline.at(day(4));
     expect(moment.states.get("web")).toBe("yellow");
-    expect(moment.counts).toEqual({ green: 0, yellow: 1, red: 0, unverified: 0 });
+    expect(moment.counts).toEqual({ green: 0, yellow: 1, red: 0, unverified: 0, noBackup: 0 });
   });
 
   it("leaves out endpoints that did not exist yet and those revoked before the moment", () => {
@@ -222,7 +222,7 @@ describe("EndpointTimeline", () => {
   it("is an empty moment for no endpoints", () => {
     const moment = new EndpointTimeline([], [], []).at(day(5));
     expect(moment).toEqual({
-      counts: { green: 0, yellow: 0, red: 0, unverified: 0 },
+      counts: { green: 0, yellow: 0, red: 0, unverified: 0, noBackup: 0 },
       total: 0,
       rated: [],
       states: new Map(),
@@ -232,9 +232,9 @@ describe("EndpointTimeline", () => {
 
 describe("mergeReadiness", () => {
   const objects = {
-    counts: { green: 1, yellow: 0, red: 0, unverified: 1 },
+    counts: { green: 1, yellow: 0, red: 0, unverified: 1, noBackup: 0 },
     total: 2,
-    overall: "red" as const,
+    overall: "yellow" as const,
     states: new Map([["anna", "green" as const]]),
     rated: [
       { state: "green" as const, overdue: false, checkedAt: day(3) },
@@ -249,7 +249,7 @@ describe("mergeReadiness", () => {
       [test("web", 1, 3, "red")],
     );
     const merged = mergeReadiness(objects, timeline.at(day(5)));
-    expect(merged.counts).toEqual({ green: 1, yellow: 0, red: 1, unverified: 1 });
+    expect(merged.counts).toEqual({ green: 1, yellow: 0, red: 1, unverified: 1, noBackup: 0 });
     expect(merged.total).toBe(3);
     expect(merged.overall).toBe("red");
     expect(merged.rated).toHaveLength(3);
@@ -263,26 +263,31 @@ describe("mergeReadiness", () => {
       [backup("web", 1, 2)],
       [test("web", 1, 3, "green")],
     ).at(day(5));
-    expect(mergeReadiness(objects, healthy).overall).toBe("red");
+    // The unverified object keeps the tenant Not proven (UI rework decision 1).
+    expect(mergeReadiness(objects, healthy).overall).toBe("yellow");
 
     const greenObjects = {
       ...objects,
-      counts: { green: 1, yellow: 0, red: 0, unverified: 0 },
+      counts: { green: 1, yellow: 0, red: 0, unverified: 0, noBackup: 0 },
       total: 1,
       overall: "green" as const,
       rated: [{ state: "green" as const, overdue: false, checkedAt: day(3) }],
     };
     expect(mergeReadiness(greenObjects, healthy).overall).toBe("green");
-    // An unproven endpoint is enough to make the whole tenant not ready.
+    // An unproven endpoint is enough to make the whole tenant not ready: unverified, not proven.
     const unproven = new EndpointTimeline([endpoint("web", 1)], [backup("web", 1, 2)], []).at(
       day(5),
     );
-    expect(mergeReadiness(greenObjects, unproven).overall).toBe("red");
+    expect(mergeReadiness(greenObjects, unproven).overall).toBe("yellow");
+    // An endpoint without a backup makes it Not restorable, counted as No backup yet.
+    const withoutBackup = new EndpointTimeline([endpoint("web", 1)], [], []).at(day(5));
+    expect(withoutBackup.counts).toMatchObject({ unverified: 0, noBackup: 1 });
+    expect(mergeReadiness(greenObjects, withoutBackup).overall).toBe("red");
   });
 
   it("rates a tenant with endpoints only", () => {
     const empty = {
-      counts: { green: 0, yellow: 0, red: 0, unverified: 0 },
+      counts: { green: 0, yellow: 0, red: 0, unverified: 0, noBackup: 0 },
       total: 0,
       overall: null,
       states: new Map(),

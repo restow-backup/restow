@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { I18nextProvider } from "react-i18next";
 import { beforeAll, describe, expect, it } from "vitest";
 
+import { ChartHatchDefs } from "@/components/kit";
 import { i18n } from "@/i18n";
 
 import { KPI_NAMES, type Kpi, MISSING_REASON, type StatsOverview } from "./api.js";
@@ -146,7 +147,7 @@ describe("charts", () => {
       <ReadinessChart
         data={{
           status: "ok",
-          rows: [{ t: "2026-09-17", green: 8, yellow: 2, red: 1, unverified: 3 }],
+          rows: [{ t: "2026-09-17", green: 8, yellow: 2, red: 1, unverified: 3, noBackup: 1 }],
         }}
         granularity="day"
       />,
@@ -155,7 +156,19 @@ describe("charts", () => {
     expect(html).toContain("--color-green: var(--chart-success)");
     expect(html).toContain("--color-yellow: var(--chart-warning)");
     expect(html).toContain("--color-red: var(--chart-destructive)");
-    expect(html).toContain("--color-unverified: var(--chart-muted)");
+    // Unverified and No backup yet are hatched in the warning and destructive chart colours.
+    expect(html).toContain("--color-unverified: var(--chart-warning)");
+    expect(html).toContain("--color-noBackup: var(--chart-destructive)");
+    // No backup yet is a series of its own, apart from the unverified ones.
+    expect(html).toContain("3 were not verified, 1 were not restorable and 1 had no backup yet");
+    // The hatch patterns the two hatched series fill with (the chart body needs a layout).
+    const defs = renderToStaticMarkup(
+      <svg aria-hidden="true">
+        <ChartHatchDefs />
+      </svg>,
+    );
+    expect(defs).toContain('id="status-hatch-warning"');
+    expect(defs).toContain('id="status-hatch-destructive"');
   });
 
   it("state the deduplication savings under the volume chart", () => {

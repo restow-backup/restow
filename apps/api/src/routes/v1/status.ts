@@ -84,7 +84,7 @@ export const tenantSummarySchema = component(
     recoveryReadiness: readinessSchema
       .nullable()
       .describe(
-        "Overall readiness: red when any object cannot be restored or its newest backup was not proven by a test restore yet, yellow when a rating needs attention or is overdue; null without protected objects.",
+        "Worst populated readiness category: `red` when an object cannot be restored or has no backup yet, `yellow` (not proven) when one needs attention or its newest backup was not proven by a test restore yet, `green` otherwise; null without protected objects. Up to contract 1.9.0 an unverified object made it `red`, and overdue checks, objects in no job and unconfirmed objects made it at least `yellow`.",
       ),
     readiness: readinessSummarySchema,
     lastVerifyAt: timestampSchema
@@ -230,8 +230,8 @@ export async function loadTenantSummary(
 
 /**
  * The tenant's summary as v1 serves it, and the readiness summary as the readiness page counts
- * it (with the objects confirmed as empty on their own, which v1 counts as green): the dashboard
- * shows the latter.
+ * it (with the objects confirmed as empty on their own, as v1 counts them since contract 1.10.0):
+ * the dashboard shows the latter.
  */
 export async function loadTenantSummaryWithReadiness(
   db: Database,

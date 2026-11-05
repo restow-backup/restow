@@ -42,15 +42,36 @@ describe("isFirstBackupOverdue", () => {
 });
 
 describe("overallReadiness", () => {
-  it("is red as soon as anything is unproven, a backup without verified restore included", () => {
-    expect(overallReadiness([rated("green"), rated("unverified")])).toBe("red");
+  it("is red as soon as something cannot be restored or has no backup", () => {
     expect(overallReadiness([rated("green"), rated("no_backup")])).toBe("red");
     expect(overallReadiness([rated("yellow"), rated("red")])).toBe("red");
+    expect(overallReadiness([rated("unverified"), rated("no_backup")])).toBe("red");
   });
 
-  it("is yellow when something needs attention or a check is overdue", () => {
+  it("is yellow (Not proven) while something needs attention or is unverified", () => {
     expect(overallReadiness([rated("green"), rated("yellow")])).toBe("yellow");
-    expect(overallReadiness([rated("green"), rated("green", true)])).toBe("yellow");
+    // UI rework decision 1: a backup no check has read back yet is not proven, not red.
+    expect(overallReadiness([rated("green"), rated("unverified")])).toBe("yellow");
+    // Decision 2: an overdue check is a callout; it does not change overall.
+    expect(overallReadiness([rated("green"), rated("green", true)])).toBe("green");
+  });
+
+  it("reads the brief's case 0/0/1/1/18 as Not proven", () => {
+    const objects = [
+      rated("green"),
+      rated("yellow"),
+      ...Array.from({ length: 18 }, () => rated("unverified")),
+    ];
+    expect(overallReadiness(objects)).toBe("yellow");
+    expect(summarize(objects, 0)).toMatchObject({
+      total: 20,
+      green: 1,
+      yellow: 1,
+      red: 0,
+      unverified: 18,
+      noBackup: 0,
+      overall: "yellow",
+    });
   });
 
   it("leaves objects confirmed as empty out of the rating, and counts them on their own", () => {
@@ -112,8 +133,8 @@ describe("mail objects in no backup job", () => {
     mail: true,
   });
 
-  it("keep the tenant from green and are counted apart from machines, guests and shares", () => {
-    expect(overallReadiness([rated("green"), noJob()])).toBe("yellow");
+  it("are counted apart from machines, guests and shares and listed as callouts, without changing overall", () => {
+    expect(overallReadiness([rated("green"), noJob()])).toBe("green");
     // A backup that does not restore still makes the tenant red.
     expect(overallReadiness([rated("green"), noJob("red")])).toBe("red");
     const machine: RatedObject = { ...rated("green"), withoutJob: true };
@@ -126,7 +147,7 @@ describe("mail objects in no backup job", () => {
       objectsWithoutJob: 2,
       guestsWithoutJob: 1,
       sharesWithoutJob: 1,
-      overall: "yellow",
+      overall: "green",
     });
   });
 
@@ -137,18 +158,19 @@ describe("mail objects in no backup job", () => {
 });
 
 describe("objects no longer backed up that wait for a confirmation", () => {
-  it("keep the tenant from green, never make it red, and are counted", () => {
+  it("are counted and listed as callouts; only their own rating changes overall", () => {
     const waiting: RatedObject = { ...rated("green"), toConfirm: true };
-    expect(overallReadiness([rated("green"), waiting])).toBe("yellow");
+    // Decision 2: waiting for a confirmation does not turn the tenant yellow.
+    expect(overallReadiness([rated("green"), waiting])).toBe("green");
     expect(overallReadiness([rated("green"), rated("red"), waiting])).toBe("red");
     const summary = summarize([rated("green"), waiting], 0, 2);
-    expect(summary).toMatchObject({ toConfirm: 3, overall: "yellow", green: 2 });
+    expect(summary).toMatchObject({ toConfirm: 3, overall: "green", green: 2 });
   });
 
-  it("make a tenant yellow even when none of them has a backup to rate", () => {
-    expect(overallReadiness([rated("green")], 1)).toBe("yellow");
-    expect(overallReadiness([], 1)).toBe("yellow");
-    expect(overallReadiness([], 0)).toBeNull();
+  it("no longer change overall, even without a backup to rate", () => {
+    expect(overallReadiness([rated("green")])).toBe("green");
+    expect(overallReadiness([])).toBeNull();
+    expect(summarize([], 0, 1)).toMatchObject({ toConfirm: 1, overall: null });
     expect(summarize([rated("green")], 0).toConfirm).toBe(0);
   });
 });

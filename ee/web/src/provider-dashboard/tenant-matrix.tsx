@@ -9,12 +9,16 @@ import {
   DataTableSearch,
   EmptyState,
   matchesAnyOf,
+  overallMeta,
+  overallRank,
+  READINESS_CATEGORY_META,
   RelativeTime,
   rowActionsColumn,
   StatusBadge,
+  toneOf,
 } from "@/components/kit";
 import type { LoadedTenantRow, ProviderTenantRow } from "@/features/dashboard/api";
-import { isStale, readinessRank, readinessTone, staleBound } from "@/features/dashboard/presenters";
+import { isStale, staleBound } from "@/features/dashboard/presenters";
 import type { ReadinessState } from "@/features/verify/search";
 import { formatBytes, formatInteger } from "@/lib/format";
 import "@/features/dashboard/i18n";
@@ -29,9 +33,12 @@ export function readinessFacet(row: ProviderTenantRow): string {
 
 const READINESS_FACETS = ["red", "yellow", "green", "none", "unavailable"] as const;
 
+/** Sorts after every readiness: a tenant whose figures could not be read. */
+const UNAVAILABLE_RANK = 100;
+
 /** How urgent a row is, worst first: red, yellow, green, no objects, figures that could not be read. */
 function urgencyRank(row: ProviderTenantRow): number {
-  return row.loaded ? readinessRank(row.readiness) : 4;
+  return row.loaded ? overallRank(row.readiness) : UNAVAILABLE_RANK;
 }
 
 /**
@@ -133,14 +140,18 @@ function useColumns({
         sortingFn: (a, b) => urgencyRank(a.original) - urgencyRank(b.original),
         filterFn: matchesAnyOf,
         enableGlobalFilter: false,
-        cell: ({ row }) =>
-          row.original.loaded ? (
-            <StatusBadge tone={readinessTone(row.original.readiness)} icon>
-              {t(`readiness.overall.${row.original.readiness ?? "none"}`)}
+        cell: ({ row }) => {
+          if (!row.original.loaded) {
+            return <StatusBadge tone="muted">{t("provider.matrix.unavailable")}</StatusBadge>;
+          }
+          // The aggregate (status meta): its yellow is "Not proven", in amber.
+          const meta = overallMeta(row.original.readiness);
+          return (
+            <StatusBadge tone={toneOf(meta)} icon={meta.icon} data-category={meta.id}>
+              {t(meta.labelKey)}
             </StatusBadge>
-          ) : (
-            <StatusBadge tone="muted">{t("provider.matrix.unavailable")}</StatusBadge>
-          ),
+          );
+        },
         meta: { label: t("provider.matrix.columns.readiness") },
       },
       {
@@ -167,7 +178,9 @@ function useColumns({
               {count(tenant.notRestorable)}
             </button>
           ) : (
-            <span className="text-muted-foreground">{count(0)}</span>
+            <span className="text-muted-foreground" data-empty="true">
+              {count(0)}
+            </span>
           );
         },
         meta: { numeric: true, label: t("provider.matrix.columns.notRestorable") },
@@ -185,11 +198,17 @@ function useColumns({
             return <UnavailableFigure />;
           }
           return tenant.unverified > 0 ? (
-            <StatusBadge tone="warning" data-flag="unverified">
+            <StatusBadge
+              tone={toneOf(READINESS_CATEGORY_META.unverified)}
+              icon={READINESS_CATEGORY_META.unverified.icon}
+              data-flag="unverified"
+            >
               {t("provider.matrix.unverifiedCount", { count: tenant.unverified })}
             </StatusBadge>
           ) : (
-            <span className="text-muted-foreground">{count(0)}</span>
+            <span className="text-muted-foreground" data-empty="true">
+              {count(0)}
+            </span>
           );
         },
         meta: { numeric: true, label: t("provider.matrix.columns.unverified") },
@@ -334,7 +353,7 @@ export function TenantMatrix({
   const readinessOptions = READINESS_FACETS.map((value) => ({
     value,
     label:
-      value === "unavailable" ? t("provider.matrix.unavailable") : t(`readiness.overall.${value}`),
+      value === "unavailable" ? t("provider.matrix.unavailable") : t(overallMeta(value).labelKey),
   }));
 
   return (

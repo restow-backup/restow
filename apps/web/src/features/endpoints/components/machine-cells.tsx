@@ -3,7 +3,7 @@ import { Ban, LoaderCircle, Play } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
-import { ConfirmDialog, DisabledReason } from "@/components/kit";
+import { ConfirmDialog, DisabledReason, StatusBadge } from "@/components/kit";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
@@ -12,7 +12,7 @@ import { cn } from "@/lib/utils";
 
 import { cancelEndpointBackup, type EndpointDetail, type EndpointSummary } from "../api.js";
 import { useBackupNow, useRefreshEndpoint } from "../hooks.js";
-import type { MachineStatus } from "../machine-status.js";
+import { MACHINE_STATUS_META, type MachineStatus } from "../machine-status.js";
 import { endpointName, isWithoutBackup, progressRatio } from "../presenters.js";
 
 /**
@@ -40,15 +40,19 @@ export function MachineStatusBadge({
   className?: string;
 }) {
   const { t } = useTranslation("endpoints");
+  // The icon of the state (status meta): Needs attention and Unverified differ by more than words.
+  const look = MACHINE_STATUS_META[status.key];
   return (
-    <Badge
-      variant={status.tone}
+    <StatusBadge
+      tone={status.tone}
+      icon={look.icon}
+      live={look.live}
       data-slot="machine-status"
       data-status={status.key}
       className={cn("justify-start", className)}
     >
       <span className="truncate">{t(`machineStatus.${status.key}`)}</span>
-    </Badge>
+    </StatusBadge>
   );
 }
 

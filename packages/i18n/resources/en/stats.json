@@ -157,7 +157,7 @@
         "title": "No protected objects",
         "description": "There were no protected objects in this period."
       },
-      "summary": "At the end of the period {green} objects were ready, {yellow} needed attention, {red} were not restorable and {unverified} were not verified."
+      "summary": "At the end of the period {green} objects were ready, {yellow} needed attention, {unverified} were not verified, {red} were not restorable and {noBackup} had no backup yet."
     },
     "volume": {
       "title": "Logical and physical volume",
@@ -285,9 +285,10 @@
   },
   "readiness": {
     "green": "Ready",
-    "yellow": "Attention",
+    "yellow": "Needs attention",
     "red": "Not restorable",
     "unverified": "Unverified",
+    "noBackup": "No backup yet",
     "unknown": "Unknown"
   },
   "jobKinds": {
@@ -315,7 +316,7 @@
     "orphaned": "Orphaned",
     "failed": "Failed",
     "green": "Ready",
-    "yellow": "Attention",
+    "yellow": "Needs attention",
     "red": "Not restorable",
     "unverified": "Unverified",
     "none": "Unknown",

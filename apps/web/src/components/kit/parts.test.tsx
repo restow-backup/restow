@@ -18,6 +18,7 @@ describe("StatusBadge", () => {
   it("maps every tone to its text-safe badge variant", () => {
     const expected: Record<StatusTone, string> = {
       success: "text-success-text",
+      attention: "text-attention-fg",
       warning: "text-warning-text",
       destructive: "text-destructive-text",
       info: "text-info-text",

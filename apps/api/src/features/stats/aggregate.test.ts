@@ -125,7 +125,7 @@ describe("aggregateTenant with endpoints", () => {
     );
     expect(only.available.objects).toBe(true);
     // Revoked before the period: protected at none of its moments.
-    expect(only.readinessEnd).toEqual({ green: 0, yellow: 0, red: 0, unverified: 0 });
+    expect(only.readinessEnd).toEqual({ green: 0, yellow: 0, red: 0, unverified: 0, noBackup: 0 });
     expect(only.levels.end.protectedObjects).toBe(0);
     expect(only.overallEnd).toBeNull();
   });
@@ -149,20 +149,33 @@ describe("aggregateTenant with endpoints", () => {
     // End of 09-21 and 09-22: the endpoint's backup of 09-20 is untested (unverified);
     // the test of 09-22 18:00 counts from the end of that day.
     expect(aggregate.readiness).toEqual([
-      { green: 1, yellow: 0, red: 0, unverified: 1 },
-      { green: 2, yellow: 0, red: 0, unverified: 0 },
-      { green: 2, yellow: 0, red: 0, unverified: 0 },
+      { green: 1, yellow: 0, red: 0, unverified: 1, noBackup: 0 },
+      { green: 2, yellow: 0, red: 0, unverified: 0, noBackup: 0 },
+      { green: 2, yellow: 0, red: 0, unverified: 0, noBackup: 0 },
     ]);
-    expect(aggregate.readinessStart).toEqual({ green: 1, yellow: 0, red: 0, unverified: 1 });
-    expect(aggregate.readinessEnd).toEqual({ green: 2, yellow: 0, red: 0, unverified: 0 });
+    expect(aggregate.readinessStart).toEqual({
+      green: 1,
+      yellow: 0,
+      red: 0,
+      unverified: 1,
+      noBackup: 0,
+    });
+    expect(aggregate.readinessEnd).toEqual({
+      green: 2,
+      yellow: 0,
+      red: 0,
+      unverified: 0,
+      noBackup: 0,
+    });
     // Objects and endpoints are one protected total.
     expect(aggregate.levels.start.protectedObjects).toBe(2);
     expect(aggregate.levels.end.protectedObjects).toBe(2);
-    // The mailbox was checked 09-11: more than 8 days old at the end, so it needs attention.
-    expect(aggregate.overallEnd).toBe("yellow");
+    // The mailbox was checked 09-11: more than 8 days old at the end. Overdue is a callout, not
+    // a rating (UI rework decision 2), so the tenant is green.
+    expect(aggregate.overallEnd).toBe("green");
   });
 
-  it("makes an unproven endpoint the reason a tenant of proven objects is not ready", () => {
+  it("makes an unproven endpoint the reason a tenant of proven objects is not proven", () => {
     const aggregate = aggregateTenant(
       facts({
         protectedObjectCount: 1,
@@ -174,8 +187,15 @@ describe("aggregateTenant with endpoints", () => {
       period,
       "tenant",
     );
-    expect(aggregate.readinessEnd).toEqual({ green: 1, yellow: 0, red: 0, unverified: 1 });
-    expect(aggregate.overallEnd).toBe("red");
+    expect(aggregate.readinessEnd).toEqual({
+      green: 1,
+      yellow: 0,
+      red: 0,
+      unverified: 1,
+      noBackup: 0,
+    });
+    // Unverified only: Not proven (UI rework decision 1).
+    expect(aggregate.overallEnd).toBe("yellow");
   });
 
   it("sums the protected objects of a tenant with mailboxes and endpoints", () => {
@@ -193,7 +213,14 @@ describe("aggregateTenant with endpoints", () => {
     // At the start: the mailbox and the server. The laptop joins on 09-22.
     expect(aggregate.levels.start.protectedObjects).toBe(2);
     expect(aggregate.levels.end.protectedObjects).toBe(3);
-    expect(aggregate.readinessEnd).toEqual({ green: 0, yellow: 0, red: 0, unverified: 3 });
+    // None of the three has a backup: No backup yet, apart from unverified.
+    expect(aggregate.readinessEnd).toEqual({
+      green: 0,
+      yellow: 0,
+      red: 0,
+      unverified: 0,
+      noBackup: 3,
+    });
   });
 
   it("adds endpoint backup runs to the job based ones, in the same buckets and totals", () => {
@@ -246,8 +273,15 @@ describe("aggregateTenant with endpoints", () => {
     const aggregate = aggregateTenant(base, period, "tenant");
     expect(aggregate.backups[1]).toEqual({ succeeded: 1, failed: 0, cancelled: 0 });
     expect(aggregate.levels.end.protectedObjects).toBe(1);
-    expect(aggregate.readinessEnd).toEqual({ green: 1, yellow: 0, red: 0, unverified: 0 });
-    expect(aggregate.overallEnd).toBe("yellow");
+    expect(aggregate.readinessEnd).toEqual({
+      green: 1,
+      yellow: 0,
+      red: 0,
+      unverified: 0,
+      noBackup: 0,
+    });
+    // The mailbox check is overdue at the end: a callout, not a rating (decision 2).
+    expect(aggregate.overallEnd).toBe("green");
   });
 
   it("keeps endpoints out of the largest objects and the storage figures", () => {
@@ -308,7 +342,14 @@ describe("the provider scope with endpoints", () => {
     const merged = mergeTotals([endpointsOnly, mixed, empty], period.buckets.length);
     // Available for the provider as soon as one tenant has endpoints.
     expect(merged.available.objects).toBe(true);
-    expect(merged.readinessEnd).toEqual({ green: 2, yellow: 0, red: 0, unverified: 1 });
+    // Adatum's server has no backup: No backup yet, which makes Adatum red.
+    expect(merged.readinessEnd).toEqual({
+      green: 2,
+      yellow: 0,
+      red: 0,
+      unverified: 0,
+      noBackup: 1,
+    });
     expect(merged.levels.end.protectedObjects).toBe(3);
 
     const stats = buildStats({
@@ -365,15 +406,27 @@ describe("aggregateTenant with VMs and containers of Proxmox VE", () => {
       period,
       "tenant",
     );
-    // vm-101 green, ct-200 without a backup (unverified), vm-300 red; vm-400 never in a job.
-    expect(aggregate.readinessEnd).toEqual({ green: 1, yellow: 0, red: 1, unverified: 1 });
+    // vm-101 green, ct-200 without a backup (No backup yet), vm-300 red; vm-400 never in a job.
+    expect(aggregate.readinessEnd).toEqual({
+      green: 1,
+      yellow: 0,
+      red: 1,
+      unverified: 0,
+      noBackup: 1,
+    });
     expect(aggregate.levels.end.protectedObjects).toBe(3);
     expect(aggregate.overallEnd).toBe("red");
     expect(aggregate.available.objects).toBe(true);
     expect(aggregate.backupTotals.current).toEqual({ succeeded: 2, failed: 1, cancelled: 0 });
     expect(aggregate.backupTotals.previous).toEqual({ succeeded: 1, failed: 0, cancelled: 0 });
     // At the start of the period vm-101's restore point was not checked yet.
-    expect(aggregate.readinessStart).toEqual({ green: 0, yellow: 0, red: 1, unverified: 2 });
+    expect(aggregate.readinessStart).toEqual({
+      green: 0,
+      yellow: 0,
+      red: 1,
+      unverified: 1,
+      noBackup: 1,
+    });
   });
 });
 
@@ -429,13 +482,25 @@ describe("file shares in the statistics", () => {
       period,
       "tenant",
     );
-    // office yellow, scans without a backup (unverified), old green; idle in no job, no point.
-    expect(aggregate.readinessEnd).toEqual({ green: 1, yellow: 1, red: 0, unverified: 1 });
+    // office yellow, scans without a backup (No backup yet), old green; idle in no job, no point.
+    expect(aggregate.readinessEnd).toEqual({
+      green: 1,
+      yellow: 1,
+      red: 0,
+      unverified: 0,
+      noBackup: 1,
+    });
     expect(aggregate.levels.end.protectedObjects).toBe(3);
-    // A share out of every job keeps the tenant from green, a share without a backup makes it red.
+    // A share without a backup makes the tenant red.
     expect(aggregate.overallEnd).toBe("red");
     // At the start office's newest point was the red one.
-    expect(aggregate.readinessStart).toEqual({ green: 1, yellow: 0, red: 1, unverified: 1 });
+    expect(aggregate.readinessStart).toEqual({
+      green: 1,
+      yellow: 0,
+      red: 1,
+      unverified: 0,
+      noBackup: 1,
+    });
     expect(aggregate.available.objects).toBe(true);
     expect(aggregate.available.backups).toBe(true);
     expect(aggregate.backupTotals.current).toEqual({ succeeded: 3, failed: 1, cancelled: 1 });
@@ -448,6 +513,12 @@ describe("file shares in the statistics", () => {
   it("a tenant without shares adds nothing", () => {
     const aggregate = aggregateTenant(facts(), period, "tenant");
     expect(aggregate.available).toEqual({ objects: false, backups: false, microsoft365: false });
-    expect(aggregate.readinessEnd).toEqual({ green: 0, yellow: 0, red: 0, unverified: 0 });
+    expect(aggregate.readinessEnd).toEqual({
+      green: 0,
+      yellow: 0,
+      red: 0,
+      unverified: 0,
+      noBackup: 0,
+    });
   });
 });

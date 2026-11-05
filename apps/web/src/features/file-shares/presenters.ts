@@ -1,4 +1,11 @@
-import type { StatusTone } from "@/components/kit";
+import {
+  READINESS_CATEGORY_META,
+  READINESS_FLAG_META,
+  RUN_STATUS_META,
+  type RunStatusKey,
+  type StatusTone,
+  toneOf,
+} from "@/components/kit";
 import { ApiError } from "@/lib/api";
 
 import {
@@ -31,58 +38,75 @@ export interface View {
   tone: StatusTone;
 }
 
+/**
+ * How a share stands, in the tones of the status meta: a run's state for what its runs did, the
+ * readiness flags for overdue and In no job (as on the share's readiness row), and the readiness
+ * category for No backup yet (the same words as the Readiness column beside it, so one colour).
+ */
 const STANDING_TONE: Readonly<Record<ShareStanding, StatusTone>> = {
   retired: "muted",
-  failed: "destructive",
-  running: "info",
-  overdue: "warning",
-  warning: "warning",
-  no_job: "warning",
-  no_backup: "muted",
-  ok: "neutral",
+  failed: toneOf(RUN_STATUS_META.failed),
+  running: toneOf(RUN_STATUS_META.running),
+  overdue: toneOf(READINESS_FLAG_META.overdue),
+  warning: toneOf(RUN_STATUS_META.partial),
+  no_job: toneOf(READINESS_FLAG_META.noJob),
+  no_backup: toneOf(READINESS_CATEGORY_META.no_backup),
+  ok: toneOf(RUN_STATUS_META.succeeded),
 };
 
 export function standingView(standing: ShareStanding): View {
   return { key: `standing.${standing}`, tone: STANDING_TONE[standing] ?? "muted" };
 }
 
+/**
+ * A share's readiness by its category (status meta): a restore check that passed is the one
+ * place a share is green; Needs attention is orange, Unverified amber, Not restorable and No
+ * backup yet danger.
+ */
 const READINESS_TONE: Readonly<Record<ShareReadinessState, StatusTone>> = {
-  // A restore check that passed: the one place a share is green.
-  green: "success",
-  yellow: "warning",
-  red: "destructive",
-  unverified: "muted",
-  no_backup: "muted",
+  green: toneOf(READINESS_CATEGORY_META.green),
+  yellow: toneOf(READINESS_CATEGORY_META.yellow),
+  red: toneOf(READINESS_CATEGORY_META.red),
+  unverified: toneOf(READINESS_CATEGORY_META.unverified),
+  no_backup: toneOf(READINESS_CATEGORY_META.no_backup),
 };
 
 export function readinessView(state: ShareReadinessState): View {
   return { key: `readiness.${state}`, tone: READINESS_TONE[state] ?? "muted" };
 }
 
-/** A run's status in words; a restore that completed is proof the data is back (green). */
+/** The run state of the status meta (RUN_STATUS_META) each share run status takes its tone from. */
+const RUN_STATE: Readonly<Record<Exclude<RunStatus, "succeeded">, RunStatusKey>> = {
+  warning: "partial",
+  failed: "failed",
+  running: "running",
+  starting: "running",
+  queued: "queued",
+  cancelled: "cancelled",
+};
+
+/**
+ * A run's status in words, in the tones of the status meta's runs; a restore that completed is
+ * proof the data is back (the meta's `restored`, green), a backup or a copy that completed is
+ * neutral.
+ */
 export function runStatusView(run: {
   status: RunStatus;
   kind: RunKind;
   trigger?: RunTrigger;
 }): View {
-  switch (run.status) {
-    case "succeeded":
-      return {
-        key: run.kind === "restore" ? "runs.status.restored" : "runs.status.succeeded",
-        tone: run.kind === "restore" && run.trigger !== "copy" ? "success" : "neutral",
-      };
-    case "warning":
-      return { key: "runs.status.warning", tone: "warning" };
-    case "failed":
-      return { key: "runs.status.failed", tone: "destructive" };
-    case "running":
-    case "starting":
-      return { key: `runs.status.${run.status}`, tone: "info" };
-    case "queued":
-      return { key: "runs.status.queued", tone: "muted" };
-    default:
-      return { key: "runs.status.cancelled", tone: "muted" };
+  if (run.status === "succeeded") {
+    const restored = run.kind === "restore" && run.trigger !== "copy";
+    return {
+      key: run.kind === "restore" ? "runs.status.restored" : "runs.status.succeeded",
+      tone: toneOf(RUN_STATUS_META[restored ? "restored" : "succeeded"]),
+    };
   }
+  const state = (RUN_STATE as Partial<Record<string, RunStatusKey>>)[run.status];
+  if (!state) {
+    return { key: "runs.status.cancelled", tone: "muted" };
+  }
+  return { key: `runs.status.${run.status}`, tone: toneOf(RUN_STATUS_META[state]) };
 }
 
 /** What a run is: a backup, a restore, or a run of a copy job. */

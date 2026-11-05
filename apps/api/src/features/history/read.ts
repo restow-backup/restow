@@ -1,4 +1,10 @@
-import { classifyRunError, mailJobObjectIds, SHARE_ITEM_CAUSES } from "@restow/core";
+import {
+  classifyRunError,
+  isRecoveryReadiness,
+  mailJobObjectIds,
+  type RecoveryReadiness,
+  SHARE_ITEM_CAUSES,
+} from "@restow/core";
 import {
   backupJobs,
   type Database,
@@ -660,7 +666,11 @@ export async function activeRuns(
 
 const NO_CHECK: RunRestoreCheckDto = { state: "none", checkedAt: null, runId: null };
 
-function readinessState(readiness: string | null | undefined): RunRestoreCheckDto["state"] {
+/**
+ * The check state of a rating. Only a rating maps: a value that is none (from a job payload or an
+ * old row) leaves the check unset at the call site instead of reading as "unverified".
+ */
+function readinessState(readiness: RecoveryReadiness): RunRestoreCheckDto["state"] {
   switch (readiness) {
     case "green":
       return "passed";
@@ -668,8 +678,6 @@ function readinessState(readiness: string | null | undefined): RunRestoreCheckDt
       return "warning";
     case "red":
       return "failed";
-    default:
-      return "unverified";
   }
 }
 
@@ -758,7 +766,7 @@ async function mailRestoreChecks(
         checkedAt: iso(verifyJob.startedAt ?? verifyJob.createdAt),
         runId: verifyJob.id,
       });
-    } else if (rating && rating.state !== "unverified") {
+    } else if (rating && isRecoveryReadiness(rating.state)) {
       result.set(row.job.id, {
         state: readinessState(rating.state),
         checkedAt: rating.checkedAt,
@@ -831,7 +839,8 @@ async function endpointRestoreChecks(
     );
     if (report) {
       result.set(run.id, {
-        state: readinessState(report.readiness),
+        // A restore test without a rating (none is expected) proves nothing yet.
+        state: report.readiness ? readinessState(report.readiness) : "unverified",
         checkedAt: report.checkedAt.toISOString(),
         runId: report.runId,
       });
@@ -950,7 +959,7 @@ async function mailDetail(
   if (row.job.queue === "verify" && run.state !== "running" && run.state !== "queued") {
     // The run is the check: its rating is its own result.
     const rated = payload?.result as { readiness?: string; completedAt?: string } | undefined;
-    restoreCheck = rated?.readiness
+    restoreCheck = isRecoveryReadiness(rated?.readiness)
       ? {
           state: readinessState(rated.readiness),
           checkedAt: rated.completedAt ?? iso(row.job.completedAt),
@@ -1318,7 +1327,8 @@ async function shareDetail(
         .limit(1);
       restoreCheck = report
         ? {
-            state: readinessState(report.readiness),
+            // A restore check without a rating (none is expected) proves nothing yet.
+            state: report.readiness ? readinessState(report.readiness) : "unverified",
             checkedAt: report.checkedAt.toISOString(),
             runId: null,
           }

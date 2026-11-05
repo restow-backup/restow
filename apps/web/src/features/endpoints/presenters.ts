@@ -1,4 +1,10 @@
-import type { StatusTone } from "@/components/kit";
+import {
+  RUN_STATUS_META,
+  type RunStatusKey,
+  type StatusTone,
+  toneOf,
+  VERIFICATION_META,
+} from "@/components/kit";
 import { ApiError, errorMessageKey } from "@/lib/api";
 import { RECENT_SIGN_IN_PROBLEM } from "@/lib/recent-sign-in";
 
@@ -16,6 +22,7 @@ import type {
   RunStatus,
   RunSummary,
 } from "./api.js";
+import { MACHINE_STATUS_META, type MachineStatusKey } from "./machine-status.js";
 
 /**
  * Pure logic of the endpoint pages: which label, tone and translation key a
@@ -173,16 +180,29 @@ const ATTENTION_ORDER: readonly Attention[] = [
   "revoke_suggested",
 ];
 
-const ATTENTION_TONE: Record<Attention, StatusTone> = {
-  repository_damaged: "destructive",
-  restore_test_failed: "destructive",
-  last_backup_failed: "destructive",
-  silent: "destructive",
-  no_job: "warning",
-  backup_overdue: "warning",
-  never_seen: "warning",
-  revoke_suggested: "warning",
+/** The machine state (machine-status.ts) each attention item is. */
+const ATTENTION_STATE: Readonly<Record<Attention, MachineStatusKey>> = {
+  repository_damaged: "repository_damaged",
+  restore_test_failed: "restore_failed",
+  last_backup_failed: "failed",
+  silent: "silent",
+  no_job: "no_job",
+  backup_overdue: "backup_overdue",
+  never_seen: "never_seen",
+  revoke_suggested: "revoke_suggested",
 };
+
+/**
+ * Failures are danger; everything else is something a person must look at (the attention
+ * tone of the status meta), kept apart from the amber of a backup that is not proven yet. The
+ * tones are the machine states' (one table for the attention list and the state badge).
+ */
+const ATTENTION_TONE: Readonly<Record<Attention, StatusTone>> = Object.fromEntries(
+  Object.entries(ATTENTION_STATE).map(([attention, state]) => [
+    attention,
+    MACHINE_STATUS_META[state].tone,
+  ]),
+) as Record<Attention, StatusTone>;
 
 /**
  * Whether an active machine is in no backup job, so nothing backs it up (release 0.2.1). An
@@ -307,29 +327,32 @@ export interface RunStatusView {
   live: boolean;
 }
 
+/** The run state of the status meta each run status is (the label key stays the page's). */
+const RUN_STATUS_STATE = {
+  running: "running",
+  succeeded: "succeeded",
+  partial: "partial",
+  // Asked for in the UI: neither a failure nor a backup.
+  cancelled: "cancelled",
+  failed: "failed",
+} as const satisfies Partial<Record<RunStatus, RunStatusKey>>;
+
 /**
- * How a run looks. A backup run that succeeded is neutral: it stowed the data
- * and nothing has read it back yet. A restore that succeeded and a restore test
- * (`verify_sample`) that succeeded are the proof green is kept for.
+ * How a run looks, in the tones of the status meta's runs (RUN_STATUS_META). A backup run that
+ * succeeded is neutral: it stowed the data and nothing has read it back yet. A restore that
+ * succeeded and a restore test (`verify_sample`) that succeeded are the proof green is kept
+ * for (the meta's `restored`).
  */
 export function runStatusView(status: RunStatus, kind?: RunKind): RunStatusView {
-  switch (status) {
-    case "running":
-      return { tone: "info", key: "runStatus.running", live: true };
-    case "succeeded":
-      return {
-        tone: kind === "restore" || kind === "verify_sample" ? "success" : "neutral",
-        key: "runStatus.succeeded",
-        live: false,
-      };
-    case "partial":
-      return { tone: "warning", key: "runStatus.partial", live: false };
-    case "cancelled":
-      // Asked for in the UI: neither a failure nor a backup.
-      return { tone: "muted", key: "runStatus.cancelled", live: false };
-    default:
-      return { tone: "destructive", key: "runStatus.failed", live: false };
+  const known = (RUN_STATUS_STATE as Partial<Record<string, RunStatusKey>>)[status];
+  if (!known) {
+    // A status a newer server sends that this page does not know: no claim of failure.
+    return { tone: "muted", key: "runStatus.unknown", live: false };
   }
+  const state =
+    known === "succeeded" && (kind === "restore" || kind === "verify_sample") ? "restored" : known;
+  const meta = RUN_STATUS_META[state];
+  return { tone: toneOf(meta), key: `runStatus.${status}`, live: meta.live === true };
 }
 
 /** Which special case a run badge shows, so the badge can pick its icon. */
@@ -516,13 +539,9 @@ export interface ReportView {
  */
 export function reportView(report: EndpointReport, format: Formatters): ReportView {
   const tone: StatusTone =
-    report.readiness === "red"
-      ? "destructive"
-      : report.readiness === "yellow"
-        ? "warning"
-        : report.readiness === "green"
-          ? "success"
-          : "muted";
+    report.readiness === "red" || report.readiness === "yellow" || report.readiness === "green"
+      ? toneOf(VERIFICATION_META[report.readiness])
+      : "muted";
   const data = report.summary;
   const details: Message[] = [];
   if (data.errorMessage) {

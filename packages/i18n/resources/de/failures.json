@@ -345,7 +345,7 @@
       },
       "snapshot_empty": {
         "title": "Leer: Es gibt nichts wiederherzustellen",
-        "why": "Das letzte Backup enthält nur Standardordner bzw. Systemseiten und 0 Bytes Inhalt. Das ist kein Fehler. Ein Administrator kann das Objekt als leer bestätigen, dann zählt es nicht mehr als „Achtung“. Sobald ein späteres Backup Inhalt enthält, wird es wieder wie jedes andere Objekt bewertet."
+        "why": "Das letzte Backup enthält nur Standardordner bzw. Systemseiten und 0 Bytes Inhalt. Das ist kein Fehler. Ein Administrator kann das Objekt als leer bestätigen, dann zählt es nicht mehr als „Braucht Aufmerksamkeit“. Sobald ein späteres Backup Inhalt enthält, wird es wieder wie jedes andere Objekt bewertet."
       },
       "nothing_to_verify": {
         "title": "Das Backup enthält nichts, was eine Prüfung zurücklesen kann",
