@@ -118,14 +118,14 @@ function selectOf(params: URLSearchParams): string[] {
 export const ROOT_FOLDER_ID = "AAMkRoot";
 
 /**
- * PidTagMessageSize of a fake message: its MIME plus its attachments. It moves when the body
- * or an attachment changes, not when flags, read state or categories do.
+ * The body text Graph hands out for a fake message (`Prefer: outlook.body-content-type="text"`):
+ * what follows the MIME's header block, so an edit of the body changes it. A message created
+ * without a body of its own reads as "Body of <subject>".
  */
-export function messageSize(message: Pick<FakeMessage, "mime" | "attachments">): number {
-  return (
-    Buffer.byteLength(message.mime, "utf8") +
-    (message.attachments ?? []).reduce((sum, attachment) => sum + attachment.bytes.length, 0)
-  );
+export function bodyTextOf(message: Pick<FakeMessage, "mime" | "subject">): string {
+  const end = message.mime.indexOf("\r\n\r\n");
+  const body = end < 0 ? "" : message.mime.slice(end + 4).trim();
+  return body === "" || body === "Hello" ? `Body of ${message.subject}` : body;
 }
 
 /** Build a MIME body for a fake message. */
@@ -746,15 +746,19 @@ export class FakeMailbox {
   ): Record<string, unknown> {
     const full = {
       ...this.properties(message),
-      body: { contentType: "text", content: `Body of ${message.subject}` },
+      body: { contentType: "text", content: bodyTextOf(message) },
     };
     const projected = this.project(full, select);
-    // As Graph: an extended property only with $expand, named in Graph's normalised form.
+    // As Graph: the attachment list (without bytes) only with $expand=attachments.
     const expand = params?.get("$expand") ?? "";
-    if (/singleValueExtendedProperties\(\$filter=id eq 'Long 0x0E08'\)/i.test(expand)) {
-      projected.singleValueExtendedProperties = [
-        { id: "Long 0xe08", value: String(messageSize(message)) },
-      ];
+    if (/^attachments(\(|$)/.test(expand)) {
+      projected.attachments = (message.attachments ?? []).map((attachment) => ({
+        "@odata.type": attachment.odataType ?? "#microsoft.graph.fileAttachment",
+        id: attachment.id,
+        name: attachment.name,
+        size: attachment.bytes.length + 180,
+        isInline: attachment.isInline === true,
+      }));
     }
     return projected;
   }

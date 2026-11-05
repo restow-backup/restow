@@ -63,6 +63,9 @@ export const FAILURE_CODES = [
   // A group calendar read through calendarView (Graph refused the plain listing): events
   // outside the window are kept as last backed up (backup/exchange/calendar.ts).
   "graph.group_calendar_windowed",
+  // A changed message whose content Graph did not let the backup check: kept as stored,
+  // checked again next run (backup/exchange/mail.ts).
+  "graph.mail_content_unchecked",
   "graph.item_not_found",
   "graph.item_too_large",
   "graph.item_unreadable",

@@ -699,33 +699,37 @@ describe("restore", () => {
   });
 });
 
-describe("messageSizeOf (PidTagMessageSize)", () => {
-  it("reads the property in the form Graph answers it, and nothing else", async () => {
-    const { messageSizeOf, messageSizeUrl } = await import("./mail.js");
-    // Graph normalises the id it was asked for ('Long 0x0E08') to lower case without zeros.
+describe("messageContentSignature", () => {
+  it("covers the body text and the attachment list, in any order, and nothing else", async () => {
+    const { messageContentSignature, messageContentCheckUrl } = await import("./mail.js");
+    const answer = {
+      id: "AAMk1",
+      body: { contentType: "text", content: "Hello, see both drafts." },
+      attachments: [
+        { id: "a2", name: "v2.docx", size: 5120, isInline: false },
+        { id: "a1", name: "v1.docx", size: 4096, isInline: false },
+      ],
+    };
+    const signature = messageContentSignature(answer);
+    expect(signature).toMatch(/^[0-9a-f]{64}$/);
     expect(
-      messageSizeOf({
-        id: "AAMk1",
-        singleValueExtendedProperties: [{ id: "Long 0xe08", value: "48213" }],
-      }),
-    ).toBe(48213);
+      messageContentSignature({ ...answer, attachments: [...answer.attachments].reverse() }),
+    ).toBe(signature);
+    // An attachment removed, or the body edited: another signature.
     expect(
-      messageSizeOf({ singleValueExtendedProperties: [{ id: "Long 0x0E08", value: "7" }] }),
-    ).toBe(7);
-    expect(messageSizeOf({ id: "AAMk1" })).toBeUndefined();
+      messageContentSignature({ ...answer, attachments: answer.attachments.slice(1) }),
+    ).not.toBe(signature);
     expect(
-      messageSizeOf({ singleValueExtendedProperties: [{ id: "Long 0xe080", value: "1" }] }),
-    ).toBeUndefined();
-    expect(
-      messageSizeOf({ singleValueExtendedProperties: [{ id: "Long 0xe08", value: "x" }] }),
-    ).toBeUndefined();
+      messageContentSignature({ ...answer, body: { contentType: "text", content: "Hello." } }),
+    ).not.toBe(signature);
+    // Without body or attachment list Graph's answer proves nothing.
+    expect(messageContentSignature({ id: "AAMk1", body: answer.body })).toBeUndefined();
+    expect(messageContentSignature({ id: "AAMk1", attachments: [] })).toBeUndefined();
     const url = new URL(
-      messageSizeUrl("alice@contoso.example", "AAMk/1"),
+      messageContentCheckUrl("alice@contoso.example", "AAMk/1"),
       "https://graph.microsoft.com/v1.0/",
     );
-    expect(url.searchParams.get("$expand")).toBe(
-      "singleValueExtendedProperties($filter=id eq 'Long 0x0E08')",
-    );
-    expect(url.searchParams.get("$select")).toBe("id");
+    expect(url.searchParams.get("$select")).toBe("id,body");
+    expect(url.searchParams.get("$expand")).toBe("attachments($select=id,name,size,isInline)");
   });
 });

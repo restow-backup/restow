@@ -106,13 +106,19 @@ ein Ordner liefert, bleibt ein Ordnerfehler.
   Download. Entfernt jemand in Outlook einen Anhang einer empfangenen Mail oder bearbeitet ihren
   Text hinter den ersten 255 Zeichen, bleibt dieser Abdruck gleich. Deshalb liest der Lauf für
   jede Nachricht, deren Inhalt er lädt oder deren `lastModifiedDateTime` sich bei gleichem
-  Abdruck geändert hat, die Größe PidTagMessageSize (`singleValueExtendedProperties` mit
-  `Long 0x0E08`, je 20 Nachrichten ein `$batch`; ob das Delta selbst `$expand` dafür annimmt, ist
-  nicht verlässlich belegt) und speichert sie als `messageSize`. Weicht sie ab, wird der Inhalt
-  neu geladen. Flags und Lesestatus ändern die Größe nicht; eine neue Kategorie oder Kennzeichnung
-  kann sie um wenige Bytes ändern und lädt die Nachricht dann einmal neu. Eine Kopie ohne
-  `messageSize` (vor 0.5.0) wird bei ihrer nächsten Änderung einmal neu geladen. `changeKey`
-  taugt dafür nicht, er ändert sich auch bei Flags und Lesestatus.
+  Abdruck geändert hat, eine Inhaltssignatur: `GET /messages/{mid}?$select=id,body&$expand=
+  attachments($select=id,name,size,isInline)` mit `Prefer: outlook.body-content-type="text"`,
+  je 20 Nachrichten ein `$batch`, daraus SHA-256 über den Text und die sortierte Anhangsliste,
+  gespeichert als `contentSignature`. Weicht sie ab, wird der Inhalt neu geladen. Markierung,
+  Lesestatus, Kategorien und Aufbewahrungsstempel ändern sie nicht (PidTagMessageSize dagegen
+  schon: Exchange zählt jede MAPI-Eigenschaft mit, deshalb taugt die Größe nicht). Bleibt die
+  Abfrage für eine geänderte Nachricht unbeantwortet (429, 5xx, ganzer `$batch` abgelehnt),
+  behält die Sicherung die alte Kopie mit ihrer alten Änderungszeit, der Lauf meldet die
+  Nachricht als Warnung `graph.mail_content_unchecked`, und der nächste Lauf prüft sie über die
+  Wiederholungsliste erneut. Auch eine Nachricht, die erst eine Wiederholung oder die erneute
+  MIME-Abfrage speichert, bekommt ihre Signatur. Eine Kopie ohne `contentSignature` (vor 0.5.0)
+  wird bei ihrer nächsten Änderung einmal neu geladen. `changeKey` taugt dafür nicht, er ändert
+  sich auch bei Flags und Lesestatus.
 - Große Anhänge (>4 MB) kommen im MIME mit; `$value` kann für sehr große Mails
   (>150 MB) fehlschlagen; Fallback: Anhänge einzeln über `/attachments/{id}/$value`.
 - JSON-Format (Graph-JSON der Nachricht mit `body` und `internetMessageHeaders`, dazu jeder

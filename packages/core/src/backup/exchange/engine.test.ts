@@ -40,7 +40,7 @@ import { ExchangeBackupEngine, type ExchangeBackupEngineOptions } from "./engine
 import { mailObjectPath, shortId } from "./paths.js";
 import { EXCHANGE_PHASES, MailboxAccessError, META } from "./run.js";
 import { MAIL_SELECT_VERSION, parseCursor, readState } from "./state.js";
-import { FakeMailbox, type FakeMessage, messageSize } from "./testing/fake-mailbox.js";
+import { FakeMailbox, type FakeMessage } from "./testing/fake-mailbox.js";
 
 const TENANT = "aaaaaaaa-0000-4000-8000-000000000001";
 const USER = "alice@contoso.example";
@@ -853,55 +853,135 @@ describe("ExchangeBackupEngine", () => {
       );
     }
 
+    /** The content checks sent in `$batch` sub-requests, as message ids. */
+    function contentChecks(): string[] {
+      return graph
+        .callsTo("POST", "/$batch")
+        .flatMap((call) => (call.json as { requests: Array<{ url: string }> }).requests)
+        .map((sub) => decodeURIComponent(sub.url))
+        .filter((url) => url.includes("$expand=attachments("))
+        .map((url) => url.match(/messages\/([^/?]+)\?/)?.[1] ?? "");
+    }
+
     it("fetches a received mail again when an attachment was removed", async () => {
       withAttachments();
       const first = await engine.run(newContext(), mailbox, {});
-      expect(
-        byId(await manifestOf(first.snapshotId), "AAMkMsgAtt").metadata?.[META.messageSize],
-      ).toBe(String(messageSize(fake("AAMkMsgAtt"))));
+      const signature = byId(await manifestOf(first.snapshotId), "AAMkMsgAtt").metadata?.[
+        META.contentSignature
+      ];
+      expect(signature).toMatch(/^[0-9a-f]{64}$/);
       graph.calls.length = 0;
 
       // Outlook "Remove attachment": subject, hasAttachments and bodyPreview stay the same.
       const before = fake("AAMkMsgAtt");
-      box.updateMessage("AAMkMsgAtt", {
-        attachments: before.attachments?.slice(0, 1),
-        mime: `${before.mime}\r\n(attachment v2.docx removed)`,
-      });
+      box.updateMessage("AAMkMsgAtt", { attachments: before.attachments?.slice(0, 1) });
       const second = await engine.run(newContext({ jobId: "job-2" }), mailbox, {});
       expect(mimeDownloads()).toEqual(["AAMkMsgAtt"]);
       const stored = byId(await manifestOf(second.snapshotId), "AAMkMsgAtt");
       expect(stored.metadata?.[META.fetchedInSnapshot]).toBe("snap-2");
-      expect(stored.metadata?.[META.messageSize]).toBe(String(messageSize(fake("AAMkMsgAtt"))));
+      expect(stored.metadata?.[META.contentSignature]).toMatch(/^[0-9a-f]{64}$/);
+      expect(stored.metadata?.[META.contentSignature]).not.toBe(signature);
+    });
+
+    it("fetches a received mail again when its body was edited past the preview", async () => {
+      withAttachments();
+      await engine.run(newContext(), mailbox, {});
+      graph.calls.length = 0;
+      const before = fake("AAMkMsgAtt");
+      box.updateMessage("AAMkMsgAtt", {
+        mime: `${before.mime}\r\nA note added far below the first 255 characters.`,
+      });
+      await engine.run(newContext({ jobId: "job-2" }), mailbox, {});
+      expect(mimeDownloads()).toEqual(["AAMkMsgAtt"]);
     });
 
     it("does not fetch again for a flag, read-state or category change", async () => {
       withAttachments();
-      await engine.run(newContext(), mailbox, {});
+      const first = await engine.run(newContext(), mailbox, {});
+      const signature = byId(await manifestOf(first.snapshotId), "AAMkMsgAtt").metadata?.[
+        META.contentSignature
+      ];
       graph.calls.length = 0;
+      // Exchange moves lastModifiedDateTime (and PidTagMessageSize) for each of these.
       box.updateMessage("AAMkMsgAtt", {
         isRead: false,
         flagStatus: "flagged",
         categories: ["Legal"],
       });
       const second = await engine.run(newContext({ jobId: "job-2" }), mailbox, {});
+      expect(second.failures).toEqual([]);
       expect(mimeDownloads()).toEqual([]);
       expect(byId(await manifestOf(second.snapshotId), "AAMkMsgAtt").metadata).toMatchObject({
         [META.flagStatus]: "flagged",
         [META.fetchedInSnapshot]: "snap-1",
-        [META.messageSize]: String(messageSize(fake("AAMkMsgAtt"))),
+        [META.contentSignature]: signature,
       });
-      // Sizes are only asked for the entries that changed, in one $batch.
-      const sizeCalls = graph
-        .callsTo("POST", "/$batch")
-        .flatMap((call) => (call.json as { requests: Array<{ url: string }> }).requests)
-        .filter((sub) => sub.url.includes("singleValueExtendedProperties"));
-      expect(sizeCalls).toHaveLength(1);
+      // Only the entry that changed is checked.
+      expect(contentChecks()).toEqual(["AAMkMsgAtt"]);
     });
 
-    it("fetches a copy stored without a size once on its next change, then trusts the size", async () => {
+    it("keeps a changed message unproven, not green, when its check goes unanswered, and checks it next run", async () => {
       withAttachments();
       const first = await engine.run(newContext(), mailbox, {});
-      // A restore point written before the size was recorded.
+      const firstCopy = byId(await manifestOf(first.snapshotId), "AAMkMsgAtt");
+      // The attachment goes and the check is throttled past the client's retries.
+      const before = fake("AAMkMsgAtt");
+      box.updateMessage("AAMkMsgAtt", { attachments: before.attachments?.slice(0, 1) });
+      box.interceptBatchSub = (url) =>
+        decodeURIComponent(url).includes("$expand=attachments(")
+          ? { status: 503, body: graphError("ServiceUnavailable", "try later") }
+          : undefined;
+      graph.calls.length = 0;
+      const second = await engine.run(newContext({ jobId: "job-2" }), mailbox, {});
+      expect(mimeDownloads()).toEqual([]);
+      expect(second.failures).toEqual([
+        expect.objectContaining({
+          cause: expect.objectContaining({ code: "graph.mail_content_unchecked" }),
+        }),
+      ]);
+      const kept = byId(await manifestOf(second.snapshotId), "AAMkMsgAtt");
+      expect(kept.chunks).toEqual(firstCopy.chunks);
+      // The old modification time stays, so the change is still seen as one.
+      expect(kept.mtime).toBe(firstCopy.mtime);
+
+      // The delta does not list it again; the retry checks it and fetches the new content.
+      box.interceptBatchSub = undefined;
+      graph.calls.length = 0;
+      const third = await engine.run(newContext({ jobId: "job-3" }), mailbox, {});
+      expect(third.failures).toEqual([]);
+      expect(mimeDownloads()).toEqual(["AAMkMsgAtt"]);
+      expect(
+        byId(await manifestOf(third.snapshotId), "AAMkMsgAtt").metadata?.[META.fetchedInSnapshot],
+      ).toBe("snap-3");
+    });
+
+    it("gives a message stored by a retry its signature, so its next flag change downloads nothing", async () => {
+      withAttachments();
+      let refuse = true;
+      box.intercept = (call) =>
+        refuse && call.method === "GET" && call.url.includes("/messages/AAMkMsgAtt/$value")
+          ? { status: 403, json: graphError("ErrorAccessDenied", "Access is denied.") }
+          : undefined;
+      const first = await engine.run(newContext(), mailbox, {});
+      expect(first.failures.map((f) => f.itemRef)).toEqual([
+        expect.stringContaining("Contract drafts"),
+      ]);
+      refuse = false;
+      const second = await engine.run(newContext({ jobId: "job-2" }), mailbox, {});
+      expect(second.failures).toEqual([]);
+      expect(
+        byId(await manifestOf(second.snapshotId), "AAMkMsgAtt").metadata?.[META.contentSignature],
+      ).toMatch(/^[0-9a-f]{64}$/);
+      box.updateMessage("AAMkMsgAtt", { isRead: false });
+      graph.calls.length = 0;
+      await engine.run(newContext({ jobId: "job-3" }), mailbox, {});
+      expect(mimeDownloads()).toEqual([]);
+    });
+
+    it("fetches a copy stored without a signature once on its next change, then trusts the signature", async () => {
+      withAttachments();
+      const first = await engine.run(newContext(), mailbox, {});
+      // A restore point written before the signature was recorded.
       const manifest = await manifestOf(first.snapshotId);
       const legacy = {
         ...manifest,
@@ -909,7 +989,7 @@ describe("ExchangeBackupEngine", () => {
           if (o.id !== "AAMkMsgAtt") {
             return o;
           }
-          const { [META.messageSize]: _size, ...metadata } = o.metadata ?? {};
+          const { [META.contentSignature]: _signature, ...metadata } = o.metadata ?? {};
           return { ...o, metadata };
         }),
       };

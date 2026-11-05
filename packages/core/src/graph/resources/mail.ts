@@ -7,6 +7,7 @@
  * The backup format for a message is its MIME (RFC 5322) plus the metadata from
  * the delta entry; flag/category changes only touch metadata (docs/MICROSOFT.md).
  */
+import { createHash } from "node:crypto";
 import type { Readable } from "node:stream";
 import type {
   Attachment,
@@ -442,67 +443,98 @@ export async function getMessage(
 }
 
 /**
- * PidTagMessageSize (MAPI 0x0E08): the size of the whole message with every attachment, as a
- * single-value extended property. Graph v1.0 messages have no `size`; this is how a backup
- * notices a change behind an unchanged subject and `bodyPreview` (an attachment removed, the
- * body edited past its first 255 characters). Graph names it `Long 0xe08` in answers.
+ * What a message's content is, apart from its flags: the body as text and the list of its
+ * attachments (id, name, size, inline), without their bytes. Subject, `hasAttachments` and
+ * `bodyPreview` (the first 255 characters) stay the same when an attachment of a received
+ * mail is removed or its body is edited further down; this does not. It also does not move
+ * when a flag, the read state, a category or a retention tag changes, which PidTagMessageSize
+ * (0x0E08) does: Exchange counts every MAPI property into the size.
  */
-export const MESSAGE_SIZE_PROPERTY = "Long 0x0E08";
-
-export function messageSizeUrl(userId: string, messageId: string): string {
+export function messageContentCheckUrl(userId: string, messageId: string): string {
   return `${userPath(userId)}/messages/${encodeURIComponent(messageId)}${query({
-    $select: "id",
-    $expand: `singleValueExtendedProperties($filter=id eq '${MESSAGE_SIZE_PROPERTY}')`,
+    $select: "id,body",
+    $expand: "attachments($select=id,name,size,isInline)",
   })}`;
 }
 
-/** The PidTagMessageSize of a message answer, or undefined when it is not there. */
-export function messageSizeOf(body: unknown): number | undefined {
-  const properties = (body as { singleValueExtendedProperties?: unknown } | null | undefined)
-    ?.singleValueExtendedProperties;
-  if (!Array.isArray(properties)) {
+/** The body as text: smaller than HTML and enough to tell an edit. */
+export const MESSAGE_CONTENT_CHECK_HEADERS: Readonly<Record<string, string>> = {
+  Prefer: 'outlook.body-content-type="text"',
+};
+
+/**
+ * The content signature of a {@link messageContentCheckUrl} answer (SHA-256 over the body
+ * text and the sorted attachment list), or undefined when the answer lacks either.
+ */
+export function messageContentSignature(body: unknown): string | undefined {
+  const answer = body as
+    | { body?: { content?: unknown } | null; attachments?: unknown }
+    | null
+    | undefined;
+  const content = answer?.body?.content;
+  if (typeof content !== "string" || !Array.isArray(answer?.attachments)) {
     return undefined;
   }
-  for (const property of properties as Array<{ id?: unknown; value?: unknown }>) {
-    if (typeof property?.id === "string" && /^long\s+0x0*e08$/i.test(property.id.trim())) {
-      const size = Number(property.value);
-      return Number.isSafeInteger(size) && size >= 0 ? size : undefined;
-    }
-  }
-  return undefined;
+  const attachments = (answer.attachments as Array<Record<string, unknown>>)
+    .map((attachment) => [
+      String(attachment?.id ?? ""),
+      String(attachment?.name ?? ""),
+      Number(attachment?.size ?? -1),
+      attachment?.isInline === true,
+    ])
+    .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+  return createHash("sha256")
+    .update(JSON.stringify({ body: content, attachments }), "utf8")
+    .digest("hex");
+}
+
+export interface MessageContentSignatures {
+  /** By message id. */
+  readonly signatures: ReadonlyMap<string, string>;
+  /** Messages Graph did not answer for (throttled, server error, gone): unknown, not unchanged. */
+  readonly unanswered: ReadonlySet<string>;
 }
 
 /**
- * PidTagMessageSize of several messages through `$batch` (20 per request). A message Graph
- * does not answer for (gone, refused, no such property) is absent from the map: unknown, not 0.
+ * {@link messageContentSignature} of several messages through `$batch` (20 per request).
+ * Every id is either signed or unanswered.
  */
-export async function getMessageSizes(
+export async function getMessageContentSignatures(
   client: GraphClient,
   userId: string,
   messageIds: readonly string[],
-): Promise<Map<string, number>> {
-  const sizes = new Map<string, number>();
+): Promise<MessageContentSignatures> {
+  const signatures = new Map<string, string>();
+  const unanswered = new Set<string>();
   if (messageIds.length === 0) {
-    return sizes;
+    return { signatures, unanswered };
   }
   const responses = await client.batch(
     messageIds.map((id, index) => ({
       id: String(index),
       method: "GET",
-      url: messageSizeUrl(userId, id),
+      url: messageContentCheckUrl(userId, id),
+      headers: { ...MESSAGE_CONTENT_CHECK_HEADERS },
     })),
   );
+  const answered = new Set<string>();
   for (const response of responses) {
     const id = messageIds[Number(response.id)];
     if (id === undefined || response.status < 200 || response.status >= 300) {
       continue;
     }
-    const size = messageSizeOf(response.body);
-    if (size !== undefined) {
-      sizes.set(id, size);
+    const signature = messageContentSignature(response.body);
+    if (signature !== undefined) {
+      signatures.set(id, signature);
+      answered.add(id);
     }
   }
-  return sizes;
+  for (const id of messageIds) {
+    if (!answered.has(id)) {
+      unanswered.add(id);
+    }
+  }
+  return { signatures, unanswered };
 }
 
 function messageMimeUrl(userId: string, messageId: string): string {

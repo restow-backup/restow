@@ -213,6 +213,12 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     retryable: false,
     steps: () => [step("verify_permissions")],
   },
+  "graph.mail_content_unchecked": {
+    category: "microsoft",
+    transient: true,
+    retryable: true,
+    steps: () => [step("wait_automatic")],
+  },
   "graph.item_not_found": {
     category: "microsoft",
     transient: true,

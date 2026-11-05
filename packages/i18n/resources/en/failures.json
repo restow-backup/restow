@@ -137,6 +137,10 @@
         "title": "The group calendar was read within a time window only",
         "why": "Microsoft Graph refused the full event list of this group calendar to the app. {appName} therefore read it through the calendar view{has_windowStart, select, yes { from {windowStart}{has_windowEnd, select, yes { to {windowEnd}} other {}}} other { (five years back to two years ahead)}}. Events outside this window stay in the backup as they were last backed up; this run does not see changes or deletions there."
       },
+      "mail_content_unchecked": {
+        "title": "The content of a changed message could not be checked",
+        "why": "This message changed since the last run. {appName} could not check whether only its flag, read state or category changed or its content (text, attachments) too, because Microsoft did not answer the request. The backup keeps the copy last backed up, and the next run checks the message again and downloads it again if its content changed."
+      },
       "item_not_found": {
         "title": "The item was changed or deleted at Microsoft in the meantime",
         "why": "{appName} listed this item but could not read it afterwards, because it was moved or deleted at Microsoft in between. The next run sees the new state."

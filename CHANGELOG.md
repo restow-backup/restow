@@ -594,9 +594,11 @@ private repository.
 - Mail backup: a Microsoft 365 message whose content changed while its subject and preview stayed
   the same kept its old copy in the backup: an attachment removed from a received mail in
   Outlook, or its text edited after the first 255 characters. The backup now also compares the
-  message size Exchange reports and downloads the message again when it changed. Flag and
-  read-state changes still download nothing; a copy stored before this version is downloaded
-  once more on its next change.
+  message's text and its list of attachments and downloads the message again when they changed.
+  Flag, read-state, category and retention changes still download nothing. When Microsoft does
+  not answer that check for a changed message, the stored copy is kept, the run ends with a
+  warning instead of green, and the next run checks the message again. A copy stored before this
+  version is downloaded once more on its next change.
 - Mail backup: a Microsoft 365 message stored as JSON (too large or not convertible to MIME) lost
   the Content-ID of its inline attachments, so after a restore the images in its HTML body were
   broken. The Content-ID is now backed up and restored. Messages stored as JSON by earlier

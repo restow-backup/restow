@@ -32,18 +32,20 @@ import { createHash } from "node:crypto";
 import { pipeline, type Readable, Transform } from "node:stream";
 import type { Message, Recipient } from "@microsoft/microsoft-graph-types";
 import { JobAbortedError } from "../../engine/chunkstore.js";
+import { buildCause } from "../../failures/classify.js";
 import { type DeltaMode, isRemoved, RecordDeltaTokenStore } from "../../graph/delta.js";
 import { isGraphError, isMailboxUnavailable } from "../../graph/errors.js";
 import { query, requestOk, userPath } from "../../graph/resources/common.js";
 import {
   fetchMessageContent,
   getMessage,
-  getMessageSizes,
+  getMessageContentSignatures,
   isMimeServerError,
   listMailFolderTree,
   type MailFolderNode,
   MESSAGE_DELTA_SELECT,
   type MessageContent,
+  type MessageContentSignatures,
   type MessageDeltaEntry,
   messagesDelta,
   mimeRefusalReason,
@@ -673,7 +675,7 @@ const CONTENT_METADATA = [
   META.referenceAttachments,
   META.protection,
   META.formatReason,
-  META.messageSize,
+  META.contentSignature,
   META.contentIdUnavailable,
 ] as const;
 
@@ -908,6 +910,11 @@ async function askMimeAgain(
     ...mailMetadata(entry, folder, existing),
     [META.fingerprint]: fingerprint,
   };
+  // The signature describes the message in Exchange, not the form it is stored in.
+  const signature = existing.metadata?.[META.contentSignature];
+  if (signature !== undefined) {
+    metadata[META.contentSignature] = signature;
+  }
   await storeMimeMessage(run, folder, entry, existing, mtime, metadata, stream);
 }
 
@@ -920,7 +927,7 @@ async function fetchMessage(
   mtime: number,
   fingerprint: string,
   options: MailPhaseOptions,
-  size: number | undefined,
+  signature: string | undefined,
 ): Promise<void> {
   const serverErrorRuns = run.state.mailMimeServerErrors[entry.id] ?? 0;
   let content: MessageContent;
@@ -943,9 +950,9 @@ async function fetchMessage(
     ...mailMetadata(entry, folder, existing),
     [META.fingerprint]: fingerprint,
   };
-  // Asked before the download: an edit in between shows as a new size on the next change.
-  if (size !== undefined) {
-    metadata[META.messageSize] = String(size);
+  // Asked before the download: an edit in between shows as another signature next time.
+  if (signature !== undefined) {
+    metadata[META.contentSignature] = signature;
   }
 
   if (content.kind === "parts") {
@@ -1008,30 +1015,31 @@ async function storeMimeMessage(
   ]);
 }
 
-/** Message size of a delta entry; ids of the entries whose size is worth asking ({@link storeMessage}). */
-export type MessageSizes = ReadonlyMap<string, number>;
-
 function entryMtime(entry: MailDeltaEntry): number {
   return toMillis(entry.lastModifiedDateTime) || toMillis(entry.receivedDateTime);
 }
 
+/** Content signatures asked for the entries of a delta page ({@link entriesToCheck}). */
+export type ContentChecks = MessageContentSignatures;
+
+const NO_CHECKS: ContentChecks = { signatures: new Map(), unanswered: new Set() };
+
 /**
- * The entries of a delta page whose PidTagMessageSize {@link storeMessage} needs: those
- * whose content will be fetched (the size is stored with it) and those modified with an
- * unchanged fingerprint (the size tells whether the content changed). An entry whose
- * modification time did not move needs none.
+ * The entries of a delta page whose content signature {@link storeMessage} needs: those
+ * whose content will be fetched (the signature is stored with it, as the baseline of the
+ * next comparison) and those modified with an unchanged fingerprint (the signature tells
+ * a content change from a flag, read-state, category or retention change). An entry whose
+ * modification time did not move needs none, nor does a draft (every change of a draft
+ * fetches it, see {@link contentFingerprint}).
  */
-export function entriesNeedingSize(run: BackupRun, entries: readonly MailDeltaEntry[]): string[] {
+export function entriesToCheck(run: BackupRun, entries: readonly MailDeltaEntry[]): string[] {
   const ids: string[] = [];
   for (const entry of entries) {
-    if (isRemoved(entry)) {
+    if (isRemoved(entry) || entry.isDraft === true) {
       continue;
     }
     const existing = run.index.get(OBJECT_TYPES.mail, entry.id);
-    if (
-      run.reusable(existing, contentFingerprint(entry)) &&
-      (existing.mtime === entryMtime(entry) || entry.isDraft === true)
-    ) {
+    if (run.reusable(existing, contentFingerprint(entry)) && existing.mtime === entryMtime(entry)) {
       continue;
     }
     ids.push(entry.id);
@@ -1039,43 +1047,64 @@ export function entriesNeedingSize(run: BackupRun, entries: readonly MailDeltaEn
   return ids;
 }
 
-/** {@link getMessageSizes} for a page; a $batch Graph refuses leaves every size unknown. */
-async function messageSizes(run: BackupRun, ids: readonly string[]): Promise<MessageSizes> {
+/** {@link getMessageContentSignatures} for a page; a $batch Graph refuses leaves every id unanswered. */
+async function contentChecks(run: BackupRun, ids: readonly string[]): Promise<ContentChecks> {
+  if (ids.length === 0) {
+    return NO_CHECKS;
+  }
   try {
-    return await getMessageSizes(run.client, run.userId, ids);
+    return await getMessageContentSignatures(run.client, run.userId, ids);
   } catch (error) {
     if (!isItemLevelError(error)) {
       throw error;
     }
-    run.logger.warn(
-      "message sizes could not be read, content changes behind an unchanged preview are checked on the next change",
-      {
-        messages: ids.length,
-        reason: describeError(error),
-      },
-    );
-    return new Map();
+    run.logger.warn("message content could not be checked, asked again on the next run", {
+      messages: ids.length,
+      reason: describeError(error),
+    });
+    return { signatures: new Map(), unanswered: new Set(ids) };
+  }
+}
+
+/** Why a message's stored copy was kept without proof that its content is unchanged. */
+const CONTENT_UNCHECKED =
+  "the message changed and Microsoft did not answer whether its content changed too; the stored copy is kept and checked again on the next run";
+
+/**
+ * A modified message (its modification time moved) whose content could not be checked: the
+ * stored copy is not proven current. It is kept with its old modification time, so the next
+ * comparison still sees the change, and the next run asks again (mailRetry).
+ */
+class ContentUncheckedError extends Error {
+  constructor() {
+    super(CONTENT_UNCHECKED);
+    this.name = "ContentUncheckedError";
   }
 }
 
 /**
- * Whether an unchanged fingerprint still hides a content change. Subject, `hasAttachments`
- * and `bodyPreview` (the first 255 characters) stay the same when an attachment of a received
- * mail is removed or its body is edited further down; only `lastModifiedDateTime` and the
- * message size move. Flag, read-state and category changes move the modification time but
- * not the content: the size answers which it was. A stored copy without a size (before 0.5.0)
- * is fetched again once; an unknown current size changes nothing.
+ * Whether a stored copy with an unchanged fingerprint still stands for the message. Subject,
+ * `hasAttachments` and `bodyPreview` (the first 255 characters) stay the same when an
+ * attachment of a received mail is removed or its body is edited further down; only the
+ * modification time and the content signature (body text and attachment list) move. A flag,
+ * read-state, category or retention change moves the modification time, not the signature.
+ * A stored copy without a signature (before 0.5.0) is fetched again once; an unanswered check
+ * throws {@link ContentUncheckedError}.
  */
-function contentChangedBehindFingerprint(
+function storedCopyCurrent(
   existing: ManifestObject,
   entry: MailDeltaEntry,
   mtime: number,
-  size: number | undefined,
+  checks: ContentChecks,
 ): boolean {
-  if (existing.mtime === mtime || size === undefined) {
-    return false;
+  if (existing.mtime === mtime || entry.isDraft === true) {
+    return true;
   }
-  return existing.metadata?.[META.messageSize] !== String(size);
+  const signature = checks.signatures.get(entry.id);
+  if (signature === undefined) {
+    throw new ContentUncheckedError();
+  }
+  return existing.metadata?.[META.contentSignature] === signature;
 }
 
 async function storeMessage(
@@ -1083,34 +1112,44 @@ async function storeMessage(
   folder: PlannedFolder,
   entry: MailDeltaEntry,
   options: MailPhaseOptions,
-  sizes: MessageSizes,
+  checks: ContentChecks,
 ): Promise<void> {
   const fingerprint = contentFingerprint(entry);
   const mtime = entryMtime(entry);
   const existing = run.index.get(OBJECT_TYPES.mail, entry.id);
-  const size = sizes.get(entry.id);
-  if (
-    run.reusable(existing, fingerprint) &&
-    !contentChangedBehindFingerprint(existing, entry, mtime, size)
-  ) {
-    if (needsMimeAgain(existing) && !run.fetchedInThisRun(existing)) {
-      await askMimeAgain(run, folder, entry, existing, mtime, fingerprint);
+  const signature = checks.signatures.get(entry.id);
+  if (run.reusable(existing, fingerprint)) {
+    let current: boolean;
+    try {
+      current = storedCopyCurrent(existing, entry, mtime, checks);
+    } catch (error) {
+      if (error instanceof ContentUncheckedError) {
+        // Flags and the rest are current; the content and the modification time stay as stored.
+        carryMessage(run, folder, entry, existing, existing.mtime);
+      }
+      throw error;
+    }
+    if (current) {
+      const update: Record<string, string> = {};
+      if (signature !== undefined && existing.metadata?.[META.contentSignature] !== signature) {
+        update[META.contentSignature] = signature;
+      }
+      if (needsMimeAgain(existing) && !run.fetchedInThisRun(existing)) {
+        await askMimeAgain(run, folder, entry, existing, mtime, fingerprint);
+        return;
+      }
+      carryMessage(run, folder, entry, existing, mtime, update);
       return;
     }
-    carryMessage(run, folder, entry, existing, mtime);
-    return;
-  }
-  if (existing && run.reusable(existing, fingerprint)) {
     run.logger.info("message content changed behind an unchanged preview, fetched again", {
       messageId: entry.id,
-      storedSize: existing.metadata?.[META.messageSize] ?? null,
-      size: size ?? null,
+      storedSignature: existing.metadata?.[META.contentSignature] ?? null,
     });
   }
-  await fetchMessage(run, folder, entry, existing, mtime, fingerprint, options, size);
+  await fetchMessage(run, folder, entry, existing, mtime, fingerprint, options, signature);
 }
 
-type EntryOutcome = "stored" | "removed" | "vanished" | "failed";
+type EntryOutcome = "stored" | "removed" | "vanished" | "failed" | "unchecked";
 
 /** A message deleted in the mailbox after it was listed: drop the stored copy, if any. */
 function messageVanished(run: BackupRun, id: string, itemRef: string, seen: Set<string>): void {
@@ -1128,7 +1167,7 @@ async function processEntry(
   entry: MailDeltaEntry,
   seen: Set<string>,
   options: MailPhaseOptions,
-  sizes: MessageSizes = new Map(),
+  checks: ContentChecks,
 ): Promise<EntryOutcome> {
   if (isRemoved(entry)) {
     const existing = run.index.get(OBJECT_TYPES.mail, entry.id);
@@ -1142,9 +1181,17 @@ async function processEntry(
   seen.add(entry.id);
   const itemRef = mailObjectPath(folder.path, entry.subject, entry.id);
   try {
-    await storeMessage(run, folder, entry, options, sizes);
+    await storeMessage(run, folder, entry, options, checks);
     return "stored";
   } catch (error) {
+    if (error instanceof ContentUncheckedError) {
+      run.warn(
+        itemRef,
+        CONTENT_UNCHECKED,
+        buildCause("graph.mail_content_unchecked", {}, { message: CONTENT_UNCHECKED }),
+      );
+      return "unchecked";
+    }
     if (isVanished(error)) {
       messageVanished(run, entry.id, itemRef, seen);
       return "vanished";
@@ -1214,14 +1261,10 @@ async function retryFailedMessages(
       run.reporter.advance(1, 0);
       continue;
     }
-    const outcome = await processEntry(
-      run,
-      folder,
-      { ...message, id } as MailDeltaEntry,
-      seen,
-      options,
-    );
-    if (outcome === "failed") {
+    const entry = { ...message, id } as MailDeltaEntry;
+    const checks = await contentChecks(run, entriesToCheck(run, [entry]));
+    const outcome = await processEntry(run, folder, entry, seen, options, checks);
+    if (outcome === "failed" || outcome === "unchecked") {
       failed.add(id);
     }
     run.setPosition(folder.node.id, id);
@@ -1343,12 +1386,12 @@ export async function syncMailFolder(
       countedFull = true;
     }
     const entries = batch.items as MailDeltaEntry[];
-    const sizes = await messageSizes(run, entriesNeedingSize(run, entries));
+    const checks = await contentChecks(run, entriesToCheck(run, entries));
     for (const entry of entries) {
       run.throwIfAborted();
       listed.add(entry.id);
-      const outcome = await processEntry(run, folder, entry, seen, options, sizes);
-      if (outcome === "failed") {
+      const outcome = await processEntry(run, folder, entry, seen, options, checks);
+      if (outcome === "failed" || outcome === "unchecked") {
         failed.add(entry.id);
       } else {
         failed.delete(entry.id);

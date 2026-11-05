@@ -137,6 +137,10 @@
         "title": "Der Gruppenkalender wurde nur in einem Zeitfenster gelesen",
         "why": "Microsoft Graph hat der App die vollständige Terminliste dieses Gruppenkalenders verweigert. {appName} hat ihn deshalb über die Kalenderansicht{has_windowStart, select, yes { vom {windowStart}{has_windowEnd, select, yes { bis zum {windowEnd}} other {}}} other { (fünf Jahre zurück bis zwei Jahre voraus)}} gelesen. Termine außerhalb dieses Fensters bleiben so in der Sicherung, wie sie zuletzt gesichert wurden; Änderungen oder Löschungen dort sieht dieser Lauf nicht."
       },
+      "mail_content_unchecked": {
+        "title": "Der Inhalt einer geänderten Nachricht ließ sich nicht prüfen",
+        "why": "Diese Nachricht wurde seit dem letzten Lauf geändert. Ob nur Markierung, Lesestatus oder Kategorie oder auch ihr Inhalt (Text, Anhänge) betroffen ist, konnte {appName} nicht prüfen, weil Microsoft auf die Abfrage nicht geantwortet hat. Die Sicherung behält die zuletzt gesicherte Fassung, und der nächste Lauf prüft die Nachricht erneut und lädt sie neu, wenn sich ihr Inhalt geändert hat."
+      },
       "item_not_found": {
         "title": "Das Element wurde inzwischen bei Microsoft geändert oder gelöscht",
         "why": "{appName} hatte dieses Element aufgelistet, konnte es danach aber nicht lesen, weil es dazwischen bei Microsoft verschoben oder gelöscht wurde. Der nächste Lauf sieht den neuen Stand."
