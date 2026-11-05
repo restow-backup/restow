@@ -138,8 +138,10 @@ Postgres-Service bereit und setzt die Variable.
   `tenants/<tid>/keys/` oder ein anderes Manifest): rot `manifest_missing`; ein geleertes oder
   nicht eingehängtes Ziel bleibt "nicht abgeschlossen". Eine zu alte neueste Sicherung (sieben Tage oder mehr) ist
   ein eigener roter Grund ("Sicherung zu alt"). Seit 0.5.0 bewerten die Readiness-Seite, die
-  Bewertung des Mandanten, die Integrations-API und die Statistik das Alter der neuesten
-  Sicherung beim Anzeigen, nicht nur bei der Prüfung: Hören die Sicherungen nach einer grünen
+  Bewertung des Mandanten, die Integrations-API (`/v1/objects`, `/v1/users`), die Postfachliste
+  des Verzeichnisses, die Mitglieder eines Sicherungsauftrags und die Statistik das Alter der
+  neuesten Sicherung beim Anzeigen, nicht nur bei der Prüfung (alle über
+  `verificationStateNow`/`withBackupAgeNow` in `verification-state.ts`): Hören die Sicherungen nach einer grünen
   Prüfung auf, wird das Objekt nach 48 Stunden gelb und nach sieben Tagen rot, ohne auf die
   nächste Prüfung zu warten (nicht für Objekte, die ohne Alter bewertet werden).
   Benachrichtigt wird bei jeder Änderung der Bewertung und, seit 0.5.0, auch bei gleicher

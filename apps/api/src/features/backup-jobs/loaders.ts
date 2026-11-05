@@ -18,8 +18,9 @@ import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import { notCountedFailureJob } from "../../lib/service-limit.js";
 import type { Transaction } from "../../lib/tenant-context.js";
 import { loadEndpointReadiness } from "../endpoints/readiness.js";
-import { loadObjectVerifications } from "../verify/verification-state.js";
+import { loadObjectVerifications, verificationStateNow } from "../verify/verification-state.js";
 import { loadMachineWarnings } from "../warnings/state.js";
+import { loadMailWithoutJob } from "./coverage.js";
 import type { JobRestoreCheckDto, MemberRestoreState, RepositoryDto } from "./dto.js";
 import { iso } from "./dto.js";
 
@@ -120,6 +121,9 @@ export async function loadMailFacts(
   tx: Transaction,
   tenantId: string,
   objectIds: readonly string[],
+  now: Date = new Date(),
+  /** Objects rated without the age of their last backup (orphaned, in no enabled job). */
+  withoutAge: ReadonlySet<string> = new Set(),
 ): Promise<Map<string, MailFact>> {
   const result = new Map<string, MailFact>();
   if (objectIds.length === 0) {
@@ -165,7 +169,9 @@ export async function loadMailFacts(
   const finishedBy = new Map(finished.map((row) => [row.objectId, row]));
   for (const id of ids) {
     const facts = verification.get(id);
-    const state = facts?.verification.state ?? "no_backup";
+    // Rated as the readiness page rates it: the age of the newest backup judged now, except for
+    // objects removed from their source or in no enabled job, rated without it.
+    const state = verificationStateNow(facts, now, withoutAge.has(id));
     result.set(id, {
       latest: latestBy.get(id)
         ? { id: latestBy.get(id)?.id ?? "", status: latestBy.get(id)?.status ?? "queued" }

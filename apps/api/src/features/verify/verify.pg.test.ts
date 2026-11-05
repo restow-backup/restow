@@ -20,8 +20,13 @@ import {
   tenants,
   verifyReports,
 } from "@restow/db";
+import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { listProtectedObjects } from "../../routes/v1/objects.js";
 import { loadTenantSummary } from "../../routes/v1/status.js";
+import { listMembers } from "../backup-jobs/read.js";
+import { objectsQuerySchema as directoryQuerySchema } from "../directory/schemas.js";
+import { listObjects } from "../directory/service.js";
 import {
   dropDatabase,
   recreateDatabase,
@@ -153,6 +158,37 @@ describe.skipIf(!testDatabaseAdminUrl)("the backup's age in the readiness views"
       "snapshot_outdated",
     ]);
     expect((await loadTenantSummary(db, tenantId, NOW)).recoveryReadiness).toBe("red");
+  });
+
+  it("rates the age now in the integration API, the directory and the job view too", async () => {
+    await mailbox("api-stale", 72);
+    await mailbox("api-outdated", 8 * 24);
+    const objects = await listProtectedObjects(db, tenantId, { limit: 100 }, NOW);
+    const ratingOf = (name: string) =>
+      objects.items.find((entry) => entry.id === ids.get(name))?.readiness;
+    expect(ratingOf("current")).toMatchObject({ state: "green", rating: "green" });
+    expect(ratingOf("api-stale")).toMatchObject({ rating: "yellow" });
+    expect(ratingOf("api-outdated")).toMatchObject({ state: "red", rating: "red" });
+
+    const directory = await listObjects(
+      db,
+      tenantId,
+      directoryQuerySchema.parse({ pageSize: 100 }),
+      NOW,
+    );
+    const listed = (name: string) =>
+      directory.items.find((entry) => entry.id === ids.get(name))?.readiness?.rating;
+    expect(listed("current")).toBe("green");
+    expect(listed("api-stale")).toBe("yellow");
+    expect(listed("api-outdated")).toBe("red");
+
+    const [job] = await db.select().from(backupJobs).where(eq(backupJobs.tenantId, tenantId));
+    const members = await listMembers(db, tenantId, job?.id as string, { revealHooks: false }, NOW);
+    const member = (name: string) =>
+      members.items.find((entry) => entry.targetId === ids.get(name))?.restoreCheck.state;
+    expect(member("current")).toBe("green");
+    expect(member("api-stale")).toBe("yellow");
+    expect(member("api-outdated")).toBe("red");
   });
 
   it("still rates a mailbox removed from its source without the age of its last backup", async () => {

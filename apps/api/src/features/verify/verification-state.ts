@@ -1,7 +1,13 @@
+import {
+  DEFAULT_READINESS_POLICY,
+  freshnessReason,
+  readinessWithoutFreshness,
+  worstReadiness,
+} from "@restow/core";
 import { snapshots, uuidIn, verifyReports } from "@restow/db";
 import { and, desc, eq, inArray, isNotNull, type SQL, sql } from "drizzle-orm";
 import type { DbExecutor } from "../../lib/tenant-context.js";
-import type { Readiness } from "./details.js";
+import { parseReasons, type Readiness } from "./details.js";
 import type { CheckedState } from "./summary.js";
 
 /**
@@ -336,4 +342,49 @@ export async function loadSnapshotVerifications(
     );
   }
   return result;
+}
+
+const isRating = (state: string): state is Readiness =>
+  state === "green" || state === "yellow" || state === "red";
+
+/**
+ * A stored state or rating with the age of the newest backup judged now: a check rates the age
+ * when it runs, but the backup keeps getting older (a mailbox whose backups stopped right after
+ * a green check must not stay green until the next weekly check). The worse of the two counts.
+ * An object rated without the age of its last backup (removed from its source, in no enabled
+ * job: `withoutAge`) keeps what it has; so does a state that is no rating.
+ */
+export function withBackupAgeNow<T extends string>(
+  state: T,
+  completedAt: Date | null | undefined,
+  now: Date,
+  withoutAge: boolean,
+): T | Readiness {
+  if (withoutAge || !isRating(state)) {
+    return state;
+  }
+  const reason = freshnessReason(completedAt ?? null, now, DEFAULT_READINESS_POLICY);
+  return reason ? worstReadiness([state, reason.severity]) : state;
+}
+
+/**
+ * The state of an object now, as the readiness page shows it (verify/service.ts
+ * readinessOverview): rated without the backup's age for `withoutAge`, with its age judged now
+ * otherwise. Every view that shows an object's restore state goes through this, so the
+ * integration API, the directory, the job view and the readiness page agree.
+ */
+export function verificationStateNow(
+  facts: ObjectVerificationFacts | undefined,
+  now: Date,
+  withoutAge: boolean,
+): CheckedState {
+  const verification = facts?.verification;
+  if (!verification) {
+    return "no_backup";
+  }
+  const report = verification.report;
+  if (withoutAge && report) {
+    return readinessWithoutFreshness(parseReasons(report.reasons));
+  }
+  return withBackupAgeNow(verification.state, facts.latestSnapshot?.completedAt, now, withoutAge);
 }

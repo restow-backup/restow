@@ -705,7 +705,10 @@ private repository.
   than 48 hours yellow and one older than 7 days red. The age of the newest backup was rated only
   when a check ran. It is now judged when the view is built, the worse of the check's rating and
   the age counts, and the reason ("the latest backup is n hours old") is listed with the current
-  age. Objects removed from their source or in no backup job are still rated without it.
+  age. Objects removed from their source or in no backup job are still rated without it. The
+  same rule applies wherever an object's rating is shown: the integration API (`/v1/objects`,
+  `/v1/users`), the directory's mailbox list and a backup job's members, which still showed the
+  stored green until the next check.
 - Restore check: a rating that stayed red or yellow raised nothing when its cause got worse. A
   mailbox red only because its newest backup was too old ("Backup too old") gave no new alert
   when the next check found messages missing, unreadable or different, its manifest unreadable
