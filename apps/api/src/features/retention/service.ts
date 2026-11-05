@@ -506,15 +506,19 @@ async function loadSnapshotHistory(tx: Transaction, tenantId: string) {
   if (rows.length === 0) {
     return [];
   }
-  const ids = rows.map((row) => row.id);
+  // Joined against the same snapshot filter, never as an id list: past 65,535
+  // restore points an id list exceeds the bind parameter limit.
   const verifiedRows = await tx
     .selectDistinct({ snapshotId: verifyReports.snapshotId })
     .from(verifyReports)
+    .innerJoin(snapshots, eq(snapshots.id, verifyReports.snapshotId))
     .where(
       and(
         eq(verifyReports.tenantId, tenantId),
-        inArray(verifyReports.snapshotId, ids),
         eq(verifyReports.recoveryReadiness, "green"),
+        eq(snapshots.tenantId, tenantId),
+        eq(snapshots.status, "active"),
+        isNotNull(snapshots.manifestPath),
       ),
     );
   const verified = new Set(verifiedRows.flatMap((row) => (row.snapshotId ? [row.snapshotId] : [])));

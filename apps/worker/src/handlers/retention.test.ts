@@ -22,6 +22,7 @@ import {
   pruneSnapshot,
   type RetentionStore,
   RetentionTaskRegistry,
+  RetentionTasksFailedError,
 } from "./retention.js";
 
 const TENANT = "0f6e4b4e-2f2a-4d9a-9c2b-1a2b3c4d5e6f";
@@ -576,5 +577,52 @@ describe("retention handler", () => {
     expect(() => registry.register(createSnapshotRetentionTask())).toThrow(/already registered/);
     registry.register({ name: "archive", run: async () => ({}) });
     expect(registry.list().map((task) => task.name)).toEqual(["snapshots", "archive"]);
+  });
+});
+
+describe("createRetentionHandler", () => {
+  it("runs every task when one fails, and fails the job at the end", async () => {
+    const ctx = workerContext(new MemoryStorage());
+    const ran: string[] = [];
+    const registry = new RetentionTaskRegistry([
+      {
+        name: "snapshots",
+        run: async () => {
+          ran.push("snapshots");
+          throw new Error("bind message has 4466 parameter formats but 0 parameters");
+        },
+      },
+      {
+        name: "mail-files",
+        run: async () => {
+          ran.push("mail-files");
+          return { removed: 3 };
+        },
+      },
+      {
+        name: "immutability",
+        run: async () => {
+          ran.push("immutability");
+          return { renewed: 1 };
+        },
+      },
+    ]);
+    const handler = createRetentionHandler(registry);
+    const failure = await handler.run(ctx, { jobId: JOB, tenantId: TENANT }).then(
+      () => null,
+      (error: unknown) => error,
+    );
+    // The later tasks (mail-file sweep, Object Lock renewal) still ran ...
+    expect(ran).toEqual(["snapshots", "mail-files", "immutability"]);
+    // ... and the job is not reported as a success.
+    expect(failure).toBeInstanceOf(RetentionTasksFailedError);
+    const failed = failure as RetentionTasksFailedError;
+    expect(failed.tasks).toEqual(["snapshots"]);
+    expect(failed.summary).toMatchObject({
+      snapshots: { status: "failed" },
+      "mail-files": { removed: 3 },
+      immutability: { renewed: 1 },
+    });
+    expect(ctx.progress.snapshot().failed).toBe(1);
   });
 });

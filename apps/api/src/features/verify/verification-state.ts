@@ -1,4 +1,4 @@
-import { snapshots, verifyReports } from "@restow/db";
+import { snapshots, uuidIn, verifyReports } from "@restow/db";
 import { and, desc, eq, inArray, isNotNull, type SQL, sql } from "drizzle-orm";
 import type { DbExecutor } from "../../lib/tenant-context.js";
 import type { Readiness } from "./details.js";
@@ -215,8 +215,9 @@ export async function loadObjectVerifications(
   const snapshotFilters: SQL[] = [eq(snapshots.tenantId, tenantId), completedSnapshot()];
   const reportFilters: SQL[] = [eq(verifyReports.tenantId, tenantId)];
   if (objectIds) {
-    snapshotFilters.push(inArray(snapshots.protectedObjectId, [...objectIds]));
-    reportFilters.push(inArray(verifyReports.protectedObjectId, [...objectIds]));
+    // One array parameter each, never one per id (65,535 bind parameter limit).
+    snapshotFilters.push(uuidIn(snapshots.protectedObjectId, objectIds));
+    reportFilters.push(uuidIn(verifyReports.protectedObjectId, objectIds));
   }
   const latestSnapshotIds = tx
     .selectDistinctOn([snapshots.protectedObjectId], { id: snapshots.id })
@@ -299,14 +300,12 @@ export async function loadSnapshotVerifications(
   const objectIds = [...new Set(listed.map((snapshot) => snapshot.objectId))];
   const ofObjects = and(
     eq(verifyReports.tenantId, tenantId),
-    inArray(verifyReports.protectedObjectId, objectIds),
+    uuidIn(verifyReports.protectedObjectId, objectIds),
   ) as SQL;
   const checks = await tx
     .selectDistinctOn([verifyReports.snapshotId], reportFactColumns)
     .from(verifyReports)
-    .where(
-      and(eq(verifyReports.tenantId, tenantId), inArray(verifyReports.snapshotId, snapshotIds)),
-    )
+    .where(and(eq(verifyReports.tenantId, tenantId), uuidIn(verifyReports.snapshotId, snapshotIds)))
     .orderBy(verifyReports.snapshotId, ...NEWEST_FIRST);
   const findings = await tx
     .selectDistinctOn([verifyReports.protectedObjectId], reportFactColumns)
