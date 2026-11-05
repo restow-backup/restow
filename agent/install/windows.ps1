@@ -524,6 +524,15 @@ function Get-TokenFileProblem([string]$File, [string]$WindowsDir) {
     return $text
 }
 
+# Test-NonInteractiveHost tells whether this PowerShell was started with
+# -NonInteractive (any abbreviation PowerShell accepts, from -noni on).
+function Test-NonInteractiveHost {
+    foreach ($arg in [Environment]::GetCommandLineArgs()) {
+        if ($arg -match '^[-/]noni') { return $true }
+    }
+    return $false
+}
+
 function Read-EnrollmentToken {
     if ($env:RESTOW_TOKEN_FILE) {
         $file = $env:RESTOW_TOKEN_FILE
@@ -541,7 +550,10 @@ function Read-EnrollmentToken {
         return ((Get-Content -LiteralPath $file -TotalCount 1) -replace '\s', '')
     }
     if ($env:RESTOW_TOKEN) { return ($env:RESTOW_TOKEN -replace '\s', '') }
-    if ([Environment]::UserInteractive) {
+    # Ask only where someone can answer: not in a service session, and not in a host
+    # started with -NonInteractive (a script or a deployment tool), where Read-Host
+    # would fail or wait for input that never comes.
+    if ([Environment]::UserInteractive -and -not (Test-NonInteractiveHost)) {
         $secure = Read-Host -AsSecureString 'Paste the enrollment token from the Restow UI (input is hidden)'
         $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
         try { return ([Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr) -replace '\s', '') }
@@ -828,6 +840,8 @@ function Invoke-RestowInstaller([string]$HooksOption, [bool]$UninstallOption, [s
             $cmd = "[Net.ServicePointManager]::SecurityProtocol = 'Tls12'; iex (irm -UseBasicParsing '$url/install/windows.ps1')"
             $psArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', $cmd)
         }
+        # A non-interactive start stays one in the 64-bit PowerShell.
+        if (Test-NonInteractiveHost) { $psArgs = @('-NonInteractive') + $psArgs }
         $code = Invoke-Relaunch $ps64 $psArgs $childEnv
         if ($code -ne 0) { Stop-Installer "the 64-bit installer ended with exit code $code" }
         return

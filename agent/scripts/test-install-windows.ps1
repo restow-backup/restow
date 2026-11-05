@@ -361,7 +361,9 @@ if (-not $SkipInstall) {
             foreach ($k in $Env.Keys) { $base[$k] = $Env[$k] }
             foreach ($k in $base.Keys) { $old[$k] = [Environment]::GetEnvironmentVariable($k); [Environment]::SetEnvironmentVariable($k, $base[$k]) }
             try {
-                $out = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $script @Arguments 2>&1 | Out-String
+                # -NonInteractive: the installer must never wait for input here (a missing token
+                # ends it with a message instead of a prompt the runner cannot answer).
+                $out = & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $script @Arguments 2>&1 | Out-String
                 return @{ Code = $LASTEXITCODE; Out = $out }
             } finally {
                 foreach ($k in $old.Keys) { [Environment]::SetEnvironmentVariable($k, $old[$k]) }

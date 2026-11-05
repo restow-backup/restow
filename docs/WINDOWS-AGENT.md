@@ -1148,6 +1148,10 @@ Begründungen:
   steht aber nicht in der Doku: getippt landet es im PSReadLine-Verlauf und in der
   Skriptblock-Protokollierung (Ereignis 4104). Der Token wird nie als Cmdlet- oder
   Prozessargument übergeben (Ereignisse 4103, 4688), nur über die Umgebung des Kindprozesses.
+- Ohne Token fragt der Installer nur nach, wenn jemand antworten kann: nicht in einer
+  Dienstsitzung und nicht in einer PowerShell mit `-NonInteractive` (Skripte,
+  Verteilwerkzeuge). Dort bricht er mit einer Meldung ab, statt auf eine Eingabe zu warten;
+  der 64-Bit-Neustart behält `-NonInteractive` bei.
 - `RESTOW_RELEASE_KEY_FINGERPRINT` (oder Parameter `-ReleaseKeyFingerprint`): Pin auf den
   Release-Schlüssel (Abschnitt 14.3). Im unbeaufsichtigten Aufruf Pflicht; der Dialog füllt
   ihn vor, die Doku sagt, ihn einmal mit den Release-Notizen auf GitHub abzugleichen.
