@@ -179,6 +179,31 @@ describe("building the agent configuration", () => {
   });
 });
 
+describe("the SQL settings", () => {
+  const sql = {
+    enabled: true,
+    mode: "alongside" as const,
+    instances: ["SQLEXPRESS"],
+    databases: "all" as const,
+    exclude: [],
+  };
+
+  it("are written only when the job sets them", () => {
+    const current = config();
+    expect("sql" in buildEndpointConfig(current, null, {})).toBe(false);
+    const next = buildEndpointConfig(current, null, { sql });
+    expect(next.sql).toEqual(sql);
+    expect(next.sql).not.toBe(sql);
+    // A job that drops them takes them off the machine.
+    expect("sql" in buildEndpointConfig(next, null, {})).toBe(false);
+  });
+
+  it("can be a member's own", () => {
+    const own = { ...sql, enabled: false };
+    expect(effectiveSettings({ sql }, { sql: own }).sql).toEqual(own);
+  });
+});
+
 describe("retention", () => {
   it("writes nothing when the job sets none or the machine keeps it already", () => {
     expect(retentionToWrite(undefined, { keepDaily: 1, keepWeekly: 1, keepMonthly: 1 })).toBeNull();

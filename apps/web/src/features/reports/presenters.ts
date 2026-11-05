@@ -94,6 +94,9 @@ export const EVENT_GROUPS: Record<
     "object.inactive_many",
     "endpoint.stale",
     "endpoint.repository_locked",
+    "endpoint.sql_red",
+    "endpoint.sql_recovered",
+    "endpoint.sql_overdue",
     "file_share.repository_locked",
     // A source's own app credential runs out: a tenant event, so tenant admins can choose it.
     "source.app_secret_expiring",

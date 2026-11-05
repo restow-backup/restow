@@ -3,6 +3,7 @@
 // the two are structurally identical and the API assigns one to the other without a cast.
 
 import type { JobAgentPolicy } from "../endpoints/agent-policy.js";
+import type { SqlSettings } from "../endpoints/sql/settings.js";
 import type { BandwidthWindow } from "./bandwidth.js";
 
 /**
@@ -29,6 +30,8 @@ export interface JobRetention {
 }
 
 /** What an endpoint job tells the agent to back up and how; a field left out keeps what the machine has. */
+export type JobSqlSettings = SqlSettings;
+
 export interface JobEndpointSettings {
   paths?: string[];
   /** Exclude patterns (restic `--exclude-file` lines), exactly as sent to the agent. */
@@ -49,6 +52,11 @@ export interface JobEndpointSettings {
    */
   bandwidthWindows?: BandwidthWindow[];
   retention?: JobRetention;
+  /**
+   * The native SQL Server backup of Windows members (W2a, docs/BAREMETAL-WINDOWS.md 5.1.3); absent
+   * or `enabled: false` = off. Other systems ignore it.
+   */
+  sql?: JobSqlSettings;
   /**
    * The job's level of the agent policy (endpoints/agent-policy.ts); a key left out inherits.
    * Not overridable per member.

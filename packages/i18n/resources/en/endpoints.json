@@ -37,7 +37,10 @@
     "backup": "Backup running",
     "restore": "Restore running",
     "verify_sample": "Restore check running",
-    "busy": "Working"
+    "busy": "Working",
+    "sql": "SQL Server backup running",
+    "sql_restore": "SQL Server restore running",
+    "sql_verify": "SQL Server check running"
   },
   "readiness": {
     "state": {
@@ -58,7 +61,10 @@
   "runKind": {
     "backup": "Backup",
     "restore": "Restore to the machine",
-    "verify_sample": "Restore check on the machine"
+    "verify_sample": "Restore check on the machine",
+    "sql": "SQL Server backup",
+    "sql_restore": "SQL Server restore under a new name",
+    "sql_verify": "SQL Server check"
   },
   "runStatus": {
     "running": "Running",
@@ -425,7 +431,8 @@
     "tabs": {
       "overview": "Overview",
       "snapshots": "Snapshots",
-      "settings": "Settings"
+      "settings": "Settings",
+      "sql": "SQL Server"
     }
   },
   "actions": {
@@ -538,7 +545,10 @@
       "restore": "Restore",
       "verify_sample": "Restore check",
       "update_config": "Apply new settings",
-      "uninstall": "Uninstall the agent"
+      "uninstall": "Uninstall the agent",
+      "sql_restore": "Restore a SQL Server database under a new name",
+      "sql_verify": "Check SQL Server backups",
+      "sql_inventory": "Check the SQL Server sign-in"
     },
     "restore": "{count, plural, one {Restore # item into a new folder} other {Restore # items into a new folder}}",
     "status": {
@@ -638,7 +648,8 @@
     "kind": {
       "restore_test": "Restore check",
       "repository_check": "Integrity check",
-      "retention": "Retention run"
+      "retention": "Retention run",
+      "sql_verify": "SQL Server check"
     },
     "origin": {
       "server": "Read back by the server",
@@ -668,6 +679,12 @@
       "actual": "Found",
       "missing": "File could not be read back",
       "reason": "Reason"
+    },
+    "sqlVerify": {
+      "green": "{name}: restored from the backup data and checked with DBCC CHECKDB without errors",
+      "red": "{name}: the check found damage",
+      "incomplete": "{name}: the check could not complete and rates nothing",
+      "evidence": "Error {code}: {message}"
     }
   },
   "snapshots": {
@@ -1098,7 +1115,11 @@
     "confirmHostname": "The hostname does not match. Type it exactly as shown.",
     "removalLegalHold": "A legal hold covers every backup of this tenant, so they cannot be deleted now. Keep them until they expire instead, or release the hold first.",
     "removalSuspicionHold": "A suspicious restore point of this machine is not resolved and holds its backups. Resolve it first, or keep the backups until they expire.",
-    "removalNeverExpires": "The retention of this machine keeps every backup, so they would never expire. Delete them instead."
+    "removalNeverExpires": "The retention of this machine keeps every backup, so they would never expire. Delete them instead.",
+    "sqlUnsupported": "The agent on this machine cannot back up SQL Server natively yet. Update the agent first.",
+    "sqlBackupPruned": "This backup is no longer kept: retention removed it. Choose a newer one.",
+    "sqlNameTaken": "A database of that name already exists on the instance. Choose another name.",
+    "sqlNothingToVerify": "No database of this machine has a backup in the backup data yet."
   },
   "readinessSection": {
     "overdue": "Overdue",
@@ -1431,5 +1452,214 @@
     "openPage": "Open machine page",
     "progressOf": "Backup progress of {name}",
     "adminOnly": "Backing up and stopping is for administrators of backup jobs."
+  },
+  "windowsFacts": {
+    "title": "Windows",
+    "description": "What the agent reads from the system. Facts only, no rating.",
+    "version": "Version",
+    "productType": "Type",
+    "productTypes": {
+      "workstation": "Workstation",
+      "server": "Server",
+      "domain_controller": "Domain controller",
+      "unknown": "Unknown"
+    },
+    "core": "without desktop",
+    "domain": "Domain",
+    "noDomain": "Not in a domain",
+    "rolesLabel": "Roles",
+    "noRoles": "None that needs more than a file backup",
+    "roles": {
+      "domainController": "Active Directory domain controller",
+      "sqlServer": "SQL Server",
+      "exchange": "Exchange",
+      "hyperV": "Hyper-V host",
+      "dfsr": "DFS replication"
+    },
+    "sqlInstances": "SQL Server instances",
+    "bitlocker": "Drive encryption",
+    "bitlockerNone": "No encrypted drive",
+    "bitlockerVolume": "{name} {status}",
+    "protection": {
+      "on": "protected",
+      "off": "not protected",
+      "unknown": "state unknown"
+    },
+    "bitlockerState": {
+      "ok": "Read",
+      "unavailable": "Not installed on this machine",
+      "error": "Could not be read"
+    }
+  },
+  "notices": {
+    "apps": {
+      "sql_server": "SQL Server",
+      "exchange": "Exchange",
+      "active_directory": "Active Directory",
+      "hyper_v": "Hyper-V"
+    },
+    "app_files_not_app_backup": {
+      "title": "The file backup does not bring these applications back",
+      "body": "This machine runs {subjects}. The file backup holds the files of their open databases, but those files are not a backup these applications can be restored from. Back them up with a tool made for them.",
+      "sqlHint": "For SQL Server, switch on the native SQL Server backup in the backup job of this machine (preview)."
+    },
+    "sql_log_growing": {
+      "title": "A transaction log keeps growing",
+      "body": "{subjects}: the recovery model is FULL, but nothing backed up the transaction log in the last 24 hours, so the log keeps growing. Back the log up with your existing tool, or switch the database to SIMPLE if you need no point-in-time restore."
+    },
+    "sql_tde_certificate": {
+      "title": "Back up the TDE certificate elsewhere",
+      "body": "{subjects}: the database is encrypted with TDE. Without its certificate and key, no other instance can restore it. The backup does not contain them; keep them safe elsewhere and confirm it on the SQL Server tab."
+    },
+    "sql_version_untested": {
+      "title": "SQL Server version not checked",
+      "body": "{subjects}: this version of SQL Server was not checked with the native backup. It runs, but a restore of it has not been tried."
+    },
+    "other": {
+      "title": "Note from the agent"
+    }
+  },
+  "sql": {
+    "title": "SQL Server",
+    "preview": "Preview",
+    "intro": "The native SQL Server backup makes a copy-only full backup of each database beside your own backups, so your backup chain stays as it is. A weekly check restores the newest backup from the backup data under a check name and runs DBCC CHECKDB on it. Green only after that check passed.",
+    "notCapable": "The agent on this machine cannot do this yet. Update it to see and use the native backup.",
+    "notEnabled": "The native backup is off. Switch it on in the backup job of this machine.",
+    "loadError": "The SQL Server part of this machine could not be loaded.",
+    "instances": {
+      "title": "Instances",
+      "inventoryAt": "Last read",
+      "noInventory": "The agent has not read the instances yet.",
+      "none": "The agent reports no SQL Server instance.",
+      "clustered": "Failover cluster instance: not supported by the native backup.",
+      "strictEncryption": "Strict encryption is on: the agent may not be able to connect.",
+      "compressionDefault": "Backup compression is on by default on this instance; the agent backs up uncompressed anyway, so the backup data stays deduplicated."
+    },
+    "signIn": {
+      "ok": "Signed in",
+      "missing": "No sign-in",
+      "permission": "Missing rights",
+      "error": "Problem",
+      "unknown": "Not checked",
+      "check": "Check sign-in",
+      "checkQueued": "The machine checks the sign-in with its next contact.",
+      "howTo": "The agent signs in as {account} with Windows authentication; no password is stored anywhere. Let a database administrator run this once on the instance:",
+      "variant": "Rights for the agent",
+      "sysadmin": "Simple",
+      "minimal": "Small rights",
+      "sysadminHint": "The account becomes a member of sysadmin. Simple, and new databases are covered at once.",
+      "minimalHint": "dbcreator, VIEW SERVER STATE and, per database, db_backupoperator and db_owner. A database created later needs these lines again.",
+      "copy": "Copy"
+    },
+    "databases": {
+      "title": "Databases",
+      "description": "Checked weekly, {day} at {time} in the zone of the backup job.",
+      "empty": "No database reported yet",
+      "emptyHint": "The databases appear once the agent read the instance.",
+      "model": "Recovery model {model}",
+      "system": "system database",
+      "dropped": "no longer on the instance",
+      "notSelected": "not taken by the backup job",
+      "lastBackup": "Newest backup",
+      "noBackup": "None in the backup data",
+      "lastCheck": "Newest check",
+      "noCheck": "Not checked yet",
+      "physicalOnly": "physical check only",
+      "evidence": "Error {code}: {message}",
+      "tde": "This database is encrypted with TDE. Back up its certificate and key elsewhere, then confirm it here.",
+      "tdeConfirm": "Certificate is backed up"
+    },
+    "rating": {
+      "green": "Checked",
+      "red": "Damage found",
+      "overdue": "Check overdue",
+      "unverified": "Not checked yet",
+      "not_protected": "Not backed up"
+    },
+    "outcome": {
+      "green": "No errors",
+      "red": "Damage found",
+      "incomplete": "Not completed",
+      "restored": "Restored",
+      "backed_up": "Backed up",
+      "skipped": "Skipped",
+      "failed": "Failed"
+    },
+    "weekday": {
+      "1": "Monday",
+      "2": "Tuesday",
+      "3": "Wednesday",
+      "4": "Thursday",
+      "5": "Friday",
+      "6": "Saturday",
+      "7": "Sunday"
+    },
+    "verify": {
+      "all": "Check all now",
+      "one": "Check now",
+      "queued": "The check of {name} waits for the machine.",
+      "alreadyQueued": "A check of this instance is already waiting."
+    },
+    "restore": {
+      "open": "Restore under a new name",
+      "title": "Restore {name} under a new name",
+      "description": "The agent fetches the backup from the backup data, checks its checksum and restores it next to the existing database, which stays as it is.",
+      "backup": "Backup",
+      "backupOption": "{at}, {size}",
+      "loading": "Loading backups",
+      "noBackup": "No backup of this database is kept.",
+      "newName": "New name",
+      "newNameHint": "The database is created under this name; an existing one is never replaced.",
+      "nameProblem": {
+        "empty": "Enter a name.",
+        "tooLong": "A name can have at most 128 characters.",
+        "control": "A name cannot contain control characters.",
+        "system": "A system database cannot be the target.",
+        "reserved": "This part of the name is reserved for check databases.",
+        "same": "Choose a name other than that of the existing database."
+      },
+      "target": "Instance",
+      "checkdb": "Check the copy with DBCC CHECKDB",
+      "checkdbHint": "Recommended. Up to the size set in the backup job the check covers everything, above it the physical structure only.",
+      "cancel": "Cancel",
+      "submit": "Restore",
+      "queued": "The restore as {name} waits for the machine."
+    },
+    "script": {
+      "download": "Restore script for another machine"
+    },
+    "run": {
+      "heading": "Databases of {instance}",
+      "restoredAs": "Restored as {name} on {instance}",
+      "checkdb": {
+        "clean": "DBCC CHECKDB found no error in the copy.",
+        "errors": "DBCC CHECKDB reported errors in the copy.",
+        "skipped": "DBCC CHECKDB did not run on the copy."
+      }
+    },
+    "codes": {
+      "sql_instance_unreachable": "The instance could not be reached. Is the SQL Server service running?",
+      "sql_login_missing": "The agent could not sign in: the instance has no login for it.",
+      "sql_permission_missing": "The agent signed in, but lacks rights for the backup.",
+      "sql_powershell_constrained": "The script environment of Windows runs restricted (Constrained Language Mode), so the agent cannot connect.",
+      "sql_strict_encryption": "The instance requires strict encryption; the native backup does not connect to it.",
+      "sql_fci_unsupported": "Failover cluster instances are not supported by the native backup.",
+      "sql_mode_unsupported": "The agent does not know the backup mode set in the job. Update the agent.",
+      "sql_staging_unusable": "The staging folder cannot be used.",
+      "sql_staging_too_small": "Not enough free space in the staging folder.",
+      "sql_database_unavailable": "The database is not online.",
+      "sql_backup_failed": "SQL Server could not make the backup.",
+      "sql_snapshot_failed": "The backup file could not be stored in the backup data.",
+      "sql_script_failed": "The SQL script of the agent ended unexpectedly.",
+      "sql_restore_name_taken": "A database of that name already exists.",
+      "sql_restore_no_space": "Not enough free space for the restore.",
+      "sql_restore_failed": "The restore failed.",
+      "sql_backup_mismatch": "The backup fetched from the backup data differs from the one made.",
+      "sql_verify_no_space": "Not enough free space for the check: incomplete, not failed.",
+      "sql_verify_timeout": "The check took too long and was stopped: incomplete, not failed.",
+      "sql_verify_system_db": "This system database cannot be checked under a new name.",
+      "sql_verify_incomplete": "The check came to no result.",
+      "unknown": "Code {code}"
+    }
   }
 }

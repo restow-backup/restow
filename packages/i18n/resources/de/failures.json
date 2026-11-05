@@ -582,6 +582,86 @@
       "repository_damaged": {
         "title": "Die Sicherungsdaten sind beschädigt",
         "why": "Die Integritätsprüfung hat beschädigte oder fehlende Daten in den Sicherungen dieses Rechners gefunden. Neue Sicherungen sind nicht betroffen, ältere Daten lassen sich aber möglicherweise nicht wiederherstellen. Die technischen Details zeigen, was die Prüfung gemeldet hat."
+      },
+      "sql_instance_unreachable": {
+        "title": "Die SQL-Server-Instanz war nicht erreichbar",
+        "why": "Der Agent konnte über die lokale Verbindung keine Verbindung zur Instanz herstellen. Meist ist der SQL-Server-Dienst der Instanz gestoppt oder startet noch. Der nächste Lauf versucht es erneut."
+      },
+      "sql_login_missing": {
+        "title": "Der Agent hat keine Anmeldung an SQL Server",
+        "why": "SQL Server gibt weder dem Systemkonto noch den Administratoren des Rechners eigene Rechte, darum braucht das Dienstkonto des Agenten eine Anmeldung auf der Instanz. Bis es eine hat, scheitert jede Verbindung mit Fehler 18456."
+      },
+      "sql_permission_missing": {
+        "title": "Dem Agenten fehlen Rechte an SQL Server",
+        "why": "Der Agent ist angemeldet, aber seiner Anmeldung fehlt ein Recht, das die Sicherung, die Wiederherstellung oder die Prüfung braucht (etwa db_backupoperator auf einer Datenbank, die nach der Rechtevergabe angelegt wurde)."
+      },
+      "sql_powershell_constrained": {
+        "title": "Der Agent kann sich nicht verbinden: eingeschränkte Skriptumgebung",
+        "why": "Auf diesem Rechner läuft die Skriptumgebung von Windows im Constrained Language Mode (oft durch Anwendungssteuerung wie WDAC). In diesem Modus kann der Agent keine Verbindung zu SQL Server öffnen."
+      },
+      "sql_strict_encryption": {
+        "title": "Die Instanz verlangt strikte Verschlüsselung",
+        "why": "Die Instanz ist auf strikte Verschlüsselung (TDS 8) eingestellt. Die native Sicherung verbindet sich nicht mit Instanzen, die strikte Verschlüsselung verlangen."
+      },
+      "sql_fci_unsupported": {
+        "title": "Failover-Cluster-Instanzen werden nicht unterstützt",
+        "why": "Die Instanz gehört zu einem Failover-Cluster. Die native Sicherung sichert solche Instanzen nicht."
+      },
+      "sql_mode_unsupported": {
+        "title": "Der Agent kennt diese Sicherungsart nicht",
+        "why": "Der Backup-Job stellt eine Art der nativen SQL-Server-Sicherung ein, die dieser Agent nicht kennt. Er sichert lieber nichts als etwas anderes."
+      },
+      "sql_staging_unusable": {
+        "title": "Der Staging-Ordner kann nicht verwendet werden",
+        "why": "Der Staging-Ordner muss ein lokaler Ordner auf einem NTFS-Laufwerk mit Laufwerksbuchstaben sein, keine Verknüpfung und nicht unterhalb der Windows- oder Programmordner. Der Ordner darüber muss vorhanden sein, und nur SYSTEM und die Administratoren dürfen ihn ändern. Der Agent übernimmt einen neuen oder leeren Ordner und kennzeichnet ihn; ein Ordner, der schon andere Dateien enthält, wird abgelehnt, damit nichts von anderen geändert oder gelöscht wird."
+      },
+      "sql_staging_too_small": {
+        "title": "Im Staging-Ordner ist nicht genug Platz",
+        "why": "Eine Datenbank wurde nicht gesichert, weil ihre Sicherung mehr Platz im Staging-Ordner braucht, als frei ist. Die übrigen Datenbanken wurden gesichert."
+      },
+      "sql_database_unavailable": {
+        "title": "Eine Datenbank war nicht online",
+        "why": "Die Datenbank war offline, in Wiederherstellung, im Einzelbenutzermodus oder anders nicht verfügbar, darum wurde sie nicht gesichert."
+      },
+      "sql_backup_failed": {
+        "title": "SQL Server konnte die Sicherung nicht anlegen",
+        "why": "BACKUP DATABASE endete mit einem Fehler. Die Meldung von SQL Server steht in den Details."
+      },
+      "sql_snapshot_failed": {
+        "title": "Die Sicherung konnte nicht abgelegt werden",
+        "why": "Die Sicherungsdateien wurden angelegt, aber das Ablegen in den Sicherungsdaten ist fehlgeschlagen. Sie bleiben bis zum nächsten Lauf im Staging-Ordner."
+      },
+      "sql_script_failed": {
+        "title": "Das SQL-Skript des Agenten endete unerwartet",
+        "why": "Das Skript, das der Agent für SQL Server ausführt, endete ohne lesbares Ergebnis. Die Details zeigen, was ankam."
+      },
+      "sql_restore_name_taken": {
+        "title": "Der neue Name ist vergeben",
+        "why": "Auf der Zielinstanz gibt es eine Datenbank mit dem gewählten Namen. Die Wiederherstellung ersetzt nie eine vorhandene Datenbank."
+      },
+      "sql_restore_no_space": {
+        "title": "Für die Wiederherstellung ist nicht genug Platz",
+        "why": "Der Daten- oder Log-Ordner der Zielinstanz oder der Staging-Ordner der Wiederherstellung hat weniger freien Platz, als die Wiederherstellung braucht, zuzüglich der Reserve, die für die Datenbanken auf diesen Volumes frei bleibt (mindestens 1 GiB oder ein Zehntel des Volumes)."
+      },
+      "sql_restore_failed": {
+        "title": "Die Wiederherstellung ist fehlgeschlagen",
+        "why": "RESTORE DATABASE endete mit einem Fehler. Die Meldung von SQL Server steht in den Details."
+      },
+      "sql_backup_mismatch": {
+        "title": "Die Sicherung passt nicht",
+        "why": "Die aus den Sicherungsdaten geholte Datei hat eine andere Prüfsumme als die beim Anlegen der Sicherung festgehaltene, oder der Agent meldete eine Sicherung ohne die Angaben, die zum Aufbewahren nötig sind."
+      },
+      "sql_verify_no_space": {
+        "title": "Für die Prüfung ist nicht genug Platz",
+        "why": "Die Prüfung stellt die Sicherung unter einem Prüfnamen wieder her und braucht etwa die Datengröße an freiem Platz, dazu eine Reserve, die auf den Volumes der Daten- und Log-Dateien frei bleibt (mindestens 1 GiB oder ein Zehntel des Volumes), damit die dortigen Datenbanken weiter wachsen können. DBCC CHECKDB braucht außerdem Platz in tempdb. Die Prüfung ist unvollständig, nicht fehlgeschlagen: Sie bewertet nichts."
+      },
+      "sql_verify_timeout": {
+        "title": "Die Prüfung dauerte zu lange",
+        "why": "Ein Schritt der Prüfung lief länger als seine Grenze und wurde beendet. Die Prüfung ist unvollständig, nicht fehlgeschlagen; die nächste versucht es erneut."
+      },
+      "sql_verify_system_db": {
+        "title": "Diese Systemdatenbank lässt sich nicht prüfen",
+        "why": "SQL Server erlaubt nicht, diese Systemdatenbank unter einem anderen Namen wiederherzustellen, darum lässt sie sich auf diesem Weg nicht prüfen."
       }
     },
     "share": {
@@ -799,7 +879,17 @@
     "choose_empty_restore_folder": "Fordern Sie die Wiederherstellung erneut an und wählen Sie einen Ordner, der noch nicht existiert oder leer ist. Eine Wiederherstellung überschreibt nie Dateien.",
     "wait_endpoint_retry": "Nichts zu tun. Der Agent versucht es beim nächsten geplanten Lauf erneut, oder starten Sie mit Jetzt sichern einen.",
     "set_public_https_url": "Hinterlegen Sie unter Installation › Server & Betrieb (oder in RESTOW_PUBLIC_URL) eine öffentliche URL, die mit https:// beginnt und die Microsoft auf Port 443 erreicht. {appName} richtet die Änderungsbenachrichtigungen dann selbst ein.",
-    "unlock_object": "Wenn das Objekt wieder gesichert werden soll, weisen Sie dem Benutzer eine Lizenz mit OneDrive zu oder heben Sie die Sperre im SharePoint Admin Center auf. Nach dem nächsten Verzeichnisabgleich wird von selbst wieder gesichert."
+    "unlock_object": "Wenn das Objekt wieder gesichert werden soll, weisen Sie dem Benutzer eine Lizenz mit OneDrive zu oder heben Sie die Sperre im SharePoint Admin Center auf. Nach dem nächsten Verzeichnisabgleich wird von selbst wieder gesichert.",
+    "create_sql_login": "Lassen Sie einen Datenbankadministrator die Anmeldung für den Agenten auf der Instanz anlegen: Der Reiter SQL Server des Rechners zeigt das auszuführende T-SQL und bietet an, die Anmeldung zu prüfen.",
+    "grant_sql_permissions": "Vergeben Sie die fehlenden Rechte: Führen Sie das T-SQL der kleinen Variante für die neuen Datenbanken erneut aus, oder machen Sie die Anmeldung zum Mitglied von sysadmin.",
+    "start_sql_instance": "Prüfen Sie, ob der SQL-Server-Dienst der Instanz auf dem Rechner läuft.",
+    "allow_sql_powershell": "Lassen Sie das Skript des Agenten in der Anwendungssteuerung des Rechners zu, oder fragen Sie Ihre Administration. Sichern Sie die Datenbanken bis dahin weiter mit Ihrem bisherigen Werkzeug.",
+    "check_sql_encryption": "Schalten Sie die strikte Verschlüsselung für diese Instanz aus, oder sichern Sie sie weiter mit Ihrem bisherigen Werkzeug.",
+    "check_sql_staging": "Wählen Sie im Backup-Job einen neuen oder leeren lokalen NTFS-Ordner mit Laufwerksbuchstaben als Staging-Ordner, oder lassen Sie das Feld leer für den eigenen Ordner des Agenten.",
+    "free_sql_staging": "Geben Sie auf dem Laufwerk des Staging-Ordners Platz frei, oder wählen Sie im Backup-Job einen Staging-Ordner auf einem größeren Laufwerk.",
+    "check_sql_database": "Bringen Sie die Datenbank online, oder lassen Sie sie im Backup-Job aus.",
+    "choose_sql_restore_name": "Wählen Sie einen anderen Namen für die wiederhergestellte Datenbank.",
+    "free_sql_restore_space": "Geben Sie auf den Laufwerken der Daten- und Log-Ordner der Instanz Platz frei, oder wählen Sie eine kleinere Sicherung."
   },
   "go": {
     "settings_microsoft": "Microsoft-365-Einstellungen öffnen",

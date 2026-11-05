@@ -59,6 +59,12 @@ type runOutcome struct {
 	Activity *activity.Report
 	// Consistency is whether a file system snapshot was used (backups).
 	Consistency *api.Consistency
+	// SQL, SQLRestore and SQLVerify are the reports of the SQL Server runs;
+	// Notices the fixed warnings of a run.
+	SQL        *api.SQLRunReport
+	SQLRestore *api.SQLRestoreReport
+	SQLVerify  *api.SQLVerifyReport
+	Notices    []api.Notice
 }
 
 func (o *runOutcome) fail(code, format string, args ...any) {
@@ -129,6 +135,7 @@ func (a *Agent) endRun(rc *runContext, out runOutcome) {
 		Status: out.Status, FinishedAt: finished, SnapshotID: out.SnapshotID, Stats: out.Stats,
 		Sample: out.Sample, Errors: capErrors(out.Errors, out.Unlisted), LogTail: rc.rl.Tail(), RestoreTest: out.RestoreTest,
 		Activity: out.Activity, Consistency: out.Consistency,
+		SQL: out.SQL, SQLRestore: out.SQLRestore, SQLVerify: out.SQLVerify, Notices: capNotices(out.Notices),
 	}
 	timeout := 4 * time.Minute
 	base := rc.ctx
@@ -240,6 +247,12 @@ func runNoun(kind string) string {
 		return "restore"
 	case api.RunVerifySample:
 		return "restore test"
+	case api.RunSQL:
+		return "SQL Server backup"
+	case api.RunSQLRestore:
+		return "SQL Server restore"
+	case api.RunSQLVerify:
+		return "SQL Server check"
 	}
 	return "backup"
 }

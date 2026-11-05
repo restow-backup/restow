@@ -12,6 +12,63 @@ private repository.
 
 ### Added
 
+- Windows machine facts (W1, docs/BAREMETAL-WINDOWS.md): a Windows agent reports its version
+  with build and update revision (the operating system line of the machine now reads e.g.
+  "Windows Server 2022 Standard 21H2 (build 20348.2340)"), the product and installation type,
+  the domain, the roles that need more than a file backup (domain controller, DFS replication,
+  Exchange, Hyper-V, SQL Server), its SQL Server instances and the drive encryption state of its
+  volumes. The machine page shows them in a card of their own.
+- Fixed app warnings (W1): a Windows machine with SQL Server, Exchange, Active Directory or
+  Hyper-V shows on its page, and each of its backup runs carries as a notice, that the file
+  backup holds the files of open databases but is no restorable backup of these applications.
+  The SQL Server part disappears once the native SQL Server backup covers every database.
+- Native SQL Server backup (W2a, preview): a machine job can switch it on for its Windows
+  members. After the file backup the agent makes a copy-only full backup (COPY_ONLY, CHECKSUM,
+  NO_COMPRESSION) of each database of each instance into a staging folder and stores it in a
+  restic snapshot of its own per instance (one `sql` run each); the customer's own backup chain
+  stays untouched. The agent signs in with its service SID `NT SERVICE\RestowAgent` and
+  integrated authentication; no SQL credential is stored anywhere. The machine page has a SQL
+  Server tab: the instances with the sign-in state and the T-SQL block a DBA runs once
+  (sysadmin or a small set of rights), "Check sign-in", and every database with its recovery
+  model, the newest backup and a rating (not backed up, not checked yet, checked, damage found,
+  check overdue). New tables `endpoint_sql_databases` and `endpoint_sql_backups` (migration
+  0089, Row Level Security); the LSNs of each backup come from `RESTORE HEADERONLY` of the
+  agent's own file. The staging files are deleted after the snapshot and on every other way out
+  of the run (a failed or half-written backup, a stop, a failed snapshot). A job's own staging
+  folder must be new or empty below a folder only administrators can change; the agent takes it
+  over and marks it, and refuses a folder that already holds other files.
+- Restore under a new name (W2a): a backup of a database is restored next to the existing one,
+  which is never replaced; the agent fetches the file from the repository, checks its SHA-256,
+  moves every file into the default folders of the target instance and optionally runs DBCC
+  CHECKDB on the copy. The name is checked again in the batch of the RESTORE; after a restore
+  that failed or did not end, the agent drops the new name only while it is still restoring,
+  and the run names anything left behind with its files. Requested and finished restores are
+  audited.
+- Restore script for another machine (W2a): for each backup the SQL Server tab offers a
+  PowerShell script that fetches exactly that file with restic, checks its SHA-256 and restores
+  it under a new name with fixed T-SQL and parameters only, without this server. It works in a new
+  folder of its own (below `-StagingDir` or TEMP) that only SYSTEM, the administrators, the user
+  and the SQL Server service of the target instance can open, and deletes only that folder. The
+  download is audited and carries no secret.
+- CHECKDB verification (W2a): once a week at the job's check slot (default Sunday 03:00 in the
+  zone of its schedule) the server plans a `sql_verify` task per instance; the agent restores the
+  newest full of each database from the repository under a check name, runs DBCC CHECKDB on it
+  and drops it. The server judges: green only after a clean CHECKDB of the backup fetched from
+  the repository, red only with evidence (CHECKDB consistency errors, a damaged backup, another
+  SHA-256), incomplete otherwise (no space, a time limit, a CHECKDB that stopped because tempdb or
+  its log ran full, memory ran out or the connection broke). Restore and check leave a reserve
+  free on the volumes they write to, at least 1 GiB and a tenth of the volumes of the data and
+  log files, so the live databases there can keep growing. New alerts `endpoint.sql_red`,
+  `endpoint.sql_recovered` and `endpoint.sql_overdue` (more than 8 days without a clean check).
+  The job editor keeps the check slot at least an hour off a daily backup.
+- CI for the SQL path (`.github/workflows/sql-server.yml`): the T-SQL of the agent against the
+  SQL Server Linux container (Developer edition, which has the backup compression the
+  NO_COMPRESSION check needs), the multi-volume shadow copy finding on a Windows runner with plain
+  files and again with the data and log files of a SQL Server database under load, and the whole
+  path (sign-in, backup under load, verification green and red, restore under a new name, the
+  rendered restore script on a second instance with its default staging folder) with SQL Server
+  Express 2019 and 2022 on Windows runners. Release builds call it strictly.
+
 - Installation › Capacity planning (`/resources`, formerly announced as "Soon"): utilisation and
   growth per tenant and per repository, with a plain forecast such as "full in about 120 days".
   Provider admins only; a member of the provider team limited to some tenants sees those. Key
@@ -293,6 +350,11 @@ private repository.
 
 ### Changed
 
+- Retention of a machine's repository applies its keep rules per group: the snapshots of file
+  backups and those of the native SQL Server backup of each instance are counted on their own, so
+  neither pushes the other out. SQL snapshots are recorded by their runs and their backup rows and
+  never flagged as "not reported by any backup run"; a backup whose snapshot was forgotten is
+  marked pruned and no longer offered.
 - Proxmox VE inventory (#58): a guest's row says how large its first backup was and when
   ("First backup: 32 GB on 3 Oct"), what the last follow-up added ("Last follow-up: +210 MB", or
   "No follow-up backup yet") and the average follow-up ("Average follow-up: +180 MB (last 7
@@ -401,6 +463,11 @@ private repository.
 
 ### Fixed
 
+- Hook documentation: a pre hook with `sqlcmd -Q "BACKUP DATABASE ..."` was documented as the
+  way to application consistency on Windows. It fails on a default installation, because hooks
+  run as SYSTEM and SQL Server 2012 and later give neither SYSTEM nor the administrators sysadmin.
+  docs/AGENT.md, docs/WINDOWS-AGENT.md and agent/README.md now point to the native SQL Server
+  backup and name the login the agent's service SID needs.
 - The API now writes an unexpected error to its log before it answers with HTTP 500: the method,
   the path, the error's name and message (with secrets masked) and the first frames of its stack.
   Until now such a request failed in the browser while `docker compose logs api` showed nothing,

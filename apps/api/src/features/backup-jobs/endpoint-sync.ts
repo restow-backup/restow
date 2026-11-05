@@ -77,6 +77,7 @@ const CONFIG_KEYS = [
   "bandwidthWindows",
   "excludeLargerThanBytes",
   "policy",
+  "sql",
 ] as const;
 
 function hooksOf(config: EndpointConfig): { pre?: string; post?: string } {
@@ -168,7 +169,12 @@ export async function syncEndpointConfigs(
     const next = buildEndpointConfig(
       endpoint.config,
       effectiveSchedule(job.schedule, overrides),
-      { ...settings, policy: job.settings?.policy },
+      // The native SQL Server backup is Windows only; other systems never get the field.
+      {
+        ...settings,
+        sql: endpoint.os === "windows" ? settings.sql : undefined,
+        policy: job.settings?.policy,
+      },
       levels,
     );
     const retention = retentionToWrite(settings.retention, endpoint.settings.retention);

@@ -135,6 +135,8 @@ DECLARE
     'endpoint_downloads',
     'endpoint_repository_locks',
     'endpoint_snapshot_flags',
+    'endpoint_sql_databases',
+    'endpoint_sql_backups',
     'backup_jobs',
     'backup_job_members',
     'run_samples',

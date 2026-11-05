@@ -1,0 +1,5 @@
+{"type":"progress","step":"restore","percent":5}
+{"type":"progress","step":"restore","percent":50}
+{"type":"progress","step":"restore","percent":100}
+{"type":"result","data":{"restore":{"ok":true,"errors":[]},"checkdb":{"ran":true,"physicalOnly":false,"errors":[],"durationMs":40000},"cleanedUp":false}}
+#exit 0

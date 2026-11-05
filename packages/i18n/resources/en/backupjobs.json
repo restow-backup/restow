@@ -856,6 +856,10 @@
       "way": "{way} for {kind}",
       "waysConfirm": "Switch off",
       "kept": "The archive kept so far stays unchanged until the end of its retention."
+    },
+    "sql": {
+      "title": "SQL Server (preview)",
+      "description": "The native backup of the SQL Server databases of the job's Windows machines. Other systems ignore it."
     }
   },
   "folders": {
@@ -1039,6 +1043,11 @@
         "sameShare": "Choose a target other than the source.",
         "folderInvalid": "The folder cannot contain . or .. as a part.",
         "mirrorRoot": "A mirror deletes what the source does not have, so it needs a folder. Enter one."
+      },
+      "sql": {
+        "databases": "Name at least one database, or choose every database.",
+        "stagingDir": "Use a local folder with a drive letter, such as E:\\SqlStaging.",
+        "time": "Enter a time such as 03:00."
       }
     },
     "server": {
@@ -1386,5 +1395,36 @@
     "pveRunning": "Backups and boot tests of VMs and containers running now",
     "pveBootTest": "Boot test",
     "pveBootTestHint": "Restores the newest restore point to a temporary guest and starts it; the node reports no progress for it."
+  },
+  "sql": {
+    "enabled": "Back up SQL Server natively",
+    "enabledHint": "A copy-only full backup of each database, beside your own backups: your backup chain stays as it is. Each instance gets a snapshot of its own.",
+    "databases": "Databases",
+    "databasesAll": "Every database of every instance (not tempdb)",
+    "databasesList": "Only these databases",
+    "databasesListLabel": "Databases",
+    "linesHint": "One per line: a database name, or INSTANCE\\name for the database of one instance.",
+    "exclude": "Leave out",
+    "stagingDir": "Staging folder",
+    "stagingDirHint": "Where SQL Server writes the backup files before they go into the backup data. Empty: the agent's own folder on the system drive. A new or empty local NTFS folder whose parent exists; the agent takes it over, and the file backup leaves it out.",
+    "stagingDirPlaceholder": "E:\\SqlStaging",
+    "verify": "Check the backups weekly",
+    "verifyHint": "Restores the newest backup of each database from the backup data under a check name, runs DBCC CHECKDB and removes the copy. Needs about the size of the data in free space. Green only after this check.",
+    "weekday": "Day",
+    "weekdays": {
+      "1": "Monday",
+      "2": "Tuesday",
+      "3": "Wednesday",
+      "4": "Thursday",
+      "5": "Friday",
+      "6": "Saturday",
+      "7": "Sunday"
+    },
+    "time": "Time",
+    "tooClose": "Start the check at least an hour before or after the daily backup: the machine runs one job at a time.",
+    "maxGiB": "Full check up to (GiB)",
+    "maxGiBHint": "Larger databases are checked physically only (PHYSICAL_ONLY).",
+    "physicalOnly": "Always check physically only",
+    "note": "Preview: a full backup of each database, restore under a new name, the restore script for another machine and the weekly check are available. No SQL Server password is stored: the agent signs in with its service account."
   }
 }

@@ -25,7 +25,14 @@ export interface RunsTableProps {
 
 const PINNED = ["type"] as const;
 
-const RUN_KINDS: readonly string[] = ["backup", "restore", "verify_sample"];
+const RUN_KINDS: readonly string[] = [
+  "backup",
+  "restore",
+  "verify_sample",
+  "sql",
+  "sql_restore",
+  "sql_verify",
+];
 const RUN_STATUSES: readonly string[] = ["running", "succeeded", "partial", "failed"];
 
 function timeValue(value: string | null): number {

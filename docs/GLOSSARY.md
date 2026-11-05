@@ -38,6 +38,9 @@ literally (use `{appName}`).
 | Restoring into the share the data came from | original location | ursprünglicher Ort | Quelle |
 | A restore point that shows signs of ransomware (docs/RANSOMWARE.md) | suspicious | verdächtig | infiziert, kompromittiert (it is a sign, not a proof) |
 | An administrator's verdict that a finding was harmless | false alarm | Fehlalarm | Fehlalarm bestätigen, ignorieren |
+| The copy of a SQL Server database the check restores from the repository and drops again; named `<db>__restow_verify_<time>` (docs/BAREMETAL-WINDOWS.md 5.1.7) | check database (its name: check name) | Prüfdatenbank (ihr Name: Prüfname) | Testdatenbank, Verify-DB |
+| What the agent reads about the SQL Server instances and databases of a machine and sends with its heartbeat | SQL inventory | SQL-Inventar | SQL-Scan, Datenbankliste |
+| The native backup of SQL Server databases by the agent (copy-only fulls, W2a) | native SQL Server backup | native SQL-Server-Sicherung | SQL-Hook, Datenbank-Dump |
 | The newest restore point without findings | last clean restore point | letzter unauffälliger Sicherungsstand | letzter sauberer Stand, letzte gute Sicherung |
 | A VM or container of Proxmox VE | guest (VM, container) | Gast (VM, Container) | Instanz, Maschine, CT |
 | Backups the storage itself refuses to delete or change before a date (S3 Object Lock, docs/STORAGE.md) | immutable backups (immutability) | unveränderbare Backups (Unveränderbarkeit) | WORM-Backups, Immutable, unlöschbar |

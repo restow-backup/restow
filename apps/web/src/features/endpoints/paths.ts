@@ -92,7 +92,8 @@ export function profileOfArea(area: EndpointArea): EndpointProfile | undefined {
   return undefined;
 }
 
-export const ENDPOINT_TABS = ["overview", "snapshots", "settings"] as const;
+/** `sql`: SQL Server (preview), shown only for a Windows machine that reports SQL Server. */
+export const ENDPOINT_TABS = ["overview", "snapshots", "sql", "settings"] as const;
 export type EndpointTab = (typeof ENDPOINT_TABS)[number];
 
 /** The tab named in the URL (`?tab=snapshots`); anything else opens the overview. */

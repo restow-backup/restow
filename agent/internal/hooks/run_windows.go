@@ -19,8 +19,9 @@ import (
 	"github.com/restow-backup/restow/agent/internal/winapi"
 )
 
-// powerShellExe is Windows PowerShell 5.1 from the system folder.
-func powerShellExe() (string, error) {
+// PowerShellExe is Windows PowerShell 5.1 from the system folder (also used
+// by the native SQL Server backup, internal/sqlserver).
+func PowerShellExe() (string, error) {
 	sys, err := winapi.SystemDirectory()
 	if err != nil {
 		return "", err
@@ -41,7 +42,7 @@ func Run(ctx context.Context, o Options) (Result, error) {
 		if strings.TrimSpace(o.Command) == "" {
 			return Result{}, nil
 		}
-		ps, err := powerShellExe()
+		ps, err := PowerShellExe()
 		if err != nil {
 			return Result{}, fmt.Errorf("cannot start %s hook: %w", o.Kind, err)
 		}

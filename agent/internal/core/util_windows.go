@@ -102,3 +102,9 @@ func platformReparse(p string, st fs.FileInfo) (reparsePoint, error) {
 	}
 	return classifyReparse(tag, substitute, winapi.VolumePathNames)
 }
+
+// sqlBlockedFolders are the system folders a custom SQL Server staging
+// folder must not be in.
+func sqlBlockedFolders() []string {
+	return []string{paths.WindowsDir(), paths.ProgramFilesDir(), paths.ProgramFilesX86Dir()}
+}

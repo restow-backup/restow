@@ -19,7 +19,7 @@ func Resolve(mode, dir, configured string) ([]string, error) {
 	configured = strings.TrimSpace(configured)
 	switch NormalizeMode(mode) {
 	case ModeAny:
-		ps, err := powerShellExe()
+		ps, err := PowerShellExe()
 		if err != nil {
 			return nil, err
 		}
@@ -36,7 +36,7 @@ func Resolve(mode, dir, configured string) ([]string, error) {
 		if WindowsScriptKind(resolved) == "exe" {
 			return []string{resolved}, nil
 		}
-		ps, err := powerShellExe()
+		ps, err := PowerShellExe()
 		if err != nil {
 			return nil, err
 		}

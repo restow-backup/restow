@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { Readable } from "node:stream";
 import {
+  appFilesNotices,
   type DirectoryPosition,
   ENDPOINT_QUEUES,
   type EndpointJobPayload,
@@ -9,6 +10,7 @@ import {
   enrollmentTokenExpiry,
   enrollmentTokenState,
   generateEnrollmentToken,
+  hasSqlCapability,
   isSupportedEndpointOs,
   isUnscheduled,
   normalizeBandwidthWindows,
@@ -463,6 +465,12 @@ export async function getEndpoint(
       agentConfigVersion: endpoint.agentConfigVersion,
       dataFolders: dataFoldersOf(endpoint, membership),
       machine: machineOf(endpoint),
+      appNotices: appFilesNotices(endpoint.settings.agent?.machine?.windows, endpoint.config.sql),
+      sqlNative: {
+        capable:
+          endpoint.os === "windows" && hasSqlCapability(endpoint.settings.agent?.capabilities),
+        enabled: endpoint.config.sql?.enabled === true,
+      },
       settings: effectiveSettings(endpoint.settings),
       problems: problemsOf(endpoint, runs[0] ?? null, readinessOf(readiness, id), now),
       runs: runs.map((run) => toRunSummary(run, rated)),

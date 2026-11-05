@@ -241,8 +241,12 @@ host name recorded at enrollment and the tag `restow-agent`.
   volume shadow copy: restic `--use-fs-snapshot -o vss.timeout=5m`, with removable drives,
   FAT and exFAT volumes passed as `-o vss.exclude-volumes` (read live, noted in the run
   log). The result is file consistent, not application consistent (restic asks for a copy
-  backup without writer components; use a pre hook such as `sqlcmd -Q "BACKUP DATABASE
-  ..."` for databases). On Linux and macOS `useVss` has no effect (it is logged).
+  backup without writer components). For SQL Server use the
+  [native SQL Server backup](#sql-server-native-backup-preview). A pre hook with `sqlcmd`
+  is no way around it without a login: hooks run as SYSTEM, and SQL Server 2012 and later
+  give neither SYSTEM nor the Administrators sysadmin, so such a hook needs a login for the
+  agent's service SID `NT SERVICE\RestowAgent`. On Linux and macOS `useVss` has no effect
+  (it is logged).
 - **When the snapshot fails** the policy `snapshotOnFailure` decides (the same setting for
   VSS, LVM, btrfs and APFS). restic ends with exit code 0 when a shadow copy fails and reads
   that volume live; the agent tells from restic's error entries (`failed to create snapshot
@@ -324,6 +328,66 @@ and lets the service manager start it from there; that process removes the old f
 task and no hook and says why in its log, every 30 minutes; re-running the install
 command repairs it. The service definition is rewritten when it differs from what the
 running version installs (location, hardening).
+
+### SQL Server (native backup, preview)
+
+On Windows the backup job can switch on a native backup of SQL Server (`config.sql`,
+docs/BAREMETAL-WINDOWS.md 5.1, stage W2a). It changes no backup chain of the customer:
+
+- **Sign-in.** The agent connects over Shared Memory (`lpc:.\<instance>`) with integrated
+  authentication as its service SID `NT SERVICE\RestowAgent`; no SQL credential is stored
+  anywhere. A database administrator creates the login once per instance (the installer
+  prints the lines, the Restow UI shows them with a variant with smaller rights):
+  `CREATE LOGIN [NT SERVICE\RestowAgent] FROM WINDOWS;` and
+  `ALTER SERVER ROLE [sysadmin] ADD MEMBER [NT SERVICE\RestowAgent];`.
+- **Script.** The T-SQL runs in Windows PowerShell 5.1 with `System.Data.SqlClient`, from a
+  script compiled into the agent (`internal/sqlserver/sql.ps1`), written to
+  `C:\ProgramData\Restow\data\tmp` with a DACL for SYSTEM and Administrators and checked
+  against the embedded copy before each start; no hook permission is needed. Every T-SQL
+  text is fixed (`internal/sqlserver/statements.go`); names and paths go in as parameters,
+  or through `QUOTENAME` on the server for commands that take no variable.
+- **Backup.** After the file run of a slot (also after a failed one; without paths only
+  these runs start) one run of kind `sql` per instance: `BACKUP DATABASE ... WITH
+  COPY_ONLY, CHECKSUM, NO_COMPRESSION` of each selected database into
+  `C:\ProgramData\Restow\data\staging\sql\<instance>` (or the job's `stagingDir`), written by
+  SQL Server itself under its service SID, which gets Modify on that folder only. A job's
+  `stagingDir` must have a trusted parent and be new or empty: the agent takes it over (owner
+  Administrators, protected DACL, the marker `.restow-sql-staging`); a folder with other files
+  in it is refused (`sql_staging_unusable`) and never re-permitted or emptied. The space is
+  planned first (`sql_staging_too_small`, never a silent fallback). Then one restic snapshot
+  of the folder with the tags `restow-sql` and `restow-sql-instance=<name>`, without a shadow
+  copy. The staging files are deleted after the snapshot, and on every other way out of the
+  run too (a failed or partial `BACKUP`, a stop, a failed snapshot): the next run writes them
+  again. The report carries the facts of each backup from `RESTORE HEADERONLY`
+  and `RESTORE FILELISTONLY` of the file (LSNs as decimal strings), its SHA-256 and size.
+  While the native backup covers a database, the file backup leaves its files out.
+  `tempdb`, database snapshots and databases that are not `ONLINE` are not backed up.
+- **Check** (task `sql_verify`, planned by the server). The newest full of each database is
+  fetched from the repository, its SHA-256 compared, restored as
+  `<db>__restow_verify_<time>` with `MOVE` targets from `FILELISTONLY` of the fetched file,
+  cut off the Service Broker (`SET NEW_BROKER`), checked with `DBCC CHECKDB ... WITH
+  NO_INFOMSGS, ALL_ERRORMSGS, TABLERESULTS` (`PHYSICAL_ONLY` above `maxGiB`) and dropped.
+  The planned name goes into `data\sql-verify-journal.json` before the `RESTORE`; a copy
+  left by a crash is dropped before the next check, and only a name from that journal. The
+  agent reports facts only; the server decides green, red or incomplete. What a CHECKDB
+  proves is decided in the agent (`internal/sqlserver/checkdb.go`): its TABLERESULTS rows and
+  raised consistency errors are evidence; anything that only stopped it (tempdb or log full,
+  out of memory, a broken connection) makes the check incomplete, never red. Restore and
+  check keep a reserve free on every volume they write to: 1 GiB, and on the volumes of the
+  data and log files the larger of 1 GiB and a tenth of the volume.
+- **Restore under a new name** (task `sql_restore`): fetched, hash checked, restored into the
+  target instance's default folders, optionally checked with `CHECKDB`. A name that exists
+  is refused, also in the batch of the `RESTORE` itself; the existing database is never
+  touched. After a `RESTORE` that failed or did not end (time limit, crash, stop) the new
+  name is dropped only while it is in `RESTORING`; anything else that is left is named in
+  the run with its state and files.
+- **Inventory.** Every 6 hours while the native backup is on, or once when the Restow UI
+  asks for it ("Check sign-in"), the heartbeat carries the SQL inventory (at most 64 KiB).
+  Without the native backup the agent never connects on its own: a connection without a
+  login writes a failed login into the instance's error log.
+- Heartbeat and enrollment announce the capability `sql_native_v1`; the server offers no
+  SQL Server action to an agent without it. On Linux and macOS the setting is logged once
+  and ignored.
 
 ## Hooks
 
@@ -736,7 +800,17 @@ carries all of them.
   Files that change while they are read can end up inconsistent in the snapshot.
 - **Windows shadow copies are file consistent, not application consistent.** Open
   databases (SQL Server, Exchange) are crash consistent and their logs are not truncated;
-  use a pre hook for an application-consistent dump. Files listed under
+  for SQL Server use the native backup. restic makes the shadow copy of each volume on its
+  own, at its own time: a database with its data on one volume and its log on another is
+  not of one moment in a file backup (CI job `windows-multivolume`). The run warns
+  (`app_files_not_app_backup`) on a machine with SQL Server, Exchange, Active Directory or
+  Hyper-V.
+- **Native SQL Server backup is a preview (W2a).** Only COPY_ONLY fulls: no log chain, no
+  point-in-time restore, no restore over the existing database, no automatic restore of
+  `master`, no failover cluster instances (`sql_fci_unsupported`), strict encryption (TDS
+  8.0) and Constrained Language Mode are detected, not worked around
+  (`sql_strict_encryption`, `sql_powershell_constrained`). A long check delays the next
+  scheduled backup (one job at a time). TDE certificates are not backed up. Files listed under
   `HKLM\SYSTEM\CurrentControlSet\Control\BackupRestore\FilesNotToSnapshot` (by default
   Outlook OST files) are missing from the snapshot.
 - **File-based only.** No disk images, no bare-metal restore. Restoring a whole machine

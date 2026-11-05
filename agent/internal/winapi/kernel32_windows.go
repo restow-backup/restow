@@ -28,6 +28,7 @@ var (
 	procGetDriveTypeW              = kernel32.NewProc("GetDriveTypeW")
 	procGetVolumeInformationW      = kernel32.NewProc("GetVolumeInformationW")
 	procLocalFree                  = kernel32.NewProc("LocalFree")
+	procGetDiskFreeSpaceExW        = kernel32.NewProc("GetDiskFreeSpaceExW")
 
 	procGetVolumePathNamesForVolumeNameW  = kernel32.NewProc("GetVolumePathNamesForVolumeNameW")
 	procGetVolumeNameForVolumeMountPointW = kernel32.NewProc("GetVolumeNameForVolumeMountPointW")
@@ -285,6 +286,29 @@ func VolumeInformation(root string) (fsName string, flags uint32, err error) {
 		return "", 0, err
 	}
 	return syscall.UTF16ToString(name), flags, nil
+}
+
+// DiskFreeBytes returns the bytes the calling process may still write on
+// the volume that holds path (it honours quotas)
+// (https://learn.microsoft.com/windows/win32/api/fileapi/nf-fileapi-getdiskfreespaceexw).
+func DiskFreeBytes(path string) (uint64, error) {
+	free, _, err := DiskSpace(path)
+	return free, err
+}
+
+// DiskSpace returns what the caller may still write on the volume of path
+// and the size of that volume (GetDiskFreeSpaceExW).
+func DiskSpace(path string) (free, total uint64, err error) {
+	p, err := utf16Ptr(path)
+	if err != nil {
+		return 0, 0, err
+	}
+	var totalFree uint64
+	if _, err := call(procGetDiskFreeSpaceExW, uintptr(unsafe.Pointer(p)), uintptr(unsafe.Pointer(&free)),
+		uintptr(unsafe.Pointer(&total)), uintptr(unsafe.Pointer(&totalFree))); err != nil {
+		return 0, 0, err
+	}
+	return free, total, nil
 }
 
 // localFree releases memory Windows allocated with LocalAlloc.

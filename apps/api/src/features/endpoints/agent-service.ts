@@ -53,7 +53,7 @@ import {
   readJobStartPause,
   tenants,
 } from "@restow/db";
-import { and, asc, eq, gt, inArray, isNull, lt, ne, or, type SQL, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, lt, notInArray, or, type SQL, sql } from "drizzle-orm";
 import { db, providerDb } from "../../db.js";
 import { loadTenantDek, storeSecret } from "../../lib/secrets.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
@@ -89,6 +89,14 @@ import {
   type ProgressInput,
   type StartRunInput,
 } from "./schemas.js";
+import {
+  recordSqlBackupRun,
+  recordSqlInventory,
+  recordSqlRestoreRun,
+  recordSqlVerifyRun,
+  runNoticesOf,
+  withSqlStats,
+} from "./sql-agent.js";
 
 /**
  * The server side of the agent contract (docs/AGENT.md, "Agent API"):
@@ -110,7 +118,15 @@ const LOG_TAIL_KEEP = 20 * 1024;
 
 export interface AgentTask {
   id: string;
-  kind: "backup_now" | "restore" | "verify_sample" | "update_config" | "uninstall";
+  kind:
+    | "backup_now"
+    | "restore"
+    | "verify_sample"
+    | "update_config"
+    | "uninstall"
+    | "sql_restore"
+    | "sql_verify"
+    | "sql_inventory";
   params: Record<string, unknown>;
 }
 
@@ -479,19 +495,28 @@ function toAgentTask(row: {
  * folders are kept as far as they are on the list of the machine's system.
  */
 export function agentFactsOf(
-  input: Pick<HeartbeatInput, "hooks" | "hookScripts" | "machine" | "dataFolders">,
+  input: Pick<HeartbeatInput, "hooks" | "hookScripts" | "machine" | "dataFolders"> & {
+    capabilities?: string[] | undefined;
+  },
   now: Date,
   os: string,
 ): EndpointAgentFacts | null {
   const dataFolders = cleanDataFolderReport(os, input.dataFolders);
-  if (!input.hooks && !input.machine && dataFolders === null) {
+  if (!input.hooks && !input.machine && dataFolders === null && !input.capabilities) {
     return null;
   }
+  // The Windows facts are Windows only (W1): another system never keeps them.
+  const machine =
+    input.machine && os !== "windows" && "windows" in input.machine
+      ? (({ windows: _windows, ...rest }) => rest)(input.machine)
+      : input.machine;
   return {
     ...(input.hooks ? { hooks: input.hooks } : {}),
     ...(input.hooks === "scripts" ? { hookScripts: input.hookScripts ?? [] } : {}),
-    ...(input.machine ? { machine: input.machine } : {}),
+    ...(machine ? { machine } : {}),
     ...(dataFolders !== null ? { dataFolders } : {}),
+    // What the agent can do beyond the base contract (0.5.0: `sql_native_v1`, W2a).
+    ...(input.capabilities ? { capabilities: input.capabilities } : {}),
     reportedAt: now.toISOString(),
   };
 }
@@ -554,6 +579,11 @@ export async function heartbeat(
     if (!endpoint) {
       throw new ProblemError(404, "Endpoint not found");
     }
+    // The SQL inventory (W2a): only a Windows agent sends one, at most every 6 hours or after an
+    // `sql_inventory` task.
+    if (input.sqlInventory !== undefined && agent.os === "windows") {
+      await recordSqlInventory(tx, agent, input.sqlInventory, now);
+    }
 
     // Tasks nobody picked up in time end here.
     await tx
@@ -574,7 +604,8 @@ export async function heartbeat(
       .where(
         and(
           eq(endpointTasks.endpointId, agent.endpointId),
-          startsPaused ? ne(endpointTasks.kind, "backup_now") : undefined,
+          // A check of the SQL backups (W2a) restores a database and runs CHECKDB: it waits too.
+          startsPaused ? notInArray(endpointTasks.kind, ["backup_now", "sql_verify"]) : undefined,
           or(
             and(
               eq(endpointTasks.status, "pending"),
@@ -596,7 +627,13 @@ export async function heartbeat(
 
     const tasks: AgentTask[] = [];
     const finishedOnDelivery = waiting
-      .filter((task) => task.kind === "update_config" || task.kind === "uninstall")
+      // `sql_inventory` (W2a) has no run: the agent answers with its next heartbeat.
+      .filter(
+        (task) =>
+          task.kind === "update_config" ||
+          task.kind === "uninstall" ||
+          task.kind === "sql_inventory",
+      )
       .map((task) => task.id);
     for (const task of waiting) {
       tasks.push(toAgentTask({ id: task.id, kind: task.kind, params: task.params }));
@@ -700,11 +737,15 @@ async function agentUpdateNow(
 // Runs
 // ---------------------------------------------------------------------------
 
-const TASK_KIND_OF_RUN = {
+/** The task a run of each kind may belong to; a `sql` run (W2a) never belongs to one. */
+const TASK_KIND_OF_RUN: Readonly<Record<StartRunInput["kind"], AgentTask["kind"] | null>> = {
   backup: "backup_now",
   restore: "restore",
   verify_sample: "verify_sample",
-} as const;
+  sql: null,
+  sql_restore: "sql_restore",
+  sql_verify: "sql_verify",
+};
 
 /** Clamp a time the agent reports: never in the future, never more than a day back. */
 function agentTime(value: string, now: Date): Date {
@@ -733,7 +774,7 @@ export async function startRun(
       if (!task) {
         throw new ProblemError(404, "Task not found");
       }
-      if (task.kind !== TASK_KIND_OF_RUN[input.kind]) {
+      if (TASK_KIND_OF_RUN[input.kind] === null || task.kind !== TASK_KIND_OF_RUN[input.kind]) {
         throw new ProblemError(409, "Task does not match the run", {
           detail: `A ${task.kind} task cannot start a ${input.kind} run.`,
         });
@@ -912,13 +953,26 @@ export async function finishRun(
     const cancelled = input.status === "failed" && run.cancelRequestedAt !== null;
     const status: EndpointRun["status"] = cancelled ? "cancelled" : input.status;
     const failure = cancelled ? null : failureRecordOf(input.status, errors, now);
+    // The native SQL Server backup (W2a): its databases, backups and check reports.
+    const sqlStats =
+      run.kind === "sql"
+        ? await recordSqlBackupRun(tx, agent, run, input, now)
+        : // A check stopped in the UI states nothing about the backups: no report.
+          run.kind === "sql_verify" && !cancelled
+          ? await recordSqlVerifyRun(tx, agent, run, input, now)
+          : run.kind === "sql_restore"
+            ? await recordSqlRestoreRun(tx, agent, run, input, errors)
+            : undefined;
     await tx
       .update(endpointRuns)
       .set({
         status,
         finishedAt: finishedAt.getTime() < run.startedAt.getTime() ? now : finishedAt,
         snapshotId: input.snapshotId ?? null,
-        stats: statsWithActivity(input.stats, input.activity, input.consistency),
+        stats: withSqlStats(statsWithActivity(input.stats, input.activity, input.consistency), {
+          sql: sqlStats,
+          notices: runNoticesOf(input),
+        }),
         errors,
         // What went wrong, explained: the headline, the reason and what to do, in the viewer's language.
         failure,
@@ -989,6 +1043,20 @@ export async function finishRun(
         );
     }
 
+    // A machine that backs up only its databases (no folders, W2a): its `sql` runs are its
+    // backups, so they keep it from going stale. Otherwise the file backup decides, and a
+    // failing one is not hidden by working SQL runs.
+    if (run.kind === "sql" && !interrupted && endpoint.config.paths.length === 0) {
+      const good = input.status !== "failed" && input.snapshotId !== undefined;
+      await tx
+        .update(endpoints)
+        .set({
+          lastBackupAt: finishedAt,
+          ...(good ? { lastSuccessAt: finishedAt, staleAlertedAt: null } : {}),
+        })
+        .where(eq(endpoints.id, agent.endpointId));
+    }
+
     if (run.kind === "restore") {
       await auditEndpoint(tx, {
         tenantId: agent.tenantId,
@@ -1016,7 +1084,12 @@ export async function finishRun(
         .where(eq(endpointTasks.id, run.taskId));
     }
 
-    if (input.status === "failed" && !interrupted && !incompleteTest) {
+    // Likewise a SQL check that came to no result for any database (no space, a time limit).
+    const incompleteSqlCheck =
+      run.kind === "sql_verify" &&
+      (sqlStats?.databases ?? []).every((database) => database.outcome === "incomplete");
+
+    if (input.status === "failed" && !interrupted && !incompleteTest && !incompleteSqlCheck) {
       await emitWebhookEvent(tx, {
         tenantId: agent.tenantId,
         event: "job.failed",

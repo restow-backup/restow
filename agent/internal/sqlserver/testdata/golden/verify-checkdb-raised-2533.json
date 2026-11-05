@@ -1,0 +1,48 @@
+{
+  "errors": [
+    {
+      "message": "Sales: DBCC CHECKDB reported 1 error(s) in the backup restored from the repository; first: Table error: page (1:312) allocated to object ID 245575913, index ID 1, partition ID 72057594041466880, alloc unit ID 72057594046971904 (type In-row data) was not seen. The page may be invalid or may have an incorrect alloc unit ID in its header. (2533)."
+    }
+  ],
+  "ops": [
+    "inventory",
+    "filelist:Sales",
+    "verify:Sales"
+  ],
+  "sqlVerify": {
+    "instance": "SQLEXPRESS",
+    "databases": [
+      {
+        "databaseId": "c1d2e3f4-0a1b-4c2d-8e3f-5a6b7c8d9e01",
+        "backupId": "a9e8d7c6-b5a4-4392-8170-6f5e4d3c2b1a",
+        "name": "Sales",
+        "method": "restore+checkdb",
+        "verifyName": "Sales__restow_verify_20261105T020013Z",
+        "fetched": true,
+        "sha256Match": true,
+        "restore": {
+          "ok": true,
+          "errors": []
+        },
+        "checkdb": {
+          "ran": true,
+          "physicalOnly": false,
+          "errors": [
+            {
+              "number": 2533,
+              "level": 16,
+              "state": 1,
+              "message": "Table error: page (1:312) allocated to object ID 245575913, index ID 1, partition ID 72057594041466880, alloc unit ID 72057594046971904 (type In-row data) was not seen. The page may be invalid or may have an incorrect alloc unit ID in its header."
+            }
+          ],
+          "durationMs": 41000
+        },
+        "dropped": true,
+        "backupLsn": "37000000014400001",
+        "logsApplied": 0,
+        "durationMs": 3000
+      }
+    ]
+  },
+  "status": "failed"
+}

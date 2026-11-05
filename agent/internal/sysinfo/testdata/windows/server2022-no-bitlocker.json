@@ -1,0 +1,38 @@
+{
+  "description": "Windows Server 2022 Datacenter without the BitLocker feature (the WMI namespace is missing), workgroup, a clustered SQL instance and a name the agent refuses",
+  "registry": {
+    "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion": {
+      "ProductName": "Windows Server 2022 Datacenter",
+      "EditionID": "ServerDatacenter",
+      "CurrentBuildNumber": "20348",
+      "UBR": 3091,
+      "DisplayVersion": "21H2",
+      "InstallationType": "Server"
+    },
+    "SYSTEM\\CurrentControlSet\\Control\\ProductOptions": {
+      "ProductType": "ServerNT"
+    },
+    "SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters": {},
+    "HARDWARE\\DESCRIPTION\\System\\BIOS": {
+      "SystemManufacturer": "Supermicro",
+      "SystemProductName": "SYS-1029P",
+      "BaseBoardManufacturer": "Supermicro"
+    },
+    "SOFTWARE\\Microsoft\\Microsoft SQL Server\\Instance Names\\SQL": {
+      "PROD": "MSSQL16.PROD",
+      "bad name": "MSSQL16.BAD",
+      "EVIL": "..\\..\\x"
+    },
+    "SOFTWARE\\Microsoft\\Microsoft SQL Server\\MSSQL16.PROD\\Setup": {
+      "Version": "16.0.1000.6",
+      "Edition": "Enterprise Edition: Core-based Licensing"
+    },
+    "SOFTWARE\\Microsoft\\Microsoft SQL Server\\MSSQL16.PROD\\Cluster": {
+      "ClusterName": "SQLCLU01"
+    }
+  },
+  "services": {
+    "MSSQL$PROD": "CORP\\svc-sql"
+  },
+  "wmi": "{\"computer\":{\"partOfDomain\":false,\"domain\":\"WORKGROUP\"},\"bitlocker\":{\"available\":false,\"error\":\"\",\"volumes\":[]}}"
+}

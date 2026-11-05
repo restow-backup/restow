@@ -1,0 +1,27 @@
+{
+  "errors": [
+    {
+      "message": "The restore of Sales as Sales_restored_20261105 failed: The SQL Server script did not finish within its time limit and was ended. The half-restored database was dropped again.",
+      "code": "sql_script_failed"
+    }
+  ],
+  "ops": [
+    "inventory",
+    "filelist:Sales_restored_20261105",
+    "restore:Sales_restored_20261105",
+    "droprestoring:Sales_restored_20261105"
+  ],
+  "sqlRestore": {
+    "backupId": "a9e8d7c6-b5a4-4392-8170-6f5e4d3c2b1a",
+    "instance": "SQLEXPRESS",
+    "newName": "Sales_restored_20261105",
+    "fetched": true,
+    "sha256Match": true,
+    "restored": false,
+    "moves": [],
+    "durationMs": 1000,
+    "code": "sql_script_failed",
+    "message": "The restore of Sales as Sales_restored_20261105 failed: The SQL Server script did not finish within its time limit and was ended. The half-restored database was dropped again."
+  },
+  "status": "failed"
+}

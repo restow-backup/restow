@@ -474,6 +474,30 @@ function Get-SmartAppControlVerdict([int]$State) {
     return @{ Stop = ''; Warn = '' }
 }
 
+# Get-SqlInstanceNames lists the SQL Server instances of this computer (the
+# value names of Instance Names\SQL); an empty list without SQL Server.
+function Get-SqlInstanceNames([string]$Key = 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\Instance Names\SQL') {
+    try {
+        $item = Get-Item -Path $Key -ErrorAction Stop
+        return , @($item.GetValueNames() | Where-Object { $_ -ne '' } | Sort-Object)
+    } catch {
+        return , @()
+    }
+}
+
+# Get-SqlLoginHint is what the installer says on a computer with SQL Server:
+# the agent signs in as its service SID, and SQL Server gives neither SYSTEM
+# nor the Administrators the rights a native backup needs.
+function Get-SqlLoginHint([string[]]$Instances) {
+    if ($Instances.Count -eq 0) { return @() }
+    return @(
+        ('SQL Server: ' + ($Instances -join ', ') + '. For the native SQL Server backup, a database administrator runs on each instance:'),
+        '  CREATE LOGIN [NT SERVICE\RestowAgent] FROM WINDOWS;',
+        '  ALTER SERVER ROLE [sysadmin] ADD MEMBER [NT SERVICE\RestowAgent];',
+        'The Restow UI shows these lines, and a variant with smaller rights, on the SQL Server tab of this computer.'
+    )
+}
+
 function Get-SystemArchitecture {
     $arch = $env:PROCESSOR_ARCHITEW6432
     if (-not $arch) { $arch = $env:PROCESSOR_ARCHITECTURE }
@@ -1088,6 +1112,11 @@ function Invoke-RestowInstaller([string]$HooksOption, [bool]$UninstallOption, [s
     Write-Host "Hooks:   & '$($RestowState.AgentExe)' hooks --help   (in a PowerShell started as administrator)"
     Write-Host 'Logs:    C:\ProgramData\Restow\logs\agent.log   and the Application event log, source Restow'
     Write-Host "Remove:  & ([scriptblock]::Create((irm -UseBasicParsing '$url/install/windows.ps1'))) -Uninstall"
+    $sqlHint = @(Get-SqlLoginHint @(Get-SqlInstanceNames))
+    if ($sqlHint.Count -gt 0) {
+        Write-Host ''
+        foreach ($line in $sqlHint) { Write-Host $line }
+    }
     if ($sacWarning) {
         Write-Host ''
         Write-Warn $sacWarning

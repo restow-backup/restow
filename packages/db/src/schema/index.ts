@@ -32,6 +32,7 @@ export * from "./auth.js";
 export * from "./backup.js";
 export * from "./backup-jobs.js";
 export * from "./empty-confirmations.js";
+export * from "./endpoint-sql.js";
 export * from "./endpoints.js";
 export * from "./file-shares.js";
 export * from "./imports.js";

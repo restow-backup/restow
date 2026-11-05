@@ -1,7 +1,7 @@
 import { Info, RotateCcw, TriangleAlert } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { ErrorState, RelativeTime } from "@/components/kit";
+import { ErrorState, RelativeTime, StatusBadge } from "@/components/kit";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Progress } from "@/components/ui/progress";
 import {
@@ -15,7 +15,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { FailureExplanation } from "@/features/failures";
 import { cn } from "@/lib/utils";
 
-import type { RunConsistency, RunDetail, RunProgress } from "../api.js";
+import type { RunConsistency, RunDetail, RunProgress, RunSqlStats } from "../api.js";
 import { type EndpointFormat, useEndpointFormat, useRun } from "../hooks.js";
 import {
   formatDuration,
@@ -25,11 +25,58 @@ import {
   runDurationMs,
   runErrorView,
   runKindKey,
+  sqlCodeMessage,
+  sqlOutcomeView,
 } from "../presenters.js";
+import { AppNotices } from "./app-notices.js";
 import { Fact, Facts } from "./facts.js";
 import { RunStatusBadge } from "./status.js";
 
 /** The live state of a running run: how far it is and which file it is on. */
+/** What a SQL run did with each database of its instance (W2a). */
+function SqlRunResults({ sql }: { sql: RunSqlStats }) {
+  const { t } = useTranslation("endpoints");
+  const format = useEndpointFormat();
+  const databases = sql.databases ?? [];
+  return (
+    <section className="space-y-2" data-slot="run-sql">
+      <h3 className="text-sm font-medium">
+        {sql.newName
+          ? t("sql.run.restoredAs", { name: sql.newName, instance: sql.instance })
+          : t("sql.run.heading", { instance: sql.instance })}
+      </h3>
+      {sql.checkdb ? (
+        <p className="text-sm text-muted-foreground">{t(`sql.run.checkdb.${sql.checkdb}`)}</p>
+      ) : null}
+      {databases.length > 0 ? (
+        <ul className="divide-y rounded-md border text-sm">
+          {databases.map((database) => {
+            const view = sqlOutcomeView(database.outcome);
+            const code = sqlCodeMessage(database.code);
+            return (
+              <li key={database.name} className="space-y-1 p-3" data-database={database.name}>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-medium break-all">{database.name}</span>
+                  <StatusBadge tone={view.tone} icon>
+                    {t(view.key)}
+                  </StatusBadge>
+                </div>
+                {database.bytes !== undefined ? (
+                  <p className="text-xs text-muted-foreground">{format.bytes(database.bytes)}</p>
+                ) : null}
+                {code ? <p className="text-xs">{t(code.key, code.values)}</p> : null}
+                {database.message ? (
+                  <p className="text-xs break-words text-muted-foreground">{database.message}</p>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+    </section>
+  );
+}
+
 export function RunProgressView({
   progress,
   format,
@@ -283,6 +330,9 @@ export function RunDetailView({
           </AlertDescription>
         </Alert>
       ) : null}
+
+      <AppNotices notices={stats?.notices} />
+      {stats?.sql ? <SqlRunResults sql={stats.sql} /> : null}
 
       <section className="space-y-2" data-slot="run-errors">
         <h3 className="text-sm font-medium">

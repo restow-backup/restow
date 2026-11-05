@@ -92,6 +92,12 @@ func (a *Agent) runBackup(ctx context.Context, j job) (runOutcome, error) {
 		a.log.Info("not backing up: this machine is in no backup job", "trigger", j.trigger)
 		return runOutcome{}, ErrNoJob
 	}
+	sqlOn := a.sqlActive(cfg)
+	if sqlOn && len(cfg.Paths) == 0 {
+		// Only the native SQL Server backup: no file run is started.
+		a.log.Info("the backup job has no paths; only the native SQL Server backup runs")
+		return runOutcome{Status: a.runSQLBackups(ctx, j, cfg, true), Summary: "SQL Server backup"}, nil
+	}
 	rc, err := a.beginRun(ctx, api.RunBackup, j, cfg)
 	if err != nil {
 		a.startFailed(j, "backup", err)
@@ -99,10 +105,24 @@ func (a *Agent) runBackup(ctx context.Context, j job) (runOutcome, error) {
 	}
 	out := a.doBackup(rc)
 	a.endRun(rc, out)
+	// Then one sql run per instance, also after a failed file run; not
+	// after a stop (the job's context ended).
+	if sqlOn && ctx.Err() == nil {
+		a.runSQLBackups(ctx, j, cfg, false)
+	}
 	return out, nil
 }
 
 func (a *Agent) doBackup(rc *runContext) runOutcome {
+	out := a.doFileBackup(rc)
+	// The fixed warnings of a Windows machine with a database role (W1).
+	if m := a.currentMachine(); m.windows != nil {
+		out.Notices = append(out.Notices, AppFileNotices(m.windows, rc.cfg.SQL, a.sqlActive(rc.cfg))...)
+	}
+	return out
+}
+
+func (a *Agent) doFileBackup(rc *runContext) runOutcome {
 	out := runOutcome{Status: api.StatusFailed}
 	rl, cfg := rc.rl, rc.cfg
 
@@ -248,6 +268,9 @@ func (a *Agent) backupStep(rc *runContext, out runOutcome, sources []string, res
 	excludes := append([]string(nil), cfg.Excludes...)
 	// Never back up the agent's own working files or earlier restores.
 	excludes = append(excludes, a.d.Layout.CacheDir(), a.d.Layout.TmpDir(), "Restow-Restore-*")
+	// While the native SQL Server backup covers them, the database files
+	// (and a staging folder of the job) stay out of the file backup.
+	excludes = append(excludes, a.sqlFileExcludes(rc.ctx, cfg, rl)...)
 
 	opts := restic.BackupOptions{
 		Paths: sources, Excludes: excludes, Host: a.d.State.Hostname, Tags: []string{snapshotTag},

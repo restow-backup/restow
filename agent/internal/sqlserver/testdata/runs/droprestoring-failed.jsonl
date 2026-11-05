@@ -1,0 +1,2 @@
+{"type":"error","problem":{"code":"sql_script_failed","step":"drop","number":3702,"message":"Cannot drop database \"Sales_restored_20261105\" because it is currently in use. (3702)"}}
+#exit 2

@@ -19,6 +19,7 @@ import {
   type CreateTaskInput,
   type CreateTokenInput,
   cancelEndpointBackup,
+  confirmSqlTde,
   createDownload,
   createTask,
   createToken,
@@ -32,15 +33,21 @@ import {
   fetchRun,
   fetchRuns,
   fetchSnapshots,
+  fetchSqlBackups,
+  fetchSqlOverview,
   fetchTokens,
   type RemovalMode,
   removeEndpoint,
   requestEndpointUpdate,
   requestRestoreTest,
+  requestSqlInventory,
+  requestSqlRestore,
+  requestSqlVerify,
   resumeMachineUpdates,
   revealRepositoryPassword,
   revokeEndpoint,
   revokeToken,
+  type SqlRestoreInput,
   setAgentUpdates,
   type TokenListState,
   type UpdateEndpointInput,
@@ -342,6 +349,65 @@ export function useRestoreTest(endpointId: string) {
   const refresh = useRefreshEndpoint();
   return useMutation({
     mutationFn: () => requestRestoreTest(endpointId),
+    onSettled: () => refresh(endpointId),
+  });
+}
+
+// --- SQL Server (preview) ------------------------------------------------------------------
+
+/** The SQL part of a machine; polls while a check, restore or sign-in check waits. */
+export function useSqlOverview(endpointId: string, enabled: boolean) {
+  const scope = useTenantScope();
+  return useQuery({
+    queryKey: endpointKeys.sql(scope.tenantId, endpointId),
+    queryFn: () => fetchSqlOverview(endpointId),
+    enabled: scope.enabled && enabled,
+    refetchInterval: (query) => {
+      const pending = query.state.data?.pending;
+      return pending && pending.verify + pending.restore + pending.inventory > 0
+        ? RUN_REFRESH_MS
+        : IDLE_REFRESH_MS;
+    },
+  });
+}
+
+export function useSqlBackups(endpointId: string, databaseId: string | null) {
+  const scope = useTenantScope();
+  return useQuery({
+    queryKey: endpointKeys.sqlBackups(scope.tenantId, endpointId, databaseId ?? ""),
+    queryFn: () => fetchSqlBackups(endpointId, databaseId ?? ""),
+    enabled: scope.enabled && databaseId !== null,
+  });
+}
+
+export function useSqlRestore(endpointId: string) {
+  const refresh = useRefreshEndpoint();
+  return useMutation({
+    mutationFn: (input: SqlRestoreInput) => requestSqlRestore(endpointId, input),
+    onSettled: () => refresh(endpointId),
+  });
+}
+
+export function useSqlVerify(endpointId: string) {
+  const refresh = useRefreshEndpoint();
+  return useMutation({
+    mutationFn: (databaseId?: string) => requestSqlVerify(endpointId, databaseId),
+    onSettled: () => refresh(endpointId),
+  });
+}
+
+export function useSqlInventory(endpointId: string) {
+  const refresh = useRefreshEndpoint();
+  return useMutation({
+    mutationFn: () => requestSqlInventory(endpointId),
+    onSettled: () => refresh(endpointId),
+  });
+}
+
+export function useConfirmSqlTde(endpointId: string) {
+  const refresh = useRefreshEndpoint();
+  return useMutation({
+    mutationFn: (databaseId: string) => confirmSqlTde(endpointId, databaseId),
     onSettled: () => refresh(endpointId),
   });
 }

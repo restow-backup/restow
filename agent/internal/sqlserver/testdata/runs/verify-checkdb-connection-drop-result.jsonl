@@ -1,0 +1,3 @@
+{"type":"progress","step":"restore","percent":100}
+{"type":"result","data":{"restore":{"ok":true,"errors":[]},"checkdb":{"ran":false,"physicalOnly":false,"errors":[],"durationMs":95000},"checkdbRaised":[{"number":233,"severity":20,"state":0,"message":"A transport-level error has occurred when receiving results from the server. (provider: Shared Memory Provider, error: 0 - No process is on the other end of the pipe.)"}],"checkdbProblem":{"code":"sql_script_failed","step":"checkdb","number":233,"message":"A transport-level error has occurred when receiving results from the server. (233)"},"newBroker":true,"dropped":false,"dropError":{"code":"sql_script_failed","step":"drop","number":0,"message":"The connection is closed."}}}
+#exit 0

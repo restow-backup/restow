@@ -47,6 +47,10 @@ import {
   removeEndpointSchema,
   runParamSchema,
   snapshotImmutabilityParamSchema,
+  sqlBackupParamSchema,
+  sqlDatabaseParamSchema,
+  sqlRestoreSchema,
+  sqlVerifySchema,
   tokenIdParamSchema,
   updateEndpointSchema,
 } from "./schemas.js";
@@ -72,6 +76,15 @@ import {
   setAgentUpdates,
   updateEndpoint,
 } from "./service.js";
+import {
+  confirmSqlTde,
+  getSqlOverview,
+  listSqlBackups,
+  requestSqlInventory,
+  requestSqlRestore,
+  requestSqlVerify,
+  sqlRestoreScript,
+} from "./sql.js";
 
 /**
  * /api/v1/endpoints: servers and clients backed up by the Restow agent, for
@@ -118,6 +131,14 @@ import {
  *   GET    /:id/browse?snapshotId=&path=&cursor=  one page of a folder of a snapshot
  *   POST   /:id/downloads                       check selected files and folders, prepare a ZIP (paths in the body)
  *   GET    /:id/downloads/:downloadId           start the prepared ZIP: streamed, audited first, once
+ *   GET    /:id/sql                             SQL Server (W2a): instances, sign-in with the login
+ *                                               script, databases with rating, backup and check
+ *   GET    /:id/sql/databases/:databaseId/backups  the backups of one database
+ *   POST   /:id/sql/restore                     restore a backup under a new name (audited)
+ *   POST   /:id/sql/verify                      check the newest backups now (one database or all)
+ *   POST   /:id/sql/inventory                   "Check sign-in": the agent connects once and reports
+ *   GET    /:id/sql/backups/:backupId/restore-script  the restore script for another machine (audited)
+ *   POST   /:id/sql/databases/:databaseId/tde-confirm  the TDE certificate is backed up elsewhere (audited)
  *
  * Setting or changing a hook (it runs as root on the machine) and showing the
  * repository password (it opens every backup of the machine without Restow)
@@ -436,4 +457,51 @@ endpointsRoutes.get("/:id/downloads/:downloadId", restorerForDownload, async (c)
       "x-content-type-options": "nosniff",
     },
   });
+});
+
+// ---------------------------------------------------------------------------
+// The native SQL Server backup (W2a, docs/BAREMETAL-WINDOWS.md 5.1)
+// ---------------------------------------------------------------------------
+
+endpointsRoutes.get("/:id/sql", restorer, async (c) => {
+  const { id } = parseOrProblem(endpointIdParamSchema, c.req.param());
+  return c.json(await getSqlOverview(db, c.get("tenantId"), id));
+});
+
+endpointsRoutes.get("/:id/sql/databases/:databaseId/backups", restorer, async (c) => {
+  const { id, databaseId } = parseOrProblem(sqlDatabaseParamSchema, c.req.param());
+  return c.json(await listSqlBackups(db, c.get("tenantId"), id, databaseId));
+});
+
+endpointsRoutes.post("/:id/sql/restore", admin, async (c) => {
+  const { id } = parseOrProblem(endpointIdParamSchema, c.req.param());
+  const input = await parseJsonBody(c.req, sqlRestoreSchema);
+  return c.json(await requestSqlRestore(db, c.get("tenantId"), id, input, actorOf(c)), 202);
+});
+
+endpointsRoutes.post("/:id/sql/verify", admin, async (c) => {
+  const { id } = parseOrProblem(endpointIdParamSchema, c.req.param());
+  const input = await parseJsonBody(c.req, sqlVerifySchema);
+  return c.json(await requestSqlVerify(db, c.get("tenantId"), id, input, actorOf(c)), 202);
+});
+
+endpointsRoutes.post("/:id/sql/inventory", admin, async (c) => {
+  const { id } = parseOrProblem(endpointIdParamSchema, c.req.param());
+  return c.json(await requestSqlInventory(db, c.get("tenantId"), id, actorOf(c)), 202);
+});
+
+endpointsRoutes.get("/:id/sql/backups/:backupId/restore-script", admin, async (c) => {
+  const { id, backupId } = parseOrProblem(sqlBackupParamSchema, c.req.param());
+  const script = await sqlRestoreScript(db, c.get("tenantId"), id, backupId, actorOf(c));
+  return c.body(script.body, 200, {
+    "content-type": "text/plain; charset=utf-8",
+    "content-disposition": `attachment; filename="${script.fileName}"`,
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff",
+  });
+});
+
+endpointsRoutes.post("/:id/sql/databases/:databaseId/tde-confirm", admin, async (c) => {
+  const { id, databaseId } = parseOrProblem(sqlDatabaseParamSchema, c.req.param());
+  return c.json(await confirmSqlTde(db, c.get("tenantId"), id, databaseId, actorOf(c)));
 });

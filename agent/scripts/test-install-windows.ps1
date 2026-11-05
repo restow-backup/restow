@@ -22,6 +22,9 @@
 # 3g. Smart App Control: on stops the installer, evaluation mode warns (it may
 #    switch on later), off and a missing value say nothing; read from a
 #    registry key of the test's own.
+# 3h. SQL Server: the instances are read from Instance Names\SQL (a key of the
+#    test's own), and the login lines for the agent's service SID are printed
+#    only when there is one.
 # 4. A full installation below a prefix (RESTOW_INSTALL_ROOT, no service)
 #    against the fake instance, a second run (repair), a pinned key that does
 #    not match, a tampered release (nothing installed), -Proxy with
@@ -312,6 +315,23 @@ foreach ($state in @(0, -1)) {
     if ($v.Stop -or $v.Warn) { Fail "Smart App Control state ${state}: Stop '$($v.Stop)', Warn '$($v.Warn)'" }
 }
 Ok 'Smart App Control off or absent says nothing'
+
+# ---- 3h. SQL Server login hint ---------------------------------------------------
+$sqlKey = 'HKCU:\Software\RestowInstallerTest\Instance Names\SQL'
+try {
+    if (@(Get-SqlInstanceNames $sqlKey).Count -ne 0) { Fail 'a missing SQL Server key lists instances' }
+    if (@(Get-SqlLoginHint @()).Count -ne 0) { Fail 'the SQL Server hint is printed without an instance' }
+    $null = New-Item -Path $sqlKey -Force
+    $null = New-ItemProperty -Path $sqlKey -Name 'SQLEXPRESS' -Value 'MSSQL16.SQLEXPRESS' -PropertyType String -Force
+    $null = New-ItemProperty -Path $sqlKey -Name 'MSSQLSERVER' -Value 'MSSQL16.MSSQLSERVER' -PropertyType String -Force
+    $names = @(Get-SqlInstanceNames $sqlKey)
+    $hint = (Get-SqlLoginHint $names) -join "`n"
+    if (($names -join ',') -ne 'MSSQLSERVER,SQLEXPRESS') { Fail "SQL Server instances: $($names -join ',')" }
+    elseif ($hint -notmatch [regex]::Escape('CREATE LOGIN [NT SERVICE\RestowAgent] FROM WINDOWS;') -or $hint -notmatch [regex]::Escape('ALTER SERVER ROLE [sysadmin] ADD MEMBER [NT SERVICE\RestowAgent];')) { Fail "the SQL Server hint lacks the login lines: $hint" }
+    else { Ok 'the SQL Server login lines are printed when SQL Server is installed' }
+} finally {
+    Remove-Item -Path 'HKCU:\Software\RestowInstallerTest' -Recurse -Force -ErrorAction SilentlyContinue
+}
 
 # ---- 4. full installation against the fake instance ------------------------------
 if (-not $SkipInstall) {

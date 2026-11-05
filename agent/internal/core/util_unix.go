@@ -99,3 +99,6 @@ func prepareRestoreTarget(target string) (string, error) {
 
 // platformReparse: Unix has no reparse points.
 var platformReparse func(string, fs.FileInfo) (reparsePoint, error)
+
+// sqlBlockedFolders: the native SQL Server backup runs on Windows only.
+func sqlBlockedFolders() []string { return nil }

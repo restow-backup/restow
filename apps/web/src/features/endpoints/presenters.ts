@@ -1,12 +1,13 @@
 import type { StatusTone } from "@/components/kit";
+import type { WindowsFacts } from "@/features/backup-jobs/api";
 import { ApiError, errorMessageKey } from "@/lib/api";
 import { RECENT_SIGN_IN_PROBLEM } from "@/lib/recent-sign-in";
-
 import type {
   Attention,
   BrowseEntry,
   EffectiveSettings,
   EndpointAssignee,
+  EndpointDetail,
   EndpointOs,
   EndpointReport,
   EndpointSummary,
@@ -15,6 +16,8 @@ import type {
   RunProgress,
   RunStatus,
   RunSummary,
+  SqlDatabaseRating,
+  SqlSignIn,
 } from "./api.js";
 
 /**
@@ -318,7 +321,11 @@ export function runStatusView(status: RunStatus, kind?: RunKind): RunStatusView 
       return { tone: "info", key: "runStatus.running", live: true };
     case "succeeded":
       return {
-        tone: kind === "restore" || kind === "verify_sample" ? "success" : "neutral",
+        // A SQL check that ended is judged by the server (its rating, not the run, may be green).
+        tone:
+          kind === "restore" || kind === "verify_sample" || kind === "sql_restore"
+            ? "success"
+            : "neutral",
         key: "runStatus.succeeded",
         live: false,
       };
@@ -484,6 +491,10 @@ export function runErrorView(error: { code?: string }): RunErrorView {
   if ((RUN_ERROR_CODES as readonly string[]).includes(code)) {
     return { headline: { key: `runErrors.${code}` }, neutral: code === "interrupted" };
   }
+  // The native SQL Server backup (preview) words its own codes.
+  if ((SQL_CODES as readonly string[]).includes(code)) {
+    return { headline: { key: `sql.codes.${code}` }, neutral: false };
+  }
   const exit = /^restic_exit_(\d+)$/.exec(code);
   if (exit) {
     return {
@@ -543,6 +554,28 @@ export function reportView(report: EndpointReport, format: Formatters): ReportVi
         };
       }
       return { tone, headline: { key: "reports.restoreTest.noResult" }, details };
+    }
+    case "sql_verify": {
+      // One database of a SQL Server check: the server's judgement, never the agent's status.
+      const outcome =
+        data.outcome === "green" || data.outcome === "red" ? data.outcome : "incomplete";
+      const database = typeof data.database === "string" ? data.database : "";
+      const code = sqlCodeMessage(typeof data.code === "string" ? data.code : null);
+      if (outcome === "incomplete" && code) {
+        details.push(code);
+      }
+      const evidence = Array.isArray(data.evidence) ? data.evidence : [];
+      for (const item of evidence.slice(0, 3) as { number?: number; message?: string }[]) {
+        details.push({
+          key: "reports.sqlVerify.evidence",
+          values: { code: item.number ?? 0, message: item.message ?? "" },
+        });
+      }
+      return {
+        tone,
+        headline: { key: `reports.sqlVerify.${outcome}`, values: { name: database } },
+        details,
+      };
     }
     case "repository_check": {
       const percent = typeof data.subsetPercent === "number" ? data.subsetPercent : null;
@@ -881,6 +914,10 @@ const PROBLEM_KEYS: Readonly<Record<string, string>> = {
   "urn:restow:problem:pve-files-no-repository": "endpoints:errors.containerNoRepository",
   // The file restore of VMs: the sandboxed reader could not read the file system.
   "urn:restow:problem:pve-vm-files-unreadable": "endpoints:errors.vmFilesUnreadable",
+  "urn:restow:problem:endpoint-sql-unsupported": "endpoints:errors.sqlUnsupported",
+  "urn:restow:problem:endpoint-sql-backup-pruned": "endpoints:errors.sqlBackupPruned",
+  "urn:restow:problem:endpoint-sql-name-taken": "endpoints:errors.sqlNameTaken",
+  "urn:restow:problem:endpoint-sql-nothing-to-verify": "endpoints:errors.sqlNothingToVerify",
   [RECENT_SIGN_IN_PROBLEM]: "endpoints:errors.recentSignIn",
 };
 
@@ -945,4 +982,163 @@ export function quotaPercent(used: number | null, budget: number | null): number
     return null;
   }
   return Math.floor((used / budget) * 100);
+}
+
+// --- Windows and SQL Server (preview) ---------------------------------------------------------
+
+/** "Windows Server 2022 Standard 21H2 (build 20348.2340)", as @restow/core `windowsVersionText`. */
+export function windowsVersionLine(
+  facts: Pick<WindowsFacts, "productName" | "displayVersion" | "build" | "ubr">,
+): string {
+  const name = [facts.productName.trim(), facts.displayVersion].filter(Boolean).join(" ");
+  const build =
+    facts.build > 0 ? ` (build ${facts.build}${facts.ubr > 0 ? `.${facts.ubr}` : ""})` : "";
+  return `${name}${build}`.trim();
+}
+
+/** The roles of a Windows machine that need more than a file backup, as message keys. */
+export function windowsRoleKeys(facts: Pick<WindowsFacts, "roles" | "productType">): string[] {
+  const keys: string[] = [];
+  if (facts.roles.domainController || facts.productType === "domain_controller") {
+    keys.push("windowsFacts.roles.domainController");
+  }
+  if (facts.roles.sqlServer) keys.push("windowsFacts.roles.sqlServer");
+  if (facts.roles.exchange) keys.push("windowsFacts.roles.exchange");
+  if (facts.roles.hyperV) keys.push("windowsFacts.roles.hyperV");
+  if (facts.roles.dfsr) keys.push("windowsFacts.roles.dfsr");
+  return keys;
+}
+
+/** Whether the machine page offers the SQL tab: a Windows machine that reports SQL Server. */
+export function showsSqlTab(detail: Pick<EndpointDetail, "os" | "machine">): boolean {
+  return detail.os === "windows" && detail.machine.facts?.windows?.roles.sqlServer === true;
+}
+
+export interface SqlRatingView {
+  tone: StatusTone;
+  key: string;
+}
+
+/**
+ * The SQL rating of a database. Green only for a check that restored the backup from the
+ * repository and ran CHECKDB on it without an error ("green is proof"); a database that is only
+ * backed up is neutral, overdue is a warning, red is red.
+ */
+export function sqlRatingView(rating: SqlDatabaseRating): SqlRatingView {
+  switch (rating) {
+    case "green":
+      return { tone: "success", key: "sql.rating.green" };
+    case "red":
+      return { tone: "destructive", key: "sql.rating.red" };
+    case "overdue":
+      return { tone: "warning", key: "sql.rating.overdue" };
+    case "unverified":
+      return { tone: "neutral", key: "sql.rating.unverified" };
+    default:
+      return { tone: "muted", key: "sql.rating.not_protected" };
+  }
+}
+
+/** The sign-in of the agent to an instance. */
+export function sqlSignInView(signIn: SqlSignIn): SqlRatingView {
+  switch (signIn) {
+    case "ok":
+      return { tone: "neutral", key: "sql.signIn.ok" };
+    case "missing":
+      return { tone: "warning", key: "sql.signIn.missing" };
+    case "permission":
+      return { tone: "warning", key: "sql.signIn.permission" };
+    case "error":
+      return { tone: "destructive", key: "sql.signIn.error" };
+    default:
+      return { tone: "muted", key: "sql.signIn.unknown" };
+  }
+}
+
+/** The SQL codes the run sheet and the SQL tab word (the contract's, docs/AGENT.md). */
+export const SQL_CODES = [
+  "sql_instance_unreachable",
+  "sql_login_missing",
+  "sql_permission_missing",
+  "sql_powershell_constrained",
+  "sql_strict_encryption",
+  "sql_fci_unsupported",
+  "sql_mode_unsupported",
+  "sql_staging_unusable",
+  "sql_staging_too_small",
+  "sql_database_unavailable",
+  "sql_backup_failed",
+  "sql_snapshot_failed",
+  "sql_script_failed",
+  "sql_restore_name_taken",
+  "sql_restore_no_space",
+  "sql_restore_failed",
+  "sql_backup_mismatch",
+  "sql_verify_no_space",
+  "sql_verify_timeout",
+  "sql_verify_system_db",
+  "sql_verify_incomplete",
+] as const;
+
+/** A SQL code as a message key; one this app does not know is shown raw. */
+export function sqlCodeMessage(code: string | null | undefined): Message | null {
+  if (!code) {
+    return null;
+  }
+  return (SQL_CODES as readonly string[]).includes(code)
+    ? { key: `sql.codes.${code}` }
+    : { key: "sql.codes.unknown", values: { code } };
+}
+
+/** The outcome of one database in a SQL run, as the run sheet shows it. */
+export function sqlOutcomeView(outcome: string): SqlRatingView {
+  switch (outcome) {
+    case "green":
+      return { tone: "success", key: "sql.outcome.green" };
+    case "red":
+      return { tone: "destructive", key: "sql.outcome.red" };
+    case "restored":
+      return { tone: "success", key: "sql.outcome.restored" };
+    case "backed_up":
+      return { tone: "neutral", key: "sql.outcome.backed_up" };
+    case "skipped":
+      return { tone: "warning", key: "sql.outcome.skipped" };
+    case "incomplete":
+      return { tone: "muted", key: "sql.outcome.incomplete" };
+    default:
+      return { tone: "destructive", key: "sql.outcome.failed" };
+  }
+}
+
+/** The notice codes this app words; others are shown with the agent's message. */
+export const NOTICE_CODES = [
+  "app_files_not_app_backup",
+  "sql_log_growing",
+  "sql_tde_certificate",
+  "sql_version_untested",
+] as const;
+
+/** The applications `app_files_not_app_backup` may name. */
+export const APP_SUBJECTS = ["sql_server", "exchange", "active_directory", "hyper_v"] as const;
+
+/** The name the restore dialog proposes: `<db>_restored_<yyyymmdd>`, at most 128 characters. */
+export function sqlProposedName(database: string, now: Date = new Date()): string {
+  const suffix = `_restored_${now.toISOString().slice(0, 10).replaceAll("-", "")}`;
+  return `${Array.from(database)
+    .slice(0, 128 - suffix.length)
+    .join("")}${suffix}`;
+}
+
+export type SqlNameProblem = "empty" | "tooLong" | "control" | "system" | "reserved" | "same";
+
+/** What the server and the agent would refuse about a new name (@restow/core `sqlNewNameIssue`). */
+export function sqlNewNameProblem(value: string, current: string): SqlNameProblem | null {
+  if (value.length === 0) return "empty";
+  if (Array.from(value).length > 128) return "tooLong";
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what is refused
+  if (/[\u0000-\u001f]/.test(value)) return "control";
+  if (["master", "model", "msdb", "tempdb"].includes(value.trim().toLowerCase())) return "system";
+  if (value.toLowerCase().includes("__restow_verify_")) return "reserved";
+  if (value.toLowerCase() === current.toLowerCase()) return "same";
+  return null;
 }

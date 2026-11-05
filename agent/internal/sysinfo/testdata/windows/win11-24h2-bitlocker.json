@@ -1,0 +1,26 @@
+{
+  "description": "Windows 11 Pro 24H2 on a laptop; C: encrypted, D: being encrypted, a recovery partition without a letter",
+  "registry": {
+    "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion": {
+      "ProductName": "Windows 10 Pro",
+      "EditionID": "Professional",
+      "CurrentBuildNumber": "26100",
+      "UBR": 2314,
+      "DisplayVersion": "24H2",
+      "InstallationType": "Client"
+    },
+    "SYSTEM\\CurrentControlSet\\Control\\ProductOptions": {
+      "ProductType": "WinNT"
+    },
+    "SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters": {
+      "Domain": ""
+    },
+    "HARDWARE\\DESCRIPTION\\System\\BIOS": {
+      "SystemManufacturer": "Dell Inc.",
+      "SystemProductName": "Latitude 7440",
+      "BaseBoardManufacturer": "Dell Inc."
+    }
+  },
+  "services": {},
+  "wmi": "{\"computer\":{\"partOfDomain\":false,\"domain\":\"WORKGROUP\"},\"bitlocker\":{\"available\":true,\"error\":\"\",\"volumes\":[{\"driveLetter\":\"C:\",\"protectionStatus\":1,\"conversionStatus\":1},{\"driveLetter\":\"d:\",\"protectionStatus\":0,\"conversionStatus\":2},{\"driveLetter\":\"\",\"protectionStatus\":0,\"conversionStatus\":0}]}}"
+}

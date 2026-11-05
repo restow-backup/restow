@@ -135,6 +135,22 @@ func (l Layout) TmpDir() string { return filepath.Join(l.DataDir, "tmp") }
 // OutboxDir holds run reports that could not be delivered yet.
 func (l Layout) OutboxDir() string { return filepath.Join(l.DataDir, "outbox") }
 
+// SQLStagingDir is the default staging folder of the native SQL Server
+// backup (Windows): SQL Server writes its backup files below it, one folder
+// per instance, and restic backs them up from there.
+func (l Layout) SQLStagingDir() string { return filepath.Join(l.DataDir, "staging", "sql") }
+
+// SQLRestoreStagingDir holds the backup files fetched from the repository for
+// a restore under a new name or a check (one folder per run).
+func (l Layout) SQLRestoreStagingDir() string {
+	return filepath.Join(l.DataDir, "staging", "sql-restore")
+}
+
+// SQLVerifyJournal lists the check copies the agent is about to restore, so
+// that a copy left behind by a crash is dropped before the next check (and
+// only such a copy).
+func (l Layout) SQLVerifyJournal() string { return filepath.Join(l.DataDir, "sql-verify-journal.json") }
+
 // LogFile is the rotating agent log.
 func (l Layout) LogFile() string { return filepath.Join(l.LogDir, "agent.log") }
 

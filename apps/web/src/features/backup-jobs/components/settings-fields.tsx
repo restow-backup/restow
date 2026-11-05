@@ -27,6 +27,8 @@ import {
   type FormProblem,
   MASKED_HOOK,
   type SettingsDraft,
+  type SqlDraft,
+  sqlSlotTooClose,
 } from "../form.js";
 
 /** The text of a form problem (the checks of form.ts) in the backupjobs namespace. */
@@ -329,6 +331,219 @@ export function RetentionField({
         </div>
       ) : null}
       <p className="text-xs text-muted-foreground">{t("retention.note")}</p>
+    </div>
+  );
+}
+
+// --- SQL Server (preview, Windows members) ------------------------------------------------------
+
+const WEEKDAYS = ["1", "2", "3", "4", "5", "6", "7"] as const;
+
+/**
+ * The native SQL Server backup of the job's Windows members (preview, docs/BAREMETAL-WINDOWS.md
+ * 5.1.3): copy-only fulls of every database beside the customer's own backups, each into a
+ * snapshot of its own, and a weekly check that restores the newest one from the repository and
+ * runs DBCC CHECKDB on it. Other systems ignore it.
+ */
+export function SqlField({
+  idPrefix,
+  sql,
+  onChange,
+  problems,
+  dailyTime,
+  disabled = false,
+}: {
+  idPrefix: string;
+  sql: SqlDraft;
+  onChange: (sql: SqlDraft) => void;
+  problems: Partial<Record<"databases" | "stagingDir" | "verifyTime" | "verifyMaxGiB", string>>;
+  /** The job's daily backup time, when it has one: the check slot keeps an hour off it. */
+  dailyTime: string | null;
+  disabled?: boolean;
+}) {
+  const { t } = useTranslation("backupjobs");
+  const ids = (name: string) => `${idPrefix}-${name}`;
+  const set = (patch: Partial<SqlDraft>) => onChange({ ...sql, ...patch, present: true });
+  const tooClose = sql.enabled && sql.verifyEnabled && sqlSlotTooClose(sql.verifyTime, dailyTime);
+  return (
+    <div className="space-y-4" data-slot="sql-field">
+      <div className="flex items-start gap-2">
+        <Checkbox
+          id={ids("enabled")}
+          checked={sql.enabled}
+          onCheckedChange={(checked) => set({ enabled: checked === true })}
+          disabled={disabled}
+          aria-describedby={ids("enabled-hint")}
+          className="mt-0.5"
+        />
+        <div className="grid gap-0.5">
+          <Label htmlFor={ids("enabled")}>{t("sql.enabled")}</Label>
+          <p id={ids("enabled-hint")} className="text-xs text-muted-foreground">
+            {t("sql.enabledHint")}
+          </p>
+        </div>
+      </div>
+      {sql.enabled ? (
+        <>
+          <RadioGroup
+            aria-label={t("sql.databases")}
+            value={sql.databasesAll ? "all" : "list"}
+            onValueChange={(value) => set({ databasesAll: value === "all" })}
+            disabled={disabled}
+          >
+            <div className="flex items-center gap-2">
+              <RadioGroupItem id={ids("all")} value="all" />
+              <Label htmlFor={ids("all")} className="font-normal">
+                {t("sql.databasesAll")}
+              </Label>
+            </div>
+            <div className="flex items-center gap-2">
+              <RadioGroupItem id={ids("list")} value="list" />
+              <Label htmlFor={ids("list")} className="font-normal">
+                {t("sql.databasesList")}
+              </Label>
+            </div>
+          </RadioGroup>
+          {!sql.databasesAll ? (
+            <Field
+              id={ids("databases")}
+              label={t("sql.databasesListLabel")}
+              hint={t("sql.linesHint")}
+              error={problems.databases}
+            >
+              <Textarea
+                id={ids("databases")}
+                value={sql.databases}
+                onChange={(event) => set({ databases: event.target.value })}
+                rows={3}
+                spellCheck={false}
+                disabled={disabled}
+                className="font-mono text-sm"
+                aria-invalid={Boolean(problems.databases) || undefined}
+                aria-describedby={messageId(ids("databases"))}
+              />
+            </Field>
+          ) : null}
+          <Field id={ids("exclude")} label={t("sql.exclude")} hint={t("sql.linesHint")}>
+            <Textarea
+              id={ids("exclude")}
+              value={sql.exclude}
+              onChange={(event) => set({ exclude: event.target.value })}
+              rows={2}
+              spellCheck={false}
+              disabled={disabled}
+              className="font-mono text-sm"
+              aria-describedby={messageId(ids("exclude"))}
+            />
+          </Field>
+          <Field
+            id={ids("staging")}
+            label={t("sql.stagingDir")}
+            hint={t("sql.stagingDirHint")}
+            error={problems.stagingDir}
+          >
+            <Input
+              id={ids("staging")}
+              value={sql.stagingDir}
+              onChange={(event) => set({ stagingDir: event.target.value })}
+              placeholder={t("sql.stagingDirPlaceholder")}
+              spellCheck={false}
+              autoComplete="off"
+              disabled={disabled}
+              className="w-full font-mono text-sm sm:w-96"
+              aria-invalid={Boolean(problems.stagingDir) || undefined}
+              aria-describedby={messageId(ids("staging"))}
+            />
+          </Field>
+          <div className="flex items-start gap-2">
+            <Checkbox
+              id={ids("verify")}
+              checked={sql.verifyEnabled}
+              onCheckedChange={(checked) => set({ verifyEnabled: checked === true })}
+              disabled={disabled}
+              aria-describedby={ids("verify-hint")}
+              className="mt-0.5"
+            />
+            <div className="grid gap-0.5">
+              <Label htmlFor={ids("verify")}>{t("sql.verify")}</Label>
+              <p id={ids("verify-hint")} className="text-xs text-muted-foreground">
+                {t("sql.verifyHint")}
+              </p>
+            </div>
+          </div>
+          {sql.verifyEnabled ? (
+            <div className="grid gap-4 sm:grid-cols-3">
+              <Field id={ids("weekday")} label={t("sql.weekday")}>
+                <Select
+                  value={sql.verifyWeekday}
+                  onValueChange={(verifyWeekday) => set({ verifyWeekday })}
+                  disabled={disabled}
+                >
+                  <SelectTrigger id={ids("weekday")}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {WEEKDAYS.map((day) => (
+                      <SelectItem key={day} value={day}>
+                        {t(`sql.weekdays.${day}`)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field
+                id={ids("time")}
+                label={t("sql.time")}
+                error={problems.verifyTime ?? (tooClose ? t("sql.tooClose") : undefined)}
+              >
+                <Input
+                  id={ids("time")}
+                  type="time"
+                  value={sql.verifyTime}
+                  onChange={(event) => set({ verifyTime: event.target.value })}
+                  disabled={disabled}
+                  className="w-40 tabular-nums"
+                  aria-invalid={Boolean(problems.verifyTime) || tooClose || undefined}
+                  aria-describedby={messageId(ids("time"))}
+                />
+              </Field>
+              <Field
+                id={ids("max")}
+                label={t("sql.maxGiB")}
+                hint={t("sql.maxGiBHint")}
+                error={problems.verifyMaxGiB}
+              >
+                <Input
+                  id={ids("max")}
+                  value={sql.verifyMaxGiB}
+                  onChange={(event) => set({ verifyMaxGiB: event.target.value })}
+                  inputMode="numeric"
+                  autoComplete="off"
+                  disabled={disabled}
+                  className="tabular-nums"
+                  aria-invalid={Boolean(problems.verifyMaxGiB) || undefined}
+                  aria-describedby={messageId(ids("max"))}
+                />
+              </Field>
+            </div>
+          ) : null}
+          {sql.verifyEnabled ? (
+            <div className="flex items-start gap-2">
+              <Checkbox
+                id={ids("physical")}
+                checked={sql.verifyPhysicalOnly}
+                onCheckedChange={(checked) => set({ verifyPhysicalOnly: checked === true })}
+                disabled={disabled}
+                className="mt-0.5"
+              />
+              <Label htmlFor={ids("physical")} className="font-normal">
+                {t("sql.physicalOnly")}
+              </Label>
+            </div>
+          ) : null}
+          <p className="text-xs text-muted-foreground">{t("sql.note")}</p>
+        </>
+      ) : null}
     </div>
   );
 }

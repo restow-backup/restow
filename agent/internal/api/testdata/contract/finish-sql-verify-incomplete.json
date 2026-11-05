@@ -1,0 +1,29 @@
+{
+  "status": "failed",
+  "finishedAt": "2026-11-08T03:00:40Z",
+  "errors": [
+    { "code": "sql_verify_no_space", "message": "Sales was not checked: restoring it needs 1.0 GiB on C:\\ for its data files and 0.2 GiB for its log, and C:\\ has 0.6 GiB free. The check is incomplete, not failed." }
+  ],
+  "logTail": "2026-11-08T03:00:40Z WARN Sales was not checked: not enough free space.",
+  "sqlVerify": {
+    "instance": "SQLEXPRESS",
+    "databases": [
+      {
+        "databaseId": "c1d2e3f4-0a1b-4c2d-8e3f-5a6b7c8d9e01",
+        "backupId": "a9e8d7c6-b5a4-4392-8170-6f5e4d3c2b1a",
+        "name": "Sales",
+        "method": "restore+checkdb",
+        "fetched": true,
+        "sha256Match": true,
+        "restore": null,
+        "checkdb": null,
+        "dropped": false,
+        "backupLsn": "37000000014400001",
+        "logsApplied": 0,
+        "durationMs": 38000,
+        "code": "sql_verify_no_space",
+        "message": "Sales was not checked: restoring it needs 1.0 GiB on C:\\ for its data files and 0.2 GiB for its log, and C:\\ has 0.6 GiB free. The check is incomplete, not failed."
+      }
+    ]
+  }
+}

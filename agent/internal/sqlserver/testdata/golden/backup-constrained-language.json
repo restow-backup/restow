@@ -1,0 +1,28 @@
+{
+  "status": "failed",
+  "errors": [
+    {
+      "message": "SQL Server instance SQLEXPRESS: Windows PowerShell runs in ConstrainedLanguage (WDAC, AppLocker or __PSLockdownPolicy); the SQL Server client cannot be loaded.",
+      "code": "sql_powershell_constrained"
+    }
+  ],
+  "sql": {
+    "instance": "SQLEXPRESS",
+    "databases": []
+  },
+  "notices": null,
+  "ops": [
+    "inventory"
+  ],
+  "inventory": {
+    "name": "SQLEXPRESS",
+    "state": "error",
+    "error": {
+      "code": "sql_powershell_constrained",
+      "step": "language_mode",
+      "number": 0,
+      "message": "Windows PowerShell runs in ConstrainedLanguage (WDAC, AppLocker or __PSLockdownPolicy); the SQL Server client cannot be loaded."
+    },
+    "databases": []
+  }
+}

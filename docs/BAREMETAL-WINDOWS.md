@@ -1582,7 +1582,18 @@ Express (2019 und 2022), auf echter Hardware mit 2019 Standard und 2022 Express 
   Ordnersicherung schließt über `platformBackupOptions` immer den ganzen `DataRoot` aus
   (`snapshot_windows.go:64`); der SQL-Snapshot übernimmt diese Ausschlüsse nicht. Quellen nur
   der Staging-Ordner, Tags `restow-sql`, `restow-sql-instance=<name>`, `--group-by host,tags`.
-  Die Staging-Datei wird erst nach erfolgreichem Snapshot gelöscht.
+  Die Staging-Datei wird erst nach erfolgreichem Snapshot gelöscht. **Umsetzung W2a:** Auf jedem
+  anderen Weg aus dem Lauf (jede `BACKUP` gescheitert, auch halb geschrieben bei vollem
+  Laufwerk; Stopp oder `maxRunTime`; Snapshot gescheitert) löscht der Agent den Ordner der
+  Instanz ebenfalls, denn der nächste Lauf schreibt die Dateien ohnehin neu; sonst belegten sie
+  bis dahin das Staging-Volume.
+- **Eigener `stagingDir` (Umsetzung W2a):** Der Ordner darüber muss existieren und die
+  Vertrauensprüfung eines Restore-Ziels bestehen (`paths.TrustedDir`). Ein neuer Ordner wird mit
+  Eigentümer Administratoren und geschützter DACL angelegt und bekommt die Markierungsdatei
+  `.restow-sql-staging`; ein vorhandener gilt nur, wenn Eigentümer und DACL vertrauenswürdig sind
+  (`paths.CheckTarget`) und er leer ist oder die Markierung trägt. Sonst `sql_staging_unusable`:
+  ein fremder Ordner wird weder neu berechtigt noch geleert. Unterordner, die jemand anderes
+  angelegt hat, lehnt `MkdirWithSIDs` ab (ein Eigentümer behält `WRITE_DAC`).
 - **Sperren:** Der Agent erlaubt heute nur einen Lauf gleichzeitig (`lock.TryAcquire` auf
   `data\run.lock`, `core/backup.go:39`, `run.go:322`, `agent.go:845`). Ein `sql_log` alle 15
   Minuten fiele aus, solange ein Image-, Datei-, `sql_verify`- oder `kit_build`-Lauf über
@@ -1669,6 +1680,18 @@ Express (2019 und 2022), auf echter Hardware mit 2019 Standard und 2022 Express 
   `RESTORE`-Folge nach LSN mit `MOVE` aus `FILELISTONLY` und, ab W2b, `STOPAT`. Der Weg ist
   dokumentiert und in der CI getestet (8.2). Ein Assistent mit Lesezugang des Zielrechners
   folgt später (wie die Migrationssitzung BM 13.6).
+- **Umsetzung W2a, Name und Aufräumen:** `RESTORE` prüft den Namen im selben Batch
+  (`IF DB_ID(@new) IS NOT NULL THROW 50003`), eine Datenbank, die seit dem Nachsehen entstanden
+  ist, wird also nie berührt. Nach einem gescheiterten oder abgebrochenen `RESTORE` (Fehler,
+  Zeitgrenze, Absturz des Skripts, Stopp) löscht der Agent den neuen Namen nur, solange er im
+  Zustand `RESTORING` ist (`DropRestoring`, bei einem Stopp mit eigenem kurzem Kontext); eine
+  Datenbank in jedem anderen Zustand bleibt, und der Lauf nennt sie mit Zustand und Dateien.
+- **Umsetzung W2a, Restore-Skript:** Es legt immer einen neuen eigenen Ordner
+  `restow-sql-restore-<guid>` unter `-StagingDir` (ein vorhandener Ordner) oder unter `TEMP` an,
+  mit geschützter DACL: Vollzugriff für SYSTEM, Administratoren und den ausführenden Benutzer,
+  Lesen für die Dienst-SID der Zielinstanz (aus `-Instance` abgeleitet, `-SqlServiceAccount`
+  überschreibt), die die Datei mit ihrem eigenen Konto öffnet. Gelöscht wird am Ende nur dieser
+  Ordner, nie der angegebene.
 
 #### 5.1.5 Point-in-Time (W2b)
 
@@ -1699,12 +1722,24 @@ Failover-Cluster, keine Automatisierung von Verfügbarkeitsgruppen, kein Streami
   `ALTER DATABASE … SET NEW_BROKER` (die Prüfkopie darf keine Service-Broker-Nachrichten der
   Produktion empfangen oder senden), `DBCC CHECKDB WITH NO_INFOMSGS, ALL_ERRORMSGS` (über
   `maxGiB` mit `PHYSICAL_ONLY`, Vorgabe 200 GiB), dann `DROP DATABASE`. Platzbedarf etwa die
-  Datengröße; vorher geprüft (`sql_verify_no_space`: unvollständig, nicht rot).
+  Datengröße; vorher geprüft (`sql_verify_no_space`: unvollständig, nicht rot). **Umsetzung
+  W2a:** Die Platzprüfung von Prüfung und Restore hält auf jedem berührten Volume eine Reserve
+  frei, `ReserveBytes` (1 GiB) und auf den Volumes der Daten- und Log-Dateien (meist die der
+  Produktion, deren Autogrowth weiterlaufen muss) das Größere von 1 GiB und einem Zehntel des
+  Volumes.
 - Bericht neuer Art `sql_verify` je Datenbank: `{ method: "restore+checkdb", ok, durationMs,
   errors, backupLsn, logsApplied, physicalOnly }`. **Grün** nur mit fehlerfreiem CHECKDB der aus
   dem Repository zurückgeholten Sicherung. `RESTORE VERIFYONLY` zählt als "lesbar", nie als
   bewiesen. Rot nur mit Beleg (CHECKDB-Fehler, `RESTORE` scheitert an der Sicherung selbst, z. B.
-  Prüfsummenfehler); Platz, Rechte, Zeitgrenze sind unvollständig.
+  Prüfsummenfehler); Platz, Rechte, Zeitgrenze sind unvollständig. **Umsetzung W2a:** Das Skript
+  urteilt nicht; es meldet die TABLERESULTS-Zeilen und getrennt die Fehler, die SQL Server
+  während CHECKDB ausgelöst hat. `JudgeCheckdb` im Agenten (`internal/sqlserver/checkdb.go`)
+  zählt als Beleg nur die Zeilen (ohne Abbruchmeldungen und die Summe 8989) und ausgelöste
+  Fehler aus einer Liste von Konsistenzfehlern (8900 bis 8999 ohne 8921, 8967 und 8989; die
+  Tabellenfehler der 25xx wie 2533; 211, 824, 3853 bis 3856, 5242, 5243, 7965, 7984 bis 7988,
+  7995). Alles andere heißt, CHECKDB lief nicht zu Ende: unvollständig, bei Platzfehlern (1105,
+  1101, 9002, 8921, 1823, 1824, 665, 5128) mit `sql_verify_no_space`, sonst mit
+  `sql_script_failed` (701, 2520, 5030, 7928, abgebrochene Verbindung, Unbekanntes).
 - SQL-Bewertung je Datenbank in der Oberfläche: `not_protected`, `unverified`, `green`,
   `red`, `overdue` (älter als 8 Tage), daneben der wiederherstellbare Zeitraum.
 - Bleibt eine Prüfdatenbank nach einem Absturz liegen, erkennt der Agent sie am Präfix
@@ -1911,7 +1946,8 @@ sondern nach der Konvention des Repositories in `packages/db/sql/rls.sql`: die n
 **W1:** keine Migration (Felder im JSON von `endpoints.settings.agent.machine`).
 
 **W2a (`sql`):** (die Spalten der Kette kommen schon hier, damit W2b keine Migration auf
-gefüllte Tabellen braucht)
+gefüllte Tabellen braucht; umgesetzt als `0089_endpoint_sql.sql` mit den Ergänzungen aus
+Abschnitt 12.2, C1)
 
 ```sql
 ALTER TYPE "public"."endpoint_report_kind" ADD VALUE 'sql_verify';--> statement-breakpoint
@@ -2073,8 +2109,9 @@ docs/AGENT.md (Grundsätze, Image-Routen, Recovery-Image-Route, Fehlercodes, Rol
 SQL), docs/WINDOWS-AGENT.md (2.2, 9.1 Privilegien, 17.5, 18, 21), docs/BAREMETAL.md (2.2,
 25.A1 mit Verweis hierher), agent/README.md (Known limits, SQL), docs/GLOSSARY.md,
 docs/SIZING.md, CHANGELOG je Meilenstein. Die falsche Hook-Empfehlung (`sqlcmd` als SYSTEM,
-agent/README.md:265, docs/AGENT.md:1612, docs/WINDOWS-AGENT.md:208 und :1448, WA 17.5) wird in
-W1 an allen Stellen korrigiert.
+agent/README.md:244, docs/AGENT.md:1442, docs/WINDOWS-AGENT.md:208 und :1640, WA 17.5; die
+Zeilen dieses Entwurfs hatten sich verschoben) wird in W1 an allen Stellen korrigiert (umgesetzt,
+Abschnitt 12).
 
 ## 7. Sicherheit
 
@@ -2157,7 +2194,7 @@ W1 an allen Stellen korrigiert.
 | stiehlt einen Wiederherstellungscode | Image lesen | Origin-Bindung, Freigabe, ein Rechner, 48 Stunden (M3) |
 | kompromittierter Agent | fremde Images lesen, Dedup-Orakel | Routen nur für den eigenen Rechner; Vergleich nur gegen eigene Hashliste |
 | kompromittierter Server | Flotte zurücksetzen | lokale Erlaubnis, Sicherung vorher, Grenze, Alarm |
-| Benutzer am Rechner | Dateien in Kit oder Staging schieben, SQL-Staging lesen | geschützte DACLs; Staging nur SYSTEM, Administratoren, SQL-Dienst-SID |
+| Benutzer am Rechner | Dateien in Kit oder Staging schieben, SQL-Staging lesen | geschützte DACLs; Staging nur SYSTEM, Administratoren, SQL-Dienst-SID; ein eigener `stagingDir` nur mit vertrauenswürdigem Elternordner, neu oder leer übernommen und markiert, Unterordner fremder Eigentümer abgelehnt (5.1.3) |
 | manipuliertes Medium | Code abgreifen | wie ISO (BM 9.1, 9.4); SHA-256 in der Oberfläche |
 
 ## 8. Tests
@@ -2224,12 +2261,15 @@ Neuer Job `agent-windows-image` auf dem Windows-Server-Runner (Administrator, Se
   `chkdsk` gültig bleiben. Dazu der Hive-Zustand in jedem Snapshot (wie oft `hive_dirty`).
 - **Mehr-Volume-Befund (W1)** nachgestellt: SQL Express mit Daten auf VHDX D: und Log auf
   VHDX L:, heutiger Agent, zwei Snapshot-Sätze mit verschiedenen Zeitpunkten in den
-  restic-Logs belegen. Der Tag von 0.5.0 hängt nicht an H5.
+  restic-Logs belegen. Der Tag von 0.5.0 hängt nicht an H5. Umsetzung: C3, C16 und C23
+  (12.2).
 - **Writer:** `GatherWriterStatus` auf dem Runner (System, Registry, WMI, ...), Writer-XML als
   Testdaten; SQL-Writer-Dienst gestoppt → `vss_writer_missing`.
 - **SQL Server Express** (nur im Test): Datenbanken mit Daten auf VHDX D: und Log auf VHDX L:,
   Last während der Sicherung; native Full mit `NO_COMPRESSION` auch bei gesetztem
-  `backup compression default`; Restore unter neuem Namen; Restore-Skript auf einer zweiten
+  `backup compression default` (Umsetzung: Express kennt keine Sicherungskomprimierung und
+  keine Option `backup compression default`; dieses Gate läuft darum im Linux-Container mit der
+  Developer Edition, Job `tsql-linux`, siehe 12.4); Restore unter neuem Namen; Restore-Skript auf einer zweiten
   Instanz; Logs, `STOPAT`, Tail-Log in beiden Modi (W2b); CHECKDB grün; Image mit SQL-Writer,
   danach Attach aus dem zurückgeschriebenen Image und CHECKDB. Rechte mit und ohne Anmeldung
   der Dienst-SID, Variablen in `BACKUP`/`RESTORE`/`DBCC`, Schreibrecht der SQL-Dienst-SID auf
@@ -2603,3 +2643,198 @@ diese Fassung eingearbeitet. **Übernommen** (mit Ort):
 6. **VMware (`pvscsi`) als geprüftes Quellsystem** (Review Umfang, §2.1): gestrichen statt
    ergänzt. Es gibt dafür weder Labor noch Fall; VMware-Gäste laufen mit der Warnung "nicht
    geprüft", eine Wiederherstellung auf andere Hardware nur über B mit dem Treiber im Kit.
+
+## 12. Stand der Umsetzung
+
+Stand: Zweig `wip/050-windows-sql` von `release/0.5.0`, nicht committet. Umgesetzt sind die
+Meilensteine **W1** ("Ehrliche Grundlage") und **W2a** ("SQL, erste Stufe") aus Abschnitt 9,
+nichts von W2b, W3 und später und nichts von Bare Metal. Kein Schalter für Images oder den
+ganzen Rechner ist sichtbar.
+
+### 12.1 Was der Entwurf voraussetzt und dieser Zweig nicht hat
+
+- Die Code-Verweise des Entwurfs zeigen auf `wip/050-windows-bmr` (M1 bis M3: `internal/baremetal`,
+  `internal/recovery`, `fsbackup.go`, Migrationen 0076 bis 0079 mit `endpoint_layouts`). Nichts
+  davon liegt auf `release/0.5.0`; W1 und W2a brauchen keinen M-Meilenstein (Abschnitt 9) und sind
+  gegen das gebaut, was es gibt. Nichts verweist auf `endpoint_layouts`, `wholeMachineApplies`
+  oder `fsbackup.go`.
+- Die W2a-Migration ist **`0089_endpoint_sql.sql`** (die nächste freie Nummer nach
+  `0088_archive_capture_gap_spacing`); sie bekommt beim Merge die nächste freie Nummer und ist
+  dafür in sich geschlossen.
+- Die Hook-Empfehlung mit `sqlcmd` stand an anderen Zeilen als in 6.6 genannt:
+  `agent/README.md:244`, `docs/AGENT.md:1442`, `docs/WINDOWS-AGENT.md:208` und `:1640`.
+  `agent/internal/hooks/pwsh_test.go:26` nutzt `sqlcmd` nur als Testdaten des Parsers und
+  bleibt.
+
+### 12.2 Entscheidungen zu Widersprüchen und Lücken (C1 bis C24)
+
+| # | Entwurf | Problem | Umsetzung |
+| --- | --- | --- | --- |
+| C1 | Migration W2a nur mit `sql_verify` und zwei Tabellen | Läufe und Aufgaben der neuen Arten brauchen Enum-Werte; das Skript für einen anderen Rechner braucht SHA-256 und FILELISTONLY, die der Server nicht selbst lesen kann; die TDE-Bestätigung braucht einen Ort | 0089 fügt auch die Laufarten `sql`, `sql_restore`, `sql_verify` und die Aufgabenarten `sql_restore`, `sql_verify`, `sql_inventory` hinzu, dazu `endpoint_sql_backups.endpoint_id`, `sha256`, `file_list`, `compressed`, `checksum` und `endpoint_sql_databases.last_seen_at`, `tde_confirmed_at`, `tde_confirmed_by`. Alle `ADD VALUE` vorn, keiner wird in derselben Migration benutzt |
+| C2 | Tags und `--group-by host,tags` | Der Server benutzt restics Behalte-Regeln nicht (`apps/worker/src/endpoints/retention.ts`); ein Snapshot, den kein Lauf meldet, wird `unrecorded` | Die Aufbewahrung liest Läufe `backup` **und** `sql` sowie die aktiven Zeilen von `endpoint_sql_backups`, teilt in Gruppen (`files`, `sql:<INSTANZ>`) und wendet die Regeln des Rechners je Gruppe an (`@restow/core applyGroupedRetention`). Ein vergessener SQL-Snapshot setzt seine Zeilen auf `pruned` |
+| C3 | W1: zwei Snapshot-Sätze "in den restic-Logs" | restic schreibt bei gelungenem VSS nichts | Beleg aus `Get-CimInstance Win32_ShadowCopy` (SetID, InstallDate, VolumeName), abgefragt während `restic.Runner.Backup` mit Schattenkopie läuft; Ergebnis in die Job-Zusammenfassung |
+| C4 | "Variablen in BACKUP, RESTORE und DBCC **[CI]**" | Variablen in BACKUP und RESTORE sind dokumentiert, eine Variable als Datenbankname von DBCC CHECKDB nicht | BACKUP und RESTORE mit `SqlParameter`; `DBCC CHECKDB`, `ALTER DATABASE … SET NEW_BROKER` und `DROP DATABASE` als fester T-SQL-Text, der den Befehl auf dem Server mit `QUOTENAME(@db)` baut und mit `sp_executesql` ausführt |
+| C5 | `CommandTimeout = 0`, Abbruch über `SqlCommand.Cancel` | PowerShell 5.1 liest kein stdin, während ein synchrones `ExecuteNonQuery` blockiert; Skriptblöcke als asynchrone Rückrufe scheitern außerhalb ihres Runspace | `CommandTimeout` = Grenze je Schritt, die der Agent sendet (der Treiber sendet dann ein Attention-Signal, wie `Cancel`); als Rückfall beendet Go das Job-Objekt bei Grenze + 5 Minuten. Ein Stopp in der Oberfläche beendet das Job-Objekt; der Server bricht die Anweisung ab, das Aufräumen entfernt Reste (C7) |
+| C6 | Skript über `hooks/run_windows.go` | `hooks.Run` hat kein stdin und mischt stdout und stderr | Eigener Runner `internal/sqlserver/runner_windows.go` mit `hooks.PowerShellExe()`, `procctl`, `procenv.Base()` und `CREATE_NO_WINDOW` |
+| C7 | Prüfname `<db>__restow_verify_<zeit>`, erkannt "am Präfix" | Das ist ein Infix; Namen haben höchstens 128 Zeichen; Löschen nur nach Muster könnte eine Kundendatenbank treffen | Name = erste 80 Zeichen der Datenbank + `__restow_verify_<yyyymmddThhmmssZ>`. Vor jedem RESTORE schreibt der Agent den geplanten Namen in ein Journal (`data\sql-verify-journal.json`); das Aufräumen löscht nur Namen, die **im Journal stehen und** dem Muster folgen |
+| C8 | Die Dateisicherung schließt die Daten- und Log-Ordner der Instanzen aus | Diese Ordner können andere Daten enthalten | Ausgeschlossen werden die Datenbankdateien selbst (`sys.master_files.physical_name` aus dem Inventar des Agenten) und ein eigener `stagingDir` |
+| C9 | `sql: {…, logIntervalMinutes, stagingDir, verify:{schedule,…}}` in der Agent-Konfiguration | Die Prüfung plant der Server, das Log-Intervall ist W2b | Die Agent-Konfiguration trägt `enabled, mode, instances, databases, exclude, stagingDir`. Die Prüfung steht in `endpoints.config.sql.verify` (Wochentag, Uhrzeit, `maxGiB`, `physicalOnly`), `agentFacingConfig` entfernt sie; `maxGiB` und `physicalOnly` gehen mit der Aufgabe |
+| C10 | `FinishRequest.Sql` je Lauf, eigener Snapshot je Instanz und Lauf | `endpoint_runs.snapshot_id` hält einen Snapshot | **Ein `sql`-Lauf je Instanz**; seine `snapshotId` ist der Snapshot dieser Instanz |
+| C11 | `/api/v1/endpoints/:id/sql/:db/restore-script` | Das Skript gilt je Datenbank **und Zeitpunkt** | `GET /api/v1/endpoints/:id/sql/backups/:backupId/restore-script` |
+| C12 | Alarme `sql.red`, `sql.recovered`, `sql.overdue` | Der Katalog (`packages/core/src/reports/catalog.ts`) nutzt das Präfix `endpoint.*` | `endpoint.sql_red` (Fehler), `endpoint.sql_recovered` (Info), `endpoint.sql_overdue` (Warnung), Gruppe `jobs` |
+| C13 | W1 "BitLocker-Zusammenfassung"; 3.2 liest die Signatur `-FVE-FS-` von der rohen Partition | Das rohe Lesen braucht die Plattenausdehnung (W3) | W1 nur über WMI (`Win32_EncryptableVolume`, feste eingebettete Abfrage, JSON, numerische Zustände ohne Übersetzung); das rohe Lesen bleibt in W3 |
+| C14 | Kettenangaben aus `msdb.dbo.backupset` und HEADERONLY | In Verfügbarkeitsgruppen hat jede Replik ihr msdb, und Historie kann bereinigt sein | Kettenangaben nur aus `RESTORE HEADERONLY` der eigenen Datei; msdb nur für Anzeigefelder des Inventars |
+| C15 | Restore-Skript für einen anderen Rechner "in der CI getestet" | Es entsteht in TypeScript auf dem Server; der Windows-Runner hat keinen Build des Monorepos | `packages/core/src/endpoints/sql/restore-script.ts` hat keine Imports (ein Test erzwingt das); die CI rendert mit `node --experimental-strip-types scripts/ci/render-sql-restore-script.mts` (Node 22 aus `.nvmrc`) |
+| C16 | VHDX "D:" und "L:" | `D:` ist auf gehosteten Windows-Runnern belegt (Arbeitsordner `D:\a`) | `Q:` (Daten) und `L:` (Log) |
+| C17 | "Keine Verkettung in `CommandText`" | Die Zahl der MOVE-Klauseln wechselt | Verkettet werden nur Platzhalter (`MOVE @l<n> TO @p<n>`) aus einer Ganzzahl-Schleife in genau einer Funktion (`New-RestowMoveClause`); der Test erlaubt genau diese |
+| C18 | Das Inventar "verbindet alle 6 Stunden" | Ohne Anmeldung schreibt jede Verbindung einen Fehler 18456 in Fehlerprotokoll und Audit der Instanz | Alle 6 Stunden **nur, solange `sql.enabled`**; sonst einmal je Aufgabe `sql_inventory` (Knopf "Anmeldung prüfen"), die wie `update_config` mit der Zustellung erledigt ist |
+| C19 | 6.2 nennt keine Fähigkeit | Der Server darf einem älteren Agenten keine SQL-Aktionen anbieten | Heartbeat und Enroll tragen `capabilities: ["sql_native_v1"]` (`settings.agent.capabilities`); jede SQL-Aktion antwortet sonst 409 `endpoint-sql-unsupported` |
+| C20 | Anmeldeblock in der Oberfläche (5.1.2) | i18n-Texte dürfen kein wörtliches `Restow` enthalten | Den T-SQL-Block baut die API (`packages/core/src/endpoints/sql/login-script.ts`), die Oberfläche zeigt ihn als Code; Texte nutzen `{account}` |
+| C21 | W2a ohne Sperrklassen (W2b) | Ein langes `sql_verify` verzögert die nächste geplante Sicherung, weil der Agent Aufträge nacheinander ausführt | Für W2a hingenommen. Der Editor und die API verlangen mindestens 1 Stunde zwischen Prüftermin (Vorgabe Sonntag 03:00 in der Zone des Jobs) und täglicher Sicherung |
+| C22 | Systemdatenbanken in der Prüfung | `master`/`msdb` unter neuem Namen wiederherzustellen ist **[CI]** | Wie Benutzerdatenbanken geprüft; zeigt die CI, dass es nicht geht, ist das Ergebnis unvollständig mit `sql_verify_system_db` |
+| C23 | Mehr-Volume-Befund (8.2): "SQL Express mit Daten auf D: und Log auf L:, heutiger Agent" | Ein Lauf nur mit Zufallsdateien belegt den Befund für restic, nicht für Dateien einer Datenbank unter Last | Zweimal nachgestellt: `windows-multivolume` mit Zufallsdateien auf `Q:` und `L:` (der reine restic-Befund), und im Job `windows-sql` mit den Ordnern der Daten- und Log-Datei von `RestowCi` (`Q:\Data`, `L:\Log`), während die Last schreibt (`RESTOW_TEST_SOURCES`). Beide Male über `restic.Runner.Backup` des Agenten mit `--use-fs-snapshot`, also mit genau dem Aufruf, den die Dateisicherung des Agenten macht; ein ganzer Datei-Job mit Server läuft in der CI nicht |
+| C24 | Editionen der CI (Express für alles) | Express hat keine Sicherungskomprimierung und keine Option `backup compression default` (`sp_configure` scheitert mit 15123); "`Compressed = 0` bei eingeschalteter Vorgabe" beweist dort nichts | Das Komprimierungs-Gate läuft im Linux-Container mit `MSSQL_PID=Developer` (`tsql-linux`); `windows-sql` bleibt bei Express, schaltet die Vorgabe dort nicht ein und meldet `Compressed = 0` nur als Tatsache |
+
+### 12.3 Geliefert
+
+**W1, Server und Oberfläche:**
+
+- `machine.windows` im Heartbeat (Version, Build, UBR, DisplayVersion, Produkt- und
+  Installationsart, Domäne, Rollen, SQL-Instanzen aus der Registry, BitLocker je Volume), geprüft
+  und begrenzt in `@restow/core parseWindowsFacts`, nur für Windows-Rechner gespeichert. Die
+  Rechnerseite zeigt eine Karte "Windows"; die Betriebssystemzeile kommt vom Agenten
+  (`OSVersionText`).
+- Feste Hinweise `app_files_not_app_backup` (SQL Server, Exchange, Active Directory, Hyper-V) auf
+  der Rechnerseite (`appNotices` der Detail-API, `@restow/core appFilesNotices`) und als
+  `notices` jedes Laufs (`stats.notices`, Lauf-Blatt); der SQL-Server-Teil entfällt, sobald die
+  native Sicherung alle Datenbanken abdeckt.
+- Hook-Doku korrigiert: docs/AGENT.md, docs/WINDOWS-AGENT.md (2.2 und 17.5), agent/README.md.
+- Mehr-Volume-Befund (Abschnitt 8.2, C3, C16, C23): Job `windows-multivolume` mit Zufallsdateien
+  auf `Q:` und `L:` und im Job `windows-sql` mit den Daten- und Log-Ordnern von `RestowCi` unter
+  Last.
+
+**W2a, Server:**
+
+- Migration `0089_endpoint_sql.sql`: Enum-Werte (C1), `endpoint_sql_databases` (eindeutig nach
+  Rechner, Instanz, Name und `family_guid`), `endpoint_sql_backups` mit den Kettenspalten für W2b
+  (LSNs als `numeric(25,0)`, im Vertrag als Dezimal-Zeichenketten), beide in `tenant_tables`
+  (`sql/rls.sql`). `pnpm generate --name check` meldet keine Änderung.
+- Vertrag: gemeinsame Testdaten `agent/internal/api/testdata/contract/*.json`, gelesen vom
+  Go-Test, von `packages/core/src/endpoints/sql/contract.test.ts` und vom Postgres-Test der API.
+  Auch die Aufgaben `task-sql-verify.json` und `task-sql-restore.json` prüfen beide Seiten: Der
+  Server baut aus der Sicherung der Fixture genau deren `params` (`sqlVerifyTaskParams` im
+  Core-Test, `requestSqlVerify` und `requestSqlRestore` im Postgres-Test, Schlüssel für
+  Schlüssel); der Agent dekodiert sie streng.
+- `packages/core/src/endpoints/sql/`: Leser des Vertrags (`schemas.ts`, verwirft statt abzulehnen),
+  Urteil (`judge.ts`: rot nur mit Beleg, grün nur mit `restore+checkdb`, sonst unvollständig mit
+  dem Code des Agenten; `RESTORE VERIFYONLY` macht nie grün), Bewertung (`rating.ts`),
+  Anmeldeblock (`login-script.ts`), Restore-Skript ohne Imports mit Golden-Datei
+  (`restore-script.ts`, `testdata/restore-script.golden.ps1`), Namensregeln (`names.ts`),
+  Aufbewahrungsgruppen, Prüfplan (`verify-plan.ts`), Einstellungen.
+- API: Heartbeat schreibt Fähigkeit, Windows-Fakten und Inventar (`dropped_at` bei fehlenden
+  Datenbanken eines vollständigen Inventars, `settings.sqlInstances` mit eigenem `jsonb_set`);
+  `finish` der Läufe `sql`, `sql_verify` (Urteil und Bericht je Datenbank der Aufgabe) und
+  `sql_restore` (Audit); `sql_inventory` mit der Zustellung erledigt; `sql_verify` während einer
+  Update-Pause zurückgehalten; Session-Routen `GET /:id/sql`, Sicherungen je Datenbank, Restore
+  unter neuem Namen, Prüfen jetzt, Anmeldung prüfen, Restore-Skript (auditiert), TDE-Bestätigung;
+  Stopp erreicht SQL-Läufe; Fähigkeits- und Widerrufsprüfung (409).
+- Worker: Aufbewahrung je Gruppe (C2), Prüfplanung am Termin des Jobs (je Instanz eine Aufgabe,
+  keine, solange eine wartet, sieben Tage gültig), Alarme `endpoint.sql_red`,
+  `endpoint.sql_recovered`, `endpoint.sql_overdue` je einmal; ein fehlgeschlagener `sql`-Lauf ist
+  `backup.failed`, ein `sql_verify` meldet sich nur über seinen Bericht.
+- Oberfläche (Vorschau): Reiter "SQL Server" für Windows-Rechner mit SQL Server (Instanzen mit
+  Anmeldestand und T-SQL-Block mit Kopierknopf, "Anmeldung prüfen", Datenbanken mit Modell,
+  letzter Sicherung, Bewertung, letzter Prüfung, "Jetzt prüfen", Restore-Dialog, Restore-Skript,
+  TDE-Bestätigung), SQL-Ergebnisse und Hinweise im Lauf-Blatt, Abschnitt "SQL Server (Vorschau)"
+  im Job-Editor (Datenbanken, Auslassen, Staging-Ordner, Prüftermin, `maxGiB`, PHYSICAL_ONLY,
+  Abstandsprüfung C21). Texte de und en.
+- CI `.github/workflows/sql-server.yml` (Jobs `tsql-linux`, `windows-multivolume`, `windows-sql`
+  mit 2019 und 2022), aus `release.yml` mit `strict: true` aufgerufen. `biome check` lässt die
+  Testdaten unter `agent/**/testdata` aus: Die Golden-Dateien schreibt Go mit
+  `json.MarshalIndent` und vergleicht sie Byte für Byte.
+
+**W2a, Agent** (eigener Teil desselben Zweigs, `agent/`): `internal/sqlserver` (Skript
+`sql.ps1`, `statements.go` als einzige T-SQL-Quelle, Planung, Runner, Abläufe Sicherung, Prüfung,
+Restore, Inventar, Journal), Windows-Fakten in `internal/sysinfo`, Vertragstypen in
+`internal/api`, `internal/core/sql.go` und `notices.go`, `scripts/test-sql-windows.ps1`,
+Hinweis auf die SQL-Anmeldung im Installer.
+
+### 12.4 CI und Editionen
+
+- **Editionen je Prüfung:** SQL Server **Developer** im Linux-Container (`tsql-linux`,
+  `MSSQL_PID=Developer`: T-SQL-Texte und das Komprimierungs-Gate, C24) und SQL Server **Express**
+  auf dem Windows-Runner (`windows-sql`, 2019 und 2022: alles andere). Beide kosten nichts und
+  sind für Entwicklung und Test gedacht; ihre Lizenz für diese Nutzung bestätigt der Maintainer.
+  Das ist eine eigene Frage, getrennt von Frage 12 (Windows-Evaluierungsfassungen), und
+  blockiert nichts. Der Container ist per Digest gepinnt
+  (`mcr.microsoft.com/mssql/server:2022-CU22-ubuntu-22.04`); der Windows-Installer wird mit
+  `/ACTION=Download` geladen und über die Authenticode-Signatur geprüft. Keine Caches und keine
+  Artefakte mit Dateien von Microsoft.
+- `tsql-linux` prüft die T-SQL-Texte (C4, `NO_COMPRESSION` gegen `backup compression default`,
+  Spalten von FILELISTONLY und HEADERONLY, CHECKDB TABLERESULTS, NEW_BROKER, DROP mit Namen wie
+  `a]b'c`, die Namensprüfung im Batch des RESTORE, `DropRestoring` mit einer Datenbank in
+  `RESTORING` und einer `ONLINE`, CHECKDB einer fehlenden Datenbank als unvollständig). Lokal
+  gegen den gepinnten Container mit `MSSQL_PID=Developer` gelaufen und grün.
+- `windows-sql` prüft auf dem Runner: ohne Anmeldung `sql_login_missing`, die kleine
+  Rechtevariante, Anmeldung über die Dienst-SID, Schreibrecht der SQL-Dienst-SID auf das
+  Staging, Full unter Last, den Mehr-Volume-Befund mit den Dateien von `RestowCi` unter
+  derselben Last (C23), Prüfung aus dem Repository grün und eine beschädigte Kopie rot, Restore
+  unter neuem Namen mit CHECKDB, das gerenderte Restore-Skript auf der zweiten Instanz `RESTOWB`
+  ohne `-StagingDir` und ohne von Hand gesetzte Rechte, und einmal mit `-StagingDir` auf einen
+  Ordner mit einer fremden Datei, die bleiben muss; `is_copy_only = 1` in msdb.
+- Ein fehlgeschlagener Download macht den Lauf "unvollständig" (Hinweis in der
+  Zusammenfassung); aus dem Release (`strict: true`) ist er rot.
+
+### 12.5 Offen
+
+**Braucht die CI (noch nicht gelaufen, nur lokal gebaut):** alle **[CI]**-Punkte von 5.1 auf
+Windows (Dienst-SID-Anmeldung über Shared Memory, Strict Encryption über Shared Memory,
+Systemdatenbanken unter neuem Namen, C22), der Mehr-Volume-Befund (C3, C23), `sql.ps1` und das
+Restore-Skript unter Windows PowerShell 5.1 (Rechte des eigenen Staging-Ordners, Lesen durch die
+Dienst-SID), die Vertrauensprüfung eines eigenen `stagingDir` (`fs_windows.go`) und
+`test-sql-windows.ps1` selbst. Lokal gibt es weder Windows noch PowerShell; der Windows-Code
+ist über die Runner- und Fake-Abstraktionen mit aufgezeichneten Ausgaben und Golden-Dateien
+getestet und für Windows gebaut (`go vet`, Testbinaries). Die T-SQL-Texte liefen lokal gegen den
+Linux-Container (Developer). CHECKDB bei vollem tempdb ist nur über aufgezeichnete Läufe
+(`verify-checkdb-tempdb-full.jsonl`, `verify-checkdb-8921-row.jsonl`) und die Tabelle in
+`TestJudgeCheckdb` geprüft; der Container lässt sich dafür nicht verlässlich füllen.
+
+**Braucht eine echte Windows- bzw. SQL-Maschine (Maintainer, vor dem Release):** H5 (Full,
+Restore unter neuem Namen, Restore-Skript, CHECKDB auf 2019 Standard), H10 (deutsches und
+englisches Windows, Constrained Language Mode, Strict Encryption), H22. Bis dahin sagt die
+Oberfläche "Vorschau".
+
+**Verschoben:**
+
+- W2b: eigene Log-Kette, Point-in-Time, Tail-Log, Restore über die vorhandene Datenbank
+  (`REPLACE`), Sperrklassen, ODBC-Rückfall, Alarme `sql.chain_*`.
+- W3 und später: Images, das rohe Lesen von BitLocker, das Windows-Layout; kein Schalter für
+  Images oder den ganzen Rechner ist sichtbar.
+- Schwärzen des Staging-Ordners im Image (W4).
+- Ein `stagingDir` je Instanz (W2a kennt einen für alle Instanzen).
+- Eine Prüfinstanz auf einem anderen Rechner (Frage 15).
+- Automatischer Restore von `master` (die Doku beschreibt den Weg, 5.1.6).
+- Eigene SQL-Einstellungen je Rechner in einem Job (die API nimmt `sql` als Override an, die
+  Oberfläche bietet es noch nicht an).
+
+### 12.6 Review von W1 und W2a
+
+| Befund | Entscheidung |
+| --- | --- |
+| CHECKDB, das nicht lief, wurde rot (tempdb voll 1105/8921, 701, 9002, 2520, 50001, Verbindungsabbruch) | Angenommen: Urteil im Agenten (`JudgeCheckdb`, 5.1.7), Beleg nur aus Zeilen und einer Liste von Konsistenzfehlern; aufgezeichnete Läufe für tempdb voll, 8921 als Zeile und Verbindungsabbruch (mit und ohne Ergebnis) ergeben unvollständig. **Abgelehnt** ist ein Teil des Vorschlags: 2533 auszunehmen. 2533 ("page … was not seen") ist ein Tabellenfehler von CHECKDB, also Beleg; ein aufgezeichneter Lauf mit ausgelöstem 2533 ergibt rot. Die Ausnahme im alten Code hatte keinen Grund; "Datenbank nicht gefunden" ist 2520 und steht bei den Abbrüchen |
+| Restore-Skript löscht den Ordner von `-StagingDir` | Angenommen: immer ein neuer eigener Ordner, nur der wird gelöscht (5.1.4); Unit-Test und CI-Fall mit fremder Datei |
+| Restore-Skript: Standard-Staging für SQL Server nicht lesbar | Angenommen: geschützte DACL mit Lesen für die Dienst-SID; CI-Lauf ohne `-StagingDir` und ohne `icacls` |
+| Platzprüfung von Restore und Prüfung ohne Reserve | Angenommen: Reserve je Volume (5.1.7); Flows-Tests mit frei = Bedarf + 1 MiB (abgelehnt), mit einem Zehntel eines großen Volumes und knapp darüber (angenommen) |
+| Staging-Ordner bleibt nach gescheiterter Sicherung, Stopp, gescheitertem Snapshot | Angenommen: Löschen auf jedem Weg aus dem Lauf (5.1.3); Golden-Tests prüfen den leeren Ordner, neuer Fall "jede BACKUP gescheitert, eine halb geschrieben" |
+| Aufräumen nach gescheitertem RESTORE konnte eine Kundendatenbank löschen | Angenommen: Namensprüfung im Batch, `DropRestoring` nur im Zustand `RESTORING`, Kollisionsfehler 50003, 1801, 3154 räumen nie auf |
+| Abgebrochenes Restore-Skript lässt eine halbe Datenbank zurück | Angenommen: Aufräumen über `DropRestoring` (eigener kurzer Kontext bei Stopp); was bleibt, nennt der Lauf mit Zustand und Dateien |
+| Eigener `stagingDir` ohne Prüfung von Eigentümer und Elternordnern | Angenommen: 5.1.3 und 7.6 |
+| `pnpm lint` scheitert an den JSON-Testdaten des Agenten (zwei gleiche Befunde) | Angenommen: `!**/agent/**/testdata` in `biome.json`; die Dateien bleiben, wie Go sie schreibt |
+| Aufgaben-Fixtures nur von Go gelesen | Angenommen: Core- und Postgres-Test vergleichen die gebauten `params` mit den Fixtures |
+| W1-Gate nicht wie 8.2 gebaut | Angenommen: C23 |
+| Texte versprechen spätere Stufen | Angenommen: die Texte zu strikter Verschlüsselung, Constrained Language Mode, Failover-Clustern und die Notiz im Job-Editor nennen nur, was 0.5.0 kann (de und en) |
+| `AS clustered` ist ein reserviertes Wort (Msg 156) | Angenommen: `AS [clustered]`; im Container geprüft |
+| `EXEC (N'…' + QUOTENAME(…))` im Test (Msg 102) | Angenommen: Text erst in eine Variable |
+| Express kennt `backup compression default` nicht | Angenommen: C24 |
+| Spalte `FileID` heißt `FileId` | Angenommen: Test prüft `FileId` (das Skript liest ohne Rücksicht auf Groß- und Kleinschreibung) |
+| `Set-StrictMode` und fehlende Felder (`omitempty`) in `test-sql-windows.ps1` | Angenommen: alle optionalen Felder über `Get-Field` |

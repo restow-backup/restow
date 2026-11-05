@@ -1,0 +1,3 @@
+{"type":"progress","step":"restore","percent":100}
+{"type":"result","data":{"restore":{"ok":true,"errors":[]},"checkdb":{"ran":false,"physicalOnly":false,"errors":[],"durationMs":610000},"checkdbRaised":[{"number":1105,"severity":17,"state":2,"message":"Could not allocate space for object 'dbo.SORT temporary run storage:  140737488355328' in database 'tempdb' because the 'PRIMARY' filegroup is full."},{"number":8921,"severity":16,"state":1,"message":"Check terminated. A failure was detected while collecting facts. Possibly tempdb out of space or a system table is inconsistent. Check previous errors."}],"checkdbProblem":{"code":"sql_script_failed","step":"checkdb","number":1105,"message":"Could not allocate space ... (1105)"},"cleanedUp":false}}
+#exit 0

@@ -41,6 +41,11 @@ unlock) exit 0 ;;
 cat) exit 0 ;;
 backup)
   printf '%s\n' "$@" > "$FAKE_DIR/backup-args.txt"
+  prev=""
+  for a in "$@"; do
+    if [ "$prev" = "--exclude-file" ] || [ "$prev" = "--iexclude-file" ]; then cat "$a" >> "$FAKE_DIR/excludes.txt"; fi
+    prev="$a"
+  done
   if [ -n "$FAKE_BACKUP_SLEEP" ]; then
     trap 'kill $pid 2>/dev/null; echo interrupted >&2; exit 130' INT
     echo '{"message_type":"status","percent_done":0.1,"files_done":1,"bytes_done":10}'
@@ -237,6 +242,8 @@ type harness struct {
 	// noHistory leaves the scheduler without a last attempt, so a scheduled
 	// backup is due at once (interval and on_connect kinds).
 	noHistory bool
+	// sql is Deps.SQL (nil: the system's, which is none outside Windows).
+	sql func() (*SQLSupport, error)
 
 	cancel context.CancelFunc
 	done   chan error
@@ -313,7 +320,7 @@ func (h *harness) build() {
 	h.agent = New(Deps{
 		Layout: h.layout, State: st, Server: client, Restic: runner, Status: store, Logger: logging.Discard(),
 		Power: h.powerFn, BinDir: h.binDir, UpdateKey: h.updateKey, Uninstall: h.uninst,
-		Machine: h.machineFn(),
+		Machine: h.machineFn(), SQL: h.sql,
 	}, Options{
 		HeartbeatInterval: 40 * time.Millisecond, HeartbeatRetryBase: 30 * time.Millisecond, HeartbeatJitter: time.Nanosecond, Tick: 15 * time.Millisecond,
 		ConfigRefresh: time.Hour, ProgressInterval: 20 * time.Millisecond, SampleTimeout: 30 * time.Second, PauseRecheck: 20 * time.Millisecond,

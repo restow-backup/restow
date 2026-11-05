@@ -1,0 +1,5 @@
+{"type":"progress","step":"restore","percent":10}
+{"type":"progress","step":"restore","percent":50}
+{"type":"progress","step":"restore","percent":100}
+{"type":"result","data":{"restore":{"ok":true,"errors":[]},"checkdb":{"ran":true,"physicalOnly":false,"errors":[{"number":8928,"level":16,"state":1,"message":"Object ID 245575913, index ID 1, partition ID 72057594041466880, alloc unit ID 72057594046971904 (type In-row data): Page (1:312) could not be processed. See other errors for details.","repairLevel":"repair_allow_data_loss","objectId":245575913,"indexId":1},{"number":8939,"level":16,"state":98,"message":"Table error: Object ID 245575913, index ID 1, partition ID 72057594041466880, alloc unit ID 72057594046971904 (type In-row data), page (1:312). Test (IS_OFF (BUF_IOERR, pBUF->bstat)) failed.","repairLevel":"repair_allow_data_loss","objectId":245575913,"indexId":1}],"durationMs":43000},"newBroker":true,"dropped":true}}
+#exit 0
