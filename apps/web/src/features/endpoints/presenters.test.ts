@@ -24,11 +24,13 @@ import {
   configPending,
   coveredByFolder,
   detailRefetchInterval,
+  ENDPOINT_PROBLEM_KEYS,
   effectivePaths,
   endpointErrorKey,
   endpointHostLine,
   endpointName,
   formatDuration,
+  formatMatchCode,
   IDLE_REFRESH_MS,
   incompleteCheckKey,
   isAbsolutePath,
@@ -44,6 +46,9 @@ import {
   PREVIEW_ENDPOINT_OS,
   pathSegments,
   progressRatio,
+  RECOVERY_STATUS_TONE,
+  recoveryCodeGroups,
+  recoveryOpen,
   reportView,
   retryNotBefore,
   runBadgeView,
@@ -785,5 +790,61 @@ describe("preview systems", () => {
     expect(isPreviewOs("windows")).toBe(true);
     expect(isPreviewOs("linux")).toBe(false);
     expect(isPreviewOs("darwin")).toBe(false);
+  });
+});
+
+describe("bare metal recovery (docs/BAREMETAL.md 9, 11)", () => {
+  it("is green only when it succeeded and red when it failed", () => {
+    expect(RECOVERY_STATUS_TONE.succeeded).toBe("success");
+    expect(RECOVERY_STATUS_TONE.failed).toBe("destructive");
+    for (const status of [
+      "issued",
+      "pending_approval",
+      "active",
+      "finishing",
+      "cancelled",
+    ] as const) {
+      expect(["neutral", "info", "warning"]).toContain(RECOVERY_STATUS_TONE[status]);
+    }
+    expect(recoveryOpen("pending_approval")).toBe(true);
+    expect(recoveryOpen("succeeded")).toBe(false);
+  });
+
+  it("shows the match code and the code in groups", () => {
+    expect(formatMatchCode("483914")).toBe("483 914");
+    expect(formatMatchCode(null)).toBe("");
+    expect(recoveryCodeGroups("RC-7K3QX-M9P2D-H4TNV-8WRBC-J6FAS")).toEqual([
+      "7K3QX",
+      "M9P2D",
+      "H4TNV",
+      "8WRBC",
+      "J6FAS",
+    ]);
+  });
+
+  it("words every problem of the recovery API", () => {
+    for (const type of [
+      "recovery-code-invalid",
+      "recovery-code-expired",
+      "recovery-code-revoked",
+      "recovery-code-used",
+      "recovery-too-old",
+      "recovery-session-ended",
+      "recovery-not-approved",
+      "recovery-credentials-collected",
+      "recovery-state-conflict",
+      "baremetal-not-available",
+      "recovery-limit-reached",
+      "endpoint-recovery-active",
+      "endpoint-rebind-os-mismatch",
+    ]) {
+      const key = ENDPOINT_PROBLEM_KEYS[`urn:restow:problem:${type}`];
+      expect(key, type).toMatch(/^endpoints:errors\./);
+      expect(
+        endpointErrorKey(
+          new ApiError(409, { type: `urn:restow:problem:${type}`, title: "x", status: 409 }, "x"),
+        ),
+      ).toBe(key);
+    }
   });
 });

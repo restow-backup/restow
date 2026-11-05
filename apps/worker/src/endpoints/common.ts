@@ -10,8 +10,10 @@
  */
 import { endpointPrefix, type RepositoryAccess, resticBinary, resticCacheBase } from "@restow/core";
 import {
+  activeRecoveryOf,
   type Database,
   type Endpoint,
+  EndpointRecoveryActiveError,
   endpointReports,
   endpoints,
   type NewEndpointReport,
@@ -61,6 +63,19 @@ export function withMaintenanceLock<T>(
     { mode, waitMs: deps.maintenanceLockWaitMs ?? MAINTENANCE_LOCK_WAIT_MS, pollMs: 1000 },
     work,
   );
+}
+
+/** Fail (pg-boss retries) while a recovery session holds the endpoint's repository. */
+export async function waitForRecovery(deps: EndpointJobDeps, endpointId: string): Promise<void> {
+  const recovery = await activeRecoveryOf(deps.providerDb, endpointId, deps.runtime.now());
+  if (recovery) {
+    deps.runtime.logger.info("endpoint repository waits for a running recovery", {
+      endpointId,
+      recoveryId: recovery.id,
+      expiresAt: recovery.expiresAt.toISOString(),
+    });
+    throw new EndpointRecoveryActiveError(endpointId, recovery.id);
+  }
 }
 
 export class EndpointGoneError extends Error {

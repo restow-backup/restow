@@ -6,11 +6,13 @@ import {
   retentionExpiry,
 } from "@restow/core";
 import {
+  activeRecoveryOf,
   backupJobMembers,
   type Database,
   type Endpoint,
   type EndpointRemoval,
   type EndpointRemovalMode,
+  endpointRecoveries,
   endpoints,
   legalHolds,
   suspicionHolds,
@@ -171,6 +173,16 @@ export async function removeEndpoint(
     if (input.confirmHostname.trim() !== endpoint.hostname) {
       throw confirmMismatch();
     }
+    // A bare metal recovery reads the machine's backups (docs/BAREMETAL.md 9.7): it ends first.
+    const recovery = await activeRecoveryOf(tx, id, now);
+    if (recovery) {
+      throw new ProblemError(409, "Recovery running", {
+        type: ENDPOINT_PROBLEMS.recoveryActive,
+        detail:
+          "A recovery session reads this machine's backups. Let it finish or end it on the machine's page first.",
+        extensions: { recoveryId: recovery.id, expiresAt: recovery.expiresAt.toISOString() },
+      });
+    }
     if (input.mode === "delete") {
       if (await tenantLegalHold(tx, tenantId)) {
         throw new ProblemError(409, "Legal hold", {
@@ -216,6 +228,21 @@ export async function removeEndpoint(
       .set({ removedAt: now, removal, removalDueAt: dueAt })
       .where(eq(endpoints.id, id))
       .returning();
+    // Recovery codes nobody redeemed go with it.
+    const revoked = await tx
+      .update(endpointRecoveries)
+      .set({ status: "revoked", revokedAt: now, revokedBy: actor.userId, updatedAt: now })
+      .where(and(eq(endpointRecoveries.endpointId, id), eq(endpointRecoveries.status, "issued")))
+      .returning({ id: endpointRecoveries.id });
+    for (const code of revoked) {
+      await auditEndpoint(tx, {
+        tenantId,
+        actor,
+        action: ENDPOINT_AUDIT_ACTIONS.recoveryCodeRevoked,
+        endpointId: id,
+        details: { recoveryId: code.id, kind: "code", reason: "removed" },
+      });
+    }
     // Out of its backup job: the job's machines are listed from its members.
     const left = await tx
       .delete(backupJobMembers)

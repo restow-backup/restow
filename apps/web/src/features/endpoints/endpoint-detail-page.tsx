@@ -380,7 +380,7 @@ export function EndpointDetailPage({
         <TabsContent value="overview" className="space-y-4 pt-2">
           <OverviewTab detail={detail} onOpenRun={setOpenRun} />
           {/* Bare metal (preview): shown with the preview on or once a layout was captured. */}
-          <BaremetalCard endpointId={detail.id} />
+          <BaremetalCard endpointId={detail.id} os={detail.os} />
         </TabsContent>
         <TabsContent value="snapshots" className="space-y-4 pt-2">
           <MachineNewDataChart endpointId={detail.id} />

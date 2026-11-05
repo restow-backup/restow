@@ -4021,10 +4021,14 @@ Alle übrigen Befunde der drei Reviews sind wie vorgeschlagen eingearbeitet.
 
 ## 26. Stand der Umsetzung
 
-**M1 (Ganz-Rechner-Sicherung, Linux) und M2 (Planer und Stufe 1) sind umgesetzt**, hinter
-`RESTOW_BAREMETAL_PREVIEW` (Standard aus; der Schalter hängt weiter nur am Job-Schalter, 26.2).
-M3 bis M6 sind offen; für sie bleibt dieses Dokument der Entwurf. Was M2 liefert und abweichend
-entschieden hat, steht in 26.4 bis 26.6.
+**M1 (Ganz-Rechner-Sicherung, Linux), M2 (Planer und Stufe 1) und M3 (Code, Freigabe, Sitzung,
+Wiederanbindung) sind umgesetzt**, hinter `RESTOW_BAREMETAL_PREVIEW` (Standard aus; der Schalter
+hängt am Job-Schalter, 26.2, und seit M3 am Ausstellen eines Wiederherstellungscodes; die
+Wiederanbindung ist davon unabhängig, 26.8). M4 bis M6 sind offen; für sie bleibt dieses Dokument
+der Entwurf. Was M2 liefert und abweichend entschieden hat, steht in 26.4 bis 26.6, für M3 in 26.7
+bis 26.9. Die Migrationen auf diesem Zweig sind 0076 (M1), 0077 (M2) und 0078 (M3); die Nummern in
+14.2 sind die des Entwurfs. Die nächsten freien beim Merge bekommen M5 (`boot_probe`, 0079) und M6
+(`darwin_check`, 0080); M4 bringt keine Migration.
 
 ### 26.1 Was M1 liefert
 
@@ -4429,6 +4433,202 @@ Karte und i18n im Web.
   (`TestRootCaptureStacks` plant `--target same` ohne Probleme, läuft hier nicht), die
   `mkfs`-Funktionstabellen gegen das ISO (M4); [Image]: `prlimit` im Worker-Image (hier kein
   Docker-Dienst, im Test lief es mit `/usr/bin/prlimit` des Containers).
+
+### 26.7 Was M3 liefert
+
+Agent (`agent/`, eigener Teil von M3):
+
+- `internal/recovery`: `code.go` (Alphabet, `NormalizeCode`, `FormatCode`, `CanonicalOrigin` mit
+  eigener Punycode-Kodierung nach RFC 3492 in `punycode.go`, `CodeProof`, `HashCodeProof`,
+  Sitzungsgeheimnis und Prüfzahl, Prüfwert der Instanz), der Vertrags-Client `session.go` für die
+  Recovery-API und die gemeinsamen Testvektoren `testdata/recovery-code-vectors.json`, die auch die
+  TS-Tests lesen; `internal/api/recovery.go` (Typen aller Bodys), `EnrollResponse.Rebound`, die
+  Ausgabe von `restow-agent enroll` bei einer Wiederanbindung, neue Schwärzungsmuster.
+  `recover` selbst kommt mit M4.
+
+Server (`packages/`, `apps/`):
+
+- `packages/core`: `endpoints/baremetal/recovery-code.ts` (`generateRecoveryCode` mit
+  Zurückweisung, `normalizeRecoveryCode`, `formatRecoveryCode`, `canonicalOrigin`,
+  `recoveryCodeProof`, `hashRecoveryCodeProof`, `recoveryMatchCode`, `formatMatchCode`,
+  `spkiCheckOf`, die Konstanten von 9 und 11: Gültigkeit 4 bzw. höchstens 48 Stunden, drei offene
+  Codes, 30 Minuten Freigabe, 15 Minuten Idempotenz, 5 Minuten zweite Abholung, 15 Minuten
+  Wiederanbindung nach `finish`, 5 Sekunden Zwischenspeicher, 2 MiB Log, 90 Tage Aufbewahrung,
+  Wiederanbindungs-Token 1 bzw. höchstens 24 Stunden); Schwärzung von `RC-…`-Codes und
+  64-stelligen Hex-Werten nach `session…`, `codeProof`, `secret`, `password` in
+  `failures/redact.ts`, `stripAnsi` und `redactRecoveryLogLines` in `run-redact.ts`; die Alarme
+  `endpoint.recovery.started`, `endpoint.recovery_code.rejected`, `endpoint.rebound` und
+  `endpoint.recovery.failed` im Katalog (Gruppe Wiederherstellbarkeit, Fehler).
+- `packages/db`: Tabellen `endpoint_recoveries` (Spalten, CHECK `endpoint_recoveries_max_48h`,
+  eindeutiger Teilindex über `code_hash`, Index je Rechner und Teilindex der aktiven Sitzungen wie
+  14.2) und `endpoint_recovery_log`, `endpoint_enrollment_tokens.endpoint_id`, `.purpose` (CHECK),
+  `.unrevoke` und der CHECK `endpoint_enrollment_tokens_rebind_24h`,
+  `endpoint_runs.activity_baseline`; Migration **0078_endpoint_recoveries** (mit drizzle erzeugt,
+  Upgrade-Test auf 0077), Row Level Security über `sql/rls.sql`; `activeRecoveryOf` und
+  `EndpointRecoveryActiveError` (Unterklasse von `EndpointRepositoryBusyError`).
+- `apps/api`: `recovery-codes.ts` (Ausstellen mit allen Bedingungen aus 9.2 und Prüfwert,
+  Widerruf, Verlängern, Liste, Einzelansicht mit Log seitenweise, Freigabe unter der geteilten
+  Sperre, Ablehnen bzw. Beenden, SSH-Schlüssel), `recovery-service.ts` (Tausch, eigener
+  Fehlerzähler `recoveryFailures`, installationsweiter Zähler mit Warnung über 500 je 10 Minuten,
+  Sitzungsanmeldung, Zugangsdaten, Fortschritt, Log, Ereignisse, `release`, `finish`),
+  `recovery-routes.ts` (`/agent/v1/recovery`, vor der Agent-API eingehängt),
+  `recovery-restic-route.ts` (`reader`, 120.000 Anfragen je Sitzung und 10 Minuten),
+  `recovery-session-cache.ts` (Sitzungszustand höchstens 5 Sekunden, geteilte Sperre der Freigabe),
+  `rebind.ts` (`createRebindToken`, `rotateEndpointSecret`, Einlösung über `POST /agent/v1/enroll`
+  mit `rebound: true` und über `.../current/rebind`), `recovery-iso.ts` (`GET /api/v1/recovery-iso`),
+  `instance-tls.ts` (`measureInstanceSpki`), `alerts.ts` (`raiseTenantEvent`: Glocke und
+  Zustellungen der Regeln aus einer Anfrage heraus); Problemtypen, Audit-Aktionen, Body-Grenzen,
+  `RESTOW_PUBLIC_TLS_SPKI`, Entfernen mit 409 bei laufender Sitzung und Widerruf offener Codes,
+  Token-Liste mit `kind`, `purpose`, `endpointId`, `endpointName`; der erste gute Lauf nach einer
+  Wiederanbindung setzt `activity_baseline`. Rechte des Provider-Teams (`lib/provider-access.ts`):
+  alle neuen Routen unter `/api/v1` brauchen "Administrator" (`configure()`), die Routen der ISO
+  stehen bei den öffentlichen (Codebeweis bzw. HTTP Basic mit dem Sitzungsgeheimnis).
+- `apps/worker`: Aufbewahrung und Löschen der Sicherungen eines entfernten Rechners warten auf eine
+  laufende Sitzung (vor und nach der exklusiven Sperre, eigene Logzeile, wiederholt, kein Zähler);
+  der Monitor beendet Codes und Sitzungen (`expireRecoveries`, je Übergang ein Audit-Eintrag, Alarm
+  bei `failed`) und entfernt Logs nach 90 Tagen; die Ransomware-Erkennung beginnt die Historie eines
+  Rechners mit seinem letzten Basislauf (`activity_baseline`).
+- `apps/web`: Code-Dialog (`recovery-code-dialog.tsx`), Live-Ansicht mit Freigabe, Phasen, Log als
+  Text, SSH-Schlüsseln (`recovery-live.tsx`), Assistent `/inventory/<id>/bare-metal`
+  (`baremetal-wizard.tsx`), Knopf "Wiederherstellen…" auf der Karte nur bei Vorschau, geprüftem ISO,
+  Linux, Layout und ohne `notPossible`; Wiederanbindungs-Dialog (`rebind-dialog.tsx`) im Gefahrenbereich
+  ("Rechner wieder anbinden…", Zweck `reinstall`) und im Assistenten (Zweck `baremetal`); offene
+  Tokens zeigen "Wiederanbindung: <Rechner>"; Texte de/en; die vier Alarme in den Regeln.
+- Doku: docs/AGENT.md (Recovery-API, Wiederherstellungscode und Wiederanbindung, Problemtypen,
+  Audit, Alarme, Datenmodell), docs/RANSOMWARE.md (Basis nach einer Wiederanbindung),
+  docs/GLOSSARY.md, CHANGELOG.
+
+Tests: `recovery-code.test.ts` (alle Vektoren, Gleichverteilung über 30.000 Zeichen, Alphabet),
+Schwärzung, Katalog; `recovery.pg.test.ts` (Ausstellen mit Origin, Prüfwert gemessen und
+konfiguriert, jeder Grund von `baremetal-not-available`, drei offene, 48-Stunden-CHECK; Tausch mit
+falscher Origin 401 und nur im eigenen Zähler, Idempotenz 15 Minuten und vor `release`, zweiter Hash
+409, abgelaufen und widerrufen 410, toter Code mit Audit und Alarm ohne Fehlerzählung, 413, 426 ohne
+Verbrauch, Steuerzeichen; keine Zugangsdaten vor der Freigabe, späte Freigabe nach 30 Minuten
+`failed`, Zugangsdaten einmal plus eine Wiederholung in 5 Minuten, `no-store`, nie nach `release`;
+geteilte Sperre: Freigabe und Tausch ohne Freigabe während eines Prunes 503 ohne Verbrauch; jeder
+Übergang aus 9.9 mit genau einem Audit-Eintrag; abgebrochene Sitzung meldet weiter, liest nichts;
+Log geschwärzt, ohne ANSI, gekappt, seitenweise; SSH-Schlüssel; Verlängern);
+`recovery-restic.pg.test.ts` (mit restic 0.19.1: `snapshots` und `dump --no-lock --no-cache`
+über die Route, `backup`, `forget` und rohes DELETE 403 und auditiert, fremde Sitzung 401, Abbruch
+und `release` 401, Zwischenspeicher 5 Sekunden, Ratenbegrenzung); `rebind.pg.test.ts` (neues
+Secret, altes 401, Repository und Läufe bleiben, gesperrt ohne `unrevoke` 409 und Token wieder frei,
+mit `unrevoke` `endpoint.unrevoked`, anderes OS 422, Alarm, Basis beim ersten Lauf, Deinstallation
+beendet, 24-Stunden-CHECK, `/rebind` nur nach `succeeded`, in 15 Minuten, mit einem Token des
+Rechners); `removal.pg.test.ts` (409, Widerruf offener Codes); `recovery-iso.test.ts`;
+`instance-tls.test.ts` (RSA und EC mit openssl, Zeitgrenze); Routen-Test der frischen Anmeldung und
+der Body-Grenzen; Worker `recovery-monitor.pg.test.ts` (Aufbewahrung in beiden Reihenfolgen,
+`pending_approval` sperrt nicht, Entfernen aufgeschoben, Übergänge des Monitors je einmal, Logs) und
+`scan.pg.test.ts` (Basis nach Wiederanbindung); Web: Code-Dialog, Wiederanbindungs-Dialog,
+Live-Ansicht, Karte (Knopf nur bei geprüftem ISO), Presenter, i18n; Migrationstest 0078.
+
+### 26.8 Abweichungen vom Entwurf (in M3 entschieden)
+
+- **Migrationsnummer:** 0078 statt 0076; der CHECK der Wiederanbindungs-Tokens steht in 0078.
+  Zusätzlich zum Entwurf ein CHECK über `purpose` (`endpoint_enrollment_tokens_purpose_ck`) und ein
+  Index `endpoint_recovery_log_recovery_idx` für das seitenweise Lesen. Nach der Regel des Schemas
+  (jede Tabelle hat eine UUID als `id` und `created_at`) hat `endpoint_recoveries` zusätzlich
+  `created_at`, und `endpoint_recovery_log` hat eine UUID statt `bigserial` und `created_at` statt
+  `at`; der Cursor des Logs ist Zeit und Id des letzten Eintrags.
+- **Testvektoren:** liegen unter `agent/internal/recovery/testdata/recovery-code-vectors.json` (der
+  Agent besitzt sie wie die Manifeste aus M1), nicht unter `packages/core/.../testdata`.
+- **"Geprüftes ISO":** die neueste signierte Agent-Version unter `RESTOW_AGENT_DIR` listet in ihren
+  `SHA256SUMS` die Zeile `recovery/restow-recovery_<v>_amd64.iso`. Kein Release hat sie vor M4, im
+  Betrieb bleiben Dialog und Assistent darum ausgeblendet und das Ausstellen antwortet 409
+  `iso_unverified`; die Postgres-Suiten setzen `RESTOW_AGENT_DIR` auf ein Release mit der Zeile.
+  `RESTOW_RECOVERY_ISO_DIR` und `GET /install/recovery/:version/:file` kommen mit M4; die URL, die
+  `GET /api/v1/recovery-iso` nennt, antwortet bis dahin 404.
+- **Vorschau:** Ausstellen verlangt `RESTOW_BAREMETAL_PREVIEW` (409 `preview_off`). Das
+  Wiederanbindungs-Token ist nicht hinter der Vorschau: Es ersetzt das `state.json`, das M1 für alle
+  Rechner nicht mehr sichert.
+- **Alarme:** keine Gruppe "Sicherheit" (sie bräuchte eine neue Spalte der Matrix); die vier
+  Ereignisse sind Fehler der Gruppe Wiederherstellbarkeit und gehen an die Glocke und an jede
+  aktive Regel, die sie nennt, ohne Drossel, ohne eigenen Mailversand an den Regeln vorbei. Die API
+  schreibt sie selbst (`raiseTenantEvent`, nach dem Muster von `raiseInstallationEvent`), weil der
+  Tausch und die Wiederanbindung in einer Anfrage geschehen; `endpoint.recovery.failed` kommt aus der
+  Meldung des ISO (API) oder vom Monitor.
+- **`activityBaselinePending`** steht in `endpoints.settings` (nur Server), nicht in `EndpointConfig`:
+  Der Agent braucht es nicht, und es soll `configVersion` nicht ändern.
+- **Kodierungen:** `sessionSecret` sind 64 Hex-Ziffern (32 Byte), `sessionSecretSha256` und
+  `code_hash` SHA-256 des ASCII-Texts (wie `hashSecret`), `matchCode` die ersten 4 Byte von
+  `SHA-256("restow-recovery-match:" + sessionSecretSha256)` als vorzeichenlose Zahl modulo 10^6,
+  `spkiCheck` Base32 (RFC 4648, groß) der ersten 10 Byte, `RESTOW_PUBLIC_TLS_SPKI` 64 Hex-Ziffern
+  (Doppelpunkte werden entfernt).
+- **SPKI:** gehasht wird das DER der SubjectPublicKeyInfo
+  (`getPeerX509Certificate().publicKey.export({ type: "spki", format: "der" })`), wie Go
+  `RawSubjectPublicKeyInfo`. `getPeerCertificate().pubkey` (9.2) ist für EC-Schlüssel nur der Punkt,
+  nicht die SPKI; der Test prüft RSA und EC.
+- **IDNA in Go** ohne Modul und Tabellen: Kleinschreibung und eigene Punycode-Kodierung je Label,
+  keine NFC- oder UTS-46-Abbildung; alle Vektoren (Umlaut, ß, großes Ü) ergeben dasselbe wie der
+  `URL`-Parser. Eine nicht normalisierte Eingabe scheitert als `recovery-code-invalid` mit dem
+  Hinweis auf die Adresse; der Dialog zeigt die ASCII-Form.
+- **Statuscodes und neue Problemtypen:** `recovery-code-invalid` 401, `-expired` und `-revoked` 410,
+  `-used` 409, `recovery-too-old` 426, `recovery-session-ended` 401, `recovery-not-approved` 409,
+  `baremetal-not-available` 409, `recovery-limit-reached` 409, `endpoint-recovery-active` 409,
+  `endpoint-revoked` bei der Wiederanbindung 409. Neu gegenüber dem Entwurf:
+  `recovery-credentials-collected` (409, dritte Abholung oder nach 5 Minuten),
+  `recovery-state-conflict` (409 mit `status`: Freigeben, Ablehnen, Verlängern, Abschließen,
+  Wiederanbinden im falschen Zustand) und `endpoint-rebind-os-mismatch` (422, 11 nennt nur den
+  Status). Eine falsche Sitzungsanmeldung antwortet 401 `agent-unauthorized`.
+- **Abbruch einer laufenden Sitzung:** Status sofort `cancelled` (9.9), mit `cancel_requested_at` und
+  `finished_at`. Bis `expires_at` nimmt die Sitzung weiter `current`, `progress`, `log` und `event`
+  an (`current` antwortet `cancelRequested: true`); Zugangsdaten, restic-Route und `release` antworten
+  401, `finish` 409 ohne Übergang und ohne Audit.
+- **Ablauf der Freigabe:** Der Monitor setzt die Sitzung nach 30 Minuten auf `failed`; eine
+  Freigabe danach macht denselben Übergang selbst (bedingtes `UPDATE … WHERE status =
+  'pending_approval'`), damit genau ein Schreiber auditiert, und antwortet 401
+  `recovery-session-ended`.
+- **Offene Codes:** gezählt werden `issued`, `pending_approval`, `active`, `finishing` mit
+  `expires_at` in der Zukunft; das Ausstellen ist je Rechner serialisiert (Advisory-Lock der
+  Transaktion).
+- **Verlängern:** `expires_at = min(max(expires_at, jetzt + validityHours), issued_at + 48 h)`; wenn
+  sich nichts verschiebt, 409. Erlaubt in `issued` bis `finishing`.
+- **Geteilte Sperre (9.5):** Freigabe und Tausch ohne Freigabe nehmen die geteilte Wartungssperre um
+  das `UPDATE` auf `active` (Wartezeit wie die Lesezugriffe der API, 2 s); ist sie belegt, 503
+  `endpoint-repository-locked` mit `Retry-After: 30`, und der Code bleibt unverbraucht. Die
+  Aufbewahrung prüft vor und nach ihrer exklusiven Sperre.
+- **Zweite Abholung der Zugangsdaten:** gezählt über die Audit-Einträge
+  `endpoint.recovery.credentials_issued` der Sitzung (unter einer Zeilensperre), keine eigene Spalte.
+- **Wiederanbindungs-Token:** `profile` (NOT NULL) ist das des Rechners. Eine Wiederanbindung beendet
+  offene Deinstallations-Aufgaben, die für die alte Installation gedacht waren (sonst deinstallierte
+  sich der neue Agent). Ein entfernter Rechner bekommt kein Token (404) und wird nicht wieder
+  angebunden (409).
+- **Entfernen:** `POST /:id/remove` antwortet 409 `endpoint-recovery-active` in beiden Modi (auch
+  `expire`: ein entfernter Rechner beendet den Lesezugang der Sitzung), und widerruft offene Codes mit
+  Audit. Der Löschjob wirft `EndpointRecoveryActiveError` und vermerkt keinen Fehler.
+- **Einhängen in Hono:** `recoveryRoutes` unter `/agent/v1/recovery` vor `agentRoutes`, sonst greift
+  deren `use("*", requireAgent)`.
+- **Body-Grenzen:** Tausch und übrige Recovery-Aufrufe 64 KiB, Log 1 MiB (200 Zeilen zu 4096 Zeichen
+  sind rund 800 KiB), Abschluss 320 KiB (64 KiB Prüfbericht und 200 Warnungen zu 64 + 1000 Zeichen
+  sind rund 280 KiB); die restic-Route der Sitzung behält 1 MiB (ein `reader` lädt nichts hoch). Der
+  Go-Client teilt Log-Stapel zusätzlich nach kodierter Größe (`api.RecoveryMaxLogBody`; Escapes können
+  eine Zeile versechsfachen), kürzt Warnungen auf 64 und 1000 Zeichen und lässt beim Abschluss
+  Warnungen vom Ende weg, solange der Body über `api.RecoveryMaxFinishBody` läge (ein 413 wird nicht
+  wiederholt). Caddy braucht nichts.
+- **Metrik:** Die API hat keinen Metrik-Endpunkt; `restow_recovery_exchange_failures_total{reason}`
+  wird im Prozess gezählt (`recoveryExchangeFailuresTotal`), die Warnung über 500 je 10 Minuten geht
+  ins Server-Log.
+- **Assistent:** Schritt 1 zeigt den neuesten Bare-Metal-Snapshot mit seinem Prüfstand (die API nimmt
+  `snapshotId` für einen älteren); Schritt 2 nur, was M2 kennt (Firmwaremodus, Secure Boot,
+  Mindestgrößen, Kabel, alte Platten). Die Gültigkeit schlägt das Doppelte der Zeit bei 50 MB/s vor,
+  mindestens 4 Stunden, gerundet auf die nächste Wahl.
+- **Glossar:** "Freigabe" bleibt die Dateifreigabe; die Ausnahme "die Sitzung freigeben" nennt immer
+  die Sitzung (Texte "Freigabe der Sitzung nach dem Eintausch", "Wartet auf Freigabe der Sitzung").
+
+### 26.9 Zurückgestellt (M3)
+
+- `recover` im ISO, `RESTOW_RECOVERY_ISO_DIR`, die Download-Route des ISO
+  `GET /install/recovery/:version/:file` und `RECOVERY_ISO_DOWNLOAD_LIMIT` (M4).
+- Der vollständige Hardware-Schritt des Assistenten (Controller aus L3, Tastaturbelegung, TPM,
+  Hardware-RAID), die Auswahl eines älteren Bare-Metal-Snapshots in der Oberfläche und die Hinweise
+  aus dem Abschluss im Schritt "Danach" (M4).
+- Eine eigene Ereignisgruppe "Sicherheit" in der Matrix der Benachrichtigungen.
+- "Wird wiederhergestellt" in der Rechnerliste und oben auf der Rechnerseite.
+- Die Arten `probe` (M5) und `migration` (M6) von `endpoint_recovery_kind`, `purpose: mac_setup`
+  und `migrationPending` (M6).
+- Ein Metrik-Endpunkt der API.
+- Aus Abschnitt 27 offen für M3: 27.12 (Tastaturbelegungen beim Code, mit M4), 27.20 (Dauer einer
+  Wiederherstellung über das Netz, Grundlage des Vorschlags der Gültigkeit); [CI]: der Ende-zu-Ende-Test
+  mit `recover` gegen die Recovery-API (`recovery-e2e`, M4).
 
 ## 27. Nur auf echter Hardware zu prüfen
 

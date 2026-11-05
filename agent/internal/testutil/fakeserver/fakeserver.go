@@ -36,6 +36,9 @@ type Server struct {
 	RepoPassword string
 	Config       api.Config
 	Update       *api.UpdateInfo
+	// Rebound makes the enrollment answer a reconnection of an existing
+	// machine (a reconnect token, server 0.5.0).
+	Rebound bool
 	// Releases are the agent releases served below /install/agent/<version>/:
 	// version -> published path ("SHA256SUMS", "SHA256SUMS.sig",
 	// "<os>-<arch>/<file>") -> content.
@@ -258,6 +261,7 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 		AgentSecret: s.AgentSecret,
 		Repository:  api.Repository{URL: s.RepoURL, Password: s.RepoPassword},
 		Config:      &cfg,
+		Rebound:     s.Rebound,
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(resp)

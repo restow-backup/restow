@@ -139,6 +139,12 @@ type EnrollResponse struct {
 	AgentSecret string     `json:"agentSecret"`
 	Repository  Repository `json:"repository"`
 	Config      *Config    `json:"config,omitempty"`
+	// Rebound (server 0.5.0): the token was a reconnect token, and the
+	// instance issued a new agent secret for an existing machine instead of
+	// creating one. Its repository, settings and history are kept; the
+	// previous installation of the machine loses its access. Absent for a
+	// new enrollment.
+	Rebound bool `json:"rebound,omitempty"`
 }
 
 // Schedule describes when backups run.

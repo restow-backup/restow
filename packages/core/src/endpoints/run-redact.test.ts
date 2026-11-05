@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { redactAgentLog, redactAgentMessage } from "./run-redact.js";
+import {
+  redactAgentLog,
+  redactAgentMessage,
+  redactRecoveryLogLines,
+  stripAnsi,
+} from "./run-redact.js";
 
 const secret = `rsea_${"Zz9_-Yy8".repeat(5)}abc`;
 const token = `rset_${"A1b2-C3d4_".repeat(4)}xyz`;
@@ -43,5 +48,31 @@ describe("redaction of what an agent reports", () => {
       "pre hook failed: token=[redacted]",
     );
     expect(redactAgentMessage("x".repeat(50), 10)).toHaveLength(10);
+  });
+});
+
+describe("recovery logs (docs/BAREMETAL.md 9.8)", () => {
+  it("strips escape sequences and C1 controls and keeps the text", () => {
+    expect(stripAnsi("\u001b[1;31mERROR\u001b[0m disk \u001b]0;title\u0007gone\u009b")).toBe(
+      "ERROR disk gone",
+    );
+    expect(stripAnsi("plain")).toBe("plain");
+  });
+
+  it("stores each line without control characters and without credentials", () => {
+    const hex = "2a8abfa8cb9906290437854193ca6bca41d4d4e26d1d454bd66a35158095e737";
+    const lines = redactRecoveryLogLines([
+      "\u001b[32mrestoring\u001b[0m /home\tok",
+      "code RC-7K3QX-M9P2D-H4TNV-8WRBC-J6FAS accepted",
+      `sessionSecretSha256=${hex}`,
+      `rebind with ${token}`,
+      "bell\u0007 and\r return",
+    ]);
+    expect(lines[0]).toBe("restoring /home ok");
+    expect(lines[1]).toBe("code [redacted] accepted");
+    expect(lines[2]).not.toContain(hex);
+    expect(lines[3]).not.toContain(token);
+    expect(lines[4]).toBe("bell and return");
+    expect(lines).toHaveLength(5);
   });
 });

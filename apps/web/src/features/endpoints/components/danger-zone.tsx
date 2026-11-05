@@ -1,5 +1,5 @@
 import { useNavigate } from "@tanstack/react-router";
-import { Ban, Power, Trash2 } from "lucide-react";
+import { Ban, Link2, Power, Trash2 } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
@@ -28,6 +28,7 @@ import type { EndpointDetail, EndpointSummary, RemovalMode } from "../api.js";
 import { useRemoveEndpoint, useRevokeEndpoint, useUninstallEndpoint } from "../hooks.js";
 import { inventoryTo } from "../paths.js";
 import { endpointErrorKey, endpointName } from "../presenters.js";
+import { RebindDialog } from "./rebind-dialog.js";
 
 /**
  * Taking a machine out of {appName}: have the agent uninstall itself, or refuse it at once
@@ -42,6 +43,7 @@ export function DangerZone({ detail }: { detail: EndpointDetail }) {
   const [uninstalling, setUninstalling] = React.useState(false);
   const [revoking, setRevoking] = React.useState(false);
   const [removing, setRemoving] = React.useState(false);
+  const [rebinding, setRebinding] = React.useState(false);
   const revoked = detail.status === "revoked";
   const name = endpointName(detail);
   const uninstallQueued = detail.tasks.some(
@@ -70,7 +72,25 @@ export function DangerZone({ detail }: { detail: EndpointDetail }) {
             </Alert>
           </div>
         ) : null}
-        <div className="flex flex-col gap-3 py-4 first:pt-0 sm:flex-row sm:items-center sm:justify-between">
+        <div
+          className="flex flex-col gap-3 py-4 first:pt-0 sm:flex-row sm:items-center sm:justify-between"
+          data-slot="rebind"
+        >
+          <div className="max-w-xl space-y-1">
+            <p className="text-sm font-medium">{t("rebind.dangerTitle")}</p>
+            <p className="text-sm text-muted-foreground">{t("rebind.dangerDescription")}</p>
+          </div>
+          <Button
+            variant="outline"
+            className="shrink-0"
+            onClick={() => setRebinding(true)}
+            data-action="rebind-machine"
+          >
+            <Link2 aria-hidden="true" />
+            {t("rebind.action")}
+          </Button>
+        </div>
+        <div className="flex flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="max-w-xl space-y-1">
             <p className="text-sm font-medium">{t("danger.uninstall.title")}</p>
             <p className="text-sm text-muted-foreground">{t("danger.uninstall.description")}</p>
@@ -168,6 +188,12 @@ export function DangerZone({ detail }: { detail: EndpointDetail }) {
       {removing ? (
         <RemoveMachineDialog machine={detail} onClose={() => setRemoving(false)} />
       ) : null}
+      <RebindDialog
+        machine={detail}
+        purpose="reinstall"
+        open={rebinding}
+        onOpenChange={setRebinding}
+      />
     </Card>
   );
 }

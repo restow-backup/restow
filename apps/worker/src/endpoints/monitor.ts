@@ -27,6 +27,11 @@
  *     expired (../source-app-expiry.ts).
  *   - Once a day and tenant the bytes of its chunk store and of each restic
  *     repository are written down for the capacity page (../storage-samples.ts).
+ *   - Bare metal recovery codes and sessions run out (docs/BAREMETAL.md 9.8, 9.9): a code nobody
+ *     redeemed expires, a session nobody released within 30 minutes fails, and so does one the ISO
+ *     has not finished 30 minutes after its expiry; each transition is audited
+ *     (`endpoint.recovery.expired`) and a failed session raises `endpoint.recovery.failed`.
+ *     Recovery logs older than 90 days go.
  *
  * Every alert is raised once: the run, the report or the endpoint carries a
  * mark (`alerted_at`, `stale_alerted_at`) that is set in the same transaction
@@ -42,6 +47,9 @@ import {
   QUOTA_CLEAR_RATIO,
   quotaLevelOf,
   quotaRatio,
+  RECOVERY_APPROVAL_TIMEOUT_MS,
+  RECOVERY_LOG_KEEP_DAYS,
+  RECOVERY_SILENCE_AFTER_EXPIRY_MS,
   type RestoreTestTaskParams,
   restoreTestAlreadyWaiting,
   restoreTestRetry,
@@ -51,6 +59,8 @@ import {
   type Endpoint,
   endpointDownloads,
   endpointLayouts,
+  endpointRecoveries,
+  endpointRecoveryLog,
   endpointReports,
   endpointRuns,
   endpoints,
@@ -61,6 +71,7 @@ import {
 } from "@restow/db";
 import { and, eq, gt, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
 import { alertArchiveCapture } from "../archive-capture/alerts.js";
+import { appendAuditEntry } from "../audit.js";
 import { withTenantTx } from "../handlers/framework.js";
 import { emitWebhookEvent } from "../handlers/webhooks.js";
 import { alertOverdueBackups } from "../overdue.js";
@@ -95,6 +106,12 @@ export interface MonitorSummary {
   sourceAppSecretAlerts: number;
   /** Tenants whose daily size samples were written in this pass (capacity page). */
   storageSamples: number;
+  /** Recovery codes nobody redeemed in time (docs/BAREMETAL.md 9.9). */
+  expiredRecoveryCodes: number;
+  /** Recovery sessions failed: not released in 30 minutes, or silent past their expiry. */
+  failedRecoveries: number;
+  /** Recovery log rows older than 90 days. */
+  purgedRecoveryLogs: number;
 }
 
 export function endpointName(endpoint: Pick<Endpoint, "displayName" | "hostname">): string {
@@ -653,6 +670,131 @@ async function alertStorageQuota(deps: EndpointJobDeps, now: Date): Promise<numb
   return alerts;
 }
 
+type RecoveryExpiry = {
+  from: "issued" | "pending_approval" | "active" | "finishing";
+  to: "expired" | "failed";
+  reason: "expired" | "not_approved" | "silent";
+};
+
+/**
+ * Codes and sessions that ran out of time (docs/BAREMETAL.md 9.8, 9.9). Each one is moved by a
+ * conditional update that names its state, so a session an admin released or the ISO finished a
+ * moment before is left alone, and only the writer that moved it audits (one entry per row).
+ */
+export async function expireRecoveries(
+  deps: EndpointJobDeps,
+  now: Date,
+): Promise<{ expired: number; failed: number; purgedLogs: number }> {
+  const approvalDeadline = new Date(now.getTime() - RECOVERY_APPROVAL_TIMEOUT_MS);
+  const silenceDeadline = new Date(now.getTime() - RECOVERY_SILENCE_AFTER_EXPIRY_MS);
+  const candidates = await deps.providerDb
+    .select({
+      id: endpointRecoveries.id,
+      tenantId: endpointRecoveries.tenantId,
+      endpointId: endpointRecoveries.endpointId,
+      status: endpointRecoveries.status,
+      hostname: endpoints.hostname,
+      displayName: endpoints.displayName,
+    })
+    .from(endpointRecoveries)
+    .innerJoin(endpoints, eq(endpoints.id, endpointRecoveries.endpointId))
+    .where(
+      sql`(${endpointRecoveries.status} = 'issued' AND ${endpointRecoveries.expiresAt} <= ${now.toISOString()}::timestamptz)
+       OR (${endpointRecoveries.status} = 'pending_approval' AND ${endpointRecoveries.usedAt} <= ${approvalDeadline.toISOString()}::timestamptz)
+       OR (${endpointRecoveries.status} IN ('active', 'finishing') AND ${endpointRecoveries.expiresAt} <= ${silenceDeadline.toISOString()}::timestamptz)`,
+    )
+    .limit(500);
+  const byTenant = new Map<string, typeof candidates>();
+  for (const row of candidates) {
+    byTenant.set(row.tenantId, [...(byTenant.get(row.tenantId) ?? []), row]);
+  }
+  let expired = 0;
+  let failed = 0;
+  for (const [tenantId, list] of byTenant) {
+    await withTenantTx(deps.db, tenantId, async (tx) => {
+      const raised: NewNotification[] = [];
+      for (const candidate of list) {
+        const plan: RecoveryExpiry =
+          candidate.status === "issued"
+            ? { from: "issued", to: "expired", reason: "expired" }
+            : candidate.status === "pending_approval"
+              ? { from: "pending_approval", to: "failed", reason: "not_approved" }
+              : {
+                  from: candidate.status as "active" | "finishing",
+                  to: "failed",
+                  reason: "silent",
+                };
+        const condition =
+          plan.from === "issued"
+            ? sql`${endpointRecoveries.expiresAt} <= ${now.toISOString()}::timestamptz`
+            : plan.from === "pending_approval"
+              ? sql`${endpointRecoveries.usedAt} <= ${approvalDeadline.toISOString()}::timestamptz`
+              : sql`${endpointRecoveries.expiresAt} <= ${silenceDeadline.toISOString()}::timestamptz`;
+        const [moved] = await tx
+          .update(endpointRecoveries)
+          .set({
+            status: plan.to,
+            updatedAt: now,
+            ...(plan.to === "failed" ? { finishedAt: now } : {}),
+          })
+          .where(
+            and(
+              eq(endpointRecoveries.id, candidate.id),
+              eq(endpointRecoveries.status, plan.from),
+              condition,
+            ),
+          )
+          .returning({ id: endpointRecoveries.id });
+        if (!moved) {
+          continue;
+        }
+        await appendAuditEntry(tx, {
+          tenantId,
+          actor: "system",
+          action: "endpoint.recovery.expired",
+          target: candidate.endpointId,
+          targetType: "endpoint",
+          details: {
+            recoveryId: candidate.id,
+            from: plan.from,
+            to: plan.to,
+            reason: plan.reason,
+          },
+        });
+        if (plan.to === "expired") {
+          expired += 1;
+          continue;
+        }
+        failed += 1;
+        const name = endpointName(candidate);
+        raised.push({
+          tenantId,
+          level: "error",
+          event: "endpoint.recovery.failed",
+          message:
+            plan.reason === "not_approved"
+              ? `The recovery of ${name} failed: nobody released the session within 30 minutes.`
+              : `The recovery of ${name} failed: the recovery ISO stopped reporting.`,
+          details: {
+            endpointId: candidate.endpointId,
+            objectName: name,
+            recoveryId: candidate.id,
+            reason: plan.reason,
+          },
+        });
+      }
+      await raiseEvents(tx, raised, now);
+    });
+  }
+  const purged = await deps.providerDb
+    .delete(endpointRecoveryLog)
+    .where(
+      lt(endpointRecoveryLog.createdAt, new Date(now.getTime() - RECOVERY_LOG_KEEP_DAYS * DAY_MS)),
+    )
+    .returning({ id: endpointRecoveryLog.id });
+  return { expired, failed, purgedLogs: purged.length };
+}
+
 export async function endpointMonitor(deps: EndpointJobDeps): Promise<MonitorSummary> {
   const now = deps.runtime.now();
   const summary: MonitorSummary = {
@@ -668,7 +810,14 @@ export async function endpointMonitor(deps: EndpointJobDeps): Promise<MonitorSum
     archiveAlerts: 0,
     sourceAppSecretAlerts: 0,
     storageSamples: 0,
+    expiredRecoveryCodes: 0,
+    failedRecoveries: 0,
+    purgedRecoveryLogs: 0,
   };
+  const recoveries = await expireRecoveries(deps, now);
+  summary.expiredRecoveryCodes = recoveries.expired;
+  summary.failedRecoveries = recoveries.failed;
+  summary.purgedRecoveryLogs = recoveries.purgedLogs;
   summary.runAlerts = await alertFailedRuns(deps, now);
   summary.reportAlerts = await alertReports(deps, now);
   summary.staleAlerts = await alertStaleEndpoints(deps, now);

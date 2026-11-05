@@ -50,8 +50,42 @@ export interface BodyLimitRule {
 
 const SEGMENT = "[^/]+";
 
-/** The routes that may send more than {@link DEFAULT_BODY_LIMIT}; the first match wins. */
+/** A recovery ISO's call (docs/BAREMETAL.md 9.3): nobody signed in, so it gets less than the default. */
+export const RECOVERY_BODY_LIMIT = 64 * 1024;
+
+/**
+ * POST .../current/log: a full batch the schema accepts (200 lines of 4096 characters, about
+ * 800 KiB as plain ASCII JSON) fits; the agent also splits its batches by encoded size
+ * (api.RecoveryMaxLogBody in agent/internal/api/recovery.go).
+ */
+export const RECOVERY_LOG_BODY_LIMIT = 1024 * 1024;
+
+/**
+ * POST .../current/finish: the verification report (64 KiB) and 200 warnings of up to 64 + 1000
+ * characters (about 280 KiB as plain ASCII JSON) fit (api.RecoveryMaxFinishBody in the agent).
+ */
+export const RECOVERY_FINISH_BODY_LIMIT = 320 * 1024;
+
+/**
+ * The routes whose limit is not {@link DEFAULT_BODY_LIMIT} (more, or for the recovery ISO's API
+ * less); the first match wins.
+ */
 export const BODY_LIMIT_RULES: readonly BodyLimitRule[] = [
+  // The recovery ISO (docs/BAREMETAL.md 9.3, 9.8): the exchange is read before anyone is known.
+  { method: "POST", path: /^\/agent\/v1\/recovery\/sessions$/, limit: RECOVERY_BODY_LIMIT },
+  // Up to 200 log lines of up to 4 KiB each.
+  {
+    method: "POST",
+    path: /^\/agent\/v1\/recovery\/sessions\/current\/log$/,
+    limit: RECOVERY_LOG_BODY_LIMIT,
+  },
+  // The verification report (64 KiB) and up to 200 warnings.
+  {
+    method: "POST",
+    path: /^\/agent\/v1\/recovery\/sessions\/current\/finish$/,
+    limit: RECOVERY_FINISH_BODY_LIMIT,
+  },
+  { method: "*", path: /^\/agent\/v1\/recovery\//, limit: RECOVERY_BODY_LIMIT },
   // The restic REST backend streams pack files to storage; @restow/core refuses
   // anything over MAX_RESTIC_BODY_BYTES (128 MiB) itself.
   { method: "*", path: /^\/agent\/restic\//, limit: null },

@@ -45,6 +45,11 @@ literally (use `{appName}`).
 | A Proxmox VE server with the node helper | node | Knoten | Host, Hypervisor (for a node) |
 | An IMAP account whose login the server keeps refusing, until an administrator answers whether it was shut down (docs/IMAP.md) | login refused | Anmeldung abgelehnt | Login-Fehler, gesperrt |
 | An IMAP account an administrator confirmed as shut down; its login is still checked once a week | account shut down | Konto abgeschaltet | gelöscht, deaktiviert (that is Microsoft 365) |
+| A one-time code an admin issues so the recovery ISO can restore one machine on new hardware (docs/BAREMETAL.md 9) | recovery code | Wiederherstellungscode | Recovery-Code, Wiederherstellungsschlüssel, Token (for the code) |
+| The six digits the ISO and the web interface both show before the session is released | match number | Prüfzahl | PIN, Bestätigungscode |
+| The first 80 bits of the SHA-256 of the instance's TLS public key, typed into the ISO when it does not trust the certificate | instance check value | Prüfwert der Instanz | Fingerprint (alone), Zertifikats-Hash |
+| An admin letting a redeemed recovery code read the backups, after comparing the match number | release the session | die Sitzung freigeben (Freigabe der Sitzung) | genehmigen, zulassen |
+| Giving an existing machine a new agent secret after a restore or reinstall, with a token of its own (docs/BAREMETAL.md 11) | reconnect (rebind) | wieder anbinden (Wiederanbindung) | neu registrieren, neu einrichten (that makes a new machine) |
 
 Repository: maintainer decision 2026-10-10, replacing "storage location" /
 "Speicherort". German uses the neuter ("das Repository", "des Repositorys") and the
@@ -56,7 +61,8 @@ repositories of servers, clients and containers are folders inside it
 "restic repository" (restic-Repository) where the UI has to name them.
 
 File share: Phase C of docs/FILESHARES.md (2026-10-10). "Freigabe" means a file share
-and nothing else; the storage mount of the mounter stays "Netzlaufwerk". A copy job of
+and nothing else, except in "die Sitzung freigeben" / "Freigabe der Sitzung" of a bare metal
+recovery (docs/BAREMETAL.md 9.4), which always names the session; the storage mount of the mounter stays "Netzlaufwerk". A copy job of
 file shares is labelled "Not a backup: no versions on the target" ("Keine Sicherung:
 keine Versionen am Ziel"). Phase D adds the mounter and the copy job rows; the button that starts the
 mounter through the updater is "Enable network shares" ("Netzlaufwerke einschalten"), since

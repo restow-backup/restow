@@ -1,12 +1,16 @@
-import { HardDrive } from "lucide-react";
+import { Link, type LinkProps } from "@tanstack/react-router";
+import { HardDrive, LifeBuoy } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { StatusBadge, type StatusTone } from "@/components/kit";
+import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 import type { Baremetal, BaremetalState, LayoutUnsupported, LayoutVerdict } from "../api.js";
-import { useBaremetal, useEndpointFormat } from "../hooks.js";
+import { useBaremetal, useEndpointFormat, useRecoveryIso } from "../hooks.js";
+import { baremetalWizardTo } from "../paths.js";
 import { BaremetalCheckReport } from "./baremetal-check-report.js";
+import { baremetalRestoreAvailable } from "./baremetal-wizard.js";
 import { LayoutSummary } from "./layout-summary.js";
 import { MinimumSizes } from "./minimum-sizes.js";
 
@@ -91,14 +95,17 @@ function Findings({ items }: { items: LayoutUnsupported[] }) {
  * backed up as a whole, its rating (12.4, up to "layout checked"), the layout check of the newest
  * restore point with its evidence and the minimum sizes of replacement hardware, the layout its
  * newest whole machine backup recorded with the verdict and what is not supported, the summary
- * of the layout, and what to leave free for snapshots. A restore wizard, the recovery ISO and the
- * boot probe come with later releases.
+ * of the layout, and what to leave free for snapshots. "Restore..." opens the wizard, but only
+ * while the installation offers a verified recovery ISO (none does before the ISO ships, M4); the
+ * boot probe comes with a later release.
  */
-export function BaremetalCard({ endpointId }: { endpointId: string }) {
+export function BaremetalCard({ endpointId, os }: { endpointId: string; os?: string }) {
   const { t } = useTranslation("endpoints");
   const format = useEndpointFormat();
   const query = useBaremetal(endpointId);
   const baremetal = query.data;
+  const iso = useRecoveryIso(baremetal?.preview === true && os === "linux");
+  const restorable = baremetalRestoreAvailable(baremetal, iso.data, os);
   if (query.isPending) {
     return null;
   }
@@ -123,6 +130,18 @@ export function BaremetalCard({ endpointId }: { endpointId: string }) {
             <span className="ml-2">{t(`baremetal.notPossible.${baremetal.notPossible}`)}</span>
           ) : null}
         </CardDescription>
+        {restorable ? (
+          <div>
+            <Link
+              to={baremetalWizardTo(endpointId) as LinkProps["to"]}
+              className={buttonVariants({ size: "sm" })}
+              data-action="baremetal-restore"
+            >
+              <LifeBuoy aria-hidden="true" />
+              {t("recovery.wizard.open")}
+            </Link>
+          </div>
+        ) : null}
       </CardHeader>
       <CardContent className="space-y-4">
         {hint ? (

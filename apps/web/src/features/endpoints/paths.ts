@@ -76,6 +76,13 @@ export function endpointDetailTo(endpointId: string): LinkProps["to"] {
   return `${INVENTORY_PATH}/${encodeURIComponent(endpointId)}` as LinkProps["to"];
 }
 
+/** The bare metal restore wizard of a machine (docs/BAREMETAL.md 14.6). */
+export const BAREMETAL_WIZARD_PATTERN = `${INVENTORY_PATH}/$endpointId/bare-metal`;
+
+export function baremetalWizardTo(endpointId: string): LinkProps["to"] {
+  return `${INVENTORY_PATH}/${encodeURIComponent(endpointId)}/bare-metal` as LinkProps["to"];
+}
+
 /** The list a machine of this profile belongs to. */
 export function areaOfProfile(profile: EndpointProfile): EndpointArea {
   return profile === "server" ? "servers" : "clients";

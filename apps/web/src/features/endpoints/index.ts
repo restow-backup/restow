@@ -6,6 +6,7 @@ import { appLayoutRoute } from "@/routes/tree";
 
 import "./i18n.js";
 import {
+  BAREMETAL_WIZARD_PATTERN,
   ENDPOINT_DETAIL_PATTERN,
   FILE_RESTORE_PATH,
   FILE_RESTORE_ROLES,
@@ -15,6 +16,7 @@ import {
   parseInventorySearch,
 } from "./paths.js";
 import {
+  BaremetalWizardRoute,
   ENDPOINT_ROLES,
   EndpointDetailRoute,
   FileRestoreRoute,
@@ -53,7 +55,14 @@ export const fileRestoreRoute = createRoute({
   component: FileRestoreRoute,
 });
 
-export const routes = [inventoryRoute, detailRoute, fileRestoreRoute];
+/** The bare metal restore wizard (preview, docs/BAREMETAL.md 14.6); not found without a verified ISO. */
+export const baremetalWizardRoute = createRoute({
+  getParentRoute: () => appLayoutRoute,
+  path: BAREMETAL_WIZARD_PATTERN,
+  component: BaremetalWizardRoute,
+});
+
+export const routes = [inventoryRoute, detailRoute, baremetalWizardRoute, fileRestoreRoute];
 
 export const navItems: NavItem[] = [
   {

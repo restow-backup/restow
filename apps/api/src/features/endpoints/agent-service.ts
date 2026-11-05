@@ -55,7 +55,7 @@ import {
   readJobStartPause,
   tenants,
 } from "@restow/db";
-import { and, asc, eq, gt, inArray, isNull, lt, ne, or, type SQL, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lt, ne, or, type SQL, sql } from "drizzle-orm";
 import { config as appConfig } from "../../config.js";
 import { db, providerDb } from "../../db.js";
 import { loadTenantDek, storeSecret } from "../../lib/secrets.js";
@@ -76,6 +76,7 @@ import {
 } from "./distribution.js";
 import { wholeMachineSent } from "./dto.js";
 import { ENDPOINT_PROBLEMS } from "./problems.js";
+import { claimEnrollmentToken, rotateEndpointSecret } from "./rebind.js";
 import {
   forgetTenantStorage,
   REPOSITORY_SECRET_KIND,
@@ -127,6 +128,11 @@ export interface EnrollResponse {
   repository: { url: string; password: string };
   config: AgentConfigResponse;
   restic: { version: string };
+  /**
+   * A rebind token was redeemed (0.5.0, docs/BAREMETAL.md 11): the existing machine got a new
+   * secret and kept its backups. Absent for a new machine; an older agent ignores it.
+   */
+  rebound?: true;
 }
 
 /**
@@ -290,18 +296,7 @@ export async function enrollEndpoint(
   }
   const os = input.os;
   const tokenHash = hashSecret(input.token);
-  const [claimed] = await providerDb
-    .update(endpointEnrollmentTokens)
-    .set({ usedAt: now })
-    .where(
-      and(
-        eq(endpointEnrollmentTokens.tokenHash, tokenHash),
-        isNull(endpointEnrollmentTokens.usedAt),
-        isNull(endpointEnrollmentTokens.revokedAt),
-        gt(endpointEnrollmentTokens.expiresAt, now),
-      ),
-    )
-    .returning();
+  const claimed = await claimEnrollmentToken(input.token, now);
   if (!claimed) {
     const [known] = await providerDb
       .select()
@@ -313,6 +308,16 @@ export async function enrollEndpoint(
       detail: "The enrollment token is unknown, expired, revoked or already used.",
       extensions: { reason: known ? enrollmentTokenState(known, now) : "unknown" },
     });
+  }
+
+  // A rebind token (docs/BAREMETAL.md 11): the existing machine gets a new secret, nothing is made.
+  if (claimed.endpointId !== null) {
+    return rotateEndpointSecret(
+      claimed,
+      input,
+      { ip: context.ip, instanceUrl: context.instanceUrl, via: "enroll" },
+      now,
+    );
   }
 
   const tenantId = claimed.tenantId;
@@ -980,6 +985,16 @@ export async function finishRun(
 
     if (run.kind === "backup") {
       const good = input.status !== "failed" && input.snapshotId !== undefined;
+      // The first good backup after a rebind is the new baseline of the ransomware signals
+      // (docs/BAREMETAL.md 11, docs/RANSOMWARE.md): nothing before it is compared with it.
+      if (good && endpoint.settings.activityBaselinePending) {
+        await tx
+          .update(endpointRuns)
+          .set({ activityBaseline: true })
+          .where(eq(endpointRuns.id, runId));
+        const { activityBaselinePending: _cleared, ...settings } = endpoint.settings;
+        await tx.update(endpoints).set({ settings }).where(eq(endpoints.id, agent.endpointId));
+      }
       const change = {
         ...(interrupted ? {} : { lastBackupAt: finishedAt }),
         ...(good

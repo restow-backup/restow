@@ -50,6 +50,8 @@ export * from "./job-start-pause.js";
 export * from "./manifest-versions.js";
 // How many connections each pool may open (RESTOW_DB_POOL_MAX and its siblings).
 export * from "./pool-size.js";
+// The recovery session that keeps retention and removal away from an endpoint repository.
+export * from "./recovery.js";
 // The lock that keeps the server's own work on one endpoint repository from overlapping.
 export * from "./repository-lock.js";
 // Services that need a manual restart, and why (the Updates tab shows them).

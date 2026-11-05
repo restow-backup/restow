@@ -252,6 +252,11 @@
       "used": "Used",
       "expired": "Expired",
       "revoked": "Revoked"
+    },
+    "rebindFor": "Reconnect: {name}",
+    "kind": {
+      "enroll": "Enrollment",
+      "rebind": "Reconnect"
     }
   },
   "enroll": {
@@ -1107,7 +1112,20 @@
     "removalLegalHold": "A legal hold covers every backup of this tenant, so they cannot be deleted now. Keep them until they expire instead, or release the hold first.",
     "removalSuspicionHold": "A suspicious restore point of this machine is not resolved and holds its backups. Resolve it first, or keep the backups until they expire.",
     "removalNeverExpires": "The retention of this machine keeps every backup, so they would never expire. Delete them instead.",
-    "restorePathLocked": "This file is not handed out: the agent's own state file is never restored (the agent gets a new identity when it is enrolled again), and key files of encrypted volumes only to administrators."
+    "restorePathLocked": "This file is not handed out: the agent's own state file is never restored (the agent gets a new identity when it is enrolled again), and key files of encrypted volumes only to administrators.",
+    "recoveryCodeInvalid": "No recovery code matches. Check the code and the address.",
+    "recoveryCodeExpired": "The recovery code has expired. Issue a new one.",
+    "recoveryCodeRevoked": "The recovery code was revoked. Issue a new one.",
+    "recoveryCodeUsed": "The recovery code was redeemed already. Issue a new one.",
+    "recoveryTooOld": "The recovery ISO is too old for this server. Download the current one.",
+    "recoverySessionEnded": "The recovery session has ended.",
+    "recoveryNotApproved": "The session has not been released yet.",
+    "recoveryCredentialsCollected": "The ISO collected the credentials already.",
+    "recoveryStateConflict": "That is not possible in the current state of the recovery. Reload the page.",
+    "baremetalNotAvailable": "No recovery code can be issued for this machine.",
+    "recoveryLimitReached": "Three codes of this machine are open already. Revoke one first.",
+    "endpointRecoveryActive": "A recovery reads this machine's backups. Let it finish or end it first.",
+    "rebindOsMismatch": "The token is for a machine with another operating system."
   },
   "readinessSection": {
     "overdue": "Overdue",
@@ -1689,5 +1707,175 @@
       "filesystem": "{mount}: {restore} to restore, at least {min}",
       "hint": "What replacement hardware needs at least, from what the newest restore point holds. Larger disks are used in full."
     }
+  },
+  "recovery": {
+    "title": "Recovery code for {name}",
+    "description": "A one-time code for the recovery ISO: it restores this machine onto new disks from its whole machine backup.",
+    "issue": "Issue recovery code…",
+    "cancel": "Cancel",
+    "done": "Done",
+    "issueFailed": "The code could not be issued",
+    "validity": "Valid for",
+    "validityHours": "{count, plural, one {# hour} other {# hours}}",
+    "validitySuggestion": "{count, plural, one {Suggested: # hour, from the data to restore at about 50 MB/s.} other {Suggested: # hours, from the data to restore at about 50 MB/s.}}",
+    "requireApproval": "Release after the exchange",
+    "requireApprovalHint": "When the ISO redeems the code, the session waits until you release it here after comparing the match number. Only then does it read the backups.",
+    "requireApprovalOffTitle": "Issue the code without a release?",
+    "requireApprovalOffConfirm": "Whoever redeems the code first then reads every backup of this machine at once, without you seeing the match number. Switch this off only for an unattended restore.",
+    "requireApprovalOffAction": "Issue without release",
+    "browserOriginWarning": "This address comes from your browser, because no public address is configured. The ISO must reach exactly this address.",
+    "spkiMissing": "Check value not available; the ISO then needs a certificate it trusts (a public CA or a CA file).",
+    "onceHint": "The code is shown only now. Copy or print it; it cannot be shown again.",
+    "code": "Recovery code",
+    "address": "Address",
+    "addressHint": "Type it into the ISO exactly like this.",
+    "spkiCheck": "Instance check value",
+    "expiresAt": "Expires",
+    "copy": "Copy",
+    "print": "Print",
+    "printTitle": "Recovery code",
+    "machine": "Machine",
+    "readAccessHint": "Once released, the code gives read access to every backup of this machine until it expires or the session ends.",
+    "isoReported": "Reported by the recovery ISO.",
+    "status": {
+      "issued": "Issued",
+      "pending_approval": "Waiting for release",
+      "active": "Restoring",
+      "finishing": "Finishing",
+      "succeeded": "Succeeded",
+      "failed": "Failed",
+      "cancelled": "Cancelled",
+      "expired": "Expired",
+      "revoked": "Revoked"
+    },
+    "phases": {
+      "connected": "Connected",
+      "waiting_approval": "Waiting for release",
+      "planning": "Planning",
+      "confirmed": "Confirmed",
+      "partitioning": "Partitioning",
+      "restoring": "Restoring files",
+      "configuring": "Setting up the boot chain",
+      "verifying": "Checking",
+      "done": "Done"
+    },
+    "live": {
+      "title": "Recovery",
+      "description": "Follows the recovery ISO every five seconds.",
+      "waiting": "Waiting for the recovery ISO. Boot the replacement hardware from it and type in the code and the address.",
+      "approveTitle": "Release the session",
+      "matchCode": "Match number",
+      "matchCodeHint": "Release only if the ISO shows the same number.",
+      "from": "From address",
+      "isoVersion": "ISO version",
+      "firmware": "Firmware",
+      "firmwareMode": {
+        "uefi": "UEFI",
+        "bios": "BIOS"
+      },
+      "secureBootOn": "Secure Boot on",
+      "secureBootOff": "Secure Boot off",
+      "ram": "Memory",
+      "disks": "Disks",
+      "nics": "Network cards",
+      "unknownModel": "Unknown model",
+      "noLink": "no link",
+      "approve": "Release",
+      "reject": "Reject",
+      "step": "Step {step} of {total}",
+      "bytes": "{done} of {total}, {files} of {totalFiles} files",
+      "revoke": "Revoke code",
+      "cancel": "End session",
+      "extend": "{count, plural, one {Extend by # hour} other {Extend by # hours}}",
+      "log": "Log",
+      "cancelTitle": "End this recovery session?",
+      "cancelDescription": "The ISO loses its access to the backups within a few seconds. The code is used; issue a new one to try again.",
+      "cancelAction": "End session"
+    },
+    "sshKeys": {
+      "title": "SSH keys for remote access",
+      "hint": "Public keys, one per line. The ISO accepts them for remote access once it was switched on there.",
+      "placeholder": "ssh-ed25519 AAAA… admin@laptop",
+      "save": "Save keys",
+      "saved": "The keys were saved.",
+      "hostKeys": "Host keys of the ISO"
+    },
+    "notAvailable": {
+      "not_linux": "Recovery codes are for Linux machines.",
+      "removed": "The machine was removed.",
+      "no_layout": "The machine has no whole machine backup with a layout yet.",
+      "unsupported": "The layout of this backup cannot be restored.",
+      "iso_unverified": "This installation offers no verified recovery ISO yet.",
+      "preview_off": "Bare metal recovery is a preview this installation has not switched on.",
+      "snapshot_unknown": "This snapshot is no whole machine backup of the machine."
+    },
+    "wizard": {
+      "title": "Restore {name} on bare metal",
+      "description": "Restores the machine onto new disks from its newest whole machine backup, with the recovery ISO.",
+      "back": "Back to the machine",
+      "open": "Restore…",
+      "steps": {
+        "snapshot": "Backup",
+        "hardware": "Replacement hardware",
+        "iso": "Recovery ISO",
+        "code": "Recovery code",
+        "live": "Recovery",
+        "after": "Afterwards"
+      },
+      "snapshotHint": "The newest whole machine backup is restored.",
+      "firmware": {
+        "uefi": "The backup comes from a machine with UEFI: the replacement must start in UEFI mode.",
+        "bios": "The backup comes from a machine with BIOS: the replacement needs a legacy (CSM) boot mode, which many current models no longer have."
+      },
+      "secureBoot": "Secure Boot was on.",
+      "cable": "Network by cable, on a port without VLAN tagging.",
+      "oldDisks": "Disconnect the old disks unless you want to keep them.",
+      "hardwareLater": "A full hardware guide (controllers, keyboard layout, TPM) follows with the recovery ISO.",
+      "codeIntro": "Issue the code when the replacement hardware is ready. Its validity is suggested from the data to restore.",
+      "liveEmpty": "No code issued yet.",
+      "afterIntro": "Connect the restored machine to {appName} again with a rebind token of its own."
+    },
+    "iso": {
+      "version": "Version",
+      "file": "File",
+      "fingerprint": "Release key fingerprint",
+      "fingerprintHint": "Compare the fingerprint outside this instance: in the README and the release notes of the project.",
+      "download": "Download ISO",
+      "verifyCommands": "Check the file before you use it",
+      "system": {
+        "linux": "Linux",
+        "macos": "macOS",
+        "windows": "Windows"
+      },
+      "writeUsb": "Then write the ISO to a USB stick as it is, bit for bit (for example with dd on Linux)."
+    }
+  },
+  "rebind": {
+    "action": "Reconnect machine…",
+    "title": "Reconnect {name}",
+    "dangerTitle": "Reconnect after a reinstall",
+    "dangerDescription": "A token that gives this machine a new agent secret, for a reinstalled or restored system. Its backups, settings and history stay.",
+    "warningTitle": "Lasting access",
+    "warning": "This token gives lasting access like an installed agent. Whoever redeems it becomes this machine.",
+    "oldDisconnects": "The previous installation of the machine loses its connection.",
+    "revokedHint": "The machine is revoked: without the option below, the token is refused.",
+    "unrevoke": "Bring the revoked machine back",
+    "unrevokeHint": "Choose this only if the machine was revoked by mistake or is trustworthy again; it is noted in the audit log.",
+    "purpose": {
+      "reinstall": "For a machine whose system was installed again.",
+      "baremetal": "For the machine the recovery ISO restored."
+    },
+    "purposeShort": {
+      "reinstall": "reinstall",
+      "baremetal": "bare metal",
+      "mac_setup": "Mac setup"
+    },
+    "validity": "Valid for",
+    "created": "The token was created. It is shown only now and works once.",
+    "commands": "Run the install command on the machine; it asks for the token.",
+    "create": "Create token",
+    "cancel": "Cancel",
+    "done": "Done",
+    "tokenKind": "Rebind token"
   }
 }

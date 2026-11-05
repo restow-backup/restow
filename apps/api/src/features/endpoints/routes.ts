@@ -31,21 +31,39 @@ import { getBaremetalState, getLayout } from "./baremetal.js";
 import { cancelEndpointBackup, requestEndpointUpdate } from "./cancel.js";
 import { instanceUrl } from "./instance-url.js";
 import { ENDPOINT_PROBLEMS } from "./problems.js";
+import { createRebindToken } from "./rebind.js";
+import {
+  approveRecovery,
+  cancelRecovery,
+  extendRecoveryCode,
+  getRecovery,
+  issueRecoveryCode,
+  listRecoveries,
+  revokeRecoveryCode,
+  setRecoverySshKeys,
+} from "./recovery-codes.js";
 import { listRemovals, removeEndpoint } from "./removal.js";
 import {
   agentPolicyLevelSchema,
   agentUpdatesSchema,
   browseQuerySchema,
   createDownloadSchema,
+  createRebindTokenSchema,
   createTaskSchema,
   createTokenSchema,
   downloadParamSchema,
   endpointIdParamSchema,
+  extendRecoveryCodeSchema,
+  issueRecoveryCodeSchema,
   layoutParamSchema,
   listEndpointsQuerySchema,
   listRunsQuerySchema,
   listTokensQuerySchema,
   MAX_DOWNLOAD_BODY_BYTES,
+  recoveryCodeParamSchema,
+  recoveryLogQuerySchema,
+  recoveryParamSchema,
+  recoverySshKeysSchema,
   removeEndpointSchema,
   runParamSchema,
   snapshotImmutabilityParamSchema,
@@ -124,6 +142,21 @@ import {
  *   GET    /:id/baremetal                       bare metal (preview): state, the newest layout's summary
  *                                               and verdict, the snapshot hint (restore operators too)
  *   GET    /:id/baremetal/layouts/:layoutId     one layout with its full manifest (serial numbers; admins)
+ *   POST   /:id/recovery-codes                  issue a recovery code for the ISO, shown once (bare metal,
+ *                                               docs/BAREMETAL.md 9.2; admins, recent sign-in)
+ *   POST   /:id/recovery-codes/:codeId/revoke   revoke a code nobody redeemed (admins)
+ *   POST   /:id/recovery-codes/:codeId/extend   extend a code and its session, at most 48 hours after
+ *                                               it was issued (admins, recent sign-in)
+ *   GET    /:id/recoveries                      the machine's codes and sessions (admins)
+ *   GET    /:id/recoveries/:recoveryId?logAfter=&logLimit=  one with match code, hardware, progress,
+ *                                               SSH host keys, verification and a page of its log
+ *   POST   /:id/recoveries/:recoveryId/approve  release a session after its exchange (admins, recent sign-in)
+ *   POST   /:id/recoveries/:recoveryId/cancel   reject a waiting session or end a running one (admins)
+ *   PUT    /:id/recoveries/:recoveryId/ssh-keys public SSH keys for the ISO's remote access (admins,
+ *                                               recent sign-in)
+ *   POST   /:id/rebind-token                    a token that gives the machine a new agent secret, shown
+ *                                               once with the install commands (docs/BAREMETAL.md 11;
+ *                                               admins, recent sign-in)
  *
  * The agent's state file (agent secret, repository password) is hidden from browsing and never
  * handed out; the LUKS key files a machine's layout names are hidden from restore operators and
@@ -399,6 +432,100 @@ endpointsRoutes.get("/:id/baremetal", restorer, async (c) => {
 endpointsRoutes.get("/:id/baremetal/layouts/:layoutId", admin, async (c) => {
   const { id, layoutId } = parseOrProblem(layoutParamSchema, c.req.param());
   return c.json(await getLayout(db, c.get("tenantId"), id, layoutId));
+});
+
+// Bare metal recovery (docs/BAREMETAL.md 9, 11). A busy repository (approve, 503) asks the web
+// app to come back in half a minute.
+function retryAfterOnBusy(c: Context, error: unknown): never {
+  if (error instanceof ProblemError && error.type === ENDPOINT_PROBLEMS.repositoryLocked) {
+    c.header("retry-after", "30");
+  }
+  throw error;
+}
+
+endpointsRoutes.post("/:id/recovery-codes", admin, async (c) => {
+  const { id } = parseOrProblem(endpointIdParamSchema, c.req.param());
+  const input = await parseJsonBody(c.req, issueRecoveryCodeSchema);
+  // The code reads every backup of the machine: a sign-in from the last minutes.
+  assertRecentSignIn(c.get("auth").session);
+  const issued = await issueRecoveryCode(
+    db,
+    c.get("tenantId"),
+    id,
+    input,
+    actorOf(c),
+    await instanceUrl(c),
+  );
+  // The response carries the code: nothing may keep a copy.
+  c.header("cache-control", "no-store");
+  return c.json(issued, 201);
+});
+
+endpointsRoutes.post("/:id/recovery-codes/:codeId/revoke", admin, async (c) => {
+  const { id, codeId } = parseOrProblem(recoveryCodeParamSchema, c.req.param());
+  return c.json(await revokeRecoveryCode(db, c.get("tenantId"), id, codeId, actorOf(c)));
+});
+
+endpointsRoutes.post("/:id/recovery-codes/:codeId/extend", admin, async (c) => {
+  const { id, codeId } = parseOrProblem(recoveryCodeParamSchema, c.req.param());
+  const { validityHours } = await parseJsonBody(c.req, extendRecoveryCodeSchema);
+  assertRecentSignIn(c.get("auth").session);
+  return c.json(
+    await extendRecoveryCode(db, c.get("tenantId"), id, codeId, validityHours, actorOf(c)),
+  );
+});
+
+endpointsRoutes.get("/:id/recoveries", admin, async (c) => {
+  const { id } = parseOrProblem(endpointIdParamSchema, c.req.param());
+  return c.json(await listRecoveries(db, c.get("tenantId"), id));
+});
+
+endpointsRoutes.get("/:id/recoveries/:recoveryId", admin, async (c) => {
+  const { id, recoveryId } = parseOrProblem(recoveryParamSchema, c.req.param());
+  const page = parseOrProblem(recoveryLogQuerySchema, c.req.query());
+  c.header("cache-control", "no-store");
+  return c.json(await getRecovery(db, c.get("tenantId"), id, recoveryId, page));
+});
+
+endpointsRoutes.post("/:id/recoveries/:recoveryId/approve", admin, async (c) => {
+  const { id, recoveryId } = parseOrProblem(recoveryParamSchema, c.req.param());
+  // Releasing hands the ISO the repository password: a sign-in from the last minutes.
+  assertRecentSignIn(c.get("auth").session);
+  try {
+    return c.json(await approveRecovery(db, c.get("tenantId"), id, recoveryId, actorOf(c)));
+  } catch (error) {
+    return retryAfterOnBusy(c, error);
+  }
+});
+
+endpointsRoutes.post("/:id/recoveries/:recoveryId/cancel", admin, async (c) => {
+  const { id, recoveryId } = parseOrProblem(recoveryParamSchema, c.req.param());
+  return c.json(await cancelRecovery(db, c.get("tenantId"), id, recoveryId, actorOf(c)));
+});
+
+endpointsRoutes.put("/:id/recoveries/:recoveryId/ssh-keys", admin, async (c) => {
+  const { id, recoveryId } = parseOrProblem(recoveryParamSchema, c.req.param());
+  const { keys } = await parseJsonBody(c.req, recoverySshKeysSchema);
+  assertRecentSignIn(c.get("auth").session);
+  return c.json(await setRecoverySshKeys(db, c.get("tenantId"), id, recoveryId, keys, actorOf(c)));
+});
+
+endpointsRoutes.post("/:id/rebind-token", admin, async (c) => {
+  const { id } = parseOrProblem(endpointIdParamSchema, c.req.param());
+  const input = await parseJsonBody(c.req, createRebindTokenSchema);
+  // The token gives lasting access like an installed agent: a sign-in from the last minutes.
+  assertRecentSignIn(c.get("auth").session);
+  const created = await createRebindToken(
+    db,
+    c.get("tenantId"),
+    id,
+    input,
+    actorOf(c),
+    await instanceUrl(c),
+  );
+  // The response carries the token: nothing may keep a copy.
+  c.header("cache-control", "no-store");
+  return c.json(created, 201);
 });
 
 /**

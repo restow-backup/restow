@@ -11,6 +11,7 @@ import type {
   EndpointReport,
   EndpointSummary,
   EndpointTask,
+  RecoveryStatus,
   RunKind,
   RunProgress,
   RunStatus,
@@ -880,8 +881,74 @@ const PROBLEM_KEYS: Readonly<Record<string, string>> = {
   "urn:restow:problem:pve-files-no-repository": "endpoints:errors.containerNoRepository",
   // The file restore of VMs: the sandboxed reader could not read the file system.
   "urn:restow:problem:pve-vm-files-unreadable": "endpoints:errors.vmFilesUnreadable",
+  // Bare metal recovery and rebinding (docs/BAREMETAL.md 9, 11).
+  "urn:restow:problem:recovery-code-invalid": "endpoints:errors.recoveryCodeInvalid",
+  "urn:restow:problem:recovery-code-expired": "endpoints:errors.recoveryCodeExpired",
+  "urn:restow:problem:recovery-code-revoked": "endpoints:errors.recoveryCodeRevoked",
+  "urn:restow:problem:recovery-code-used": "endpoints:errors.recoveryCodeUsed",
+  "urn:restow:problem:recovery-too-old": "endpoints:errors.recoveryTooOld",
+  "urn:restow:problem:recovery-session-ended": "endpoints:errors.recoverySessionEnded",
+  "urn:restow:problem:recovery-not-approved": "endpoints:errors.recoveryNotApproved",
+  "urn:restow:problem:recovery-credentials-collected":
+    "endpoints:errors.recoveryCredentialsCollected",
+  "urn:restow:problem:recovery-state-conflict": "endpoints:errors.recoveryStateConflict",
+  "urn:restow:problem:baremetal-not-available": "endpoints:errors.baremetalNotAvailable",
+  "urn:restow:problem:recovery-limit-reached": "endpoints:errors.recoveryLimitReached",
+  "urn:restow:problem:endpoint-recovery-active": "endpoints:errors.endpointRecoveryActive",
+  "urn:restow:problem:endpoint-rebind-os-mismatch": "endpoints:errors.rebindOsMismatch",
   [RECENT_SIGN_IN_PROBLEM]: "endpoints:errors.recentSignIn",
 };
+
+/** The type keys of the problems above, for the completeness test of the translations. */
+export const ENDPOINT_PROBLEM_KEYS: Readonly<Record<string, string>> = PROBLEM_KEYS;
+
+// --- Bare metal recovery (docs/BAREMETAL.md 9.9) -------------------------------------------------
+
+/** Green only for a recovery that succeeded, red for one that failed. */
+export const RECOVERY_STATUS_TONE: Readonly<Record<RecoveryStatus, StatusTone>> = {
+  issued: "info",
+  pending_approval: "warning",
+  active: "info",
+  finishing: "info",
+  succeeded: "success",
+  failed: "destructive",
+  cancelled: "neutral",
+  expired: "muted",
+  revoked: "muted",
+};
+
+/** Whether a code or its session is still open (can be revoked, extended, ended). */
+export function recoveryOpen(status: RecoveryStatus): boolean {
+  return (
+    status === "issued" ||
+    status === "pending_approval" ||
+    status === "active" ||
+    status === "finishing"
+  );
+}
+
+/** The validity to suggest for a code: the data at an assumed 50 MB/s, twice, at least 4 hours. */
+export const RECOVERY_VALIDITY_CHOICES = [1, 2, 4, 8, 12, 24, 48] as const;
+
+export function suggestedValidityHours(restoreBytes: number | null | undefined): number {
+  if (!restoreBytes || restoreBytes <= 0) {
+    return 4;
+  }
+  const hours = (restoreBytes / (50 * 1000 * 1000) / 3600) * 2;
+  return RECOVERY_VALIDITY_CHOICES.find((choice) => choice >= Math.max(4, hours)) ?? 48;
+}
+
+/** A match code in two groups of three, as the ISO shows it. */
+export function formatMatchCode(matchCode: string | null): string {
+  return matchCode && matchCode.length === 6
+    ? `${matchCode.slice(0, 3)} ${matchCode.slice(3)}`
+    : (matchCode ?? "");
+}
+
+/** The five groups of a code, for the large display. */
+export function recoveryCodeGroups(code: string): string[] {
+  return code.replace(/^RC-/, "").split("-");
+}
 
 /**
  * The fully qualified i18n key that words a failed request: the endpoint

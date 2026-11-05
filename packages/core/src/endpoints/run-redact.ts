@@ -39,6 +39,32 @@ export function redactAgentLog(text: string): string {
   return text.replace(KEY_BLOCK, "[redacted]").split(/\r?\n/).map(redactLine).join("\n");
 }
 
+/**
+ * Terminal escape sequences (CSI, OSC and the other ESC forms) and the C1 control characters: a
+ * recovery log comes from a console program and is shown as text (docs/BAREMETAL.md 9.8).
+ */
+const ANSI_SEQUENCES =
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: escape sequences are what is stripped
+  /\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)?|\u001b\[[0-?]*[ -/]*[@-~]|\u001b[@-Z\\-_]|[\u0080-\u009f]/g;
+
+/** `text` without terminal escape sequences and C1 control characters. */
+export function stripAnsi(text: string): string {
+  return text.replace(ANSI_SEQUENCES, "");
+}
+
+// biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what is stripped
+const LINE_CONTROLS = /[\u0000-\u0008\u000a-\u001f\u007f]/g;
+
+/**
+ * The lines of a recovery log as they are stored (docs/BAREMETAL.md 9.8): without escape sequences
+ * and control characters (a tab becomes a space), each redacted on its own.
+ */
+export function redactRecoveryLogLines(lines: readonly string[]): string[] {
+  return lines.map((line) =>
+    redactLine(stripAnsi(line).replace(/\t/g, " ").replace(LINE_CONTROLS, "")),
+  );
+}
+
 /** One error message of an agent without credentials, on one line, at most `maxLength` characters. */
 export function redactAgentMessage(text: string, maxLength: number): string {
   return redactSensitiveText(text, maxLength);

@@ -15,6 +15,7 @@ import {
   backupJobMembers,
   backupJobs,
   type EndpointSettings,
+  endpointRecoveries,
   endpointRuns,
   endpoints,
   legalHolds,
@@ -128,6 +129,51 @@ describe.skipIf(!testDatabaseAdminUrl)("removing a machine against Postgres", ()
     });
     const [row] = await fixture.db.select().from(endpoints).where(eq(endpoints.id, revoked));
     expect(row?.removedAt).toBeNull();
+  });
+
+  it("waits for a running recovery and revokes the codes nobody redeemed (docs/BAREMETAL.md 9.7)", async () => {
+    const id = await machine();
+    const hostname = await hostnameOf(id);
+    const recovery = (status: "issued" | "pending_approval" | "active", hours = 4) =>
+      fixture.db
+        .insert(endpointRecoveries)
+        .values({
+          tenantId: fixture.tenantId,
+          endpointId: id,
+          kind: "code",
+          status,
+          issuedAt: NOW,
+          expiresAt: new Date(NOW.getTime() + hours * 3600_000),
+        })
+        .returning()
+        .then((rows) => rows[0]?.id as string);
+    const active = await recovery("active");
+    const issued = await recovery("issued");
+    for (const mode of ["delete", "expire"] as const) {
+      expect(await problemOf(remove(id, { mode, confirmHostname: hostname }))).toEqual({
+        status: 409,
+        type: "urn:restow:problem:endpoint-recovery-active",
+      });
+    }
+    // A session that waits for its release holds nothing; an expired active one neither.
+    await fixture.db
+      .update(endpointRecoveries)
+      .set({ expiresAt: new Date(NOW.getTime() - 1000) })
+      .where(eq(endpointRecoveries.id, active));
+    await recovery("pending_approval");
+    await remove(id, { mode: "delete", confirmHostname: hostname });
+    const [code] = await fixture.db
+      .select()
+      .from(endpointRecoveries)
+      .where(eq(endpointRecoveries.id, issued));
+    expect(code).toMatchObject({ status: "revoked", revokedBy: fixture.adminId });
+    const revoked = await fixture.db
+      .select()
+      .from(auditLog)
+      .where(and(eq(auditLog.action, "endpoint.recovery_code.revoked"), eq(auditLog.target, id)));
+    expect(revoked.map((entry) => entry.details)).toEqual([
+      { recoveryId: issued, kind: "code", reason: "removed" },
+    ]);
   });
 
   it("deletes at once: gone from every list and lookup, out of its job, audited, history kept", async () => {

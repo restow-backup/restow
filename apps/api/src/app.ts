@@ -30,8 +30,13 @@ import {
   AGENT_API_PATH,
   mountPath as endpointsMountPath,
   INSTALL_PATH,
+  RECOVERY_API_PATH,
+  RECOVERY_RESTIC_PATH,
   RESTIC_PATH,
 } from "./features/endpoints/meta.js";
+import { recoveryIsoRoutes } from "./features/endpoints/recovery-iso.js";
+import { recoveryResticRoutes } from "./features/endpoints/recovery-restic-route.js";
+import { recoveryRoutes } from "./features/endpoints/recovery-routes.js";
 import { resticRoutes } from "./features/endpoints/restic-route.js";
 import { endpointsRoutes } from "./features/endpoints/routes.js";
 import { mountPath as exportsMountPath } from "./features/exports/meta.js";
@@ -214,8 +219,12 @@ export function buildApp() {
   // an agent authenticates with its own secret (HTTP Basic), enrollment with its
   // one-time token (and the browser request guard, which an agent always passes),
   // and the install scripts are public by design.
+  // The recovery ISO's API (docs/BAREMETAL.md 9) first: the agent API's sign-in would catch it.
+  app.route(RECOVERY_API_PATH, recoveryRoutes);
   app.route(AGENT_API_PATH, agentRoutes);
   app.route(RESTIC_PATH, resticRoutes);
+  // The read-only restic route of a recovery session.
+  app.route(RECOVERY_RESTIC_PATH, recoveryResticRoutes);
   // Proxmox VE (docs/PVE.md): restow-pve's API, the restic endpoint of container
   // repositories (per-run credentials) and the node installer.
   app.route(PVE_NODE_API_PATH, pveNodeRoutes);
@@ -266,6 +275,7 @@ export function buildApp() {
   app.route(`${API_V1}${runningMountPath}`, runningRoutes);
   app.route(`${API_V1}${settingsMountPath}`, settingsRoutes);
   app.route(`${API_V1}${endpointsMountPath}`, endpointsRoutes);
+  app.route(`${API_V1}/recovery-iso`, recoveryIsoRoutes);
   app.route(`${API_V1}${updatesMountPath}`, updatesRoutes);
   app.route(`${API_V1}${maintenanceMountPath}`, maintenanceRoutes);
   app.route(`${API_V1}${mountsMountPath}`, mountsRoutes);

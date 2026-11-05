@@ -2446,3 +2446,150 @@ describe.skipIf(!adminUrl)("upgrading to 0.5.0: the bare metal layout check (007
     }
   }, 120_000);
 });
+
+describe.skipIf(!adminUrl)("upgrading to 0.5.0: recovery codes and rebind tokens (0078)", () => {
+  const base = adminUrl as string;
+  const database = `restow_db_migrate_recoveries_${suffix}`;
+  const owner: RoleLogin = {
+    name: `restow_mig_recoveries_${suffix}`,
+    password: randomBytes(18).toString("base64url"),
+  };
+  const ids = { tenant: randomUUID(), endpoint: randomUUID(), run: randomUUID() };
+  let folder = "";
+
+  beforeAll(async () => {
+    folder = migrationsFolderUpTo("0077_baremetal_check");
+    const admin = new pg.Pool({ connectionString: base });
+    try {
+      await admin.query(
+        `CREATE ROLE ${owner.name} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE PASSWORD '${owner.password}'`,
+      );
+      await admin.query(`CREATE DATABASE ${database} OWNER ${owner.name}`);
+    } finally {
+      await admin.end();
+    }
+  });
+
+  afterAll(async () => {
+    if (folder) rmSync(folder, { recursive: true, force: true });
+    await dropTestDatabase(base, database);
+    const admin = new pg.Pool({ connectionString: base });
+    try {
+      await admin.query(`DROP ROLE IF EXISTS ${owner.name}`);
+    } finally {
+      await admin.end();
+    }
+  });
+
+  it("applies on top of 0077 alone, keeps every run and token and enforces the new checks", async () => {
+    const url = urlFor(base, database, owner);
+    await applyReleasedSchema(url, folder, null);
+    const pool = new pg.Pool({ connectionString: url });
+    try {
+      const providerId = await insertReturningId(
+        pool,
+        "INSERT INTO providers (name) VALUES ('Provider') RETURNING id",
+        [],
+      );
+      await asTenant(pool, ids.tenant, async (client) => {
+        await client.query(
+          "INSERT INTO tenants (id, provider_id, name, slug) VALUES ($1, $2, 'Contoso', $3)",
+          [ids.tenant, providerId, `contoso-${suffix}`],
+        );
+        await client.query(
+          `INSERT INTO endpoints (id, tenant_id, hostname, os, arch, profile, secret_hash, config)
+           VALUES ($1, $2, 'srv-01', 'linux', 'amd64', 'server', 'x', '{}'::jsonb)`,
+          [ids.endpoint, ids.tenant],
+        );
+        await client.query(
+          `INSERT INTO endpoint_runs (id, tenant_id, endpoint_id, kind, status, started_at, snapshot_id)
+           VALUES ($1, $2, $3, 'backup', 'succeeded', now(), $4)`,
+          [ids.run, ids.tenant, ids.endpoint, "a".repeat(64)],
+        );
+        // An enrollment token of a week: valid as before (only rebind tokens are bounded).
+        await client.query(
+          `INSERT INTO endpoint_enrollment_tokens (tenant_id, token_hash, profile, expires_at)
+           VALUES ($1, 'old-token', 'server', now() + interval '7 days')`,
+          [ids.tenant],
+        );
+      });
+
+      // Only the one migration is left to apply.
+      await runMigrations(url);
+      const { rows: applied } = await pool.query<{ count: string }>(
+        "SELECT count(*)::text AS count FROM drizzle.__drizzle_migrations",
+      );
+      expect(Number(applied[0]?.count)).toBe(79);
+
+      await asTenant(pool, ids.tenant, async (client) => {
+        const run = await client.query(
+          "SELECT activity_baseline FROM endpoint_runs WHERE id = $1",
+          [ids.run],
+        );
+        expect(run.rows).toEqual([{ activity_baseline: false }]);
+        const token = await client.query(
+          "SELECT endpoint_id, purpose, unrevoke FROM endpoint_enrollment_tokens WHERE token_hash = 'old-token'",
+        );
+        expect(token.rows).toEqual([{ endpoint_id: null, purpose: null, unrevoke: false }]);
+        const insertToken = (hash: string, hours: number, purpose: string | null) =>
+          client.query(
+            `INSERT INTO endpoint_enrollment_tokens (tenant_id, token_hash, profile, expires_at, endpoint_id, purpose)
+             VALUES ($1, $2, 'server', now() + ($3 || ' hours')::interval, $4, $5)`,
+            [ids.tenant, hash, String(hours), ids.endpoint, purpose],
+          );
+        await insertToken("rebind-24h", 24, "reinstall");
+        await client.query("SAVEPOINT a");
+        await expect(insertToken("rebind-25h", 25, "baremetal")).rejects.toThrow(
+          /endpoint_enrollment_tokens_rebind_24h/,
+        );
+        await client.query("ROLLBACK TO SAVEPOINT a");
+        await expect(insertToken("rebind-odd", 1, "anything")).rejects.toThrow(
+          /endpoint_enrollment_tokens_purpose_ck/,
+        );
+        await client.query("ROLLBACK TO SAVEPOINT a");
+
+        const recovery = (hash: string | null, hours: number) =>
+          client.query(
+            `INSERT INTO endpoint_recoveries (tenant_id, endpoint_id, kind, code_hash, expires_at, issued_at)
+             VALUES ($1, $2, 'code', $3, now() + ($4 || ' hours')::interval, now()) RETURNING id, status`,
+            [ids.tenant, ids.endpoint, hash, String(hours)],
+          );
+        const issued = await recovery("h1", 48);
+        expect(issued.rows[0]?.status).toBe("issued");
+        await client.query("SAVEPOINT b");
+        await expect(recovery("h2", 49)).rejects.toThrow(/endpoint_recoveries_max_48h/);
+        await client.query("ROLLBACK TO SAVEPOINT b");
+        await expect(recovery("h1", 4)).rejects.toThrow(/endpoint_recoveries_code_uq/);
+        await client.query("ROLLBACK TO SAVEPOINT b");
+        // Without a hash (a later kind) any number of rows.
+        await recovery(null, 4);
+        await recovery(null, 4);
+        await client.query(
+          "INSERT INTO endpoint_recovery_log (tenant_id, recovery_id, lines) VALUES ($1, $2, 'line')",
+          [ids.tenant, issued.rows[0]?.id],
+        );
+        // The machine goes, and so do its recoveries, their logs and its rebind tokens.
+        await client.query("DELETE FROM endpoint_runs WHERE endpoint_id = $1", [ids.endpoint]);
+        await client.query("DELETE FROM endpoints WHERE id = $1", [ids.endpoint]);
+        const left = await client.query(
+          `SELECT (SELECT count(*) FROM endpoint_recoveries)::int AS recoveries,
+                  (SELECT count(*) FROM endpoint_recovery_log)::int AS log,
+                  (SELECT count(*) FROM endpoint_enrollment_tokens WHERE endpoint_id IS NOT NULL)::int AS rebind`,
+        );
+        expect(left.rows).toEqual([{ recoveries: 0, log: 0, rebind: 0 }]);
+      });
+      // Isolated like every tenant table: unpinned, nothing is seen.
+      const { rows } = await pool.query<{ name: string; force: boolean }>(
+        `SELECT relname AS name, relforcerowsecurity AS force FROM pg_class
+          WHERE relname IN ('endpoint_recoveries', 'endpoint_recovery_log') AND relkind = 'r' ORDER BY relname`,
+      );
+      expect(rows).toEqual([
+        { name: "endpoint_recoveries", force: true },
+        { name: "endpoint_recovery_log", force: true },
+      ]);
+      expect((await pool.query("SELECT 1 FROM endpoint_recoveries")).rowCount).toBe(0);
+    } finally {
+      await pool.end();
+    }
+  }, 120_000);
+});

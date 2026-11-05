@@ -409,7 +409,15 @@
       "stale": "Server or client not reporting",
       "suspicious_snapshot": "Suspicious snapshot of a server or client",
       "storage_quota": "Storage budget of servers and clients",
-      "repository_locked": "Backup data of a server or client stays locked"
+      "repository_locked": "Backup data of a server or client stays locked",
+      "recovery": {
+        "started": "Recovery code of a machine redeemed",
+        "failed": "Bare metal recovery failed"
+      },
+      "recovery_code": {
+        "rejected": "Dead recovery code tried"
+      },
+      "rebound": "Machine rebound with a new agent secret"
     },
     "file_share": {
       "storage_quota": "Storage budget of file shares",
@@ -466,7 +474,15 @@
       "stale": "A server has not reported for more than two hours, or a client has had no good backup for several days.",
       "suspicious_snapshot": "A snapshot appeared that no backup run reported, or one dated in the future. Retention keeps it; the machine may be compromised.",
       "storage_quota": "The backup data of a machine, or all of a tenant's together, reached 90 percent of the storage budget, or backups were refused because it is used up.",
-      "repository_locked": "Retention and checks kept finding a machine's backup data locked for more than twelve hours."
+      "repository_locked": "Retention and checks kept finding a machine's backup data locked for more than twelve hours.",
+      "recovery": {
+        "started": "The recovery ISO redeemed a recovery code of a machine. The session waits for an administrator to release it, or reads the machine's backups when the code was issued without a release. If nobody here started a recovery, reject or end the session at once.",
+        "failed": "A bare metal recovery ended as failed: the recovery ISO reported it so, nobody released the session within 30 minutes, or the ISO stopped reporting after the code expired."
+      },
+      "recovery_code": {
+        "rejected": "Someone tried a recovery code that had expired, was used already or was revoked. That is a sign the code was passed on or stolen."
+      },
+      "rebound": "A machine got a new agent secret through a rebind token, after a restore or a reinstall. Its previous installation no longer has access; if nobody here rebound it, revoke the machine."
     },
     "file_share": {
       "storage_quota": "The backup data of a file share, or all of a tenant's shares together, reached 80 percent of the storage budget, or new backups are refused because it is used up.",
@@ -645,7 +661,15 @@
       "stale": "Not reporting: {object}",
       "suspicious_snapshot": "Suspicious snapshot: {object}",
       "storage_quota": "Storage budget: {object}",
-      "repository_locked": "Backup data locked: {object}"
+      "repository_locked": "Backup data locked: {object}",
+      "recovery": {
+        "started": "Recovery code redeemed: {object}",
+        "failed": "Recovery failed: {object}"
+      },
+      "recovery_code": {
+        "rejected": "Dead recovery code tried: {object}"
+      },
+      "rebound": "Machine rebound: {object}"
     },
     "file_share": {
       "storage_quota": "Storage budget: {object}",

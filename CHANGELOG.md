@@ -313,6 +313,34 @@ private repository.
   on Linux limits itself (512 MiB data, 30 s CPU). The worker runs it from `/usr/local/lib/restow/restow-agent`
   (`RESTOW_PLANNER_BIN`) with only `PATH` and `LC_ALL`, in an empty folder, under `prlimit`, for
   at most 45 seconds and 4 MiB of output.
+- Recovery codes (preview, Linux): a one-time code for one machine, bound to this instance's
+  address, valid 4 hours (up to 48), audited, approved by an admin after it is redeemed,
+  read-only access to that machine's backups for a bare-metal restore. An admin issues it after a
+  recent sign-in (`POST /api/v1/endpoints/:id/recovery-codes`): 25 symbols without look-alikes,
+  shown once with the address to type and the instance check value (the first 80 bits of the
+  SHA-256 of the instance's TLS public key, `RESTOW_PUBLIC_TLS_SPKI` behind a load balancer). The
+  recovery ISO sends only a proof bound to the address it actually reaches, and the server keeps
+  only the hash of that proof; a session secret made in the ISO is known to the server as its
+  hash, and both sides show a six-digit match number before the admin releases the session.
+  The ISO's API (`/agent/v1/recovery/*`) exchanges the code, waits for the release, hands out the
+  repository credentials once (and once more within five minutes), takes progress, a redacted
+  log of at most 2 MiB, events, the end of its repository access and the result; it reads
+  through its own restic route `/agent/recovery/restic/:sessionId` as the read-only principal
+  (120,000 requests per 10 minutes), which ends within five seconds of a cancel or the release.
+  Codes and sessions run out on their own: unredeemed, not released within 30 minutes, or silent
+  30 minutes past their expiry. At most three codes per machine are open; every transition is
+  audited once. Failed exchanges count per address in their own limit (20 in 10 minutes), apart
+  from the agents'. Migration 0078. The code dialog and the bare metal wizard stay hidden until
+  a release ships a verified recovery ISO (`GET /api/v1/recovery-iso`); until then issuing a code
+  is refused with `baremetal-not-available` (`iso_unverified`).
+- Rebind a restored machine: a separate, short-lived token that gives an existing machine a new
+  agent secret and keeps its backups and history; revoked machines stay revoked unless chosen.
+  The machine's page has "Reconnect machine…" in its danger zone (an own dialog with the warning
+  that the token gives lasting access and the previous installation loses its connection; valid 1
+  hour, up to 24). The token works with the existing install command (`POST /agent/v1/enroll`
+  answers `rebound: true`) and from the recovery ISO after a successful restore; the operating
+  system must match, pending uninstall orders end, and the first good backup afterwards is the
+  new baseline of the ransomware signals. Pending tokens list rebind tokens as "Reconnect".
 
 ### Changed
 
@@ -488,9 +516,22 @@ private repository.
 - The detail panel and the row of a copy job showed no progress while it copied: its runs are
   restores of what it copies and were not counted as the job's.
 
+### Security
+
+- Repository pruning waits while a recovery runs; redeeming a code, trying a dead code and
+  rebinding a machine alert the tenant admins. Retention and the removal of a machine's backups
+  check for a running recovery session before and after they take the repository's lock, and a
+  session is released only under the shared lock, so neither order prunes beneath a restore; a
+  session that waits for its release holds nothing. Removing a machine is refused while a
+  recovery session reads it, and its unredeemed codes are revoked. The new alerts
+  `endpoint.recovery.started`, `endpoint.recovery_code.rejected`, `endpoint.rebound` and
+  `endpoint.recovery.failed` are errors of the group "Recoverability" and go to the bell and to
+  every rule that lists them. Recovery codes, rebind tokens and the 64-digit hex values of a
+  session are removed from every stored log and failure text.
+
 ### Upgrade Notes
 
-Five database migrations run on start: 0073 creates the new table `storage_samples` and 0074 the new
+Six database migrations run on start: 0073 creates the new table `storage_samples` and 0074 the new
 table `directory_memberships`; neither rewrites anything. 0075 serves the restore explorer's "From
 the archive": an index on `archive_items` (tenant, mailbox, capture time), the index on
 `archive_item_mailboxes` (tenant, mailbox) replaced by one that adds the time of the assignment, a
@@ -506,7 +547,10 @@ itself keeps working. The first directory sync after the update reads the owners
 every Microsoft 365 group once (three Graph reads per group, through `$batch`); until it has run, a
 person's "Teams & sites" is empty and says that it may be incomplete. 0076 creates the table
 `endpoint_layouts` and adds the empty column `endpoint_runs.layout_id`; nothing is rewritten. 0077
-adds the value `baremetal_check` to the report kinds of machines; nothing is rewritten. Whole
+adds the value `baremetal_check` to the report kinds of machines; nothing is rewritten. 0078
+creates the tables `endpoint_recoveries` and `endpoint_recovery_log`, adds the empty columns
+`endpoint_id`, `purpose` and `unrevoke` (false) to `endpoint_enrollment_tokens` and
+`endpoint_runs.activity_baseline` (false); nothing is rewritten. Whole
 machine backups stay off until `RESTOW_BAREMETAL_PREVIEW=true` is set for the api. Agents before
 0.5.0 ignore `snapshotOnFailure`, `wholeMachine` and `fsSnapshot`, and the release key keeps the
 fingerprint `SHA256:2LB7RPpIS0wqbcZ2NA8MjuQN7ZfFPqBX3CwrGFSu76o`.

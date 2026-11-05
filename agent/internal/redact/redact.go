@@ -5,7 +5,8 @@
 // password, the enrollment token) registered with Add, and patterns for
 // well-known secret shapes (Restow token prefixes, Basic authorization
 // headers, credentials inside URLs, NAME=value pairs whose name suggests a
-// secret). The patterns are a safety net for text produced by third parties
+// secret, recovery codes, 64-digit hexadecimal session secrets and code
+// proofs). The patterns are a safety net for text produced by third parties
 // (restic, hooks); they do not make it safe to print secrets on purpose.
 package redact
 
@@ -28,8 +29,13 @@ var patterns = []struct {
 	re   *regexp.Regexp
 	repl string
 }{
-	// Restow enrollment tokens and agent secrets.
+	// Restow enrollment and reconnect tokens and agent secrets.
 	{regexp.MustCompile(`\brs(?:et|ea)_[A-Za-z0-9_-]{8,}`), Mask},
+	// Recovery codes (RC-XXXXX-XXXXX-XXXXX-XXXXX-XXXXX, dashes optional).
+	{regexp.MustCompile(`(?i)\bRC-?(?:[0-9A-HJKMNP-TV-X]{5}-?){4}[0-9A-HJKMNP-TV-X]{5}\b`), Mask},
+	// 64-digit hexadecimal values after a name like sessionSecret, codeProof,
+	// secret or password (recovery session secrets and code proofs).
+	{regexp.MustCompile(`(?i)((?:session[A-Za-z0-9_]*|codeProof|secret|password)["']?\s*[=:]\s*["']?)[0-9a-f]{64}`), "${1}" + Mask},
 	// Authorization headers.
 	{regexp.MustCompile(`(?i)(authorization:\s*(?:basic|bearer)\s+)[^\s"']+`), "${1}" + Mask},
 	{regexp.MustCompile(`(?i)\bBasic\s+[A-Za-z0-9+/]{16,}={0,2}`), "Basic " + Mask},

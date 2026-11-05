@@ -9,7 +9,11 @@ import {
   type EndpointJobPayload,
   type EndpointQueue,
 } from "@restow/core";
-import { EndpointRepositoryBusyError, retryConcurrentSetup } from "@restow/db";
+import {
+  EndpointRecoveryActiveError,
+  EndpointRepositoryBusyError,
+  retryConcurrentSetup,
+} from "@restow/db";
 import type PgBoss from "pg-boss";
 import { isUuid } from "../handlers/framework.js";
 import { BaremetalCheckIncompleteError, endpointBaremetalCheck } from "./baremetal-check.js";
@@ -56,6 +60,15 @@ export async function registerEndpointJobs(
         try {
           await run(job);
         } catch (error) {
+          if (error instanceof EndpointRecoveryActiveError) {
+            // A bare metal recovery reads the repository (docs/BAREMETAL.md 9.7): retried later,
+            // nothing was rated or counted.
+            logger.warn("endpoint repository read by a running recovery, job will retry", {
+              queue,
+              recoveryId: error.recoveryId,
+            });
+            throw error;
+          }
           if (error instanceof EndpointRepositoryBusyError) {
             // Other server work held the repository: retried later, nothing was rated.
             logger.warn("endpoint repository busy with other server work, job will retry", {

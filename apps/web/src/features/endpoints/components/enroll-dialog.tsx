@@ -278,7 +278,7 @@ function Warnings({
   );
 }
 
-function CommandBox({
+export function CommandBox({
   command,
   label,
   className,

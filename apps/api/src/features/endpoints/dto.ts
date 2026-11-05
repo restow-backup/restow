@@ -385,6 +385,15 @@ export interface EnrollmentTokenDto {
   expiresAt: string;
   state: "valid" | "expired" | "used" | "revoked";
   usedByEndpointId: string | null;
+  /**
+   * `enroll` makes a new machine; `rebind` (0.5.0, docs/BAREMETAL.md 11) gives the existing
+   * machine `endpointId` a new agent secret, for `purpose`.
+   */
+  kind: "enroll" | "rebind";
+  purpose: "baremetal" | "reinstall" | "mac_setup" | null;
+  endpointId: string | null;
+  /** The display name or hostname of the machine a rebind token is for. */
+  endpointName: string | null;
 }
 
 export interface CreatedTokenDto extends EnrollmentTokenDto {

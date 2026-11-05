@@ -30,6 +30,26 @@ export const ENDPOINT_AUDIT_ACTIONS = {
   secretFileRevealed: "endpoint.repository.secret_file_revealed",
   updatesPaused: "endpoint.updates.paused",
   updatesResumed: "endpoint.updates.resumed",
+  // Bare metal recovery (docs/BAREMETAL.md 9.9): every transition of a code and its session.
+  recoveryCodeCreated: "endpoint.recovery_code.created",
+  recoveryCodeRevoked: "endpoint.recovery_code.revoked",
+  recoveryCodeExtended: "endpoint.recovery_code.extended",
+  /** A code that is expired, used or revoked was tried (a sign of theft). */
+  recoveryCodeRejected: "endpoint.recovery_code.rejected",
+  recoveryStarted: "endpoint.recovery.started",
+  recoveryApproved: "endpoint.recovery.approved",
+  recoveryCredentialsIssued: "endpoint.recovery.credentials_issued",
+  recoveryRemoteAccessEnabled: "endpoint.recovery.remote_access_enabled",
+  recoveryKeyfileRegenerated: "endpoint.recovery.keyfile_regenerated",
+  recoveryReleased: "endpoint.recovery.released",
+  recoveryFinished: "endpoint.recovery.finished",
+  /** The monitor (or a late release) ended a code or a session that ran out of time. */
+  recoveryExpired: "endpoint.recovery.expired",
+  recoveryCancelled: "endpoint.recovery.cancelled",
+  // Rebinding a machine (docs/BAREMETAL.md 11).
+  rebindTokenCreated: "endpoint.rebind_token.created",
+  rebound: "endpoint.rebound",
+  unrevoked: "endpoint.unrevoked",
 } as const;
 
 /** Who did it: a signed-in admin, or the agent of an endpoint. */
@@ -43,6 +63,14 @@ export function agentActor(hostname: string, ip: string | null): EndpointActor {
   return { label: `agent:${hostname}`, userId: null, ip };
 }
 
+/** The recovery ISO of a session (docs/BAREMETAL.md 9): its reports are marked as its own. */
+export function recoveryActor(recoveryId: string, ip: string | null): EndpointActor {
+  return { label: `recovery:${recoveryId}`, userId: null, ip };
+}
+
+/** The server itself (the monitor, a late transition). */
+export const SYSTEM_ACTOR: EndpointActor = { label: "system", userId: null, ip: null };
+
 export async function auditEndpoint(
   db: DbExecutor,
   input: {
@@ -51,6 +79,8 @@ export async function auditEndpoint(
     action: string;
     endpointId: string;
     details?: Record<string, unknown>;
+    /** Another target than the machine (a rebind token). */
+    target?: { id: string; type: string };
   },
 ): Promise<void> {
   await audit(db, {
@@ -59,8 +89,8 @@ export async function auditEndpoint(
     actorUserId: input.actor.userId,
     ip: input.actor.ip,
     action: input.action,
-    target: input.endpointId,
-    targetType: "endpoint",
+    target: input.target?.id ?? input.endpointId,
+    targetType: input.target?.type ?? "endpoint",
     details: input.details ?? null,
   });
 }

@@ -133,6 +133,18 @@ export const PUBLIC_ROUTES: ReadonlySet<string> = new Set([
   "POST /agent/v1/runs/:runId/progress",
   "POST /agent/v1/runs/:runId/finish",
   "GET /agent/v1/update",
+  // The recovery ISO (docs/BAREMETAL.md 9): the exchange carries only the code proof (throttled
+  // per address), the session routes authenticate with the session's own secret (HTTP Basic).
+  "POST /agent/v1/recovery/sessions",
+  "GET /agent/v1/recovery/sessions/current",
+  "GET /agent/v1/recovery/sessions/current/credentials",
+  "GET /agent/v1/recovery/sessions/current/ssh-keys",
+  "POST /agent/v1/recovery/sessions/current/progress",
+  "POST /agent/v1/recovery/sessions/current/log",
+  "POST /agent/v1/recovery/sessions/current/event",
+  "POST /agent/v1/recovery/sessions/current/release",
+  "POST /agent/v1/recovery/sessions/current/finish",
+  "POST /agent/v1/recovery/sessions/current/rebind",
   "GET /install/linux.sh",
   "GET /install/macos.sh",
   "GET /install/windows.ps1",
@@ -657,6 +669,19 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   // machine's serial numbers only for those who configure machines.
   "GET /api/v1/endpoints/:id/baremetal": view(),
   "GET /api/v1/endpoints/:id/baremetal/layouts/:layoutId": configure(),
+  // Bare metal recovery (docs/BAREMETAL.md 9, 11): a code hands out the machine's repository
+  // password to the ISO, a session reads all of its backups, a rebind token gives the machine a
+  // new agent secret. All of it, and the ISO's download facts, is configuration work.
+  "GET /api/v1/recovery-iso": configure(),
+  "POST /api/v1/endpoints/:id/recovery-codes": configure(),
+  "POST /api/v1/endpoints/:id/recovery-codes/:codeId/revoke": configure(),
+  "POST /api/v1/endpoints/:id/recovery-codes/:codeId/extend": configure(),
+  "GET /api/v1/endpoints/:id/recoveries": configure(),
+  "GET /api/v1/endpoints/:id/recoveries/:recoveryId": configure(),
+  "POST /api/v1/endpoints/:id/recoveries/:recoveryId/approve": configure(),
+  "POST /api/v1/endpoints/:id/recoveries/:recoveryId/cancel": configure(),
+  "PUT /api/v1/endpoints/:id/recoveries/:recoveryId/ssh-keys": configure(),
+  "POST /api/v1/endpoints/:id/rebind-token": configure(),
 
   // --- Webhooks --------------------------------------------------------------------
   "GET /api/v1/reports/catalog": view(),

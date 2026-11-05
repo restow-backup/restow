@@ -185,6 +185,38 @@ Alle Antworten sind JSON, Fehler `application/problem+json` wie im Rest der API.
 | `POST /runs/:id/finish` | `{ status: succeeded/partial/failed, finishedAt, snapshotId?, stats?, sample?, errors, logTail, restoreTest?, activity?, consistency? }`. `consistency` (Agent ab 0.5.0, jeder Backup-Lauf, der restic erreicht hat, auch ein fehlgeschlagener, wenn der Snapshot der Grund ist): `{ method?: vss/lvm/btrfs/apfs/mixed, state: used/partial/unavailable/off, liveFilesystems? }`, siehe "Konsistenz"; der Server prüft und begrenzt es und legt es als `stats.consistency` ab, ein fehlerhaftes wird verworfen. `activity` (Agent ab 0.4.0, nur bei einem Backup mit vorigem Snapshot): was sich gegenüber dem vorigen Snapshot geändert hat, für die Ransomware-Erkennung (Format und Grenzen: docs/RANSOMWARE.md, "The activity report"); ein Server, der das Feld nicht kennt, ignoriert es, ein fehlerhafter Bericht wird verworfen, ohne den Abschluss abzulehnen. `restoreTest` nur bei `verify_sample`: `{ files: [{ path, sha256? \| missing: true \| error }], restic?: { exitCode, fatal, errors: [{ item, message }] } }` (siehe "Restore-Test"). `layout` (Agent ab 0.5.0, nur bei einer Sicherung des ganzen Rechners mit `snapshotId`): das Layout-Manifest `restow-layout-v1` (docs/BAREMETAL.md 4), genau die kanonischen Bytes von `layout.json` im Snapshot, höchstens 512 KiB; der Server prüft es (`parseLayoutManifest`), legt es je Rechner und SHA-256 einmal in `endpoint_layouts` ab und setzt `endpoint_runs.layout_id`. Ein abgelehntes (ungültig, zu groß, macOS vor M6) ändert den Status des Laufs nicht und hängt den Hinweis `layout_rejected` an seine Fehler. Wiederholung für einen beendeten Lauf antwortet gleich und ändert nichts. |
 | `GET /update` | `{ version, url, sha256 }` oder `null`: neuere **signierte** Agent-Version auf dieser Instanz; `null` auch, solange der Mandant Agent-Updates pausiert hat. |
 
+Ein Wiederanbindungs-Token (seit 0.5.0, siehe "Wiederanbindung") wird über dasselbe
+`POST /enroll` eingelöst; die Antwort hat dieselbe Form und zusätzlich `rebound: true`, ein älterer
+Agent ignoriert das Feld.
+
+**Recovery-API `/agent/v1/recovery` (seit 0.5.0, Vorschau, docs/BAREMETAL.md 9).** Vor der
+Agent-API eingehängt, damit deren Agent-Anmeldung sie nicht abfängt. Der Tausch hat keine
+Zugangsdaten außer dem Beweis im Body (und den Browser-Schutz wie `/enroll`), alles andere HTTP-Basic
+`<sessionId>:<sessionSecret>`; Antworten mit Geheimnissen tragen `Cache-Control: no-store`. Bodys
+höchstens 64 KiB, das Log 1 MiB, der Abschluss 320 KiB. Fehlversuche (unbekannter Beweis,
+unbrauchbarer Body, falsches Sitzungsgeheimnis) zählen je Adresse in einem eigenen Zähler (20 je
+10 Minuten), nicht in dem der Agenten; ein toter Code (abgelaufen, eingelöst, widerrufen) zählt nicht,
+er wird beim Mandanten auditiert und alarmiert. Je Sitzung 600 Aufrufe in 10 Minuten.
+
+| Aufruf | Zweck |
+| --- | --- |
+| `POST /sessions` | `{ codeProof, sessionSecretSha256, recoveryVersion, hardware }` ergibt 202 `{ sessionId, status: pending_approval/active, matchCode, expiresAt, endpoint, minRecoveryVersion }`. Derselbe Beweis mit demselben Hash innerhalb von 15 Minuten und vor `release` liefert dieselbe Sitzung. |
+| `GET /sessions/current` | `{ sessionId, status, expiresAt, cancelRequested, approved }`. |
+| `GET /sessions/current/credentials` | nur `active`: Repository-URL (`/agent/recovery/restic/<sessionId>/` an der Adresse des Codes) und Passwort, gewählter Snapshot, `layoutSha256`, Bare-Metal-Snapshots mit Prüfstand, `indexBytes`, `restoreSizes`; einmal und ein zweites Mal innerhalb von 5 Minuten, je auditiert. |
+| `GET /sessions/current/ssh-keys` | öffentliche Schlüssel, die der Admin hinterlegt hat. |
+| `POST /sessions/current/progress` | Phase und Zähler, optional SSH-Hostschlüssel (204). |
+| `POST /sessions/current/log` | bis zu 200 Zeilen; ohne ANSI- und Steuerzeichen, geschwärzt, höchstens 2 MiB je Sitzung (202 `{ accepted, dropped }`). |
+| `POST /sessions/current/event` | `remote_access_enabled` oder `keyfile_regenerated` für das Audit (204). |
+| `POST /sessions/current/release` | Ende des Repository-Zugangs: `finishing`, danach antworten Zugangsdaten und restic-Route 401. |
+| `POST /sessions/current/finish` | `{ status: succeeded/failed/cancelled, verification, warnings, durationSeconds }`, endgültig. |
+| `POST /sessions/current/rebind` | ein Wiederanbindungs-Token desselben Rechners, nur nach `succeeded` und höchstens 15 Minuten danach; Antwort wie `POST /enroll` mit `rebound: true`. |
+
+Die restic-Route der Sitzung, `/agent/recovery/restic/:sessionId/...`, liest als Prinzipal `reader`
+(jede Schreib- und Löschoperation 403 und auditiert als `endpoint.repository.denied` mit
+`principal: "recovery"`), nur während die Sitzung `active` ist; der Zustand ist höchstens 5 Sekunden
+zwischengespeichert, Abbruch und `release` wirken also nach höchstens 5 Sekunden. 120.000 Anfragen je
+Sitzung und 10 Minuten.
+
 ### Rechner und Datenordner
 
 Ab 0.4.0 sagt der Agent mit Enrollment und Heartbeat, was der Rechner ist und welche Ordner mit
@@ -439,6 +471,52 @@ Ordner des Jobs bleiben gespeichert, ein älterer Agent sichert weiter sie.
   `restow-plan-facts-v1`), unter `prlimit --data=536870912 --cpu=30 --nofile=16` (fehlt `prlimit`,
   setzt das Binary die Grenzen selbst; nie `--as`, damit startet kein Go-Programm), höchstens 45
   Sekunden und 4 MiB Ausgabe.
+
+### Wiederherstellungscode und Wiederanbindung (Vorschau, seit 0.5.0)
+
+Für eine Bare-Metal-Wiederherstellung stellt ein Mandanten-Admin nach frischer Anmeldung einen
+**Wiederherstellungscode** aus (`POST /api/v1/endpoints/:id/recovery-codes`, docs/BAREMETAL.md 9):
+einmal einlösbar, Standard 4 Stunden, höchstens 48, an die Adresse der Instanz gebunden, mit dem
+Prüfwert der Instanz (SPKI-SHA-256 der eigenen Adresse oder `RESTOW_PUBLIC_TLS_SPKI`). Nur für
+Linux-Rechner, die nicht entfernt sind, mit einer Sicherung samt Layout, deren Urteil nicht
+`unsupported` ist, höchstens drei offene je Rechner, und nur, solange `RESTOW_BAREMETAL_PREVIEW` an
+ist und `GET /api/v1/recovery-iso` ein geprüftes ISO meldet (die neueste signierte Agent-Version
+listet `recovery/restow-recovery_<v>_amd64.iso` in ihren `SHA256SUMS`). Bis ein Release das ISO
+mitbringt, ist das nie der Fall: Ausstellen antwortet 409 `baremetal-not-available` mit
+`reason: "iso_unverified"`, Code-Dialog und Assistent sind ausgeblendet. Nach dem Eintausch wartet
+die Sitzung auf die **Freigabe** (`POST .../recoveries/:id/approve`, frische Anmeldung; Vorgabe an,
+abschaltbar beim Ausstellen); ohne Freigabe nach 30 Minuten `failed`. Widerrufen, verlängern
+(höchstens 48 Stunden nach dem Ausstellen), ablehnen bzw. beenden und SSH-Schlüssel hinterlegen
+gehen über `POST .../recovery-codes/:id/revoke`, `.../extend`, `POST .../recoveries/:id/cancel`
+und `PUT .../recoveries/:id/ssh-keys`; `GET .../recoveries` und `.../recoveries/:id` zeigen Liste,
+Prüfzahl, Hardware, Fortschritt und Log.
+
+Audit (docs/BAREMETAL.md 9.9, je Übergang genau ein Eintrag): `endpoint.recovery_code.created`,
+`.revoked`, `.extended`, `.rejected` (toter Code versucht), `endpoint.recovery.started`,
+`.approved`, `.credentials_issued` (mit `repeat`), `.remote_access_enabled`,
+`.keyfile_regenerated`, `.released`, `.finished`, `.expired` (Monitor oder späte Freigabe),
+`.cancelled`; SSH-Schlüssel als `endpoint.config.changed` mit `recoverySshKeys`. Wiederanbindung:
+`endpoint.rebind_token.created` (Ziel `endpoint_enrollment_token`), `endpoint.rebound` (alter und
+neuer Hostname, Adresse, Zweck, `via: enroll/recovery`), `endpoint.unrevoked`. Nie der Code, nie ein
+Hash eines Geheimnisses.
+
+Während eine Sitzung `active` oder `finishing` ist und nicht abgelaufen, warten Aufbewahrung und das
+Löschen der Sicherungen eines entfernten Rechners (`EndpointRecoveryActiveError`, pg-boss wiederholt);
+sie prüfen vor und nach dem Nehmen der exklusiven Sperre, die Freigabe nimmt die geteilte. Entfernen
+antwortet 409 `endpoint-recovery-active`; offene Codes eines entfernten Rechners werden widerrufen.
+
+**Wiederanbindung** (docs/BAREMETAL.md 11): `POST /api/v1/endpoints/:id/rebind-token` mit
+`{ purpose: reinstall/baremetal, validityHours?, unrevoke? }` (Admin, frische Anmeldung) stellt ein
+Token `rset_` mit gesetzter Spalte `endpoint_id` aus, Standard 1 Stunde, höchstens 24 (CHECK). Die
+Einlösung über `POST /agent/v1/enroll` (der normale Installationsbefehl) oder im ISO über
+`.../current/rebind` legt keinen Rechner an: Der bestehende bekommt ein neues Agent-Secret und
+behält Repository, Passwort, Jobs, Einstellungen und Läufe. Das Betriebssystem muss gleich sein
+(sonst 422 `endpoint-rebind-os-mismatch`), ein gesperrter Rechner kommt nur mit `unrevoke` zurück
+(sonst 409 `endpoint-revoked`; mit Audit `endpoint.unrevoked`), offene Deinstallations-Aufgaben
+enden, der bisherige Agent bekommt ab dann 401. Der erste gute Lauf danach ist die neue Basis der
+Ransomware-Signale (`endpoint_runs.activity_baseline`, docs/RANSOMWARE.md). Abgelehnt nach dem
+Einlösen: Das Token wird wieder freigegeben. `GET /api/v1/endpoints/tokens` zeigt `kind`
+(`enroll`/`rebind`), `purpose`, `endpointId` und `endpointName`.
 
 ### Richtlinien (seit 0.4.0)
 
@@ -1010,6 +1088,10 @@ Bericht oder Endpunkt wird in derselben Transaktion gesetzt).
 | `endpoint.storage_quota` (Gruppe Speicher, Warnung bzw. Fehler) | ein Repository hat 90 Prozent seines Budgets erreicht, das Budget ist ausgeschöpft oder ein Upload wurde abgelehnt; je Stufe einmal. Dazu höchstens einmal am Tag, wenn alle Endpunkte eines Mandanten 90 Prozent des Mandantenbudgets erreichen (Gegenstand ist dann der Mandant). |
 | `backup.suspicious` (Gruppe Wiederherstellbarkeit, Fehler) | ein Sicherungsstand zeigt Anzeichen von Ransomware (docs/RANSOMWARE.md); einmal je Episode. |
 | `endpoint.repository_locked` (Gruppe Aufträge, Warnung) | Aufbewahrung und Prüfung fanden das Repository sechsmal in Folge über mindestens zwölf Stunden gesperrt. |
+| `endpoint.recovery.started` (Gruppe Wiederherstellbarkeit, Fehler, seit 0.5.0) | ein Wiederherstellungscode wurde eingetauscht (API, sofort). |
+| `endpoint.recovery_code.rejected` (Gruppe Wiederherstellbarkeit, Fehler) | ein abgelaufener, eingelöster oder widerrufener Code wurde versucht (API, sofort). |
+| `endpoint.rebound` (Gruppe Wiederherstellbarkeit, Fehler) | ein Rechner hat über ein Wiederanbindungs-Token ein neues Agent-Secret (API, sofort). |
+| `endpoint.recovery.failed` (Gruppe Wiederherstellbarkeit, Fehler) | eine Wiederherstellung endete mit `failed`: so gemeldet, 30 Minuten ohne Freigabe oder 30 Minuten nach Ablauf ohne Abschluss (Monitor). |
 
 Damit deckt eine bestehende Alarmregel für `backup.failed` und `verify.red` Endpunkte ohne
 Änderung mit ab. Zusätzlich löst ein fehlgeschlagener Lauf das Webhook-Ereignis `job.failed`
@@ -1222,6 +1304,19 @@ hier.
 | `endpoint-removal-never-expires` | 409 | Bis zum Ablauf behalten, aber die Aufbewahrung des Rechners behält alles. |
 | `endpoint-restore-path-locked` | 422 / 403 | Ein ausgewählter Pfad wird nicht herausgegeben (seit 0.5.0): 422 mit `reason: "agent_state"` für die Zustandsdatei des Agenten (für alle), 403 mit `reason: "key_file"` für eine LUKS-Schlüsseldatei des Layouts und die Rolle `tenant_restore`; `path` nennt ihn. |
 | `baremetal-preview-off` | 409 | `wholeMachine` an einem Job einschalten, während `RESTOW_BAREMETAL_PREVIEW` aus ist. |
+| `baremetal-not-available` | 409 | Kein Wiederherstellungscode für diesen Rechner; `reason`: `not_linux`, `removed`, `no_layout`, `unsupported`, `iso_unverified`, `preview_off`, `snapshot_unknown`. |
+| `recovery-limit-reached` | 409 | Drei Codes des Rechners sind schon offen. |
+| `recovery-code-invalid` | 401 | (ISO) Kein Code passt zum Beweis: falscher Code oder eine andere Adresse. |
+| `recovery-code-expired` | 410 | (ISO) Der Code ist abgelaufen. |
+| `recovery-code-revoked` | 410 | (ISO) Der Code wurde widerrufen (auch beim Entfernen des Rechners). |
+| `recovery-code-used` | 409 | (ISO) Der Code ist eingelöst (anderes Sitzungsgeheimnis, oder später als 15 Minuten bzw. nach `release`). |
+| `recovery-too-old` | 426 | (ISO) Das ISO ist älter als `minRecoveryVersion`; der Code bleibt unverbraucht. |
+| `recovery-session-ended` | 401 | Die Sitzung ist beendet, freigegeben (`release`), abgebrochen oder abgelaufen; auch die Antwort auf eine Freigabe nach den 30 Minuten. |
+| `recovery-not-approved` | 409 | (ISO) Die Sitzung wartet auf die Freigabe. |
+| `recovery-credentials-collected` | 409 | (ISO) Die Zugangsdaten wurden schon zweimal oder vor mehr als 5 Minuten abgeholt. |
+| `recovery-state-conflict` | 409 | Freigeben, ablehnen, verlängern, abschließen oder wiederanbinden in einem Zustand, der das nicht erlaubt (`status`). |
+| `endpoint-recovery-active` | 409 | Entfernen, während eine Recovery-Sitzung die Sicherungen liest. |
+| `endpoint-rebind-os-mismatch` | 422 | Ein Wiederanbindungs-Token wurde von einem anderen Betriebssystem eingelöst; das Token bleibt gültig. |
 | `unsupported-os` | 422 | Betriebssystem nicht unterstützt: ein unbekanntes System oder Windows on ARM (Windows nur amd64). |
 | `enrollment-token-invalid` | 401 | Das Enrollment-Token ist unbekannt, abgelaufen, widerrufen oder verwendet. |
 | `agent-unauthorized` | 401 | Falsche oder fehlende Zugangsdaten des Agenten. |
@@ -1371,10 +1466,21 @@ Mandantentabellen (`packages/db/sql/rls.sql`).
   Mandantentabellen. Ein Rechner ist in höchstens einem Job (`backup_job_members.endpoint_id` ist
   eindeutig); die Wirk-Konfiguration steht weiter in `endpoints.config`, nur ihr Schreiber hat gewechselt.
 - `endpoint_enrollment_tokens`: `token_hash` (eindeutig), Profil, Bezeichnung, `expires_at`,
-  `used_at`, `used_by_endpoint_id`, `revoked_at`, `created_by`.
+  `used_at`, `used_by_endpoint_id`, `revoked_at`, `created_by`; seit Migration 0078 `endpoint_id`
+  (gesetzt: Wiederanbindungs-Token dieses Rechners, CHECK höchstens 24 Stunden), `purpose`
+  (`baremetal`, `reinstall`, `mac_setup`) und `unrevoke`.
+- `endpoint_recoveries` (Migration 0078, docs/BAREMETAL.md 9): Wiederherstellungscodes und ihre
+  Sitzungen: `code_hash` (SHA-256 des Beweises, eindeutig), `instance_origin`, `spki_sha256`,
+  `require_approval`, `snapshot_id`, Status `issued` bis `revoked`, `expires_at` (CHECK höchstens
+  48 Stunden nach `issued_at`), `session_secret_hash`, Zeiten von Einlösung, Freigabe,
+  Zugangsdaten, `release` und Ende, was das ISO meldet (`hardware`, `progress`, `ssh_host_keys`,
+  `verification`, `warnings`), `ssh_keys` und `log_bytes`. `endpoint_recovery_log`: geschwärzte
+  Logzeilen je Sitzung, vom Monitor nach 90 Tagen entfernt. `endpoints.settings.activityBaselinePending`
+  markiert einen wieder angebundenen Rechner bis zu seinem ersten guten Lauf.
 - `endpoint_runs`: Art, Status, Zeiten, `snapshot_id`, `stats`, `errors`, `log_tail`,
   `progress`, `failure` (die Erklärung oben), `task_id`, `alerted_at`; seit Migration 0076
-  `layout_id` (das Layout einer Sicherung des ganzen Rechners, `ON DELETE SET NULL`).
+  `layout_id` (das Layout einer Sicherung des ganzen Rechners, `ON DELETE SET NULL`); seit
+  Migration 0078 `activity_baseline` (der erste gute Lauf nach einer Wiederanbindung).
 - `endpoint_layouts` (Migration 0076, docs/BAREMETAL.md 4.3): Layout-Manifeste der Sicherungen
   ganzer Rechner, je Rechner und SHA-256 der kanonischen Kodierung einmal (`sha256`, `format`,
   `schema_version`, `platform`, `manifest`, `summary` für die Rechnerseite, `verdict`,

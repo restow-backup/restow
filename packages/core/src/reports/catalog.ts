@@ -31,6 +31,10 @@ export const REPORT_EVENTS = [
   "endpoint.suspicious_snapshot",
   "endpoint.storage_quota",
   "endpoint.repository_locked",
+  "endpoint.recovery.started",
+  "endpoint.recovery_code.rejected",
+  "endpoint.rebound",
+  "endpoint.recovery.failed",
   "file_share.storage_quota",
   "file_share.repository_locked",
   "source.app_secret_expiring",
@@ -118,6 +122,16 @@ export const REPORT_EVENT_INFO: Readonly<Record<ReportEvent, ReportEventInfo>> =
   "endpoint.storage_quota": { group: "storage", level: "warning" },
   // Retention and checks of an endpoint's repository kept finding it locked.
   "endpoint.repository_locked": { group: "jobs", level: "warning" },
+  // Bare metal recovery (docs/BAREMETAL.md 12.6), security events the tenant's admins hear of at
+  // once: a recovery code was redeemed (a session waits for release or reads the backups), a code
+  // that is expired, used or revoked was tried (a sign of theft), a machine got a new agent secret
+  // through a rebind token (the previous installation lost its access).
+  "endpoint.recovery.started": { group: "recoverability", level: "error" },
+  "endpoint.recovery_code.rejected": { group: "recoverability", level: "error" },
+  "endpoint.rebound": { group: "recoverability", level: "error" },
+  // A bare metal recovery ended as failed: reported so by the ISO, not released within 30 minutes,
+  // or silent past its expiry.
+  "endpoint.recovery.failed": { group: "recoverability", level: "error" },
   // A file share's repository (or all of a tenant's shares) reached 80 % of its storage budget,
   // or the budget is used up and new backups are refused (docs/FILESHARES.md 7.4).
   "file_share.storage_quota": { group: "storage", level: "warning" },

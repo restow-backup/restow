@@ -409,7 +409,15 @@
       "stale": "Server oder Client meldet sich nicht",
       "suspicious_snapshot": "Verdächtiger Snapshot eines Servers oder Clients",
       "storage_quota": "Speicherbudget von Servern und Clients",
-      "repository_locked": "Sicherungsdaten eines Servers oder Clients bleiben gesperrt"
+      "repository_locked": "Sicherungsdaten eines Servers oder Clients bleiben gesperrt",
+      "recovery": {
+        "started": "Wiederherstellungscode eines Rechners eingelöst",
+        "failed": "Bare-Metal-Wiederherstellung fehlgeschlagen"
+      },
+      "recovery_code": {
+        "rejected": "Toter Wiederherstellungscode versucht"
+      },
+      "rebound": "Rechner mit neuem Agent-Secret wieder angebunden"
     },
     "file_share": {
       "storage_quota": "Speicherbudget der Freigaben",
@@ -466,7 +474,15 @@
       "stale": "Ein Server hat sich länger als zwei Stunden nicht gemeldet, oder ein Client hat seit mehreren Tagen keine gute Sicherung.",
       "suspicious_snapshot": "Ein Snapshot ist aufgetaucht, den kein Sicherungslauf gemeldet hat, oder einer, der in der Zukunft datiert ist. Die Aufbewahrung behält ihn; der Rechner könnte kompromittiert sein.",
       "storage_quota": "Die Sicherungsdaten eines Rechners oder alle eines Mandanten zusammen haben 90 Prozent des Speicherbudgets erreicht, oder Sicherungen wurden abgelehnt, weil es ausgeschöpft ist.",
-      "repository_locked": "Aufbewahrung und Prüfungen fanden die Sicherungsdaten eines Rechners länger als zwölf Stunden gesperrt vor."
+      "repository_locked": "Aufbewahrung und Prüfungen fanden die Sicherungsdaten eines Rechners länger als zwölf Stunden gesperrt vor.",
+      "recovery": {
+        "started": "Das Recovery-ISO hat einen Wiederherstellungscode eines Rechners eingelöst. Die Sitzung wartet darauf, dass ein Administrator sie freigibt, oder liest die Sicherungen des Rechners, wenn der Code ohne Freigabe der Sitzung ausgestellt wurde. Hat hier niemand eine Wiederherstellung begonnen, lehnen Sie die Sitzung sofort ab oder beenden Sie sie.",
+        "failed": "Eine Bare-Metal-Wiederherstellung ist fehlgeschlagen: Das Recovery-ISO hat es so gemeldet, niemand hat die Sitzung innerhalb von 30 Minuten freigegeben, oder das ISO meldet sich nach Ablauf des Codes nicht mehr."
+      },
+      "recovery_code": {
+        "rejected": "Jemand hat einen Wiederherstellungscode versucht, der abgelaufen, schon eingelöst oder widerrufen war. Das ist ein Zeichen, dass der Code weitergegeben oder gestohlen wurde."
+      },
+      "rebound": "Ein Rechner hat über ein Wiederanbindungs-Token ein neues Agent-Secret bekommen, nach einer Wiederherstellung oder Neuinstallation. Seine bisherige Installation hat keinen Zugang mehr; hat ihn hier niemand wieder angebunden, sperren Sie den Rechner."
     },
     "file_share": {
       "storage_quota": "Die Sicherungsdaten einer Freigabe oder aller Freigaben eines Mandanten zusammen haben 80 Prozent des Speicherbudgets erreicht, oder neue Sicherungen werden abgelehnt, weil es aufgebraucht ist.",
@@ -645,7 +661,15 @@
       "stale": "Meldet sich nicht: {object}",
       "suspicious_snapshot": "Verdächtiger Snapshot: {object}",
       "storage_quota": "Speicherbudget: {object}",
-      "repository_locked": "Sicherungsdaten gesperrt: {object}"
+      "repository_locked": "Sicherungsdaten gesperrt: {object}",
+      "recovery": {
+        "started": "Wiederherstellungscode eingelöst: {object}",
+        "failed": "Wiederherstellung fehlgeschlagen: {object}"
+      },
+      "recovery_code": {
+        "rejected": "Toter Wiederherstellungscode versucht: {object}"
+      },
+      "rebound": "Rechner wieder angebunden: {object}"
     },
     "file_share": {
       "storage_quota": "Speicherbudget: {object}",

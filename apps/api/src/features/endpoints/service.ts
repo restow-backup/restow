@@ -212,7 +212,7 @@ function notFound(): ProblemError {
  * `withKeptBackups`: also a removed one whose backups are still stored (its removal not done),
  * for reading them: its page, its restore points, browsing, downloads and the repository key.
  */
-async function loadEndpoint(
+export async function loadEndpoint(
   tx: Transaction,
   tenantId: string,
   id: string,
@@ -409,7 +409,7 @@ function commandsFor(os: Endpoint["os"], instanceUrl: string) {
  * of the release signing key (pinned in the unattended command) and the SHA-256 of windows.ps1 as
  * this instance serves it, for the way "download, compare, run with -File".
  */
-async function windowsInstallFacts(
+export async function windowsInstallFacts(
   instance: string,
 ): Promise<{ releaseKeyFingerprint: string | null; scriptSha256: string | null }> {
   const key = await readReleaseKey();
@@ -631,9 +631,10 @@ export async function getRun(
 // Enrollment tokens
 // ---------------------------------------------------------------------------
 
-function toTokenDto(
+export function toTokenDto(
   row: typeof endpointEnrollmentTokens.$inferSelect,
   now: Date,
+  endpointName: string | null = null,
 ): EnrollmentTokenDto {
   return {
     id: row.id,
@@ -643,6 +644,10 @@ function toTokenDto(
     expiresAt: row.expiresAt.toISOString(),
     state: enrollmentTokenState(row, now),
     usedByEndpointId: row.usedByEndpointId,
+    kind: row.endpointId ? "rebind" : "enroll",
+    purpose: row.purpose ?? null,
+    endpointId: row.endpointId ?? null,
+    endpointName: row.endpointId ? endpointName : null,
   };
 }
 
@@ -737,8 +742,13 @@ export async function listEnrollmentTokens(
   const validOnly = (filter.state ?? "valid") === "valid";
   return withTenantTx(database, tenantId, async (tx) => {
     const rows = await tx
-      .select()
+      .select({
+        token: endpointEnrollmentTokens,
+        hostname: endpoints.hostname,
+        displayName: endpoints.displayName,
+      })
       .from(endpointEnrollmentTokens)
+      .leftJoin(endpoints, eq(endpoints.id, endpointEnrollmentTokens.endpointId))
       .where(
         and(
           eq(endpointEnrollmentTokens.tenantId, tenantId),
@@ -753,7 +763,11 @@ export async function listEnrollmentTokens(
       )
       .orderBy(desc(endpointEnrollmentTokens.createdAt))
       .limit(TOKEN_LIST_LIMIT);
-    return { items: rows.map((row) => toTokenDto(row, now)) };
+    return {
+      items: rows.map((row) =>
+        toTokenDto(row.token, now, row.displayName?.trim() || row.hostname || null),
+      ),
+    };
   });
 }
 
@@ -796,7 +810,12 @@ export async function revokeEnrollmentToken(
       action: ENDPOINT_AUDIT_ACTIONS.tokenRevoked,
       target: tokenId,
       targetType: "endpoint_enrollment_token",
-      details: { profile: row.profile },
+      details: {
+        profile: row.profile,
+        ...(row.endpointId
+          ? { kind: "rebind", endpointId: row.endpointId, purpose: row.purpose }
+          : {}),
+      },
     });
   });
 }

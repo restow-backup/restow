@@ -67,6 +67,8 @@ const VALUES = {
   value: "x",
   done: "1",
   total: "2",
+  step: 3,
+  totalFiles: "40",
   matched: "19",
   files: "20",
   percent: 12,

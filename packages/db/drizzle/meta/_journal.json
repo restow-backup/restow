@@ -547,6 +547,13 @@
       "when": 1793844921330,
       "tag": "0077_baremetal_check",
       "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1793865062708,
+      "tag": "0078_endpoint_recoveries",
+      "breakpoints": true
     }
   ]
 }

@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import type * as React from "react";
 import { act } from "react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -20,10 +21,23 @@ vi.mock("@/lib/session", () => ({
 }));
 
 const fetchBaremetal = vi.fn();
+const fetchRecoveryIso = vi.fn();
 vi.mock("../api.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../api.js")>();
-  return { ...actual, fetchBaremetal: (...args: unknown[]) => fetchBaremetal(...args) };
+  return {
+    ...actual,
+    fetchBaremetal: (...args: unknown[]) => fetchBaremetal(...args),
+    fetchRecoveryIso: (...args: unknown[]) => fetchRecoveryIso(...args),
+  };
 });
+// No router in this harness: a link is a plain anchor.
+vi.mock("@tanstack/react-router", () => ({
+  Link: ({ to, children, ...props }: { to: string; children: React.ReactNode }) => (
+    <a href={to} {...props}>
+      {children}
+    </a>
+  ),
+}));
 
 const ID = "11111111-1111-4111-8111-111111111111";
 
@@ -184,12 +198,47 @@ describe("BaremetalCard", () => {
   beforeEach(() => fetchBaremetal.mockReset());
   afterEach(() => page?.unmount());
 
-  async function open(value: Baremetal) {
+  async function open(value: Baremetal, os?: string) {
     fetchBaremetal.mockResolvedValue(value);
     page = mount();
-    await page.render(<BaremetalCard endpointId={ID} />);
+    await page.render(<BaremetalCard endpointId={ID} os={os} />);
     await page.settle();
   }
+
+  const iso = (verified: boolean) => ({
+    version: verified ? "0.5.0" : null,
+    fileName: null,
+    url: null,
+    sha256: null,
+    releaseKeyFingerprint: null,
+    verified,
+    commands: { linux: [], macos: [], windows: [] },
+  });
+  const restoreButton = () => document.querySelector('[data-action="baremetal-restore"]');
+
+  it("offers the restore wizard only with a verified recovery ISO (docs/BAREMETAL.md 22)", async () => {
+    fetchRecoveryIso.mockResolvedValue(iso(false));
+    await open(baremetal(), "linux");
+    expect(fetchRecoveryIso).toHaveBeenCalled();
+    expect(restoreButton()).toBeNull();
+    page.unmount();
+    fetchRecoveryIso.mockResolvedValue(iso(true));
+    await open(baremetal(), "linux");
+    expect(restoreButton()?.getAttribute("href")).toBe(`/inventory/${ID}/bare-metal`);
+    expect(restoreButton()?.textContent).toContain("Restore…");
+    page.unmount();
+    // Preview off, another system, or not possible: no button, and no ISO asked for.
+    fetchRecoveryIso.mockClear();
+    await open(baremetal({ preview: false }), "linux");
+    expect(restoreButton()).toBeNull();
+    expect(fetchRecoveryIso).not.toHaveBeenCalled();
+    page.unmount();
+    await open(baremetal(), "darwin");
+    expect(restoreButton()).toBeNull();
+    page.unmount();
+    await open(baremetal({ state: "not_possible", notPossible: "unsupported" }), "linux");
+    expect(restoreButton()).toBeNull();
+  });
 
   it("shows the captured layout, its assessment and what is not supported, never as proof", async () => {
     await open(baremetal());

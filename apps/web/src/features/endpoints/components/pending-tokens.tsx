@@ -97,8 +97,15 @@ export function PendingTokens({ profile }: { profile?: EndpointProfile }) {
             >
               <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
                 <span className="truncate font-medium">
-                  {token.displayName?.trim() || t("pending.unnamed")}
+                  {token.kind === "rebind"
+                    ? t("pending.rebindFor", { name: token.endpointName ?? "" })
+                    : token.displayName?.trim() || t("pending.unnamed")}
                 </span>
+                {token.kind === "rebind" && token.purpose ? (
+                  <StatusBadge tone="warning" data-slot="token-kind">
+                    {t(`pending.kind.rebind`)} · {t(`rebind.purposeShort.${token.purpose}`)}
+                  </StatusBadge>
+                ) : null}
                 {profile === undefined ? <ProfileBadge profile={token.profile} /> : null}
                 <span className="text-sm text-muted-foreground">
                   {t("pending.created")} <RelativeTime value={token.createdAt} focusable={false} />

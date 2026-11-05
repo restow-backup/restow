@@ -119,6 +119,9 @@ const SOURCES: readonly KindSource[] = [
     object: sql`r.endpoint_id`,
     time: sql`r.finished_at`,
     run: sql`r.id`,
+    // A rebound machine (docs/BAREMETAL.md 11): its first good backup after the rebind is the new
+    // baseline (`activity_baseline`); nothing before it is compared with what comes after.
+    historyStart: sql`COALESCE((SELECT max(b.finished_at) FROM endpoint_runs b WHERE b.endpoint_id = r.endpoint_id AND b.activity_baseline), '-infinity'::timestamptz)`,
     metrics: (row) => endpointRunMetrics(row.data),
   },
   {

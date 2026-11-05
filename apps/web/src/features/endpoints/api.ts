@@ -436,6 +436,11 @@ export interface EnrollmentToken {
   expiresAt: string;
   state: TokenState;
   usedByEndpointId: string | null;
+  /** `rebind` gives the existing machine `endpointId` a new agent secret (docs/BAREMETAL.md 11). */
+  kind?: "enroll" | "rebind";
+  purpose?: RebindPurpose | "mac_setup" | null;
+  endpointId?: string | null;
+  endpointName?: string | null;
 }
 
 export type TokenWarning = "insecure_transport" | "instance_url_not_configured";
@@ -776,6 +781,160 @@ export interface Baremetal {
   check: BaremetalCheck | null;
 }
 
+// --- Bare metal recovery (docs/BAREMETAL.md 9, 11) ------------------------------------------
+
+/** The recovery ISO this installation offers (GET /api/v1/recovery-iso). */
+export interface RecoveryIso {
+  version: string | null;
+  fileName: string | null;
+  url: string | null;
+  sha256: string | null;
+  releaseKeyFingerprint: string | null;
+  /** Only a verified ISO lets codes be issued; until then the dialog and the wizard stay hidden. */
+  verified: boolean;
+  commands: { linux: string[]; macos: string[]; windows: string[] };
+}
+
+export const RECOVERY_STATUSES = [
+  "issued",
+  "pending_approval",
+  "active",
+  "finishing",
+  "succeeded",
+  "failed",
+  "cancelled",
+  "expired",
+  "revoked",
+] as const;
+export type RecoveryStatus = (typeof RECOVERY_STATUSES)[number];
+
+export const RECOVERY_PHASES = [
+  "connected",
+  "waiting_approval",
+  "planning",
+  "confirmed",
+  "partitioning",
+  "restoring",
+  "configuring",
+  "verifying",
+  "done",
+] as const;
+export type RecoveryPhase = (typeof RECOVERY_PHASES)[number];
+
+export interface RecoveryHardwareSummary {
+  firmware: "uefi" | "bios";
+  secureBoot: boolean | null;
+  ramBytes: number;
+  disks: number;
+  diskBytes: number;
+  nics: number;
+}
+
+/** A recovery code and the session it became; never the code or a hash. */
+export interface Recovery {
+  id: string;
+  kind: "code";
+  status: RecoveryStatus;
+  issuedAt: string;
+  expiresAt: string;
+  createdBy: { id: string; name: string } | null;
+  requireApproval: boolean;
+  snapshotId: string | null;
+  instanceOrigin: string | null;
+  spkiCheck: string | null;
+  usedAt: string | null;
+  usedIp: string | null;
+  matchCode: string | null;
+  recoveryVersion: string | null;
+  approvedAt: string | null;
+  approvedBy: { id: string; name: string } | null;
+  credentialsIssuedAt: string | null;
+  releasedAt: string | null;
+  finishedAt: string | null;
+  cancelRequestedAt: string | null;
+  phase: RecoveryPhase | null;
+  hardwareSummary: RecoveryHardwareSummary | null;
+}
+
+/** What the ISO reported: shown as reported by the ISO. */
+export interface RecoveryDetail extends Recovery {
+  hardware: {
+    firmware: "uefi" | "bios";
+    secureBoot: boolean | null;
+    ramBytes: number;
+    disks: {
+      sizeBytes: number;
+      logicalSectorSize: number;
+      model: string;
+      serial: string;
+      wwn: string;
+      transport: string;
+    }[];
+    nics: { mac: string; driver: string; link: boolean }[];
+  } | null;
+  progress: {
+    phase: RecoveryPhase;
+    step: number;
+    stepsTotal: number;
+    bytesDone: number;
+    totalBytes: number;
+    filesDone: number;
+    totalFiles: number;
+    message: string;
+    updatedAt: string;
+  } | null;
+  sshKeys: string[];
+  sshHostKeys: { type: string; fingerprint: string }[];
+  verification: Record<string, unknown> | null;
+  warnings: { code: string; message: string }[];
+  log: { items: { id: string; at: string; lines: string[] }[]; next: string | null };
+}
+
+/** The answer to issuing a code: the code is shown once, never stored. */
+export interface IssuedRecoveryCode {
+  id: string;
+  code: string;
+  expiresAt: string;
+  instanceOrigin: string;
+  instanceOriginConfigured: boolean;
+  spkiCheck: string | null;
+  snapshotId: string;
+  requireApproval: boolean;
+  iso: { version: string | null; url: string | null; sha256: string | null; verified: boolean };
+}
+
+export interface IssueRecoveryCodeInput {
+  snapshotId?: string;
+  validityHours?: number;
+  requireApproval?: boolean;
+}
+
+export type RebindPurpose = "reinstall" | "baremetal";
+
+export interface CreateRebindTokenInput {
+  purpose: RebindPurpose;
+  validityHours?: number;
+  unrevoke?: boolean;
+}
+
+export interface CreatedRebindToken extends CreatedToken {
+  kind: "rebind";
+  purpose: RebindPurpose;
+  endpointId: string;
+  unrevoke: boolean;
+}
+
+/** The reasons a machine gets no recovery code (409 baremetal-not-available). */
+export const RECOVERY_UNAVAILABLE_REASONS = [
+  "not_linux",
+  "removed",
+  "no_layout",
+  "unsupported",
+  "iso_unverified",
+  "preview_off",
+  "snapshot_unknown",
+] as const;
+
 export const endpointKeys = {
   all: (tenantId: TenantKey) => ["tenant", tenantId, "endpoints"] as const,
   lists: (tenantId: TenantKey) => ["tenant", tenantId, "endpoints", "list"] as const,
@@ -800,6 +959,11 @@ export const endpointKeys = {
   removals: (tenantId: TenantKey) => ["tenant", tenantId, "endpoints", "removals"] as const,
   baremetal: (tenantId: TenantKey, endpointId: string) =>
     ["tenant", tenantId, "endpoints", "detail", endpointId, "baremetal"] as const,
+  recoveries: (tenantId: TenantKey, endpointId: string) =>
+    ["tenant", tenantId, "endpoints", "detail", endpointId, "recoveries"] as const,
+  recovery: (tenantId: TenantKey, endpointId: string, recoveryId: string) =>
+    ["tenant", tenantId, "endpoints", "detail", endpointId, "recoveries", recoveryId] as const,
+  recoveryIso: (tenantId: TenantKey) => ["tenant", tenantId, "recovery-iso"] as const,
 };
 
 // --- Requests ---------------------------------------------------------------------
@@ -990,6 +1154,85 @@ export function setAgentUpdates(paused: boolean, resumeMachines = false): Promis
 export function resumeMachineUpdates(endpointId: string): Promise<AgentUpdates> {
   return apiFetch<AgentUpdates>(`${BASE}/agent-updates/machines/${id(endpointId)}`, {
     method: "DELETE",
+  });
+}
+
+export function fetchRecoveryIso(): Promise<RecoveryIso> {
+  return apiFetch<RecoveryIso>("/recovery-iso");
+}
+
+export async function fetchRecoveries(endpointId: string): Promise<Recovery[]> {
+  return (await apiFetch<{ items: Recovery[] }>(`${BASE}/${id(endpointId)}/recoveries`)).items;
+}
+
+export function fetchRecovery(endpointId: string, recoveryId: string): Promise<RecoveryDetail> {
+  return apiFetch<RecoveryDetail>(
+    `${BASE}/${id(endpointId)}/recoveries/${id(recoveryId)}${queryString({ logLimit: 500 })}`,
+  );
+}
+
+/** The answer carries the code in clear, once: keep it in memory only. */
+export function issueRecoveryCode(
+  endpointId: string,
+  input: IssueRecoveryCodeInput,
+): Promise<IssuedRecoveryCode> {
+  return apiFetch<IssuedRecoveryCode>(`${BASE}/${id(endpointId)}/recovery-codes`, {
+    method: "POST",
+    body: input,
+  });
+}
+
+export function revokeRecoveryCode(endpointId: string, codeId: string): Promise<Recovery> {
+  return apiFetch<Recovery>(`${BASE}/${id(endpointId)}/recovery-codes/${id(codeId)}/revoke`, {
+    method: "POST",
+    body: {},
+  });
+}
+
+export function extendRecoveryCode(
+  endpointId: string,
+  codeId: string,
+  validityHours: number,
+): Promise<Recovery> {
+  return apiFetch<Recovery>(`${BASE}/${id(endpointId)}/recovery-codes/${id(codeId)}/extend`, {
+    method: "POST",
+    body: { validityHours },
+  });
+}
+
+export function approveRecovery(endpointId: string, recoveryId: string): Promise<Recovery> {
+  return apiFetch<Recovery>(`${BASE}/${id(endpointId)}/recoveries/${id(recoveryId)}/approve`, {
+    method: "POST",
+    body: {},
+  });
+}
+
+export function cancelRecovery(endpointId: string, recoveryId: string): Promise<Recovery> {
+  return apiFetch<Recovery>(`${BASE}/${id(endpointId)}/recoveries/${id(recoveryId)}/cancel`, {
+    method: "POST",
+    body: {},
+  });
+}
+
+export function setRecoverySshKeys(
+  endpointId: string,
+  recoveryId: string,
+  keys: string[],
+): Promise<Recovery> {
+  return apiFetch<Recovery>(`${BASE}/${id(endpointId)}/recoveries/${id(recoveryId)}/ssh-keys`, {
+    method: "PUT",
+    body: { keys },
+  });
+}
+
+/** The answer carries the token in clear, once: keep it in memory only. */
+export function createRebindToken(
+  endpointId: string,
+  input: CreateRebindTokenInput,
+): Promise<CreatedRebindToken> {
+  return apiFetch<CreatedRebindToken>(`${BASE}/${id(endpointId)}/rebind-token`, {
+    method: "POST",
+    body: input,
   });
 }
 

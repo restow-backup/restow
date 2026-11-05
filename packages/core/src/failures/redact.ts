@@ -6,8 +6,9 @@
  * is the defensive layer on top (like the logger's field redaction, which
  * works on field names; this one works on free text): bearer tokens, JWTs,
  * credentials in `key=value` pairs and JSON, query strings and user info of
- * URLs, key material, the text of a failed SQL query, and the arguments of
- * IMAP LOGIN / AUTHENTICATE lines.
+ * URLs, key material, the text of a failed SQL query, the arguments of
+ * IMAP LOGIN / AUTHENTICATE lines, recovery codes and the 64-digit hex values
+ * of a recovery session (docs/BAREMETAL.md 9.1).
  */
 
 /** Longest single value kept in a failure record. */
@@ -33,6 +34,13 @@ const PATTERNS: readonly (readonly [RegExp, string])[] = [
   // secrets (rsea_) and integration API keys (rsk_<tag>_<secret>).
   [/\brse(?:t|a)_[A-Za-z0-9_-]{16,}/g, REDACTED],
   [/\brsk_[A-Za-z0-9]{1,16}_[A-Za-z0-9]{8,}/g, REDACTED],
+  // Recovery codes (docs/BAREMETAL.md 9.1), with or without the RC prefix's hyphens.
+  [/\bRC-?(?:[0-9A-HJKMNP-TV-X]{5}-?){4}[0-9A-HJKMNP-TV-X]{5}\b/gi, REDACTED],
+  // A session secret, its hash, a code proof: 64 hex digits after such a name.
+  [
+    /((?:session[A-Za-z0-9_]*|codeProof|secret|password)["']?\s*[=:]\s*["']?)[0-9a-f]{64}/gi,
+    `$1${REDACTED}`,
+  ],
   // "password": "value" and 'token': 'value'
   [
     new RegExp(`(["'](?:${SECRET_KEYS})["']\\s*:\\s*)(["'])(?:\\\\.|(?!\\2).)*\\2`, "gi"),

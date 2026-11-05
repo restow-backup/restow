@@ -464,6 +464,57 @@ describe.skipIf(!adminUrl)("judging restore points against Postgres", () => {
     });
   });
 
+  it("starts a rebound machine's history anew at its baseline backup (docs/BAREMETAL.md 11)", async () => {
+    const machineId = randomUUID();
+    await q(
+      `INSERT INTO endpoints (id, tenant_id, hostname, os, arch, profile, status, secret_hash, config)
+       VALUES ($1, $2, 'rebound01', 'linux', 'amd64', 'server', 'active', 'x', $3)`,
+      [
+        machineId,
+        tenantId,
+        JSON.stringify(defaultEndpointConfig("linux", "server", { timeZone: "Europe/Berlin" })),
+      ],
+    );
+    const run = async (at: Date, changed: number, baseline = false) => {
+      const [row] = await q<{ id: string }>(
+        `INSERT INTO endpoint_runs (tenant_id, endpoint_id, kind, status, started_at, finished_at, snapshot_id, stats, activity_baseline)
+         VALUES ($1, $2, 'backup', 'succeeded', $3, $3, $4, $5, $6) RETURNING id`,
+        [
+          tenantId,
+          machineId,
+          at,
+          randomBytes(32).toString("hex"),
+          JSON.stringify({
+            filesNew: Math.round(changed / 2),
+            filesChanged: changed - Math.round(changed / 2),
+            filesUnmodified: 50_000,
+            dataAdded: changed * 100_000,
+            totalFilesProcessed: 50_000 + changed,
+            totalBytesProcessed: 10 * 1024 ** 3,
+          }),
+          baseline,
+        ],
+      );
+      return row?.id as string;
+    };
+    for (let day = 13; day >= 4; day--) {
+      await run(ago(day * DAY), 280 + (day % 4) * 10);
+    }
+    // Restored and rebound: the first backup reads every file again (new inodes and ctimes).
+    const first = await run(ago(5 * HOUR), 60_000, true);
+    const next = await run(ago(3 * HOUR), 320);
+    await suspicionPass(deps);
+    expect(await judgement(first)).toMatchObject({
+      verdict: "none",
+      signals: { changeRate: "learning" },
+    });
+    // Nothing from before the rebind, and not the baseline run itself, counts for the next one.
+    expect(await judgement(next)).toMatchObject({
+      verdict: "none",
+      signals: { changeRate: "learning" },
+    });
+  });
+
   it("announces an unresolved retention hold again after the reminder days, and a release ends the episode", async () => {
     const reminders = () =>
       q<{ details: Record<string, unknown>; level: string }>(

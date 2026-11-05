@@ -77,6 +77,13 @@ backups does not teach the baseline that encryption is normal. The baseline is r
 tables, so an object that was backed up before the detection was installed is judged from the
 first pass on. With fewer than 5 such restore points the signal says **learning**.
 
+A history begins anew where the object's backups began anew: a new backup chain of a Proxmox VE
+guest, and (since 0.5.0) a rebound machine (docs/BAREMETAL.md 11). After a restore or a reinstall
+with a rebind token, the machine's first good backup reads every file again (new inodes and
+ctimes) and is marked as the new baseline (`endpoint_runs.activity_baseline`); nothing before it,
+and not that run itself, counts for the runs after it, so the machine is **learning** again instead
+of alerting on the reinstall.
+
 The bound is `max(median + 8 × spread, 5 × median, floor)`, where the spread is the median
 absolute deviation scaled to a standard deviation (× 1.4826) but never less than a tenth of the
 median, so a perfectly steady object does not alert on noise. The median and the MAD are robust:

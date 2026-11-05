@@ -252,6 +252,11 @@
       "used": "Verwendet",
       "expired": "Abgelaufen",
       "revoked": "Widerrufen"
+    },
+    "rebindFor": "Wiederanbindung: {name}",
+    "kind": {
+      "enroll": "Einrichtung",
+      "rebind": "Wiederanbindung"
     }
   },
   "enroll": {
@@ -1107,7 +1112,20 @@
     "removalLegalHold": "Eine Legal Hold umfasst jede Sicherung dieses Mandanten, daher lassen sie sich jetzt nicht löschen. Behalten Sie sie stattdessen bis zum Ablauf, oder heben Sie die Hold zuerst auf.",
     "removalSuspicionHold": "Ein verdächtiger Sicherungsstand dieses Rechners ist nicht geklärt und hält seine Sicherungen. Klären Sie ihn zuerst, oder behalten Sie die Sicherungen bis zum Ablauf.",
     "removalNeverExpires": "Die Aufbewahrung dieses Rechners behält jede Sicherung, sie würden also nie ablaufen. Löschen Sie sie stattdessen.",
-    "restorePathLocked": "Diese Datei wird nicht herausgegeben: Die Zustandsdatei des Agenten wird nie wiederhergestellt (der Agent erhält bei einer neuen Anmeldung eine neue Identität), Schlüsseldateien verschlüsselter Volumes nur an Administratoren."
+    "restorePathLocked": "Diese Datei wird nicht herausgegeben: Die Zustandsdatei des Agenten wird nie wiederhergestellt (der Agent erhält bei einer neuen Anmeldung eine neue Identität), Schlüsseldateien verschlüsselter Volumes nur an Administratoren.",
+    "recoveryCodeInvalid": "Kein Wiederherstellungscode passt. Prüfen Sie Code und Adresse.",
+    "recoveryCodeExpired": "Der Wiederherstellungscode ist abgelaufen. Stellen Sie einen neuen aus.",
+    "recoveryCodeRevoked": "Der Wiederherstellungscode wurde widerrufen. Stellen Sie einen neuen aus.",
+    "recoveryCodeUsed": "Der Wiederherstellungscode wurde schon eingelöst. Stellen Sie einen neuen aus.",
+    "recoveryTooOld": "Das Recovery-ISO ist für diesen Server zu alt. Laden Sie das aktuelle herunter.",
+    "recoverySessionEnded": "Die Recovery-Sitzung ist beendet.",
+    "recoveryNotApproved": "Die Sitzung ist noch nicht freigegeben.",
+    "recoveryCredentialsCollected": "Das ISO hat die Zugangsdaten bereits abgeholt.",
+    "recoveryStateConflict": "Das ist im aktuellen Zustand der Wiederherstellung nicht möglich. Laden Sie die Seite neu.",
+    "baremetalNotAvailable": "Für diesen Rechner lässt sich kein Wiederherstellungscode ausstellen.",
+    "recoveryLimitReached": "Für diesen Rechner sind bereits drei Codes offen. Widerrufen Sie zuerst einen.",
+    "endpointRecoveryActive": "Eine Wiederherstellung liest die Sicherungen dieses Rechners. Lassen Sie sie zuerst enden oder beenden Sie sie.",
+    "rebindOsMismatch": "Das Token gilt für einen Rechner mit anderem Betriebssystem."
   },
   "readinessSection": {
     "overdue": "Überfällig",
@@ -1689,5 +1707,175 @@
       "filesystem": "{mount}: {restore} wiederherzustellen, mindestens {min}",
       "hint": "Was Ersatzhardware mindestens braucht, nach dem Inhalt des neuesten Wiederherstellungspunkts. Größere Platten werden ganz genutzt."
     }
+  },
+  "recovery": {
+    "title": "Wiederherstellungscode für {name}",
+    "description": "Ein einmaliger Code für das Recovery-ISO: Es stellt diesen Rechner aus seiner Ganz-Rechner-Sicherung auf neuen Platten wieder her.",
+    "issue": "Wiederherstellungscode ausstellen…",
+    "cancel": "Abbrechen",
+    "done": "Fertig",
+    "issueFailed": "Der Code konnte nicht ausgestellt werden",
+    "validity": "Gültig für",
+    "validityHours": "{count, plural, one {# Stunde} other {# Stunden}}",
+    "validitySuggestion": "{count, plural, one {Vorschlag: # Stunde, aus der Datenmenge bei etwa 50 MB/s.} other {Vorschlag: # Stunden, aus der Datenmenge bei etwa 50 MB/s.}}",
+    "requireApproval": "Freigabe der Sitzung nach dem Eintausch",
+    "requireApprovalHint": "Löst das ISO den Code ein, wartet die Sitzung, bis Sie sie hier nach dem Vergleich der Prüfzahl freigeben. Erst dann liest sie die Sicherungen.",
+    "requireApprovalOffTitle": "Code ohne Freigabe der Sitzung ausstellen?",
+    "requireApprovalOffConfirm": "Wer den Code zuerst einlöst, liest dann sofort alle Sicherungen dieses Rechners, ohne dass Sie die Prüfzahl sehen. Schalten Sie das nur für eine unbeaufsichtigte Wiederherstellung aus.",
+    "requireApprovalOffAction": "Ohne Freigabe der Sitzung ausstellen",
+    "browserOriginWarning": "Diese Adresse kommt aus Ihrem Browser, weil keine öffentliche Adresse eingerichtet ist. Das ISO muss genau sie erreichen.",
+    "spkiMissing": "Prüfwert nicht ermittelbar; das ISO braucht dann ein Zertifikat, dem es vertraut (öffentliche CA oder CA-Datei).",
+    "onceHint": "Der Code wird nur jetzt angezeigt. Kopieren oder drucken Sie ihn; er lässt sich nicht erneut anzeigen.",
+    "code": "Wiederherstellungscode",
+    "address": "Adresse",
+    "addressHint": "Genau so im ISO eingeben.",
+    "spkiCheck": "Prüfwert der Instanz",
+    "expiresAt": "Läuft ab",
+    "copy": "Kopieren",
+    "print": "Drucken",
+    "printTitle": "Wiederherstellungscode",
+    "machine": "Rechner",
+    "readAccessHint": "Der Code gibt Lesezugriff auf alle Sicherungen dieses Rechners, sobald Sie die Sitzung freigegeben haben, bis er abläuft oder die Sitzung beendet ist.",
+    "isoReported": "Vom Recovery-ISO gemeldet.",
+    "status": {
+      "issued": "Ausgestellt",
+      "pending_approval": "Wartet auf Freigabe der Sitzung",
+      "active": "Wird wiederhergestellt",
+      "finishing": "Wird abgeschlossen",
+      "succeeded": "Erfolgreich",
+      "failed": "Fehlgeschlagen",
+      "cancelled": "Abgebrochen",
+      "expired": "Abgelaufen",
+      "revoked": "Widerrufen"
+    },
+    "phases": {
+      "connected": "Verbunden",
+      "waiting_approval": "Wartet auf Freigabe der Sitzung",
+      "planning": "Planung",
+      "confirmed": "Bestätigt",
+      "partitioning": "Partitionierung",
+      "restoring": "Dateien werden zurückgeholt",
+      "configuring": "Startkette wird eingerichtet",
+      "verifying": "Prüfung",
+      "done": "Fertig"
+    },
+    "live": {
+      "title": "Wiederherstellung",
+      "description": "Folgt dem Recovery-ISO alle fünf Sekunden.",
+      "waiting": "Warte auf das Recovery-ISO. Starten Sie die Ersatzhardware davon und geben Sie Code und Adresse ein.",
+      "approveTitle": "Sitzung freigeben",
+      "matchCode": "Prüfzahl",
+      "matchCodeHint": "Geben Sie nur frei, wenn das ISO dieselbe Zahl zeigt.",
+      "from": "Von Adresse",
+      "isoVersion": "ISO-Version",
+      "firmware": "Firmware",
+      "firmwareMode": {
+        "uefi": "UEFI",
+        "bios": "BIOS"
+      },
+      "secureBootOn": "Secure Boot an",
+      "secureBootOff": "Secure Boot aus",
+      "ram": "Arbeitsspeicher",
+      "disks": "Platten",
+      "nics": "Netzwerkkarten",
+      "unknownModel": "Unbekanntes Modell",
+      "noLink": "keine Verbindung",
+      "approve": "Freigeben",
+      "reject": "Ablehnen",
+      "step": "Schritt {step} von {total}",
+      "bytes": "{done} von {total}, {files} von {totalFiles} Dateien",
+      "revoke": "Code widerrufen",
+      "cancel": "Sitzung beenden",
+      "extend": "{count, plural, one {Um # Stunde verlängern} other {Um # Stunden verlängern}}",
+      "log": "Log",
+      "cancelTitle": "Diese Recovery-Sitzung beenden?",
+      "cancelDescription": "Das ISO verliert innerhalb weniger Sekunden den Zugang zu den Sicherungen. Der Code ist verbraucht; stellen Sie für einen neuen Versuch einen neuen aus.",
+      "cancelAction": "Sitzung beenden"
+    },
+    "sshKeys": {
+      "title": "SSH-Schlüssel für den Fernzugang",
+      "hint": "Öffentliche Schlüssel, einer je Zeile. Das ISO nimmt sie für den Fernzugang an, sobald er dort eingeschaltet wurde.",
+      "placeholder": "ssh-ed25519 AAAA… admin@laptop",
+      "save": "Schlüssel speichern",
+      "saved": "Die Schlüssel wurden gespeichert.",
+      "hostKeys": "Hostschlüssel des ISO"
+    },
+    "notAvailable": {
+      "not_linux": "Wiederherstellungscodes gibt es für Linux-Rechner.",
+      "removed": "Der Rechner wurde entfernt.",
+      "no_layout": "Der Rechner hat noch keine Ganz-Rechner-Sicherung mit Layout.",
+      "unsupported": "Das Layout dieser Sicherung lässt sich nicht wiederherstellen.",
+      "iso_unverified": "Diese Installation bietet noch kein geprüftes Recovery-ISO an.",
+      "preview_off": "Die Bare-Metal-Wiederherstellung ist eine Vorschau, die diese Installation nicht eingeschaltet hat.",
+      "snapshot_unknown": "Dieser Snapshot ist keine Ganz-Rechner-Sicherung des Rechners."
+    },
+    "wizard": {
+      "title": "{name} auf neuer Hardware wiederherstellen",
+      "description": "Stellt den Rechner mit dem Recovery-ISO aus seiner neuesten Ganz-Rechner-Sicherung auf neuen Platten wieder her.",
+      "back": "Zurück zum Rechner",
+      "open": "Wiederherstellen…",
+      "steps": {
+        "snapshot": "Sicherungsstand",
+        "hardware": "Ersatzhardware",
+        "iso": "Recovery-ISO",
+        "code": "Wiederherstellungscode",
+        "live": "Wiederherstellung",
+        "after": "Danach"
+      },
+      "snapshotHint": "Wiederhergestellt wird die neueste Ganz-Rechner-Sicherung.",
+      "firmware": {
+        "uefi": "Die Sicherung stammt von einem Rechner mit UEFI: Die Ersatzhardware muss im UEFI-Modus starten.",
+        "bios": "Die Sicherung stammt von einem Rechner mit BIOS: Die Ersatzhardware braucht einen Legacy-Startmodus (CSM), den viele aktuelle Modelle nicht mehr haben."
+      },
+      "secureBoot": "Secure Boot war eingeschaltet.",
+      "cable": "Netzwerk per Kabel, an einem Anschluss ohne VLAN-Tagging.",
+      "oldDisks": "Alte Platten abziehen, außer Sie wollen sie übernehmen.",
+      "hardwareLater": "Eine vollständige Hardware-Anleitung (Controller, Tastaturbelegung, TPM) folgt mit dem Recovery-ISO.",
+      "codeIntro": "Stellen Sie den Code aus, wenn die Ersatzhardware bereit ist. Die Gültigkeit wird aus der Datenmenge vorgeschlagen.",
+      "liveEmpty": "Noch kein Code ausgestellt.",
+      "afterIntro": "Verbinden Sie den wiederhergestellten Rechner mit einem eigenen Wiederanbindungs-Token wieder mit {appName}."
+    },
+    "iso": {
+      "version": "Version",
+      "file": "Datei",
+      "fingerprint": "Fingerabdruck des Release-Schlüssels",
+      "fingerprintHint": "Vergleichen Sie den Fingerabdruck außerhalb dieser Instanz: in der README und den Release-Notes des Projekts.",
+      "download": "ISO herunterladen",
+      "verifyCommands": "Datei vor der Verwendung prüfen",
+      "system": {
+        "linux": "Linux",
+        "macos": "macOS",
+        "windows": "Windows"
+      },
+      "writeUsb": "Schreiben Sie das ISO danach unverändert, Bit für Bit, auf einen USB-Stick (unter Linux etwa mit dd)."
+    }
+  },
+  "rebind": {
+    "action": "Rechner wieder anbinden…",
+    "title": "{name} wieder anbinden",
+    "dangerTitle": "Nach einer Neuinstallation wieder anbinden",
+    "dangerDescription": "Ein Token, das diesem Rechner ein neues Agent-Secret gibt, für ein neu installiertes oder wiederhergestelltes System. Sicherungen, Einstellungen und Verlauf bleiben.",
+    "warningTitle": "Dauerhafter Zugang",
+    "warning": "Dieses Token gibt dauerhaften Zugang wie ein installierter Agent. Wer es einlöst, wird zu diesem Rechner.",
+    "oldDisconnects": "Die bisherige Installation des Rechners verliert ihre Verbindung.",
+    "revokedHint": "Der Rechner ist gesperrt: Ohne die Wahl unten wird das Token abgelehnt.",
+    "unrevoke": "Gesperrten Rechner reaktivieren",
+    "unrevokeHint": "Wählen Sie das nur, wenn der Rechner irrtümlich gesperrt wurde oder wieder vertrauenswürdig ist; es wird im Audit-Log vermerkt.",
+    "purpose": {
+      "reinstall": "Für einen Rechner, dessen System neu installiert wurde.",
+      "baremetal": "Für den Rechner, den das Recovery-ISO wiederhergestellt hat."
+    },
+    "purposeShort": {
+      "reinstall": "Neuinstallation",
+      "baremetal": "Bare Metal",
+      "mac_setup": "Mac neu aufsetzen"
+    },
+    "validity": "Gültig für",
+    "created": "Das Token wurde erstellt. Es wird nur jetzt angezeigt und funktioniert einmal.",
+    "commands": "Führen Sie den Installationsbefehl auf dem Rechner aus; er fragt nach dem Token.",
+    "create": "Token erstellen",
+    "cancel": "Abbrechen",
+    "done": "Fertig",
+    "tokenKind": "Wiederanbindungs-Token"
   }
 }

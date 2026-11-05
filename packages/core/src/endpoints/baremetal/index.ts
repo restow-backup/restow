@@ -5,5 +5,6 @@ export * from "./manifest.js";
 export * from "./paths.js";
 export * from "./plan.js";
 export * from "./readiness.js";
+export * from "./recovery-code.js";
 export * from "./restore-sizes.js";
 export * from "./summary.js";

@@ -11,6 +11,9 @@ import {
   bodyLimitFor,
   DEFAULT_BODY_LIMIT,
   PAYLOAD_TOO_LARGE_PROBLEM,
+  RECOVERY_BODY_LIMIT,
+  RECOVERY_FINISH_BODY_LIMIT,
+  RECOVERY_LOG_BODY_LIMIT,
   requestBodyLimit,
 } from "./body-limit.js";
 
@@ -90,6 +93,25 @@ describe("bodyLimitFor", () => {
     expect(bodyLimitFor("POST", "/internal/file-shares/restic/0b0f/data/abc")).toBeNull();
     expect(bodyLimitFor("POST", "/internal/file-shares/v1/finish")).not.toBeNull();
     expect(bodyLimitFor("PUT", "/api/v1/imports/uploads/0b0f/segments/3")).toBeNull();
+  });
+});
+
+describe("the recovery ISO's API (docs/BAREMETAL.md 9.3, 9.8)", () => {
+  it("gets 64 KiB, the log 1 MiB, the finish 320 KiB", () => {
+    expect(RECOVERY_BODY_LIMIT).toBe(64 * 1024);
+    expect(bodyLimitFor("POST", "/agent/v1/recovery/sessions")).toBe(64 * 1024);
+    expect(bodyLimitFor("POST", "/agent/v1/recovery/sessions/current/progress")).toBe(64 * 1024);
+    expect(bodyLimitFor("POST", "/agent/v1/recovery/sessions/current/rebind")).toBe(64 * 1024);
+    expect(bodyLimitFor("POST", "/agent/v1/recovery/sessions/current/log")).toBe(
+      RECOVERY_LOG_BODY_LIMIT,
+    );
+    expect(RECOVERY_LOG_BODY_LIMIT).toBe(1024 * 1024);
+    expect(bodyLimitFor("POST", "/agent/v1/recovery/sessions/current/finish")).toBe(
+      RECOVERY_FINISH_BODY_LIMIT,
+    );
+    expect(RECOVERY_FINISH_BODY_LIMIT).toBe(320 * 1024);
+    // A reader never uploads: the restic route keeps the default.
+    expect(bodyLimitFor("POST", "/agent/recovery/restic/x/data/ab")).toBe(DEFAULT_BODY_LIMIT);
   });
 });
 
@@ -182,6 +204,19 @@ describe("the assembled application", () => {
       headers: {
         "content-type": "application/json",
         "content-length": String(64 * 1024 * 1024),
+      },
+      body: "{}",
+    });
+    expect(response.status).toBe(413);
+  });
+
+  it("refuses an exchange over 64 KiB with 413 before anything reads it", async () => {
+    const response = await app.request("/agent/v1/recovery/sessions", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "content-length": String(64 * 1024 + 1),
+        "x-forwarded-for": "198.51.100.77",
       },
       body: "{}",
     });

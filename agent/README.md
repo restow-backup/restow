@@ -153,6 +153,32 @@ the path). Without it those files are skipped, the backup finishes as `partial` 
 run log says so. If protected folders are still reported after that, also add
 `/Library/Application Support/Restow/bin/restic`.
 
+### Reconnect a reinstalled machine
+
+`state.json` holds the agent's credentials and is never backed up, so a machine whose
+operating system was installed again (or that was restored from a whole-machine backup)
+has no enrollment. Instead of adding it as a new machine, reconnect it to its existing
+entry (server 0.5.0): on the machine's page in the Restow UI choose **Reconnect machine...**
+(danger zone, administrators only, with a fresh sign-in). The dialog creates a one-time
+**reconnect token** (`rset_...`, valid for 1 hour by default, at most 24) and shows the
+usual install command; run it on the reinstalled machine, and `restow-agent enroll` prints
+
+```
+Reconnected as the existing machine <id>; its backups, settings and history are kept. The previous installation of this machine no longer has access.
+```
+
+The instance issues a new agent secret for the existing machine: repository, password,
+backup job, settings and run history stay; the next backup continues the snapshot chain
+(restic reads every file once, but uploads hardly anything thanks to deduplication) and
+starts a new baseline for the ransomware signals. The operating system must be the same
+(Linux stays Linux), a different host name is accepted. The token gives **permanent**
+access like an installed agent, which is why it has its own dialog and is never part of a
+recovery code: whoever redeems it becomes this machine, and an installation that still
+runs with the old secret gets 401 from then on. A revoked machine is only reactivated when
+the token was created with "reactivate" (`unrevoke`); otherwise the enrollment is refused
+with `endpoint-revoked`. A machine that is still enrolled needs `restow-agent enroll
+--force` with the token in `RESTOW_TOKEN`.
+
 ## Command line
 
 ```
@@ -316,6 +342,20 @@ an agent 0.5.0 instead backs up every local file system:
 macOS and Windows machines ignore `wholeMachine` and back up their folders (one log line).
 Restoring a whole machine onto new hardware is not part of this release; the planner only
 plans.
+
+**Recovery code (preview, server side only).** The instance can issue a one-time
+**recovery code** for a Linux machine (`RC-XXXXX-XXXXX-XXXXX-XXXXX-XXXXX`, valid for 4
+hours by default, at most 48, read-only access to that machine's repository only). The
+recovery ISO redeems it: it never sends the code itself, only
+`SHA-256("restow-recovery-code:" + origin + ":" + code)` for the address it actually
+connects to, so a code typed into a look-alike address opens nothing. An administrator
+then approves the session in the Restow UI after comparing a six-digit match code, the
+ISO collects the repository credentials once, releases its read access before the
+machine restarts and reports the result; a prune of the repository waits while a session
+runs. The agent contains the code math and the client of this API (`internal/recovery`),
+but the recovery ISO with `recover` is not shipped yet, so the UI keeps the code dialog
+hidden until a release contains a verified ISO. After a recovery the machine is
+reconnected with a separate reconnect token (see "Reconnect a reinstalled machine").
 
 ### File system snapshots on Linux (LVM, btrfs)
 
@@ -899,3 +939,13 @@ the agent does this, and the server should expect it:
   `/etc/restow-agent/hooks.d`, scripts policy) with every heartbeat. The server treats an
   agent that reports no policy (a pre-release build) like `off` and refuses hooks for it.
 - A task id that was already handled is ignored (the last 100 ids are remembered).
+- The enrollment answer may carry `rebound: true` (server 0.5.0, a reconnect token): the
+  instance issued a new agent secret for an existing endpoint. The agent stores the
+  answer like an enrollment and says that the machine was reconnected.
+- The recovery API (`/agent/v1/recovery/sessions`, `internal/recovery`): the exchange
+  carries `codeProof` (hex SHA-256 of `"restow-recovery-code:" + canonical origin + ":" +
+  code`) and `sessionSecretSha256`; the session secret (64 lower-case hex characters) only
+  travels in the Basic header `sessionId:sessionSecret`. The client sends
+  `Cache-Control: no-store`, retries only 429 and 503 answers with `Retry-After`, refuses
+  credentials whose repository is not `rest:<origin>/agent/recovery/restic/<sessionId>/`
+  and refuses an exchange answer whose `matchCode` differs from its own.

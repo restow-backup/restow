@@ -296,6 +296,51 @@ func TestEnrollRefusesARepositoryOnAnotherHost(t *testing.T) {
 	}
 }
 
+// A reconnect token (server 0.5.0) gives an existing machine a new agent
+// secret; the agent says so and stores the credentials like an enrollment.
+func TestEnrollWithReconnectToken(t *testing.T) {
+	c := newCLI(t)
+	c.srv.Rebound = true
+	so, se, code := c.run("enroll", "--allow-insecure-http")
+	if code != exitOK {
+		t.Fatalf("enroll: %d\n%s\n%s", code, so, se)
+	}
+	for _, want := range []string{"Reconnected as the existing machine ep-0001", "backups, settings and history are kept",
+		"previous installation of this machine no longer has access", "backup repository is reachable"} {
+		if !strings.Contains(so, want) {
+			t.Errorf("output lacks %q:\n%s", want, so)
+		}
+	}
+	if strings.Contains(so, "Enrolled as endpoint") {
+		t.Errorf("a reconnection is no new enrollment:\n%s", so)
+	}
+	for _, secret := range []string{c.srv.AgentSecret, c.srv.RepoPassword, "rset_test_token_0123456789"} {
+		if strings.Contains(so+se, secret) {
+			t.Fatalf("enroll printed a secret:\n%s\n%s", so, se)
+		}
+	}
+	raw, err := os.ReadFile(filepath.Join(c.dir, "agent", "state", "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stored map[string]any
+	if err := json.Unmarshal(raw, &stored); err != nil || stored["endpointId"] != "ep-0001" {
+		t.Fatalf("stored state: %v %s", err, raw)
+	}
+	if _, ok := stored["rebound"]; ok {
+		t.Fatalf("the state file has no rebound field: %s", raw)
+	}
+}
+
+func TestEnrollRejectedReconnectTokenHint(t *testing.T) {
+	c := newCLI(t)
+	t.Setenv("RESTOW_TOKEN", "rset_this_reconnect_token_expired")
+	_, se, code := c.run("enroll", "--allow-insecure-http")
+	if code != exitError || !strings.Contains(se, "reconnect tokens for 1 hour") || !strings.Contains(se, "new reconnect token") {
+		t.Fatalf("exit %d\n%s", code, se)
+	}
+}
+
 func TestHooksPolicyIsLocal(t *testing.T) {
 	c := newCLI(t)
 	if _, se, code := c.run("enroll", "--allow-insecure-http", "--hooks", "everything"); code != exitUsage || !strings.Contains(se, "unknown hook mode") {

@@ -579,7 +579,29 @@
         },
         "secret_file_revealed": "Key file of an encrypted volume handed out"
       },
-      "update_requested": "Agent update requested"
+      "update_requested": "Agent update requested",
+      "recovery_code": {
+        "created": "Recovery code issued",
+        "revoked": "Recovery code revoked",
+        "extended": "Recovery code extended",
+        "rejected": "Expired, used or revoked recovery code tried"
+      },
+      "recovery": {
+        "started": "Recovery code redeemed by the recovery ISO",
+        "approved": "Recovery session released",
+        "credentials_issued": "Repository access handed to the recovery ISO",
+        "remote_access_enabled": "Remote access to the recovery ISO switched on",
+        "keyfile_regenerated": "Key file of an encrypted volume made anew during the recovery",
+        "released": "Recovery ISO gave up its repository access",
+        "finished": "Recovery finished",
+        "expired": "Recovery code or session ran out of time",
+        "cancelled": "Recovery session rejected or ended"
+      },
+      "rebind_token": {
+        "created": "Rebind token created"
+      },
+      "rebound": "Machine rebound with a new agent secret",
+      "unrevoked": "Revoked machine brought back"
     },
     "backup_job": {
       "created": "Backup job created",

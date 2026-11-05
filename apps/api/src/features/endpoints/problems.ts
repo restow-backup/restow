@@ -100,4 +100,34 @@ export const ENDPOINT_PROBLEMS = {
   restorePathLocked: "urn:restow:problem:endpoint-restore-path-locked",
   /** 409: whole machine backups are a preview this installation has not switched on (RESTOW_BAREMETAL_PREVIEW). */
   baremetalPreviewOff: "urn:restow:problem:baremetal-preview-off",
+  // Bare metal recovery (docs/BAREMETAL.md 9, 11): the recovery API of the ISO and the session API.
+  /** 401: no code matches the proof (wrong code, or a code issued for another address). */
+  recoveryCodeInvalid: "urn:restow:problem:recovery-code-invalid",
+  /** 410: the code expired before it was redeemed. */
+  recoveryCodeExpired: "urn:restow:problem:recovery-code-expired",
+  /** 410: the code was revoked. */
+  recoveryCodeRevoked: "urn:restow:problem:recovery-code-revoked",
+  /** 409: the code was redeemed already (by another session secret, or too long ago). */
+  recoveryCodeUsed: "urn:restow:problem:recovery-code-used",
+  /** 426: the ISO is older than the server serves (`minRecoveryVersion`). */
+  recoveryTooOld: "urn:restow:problem:recovery-too-old",
+  /** 401: the session ended, was released, cancelled or expired (also the restic route's answer). */
+  recoverySessionEnded: "urn:restow:problem:recovery-session-ended",
+  /** 409: the session waits for an admin to release it. */
+  recoveryNotApproved: "urn:restow:problem:recovery-not-approved",
+  /** 409: the credentials were collected twice, or the window for the second time has passed. */
+  recoveryCredentialsCollected: "urn:restow:problem:recovery-credentials-collected",
+  /** 409: the session is in a state that does not allow this (`extensions.status`). */
+  recoveryStateConflict: "urn:restow:problem:recovery-state-conflict",
+  /**
+   * 409: no recovery code for this machine (`extensions.reason`: `not_linux`, `removed`,
+   * `no_layout`, `unsupported`, `iso_unverified`, `preview_off`, `snapshot_unknown`).
+   */
+  baremetalNotAvailable: "urn:restow:problem:baremetal-not-available",
+  /** 409: three codes of this machine are open already. */
+  recoveryLimitReached: "urn:restow:problem:recovery-limit-reached",
+  /** 409: a recovery session reads the machine's backups; removing them waits for it. */
+  recoveryActive: "urn:restow:problem:endpoint-recovery-active",
+  /** 422: a rebind token was redeemed from another operating system than the machine's. */
+  rebindOsMismatch: "urn:restow:problem:endpoint-rebind-os-mismatch",
 } as const;

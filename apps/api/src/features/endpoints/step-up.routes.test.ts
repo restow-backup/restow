@@ -20,6 +20,8 @@ const mocks = vi.hoisted(() => ({
   revealRepositoryPassword: vi.fn(),
   removeEndpoint: vi.fn(),
   holdSettings: vi.fn(),
+  recovery: vi.fn(),
+  rebind: vi.fn(),
 }));
 
 vi.mock("../../db.js", () => ({ db: {}, providerDb: {}, authDb: {} }));
@@ -55,6 +57,22 @@ vi.mock("./removal.js", async (importOriginal) => ({
   removeEndpoint: mocks.removeEndpoint,
 }));
 vi.mock("../suspicion/service.js", () => ({ retentionHoldSettings: mocks.holdSettings }));
+vi.mock("./instance-url.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./instance-url.js")>()),
+  instanceUrl: async () => ({ url: "https://restow.firma.de", configured: true }),
+}));
+// Bare metal recovery (docs/BAREMETAL.md 9, 11): every service call answers the same stand-in.
+vi.mock("./recovery-codes.js", () => ({
+  issueRecoveryCode: mocks.recovery,
+  revokeRecoveryCode: mocks.recovery,
+  extendRecoveryCode: mocks.recovery,
+  listRecoveries: mocks.recovery,
+  getRecovery: mocks.recovery,
+  approveRecovery: mocks.recovery,
+  cancelRecovery: mocks.recovery,
+  setRecoverySshKeys: mocks.recovery,
+}));
+vi.mock("./rebind.js", () => ({ createRebindToken: mocks.rebind }));
 
 const { endpointsRoutes } = await import("./routes.js");
 const { hookChangeNeedsRecentSignIn } = await import("./service.js");
@@ -98,6 +116,8 @@ beforeEach(() => {
   );
   mocks.removeEndpoint.mockResolvedValue({ id: ids.endpoint, state: "scheduled" });
   mocks.holdSettings.mockResolvedValue({ enabled: false });
+  mocks.recovery.mockResolvedValue({ id: "r-1", status: "issued" });
+  mocks.rebind.mockResolvedValue({ id: "t-1", token: "rset_x" });
   mocks.revealRepositoryPassword.mockResolvedValue({
     password: "restic-password",
     storagePrefix: `endpoints/${ids.endpoint}/`,
@@ -184,5 +204,68 @@ describe("removing a machine (#65)", () => {
     expect((await call("POST", "/remove", { mode: "delete" })).status).toBe(422);
     expect((await call("POST", "/remove", { ...body, mode: "archive" })).status).toBe(422);
     expect(mocks.removeEndpoint).not.toHaveBeenCalled();
+  });
+});
+
+describe("bare metal recovery and rebind (docs/BAREMETAL.md 9, 11)", () => {
+  const recovery = "22222222-2222-4222-8222-222222222222";
+  const key = `ssh-ed25519 ${Buffer.concat([
+    Buffer.from([0, 0, 0, 11]),
+    Buffer.from("ssh-ed25519"),
+    Buffer.from([0, 0, 0, 32]),
+    Buffer.alloc(32, 7),
+  ]).toString("base64")} admin@laptop`;
+  const stepUp: [string, string, unknown, () => ReturnType<typeof vi.fn>][] = [
+    ["POST", "/recovery-codes", {}, () => mocks.recovery],
+    ["POST", `/recovery-codes/${recovery}/extend`, { validityHours: 8 }, () => mocks.recovery],
+    ["POST", `/recoveries/${recovery}/approve`, {}, () => mocks.recovery],
+    ["PUT", `/recoveries/${recovery}/ssh-keys`, { keys: [key] }, () => mocks.recovery],
+    ["POST", "/rebind-token", { purpose: "reinstall" }, () => mocks.rebind],
+  ];
+
+  it.each(stepUp)("%s %s needs a recent sign-in", async (method, path, body, service) => {
+    signedIn(11 * 60);
+    const refused = await call(method, path, body);
+    expect(refused.status).toBe(403);
+    expect(((await refused.json()) as { type?: string }).type).toBe(RECENT_SIGN_IN);
+    expect(service()).not.toHaveBeenCalled();
+    signedIn(30);
+    const served = await call(method, path, body);
+    expect(served.status).toBeLessThan(300);
+    expect(service()).toHaveBeenCalledTimes(1);
+  });
+
+  it("hands out the code and the token without a cache copy", async () => {
+    signedIn(30);
+    expect((await call("POST", "/recovery-codes", {})).headers.get("cache-control")).toBe(
+      "no-store",
+    );
+    expect(
+      (await call("POST", "/rebind-token", { purpose: "baremetal" })).headers.get("cache-control"),
+    ).toBe("no-store");
+  });
+
+  it("leaves revoking, cancelling and reading to any admin session", async () => {
+    signedIn(8 * 60 * 60);
+    expect((await call("POST", `/recovery-codes/${recovery}/revoke`, {})).status).toBe(200);
+    expect((await call("POST", `/recoveries/${recovery}/cancel`, {})).status).toBe(200);
+    expect((await call("GET", "/recoveries")).status).toBe(200);
+    expect((await call("GET", `/recoveries/${recovery}`)).status).toBe(200);
+  });
+
+  it("refuses unknown fields, out of range validity and keys that are not keys", async () => {
+    signedIn(30);
+    expect((await call("POST", "/recovery-codes", { validityHours: 49 })).status).toBe(422);
+    expect((await call("POST", "/recovery-codes", { code: "RC-1" })).status).toBe(422);
+    expect((await call("POST", "/rebind-token", { purpose: "mac_setup" })).status).toBe(422);
+    expect(
+      (await call("POST", "/rebind-token", { purpose: "reinstall", validityHours: 25 })).status,
+    ).toBe(422);
+    expect(
+      (await call("PUT", `/recoveries/${recovery}/ssh-keys`, { keys: ["ssh-ed25519 AAAA"] }))
+        .status,
+    ).toBe(422);
+    expect(mocks.recovery).not.toHaveBeenCalled();
+    expect(mocks.rebind).not.toHaveBeenCalled();
   });
 });

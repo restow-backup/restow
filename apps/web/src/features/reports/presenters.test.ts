@@ -177,4 +177,15 @@ describe("event groups", () => {
     ]);
     expect(EVENT_GROUPS.jobs).toContain("source.app_secret_expiring");
   });
+
+  it("puts the security events of a bare metal recovery into recoverability (docs/BAREMETAL.md 12.6)", () => {
+    for (const event of [
+      "endpoint.recovery.started",
+      "endpoint.recovery_code.rejected",
+      "endpoint.rebound",
+      "endpoint.recovery.failed",
+    ] as const) {
+      expect(EVENT_GROUPS.recoverability).toContain(event);
+    }
+  });
 });
