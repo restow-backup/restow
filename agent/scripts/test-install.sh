@@ -268,6 +268,32 @@ grep -q '"hooks": *"scripts"' /etc/restow-agent/state.json || fail "state.json d
 assert_grep "hooks from the Restow server: scripts" "$work/hooks.out"
 ok "--hooks=scripts is stored locally"
 
+# 8b. a failing `restow-agent hooks` stops the installer (hooks.d is a file here)
+rm -rf /etc/restow-agent/hooks.d
+printf 'x' >/etc/restow-agent/hooks.d
+if install_cmd "" --hooks=scripts >"$work/hooksfail.out" 2>&1; then fail "a failing hooks command was reported as done"; fi
+assert_grep "the hook policy could not be set to scripts" "$work/hooksfail.out"
+assert_not_grep "Done. The Restow agent" "$work/hooksfail.out"
+rm -f /etc/restow-agent/hooks.d
+ok "a failing hooks command stops the installer"
+
+# 8c. an enrollment that cannot be read is no enrollment: without a token the
+# installer says why and asks for one, with a token it enrolls again (--force)
+cp /etc/restow-agent/state.json "$work/state.json.orig"
+printf '{not json' >/etc/restow-agent/state.json
+if install_cmd "" >"$work/unreadable.out" 2>&1; then fail "an unreadable state counted as an enrollment"; fi
+assert_grep "cannot be read" "$work/unreadable.out"
+assert_grep "enroll --force" "$work/unreadable.out"
+assert_not_grep "Done. The Restow agent" "$work/unreadable.out"
+install_cmd "$(fresh_token)" >"$work/reenroll.out" 2>&1 || {
+  cat "$work/reenroll.out"
+  fail "enrolling again over an unreadable state failed"
+}
+assert_grep "enrolled again with a new token" "$work/reenroll.out"
+assert_grep "Enrolled as endpoint" "$work/reenroll.out"
+"$AGENT" status --json | grep -q '"credentials": "readable"' || fail "the new enrollment is not readable"
+ok "an unreadable state asks for a token and is replaced by a new enrollment"
+
 # 9. an install folder others can write to is refused before anything happens
 chmod 0777 "$PREFIX"
 if install_cmd "" >"$work/worldwritable.out" 2>&1; then fail "a world-writable install folder was accepted"; fi
@@ -318,6 +344,7 @@ ok "no token on a fresh machine: refused, nothing installed"
 # 13. a spent token: the agent is installed, enrollment fails with guidance
 if install_cmd "$token" >"$work/spent.out" 2>&1; then fail "a spent token was accepted"; fi
 assert_grep "did not accept the enrollment token" "$work/spent.out"
+assert_grep "the Restow instance did not accept the token" "$work/spent.out"
 assert_grep "Create a new" "$work/spent.out"
 assert_not_grep "$token" "$work/spent.out"
 assert_file "$AGENT"

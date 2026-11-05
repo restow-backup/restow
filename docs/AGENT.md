@@ -87,9 +87,20 @@ Endpunkt (Linux/macOS)                       Restow-Instanz
      `$env:RESTOW_TOKEN_FILE = 'C:\Windows\System32\config\systemprofile\restow-enrollment.token'`
      und `$env:RESTOW_RELEASE_KEY_FINGERPRINT = 'SHA256:...'` (Pin des Release-Schlüssels, den
      der Assistent vorbelegt); ein 32-Bit-RMM-Prozess schreibt die Datei über
-     `C:\Windows\Sysnative\config\systemprofile`. Statt `iex` gleichwertig: Datei laden,
+     `C:\Windows\Sysnative\config\systemprofile`. Schreibt er sie doch nach `System32` (die
+     Windows-Umleitung legt sie dann in `C:\Windows\SysWOW64\config\systemprofile` ab), findet
+     der Installer sie beim Neustart als 64-Bit-PowerShell dort, und fehlt die Datei, nennt er
+     vor jeder Installation das Gegenstück in `SysWOW64`. Statt `iex` gleichwertig: Datei laden,
      SHA-256 mit dem Wert im Assistenten vergleichen (`windows.sha256`, siehe unten), mit
-     `powershell -NoProfile -ExecutionPolicy Bypass -File windows.ps1` starten.
+     `powershell -NoProfile -ExecutionPolicy Bypass -File windows.ps1` starten. Das Skript
+     schaltet TLS 1.2 für seine eigenen Downloads selbst ein (auch beim Neustart als
+     64-Bit-PowerShell); nur der Abruf mit `irm` braucht die Zeile `SecurityProtocol` davor.
+     Scheitert ein Download trotzdem beim Aufbau von TLS ("The underlying connection was
+     closed"), nennt der Installer TLS 1.2 als Ursache; auf Windows Server 2016 und älteren
+     Windows-10-Versionen hilft dann starke Kryptografie für das .NET Framework
+     (`SchUseStrongCrypto = 1` unter
+     `HKLM:\SOFTWARE\Microsoft\.NETFramework\v4.0.30319` und
+     `HKLM:\SOFTWARE\WOW6432Node\Microsoft\.NETFramework\v4.0.30319`).
 
    Die Adresse steht in einfachen Anführungszeichen und muss eine reine Origin sein
    (Schema, Host, Port); der Server baut keinen Befehl aus etwas anderem.
@@ -112,7 +123,14 @@ Endpunkt (Linux/macOS)                       Restow-Instanz
    installiert mit einer Warnung), richtet den Dienst ein (systemd-Unit `restow-agent.service`, macOS LaunchDaemon
    `com.restowbackup.agent`) und ruft `restow-agent enroll` auf. Es ist idempotent: Erneutes
    Ausführen repariert und verschiebt eine Installation einer Vorabversion aus `/usr/local`,
-   ohne deren Binärdatei auszuführen. Option `--hooks=off|scripts|any` setzt die Hook-Regel des Rechners
+   ohne deren Binärdatei auszuführen. Ob der Rechner schon angemeldet ist, sagt
+   `restow-agent status --json` (`"credentials": "readable"`); eine unlesbare Anmeldung wird
+   mit neuem Token neu angemeldet (`enroll --force`). Einen neuen Token verlangt das Skript nur,
+   wenn `enroll` mit Exit-Code 4 endet: Die Instanz selbst hat den Token abgelehnt (HTTP 401
+   mit dem Problemtyp `urn:restow:problem:enrollment-token-invalid`). Exit-Code 5 heißt "Instanz
+   nicht erreichbar" (Netz, Firewall, Proxy, auch HTTP 407 eines Proxys mit Anmeldung); jede
+   andere 4xx-Antwort (404 einer falschen Adresse, 403 einer Web Application Firewall, 401 eines
+   Reverse-Proxys mit eigener Anmeldung) ist Exit-Code 1 mit einem Hinweis auf Adresse und Proxy. Ein scheiterndes `restow-agent hooks` bricht ab. Option `--hooks=off|scripts|any` setzt die Hook-Regel des Rechners
    (siehe "Hooks"). Deinstallation: `sudo /opt/restow-agent/bin/restow-agent uninstall` oder
    das Skript mit `--uninstall`; beides zeigt der Assistent an und entfernt auch die
    Lizenzhinweise.
@@ -616,7 +634,13 @@ darf weitere senden), die Oberfläche formuliert die bekannten (`endpoints:runEr
 `interrupted`, `cancelled` (seit 0.4.2, siehe "Sicherung stoppen"), `no_paths`, `pre_hook_failed`, `post_hook_failed`, `hooks_not_allowed`, `timeout`,
 `target_not_empty`, `invalid_task`, `hash_mismatch`, `missing`, `not_regular`, `read_error`,
 `snapshot_failed`, `snapshot_unavailable`, `snapshot_cleanup_failed` (seit 0.5.0, siehe
-"Konsistenz") und `restic_exit_<N>`. `hooks_not_allowed` heißt: Ein Hook ist eingestellt, aber der Rechner lässt
+"Konsistenz"), `source_unreadable`, `source_is_mount_point` (seit 0.5.0) und `restic_exit_<N>`.
+`source_unreadable` heißt: Ein Sicherungspfad existiert, ist aber nicht lesbar (mit BitLocker
+gesperrt, offline oder nicht bereit, kein Zugriff, ein Link, dem restic nicht folgt) oder restic hat
+aus einem als Link eingetragenen Ordner mit Dateien keine Datei gesichert; `source_is_mount_point`:
+Der Pfad ist ein Ordner, in dem ein Volume ohne Laufwerksbuchstaben eingehängt ist. Beide machen
+den Lauf `partial` (ohne lesbaren Pfad `failed`) und erklären ihn vor einer einzelnen unlesbaren
+Datei (docs/WINDOWS-AGENT.md, 16.5). `hooks_not_allowed` heißt: Ein Hook ist eingestellt, aber der Rechner lässt
 Hooks des Servers nicht zu; die Sicherung lief ohne ihn und ist `partial`. `missing` heißt nur noch:
 In der hergestellten Kopie liegt unter diesem Pfad nichts; jeder andere Fehler beim Prüfen des
 Pfads ist `read_error`. Dateien, die restic bei einer Sicherung nicht lesen konnte, stehen je Datei

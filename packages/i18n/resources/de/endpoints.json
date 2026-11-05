@@ -585,6 +585,7 @@
       "notFinished": "Läuft noch",
       "duration": "Dauer",
       "snapshot": "Snapshot",
+      "snapshotOfFailedRun": "Vor dem Abbruch des Laufs gespeichert. Er zählt nicht als erfolgreiche Sicherung; warum, steht in den Fehlern unten.",
       "filesProcessed": "Verarbeitete Dateien",
       "bytesProcessed": "Verarbeitete Daten",
       "filesNew": "Neue Dateien",
@@ -599,6 +600,7 @@
       "partial": "{method, select, vss {Teilweise ohne Schattenkopie} other {Teilweise ohne Dateisystem-Snapshot}}",
       "partialWith": "{method, select, vss {Teilweise ohne Schattenkopie: {live}} other {Teilweise ohne Dateisystem-Snapshot: {live}}}",
       "unavailable": "{method, select, vss {Ohne Schattenkopie (Schattenkopie nicht verfügbar)} other {Ohne Dateisystem-Snapshot (nicht verfügbar)}}",
+      "unavailableWith": "{method, select, vss {Ohne Schattenkopie: {live}} other {Ohne Dateisystem-Snapshot: {live}}}",
       "off": "{method, select, vss {Ohne Schattenkopie (für diesen Rechner abgeschaltet)} other {Ohne Dateisystem-Snapshot, direkt vom Dateisystem gelesen}}"
     },
     "progress": {
@@ -1136,6 +1138,8 @@
     "snapshot_failed": "Die Schattenkopie eines Laufwerks ist fehlgeschlagen",
     "snapshot_unavailable": "Ohne Schattenkopie: Dateisystem-Snapshots sind auf dem Rechner nicht nutzbar",
     "snapshot_cleanup_failed": "Eine Schattenkopie blieb nach der Sicherung liegen",
+    "source_unreadable": "Ein Sicherungsordner konnte nicht gelesen werden, zum Beispiel ein mit BitLocker gesperrtes, ausgeschaltetes oder nicht zugängliches Laufwerk, und fehlt in dieser Sicherung",
+    "source_is_mount_point": "Ein Sicherungsordner ist ein Volume ohne Laufwerksbuchstaben: Gesichert würde nur der Einhängepunkt, deshalb fehlt er in dieser Sicherung",
     "cancelled": "In der Oberfläche abgebrochen"
   },
   "agentUpdates": {

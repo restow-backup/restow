@@ -447,6 +447,14 @@
         "title": "File system snapshots cannot be used on this machine",
         "why": "The agent could not create any file system snapshot (on Windows: shadow copy, VSS) on this machine: for example the Volume Shadow Copy service is disabled or not installed, Windows denied the agent access to it (COM security, the agent not running as SYSTEM), or the shadow copy provider failed. This is not a passing fault of one drive and stays until it is fixed on the machine. Depending on the policy, the backup ran directly from the file system without a snapshot (a partial backup) or not at all."
       },
+      "source_unreadable": {
+        "title": "A backup folder could not be read",
+        "why": "{has_path, select, yes {The backup path {path}} other {A backup path}} exists on the machine but could not be backed up, so it is missing from this backup. Usual reasons are a drive locked by BitLocker, a drive that is offline or not ready, missing permissions of the agent, or a link that restic does not follow. Any other paths of the run that could be read were backed up."
+      },
+      "source_is_mount_point": {
+        "title": "A backup folder is a volume without a drive letter",
+        "why": "{has_path, select, yes {{path}} other {A backup path}} is a folder at which a volume without a drive letter is mounted. restic would back up only the mount point, not the files on the volume, so it was not backed up. Any other paths of the run that could be read were backed up."
+      },
       "timeout": {
         "title": "The run took too long",
         "why": "The run did not finish within the time the agent allows. What was already uploaded is kept, so the next run continues quickly where this one stopped."
@@ -713,6 +721,8 @@
     "start_mounter": "Make sure the mounter runs: start it with docker compose --profile mounts up -d mounter in the folder with docker-compose.yml, or enable it under Installation > Default repository & network shares.",
     "read_technical_details": "The technical details below show the exact answer.",
     "check_endpoint_paths": "Check that the folders in the machine's settings exist on the machine, or change the folders.",
+    "check_endpoint_source": "On the machine, open the folder named in the run: unlock a drive locked by BitLocker (manage-bde -unlock, or set it to unlock automatically), connect or switch on an offline drive, and check that the agent's account (SYSTEM for the RestowAgent service) may read it. For a link, add the folder it points to instead.",
+    "mount_endpoint_volume": "Give the volume a drive letter (Disk Management, or diskpart: assign letter=E) and add it to the backup by that letter, for example E:\\, instead of the folder it is mounted at.",
     "check_endpoint_hooks": "Run the before and after commands from the settings by hand on the machine as administrator and fix what fails.",
     "allow_endpoint_hooks": "On the machine, allow hooks as administrator: `sudo restow-agent hooks scripts` (only scripts in /etc/restow-agent/hooks.d) or `sudo restow-agent hooks any` (any command). Or remove the commands from the settings.",
     "check_endpoint_snapshot": "On the machine, check the state of the shadow copy as administrator: `vssadmin list writers` (every writer should be \"Stable\" with no error) and the Event Viewer under Windows Logs > Application, source VSS. If another backup runs at the same time, move one of them.",

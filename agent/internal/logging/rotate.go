@@ -16,6 +16,11 @@ type RotatingFile struct {
 	Path     string
 	MaxBytes int64
 	Keep     int
+	// Protect, when set, is applied to the log file every time it is opened
+	// and to the rotated copies found at the start (Windows: a DACL for
+	// SYSTEM and Administrators only, replacing an inherited one). A log
+	// file that cannot be protected is not written.
+	Protect func(path string) error
 
 	mu   sync.Mutex
 	f    *os.File
@@ -24,7 +29,21 @@ type RotatingFile struct {
 
 // NewRotatingFile opens (creating directories as needed) the log file.
 func NewRotatingFile(path string, maxBytes int64, keep int) (*RotatingFile, error) {
-	r := &RotatingFile{Path: path, MaxBytes: maxBytes, Keep: keep}
+	return newRotatingFile(path, maxBytes, keep, nil)
+}
+
+func newRotatingFile(path string, maxBytes int64, keep int, protect func(string) error) (*RotatingFile, error) {
+	r := &RotatingFile{Path: path, MaxBytes: maxBytes, Keep: keep, Protect: protect}
+	if protect != nil {
+		for i := 1; i <= keep; i++ {
+			old := fmt.Sprintf("%s.%d", path, i)
+			if _, err := os.Lstat(old); err == nil {
+				if err := protect(old); err != nil {
+					return nil, err
+				}
+			}
+		}
+	}
 	if err := r.open(); err != nil {
 		return nil, err
 	}
@@ -38,6 +57,12 @@ func (r *RotatingFile) open() error {
 	f, err := os.OpenFile(r.Path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o640)
 	if err != nil {
 		return err
+	}
+	if r.Protect != nil {
+		if err := r.Protect(r.Path); err != nil {
+			_ = f.Close()
+			return err
+		}
 	}
 	st, err := f.Stat()
 	if err != nil {

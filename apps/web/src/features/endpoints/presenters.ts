@@ -460,6 +460,8 @@ const RUN_ERROR_CODES = [
   "snapshot_failed",
   "snapshot_unavailable",
   "snapshot_cleanup_failed",
+  "source_unreadable",
+  "source_is_mount_point",
 ] as const;
 
 export interface RunErrorView {

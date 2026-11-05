@@ -457,6 +457,13 @@ describe("run errors", () => {
     );
     expect(runErrorView({ code: "hash_mismatch" }).headline?.key).toBe("runErrors.hash_mismatch");
     expect(runErrorView({ code: "agent_stopped" }).headline?.key).toBe("runErrors.agent_stopped");
+    // A locked drive or a mount point without a letter (agent 0.5.0): worded, not the raw code.
+    expect(runErrorView({ code: "source_unreadable" }).headline?.key).toBe(
+      "runErrors.source_unreadable",
+    );
+    expect(runErrorView({ code: "source_is_mount_point" }).headline?.key).toBe(
+      "runErrors.source_is_mount_point",
+    );
   });
 
   it("treats an interruption as neutral", () => {

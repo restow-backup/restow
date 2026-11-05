@@ -649,6 +649,21 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     retryable: true,
     steps: () => [step("check_endpoint_snapshot_service"), READ_DETAILS],
   },
+  // A backup path exists but could not be read (a drive locked by BitLocker, offline, no
+  // access, a link restic does not follow): it stays so until someone unlocks or changes it.
+  "endpoint.source_unreadable": {
+    category: "endpoint",
+    transient: false,
+    retryable: true,
+    steps: () => [step("check_endpoint_source"), step("check_endpoint_paths"), READ_DETAILS],
+  },
+  // A backup path is a folder a volume without a drive letter is mounted at.
+  "endpoint.source_is_mount_point": {
+    category: "endpoint",
+    transient: false,
+    retryable: true,
+    steps: () => [step("mount_endpoint_volume"), step("check_endpoint_paths")],
+  },
   "endpoint.post_hook_failed": {
     category: "endpoint",
     transient: false,

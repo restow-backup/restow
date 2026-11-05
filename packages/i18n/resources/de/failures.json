@@ -447,6 +447,14 @@
         "title": "Dateisystem-Snapshots sind auf diesem Rechner nicht nutzbar",
         "why": "Der Agent konnte auf diesem Rechner überhaupt keinen Dateisystem-Snapshot anlegen (unter Windows: Schattenkopie, VSS): zum Beispiel ist der Dienst \"Volumeschattenkopie\" deaktiviert oder nicht installiert, Windows hat dem Agent den Zugriff darauf verweigert (COM-Sicherheit, der Agent läuft nicht als SYSTEM), oder der Schattenkopie-Anbieter ist gescheitert. Das ist kein vorübergehender Fehler eines Laufwerks und bleibt, bis es auf dem Rechner behoben ist. Je nach Richtlinie wurde ohne Snapshot direkt vom Dateisystem gesichert (teilweise Sicherung) oder gar nicht."
       },
+      "source_unreadable": {
+        "title": "Ein Sicherungsordner konnte nicht gelesen werden",
+        "why": "{has_path, select, yes {Der Sicherungspfad {path}} other {Ein Sicherungspfad}} existiert auf dem Rechner, konnte aber nicht gesichert werden und fehlt in dieser Sicherung. Übliche Gründe sind ein mit BitLocker gesperrtes Laufwerk, ein Laufwerk, das offline oder nicht bereit ist, fehlende Rechte des Agents oder ein Link, dem restic nicht folgt. Andere Pfade des Laufs wurden gesichert, soweit sie lesbar waren."
+      },
+      "source_is_mount_point": {
+        "title": "Ein Sicherungsordner ist ein Volume ohne Laufwerksbuchstaben",
+        "why": "{has_path, select, yes {{path}} other {Ein Sicherungspfad}} ist ein Ordner, in dem ein Volume ohne Laufwerksbuchstaben eingehängt ist. restic würde nur den Einhängepunkt sichern, nicht die Dateien auf dem Volume, deshalb wurde er nicht gesichert. Andere Pfade des Laufs wurden gesichert, soweit sie lesbar waren."
+      },
       "timeout": {
         "title": "Der Lauf hat zu lange gedauert",
         "why": "Der Lauf wurde nicht innerhalb der Zeit fertig, die der Agent erlaubt. Was schon hochgeladen wurde, bleibt erhalten, sodass der nächste Lauf zügig dort weitermacht, wo dieser aufgehört hat."
@@ -713,6 +721,8 @@
     "start_mounter": "Stellen Sie sicher, dass der Mounter läuft: Starten Sie ihn mit docker compose --profile mounts up -d mounter im Ordner mit docker-compose.yml oder schalten Sie ihn unter Installation > Standard-Repository & Netzlaufwerke ein.",
     "read_technical_details": "Die technischen Details unten zeigen die genaue Antwort.",
     "check_endpoint_paths": "Prüfen Sie, ob die Ordner aus den Einstellungen des Rechners auf ihm existieren, oder ändern Sie die Ordner.",
+    "check_endpoint_source": "Öffnen Sie auf dem Rechner den im Lauf genannten Ordner: Entsperren Sie ein mit BitLocker gesperrtes Laufwerk (manage-bde -unlock, oder stellen Sie die automatische Entsperrung ein), schließen Sie ein Laufwerk an oder schalten Sie es ein, und prüfen Sie, ob das Konto des Agents (SYSTEM beim Dienst RestowAgent) es lesen darf. Bei einem Link tragen Sie stattdessen den Ordner ein, auf den er zeigt.",
+    "mount_endpoint_volume": "Geben Sie dem Volume einen Laufwerksbuchstaben (Datenträgerverwaltung, oder diskpart: assign letter=E) und tragen Sie es mit diesem Buchstaben in die Sicherung ein, zum Beispiel E:\\, statt des Ordners, in dem es eingehängt ist.",
     "check_endpoint_hooks": "Führen Sie die Befehle vor und nach der Sicherung aus den Einstellungen von Hand auf dem Rechner als Administrator aus und beheben Sie, was fehlschlägt.",
     "allow_endpoint_hooks": "Erlauben Sie Hooks auf dem Rechner als Administrator: `sudo restow-agent hooks scripts` (nur Skripte in /etc/restow-agent/hooks.d) oder `sudo restow-agent hooks any` (beliebige Befehle). Oder entfernen Sie die Befehle aus den Einstellungen.",
     "check_endpoint_snapshot": "Prüfen Sie auf dem Rechner als Administrator den Zustand der Schattenkopie: `vssadmin list writers` (alle Writer sollten \"Stabil\" und ohne Fehler sein) und die Ereignisanzeige unter Windows-Protokolle > Anwendung, Quelle VSS. Läuft gleichzeitig eine andere Sicherung, verschieben Sie eine der beiden.",

@@ -148,6 +148,19 @@ func cmdEnroll(args []string, stdout, stderr io.Writer) int {
 	if hostname == "" {
 		hostname = sysinfo.Hostname()
 	}
+	// The token can be used once: everything local that the enrollment needs
+	// is checked before the server sees it, so a folder someone else
+	// prepared, a full disk or an unusable DPAPI fails without using it up
+	// and without leaving an endpoint on the server (an existing state stays).
+	if err := layout.Ensure(); err != nil {
+		fmt.Fprintf(stderr, "Cannot create the agent directories: %v\nThe token was not used. Fix the problem and run the command again.\n", err)
+		return exitError
+	}
+	if err := state.CheckWritable(layout.StateFile()); err != nil {
+		fmt.Fprintf(stderr, "The credentials could not be stored in %s: %v\nThe token was not used. Fix the problem (permissions, disk space) and run the command again.\n", layout.StateFile(), err)
+		return exitError
+	}
+
 	ctx, cancel := signalContext()
 	defer cancel()
 	ectx, ecancel := context.WithTimeout(ctx, 3*time.Minute)
@@ -162,17 +175,36 @@ func cmdEnroll(args []string, stdout, stderr io.Writer) int {
 	})
 	if err != nil {
 		var ae *api.APIError
-		if errors.As(err, &ae) && ae.Status >= 400 && ae.Status < 500 && ae.Status != 429 {
+		isAPI := errors.As(err, &ae)
+		if api.IsTokenRefused(err) {
 			fmt.Fprintf(stderr, "The Restow instance did not accept the enrollment token (HTTP %d %s).\n", ae.Status, ae.Title)
 			if ae.Detail != "" {
 				fmt.Fprintf(stderr, "Reason given: %s\n", redact.Redact(ae.Detail))
 			}
 			fmt.Fprintln(stderr, "Enrollment tokens are valid for 24 hours and can be used once. Create a new server or client in the Restow UI (Endpoints) and run the install command again.")
+			return exitTokenRefused
+		}
+		if isAPI && ae.Status == 407 {
+			// A proxy that wants a login: the request never reached the instance.
+			fmt.Fprintf(stderr, "Enrollment failed: the proxy asked for authentication (HTTP 407) and the request did not reach %s. "+
+				"Give the proxy with its user name and password (-Proxy http://user:password@proxy:port, or HTTPS_PROXY), or ask for this computer to be allowed through. The token was not used.\n", baseURL)
+			return exitUnreachable
+		}
+		if isAPI && ae.Status >= 400 && ae.Status < 500 && ae.Status != 429 {
+			// Answered, but not as the instance refuses a token: a wrong
+			// address, a reverse proxy, a web application firewall, an
+			// unsupported system. A new token would not help.
+			fmt.Fprintf(stderr, "Enrollment failed: %s answered HTTP %d %s to the enrollment request. This is no refusal of the token.\n", baseURL, ae.Status, ae.Title)
+			if ae.Detail != "" {
+				fmt.Fprintf(stderr, "Reason given: %s\n", redact.Redact(ae.Detail))
+			}
+			fmt.Fprintln(stderr, "Check that the URL is the address of the Restow web interface, and that no reverse proxy, web application firewall or proxy blocks or rewrites /agent/v1/enroll. Then run the install command again with the same token, unless the reason above says it is used up.")
 			return exitError
 		}
 		fmt.Fprintf(stderr, "Enrollment failed: %s\n", api.Explain(err, baseURL))
 		if api.IsNetworkError(err) {
 			fmt.Fprintln(stderr, "If the request reached the instance before the connection broke, the token may be used up; then create a new one in the UI.")
+			return exitUnreachable
 		}
 		return exitError
 	}
@@ -191,12 +223,12 @@ func cmdEnroll(args []string, stdout, stderr io.Writer) int {
 		AgentSecret: resp.AgentSecret, RepositoryURL: resp.Repository.URL, RepositoryPassword: resp.Repository.Password,
 	}
 	redact.Add(st.Secrets()...)
-	if err := layout.Ensure(); err != nil {
-		fmt.Fprintf(stderr, "Cannot create the agent directories: %v\n", err)
-		return exitError
-	}
 	if err := st.Save(layout.StateFile()); err != nil {
-		fmt.Fprintf(stderr, "Enrolled, but the credentials could not be stored in %s: %v\nThe token is used up. Fix the problem (permissions, disk space) and create a new token.\n", layout.StateFile(), err)
+		// The agent API has no call to withdraw an enrollment with its own
+		// credentials, so the new endpoint stays on the server.
+		fmt.Fprintf(stderr, "Enrolled as endpoint %s, but the credentials could not be stored in %s: %v\n"+
+			"The token is used up, and the endpoint now exists on the server without a machine that can use it: delete it in the Restow UI (Endpoints). "+
+			"Fix the problem (permissions, disk space), create a new token and run the command again.\n", st.EndpointID, layout.StateFile(), err)
 		return exitError
 	}
 	eventlog.Info(eventlog.IDEnrolled, fmt.Sprintf("This computer was enrolled at %s as endpoint %s.", st.ServerURL, st.EndpointID))

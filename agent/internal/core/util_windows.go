@@ -4,8 +4,10 @@ package core
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 
 	"github.com/restow-backup/restow/agent/internal/eventlog"
@@ -83,4 +85,20 @@ func prepareRestoreTarget(target string) (string, error) {
 	}
 	eventlog.Info(eventlog.IDRestoreTarget, "The Restow agent restores files to "+resolved+".")
 	return resolved, nil
+}
+
+// platformReparse reads a source that Go reports as irregular: a junction or
+// a folder a volume is mounted at (both IO_REPARSE_TAG_MOUNT_POINT; since Go
+// 1.23 neither is a symbolic link to os.Lstat and filepath.EvalSymlinks),
+// which restic, built with winsymlink=0, would store as a bare link
+// (docs/WINDOWS-AGENT.md, 16.5).
+func platformReparse(p string, st fs.FileInfo) (reparsePoint, error) {
+	if a, ok := st.Sys().(*syscall.Win32FileAttributeData); ok && a.FileAttributes&winapi.FileAttributeReparsePoint == 0 {
+		return reparsePoint{}, nil
+	}
+	tag, substitute, err := winapi.ReparsePoint(p)
+	if err != nil {
+		return reparsePoint{}, err
+	}
+	return classifyReparse(tag, substitute, winapi.VolumePathNames)
 }

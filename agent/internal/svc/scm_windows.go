@@ -199,11 +199,22 @@ func (m *scm) Stop() error {
 	return stopAndWait(svc)
 }
 
+// stopAndWait stops the service and waits up to 90 s until it is stopped; a
+// service that is still running then is ErrStillRunning.
 func stopAndWait(svc syscall.Handle) error {
-	if _, err := winapi.ControlService(svc, winapi.ServiceControlStop); err != nil && !winapi.IsErrno(err, winapi.ErrorServiceNotActive) {
+	return stopAndConfirm(func() error {
+		_, err := winapi.ControlService(svc, winapi.ServiceControlStop)
+		if err != nil && (winapi.IsErrno(err, winapi.ErrorServiceNotActive) || winapi.IsErrno(err, winapi.ErrorServiceCannotAcceptCtrl)) {
+			return nil // not running, or already stopping: wait for the state
+		}
 		return err
-	}
-	return waitState(svc, winapi.ServiceStopped, 90*time.Second)
+	}, func() (bool, uint32, error) {
+		st, err := winapi.QueryServiceStatus(svc)
+		if err != nil {
+			return false, 0, err
+		}
+		return st.CurrentState == winapi.ServiceStopped, st.ProcessID, nil
+	}, 90*time.Second, 250*time.Millisecond)
 }
 
 func waitState(svc syscall.Handle, want uint32, limit time.Duration) error {
@@ -262,7 +273,8 @@ func (m *scm) Status() Info {
 	return Info{State: Unknown, Detail: fmt.Sprintf("state %d", st.CurrentState)}
 }
 
-// Uninstall stops the service and deletes it.
+// Uninstall stops the service and deletes it. A service that does not stop
+// is not deleted (ErrStillRunning): the caller then removes nothing either.
 func (m *scm) Uninstall() error {
 	mgr, svc, err := m.open(winapi.ServiceStop | winapi.ServiceQueryStatus | winapi.Delete)
 	if err != nil {
@@ -272,7 +284,9 @@ func (m *scm) Uninstall() error {
 		return err
 	}
 	defer closeBoth(mgr, svc)
-	_ = stopAndWait(svc)
+	if err := stopAndWait(svc); err != nil {
+		return err
+	}
 	if err := winapi.DeleteService(svc); err != nil && !winapi.IsErrno(err, winapi.ErrorServiceMarkedForDelete) {
 		return err
 	}

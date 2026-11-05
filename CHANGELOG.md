@@ -915,6 +915,164 @@ private repository.
   <vmid> - --unprivileged 1 --rootfs <storage>:<GiB>`, which lets PVE map the ids, with notes for
   privileged containers and a custom `lxc.idmap`. docs/PROXMOX.md no longer plans the
   configuration as a file in the snapshot.
+- Windows agent (preview): a backup recorded no sample files for restore tests and no entropy for
+  the ransomware signals. The agent looked for `/C/Users/a.txt` from the snapshot at
+  `\C\Users\a.txt` instead of `C:\Users\a.txt`, found none of the files and wrote "No sample
+  files could be recorded", so a Windows machine never got a restore test.
+- Windows agent (preview): a backup path on a drive that is locked by BitLocker, offline or not
+  ready, or that the agent may not read, was logged as "does not exist" and the run stayed
+  green while the drive was never backed up. Only a path that really does not exist is skipped
+  that way now; any other error is the run error `source_unreadable` with the system's text,
+  and the run ends partial (failed when no path is left). The run details word it and
+  `source_is_mount_point` in both languages, and the run's explanation names the folder and
+  what to do (unlock the drive, give the volume a drive letter) before a single unreadable file.
+- Windows agent (preview): a junction (`mklink /J`) or a folder a volume is mounted at,
+  configured as a backup path, was backed up as a bare link without its files, and the run was
+  green. The agent now backs up the junction's target and the mounted volume by its drive
+  letter, and says so in the log; a volume without a drive letter is the run error
+  `source_is_mount_point` (the run ends partial). A backup in which restic read no file at all
+  from such a linked folder that holds files ends partial as well; a plain folder whose files
+  the job's exclusions leave out is no error.
+- Windows agent (preview): a backup that read no volume from a shadow copy reported the
+  consistency "Shadow copy (file consistent)", for example a job with only an exFAT disk or a
+  volume whose snapshot provider does not support it. Such a backup is now "Without a shadow
+  copy: E:\" with the volumes read live; "used" needs at least one volume that really came from
+  a shadow copy and lists the others it read live. A volume VSS cannot do by design (exFAT,
+  FAT32, a removable drive) is no failure, also when it is all the backup has: the run stays
+  succeeded, as it does for such a disk next to a snapshotted C:\.
+- Windows agent (preview): a short network or server failure while restic opened the
+  repository (exit code 1 before any progress) was put down to the shadow copy. The agent backed
+  up again without it, so a backup with a shadow copy became a live one, and the run was
+  explained as "File system snapshots cannot be used on the machine"; when the second attempt
+  failed too, the error said the backup ran without a shadow copy although none was made. Only
+  restic's own messages of the Volume Shadow Copy setup lead to the backup without it now
+  ("restic could not initialise the Volume Shadow Copy service: ..."), and only a backup that
+  was made reports that; any other early failure is an ordinary failure whose retry uses the
+  shadow copy again.
+- Windows agent (preview): removing the agent with `restow-agent.exe uninstall` or a server
+  uninstall task marked `restow-agent.exe` (and `restic.exe` when it was in use) for deletion at
+  the next restart of Windows under their fixed names. An agent installed again before that
+  restart was then deleted by it, and the service did not start any more. Such a file is now
+  renamed to `<name>.old-<random>` first, and only that name is deleted at the restart.
+- Windows agent (preview): on a computer where an administrator owns what it creates (UAC
+  switched off, the built-in Administrator account, the policy "Default owner for objects
+  created by members of the Administrators group: Object creator"), the installer refused its
+  own folder: "C:\Program Files\Restow is owned by S-1-5-21-..., someone else may have
+  prepared it". The same held for `service install`, for hook scripts after
+  `restow-agent hooks scripts`, and for the service after `restow-agent update` run by an
+  administrator, which then did nothing and the machine showed as offline. The installer and
+  the agent now make Administrators the owner of every folder and file they create, keeping
+  the inherited permissions. Hook scripts you copy into `hooks.d` yourself belong to you on
+  such a computer; `icacls <file> /setowner *S-1-5-32-544` makes them usable.
+- Windows agent (preview): the documented alternative to `iex`, downloading `windows.ps1` and
+  running it with `powershell -File`, failed on Windows PowerShell 5.1 without strong
+  cryptography (Windows Server 2016, older Windows 10) against an instance that speaks TLS 1.2
+  only, and so did the restart of a 32-bit host in 64-bit PowerShell: only the `iex` command
+  line enabled TLS 1.2, in the caller's own session. The installer enables TLS 1.2 itself now,
+  and a download that fails while setting up TLS says that TLS 1.2 is needed instead of
+  asking to check the network.
+- Windows agent (preview): a PowerShell hook that ran a program which writes warnings or its
+  progress to stderr, such as `mysqldump` ("Using a password on the command line"), `git` or
+  `pg_dump --verbose`, failed with exit code 1 under Windows PowerShell 5.1 although the program
+  succeeded, and a pre hook then stopped the backup. The hook wrapper no longer sets
+  `$ErrorActionPreference = 'Stop'`, which turned the first stderr line into a terminating error;
+  a failing cmdlet still stops the hook with exit code 1 and its error text in the run log, and
+  a program's own exit code decides for the program.
+- Windows agent (preview): when the Volume Shadow Copy service was disabled, or Windows denied
+  the agent access to it, every backup reported a "snapshot_failed" for each volume, which reads
+  as a passing problem (a busy VSS writer, another backup taking a shadow copy); under the policy
+  "stop the backup" every run then failed with that wording, and the service was never named.
+  restic only notices this at the first volume and still ends with exit code 0. The agent now
+  recognises the texts that concern the whole machine (service disabled, not installed or not
+  starting, a wrong restic architecture or an unknown provider; access denied only when every
+  volume of the backup got it) and reports one "snapshot_unavailable" with the cause, under
+  both policies, and its run log points to the service "Volume Shadow Copy" in services.msc. A
+  volume whose shadow copy failed while another one got its shadow copy stays a
+  "snapshot_failed" of that volume, with the consistency "partly without a shadow copy" and the
+  volume listed.
+- Agent: `restow-agent enroll` used up the one-time token before it created the agent's folders
+  and stored the credentials. A state folder that someone else had prepared (refused on
+  Windows), a full disk or an unusable DPAPI then ended with "The token is used up" and an
+  endpoint on the server that no machine could use; every retry left another one. The agent now
+  creates its folders, protects a test secret and writes it next to the state file before it
+  contacts the server, and stops with "The token was not used" when that fails; an existing
+  enrollment stays untouched until the new one is stored. Should storing fail afterwards all the
+  same, the message names the new endpoint to delete in the UI.
+- Windows agent (preview): a service that started before the machine was enrolled (an expired
+  token, then a restart of Windows) wrote `agent.log` before it protected its folders, so
+  `C:\ProgramData\Restow\logs` got the permissions of `C:\ProgramData`: every user could read
+  the log and create `C:\ProgramData\Restow\state` themselves, which the next enrollment then
+  refused. `restow-agent service install` and the service now create `C:\ProgramData\Restow`
+  with `state`, `data` and `logs` protected before anything is written, `agent.log` and its
+  rotated copies are reset to SYSTEM and Administrators whenever they are opened, and an empty
+  folder that a user created there is replaced (one with files is still refused, with the advice
+  to delete it).
+- Windows agent (preview): the installer run from a 32-bit host (Intune, many RMM tools), which
+  starts itself again in 64-bit PowerShell, could stop in the middle of the installation, for
+  example after the enrollment and before the service was started, when the 64-bit run printed
+  a warning on stderr; Windows PowerShell 5.1 turned that line into an error of the 32-bit run.
+  Only the exit code of the 64-bit run counts now, and the options no longer stay behind in the
+  session's environment. A token file that the 32-bit program wrote to
+  `C:\Windows\System32\config\systemprofile` (where Windows puts it into `SysWOW64`) was reported
+  as missing after the service had been installed; the installer now hands the 64-bit run the
+  path it is really at, and a missing token file stops it before anything is installed, naming
+  the copy in `SysWOW64` if there is one.
+- Agent installers: every failed enrollment ended with "Create a new token in the Restow UI (the
+  old one may have expired or been used)", also when the agent never reached the instance, for
+  example on a Windows computer whose proxy comes from Internet Options or a PAC file: the
+  installer's downloads used it, the agent does not read it. `restow-agent enroll` now ends with
+  exit code 4 only when the instance itself refused the token (HTTP 401 with its problem type),
+  5 when it could not be reached or a proxy asked for a login (HTTP 407), and 1 with a note on
+  the address, reverse proxy and firewall for any other answer (a 404 of a wrong URL, a 403 of
+  a web application firewall); the installers ask for a new token only on 4. On 5 they point to
+  the network and the proxy, and the Windows installer names the proxy Windows uses for the
+  instance (`-Proxy <proxy>`, never taken over unasked).
+- Agent installers: on a machine that was already enrolled, a failing `restow-agent hooks` (for
+  `-Hooks`/`--hooks`) was reported as done on Windows, and an existing state file counted as an
+  enrollment even when the agent could no longer read it; the installer then said "installed
+  and enrolled" while the service waited for an enrollment. The installers now stop with the
+  agent's error, decide "enrolled" with `restow-agent status --json`, and for an enrollment that
+  cannot be read name the reason, ask for a new token and enroll again (`enroll --force`).
+  `restow-agent hooks scripts` also fails now when `hooks.d` exists as a file instead of a folder.
+- Windows agent (preview): when the agent stopped with an error, the service ended with the
+  Windows exit code 1, and the event log and the services console said "Incorrect function",
+  which pointed administrators to the wrong cause. The service now ends with its own
+  service-specific code: 536870913 (0x20000001) for an error, whose reason is in `agent.log`,
+  and 536870914 (0x20000002) for a usage or configuration error; codes from this range have no
+  Windows text, so the event shows the number, which docs/WINDOWS-AGENT.md (section 9.2)
+  explains. The restart after an update keeps the code 3.
+- Windows agent (preview): an uninstall while a backup or a post hook was still ending went on
+  after the service had not stopped within 90 seconds. It deleted the enrollment and the data
+  while the agent still ran, and the installer's `-Uninstall` then failed with a PowerShell
+  error on the running `restow-agent.exe`, leaving the computer half removed. A service that
+  does not stop now removes nothing ("the Restow agent is still running ...; nothing was
+  removed"); the installer waits for the agent's process to end, tries once more, retries a
+  file that is still in use for a moment, and otherwise stops with a clear message to run the
+  uninstall again later. Without a usable agent binary it stops the service with a time limit
+  instead of waiting without an end.
+- Windows agent (preview): a volume mounted in a folder below a backup path (for example an
+  exFAT disk at `C:\Data\Archive`) that the shadow copy cannot cover was read from the live file
+  system without a word, and the run reported "Shadow copy (file consistent)" for its files too.
+  The agent now looks at the folders volumes are mounted at below each backup path, tells restic
+  to read a removable, FAT32 or exFAT one live and names it among the volumes read live. When
+  restic made such a folder's shadow copy but cannot use it ("VSS error:
+  GetSnapshotProperties() for mount point ..."), the run ends partial with `snapshot_failed` for
+  that folder instead of green with a file error beside it.
+- Windows agent (preview): under the policy "stop the backup" for a failed shadow copy, a restic
+  that had already saved its snapshot when the agent stopped it (a small backup set) left that
+  snapshot, with files read from the live file system, in the repository without the failed run
+  naming it; the server then flagged it as "Not reported by any backup" and retention never
+  removed it. The same held for a snapshot saved just before an interruption or the time limit.
+  The failed run now reports the snapshot with its figures, its error says that the snapshot
+  stays in the repository but is no backup the policy accepts, and the run details say so beside
+  the snapshot of a failed run and of a run cancelled in Restow.
+- Windows agent (preview): the installer stopped only when Smart App Control was on, and
+  installed without a word when it was in evaluation mode, which a freshly installed Windows 11
+  starts in. Windows may switch Smart App Control on later by itself; it then blocks the unsigned
+  `restow-agent.exe`, `restic.exe` and every agent update, the service no longer starts, and the
+  Restow UI only shows the computer as offline. The installer now warns clearly at its start and
+  at its end in evaluation mode, and both its texts say how to switch Smart App Control off and
+  that this is for good (only a reset or a new installation of Windows switches it on again).
 
 ### Upgrade Notes
 
@@ -954,9 +1112,9 @@ fingerprint `SHA256:2LB7RPpIS0wqbcZ2NA8MjuQN7ZfFPqBX3CwrGFSu76o`.
 - A shadow copy makes a backup file consistent, not application consistent: SQL Server or
   Exchange files are crash consistent; use a pre hook for a dump.
 - No alternate data streams (no Mark of the Web after a restore), no EFS files of other users,
-  online-only cloud files are left out, junctions are backed up as links, no system state or
-  registry, no bare-metal restore for Windows, and further data drives are not reported as
-  data folders yet.
+  online-only cloud files are left out, junctions inside a backed-up folder are backed up as
+  links, no system state or registry, no bare-metal restore for Windows, and further data
+  drives are not reported as data folders yet.
 
 ## [0.4.12] - 2026-11-04
 

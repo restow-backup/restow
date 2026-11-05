@@ -60,6 +60,20 @@ describe("RunDetailView", () => {
     expect(html).toContain("Secrets are never part of it.");
   });
 
+  it("says that the snapshot of a failed run does not count as a backup", () => {
+    const failed = render_(run({ status: "failed" }));
+    expect(failed).toContain("01234567");
+    expect(failed).toContain("It does not count as a successful backup");
+    expect(render_(run())).not.toContain("It does not count as a successful backup");
+    expect(render_(run({ status: "partial" }))).not.toContain(
+      "It does not count as a successful backup",
+    );
+    // Cancelled in Restow after restic had saved it: no successful backup either.
+    expect(render_(run({ status: "cancelled" }))).toContain(
+      "It does not count as a successful backup",
+    );
+  });
+
   it("says how consistent the files are: shadow copy, partly without, without", () => {
     const base = run().stats ?? {};
     const used = render_(
@@ -81,6 +95,17 @@ describe("RunDetailView", () => {
       run({ status: "failed", stats: { consistency: { method: "vss", state: "unavailable" } } }),
     );
     expect(failed).toContain("Without a shadow copy (shadow copy not available)");
+    // Only an exFAT disk, which VSS cannot do: a green run that names the volume read live.
+    const exfat = render_(
+      run({
+        stats: {
+          ...base,
+          consistency: { method: "vss", state: "unavailable", liveFilesystems: ["E:\\"] },
+        },
+      }),
+    );
+    expect(exfat).toContain("Without a shadow copy: E:\\");
+    expect(exfat).not.toContain("not available");
     const linux = render_(run({ stats: { ...base, consistency: { state: "off" } } }));
     expect(linux).toContain("Without a file system snapshot, read from the live file system");
     // A run of an agent before 0.5.0 says nothing about it.

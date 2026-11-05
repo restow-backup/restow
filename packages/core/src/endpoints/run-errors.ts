@@ -19,6 +19,16 @@
  *                            `continue` the backup ran without one.
  *   snapshot_cleanup_failed  a snapshot was not deleted after the run: a note, not a
  *                            reason for `partial`, and never the explanation of a run.
+ *
+ * Backup paths that exist but cannot be backed up as configured (agent 0.5.0); each makes the
+ * run partial, failed when no path is left:
+ *
+ *   source_unreadable      the path (`path`) cannot be read: a drive locked by BitLocker,
+ *                          offline or not ready, no access, a link of a kind restic does not
+ *                          follow, too many junctions; or restic backed up no file from a
+ *                          linked folder that holds files.
+ *   source_is_mount_point  the path is a folder a volume without a drive letter is mounted at;
+ *                          restic would back up only the mount point.
  */
 export const ENDPOINT_RUN_ERROR_CODES = [
   "interrupted",
@@ -37,6 +47,8 @@ export const ENDPOINT_RUN_ERROR_CODES = [
   "snapshot_failed",
   "snapshot_unavailable",
   "snapshot_cleanup_failed",
+  "source_unreadable",
+  "source_is_mount_point",
 ] as const;
 
 /** A note about a snapshot left behind: never the explanation of a run. */

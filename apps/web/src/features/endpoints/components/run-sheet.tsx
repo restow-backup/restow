@@ -103,10 +103,10 @@ export function RunProgressView({
 
 /**
  * The consistency of a backup in words: "Shadow copy (file consistent)", "Partly without a shadow
- * copy: D:\", "Without a shadow copy". Never "consistent" alone: a shadow copy without writer
- * components makes open databases crash consistent, not application consistent. A volume read
- * live is always named, also beside a shadow copy ("Shadow copy (file consistent); read live:
- * E:\"): a removable, FAT or exFAT volume never is in one.
+ * copy: D:\", "Without a shadow copy: E:\", "Without a shadow copy". Never "consistent" alone: a
+ * shadow copy without writer components makes open databases crash consistent, not application
+ * consistent. A volume read live is always named, also beside a shadow copy ("Shadow copy (file
+ * consistent); read live: E:\"): a removable, FAT or exFAT volume never is in one.
  */
 export function consistencyText(
   consistency: RunConsistency,
@@ -124,7 +124,10 @@ export function consistencyText(
         ? t("runs.consistency.partialWith", { method, live })
         : t("runs.consistency.partial", { method });
     case "unavailable":
-      return t("runs.consistency.unavailable", { method });
+      // With the volumes read live (an exFAT disk VSS cannot do, or every volume failed).
+      return live
+        ? t("runs.consistency.unavailableWith", { method, live })
+        : t("runs.consistency.unavailable", { method });
     default:
       return t("runs.consistency.off", { method });
   }
@@ -181,6 +184,12 @@ export function RunDetailView({
             <code className="font-mono text-xs" title={run.snapshotId}>
               {run.snapshotId.slice(0, 8)}
             </code>
+            {/* Failed, cancelled in Restow, interrupted: restic saved it before the stop. */}
+            {run.status !== "succeeded" && run.status !== "partial" ? (
+              <span className="block text-xs text-muted-foreground">
+                {t("runs.facts.snapshotOfFailedRun")}
+              </span>
+            ) : null}
           </Fact>
         ) : null}
         {stats ? (

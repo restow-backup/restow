@@ -4,6 +4,7 @@ package core
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -95,3 +96,6 @@ func prepareRestoreTarget(target string) (string, error) {
 	}
 	return final, nil
 }
+
+// platformReparse: Unix has no reparse points.
+var platformReparse func(string, fs.FileInfo) (reparsePoint, error)

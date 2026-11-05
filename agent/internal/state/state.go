@@ -149,6 +149,51 @@ func (s *State) Save(path string) error {
 	return syncDir(dir)
 }
 
+// CheckWritable proves, before an enrollment uses up its one-time token,
+// that Save will be able to store a state at path: it creates the folder as
+// Save does (on Windows with its protected DACL, refusing a folder someone
+// else prepared), protects a dummy secret with the system's sealer (DPAPI on
+// Windows) and opens it again, and writes that to a temporary file next to
+// path, which it removes. An existing state file is never touched, so
+// `enroll --force` keeps the old enrollment until the new one is stored.
+func CheckWritable(path string) error {
+	dummy := &State{SchemaVersion: SchemaVersion, ServerURL: "https://enrollment-check.invalid", EndpointID: "enrollment-check",
+		Hostname: "enrollment-check", AgentSecret: "rsea_enrollment_check", RepositoryURL: "rest:https://enrollment-check.invalid/",
+		RepositoryPassword: "enrollment-check"}
+	raw, err := encode(dummy, secretSealer)
+	if err != nil {
+		return err
+	}
+	back, err := decode(raw, secretSealer)
+	if err != nil {
+		return fmt.Errorf("the protected secrets cannot be read back on this machine: %w", err)
+	}
+	if back.AgentSecret != dummy.AgentSecret {
+		return errors.New("the protected secrets do not read back unchanged")
+	}
+	dir := filepath.Dir(path)
+	if err := ensureDir(dir); err != nil {
+		return err
+	}
+	tmp, err := createTemp(dir)
+	if err != nil {
+		return err
+	}
+	name := tmp.Name()
+	_, werr := tmp.Write(raw)
+	if werr == nil {
+		werr = tmp.Sync()
+	}
+	cerr := tmp.Close()
+	rerr := os.Remove(name)
+	for _, e := range []error{werr, cerr, rerr} {
+		if e != nil {
+			return e
+		}
+	}
+	return nil
+}
+
 // Remove deletes the state file (used by uninstall).
 func Remove(path string) error {
 	err := os.Remove(path)

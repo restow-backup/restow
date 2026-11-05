@@ -141,7 +141,9 @@ when it differs from a pin. Options: `-Hooks off|scripts|any`, `-Proxy http://pr
 (Intune runs scripts 32-bit by default) is fine: the installer starts itself again as
 64-bit; write the token file there to `C:\Windows\Sysnative\config\systemprofile\`. Where
 `iex (irm ...)` is blocked (AMSI, ASR, EDR), download `windows.ps1`, compare its SHA-256 and
-run it with `powershell -NoProfile -ExecutionPolicy Bypass -File windows.ps1`. Neither
+run it with `powershell -NoProfile -ExecutionPolicy Bypass -File windows.ps1` (the script
+enables TLS 1.2 for its own downloads; a download that fails while setting up TLS names TLS
+1.2 and `SchUseStrongCrypto` as the cause). Neither
 `restow-agent.exe` nor the script carry an Authenticode signature in this preview; see
 "Known limits" for Defender and Smart App Control.
 
@@ -168,7 +170,15 @@ restow-agent version       Version, commit, build date (--short for the number o
 ```
 
 `--debug` (or `RESTOW_DEBUG=1`) turns on verbose logging. `enroll --force` enrolls again
-with a new token (the old endpoint stays on the server until you revoke it).
+with a new token (the old endpoint stays on the server until you revoke it). `enroll` ends
+with exit code 4 when the instance refused the token (expired, used or unknown: HTTP 401
+with the problem type `urn:restow:problem:enrollment-token-invalid`), 5 when it could not reach
+the instance (DNS, connection, TLS, proxy, HTTP 407 of a proxy that wants a login) and 1 for
+anything else, also for another 4xx answer such as a 404 of a wrong URL or a 403 of a web
+application firewall; the
+install scripts ask for a new token only on 4. They decide whether a machine is enrolled
+with `status --json` (`"credentials": "readable"`), not by the existence of the state file:
+an enrollment that cannot be read any more is enrolled again with a new token (`--force`).
 `enroll --hooks=off|scripts|any` sets the hook policy of a new enrollment (default off;
 a new enrollment of an enrolled machine keeps its policy).
 `enroll --allow-insecure-http` exists for local development only and is refused by the
@@ -239,7 +249,9 @@ host name recorded at enrollment and the tag `restow-agent`.
   for [c:\]: ...`). `continue` (default): the run ends `partial` with `snapshot_failed` for
   each such volume; when VSS cannot be used at all (service disabled, COM, no rights,
   restic's `VSS error` before any progress) the agent runs restic once more without
-  `--use-fs-snapshot` and reports `snapshot_unavailable`. `fail`: the agent stops restic
+  `--use-fs-snapshot` and reports `snapshot_unavailable` when that run succeeds (when it
+  fails, its error is the cause). Any other early failure, a network or repository error
+  among them, is an ordinary failure; it is never blamed on VSS. `fail`: the agent stops restic
   (CTRL_BREAK) at the first failed volume, or does not back up at all; the run ends
   `failed`. A volume the provider does not support (`Snapshots are not supported for
   volume`) is only a note in the run log, under both policies. A shadow copy restic could
@@ -343,8 +355,9 @@ cmdlet stops the hook with 1, a native program keeps its code (`cmd /c exit 7` g
 own `exit 5` gives 5. A native program failing in the middle of a command does not stop it
 (as `sh -c` without `set -e`). The `scripts` policy runs `.ps1` (through the same wrapper)
 and `.exe` files from `C:\ProgramData\Restow\state\hooks.d` that only SYSTEM,
-Administrators and TrustedInstaller can change; `.cmd` and `.bat` are not run (call them
-from a `.ps1`). A group policy with the execution policy `AllSigned` or `Restricted` wins
+Administrators and TrustedInstaller can change and that one of them owns (where
+administrators own what they create, run `icacls <file> /setowner *S-1-5-32-544` on a script
+you copied there); `.cmd` and `.bat` are not run (call them from a `.ps1`). A group policy with the execution policy `AllSigned` or `Restricted` wins
 over `-ExecutionPolicy Bypass`; the run log then names it. Each hook runs in its own Job
 Object: a timeout or a cancelled run ends the hook and everything it started at once,
 without a grace period; after a normal end, background processes it started live on.
@@ -734,15 +747,21 @@ carries all of them.
   Authenticode for `restow-agent.exe`, `restic.exe` or `windows.ps1`: Defender may flag a new
   build until Microsoft has cleared it (the maintainer submits every prerelease), ASR rules
   may block it, and Smart App Control (fresh Windows 11) blocks the agent, which the
-  installer detects. No alternate data streams (so no Mark of the Web after a restore), no
-  EFS files of other users (read errors), online-only cloud files are left out, junctions are
-  backed up as links, no system state or registry, no bare-metal restore: restoring a
-  Windows machine means reinstalling Windows, then restoring the files. Further data drives
+  installer detects. In evaluation mode (the start of a fresh Windows 11) Smart App Control
+  blocks nothing yet, but Windows may switch it on later and then block the agent and its
+  updates without the agent being able to report it (the machine only shows as offline); the
+  installer warns about this and says how to switch it off (for good: only a reset of Windows
+  switches it on again). No alternate data streams (so no Mark of the Web after a restore), no
+  EFS files of other users (read errors), online-only cloud files are left out, junctions
+  inside a backed-up folder are backed up as links (a junction configured as a path is
+  followed), no system state or registry, no bare-metal restore: restoring a Windows machine
+  means reinstalling Windows, then restoring the files. Further data drives
   (`D:\`) are not reported as data folders yet. Hooks under
   Windows: only `.ps1` and `.exe` in the `scripts` policy, no grace period on a timeout. The
   proxy is a fixed URL without credentials (no WPAD/PAC, no NTLM or Kerberos). After an
-  uninstall through the agent itself, `restow-agent.exe` stays until the next restart
-  (the installer's `-Uninstall` removes everything). The restore target defaults to
+  uninstall through the agent itself, `restow-agent.exe` stays, renamed to
+  `restow-agent.exe.old-<hex>`, until the next restart (the installer's `-Uninstall` removes
+  everything); installing again before that restart is safe. The restore target defaults to
   `C:\Restow-Restore-<time>`, not into a backed-up folder as on Unix. Tests that use `/bin/sh`
   stand-ins carry `//go:build unix`; new Linux-only code needs `//go:build linux`, new
   macOS-only code `//go:build darwin`, or `GOOS=windows go vet` fails.
