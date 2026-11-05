@@ -146,7 +146,8 @@
     "warnings": {
       "ephemeral_path": "This directory is inside the container, not on a volume or mount. Its data is lost when the container is recreated.",
       "insecure_endpoint": "The endpoint uses plain HTTP: credentials and data travel unencrypted.",
-      "cleanup_failed": "The small test object could not be deleted again. It lies in the tenant's probes folder and can be removed by hand."
+      "cleanup_failed": "The small test object could not be deleted again. It lies in the tenant's probes folder and can be removed by hand.",
+      "write_once": "The storage refuses to overwrite or delete what it holds (write-once). The test object stays in the tenant's probes folder; see \"Write-once storage\" below."
     }
   },
   "objectLock": {
@@ -177,6 +178,30 @@
     },
     "retired": "Retired",
     "retiredHint": "This placeholder stands for the environment's storage settings from before they were replaced; it was never tested on its own."
+  },
+  "writeOnce": {
+    "title": "Write-once storage",
+    "refused": {
+      "both": "The last test could neither overwrite nor delete its test object ({code}).",
+      "overwrite": "The last test could not overwrite its test object ({code}).",
+      "delete": "The last test could not delete its test object ({code})."
+    },
+    "noRetention": "Retention is not applied here: no restore point is removed, whatever the retention settings of a job say.",
+    "grows": "Repositories only grow; space never comes back. Plan the capacity accordingly.",
+    "locks": "Lock files of every backup stay; {appName} judges them by their age and is not held up by them.",
+    "newChain": "When a repository must begin a new backup chain (after a reset), it begins under a fresh folder next to the old one; nothing is moved or deleted.",
+    "works": "Backups, restores and restore checks work as usual."
+  },
+  "writeOnceRetention": {
+    "title": "Retention is not applied",
+    "installationDefault": "the installation default",
+    "unnamed": "the primary repository",
+    "guest": "The backups of this VM or container go to {repository}, which is write-once storage: no restore point is removed, whatever the job's retention says.",
+    "share": "The backups of this file share go to {repository}, which is write-once storage: no restore point is removed, whatever the retention says.",
+    "machine": "The backups of this machine go to {repository}, which is write-once storage: no snapshot is removed, whatever the retention says.",
+    "job": "The backups of this job go to {repository}, which is write-once storage: these retention settings cannot be applied there and no restore point is removed.",
+    "settings": "The backups of this tenant go to {repository}, which is write-once storage: retention settings cannot be applied there and no restore point is removed.",
+    "consequences": "The storage refuses to delete or overwrite what it holds. Repositories only grow, lock files stay, and restores and restore checks work as usual. The settings are kept and apply again once the backups go to another repository."
   },
   "migration": {
     "queued": "Migration queued",

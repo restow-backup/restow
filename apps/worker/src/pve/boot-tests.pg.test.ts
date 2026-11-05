@@ -388,6 +388,12 @@ describe.skipIf(!adminUrl)("boot tests in the worker against Postgres", () => {
     expect(await planBootTests(deps, clock)).toBe(0);
     await advance(30 * MINUTE);
     expect(await planBootTests(deps, clock)).toBe(1);
+    // An I/O error of the boot test storage paused the copy: tried again, now after two hours.
+    await skipAll("storage_io_error");
+    await advance(61 * MINUTE);
+    expect(await planBootTests(deps, clock)).toBe(0);
+    await advance(60 * MINUTE);
+    expect(await planBootTests(deps, clock)).toBe(1);
     // The guest needs more memory than the job allows: that stays, no retry.
     await skipAll("memory_limit");
     await advance(7 * 60 * MINUTE);

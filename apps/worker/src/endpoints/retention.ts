@@ -48,7 +48,7 @@ import {
 } from "@restow/core";
 import { type Endpoint, endpointRuns, endpointSnapshotFlags, endpoints, tenants } from "@restow/db";
 import { and, eq, isNotNull, isNull, notInArray } from "drizzle-orm";
-import { withTenantTx } from "../handlers/framework.js";
+import { primaryWriteOnce, withTenantTx } from "../handlers/framework.js";
 import { recordDeferredDeletion } from "../handlers/immutability.js";
 import { raiseEvents } from "../reporting.js";
 import {
@@ -203,6 +203,15 @@ export async function endpointRetention(
   const { tenantId, endpointId } = payload;
   const { endpoint, access } = await openEndpointRepository(deps, tenantId, endpointId);
   if (endpoint.status !== "active") {
+    return;
+  }
+  // Write-once storage (docs/STORAGE.md, "Write-once storage"): restic forget and prune would
+  // only fail on every deletion; every snapshot stays, and the machine's page says so.
+  if (primaryWriteOnce(await deps.runtime.storage.get(tenantId))) {
+    deps.runtime.logger.info(
+      "endpoint retention: not applied, the primary storage target of the tenant is write-once",
+      { tenantId, endpointId },
+    );
     return;
   }
   // Never beside the check or a restore test of the same repository.

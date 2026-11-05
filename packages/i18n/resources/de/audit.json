@@ -649,7 +649,8 @@
       },
       "repository": {
         "reinitialized": "Repository des Containers fehlte auf dem primären Repository: neue Sicherungskette begonnen",
-        "reset": "Repository des Containers zurückgesetzt: neue Sicherungskette mit der nächsten Sicherung"
+        "reset": "Repository des Containers zurückgesetzt: neue Sicherungskette mit der nächsten Sicherung",
+        "fresh_prefix": "Repository des Containers auf Write-once-Speicher: neue Sicherungskette unter einem neuen Präfix begonnen, die alte bleibt erhalten"
       },
       "guest": {
         "restow_server": "Gast als {appName}-Server markiert oder Markierung aufgehoben",

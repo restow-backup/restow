@@ -160,6 +160,10 @@ export const fileShares = pgTable(
       onDelete: "set null",
     }),
     repositoryReadyAt: timestamp("repository_ready_at", { withTimezone: true }),
+    // The storage prefix of the share's repository when it began under a fresh one
+    // (`file-shares/<id>.chain-<n>/`, @restow/core endpoints/repository-prefix.ts): what lay at
+    // its prefix could not be cleared (a write-once target). Null: `file-shares/<id>/`.
+    repositoryPrefix: text("repository_prefix"),
     repositoryBytes: bigint("repository_bytes", { mode: "number" }),
     repositoryMeasuredAt: timestamp("repository_measured_at", { withTimezone: true }),
     // The share's storage budget in GiB; null = none (7.4).

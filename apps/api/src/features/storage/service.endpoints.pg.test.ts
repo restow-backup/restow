@@ -389,9 +389,17 @@ describe.skipIf(!testDatabaseAdminUrl)("storage changes and endpoint repositorie
       .insert(pveGuests)
       .values({ tenantId, clusterId: cluster?.id as string, vmid: 109, kind: "ct" })
       .returning();
-    const aside = join(oldDir, "pve-guests", `${guest?.id}.orphaned-2026-11-04T10-00-00-000Z`);
-    await mkdir(join(aside, "data", "ab"), { recursive: true });
-    await writeFile(join(aside, "data", "ab", "ab".repeat(32)), "pack");
+    // Its first chain, and a chain under a fresh prefix (begun on a storage that refused the
+    // move once) that a later reset moved aside as well.
+    const folders = [
+      `${guest?.id}.chain-2.orphaned-2026-11-05T10-00-00-000Z`,
+      `${guest?.id}.orphaned-2026-11-04T10-00-00-000Z`,
+    ];
+    for (const folder of folders) {
+      const aside = join(oldDir, "pve-guests", folder);
+      await mkdir(join(aside, "data", "ab"), { recursive: true });
+      await writeFile(join(aside, "data", "ab", "ab".repeat(32)), "pack");
+    }
     await db.update(storageTargets).set({ role: "previous" }).where(eq(storageTargets.id, old));
     await db.insert(storageTargets).values({
       tenantId,
@@ -402,13 +410,15 @@ describe.skipIf(!testDatabaseAdminUrl)("storage changes and endpoint repositorie
     });
     const error = await refusal(deleteTarget(db, tenantId, old, actor));
     expect(error.type).toBe("urn:restow:problem:storage-previous-holds-moved-aside");
-    expect(error.extensions?.folders).toEqual([
-      `pve-guests/${guest?.id}.orphaned-2026-11-04T10-00-00-000Z/`,
-    ]);
-    // Once it is elsewhere too, the location can go.
-    const copied = join(newDir, "pve-guests", `${guest?.id}.orphaned-2026-11-04T10-00-00-000Z`);
-    await mkdir(join(copied, "data", "ab"), { recursive: true });
-    await writeFile(join(copied, "data", "ab", "ab".repeat(32)), "pack");
+    expect([...((error.extensions?.folders as string[] | undefined) ?? [])].sort()).toEqual(
+      folders.map((folder) => `pve-guests/${folder}/`).sort(),
+    );
+    // Once they are elsewhere too, the location can go.
+    for (const folder of folders) {
+      const copied = join(newDir, "pve-guests", folder);
+      await mkdir(join(copied, "data", "ab"), { recursive: true });
+      await writeFile(join(copied, "data", "ab", "ab".repeat(32)), "pack");
+    }
     await deleteTarget(db, tenantId, old, actor);
   });
 

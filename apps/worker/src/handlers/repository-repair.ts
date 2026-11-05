@@ -45,6 +45,7 @@
  */
 import {
   INSTALLATION_DEFAULT_TARGET_ID,
+  isWriteRefused,
   type MirrorItem,
   type MirrorItemResult,
   mirrorItem,
@@ -171,6 +172,7 @@ async function sourcesOf(
         (target.id === INSTALLATION_DEFAULT_TARGET_ID ? "Installation default" : target.id),
       role: target.role,
       backend: target.backend,
+      writeOnce: target.writeOnce === true,
     });
   }
   let defaultUnreadable: string | null = null;
@@ -846,7 +848,20 @@ export async function applyRepair(
             if (repairable(plan) || recheck) {
               return mergeOne(deps, row, plan, sources, restic, started);
             }
-            const movedTo = await moveAside(primary.backend, plan.owner.prefix, deps.runtime.now());
+            // On write-once storage nothing is moved (or deleted): what lies there stays, and the
+            // next backup begins under a fresh prefix next to it (docs/STORAGE.md).
+            let kept = primary.writeOnce === true;
+            const movedTo = kept
+              ? null
+              : await moveAside(primary.backend, plan.owner.prefix, deps.runtime.now()).catch(
+                  (error: unknown) => {
+                    if (isWriteRefused(error)) {
+                      kept = true;
+                      return null;
+                    }
+                    throw error;
+                  },
+                );
             const lostPoints = await markContainerPointsLost(
               deps,
               row.tenantId,
@@ -868,11 +883,12 @@ export async function applyRepair(
                 class: plan.class,
                 lostPoints,
                 movedTo,
+                keptOnWriteOnce: kept,
               },
             );
             return {
               ...base,
-              outcome: lostPoints > 0 ? ("lost" as const) : ("moved_aside" as const),
+              outcome: lostPoints > 0 || kept ? ("lost" as const) : ("moved_aside" as const),
               copied: 0,
               lostPoints,
               movedTo,

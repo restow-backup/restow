@@ -1,12 +1,18 @@
 import {
   DEFAULT_STORAGE_SECRET_KIND,
   deriveInstallationSecretsKey,
+  describeStorageLocation,
   InstallationDefaultResolver,
   kekFromBase64,
   openInstallationDefault,
   type StorageTargets,
 } from "@restow/core";
-import { type Database, findInstallationSecret } from "@restow/db";
+import {
+  type Database,
+  type DefaultStorageWriteOnce,
+  findInstallationSecret,
+  settings,
+} from "@restow/db";
 
 /**
  * The installation default storage for this worker process (@restow/core
@@ -40,12 +46,39 @@ export interface DefaultStorageLookup {
   current(): Promise<DefaultStorageSnapshot>;
   /** The current generation, read from the database right now. */
   generation(): Promise<string>;
+  /**
+   * Whether the default's newest probe found it write-once (docs/STORAGE.md, "Write-once
+   * storage"; `settings.default_storage_write_once`, recorded by the api), for the location it
+   * describes now. False when it was never probed there.
+   */
+  writeOnce(): Promise<boolean>;
 }
 
+/** How long the write-once finding of the default is kept (the api records it on every probe). */
+const WRITE_ONCE_CACHE_MS = 60_000;
+
 /** A lookup over one resolver; opened backends are reused while the generation stays the same. */
-export function defaultStorageLookup(resolver: InstallationDefaultResolver): DefaultStorageLookup {
+export function defaultStorageLookup(
+  resolver: InstallationDefaultResolver,
+  readWriteOnce: () => Promise<DefaultStorageWriteOnce | null> = async () => null,
+): DefaultStorageLookup {
   let opened: { key: string; snapshot: DefaultStorageSnapshot } | null = null;
+  let writeOnce: { value: boolean; until: number } | null = null;
   return {
+    async writeOnce() {
+      if (writeOnce && writeOnce.until > Date.now()) {
+        return writeOnce.value;
+      }
+      const resolution = await resolver.resolve();
+      const recorded = await readWriteOnce().catch(() => null);
+      const value =
+        resolution.status === "ready" &&
+        recorded !== null &&
+        recorded.writeOnce &&
+        recorded.location === describeStorageLocation(resolution.storage.primary);
+      writeOnce = { value, until: Date.now() + WRITE_ONCE_CACHE_MS };
+      return value;
+    },
     async current() {
       const resolution = await resolver.resolve();
       if (resolution.status !== "ready") {
@@ -91,6 +124,13 @@ export function configureDefaultStorage(options: {
       loadStored: () => findInstallationSecret(options.providerDb, DEFAULT_STORAGE_SECRET_KIND),
       installationKey: () => deriveInstallationSecretsKey(kek),
     }),
+    async () => {
+      const [row] = await options.providerDb
+        .select({ value: settings.defaultStorageWriteOnce })
+        .from(settings)
+        .limit(1);
+      return row?.value ?? null;
+    },
   );
   return processLookup;
 }

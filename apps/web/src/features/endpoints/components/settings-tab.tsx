@@ -28,6 +28,7 @@ import {
 import { jobDefinitionTo, linkProps } from "@/features/backup-jobs/paths";
 import { TimezonePicker } from "@/features/schedules/components/timezone-picker";
 import { browserTimeZone } from "@/features/schedules/presenters";
+import { WriteOnceRetentionNotice } from "@/features/storage";
 import { isRecentSignInRequired } from "@/lib/recent-sign-in";
 import { cn } from "@/lib/utils";
 
@@ -800,6 +801,7 @@ export function SettingsTab({ detail }: { detail: EndpointDetail }) {
             title={t("settings.retention.title")}
             description={t("settings.retention.description")}
           >
+            <WriteOnceRetentionNotice context="machine" className="mb-4" />
             <div className="grid gap-4 sm:grid-cols-3">
               {(["keepDaily", "keepWeekly", "keepMonthly"] as const).map((field) => (
                 <Field

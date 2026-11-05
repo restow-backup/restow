@@ -459,6 +459,12 @@ export interface PveRepositoryChain {
   } | null;
   unavailablePoints: number;
   actor: string | null;
+  /**
+   * The folder the new chain began in when the old one could not be cleared (write-once storage,
+   * docs/STORAGE.md); the old chain stays at `previousPrefix`. Absent otherwise.
+   */
+  prefix?: string;
+  previousPrefix?: string;
 }
 
 /**
@@ -503,7 +509,13 @@ export interface PveGuestDetail {
    */
   restoreCheck?: {
     enabled: boolean;
-    blocker: "privileged" | "no_node" | "restores_off" | "node_offline" | null;
+    blocker:
+      | "repository_problem"
+      | "privileged"
+      | "no_node"
+      | "restores_off"
+      | "node_offline"
+      | null;
     node: string | null;
     lastRestoreTestAt: string | null;
   };

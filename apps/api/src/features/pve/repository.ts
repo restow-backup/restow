@@ -1,12 +1,16 @@
 import { randomBytes } from "node:crypto";
 import {
+  freshRepositoryPrefix,
   INSTALLATION_DEFAULT_TARGET_ID,
+  isWriteRefused,
+  repositoryPrefixOf,
   resticBinary,
   resticCacheBase,
   resticInit,
   type StorageBackend,
   sealEndpointPassword,
   withRepository,
+  writeRefusalCode,
 } from "@restow/core";
 import {
   type Database,
@@ -29,6 +33,7 @@ import {
   type SearchedTarget,
   searchedTargets,
   storeTarget,
+  storeTargetWriteOnce,
   type TenantChunkStore,
   tenantChunkStore,
 } from "./store.js";
@@ -97,9 +102,30 @@ export function repositoryRepairRunning(): ProblemError {
   });
 }
 
-/** Container repositories lie under this prefix of the tenant's primary target. */
-export function guestRepositoryPrefix(guestId: string): string {
-  return `pve-guests/${guestId}/`;
+/**
+ * The prefix a container's repository lies under on its storage target: `pve-guests/<id>/`, or
+ * the fresh prefix its current chain began under when the old one could not be cleared (a
+ * write-once target, docs/STORAGE.md "Write-once storage"; `pve_guests.repository_prefix`).
+ * Every reader opens this one.
+ */
+export function guestRepositoryPrefix(guest: Pick<PveGuest, "id" | "repositoryPrefix">): string {
+  return repositoryPrefixOf("container", guest.id, guest.repositoryPrefix);
+}
+
+/** {@link guestRepositoryPrefix} of a guest known by its id (its row is read). */
+export async function guestRepositoryPrefixOf(
+  database: Database,
+  tenantId: string,
+  guestId: string,
+): Promise<string> {
+  const [row] = await withTenantTx(database, tenantId, (tx) =>
+    tx
+      .select({ id: pveGuests.id, repositoryPrefix: pveGuests.repositoryPrefix })
+      .from(pveGuests)
+      .where(eq(pveGuests.id, guestId))
+      .limit(1),
+  );
+  return guestRepositoryPrefix(row ?? { id: guestId, repositoryPrefix: null });
 }
 export const PVE_REPOSITORY_SECRET_KIND = "pve_ct_repository";
 
@@ -123,6 +149,8 @@ export interface RepositoryDeps {
   db?: Database;
   now?: () => Date;
   destination?: DestinationDeps;
+  /** Wraps the run's target (tests: a storage that refuses deletes). */
+  backend?: (backend: StorageBackend) => StorageBackend;
 }
 
 function unreachable(error: unknown): ProblemError {
@@ -385,6 +413,10 @@ function onlyEmptyRepository(prefix: string, files: readonly string[]): boolean 
  *     active restore point refers to it, but it may be half of a split repository that is still
  *     wanted. Only an empty repository (config, keys and password file, no data: a creation that
  *     never got recorded) is removed.
+ *   - On a write-once target (`writeOnce`, its last probe), or when the storage refuses to delete
+ *     or move what lies there (EPERM and the like), nothing is touched: the new chain begins
+ *     under a fresh prefix next to it (`pve-guests/<id>.chain-<n>/`), recorded on the guest, and
+ *     the old chain stays where it was (docs/STORAGE.md, "Write-once storage").
  *   - Data without `config` (a split repository) is refused with `pve-repository-split`:
  *     `restic init` would fail on it ("repository already contains snapshots", the HTTP 500 of
  *     0.4.x), unless it is right after a reset (no active restore point): moved aside as above.
@@ -397,8 +429,11 @@ async function createRepository(
   guest: PveGuest,
   primary: StorageBackend,
   now: Date,
+  writeOnce = false,
 ): Promise<string> {
-  const prefix = guestRepositoryPrefix(guest.id);
+  const previousPrefix = guestRepositoryPrefix(guest);
+  let prefix = previousPrefix;
+  let fresh: { prefix: string; why: string } | null = null;
   const files = await repositoryFiles(primary, prefix);
   if (files.length > 0) {
     const active = await activePointCount(database, tenantId, guest.id);
@@ -414,18 +449,40 @@ async function createRepository(
           "The container has restore points, but its repository is not recorded as ready. Reset the repository on the guest page to begin a new backup chain.",
       });
     }
-    if (hasConfig && onlyEmptyRepository(prefix, files)) {
-      for (const key of files) {
-        await primary.delete(key).catch((error: unknown) => {
-          throw unreachable(error);
-        });
-      }
-    } else if (hasConfig || (afterReset && active === 0)) {
-      await moveRepositoryAside(primary, prefix, now).catch((error: unknown) => {
-        throw unreachable(error);
-      });
-    } else {
+    const clear =
+      hasConfig && onlyEmptyRepository(prefix, files)
+        ? "delete"
+        : hasConfig || (afterReset && active === 0)
+          ? "move"
+          : null;
+    if (clear === null) {
       await refuse(database, tenantId, guest, "split", null, active, now);
+    }
+    if (writeOnce) {
+      fresh = { prefix: await nextPrefix(primary, guest, prefix), why: "write_once" };
+    } else {
+      try {
+        if (clear === "delete") {
+          for (const key of files) {
+            await primary.delete(key);
+          }
+        } else {
+          await moveRepositoryAside(primary, prefix, now);
+        }
+      } catch (error) {
+        if (!isWriteRefused(error)) {
+          throw unreachable(error);
+        }
+        // The storage refuses to delete or move (a write-once share the probe has not seen yet):
+        // what lies there stays, the new chain goes next to it.
+        fresh = {
+          prefix: await nextPrefix(primary, guest, prefix),
+          why: writeRefusalCode(error) ?? "refused",
+        };
+      }
+    }
+    if (fresh) {
+      prefix = fresh.prefix;
     }
   }
   const password = randomBytes(32).toString("base64url");
@@ -460,8 +517,8 @@ async function createRepository(
     `${prefix}${REPOSITORY_PASSWORD_FILE}`,
     sealEndpointPassword({ tenantId, endpointId: guest.id, password, dek }),
   );
-  await withTenantTx(database, tenantId, (tx) =>
-    tx
+  await withTenantTx(database, tenantId, async (tx) => {
+    await tx
       .update(pveGuests)
       .set({
         repositorySecretId: secret.id,
@@ -469,10 +526,52 @@ async function createRepository(
         repositoryBytes: null,
         repositoryMeasuredAt: null,
         repositoryProblem: null,
+        ...(fresh ? { repositoryPrefix: fresh.prefix } : {}),
       })
-      .where(eq(pveGuests.id, guest.id)),
-  );
+      .where(eq(pveGuests.id, guest.id));
+    if (!fresh) {
+      return;
+    }
+    // The chain this begins (the newest record, a reset or a repair's "lost") says where it lies.
+    const [current] = await tx
+      .select({ chains: pveGuests.repositoryChains })
+      .from(pveGuests)
+      .where(eq(pveGuests.id, guest.id));
+    const [newest, ...older] = current?.chains ?? [];
+    if (newest && newest.prefix === undefined) {
+      await tx
+        .update(pveGuests)
+        .set({ repositoryChains: [{ ...newest, prefix: fresh.prefix, previousPrefix }, ...older] })
+        .where(eq(pveGuests.id, guest.id));
+    }
+    await auditPve(tx, {
+      tenantId,
+      actor: { label: "system", userId: null, ip: null },
+      action: PVE_AUDIT_ACTIONS.repositoryFreshPrefix,
+      target: guest.id,
+      targetType: "pve_guest",
+      details: {
+        vmid: guest.vmid,
+        prefix: fresh.prefix,
+        previousPrefix,
+        reason: fresh.why,
+      },
+    });
+  });
   return password;
+}
+
+/** The fresh prefix a new chain of `guest` begins under (lists the target, writes nothing). */
+async function nextPrefix(
+  primary: StorageBackend,
+  guest: Pick<PveGuest, "id">,
+  current: string,
+): Promise<string> {
+  try {
+    return await freshRepositoryPrefix(primary, "container", guest.id, current);
+  } catch (error) {
+    throw unreachable(error);
+  }
 }
 
 /**
@@ -498,11 +597,13 @@ export async function ensureGuestRepository(
   }
   const store = await tenantChunkStore(tenantId);
   const targetId = run.target ?? store.primaryTarget;
-  const primaryBackend = storeTarget(store, targetId);
-  if (!primaryBackend || (run.write && targetId !== store.primaryTarget)) {
+  const pinned = storeTarget(store, targetId);
+  if (!pinned || (run.write && targetId !== store.primaryTarget)) {
     throw storageSwitchedDuringRun();
   }
-  const prefix = guestRepositoryPrefix(guest.id);
+  const primaryBackend = deps.backend ? deps.backend(pinned) : pinned;
+  const prefix = guestRepositoryPrefix(guest);
+  const writeOnce = storeTargetWriteOnce(store, targetId);
   if (run.write && guest.repositoryProblem?.type === PVE_REPOSITORY_REPAIR_FAILED) {
     throw new ProblemError(409, "Repository repair failed", {
       type: PVE_REPOSITORY_PROBLEMS.repairFailed,
@@ -573,7 +674,14 @@ export async function ensureGuestRepository(
         await refuse(database, tenantId, guest, "missing", null, active, now());
       }
       // Gone everywhere and nothing refers to it: a new chain begins (below), and the guest says so.
-      const password2 = await createRepository(database, tenantId, guest, primaryBackend, now());
+      const password2 = await createRepository(
+        database,
+        tenantId,
+        guest,
+        primaryBackend,
+        now(),
+        writeOnce,
+      );
       const target = await destinationRecord(database, tenantId, deps.destination);
       const at = now();
       await withTenantTx(database, tenantId, async (tx) => {
@@ -604,7 +712,14 @@ export async function ensureGuestRepository(
       return password2;
     }
   }
-  const password = await createRepository(database, tenantId, guest, primaryBackend, now());
+  const password = await createRepository(
+    database,
+    tenantId,
+    guest,
+    primaryBackend,
+    now(),
+    writeOnce,
+  );
   rememberChecked(run.runId);
   return password;
 }
@@ -614,7 +729,8 @@ export async function ensureGuestRepository(
  * checked by the route): its restore points become unavailable at once, and the next backup
  * begins a new chain in a new repository. Whatever of the old repository is on the primary is
  * moved aside by that backup before it creates the new one (`createRepository`: never deleted);
- * a retired target is never touched.
+ * on a write-once target it stays where it is and the new chain begins under a fresh prefix. A
+ * retired target is never touched.
  */
 export async function resetGuestRepository(
   database: Database,

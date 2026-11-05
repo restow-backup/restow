@@ -45,6 +45,7 @@ import {
   storeSecret,
 } from "../../lib/secrets.js";
 import type { DbExecutor } from "../../lib/tenant-context.js";
+import { recordDefaultWriteOnce } from "../../lib/write-once.js";
 import { ProblemError } from "../../problem.js";
 import { accessKeyIdHint } from "../storage/dto.js";
 import { credentialsBoundElsewhere } from "../storage/rules.js";
@@ -115,6 +116,11 @@ export interface DefaultStorageLastTest {
   testedBy: string;
   failedStep: string | null;
   errorCode: string | null;
+  /**
+   * Whether that test found the default write-once (docs/STORAGE.md, "Write-once storage");
+   * null for tests before 0.5.0 and tests that did not get that far.
+   */
+  writeOnce: boolean | null;
 }
 
 /** Why a tenant keeps the current default from moving. */
@@ -401,6 +407,7 @@ async function lastTestOf(db: DbExecutor): Promise<DefaultStorageLastTest | null
       ok: sql<string | null>`${auditLog.details}->>'ok'`,
       failedStep: sql<string | null>`${auditLog.details}->>'failedStep'`,
       errorCode: sql<string | null>`${auditLog.details}->>'errorCode'`,
+      writeOnce: sql<string | null>`${auditLog.details}->>'writeOnce'`,
     })
     .from(auditLog)
     .where(
@@ -423,6 +430,7 @@ async function lastTestOf(db: DbExecutor): Promise<DefaultStorageLastTest | null
     testedBy: row.actor,
     failedStep: row.failedStep,
     errorCode: row.errorCode,
+    writeOnce: row.writeOnce === null ? null : row.writeOnce === "true",
   };
 }
 
@@ -533,6 +541,7 @@ function probeDetails(probe: StorageProbeResult, objectLock: ObjectLockCapabilit
     durationMs: probe.durationMs,
     warnings: probe.warnings,
     objectLock: objectLock?.status ?? null,
+    writeOnce: probe.writeOnce?.writeOnce ?? null,
   };
 }
 
@@ -556,6 +565,7 @@ export async function testDefaultStorage(
     ? deps.open(resolution.storage.primary, resolution.storage.credentials)
     : openInstallationDefault(resolution.storage, "probe").primary;
   const { probe, objectLock } = await check(opened, false, now);
+  await recordDefaultWriteOnce(resolution.storage.primary, probe.writeOnce, db);
 
   await audit(db, {
     actor: actor.email,
@@ -643,6 +653,7 @@ export async function saveDefaultStorage(
   if (!probe.ok) {
     throw unreachable(probe);
   }
+  await recordDefaultWriteOnce(location, probe.writeOnce, db);
 
   const document = installationDefaultDocument(location, credentials, actor.email, now());
   await db.transaction(async (tx) => {

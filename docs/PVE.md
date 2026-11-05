@@ -242,6 +242,10 @@ unique per installation).
   stays. Forget and prune wait up to two minutes for another run's lock
   (`--retry-lock`), each within its time limit; on a storage that refuses to
   delete a stale lock (write-once) the comparison forgets and prunes nothing,
+  and on a primary whose last test found it write-once (docs/STORAGE.md,
+  "Write-once storage") retention is not applied at all: no restore point of a
+  VM or container is pruned (each stays restorable; its data stays anyway), no
+  comparison runs, and the guest page and the job's retention settings say so,
   nor while the repository has a problem (not complete on the primary, split
   across targets, a failed repair: see "Repository problems"). A
   comparison that did not get through is repeated an hour later, at most ten a
@@ -498,6 +502,27 @@ moves what is left of the old repository on the primary aside to
 repository that is still wanted; only an empty repository, `config` and keys
 without any data, is removed) and begins a new chain. A retired target is never
 touched.
+
+On **write-once storage** (docs/STORAGE.md, "Write-once storage": a target that
+takes new files but refuses to delete, overwrite or rename existing ones) the
+old repository can be neither moved aside nor removed. When the primary's last
+test found it write-once, or when the storage refuses the move or the removal
+(EPERM, EACCES, EROFS, S3 AccessDenied, Object Lock), nothing there is touched:
+the new chain begins under a fresh prefix next to it,
+`pve-guests/<id>.chain-<n>/` (the first `n` from 2 whose folder holds nothing),
+and the guest records it (`pve_guests.repository_prefix`; its newest chain
+names `prefix` and `previousPrefix`, and the guest page says where the old
+chain stays). Audited as `pve.repository.fresh_prefix` with the reason (the
+refusal's code, or `write_once`). This is the way out for a container whose
+repository on such a share holds data without `config` or keys (refused with
+`pve-repository-split` until it is reset): reset it, and its next backup gets a
+whole new chain. Every reader opens the recorded prefix: the node's restic
+route, the next backups, restores and browsing, the restore check, retention's
+comparison, the repository repair's scan, the measurement of the repository's
+size, a storage "move", the renewal of immutable backups and the check before
+an old location is removed. The old chain stays where it was, readable with its
+sealed password file (`restow-repository-password.json` next to it); its
+restore points are unavailable, as after any reset.
 
 ## Stopping a backup
 

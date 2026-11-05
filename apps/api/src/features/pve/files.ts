@@ -180,7 +180,7 @@ async function guestRepositoryAccess(
   if (password === null) {
     throw noRepository();
   }
-  const prefix = guestRepositoryPrefix(guest.id);
+  const prefix = guestRepositoryPrefix(guest);
   const storage = await backendHolding(await tenantStorage(database, guest.tenantId), prefix);
   return {
     storage,

@@ -76,6 +76,8 @@ import {
 import {
   type JobHandler,
   type JobOutcome,
+  primaryWriteOnce,
+  type ResolvedTenantStorage,
   tenantRunner,
   type WorkerJobContext,
 } from "./framework.js";
@@ -496,6 +498,12 @@ export function createSnapshotRetentionTask(
       if (tenantPolicies.length === 0) {
         logger.info("no snapshot retention policy; keeping every snapshot");
         return { ...summary };
+      }
+      // Write-once storage (docs/STORAGE.md, "Write-once storage"): nothing there can be deleted,
+      // so no restore point is pruned; each stays restorable, and the pages say so.
+      if (primaryWriteOnce(ctx.storage as Partial<ResolvedTenantStorage>)) {
+        logger.info("snapshot retention not applied: the primary storage target is write-once");
+        return { ...summary, writeOnce: true };
       }
 
       const holds = await store.loadLegalHolds();

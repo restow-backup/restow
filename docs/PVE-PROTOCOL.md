@@ -184,19 +184,24 @@ that came to an outcome, with `result`:
 | `red` | `restore_failed`, `start_failed`, `guest_stopped`, `guest_panicked`, `guest_internal_error`, `system_maintenance` | the restore, the start or the boot failed (a panic, an internal error of the virtual CPU, a container in emergency or rescue mode) |
 | `skipped` | `memory_limit`, `node_memory`, `storage_space`, `storage_content`, `no_storage`, `backup_running`, `boot_test_running`, `restores_off`, `boot_tests_off`; since 0.5.0 also `custom_qemu_args` (raw QEMU `args` beyond `-cpu`, `-smbios`, `-rtc`), `host_disk` (a restored disk on a host device), `bridge_not_isolated` (`--boot-test-bridge` has a port that is no guest's: the copy would reach out of the test), `node_resources` (the start failed for want of node memory, hugepages among it), `storage_io_error` (the VM was paused by an I/O error of the boot test storage), and `storage_space` also for a restore that ran out of space | the node did not run it, or did not boot the copy, for a reason outside the restore point; `message` says why |
 
-The server reads the outcome through the reason (`pveBootTestOutcomeOf` in
-`@restow/core`): a skipped or error reason of its list rates nothing whatever outcome came
-with it, a red reason is red, and a yellow reason takes a green down to yellow (it never
-makes a red better). A reason not in its list (a newer node's) keeps the node's outcome, and the web app
-shows the node's `message` for it. A skip for `node_resources`, `storage_space`,
-`node_memory`, `backup_running` or `boot_test_running`, and every `error` (below), is tried
-again (30 minutes, then doubling, at most six hours apart and five attempts); any other skip
-stands for that restore point.
+The reasons are the constants of `agent/internal/pve/bootreasons.go`; the server's list
+(`PVE_BOOT_TEST_REASON_OUTCOMES` in `@restow/core`, checked against that file by its test)
+has each of them under the outcome of the table above, plus `init_running` of nodes before
+0.5.0 and its own `node_error`. The server reads the outcome through the reason
+(`pveBootTestOutcomeOf`): a skipped or error reason of its list rates nothing whatever outcome
+came with it, a red reason is red, a yellow reason takes a green down to yellow (it never
+makes a red better), and a green reason keeps the node's outcome. A reason not in its list (a
+newer node's) keeps the node's outcome, and the web app shows the node's `message` for it. A
+skip for `node_resources`, `storage_space`, `storage_io_error`, `node_memory`,
+`backup_running` or `boot_test_running`, and every `error` (below), is tried again (30
+minutes, then doubling, at most six hours apart and five attempts); any other skip stands for
+that restore point.
 
 `status: "failed"` means the node could not carry the test out at all (its PVE API failed,
-the temporary guest could not be isolated); the server records the outcome `error` (with the
-node's `reason` when the result has one, else `node_error`). Green, yellow and red become the
-restore point's boot test (`pve_snapshots.boot_test`); skipped and error stay with the run.
+the temporary guest could not be isolated); the server records the outcome `error`, with the
+reason `node_error` (or the result's `reason`, but restow-pve sends none with a failure).
+Green, yellow and red become the restore point's boot test (`pve_snapshots.boot_test`);
+skipped and error stay with the run.
 
 What the node does: see PVE.md, "Boot test". It restores as a restore task does (the PVE API
 into the pool `restow-restore`, `start=0`; a VM with what PVE restores only for root@pam through
@@ -207,23 +212,46 @@ needs no new privilege.
 
 ### Task `restore`
 
-`params`: `{volname, kind: "vm"|"ct", targetVmid?, targetStorage, pool?, start, restoreTest}`.
-A restore into a new guest, or with `restoreTest` a restore check: the guest is restored into
-the pool `restow-restore` and removed again. The result carries `vmid` and `upid` (the PVE
-restore task), and:
+`params`: `{volname, kind: "vm"|"ct", targetVmid?, targetStorage, pool?, start, restoreTest,
+avoidVmids?, dataBytes?}`. A restore into a new guest, or with `restoreTest` a restore check:
+the guest is restored into the pool `restow-restore` and removed again (a check never starts
+its copy).
 
-| Field | Meaning |
-| --- | --- |
-| `warnings` | the restore task ended `WARNINGS: n` (since 0.5.0): it ran to its end and warned beside it; the warning lines of its log (at most ten). The task is `done`; the server shows "Restored with warnings" (amber). Any other exit status but `OK` fails the task. |
-| `skippedLxc` | the raw `lxc.*` lines of the container's backup (GPU or TUN passthrough, a custom idmap). PVE restores them only for root@pam and skips them for the node's token ("skipping custom lxc options, restore manually as root"); add them as root. `customIdmap: true` when an `lxc.idmap` is among them: the restored container uses the default map, so its files belong to the ids of that map. |
-| `omittedMounts` | the bind and device mount points the restore left out, as configuration lines (`mp0: /mnt/paperless,mp=/data`; before 0.5.0 a check only, as `mp0 (/mnt/paperless)`). Every container restore names rootfs and its volume mount points itself, so PVE takes none from the backup. |
-| `remountCommands` | a restore into a new guest: the commands that put the left-out mount points back as root (`pct set <vmid> -mp0 /mnt/paperless,mp=/data`). A bind mount point put back shares the original's live data; on another node the host path may not exist. |
-| `madeUnprivileged` | the container was privileged and is restored unprivileged. |
-| `restoredAsRoot` | a VM with PCI or USB passthrough, a device mapping, virtiofs, host serial or parallel ports, raw `args` or a hook script, which PVE restores only for root@pam: restored with `qmrestore ... --unique 1 --pool restow-restore` as root (since 0.5.0; `upid` is root's task). |
-| `started`, `startError`, `startSkipped`, `startSkippedMessage` | a restore into a new guest with `start` (since 0.5.0): PVE is never asked for `start=1`; the node starts the copy as root after the restore and waits until it runs. `started: true`; or `started: false` with `startError` (the restore still succeeded); or `started: false` with `startSkipped` = `omitted_mounts`, `host_devices` or `static_ip` (a static IP in the configuration, a container's `ip=`/`ip6=` or a VM's cloud-init `ipconfigN`, while the original runs or its state is unknown; an address set inside the guest is not seen) and an English `startSkippedMessage`. |
-| `keptDevices` | a restore into a new guest restored as root: the keys that bind the copy to host devices of the original (`hostpci0`, `usb0`, ...). The copy is not started by the restore. |
-| `onbootCleared` | the container started with its node; the copy does not (`onboot=0`). |
-| `disks`, `deleted`, `leftoverVmid` | a check: the disks of the restored guest, and whether it was removed. `deleted: true` only once its configuration is gone (since 0.5.0); `deleted: false` with `leftoverVmid` when it is still there (the node removes it when its service starts; the server shows it amber). The check's guest is removed on every way out, also when the restore failed. |
+The node reports the task `done` when PVE's restore task ended `OK` or `WARNINGS: n` (it ran
+to its end and warned beside it); any other exit status, and a guest whose configuration
+cannot be read afterwards, is `failed` with the error. A check the node did not run is `done`
+with `skipped` (see "A restore check the node skips"). Beside `done` the result says what the
+restore did not prove or left to do. The server keeps each field it can read
+(`restoreResultSchema`, apps/api pve/schemas.ts; an unreadable field is dropped, never the
+result) in the run's stats, and the web app (apps/web pve/run-status.ts) shows the run green
+only when none of the fields marked amber is there. restow-pve leaves out a field that is
+empty or false (`deleted: false` and `started: false` are sent):
+
+| Field | Type | Sent for | Meaning | In the web app |
+| --- | --- | --- | --- | --- |
+| `vmid` | number | both | the VMID of the restored guest | named in the findings |
+| `upid` | string | both | PVE's task id of the restore (root's task with `restoredAsRoot`) | kept in the run's stats |
+| `warnings` | string[] | both | the restore task ended `WARNINGS: n` (since 0.5.0): the warning lines of its log (restow-pve sends at most ten, the server keeps up to 20) | amber, "Restored/Checked with warnings", the lines listed |
+| `omittedMounts` | string[] | both (containers) | the bind and device mount points the restore left out, as configuration lines (`mp0: /mnt/paperless,mp=/data`; before 0.5.0 a check only, as `mp0 (/mnt/paperless)`): their data is not in a backup, and only root@pam may set them. Every container restore names rootfs and its volume mount points itself, so PVE takes none from the backup | amber, "Restored/Checked without n mount points" |
+| `remountCommands` | string[] | restore (containers) | the commands that put the left-out mount points back as root (`pct set <vmid> -mp0 /mnt/paperless,mp=/data`). A bind mount point put back shares the original's live data; on another node the host path may not exist | listed under the finding |
+| `skippedLxc` | string[] | both (containers) | the raw `lxc.*` lines of the backup (GPU or TUN passthrough, a custom idmap). PVE restores them only for root@pam and skips them for the node's token ("skipping custom lxc options, restore manually as root"); add them as root | amber, listed |
+| `customIdmap` | boolean | both (containers) | an `lxc.idmap` is among them: the restored container uses the default map, so its files belong to the ids of that map | explained with the lines |
+| `madeUnprivileged` | boolean | both (containers) | the container was privileged and is restored unprivileged | named |
+| `onbootCleared` | boolean | both | the guest started with its node; the copy does not (`onboot=0`) | named |
+| `restoredAsRoot` | boolean | both (VMs) | a VM with PCI or USB passthrough, a device mapping, virtiofs, host serial or parallel ports, raw `args` or a hook script, which PVE restores only for root@pam: restored with `qmrestore ... --unique 1 --pool restow-restore` as root (since 0.5.0) | kept in the run's stats |
+| `keptDevices` | string[] | restore (VMs restored as root) | the keys that bind the copy to host devices of the original (`hostpci0`, `usb0`, ...); the copy is not started | amber, "check them before starting" |
+| `started` | boolean | restore with `start: true` | PVE is never asked for `start=1`; the node starts the copy as root after the restore and waits until it runs (since 0.5.0). `true`, or `false` with `startError` or `startSkipped` | `false`: amber, "Restored, not started" |
+| `startError` | string | restore with `start: true` | why the start failed (the restore still succeeded) | amber, with the error |
+| `startSkipped`, `startSkippedMessage` | string | restore with `start: true` | why the node did not start it: `omitted_mounts`, `host_devices` or `static_ip` (a static IP in the configuration, a container's `ip=`/`ip6=` or a VM's cloud-init `ipconfigN`, while the original runs or its state is unknown; an address set inside the guest is not seen), and an English message (not kept by the server) | amber, with the reason |
+| `disks` | number | check | the disks of the restored guest | kept in the run's stats |
+| `deleted` | boolean | check | whether the temporary guest was removed again: `true` only once its configuration is gone (since 0.5.0). The check's guest is removed on every way out, also when the restore failed | `false`: amber, "Temporary guest n could not be removed" |
+| `leftoverVmid` | number | check | with `deleted: false`: the VMID of the temporary guest that is still there (the node removes it when its service starts) | named in that finding |
+| `skipped` | `{reason, message}` | check | the check did not run; the result then holds nothing else | grey, "Not checked" |
+
+The server keeps `started`, `startError` and `startSkipped` only for a `restore` task whose
+params say `start: true`, so neither a check nor a restore without "Start after the restore"
+can read "not started". Green therefore means: the restore ran to `OK`, a check removed its
+guest again, and none of the table's amber fields is there.
 
 A boot test's result carries `warnings` and `skippedLxc` the same way; a restore with warnings
 goes on to the boot and is never red for the warnings alone.
@@ -330,50 +358,12 @@ nodes with restores off or silent for ten minutes, so `restores_off` is rare. (O
 guest page reads restore check runs; every other reader of `pve_runs`, the overviews, the
 dashboard, the job lists and the statistics, reads backup runs and restores.)
 
-### Task `restore`: the result (0.5.0)
-
-A `restore` task (a restore, or with `restoreTest: true` a restore check) is reported `done`
-when PVE's restore task ended `OK` or `WARNINGS: n` (a success with warnings); any other exit
-status, and a guest whose configuration cannot be read afterwards, is `failed` with the
-error. Beside `done` the result says what the restore did not prove or left to do. The
-server keeps each field it can read (`restoreResultSchema`, apps/api pve/schemas.ts; an
-unreadable field is dropped, never the result) in the run's stats, and the web app
-(apps/web pve/run-status.ts) shows the run green only when none of the fields marked
-"amber" is there:
-
-| Field | Type | Sent by | Meaning | In the web app |
-| --- | --- | --- | --- | --- |
-| `vmid` | number | both | the VMID of the restored guest | named in the findings |
-| `upid` | string | both | PVE's task id of the restore | kept in the run's stats |
-| `warnings` | string[] (≤ 20) | both | the lines of the task log when PVE ended `WARNINGS: n` | amber, "Restored/Checked with warnings", the lines listed |
-| `omittedMounts` | string[] | both (containers) | bind and device mount points left out (their data is not in a backup; only root@pam may set them) | amber, "Restored/Checked without n mount points" |
-| `remountCommands` | string[] | restore | the `pct set` commands that put them back, as root | listed under the finding |
-| `skippedLxc` | string[] | both (containers) | raw `lxc.*` lines of the backup PVE restores only for root@pam | amber, listed |
-| `customIdmap` | boolean | both (containers) | among them a custom `lxc.idmap` | explained with the lines |
-| `keptDevices` | string[] | restore (VMs) | host devices (`hostpci`, `usb`) the copy has, as the original | amber, "check them before starting" |
-| `madeUnprivileged` | boolean | both (containers) | a privileged container restored unprivileged | named |
-| `onbootCleared` | boolean | both | the copy does not start with its node (`onboot=0`) | named |
-| `restoredAsRoot` | boolean | restore (VMs) | restored as root through `qmrestore` | kept in the run's stats |
-| `started` | boolean | restore with `start: true` only | whether the copy runs | `false`: amber, "Restored, not started" |
-| `startError` | string | restore with `start: true` only | why the start failed | amber, with the error |
-| `startSkipped` | string | restore with `start: true` only | why the node did not start it: `omitted_mounts`, `host_devices`, `static_ip` (the node's `startSkippedMessage` beside it is not kept) | amber, with the reason |
-| `disks` | number | check | the disks of the restored guest | kept in the run's stats |
-| `deleted` | boolean | check | whether the temporary guest was removed again | `false`: amber, "Temporary guest n could not be removed" |
-| `leftoverVmid` | number | check | the VMID of a temporary guest that is still there | named in that finding |
-| `skipped` | `{reason, message}` | check | the check did not run (see above) | grey, "Not checked" |
-
-A restore check never starts its copy (`start: false`), and a restore without "Start after
-the restore" has nothing to start: the server keeps `started`, `startError` and
-`startSkipped` only for a `restore` task whose params say `start: true`, so neither can read
-"not started". Green therefore means: the restore ran to `OK`, a check removed its guest
-again, and nothing of the table's amber fields is there.
-
 ### Tasks the node holds (0.5.0)
 
 restow-pve keeps its queue in memory: a task it was given and had not finished when it
 restarted is gone, and no result will come for it. From 0.5.0 every heartbeat carries
-`heldTasks: {current, queued}`, the id of the task it runs (or `null`) and the ids of the
-tasks in its local queue, with those whose result it keeps to send again (at most 64). The
+`heldTasks: {current, queued}`, the id of the task it runs (restow-pve omits `current` when
+it runs none; the server takes `null` the same way) and the ids of the tasks in its local queue, with those whose result it keeps to send again (at most 64). The
 server keeps the list with its time in the node's facts (`heldTasks`, `heldTasksAt`) and,
 with that heartbeat,
 
@@ -392,15 +382,26 @@ whatever its run says: that run was only created with the task.
 
 A container restore started in the PVE UI has no task: the node reports its end with
 `POST /runs/:id/restore-end`. Its run keeps the guest's restore checks waiting for two
-hours at most (its restic holds only a shared lock); a node that never reports the end
-leaves it to the 48 hours below.
+hours at most (its restic holds only a shared lock). A node that never reports the end: the
+server (worker, `closeOrphanedRuns`) ends the run ten minutes after it started when it never
+got its restic credential (it cannot have read anything), and when it started during a boot
+test of the same guest and restore point that has ended (it was that test's restore); one
+that got its credential may still be reading (the credential lives as long as its open run)
+and ends 48 hours after it started (`closeStaleRuns`).
 
 How the server ends a run whose result never came: a backup run succeeds when it committed
-its restore point, else fails. A restore or restore check run fails with "The node never
-reported the result (restarted or unreachable).", a boot test run gets the outcome `error`
-with that message (no rating of the restore point); their task is closed with them. A run
-stopped in the UI ends `cancelled`. Without a list this happens 48 hours after the run
-started.
+its restore point, else fails. A restore or restore check run fails, a boot test run gets
+the outcome `error` (no rating of the restore point); their task is closed with them, and a
+run stopped in the UI ends `cancelled`. This happens
+
+- with its task, when the list no longer names the task (above), with the task's error;
+- ten minutes after the run started, when its task is over (done, failed, cancelled) or gone
+  while the run is still open, or for the PVE UI restores above (`closeOrphanedRuns`), with
+  "The node never reported the end of this run; its task is over or it never got access to
+  the repository, so the server ended it.";
+- otherwise 48 hours after the run started (`closeStaleRuns`), with "The node never reported
+  the result (restarted or unreachable)." (a backup run: "The run never reported its end
+  (node restarted or unreachable).").
 
 ### Progress and compatibility
 

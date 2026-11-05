@@ -55,6 +55,7 @@ import { checkArchiveName, guestForBackup } from "./node-service.js";
 import {
   ensureGuestRepository,
   guestRepositoryPrefix,
+  guestRepositoryPrefixOf,
   repositoryRepairRunning,
   storageSwitchedDuringRun,
 } from "./repository.js";
@@ -740,7 +741,7 @@ async function commitOnce(node: NodeContext, run: PveRun, input: CommitInput, no
           ? {
               resticSnapshotId: input.resticSnapshotId,
               resticRoot: input.resticRoot,
-              resticPrefix: guestRepositoryPrefix(guest.id),
+              resticPrefix: guestRepositoryPrefix(guest),
             }
           : {}),
       },
@@ -1345,7 +1346,7 @@ async function pinRunTarget(
 /** The target a restore reads the container's repository from: the first that holds its config. */
 async function holdingTarget(tenantId: string, guestId: string): Promise<string> {
   const store = await tenantChunkStore(tenantId);
-  const prefix = guestRepositoryPrefix(guestId);
+  const prefix = await guestRepositoryPrefixOf(db, tenantId, guestId);
   for (const target of await searchedTargets(store)) {
     if (await target.backend.head(`${prefix}config`).catch(() => null)) {
       return target.id;

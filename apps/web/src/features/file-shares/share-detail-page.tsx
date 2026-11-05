@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { BackupDestinationNote } from "@/features/storage";
+import { BackupDestinationNote, WriteOnceRetentionNotice } from "@/features/storage";
 import { ObjectSuspicionBadge, RetentionHoldNotice } from "@/features/suspicion";
 import { ApiError } from "@/lib/api";
 
@@ -139,6 +139,7 @@ export function ShareDetailPage({ shareId, tab, onTabChange }: ShareDetailPagePr
         target={{ kind: "file_share", objectId: share.id }}
         objectName={share.name}
       />
+      <WriteOnceRetentionNotice context="share" />
       {/* The repository this share's backups land in. */}
       <BackupDestinationNote />
 

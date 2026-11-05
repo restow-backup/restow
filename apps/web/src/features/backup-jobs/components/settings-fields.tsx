@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { TimezonePicker } from "@/features/schedules/components/timezone-picker";
+import { WriteOnceRetentionNotice } from "@/features/storage";
 
 import { LIMITS } from "../api.js";
 import {
@@ -283,6 +284,7 @@ export function RetentionField({
   const ids = (name: string) => `${idPrefix}-${name}`;
   return (
     <div className="space-y-4" data-slot="retention-field">
+      <WriteOnceRetentionNotice context="job" />
       <RadioGroup
         aria-label={t("retention.mode")}
         value={settings.retentionOwn ? "job" : "machine"}

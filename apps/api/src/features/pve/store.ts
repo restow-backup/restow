@@ -22,6 +22,7 @@ import { config } from "../../config.js";
 import { db } from "../../db.js";
 import { loadTenantDek, openSecret } from "../../lib/secrets.js";
 import { type DbExecutor, withTenantTx } from "../../lib/tenant-context.js";
+import { defaultWriteOnce } from "../../lib/write-once.js";
 import { currentDefaultStorage } from "../restore/storage.js";
 import { loadTenantKeyring } from "../snapshots/content.js";
 
@@ -113,6 +114,7 @@ export async function tenantChunkStore(
         const d = await currentDefaultStorage();
         return { primary: d.primary, copies: d.copies };
       },
+      defaultWriteOnce,
     });
     return { resolved, current };
   });
@@ -146,6 +148,14 @@ export function forgetTenantChunkStore(tenantId?: string): void {
   } else {
     cache.clear();
   }
+}
+
+/**
+ * Whether the target a run recorded (or the primary) is write-once (docs/STORAGE.md,
+ * "Write-once storage"): its last probe found that it refuses to overwrite or delete.
+ */
+export function storeTargetWriteOnce(store: TenantChunkStore, id: string): boolean {
+  return store.targets.find((target) => target.id === id)?.writeOnce === true;
 }
 
 /** A target of the store by the id a run recorded, or null when the tenant has none such. */

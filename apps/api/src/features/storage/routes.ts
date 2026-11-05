@@ -37,6 +37,7 @@ import {
   testTarget,
   updateTarget,
 } from "./service.js";
+import { primaryWriteOnce } from "./write-once.js";
 
 /**
  * /api/v1/storage — where the active tenant's chunk store lives.
@@ -45,6 +46,8 @@ import {
  * targets are paths on the server, so creating, changing, promoting or removing
  * one additionally requires a provider admin (enforced in the service).
  *
+ *   GET    /write-once                       whether the primary is write-once (no retention there);
+ *                                            every member of the tenant (docs/STORAGE.md)
  *   GET    /usage                            logical vs physical bytes, 30/90-day growth, daily series
  *   GET    /destination                      where backups land now (the effective primary), and
  *                                            whether that is a disk of the server itself
@@ -79,6 +82,8 @@ export interface StorageRoutesDeps {
   db: Database;
   /** Authenticates and admits tenant administrators (or a provider admin) only. */
   requireAdmin: MiddlewareHandler<TenantEnv>;
+  /** Authenticates and admits every member of the tenant; `requireTenant()` without it. */
+  requireMember?: MiddlewareHandler<TenantEnv>;
 }
 
 function actorOf(c: Context<TenantEnv>): Actor {
@@ -106,6 +111,10 @@ function targetId(c: Context<TenantEnv>): string {
  */
 export function buildStorageRoutes(deps: StorageRoutesDeps): Hono<TenantEnv> {
   const routes = new Hono<TenantEnv>();
+
+  routes.get("/write-once", deps.requireMember ?? requireTenant(), async (c) => {
+    return c.json(await primaryWriteOnce(deps.db, c.get("tenantId")));
+  });
 
   routes.get("/usage", deps.requireAdmin, async (c) => {
     return c.json(await storageUsage(deps.db, c.get("tenantId")));

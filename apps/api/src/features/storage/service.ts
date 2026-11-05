@@ -19,6 +19,8 @@ import {
   openStorageTarget,
   packPrefix,
   parseS3CredentialsSecret,
+  repositoryFolderOf,
+  repositoryPrefixOf,
   type StorageBackend,
   type StorageConfigIssue,
   type StorageLocation,
@@ -58,6 +60,7 @@ import { snapshotNotImported } from "../../lib/imported-objects.js";
 import { currentInstallationDefault } from "../../lib/installation-default.js";
 import { deleteSecret, readSecret, replaceSecret, storeSecret } from "../../lib/secrets.js";
 import { type DbExecutor, withTenantTx } from "../../lib/tenant-context.js";
+import { defaultWriteOnceFinding, recordDefaultWriteOnce } from "../../lib/write-once.js";
 import { ProblemError } from "../../problem.js";
 import { parseOrProblem } from "../../schemas.js";
 import { cancelQueuedJob, sendJob } from "../jobs/queue.js";
@@ -972,6 +975,24 @@ function mergeRecords(records: TargetConfigRecords): SQL {
   return sql`coalesce(${storageTargets.config}, '{}'::jsonb) || ${JSON.stringify(records)}::jsonb`;
 }
 
+/**
+ * Merge `records` and a new probe into `config` in one statement. A probe that stopped before
+ * its overwrite and delete step (a write, read, list or location failure: a network blip, a
+ * timeout, a share briefly unmounted) found out nothing about write-once, so the finding of the
+ * last probe that got there stays with the new one: a known write-once target is never treated
+ * as a normal one again because a later probe failed early (docs/STORAGE.md, "Write-once
+ * storage"). Only a probe that reached that step replaces it; new addressing or credentials
+ * drop it together with the rest of the records ({@link updateTarget}).
+ */
+function mergeProbeRecords(records: TargetConfigRecords, probe: StorageProbeResult): SQL {
+  if (probe.writeOnce) {
+    return mergeRecords({ ...records, lastProbe: probe });
+  }
+  const kept = sql`${storageTargets.config} -> 'lastProbe' -> 'writeOnce'`;
+  const lastProbe = sql`${JSON.stringify({ ...probe, writeOnce: undefined })}::jsonb || case when jsonb_typeof(${kept}) = 'object' then jsonb_build_object('writeOnce', ${kept}) else '{}'::jsonb end`;
+  return sql`${mergeRecords(records)} || jsonb_build_object('lastProbe', ${lastProbe})`;
+}
+
 // --- Queries --------------------------------------------------------------------
 
 export async function listTargets(
@@ -1012,6 +1033,7 @@ export async function listTargets(
     installationDefault: {
       ...toInstallationDefaultDto(defaults, inUse, actor),
       onSystemDisk: await locationOnSystemDisk(defaults?.primary ?? null, deps.systemDisk),
+      writeOnce: defaults ? await defaultWriteOnceFinding() : null,
     },
     tenantHasData: hasData,
     canManageLocal: actor.isProviderAdmin,
@@ -1869,7 +1891,7 @@ async function resticRepositoryPrefixes(db: Database, tenantId: string): Promise
         .from(endpoints)
         .where(and(eq(endpoints.tenantId, tenantId), isNotNull(endpoints.repositorySecretId))),
       tx
-        .select({ id: pveGuests.id })
+        .select({ id: pveGuests.id, prefix: pveGuests.repositoryPrefix })
         .from(pveGuests)
         .where(
           and(
@@ -1878,16 +1900,27 @@ async function resticRepositoryPrefixes(db: Database, tenantId: string): Promise
           ),
         ),
       tx
-        .select({ id: fileShares.id })
+        .select({ id: fileShares.id, prefix: fileShares.repositoryPrefix })
         .from(fileShares)
         .where(and(eq(fileShares.tenantId, tenantId), isNotNull(fileShares.repositorySecretId))),
     ]);
+    // The prefix each repository's current chain lies under (a fresh one on write-once storage).
     return [
       ...machines.map((row) => endpointPrefix(row.id)),
-      ...guests.map((row) => `pve-guests/${row.id}/`),
-      ...shares.map((row) => `file-shares/${row.id}/`),
+      ...guests.map((row) => repositoryPrefixOf("container", row.id, row.prefix)),
+      ...shares.map((row) => repositoryPrefixOf("file_share", row.id, row.prefix)),
     ];
   });
+}
+
+/** Whether an owner's current chain lies under a fresh prefix (`<id>.chain-<n>/`). */
+function hasOtherChain(current: ReadonlySet<string>, top: string, ownerId: string): boolean {
+  for (const prefix of current) {
+    if (prefix.startsWith(`${top}${ownerId}.chain-`)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /** Where each kind of the tenant's restic repositories lies, and every owner id of that kind. */
@@ -1911,9 +1944,11 @@ async function repositoryOwnerIds(
 
 /**
  * The tenant's moved-aside repository folders (`<prefix>.orphaned-<time>/`: what the repository
- * repair or a new backup chain set aside instead of deleting) that `backend` holds and none of
- * `others` holds whole. Neither a `move` nor the repair copies them, so a retired target may be
- * the only place left that has them.
+ * repair or a new backup chain set aside instead of deleting) and earlier chains left where they
+ * were on write-once storage (`<id>/` or `<id>.chain-<n>/` that no repository's current chain lies
+ * under, endpoints/repository-prefix.ts) that `backend` holds and none of `others` holds whole.
+ * Neither a `move` nor the repair copies them, so a retired target may be the only place left
+ * that has them.
  */
 async function exclusiveMovedAsideFolders(
   db: Database,
@@ -1922,6 +1957,7 @@ async function exclusiveMovedAsideFolders(
   others: readonly StorageBackend[],
 ): Promise<string[]> {
   const folders: string[] = [];
+  const current = new Set(await resticRepositoryPrefixes(db, tenantId));
   for (const { top, ids } of await repositoryOwnerIds(db, tenantId)) {
     if (ids.size === 0) {
       continue;
@@ -1930,11 +1966,20 @@ async function exclusiveMovedAsideFolders(
     for (const key of await backend.list(top)) {
       const end = key.indexOf("/", top.length);
       const folder = end < 0 ? null : key.slice(top.length, end);
-      const marker = folder?.indexOf(".orphaned-") ?? -1;
-      if (!folder || marker < 0 || !ids.has(folder.slice(0, marker))) {
+      const parsed = folder ? repositoryFolderOf(folder) : null;
+      if (!folder || !parsed || !ids.has(parsed.ownerId)) {
         continue;
       }
       const prefix = `${top}${folder}/`;
+      // A current chain is checked as a repository (`endpointRepositories`), not here; an
+      // owner's default prefix without any recorded chain of another prefix is its current one.
+      if (
+        !parsed.movedAside &&
+        (current.has(prefix) ||
+          (parsed.chain === 1 && !hasOtherChain(current, top, parsed.ownerId)))
+      ) {
+        continue;
+      }
       byFolder.set(prefix, [...(byFolder.get(prefix) ?? []), key]);
     }
     for (const [prefix, keys] of byFolder) {
@@ -2185,7 +2230,7 @@ export async function testTarget(
   }
   const outcome = await runChecks(opened, tenantId, { requireExistingPath: true, now });
 
-  const records: TargetConfigRecords = { lastProbe: outcome.probe };
+  const records: TargetConfigRecords = {};
   if (outcome.objectLock && opened.location.kind === "s3") {
     records.objectLockDetection = outcome.objectLock;
     records.objectLock = outcome.objectLock.status === "enabled";
@@ -2197,7 +2242,7 @@ export async function testTarget(
         status: outcome.probe.ok ? "ok" : "error",
         errorMessage: outcome.probe.ok ? null : (outcome.probe.error ?? outcome.probe.errorCode),
         checkedAt: new Date(outcome.probe.checkedAt),
-        config: mergeRecords(records),
+        config: mergeProbeRecords(records, outcome.probe),
       })
       .where(and(eq(storageTargets.tenantId, tenantId), eq(storageTargets.id, id)))
       .returning();
@@ -2227,6 +2272,7 @@ function probeAuditDetails(outcome: ProbeOutcomeDto): Record<string, unknown> {
     durationMs: outcome.probe.durationMs,
     warnings: outcome.probe.warnings,
     objectLock: outcome.objectLock?.status ?? null,
+    writeOnce: outcome.probe.writeOnce?.writeOnce ?? null,
   };
 }
 
@@ -2317,6 +2363,7 @@ export async function testInstallationDefault(
   const opened = openInstallationDefault(defaults, "probe");
   // The default directory is created on the first write, so it need not exist yet.
   const outcome = await runChecks(opened.primary, tenantId, { requireExistingPath: false, now });
+  await recordDefaultWriteOnce(defaults.primary, outcome.probe.writeOnce);
   await audit(db, {
     tenantId,
     actor: actor.email,
@@ -2327,7 +2374,13 @@ export async function testInstallationDefault(
     ip: actor.ip,
     details: probeAuditDetails(outcome),
   });
-  return { ...outcome, installationDefault: toInstallationDefaultDto(defaults, inUse, actor) };
+  return {
+    ...outcome,
+    installationDefault: {
+      ...toInstallationDefaultDto(defaults, inUse, actor),
+      writeOnce: await defaultWriteOnceFinding(),
+    },
+  };
 }
 
 // --- Copies: completeness and promotion ------------------------------------------

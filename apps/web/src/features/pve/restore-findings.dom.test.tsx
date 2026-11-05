@@ -141,4 +141,32 @@ describe("RestoreCheckFacts", () => {
     );
     expect(line?.textContent).not.toContain("Proxmox VE cannot");
   });
+
+  it("says the check waits for the container's repository problem", () => {
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createRoot(host);
+    act(() => {
+      root?.render(
+        <I18nextProvider i18n={i18n}>
+          <RestoreCheckFacts
+            facts={{
+              enabled: true,
+              blocker: "repository_problem",
+              node: "pve1",
+              lastRestoreTestAt: new Date().toISOString(),
+            }}
+          />
+        </I18nextProvider>,
+      );
+    });
+    const line = host.querySelector('[data-slot="pve-restore-check-facts"]');
+    expect(line?.textContent).toMatch(/^Restore check waits for the repository problem/);
+    expect(line?.textContent).toContain("Repository repair");
+    for (const language of ["en", "de"]) {
+      expect(
+        i18n.exists("guest.restoreCheckBlocked.repository_problem", { ns: "pve", lng: language }),
+      ).toBe(true);
+    }
+  });
 });

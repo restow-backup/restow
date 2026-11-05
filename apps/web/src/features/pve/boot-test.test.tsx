@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { renderToStaticMarkup } from "react-dom/server";
 import { I18nextProvider } from "react-i18next";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -7,6 +9,8 @@ import { i18n } from "@/i18n";
 import "./i18n";
 import type { PveBootTest } from "./api";
 import {
+  BOOT_TEST_REASON_OUTCOMES,
+  BOOT_TEST_REASON_TEXTS,
   BootTestBadge,
   BootTestFacts,
   bootTestDetailKey,
@@ -97,21 +101,53 @@ describe("BootTestBadge", () => {
   });
 });
 
-describe("the reasons restow-pve 0.5.0 reports", () => {
-  const cases: [string, "green" | "yellow" | "red" | "skipped" | "error", string, string][] = [
-    ["custom_qemu_args", "green", "muted", "Skipped"],
-    ["host_disk", "green", "muted", "Skipped"],
-    ["bridge_not_isolated", "green", "muted", "Skipped"],
-    ["node_resources", "red", "muted", "Skipped"],
-    ["storage_space", "red", "muted", "Skipped"],
-    ["setup_failed", "red", "muted", "Not carried out"],
-    ["io_error", "red", "muted", "Not carried out"],
-    ["guest_agent_silent", "green", "warning", "Started, no answer"],
-    ["init_running_unverified", "green", "warning", "Started, no answer"],
-    ["systemd_degraded", "green", "warning", "Started, no answer"],
-    ["systemd_emergency", "yellow", "destructive", "Did not boot"],
-    ["guest_panicked", "yellow", "destructive", "Did not boot"],
-  ];
+/** The server's table of reasons (PVE_BOOT_TEST_REASON_OUTCOMES in @restow/core), read from its source. */
+function coreReasonOutcomes(): Record<string, string> {
+  const source = readFileSync(
+    new URL("../../../../../packages/core/src/pve/boot-test.ts", import.meta.url),
+    "utf8",
+  );
+  const block = /PVE_BOOT_TEST_REASON_OUTCOMES[^=]*= \{([\s\S]*?)\n\};/.exec(source)?.[1] ?? "";
+  return Object.fromEntries(
+    [...block.matchAll(/^\s*([a-z_]+): "([a-z]+)",$/gm)].map((m) => [m[1], m[2]]),
+  );
+}
+
+describe("the reasons restow-pve reports", () => {
+  it("are the server's, with the same outcomes", () => {
+    const core = coreReasonOutcomes();
+    expect(Object.keys(core).length).toBeGreaterThan(20);
+    expect(BOOT_TEST_REASON_OUTCOMES).toEqual(core);
+  });
+
+  // What the node sends beside the reason (never what the reason stands for), the badge, its label.
+  type Sent = "green" | "yellow" | "red" | "skipped" | "error";
+  const expected: Record<string, [Sent, string, string]> = {
+    skipped: ["green", "muted", "Skipped"],
+    error: ["red", "muted", "Not carried out"],
+    yellow: ["green", "warning", "Started, no answer"],
+    red: ["yellow", "destructive", "Did not boot"],
+  };
+  const cases = BOOT_TEST_REASON_TEXTS.map((reason): [string, Sent, string, string] => {
+    const [sent, variant, label] = expected[BOOT_TEST_REASON_OUTCOMES[reason] ?? ""] ?? [
+      "green",
+      "?",
+      "?",
+    ];
+    return [reason, sent, variant, label];
+  });
+
+  it("give every reason that is no proof a text", () => {
+    expect(BOOT_TEST_REASON_TEXTS.length).toBe(
+      Object.values(BOOT_TEST_REASON_OUTCOMES).filter((outcome) => outcome !== "green").length,
+    );
+    for (const reason of ["storage_io_error", "guest_internal_error", "system_maintenance"]) {
+      expect(BOOT_TEST_REASON_TEXTS).toContain(reason);
+    }
+    for (const reason of ["agent_answered", "system_running", "init_running"]) {
+      expect(BOOT_TEST_REASON_TEXTS).not.toContain(reason);
+    }
+  });
 
   it.each(cases)("%s is never green and has a text of its own", (reason, sent, variant, label) => {
     expect(bootTestVariant(sent, reason)).toBe(variant);
@@ -127,6 +163,25 @@ describe("the reasons restow-pve 0.5.0 reports", () => {
       expect(i18n.exists(key, { ns: "pve", lng: language })).toBe(true);
     }
     expect(html).toContain(i18n.t(key, { ns: "pve" }).slice(0, 12));
+  });
+
+  it("says what proved a green", () => {
+    for (const language of ["en", "de"]) {
+      for (const key of ["green", "greenContainer", "greenSystemd"]) {
+        expect(i18n.exists(`guest.bootTestDetail.${key}`, { ns: "pve", lng: language })).toBe(true);
+      }
+    }
+    expect(
+      bootTestDetailKey({ outcome: "green", guestAgent: false, reason: "system_running" }, "ct"),
+    ).toBe("guest.bootTestDetail.greenSystemd");
+    expect(
+      bootTestDetailKey({ outcome: "green", guestAgent: false, reason: "init_running" }, "ct"),
+    ).toBe("guest.bootTestDetail.greenContainer");
+    expect(
+      bootTestDetailKey({ outcome: "green", guestAgent: true, reason: "agent_answered" }, "vm"),
+    ).toBe("guest.bootTestDetail.green");
+    // A proof never makes a yellow any better.
+    expect(bootTestVariant("yellow", "agent_answered")).toBe("warning");
   });
 
   it("a yellow reason never makes a red any better, and an unknown reason shows the node's message", () => {

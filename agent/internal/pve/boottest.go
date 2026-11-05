@@ -299,7 +299,7 @@ func (b *BootTester) run(ctx context.Context, p BootTestParams) BootTestResult {
 	}
 	held, err := lock.TryAcquire(b.lockFile())
 	if errors.Is(err, lock.ErrLocked) {
-		return skipped("boot_test_running", "Another boot test runs on this node.")
+		return skipped(reasonBootTestRunning, "Another boot test runs on this node.")
 	}
 	if err != nil {
 		return BootTestResult{Message: "boot test lock: " + err.Error()}
@@ -308,10 +308,10 @@ func (b *BootTester) run(ctx context.Context, p BootTestParams) BootTestResult {
 	// Whatever an earlier test or check left behind goes first, also when they are switched off.
 	b.Cleanup(ctx)
 	if !b.State.RestoresAllowed() {
-		return skipped("restores_off", "Restores are switched off on this node (restow-pve config --allow-restores).")
+		return skipped(reasonRestoresOff, "Restores are switched off on this node (restow-pve config --allow-restores).")
 	}
 	if b.State.BootTestsDisabled {
-		return skipped("boot_tests_off", "Boot tests are switched off on this node (restow-pve config --boot-tests).")
+		return skipped(reasonBootTestsOff, "Boot tests are switched off on this node (restow-pve config --boot-tests).")
 	}
 	if reason, msg := b.backupBusy(ctx); reason != "" {
 		return skipped(reason, msg)
@@ -333,7 +333,7 @@ func (b *BootTester) run(ctx context.Context, p BootTestParams) BootTestResult {
 	}
 	b.logf("restore point %s of %s %d: %d MiB memory, %d bytes of disks", p.Volname, p.Kind, p.VMID, memMiB, p.DiskBytes)
 	if memMiB > maxMiB {
-		return skipped("memory_limit", fmt.Sprintf("The guest needs %d MiB of memory; the job allows boot tests up to %d MiB.", memMiB, maxMiB))
+		return skipped(reasonMemoryLimit, fmt.Sprintf("The guest needs %d MiB of memory; the job allows boot tests up to %d MiB.", memMiB, maxMiB))
 	}
 	memFn := b.MemAvailable
 	if memFn == nil {
@@ -353,21 +353,21 @@ func (b *BootTester) run(ctx context.Context, p BootTestParams) BootTestResult {
 			if arc > 0 {
 				msg = fmt.Sprintf("The node has %d MiB of memory available, %d MiB of them in the ZFS ARC that it can give back (above zfs_arc_min); the guest needs %d MiB and 1 GiB stays free.", avail>>20, arc>>20, memMiB)
 			}
-			return skipped("node_memory", msg)
+			return skipped(reasonNodeMemory, msg)
 		}
 	} else {
 		b.logf("available memory unknown: %v", err)
 	}
 	storage := b.storage()
 	if storage == "" {
-		return skipped("no_storage", "This node has no storage for boot tests (restow-pve config --boot-test-storage).")
+		return skipped(reasonNoStorage, "This node has no storage for boot tests (restow-pve config --boot-test-storage).")
 	}
 	if reason, msg := b.checkStorage(ctx, storage, p, conf, rp); reason != "" {
 		return skipped(reason, msg)
 	}
 	if bridge := strings.TrimSpace(b.State.BootTestBridge); bridge != "" {
 		if msg := b.bridgeIsolated(bridge); msg != "" {
-			return skipped("bridge_not_isolated", msg)
+			return skipped(reasonBridgeNotIsolated, msg)
 		}
 	}
 	res := b.restoreAndBoot(ctx, p, rp, conf, rawLxcOptions(rp.GuestConfig), storage)
@@ -376,13 +376,13 @@ func (b *BootTester) run(ctx context.Context, p BootTestParams) BootTestResult {
 }
 
 // backupBusy says whether a backup or a restore works on this node now.
-func (b *BootTester) backupBusy(ctx context.Context) (string, string) {
+func (b *BootTester) backupBusy(ctx context.Context) (reason, message string) {
 	running := b.BackupRunning
 	if running == nil {
 		running = func() bool { return busy(b.Layout) }
 	}
 	if running() {
-		return "backup_running", "A backup or a restore runs on this node."
+		return reasonBackupRunning, "A backup or a restore runs on this node."
 	}
 	tasks, err := b.PVE.ActiveTasks(ctx, b.State.NodeName, "vzdump")
 	if err != nil {
@@ -390,12 +390,12 @@ func (b *BootTester) backupBusy(ctx context.Context) (string, string) {
 		return "", ""
 	}
 	if len(tasks) > 0 {
-		return "backup_running", "A PVE backup (vzdump) runs on this node."
+		return reasonBackupRunning, "A PVE backup (vzdump) runs on this node."
 	}
 	return "", ""
 }
 
-func (b *BootTester) checkStorage(ctx context.Context, name string, p BootTestParams, conf map[string]string, rp *RestorePoint) (string, string) {
+func (b *BootTester) checkStorage(ctx context.Context, name string, p BootTestParams, conf map[string]string, rp *RestorePoint) (reason, message string) {
 	data, disks := p.DataBytes, p.DiskBytes
 	if p.Kind == "ct" {
 		if sum := containerVolumeBytes(conf); sum > 0 {
@@ -408,13 +408,13 @@ func (b *BootTester) checkStorage(ctx context.Context, name string, p BootTestPa
 	f := b.fitStorage(ctx, name, p.Kind, data, disks)
 	switch f.Problem {
 	case "missing":
-		return "no_storage", fmt.Sprintf("The boot test storage %s does not exist on this node.", name)
+		return reasonNoStorage, fmt.Sprintf("The boot test storage %s does not exist on this node.", name)
 	case "inactive":
-		return "no_storage", fmt.Sprintf("The boot test storage %s is not active on this node.", name)
+		return reasonNoStorage, fmt.Sprintf("The boot test storage %s is not active on this node.", name)
 	case "content":
-		return "storage_content", fmt.Sprintf("The boot test storage %s does not hold %s.", name, f.Want)
+		return reasonStorageContent, fmt.Sprintf("The boot test storage %s does not hold %s.", name, f.Want)
 	case "space":
-		return "storage_space", fmt.Sprintf("The boot test storage %s has %d MiB free; the restore needs about %d MiB (%s).", name, f.Avail>>20, f.Need>>20, f.Basis)
+		return reasonStorageSpace, fmt.Sprintf("The boot test storage %s has %d MiB free; the restore needs about %d MiB (%s).", name, f.Avail>>20, f.Need>>20, f.Basis)
 	}
 	return "", ""
 }
@@ -534,14 +534,14 @@ func (b *BootTester) restoreAndBoot(ctx context.Context, p BootTestParams, rp *R
 			if outOfSpaceRE.MatchString(exit + "\n" + tail) {
 				// The node had too little room (the boot test storage, or the temporary folder of
 				// a container restore): nothing is wrong with the restore point.
-				res.Outcome, res.Reason, res.Message = "skipped", "storage_space", fmt.Sprintf("The restore ran out of space on the node (the boot test storage %s or the temporary folder): %s", storage, lastLines(tail, 3))
+				res.Outcome, res.Reason, res.Message = "skipped", reasonStorageSpace, fmt.Sprintf("The restore ran out of space on the node (the boot test storage %s or the temporary folder): %s", storage, lastLines(tail, 3))
 				return res
 			}
 			msg := fmt.Sprintf("The restore ended with %q: %s", exit, lastLines(tail, 3))
 			if p.Kind == "ct" && lxc.IDMap {
 				msg += " (" + idmapHint + ")"
 			}
-			res.Outcome, res.Reason, res.Message = "red", "restore_failed", msg
+			res.Outcome, res.Reason, res.Message = "red", reasonRestoreFailed, msg
 			return res
 		}
 		// The restore ran to its end and warned beside it (PVE skipped what only root@pam may
@@ -589,10 +589,10 @@ func (b *BootTester) restoreAndBoot(ctx context.Context, p BootTestParams, rp *R
 		if nodeResourcesRE.MatchString(err.Error()) {
 			// The node could not give the copy its memory beside the running guests: that says
 			// nothing about the restore point.
-			res.Outcome, res.Reason, res.Message = "skipped", "node_resources", "The node could not allocate the memory of the temporary guest: "+err.Error()
+			res.Outcome, res.Reason, res.Message = "skipped", reasonNodeResources, "The node could not allocate the memory of the temporary guest: "+err.Error()
 			return res
 		}
-		res.Outcome, res.Reason, res.Message = "red", "start_failed", "The temporary guest did not start: "+err.Error()
+		res.Outcome, res.Reason, res.Message = "red", reasonStartFailed, "The temporary guest did not start: "+err.Error()
 		return res
 	}
 	started := b.now()
@@ -654,7 +654,7 @@ func (e *isolationSkip) Error() string { return e.message }
 // firmware tables or the clock (safeQemuArgs) stay.
 func unisolatableVM(conf map[string]string) (reason, message string) {
 	if v := strings.TrimSpace(conf["args"]); v != "" && !safeQemuArgs(v) {
-		return "custom_qemu_args", fmt.Sprintf("The VM has raw QEMU arguments (args: %s), which can reach the host's disks, devices or a network; a boot test cannot isolate it without them and does not boot it with them.", v)
+		return reasonCustomQemuArgs, fmt.Sprintf("The VM has raw QEMU arguments (args: %s), which can reach the host's disks, devices or a network; a boot test cannot isolate it without them and does not boot it with them.", v)
 	}
 	return "", ""
 }
@@ -790,7 +790,7 @@ func (b *BootTester) isolate(ctx context.Context, p BootTestParams, vmid int) (a
 	if p.Kind == "vm" {
 		// Tagged and named by now, so its removal finds it ours.
 		if k, v := hostDisk(conf); k != "" {
-			return agentForced, &isolationSkip{"host_disk", fmt.Sprintf("The restored VM has a disk on a host device (%s: %s); its copy would open the same device as the original.", k, v)}
+			return agentForced, &isolationSkip{reasonHostDisk, fmt.Sprintf("The restored VM has a disk on a host device (%s: %s); its copy would open the same device as the original.", k, v)}
 		}
 	}
 	// Read back: no interface may reach a network, nothing of the host may be left.

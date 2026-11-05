@@ -172,5 +172,28 @@ describe.skipIf(!canRun)("restore points of privileged containers", () => {
       .where(eq(pveGuests.id, guestId));
     expect((await page()).restoreCheck?.blocker).not.toBe("privileged");
     expect((await page()).bootTest.blocker).not.toBe("privileged");
+    // A repository problem recorded for the container: the planner passes it over
+    // (planRestoreTests), and the page says the check waits for it, before any other reason.
+    await fixture.db
+      .update(pveGuests)
+      .set({
+        lastSnapshotId: privilegedPoint,
+        repositoryProblem: {
+          at: "2026-11-04T10:00:00.000Z",
+          type: "pve-repository-split",
+          heldBy: null,
+          activePoints: 2,
+        },
+      })
+      .where(eq(pveGuests.id, guestId));
+    expect((await page()).restoreCheck).toMatchObject({
+      enabled: true,
+      blocker: "repository_problem",
+    });
+    await fixture.db
+      .update(pveGuests)
+      .set({ repositoryProblem: null, lastSnapshotId: unprivilegedPoint })
+      .where(eq(pveGuests.id, guestId));
+    expect((await page()).restoreCheck?.blocker).not.toBe("repository_problem");
   });
 });

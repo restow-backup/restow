@@ -2,10 +2,10 @@ import type { Readable } from "node:stream";
 import {
   type DirectoryPosition,
   fileShareRepositoryKey,
-  fileShareRepositoryPrefix,
   type OpenRepository,
   openRepository,
   type RepositoryAccess,
+  repositoryPrefixOf,
   resolveSelection,
   resticBinary,
   resticCacheBase,
@@ -114,7 +114,7 @@ async function accessOf(database: Database, share: FileShare): Promise<Repositor
   const targets = await tenantStorage(database, share.tenantId);
   return {
     storage: targets.storage,
-    prefix: fileShareRepositoryPrefix(share.id),
+    prefix: repositoryPrefixOf("file_share", share.id, share.repositoryPrefix),
     repositoryPassword: password,
     repositoryKey: fileShareRepositoryKey(share.id),
     binary: resticBinary(),

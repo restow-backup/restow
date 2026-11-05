@@ -146,7 +146,8 @@
     "warnings": {
       "ephemeral_path": "Dieses Verzeichnis liegt im Container, nicht auf einem Volume oder einer Einbindung. Seine Daten gehen verloren, wenn der Container neu erstellt wird.",
       "insecure_endpoint": "Der Endpunkt nutzt unverschlüsseltes HTTP: Zugangsdaten und Daten werden unverschlüsselt übertragen.",
-      "cleanup_failed": "Das kleine Testobjekt konnte nicht wieder gelöscht werden. Es liegt im Ordner probes des Mandanten und kann von Hand entfernt werden."
+      "cleanup_failed": "Das kleine Testobjekt konnte nicht wieder gelöscht werden. Es liegt im Ordner probes des Mandanten und kann von Hand entfernt werden.",
+      "write_once": "Der Speicher verweigert das Überschreiben und Löschen vorhandener Dateien (Write-once). Das Testobjekt bleibt im Ordner für Tests des Mandanten liegen; siehe „Write-once-Speicher“ unten."
     }
   },
   "objectLock": {
@@ -177,6 +178,30 @@
     },
     "retired": "Abgelöst",
     "retiredHint": "Dieser Platzhalter steht für die Speichereinstellungen der Umgebung von vor ihrer Ablösung; er wurde nie einzeln getestet."
+  },
+  "writeOnce": {
+    "title": "Write-once-Speicher",
+    "refused": {
+      "both": "Der letzte Test konnte sein Testobjekt weder überschreiben noch löschen ({code}).",
+      "overwrite": "Der letzte Test konnte sein Testobjekt nicht überschreiben ({code}).",
+      "delete": "Der letzte Test konnte sein Testobjekt nicht löschen ({code})."
+    },
+    "noRetention": "Die Aufbewahrung wird hier nicht angewendet: Kein Sicherungsstand wird entfernt, gleich was die Aufbewahrungseinstellungen eines Auftrags vorsehen.",
+    "grows": "Repositories wachsen nur; Speicherplatz wird nie wieder frei. Planen Sie die Kapazität entsprechend.",
+    "locks": "Sperrdateien jeder Sicherung bleiben liegen; {appName} beurteilt sie nach ihrem Alter und wird von ihnen nicht aufgehalten.",
+    "newChain": "Muss ein Repository eine neue Sicherungskette beginnen (nach einem Zurücksetzen), beginnt es in einem neuen Ordner neben dem alten; nichts wird verschoben oder gelöscht.",
+    "works": "Sicherungen, Wiederherstellungen und Restore-Prüfungen funktionieren wie gewohnt."
+  },
+  "writeOnceRetention": {
+    "title": "Aufbewahrung wird nicht angewendet",
+    "installationDefault": "das Standard-Repository der Installation",
+    "unnamed": "das primäre Repository",
+    "guest": "Die Sicherungen dieser VM oder dieses Containers gehen an {repository}, einen Write-once-Speicher: Kein Sicherungsstand wird entfernt, gleich was die Aufbewahrung des Auftrags vorsieht.",
+    "share": "Die Sicherungen dieser Dateifreigabe gehen an {repository}, einen Write-once-Speicher: Kein Sicherungsstand wird entfernt, gleich was die Aufbewahrung vorsieht.",
+    "machine": "Die Sicherungen dieses Rechners gehen an {repository}, einen Write-once-Speicher: Kein Snapshot wird entfernt, gleich was die Aufbewahrung vorsieht.",
+    "job": "Die Sicherungen dieses Auftrags gehen an {repository}, einen Write-once-Speicher: Diese Aufbewahrungseinstellungen können dort nicht angewendet werden, und kein Sicherungsstand wird entfernt.",
+    "settings": "Die Sicherungen dieses Mandanten gehen an {repository}, einen Write-once-Speicher: Aufbewahrungseinstellungen können dort nicht angewendet werden, und kein Sicherungsstand wird entfernt.",
+    "consequences": "Der Speicher verweigert das Löschen und Überschreiben vorhandener Dateien. Repositories wachsen nur, Sperrdateien bleiben liegen, Wiederherstellungen und Restore-Prüfungen funktionieren wie gewohnt. Die Einstellungen bleiben erhalten und gelten wieder, sobald die Sicherungen an ein anderes Repository gehen."
   },
   "migration": {
     "queued": "Migration eingeplant",

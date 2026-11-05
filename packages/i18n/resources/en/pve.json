@@ -326,22 +326,40 @@
     "bootTestDetail": {
       "green": "The QEMU Guest Agent of the restored guest answered after {seconds} s.",
       "greenContainer": "The init of the restored container runs.",
+      "greenSystemd": "systemd of the restored container reports the system running.",
       "yellow": "The restored VM started and kept running, but its QEMU Guest Agent did not answer. Install the guest agent in the VM for proof.",
       "red": "The restore point did not boot: {message}"
     },
     "bootTestReason": {
+      "memory_limit": "Not tested: the guest needs more memory than the backup job allows for boot tests.",
+      "node_memory": "Not tested: the node had too little free memory for the copy. It is tried again later.",
+      "node_resources": "Not tested: the node could not give the copy the memory it is set up for (hugepages or a NUMA binding). It is tried again later.",
+      "storage_space": "Not tested: the boot test storage had too little free space for the restore. It is tried again later.",
+      "storage_content": "Not tested: the boot test storage of the node holds no guests of this kind.",
+      "storage_io_error": "Not tested: an I/O error of the boot test storage paused the copy (the storage may be full). This says nothing about the restore point; it is tried again later.",
+      "no_storage": "Not tested: the node has no usable storage for boot tests (restow-pve config --boot-test-storage).",
+      "backup_running": "Not tested: a backup or a restore was running on the node. It is tried again later.",
+      "boot_test_running": "Not tested: another boot test was running on the node. It is tried again later.",
+      "restores_off": "Not tested: restores are switched off on the node.",
+      "boot_tests_off": "Not tested: boot tests are switched off on the node.",
       "custom_qemu_args": "Not tested: the VM has QEMU arguments of its own (args), which can reach the network or disks of the host. A copy started next to the original could use them too.",
       "host_disk": "Not tested: the VM uses a disk of the host directly (a device passed through). A copy started next to the original would write to the same disk.",
       "bridge_not_isolated": "Not tested: the boot test bridge of the node is connected to the network. Set a bridge without ports with restow-pve config --boot-test-bridge.",
-      "node_resources": "Not tested: the node could not give the copy the memory it is set up for (hugepages or a NUMA binding). It is tried again later.",
-      "storage_space": "Not tested: the boot test storage had too little free space for the restore. It is tried again later.",
-      "setup_failed": "Not carried out: the boot test could not be prepared before the restore. This says nothing about the restore point; it is tried again later.",
-      "io_error": "Not carried out: the copy stopped on an I/O error of the boot test storage. This says nothing about the restore point; it is tried again later.",
-      "guest_agent_silent": "The copy started and kept running, but the QEMU Guest Agent that runs in the original did not answer. That it booted is not proven.",
+      "node_error": "Not carried out: the node could not carry out the boot test. This says nothing about the restore point; it is tried again later.",
+      "no_guest_agent": "The copy started and kept running, but no QEMU Guest Agent answered. Install the guest agent in the VM for proof.",
+      "agent_not_answering": "The copy started and kept running, but the QEMU Guest Agent that the guest is set up with did not answer in time. It probably did not finish booting.",
+      "guest_paused": "The copy started, but it was paused and its QEMU Guest Agent did not answer. That it booted is not proven.",
+      "system_degraded": "The container started, but systemd reports failed services (degraded).",
+      "system_starting": "The container kept running, but systemd did not finish booting in time.",
+      "system_unknown": "The container kept running, but the state of its systemd could not be read. That it booted is not proven.",
       "init_running_unverified": "The container's init runs, but whether its services came up could not be checked.",
-      "systemd_degraded": "The container started, but systemd reports failed services (degraded).",
-      "systemd_emergency": "The container did not reach its services: systemd is in emergency or rescue mode.",
-      "guest_panicked": "The copy crashed while it booted (guest panicked)."
+      "init_unknown": "The container kept running, but its init could not be looked at. That it booted is not proven.",
+      "restore_failed": "The restore of the copy failed.",
+      "start_failed": "The copy did not start.",
+      "guest_stopped": "The copy stopped while it booted.",
+      "guest_panicked": "The copy crashed while it booted (guest panicked).",
+      "guest_internal_error": "The copy stopped with an internal error of its virtual CPU while it booted.",
+      "system_maintenance": "The container did not reach its services: systemd is in emergency or rescue mode."
     },
     "bootTestSchedule": {
       "off": "Boot tests: off in the backup job",
@@ -381,7 +399,8 @@
       "historyLost": "Repository lost: a new chain begins",
       "pointsLostTitle": "Repository repaired on {date}",
       "pointsLost": "The repository repair rebuilt the repository on the primary; its chain goes on. {count, plural, =0 {No restore point was missing from it} one {# restore point whose snapshot was on no storage target is no longer available} other {# restore points whose snapshots were on no storage target are no longer available}}.",
-      "historyPointsLost": "Repository repaired: restore points were missing"
+      "historyPointsLost": "Repository repaired: restore points were missing",
+      "freshPrefix": "The repository is on write-once storage: the old chain could not be moved aside and stays readable in {previous}; the new chain began in {prefix}. Nothing was deleted."
     },
     "repositoryProblem": {
       "noTarget": "another storage target",
@@ -456,6 +475,7 @@
     },
     "restoreCheckSkipped": "Not checked: {reason, select, no_storage {target storage missing} storage_inactive {target storage inactive} storage_content {target storage takes no guests of this kind} storage_space {not enough space} restores_off {restores are off} other {not possible}}",
     "restoreCheckBlocked": {
+      "repository_problem": "Restore check waits for the repository problem of this container (see above): it runs once a repository repair (Repositories › Repository repair), a reset of the repository or a backup that finds it again has resolved the problem.",
       "privileged": "Not checked: privileged container. {appName} restores containers only as unprivileged, and the newest restore point is of a privileged container (files with ids above 65535 and device nodes would not restore).",
       "restores_off": "Restore check not possible: restores are switched off on node {node}.",
       "node_offline": "Restore check waits: node {node} has not reported lately.",

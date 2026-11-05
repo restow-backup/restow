@@ -21,7 +21,7 @@
  * copied: a `move` refuses to switch while one exists and names it.
  */
 import type { MirrorItem, StorageBackend } from "@restow/core";
-import { fileShareRepositoryPrefix } from "@restow/core";
+import { repositoryFolderOf, repositoryPrefixOf } from "@restow/core";
 import {
   endpoints,
   fileShareSnapshots,
@@ -83,6 +83,7 @@ export async function tenantRepositoryOwners(
           vmid: pveGuests.vmid,
           secretId: pveGuests.repositorySecretId,
           readyAt: pveGuests.repositoryReadyAt,
+          prefix: pveGuests.repositoryPrefix,
         })
         .from(pveGuests)
         .where(
@@ -105,6 +106,7 @@ export async function tenantRepositoryOwners(
           name: fileShares.name,
           secretId: fileShares.repositorySecretId,
           readyAt: fileShares.repositoryReadyAt,
+          prefix: fileShares.repositoryPrefix,
         })
         .from(fileShares)
         .where(
@@ -118,7 +120,7 @@ export async function tenantRepositoryOwners(
   return [
     ...guests.map(
       (row): RepositoryOwner => ({
-        prefix: `pve-guests/${row.id}/`,
+        prefix: repositoryPrefixOf("container", row.id, row.prefix),
         kind: "container",
         ownerId: row.id,
         name: row.name ?? String(row.vmid),
@@ -140,7 +142,7 @@ export async function tenantRepositoryOwners(
     ),
     ...shares.map(
       (row): RepositoryOwner => ({
-        prefix: fileShareRepositoryPrefix(row.id),
+        prefix: repositoryPrefixOf("file_share", row.id, row.prefix),
         kind: "file_share",
         ownerId: row.id,
         name: row.name,
@@ -243,6 +245,8 @@ export interface RepositorySource {
    * 0.4.1 dropped it): a listing that fails counts as empty instead of failing the plan.
    */
   readonly optional?: boolean;
+  /** The place's last probe found it write-once: nothing is moved aside or deleted there. */
+  readonly writeOnce?: boolean;
 }
 
 /** What `planRepositories` found for one repository. */
@@ -499,7 +503,7 @@ export async function resticMirrorItems(
         : prefix.startsWith("endpoints/")
           ? "machine"
           : "file_share",
-      ownerId: prefix.split("/")[1] ?? "",
+      ownerId: repositoryFolderOf(prefix.split("/")[1] ?? "")?.ownerId ?? "",
       name: null,
       secretId: null,
       secretKind: "",

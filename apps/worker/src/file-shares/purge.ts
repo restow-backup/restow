@@ -5,13 +5,23 @@
  * runs, restore points, catalog and reports follow by cascade, and so do the copy jobs that read
  * from or write to it). Audited. Removing a share from a job, or retiring it, never deletes
  * backups; a share with a run in progress is not purged (the job is retried).
+ *
+ * On write-once storage (docs/STORAGE.md, "Write-once storage") nothing can be deleted: the
+ * repository (and an earlier chain at the share's first prefix) stays where it is, with its
+ * sealed password next to it, and only Restow's records of the share go. The audit entry counts
+ * what was kept (`kept`).
  */
-import { type FileShareJobPayload, fileShareRepositoryPrefix, lockedErrorOf } from "@restow/core";
+import {
+  type FileShareJobPayload,
+  fileShareRepositoryPrefix,
+  isDeleteRefused,
+  lockedErrorOf,
+} from "@restow/core";
 import { fileShareRuns, fileShares, secrets } from "@restow/db";
 import { and, eq, inArray } from "drizzle-orm";
 import { appendAuditEntry } from "../audit.js";
-import { withTenantTx } from "../handlers/framework.js";
-import { type FileShareDeps, reportableMessage } from "./common.js";
+import { primaryWriteOnce, withTenantTx } from "../handlers/framework.js";
+import { type FileShareDeps, reportableMessage, shareRepositoryPrefix } from "./common.js";
 
 export class FileSharePurgeBusyError extends Error {
   constructor(shareId: string) {
@@ -49,25 +59,46 @@ export async function purgeShare(
     return null;
   }
   const targets = await deps.runtime.storage.get(tenantId);
-  const prefix = fileShareRepositoryPrefix(fileShareId);
+  const writeOnce = primaryWriteOnce(targets);
+  const prefixes = [
+    ...new Set([shareRepositoryPrefix(share), fileShareRepositoryPrefix(share.id)]),
+  ];
   let objects = 0;
+  let kept = 0;
   let locked = 0;
   let lockedUntil: Date | null = null;
-  for (const key of await targets.primary.list(prefix)) {
-    try {
-      await targets.primary.delete(key);
-      objects++;
-    } catch (error) {
-      // Immutable backups (docs/STORAGE.md): what is still locked cannot be purged yet.
-      const refusal = lockedErrorOf(error);
-      if (!refusal) {
-        throw error;
+  for (const prefix of prefixes) {
+    for (const key of await targets.primary.list(prefix)) {
+      if (writeOnce) {
+        kept++;
+        continue;
       }
-      locked++;
-      if (refusal.retainUntil && (!lockedUntil || refusal.retainUntil > lockedUntil)) {
-        lockedUntil = refusal.retainUntil;
+      try {
+        await targets.primary.delete(key);
+        objects++;
+      } catch (error) {
+        // A write-once share the probe has not seen yet: kept, like everything there.
+        if (isDeleteRefused(error)) {
+          kept++;
+          continue;
+        }
+        // Immutable backups (docs/STORAGE.md): what is still locked cannot be purged yet.
+        const refusal = lockedErrorOf(error);
+        if (!refusal) {
+          throw error;
+        }
+        locked++;
+        if (refusal.retainUntil && (!lockedUntil || refusal.retainUntil > lockedUntil)) {
+          lockedUntil = refusal.retainUntil;
+        }
       }
     }
+  }
+  if (kept > 0) {
+    deps.runtime.logger.warn(
+      "file share purge: the storage is write-once, the share's repository stays where it is",
+      { tenantId, fileShareId, kept },
+    );
   }
   if (locked > 0) {
     throw new Error(
@@ -99,7 +130,7 @@ export async function purgeShare(
       action: "file_share.purged",
       target: fileShareId,
       targetType: "file_share",
-      details: { name: share.name, protocol: share.protocol, objects },
+      details: { name: share.name, protocol: share.protocol, objects, kept },
     });
   });
   deps.runtime.logger.info("file share purged", { tenantId, fileShareId, objects });

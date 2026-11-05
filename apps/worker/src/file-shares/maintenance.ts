@@ -63,7 +63,7 @@ import {
   LOCKED_ALERT_MIN_MS,
 } from "../endpoints/maintenance.js";
 import { ratingOf } from "../endpoints/verify.js";
-import { tenantRunner, withTenantTx } from "../handlers/framework.js";
+import { primaryWriteOnce, tenantRunner, withTenantTx } from "../handlers/framework.js";
 import { hasActiveMigration } from "../handlers/storage-migration.js";
 import { emitWebhookEvent } from "../handlers/webhooks.js";
 import { raiseEvents } from "../reporting.js";
@@ -253,6 +253,15 @@ export async function shareRetention(
   }
   // A "move" storage migration copies the repository file by file: retention waits for it.
   if (await hasActiveMigration(tenantRunner(deps.db, share.tenantId), share.tenantId)) {
+    return;
+  }
+  // Write-once storage (docs/STORAGE.md, "Write-once storage"): restic forget and prune would
+  // only fail on every deletion; every restore point stays, and the share's page says so.
+  if (primaryWriteOnce(await deps.runtime.storage.get(share.tenantId))) {
+    deps.runtime.logger.info(
+      "file share retention: not applied, the primary storage target of the tenant is write-once",
+      { tenantId: share.tenantId, fileShareId: share.id },
+    );
     return;
   }
   await withShareMaintenanceLock(deps, share.id, "exclusive", () => retain(deps, share, access));

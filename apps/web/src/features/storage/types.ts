@@ -45,7 +45,24 @@ export type StorageErrorCode =
   | "integrity"
   | "unknown";
 
-export type ProbeWarning = "ephemeral_path" | "insecure_endpoint" | "cleanup_failed";
+export type ProbeWarning =
+  | "ephemeral_path"
+  | "insecure_endpoint"
+  | "cleanup_failed"
+  /** The storage refuses to overwrite or delete what it holds (docs/STORAGE.md). */
+  | "write_once";
+
+/**
+ * What a test found about overwriting and deleting (docs/STORAGE.md, "Write-once storage"):
+ * a write-once target takes backups, but nothing on it is ever deleted.
+ */
+export interface WriteOnceFinding {
+  writeOnce: boolean;
+  refused: ("overwrite" | "delete")[];
+  /** EPERM, EACCES, EROFS, AccessDenied, object_lock, or ignored (an overwrite that changed nothing). */
+  code: string | null;
+  checkedAt: string;
+}
 
 export interface ProbeStepResult {
   step: ProbeStep;
@@ -64,6 +81,8 @@ export interface ProbeResult {
   errorCode: StorageErrorCode | null;
   error: string | null;
   warnings: ProbeWarning[];
+  /** Absent from an older server and from probes that did not get that far. */
+  writeOnce?: WriteOnceFinding | null;
 }
 
 export type ObjectLockStatus = "enabled" | "disabled" | "unsupported" | "unknown";
@@ -110,6 +129,8 @@ export interface StorageTargetDto {
   checkedAt: string | null;
   lastProbe: ProbeResult | null;
   objectLock: ObjectLockCapability | null;
+  /** What the last test found about overwriting and deleting; absent from an older server. */
+  writeOnce?: WriteOnceFinding | null;
   canManage: boolean;
   /** The storage migration this target is (or was) part of, as source or destination. */
   migration: StorageMigrationDto | null;
@@ -220,6 +241,17 @@ export interface InstallationDefaultDto {
   misconfigured: boolean;
   /** A directory on the server's system disk (0.4.5); absent from an older server. */
   onSystemDisk?: boolean;
+  /** What the newest test of the default found about overwriting and deleting. */
+  writeOnce?: WriteOnceFinding | null;
+}
+
+/** `GET /storage/write-once`: whether the tenant's backups go to write-once storage. */
+export interface PrimaryWriteOnce {
+  writeOnce: boolean;
+  targetName: string | null;
+  installationDefault: boolean;
+  checkedAt: string | null;
+  refused: ("overwrite" | "delete")[];
 }
 
 export interface StorageTargetList {
