@@ -643,6 +643,8 @@ private repository.
   suggestions"); a login that only one account has, as sent by older API clients or jobs queued
   before the update, still works. A restore of an imported mailbox into a Microsoft 365 mailbox
   whose address two mailboxes of the tenant share is refused the same way instead of picking one.
+  The job list, the job page and the audit entry name the target account by its login and source
+  ("Into info@contoso.test · New mail server"), not by its id.
 - OneDrive/SharePoint restore: in "rename" mode an Office file of a SharePoint or OneDrive for
   Business library came back as a numbered copy ("Report 1.docx") next to the unchanged original,
   and every retry of the job (after an update's drain or a restart) added one more ("Report

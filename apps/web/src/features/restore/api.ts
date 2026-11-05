@@ -460,7 +460,8 @@ export interface RestoreJob {
   snapshotSequence: number | null;
   snapshotAt: string | null;
   object: { id: string; kind: ObjectKind; externalId: string; displayName: string | null } | null;
-  target: { type: RestoreTargetType; ref: string | null };
+  /** `label` names an account target by login and source (absent from older APIs). */
+  target: { type: RestoreTargetType; ref: string | null; label?: string | null };
   mode: RestoreMode;
   selection: SelectionSummary;
   reason: string | null;

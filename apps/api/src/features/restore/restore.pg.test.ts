@@ -369,6 +369,25 @@ describe.skipIf(!testDatabaseAdminUrl)("restore requests against Postgres", () =
       );
       const [job] = await db.select().from(restoreJobs).where(eq(restoreJobs.id, created.id));
       expect(job?.targetRef).toBe(onNew?.id);
+      // People read the account by login and source, in the job and in the audit trail.
+      const dto = await service.getRestore(db, f.tenantId, f.admin, created.id);
+      expect(dto.target).toEqual({
+        type: "other",
+        ref: onNew?.id,
+        label: "info@contoso.test · New mail server",
+      });
+      const listed = await service.listRestores(db, f.tenantId, f.admin, { limit: 50 });
+      expect(listed.find((entry) => entry.id === created.id)?.target.label).toBe(
+        "info@contoso.test · New mail server",
+      );
+      const [entry] = await db
+        .select()
+        .from(auditLog)
+        .where(and(eq(auditLog.action, "restore.requested"), eq(auditLog.target, created.id)));
+      expect(entry?.details).toMatchObject({
+        targetRef: onNew?.id,
+        targetAccount: { login: "info@contoso.test", source: "New mail server" },
+      });
       // An account that is no longer active is never a target.
       for (const ref of [retired?.id as string, "retired@contoso.test"]) {
         await expect(

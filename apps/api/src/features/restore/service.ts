@@ -18,6 +18,7 @@ import {
   users,
 } from "@restow/db";
 import { and, asc, desc, eq, inArray, ne, or, type SQL, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { config } from "../../config.js";
 import { audit } from "../../lib/audit.js";
 import { sanitizeRestoreInputForDemo } from "../../lib/demo.js";
@@ -126,7 +127,12 @@ export interface RestoreDto {
     externalId: string;
     displayName: string | null;
   } | null;
-  target: { type: RestoreJob["targetType"]; ref: string | null };
+  /**
+   * `ref` is what the worker writes into (an IMAP account by its object id);
+   * `label` names that account for people (login and source), null when the
+   * reference is not an account of this tenant (an address, a library).
+   */
+  target: { type: RestoreJob["targetType"]; ref: string | null; label: string | null };
   mode: RestoreJob["mode"];
   selection: SelectionSummary;
   reason: string | null;
@@ -408,6 +414,21 @@ function ambiguousTarget(accountId: string, detail: string, sources: string[]): 
   });
 }
 
+/** Login and source of a tenant's account, for the audit of a restore into it. */
+async function targetAccountOf(
+  tx: DbExecutor,
+  tenantId: string,
+  id: string,
+): Promise<{ login: string; source: string } | null> {
+  const [row] = await tx
+    .select({ login: protectedObjects.externalId, source: sources.name })
+    .from(protectedObjects)
+    .innerJoin(sources, eq(sources.id, protectedObjects.sourceId))
+    .where(and(eq(protectedObjects.tenantId, tenantId), eq(protectedObjects.id, id)))
+    .limit(1);
+  return row ?? null;
+}
+
 /** {@link resolveImapTarget}, refusing an account that is not there. */
 async function imapTargetOrThrow(
   tx: DbExecutor,
@@ -646,6 +667,11 @@ export async function createRestore(
     const jobId = randomUUID();
     const targetRef =
       input.target.type === "other" ? (resolvedTargetRef ?? input.target.accountId) : null;
+    // The audit names the account by login and source, not only by its id.
+    const targetAccount =
+      resolvedTargetRef !== null && OBJECT_ID.test(resolvedTargetRef)
+        ? await targetAccountOf(tx, tenantId, resolvedTargetRef)
+        : null;
     // "replace" is meaningless for a download (mode has no effect on a ZIP
     // archive, isReplaceModeAllowedFor) — stored and audited as "rename" so
     // a mailbox or IMAP object's history never reads as a replaced original.
@@ -710,6 +736,7 @@ export async function createRestore(
         externalId: object.externalId,
         target: input.target.type,
         targetRef,
+        ...(targetAccount ? { targetAccount } : {}),
         mode: storedMode,
         reason: input.reason ?? null,
         selection: resolved.summary,
@@ -806,6 +833,10 @@ export async function listTargets(
 // Read
 // ---------------------------------------------------------------------------
 
+/** The account a restore into another account writes into, when its ref is an object id. */
+const targetObjects = alias(protectedObjects, "target_object");
+const targetSources = alias(sources, "target_source");
+
 const restoreColumns = {
   restore: restoreJobs,
   job: jobs,
@@ -815,6 +846,8 @@ const restoreColumns = {
   ownerEmail: users.email,
   actorName: user.name,
   actorEmail: user.email,
+  targetLogin: targetObjects.externalId,
+  targetSource: targetSources.name,
 };
 
 type RestoreRow = {
@@ -826,7 +859,17 @@ type RestoreRow = {
   ownerEmail: string | null;
   actorName: string | null;
   actorEmail: string | null;
+  targetLogin: string | null;
+  targetSource: string | null;
 };
+
+/** How a target account is named for people: its login and its source. */
+function accountLabel(login: string | null, source: string | null): string | null {
+  if (login === null) {
+    return null;
+  }
+  return source ? `${login} · ${source}` : login;
+}
 
 function restoreQuery(tx: DbExecutor) {
   return tx
@@ -837,7 +880,16 @@ function restoreQuery(tx: DbExecutor) {
     .leftJoin(snapshots, eq(snapshots.id, restoreJobs.snapshotId))
     .leftJoin(protectedObjects, eq(protectedObjects.id, jobs.protectedObjectId))
     .leftJoin(users, eq(users.id, protectedObjects.userId))
-    .leftJoin(user, eq(user.id, restoreJobs.actorUserId));
+    .leftJoin(user, eq(user.id, restoreJobs.actorUserId))
+    .leftJoin(
+      targetObjects,
+      and(
+        eq(restoreJobs.targetType, "other"),
+        eq(sql`${targetObjects.id}::text`, restoreJobs.targetRef),
+        eq(targetObjects.tenantId, restoreJobs.tenantId),
+      ),
+    )
+    .leftJoin(targetSources, eq(targetSources.id, targetObjects.sourceId));
 }
 
 /**
@@ -884,7 +936,11 @@ function toRestoreDto(row: RestoreRow, now: Date): RestoreDto {
           displayName: row.object.displayName,
         }
       : null,
-    target: { type: row.restore.targetType, ref: row.restore.targetRef },
+    target: {
+      type: row.restore.targetType,
+      ref: row.restore.targetRef,
+      label: accountLabel(row.targetLogin, row.targetSource),
+    },
     mode: row.restore.mode,
     selection: summarizeSelection(selection),
     reason: row.restore.reason,
