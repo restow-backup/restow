@@ -512,9 +512,14 @@ Wiederherstellung, Download, Export, Restore-Prüfung und Aufbewahrung unveränd
   **einmal** über die `seriesMasterId` (`/groups/{id}/events/{id}`); die Ausnahmen kommen dann wie
   gewohnt über `/instances`. Ist auch der Master nicht lesbar, werden die Vorkommen der Serie im
   Fenster als Einzeltermine gesichert (Typ `occurrence`/`exception` in der Metadatenspalte), damit
-  sie wenigstens als Termine wiederherstellbar sind. Ereignisse vor dem Fenster sieht dieser
-  Rückfallweg nicht. Kalender haben in v1.0 kein Delta: Jeder Lauf liest vollständig, unveränderte
-  Ereignisse kosten über die Bytes nichts.
+  sie wenigstens als Termine wiederherstellbar sind. Ereignisse vor oder hinter dem Fenster sieht
+  dieser Rückfallweg nicht: Bereits gesicherte bleiben dann so im Sicherungsstand, wie sie zuletzt
+  gesichert wurden (auch wenn sie inzwischen gelöscht sind); entfernt wird nur ein gesicherter
+  Termin, dessen Beginn im Fenster liegt und den die Ansicht nicht mehr nennt, ein Serienmaster
+  nur, wenn sein ganzer Bereich im Fenster liegt und die Ansicht kein Vorkommen der Serie nennt.
+  Jeder Lauf über den Rückfallweg endet mit der Warnung `graph.group_calendar_windowed` (mit dem
+  Fenster), nie einfach grün. Kalender haben in v1.0 kein Delta: Jeder Lauf liest vollständig,
+  unveränderte Ereignisse kosten über die Bytes nichts.
 - Ereignisanhänge: anders als bei Nutzerkalendern nicht gesichert (`hasAttachments` steht in den
   Metadaten); Graph dokumentiert `…/events/{id}/attachments` für Gruppen nicht. Hat mindestens
   ein Termin des Gruppenkalenders Anhänge, endet der Lauf mit einer Warnung

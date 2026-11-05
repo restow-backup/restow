@@ -392,6 +392,78 @@ function repathRiders(
   }
 }
 
+/** The UTC instant of a stored event's `start` (Graph's dateTime without zone, asked in UTC). */
+function storedStart(object: ManifestObject): number | null {
+  const start = object.metadata?.start ?? "";
+  if (start === "") {
+    return null;
+  }
+  const instant = Date.parse(/(z|[+-]\d\d:?\d\d)$/i.test(start) ? start : `${start}Z`);
+  return Number.isNaN(instant) ? null : instant;
+}
+
+/**
+ * {@link removeUnseenItems} limited to what the view would have listed: a stored event whose
+ * start lies inside the window, and a series master only when its whole range does and the
+ * view listed none of its occurrences (an unreadable master leaves them as single events).
+ */
+function removeUnseenInWindow(
+  run: BackupRun,
+  planned: PlannedCalendar,
+  seen: Set<string>,
+  scope: ListingScope,
+): void {
+  const window = scope.windowed as InstanceWindow;
+  const from = Date.parse(window.start);
+  const to = Date.parse(window.end);
+  const inside = (instant: number | null): boolean =>
+    instant !== null && instant >= from && instant <= to;
+  let kept = 0;
+  for (const member of run.index.members(calendarGroup(planned.calendar.id))) {
+    if (member.type !== OBJECT_TYPES.event || member.id === undefined || seen.has(member.id)) {
+      continue;
+    }
+    const start = storedStart(member);
+    const master = member.metadata?.eventType === "seriesMaster";
+    const rangeEnd = member.metadata?.recurrenceEnd
+      ? Date.parse(`${member.metadata.recurrenceEnd}T23:59:59Z`)
+      : null;
+    const listable = master
+      ? inside(start) && inside(rangeEnd) && !scope.seriesSeen.has(member.id)
+      : inside(start);
+    if (listable) {
+      run.removeItem(member);
+      continue;
+    }
+    // Kept as stored, with its attachments: the view could not have listed it.
+    seen.add(member.id);
+    kept++;
+  }
+  if (kept > 0) {
+    run.logger.info("group calendar events outside the calendar view kept as stored", {
+      kept,
+      windowStart: window.start,
+      windowEnd: window.end,
+    });
+  }
+}
+
+/** The group calendar was read through the window: events outside it are not current. */
+function warnWindowed(run: BackupRun, planned: PlannedCalendar, window: InstanceWindow): void {
+  const start = window.start.slice(0, 10);
+  const end = window.end.slice(0, 10);
+  const reason = `the group calendar was read through its calendar view (${start} to ${end}); events outside it are kept as last backed up`;
+  run.warn(
+    planned.path,
+    reason,
+    buildCause(
+      "graph.group_calendar_windowed",
+      { windowStart: start, windowEnd: end },
+      { message: reason },
+    ),
+  );
+}
+
 /** Drop the attachments (and their folder) of events a complete listing no longer has. */
 function removeUnseenEventRiders(
   run: BackupRun,
@@ -419,10 +491,18 @@ function dropCalendar(run: BackupRun, planned: PlannedCalendar): void {
  * fallback-aware listing. A group calendar Graph refuses to the app becomes an
  * {@link ItemError} that says so, so the run records a warning and goes on.
  */
+/** Set by {@link eventsOf} when a group calendar was read through `calendarView`. */
+interface ListingScope {
+  windowed?: InstanceWindow;
+  /** Series whose occurrences the view listed (their master may have been unreadable). */
+  readonly seriesSeen: Set<string>;
+}
+
 async function* eventsOf(
   run: BackupRun,
   planned: PlannedCalendar,
   options: CalendarPhaseOptions,
+  scope: ListingScope,
 ): AsyncGenerator<Event, void, unknown> {
   const owner = run.owner;
   if (!isGroupOwner(owner)) {
@@ -431,11 +511,14 @@ async function* eventsOf(
   }
   const viewWindow = options.viewWindow ?? groupCalendarViewWindow(options.window, run.ctx.now());
   try {
-    yield* listGroupCalendarEvents(run.client, owner.groupId, viewWindow, (error) =>
+    yield* listGroupCalendarEvents(run.client, owner.groupId, viewWindow, (error) => {
+      scope.windowed = viewWindow;
       run.logger.warn("group calendar listing refused, reading the calendar view instead", {
         reason: describeError(error),
-      }),
-    );
+        windowStart: viewWindow.start,
+        windowEnd: viewWindow.end,
+      });
+    });
   } catch (error) {
     if (isGraphError(error) && isGroupCalendarRefusal(error)) {
       throw new ItemError(
@@ -455,13 +538,17 @@ async function syncCalendar(
   const seen = new Set<string>();
   /** Group calendars: events with attachments, which Graph does not hand to the app. */
   let groupEventsWithAttachments = 0;
+  const scope: ListingScope = { seriesSeen: new Set() };
   try {
-    for await (const event of eventsOf(run, planned, options)) {
+    for await (const event of eventsOf(run, planned, options, scope)) {
       run.throwIfAborted();
       if (!event.id) {
         continue;
       }
       seen.add(event.id);
+      if (event.seriesMasterId) {
+        scope.seriesSeen.add(event.seriesMasterId);
+      }
       if (isGroupOwner(run.owner) && event.hasAttachments === true) {
         groupEventsWithAttachments++;
       }
@@ -494,7 +581,15 @@ async function syncCalendar(
     run.fail(planned.path, error);
     return;
   }
-  removeUnseenItems(run, calendarGroup(planned.calendar.id), OBJECT_TYPES.event, seen);
+  if (scope.windowed) {
+    // The view lists only what falls into its window: an event outside it is not proof of
+    // anything and stays as stored; only one whose start lies inside and that the view did
+    // not list is gone.
+    removeUnseenInWindow(run, planned, seen, scope);
+    warnWindowed(run, planned, scope.windowed);
+  } else {
+    removeUnseenItems(run, calendarGroup(planned.calendar.id), OBJECT_TYPES.event, seen);
+  }
   removeUnseenEventRiders(run, planned.calendar.id, seen);
   if (groupEventsWithAttachments > 0) {
     const reason = `${groupEventsWithAttachments} event(s) of the group calendar have attachments, which are not backed up for group calendars`;

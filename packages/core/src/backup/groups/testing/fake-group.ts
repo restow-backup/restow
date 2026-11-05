@@ -140,7 +140,7 @@ export class FakeGroupMailbox {
       return this.eventsPage(url);
     }
     if (path === "/calendarView") {
-      return this.refuseCalendarView ? FORBIDDEN : this.calendarView();
+      return this.refuseCalendarView ? FORBIDDEN : this.calendarView(url);
     }
     let match = /^\/events\/([^/]+)\/instances$/.exec(path);
     if (match) {
@@ -231,12 +231,23 @@ export class FakeGroupMailbox {
     return this.created.map((event) => event as unknown as FakeGroupEvent);
   }
 
-  private calendarView(): FixtureResponse {
+  /** As Graph: only what overlaps `startDateTime`..`endDateTime` (an event without times counts). */
+  private calendarView(url: URL): FixtureResponse {
+    const from = Date.parse(url.searchParams.get("startDateTime") ?? "");
+    const to = Date.parse(url.searchParams.get("endDateTime") ?? "");
+    const inWindow = (event: Event): boolean => {
+      const start = event.start?.dateTime;
+      if (!start || Number.isNaN(from) || Number.isNaN(to)) {
+        return true;
+      }
+      const instant = Date.parse(/z$/i.test(start) ? start : `${start}Z`);
+      return instant >= from && instant <= to;
+    };
     const value: Event[] = [];
     for (const event of this.events.values()) {
       if (event.type === "seriesMaster") {
-        value.push(...(event.occurrences ?? []), ...(event.exceptions ?? []));
-      } else {
+        value.push(...[...(event.occurrences ?? []), ...(event.exceptions ?? [])].filter(inWindow));
+      } else if (inWindow(event)) {
         value.push(this.eventJson(event));
       }
     }

@@ -243,7 +243,10 @@ describe("GroupMailboxBackupEngine", () => {
   it("falls back to the calendar view when Graph refuses the event listing to the app", async () => {
     group.refuseEventsListing = true;
     const result = await engine().run(fixture.ctx, fixture.protectedObject);
-    expect(result.failures).toEqual([]);
+    // Read through the window: said so, never plain green.
+    expect(result.failures.map((failure) => failure.cause?.code)).toEqual([
+      "graph.group_calendar_windowed",
+    ]);
     const manifest = await manifestOf(result.snapshotId);
     const events = manifest.objects.filter((o) => o.type === "event").map((o) => o.id);
     // The series comes back as its master (read once), with its exceptions.
@@ -252,11 +255,59 @@ describe("GroupMailboxBackupEngine", () => {
     expect(JSON.parse(await text(byId(manifest, "G-E2"))).exceptions).toHaveLength(1);
   });
 
+  it("keeps backed-up events outside the calendar view window when it falls back to the view", async () => {
+    group.addEvent({
+      id: "G-OLD",
+      type: "singleInstance",
+      subject: "Founding meeting",
+      changeKey: "ck-old",
+      start: { dateTime: "2015-03-02T09:00:00.0000000", timeZone: "UTC" },
+      end: { dateTime: "2015-03-02T10:00:00.0000000", timeZone: "UTC" },
+    });
+    group.addEvent({
+      id: "G-FAR",
+      type: "singleInstance",
+      subject: "Ten-year anniversary",
+      changeKey: "ck-far",
+      start: { dateTime: "2029-09-24T09:00:00.0000000", timeZone: "UTC" },
+      end: { dateTime: "2029-09-24T10:00:00.0000000", timeZone: "UTC" },
+    });
+    const first = await engine().run(fixture.ctx, fixture.protectedObject);
+    expect(first.failures).toEqual([]);
+    const ids = (manifest: SnapshotManifest) =>
+      manifest.objects
+        .filter((o) => o.type === "event")
+        .map((o) => o.id)
+        .sort();
+    expect(ids(await manifestOf(first.snapshotId))).toEqual(["G-E1", "G-E2", "G-FAR", "G-OLD"]);
+
+    // Graph now refuses /calendar/events: the view (five years back, two ahead) is read.
+    group.refuseEventsListing = true;
+    group.events.delete("G-E1");
+    const second = await engine().run(fixture.ctx, fixture.protectedObject);
+    const manifest = await manifestOf(second.snapshotId);
+    // Outside the window: kept as stored. Inside and no longer listed: gone.
+    expect(ids(manifest)).toEqual(["G-E2", "G-FAR", "G-OLD"]);
+    expect(second.failures).toEqual([
+      expect.objectContaining({
+        itemRef: "calendar/Calendar",
+        cause: expect.objectContaining({ code: "graph.group_calendar_windowed" }),
+      }),
+    ]);
+    expect(second.failures[0]?.cause?.params).toEqual({
+      windowStart: "2021-09-22",
+      windowEnd: "2028-09-22",
+    });
+  });
+
   it("keeps a series' occurrences as single events when its master cannot be read", async () => {
     group.refuseEventsListing = true;
     group.refuseMasterRead = true;
     const result = await engine().run(fixture.ctx, fixture.protectedObject);
-    expect(result.failures).toEqual([]);
+    // Read through the window: said so, never plain green.
+    expect(result.failures.map((failure) => failure.cause?.code)).toEqual([
+      "graph.group_calendar_windowed",
+    ]);
     const manifest = await manifestOf(result.snapshotId);
     const events = manifest.objects.filter((o) => o.type === "event").map((o) => o.id);
     expect(events.sort()).toEqual(["G-E1", "G-E2-O1", "G-E2-X1"]);

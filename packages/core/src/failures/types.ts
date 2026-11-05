@@ -60,6 +60,9 @@ export const FAILURE_CODES = [
   // Posts of group conversations whose attachments Graph refused to the app
   // (backup/groups/conversations.ts). One warning per run and group.
   "graph.group_post_attachments_refused",
+  // A group calendar read through calendarView (Graph refused the plain listing): events
+  // outside the window are kept as last backed up (backup/exchange/calendar.ts).
+  "graph.group_calendar_windowed",
   "graph.item_not_found",
   "graph.item_too_large",
   "graph.item_unreadable",

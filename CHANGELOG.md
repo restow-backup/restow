@@ -603,6 +603,11 @@ private repository.
   Restow, the posts were backed up without their files and the run was green. Such a run now
   ends with a warning naming the number of posts concerned, and the posts are marked as backed
   up without attachments. Once Graph hands the attachments out, the next run adds them.
+- Group backup: when Microsoft Graph refused the full event list of a group calendar and Restow
+  read it through the calendar view (five years back to two years ahead), every backed-up event
+  outside that window was removed from the new restore point, although it still existed. Such
+  events are now kept as last backed up, and the run ends with a warning that the group calendar
+  was read within a time window only.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,

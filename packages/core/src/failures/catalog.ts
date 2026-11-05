@@ -207,6 +207,12 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     retryable: false,
     steps: () => [step("store_group_attachments_in_files")],
   },
+  "graph.group_calendar_windowed": {
+    category: "microsoft",
+    transient: false,
+    retryable: false,
+    steps: () => [step("verify_permissions")],
+  },
   "graph.item_not_found": {
     category: "microsoft",
     transient: true,
