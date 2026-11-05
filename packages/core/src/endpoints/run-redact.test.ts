@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   redactAgentLog,
   redactAgentMessage,
+  redactRecoveryLogBatch,
   redactRecoveryLogLines,
   stripAnsi,
 } from "./run-redact.js";
@@ -74,5 +75,35 @@ describe("recovery logs (docs/BAREMETAL.md 9.8)", () => {
     expect(lines[3]).not.toContain(token);
     expect(lines[4]).toBe("bell and return");
     expect(lines).toHaveLength(5);
+  });
+
+  it("masks a key block over several lines and several batches", () => {
+    const body = "b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW";
+    const lines = redactRecoveryLogLines([
+      "echo key:",
+      "-----BEGIN OPENSSH PRIVATE KEY-----",
+      body,
+      "-----END OPENSSH PRIVATE KEY----- done",
+      "after",
+    ]);
+    expect(lines).toEqual(["echo key:", "[redacted]", "[redacted]", "[redacted] done", "after"]);
+    expect(lines.join("\n")).not.toContain(body);
+    // A block the ISO split across two log calls.
+    const first = redactRecoveryLogBatch([
+      "-----BEGIN PRIVATE KEY-----",
+      "MIIEvQIBADANBgkqhkiG9w0B",
+    ]);
+    expect(first).toEqual({ lines: ["[redacted]", "[redacted]"], inKeyBlock: true });
+    const second = redactRecoveryLogBatch(
+      ["AAAAB3NzaC1yc2EAAAADAQAB", "-----END PRIVATE KEY-----", "next"],
+      first.inKeyBlock,
+    );
+    expect(second).toEqual({ lines: ["[redacted]", "[redacted]", "next"], inKeyBlock: false });
+    // A block on one line closes itself.
+    expect(
+      redactRecoveryLogBatch([
+        "x -----BEGIN RSA PRIVATE KEY-----abc-----END RSA PRIVATE KEY----- y",
+      ]),
+    ).toEqual({ lines: ["x [redacted] y"], inKeyBlock: false });
   });
 });

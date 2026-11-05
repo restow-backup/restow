@@ -24,6 +24,7 @@ import { pgBossExecutor } from "../jobs/pg-boss-tx.js";
 import { jobQueue } from "../jobs/queue.js";
 import { auditEndpoint, ENDPOINT_AUDIT_ACTIONS, type EndpointActor } from "./audit.js";
 import { ENDPOINT_PROBLEMS } from "./problems.js";
+import { forgetRecoverySession } from "./recovery-session-cache.js";
 
 /**
  * Removing a machine from Restow (release 0.4.5, #65; @restow/db `EndpointRemoval` has the
@@ -241,6 +242,28 @@ export async function removeEndpoint(
         action: ENDPOINT_AUDIT_ACTIONS.recoveryCodeRevoked,
         endpointId: id,
         details: { recoveryId: code.id, kind: "code", reason: "removed" },
+      });
+    }
+    // A session that waits for its release ends too: released later, it would hold the deletion of
+    // the backups until it expires, while it could read nothing of a removed machine.
+    const cancelled = await tx
+      .update(endpointRecoveries)
+      .set({ status: "cancelled", cancelRequestedAt: now, finishedAt: now, updatedAt: now })
+      .where(
+        and(
+          eq(endpointRecoveries.endpointId, id),
+          eq(endpointRecoveries.status, "pending_approval"),
+        ),
+      )
+      .returning({ id: endpointRecoveries.id });
+    for (const session of cancelled) {
+      forgetRecoverySession(session.id);
+      await auditEndpoint(tx, {
+        tenantId,
+        actor,
+        action: ENDPOINT_AUDIT_ACTIONS.recoveryCancelled,
+        endpointId: id,
+        details: { recoveryId: session.id, from: "pending_approval", reason: "removed" },
       });
     }
     // Out of its backup job: the job's machines are listed from its members.

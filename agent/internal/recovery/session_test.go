@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -65,6 +66,20 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+// isoTextOK is the instance's isoText rule (noControlChars in
+// packages/core/src/endpoints/baremetal/canonical.ts): no C0 or C1 control
+// character, no line or paragraph separator.
+func isoTextOK(values ...string) bool {
+	for _, v := range values {
+		for _, r := range v {
+			if r < 0x20 || (r >= 0x7f && r <= 0x9f) || r == 0x2028 || r == 0x2029 {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // fakeBodyLimit is the instance's body limit of a recovery route.
@@ -149,6 +164,14 @@ func (f *fakeRecovery) serve(w http.ResponseWriter, r *http.Request) {
 			problem(w, 400, "validation", "bad body")
 			return
 		}
+		texts := []string{p.Message}
+		for _, k := range p.SSHHostKeys {
+			texts = append(texts, k.Type, k.Fingerprint)
+		}
+		if !isoTextOK(texts...) {
+			problem(w, 422, "validation", "control character in string")
+			return
+		}
 		f.progress = append(f.progress, p)
 		w.WriteHeader(http.StatusNoContent)
 	case "POST /log":
@@ -171,6 +194,12 @@ func (f *fakeRecovery) serve(w http.ResponseWriter, r *http.Request) {
 			problem(w, 400, "validation", "bad body")
 			return
 		}
+		for _, v := range e.Detail {
+			if !isoTextOK(v) || utf16Len(v) > 1024 {
+				problem(w, 422, "validation", "control character in string")
+				return
+			}
+		}
 		f.events = append(f.events, e)
 		w.WriteHeader(http.StatusNoContent)
 	case "POST /release":
@@ -189,6 +218,10 @@ func (f *fakeRecovery) serve(w http.ResponseWriter, r *http.Request) {
 		for _, warning := range fin.Warnings {
 			if utf16Len(warning.Code) > api.RecoveryMaxWarningCode || utf16Len(warning.Message) > api.RecoveryMaxWarningMessage {
 				problem(w, 422, "validation", "warning too long")
+				return
+			}
+			if !isoTextOK(warning.Code, warning.Message) {
+				problem(w, 422, "validation", "control character in string")
 				return
 			}
 		}
@@ -229,6 +262,18 @@ func (f *fakeRecovery) exchange(w http.ResponseWriter, r *http.Request, body []b
 	if err := json.Unmarshal(body, &req); err != nil {
 		problem(w, 400, "validation", "bad body")
 		return
+	}
+	for _, d := range req.Hardware.Disks {
+		if !isoTextOK(d.Model, d.Serial, d.WWN, d.Transport) {
+			problem(w, 422, "validation", "control character in string")
+			return
+		}
+	}
+	for _, n := range req.Hardware.NICs {
+		if !isoTextOK(n.MAC, n.Driver) {
+			problem(w, 422, "validation", "control character in string")
+			return
+		}
 	}
 	if HashCodeProof(req.CodeProof) != f.codeHash {
 		problem(w, 401, ProblemCodeInvalid, "Recovery code invalid")
@@ -670,5 +715,153 @@ func TestTruncate(t *testing.T) {
 	}
 	if _, ok := retryAfter("soon"); ok {
 		t.Fatal("an unparsable Retry-After is no Retry-After")
+	}
+}
+
+// What the ISO reports is often copied from a tool's output: control
+// characters become spaces (the instance answers 422 otherwise) and secrets
+// are masked, as in the log.
+func TestSessionCleansAndRedactsReports(t *testing.T) {
+	f := newFakeRecovery(t, "", testCode)
+	s := newTestSession(t, f)
+	ctx := context.Background()
+	req := exchangeRequest(s)
+	req.Hardware.Disks[0].Model = "Samsung\x00SSD\n980"
+	req.Hardware.NICs[0].Driver = "e1000e\u2028"
+	if _, err := s.Exchange(ctx, req); err != nil {
+		t.Fatalf("exchange with odd hardware strings: %v", err)
+	}
+	f.mu.Lock()
+	f.status = api.RecoveryActive
+	f.mu.Unlock()
+	if err := s.Progress(ctx, api.RecoveryProgress{Phase: api.RecoveryPhaseVerifying,
+		Message: "dracut:\tW: Possible missing firmware\nRESTIC_PASSWORD=hunter2hunter2"}); err != nil {
+		t.Fatalf("progress: %v", err)
+	}
+	if err := s.Event(ctx, api.RecoveryEventKeyfileRegenerated, map[string]string{"note": "cryptsetup passphrase=sup3rs3cr3t\n"}); err != nil {
+		t.Fatalf("event: %v", err)
+	}
+	status, err := s.Finish(ctx, api.RecoveryFinish{
+		Status:       api.RecoverySucceeded,
+		Verification: json.RawMessage(`{"steps":[{"output":"PGPASSWORD=hunter2hunter2 psql","exit":0}],"note":"a<b"}`),
+		Warnings: []api.RecoveryWarning{
+			{Code: "grub\n", Message: "initramfs: W: Possible missing firmware\n\t/lib/firmware/i915"},
+			{Code: "hook", Message: "export TOKEN=abcdefgh12345678 and " + s.Secret},
+		},
+	})
+	if err != nil || status != api.RecoverySucceeded {
+		t.Fatalf("finish with multi-line warnings: %q %v", status, err)
+	}
+	sent := strings.Join(f.bodies, "\n")
+	for _, secret := range []string{"hunter2hunter2", "sup3rs3cr3t", "abcdefgh12345678", s.Secret} {
+		if strings.Contains(sent, secret) {
+			t.Fatalf("%q was sent unmasked", secret)
+		}
+	}
+	if w := f.finish.Warnings[0]; w.Message != "initramfs: W: Possible missing firmware  /lib/firmware/i915" || w.Code != "grub " {
+		t.Fatalf("warning %+v", w)
+	}
+	var v struct {
+		Steps []struct {
+			Output string `json:"output"`
+			Exit   int    `json:"exit"`
+		} `json:"steps"`
+		Note string `json:"note"`
+	}
+	if err := json.Unmarshal(f.finish.Verification, &v); err != nil || v.Steps[0].Exit != 0 || v.Note != "a<b" ||
+		!strings.Contains(v.Steps[0].Output, redact.Mask) {
+		t.Fatalf("verification %s (%v)", f.finish.Verification, err)
+	}
+}
+
+// A key block a hook printed is masked from BEGIN to END, also when the
+// lines come in two calls.
+func TestSessionLogMasksKeyBlocks(t *testing.T) {
+	f := newFakeRecovery(t, "", testCode)
+	s := newTestSession(t, f)
+	ctx := context.Background()
+	if _, err := s.Exchange(ctx, exchangeRequest(s)); err != nil {
+		t.Fatal(err)
+	}
+	body := "b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAAB"
+	if _, err := s.Log(ctx, []string{"key:", "-----BEGIN OPENSSH PRIVATE KEY-----", body}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Log(ctx, []string{body, "-----END OPENSSH PRIVATE KEY-----", "done"}); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"key:", redact.Mask, redact.Mask, redact.Mask, redact.Mask, "done"}
+	if strings.Join(f.logLines, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("log %q", f.logLines)
+	}
+}
+
+// A redirect is never followed: Go would send the Authorization header along
+// to another port or a subdomain of the same host.
+func TestSessionRefusesRedirects(t *testing.T) {
+	var leaked []string
+	var mu sync.Mutex
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		leaked = append(leaked, r.Header.Get("Authorization"))
+		mu.Unlock()
+		writeJSON(w, 200, api.RecoverySessionState{SessionID: "s", Status: api.RecoveryActive})
+	}))
+	t.Cleanup(other.Close)
+	front := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, other.URL+r.URL.Path, http.StatusPermanentRedirect)
+	}))
+	t.Cleanup(front.Close)
+	for _, hc := range []*http.Client{nil, front.Client()} {
+		s, err := NewSession(front.URL, true, hc)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.ID = "5b1f0c2e-8f7a-4d7e-9a43-1c2d3e4f5a6b"
+		if _, err := s.Current(context.Background()); err == nil || !strings.Contains(err.Error(), "redirect") {
+			t.Fatalf("a redirect must fail the call: %v", err)
+		}
+		if _, err := s.Exchange(context.Background(), exchangeRequest(s)); err == nil {
+			t.Fatal("a redirected exchange must fail")
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(leaked) != 0 {
+		t.Fatalf("the redirect target was reached %d times (authorization %q)", len(leaked), leaked)
+	}
+}
+
+// Without a client of its own the session makes one and keeps it, so its
+// calls share connections.
+func TestSessionKeepsItsClient(t *testing.T) {
+	var conns int
+	var mu sync.Mutex
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, 200, api.RecoverySessionState{SessionID: "s", Status: api.RecoveryActive})
+	}))
+	srv.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateNew {
+			mu.Lock()
+			conns++
+			mu.Unlock()
+		}
+	}
+	srv.Start()
+	t.Cleanup(srv.Close)
+	s, err := NewSession(srv.URL, true, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.ID = "5b1f0c2e-8f7a-4d7e-9a43-1c2d3e4f5a6b"
+	for range 5 {
+		if _, err := s.Current(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if conns != 1 {
+		t.Fatalf("%d connections for five calls, want one", conns)
 	}
 }

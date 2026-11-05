@@ -8,7 +8,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { NotFoundPage } from "@/routes/not-found";
 
-import type { Baremetal, EndpointDetail, RecoveryIso } from "../api.js";
+import type { Baremetal, EndpointDetail, Recovery, RecoveryIso } from "../api.js";
 import {
   useBaremetal,
   useEndpoint,
@@ -42,6 +42,15 @@ export function baremetalRestoreAvailable(
       baremetal.latest &&
       !baremetal.notPossible,
   );
+}
+
+/**
+ * The open code or session of a machine, if there is one: it stays reachable (follow, release,
+ * end, revoke, extend) even when the conditions above no longer hold, since removing the machine
+ * is refused while a session runs.
+ */
+export function openRecoveryOf(recoveries: readonly Recovery[] | undefined): Recovery | null {
+  return recoveries?.find((recovery) => recoveryOpen(recovery.status)) ?? null;
 }
 
 export const WIZARD_STEPS = ["snapshot", "hardware", "iso", "code", "live", "after"] as const;
@@ -221,7 +230,10 @@ export function BaremetalWizardView({
   );
 }
 
-/** The page `/inventory/<id>/bare-metal`: not found unless a restore is available (see above). */
+/**
+ * The page `/inventory/<id>/bare-metal`: the wizard while a restore is available (see above);
+ * otherwise only the open code or session, if there is one, and else not found.
+ */
 export function BaremetalWizardPage({ endpointId }: { endpointId: string }) {
   const { t } = useTranslation("endpoints");
   const detail = useEndpoint(endpointId);
@@ -231,10 +243,17 @@ export function BaremetalWizardPage({ endpointId }: { endpointId: string }) {
   if (detail.isPending || baremetal.isPending || iso.isPending) {
     return null;
   }
-  if (!detail.data || !baremetalRestoreAvailable(baremetal.data, iso.data, detail.data.os)) {
+  if (!detail.data) {
     return <NotFoundPage />;
   }
-  const open = recoveries.data?.find((recovery) => recoveryOpen(recovery.status)) ?? null;
+  const available = baremetalRestoreAvailable(baremetal.data, iso.data, detail.data.os);
+  const open = openRecoveryOf(recoveries.data);
+  if (!available && recoveries.isPending) {
+    return null;
+  }
+  if (!available && !open) {
+    return <NotFoundPage />;
+  }
   return (
     <div className="space-y-6">
       <PageHeader
@@ -250,12 +269,21 @@ export function BaremetalWizardPage({ endpointId }: { endpointId: string }) {
           </Link>
         }
       />
-      <BaremetalWizardView
-        detail={detail.data}
-        baremetal={baremetal.data as Baremetal}
-        iso={iso.data as RecoveryIso}
-        openRecoveryId={open?.id ?? null}
-      />
+      {available ? (
+        <BaremetalWizardView
+          detail={detail.data}
+          baremetal={baremetal.data as Baremetal}
+          iso={iso.data as RecoveryIso}
+          openRecoveryId={open?.id ?? null}
+        />
+      ) : open ? (
+        <div className="grid gap-4" data-slot="baremetal-recovery-only">
+          <p className="text-sm text-muted-foreground">{t("recovery.wizard.liveOnly")}</p>
+          <StepCard step="live" index={0}>
+            <RecoveryLive endpointId={detail.data.id} recoveryId={open.id} />
+          </StepCard>
+        </div>
+      ) : null}
     </div>
   );
 }

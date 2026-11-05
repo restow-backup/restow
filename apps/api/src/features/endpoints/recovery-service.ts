@@ -9,8 +9,11 @@ import {
   RECOVERY_IDEMPOTENCY_MS,
   RECOVERY_LOG_MAX_BYTES,
   RECOVERY_REBIND_AFTER_FINISH_MS,
+  RECOVERY_SILENCE_AFTER_EXPIRY_MS,
   recoveryMatchCode,
-  redactRecoveryLogLines,
+  redactAgentLog,
+  redactAgentMessage,
+  redactRecoveryLogBatch,
   secretMatchesHash,
 } from "@restow/core";
 import {
@@ -24,6 +27,7 @@ import {
 import { and, eq, gt, isNull, sql } from "drizzle-orm";
 import type { Context } from "hono";
 import { db, providerDb } from "../../db.js";
+import { DeniedThrottle } from "../../lib/denied-audit.js";
 import { readSecret } from "../../lib/secrets.js";
 import { isUuid, type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
@@ -62,12 +66,26 @@ import type {
  * Failed exchanges and failed session logins count against the address in their own tracker
  * (`recoveryFailures`), not in the agents' `authFailures`: a machine room behind one NAT must not
  * lock its agents out with typos at the ISO, nor the agents the operator. An exchange with a dead
- * code (expired, used, revoked) does not count: whoever holds the proof may learn why it fails,
- * and the tenant's admins learn that it was tried (audit and alert `recovery_code.rejected`).
+ * code (expired, used, revoked) does not count there: whoever holds the proof may learn why it
+ * fails, and the tenant's admins learn that it was tried (audit and alert `recovery_code.rejected`).
+ * A loop with a dead code must neither flood the admins nor the audit log: the audit entry and the
+ * alert come once per code, reason and 10 minutes (the next one counts the repeats in between),
+ * and an address gets 20 dead-code answers per 10 minutes (`deadCodeAttempts`), then 429.
+ *
+ * What the ISO reports as free text (progress message, warnings, verification, event detail) is
+ * redacted here before it is stored or audited: the ISO's own redaction is not relied on.
  */
 
 /** Failed exchanges and session logins per address: 20 in 10 minutes. */
 export const recoveryFailures = new FailureTracker(20);
+
+/** Exchanges with a dead code per address: 20 in 10 minutes (apart from `recoveryFailures`). */
+export const deadCodeAttempts = new FailureTracker(20);
+
+/** The audit entry and alert of a dead code: once per code, reason and 10 minutes. */
+const deadCodeNotices = new DeniedThrottle();
+/** Dead-code attempts not audited since the last entry of their code and reason. */
+const deadCodeRepeats = new Map<string, number>();
 
 const TEN_MINUTES_MS = 10 * 60 * 1000;
 /** Above this many failures per 10 minutes across the installation, the server log hears of it. */
@@ -242,6 +260,19 @@ export async function exchangeRecoveryCode(
   }
   if (dead) {
     const reason = dead;
+    const at = now.getTime();
+    if (deadCodeAttempts.isBlocked(context.failureKey, at)) {
+      throw rateLimited(deadCodeAttempts.retryAfterMs(context.failureKey, at));
+    }
+    deadCodeAttempts.record(context.failureKey, at);
+    const noticeKey = `${row.id}:${reason}`;
+    if (!deadCodeNotices.allow(noticeKey, at)) {
+      if (deadCodeRepeats.size >= 10_000) deadCodeRepeats.clear();
+      deadCodeRepeats.set(noticeKey, (deadCodeRepeats.get(noticeKey) ?? 0) + 1);
+      throw DEAD_PROBLEMS[reason]();
+    }
+    const repeats = deadCodeRepeats.get(noticeKey) ?? 0;
+    deadCodeRepeats.delete(noticeKey);
     await withTenantTx(db, row.tenantId, async (tx) => {
       await auditEndpoint(tx, {
         tenantId: row.tenantId,
@@ -253,6 +284,7 @@ export async function exchangeRecoveryCode(
           reason,
           ip: context.ip,
           recoveryVersion: input.recoveryVersion,
+          ...(repeats > 0 ? { repeats } : {}),
         },
       });
       await raiseTenantEvent(tx, {
@@ -276,6 +308,17 @@ export async function exchangeRecoveryCode(
   const status = row.requireApproval ? "pending_approval" : "active";
   const claim = () =>
     withTenantTx(db, row.tenantId, async (tx) => {
+      // The machine is held against its removal until the claim commits: a removal either comes
+      // first (and this claim finds it removed) or sees the session (docs/BAREMETAL.md 9.7).
+      const [machine] = await tx
+        .select({ removedAt: endpoints.removedAt })
+        .from(endpoints)
+        .where(eq(endpoints.id, row.endpointId))
+        .for("share")
+        .limit(1);
+      if (!machine || machine.removedAt !== null) {
+        return null;
+      }
       const [claimed] = await tx
         .update(endpointRecoveries)
         .set({
@@ -337,7 +380,8 @@ export async function exchangeRecoveryCode(
   const claimed =
     status === "active" ? await holdForRecovery(row.endpointId, claim) : await claim();
   if (!claimed) {
-    // Another request claimed it a moment ago: answer as for that one (idempotent or used).
+    // Another request claimed it a moment ago, or the machine was removed: answer as for that one
+    // (idempotent, used or revoked).
     if (attempt > 0) {
       throw DEAD_PROBLEMS.used();
     }
@@ -361,12 +405,23 @@ function rateLimited(retryAfterMs: number): ProblemError {
   });
 }
 
-/** Whether a session may still be heard at `now`: before its expiry, or just after a good finish. */
+/**
+ * Whether a session may still be heard at `now`: before its expiry; a running one (`active`,
+ * `finishing`) also in the 30 minutes after it that the monitor waits before it fails the session,
+ * so an ISO still verifying can report and finish (the restic route and the credentials end at
+ * `expiresAt` all the same); and a good finish for 15 minutes, for the rebind.
+ */
 export function sessionOpen(access: RecoverySessionAccess, now: number): boolean {
   if (access.status === "expired" || access.status === "issued" || access.status === "revoked") {
     return false;
   }
   if (access.expiresAt.getTime() > now) {
+    return true;
+  }
+  if (
+    (access.status === "active" || access.status === "finishing") &&
+    now < access.expiresAt.getTime() + RECOVERY_SILENCE_AFTER_EXPIRY_MS
+  ) {
     return true;
   }
   return (
@@ -469,6 +524,13 @@ export interface RecoveryCredentials {
   minRecoveryVersion: string;
 }
 
+function notApproved(): ProblemError {
+  return new ProblemError(409, "Not released yet", {
+    type: ENDPOINT_PROBLEMS.recoveryNotApproved,
+    detail: "An administrator has not released this session yet.",
+  });
+}
+
 /** The restic route the ISO reads through, built from the origin the code was issued for. */
 export function recoveryRepositoryUrl(origin: string, sessionId: string): string {
   return `rest:${origin.replace(/\/+$/, "")}/agent/recovery/restic/${sessionId}/`;
@@ -483,13 +545,24 @@ export async function issueCredentials(
   ip: string | null,
   now: Date = new Date(),
 ): Promise<RecoveryCredentials> {
+  // An access that has ended for good is refused before the storage is looked at (the state may
+  // be up to five seconds old: a release that waits is decided in the transaction below).
+  if (
+    (access.status !== "active" && access.status !== "pending_approval") ||
+    access.releasedAt !== null ||
+    access.expiresAt <= now
+  ) {
+    throw sessionEnded("The session's repository access has ended.");
+  }
+  // The storage is resolved first: a fetch is counted only for an answer that can be built.
+  const targets = await tenantStorage(db, access.tenantId);
+  const prefix = endpointPrefix(access.endpointId);
+  const storage = await backendHolding(targets, prefix);
+  const index = await listWithSizes(storage, `${prefix}index/`).catch(() => []);
   const prepared = await withTenantTx(db, access.tenantId, async (tx) => {
     const row = await lockSession(tx, access.id);
     if (row.status === "pending_approval") {
-      throw new ProblemError(409, "Not released yet", {
-        type: ENDPOINT_PROBLEMS.recoveryNotApproved,
-        detail: "An administrator has not released this session yet.",
-      });
+      throw notApproved();
     }
     if (row.status !== "active" || row.releasedAt !== null || row.expiresAt <= now) {
       throw sessionEnded("The session's repository access has ended.");
@@ -546,10 +619,6 @@ export async function issueCredentials(
     });
     return { row, password, snapshots, chosen };
   });
-  const targets = await tenantStorage(db, access.tenantId);
-  const prefix = endpointPrefix(access.endpointId);
-  const storage = await backendHolding(targets, prefix);
-  const index = await listWithSizes(storage, `${prefix}index/`).catch(() => []);
   return {
     repository: {
       url: recoveryRepositoryUrl(access.instanceOrigin ?? "", access.id),
@@ -599,7 +668,11 @@ export async function recordProgress(
     tx
       .update(endpointRecoveries)
       .set({
-        progress: { ...progress, updatedAt: now.toISOString() },
+        progress: {
+          ...progress,
+          message: redactAgentMessage(progress.message, 500),
+          updatedAt: now.toISOString(),
+        },
         ...(sshHostKeys ? { sshHostKeys } : {}),
         updatedAt: now,
       })
@@ -609,7 +682,8 @@ export async function recordProgress(
 
 /**
  * Lines of the ISO's log: without escape sequences and control characters, redacted, and at most
- * 2 MiB for the whole session; what does not fit is dropped and counted.
+ * 2 MiB for the whole session; what does not fit is dropped and counted. A key block masks every
+ * line up to its END line, also when the ISO sends it in two calls (`logInKeyBlock`).
  */
 export async function appendLog(
   access: RecoverySessionAccess,
@@ -617,15 +691,18 @@ export async function appendLog(
   now: Date = new Date(),
 ): Promise<{ accepted: number; dropped: number }> {
   assertReporting(access);
-  const cleaned = redactRecoveryLogLines(lines);
   return withTenantTx(db, access.tenantId, async (tx) => {
     const row = await lockSession(tx, access.id);
     let room = RECOVERY_LOG_MAX_BYTES - row.logBytes;
+    let inKeyBlock = row.logInKeyBlock;
     const kept: string[] = [];
-    for (const line of cleaned) {
+    for (const raw of lines) {
+      const step = redactRecoveryLogBatch([raw], inKeyBlock);
+      const line = step.lines[0] as string;
       const size = Buffer.byteLength(line, "utf8") + 1;
       if (size > room) break;
       kept.push(line);
+      inKeyBlock = step.inKeyBlock;
       room -= size;
     }
     if (kept.length > 0) {
@@ -638,10 +715,10 @@ export async function appendLog(
       });
       await tx
         .update(endpointRecoveries)
-        .set({ logBytes: row.logBytes + bytes, updatedAt: now })
+        .set({ logBytes: row.logBytes + bytes, logInKeyBlock: inKeyBlock, updatedAt: now })
         .where(eq(endpointRecoveries.id, access.id));
     }
-    return { accepted: kept.length, dropped: cleaned.length - kept.length };
+    return { accepted: kept.length, dropped: lines.length - kept.length };
   });
 }
 
@@ -661,8 +738,38 @@ export async function recordEvent(
           ? ENDPOINT_AUDIT_ACTIONS.recoveryRemoteAccessEnabled
           : ENDPOINT_AUDIT_ACTIONS.recoveryKeyfileRegenerated,
       endpointId: access.endpointId,
-      details: { recoveryId: access.id, ...input.detail, reportedBy: "iso" },
+      // The server's own keys come last: the ISO's detail cannot name another session.
+      details: { ...redactIsoDetail(input.detail), recoveryId: access.id, reportedBy: "iso" },
     }),
+  );
+}
+
+/** The ISO's event detail, each value redacted. */
+function redactIsoDetail(detail: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(detail).map(([key, value]) => [key, redactAgentMessage(value, 1024)]),
+  );
+}
+
+/**
+ * A value the ISO reported (the verification report), every string in it redacted line by line
+ * (a command's output keeps its lines); below 32 levels the rest is kept as redacted JSON text.
+ */
+export function redactIsoValue(value: unknown, depth = 0): unknown {
+  if (typeof value === "string") {
+    return redactAgentLog(value);
+  }
+  if (value === null || typeof value !== "object") {
+    return value;
+  }
+  if (depth > 32) {
+    return redactAgentLog(JSON.stringify(value));
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => redactIsoValue(item, depth + 1));
+  }
+  return Object.fromEntries(
+    Object.entries(value).map(([key, item]) => [key, redactIsoValue(item, depth + 1)]),
   );
 }
 
@@ -722,8 +829,11 @@ export async function finishSession(
       .update(endpointRecoveries)
       .set({
         status: input.status,
-        verification: input.verification,
-        warnings: input.warnings,
+        verification: redactIsoValue(input.verification) as Record<string, unknown>,
+        warnings: input.warnings.map((warning) => ({
+          code: redactAgentMessage(warning.code, 64),
+          message: redactAgentMessage(warning.message, 1000),
+        })),
         finishedAt: now,
         releasedAt: row.releasedAt ?? now,
         updatedAt: now,

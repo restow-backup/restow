@@ -7,10 +7,10 @@ import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 import type { Baremetal, BaremetalState, LayoutUnsupported, LayoutVerdict } from "../api.js";
-import { useBaremetal, useEndpointFormat, useRecoveryIso } from "../hooks.js";
+import { useBaremetal, useEndpointFormat, useRecoveries, useRecoveryIso } from "../hooks.js";
 import { baremetalWizardTo } from "../paths.js";
 import { BaremetalCheckReport } from "./baremetal-check-report.js";
-import { baremetalRestoreAvailable } from "./baremetal-wizard.js";
+import { baremetalRestoreAvailable, openRecoveryOf } from "./baremetal-wizard.js";
 import { LayoutSummary } from "./layout-summary.js";
 import { MinimumSizes } from "./minimum-sizes.js";
 
@@ -106,6 +106,12 @@ export function BaremetalCard({ endpointId, os }: { endpointId: string; os?: str
   const baremetal = query.data;
   const iso = useRecoveryIso(baremetal?.preview === true && os === "linux");
   const restorable = baremetalRestoreAvailable(baremetal, iso.data, os);
+  // An open code or session keeps the way to the page when a restore is no longer offered.
+  const recoveries = useRecoveries(
+    endpointId,
+    os === "linux" && !restorable && showsBaremetalCard(baremetal),
+  );
+  const reachable = restorable || openRecoveryOf(recoveries.data) !== null;
   if (query.isPending) {
     return null;
   }
@@ -130,7 +136,7 @@ export function BaremetalCard({ endpointId, os }: { endpointId: string; os?: str
             <span className="ml-2">{t(`baremetal.notPossible.${baremetal.notPossible}`)}</span>
           ) : null}
         </CardDescription>
-        {restorable ? (
+        {reachable ? (
           <div>
             <Link
               to={baremetalWizardTo(endpointId) as LinkProps["to"]}

@@ -554,6 +554,13 @@
       "when": 1793865062708,
       "tag": "0078_endpoint_recoveries",
       "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1793869700656,
+      "tag": "0079_endpoint_recovery_log_key_block",
+      "breakpoints": true
     }
   ]
 }

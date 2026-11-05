@@ -664,6 +664,11 @@ export const endpointRecoveries = pgTable(
     verification: jsonb("verification").$type<Record<string, unknown>>(),
     warnings: jsonb("warnings").$type<{ code: string; message: string }[]>(),
     logBytes: integer("log_bytes").notNull().default(0),
+    /**
+     * The stored log ends inside a key block (a BEGIN line without its END yet): the next batch
+     * goes on masking until the END line (docs/BAREMETAL.md 9.8).
+     */
+    logInKeyBlock: boolean("log_in_key_block").notNull().default(false),
     cancelRequestedAt: timestamp("cancel_requested_at", { withTimezone: true }),
     finishedAt: timestamp("finished_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

@@ -693,6 +693,7 @@ export async function expireRecoveries(
       tenantId: endpointRecoveries.tenantId,
       endpointId: endpointRecoveries.endpointId,
       status: endpointRecoveries.status,
+      usedAt: endpointRecoveries.usedAt,
       hostname: endpoints.hostname,
       displayName: endpoints.displayName,
     })
@@ -700,7 +701,7 @@ export async function expireRecoveries(
     .innerJoin(endpoints, eq(endpoints.id, endpointRecoveries.endpointId))
     .where(
       sql`(${endpointRecoveries.status} = 'issued' AND ${endpointRecoveries.expiresAt} <= ${now.toISOString()}::timestamptz)
-       OR (${endpointRecoveries.status} = 'pending_approval' AND ${endpointRecoveries.usedAt} <= ${approvalDeadline.toISOString()}::timestamptz)
+       OR (${endpointRecoveries.status} = 'pending_approval' AND (${endpointRecoveries.usedAt} <= ${approvalDeadline.toISOString()}::timestamptz OR ${endpointRecoveries.expiresAt} <= ${now.toISOString()}::timestamptz))
        OR (${endpointRecoveries.status} IN ('active', 'finishing') AND ${endpointRecoveries.expiresAt} <= ${silenceDeadline.toISOString()}::timestamptz)`,
     )
     .limit(500);
@@ -718,7 +719,15 @@ export async function expireRecoveries(
           candidate.status === "issued"
             ? { from: "issued", to: "expired", reason: "expired" }
             : candidate.status === "pending_approval"
-              ? { from: "pending_approval", to: "failed", reason: "not_approved" }
+              ? {
+                  from: "pending_approval",
+                  to: "failed",
+                  // The code ran out before the 30 minutes for the release did.
+                  reason:
+                    candidate.usedAt !== null && candidate.usedAt <= approvalDeadline
+                      ? "not_approved"
+                      : "expired",
+                }
               : {
                   from: candidate.status as "active" | "finishing",
                   to: "failed",
@@ -728,7 +737,9 @@ export async function expireRecoveries(
           plan.from === "issued"
             ? sql`${endpointRecoveries.expiresAt} <= ${now.toISOString()}::timestamptz`
             : plan.from === "pending_approval"
-              ? sql`${endpointRecoveries.usedAt} <= ${approvalDeadline.toISOString()}::timestamptz`
+              ? plan.reason === "not_approved"
+                ? sql`${endpointRecoveries.usedAt} <= ${approvalDeadline.toISOString()}::timestamptz`
+                : sql`${endpointRecoveries.expiresAt} <= ${now.toISOString()}::timestamptz`
               : sql`${endpointRecoveries.expiresAt} <= ${silenceDeadline.toISOString()}::timestamptz`;
         const [moved] = await tx
           .update(endpointRecoveries)
@@ -774,7 +785,9 @@ export async function expireRecoveries(
           message:
             plan.reason === "not_approved"
               ? `The recovery of ${name} failed: nobody released the session within 30 minutes.`
-              : `The recovery of ${name} failed: the recovery ISO stopped reporting.`,
+              : plan.reason === "expired"
+                ? `The recovery of ${name} failed: its code expired before the session was released.`
+                : `The recovery of ${name} failed: the recovery ISO stopped reporting.`,
           details: {
             endpointId: candidate.endpointId,
             objectName: name,

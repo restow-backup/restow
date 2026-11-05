@@ -233,26 +233,26 @@ func TestVectorsSPKICheck(t *testing.T) {
 	}
 }
 
-func TestSPKIPrefixMatches(t *testing.T) {
+func TestSPKICheckMatches(t *testing.T) {
 	check := "T6DN-BAMI-JR6W-LGRP"
 	for typed, want := range map[string]bool{
-		"T6DN-BAMI":            true,
-		"t6dnbami":             true,
-		" t6dn bami ":          true,
-		"T6DN-BAMI-JR6W-LGRP":  true,
-		"T6DN-BAMI-J":          true,
-		"T6DN-BAM":             false, // fewer than eight characters
-		"T6DN-BAMX":            false,
-		"T6DN-BAMI-JR6W-LGRX":  false,
-		"T6DN-BAMI-JR6W-LGRPA": false,
-		"":                     false,
+		"T6DN-BAMI-JR6W-LGRP":   true,
+		"t6dnbamijr6wlgrp":      true,
+		" t6dn bami jr6w lgrp ": true,
+		"T6DN-BAMI":             false, // a prefix (40 bits) can be ground offline
+		"t6dnbami":              false,
+		"T6DN-BAMI-J":           false,
+		"T6DN-BAMI-JR6W-LGR":    false,
+		"T6DN-BAMI-JR6W-LGRX":   false,
+		"T6DN-BAMI-JR6W-LGRPA":  false,
+		"":                      false,
 	} {
-		if got := SPKIPrefixMatches(typed, check); got != want {
-			t.Errorf("SPKIPrefixMatches(%q) = %v, want %v", typed, got, want)
+		if got := SPKICheckMatches(typed, check); got != want {
+			t.Errorf("SPKICheckMatches(%q) = %v, want %v", typed, got, want)
 		}
 	}
-	if SPKIPrefixMatches("T6DN-BAMI", "") {
-		t.Error("no check value must never match")
+	if SPKICheckMatches("", "") || SPKICheckMatches("T6DN-BAMI", "T6DN-BAMI") {
+		t.Error("only a whole check value of 16 characters can match")
 	}
 }
 

@@ -74,7 +74,14 @@ func IsProblem(err error, name string) bool { return name != "" && ProblemName(e
 // origin of the instance (CanonicalOrigin); the code proof is bound to it.
 // Secret is the session secret: it goes only into the Basic authorization
 // header of the session routes and of the restic route, never into a body,
-// and is registered with the redactor.
+// and is registered with the redactor. Redirects are never followed: the
+// Authorization header would go along to another port or host of the same
+// domain.
+//
+// Every string the session reports goes through the redactor and, where the
+// instance refuses control characters (docs/BAREMETAL.md 4.2), has them
+// replaced by spaces, so a warning copied from a tool's output neither leaks
+// a secret nor makes the call fail with 422.
 type Session struct {
 	BaseURL string
 	ID      string
@@ -92,6 +99,10 @@ type Session struct {
 	Sleep func(ctx context.Context, d time.Duration) error
 
 	redactOnce sync.Once
+	clientOnce sync.Once
+	client     *http.Client
+	logMu      sync.Mutex
+	logBlocks  redact.KeyBlocks
 }
 
 // NewSession checks the instance address and makes a new session secret.
@@ -145,12 +156,22 @@ func (s *Session) Exchange(ctx context.Context, req api.RecoveryExchangeRequest)
 		return nil, errors.New("the request names another session secret")
 	}
 	req.SessionSecretSHA256 = sha
-	if req.Hardware.Disks == nil {
-		req.Hardware.Disks = []api.RecoveryDisk{}
+	disks := make([]api.RecoveryDisk, 0, len(req.Hardware.Disks))
+	for _, d := range req.Hardware.Disks {
+		d.Model = isoField(d.Model, api.RecoveryMaxString)
+		d.Serial = isoField(d.Serial, api.RecoveryMaxString)
+		d.WWN = isoField(d.WWN, api.RecoveryMaxString)
+		d.Transport = isoField(d.Transport, api.RecoveryMaxTransport)
+		disks = append(disks, d)
 	}
-	if req.Hardware.NICs == nil {
-		req.Hardware.NICs = []api.RecoveryNIC{}
+	req.Hardware.Disks = disks
+	nics := make([]api.RecoveryNIC, 0, len(req.Hardware.NICs))
+	for _, n := range req.Hardware.NICs {
+		n.MAC = isoField(n.MAC, api.RecoveryMaxString)
+		n.Driver = isoField(n.Driver, api.RecoveryMaxString)
+		nics = append(nics, n)
 	}
+	req.Hardware.NICs = nics
 	var out api.RecoveryExchangeResponse
 	if err := s.do(ctx, http.MethodPost, SessionsPath, req, &out, false); err != nil {
 		return nil, err
@@ -213,10 +234,20 @@ func (s *Session) SSHKeys(ctx context.Context) ([]string, error) {
 	return out.Keys, nil
 }
 
-// Progress reports the phase and counters (204). The message is cut to 500
-// characters and redacted.
+// Progress reports the phase and counters (204). The message is redacted,
+// without control characters and cut to 500 characters.
 func (s *Session) Progress(ctx context.Context, p api.RecoveryProgress) error {
-	p.Message = truncateUTF16(redact.Redact(p.Message), api.RecoveryMaxMessage)
+	p.Message = isoField(p.Message, api.RecoveryMaxMessage)
+	if p.SSHHostKeys != nil {
+		keys := make([]api.RecoverySSHHostKey, 0, len(p.SSHHostKeys))
+		for _, k := range p.SSHHostKeys {
+			keys = append(keys, api.RecoverySSHHostKey{
+				Type:        isoField(k.Type, 64),
+				Fingerprint: isoField(k.Fingerprint, api.RecoveryMaxString),
+			})
+		}
+		p.SSHHostKeys = keys
+	}
 	return s.do(ctx, http.MethodPost, CurrentPath+"/progress", p, nil, true)
 }
 
@@ -227,9 +258,12 @@ const logBodyOverhead = len(`{"lines":[]}`)
 // Log sends log lines (redacted, each cut to 4096 bytes), in batches of at
 // most 200 lines whose encoded body stays within the instance's limit for
 // the route (api.RecoveryMaxLogBody; escapes can make a line up to six times
-// its length). The result sums the answers; lines over the session's cap
-// are dropped by the instance.
+// its length). A key block is masked from its BEGIN line to its END line,
+// also across calls. The result sums the answers; lines over the session's
+// cap are dropped by the instance.
 func (s *Session) Log(ctx context.Context, lines []string) (api.RecoveryLogResult, error) {
+	s.logMu.Lock()
+	defer s.logMu.Unlock()
 	var total api.RecoveryLogResult
 	for len(lines) > 0 {
 		batch := make([]string, 0, min(len(lines), api.RecoveryMaxLogLines))
@@ -239,7 +273,7 @@ func (s *Session) Log(ctx context.Context, lines []string) (api.RecoveryLogResul
 			if len(batch) == api.RecoveryMaxLogLines {
 				break
 			}
-			line := truncateBytes(redact.Redact(l), api.RecoveryMaxLogLine)
+			line := truncateBytes(s.logBlocks.Line(redact.Default, l), api.RecoveryMaxLogLine)
 			w := encodedLen(line)
 			if len(batch) > 0 {
 				w++ // the comma
@@ -263,12 +297,15 @@ func (s *Session) Log(ctx context.Context, lines []string) (api.RecoveryLogResul
 	return total, nil
 }
 
-// Event reports remote_access_enabled or keyfile_regenerated (204).
+// Event reports remote_access_enabled or keyfile_regenerated (204). Each
+// detail value is redacted, without control characters and cut to 1024
+// characters, each key cut to 64.
 func (s *Session) Event(ctx context.Context, kind string, detail map[string]string) error {
-	if detail == nil {
-		detail = map[string]string{}
+	cleaned := make(map[string]string, len(detail))
+	for k, v := range detail {
+		cleaned[truncateUTF16(k, 64)] = isoField(v, 1024)
 	}
-	return s.do(ctx, http.MethodPost, CurrentPath+"/event", api.RecoveryEvent{Kind: kind, Detail: detail}, nil, true)
+	return s.do(ctx, http.MethodPost, CurrentPath+"/event", api.RecoveryEvent{Kind: kind, Detail: cleaned}, nil, true)
 }
 
 // Release ends read access before the machine restarts (active to
@@ -282,22 +319,24 @@ func (s *Session) Release(ctx context.Context) (string, error) {
 }
 
 // Finish reports the end of the recovery (from active or finishing). At
-// most 200 warnings are sent, each code cut to 64 and each message to 1000
-// characters; warnings are dropped from the end while the encoded body would
-// exceed the instance's limit for the route (api.RecoveryMaxFinishBody). The
-// verification report is the caller's to keep within 64 KiB.
+// most 200 warnings are sent, each redacted, without control characters,
+// the code cut to 64 and the message to 1000 characters; warnings are
+// dropped from the end while the encoded body would exceed the instance's
+// limit for the route (api.RecoveryMaxFinishBody). Every string of the
+// verification report is redacted; keeping it within 64 KiB is the caller's.
 func (s *Session) Finish(ctx context.Context, f api.RecoveryFinish) (string, error) {
 	if len(f.Verification) == 0 {
 		f.Verification = json.RawMessage("{}")
 	}
+	f.Verification = redactJSON(f.Verification)
 	warnings := make([]api.RecoveryWarning, 0, min(len(f.Warnings), api.RecoveryMaxFinishWarning))
 	for _, w := range f.Warnings {
 		if len(warnings) == api.RecoveryMaxFinishWarning {
 			break
 		}
 		warnings = append(warnings, api.RecoveryWarning{
-			Code:    truncateUTF16(w.Code, api.RecoveryMaxWarningCode),
-			Message: truncateUTF16(w.Message, api.RecoveryMaxWarningMessage),
+			Code:    isoField(w.Code, api.RecoveryMaxWarningCode),
+			Message: isoField(w.Message, api.RecoveryMaxWarningMessage),
 		})
 	}
 	f.Warnings = warnings
@@ -433,15 +472,15 @@ func (s *Session) once(ctx context.Context, method, base, path string, payload [
 	if auth {
 		req.SetBasicAuth(s.ID, s.Secret)
 	}
-	hc := s.HTTP
-	if hc == nil {
-		hc = api.NewHTTPClient(s.AllowHTTP)
-	}
-	resp, err := hc.Do(req)
+	resp, err := s.httpClient().Do(req)
 	if err != nil {
 		return 0, false, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
+		return 0, false, fmt.Errorf("%s %s: the instance answered %d with a redirect to %q; recover follows no redirect (the session secret would go along). Enter the address the code dialog shows",
+			method, path, resp.StatusCode, redact.Redact(resp.Header.Get("Location")))
+	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxSessionResponse+1))
 	if err != nil {
 		return 0, false, err
@@ -473,6 +512,74 @@ func (s *Session) once(ctx context.Context, method, base, path string, payload [
 	ae.RetryAfter = delay
 	retry := ok && (resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusServiceUnavailable)
 	return delay, retry, ae
+}
+
+// httpClient is the client of every call, made once: HTTP (or a client of
+// api.NewHTTPClient) that never follows a redirect.
+func (s *Session) httpClient() *http.Client {
+	s.clientOnce.Do(func() {
+		base := s.HTTP
+		if base == nil {
+			base = api.NewHTTPClient(s.AllowHTTP)
+		}
+		c := *base
+		c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+		s.client = &c
+	})
+	return s.client
+}
+
+// isoText is s as the instance accepts a string of the ISO (no C0 or C1
+// control character, no line or paragraph separator; docs/BAREMETAL.md
+// 4.2): each becomes a space, invalid UTF-8 the replacement character.
+func isoText(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 || (r >= 0x7f && r <= 0x9f) || r == 0x2028 || r == 0x2029 {
+			return ' '
+		}
+		return r
+	}, s)
+}
+
+// isoField is a reported string: redacted, as isoText, at most n UTF-16
+// units.
+func isoField(s string, n int) string { return truncateUTF16(isoText(redact.Redact(s)), n) }
+
+// redactJSON redacts every string of a JSON document (the verification
+// report); a document that does not parse is sent as it is.
+func redactJSON(raw json.RawMessage) json.RawMessage {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return raw
+	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(redactValue(v, 0)); err != nil {
+		return raw
+	}
+	return json.RawMessage(bytes.TrimRight(buf.Bytes(), "\n"))
+}
+
+func redactValue(v any, depth int) any {
+	if depth > 64 {
+		return v
+	}
+	switch t := v.(type) {
+	case string:
+		return redact.Redact(t)
+	case []any:
+		for i := range t {
+			t[i] = redactValue(t[i], depth+1)
+		}
+	case map[string]any:
+		for k := range t {
+			t[k] = redactValue(t[k], depth+1)
+		}
+	}
+	return v
 }
 
 // retryAfter parses a Retry-After header (seconds or an HTTP date). ok is

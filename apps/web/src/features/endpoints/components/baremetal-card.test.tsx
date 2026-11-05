@@ -22,12 +22,14 @@ vi.mock("@/lib/session", () => ({
 
 const fetchBaremetal = vi.fn();
 const fetchRecoveryIso = vi.fn();
+const fetchRecoveries = vi.fn(async () => [] as unknown[]);
 vi.mock("../api.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../api.js")>();
   return {
     ...actual,
     fetchBaremetal: (...args: unknown[]) => fetchBaremetal(...args),
     fetchRecoveryIso: (...args: unknown[]) => fetchRecoveryIso(...args),
+    fetchRecoveries: () => fetchRecoveries(),
   };
 });
 // No router in this harness: a link is a plain anchor.
@@ -237,6 +239,23 @@ describe("BaremetalCard", () => {
     expect(restoreButton()).toBeNull();
     page.unmount();
     await open(baremetal({ state: "not_possible", notPossible: "unsupported" }), "linux");
+    expect(restoreButton()).toBeNull();
+  });
+
+  it("keeps the way to an open session when a restore is no longer offered", async () => {
+    fetchRecoveryIso.mockResolvedValue(iso(false));
+    fetchRecoveries.mockResolvedValueOnce([
+      { id: "55555555-5555-4555-8555-555555555555", status: "active" },
+    ]);
+    await open(baremetal(), "linux");
+    expect(fetchRecoveries).toHaveBeenCalled();
+    expect(restoreButton()?.getAttribute("href")).toBe(`/inventory/${ID}/bare-metal`);
+    page.unmount();
+    // A finished one does not.
+    fetchRecoveries.mockResolvedValueOnce([
+      { id: "55555555-5555-4555-8555-555555555555", status: "succeeded" },
+    ]);
+    await open(baremetal(), "linux");
     expect(restoreButton()).toBeNull();
   });
 

@@ -105,3 +105,31 @@ func TestRedactRecoveryValues(t *testing.T) {
 		t.Errorf("session secret hash leaked: %q", got)
 	}
 }
+
+func TestKeyBlocksAcrossLines(t *testing.T) {
+	r := &Redactor{}
+	body := "b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQ"
+	var k KeyBlocks
+	var got []string
+	for _, batch := range [][]string{
+		{"key:", "-----BEGIN OPENSSH PRIVATE KEY-----", body},
+		{body, "-----END OPENSSH PRIVATE KEY----- ok", "after"},
+	} {
+		for _, l := range batch {
+			got = append(got, k.Line(r, l))
+		}
+	}
+	want := []string{"key:", Mask, Mask, Mask, Mask + " ok", "after"}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("got %q, want %q", got, want)
+	}
+	if k.Open() {
+		t.Fatal("the block was closed")
+	}
+	if got := k.Line(r, "a -----BEGIN RSA PRIVATE KEY-----x-----END RSA PRIVATE KEY----- b"); got != "a "+Mask+" b" {
+		t.Fatalf("a block on one line: %q", got)
+	}
+	if got := r.Redact("x\n-----BEGIN PRIVATE KEY-----\n" + body + "\n-----END PRIVATE KEY-----\ny"); strings.Contains(got, body) {
+		t.Fatalf("a block in one text leaked: %q", got)
+	}
+}

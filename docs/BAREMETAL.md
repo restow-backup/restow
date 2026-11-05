@@ -1410,7 +1410,11 @@ sizeBytes, logicalSectorSize, model, serial, wwn, transport }], nics: [{ mac, dr
 - **Spur beim Mandanten:** Passt der Hash zu einem abgelaufenen, eingelösten oder
   widerrufenen Code, schreibt der Server `endpoint.recovery_code.rejected` (Adresse, Grund,
   ISO-Version) ins Audit des Mandanten und löst den gleichnamigen Alarm aus (12.6): Das ist
-  das Zeichen eines Diebstahls.
+  das Zeichen eines Diebstahls. Damit eine Schleife mit einem toten Code weder die Admins noch
+  das Audit flutet, gibt es Eintrag und Alarm einmal je Code, Grund und 10 Minuten (der nächste
+  Eintrag zählt die Versuche dazwischen als `repeats`), und eine Adresse bekommt höchstens 20
+  Antworten auf tote Codes je 10 Minuten (eigener Zähler `deadCodeAttempts`, getrennt von den
+  Tippfehlern), danach 429 mit `Retry-After`.
 - Antwort **202** ohne Geheimnisse: `{ sessionId, status: "pending_approval" | "active",
   matchCode, expiresAt, endpoint: { id, hostname, displayName, os } }`. `matchCode` sind
   sechs Ziffern aus `SHA-256("restow-recovery-match:" || sessionSecretSha256)` (die ersten
@@ -1486,7 +1490,11 @@ Weil `recover` keine Sperre schreibt, schützt der Server den Snapshot selbst:
   (9.5) schließt beide Reihenfolgen aus. `pending_approval` blockiert Prune nicht (sonst
   könnte ein gestohlener Code ohne Freigabe Prune bis zu 48 Stunden aufhalten).
 - `endpoint-removal` und `POST /api/v1/endpoints/:id/remove` (Modus `delete`): 409 bzw.
-  aufgeschoben, solange eine Sitzung aktiv ist.
+  aufgeschoben, solange eine Sitzung aktiv ist. Das Entfernen beendet eine Sitzung in
+  `pending_approval` (`cancelled`, Audit mit `reason: "removed"`); Freigeben, Verlängern und
+  SSH-Schlüssel sind für einen entfernten Rechner gesperrt (409 `baremetal-not-available`,
+  Grund `removed`), und der Tausch hält die Zeile des Rechners (`FOR SHARE`) bis zu seinem
+  `UPDATE`, sodass ein gleichzeitiges Entfernen entweder vorher kommt oder die Sitzung sieht.
 - `endpoint-check` liest nur und darf laufen.
 
 ### 9.8 Fortschritt, Ende, Ablauf
@@ -1508,9 +1516,16 @@ Mit Basic `<sessionId>:<sessionSecret>`:
 Phasen: `connected`, `waiting_approval`, `planning`, `confirmed`, `partitioning`,
 `restoring`, `configuring`, `verifying`, `done`. Der Monitor
 (`apps/worker/src/endpoints/monitor.ts`) setzt abgelaufene Codes auf `expired`, nicht
-freigegebene Sitzungen nach 30 Minuten auf `failed` und Sitzungen ohne Meldung seit
-30 Minuten nach `expiresAt` auf `failed` ("ISO meldet sich nicht mehr"), Audit
-`endpoint.recovery.expired`. Eine Sitzung kann in der Oberfläche beendet werden
+freigegebene Sitzungen nach 30 Minuten oder mit abgelaufenem Code (Grund `expired`) auf `failed`
+und Sitzungen ohne Meldung seit 30 Minuten nach `expiresAt` auf `failed` ("ISO meldet sich nicht
+mehr"), Audit `endpoint.recovery.expired`. In diesen 30 Minuten nimmt eine laufende Sitzung
+(`active`, `finishing`) noch `current`, `progress`, `log`, `event`, `release` und `finish` an, damit
+ein ISO, das gerade prüft, sein Ergebnis melden kann; restic-Route und Zugangsdaten enden genau
+mit `expiresAt`. Was das ISO als Text meldet (Fortschrittsmeldung, Warnungen, Prüfbericht,
+`detail` eines Ereignisses), schwärzt der Server vor dem Speichern selbst; `recoveryId` und
+`reportedBy` im Audit eines Ereignisses setzt immer der Server. Ein Schlüsselblock im Log wird von
+der BEGIN- bis zur END-Zeile geschwärzt, auch über zwei Log-Aufrufe
+(`endpoint_recoveries.log_in_key_block`). Eine Sitzung kann in der Oberfläche beendet werden
 (`POST .../recoveries/:id/cancel`): Die restic-Route antwortet nach höchstens 5 Sekunden 401,
 `recover` sieht `cancelRequested` beim nächsten Abruf.
 
@@ -1524,7 +1539,8 @@ freigegebene Sitzungen nach 30 Minuten auf `failed` und Sitzungen ohne Meldung s
 | `issued` | `expired` | Monitor | `endpoint.recovery.expired` |
 | `pending_approval` | `active` | Freigabe | `endpoint.recovery.approved` |
 | `pending_approval` | `cancelled` | Ablehnen | `endpoint.recovery.cancelled` |
-| `pending_approval` | `failed` | 30 Minuten ohne Freigabe | `endpoint.recovery.expired` |
+| `pending_approval` | `failed` | 30 Minuten ohne Freigabe, oder der Code lief vorher ab | `endpoint.recovery.expired` |
+| `pending_approval` | `cancelled` | Entfernen des Rechners | `endpoint.recovery.cancelled` |
 | `active` | `finishing` | `release` | `endpoint.recovery.released` |
 | `active`, `finishing` | `succeeded`, `failed`, `cancelled` | `finish` | `endpoint.recovery.finished` |
 | `active`, `finishing` | `cancelled` | Abbrechen in der Oberfläche | `endpoint.recovery.cancelled` |
@@ -1619,10 +1635,13 @@ Konsolen alle 5 s eine neue Zeile).
 - **TLS:** Systemzertifikate (`ca-certificates`). Eigene CA: `recover` fragt nach einer
   PEM-Datei auf einem zweiten USB-Stick (eingehängt nur lesend unter
   `/run/restow-recovery/media`) oder zum Einfügen. Ohne CA, als Rückfall: `recover` zeigt
-  SHA-256 des Zertifikats und den SPKI-Wert und verlangt, dass der Bediener die **ersten
-  acht Zeichen des Prüfwerts** aus dem Code-Dialog bzw. der Druckseite (`spkiCheck`, 9.2)
-  **eintippt**; ein Ja/Nein gibt es nicht. Weicht der SPKI-Wert ab, bricht `recover` ab und
-  sendet nichts. Kennt die Instanz keinen Prüfwert, gibt es den Rückfall nicht (nur CA).
+  SHA-256 des Zertifikats und den SPKI-Wert und verlangt, dass der Bediener den **ganzen
+  Prüfwert** (16 Zeichen, 80 Bit) aus dem Code-Dialog bzw. der Druckseite (`spkiCheck`, 9.2)
+  **eintippt** (`SPKICheckMatches`); ein Ja/Nein gibt es nicht, ein Anfang des Werts genügt
+  nicht: Die SPKI der Instanz ist öffentlich, und einen Schlüssel, dessen SPKI-Hash in den ersten
+  acht Zeichen (40 Bit) übereinstimmt, findet ein Angreifer vorab offline. Weicht der
+  SPKI-Wert ab, bricht `recover` ab und sendet nichts. Kennt die Instanz keinen Prüfwert, gibt
+  es den Rückfall nicht (nur CA).
   `http://` nur im Labor (Abschnitt 10.20).
 - **Adresse der Instanz:** Eingabe des Hostnamens genügt (`https://` wird ergänzt); ein Pfad
   ist nicht erlaubt (wie beim Enrollment: reine Origin). Aus ihr wird `canonicalOrigin` für
@@ -4524,6 +4543,7 @@ Live-Ansicht, Karte (Knopf nur bei geprüftem ISO), Presenter, i18n; Migrationst
 ### 26.8 Abweichungen vom Entwurf (in M3 entschieden)
 
 - **Migrationsnummer:** 0078 statt 0076; der CHECK der Wiederanbindungs-Tokens steht in 0078.
+  0079 ergänzt `endpoint_recoveries.log_in_key_block` (9.8).
   Zusätzlich zum Entwurf ein CHECK über `purpose` (`endpoint_enrollment_tokens_purpose_ck`) und ein
   Index `endpoint_recovery_log_recovery_idx` für das seitenweise Lesen. Nach der Regel des Schemas
   (jede Tabelle hat eine UUID als `id` und `created_at`) hat `endpoint_recoveries` zusätzlich
@@ -4542,7 +4562,8 @@ Live-Ansicht, Karte (Knopf nur bei geprüftem ISO), Presenter, i18n; Migrationst
   Rechner nicht mehr sichert.
 - **Alarme:** keine Gruppe "Sicherheit" (sie bräuchte eine neue Spalte der Matrix); die vier
   Ereignisse sind Fehler der Gruppe Wiederherstellbarkeit und gehen an die Glocke und an jede
-  aktive Regel, die sie nennt, ohne Drossel, ohne eigenen Mailversand an den Regeln vorbei. Die API
+  aktive Regel, die sie nennt, ohne Drossel der Regel, ohne eigenen Mailversand an den Regeln
+  vorbei; `recovery_code.rejected` kommt einmal je Code, Grund und 10 Minuten (9.3). Die API
   schreibt sie selbst (`raiseTenantEvent`, nach dem Muster von `raiseInstallationEvent`), weil der
   Tausch und die Wiederanbindung in einer Anfrage geschehen; `endpoint.recovery.failed` kommt aus der
   Meldung des ISO (API) oder vom Monitor.
@@ -4576,7 +4597,9 @@ Live-Ansicht, Karte (Knopf nur bei geprüftem ISO), Presenter, i18n; Migrationst
 - **Ablauf der Freigabe:** Der Monitor setzt die Sitzung nach 30 Minuten auf `failed`; eine
   Freigabe danach macht denselben Übergang selbst (bedingtes `UPDATE … WHERE status =
   'pending_approval'`), damit genau ein Schreiber auditiert, und antwortet 401
-  `recovery-session-ended`.
+  `recovery-session-ended`. Ebenso, mit Grund `expired`, wenn der Code abgelaufen ist, bevor
+  jemand die Sitzung freigegeben hat. Ablehnen und Abbrechen sperren die Zeile, bevor sie lesen,
+  damit das Audit den Zustand nennt, den die Sitzung wirklich verlassen hat.
 - **Offene Codes:** gezählt werden `issued`, `pending_approval`, `active`, `finishing` mit
   `expires_at` in der Zukunft; das Ausstellen ist je Rechner serialisiert (Advisory-Lock der
   Transaktion).
@@ -4588,10 +4611,13 @@ Live-Ansicht, Karte (Knopf nur bei geprüftem ISO), Presenter, i18n; Migrationst
   Aufbewahrung prüft vor und nach ihrer exklusiven Sperre.
 - **Zweite Abholung der Zugangsdaten:** gezählt über die Audit-Einträge
   `endpoint.recovery.credentials_issued` der Sitzung (unter einer Zeilensperre), keine eigene Spalte.
+  Der Speicher des Mandanten wird vorher aufgelöst: Ein Fehler dort verbraucht keine Abholung.
 - **Wiederanbindungs-Token:** `profile` (NOT NULL) ist das des Rechners. Eine Wiederanbindung beendet
   offene Deinstallations-Aufgaben, die für die alte Installation gedacht waren (sonst deinstallierte
   sich der neue Agent). Ein entfernter Rechner bekommt kein Token (404) und wird nicht wieder
-  angebunden (409).
+  angebunden (409). Das Repository-Passwort wird in derselben Transaktion gelesen, bevor sich etwas
+  ändert: Fehlt es, rollt alles zurück und das Token bleibt nutzbar; nach dem Commit bleibt es
+  verbraucht.
 - **Entfernen:** `POST /:id/remove` antwortet 409 `endpoint-recovery-active` in beiden Modi (auch
   `expire`: ein entfernter Rechner beendet den Lesezugang der Sitzung), und widerruft offene Codes mit
   Audit. Der Löschjob wirft `EndpointRecoveryActiveError` und vermerkt keinen Fehler.
@@ -4604,9 +4630,17 @@ Live-Ansicht, Karte (Knopf nur bei geprüftem ISO), Presenter, i18n; Migrationst
   eine Zeile versechsfachen), kürzt Warnungen auf 64 und 1000 Zeichen und lässt beim Abschluss
   Warnungen vom Ende weg, solange der Body über `api.RecoveryMaxFinishBody` läge (ein 413 wird nicht
   wiederholt). Caddy braucht nichts.
+- **Go-Client:** schwärzt jede gemeldete Zeichenkette (auch Warnungen, Ereignis-`detail` und die
+  Zeichenketten des Prüfberichts) und ersetzt Steuerzeichen, U+2028 und U+2029 durch Leerzeichen,
+  wo die Instanz sie ablehnt (4.2); folgt keiner Weiterleitung (Go gäbe den
+  `Authorization`-Kopf an einen anderen Port oder eine Subdomain weiter) und hält seinen
+  HTTP-Client für die ganze Sitzung.
 - **Metrik:** Die API hat keinen Metrik-Endpunkt; `restow_recovery_exchange_failures_total{reason}`
   wird im Prozess gezählt (`recoveryExchangeFailuresTotal`), die Warnung über 500 je 10 Minuten geht
   ins Server-Log.
+- **Offene Sitzung ohne Assistent:** Ändern sich Vorschau, ISO oder Sicherung, nachdem ein Code
+  eingelöst wurde, zeigen Karte und Seite `/bare-metal` weiter den offenen Code bzw. die Sitzung
+  (Freigeben, Ablehnen, Abbrechen, Widerrufen, Verlängern), nur kein neuer Code.
 - **Assistent:** Schritt 1 zeigt den neuesten Bare-Metal-Snapshot mit seinem Prüfstand (die API nimmt
   `snapshotId` für einen älteren); Schritt 2 nur, was M2 kennt (Firmwaremodus, Secure Boot,
   Mindestgrößen, Kabel, alte Platten). Die Gültigkeit schlägt das Doppelte der Zeit bei 50 MB/s vor,

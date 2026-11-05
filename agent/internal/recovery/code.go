@@ -9,6 +9,7 @@ package recovery
 import (
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base32"
 	"encoding/binary"
 	"encoding/hex"
@@ -37,9 +38,9 @@ const (
 	// SessionSecretBytes is the size of the session secret recover makes.
 	SessionSecretBytes = 32
 	// SPKICheckBytes is how much of the SPKI SHA-256 the check value shows (80 bits).
+	// The operator types all of it: a prefix would be short enough to grind a
+	// key for offline (40 bits for eight characters).
 	SPKICheckBytes = 10
-	// SPKIPrefixLength is how many characters of the check value the operator types.
-	SPKIPrefixLength = 8
 )
 
 var (
@@ -359,16 +360,17 @@ func SPKICheck(spkiSHA256Hex string) (string, error) {
 	return strings.Join(groups, "-"), nil
 }
 
-// SPKIPrefixMatches reports whether the operator typed the check value: at
-// least its first eight characters, ignoring dashes, spaces and case, and
-// nothing that differs from it.
-func SPKIPrefixMatches(typed, check string) bool {
+// SPKICheckMatches reports whether the operator typed the whole check value
+// (16 characters, 80 bits), ignoring dashes, spaces and case. A prefix is
+// refused: the SPKI of the instance is public, and a key whose SPKI hash
+// shares a short prefix can be searched for offline.
+func SPKICheckMatches(typed, check string) bool {
 	t := compactCheck(typed)
 	c := compactCheck(check)
-	if len(c) < SPKIPrefixLength || len(t) < SPKIPrefixLength || len(t) > len(c) {
+	if len(c) != base32.StdEncoding.EncodedLen(SPKICheckBytes) {
 		return false
 	}
-	return t == c[:len(t)]
+	return subtle.ConstantTimeCompare([]byte(t), []byte(c)) == 1
 }
 
 func compactCheck(s string) string {

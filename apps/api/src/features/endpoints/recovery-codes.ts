@@ -334,6 +334,13 @@ async function loadRecovery(
   return row;
 }
 
+/** Nothing more happens for a session of a removed machine but its end (docs/BAREMETAL.md 9.7). */
+function assertNotRemoved(endpoint: Pick<Endpoint, "removedAt">): void {
+  if (endpoint.removedAt) {
+    throw notAvailable("removed", "This machine was removed; its recovery sessions have ended.");
+  }
+}
+
 function endpointName(endpoint: Pick<Endpoint, "displayName" | "hostname">): string {
   return endpoint.displayName?.trim() || endpoint.hostname;
 }
@@ -521,6 +528,7 @@ export async function extendRecoveryCode(
   now: Date = new Date(),
 ): Promise<RecoveryDto> {
   const row = await withTenantTx(database, tenantId, async (tx) => {
+    assertNotRemoved(await loadMachine(tx, tenantId, endpointId));
     const current = await loadRecovery(tx, endpointId, recoveryId, { forUpdate: true });
     if (!OPEN_RECOVERY_STATES.includes(current.status) || current.expiresAt <= now) {
       throw stateConflict(current.status, "Only an open code or session can be extended.");
@@ -634,14 +642,16 @@ export async function getRecovery(
 }
 
 /**
- * The 30 minutes for a release ran out (9.4): fail the session, if it still waits, with one audit
- * entry and the alert. The monitor does the same; whichever comes first transitions.
+ * The 30 minutes for a release ran out (9.4), or the code expired while the session waited
+ * (`expired`): fail the session, if it still waits, with one audit entry and the alert. The
+ * monitor does the same; whichever comes first transitions.
  */
 export async function failUnapproved(
   tx: Transaction,
   row: Pick<EndpointRecovery, "id" | "tenantId" | "endpointId">,
   endpointName: string,
   now: Date,
+  reason: "not_approved" | "expired" = "not_approved",
 ): Promise<boolean> {
   const [failed] = await tx
     .update(endpointRecoveries)
@@ -658,18 +668,21 @@ export async function failUnapproved(
     actor: { label: "system", userId: null, ip: null },
     action: ENDPOINT_AUDIT_ACTIONS.recoveryExpired,
     endpointId: row.endpointId,
-    details: { recoveryId: row.id, from: "pending_approval", to: "failed", reason: "not_approved" },
+    details: { recoveryId: row.id, from: "pending_approval", to: "failed", reason },
   });
   await raiseTenantEvent(tx, {
     tenantId: row.tenantId,
     event: "endpoint.recovery.failed",
     level: "error",
-    message: `The recovery of ${endpointName} failed: nobody released the session within 30 minutes.`,
+    message:
+      reason === "expired"
+        ? `The recovery of ${endpointName} failed: its code expired before the session was released.`
+        : `The recovery of ${endpointName} failed: nobody released the session within 30 minutes.`,
     details: {
       endpointId: row.endpointId,
       objectName: endpointName,
       recoveryId: row.id,
-      reason: "not_approved",
+      reason,
     },
     now,
   });
@@ -691,6 +704,7 @@ export async function approveRecovery(
 ): Promise<RecoveryDto> {
   const result = await withTenantTx(database, tenantId, async (tx) => {
     const endpoint = await loadMachine(tx, tenantId, endpointId);
+    assertNotRemoved(endpoint);
     const current = await loadRecovery(tx, endpointId, recoveryId);
     if (current.status !== "pending_approval") {
       throw stateConflict(
@@ -700,16 +714,33 @@ export async function approveRecovery(
     }
     if (current.usedAt && now.getTime() - current.usedAt.getTime() > RECOVERY_APPROVAL_TIMEOUT_MS) {
       await failUnapproved(tx, current, endpointName(endpoint), now);
-      return { timedOut: true as const };
+      return { ended: "not_approved" as const };
     }
-    return { timedOut: false as const };
+    if (current.expiresAt <= now) {
+      // The code ran out while the session waited: it can no longer be released.
+      await failUnapproved(tx, current, endpointName(endpoint), now, "expired");
+      return { ended: "expired" as const };
+    }
+    return { ended: null };
   });
-  if (result.timedOut) {
+  if (result.ended) {
     forgetRecoverySession(recoveryId);
-    throw sessionEnded("Nobody released the session within 30 minutes; it has failed.");
+    throw sessionEnded(
+      result.ended === "expired"
+        ? "The code expired before the session was released; it has failed."
+        : "Nobody released the session within 30 minutes; it has failed.",
+    );
   }
   const dto = await holdForRecovery(endpointId, () =>
     withTenantTx(database, tenantId, async (tx) => {
+      // Held against a removal that comes at the same moment (removal.ts cancels waiting sessions).
+      const [machine] = await tx
+        .select({ removedAt: endpoints.removedAt })
+        .from(endpoints)
+        .where(eq(endpoints.id, endpointId))
+        .for("share")
+        .limit(1);
+      assertNotRemoved({ removedAt: machine?.removedAt ?? null });
       const [row] = await tx
         .update(endpointRecoveries)
         .set({ status: "active", approvedAt: now, approvedBy: actor.userId, updatedAt: now })
@@ -756,7 +787,9 @@ export async function cancelRecovery(
   now: Date = new Date(),
 ): Promise<RecoveryDto> {
   const dto = await withTenantTx(database, tenantId, async (tx) => {
-    const current = await loadRecovery(tx, endpointId, recoveryId);
+    // Locked: an approve, release or the monitor at the same moment comes before or after, and the
+    // audit names the state the session really left.
+    const current = await loadRecovery(tx, endpointId, recoveryId, { forUpdate: true });
     const [row] = await tx
       .update(endpointRecoveries)
       .set({ status: "cancelled", cancelRequestedAt: now, finishedAt: now, updatedAt: now })
@@ -799,6 +832,7 @@ export async function setRecoverySshKeys(
   now: Date = new Date(),
 ): Promise<RecoveryDto> {
   return withTenantTx(database, tenantId, async (tx) => {
+    assertNotRemoved(await loadMachine(tx, tenantId, endpointId));
     const current = await loadRecovery(tx, endpointId, recoveryId, { forUpdate: true });
     if (!OPEN_RECOVERY_STATES.includes(current.status)) {
       throw stateConflict(current.status, "The session has ended.");

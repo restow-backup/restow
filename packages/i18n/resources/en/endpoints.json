@@ -1833,6 +1833,7 @@
       "hardwareLater": "A full hardware guide (controllers, keyboard layout, TPM) follows with the recovery ISO.",
       "codeIntro": "Issue the code when the replacement hardware is ready. Its validity is suggested from the data to restore.",
       "liveEmpty": "No code issued yet.",
+      "liveOnly": "A new code cannot be issued right now (the preview, the recovery ISO or the machine's backup changed). The open code or session below can still be followed, released, ended or revoked.",
       "afterIntro": "Connect the restored machine to {appName} again with a rebind token of its own."
     },
     "iso": {

@@ -13,7 +13,13 @@
  *   - the credentials: once and once more within five minutes, `no-store`, never after `release`;
  *   - the states (9.9): every transition writes exactly one audit entry, a request that changes
  *     nothing writes none; a cancelled session still reports but reads nothing;
- *   - the log (redacted, without escape sequences, capped), the SSH keys, extending.
+ *   - the log (redacted, without escape sequences, capped), the SSH keys, extending;
+ *   - hardening: a dead code is audited and alerted once per window and limited per address, a
+ *     waiting session of a removed machine is neither released nor extended, a claim waits for a
+ *     removal at the same moment, a release after the code's expiry fails the session as expired,
+ *     a running session reports and finishes in the 30 minutes after its expiry, a storage error
+ *     uses up no credentials fetch, a cancel audits the state it really ended, what the ISO
+ *     reports is redacted and cannot name another session, a key block is masked across log calls.
  *
  * Runs when RESTOW_TEST_DATABASE_URL points at a Postgres server as a superuser. No restic: the
  * machines are inserted, not enrolled (recovery-restic.pg.test.ts reads through the route).
@@ -47,6 +53,22 @@ import {
   isoSide,
   sessionBasic,
 } from "./testing/recovery.js";
+
+const storageFault = vi.hoisted(() => ({ fail: false }));
+
+// The tenant's storage can be made to fail (a storage setting or secret that cannot be opened).
+vi.mock("./repository.js", async (importOriginal) => {
+  const original = await importOriginal<typeof import("./repository.js")>();
+  return {
+    ...original,
+    tenantStorage: (...args: Parameters<typeof original.tenantStorage>) => {
+      if (storageFault.fail) {
+        return Promise.reject(new Error("the storage settings cannot be opened"));
+      }
+      return original.tenantStorage(...args);
+    },
+  };
+});
 
 const DATABASE = "restow_api_recovery_test";
 const ORIGIN = "https://restow.firma.de";
@@ -987,6 +1009,314 @@ describe.skipIf(!testDatabaseAdminUrl)("recovery codes and sessions", () => {
       const listed = await codes.listRecoveries(shared.db, fixture.tenantId, target.id);
       expect(listed.items.map((item) => item.id)).toContain(issued.id);
       expect(JSON.stringify(listed)).not.toMatch(/codeHash|sessionSecretHash|code_hash/);
+    });
+  });
+
+  describe("hardening", () => {
+    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    /** A transaction of its own that runs `work`, then holds its locks until `release` is called. */
+    function holding(
+      work: (tx: Parameters<Parameters<typeof fixture.db.transaction>[0]>[0]) => Promise<unknown>,
+    ) {
+      let release: () => void = () => undefined;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let ready = false;
+      const done = fixture.db.transaction(async (tx) => {
+        await work(tx);
+        ready = true;
+        await gate;
+      });
+      return {
+        done,
+        release: () => release(),
+        ready: async () => {
+          while (!ready) await sleep(10);
+        },
+      };
+    }
+    const scheduledRemoval = () => ({
+      status: "revoked" as const,
+      removedAt: new Date(),
+      removal: {
+        mode: "delete" as const,
+        state: "scheduled" as const,
+        requestedBy: "admin",
+        requestedAt: new Date().toISOString(),
+      },
+    });
+
+    it("audits and alerts a dead code once per window, counts the repeats, and limits an address", async () => {
+      const target = await machine();
+      const code = await issue(target.id);
+      await codes.revokeRecoveryCode(shared.db, fixture.tenantId, target.id, code.id, actor());
+      const iso = isoSide(code.code, ORIGIN);
+      const from = { "x-forwarded-for": "203.0.113.77" };
+      for (let n = 0; n < 20; n++) {
+        expect((await post("/sessions", exchangeBody(iso), from)).status).toBe(410);
+      }
+      const blocked = await post("/sessions", exchangeBody(iso), from);
+      expect(blocked.status).toBe(429);
+      expect(Number(blocked.headers.get("retry-after"))).toBeGreaterThan(0);
+      // Another address still learns why, and the unknown-code tracker counted nothing.
+      expect((await post("/sessions", exchangeBody(iso))).status).toBe(410);
+      expect(service.recoveryFailures.isBlocked("203.0.113.77", Date.now())).toBe(false);
+      expect(await audits("endpoint.recovery_code.rejected", code.id)).toHaveLength(1);
+      const bells = await fixture.db
+        .select()
+        .from(notifications)
+        .where(sql`${notifications.details}->>'recoveryId' = ${code.id}`);
+      expect(bells).toHaveLength(1);
+      const deliveries = await fixture.db
+        .select()
+        .from(reportDeliveries)
+        .where(sql`${reportDeliveries.payload}->'details'->>'recoveryId' = ${code.id}`);
+      expect(deliveries).toHaveLength(1);
+      // After the window one more entry, with the attempts it did not record.
+      await expect(
+        service.exchangeRecoveryCode(
+          exchangeBody(iso) as never,
+          { ip: null, failureKey: "203.0.113.78" },
+          new Date(Date.now() + 11 * 60 * 1000),
+        ),
+      ).rejects.toMatchObject({ status: 410 });
+      const entries = await audits("endpoint.recovery_code.rejected", code.id);
+      expect(entries).toHaveLength(2);
+      expect(entries.map((entry) => (entry.details as { repeats?: number }).repeats)).toContain(20);
+    });
+
+    it("neither releases, extends nor keys a waiting session of a removed machine", async () => {
+      const s = await session();
+      await fixture.db
+        .update(endpoints)
+        .set(scheduledRemoval())
+        .where(eq(endpoints.id, s.endpointId));
+      const refused = { status: 409, type: "urn:restow:problem:baremetal-not-available" };
+      await expect(
+        codes.approveRecovery(shared.db, fixture.tenantId, s.endpointId, s.sessionId, actor()),
+      ).rejects.toMatchObject(refused);
+      await expect(
+        codes.extendRecoveryCode(
+          shared.db,
+          fixture.tenantId,
+          s.endpointId,
+          s.sessionId,
+          48,
+          actor(),
+        ),
+      ).rejects.toMatchObject(refused);
+      await expect(
+        codes.setRecoverySshKeys(
+          shared.db,
+          fixture.tenantId,
+          s.endpointId,
+          s.sessionId,
+          [],
+          actor(),
+        ),
+      ).rejects.toMatchObject(refused);
+      expect((await stored(s.sessionId))?.status).toBe("pending_approval");
+    });
+
+    it("lets a claim wait for a removal at the same moment and then refuses it", async () => {
+      const target = await machine({ status: "revoked" });
+      const code = await issue(target.id, { requireApproval: false });
+      const removal = holding(async (tx) => {
+        await tx.select().from(endpoints).where(eq(endpoints.id, target.id)).for("update");
+        await tx.update(endpoints).set(scheduledRemoval()).where(eq(endpoints.id, target.id));
+      });
+      await removal.ready();
+      const exchanging = post("/sessions", exchangeBody(isoSide(code.code, ORIGIN)));
+      await sleep(300);
+      removal.release();
+      await removal.done;
+      const answer = await exchanging;
+      expect(answer.status).toBe(410);
+      expect(((await answer.json()) as { type: string }).type).toBe(
+        "urn:restow:problem:recovery-code-revoked",
+      );
+      expect((await stored(code.id))?.status).toBe("issued");
+    });
+
+    it("fails a waiting session whose code expired before its release, as expired", async () => {
+      const s = await session();
+      await fixture.db
+        .update(endpointRecoveries)
+        .set({
+          issuedAt: new Date(Date.now() - 4 * 3600_000),
+          usedAt: new Date(Date.now() - 5 * 60 * 1000),
+          expiresAt: new Date(Date.now() - 1000),
+        })
+        .where(eq(endpointRecoveries.id, s.sessionId));
+      await expect(
+        codes.approveRecovery(shared.db, fixture.tenantId, s.endpointId, s.sessionId, actor()),
+      ).rejects.toMatchObject({ status: 401, type: "urn:restow:problem:recovery-session-ended" });
+      expect((await stored(s.sessionId))?.status).toBe("failed");
+      const expired = await audits("endpoint.recovery.expired", s.sessionId);
+      expect(expired).toHaveLength(1);
+      expect(expired[0]?.details).toMatchObject({ from: "pending_approval", reason: "expired" });
+    });
+
+    it("lets a running session report and finish in the 30 minutes after its expiry, and read nothing", async () => {
+      const progress = {
+        phase: "verifying",
+        step: 39,
+        stepsTotal: 40,
+        bytesDone: 2,
+        totalBytes: 2,
+        filesDone: 2,
+        totalFiles: 2,
+        message: "checking the boot loader",
+      };
+      const s = await session({ requireApproval: false });
+      const late = await session({ requireApproval: false });
+      for (const [id, minutes] of [
+        [s.sessionId, 5],
+        [late.sessionId, 31],
+      ] as const) {
+        await fixture.db
+          .update(endpointRecoveries)
+          .set({
+            issuedAt: new Date(Date.now() - 5 * 3600_000),
+            expiresAt: new Date(Date.now() - minutes * 60 * 1000),
+          })
+          .where(eq(endpointRecoveries.id, id));
+      }
+      cache.forgetRecoverySession();
+      expect((await get("/sessions/current/credentials", s.auth)).status).toBe(401);
+      expect((await post("/sessions/current/progress", progress, s.auth)).status).toBe(204);
+      const finish = await post(
+        "/sessions/current/finish",
+        { status: "succeeded", verification: {}, warnings: [], durationSeconds: 60 },
+        s.auth,
+      );
+      expect(finish.status, await finish.clone().text()).toBe(200);
+      expect((await stored(s.sessionId))?.status).toBe("succeeded");
+      // Past the 30 minutes the monitor's word holds.
+      expect((await post("/sessions/current/progress", progress, late.auth)).status).toBe(401);
+    });
+
+    it("counts no credentials fetch when the storage cannot be resolved", async () => {
+      const s = await session({ requireApproval: false });
+      storageFault.fail = true;
+      try {
+        for (let n = 0; n < 2; n++) {
+          expect((await get("/sessions/current/credentials", s.auth)).status).toBe(500);
+        }
+      } finally {
+        storageFault.fail = false;
+      }
+      expect(await audits("endpoint.recovery.credentials_issued", s.sessionId)).toHaveLength(0);
+      expect((await stored(s.sessionId))?.credentialsIssuedAt).toBeNull();
+      expect((await get("/sessions/current/credentials", s.auth)).status).toBe(200);
+    });
+
+    it("audits the state a cancel really ended when an approval comes first", async () => {
+      const s = await session();
+      const approval = holding((tx) =>
+        tx
+          .update(endpointRecoveries)
+          .set({ status: "active", approvedAt: new Date() })
+          .where(eq(endpointRecoveries.id, s.sessionId)),
+      );
+      await approval.ready();
+      const cancelling = codes.cancelRecovery(
+        shared.db,
+        fixture.tenantId,
+        s.endpointId,
+        s.sessionId,
+        actor(),
+      );
+      await sleep(300);
+      approval.release();
+      await approval.done;
+      await expect(cancelling).resolves.toMatchObject({ status: "cancelled" });
+      const [entry] = await audits("endpoint.recovery.cancelled", s.sessionId);
+      expect(entry?.details).toMatchObject({ from: "active" });
+    });
+
+    it("redacts what the ISO reports and keeps its own session in the audit entry", async () => {
+      const s = await session({ requireApproval: false });
+      const other = await session();
+      const progress = await post(
+        "/sessions/current/progress",
+        {
+          phase: "restoring",
+          step: 3,
+          stepsTotal: 40,
+          bytesDone: 1,
+          totalBytes: 2,
+          filesDone: 1,
+          totalFiles: 2,
+          message: "restic: Fatal: RESTIC_PASSWORD=hunter2hunter2 is wrong",
+        },
+        s.auth,
+      );
+      expect(progress.status).toBe(204);
+      const event = await post(
+        "/sessions/current/event",
+        {
+          kind: "keyfile_regenerated",
+          detail: { recoveryId: other.sessionId, note: "cryptsetup passphrase=sup3rs3cr3t" },
+        },
+        s.auth,
+      );
+      expect(event.status).toBe(204);
+      const finish = await post(
+        "/sessions/current/finish",
+        {
+          status: "succeeded",
+          verification: { steps: [{ output: "PGPASSWORD=hunter2hunter2 psql" }] },
+          warnings: [{ code: "hook", message: "export TOKEN=abcdefgh12345678" }],
+          durationSeconds: 60,
+        },
+        s.auth,
+      );
+      expect(finish.status).toBe(200);
+      const row = await stored(s.sessionId);
+      const kept = JSON.stringify([row?.progress, row?.verification, row?.warnings]);
+      expect(kept).not.toMatch(/hunter2hunter2|abcdefgh12345678/);
+      expect(kept).toContain("[redacted]");
+      const [entry] = await audits("endpoint.recovery.keyfile_regenerated", s.sessionId);
+      expect(entry?.details).toMatchObject({ recoveryId: s.sessionId, reportedBy: "iso" });
+      expect(JSON.stringify(entry?.details)).not.toContain("sup3rs3cr3t");
+      expect(await audits("endpoint.recovery.keyfile_regenerated", other.sessionId)).toHaveLength(
+        0,
+      );
+    });
+
+    it("masks a key block the ISO sends over two log calls", async () => {
+      const s = await session({ requireApproval: false });
+      const body = [
+        "b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQ",
+        "AAAAAAAAAAEAAAAzAAAAC3NzaC1lZDI1",
+      ];
+      await post(
+        "/sessions/current/log",
+        { lines: ["key file:", "-----BEGIN OPENSSH PRIVATE KEY-----", body[0]] },
+        s.auth,
+      );
+      await post(
+        "/sessions/current/log",
+        { lines: [body[1], "-----END OPENSSH PRIVATE KEY-----", "done"] },
+        s.auth,
+      );
+      const entries = await fixture.db
+        .select()
+        .from(endpointRecoveryLog)
+        .where(eq(endpointRecoveryLog.recoveryId, s.sessionId))
+        .orderBy(endpointRecoveryLog.createdAt);
+      const lines = entries.flatMap((entry) => entry.lines.split("\n"));
+      expect(lines).toEqual([
+        "key file:",
+        "[redacted]",
+        "[redacted]",
+        "[redacted]",
+        "[redacted]",
+        "done",
+      ]);
+      expect((await stored(s.sessionId))?.logInKeyBlock).toBe(false);
     });
   });
 });

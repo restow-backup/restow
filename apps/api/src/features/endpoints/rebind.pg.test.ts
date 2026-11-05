@@ -281,6 +281,40 @@ describe.skipIf(!testDatabaseAdminUrl)("rebinding a machine", () => {
     expect((await enroll(created.token)).status).toBe(401);
   });
 
+  it("rotates nothing when the repository password is missing, and keeps the token for a retry", async () => {
+    const target = await machine();
+    const created = await token(target.id);
+    const [before] = await fixture.db.select().from(endpoints).where(eq(endpoints.id, target.id));
+    await fixture.db
+      .update(endpoints)
+      .set({ repositorySecretId: null })
+      .where(eq(endpoints.id, target.id));
+    const rebound = () =>
+      fixture.db
+        .select()
+        .from(auditLog)
+        .where(and(eq(auditLog.action, "endpoint.rebound"), eq(auditLog.target, target.id)));
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const refused = await enroll(created.token);
+      expect(refused.status).toBe(409);
+      expect(((await refused.json()) as { type: string }).type).toBe(
+        "urn:restow:problem:endpoint-repository-unavailable",
+      );
+      // Rolled back: the old installation keeps its secret, nothing is audited or alerted.
+      const [row] = await fixture.db.select().from(endpoints).where(eq(endpoints.id, target.id));
+      expect(row?.secretHash).toBe(before?.secretHash);
+      expect(await rebound()).toHaveLength(0);
+      expect((await tokenRow(created.id))?.usedAt).toBeNull();
+    }
+    await fixture.db
+      .update(endpoints)
+      .set({ repositorySecretId: before?.repositorySecretId ?? null })
+      .where(eq(endpoints.id, target.id));
+    expect((await enroll(created.token)).status).toBe(201);
+    expect(await rebound()).toHaveLength(1);
+    expect((await tokenRow(created.id))?.usedAt).not.toBeNull();
+  });
+
   it("ends the uninstall order meant for the previous installation", async () => {
     const target = await machine();
     const [task] = await fixture.db

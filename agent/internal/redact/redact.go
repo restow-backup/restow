@@ -29,6 +29,9 @@ var patterns = []struct {
 	re   *regexp.Regexp
 	repl string
 }{
+	// Key material (PEM, OpenSSH): from BEGIN to END, or to the end of the
+	// text when the END is missing. KeyBlocks does this across lines.
+	{keyBlock, Mask},
 	// Restow enrollment and reconnect tokens and agent secrets.
 	{regexp.MustCompile(`\brs(?:et|ea)_[A-Za-z0-9_-]{8,}`), Mask},
 	// Recovery codes (RC-XXXXX-XXXXX-XXXXX-XXXXX-XXXXX, dashes optional).
@@ -44,6 +47,45 @@ var patterns = []struct {
 	// NAME=value / name: value / "name":"value" where the name hints at a secret.
 	{regexp.MustCompile(`(?i)((?:password|passwd|passphrase|secret|token|api[_-]?key|access[_-]?key)[A-Za-z0-9_.-]*["']?\s*[=:]\s*)("[^"]*"|'[^']*'|[^\s,;&"']+)`), "${1}" + Mask},
 }
+
+var (
+	keyBlock      = regexp.MustCompile(`(?s)-----BEGIN [A-Z ]+-----.*?(?:-----END [A-Z ]+-----|$)`)
+	keyBlockShut  = regexp.MustCompile(`-----BEGIN [A-Z ]+-----.*?-----END [A-Z ]+-----`)
+	keyBlockBegin = regexp.MustCompile(`-----BEGIN [A-Z ]+-----`)
+	keyBlockEnd   = regexp.MustCompile(`-----END [A-Z ]+-----`)
+)
+
+// KeyBlocks masks key material in text that is redacted line by line (a
+// log): every line from a BEGIN line to its END line is masked, also when
+// the lines come in separate calls. The zero value is ready to use; it is
+// not safe for concurrent use.
+type KeyBlocks struct {
+	open bool
+}
+
+// Line returns line redacted with r, masked where it is inside a key block.
+func (k *KeyBlocks) Line(r *Redactor, line string) string {
+	prefix := ""
+	rest := line
+	if k.open {
+		loc := keyBlockEnd.FindStringIndex(rest)
+		if loc == nil {
+			return Mask
+		}
+		k.open = false
+		prefix = Mask
+		rest = rest[loc[1]:]
+	}
+	rest = keyBlockShut.ReplaceAllString(rest, Mask)
+	if loc := keyBlockBegin.FindStringIndex(rest); loc != nil {
+		k.open = true
+		return prefix + r.Redact(rest[:loc[0]]) + Mask
+	}
+	return prefix + r.Redact(rest)
+}
+
+// Open reports whether the last line ended inside a key block.
+func (k *KeyBlocks) Open() bool { return k.open }
 
 // Redactor holds the exact secret values to remove. The zero value is ready
 // to use and safe for concurrent use.

@@ -6,8 +6,8 @@
  *     became active in between stops it as well; a session that waits for its release does not;
  *   - the removal of a removed machine's backups waits the same way, deletes nothing and records
  *     no failure;
- *   - the monitor expires codes nobody redeemed, fails sessions nobody released in 30 minutes and
- *     sessions silent 30 minutes past their expiry, one audit entry each and the alert for a
+ *   - the monitor expires codes nobody redeemed, fails sessions nobody released in 30 minutes or
+ *     before their code expired, and sessions silent 30 minutes past their expiry, one audit entry each and the alert for a
  *     failed one, and nothing on a second pass; logs older than 90 days go.
  *
  * Needs RESTOW_TEST_DATABASE_URL (a superuser; the database `restow_worker_recovery_test` is
@@ -343,5 +343,24 @@ describe.skipIf(!adminUrl)("bare metal recovery in the worker", () => {
     // A second pass finds nothing to do.
     expect(await expireRecoveries(deps, clock)).toEqual({ expired: 0, failed: 0, purgedLogs: 0 });
     expect(await expiredAudits(unused)).toHaveLength(1);
+  });
+
+  it("fails a waiting session whose code expired before the 30 minutes, as expired", async () => {
+    const id = await machine();
+    const ranOut = await recovery(id, "pending_approval", {
+      issuedAgo: 4 * HOUR,
+      expiresIn: -5 * MINUTE,
+      usedAgo: 15 * MINUTE,
+    });
+    expect(await expireRecoveries(deps, clock)).toMatchObject({ expired: 0, failed: 1 });
+    expect(await statusOf(ranOut)).toBe("failed");
+    const entries = await expiredAudits(ranOut);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]?.details).toMatchObject({ from: "pending_approval", reason: "expired" });
+    const [alert] = await owner
+      .select()
+      .from(notifications)
+      .where(sql`${notifications.details}->>'recoveryId' = ${ranOut}`);
+    expect(alert?.message).toContain("expired before the session was released");
   });
 });

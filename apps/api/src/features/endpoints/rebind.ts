@@ -200,7 +200,9 @@ export async function claimEnrollmentToken(
  * uninstall orders end (they were meant for the old installation), the next good backup becomes
  * the new baseline of the ransomware signals, and the rebind is audited and alerted. The
  * repository is the machine's: nothing is initialised. Answers the agent's state as an enrollment
- * does, with `rebound: true`. On a refusal the token is released.
+ * does, with `rebound: true`. The repository password is read in the same transaction, before
+ * anything changes: on a refusal or a failure the transaction rolls back and the token is released
+ * for a retry. Once the rotation committed the token stays used.
  */
 export async function rotateEndpointSecret(
   claimed: EndpointEnrollmentToken,
@@ -214,6 +216,7 @@ export async function rotateEndpointSecret(
   }
   const tenantId = claimed.tenantId;
   const secret = generateAgentSecret();
+  let committed = false;
   try {
     const [tenant] = await providerDb
       .select({ status: tenants.status })
@@ -225,7 +228,7 @@ export async function rotateEndpointSecret(
         detail: "The tenant of this token is currently suspended.",
       });
     }
-    const endpoint = await withTenantTx(db, tenantId, async (tx) => {
+    const rotated = await withTenantTx(db, tenantId, async (tx) => {
       const [row] = await tx
         .select()
         .from(endpoints)
@@ -251,6 +254,16 @@ export async function rotateEndpointSecret(
           type: ENDPOINT_PROBLEMS.revoked,
           detail:
             "This machine was revoked. Issue a rebind token that brings it back to rebind it.",
+        });
+      }
+      // The answer needs the repository password: without it nothing is rotated.
+      const password = row.repositorySecretId
+        ? await readSecret(tx, { id: row.repositorySecretId, tenantId })
+        : null;
+      if (password === null) {
+        throw new ProblemError(409, "Repository password missing", {
+          type: ENDPOINT_PROBLEMS.repositoryUnavailable,
+          detail: "The repository password of this machine is not available.",
         });
       }
       const facts = agentFactsOf(input, now, row.os);
@@ -337,32 +350,34 @@ export async function rotateEndpointSecret(
         },
         now,
       });
-      return updated;
+      return { endpoint: updated, password };
     });
-    return await rebindAnswer(endpoint, secret.value, context.instanceUrl, input.os);
+    committed = true;
+    return rebindAnswer(
+      rotated.endpoint,
+      rotated.password,
+      secret.value,
+      context.instanceUrl,
+      input.os,
+    );
   } catch (error) {
-    // Nothing was handed out: the token works for a retry.
-    await releaseEnrollmentToken(claimed.id).catch(() => undefined);
+    // Before the commit nothing changed and nothing was handed out: the token works for a retry.
+    // After it the token stays used: the rotation happened, a retry would rotate again.
+    if (!committed) {
+      await releaseEnrollmentToken(claimed.id).catch(() => undefined);
+    }
     throw error;
   }
 }
 
 /** The agent's state after a rebind: the machine's repository and configuration, the new secret. */
-async function rebindAnswer(
+function rebindAnswer(
   endpoint: Endpoint,
+  password: string,
   agentSecret: string,
   instanceUrl: string,
   os: string,
-): Promise<EnrollResponse & { rebound: true }> {
-  const password = endpoint.repositorySecretId
-    ? await readSecret(db, { id: endpoint.repositorySecretId, tenantId: endpoint.tenantId })
-    : null;
-  if (password === null) {
-    throw new ProblemError(409, "Repository password missing", {
-      type: ENDPOINT_PROBLEMS.repositoryUnavailable,
-      detail: "The repository password of this machine is not available.",
-    });
-  }
+): EnrollResponse & { rebound: true } {
   return {
     endpointId: endpoint.id,
     agentSecret,

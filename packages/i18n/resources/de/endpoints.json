@@ -1833,6 +1833,7 @@
       "hardwareLater": "Eine vollständige Hardware-Anleitung (Controller, Tastaturbelegung, TPM) folgt mit dem Recovery-ISO.",
       "codeIntro": "Stellen Sie den Code aus, wenn die Ersatzhardware bereit ist. Die Gültigkeit wird aus der Datenmenge vorgeschlagen.",
       "liveEmpty": "Noch kein Code ausgestellt.",
+      "liveOnly": "Ein neuer Code lässt sich gerade nicht ausstellen (Vorschau, Recovery-ISO oder Sicherung des Rechners haben sich geändert). Der offene Code bzw. die Sitzung unten lässt sich weiter verfolgen, freigeben, beenden oder widerrufen.",
       "afterIntro": "Verbinden Sie den wiederhergestellten Rechner mit einem eigenen Wiederanbindungs-Token wieder mit {appName}."
     },
     "iso": {

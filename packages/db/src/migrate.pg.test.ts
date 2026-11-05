@@ -2514,12 +2514,19 @@ describe.skipIf(!adminUrl)("upgrading to 0.5.0: recovery codes and rebind tokens
         );
       });
 
-      // Only the one migration is left to apply.
+      // Only 0078 and 0079 (the log's key block mark) are left to apply.
       await runMigrations(url);
       const { rows: applied } = await pool.query<{ count: string }>(
         "SELECT count(*)::text AS count FROM drizzle.__drizzle_migrations",
       );
-      expect(Number(applied[0]?.count)).toBe(79);
+      expect(Number(applied[0]?.count)).toBe(80);
+      const { rows: column } = await pool.query(
+        `SELECT data_type, is_nullable, column_default FROM information_schema.columns
+          WHERE table_name = 'endpoint_recoveries' AND column_name = 'log_in_key_block'`,
+      );
+      expect(column).toEqual([
+        { data_type: "boolean", is_nullable: "NO", column_default: "false" },
+      ]);
 
       await asTenant(pool, ids.tenant, async (client) => {
         const run = await client.query(

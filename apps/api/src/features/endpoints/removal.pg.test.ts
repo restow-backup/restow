@@ -131,7 +131,7 @@ describe.skipIf(!testDatabaseAdminUrl)("removing a machine against Postgres", ()
     expect(row?.removedAt).toBeNull();
   });
 
-  it("waits for a running recovery and revokes the codes nobody redeemed (docs/BAREMETAL.md 9.7)", async () => {
+  it("waits for a running recovery, revokes the codes nobody redeemed and ends waiting sessions (docs/BAREMETAL.md 9.7)", async () => {
     const id = await machine();
     const hostname = await hostnameOf(id);
     const recovery = (status: "issued" | "pending_approval" | "active", hours = 4) =>
@@ -160,7 +160,7 @@ describe.skipIf(!testDatabaseAdminUrl)("removing a machine against Postgres", ()
       .update(endpointRecoveries)
       .set({ expiresAt: new Date(NOW.getTime() - 1000) })
       .where(eq(endpointRecoveries.id, active));
-    await recovery("pending_approval");
+    const waiting = await recovery("pending_approval");
     await remove(id, { mode: "delete", confirmHostname: hostname });
     const [code] = await fixture.db
       .select()
@@ -173,6 +173,19 @@ describe.skipIf(!testDatabaseAdminUrl)("removing a machine against Postgres", ()
       .where(and(eq(auditLog.action, "endpoint.recovery_code.revoked"), eq(auditLog.target, id)));
     expect(revoked.map((entry) => entry.details)).toEqual([
       { recoveryId: issued, kind: "code", reason: "removed" },
+    ]);
+    // The waiting session ends with the machine: released later it would hold the deletion.
+    const [ended] = await fixture.db
+      .select()
+      .from(endpointRecoveries)
+      .where(eq(endpointRecoveries.id, waiting));
+    expect(ended).toMatchObject({ status: "cancelled" });
+    const cancelled = await fixture.db
+      .select()
+      .from(auditLog)
+      .where(and(eq(auditLog.action, "endpoint.recovery.cancelled"), eq(auditLog.target, id)));
+    expect(cancelled.map((entry) => entry.details)).toEqual([
+      { recoveryId: waiting, from: "pending_approval", reason: "removed" },
     ]);
   });
 

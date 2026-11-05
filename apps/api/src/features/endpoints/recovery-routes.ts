@@ -52,7 +52,8 @@ import {
  *   POST /sessions/current/finish         succeeded, failed or cancelled, with the verification
  *   POST /sessions/current/rebind         a rebind token of the machine -> the agent's state (201)
  *
- * Body limits (middleware/body-limit.ts): 64 KiB, the log 512 KiB, the finish 256 KiB.
+ * Body limits (middleware/body-limit.ts): 64 KiB (RECOVERY_BODY_LIMIT), the log 1 MiB
+ * (RECOVERY_LOG_BODY_LIMIT), the finish 320 KiB (RECOVERY_FINISH_BODY_LIMIT).
  */
 export const recoveryRoutes = new Hono<{ Variables: { session: RecoverySessionAccess } }>();
 
@@ -63,10 +64,14 @@ function failureKeyOf(c: Context): string {
   return clientIp(c) ?? "unknown";
 }
 
-/** A busy repository asks the ISO to come back in half a minute. */
+/** A busy repository asks the ISO to come back in half a minute, a rate limit when it says. */
 function withRetryAfter(c: Context, error: unknown): never {
   if (error instanceof ProblemError && error.type === ENDPOINT_PROBLEMS.repositoryLocked) {
     c.header("retry-after", "30");
+  }
+  const seconds = error instanceof ProblemError ? error.extensions?.retryAfterSeconds : undefined;
+  if (error instanceof ProblemError && error.status === 429 && typeof seconds === "number") {
+    c.header("retry-after", String(seconds));
   }
   throw error;
 }
