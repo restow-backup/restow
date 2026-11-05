@@ -12,6 +12,11 @@ export {
   useBackupDestination,
 } from "./destination";
 export { useStorageScope } from "./use-storage";
+export {
+  usePrimaryWriteOnce,
+  type WriteOnceRetentionContext,
+  WriteOnceRetentionNotice,
+} from "./write-once";
 
 /**
  * Repositories: where the tenant's chunk store lives (installation default,

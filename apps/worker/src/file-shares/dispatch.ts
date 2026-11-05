@@ -27,7 +27,7 @@ import {
   cleanTargetFolder,
   type FailureCause,
   type FileShareSettings,
-  fileShareRepositoryPrefix,
+  freshRepositoryPrefix,
   goMemLimitMiB,
   INSTALLATION_DEFAULT_TARGET_ID,
   issueRunToken,
@@ -83,6 +83,7 @@ import {
   openTenantSecret,
   reportableMessage,
   shareRepositoryAccess,
+  shareRepositoryPrefix,
 } from "./common.js";
 import { endRun } from "./finish.js";
 
@@ -386,6 +387,11 @@ function targetLabel(target: ResolvedStorageTarget): string {
  * repository beside restore points that refer to the old one: it is `elsewhere`, `split` (data
  * without `config`; `restic init` would refuse it), or `missing` while restore points still
  * refer to it. Missing with no restore point, it is created again.
+ *
+ * On a write-once target (its last probe, docs/STORAGE.md "Write-once storage"), what lies at the
+ * prefix without `config` and without any restore point referring to it (a first run that
+ * straddled a storage change, leftovers an operator cannot delete there) is left where it is: the
+ * repository begins under a fresh prefix (`file-shares/<id>.chain-<n>/`), recorded on the share.
  */
 export async function ensureShareRepository(
   deps: FileShareDeps,
@@ -394,7 +400,7 @@ export async function ensureShareRepository(
 ): Promise<FileShare> {
   const targets = storage ?? (await deps.runtime.storage.get(share.tenantId));
   const primary = targets.primary;
-  const prefix = fileShareRepositoryPrefix(share.id);
+  let prefix = shareRepositoryPrefix(share);
   if (share.repositorySecretId && share.repositoryReadyAt) {
     const config = await primary.head(`${prefix}config`);
     if (config && (await primary.list(`${prefix}keys/`)).length > 0) {
@@ -402,14 +408,29 @@ export async function ensureShareRepository(
     }
   }
   const files = await shareRepositoryFiles(primary, prefix);
-  const hasConfig = files.includes(`${prefix}config`);
+  let hasConfig = files.includes(`${prefix}config`);
+  let fresh: string | null = null;
   if (files.length > 0 && !hasConfig) {
-    throw new ShareRepositoryUnavailableError(
-      "split",
-      "the share's repository on the primary storage target holds data but no config: a run that went on while the primary changed wrote to two targets. Run the repository repair (storage).",
+    const writeOnce =
+      (targets as Partial<ResolvedTenantStorage>).targets?.find(
+        (target) => target.backend === primary,
+      )?.writeOnce === true;
+    if (!writeOnce || (await shareHasRestorePoints(deps, share))) {
+      throw new ShareRepositoryUnavailableError(
+        "split",
+        "the share's repository on the primary storage target holds data but no config: a run that went on while the primary changed wrote to two targets. Run the repository repair (storage).",
+      );
+    }
+    // Nothing refers to it, and the storage keeps it for good: the repository begins next to it.
+    fresh = await freshRepositoryPrefix(primary, "file_share", share.id, prefix);
+    deps.runtime.logger.warn(
+      "file share repository: leftovers on write-once storage stay where they are, a new repository begins under a fresh prefix",
+      { tenantId: share.tenantId, fileShareId: share.id, previousPrefix: prefix, prefix: fresh },
     );
+    prefix = fresh;
+    hasConfig = false;
   }
-  if (share.repositoryReadyAt && !hasConfig) {
+  if (share.repositoryReadyAt && !hasConfig && !fresh) {
     const others = ((targets as Partial<ResolvedTenantStorage>).targets ?? []).filter(
       (target) => target.backend !== primary,
     );
@@ -453,7 +474,7 @@ export async function ensureShareRepository(
       );
     }
   }
-  let current = share;
+  let current: FileShare = fresh ? { ...share, repositoryPrefix: fresh } : share;
   if (!current.repositorySecretId) {
     const keys = await deps.runtime.keyrings.get(share.tenantId);
     const password = randomBytes(32).toString("base64url");
@@ -489,9 +510,24 @@ export async function ensureShareRepository(
   await keepSharePasswordFile(deps, current, access);
   const now = deps.runtime.now();
   await withTenantTx(deps.db, share.tenantId, (tx) =>
-    tx.update(fileShares).set({ repositoryReadyAt: now }).where(eq(fileShares.id, share.id)),
+    tx
+      .update(fileShares)
+      .set({ repositoryReadyAt: now, ...(fresh ? { repositoryPrefix: fresh } : {}) })
+      .where(eq(fileShares.id, share.id)),
   );
   return { ...current, repositoryReadyAt: now };
+}
+
+/** Whether any restore point of the share is recorded (whatever its state). */
+async function shareHasRestorePoints(deps: FileShareDeps, share: FileShare): Promise<boolean> {
+  const [snapshot] = await withTenantTx(deps.db, share.tenantId, (tx) =>
+    tx
+      .select({ id: fileShareSnapshots.id })
+      .from(fileShareSnapshots)
+      .where(eq(fileShareSnapshots.fileShareId, share.id))
+      .limit(1),
+  );
+  return snapshot !== undefined;
 }
 
 /**
@@ -509,7 +545,7 @@ export async function pinShareRun(
   const storage = await freshTenantStorage(runner, deps.runtime.storage, run.tenantId);
   let chosen: string | null = null;
   if (run.kind !== "backup") {
-    const prefix = fileShareRepositoryPrefix(repositoryShareId);
+    const prefix = await shareRepositoryPrefixOf(deps, run.tenantId, repositoryShareId);
     for (const target of storage.targets ?? []) {
       if (await target.backend.head(`${prefix}config`).catch(() => null)) {
         chosen = target.id;
@@ -540,6 +576,22 @@ export async function pinShareRun(
   const backend =
     fresh.targets?.find((target) => target.id === pinned.target)?.backend ?? fresh.primary;
   return { storage: fresh, backend };
+}
+
+/** {@link shareRepositoryPrefix} of a share known by its id (its row is read). */
+async function shareRepositoryPrefixOf(
+  deps: FileShareDeps,
+  tenantId: string,
+  shareId: string,
+): Promise<string> {
+  const [row] = await withTenantTx(deps.db, tenantId, (tx) =>
+    tx
+      .select({ id: fileShares.id, repositoryPrefix: fileShares.repositoryPrefix })
+      .from(fileShares)
+      .where(eq(fileShares.id, shareId))
+      .limit(1),
+  );
+  return shareRepositoryPrefix(row ?? { id: shareId, repositoryPrefix: null });
 }
 
 /** A copy run (4.10): the restore point to copy, or why not. */

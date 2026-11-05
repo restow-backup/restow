@@ -33,6 +33,7 @@ vi.mock("@/features/storage", () => ({
   BackupDestinationNote: () => null,
   ServerDiskWarning: () => null,
   useStorageScope: () => ({ canManage: false }),
+  WriteOnceRetentionNotice: () => null,
 }));
 vi.mock("@/features/suspicion", () => ({
   judgementsById: () => new Map(),

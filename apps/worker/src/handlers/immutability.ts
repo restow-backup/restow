@@ -21,7 +21,6 @@
  */
 import {
   endpointPrefix,
-  fileShareRepositoryPrefix,
   type ImmutableStorageBackend,
   immutableBackendOf,
   keyPrefix,
@@ -33,6 +32,7 @@ import {
   renewalDue,
   renewalResumable,
   renewRetention,
+  repositoryPrefixOf,
   type StorageBackend,
   s3LockMode,
   spreadSample,
@@ -140,13 +140,18 @@ export async function resticPrefixes(
           row.removalDueAt !== null &&
           row.removalDueAt > now),
     );
-    const shares = await tx.select({ id: fileShares.id }).from(fileShares);
-    const guests = await tx.select({ id: pveGuests.id }).from(pveGuests);
+    const shares = await tx
+      .select({ id: fileShares.id, prefix: fileShares.repositoryPrefix })
+      .from(fileShares);
+    const guests = await tx
+      .select({ id: pveGuests.id, prefix: pveGuests.repositoryPrefix })
+      .from(pveGuests);
+    // The prefix each repository's current chain lies under (a fresh one on write-once storage).
     return {
       prefixes: [
         ...machine.map((row) => endpointPrefix(row.id)),
-        ...shares.map((row) => fileShareRepositoryPrefix(row.id)),
-        ...guests.map((row) => `pve-guests/${row.id}/`),
+        ...shares.map((row) => repositoryPrefixOf("file_share", row.id, row.prefix)),
+        ...guests.map((row) => repositoryPrefixOf("container", row.id, row.prefix)),
       ],
     };
   });

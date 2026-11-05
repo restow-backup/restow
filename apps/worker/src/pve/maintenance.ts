@@ -74,6 +74,7 @@ import {
   pveSelfBackupBlocked,
   ResticError,
   removeLockFiles,
+  repositoryPrefixOf,
   resticBinary,
   resticCacheBase,
   resticCheck,
@@ -134,6 +135,7 @@ import {
   freshTenantStorage,
   PgChunkIndex,
   PgSecretReader,
+  primaryWriteOnce,
   tenantRunner,
   type WorkerRuntime,
   withTenantTx,
@@ -768,6 +770,9 @@ export async function applyRetention(deps: PveDeps, now: Date): Promise<number> 
   return pruned;
 }
 
+/** Tenants whose write-once primary this process already logged (once each, not every pass). */
+const retentionWriteOnceTold = new Set<string>();
+
 /** Retention of one guest (see `applyRetention`); how many restore points it pruned. */
 async function retainGuest(
   deps: PveDeps,
@@ -783,6 +788,19 @@ async function retainGuest(
     migrating.set(guest.tenantId, busy);
   }
   if (busy) {
+    return 0;
+  }
+  // Write-once storage (docs/STORAGE.md, "Write-once storage"): nothing there can be deleted, so
+  // no restore point is pruned (each stays restorable, its data stays anyway), no restic snapshot
+  // forgotten, no prune run. The guest page and the job say so.
+  if (primaryWriteOnce(await deps.runtime.storage.get(guest.tenantId))) {
+    if (!retentionWriteOnceTold.has(guest.tenantId)) {
+      retentionWriteOnceTold.add(guest.tenantId);
+      deps.runtime.logger.info(
+        "pve retention: not applied, the primary storage target of the tenant is write-once",
+        { tenantId: guest.tenantId },
+      );
+    }
     return 0;
   }
   // A backup, restore, check or boot test of the guest runs (its restic holds or takes the
@@ -1036,7 +1054,9 @@ async function pveSnapshotLocked(deps: PveDeps, guest: PveGuest, snap: PveSnapsh
   const targets = [storage.primary, ...storage.copies];
   const keys = [
     ...(snap.manifestPath ? [snap.manifestPath] : []),
-    ...(snap.resticSnapshotId ? [`pve-guests/${guest.id}/snapshots/${snap.resticSnapshotId}`] : []),
+    ...(snap.resticSnapshotId
+      ? [`${guestRepositoryPrefix(guest)}snapshots/${snap.resticSnapshotId}`]
+      : []),
   ];
   for (const key of keys) {
     if (await protectionOnTargets(targets, key)) {
@@ -1044,6 +1064,14 @@ async function pveSnapshotLocked(deps: PveDeps, guest: PveGuest, snap: PveSnapsh
     }
   }
   return false;
+}
+
+/**
+ * The prefix a container's repository lies under: `pve-guests/<id>/`, or the fresh prefix its
+ * current chain began under on write-once storage (`pve_guests.repository_prefix`).
+ */
+function guestRepositoryPrefix(guest: Pick<PveGuest, "id" | "repositoryPrefix">): string {
+  return repositoryPrefixOf("container", guest.id, guest.repositoryPrefix);
 }
 
 async function repositoryAccess(deps: PveDeps, guest: PveGuest) {
@@ -1060,7 +1088,7 @@ async function repositoryAccess(deps: PveDeps, guest: PveGuest) {
   );
   return {
     storage: storage.primary,
-    prefix: `pve-guests/${guest.id}/`,
+    prefix: guestRepositoryPrefix(guest),
     repositoryPassword: password,
     repositoryKey: guest.id,
     binary: resticBinary(),
@@ -1315,6 +1343,7 @@ async function clearStaleGuestLocks(
       const gone = new Set(dayOld);
       const recent = present.filter((lock) => !gone.has(lock.name));
       const lockTimes = new Map<string, Date | null>();
+      const unread: { name: string; detail: string }[] = [];
       for (const lock of storageStaleLocks(recent, now)) {
         const read = await resticLockTime(session, lock.name, {
           signal: deps.runtime.shutdownSignal,
@@ -1329,10 +1358,7 @@ async function clearStaleGuestLocks(
           continue;
         }
         lockTimes.set(lock.name, null);
-        deps.runtime.logger.warn(
-          "pve: the time of a container repository's lock could not be read, the lock is kept for now",
-          { guestId, lock: lock.name.slice(0, 12), detail: read.unreadable },
-        );
+        unread.push({ name: lock.name, detail: read.unreadable });
       }
       const skews = lockClockSkews(recent, lockTimes);
       if (skews.length > 0) {
@@ -1346,6 +1372,17 @@ async function clearStaleGuestLocks(
         );
       }
       stale = locksToRemove(recent, { ...judge, lockTimes });
+      // Said once the judgement is made, so the line tells what happens to the lock: kept for
+      // the next pass, or (stored more than a day ago meanwhile) removed by its storage time.
+      const removing = new Set(stale);
+      for (const lock of unread) {
+        deps.runtime.logger.warn(
+          removing.has(lock.name)
+            ? "pve: the time of a container repository's lock could not be read; it was stored more than a day ago and is removed by its storage time alone"
+            : "pve: the time of a container repository's lock could not be read; the lock is kept and judged again by the next pass (removed once it was stored more than a day ago)",
+          { guestId, lock: lock.name.slice(0, 12), detail: lock.detail },
+        );
+      }
     }
   } catch (error) {
     deps.runtime.logger.warn("pve: the locks of a container repository could not be listed", {

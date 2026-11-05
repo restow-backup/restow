@@ -34,6 +34,12 @@ import type { StorageBackend } from "./backend.js";
 import { parseImmutabilitySettings, withImmutability } from "./immutability.js";
 import { LocalStorageBackend } from "./local.js";
 import { S3StorageBackend } from "./s3.js";
+import {
+  type WriteOnceFinding,
+  type WriteOnceRefusal,
+  writeOnceOfConfig,
+  writeRefusalCode,
+} from "./write-once.js";
 
 // ---------------------------------------------------------------------------
 // Locations
@@ -843,6 +849,16 @@ export interface ResolvedStorageTarget {
   readonly name: string | null;
   readonly role: "primary" | "copy" | "previous";
   readonly backend: StorageBackend;
+  /**
+   * The target's last probe found it write-once (write-once.ts): nothing on it is deleted,
+   * overwritten or moved. False when it was not, or never probed since 0.5.0.
+   */
+  readonly writeOnce?: boolean;
+}
+
+/** Whether a `storage_targets` row's last probe found it write-once. */
+export function rowWriteOnce(row: Pick<StorageTargetRecord, "config">): boolean {
+  return writeOnceOfConfig(row.config)?.writeOnce === true;
 }
 
 export interface ResolvedStorageTargets extends StorageTargets {
@@ -900,6 +916,12 @@ export async function resolveStorageTargets(
      * installation-default.ts), called at most once and only when needed.
      */
     readonly defaults: StorageTargets | (() => StorageTargets | Promise<StorageTargets>);
+    /**
+     * Whether the installation default's last probe found it write-once
+     * (`settings.default_storage_write_once`); asked only when the default is one of the
+     * tenant's targets. Without it the default counts as not write-once.
+     */
+    readonly defaultWriteOnce?: () => Promise<boolean>;
   },
 ): Promise<ResolvedStorageTargets> {
   const primaryRow = rows.find((row) => row.role === "primary");
@@ -916,6 +938,15 @@ export async function resolveStorageTargets(
     }
     return defaultsCache;
   };
+  let defaultWriteOnceCache: boolean | undefined;
+  const defaultWriteOnce = async (): Promise<boolean> => {
+    if (defaultWriteOnceCache === undefined) {
+      defaultWriteOnceCache = options.defaultWriteOnce
+        ? await options.defaultWriteOnce().catch(() => false)
+        : false;
+    }
+    return defaultWriteOnceCache;
+  };
   const targets: ResolvedStorageTarget[] = [];
   if (primaryRow) {
     primary = (await openStorageTarget(primaryRow, options.secrets)).backend;
@@ -924,6 +955,7 @@ export async function resolveStorageTargets(
       name: primaryRow.name ?? null,
       role: "primary",
       backend: primary,
+      writeOnce: rowWriteOnce(primaryRow),
     });
   } else {
     const resolved = await defaults();
@@ -934,6 +966,7 @@ export async function resolveStorageTargets(
       name: null,
       role: "primary",
       backend: primary,
+      writeOnce: await defaultWriteOnce(),
     });
     resolved.copies.forEach((backend, index) => {
       targets.push({
@@ -948,7 +981,13 @@ export async function resolveStorageTargets(
     if (row.role === "copy") {
       const backend = (await openStorageTarget(row, options.secrets)).backend;
       copies.push(backend);
-      targets.push({ id: row.id, name: row.name ?? null, role: "copy", backend });
+      targets.push({
+        id: row.id,
+        name: row.name ?? null,
+        role: "copy",
+        backend,
+        writeOnce: rowWriteOnce(row),
+      });
     } else if (row.role === "previous") {
       const retiredDefault = row.kind === "installation_default";
       const backend = retiredDefault
@@ -960,6 +999,7 @@ export async function resolveStorageTargets(
         name: row.name ?? null,
         role: "previous",
         backend,
+        writeOnce: retiredDefault ? await defaultWriteOnce() : rowWriteOnce(row),
       });
     }
   }
@@ -1190,7 +1230,12 @@ export type StorageProbeWarning =
    */
   | "insecure_endpoint"
   /** The probe object could not be removed again. */
-  | "cleanup_failed";
+  | "cleanup_failed"
+  /**
+   * The storage refuses to overwrite or delete what it holds (write-once, write-once.ts): no
+   * retention, lock files stay, a new restic chain goes to a fresh prefix.
+   */
+  | "write_once";
 
 export interface StorageProbeStepResult {
   readonly step: StorageProbeStep;
@@ -1210,6 +1255,12 @@ export interface StorageProbeResult {
   readonly errorCode: StorageErrorCode | null;
   readonly error: string | null;
   readonly warnings: readonly StorageProbeWarning[];
+  /**
+   * Whether the storage refused to overwrite or delete the probe object (write-once.ts). Null
+   * when the probe did not get that far (an earlier step failed), and in probes recorded
+   * before 0.5.0.
+   */
+  readonly writeOnce?: WriteOnceFinding | null;
 }
 
 export interface StorageProbeOptions {
@@ -1379,14 +1430,56 @@ export async function probeStorageBackend(
     return finish();
   }
 
+  // Write-once (write-once.ts): overwrite the probe object, then delete it. A refusal of either
+  // is no failure of the probe: such a target takes backups, it only keeps everything.
+  const refused: WriteOnceRefusal[] = [];
+  let refusalCode: string | null = null;
+  const replacement = randomBytes(PROBE_PAYLOAD_BYTES);
+  const overwrite = await timed("write", timeoutMs, async () => {
+    try {
+      await backend.put(key, replacement);
+    } catch (error) {
+      const code = writeRefusalCode(error);
+      if (code === null) {
+        throw error;
+      }
+      return code;
+    }
+    // Accepted, but the old content stayed: a share that keeps the first version.
+    return (await backend.get(key)).equals(replacement) ? null : "ignored";
+  });
+  if (overwrite.value) {
+    refused.push("overwrite");
+    refusalCode = overwrite.value;
+  }
+
   const remove = await timed("delete", timeoutMs, async () => {
-    await backend.delete(key);
+    try {
+      await backend.delete(key);
+    } catch (error) {
+      const code = writeRefusalCode(error);
+      if (code === null) {
+        throw error;
+      }
+      refused.push("delete");
+      refusalCode ??= code;
+      return;
+    }
     if ((await backend.head(key)) !== null) {
       throw new StorageIntegrityError(`${key} still exists after deletion`);
     }
   });
   steps.push(remove.result);
-  return finish();
+  const writeOnce: WriteOnceFinding = {
+    writeOnce: refused.length > 0,
+    refused,
+    code: refusalCode,
+    checkedAt,
+  };
+  if (writeOnce.writeOnce) {
+    warnings.push("write_once");
+  }
+  return { ...finish(), writeOnce };
 }
 
 // ---------------------------------------------------------------------------

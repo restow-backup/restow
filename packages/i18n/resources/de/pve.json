@@ -326,22 +326,40 @@
     "bootTestDetail": {
       "green": "Der QEMU Guest Agent des wiederhergestellten Gasts hat nach {seconds} s geantwortet.",
       "greenContainer": "Der Init-Prozess des wiederhergestellten Containers läuft.",
+      "greenSystemd": "systemd des wiederhergestellten Containers meldet das System als laufend.",
       "yellow": "Die wiederhergestellte VM ist gestartet und lief weiter, aber ihr QEMU Guest Agent hat nicht geantwortet. Installieren Sie den Guest Agent in der VM, um den Start nachzuweisen.",
       "red": "Der Sicherungsstand ist nicht gestartet: {message}"
     },
     "bootTestReason": {
+      "memory_limit": "Nicht geprüft: Der Gast braucht mehr Arbeitsspeicher, als der Backup-Job für Startprüfungen zulässt.",
+      "node_memory": "Nicht geprüft: Auf dem Knoten war zu wenig Arbeitsspeicher für die Kopie frei. Es wird später erneut versucht.",
+      "node_resources": "Nicht geprüft: Der Knoten konnte der Kopie den Speicher, für den sie eingerichtet ist, nicht geben (Hugepages oder eine NUMA-Bindung). Es wird später erneut versucht.",
+      "storage_space": "Nicht geprüft: Auf dem Speicher für Startprüfungen war zu wenig Platz für die Wiederherstellung. Es wird später erneut versucht.",
+      "storage_content": "Nicht geprüft: Der Speicher für Startprüfungen auf dem Knoten nimmt keine Gäste dieser Art auf.",
+      "storage_io_error": "Nicht geprüft: Ein E/A-Fehler des Speichers für Startprüfungen hat die Kopie angehalten (der Speicher ist womöglich voll). Das sagt nichts über den Sicherungsstand; es wird später erneut versucht.",
+      "no_storage": "Nicht geprüft: Der Knoten hat keinen nutzbaren Speicher für Startprüfungen (restow-pve config --boot-test-storage).",
+      "backup_running": "Nicht geprüft: Auf dem Knoten lief eine Sicherung oder Wiederherstellung. Es wird später erneut versucht.",
+      "boot_test_running": "Nicht geprüft: Auf dem Knoten lief eine andere Startprüfung. Es wird später erneut versucht.",
+      "restores_off": "Nicht geprüft: Wiederherstellungen sind auf dem Knoten ausgeschaltet.",
+      "boot_tests_off": "Nicht geprüft: Startprüfungen sind auf dem Knoten ausgeschaltet.",
       "custom_qemu_args": "Nicht geprüft: Die VM hat eigene QEMU-Argumente (args), die das Netzwerk oder Datenträger des Hosts erreichen können. Eine neben dem Original gestartete Kopie könnte sie ebenfalls nutzen.",
       "host_disk": "Nicht geprüft: Die VM nutzt einen Datenträger des Hosts direkt (durchgereichtes Gerät). Eine neben dem Original gestartete Kopie würde auf denselben Datenträger schreiben.",
       "bridge_not_isolated": "Nicht geprüft: Die Bridge für Startprüfungen auf dem Knoten ist mit dem Netzwerk verbunden. Legen Sie mit restow-pve config --boot-test-bridge eine Bridge ohne Ports fest.",
-      "node_resources": "Nicht geprüft: Der Knoten konnte der Kopie den Speicher, für den sie eingerichtet ist, nicht geben (Hugepages oder eine NUMA-Bindung). Es wird später erneut versucht.",
-      "storage_space": "Nicht geprüft: Auf dem Speicher für Startprüfungen war zu wenig Platz für die Wiederherstellung. Es wird später erneut versucht.",
-      "setup_failed": "Nicht durchgeführt: Die Startprüfung ließ sich vor der Wiederherstellung nicht vorbereiten. Das sagt nichts über den Sicherungsstand; es wird später erneut versucht.",
-      "io_error": "Nicht durchgeführt: Die Kopie hielt bei einem E/A-Fehler des Speichers für Startprüfungen an. Das sagt nichts über den Sicherungsstand; es wird später erneut versucht.",
-      "guest_agent_silent": "Die Kopie startete und lief weiter, aber der QEMU Guest Agent, der im Original läuft, antwortete nicht. Dass sie hochgefahren ist, ist nicht belegt.",
+      "node_error": "Nicht durchgeführt: Der Knoten konnte die Startprüfung nicht durchführen. Das sagt nichts über den Sicherungsstand; es wird später erneut versucht.",
+      "no_guest_agent": "Die Kopie startete und lief weiter, aber kein QEMU Guest Agent hat geantwortet. Installieren Sie den Guest Agent in der VM, um den Start nachzuweisen.",
+      "agent_not_answering": "Die Kopie startete und lief weiter, aber der QEMU Guest Agent, mit dem der Gast eingerichtet ist, hat nicht rechtzeitig geantwortet. Sie ist vermutlich nicht fertig hochgefahren.",
+      "guest_paused": "Die Kopie startete, wurde aber angehalten, und ihr QEMU Guest Agent hat nicht geantwortet. Dass sie hochgefahren ist, ist nicht belegt.",
+      "system_degraded": "Der Container startete, aber systemd meldet fehlgeschlagene Dienste (degraded).",
+      "system_starting": "Der Container lief weiter, aber systemd ist nicht rechtzeitig fertig hochgefahren.",
+      "system_unknown": "Der Container lief weiter, aber der Zustand seines systemd ließ sich nicht abfragen. Dass er hochgefahren ist, ist nicht belegt.",
       "init_running_unverified": "Der Init-Prozess des Containers läuft, ob seine Dienste gestartet sind, ließ sich aber nicht prüfen.",
-      "systemd_degraded": "Der Container startete, aber systemd meldet fehlgeschlagene Dienste (degraded).",
-      "systemd_emergency": "Der Container erreichte seine Dienste nicht: systemd ist im Notfall- oder Rettungsmodus.",
-      "guest_panicked": "Die Kopie ist beim Hochfahren abgestürzt (guest panicked)."
+      "init_unknown": "Der Container lief weiter, aber sein Init-Prozess ließ sich nicht ermitteln. Dass er hochgefahren ist, ist nicht belegt.",
+      "restore_failed": "Die Wiederherstellung der Kopie ist fehlgeschlagen.",
+      "start_failed": "Die Kopie ist nicht gestartet.",
+      "guest_stopped": "Die Kopie hat sich beim Hochfahren beendet.",
+      "guest_panicked": "Die Kopie ist beim Hochfahren abgestürzt (guest panicked).",
+      "guest_internal_error": "Die Kopie hielt beim Hochfahren mit einem internen Fehler ihrer virtuellen CPU an.",
+      "system_maintenance": "Der Container erreichte seine Dienste nicht: systemd ist im Notfall- oder Rettungsmodus."
     },
     "bootTestSchedule": {
       "off": "Startprüfungen: im Backup-Job aus",
@@ -381,7 +399,8 @@
       "historyLost": "Repository verloren: eine neue Kette beginnt",
       "pointsLostTitle": "Repository am {date} repariert",
       "pointsLost": "Die Reparatur der Repositorys hat das Repository auf dem primären Repository wieder aufgebaut; seine Kette geht weiter. {count, plural, =0 {Kein Sicherungsstand fehlte darin} one {# Sicherungsstand, dessen Snapshot auf keinem Speicherziel lag, ist nicht mehr verfügbar} other {# Sicherungsstände, deren Snapshots auf keinem Speicherziel lagen, sind nicht mehr verfügbar}}.",
-      "historyPointsLost": "Repository repariert: Sicherungsstände fehlten"
+      "historyPointsLost": "Repository repariert: Sicherungsstände fehlten",
+      "freshPrefix": "Das Repository liegt auf einem Write-once-Speicher: Die alte Kette ließ sich nicht beiseitelegen und bleibt lesbar in {previous}; die neue Kette hat in {prefix} begonnen. Nichts wurde gelöscht."
     },
     "repositoryProblem": {
       "noTarget": "einem anderen Speicherziel",
@@ -456,6 +475,7 @@
     },
     "restoreCheckSkipped": "Nicht geprüft: {reason, select, no_storage {Zielspeicher fehlt} storage_inactive {Zielspeicher nicht aktiv} storage_content {Zielspeicher nimmt diese Art Gast nicht auf} storage_space {zu wenig Platz} restores_off {Wiederherstellungen sind aus} other {nicht möglich}}",
     "restoreCheckBlocked": {
+      "repository_problem": "Restore-Prüfung wartet auf das Repository-Problem dieses Containers (siehe oben): Sie läuft, sobald eine Reparatur (Repositories › Repositorys reparieren), ein Zurücksetzen des Repositorys oder eine Sicherung, die es wiederfindet, das Problem behoben hat.",
       "privileged": "Nicht geprüft: privilegierter Container. {appName} stellt Container nur unprivilegiert wieder her, und der neueste Sicherungsstand ist von einem privilegierten Container (Dateien mit IDs über 65535 und Gerätedateien ließen sich nicht wiederherstellen).",
       "restores_off": "Restore-Prüfung nicht möglich: Auf dem Knoten {node} sind Wiederherstellungen ausgeschaltet.",
       "node_offline": "Restore-Prüfung wartet: Der Knoten {node} hat sich zuletzt nicht gemeldet.",

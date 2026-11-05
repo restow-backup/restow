@@ -13,15 +13,21 @@ import { PVE_NAMESPACE } from "./i18n.js";
  */
 /**
  * What a boot test's reason stands for, whatever outcome came with it (pveBootTestOutcomeOf in
- * @restow/core, which the server applies; the web app has no dependency on core). Green is
- * proof only: a reason that proves nothing never shows green.
+ * @restow/core, which the server applies; the web app has no dependency on core, and its test
+ * checks this table against core's). Green is proof only: a reason that proves nothing never
+ * shows green.
  */
-const REASON_OUTCOMES: Readonly<Record<string, PveBootTestOutcome>> = {
+export const BOOT_TEST_REASON_OUTCOMES: Readonly<Record<string, PveBootTestOutcome>> = {
+  agent_answered: "green",
+  system_running: "green",
+  // restow-pve before 0.5.0
+  init_running: "green",
   memory_limit: "skipped",
   node_memory: "skipped",
   node_resources: "skipped",
   storage_space: "skipped",
   storage_content: "skipped",
+  storage_io_error: "skipped",
   no_storage: "skipped",
   backup_running: "skipped",
   boot_test_running: "skipped",
@@ -30,44 +36,40 @@ const REASON_OUTCOMES: Readonly<Record<string, PveBootTestOutcome>> = {
   custom_qemu_args: "skipped",
   host_disk: "skipped",
   bridge_not_isolated: "skipped",
-  setup_failed: "error",
-  io_error: "error",
   node_error: "error",
   no_guest_agent: "yellow",
-  guest_agent_silent: "yellow",
-  init_unknown: "yellow",
+  agent_not_answering: "yellow",
+  guest_paused: "yellow",
+  system_degraded: "yellow",
+  system_starting: "yellow",
+  system_unknown: "yellow",
   init_running_unverified: "yellow",
-  systemd_degraded: "yellow",
+  init_unknown: "yellow",
   restore_failed: "red",
   start_failed: "red",
   guest_stopped: "red",
   guest_panicked: "red",
-  systemd_emergency: "red",
+  guest_internal_error: "red",
+  system_maintenance: "red",
 };
 
-/** Reasons with a text of their own (`guest.bootTestReason.<reason>`); others show the node's message. */
-export const BOOT_TEST_REASON_TEXTS = [
-  "custom_qemu_args",
-  "host_disk",
-  "bridge_not_isolated",
-  "node_resources",
-  "storage_space",
-  "setup_failed",
-  "io_error",
-  "guest_agent_silent",
-  "init_running_unverified",
-  "systemd_degraded",
-  "systemd_emergency",
-  "guest_panicked",
-] as const;
+/**
+ * Reasons with a text of their own (`guest.bootTestReason.<reason>`): every one that is not a
+ * proof. A green one says why with `guest.bootTestDetail.*`; a reason the app does not know
+ * shows the node's message.
+ */
+export const BOOT_TEST_REASON_TEXTS: readonly string[] = Object.keys(
+  BOOT_TEST_REASON_OUTCOMES,
+).filter((reason) => BOOT_TEST_REASON_OUTCOMES[reason] !== "green");
 
 /**
  * The outcome a boot test stands for: a skipped or error reason rates nothing, a red reason is
- * red, a yellow reason takes a green down to yellow; an unknown reason keeps the outcome.
+ * red, a yellow reason takes a green down to yellow; a green or an unknown reason keeps the
+ * outcome.
  */
 export function bootTestOutcome(outcome: PveBootTestOutcome, reason = ""): PveBootTestOutcome {
-  const meant = REASON_OUTCOMES[reason];
-  if (meant === undefined) {
+  const meant = BOOT_TEST_REASON_OUTCOMES[reason];
+  if (meant === undefined || meant === "green") {
     return outcome;
   }
   if (meant === "yellow") {
@@ -99,10 +101,13 @@ export function bootTestDetailKey(
 ): string | null {
   const reason = test.reason ?? "";
   const outcome = bootTestOutcome(test.outcome, reason);
-  if ((BOOT_TEST_REASON_TEXTS as readonly string[]).includes(reason) && outcome !== "green") {
+  if (BOOT_TEST_REASON_TEXTS.includes(reason) && outcome !== "green") {
     return `guest.bootTestReason.${reason}`;
   }
   if (outcome === "green") {
+    if (reason === "system_running") {
+      return "guest.bootTestDetail.greenSystemd";
+    }
     return kind === "ct" || !test.guestAgent
       ? "guest.bootTestDetail.greenContainer"
       : "guest.bootTestDetail.green";
@@ -201,7 +206,7 @@ export function BootTestBadge({
       outcome !== "green" &&
       test.message &&
       test.reason &&
-      !(test.reason in REASON_OUTCOMES) ? (
+      !(test.reason in BOOT_TEST_REASON_OUTCOMES) ? (
         // A reason of a newer restow-pve this app has no text for: what the node said.
         <span
           className="line-clamp-2 max-w-80 text-xs break-words text-muted-foreground"

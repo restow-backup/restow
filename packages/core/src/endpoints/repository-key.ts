@@ -179,9 +179,13 @@ export async function ensureRepositoryPasswordFile(
     id: string;
     password: string;
     keys: { readonly current: Dek; open(sealed: Buffer): Buffer };
+    /** The repository's prefix when it is not the owner's default (a chain under a fresh prefix). */
+    prefix?: string;
   },
 ): Promise<"written" | "unchanged"> {
-  const key = repositoryPasswordKey(kind, input.id);
+  const key = input.prefix
+    ? `${input.prefix}${ENDPOINT_PASSWORD_FILE}`
+    : repositoryPasswordKey(kind, input.id);
   if (await storage.head(key)) {
     try {
       const opened = openRepositoryPassword(

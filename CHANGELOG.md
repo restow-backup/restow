@@ -254,6 +254,42 @@ private repository.
 - `GET /api/v1/navigation` tells the web which menu entries the active tenant offers beyond roles
   and the installation's features; today `offers.archive` (always false for someone who is not an
   administrator of the tenant).
+- Write-once (WORM) storage (docs/STORAGE.md, "Write-once storage"): a repository that takes new
+  files but refuses to delete, overwrite or rename existing ones, such as an NFS share of a NAS
+  with a WORM lock (EPERM, "Operation not permitted"). Every test of a repository (adding it,
+  "Test", a change of its location, the test and the saving of the installation default) now also
+  overwrites and deletes its probe object; a refusal (EPERM, EACCES, EROFS, S3 AccessDenied, Object
+  Lock, or an overwrite that changed nothing) makes it write-once. The test still passes, with the
+  warning "write-once", and the finding is kept with the test (`storage_targets.config.lastProbe`,
+  for the installation default `settings.default_storage_write_once`). A later test that fails
+  before its overwrite and delete step (a network error, a timeout, a share briefly unmounted)
+  keeps the finding of the last test that got there; only new addressing or credentials drop it.
+  Before, such a share failed
+  its test at the delete step. The repository's card on the Repositories page says what changes
+  there: no retention, repositories only grow, lock files stay, a new backup chain begins in a
+  fresh folder, backups, restores and restore checks work as usual. On a write-once repository:
+  - retention is not applied: no restore point is pruned (Microsoft 365, IMAP, VMs and
+    containers, file shares, machines), no `restic forget` or `prune`, no garbage collection in
+    the scrub (a re-pack would only write the surviving chunks again). The pages of VMs and
+    containers, file shares and machines, the retention settings of their jobs and the retention
+    policies page say "Retention is not applied" (`GET /api/v1/storage/write-once`, every member
+    of the tenant); the settings are kept for when the backups go elsewhere;
+  - a container repository that must begin a new chain (after "Reset repository", or after the
+    repository repair found it lost) cannot move the old one aside or clear its prefix: the new
+    repository begins under a fresh prefix next to it, `pve-guests/<id>.chain-<n>/`, recorded on
+    the guest (`pve_guests.repository_prefix`, and `prefix`/`previousPrefix` in its newest chain,
+    shown on the guest page) and audited as `pve.repository.fresh_prefix`. This is the way out
+    for a container whose repository holds data without config and keys (CT 109 of the field
+    report): reset it, and its next backup begins a whole new chain. The same when a storage not
+    yet known as write-once refuses the move or the removal. A file share whose prefix holds data
+    without config that no restore point refers to begins under `file-shares/<id>.chain-<n>/`
+    (`file_shares.repository_prefix`). Every reader uses the recorded prefix: the restic routes
+    of nodes and runners, restores and browsing, checks, retention, the size measurement, a
+    storage "move", the repository repair, the renewal of immutable backups and the check before
+    an old location is removed. The old chain stays where it was, readable with its sealed
+    password file;
+  - nothing is deleted: the repository repair leaves a lost repository in place, and purging a
+    file share's backups removes only Restow's records (the audit entry counts what was `kept`).
 
 ### Changed
 
@@ -401,12 +437,15 @@ private repository.
     repository is nowhere and no restore point refers to it. Data without a config is never
     passed to `restic init` (no more 500), the password is stored only after `restic init`
     succeeded, and after a reset whatever is left at the prefix is moved aside
-    (`pve-guests/<id>.orphaned-<time>/`), never deleted (0.4.x deleted a leftover with a config).
+    (`pve-guests/<id>.orphaned-<time>/`), never deleted (0.4.x deleted a leftover with a config);
+    on write-once storage, where it cannot be moved, the new chain begins under a fresh prefix
+    instead (see Added, "Write-once (WORM) storage").
     Retention and check of a container search the same places, the installation default
     included, and refuse with the same problems instead of "unable to open config file"; they
     also refuse while an active restore point's snapshot lies only on another target, where a
     prune on the primary would have removed the data it needs. No restore test of the container
-    is planned while the guest records such a problem. File share
+    is planned while the guest records such a problem, and the guest page says that its restore
+    check waits for the repository problem. File share
     runs check their repository the same way (`share.repository_unavailable`) and restores read
     from the target that holds it.
   - A "move" collects each repository from every target (primary, copies, retired targets, the
@@ -415,7 +454,8 @@ private repository.
     on the destination before the switch. Previously a data-only half was skipped silently.
   - Removing a retired location is refused while it holds any file of a repository no other
     target has, not only a `config`, and while it is the only place with a moved-aside folder
-    (`previous-holds-moved-aside`; a "move" does not copy those). A directory target lists only
+    (`previous-holds-moved-aside`; a "move" does not copy those), including a chain under a fresh
+    prefix that was moved aside (`<id>.chain-<n>.orphaned-<time>/`). A directory target lists only
     the folder a prefix lies in.
   - New: Repositories › Repository repair (docs/STORAGE.md, "Repository repair"). A scan shows
     every repository of the tenant on every target and what each holds (`ok`, `elsewhere`,
@@ -528,8 +568,8 @@ private repository.
   guest 105 could not be removed", "Restored, not started"), and the guest's page and panel
   list each line with what to do: the commands that put the mount points back as root and the
   warning that a bind mount put back shares the original's live data. Green is left for a
-  restore that ran to `OK` with nothing to report; docs/PVE-PROTOCOL.md ("Task `restore`: the
-  result") lists each field restow-pve sends and what it does to the run. The restore dialog says that IP addresses
+  restore that ran to `OK` with nothing to report; docs/PVE-PROTOCOL.md ("Task `restore`")
+  lists each field restow-pve sends and what it does to the run. The restore dialog says that IP addresses
   stay the same and only the MAC addresses are new.
 - Proxmox VE: every boot test of a container, and every container restore started in the PVE
   UI, opened a run "Restore" that nothing ended. For 48 hours the guest counted as busy, so its
@@ -539,7 +579,8 @@ private repository.
   for the credential (never the run of a check or boot test of another restore point of the
   guest that waits on the node meanwhile), keeps the guest's checks out for two hours at most, and ends as PVE ended
   it once restow-pve from 0.5.0 reports it: green only for `OK`, amber for `WARNINGS: n`, failed
-  otherwise. Without a report it fails after 48 hours, never green.
+  otherwise. Without a report it fails, never green: ten minutes after it started when it never
+  got its credential (it cannot have read anything), else after 48 hours.
 - Proxmox VE: the monthly restore check of a job was planned for the first due guest whatever
   its node could do, and the guest counted as checked at once. On a node with restores switched
   off it ended red every month; on a node that was off it waited and expired; with one target
@@ -609,8 +650,8 @@ private repository.
   lock of a container repository now counts as stale only when the time restic wrote into it is
   30 minutes old as well; a lock whose own time could not be read at that moment (a timeout of
   the storage, restic failing) is kept for the next pass and removed unread only once the
-  storage received it more than a day ago. A disagreement of the two clocks is logged as a
-  warning. Endpoint repositories keep the storage rule, where an agent could plant a lock dated
+  storage received it more than a day ago; the warning about such a lock says which of the two
+  happens to it. A disagreement of the two clocks is logged as a warning. Endpoint repositories keep the storage rule, where an agent could plant a lock dated
   in the future.
 - Proxmox VE: guests in the pool `restow-restore` (a restored copy not yet accepted, a leftover
   temporary guest of a restore check or boot test) were taken by a job for "all guests": a
@@ -831,7 +872,13 @@ private repository.
   `guest-panicked` and `internal-error` red and `io-error` skipped; the yellow text blames a
   missing agent only when the test switched it on, and otherwise says that the agent of the
   guest did not answer within the wait. The ARC above `zfs_arc_min` counts as available memory,
-  and the skip text names it.
+  and the skip text names it. The server and the web app know every reason the node sends
+  (`system_running`, `agent_not_answering`, `guest_paused`, `system_degraded`,
+  `system_starting`, `system_unknown`, `guest_internal_error`, `system_maintenance`,
+  `storage_io_error` beside the older ones; a test checks the server's list against the
+  node's), and each one that is not a proof has its own text in English and German: a red
+  reason is red whatever outcome came with it, and a test skipped for `storage_io_error` is
+  tried again like one skipped for space.
 - Proxmox VE: the six-hourly self-update of restow-pve did not look at the service's own task.
   It reloaded pvedaemon, pveproxy, pvestatd and pvescheduler and restarted the service in the
   middle of a boot test (while the guest booted), a restore check, a container restore or a
@@ -1169,7 +1216,9 @@ private repository.
     it takes as final, on the server's own listener and on the agents' restic routes.
   - When stale lock files cannot be removed, the log says so ("cannot be removed: the storage
     refuses deletes (write-once storage)"), `restic unlock` is not run, and retention leaves
-    `restic forget` and `prune` out for that container instead of failing on every pass.
+    `restic forget` and `prune` out for that container instead of failing on every pass. Once a
+    test of the repository found it write-once, retention is not applied there at all and the
+    pages say so (see Added, "Write-once (WORM) storage").
   - The restore check of a container runs `restic check --no-lock`: nothing else writes
     meanwhile (the server's own repository lock, and no run of the guest going), so it never
     waits for a lock, and on a write-once share it can run at all and leaves no lock behind
@@ -1208,7 +1257,7 @@ private repository.
 
 ### Upgrade Notes
 
-Five database migrations run on start: 0073 creates the new table `storage_samples` and 0074
+Six database migrations run on start: 0073 creates the new table `storage_samples` and 0074
 the new table `directory_memberships`; neither rewrites anything. 0075 serves the restore
 explorer's "From the archive": an index on `archive_items` (tenant, mailbox, capture time), the
 index on `archive_item_mailboxes` (tenant, mailbox) replaced by one that adds the time of the
@@ -1226,7 +1275,12 @@ unique index on cluster and VMID once, now for guests that are not retired; ever
 repository is compared with its restore points once after the update. 0077 adds nullable
 columns to `pve_runs`, `file_share_runs`, `pve_guests` and `pve_snapshots` and creates the table
 `storage_repository_repairs` without rewriting a table; after the update, scan the repositories
-of every tenant that ever changed its primary (see Fixed). The first directory sync after the
+of every tenant that ever changed its primary (see Fixed). 0078 adds the nullable columns
+`pve_guests.repository_prefix`, `file_shares.repository_prefix` and
+`settings.default_storage_write_once`, empty for every row, without a rewrite. A repository counts
+as write-once only once a test of this version found it so: after the update, run "Test" on every
+repository (and on the installation default) that lies on a WORM share, so that retention stops
+trying to delete there and a reset begins its new chain under a fresh prefix at once. The first directory sync after the
 update reads the owners and members of every Microsoft 365 group once (three Graph reads per group, through
 `$batch`); until it has run, a person's "Teams & sites" is empty and says that it may be
 incomplete. Agents before 0.5.0 ignore `snapshotOnFailure`, and the release key keeps the

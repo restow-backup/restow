@@ -374,16 +374,24 @@ describe.skipIf(!canRun)("boot tests of Proxmox VE restore points", () => {
     });
     expect(await pointTest()).toMatchObject({ outcome: "yellow" });
     expect(await readinessRow()).toMatchObject({ state: "yellow" });
-    // A panicked guest is red, also when the node said amber.
-    taskId = await openBootTask(newest());
-    await report(taskId, nodeResult("yellow", { reason: "guest_panicked" }));
-    expect(await pointTest()).toMatchObject({ outcome: "red", reason: "guest_panicked" });
+    // A guest that failed in its virtual CPU, a container in emergency mode, a panicked guest:
+    // red, also when the node said amber or green.
+    for (const [sent, reason] of [
+      ["green", "guest_internal_error"],
+      ["green", "system_maintenance"],
+      ["yellow", "guest_panicked"],
+    ] as const) {
+      taskId = await openBootTask(newest());
+      await report(taskId, nodeResult(sent, { reason }));
+      expect(await pointTest()).toMatchObject({ outcome: "red", reason });
+    }
     // Not booted for a reason outside the restore point: skipped, the rating stays red.
     for (const reason of [
       "custom_qemu_args",
       "host_disk",
       "bridge_not_isolated",
       "node_resources",
+      "storage_io_error",
     ]) {
       taskId = await openBootTask(newest());
       await report(taskId, nodeResult("green", { reason, message: `not booted: ${reason}` }));
@@ -394,21 +402,6 @@ describe.skipIf(!canRun)("boot tests of Proxmox VE restore points", () => {
       expect((await stored(taskId))?.stats.bootTest).toMatchObject({ outcome: "skipped", reason });
       expect(await pointTest()).toMatchObject({ outcome: "red", reason: "guest_panicked" });
     }
-    // restow-pve 0.5.0 reports a test it could not prepare as error with its own reason.
-    taskId = await openBootTask(newest());
-    await report(taskId, {
-      status: "done",
-      result: { outcome: "error", reason: "setup_failed", message: "mp1 has no size" },
-    });
-    expect(await stored(taskId)).toMatchObject({
-      status: "failed",
-      errorMessage: "mp1 has no size",
-    });
-    expect((await stored(taskId))?.stats.bootTest).toMatchObject({
-      outcome: "error",
-      reason: "setup_failed",
-    });
-    expect(await pointTest()).toMatchObject({ outcome: "red", reason: "guest_panicked" });
     // A reason this server does not know: the node's outcome and message.
     taskId = await openBootTask(newest());
     await report(taskId, nodeResult("yellow", { reason: "a_newer_reason", message: "said so" }));

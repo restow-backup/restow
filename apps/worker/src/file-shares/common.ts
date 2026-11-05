@@ -11,12 +11,12 @@ import {
   FILE_SHARE_PASSWORD_KIND,
   type FileShareSettings,
   fileShareRepositoryKey,
-  fileShareRepositoryPrefix,
   fileShareSettingsOf,
   type MounterRunnerCaps,
   mounterRunnerCapsFromEnv,
   type RepositoryAccess,
   type RunnerClient,
+  repositoryPrefixOf,
   resticBinary,
   resticCacheBase,
   SHARE_SNAPSHOT_ROOT,
@@ -131,10 +131,18 @@ export async function openTenantSecret(
   return new PgSecretReader(tenantRunner(deps.db, tenantId), tenantId, keys).get(secretId);
 }
 
+/**
+ * The prefix a share's repository lies under: `file-shares/<id>/`, or the fresh prefix it began
+ * under when what lay there could not be cleared (write-once storage, `file_shares.repository_prefix`).
+ */
+export function shareRepositoryPrefix(share: Pick<FileShare, "id" | "repositoryPrefix">): string {
+  return repositoryPrefixOf("file_share", share.id, share.repositoryPrefix);
+}
+
 /** What restic needs to open a share's repository on the tenant's primary target. */
 export async function shareRepositoryAccess(
   deps: FileShareDeps,
-  share: Pick<FileShare, "id" | "tenantId" | "repositorySecretId">,
+  share: Pick<FileShare, "id" | "tenantId" | "repositorySecretId" | "repositoryPrefix">,
   /** The target a run was pinned to (docs/STORAGE.md, "Runs and storage changes"); else the primary. */
   storage?: StorageBackend,
 ): Promise<RepositoryAccess> {
@@ -148,7 +156,7 @@ export async function shareRepositoryAccess(
   const backend = storage ?? (await deps.runtime.storage.get(share.tenantId)).primary;
   return {
     storage: backend,
-    prefix: fileShareRepositoryPrefix(share.id),
+    prefix: shareRepositoryPrefix(share),
     repositoryPassword: password,
     repositoryKey: fileShareRepositoryKey(share.id),
     binary: resticBinary(),
@@ -176,7 +184,7 @@ export async function openShareRepository(
 export async function keepSharePasswordFile(
   deps: FileShareDeps,
   share: Pick<FileShare, "id" | "tenantId">,
-  access: Pick<RepositoryAccess, "storage" | "repositoryPassword">,
+  access: Pick<RepositoryAccess, "storage" | "repositoryPassword" | "prefix">,
 ): Promise<void> {
   try {
     const keys = await deps.runtime.keyrings.get(share.tenantId);
@@ -185,6 +193,7 @@ export async function keepSharePasswordFile(
       id: share.id,
       password: access.repositoryPassword,
       keys,
+      prefix: access.prefix,
     });
   } catch (error) {
     deps.runtime.logger.warn("could not store the sealed file share repository password", {

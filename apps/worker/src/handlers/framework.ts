@@ -42,6 +42,7 @@ import {
   parseImmutabilitySettings,
   type ResolvedStorageTarget,
   redactSensitiveText,
+  rowWriteOnce,
   type S3CredentialsSecret,
   S3StorageBackend,
   type SecretReader,
@@ -1010,6 +1011,15 @@ export interface ResolvedTenantStorage extends StorageTargets {
   readonly primaryTarget?: string;
 }
 
+/**
+ * Whether the tenant's primary is write-once (docs/STORAGE.md, "Write-once storage"): retention
+ * is not applied there and nothing is deleted. False for values built by tests without targets.
+ */
+export function primaryWriteOnce(storage: Partial<ResolvedTenantStorage>): boolean {
+  const id = storage.primaryTarget;
+  return storage.targets?.find((target) => target.id === id)?.writeOnce === true;
+}
+
 /** The installation default as `resolveTenantStorage` takes it (apps/worker/src/default-storage.ts). */
 export type TenantStorageDefaults =
   | StorageTargets
@@ -1036,6 +1046,8 @@ export async function resolveTenantStorage(options: {
   readonly secretReader: SecretReader;
   /** Fixed targets (tests), or the process's resolver of the current default, called only when needed. */
   readonly defaults: TenantStorageDefaults;
+  /** Whether the default is write-once (default-storage.ts); asked only when the tenant uses it. */
+  readonly defaultWriteOnce?: () => Promise<boolean>;
   readonly logger: Logger;
 }): Promise<ResolvedTenantStorage> {
   // Both statements run inside the one transaction `run` opens, so the
@@ -1065,6 +1077,8 @@ export async function resolveTenantStorage(options: {
     }
     return resolvedDefault.used.targets;
   };
+  const defaultWriteOnce = async (): Promise<boolean> =>
+    options.defaultWriteOnce ? await options.defaultWriteOnce().catch(() => false) : false;
   if (rows.length === 0) {
     const targets = await defaults();
     return {
@@ -1080,6 +1094,7 @@ export async function resolveTenantStorage(options: {
           name: null,
           role: "primary",
           backend: targets.primary,
+          writeOnce: await defaultWriteOnce(),
         },
         ...targets.copies.map((backend, index) => ({
           id: `${INSTALLATION_DEFAULT_TARGET_ID}:copy:${index}`,
@@ -1103,6 +1118,7 @@ export async function resolveTenantStorage(options: {
       name: primaryRow?.name ?? null,
       role: "primary",
       backend: primary,
+      writeOnce: primaryRow ? rowWriteOnce(primaryRow) : await defaultWriteOnce(),
     },
     ...copies.map((backend, index) => ({
       id: `${INSTALLATION_DEFAULT_TARGET_ID}:copy:${index}`,
@@ -1115,7 +1131,13 @@ export async function resolveTenantStorage(options: {
     if (row.role === "copy") {
       const backend = await storageBackendFor(row, options.secretReader);
       copies.push(backend);
-      targets.push({ id: row.id, name: row.name, role: "copy", backend });
+      targets.push({
+        id: row.id,
+        name: row.name,
+        role: "copy",
+        backend,
+        writeOnce: rowWriteOnce(row),
+      });
     } else if (row.role === "previous") {
       const retiredDefault = row.kind === "installation_default";
       const backend = retiredDefault
@@ -1127,6 +1149,7 @@ export async function resolveTenantStorage(options: {
         name: row.name,
         role: "previous",
         backend,
+        writeOnce: retiredDefault ? await defaultWriteOnce() : rowWriteOnce(row),
       });
     }
   }

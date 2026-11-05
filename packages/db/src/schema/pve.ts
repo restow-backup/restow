@@ -303,6 +303,14 @@ export type PveRepositoryChain = {
   unavailablePoints: number;
   /** Who reset it (`reset` only). */
   actor: string | null;
+  /**
+   * The storage prefix the new chain began under, when it is not the guest's default: the old
+   * one could not be cleared (a write-once target), so it stays where it was (docs/STORAGE.md,
+   * "Write-once storage"). Absent in chains recorded before 0.5.0 and until the new chain began.
+   */
+  prefix?: string;
+  /** The prefix the chain before lay under, set together with `prefix`. */
+  previousPrefix?: string;
 };
 
 /**
@@ -379,6 +387,10 @@ export const pveGuests = pgTable(
       .default([]),
     // Why the last backup was refused for the repository (null: none, or found again).
     repositoryProblem: jsonb("repository_problem").$type<PveRepositoryProblem>(),
+    // The storage prefix of the container's repository when a chain began under a fresh one
+    // (`pve-guests/<id>.chain-<n>/`, @restow/core endpoints/repository-prefix.ts): its old prefix
+    // could not be cleared (a write-once target). Null: `pve-guests/<id>/`.
+    repositoryPrefix: text("repository_prefix"),
     lastBackupAt: timestamp("last_backup_at", { withTimezone: true }),
     lastSuccessAt: timestamp("last_success_at", { withTimezone: true }),
     lastSnapshotId: uuid("last_snapshot_id"),

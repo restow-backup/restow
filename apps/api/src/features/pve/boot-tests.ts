@@ -483,8 +483,11 @@ export async function guestBootTestFacts(
 
 /**
  * The monthly restore check of a guest for its page (docs/PVE.md): whether its job asks for one,
- * why its node cannot run it now (restores off, offline, not enrolled; the planner passes such a
- * guest over and does not stamp it), the node's name and the last check.
+ * why it cannot run now (the planner, apps/worker pve/maintenance.ts `planRestoreTests`, passes
+ * such a guest over and does not stamp it): a container whose repository has a problem
+ * recorded (`repository_problem`: its check waits until a repair, a reset or a backup that finds
+ * the repository clears it), a privileged container's restore point, a node with restores off,
+ * offline or not enrolled. Also the node's name and the last check.
  */
 export async function guestRestoreCheckFacts(
   tx: Transaction,
@@ -492,7 +495,7 @@ export async function guestRestoreCheckFacts(
   now: Date = new Date(),
 ): Promise<{
   enabled: boolean;
-  blocker: "privileged" | "no_node" | "restores_off" | "node_offline" | null;
+  blocker: "repository_problem" | "privileged" | "no_node" | "restores_off" | "node_offline" | null;
   node: string | null;
   lastRestoreTestAt: string | null;
 }> {
@@ -506,7 +509,13 @@ export async function guestRestoreCheckFacts(
   const privileged = point !== null && pveRestorePointPrivileged(point, guest.privileged);
   return {
     enabled,
-    blocker: !enabled ? null : privileged ? "privileged" : pveRestoreCheckBlocker(node, now),
+    blocker: !enabled
+      ? null
+      : guest.kind === "ct" && guest.repositoryProblem
+        ? "repository_problem"
+        : privileged
+          ? "privileged"
+          : pveRestoreCheckBlocker(node, now),
     node: guest.node,
     lastRestoreTestAt: guest.lastRestoreTestAt?.toISOString() ?? null,
   };

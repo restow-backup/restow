@@ -42,6 +42,9 @@ export const PVE_AUDIT_ACTIONS = {
   repositoryReinitialized: "pve.repository.reinitialized",
   // An administrator reset a container's repository (typed confirmation, recent sign-in).
   repositoryReset: "pve.repository.reset",
+  // A container's new chain began under a fresh prefix: its old one could not be cleared (a
+  // write-once target, docs/STORAGE.md "Write-once storage") and stays where it was.
+  repositoryFreshPrefix: "pve.repository.fresh_prefix",
 } as const;
 
 export interface PveActor {

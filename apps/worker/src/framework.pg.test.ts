@@ -639,7 +639,14 @@ describe.skipIf(!adminUrl)("framework against Postgres", () => {
       storageGeneration: expect.any(String),
       primaryTarget: "installation_default",
       targets: [
-        { id: "installation_default", name: null, role: "primary", backend: storage.primary },
+        // Not write-once: the default's location was never probed here (`defaultWriteOnce`).
+        {
+          id: "installation_default",
+          name: null,
+          role: "primary",
+          backend: storage.primary,
+          writeOnce: false,
+        },
         ...storage.copies.map((backend, index) => ({
           id: `installation_default:copy:${index}`,
           name: null,

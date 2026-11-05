@@ -96,6 +96,8 @@ import {
   discardAbandonedSnapshots,
   type JobHandler,
   type JobOutcome,
+  primaryWriteOnce,
+  type ResolvedTenantStorage,
   tenantRunner,
   type WorkerJobContext,
 } from "./framework.js";
@@ -1038,6 +1040,9 @@ export const scrubHandler: JobHandler<"scrub"> = {
     // was collected this time). Corruption checking and the copy mirror above
     // are unaffected: they do not touch what the migration is moving.
     const migrationActive = await hasActiveMigration(run, ctx.tenantId);
+    // Write-once storage (docs/STORAGE.md, "Write-once storage"): nothing there can be deleted,
+    // so a re-pack would only write the surviving chunks a second time. No collection at all.
+    const writeOnce = primaryWriteOnce(ctx.storage as Partial<ResolvedTenantStorage>);
     const report = await runScrub(
       {
         tenantId: ctx.tenantId,
@@ -1053,13 +1058,14 @@ export const scrubHandler: JobHandler<"scrub"> = {
         mode,
         previouslyCorrupt: previous.corrupt,
         previouslySuperseded: previous.superseded,
-        gc: migrationActive
-          ? null
-          : {
-              cutoff: gcCutoff(ctx.now()),
-              blockedBy: () => gcBlockerFor(run, ctx.tenantId),
-              abandonedCheckpoint: abandonedCheckpointProbe(run, ctx.tenantId),
-            },
+        gc:
+          migrationActive || writeOnce
+            ? null
+            : {
+                cutoff: gcCutoff(ctx.now()),
+                blockedBy: () => gcBlockerFor(run, ctx.tenantId),
+                abandonedCheckpoint: abandonedCheckpointProbe(run, ctx.tenantId),
+              },
       },
     );
     const affectedObjects = await persistReport(run, ctx, report, copies);
@@ -1067,6 +1073,7 @@ export const scrubHandler: JobHandler<"scrub"> = {
       summary: {
         mode,
         ...(migrationActive ? { migrationActive: true } : {}),
+        ...(writeOnce ? { writeOnce: true } : {}),
         ...(copies ? { copies } : {}),
         packsTotal: report.packsTotal,
         packsChecked: report.packsChecked,

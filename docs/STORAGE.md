@@ -459,6 +459,69 @@ exported tenant keys) away from the server, or locked data cannot be opened. Res
 files are not locked (see above). The installation default storage cannot be made
 immutable in this release: give the tenant a repository of its own (or an immutable copy).
 
+## Write-once storage
+
+A **write-once** (WORM) repository takes new files but refuses to delete, overwrite or rename the
+ones it holds: an NFS share of a NAS with a WORM or retention lock (it answers EPERM, "Operation
+not permitted"), a read-only mount (EROFS), an S3 bucket whose policy denies deletions
+(AccessDenied), a bucket whose default retention locks every object. Restow backs up to such a
+repository and restores from it; it never deletes anything there and says what that means.
+
+**Detection.** Every test of a repository (adding it, "Test", a change of its location, the test
+and the saving of the installation default) runs the write-once probe after the write, read and
+list steps: it overwrites its probe object, reads it back, and deletes it
+(`probeStorageBackend`, `packages/core/src/storage/factory.ts`, and `storage/write-once.ts`). A
+refusal of either (EPERM, EACCES, EROFS, AccessDenied, Object Lock, or an overwrite the storage
+accepts but ignores) makes the repository write-once; the test still passes (warning
+`write_once`), and the probe object stays where the storage keeps it. The finding is recorded with
+the test: for a tenant's repository in `storage_targets.config.lastProbe.writeOnce`, for the
+installation default in `settings.default_storage_write_once` together with the location it was
+found on (it applies only while the default still describes that location). A later test that
+stops before its overwrite and delete step (a network error, a timeout, a share briefly
+unmounted) found out nothing about it and keeps the finding of the last test that got there;
+only new addressing or credentials of a tenant's repository drop it. The api and the
+worker resolve each target's finding with its backend (`ResolvedStorageTarget.writeOnce`).
+Without a test since 0.5.0 a repository counts as not write-once; the refusals below are then
+found at runtime.
+
+**What changes on a write-once repository** (the card on the Repositories page lists it):
+
+- **No retention.** No restore point is pruned (Microsoft 365, IMAP, VMs and containers, file
+  shares, machines), no `restic forget`, no `restic prune`, and the scrub's garbage collection does
+  not run (a re-pack would only write the surviving chunks a second time). The pages of VMs and
+  containers, file shares and machines, the retention settings of their jobs and the retention
+  policies page say "Retention is not applied" (`GET /api/v1/storage/write-once`, every member of
+  the tenant). The settings are kept and apply again once the backups go to another repository.
+- **Repositories only grow.** Space never comes back; plan the capacity accordingly (Capacity
+  planning shows the growth).
+- **Lock files stay.** restic writes a lock file for every backup and cannot remove it; Restow
+  judges locks by their age (stale after 30 minutes), runs no `restic unlock` there, and a restore
+  check runs `restic check --no-lock` (docs/PVE.md, "Retention" and "Restore check").
+- **A new chain goes to a fresh prefix.** A restic repository that must begin a new chain (a
+  container after "Reset repository" or after the repository repair found it lost; a file share
+  whose prefix holds data without `config` that no restore point refers to) cannot move the old
+  one aside (`<prefix>.orphaned-<time>/` is a copy and a delete) nor clear its prefix. The new
+  repository is created under a fresh prefix next to it, `<owner prefix>.chain-<n>/` (for example
+  `pve-guests/<guest id>.chain-2/`; `packages/core/src/endpoints/repository-prefix.ts`), recorded
+  per owner (`pve_guests.repository_prefix`, `file_shares.repository_prefix`, migration 0078) and
+  in the container's chain record (`prefix`, `previousPrefix`), audited as
+  `pve.repository.fresh_prefix`. The same happens on a repository not known as write-once when
+  the storage refuses the move or the removal. Every reader uses the recorded prefix: the restic
+  routes of nodes and runners, restores and browsing, the restore check and the check, retention's
+  comparison, the measurement of a repository's size, a storage "move", the repository repair's
+  scan, the renewal of immutable backups, and the check before an old location is removed (an
+  earlier chain that no repository's current chain lies under counts like a moved-aside folder
+  there). The old chain stays where it was, readable with its sealed password file next to it;
+  its restore points became unavailable with the reset, as on any repository.
+- **Nothing is deleted.** The repository repair leaves a lost repository where it is (the next
+  backup begins under a fresh prefix); purging a file share's backups removes only Restow's
+  records and counts what stayed (`kept` in the audit entry).
+- **Backups, restores and checks work as usual**: they only read and add.
+
+Machines (the Restow agent) never begin a new chain under the same id: a machine whose repository
+is damaged is enrolled again and gets a new id, and with it a new prefix. Their retention is not
+applied on a write-once repository either, and their page says so.
+
 ## Replacing the primary
 
 Moving a tenant off the installation default, or off one primary target onto
@@ -866,6 +929,12 @@ not papered over:
   so their backups can still be browsed and downloaded; that target cannot be removed
   while it alone holds such a repository, or a container's or file share's
   (`storage-previous-holds-endpoint-repositories`); a `move` copies them across.
+- **Write-once storage is known from its test.** A repository's finding comes from its last test
+  (see "Write-once storage"); one never tested since 0.5.0 counts as not write-once, and retention
+  still tries to delete there until a test finds it out (a refused deletion of a container's lock
+  files, or of an old repository at a reset, is caught at runtime). Test each repository once
+  after the update. A machine's or file share's lock files on such a share are not cleared either.
+
 - **Immutable backups have limits of their own** (see "Immutable backups" for the whole
   picture). The installation default cannot be made immutable; give the tenant a repository
   of its own or an immutable copy. A directory gets only a deletion delay that Restow keeps,

@@ -22,7 +22,7 @@ import { RecommendedJobButton } from "@/features/backup-jobs/components/recommen
 import { useTenantScope } from "@/features/endpoints/hooks";
 import { inventoryTo } from "@/features/endpoints/paths";
 import { CadenceFields } from "@/features/schedules/components/cadence-fields";
-import { BackupDestinationNote } from "@/features/storage";
+import { BackupDestinationNote, WriteOnceRetentionNotice } from "@/features/storage";
 
 import {
   assignJob,
@@ -241,6 +241,7 @@ export function JobDialog({
               </label>
               {/* As many side by side as fit: on a phone (and in the narrow column) they stack, so
                   "Monatliche Sicherungsstände" never runs over the dialog's edge. */}
+              <WriteOnceRetentionNotice context="job" />
               <div
                 className="grid grid-cols-[repeat(auto-fit,minmax(11rem,1fr))] gap-2"
                 data-slot="pve-job-retention"

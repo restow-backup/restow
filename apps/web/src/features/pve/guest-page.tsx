@@ -38,7 +38,12 @@ import {
 } from "@/components/ui/table";
 import { useTenantScope } from "@/features/endpoints/hooks";
 import { fileRestoreContainerTo } from "@/features/endpoints/paths";
-import { BackupDestinationNote, ServerDiskWarning, useStorageScope } from "@/features/storage";
+import {
+  BackupDestinationNote,
+  ServerDiskWarning,
+  useStorageScope,
+  WriteOnceRetentionNotice,
+} from "@/features/storage";
 import {
   judgementsById,
   LastCleanHint,
@@ -506,6 +511,14 @@ export function RepositoryChainNotice({ chain }: { chain: PveRepositoryChain }) 
           count: chain.unavailablePoints,
           actor: chain.actor ?? t("guest.chain.someone"),
         })}
+        {chain.prefix ? (
+          <p className="mt-1" data-slot="pve-repository-chain-prefix">
+            {t("guest.chain.freshPrefix", {
+              prefix: chain.prefix,
+              previous: chain.previousPrefix ?? "",
+            })}
+          </p>
+        ) : null}
       </AlertDescription>
     </Alert>
   );
@@ -987,6 +1000,7 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
       {data && !data.guest.excludedAt ? <RestowServerSection guest={data.guest} /> : null}
       <ObjectSuspicionBadge target={suspicionTarget} />
       <RetentionHoldNotice target={suspicionTarget} objectName={title} />
+      <WriteOnceRetentionNotice context="guest" />
       <LastCleanHint
         points={timeline}
         judgements={judgements}

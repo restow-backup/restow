@@ -71,6 +71,7 @@ export * from "./storage/installation-default.js";
 export * from "./storage/local.js";
 export * from "./storage/s3.js";
 export * from "./storage/transfer.js";
+export * from "./storage/write-once.js";
 // Usage figures: the rule for counting protected mailboxes
 export * from "./usage/mailboxes.js";
 // Recovery readiness

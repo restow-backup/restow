@@ -7,6 +7,7 @@ export * from "./queues.js";
 export * from "./quota.js";
 export * from "./readiness.js";
 export * from "./repository-key.js";
+export * from "./repository-prefix.js";
 export * from "./repository-storage.js";
 export * from "./restic-authz.js";
 export * from "./restic-cli.js";

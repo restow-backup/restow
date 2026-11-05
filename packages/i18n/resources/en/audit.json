@@ -649,7 +649,8 @@
       },
       "repository": {
         "reinitialized": "Container repository missing on the primary: new backup chain started",
-        "reset": "Container repository reset: new backup chain on the next backup"
+        "reset": "Container repository reset: new backup chain on the next backup",
+        "fresh_prefix": "Container repository on write-once storage: new backup chain begun under a fresh prefix, the old one kept"
       },
       "guest": {
         "restow_server": "Guest marked as the {appName} server, or the mark taken back",

@@ -60,11 +60,13 @@ export async function resolvePveRunCredential(
       tokenHash: pveRuns.resticTokenHash,
       expiresAt: pveRuns.resticExpiresAt,
       storageTarget: pveRuns.storageTarget,
+      repositoryPrefix: pveGuests.repositoryPrefix,
       tenantStatus: tenants.status,
       generation: sql<string>`${storageGenerationSql(sql`${pveRuns.tenantId}`)}`,
     })
     .from(pveRuns)
     .innerJoin(tenants, eq(tenants.id, pveRuns.tenantId))
+    .leftJoin(pveGuests, eq(pveGuests.id, pveRuns.guestId))
     .where(eq(pveRuns.id, credentials.runId))
     .limit(1);
   const ok =
@@ -86,7 +88,8 @@ export async function resolvePveRunCredential(
   // The store of the tenant's current storage generation: a change of the primary is seen at
   // the next request, not when a cache runs out.
   const store = await tenantChunkStore(run.tenantId, Date.now(), run.generation ?? undefined);
-  const prefix = guestRepositoryPrefix(guestId);
+  // The prefix the guest's current chain lies under (a fresh one on write-once storage).
+  const prefix = guestRepositoryPrefix({ id: guestId, repositoryPrefix: run.repositoryPrefix });
   // Every request of a run goes to the one target its credential was issued for
   // (docs/STORAGE.md, "Runs and storage changes"). A backup whose target stopped being the
   // primary gets 403 for every write (restic takes it as final) instead of writing the rest of
@@ -146,6 +149,8 @@ async function readingBackend(
 export interface GuestKey {
   tenantId: string;
   guestId: string;
+  /** The repository's prefix (`guestRepositoryPrefix`); the guest's default when absent. */
+  prefix?: string;
 }
 
 /** Measurements in progress, one per guest: concurrent uploads wait for the same listing. */
@@ -157,7 +162,10 @@ function measureOnce(guest: GuestKey, storage: StorageBackend): Promise<number> 
     return pending;
   }
   const measured = (async () => {
-    const bytes = await measureRepositoryBytes(storage, guestRepositoryPrefix(guest.guestId));
+    const bytes = await measureRepositoryBytes(
+      storage,
+      guest.prefix ?? guestRepositoryPrefix({ id: guest.guestId, repositoryPrefix: null }),
+    );
     await withTenantTx(db, guest.tenantId, (tx) =>
       tx
         .update(pveGuests)
@@ -209,7 +217,7 @@ export const pveResticRoutes = buildRunResticRoute({
   onAllowed: async (access, guestId, bytes, action) => {
     // The accounting never fails the upload itself.
     await addGuestUsage(
-      { tenantId: access.tenantId, guestId },
+      { tenantId: access.tenantId, guestId, prefix: access.prefix },
       access.storage,
       action,
       bytes,

@@ -23,7 +23,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { FolderPicker } from "@/features/file-shares/components/folder-picker";
 import "@/features/file-shares/i18n";
-import { BackupDestinationNote } from "@/features/storage";
+import { BackupDestinationNote, WriteOnceRetentionNotice } from "@/features/storage";
 
 import type { BackupJob, JobDefaults, JobMember } from "../api.js";
 import type { FormProblem } from "../form.js";
@@ -429,6 +429,7 @@ function Form({
             title={t("shareEditor.retention.title")}
             description={t("shareEditor.retention.description")}
           >
+            <WriteOnceRetentionNotice context="job" className="mb-3" />
             <div className="grid gap-3 sm:grid-cols-3">
               {(["keepDaily", "keepWeekly", "keepMonthly"] as const).map((key) => (
                 <Field

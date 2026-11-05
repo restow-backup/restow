@@ -265,6 +265,16 @@ export interface PricingSettings {
   mailboxPrice?: number | null;
 }
 
+/** The installation default's write-once finding (@restow/core storage/write-once.ts). */
+export type DefaultStorageWriteOnce = {
+  /** `describeStorageLocation` of the location that was probed. */
+  location: string;
+  writeOnce: boolean;
+  refused: ("overwrite" | "delete")[];
+  code: string | null;
+  checkedAt: string;
+};
+
 export const settings = pgTable(
   "settings",
   {
@@ -328,6 +338,10 @@ export const settings = pgTable(
     // settings and the ones it locks for every tenant and job. `{}` sets nothing, which is what the
     // agents did before policies existed (@restow/core endpoints/agent-policy.ts).
     agentPolicy: jsonb("agent_policy").$type<GlobalAgentPolicyRecord>().notNull().default({}),
+    // The write-once finding of the installation default's newest probe (docs/STORAGE.md,
+    // "Write-once storage"), with the location it was found on: it applies only while the
+    // default still describes that location. Null until the default was probed with 0.5.0.
+    defaultStorageWriteOnce: jsonb("default_storage_write_once").$type<DefaultStorageWriteOnce>(),
     // Proxmox VE backups (docs/PVE.md): `{}` takes every default (PveInstallationSettings).
     pveSettings: jsonb("pve_settings").$type<PveInstallationSettings>().notNull().default({}),
     // What the provider charges its customers (0.4.7, PricingSettings): only a figure on the

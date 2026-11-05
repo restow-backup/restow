@@ -385,6 +385,49 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
     expect(await storage.primary.head(manifestKey(tenantId, a)).catch(() => null)).toBeNull();
   });
 
+  it('prunes nothing while the primary is write-once (docs/STORAGE.md, "Write-once storage")', async () => {
+    // The last test of the primary found that it refuses to overwrite and delete.
+    const worm = {
+      ...storage,
+      previous: [],
+      keepGeneration: null,
+      primaryTarget: "worm-target",
+      targets: [
+        {
+          id: "worm-target",
+          name: "NAS WORM",
+          role: "primary" as const,
+          backend: storage.primary,
+          writeOnce: true,
+        },
+      ],
+    };
+    const wormDeps: PveDeps = {
+      ...deps,
+      runtime: { ...deps.runtime, storage: new TenantCache<StorageTargets>(async () => worm) },
+    };
+    const [job] = await owner.select().from(pveJobs);
+    await owner
+      .update(pveJobs)
+      .set({ settings: { retention: { keepDaily: 1, keepWeekly: 0, keepMonthly: 0 } } });
+    const active = async () =>
+      (await owner.select().from(pveSnapshots))
+        .filter((snap) => snap.status === "active")
+        .map((snap) => snap.id)
+        .sort();
+    const before = await active();
+    expect(before.length).toBeGreaterThan(1);
+    const refs = await refTotal();
+    expect(await applyRetention(wormDeps, clock)).toBe(0);
+    // Every restore point stays restorable, no reference is released, no manifest touched.
+    expect(await active()).toEqual(before);
+    expect(await refTotal()).toBe(refs);
+    for (const id of before) {
+      expect(await storage.primary.head(manifestKey(tenantId, id))).not.toBeNull();
+    }
+    await owner.update(pveJobs).set({ settings: job?.settings ?? {} });
+  });
+
   it("verify reads blocks back and notices one that does not match its map", async () => {
     await owner.update(pveGuests).set({ lastVerifyAt: null });
     expect(await verifyDue(deps, clock)).toBe(1);
@@ -1716,9 +1759,21 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
       // The recent lock's own time is read first (unreadable here: it is kept, not a day old).
       await storage.primary.delete(lock);
       await writeFile(join(work, "restic-worm.calls"), "");
-      const done = await reconcileGuestRepository(deps, (await guestRow()) as never, clock);
+      warned.length = 0;
+      const done = await reconcileGuestRepository(
+        { ...deps, runtime: { ...deps.runtime, logger } },
+        (await guestRow()) as never,
+        clock,
+      );
       expect(done).toEqual({ forgotten: ["e".repeat(64)], deletesRefused: false });
       expect(await storage.primary.head(recent)).not.toBeNull();
+      // The log says what happens to it: kept, not removed.
+      expect(warned).toContain(
+        "pve: the time of a container repository's lock could not be read; the lock is kept and judged again by the next pass (removed once it was stored more than a day ago)",
+      );
+      expect(warned.filter((line) => line.includes("removed by its storage time alone"))).toEqual(
+        [],
+      );
       await storage.primary.delete(recent);
       expect((await restic.read()).map((line) => line.split(" ")[0])).toEqual([
         "cat",

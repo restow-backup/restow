@@ -1,6 +1,11 @@
 import type { ResticLockRegistry, StorageBackend } from "@restow/core";
-import { fileShareRepositoryPrefix, hashSecret, secretMatchesHash } from "@restow/core";
-import { fileShareRuns, storageGenerationSql, tenants } from "@restow/db";
+import {
+  fileShareRepositoryPrefix,
+  hashSecret,
+  repositoryPrefixOf,
+  secretMatchesHash,
+} from "@restow/core";
+import { fileShareRuns, fileShares, storageGenerationSql, tenants } from "@restow/db";
 import { eq, sql } from "drizzle-orm";
 import { db, providerDb } from "../../db.js";
 import { audit } from "../../lib/audit.js";
@@ -66,6 +71,11 @@ export interface FileShareRunCredential {
   expiresAt: Date;
   /** The share whose repository the run reads or writes (a restore: its source). */
   repositoryShareId: string;
+  /**
+   * That share's recorded repository prefix (a chain begun under a fresh one on write-once
+   * storage, docs/STORAGE.md); null or absent: `file-shares/<id>/`.
+   */
+  repositoryPrefix?: string | null;
   /** The target the run was pinned to when it started (docs/STORAGE.md); null before 0.5.0. */
   storageTarget?: string | null;
   /** The tenant's storage generation now. */
@@ -114,12 +124,14 @@ export class PgRunCredentials implements FileShareRunCredentials {
         tokenHash: fileShareRuns.tokenHash,
         expiresAt: fileShareRuns.tokenExpiresAt,
         repositoryShareId: fileShareRuns.fileShareId,
+        repositoryPrefix: fileShares.repositoryPrefix,
         storageTarget: fileShareRuns.storageTarget,
         tenantStatus: tenants.status,
         generation: sql<string>`${storageGenerationSql(sql`${fileShareRuns.tenantId}`)}`,
       })
       .from(fileShareRuns)
       .innerJoin(tenants, eq(tenants.id, fileShareRuns.tenantId))
+      .leftJoin(fileShares, eq(fileShares.id, fileShareRuns.fileShareId))
       .where(eq(fileShareRuns.id, runId))
       .limit(1);
     if (!row?.tokenHash || !row.expiresAt) {
@@ -134,6 +146,7 @@ export class PgRunCredentials implements FileShareRunCredentials {
       tokenHash: row.tokenHash,
       expiresAt: row.expiresAt,
       repositoryShareId: row.repositoryShareId,
+      repositoryPrefix: row.repositoryPrefix,
       storageTarget: row.storageTarget,
       generation: row.generation,
     };
@@ -175,7 +188,7 @@ export async function resolveFileShareCredential(
       tenantId: run.tenantId,
       runId: run.runId,
       principal: run.kind === "backup" ? (resolved.refuseWrites ? "closing" : "agent") : "reader",
-      prefix: fileShareRepositoryPrefix(shareId),
+      prefix: repositoryPrefixOf("file_share", shareId, run.repositoryPrefix),
       storage: resolved.storage,
       ...(resolved.refuseWrites ? { refuseWrites: resolved.refuseWrites } : {}),
     },
@@ -203,7 +216,7 @@ export async function pinnedShareStorage(
   if (pinned) {
     return { storage: pinned };
   }
-  const prefix = fileShareRepositoryPrefix(run.repositoryShareId);
+  const prefix = repositoryPrefixOf("file_share", run.repositoryShareId, run.repositoryPrefix);
   for (const target of await searchedTargets(store)) {
     if (await target.backend.head(`${prefix}config`).catch(() => null)) {
       return { storage: target.backend };

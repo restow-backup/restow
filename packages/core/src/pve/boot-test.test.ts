@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   BOOT_TEST_WEEKLY_MS,
@@ -5,6 +6,8 @@ import {
   DEFAULT_BOOT_TEST_TIMEOUT_SECONDS,
   MAX_BOOT_TEST_TIMEOUT_SECONDS,
   PVE_BOOT_TEST_CAPABILITY,
+  PVE_BOOT_TEST_REASON_OUTCOMES,
+  PVE_BOOT_TEST_TRANSIENT_REASONS,
   pveBootTestDue,
   pveBootTestOutcomeOf,
   pveBootTestOverdueMs,
@@ -275,6 +278,58 @@ describe("a restore point of a privileged container", () => {
   });
 });
 
+/** The reasons restow-pve sends: the constants of agent/internal/pve/bootreasons.go. */
+function agentBootTestReasons(): Map<string, string> {
+  const source = readFileSync(
+    new URL("../../../../agent/internal/pve/bootreasons.go", import.meta.url),
+    "utf8",
+  );
+  const block = /\nconst \(([\s\S]*?)\n\)/.exec(source)?.[1] ?? "";
+  const reasons = new Map<string, string>();
+  let group = "";
+  for (const line of block.split("\n")) {
+    const comment = /^\s*\/\/\s*(green|yellow|red|skipped|error)\b/.exec(line);
+    if (comment?.[1]) {
+      group = comment[1];
+    }
+    const constant = /^\s*reason\w+\s*=\s*"([a-z_]+)"\s*$/.exec(line);
+    if (constant?.[1]) {
+      reasons.set(constant[1], group);
+    }
+  }
+  return reasons;
+}
+
+describe("the boot test reasons of the node and the server", () => {
+  const agent = agentBootTestReasons();
+  // A node before 0.5.0 still sends these; the server records node_error itself.
+  const older = ["init_running"];
+  const server = ["node_error"];
+
+  it("reads the reasons of the Go agent", () => {
+    expect(agent.size).toBeGreaterThan(20);
+    expect(agent.get("agent_answered")).toBe("green");
+    expect(agent.get("storage_io_error")).toBe("skipped");
+  });
+
+  it("knows every reason restow-pve sends, with the outcome the node files it under", () => {
+    for (const [reason, group] of agent) {
+      expect(PVE_BOOT_TEST_REASON_OUTCOMES[reason], reason).toBe(group);
+    }
+  });
+
+  it("lists no reason that no node sends", () => {
+    for (const reason of Object.keys(PVE_BOOT_TEST_REASON_OUTCOMES)) {
+      expect(agent.has(reason) || older.includes(reason) || server.includes(reason), reason).toBe(
+        true,
+      );
+    }
+    for (const reason of PVE_BOOT_TEST_TRANSIENT_REASONS) {
+      expect(PVE_BOOT_TEST_REASON_OUTCOMES[reason], reason).toBe("skipped");
+    }
+  });
+});
+
 describe("what a boot test's reason stands for", () => {
   it("never reads green for a reason that proves nothing", () => {
     for (const reason of [
@@ -283,19 +338,34 @@ describe("what a boot test's reason stands for", () => {
       "bridge_not_isolated",
       "node_resources",
       "storage_space",
+      "storage_io_error",
     ]) {
       expect(pveBootTestOutcomeOf("green", reason)).toBe("skipped");
       expect(pveBootTestOutcomeOf("red", reason)).toBe("skipped");
     }
-    for (const reason of ["setup_failed", "io_error"]) {
-      expect(pveBootTestOutcomeOf("red", reason)).toBe("error");
-    }
-    for (const reason of ["init_running_unverified", "systemd_degraded", "guest_agent_silent"]) {
+    expect(pveBootTestOutcomeOf("red", "node_error")).toBe("error");
+    for (const reason of [
+      "no_guest_agent",
+      "agent_not_answering",
+      "guest_paused",
+      "system_degraded",
+      "system_starting",
+      "system_unknown",
+      "init_running_unverified",
+      "init_unknown",
+    ]) {
       expect(pveBootTestOutcomeOf("green", reason)).toBe("yellow");
       // A yellow reason never makes a red any better.
       expect(pveBootTestOutcomeOf("red", reason)).toBe("red");
     }
-    for (const reason of ["guest_panicked", "systemd_emergency"]) {
+    for (const reason of [
+      "restore_failed",
+      "start_failed",
+      "guest_stopped",
+      "guest_panicked",
+      "guest_internal_error",
+      "system_maintenance",
+    ]) {
       expect(pveBootTestOutcomeOf("green", reason)).toBe("red");
       expect(pveBootTestOutcomeOf("yellow", reason)).toBe("red");
     }
@@ -303,15 +373,19 @@ describe("what a boot test's reason stands for", () => {
 
   it("keeps the node's outcome for a proof and for a reason it does not know", () => {
     expect(pveBootTestOutcomeOf("green", "agent_answered")).toBe("green");
+    expect(pveBootTestOutcomeOf("green", "system_running")).toBe("green");
     expect(pveBootTestOutcomeOf("green", "init_running")).toBe("green");
+    // A proof never makes anything better.
+    expect(pveBootTestOutcomeOf("yellow", "agent_answered")).toBe("yellow");
     expect(pveBootTestOutcomeOf("yellow", "a_reason_of_a_newer_node")).toBe("yellow");
     expect(pveBootTestOutcomeOf("green", "")).toBe("green");
   });
 
-  it("tries a test skipped for the node's resources again", () => {
+  it("tries a test skipped for the node's resources or the storage's I/O again", () => {
     expect(pveBootTestTransient({ outcome: "skipped", reason: "node_resources" })).toBe(true);
+    expect(pveBootTestTransient({ outcome: "skipped", reason: "storage_io_error" })).toBe(true);
     expect(pveBootTestTransient({ outcome: "skipped", reason: "custom_qemu_args" })).toBe(false);
-    expect(pveBootTestTransient({ outcome: "error", reason: "io_error" })).toBe(true);
+    expect(pveBootTestTransient({ outcome: "error", reason: "node_error" })).toBe(true);
   });
 });
 

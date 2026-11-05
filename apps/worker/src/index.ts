@@ -341,6 +341,7 @@ async function main(): Promise<void> {
       tenantId,
       secretReader: new PgSecretReader(run, tenantId, keys),
       defaults: () => installationDefault.current(),
+      defaultWriteOnce: () => installationDefault.writeOnce(),
       logger: tenantLogger,
     });
     await mirrorTenantKeys({ run, tenantId, storage: targets, logger: tenantLogger });

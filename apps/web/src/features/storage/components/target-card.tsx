@@ -39,6 +39,7 @@ import { MigrationLine } from "./migration-line";
 import { ObjectLockLine } from "./object-lock-line";
 import { ProbeResult } from "./probe-result";
 import { RoleBadge, TargetKindIcon, TargetStatusBadge, ToneLine } from "./status";
+import { WriteOnceLine } from "./write-once-line";
 
 export type TargetAction = "edit" | "delete" | "promote" | "completeness";
 
@@ -123,6 +124,7 @@ export function TargetCard({
           )
         ) : null}
         <ObjectLockLine kind={target.kind} capability={target.objectLock} />
+        <WriteOnceLine finding={target.writeOnce} />
         <ImmutabilitySection target={target} />
         {!target.canManage ? (
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
