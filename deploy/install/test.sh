@@ -1431,7 +1431,7 @@ e2e_main() {
       TTY_OUT=$out
     fi
     if [ -n "${E2E_STDOUT_TTY:-}" ]; then
-      # shellcheck disable=SC2317 # called by main below; shellcheck 0.9 loses track of it in a test file this long
+      # shellcheck disable=SC2317,SC2329 # called by main below; shellcheck 0.9 loses track of it in a test file this long
       stdout_is_tty() { return 0; }
     fi
     set -Eeuo pipefail

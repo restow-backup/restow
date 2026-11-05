@@ -3310,8 +3310,9 @@ join_installation() {
 # update_worker: bring a node to the release the main host runs now.
 update_worker() {
   local url version old
-  [ -f "$OPT_DIR/.env" ] && [ -f "$OPT_DIR/docker-compose.worker.yml" ] ||
+  if [ ! -f "$OPT_DIR/.env" ] || [ ! -f "$OPT_DIR/docker-compose.worker.yml" ]; then
     die "$EXIT_USAGE" "$OPT_DIR is not a worker node (no .env or docker-compose.worker.yml)"
+  fi
   url=$(env_get "$OPT_DIR/.env" RESTOW_JOIN_URL)
   [ -n "$url" ] || die "$EXIT_USAGE" "$OPT_DIR/.env does not say which installation this node belongs to (RESTOW_JOIN_URL)"
   OPT_JOIN_URL=$url

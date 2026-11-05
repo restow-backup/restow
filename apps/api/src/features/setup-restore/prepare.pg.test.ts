@@ -48,6 +48,9 @@ const hasPgTools =
   spawnSync("pg_dump", ["--version"]).status === 0 &&
   spawnSync("pg_restore", ["--version"]).status === 0;
 
+// Every case restores the dump into a scratch database and runs the preparation (migrations,
+// checks) on it, some more than once: seconds each, more than vitest's default 5 s on a busy CI
+// runner.
 describe.skipIf(!testDatabaseAdminUrl)("preparing a restored dump against Postgres", () => {
   const admin = testDatabaseAdminUrl as string;
   let sourceUrl: string;
@@ -203,7 +206,7 @@ describe.skipIf(!testDatabaseAdminUrl)("preparing a restored dump against Postgr
     } finally {
       await scratch.$client.end();
     }
-  });
+  }, 60_000);
 
   it("refuses another master key after switching restore mode on, and the source stays as it was", async () => {
     const scratchUrl = await restoreScratch();
@@ -237,7 +240,7 @@ describe.skipIf(!testDatabaseAdminUrl)("preparing a restored dump against Postgr
     expect(gone.rows).toHaveLength(0);
     const untouched = await source.$client.query("SELECT 1 FROM installation_restore_mode");
     expect(untouched.rows).toHaveLength(0);
-  });
+  }, 60_000);
 
   it("refuses a dump newer than this release, one without Restow and one without a setup", async () => {
     const scratchUrl = await restoreScratch();
@@ -285,5 +288,5 @@ describe.skipIf(!testDatabaseAdminUrl)("preparing a restored dump against Postgr
     });
     expect(noSetup.refusal?.code).toBe("setup_incomplete");
     expect(noSetup.restoreMode).toBeNull();
-  });
+  }, 60_000);
 });
