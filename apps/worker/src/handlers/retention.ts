@@ -80,6 +80,7 @@ import {
   type ResolvedTenantStorage,
   tenantRunner,
   type WorkerJobContext,
+  withTenantTx,
 } from "./framework.js";
 import { recordDeferredDeletion } from "./immutability.js";
 
@@ -609,7 +610,34 @@ export class RetentionTasksFailedError extends Error {
 /** Registered retention tasks; the archive module adds its deletion run at startup. */
 export const retentionTasks = new RetentionTaskRegistry([createSnapshotRetentionTask()]);
 
-export function createRetentionHandler(registry: RetentionTaskRegistry): JobHandler<"retention"> {
+/**
+ * Keep a run's summary in `jobs.payload.result` (the API's job detail reads it): what every
+ * task did, also when one failed and the job ends failed (the framework keeps only the
+ * error then).
+ */
+export async function recordRetentionResult(
+  ctx: WorkerJobContext,
+  summary: Readonly<Record<string, unknown>>,
+): Promise<void> {
+  await withTenantTx(ctx.db, ctx.tenantId, (tx) =>
+    tx.execute(sql`
+      update jobs
+         set payload = coalesce(payload, '{}'::jsonb) || ${JSON.stringify({ result: summary })}::jsonb
+       where id = ${ctx.jobId}::uuid
+    `),
+  );
+}
+
+export function createRetentionHandler(
+  registry: RetentionTaskRegistry,
+  options: {
+    readonly recordResult?: (
+      ctx: WorkerJobContext,
+      summary: Readonly<Record<string, unknown>>,
+    ) => Promise<void>;
+  } = {},
+): JobHandler<"retention"> {
+  const recordResult = options.recordResult ?? recordRetentionResult;
   return {
     queue: "retention",
     // Housekeeping runs one at a time per process; it competes with nobody for Graph quota.
@@ -650,6 +678,16 @@ export function createRetentionHandler(registry: RetentionTaskRegistry): JobHand
             error: safeErrorMessage(error),
           });
         }
+      }
+      // Kept before the job ends either way: a failed job would otherwise carry only
+      // "retention tasks failed: …", not what the tasks that ran did (items deleted, records
+      // deferred, Object Lock renewals).
+      try {
+        await recordResult(ctx, { ...summary, ...(failed.length > 0 ? { failed } : {}) });
+      } catch (error) {
+        ctx.logger.warn("retention: the run's summary could not be stored", {
+          error: safeErrorMessage(error),
+        });
       }
       if (failed.length > 0) {
         throw new RetentionTasksFailedError(failed, summary);

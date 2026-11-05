@@ -27,6 +27,7 @@ import {
   backupJobs,
   createDb,
   type Database,
+  jobs,
   legalHolds,
   protectedObjects,
   providers,
@@ -41,7 +42,12 @@ import { runMigrations } from "@restow/db/migrate";
 import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import type { WorkerJobContext } from "./framework.js";
-import { pgRetentionStore, retentionTasks } from "./retention.js";
+import {
+  createRetentionHandler,
+  pgRetentionStore,
+  RetentionTaskRegistry,
+  retentionTasks,
+} from "./retention.js";
 
 /** A storage backend that is never actually touched: dry runs never prune. */
 class UnusedStorage implements StorageBackend {
@@ -493,6 +499,47 @@ describe.skipIf(!adminUrl)("pgRetentionStore against Postgres", () => {
       await db.$client.end();
     }
   }, 60_000);
+  it("keeps what the other tasks did in the job row of a run whose snapshot task failed", async () => {
+    const url = await recreateTestDatabase(adminUrl as string);
+    const db = createDb(url);
+    try {
+      const [provider] = await db.insert(providers).values({ name: "Provider" }).returning();
+      const [tenant] = await db
+        .insert(tenants)
+        .values({ providerId: provider?.id as string, name: "Contoso", slug: "contoso" })
+        .returning();
+      const tenantId = tenant?.id as string;
+      const ctx = jobContext(db, tenantId);
+      await db.insert(jobs).values({
+        id: ctx.jobId,
+        tenantId,
+        queue: "retention",
+        status: "active",
+        payload: { jobId: ctx.jobId, tenantId },
+      });
+      const registry = new RetentionTaskRegistry([
+        {
+          name: "snapshots",
+          run: async () => {
+            throw new Error("the storage is not reachable");
+          },
+        },
+        { name: "archive", run: async () => ({ deleted: 500, deferredRecords: 3 }) },
+      ]);
+      await expect(
+        createRetentionHandler(registry).run(ctx, { jobId: ctx.jobId, tenantId }),
+      ).rejects.toThrow(/retention tasks failed: snapshots/);
+      const [row] = await db.select().from(jobs).where(eq(jobs.id, ctx.jobId));
+      expect((row?.payload as { result?: unknown } | undefined)?.result).toMatchObject({
+        failed: ["snapshots"],
+        snapshots: { status: "failed", error: expect.stringContaining("not reachable") },
+        archive: { deleted: 500, deferredRecords: 3 },
+      });
+    } finally {
+      await db.$client.end();
+    }
+  }, 60_000);
+
   it("runs for a tenant with more restore points than one statement has bind parameters", async () => {
     // One bind parameter per active restore point fails past 65,535 of them,
     // and since nothing is then pruned the run fails every day after.

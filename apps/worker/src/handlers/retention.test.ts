@@ -607,7 +607,12 @@ describe("createRetentionHandler", () => {
         },
       },
     ]);
-    const handler = createRetentionHandler(registry);
+    const recorded: Record<string, unknown>[] = [];
+    const handler = createRetentionHandler(registry, {
+      recordResult: async (_ctx, summary) => {
+        recorded.push({ ...summary });
+      },
+    });
     const failure = await handler.run(ctx, { jobId: JOB, tenantId: TENANT }).then(
       () => null,
       (error: unknown) => error,
@@ -624,5 +629,13 @@ describe("createRetentionHandler", () => {
       immutability: { renewed: 1 },
     });
     expect(ctx.progress.snapshot().failed).toBe(1);
+    // What the other tasks did is stored with the failed job, not only logged.
+    expect(recorded).toEqual([
+      expect.objectContaining({
+        failed: ["snapshots"],
+        "mail-files": { removed: 3 },
+        immutability: { renewed: 1 },
+      }),
+    ]);
   });
 });

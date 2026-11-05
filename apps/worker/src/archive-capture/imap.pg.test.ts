@@ -511,7 +511,9 @@ describe.skipIf(!adminUrl)("IMAP capture way (Postgres)", () => {
       .select()
       .from(jobs)
       .where(eq(jobs.id, queued[0] as string));
-    expect((row?.payload as { result?: { status?: string } }).result?.status).toBe("retry_later");
+    expect((row?.payload as { result?: { status?: string } } | undefined)?.result?.status).toBe(
+      "retry_later",
+    );
     // Two passes right after: no new job hits the capped account again.
     await pass(instance);
     await pass(instance);

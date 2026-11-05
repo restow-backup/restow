@@ -505,6 +505,9 @@ private repository.
   and the archive deletion run. The checked restore points are now read by a join, the per-object
   check states take one array parameter, and each retention task runs on its own: a failing task
   is recorded with its error, the others still run, and the job ends failed instead of succeeded.
+  The job keeps what every task did in `payload.result` (items deleted, records deferred, Object
+  Lock renewals), also when it ends failed; before, a failed job carried only "retention tasks
+  failed: snapshots".
 - Mail archive: a request to look at a mailbox now, made while a pass over it was still running,
   was overwritten by the pass's own next time when the pass ended. It happened when the IDLE
   watch of an IMAP account began during the account's pass, when new mail was announced by IDLE
