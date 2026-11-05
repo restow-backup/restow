@@ -550,7 +550,7 @@ export class ArchiveCaptureService {
         const drained = await way.drain(ctx(), refs);
         state = drained.state ?? state;
         await this.store.deletePending(stream, drained.handled);
-        await this.store.deferPending(stream, drained.deferred ?? [], "MIME export failed (5xx)");
+        await this.store.deferPending(stream, drained.deferred ?? [], "MIME export failed");
         if (drained.failed && drained.failed.refs.length > 0) {
           // Counted per ref; after PENDING_MAX_ATTEMPTS passes a ref is dropped as an open
           // capture gap (shown, alerted) and left to the catch-up, which finds it in its

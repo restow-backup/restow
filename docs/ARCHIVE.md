@@ -209,7 +209,11 @@ dem nächsten Job fort, die laufende Erfassung beim nächsten Durchgang.
   Warteschlange genommen und dem Nachholen überlassen. Ein Durchgang, in dem keine Meldung
   abgerufen werden konnte, schlägt nicht mehr fehl und überspringt das Nachholen nicht (vorher
   blockierte schon eine solche Meldung jeden Durchgang des Postfachs). docs/MICROSOFT.md,
-  "Abholen".
+  "Abholen". Verweigert Graph den MIME-Export einer einzelnen Nachricht mit 403
+  (oder 400, 409, 422), scheitern Nachholen und Übernahme daran nicht mehr (vorher hielt jeder
+  Durchgang an derselben Nachricht an, die Delta-Position wurde nie gespeichert und neuere Mail
+  des Ordners blockiert): Sie zählt wie ein gescheiterter Export und ist nach drei Versuchen
+  eine Lücke (`fetch_failed`).
 - **Anzeige:** Die Archiv-Seite zeigt beim Weg, wie viele Postfächer unvollständig sind, und je
   Postfach die Zahl der offenen Lücken (gelb, nie als in Ordnung).
   `GET /api/v1/archive/capture/mailboxes/:objectId/gaps` listet sie (Art, Ordner oder Nachricht,

@@ -180,7 +180,7 @@ export interface DrainResult {
    */
   readonly failed?: { readonly refs: readonly string[]; readonly error: string };
   /**
-   * Refs whose MIME export failed with a 5xx this time and that stay pending: they wait
+   * Refs whose MIME export failed this time (a 5xx, an item-level 403) and that stay pending: they wait
    * before the next fetch (./streams.ts), the gap sink counts their attempts.
    */
   readonly deferred?: readonly string[];

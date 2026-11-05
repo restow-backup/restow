@@ -708,7 +708,11 @@ private repository.
   and 500 of them blocked every newer notification. Such a pass now succeeds and runs the
   catch-up; each pending message counts its failed attempts (migration 0084), those tried least
   come first, and after five failures the message is recorded as an open capture gap
-  (`fetch_failed`) and left to the catch-up.
+  (`fetch_failed`) and left to the catch-up. The catch-up and the takeover no longer fail on
+  such a message either: a 403 (or 400, 409, 422) on its MIME export failed the catch-up at
+  that message on every pass, its delta position was never saved and newer mail of the folder
+  was blocked; it is now counted like a failed export and given up as a gap (`fetch_failed`)
+  after three attempts, and the run goes on.
 - Mail archive: IMAP capture left out every folder whose name was a Drafts name (Drafts,
   Entwürfe, Brouillons, Borradores, Bozze, Concepten) wherever it sat, so the received mail a user
   filed under "Kunden/Bozze" or "Projekte/Acme/Drafts" never reached the archive, without a

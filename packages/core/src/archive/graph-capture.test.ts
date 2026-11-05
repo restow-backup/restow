@@ -369,6 +369,51 @@ describe("catchUpGraphMailbox", () => {
     expect(sink.refs()).toContain("m3");
   });
 
+  it("moves past a message whose $value Graph refuses with 403 in a catch-up and the backfill", async () => {
+    const fake = mailbox();
+    // An item the app may not read: its listing works, its MIME export answers 403.
+    fake.addMessage(USER, {
+      id: "locked",
+      folderId: "inbox",
+      receivedDateTime: "2026-11-02T08:30:00Z",
+      mimeError: { status: 403, code: "ErrorAccessDenied" },
+    });
+    const sink = new MemorySink();
+    sink.gaps = new MemoryCaptureGaps({ spacingMs: 0 });
+    const retried: string[] = [];
+    sink.retryLater = async (refs) => {
+      retried.push(...refs);
+    };
+    let state: GraphCatchUpState = {};
+    for (let pass = 1; pass <= 3; pass++) {
+      const result = await catchUpGraphMailbox({
+        client: fake.client(),
+        userId: USER,
+        state: pass === 1 ? {} : { ...state, folders: {} },
+        sink,
+        activatedAt: ACTIVATED,
+        backfillCompleted: true,
+      });
+      state = result.state;
+    }
+    // The catch-up went on past it: every other message is in, the delta position saved.
+    expect(sink.refs()).toEqual(["m1", "m2", "m3", "m4", "x1"]);
+    expect(state.folders?.inbox?.deltaLink).toBeDefined();
+    expect(retried).toContain("locked");
+    expect(sink.gaps.open()).toEqual(["message:locked"]);
+    expect(sink.gaps.gaps.get("message:locked")?.reason).toBe("fetch_failed");
+
+    const backfill = await backfillGraphMailbox({
+      client: fake.client(),
+      userId: USER,
+      sink,
+      cursor: null,
+      saveCursor: async () => {},
+    });
+    expect(backfill.completed).toBe(true);
+    expect(backfill.exportFailed).toEqual(["locked"]);
+  });
+
   it("enumerates a folder again after 410 Gone and captures what is unknown", async () => {
     const fake = mailbox();
     const client = fake.client();

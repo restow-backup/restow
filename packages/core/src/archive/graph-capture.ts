@@ -26,7 +26,9 @@
  * gap at once; the archive keeps MIME only, it does not invent a message from the JSON
  * parts. A 5xx is no refusal: the message is tried again later (the drain keeps it pending,
  * the catch-up and the backfill hand it to {@link GraphCaptureSink.retryLater}), and only
- * after three failed attempts it becomes a gap (`export_failed`).
+ * after three failed attempts it becomes a gap (`export_failed`). An item-level failure of
+ * `$value` (403 `ErrorAccessDenied` and the like) is handled the same way (`fetch_failed`):
+ * it never fails the run, which would stop the catch-up at that message on every pass.
  *
  * Nothing here touches Postgres or the archive store: the worker's Graph way
  * (apps/worker/src/archive-capture/graph.ts) wires the sink and the state.
@@ -142,12 +144,21 @@ function isConversionRefused(error: unknown): boolean {
 type MimeOutcome =
   | { readonly original: Buffer }
   | { readonly refused: "too_large" | "not_convertible" }
-  | { readonly failed: GraphError };
+  | { readonly failed: GraphError; readonly reason: "export_failed" | "fetch_failed" };
 
 /**
- * Download one message's MIME (`$value`). A refusal (too large, not convertible) and a
- * 5xx are told apart, never both "too large"; anything else (404, auth, throttling the
- * client gave up on, the network) is thrown.
+ * Statuses Graph answers for one item that are no fault of the mailbox as a whole: 403
+ * `ErrorAccessDenied` for an item the app may not read, 400 for an item Graph will not hand
+ * out, 409 and 422 for one in a state it cannot export. They are counted against the message
+ * (a gap after three attempts) instead of failing the run; a 401 (the token), 429 (throttling
+ * the client gave up on) and the network still fail it, they are the mailbox's.
+ */
+const ITEM_FAILURE_STATUSES: ReadonlySet<number> = new Set([400, 403, 409, 422]);
+
+/**
+ * Download one message's MIME (`$value`). A refusal (too large, not convertible), a 5xx and
+ * an item-level failure (403 and the like) are told apart, never both "too large"; anything
+ * else (404, auth, throttling the client gave up on, the network) is thrown.
  */
 async function downloadMime(
   client: GraphClient,
@@ -166,7 +177,13 @@ async function downloadMime(
       return { refused: "not_convertible" };
     }
     if (isGraphError(error) && error.status >= 500) {
-      return { failed: error };
+      return { failed: error, reason: "export_failed" };
+    }
+    if (isGraphError(error) && ITEM_FAILURE_STATUSES.has(error.status)) {
+      // One item Graph will not hand out (a 403 for an item the app may not read): before,
+      // it failed the catch-up on every pass at the same message, its delta position was
+      // never saved and newer mail of the folder was blocked for good.
+      return { failed: error, reason: "fetch_failed" };
     }
     throw error;
   }
@@ -188,7 +205,10 @@ export interface GraphCaptureCounts {
   oversized: string[];
   /** Ids of messages Exchange cannot convert to MIME: not archived, recorded as gaps. */
   notConvertible: string[];
-  /** Ids whose MIME export failed (5xx) and that are tried again later. */
+  /**
+   * Ids whose MIME export failed (a 5xx, or an item-level 403 and the like) and that are
+   * tried again later.
+   */
   deferred: string[];
   /** Ids whose MIME export failed three times: given up, recorded as gaps. */
   exportFailed: string[];
@@ -273,7 +293,7 @@ async function capturePage(
         ? await options.sink.gaps.failed({
             kind: "message",
             ref: message.id,
-            reason: "export_failed",
+            reason: outcome.reason,
           })
         : 1;
       if (attempts >= GAP_OPEN_AFTER_ATTEMPTS) {
