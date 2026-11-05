@@ -589,6 +589,10 @@ private repository.
   message size Exchange reports and downloads the message again when it changed. Flag and
   read-state changes still download nothing; a copy stored before this version is downloaded
   once more on its next change.
+- Mail backup: a Microsoft 365 message stored as JSON (too large or not convertible to MIME) lost
+  the Content-ID of its inline attachments, so after a restore the images in its HTML body were
+  broken. The Content-ID is now backed up and restored. Messages stored as JSON by earlier
+  versions do not have it and cannot be repaired.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,

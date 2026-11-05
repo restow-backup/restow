@@ -33,6 +33,8 @@ export interface FakeAttachment {
   bytes: Uint8Array;
   isInline?: boolean;
   odataType?: string;
+  /** File attachments: the Content-ID the HTML body's `cid:` names. */
+  contentId?: string;
 }
 
 export interface FakeMessage {
@@ -163,6 +165,8 @@ export class FakeMailbox {
    * answer Graph gives instead (403 without User.Read.All).
    */
   onlineArchive: string | null | FixtureResponse = null;
+  /** Answer 400 to a `$select` with a type-cast property (a Graph that does not take it). */
+  refuseDerivedSelect = false;
 
   private version = 0;
   private readonly log: ChangeLogEntry[] = [];
@@ -407,7 +411,10 @@ export class FakeMailbox {
     ],
     [/^\/mailFolders\/([^/]+)$/, ([name = ""]) => this.wellKnownFolder(name)],
     [/^\/messages\/([^/]+)\/\$value$/, ([id = ""]) => this.mime(id)],
-    [/^\/messages\/([^/]+)\/attachments$/, ([id = ""]) => this.attachmentList(id)],
+    [
+      /^\/messages\/([^/]+)\/attachments$/,
+      ([id = ""], params) => this.attachmentList(id, selectOf(params)),
+    ],
     [
       /^\/messages\/([^/]+)\/attachments\/([^/]+)\/\$value$/,
       ([id = "", attachmentId = ""]) => this.attachmentContent(id, attachmentId),
@@ -457,23 +464,37 @@ export class FakeMailbox {
     return folder ? { status: 200, json: { id: folder.id } } : this.notFound("well-known folder");
   }
 
-  private attachmentList(messageId: string): FixtureResponse {
+  private attachmentList(messageId: string, select: string[]): FixtureResponse {
     const message = this.messages.get(messageId);
     if (!message) {
       return this.notFound("message");
     }
+    const castContentId = select.includes("microsoft.graph.fileAttachment/contentId");
+    if (castContentId && this.refuseDerivedSelect) {
+      return {
+        status: 400,
+        json: graphError("BadRequest", "Could not find a property named 'contentId'."),
+      };
+    }
     return {
       status: 200,
       json: {
-        value: (message.attachments ?? []).map((a) => ({
-          "@odata.type": a.odataType ?? "#microsoft.graph.fileAttachment",
-          id: a.id,
-          name: a.name,
-          contentType: a.contentType,
-          size: a.bytes.length,
-          isInline: a.isInline ?? false,
-          lastModifiedDateTime: message.lastModifiedDateTime,
-        })),
+        value: (message.attachments ?? []).map((a) => {
+          const type = a.odataType ?? "#microsoft.graph.fileAttachment";
+          return {
+            "@odata.type": type,
+            id: a.id,
+            name: a.name,
+            contentType: a.contentType,
+            size: a.bytes.length,
+            isInline: a.isInline ?? false,
+            lastModifiedDateTime: message.lastModifiedDateTime,
+            // As Graph: a derived-type property only when selected in its type-cast form.
+            ...(castContentId && type === "#microsoft.graph.fileAttachment"
+              ? { contentId: a.contentId ?? null }
+              : {}),
+          };
+        }),
       },
     };
   }

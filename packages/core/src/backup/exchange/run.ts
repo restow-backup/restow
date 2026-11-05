@@ -67,6 +67,10 @@ export const META = {
   messagePath: "messagePath",
   name: "name",
   isInline: "isInline",
+  /** restore: Content-ID of a file attachment (what an inline image's `cid:` names). */
+  contentId: "contentId",
+  /** For JSON messages: Graph refused to name the attachments' Content-IDs. */
+  contentIdUnavailable: "contentIdUnavailable",
   /** restore: calendar facts of an event. */
   calendarName: "calendarName",
   isDefaultCalendar: "isDefaultCalendar",

@@ -556,21 +556,60 @@ export const ATTACHMENT_SELECT = [
   "lastModifiedDateTime",
 ] as const;
 
+/**
+ * `contentId` lives on the derived fileAttachment type, not on attachment: it is selected in the
+ * type-cast form. It is what an inline image's `cid:` reference in the HTML body names.
+ */
+export const ATTACHMENT_CONTENT_ID_SELECT = "microsoft.graph.fileAttachment/contentId";
+
 export type AttachmentMeta = Pick<Attachment, (typeof ATTACHMENT_SELECT)[number]> & {
   id: string;
   /** `#microsoft.graph.fileAttachment`, `#microsoft.graph.itemAttachment` or `#microsoft.graph.referenceAttachment`. */
   "@odata.type"?: string;
+  /** File attachments only: the Content-ID an inline image is referenced by (`cid:`). */
+  contentId?: string | null;
 };
 
 export function listAttachments(
   client: GraphClient,
   userId: string,
   messageId: string,
+  options: { readonly contentId?: boolean } = {},
 ): AsyncGenerator<AttachmentMeta, void, unknown> {
+  const select = [
+    ...ATTACHMENT_SELECT,
+    ...(options.contentId ? [ATTACHMENT_CONTENT_ID_SELECT] : []),
+  ];
   const url = `${userPath(userId)}/messages/${encodeURIComponent(messageId)}/attachments${query({
-    $select: ATTACHMENT_SELECT.join(","),
+    $select: select.join(","),
   })}`;
   return paginate<AttachmentMeta>(client, url);
+}
+
+/**
+ * The attachments of a message with their Content-ID. Should Graph refuse the type-cast
+ * `$select` (400), they are listed without it, and `contentIdUnavailable` says so: the caller
+ * records that inline images may not resolve after a restore instead of staying silent.
+ */
+export async function listAttachmentsWithContentId(
+  client: GraphClient,
+  userId: string,
+  messageId: string,
+): Promise<{ attachments: AttachmentMeta[]; contentIdUnavailable: boolean }> {
+  try {
+    return {
+      attachments: await collect(listAttachments(client, userId, messageId, { contentId: true })),
+      contentIdUnavailable: false,
+    };
+  } catch (error) {
+    if (!(isGraphError(error) && error.status === 400)) {
+      throw error;
+    }
+    return {
+      attachments: await collect(listAttachments(client, userId, messageId)),
+      contentIdUnavailable: true,
+    };
+  }
 }
 
 /** Stream the raw bytes of a file attachment (or the MIME of an item attachment). */
@@ -621,6 +660,8 @@ export type MessageContent =
       message: Message;
       attachments: Array<{ meta: AttachmentMeta; open: () => Promise<Readable> }>;
       fallbackReason: MimeFallbackReason;
+      /** Graph refused to name the attachments' Content-IDs ({@link listAttachmentsWithContentId}). */
+      contentIdUnavailable?: boolean;
     };
 
 /** Errors from `$value` that mean "too big for MIME export", not "gone" or "forbidden". */
@@ -770,11 +811,18 @@ export async function fetchMessageParts(
   const message = await getMessage(client, userId, messageId, {
     select: [...MESSAGE_SELECT, "body", "internetMessageHeaders"],
   });
-  const attachments = (await collect(listAttachments(client, userId, messageId))).map((meta) => ({
+  const listed = await listAttachmentsWithContentId(client, userId, messageId);
+  const attachments = listed.attachments.map((meta) => ({
     meta,
     open: () => openAttachmentContent(client, userId, messageId, meta.id),
   }));
-  return { kind: "parts", message, attachments, fallbackReason };
+  return {
+    kind: "parts",
+    message,
+    attachments,
+    fallbackReason,
+    ...(listed.contentIdUnavailable ? { contentIdUnavailable: true } : {}),
+  };
 }
 
 export async function getMailboxSettings(

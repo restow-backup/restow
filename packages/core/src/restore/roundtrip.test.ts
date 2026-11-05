@@ -99,7 +99,14 @@ describe("backup and restore round trip", () => {
           bytes: new Uint8Array(),
           odataType: "#microsoft.graph.referenceAttachment",
         },
-        { id: "A3", name: "logo.png", contentType: "image/png", bytes: logo, isInline: true },
+        {
+          id: "A3",
+          name: "logo.png",
+          contentType: "image/png",
+          bytes: logo,
+          isInline: true,
+          contentId: "logo.png@01DB2F6A.5C3E1D20",
+        },
       ],
     });
     source.addCalendar({ id: "cal-1", name: "Kalender", isDefaultCalendar: true });
@@ -180,9 +187,10 @@ describe("backup and restore round trip", () => {
 
     const big = restored("<m4@contoso.example>");
     expect(big.parentFolderId).toBe("wk-inbox");
-    expect(big.attachments.map((a) => [a.name, a.contentBytes, a.isInline])).toEqual([
-      ["launch.mp4", Buffer.from(video).toString("base64"), false],
-      ["logo.png", Buffer.from(logo).toString("base64"), true],
+    expect(big.attachments.map((a) => [a.name, a.contentBytes, a.isInline, a.contentId])).toEqual([
+      ["launch.mp4", Buffer.from(video).toString("base64"), false, undefined],
+      // The body's cid: reference resolves again only with the Content-ID.
+      ["logo.png", Buffer.from(logo).toString("base64"), true, "logo.png@01DB2F6A.5C3E1D20"],
     ]);
     expect(report.items.find((item) => item.id === "M4")?.reason).toMatch(
       /not re-created: Freigabe/,

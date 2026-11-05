@@ -129,6 +129,11 @@ ein Ordner liefert, bleibt ein Ordnerfehler.
   (höchstens 200 je Ordner und Lauf); kommt es, ersetzt es die JSON-Kopie samt Anhängen, sonst
   bleibt die Kopie unverändert. Jede JSON-Sicherung steht im Protokoll ("message stored as JSON
   instead of MIME" mit Grund) und gezählt im Abschluss des Laufs (`jsonFallbacks`).
+  Jeder Dateianhang der JSON-Form trägt seine Content-ID (`metadata.contentId`, gelesen mit dem
+  Typ-Cast-`$select` `microsoft.graph.fileAttachment/contentId`, weil `contentId` nur am
+  abgeleiteten Typ steht); der Restore setzt sie wieder, sonst zeigen die `cid:`-Bilder im
+  HTML-Text ins Leere. Lehnt Graph den Typ-Cast ab (400), werden die Anhänge ohne gelistet und
+  die Nachricht trägt `contentIdUnavailable`. JSON-Sicherungen vor 0.5.0 haben keine Content-ID.
 - Kalender: `/users/{id}/calendars` und `/events` (Serientermine als Master plus
   Ausnahmen; `calendarView` nur für Ansicht, nicht für Backup). Kontakte:
   `/contactFolders` und `/contacts`. Beides als JSON mit Graph-Schema sichern.

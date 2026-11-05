@@ -674,6 +674,7 @@ const CONTENT_METADATA = [
   META.protection,
   META.formatReason,
   META.messageSize,
+  META.contentIdUnavailable,
 ] as const;
 
 /** Refresh a stored message without fetching its bytes again. */
@@ -789,6 +790,10 @@ async function storeJsonMessage(
             [META.isInline]: String(meta.isInline === true),
             attachmentType: meta["@odata.type"] ?? "",
             declaredSize: String(meta.size ?? ""),
+            // What the body's `cid:` reference names; restore sets it on the new attachment.
+            ...(typeof meta.contentId === "string" && meta.contentId.trim().length > 0
+              ? { [META.contentId]: meta.contentId }
+              : {}),
           },
           folder,
         ),
@@ -806,6 +811,13 @@ async function storeJsonMessage(
   };
   if (references.length > 0) {
     metadata[META.referenceAttachments] = JSON.stringify(references);
+  }
+  if (content.contentIdUnavailable) {
+    // Inline images of the HTML body may show as broken after a restore.
+    metadata[META.contentIdUnavailable] = "true";
+    run.logger.warn("Graph did not name the Content-IDs of the attachments", {
+      messageId: entry.id,
+    });
   }
 
   if (existing) {
@@ -971,6 +983,7 @@ async function storeMimeMessage(
   delete metadata[META.formatReason];
   delete metadata[META.attachmentCount];
   delete metadata[META.referenceAttachments];
+  delete metadata[META.contentIdUnavailable];
   if (existing) {
     // An earlier JSON version leaves its attachments behind otherwise.
     for (const rider of ridersOf(run, existing)) {

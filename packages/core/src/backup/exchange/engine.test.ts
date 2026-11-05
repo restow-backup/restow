@@ -231,6 +231,7 @@ function bigMessage(extra: Partial<NewMessage> = {}): NewMessage {
         contentType: "image/png",
         bytes: new Uint8Array([9, 9, 9]),
         isInline: true,
+        contentId: "image001.png@01DB2F6A.5C3E1D20",
       },
     ],
     ...extra,
@@ -1322,7 +1323,11 @@ describe("ExchangeBackupEngine", () => {
     expect(byId(manifest, "AAMkMsgBig/AAMkAtt3").metadata).toMatchObject({
       [META.isInline]: "true",
       [META.contentType]: "image/png",
+      // What `<img src="cid:image001.png@01DB2F6A.5C3E1D20">` in the HTML body names.
+      [META.contentId]: "image001.png@01DB2F6A.5C3E1D20",
     });
+    expect(byId(manifest, "AAMkMsgBig/AAMkAtt1").metadata?.[META.contentId]).toBeUndefined();
+    expect(byPath(manifest, bigPath).metadata?.[META.contentIdUnavailable]).toBeUndefined();
     // A link attachment has no content Graph v1.0 exposes; it is named on the message instead.
     expect(manifest.objects.find((o) => o.id === "AAMkMsgBig/AAMkAtt2")).toBeUndefined();
 
@@ -1403,6 +1408,19 @@ describe("ExchangeBackupEngine", () => {
     expect(manifest6.objects.filter((o) => o.id?.startsWith("AAMkMsgBig"))).toEqual([]);
     expect(manifest6.objects.filter((o) => o.path.startsWith(movedFolder))).toEqual([]);
     expect(sixth.counters.removed).toBe(1);
+  });
+
+  it("says so on a JSON message when Graph does not name the attachments' Content-IDs", async () => {
+    box.refuseDerivedSelect = true;
+    box.addMessage(bigMessage());
+    const result = await engine.run(newContext(), mailbox, {});
+    expect(result.failures).toEqual([]);
+    const manifest = await manifestOf(result.snapshotId);
+    const big = must(manifest.objects.find((o) => o.id === "AAMkMsgBig"));
+    expect(big.metadata?.[META.contentIdUnavailable]).toBe("true");
+    expect(byId(manifest, "AAMkMsgBig/AAMkAtt3").metadata).toMatchObject({
+      [META.isInline]: "true",
+    });
   });
 
   it("re-paths the objects of a renamed folder and drops those of a deleted folder", async () => {
