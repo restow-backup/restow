@@ -584,6 +584,11 @@ private repository.
   lost. The objects of the backup that stood for the other labels are listed as skipped with
   what became of their label, and Gmail's Important and Starred are not created as folders on
   another server.
+- Mail restore: an event that had attachments counted as confirmed although nothing of its
+  attachments came back. Backed-up event attachments are now added to the restored event (from
+  3 MB through an upload session, up to 150 MB each) and confirmed on it by name and size. An
+  event whose attachments the backup does not hold (a backup that did not save them, a group
+  calendar) is "Not confirmed" with the note that its attachments were not part of the backup.
 - Restore into another IMAP account: the target was stored as the bare login and looked up without
   order, source or status, so with two IMAP sources that know the same login (an old and a new
   server during a migration) a restore could write into the wrong server while the job reported

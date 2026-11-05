@@ -137,7 +137,8 @@ export function archiveEntryName(object: ManifestObject): string {
     case "contact":
       segments[last] = withExtension(name, ".json");
       break;
-    case "attachment": {
+    case "attachment":
+    case "event-attachment": {
       const facts = attachmentFactsOf(object);
       const fileName = portableSegment(facts.name) || name;
       segments[last] =

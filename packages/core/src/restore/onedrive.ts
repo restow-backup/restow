@@ -257,7 +257,10 @@ async function restorePlan(
       "wrong_target",
     );
   }
-  for (const attachments of plan.attachmentsByMessage.values()) {
+  for (const attachments of [
+    ...plan.attachmentsByMessage.values(),
+    ...plan.attachmentsByEvent.values(),
+  ]) {
     for (const attachment of attachments) {
       ledger.failed(
         attachment,

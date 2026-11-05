@@ -107,6 +107,9 @@ export class SnapshotCatalog {
   private readonly foldersByPath = new Map<string, ManifestObject>();
   private readonly calendarsById = new Map<string, ManifestObject>();
   private readonly messagePathById = new Map<string, string>();
+  private readonly eventPathById = new Map<string, string>();
+  /** Paths of the events that have event-attachment objects in the snapshot. */
+  private readonly eventsWithAttachments = new Set<string>();
   private readonly imapFoldersByMailbox = new Map<string, ManifestObject>();
   /** Real display names of mail and contact folders by area and recorded folder path. */
   private readonly displayNames = new Map<string, string>();
@@ -117,8 +120,19 @@ export class SnapshotCatalog {
       if (type === "mail" && object.id !== undefined) {
         this.messagePathById.set(object.id, object.path);
       }
+      if (type === "event" && object.id !== undefined) {
+        this.eventPathById.set(object.id, object.path);
+      }
       if (type === "folder") {
         this.addFolder(object);
+      }
+    }
+    for (const object of all) {
+      if (objectTypeOf(object) === "event-attachment") {
+        const owner = this.eventAttachmentOwner(object);
+        if (owner !== undefined) {
+          this.eventsWithAttachments.add(owner);
+        }
       }
     }
   }
@@ -217,6 +231,22 @@ export class SnapshotCatalog {
     }
     const byId = nonEmpty(metadata.messageItemId);
     return byId === undefined ? undefined : this.messagePathById.get(byId);
+  }
+
+  /** Path of the event an event attachment belongs to, if the snapshot names it. */
+  eventAttachmentOwner(attachment: ManifestObject): string | undefined {
+    const metadata = attachment.metadata ?? {};
+    const byPath = nonEmpty(metadata.eventPath);
+    if (byPath !== undefined) {
+      return byPath;
+    }
+    const byId = nonEmpty(metadata.eventItemId);
+    return byId === undefined ? undefined : this.eventPathById.get(byId);
+  }
+
+  /** Whether the snapshot holds attachment objects for the event at `path`. */
+  hasEventAttachments(path: string): boolean {
+    return this.eventsWithAttachments.has(path);
   }
 
   /**

@@ -638,6 +638,114 @@ describe("ExchangeRestoreEngine", () => {
     expect(mailbox.events.size).toBe(2);
   });
 
+  it("re-creates an event's backed-up attachments, also one that needs an upload session", async () => {
+    const agenda = Buffer.from("Agenda: 1. Budget 2. Roadmap");
+    const slides = pseudoRandomBytes(3 * 1024 * 1024 + 99, 21);
+    const planning: FixtureObject = {
+      path: "calendar/Kalender/Planning.0010.json",
+      type: "event",
+      id: "EV10",
+      metadata: { calendarName: "Kalender", isDefaultCalendar: "true", hasAttachments: "true" },
+      content: JSON.stringify({
+        event: {
+          subject: "Planning",
+          hasAttachments: true,
+          start: { dateTime: "2026-03-02T10:00:00.0000000", timeZone: "UTC" },
+          end: { dateTime: "2026-03-02T11:00:00.0000000", timeZone: "UTC" },
+        },
+        exceptions: [],
+      }),
+    };
+    // Shaped like the calendar backup writes them: the bytes, the event they belong to.
+    const attachment = (id: string, name: string, content: Buffer, contentType: string) => ({
+      path: `calendar/Kalender/Planning.0010.attachments/${name}`,
+      type: "event-attachment",
+      id,
+      content,
+      metadata: {
+        eventItemId: "EV10",
+        name,
+        contentType,
+        attachmentType: "#microsoft.graph.fileAttachment",
+      },
+    });
+    fixture = await createSnapshotFixture({
+      kind: "mailbox",
+      externalId: USER,
+      objects: [
+        planning,
+        attachment("EA1", "agenda.txt", agenda, "text/plain"),
+        attachment("EA2", "slides.pptx", slides, "application/vnd.ms-powerpoint"),
+      ],
+    });
+    const mailbox = new FakeMailbox();
+    mailbox.failAttachmentFragmentsAt.push(12 * 320 * 1024);
+
+    const report = await new ExchangeRestoreEngine({
+      graph: () => mailbox.graph.client(),
+      fragmentRetryDelayMs: 0,
+    }).run(fixture.ctx, restoreRequestFor(fixture, { mode: "skip" }));
+
+    expect(report.failures).toEqual([]);
+    const event = must([...mailbox.events.values()].find((e) => e.body.subject === "Planning"));
+    const stored = event.attachments.map((entry) => ({
+      name: entry.name,
+      sha256: sha256(Buffer.from(String(entry.contentBytes), "base64")),
+    }));
+    expect(stored).toEqual([
+      { name: "agenda.txt", sha256: sha256(agenda) },
+      { name: "slides.pptx", sha256: sha256(slides) },
+    ]);
+    expect(mailbox.graph.callsTo("POST", "/attachments/createUploadSession")).toHaveLength(1);
+    const item = (id: string) => must(report.items.find((entry) => entry.id === id));
+    expect(item("EV10")).toMatchObject({ status: "restored", verified: true });
+    expect(item("EA1")).toMatchObject({ status: "restored", verified: true });
+    expect(item("EA2")).toMatchObject({ status: "restored", verified: true });
+
+    // Selected on its own, an attachment says it comes with its event.
+    const alone = await engineFor(new FakeMailbox()).run(
+      fixture.ctx,
+      restoreRequestFor(fixture, { mode: "skip", selection: { objectIds: ["EA1"] } }),
+    );
+    expect(alone.items[0]).toMatchObject({ status: "skipped", code: "parent_not_restored" });
+  });
+
+  it("does not confirm an event whose attachments the backup does not hold", async () => {
+    const withFiles: FixtureObject = {
+      path: "calendar/Kalender/Review.0011.json",
+      type: "event",
+      id: "EV11",
+      metadata: { calendarName: "Kalender", isDefaultCalendar: "true" },
+      content: JSON.stringify({
+        event: {
+          subject: "Review",
+          hasAttachments: true,
+          start: { dateTime: "2026-03-03T10:00:00.0000000", timeZone: "UTC" },
+          end: { dateTime: "2026-03-03T11:00:00.0000000", timeZone: "UTC" },
+        },
+        exceptions: [],
+      }),
+    };
+    fixture = await createSnapshotFixture({
+      kind: "mailbox",
+      externalId: USER,
+      objects: [withFiles, dentist],
+    });
+    const mailbox = new FakeMailbox();
+
+    const report = await engineFor(mailbox).run(
+      fixture.ctx,
+      restoreRequestFor(fixture, { mode: "skip" }),
+    );
+
+    expect(report.failures).toEqual([]);
+    const review = must(report.items.find((entry) => entry.id === "EV11"));
+    expect(review).toMatchObject({ status: "restored", code: "unverified", verified: false });
+    expect(review.reason).toMatch(/had attachments, but they were not part of the backup/);
+    // An event without attachments stays confirmed.
+    expect(must(report.items.find((entry) => entry.id === "EV2")).verified).toBe(true);
+  });
+
   it("restores JSON-format messages with their attachments and isolates failures per item", async () => {
     const bigOne: FixtureObject = {
       path: "mail/Posteingang/Big one.0009.json",

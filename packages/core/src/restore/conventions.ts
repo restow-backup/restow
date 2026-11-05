@@ -14,6 +14,8 @@
  *                       oversized-message fallback of docs/MICROSOFT.md.
  *   "attachment"        One attachment of a "parts" message.
  *   "event"             Graph event JSON: `{ event, exceptions }` or a bare event.
+ *   "event-attachment"  The bytes of one file attachment of an event (an item
+ *                       attachment: its MIME, restored as `.eml`).
  *   "contact"           Graph contact JSON.
  *   "file"              OneDrive file bytes (also the default for untyped objects).
  *   "file-version"      A historical OneDrive file version at `<file>:versions/<id>`.
@@ -49,8 +51,12 @@
  *     name, contentType  file name and MIME type
  *     attachmentType     Graph `@odata.type` (file or item attachment)
  *     isInline, contentId  inline attachment facts
+ *   Event attachments
+ *     eventPath          path of the event it belongs to (or eventItemId: its id)
+ *     name, contentType, attachmentType, isInline, contentId  as for attachments
  *   Calendar and contacts
  *     calendarId         events and calendar folder objects
+ *     hasAttachments     events: "true" when the event had attachments
  *     calendarName       display name of the calendar (events and calendar folders)
  *     isDefaultCalendar  "true" for the default calendar (events and calendar folders)
  *     folderPath         contacts: folder names below the default folder ("" = default)
@@ -82,6 +88,7 @@ export type RestoreObjectType =
   | "mail"
   | "attachment"
   | "event"
+  | "event-attachment"
   | "contact"
   | "file"
   | "version"
@@ -102,6 +109,7 @@ export function objectTypeOf(object: ManifestObject): RestoreObjectType {
       return "version";
     case "attachment":
     case "event":
+    case "event-attachment":
     case "contact":
     case "file":
     case "folder":

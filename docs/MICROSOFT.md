@@ -97,6 +97,16 @@ Schutzumfang" anzeigen, nicht als Fehler).
   einem anderen Postfach freigegebener Kalender gehört diesem Postfach und wird mit ihm gesichert.
   Die Metadaten eines Termins nennen Betreff, Beginn und Ende (UTC), ganztägig, Organisator, Ort
   und bei einer Serie das letzte Datum ihres Bereichs (Ort und Serienende ab 0.4.2).
+- Terminanhänge im Restore (`packages/core/src/restore/exchange.ts`, `restoreEventAttachments`):
+  Objekte vom Typ `event-attachment` (die Bytes eines Dateianhangs, `metadata.eventPath` oder
+  `eventItemId` nennt den Termin, dazu `name`, `contentType`, `attachmentType`, `isInline`)
+  werden nach dem Termin angelegt, unter 3 MB mit `POST /events/{id}/attachments`, ab 3 MB über
+  `…/attachments/createUploadSession` (bis 150 MB, Fragmente wie bei Mail-Anhängen); ein
+  angehängtes Element kommt als `.eml`, ein Link-Anhang nicht. Danach wird jeder Anhang an Name
+  und Größe auf dem Termin bestätigt. Ein Anhang, den ein früherer Versuch desselben Jobs schon
+  angelegt hat, wird nicht noch einmal gesendet. Hatte ein Termin Anhänge (`hasAttachments`), die
+  Sicherung aber keine (ältere Sicherungen, Gruppenkalender), ist er „Nicht bestätigt“ mit dem
+  Hinweis, dass die Anhänge nicht gesichert wurden.
 - Kalender im Restore-Explorer (ab 0.4.2): Ein Kalender listet seine Termine nach Beginn
   (neueste zuerst oder anstehende zuerst), mit Wann, Ort und Organisator, nicht nach Betreff.
   Eine Serie steht einmal in der Liste und klappt ihre Termine auf; die Monatsansicht zeigt

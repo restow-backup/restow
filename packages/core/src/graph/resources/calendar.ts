@@ -26,6 +26,13 @@ import {
   requestOk,
   stripReadOnly,
 } from "./common.js";
+import {
+  type AttachmentMeta,
+  addFileAttachmentAt,
+  type FileAttachmentFacts,
+  listAttachmentsAt,
+} from "./mail.js";
+import type { UploadOptions, UploadSource } from "./upload-session.js";
 
 export const CALENDAR_SELECT = [
   "id",
@@ -255,6 +262,34 @@ export async function createEvent(
     headers: UTC_PREFER,
     body: event,
   });
+}
+
+/** The `attachments` collection of an event. */
+export function eventAttachmentsPath(owner: MailboxOwner, eventId: string): string {
+  return `${ownerPath(owner)}/events/${encodeURIComponent(eventId)}/attachments`;
+}
+
+/**
+ * Add a file attachment to an event: a POST under 3 MB, else an upload
+ * session (Graph v1.0 `event: createUploadSession`, up to 150 MB).
+ */
+export function addEventFileAttachment(
+  client: GraphClient,
+  owner: MailboxOwner,
+  eventId: string,
+  file: FileAttachmentFacts,
+  source: UploadSource,
+  options: UploadOptions = {},
+): Promise<{ id: string | undefined; location: string | undefined }> {
+  return addFileAttachmentAt(client, eventAttachmentsPath(owner, eventId), file, source, options);
+}
+
+export function listEventAttachments(
+  client: GraphClient,
+  owner: MailboxOwner,
+  eventId: string,
+): AsyncGenerator<AttachmentMeta, void, unknown> {
+  return listAttachmentsAt(client, eventAttachmentsPath(owner, eventId));
 }
 
 export async function updateEvent(

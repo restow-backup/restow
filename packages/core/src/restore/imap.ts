@@ -387,6 +387,7 @@ class ImapRestoreRun {
       ...plan.informational,
       ...plan.orphanAttachments,
       ...[...plan.attachmentsByMessage.values()].flat(),
+      ...[...plan.attachmentsByEvent.values()].flat(),
     ];
     for (const object of foreign) {
       this.ledger.failed(

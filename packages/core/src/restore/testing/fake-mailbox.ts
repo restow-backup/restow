@@ -86,6 +86,7 @@ export interface FakeEvent {
   body: Record<string, unknown>;
   iCalUId: string;
   patches: Record<string, unknown>[];
+  attachments: Record<string, unknown>[];
 }
 
 export interface FakeContactFolder {
@@ -156,6 +157,7 @@ export class FakeMailbox {
     string,
     {
       messageId: string;
+      holder: { attachments: Record<string, unknown>[] };
       item: Record<string, unknown>;
       size: number;
       parts: Buffer[];
@@ -292,7 +294,14 @@ export class FakeMailbox {
   }
 
   addEvent(calendarId: string, body: Record<string, unknown>, iCalUId: string): FakeEvent {
-    const event = { id: this.nextId("event"), calendarId, body, iCalUId, patches: [] };
+    const event = {
+      id: this.nextId("event"),
+      calendarId,
+      body,
+      iCalUId,
+      patches: [],
+      attachments: [],
+    };
     this.events.set(event.id, event);
     return event;
   }
@@ -442,6 +451,16 @@ export class FakeMailbox {
     return { status: 200, json: { value } };
   }
 
+  /** The message or event an `/attachments` URL belongs to. */
+  private attachmentHolder(url: URL): { attachments: Record<string, unknown>[] } | undefined {
+    const messageId = segment(url, "messages");
+    if (messageId !== null) {
+      return this.messages.get(messageId);
+    }
+    const eventId = segment(url, "events");
+    return eventId === null ? undefined : this.events.get(eventId);
+  }
+
   private createEvent(url: URL, call: RecordedCall): FixtureResponse {
     const calendarId = segment(url, "calendars");
     if (!calendarId || !this.calendars.has(calendarId)) {
@@ -537,9 +556,9 @@ export class FakeMailbox {
       },
       {
         method: "POST",
-        url: path(/\/users\/[^/]+\/messages\/[^/]+\/attachments$/),
+        url: path(/\/users\/[^/]+\/(messages|events)\/[^/]+\/attachments$/),
         respond: (call) => {
-          const message = this.messages.get(segment(new URL(call.url), "messages") ?? "");
+          const message = this.attachmentHolder(new URL(call.url));
           if (!message) {
             return NOT_FOUND;
           }
@@ -562,9 +581,9 @@ export class FakeMailbox {
       },
       {
         method: "GET",
-        url: path(/\/users\/[^/]+\/messages\/[^/]+\/attachments$/),
+        url: path(/\/users\/[^/]+\/(messages|events)\/[^/]+\/attachments$/),
         respond: (call) => {
-          const message = this.messages.get(segment(new URL(call.url), "messages") ?? "");
+          const message = this.attachmentHolder(new URL(call.url));
           if (!message) {
             return NOT_FOUND;
           }
@@ -604,7 +623,7 @@ export class FakeMailbox {
       },
       {
         method: "POST",
-        url: path(/\/users\/[^/]+\/messages\/[^/]+\/attachments\/createUploadSession$/),
+        url: path(/\/users\/[^/]+\/(messages|events)\/[^/]+\/attachments\/createUploadSession$/),
         respond: (call) => this.createUploadSession(call),
       },
       {
@@ -759,10 +778,12 @@ export class FakeMailbox {
   }
 
   private createUploadSession(call: RecordedCall): FixtureResponse {
-    const messageId = segment(new URL(call.url), "messages") ?? "";
-    if (!this.messages.has(messageId)) {
+    const url = new URL(call.url);
+    const holder = this.attachmentHolder(url);
+    if (!holder) {
       return NOT_FOUND;
     }
+    const messageId = segment(url, "messages") ?? segment(url, "events") ?? "";
     const item = ((call.json as { AttachmentItem?: Record<string, unknown> }).AttachmentItem ??
       {}) as Record<string, unknown>;
     const size = typeof item.size === "number" ? item.size : -1;
@@ -785,7 +806,7 @@ export class FakeMailbox {
       };
     }
     const id = this.nextId("upload");
-    this.uploads.set(id, { messageId, item, size, parts: [], received: 0 });
+    this.uploads.set(id, { messageId, holder, item, size, parts: [], received: 0 });
     return {
       status: 201,
       json: {
@@ -818,10 +839,7 @@ export class FakeMailbox {
       return { status: 200, json: { nextExpectedRanges: [`${upload.received}-`] } };
     }
     this.uploads.delete(id);
-    const message = this.messages.get(upload.messageId);
-    if (!message) {
-      return NOT_FOUND;
-    }
+    const message = upload.holder;
     const attachmentId = this.nextId("att");
     const { attachmentType: _type, ...facts } = upload.item;
     message.attachments.push({

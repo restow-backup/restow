@@ -479,10 +479,21 @@ export function listAttachments(
   userId: string,
   messageId: string,
 ): AsyncGenerator<AttachmentMeta, void, unknown> {
-  const url = `${userPath(userId)}/messages/${encodeURIComponent(messageId)}/attachments${query({
-    $select: ATTACHMENT_SELECT.join(","),
-  })}`;
-  return paginate<AttachmentMeta>(client, url);
+  return listAttachmentsAt(
+    client,
+    `${userPath(userId)}/messages/${encodeURIComponent(messageId)}/attachments`,
+  );
+}
+
+/** The attachments of the item whose `attachments` collection is `base` (a message or an event). */
+export function listAttachmentsAt(
+  client: GraphClient,
+  base: string,
+): AsyncGenerator<AttachmentMeta, void, unknown> {
+  return paginate<AttachmentMeta>(
+    client,
+    `${base}${query({ $select: ATTACHMENT_SELECT.join(",") })}`,
+  );
 }
 
 /** Stream the raw bytes of a file attachment (or the MIME of an item attachment). */
@@ -849,17 +860,40 @@ export async function addFileAttachment(
   client: GraphClient,
   userId: string,
   messageId: string,
-  file: {
-    name: string;
-    contentType?: string;
-    size: number;
-    isInline?: boolean;
-    contentId?: string;
-  },
+  file: FileAttachmentFacts,
   source: UploadSource,
   options: UploadOptions = {},
 ): Promise<{ id: string | undefined; location: string | undefined }> {
-  const base = `${userPath(userId)}/messages/${encodeURIComponent(messageId)}/attachments`;
+  return addFileAttachmentAt(
+    client,
+    `${userPath(userId)}/messages/${encodeURIComponent(messageId)}/attachments`,
+    file,
+    source,
+    options,
+  );
+}
+
+/** What a file attachment is created with. */
+export interface FileAttachmentFacts {
+  name: string;
+  contentType?: string;
+  size: number;
+  isInline?: boolean;
+  contentId?: string;
+}
+
+/**
+ * Add a file attachment to the item whose `attachments` collection is `base`
+ * (a message or an event): a POST under 3 MB, else an upload session (up to
+ * 150 MB, fragments resumed after a failure and cancelled when it gives up).
+ */
+export async function addFileAttachmentAt(
+  client: GraphClient,
+  base: string,
+  file: FileAttachmentFacts,
+  source: UploadSource,
+  options: UploadOptions = {},
+): Promise<{ id: string | undefined; location: string | undefined }> {
   if (file.size < INLINE_ATTACHMENT_LIMIT_BYTES) {
     const bytes = await readAll(source, file.size);
     const created = await requestOk<{ id?: string }>(client, {

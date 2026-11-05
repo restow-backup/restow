@@ -56,6 +56,7 @@ import type { JobContext, Logger, RestoreEngine, RestoreRequest } from "../engin
 import type { GraphClient } from "../graph/client.js";
 import { isGraphError, isNotFound } from "../graph/errors.js";
 import {
+  addEventFileAttachment,
   type CalendarInfo,
   calendarPath,
   createCalendar,
@@ -63,6 +64,7 @@ import {
   findOccurrenceByOriginalStart,
   getDefaultCalendar,
   listCalendars,
+  listEventAttachments,
   sameInstant,
   toCreatableEvent,
   updateEvent,
@@ -130,6 +132,8 @@ import {
   messageFlagsOf,
   messageFormatOf,
   messageIsDraftOf,
+  objectTypeOf,
+  parseBoolean,
   referenceAttachmentsOf,
 } from "./conventions.js";
 import { type DuplicateSlot, MessageIdDuplicates } from "./duplicates.js";
@@ -140,6 +144,7 @@ import {
   type MimeOutline,
   outlineMime,
 } from "./mime-parts.js";
+import { ObjectRangeSource } from "./object-range.js";
 import { RESTORED_BY_EARLIER_ATTEMPT, RestoreProgress } from "./progress.js";
 import {
   describeRestoreError,
@@ -150,6 +155,9 @@ import {
   type RestoreReport,
 } from "./results.js";
 import { planRestore, type RestorePlan, resolveRestoreSource } from "./selection.js";
+
+const EVENT_ATTACHMENT_WITHOUT_EVENT =
+  "an event attachment is restored together with its event; select the event to restore it";
 
 export interface ExchangeRestoreEngineOptions {
   readonly graph: RestoreGraphClientFactory;
@@ -309,10 +317,14 @@ export class ExchangeRestoreEngine implements RestoreEngine {
     if (plan.events.length > 0) {
       ctx.progress.phase("calendar");
       for (const event of plan.events) {
-        await session.restoreEvent(event);
+        await session.restoreEvent(event, plan.attachmentsByEvent.get(event.path) ?? []);
       }
     }
     for (const object of [...plan.mail, ...plan.orphanAttachments]) {
+      if (objectTypeOf(object) === "event-attachment") {
+        ledger.skipped(object, "parent_not_restored", EVENT_ATTACHMENT_WITHOUT_EVENT);
+        continue;
+      }
       ledger.failed(object, new Error(GROUP_POST_NOT_RESTORABLE), "not_restorable");
     }
     for (const object of [
@@ -371,14 +383,16 @@ export class ExchangeRestoreEngine implements RestoreEngine {
         ledger.skipped(
           attachment,
           "parent_not_restored",
-          "an attachment is restored together with its message; select the message to restore it",
+          objectTypeOf(attachment) === "event-attachment"
+            ? EVENT_ATTACHMENT_WITHOUT_EVENT
+            : "an attachment is restored together with its message; select the message to restore it",
         );
       }
     }
     if (plan.events.length > 0) {
       ctx.progress.phase("calendar");
       for (const event of plan.events) {
-        await session.restoreEvent(event);
+        await session.restoreEvent(event, plan.attachmentsByEvent.get(event.path) ?? []);
       }
     }
     if (plan.contacts.length > 0) {
@@ -1358,9 +1372,13 @@ export class ExchangeRestoreSession {
 
   // --- calendar -----------------------------------------------------------
 
-  async restoreEvent(object: ManifestObject): Promise<void> {
+  async restoreEvent(
+    object: ManifestObject,
+    attachments: readonly ManifestObject[] = [],
+  ): Promise<void> {
     const { ctx, client, reader, ledger } = this.o;
     throwIfAborted(ctx);
+    let attachmentsDone = false;
     try {
       const item = toCalendarItem(await readJsonObject(reader, object));
       const calendarId = await this.calendarFor(this.o.catalog.calendarOf(object));
@@ -1375,6 +1393,13 @@ export class ExchangeRestoreSession {
             this.legacyNote(this.skipReason("an event with this iCalUId", "calendar")),
             existing[0]?.id,
           );
+          for (const attachment of attachments) {
+            ledger.skipped(
+              attachment,
+              "parent_not_restored",
+              "the event already exists in the target calendar",
+            );
+          }
           return;
         }
       }
@@ -1425,6 +1450,26 @@ export class ExchangeRestoreSession {
       if (!matches) {
         problems.push("subject or start of the restored event differs from the backup");
       }
+      attachmentsDone = true;
+      const attached = await this.restoreEventAttachments(created.id, attachments);
+      if (attached.failed > 0) {
+        problems.push(
+          `${attached.failed} of ${attachments.length} attachments could not be added to the event`,
+        );
+      }
+      if (attached.unconfirmed > 0) {
+        problems.push(
+          `${attached.unconfirmed} of ${attachments.length} attachments are not on the restored event`,
+        );
+      }
+      const hadAttachments =
+        item.event.hasAttachments === true ||
+        parseBoolean(object.metadata?.hasAttachments) === true;
+      if (hadAttachments && attachments.length === 0) {
+        problems.push(
+          "the event had attachments, but they were not part of the backup (earlier backups and group calendars do not hold them)",
+        );
+      }
       const notes =
         !this.o.keepAttendees && (item.event.attendees?.length ?? 0) > 0
           ? ["attendees were not invited again; the list is kept in the backup"]
@@ -1440,7 +1485,166 @@ export class ExchangeRestoreSession {
         throw error;
       }
       ledger.failed(object, this.legacyReplaceError(error), failureCodeOf(error));
+      if (!attachmentsDone) {
+        for (const attachment of attachments) {
+          ledger.skipped(attachment, "parent_not_restored", "its event could not be restored");
+        }
+      }
     }
+  }
+
+  /**
+   * Add the backed-up attachments to a restored event, never twice: one an
+   * earlier attempt (the same event, by its transactionId) already added is
+   * kept, and after an unknown outcome the event's attachments are looked at
+   * before anything is sent again. Each attachment is confirmed by name and
+   * size on the event afterwards.
+   */
+  private async restoreEventAttachments(
+    eventId: string,
+    attachments: readonly ManifestObject[],
+  ): Promise<{ failed: number; unconfirmed: number }> {
+    const { ctx, client, reader, ledger } = this.o;
+    if (attachments.length === 0) {
+      return { failed: 0, unconfirmed: 0 };
+    }
+    const listed = async () => {
+      const all: AttachmentMeta[] = [];
+      for await (const attachment of listEventAttachments(client, this.owner, eventId)) {
+        all.push(attachment);
+      }
+      return all;
+    };
+    const taken = new Set<string>();
+    const fits = (file: { name: string; size: number }) => (candidate: AttachmentMeta) => {
+      const size = candidate.size ?? -1;
+      return (
+        candidate.name === file.name &&
+        !taken.has(candidate.id) &&
+        size >= file.size &&
+        size <= file.size + 64 * 1024
+      );
+    };
+    let present = await listed();
+    let failed = 0;
+    const added: Array<{ attachment: ManifestObject; id: string | undefined; note: string[] }> = [];
+    for (const attachment of attachments) {
+      throwIfAborted(ctx);
+      const facts = attachmentFactsOf(attachment);
+      if (facts.kind === "reference") {
+        ledger.skipped(
+          attachment,
+          "not_restorable",
+          "link attachments (reference attachments) are kept in the backup but not re-created",
+        );
+        continue;
+      }
+      const isItem = facts.kind === "item";
+      const file = {
+        name: isItem && !/\.[A-Za-z0-9]{1,8}$/.test(facts.name) ? `${facts.name}.eml` : facts.name,
+        contentType: facts.contentType ?? (isItem ? "message/rfc822" : "application/octet-stream"),
+        size: attachment.size,
+        isInline: facts.isInline,
+        contentId: facts.contentId,
+      };
+      const note = isItem ? ["an attached item is restored as a message file (.eml)"] : [];
+      const earlier = present.find(fits(file));
+      if (earlier !== undefined) {
+        taken.add(earlier.id);
+        added.push({
+          attachment,
+          id: earlier.id,
+          note: [...note, "added by an earlier attempt of this job"],
+        });
+        continue;
+      }
+      const source = new ObjectRangeSource(reader, attachment);
+      try {
+        let id: string | undefined;
+        try {
+          id = (
+            await addEventFileAttachment(
+              client,
+              this.owner,
+              eventId,
+              file,
+              source.read,
+              this.uploadOptions(),
+            )
+          ).id;
+        } catch (error) {
+          if (!isWriteOutcomeUnknown(error)) {
+            throw error;
+          }
+          present = await listed();
+          const made = present.find(fits(file));
+          // The source reads again from its chunks: sent once more only when nothing arrived.
+          id =
+            made?.id ??
+            (
+              await addEventFileAttachment(
+                client,
+                this.owner,
+                eventId,
+                file,
+                source.read,
+                this.uploadOptions(),
+              ).catch((retryError: unknown) => {
+                throw isWriteOutcomeUnknown(retryError)
+                  ? outcomeUnknownError(`the attachment ${file.name}`, retryError)
+                  : retryError;
+              })
+            ).id;
+        }
+        if (id !== undefined) {
+          taken.add(id);
+        }
+        added.push({ attachment, id, note });
+      } catch (error) {
+        if (isAbortError(error)) {
+          throw error;
+        }
+        failed++;
+        ledger.failed(attachment, this.legacyReplaceError(error), failureCodeOf(error));
+      } finally {
+        await source.close();
+      }
+    }
+    // Confirm by what the event holds now.
+    const after = added.length > 0 ? await listed() : [];
+    let unconfirmed = 0;
+    const confirmedIds = new Set<string>();
+    for (const entry of added) {
+      const facts = attachmentFactsOf(entry.attachment);
+      const name =
+        facts.kind === "item" && !/\.[A-Za-z0-9]{1,8}$/.test(facts.name)
+          ? `${facts.name}.eml`
+          : facts.name;
+      const match =
+        after.find((candidate) => entry.id !== undefined && candidate.id === entry.id) ??
+        after.find(
+          (candidate) =>
+            !confirmedIds.has(candidate.id) &&
+            candidate.name === name &&
+            (candidate.size ?? -1) >= entry.attachment.size,
+        );
+      if (match !== undefined) {
+        confirmedIds.add(match.id);
+      } else {
+        unconfirmed++;
+      }
+      ledger.restored(entry.attachment, {
+        targetRef: match?.id ?? entry.id,
+        bytes: entry.attachment.size,
+        verified: match !== undefined,
+        note:
+          [
+            ...entry.note,
+            ...(match === undefined ? ["the restored event does not list this attachment"] : []),
+          ].join("; ") || undefined,
+      });
+    }
+    return { failed, unconfirmed };
   }
 
   /** Re-apply a backed-up exception to the matching occurrence of the recreated series. */
