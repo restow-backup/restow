@@ -400,6 +400,7 @@ class BackupRun {
     this.ctx.progress.phase("enumerate");
     const folders = orderFolders(await firstSession.listFolders());
     this.logVanishedFolders(folders);
+    this.dropUnlistedFromEarlierAttempt(folders);
 
     for (const folder of folders) {
       if (!this.completed.has(folder.path)) {
@@ -844,9 +845,51 @@ class BackupRun {
       (path) => !listed.has(path),
     );
     if (vanished.length > 0) {
-      this.logger.info("imap folders no longer on the server; their messages leave the snapshot", {
-        folders: vanished,
-      });
+      this.logger.info(
+        "imap folders no longer on the server, not in this restore point (older restore points keep them)",
+        { folders: vanished },
+      );
+    }
+  }
+
+  /**
+   * A resumed attempt starts from the partial manifest of the earlier one. A folder that
+   * attempt completed or had begun, and that the server no longer lists (renamed or deleted
+   * in between), would otherwise stay in the restore point next to its new name: a restore
+   * would bring it back and duplicate every message of a renamed folder. Its objects, state
+   * and cursor entries go, as for any folder that vanished between runs.
+   */
+  private dropUnlistedFromEarlierAttempt(folders: readonly ImapFolderInfo[]): void {
+    const listed = new Set(folders.map((folder) => folder.path));
+    const earlier = new Set([
+      ...this.partialByFolder.keys(),
+      ...this.completed,
+      ...this.active.keys(),
+      ...Object.keys(this.folderState),
+    ]);
+    const dropped: string[] = [];
+    let objects = 0;
+    for (const path of earlier) {
+      if (listed.has(path)) {
+        continue;
+      }
+      for (const object of this.partialByFolder.get(path) ?? []) {
+        if (this.writer.remove(object.path)) {
+          objects++;
+        }
+      }
+      this.partialByFolder.delete(path);
+      this.completed.delete(path);
+      this.active.delete(path);
+      delete this.folderState[path];
+      dropped.push(path);
+    }
+    if (dropped.length > 0) {
+      this.publishState();
+      this.logger.info(
+        "imap folder from an earlier attempt no longer listed, dropped from this restore point",
+        { folders: dropped, objects },
+      );
     }
   }
 

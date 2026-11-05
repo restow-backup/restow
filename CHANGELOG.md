@@ -547,6 +547,11 @@ private repository.
   requested full backup the previous messages that were not read again are now carried forward
   with their current flags; after a UIDVALIDITY change the previous copy of the folder is kept
   as it was and the next run reads the folder in full again.
+- Mail backup: when an interrupted IMAP backup was resumed after a folder had been renamed or
+  deleted in between, the restore point kept the folder the earlier attempt had already stored
+  next to its new name, so a restore brought back a folder that no longer existed and every
+  message of a renamed folder twice. Folders the server no longer lists are now dropped from
+  the resumed restore point, also a folder the earlier attempt was still in.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,

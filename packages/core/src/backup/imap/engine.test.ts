@@ -715,6 +715,78 @@ describe("ImapBackupEngine", () => {
     expect(cursor.cursor).toBeNull();
   });
 
+  describe("a resumed attempt after a folder was renamed or deleted in between", () => {
+    /** Attempt 1 completes INBOX and Projects, then is cancelled inside Zeta after a checkpoint. */
+    async function interruptedInZeta(): Promise<void> {
+      server.addFolder("INBOX").add(eml("inbox"));
+      const projects = server.addFolder("Projects");
+      for (let i = 1; i <= 3; i++) {
+        projects.add(eml(`project ${i}`));
+      }
+      const zeta = server.addFolder("Zeta");
+      for (let i = 1; i <= 6; i++) {
+        zeta.add(eml(`zeta ${i}`));
+      }
+      const controller = new AbortController();
+      server.onDelivered = (folder, uid) => {
+        if (folder === "Zeta" && uid === 4) {
+          controller.abort();
+        }
+      };
+      await expect(
+        engine({ maxConnections: 1 }).run(
+          context({ signal: controller.signal }),
+          protectedObject,
+          {},
+        ),
+      ).rejects.toBeInstanceOf(JobAbortedError);
+      server.onDelivered = null;
+      const saved = cursor.cursor?.imap as { completed: string[]; active: Record<string, unknown> };
+      expect(saved.completed).toEqual(["INBOX", "Projects"]);
+      expect(Object.keys(saved.active)).toEqual(["Zeta"]);
+    }
+
+    function rename(from: string, to: string): void {
+      const old = server.folder(from);
+      const renamed = server.addFolder(to);
+      for (const uid of old.uids()) {
+        const message = old.messages.get(uid);
+        if (message) {
+          renamed.add(message.source, { messageId: message.messageId });
+        }
+      }
+      server.folders.delete(from);
+    }
+
+    it("keeps only the new name of a folder the earlier attempt had completed", async () => {
+      await interruptedInZeta();
+      rename("Projects", "Projects-2024");
+
+      const result = await engine({ maxConnections: 1 }).run(context(), protectedObject, {});
+      const manifest = await manifestOf(result.snapshotId);
+      const mailboxes = manifest.objects.map((o) => o.metadata?.[META.mailbox]);
+      expect(mailboxes).not.toContain("Projects");
+      expect(
+        messages(manifest).filter((o) => o.metadata?.[META.mailbox] === "Projects-2024"),
+      ).toHaveLength(3);
+      expect(messages(manifest)).toHaveLength(1 + 3 + 6);
+      const state = manifest.state as { imap: { folders: Record<string, unknown> } };
+      expect(Object.keys(state.imap.folders).sort()).toEqual(["INBOX", "Projects-2024", "Zeta"]);
+    });
+
+    it("drops the half-done folder the earlier attempt was in when it is gone", async () => {
+      await interruptedInZeta();
+      server.folders.delete("Zeta");
+
+      const result = await engine({ maxConnections: 1 }).run(context(), protectedObject, {});
+      const manifest = await manifestOf(result.snapshotId);
+      expect(manifest.objects.some((o) => o.metadata?.[META.mailbox] === "Zeta")).toBe(false);
+      expect(messages(manifest)).toHaveLength(4);
+      const state = manifest.state as { imap: { folders: Record<string, unknown> } };
+      expect(state.imap.folders.Zeta).toBeUndefined();
+    });
+  });
+
   it("refuses an account without transport security", async () => {
     seedMailbox();
     const insecure = engine({ resolveAccount: async () => ({ ...account, security: "none" }) });

@@ -27,6 +27,11 @@
   liegen, mit ihren aktuellen Flags mit. Nach einem UIDVALIDITY-Wechsel bleibt der vorige Stand des
   Ordners samt Ordnerzustand unverändert (alte und neue UIDs lassen sich nicht mischen); der
   nächste Lauf liest ihn erneut voll.
+- Wiederaufnahme nach einem abgebrochenen Versuch: Ein Ordner, den der frühere Versuch schon
+  fertig oder halb gesichert hatte und den der Server inzwischen nicht mehr listet (umbenannt
+  oder gelöscht), verschwindet samt Objekten und Zustand aus dem Sicherungsstand; ein
+  umbenannter Ordner steht dort nur unter seinem neuen Namen. Ältere Sicherungsstände behalten
+  ihn.
 - Parallelität: max. 2 Verbindungen je Konto (viele Server limitieren).
 - Restore: APPEND in Zielordner mit Original-Datum und Flags; Zielordner anlegen, falls
   fehlend; Duplikate über Message-ID prüfen. Geprüft wird gegen den Stand des Ordners,
