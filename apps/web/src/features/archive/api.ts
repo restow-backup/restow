@@ -143,14 +143,21 @@ export interface ChainBreak extends ChainEntryRef {
 }
 
 /** Why a stored message could not be compared: not recorded, different bytes, or not readable. */
-export type ArchiveContentProblem = "not_recorded" | "mismatch" | "unreadable";
+/** `missing`, `damaged`, `mismatch`: proven broken; `unreadable`: storage did not answer. */
+export type ArchiveContentProblem =
+  | "not_recorded"
+  | "mismatch"
+  | "missing"
+  | "damaged"
+  | "unreadable";
 
 /**
  * The archive check (GET /archive/chain/verify, apps/api/src/features/archive/verify.ts):
  * links, daily anchors and an optional content sample, each with what it covered.
  */
 export interface ChainVerification {
-  ok: boolean;
+  /** null: nothing failed, but sampled content could not be read; the check must run again. */
+  ok: boolean | null;
   checkedAt: string;
   /** Entries whose links were recomputed: the whole chain, tombstones of deleted items included. */
   checked: number;
@@ -168,6 +175,8 @@ export interface ChainVerification {
     requested: number;
     checked: number;
     notRecorded: number;
+    /** Sampled messages storage did not deliver (outage, timeout): not checked. */
+    inconclusive?: number;
     failures: {
       itemId: string;
       subject: string | null;

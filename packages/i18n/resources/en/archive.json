@@ -116,15 +116,20 @@
     "content": {
       "skipped": "Content: not read. The check above covers only the checksums in the database. Whether the messages in storage are unchanged is what the sample shows.",
       "ok": "Content: {count, plural, one {# message} other {# messages}} read from storage, each matches its checksum.",
-      "failed": "Content: {failed} of {total} messages read do not match their checksum or could not be read.",
+      "failed": "Content: {failed} of {total} messages read are missing, damaged or do not match their checksum.",
       "notRecorded": "{count, plural, one {# message of the sample was archived before its repository was recorded and could not be compared.} other {# messages of the sample were archived before their repository was recorded and could not be compared.}}",
-      "none": "Content: no message of the sample could be compared."
+      "none": "Content: no message of the sample could be compared.",
+      "inconclusive": "{count, plural, one {# message of the sample} other {# messages of the sample}} could not be read from storage (no answer, timeout or an error of the storage); that proves nothing about the content. Run the check again.",
+      "notChecked": "Content: not checked. Storage did not deliver the messages of the sample (no answer, timeout or an error of the storage); that proves nothing about their content. Run the check again."
     },
     "problem": {
       "mismatch": "Content differs from its checksum",
       "unreadable": "Not readable from storage",
-      "not_recorded": "Repository not recorded"
-    }
+      "not_recorded": "Repository not recorded",
+      "missing": "Missing from storage",
+      "damaged": "Stored data damaged"
+    },
+    "inconclusive": "Not checked, please run again"
   },
   "legalHold": {
     "title": "Legal holds",

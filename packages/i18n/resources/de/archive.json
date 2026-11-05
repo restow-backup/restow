@@ -116,15 +116,20 @@
     "content": {
       "skipped": "Inhalte: nicht gelesen. Die Prüfung oben betrifft nur die Prüfsummen in der Datenbank. Ob die Nachrichten im Speicher unverändert sind, zeigt die Stichprobe.",
       "ok": "Inhalte: {count, plural, one {# Nachricht} other {# Nachrichten}} aus dem Speicher gelesen, jede stimmt mit ihrer Prüfsumme überein.",
-      "failed": "Inhalte: {failed} von {total} gelesenen Nachrichten stimmen nicht mit ihrer Prüfsumme überein oder ließen sich nicht lesen.",
+      "failed": "Inhalte: {failed} von {total} gelesenen Nachrichten fehlen, sind beschädigt oder stimmen nicht mit ihrer Prüfsumme überein.",
       "notRecorded": "{count, plural, one {# Nachricht der Stichprobe wurde archiviert, bevor ihr Repository festgehalten wurde, und ließ} other {# Nachrichten der Stichprobe wurden archiviert, bevor ihr Repository festgehalten wurde, und ließen}} sich so nicht vergleichen.",
-      "none": "Inhalte: Keine Nachricht der Stichprobe ließ sich vergleichen."
+      "none": "Inhalte: Keine Nachricht der Stichprobe ließ sich vergleichen.",
+      "inconclusive": "{count, plural, one {# Nachricht der Stichprobe ließ} other {# Nachrichten der Stichprobe ließen}} sich nicht aus dem Speicher lesen (keine Antwort, Zeitüberschreitung oder ein Fehler des Speichers); über den Inhalt sagt das nichts. Bitte wiederholen Sie die Prüfung.",
+      "notChecked": "Inhalte: nicht geprüft. Der Speicher hat die Nachrichten der Stichprobe nicht geliefert (keine Antwort, Zeitüberschreitung oder ein Fehler des Speichers); über ihren Inhalt sagt das nichts. Bitte wiederholen Sie die Prüfung."
     },
     "problem": {
       "mismatch": "Inhalt weicht von der Prüfsumme ab",
       "unreadable": "Nicht aus dem Speicher lesbar",
-      "not_recorded": "Repository nicht erfasst"
-    }
+      "not_recorded": "Repository nicht erfasst",
+      "missing": "Fehlt im Speicher",
+      "damaged": "Gespeicherte Daten beschädigt"
+    },
+    "inconclusive": "Nicht geprüft, bitte wiederholen"
   },
   "legalHold": {
     "title": "Legal Holds",

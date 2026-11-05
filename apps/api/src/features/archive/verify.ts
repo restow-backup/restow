@@ -31,6 +31,7 @@ import {
   type ArchiveContentRow,
   archiveContentObject,
   contentProblemOf,
+  isContentEvidence,
   readArchiveContent,
 } from "./content.js";
 
@@ -72,8 +73,12 @@ export interface ContentFailureDto {
 }
 
 export interface ChainVerificationDto {
-  /** All three checks passed (an empty archive counts as passed). */
-  ok: boolean;
+  /**
+   * All three checks passed (an empty archive counts as passed); false when one failed with
+   * evidence; null when nothing failed but sampled content could not be read (storage did not
+   * answer), so the check proved less than asked: run it again.
+   */
+  ok: boolean | null;
   checkedAt: string;
   /** Entries whose links were recomputed: the whole chain, tombstones included. */
   checked: number;
@@ -108,6 +113,12 @@ export interface ChainVerificationDto {
      * they cannot be compared this way and count neither as passed nor as failed.
      */
     notRecorded: number;
+    /**
+     * Sampled messages storage did not deliver for a reason that proves nothing about them
+     * (timeout, 5xx, denied access, the reader could not be opened): not checked.
+     */
+    inconclusive: number;
+    /** Messages proven missing, damaged or different from their checksum. */
     failures: ContentFailureDto[];
   };
 }
@@ -294,7 +305,13 @@ async function checkContentSample(
   openReader: (tx: DbExecutor, tenantId: string) => Promise<ChunkReader>,
 ) {
   if (sample <= 0) {
-    return { requested: 0, checked: 0, notRecorded: 0, failures: [] as ContentFailureDto[] };
+    return {
+      requested: 0,
+      checked: 0,
+      notRecorded: 0,
+      inconclusive: 0,
+      failures: [] as ContentFailureDto[],
+    };
   }
   const rows: (ArchiveContentRow & { subject: string | null })[] = await tx
     .select({
@@ -318,6 +335,7 @@ async function checkContentSample(
   } catch (error) {
     readerError = error;
   }
+  let inconclusive = 0;
   for (const row of readable) {
     try {
       if (!reader) {
@@ -325,18 +343,26 @@ async function checkContentSample(
       }
       await readArchiveContent(reader, row);
     } catch (error) {
+      // Red only with evidence: an outage, a timeout or a key that could not be loaded says
+      // nothing about the stored message (as the restore check, core verify/evidence.ts).
+      const problem = contentProblemOf(error);
+      if (!isContentEvidence(problem)) {
+        inconclusive += 1;
+        continue;
+      }
       failures.push({
         itemId: row.id,
         subject: row.subject,
         receivedAt: row.receivedAt.toISOString(),
-        problem: contentProblemOf(error),
+        problem,
       });
     }
   }
   return {
     requested: sample,
-    checked: readable.length,
+    checked: readable.length - inconclusive,
     notRecorded: rows.length - readable.length,
+    inconclusive,
     failures,
   };
 }
@@ -357,8 +383,9 @@ export async function verifyArchive(
       sample,
       options.openReader ?? openContentReader,
     );
-    const ok =
-      walked.brokenAt === null && walked.anchors.failed === null && content.failures.length === 0;
+    const failed =
+      walked.brokenAt !== null || walked.anchors.failed !== null || content.failures.length > 0;
+    const ok = failed ? false : content.inconclusive > 0 ? null : true;
     const result: ChainVerificationDto = {
       ok,
       checkedAt: now().toISOString(),
@@ -387,7 +414,11 @@ export async function verifyArchive(
         unsealed: result.anchors.unsealed,
         contentChecked: content.checked,
         contentNotRecorded: content.notRecorded,
-        contentFailed: content.failures.map((failure) => failure.itemId),
+        contentFailed: content.failures.map((failure) => ({
+          itemId: failure.itemId,
+          problem: failure.problem,
+        })),
+        contentInconclusive: content.inconclusive,
       },
     });
     return result;

@@ -93,17 +93,21 @@ export function ChainResult({
   }
 
   const ok = verdict === "ok";
+  // Storage did not deliver sampled messages: nothing was proven broken, nor intact.
+  const inconclusive = verdict === "inconclusive";
   const anchors = result.anchors;
   const content = result.content;
   // Green is proof: only when the stored messages themselves were read back, not the database rows alone.
   const contentRead = (content?.checked ?? 0) > 0;
   return (
     <Alert
-      variant={ok ? (contentRead ? "success" : "info") : "destructive"}
+      variant={ok ? (contentRead ? "success" : "info") : inconclusive ? "warning" : "destructive"}
       data-chain-verdict={verdict}
     >
       {ok ? <CircleCheck aria-hidden="true" /> : <CircleAlert aria-hidden="true" />}
-      <AlertTitle>{t(ok ? "chain.passed" : "chain.failed")}</AlertTitle>
+      <AlertTitle>
+        {t(ok ? "chain.passed" : inconclusive ? "chain.inconclusive" : "chain.failed")}
+      </AlertTitle>
       <AlertDescription>
         <ul className="list-disc space-y-1.5 pl-4">
           <li data-chain-part="links">
@@ -150,13 +154,18 @@ export function ChainResult({
               {content.requested === 0
                 ? t("chain.content.skipped")
                 : content.checked === 0
-                  ? t("chain.content.none")
+                  ? (content.inconclusive ?? 0) > 0
+                    ? t("chain.content.notChecked")
+                    : t("chain.content.none")
                   : content.failures.length > 0
                     ? t("chain.content.failed", {
                         failed: formatInteger(content.failures.length, language),
                         total: formatInteger(content.checked, language),
                       })
                     : t("chain.content.ok", { count: content.checked })}
+              {content.checked > 0 && (content.inconclusive ?? 0) > 0
+                ? ` ${t("chain.content.inconclusive", { count: content.inconclusive ?? 0 })}`
+                : null}
               {content.notRecorded > 0
                 ? ` ${t("chain.content.notRecorded", { count: content.notRecorded })}`
                 : null}

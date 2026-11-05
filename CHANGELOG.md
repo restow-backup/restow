@@ -662,6 +662,15 @@ private repository.
   (migration 0085 `report_hash`, unique per tenant); the same report again is answered with 250
   before it is parsed and adds nothing, also when both deliveries arrive at once. Another report
   for the same mail (other recipients, another journal rule) stays an item of its own.
+- Mail archive: the archive check with a content sample counted a storage outage as failed
+  integrity. Every read error, a 503 or a timeout of the storage and a reader that could not
+  be opened included, made the sampled messages content failures ("Check not passed"), and the
+  audit entry `archive.chain.verified` recorded `ok: false` with their ids; a chunk really
+  missing or damaged got the same label "Not readable from storage". Only evidence now fails
+  the sample, each with its cause: missing, damaged or different from its checksum. A message
+  storage did not deliver is not checked; the check then reads "Not checked, please run again"
+  (`ok: null`) instead of failed, and the audit entry records the cause per failed item and the
+  number not checked.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,

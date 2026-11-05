@@ -1,10 +1,11 @@
-import { RestoreIntegrityError } from "@restow/core";
+import { MissingChunkError, RestoreIntegrityError, StoredDataDamagedError } from "@restow/core";
 import { describe, expect, it } from "vitest";
 import {
   ArchiveContentError,
   archiveContentObject,
   contentProblemOf,
   emlFileName,
+  isContentEvidence,
 } from "./content.js";
 
 describe("archived content", () => {
@@ -29,10 +30,19 @@ describe("archived content", () => {
     expect(archiveContentObject({ ...row, sizeBytes: null })).toBeNull();
   });
 
-  it("tells a verified mismatch from content storage did not deliver", () => {
+  it("tells evidence of broken content from content storage did not deliver", () => {
     expect(contentProblemOf(new RestoreIntegrityError("hash"))).toBe("mismatch");
+    expect(contentProblemOf(new MissingChunkError("ab".repeat(32)))).toBe("missing");
+    // Found down the cause chain, as the restore check's evidence (core verify/evidence.ts).
+    expect(
+      contentProblemOf(
+        new Error("read failed", { cause: new StoredDataDamagedError("truncated") }),
+      ),
+    ).toBe("damaged");
     expect(contentProblemOf(new Error("ENOENT"))).toBe("unreadable");
     expect(contentProblemOf(new ArchiveContentError("not_recorded"))).toBe("not_recorded");
+    expect(isContentEvidence("missing")).toBe(true);
+    expect(isContentEvidence("unreadable")).toBe(false);
   });
 
   it("names the download after the subject, without characters a file system refuses", () => {

@@ -500,8 +500,14 @@ Wann was:
   ab 1 und Element), den Abgleich mit jedem Anker (erkennt am Ende abgeschnittene Einträge bis
   zum neuesten Anker; Einträge danach sind noch nicht versiegelt) und optional eine Stichprobe
   von Nachrichten, die aus dem Speicher gelesen und mit Größe und SHA-256 der Erfassung
-  verglichen werden. Nach Fristablauf gelöschte Objekte zählen über ihren Löschvermerk mit
-  (Abschnitt "Löschkonzept"). Jede Prüfung steht im Audit-Log (`archive.chain.verified`). Zielbild:
+  verglichen werden. Als Fehler der Stichprobe zählt seit 0.5.0 nur ein Beleg: ein fehlender
+  Chunk oder Pack (`missing`), Daten, die sich nicht entschlüsseln oder lesen lassen
+  (`damaged`), oder ein abweichender Inhalt (`mismatch`). Liefert der Speicher nicht
+  (Zeitüberschreitung, 5xx, verweigerter Zugriff), ist die Nachricht nicht geprüft; das
+  Ergebnis heißt dann "Nicht geprüft, bitte wiederholen" (`ok: null`), nie "nicht bestanden".
+  Nach Fristablauf gelöschte Objekte zählen über ihren Löschvermerk mit
+  (Abschnitt "Löschkonzept"). Jede Prüfung steht im Audit-Log (`archive.chain.verified`, mit Element und Ursache
+  jedes Fehlers und der Zahl nicht geprüfter Nachrichten). Zielbild:
   Versand der Anker per E-Mail und externe Zeitstempel (RFC 3161).
 - Dedupe: Gleiche Inhalte liegen im Chunk-Store einmal je Mandant. Seit 0.4.4 erkennt das
   Archiv dieselbe Mail aus mehreren Erfassungswegen an Message-ID und Inhalt (exakte Bytes oder
