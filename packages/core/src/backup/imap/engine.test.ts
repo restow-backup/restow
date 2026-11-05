@@ -696,6 +696,51 @@ describe("ImapBackupEngine", () => {
       expect(healed.objectsWritten).toBe(1);
     });
 
+    it("backs up a folder with 60 unreadable messages in a row although the bisection budget runs out", async () => {
+      const inbox = server.addFolder("INBOX");
+      for (let i = 1; i <= 300; i++) {
+        inbox.add(eml(`m${i}`));
+      }
+      for (let uid = 101; uid <= 160; uid++) {
+        server.faults.unreadable.add(`INBOX:${uid}`);
+      }
+      const result = await engine({
+        limits: {
+          checkpointEveryMessages: 50,
+          fetchBatchMessages: 20,
+          metaBatchMessages: 300,
+          metaIsolationCommands: 100,
+        },
+      }).run(context(), protectedObject, {});
+
+      expect(result.failures.map((failure) => failure.itemRef).sort()).toEqual(
+        Array.from({ length: 60 }, (_, i) => `mail/INBOX/${101 + i}.eml`).sort(),
+      );
+      const stored = messages(await manifestOf(result.snapshotId));
+      expect(stored).toHaveLength(240);
+    });
+
+    it("does not bisect a metadata FETCH refused for the account's command or bandwidth cap", async () => {
+      const inbox = server.addFolder("INBOX");
+      for (let i = 1; i <= 30; i++) {
+        inbox.add(eml(`m${i}`));
+      }
+      server.faults.limitMeta.add("INBOX");
+      const result = await engine({ limits: { metaBatchMessages: 30 } }).run(
+        context(),
+        protectedObject,
+        {},
+      );
+      expect(result.failures).toEqual([
+        expect.objectContaining({
+          itemRef: "INBOX",
+          cause: expect.objectContaining({ code: "imap.server_limit", transient: true }),
+        }),
+      ]);
+      // One FETCH per attempt of the folder (it is tried twice), no bisection.
+      expect(server.stats.metaFetches).toBe(2);
+    });
+
     it("fails the folder as before when the server refuses every metadata FETCH", async () => {
       const inbox = server.addFolder("INBOX");
       for (let i = 1; i <= 30; i++) {

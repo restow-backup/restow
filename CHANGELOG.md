@@ -540,7 +540,10 @@ private repository.
   failed, the folder was retried once and then reported as failed with nothing new stored, and
   on a first backup the folder was missing from the restore point altogether. The request is now
   split until the unreadable messages are found: each of them is an item failure naming the
-  message, and the rest of the folder, new mail included, is backed up.
+  message, and the rest of the folder, new mail included, is backed up, also when a long run of
+  messages is damaged. Gmail's "Account exceeded command or bandwidth limits" is recognised as
+  the account's download limit: it is not split into further requests, and the folder fails
+  once (retried on the next run) instead of once per message.
 - Mail backup: an IMAP folder that failed during a full read (a requested full backup, or after
   the server changed its UIDVALIDITY, for example after a migration) kept only what that attempt
   had downloaded, often nothing, although the previous restore point held all of its mail. In a

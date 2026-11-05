@@ -239,6 +239,11 @@ export interface FakeServerFaults {
   /** Folders whose metadata FETCH fails with a NO (EXAMINE and STATUS still work). */
   refuseMeta: Set<string>;
   /**
+   * Folders whose metadata FETCH Gmail refuses for its command or bandwidth cap:
+   * `NO [ALERT] Account exceeded command or bandwidth limits. (Failure)`.
+   */
+  limitMeta: Set<string>;
+  /**
    * "<folder>:<uid>": a message the server cannot read (Dovecot with a corrupt or missing mail
    * file, Gmail's "Failure"). Like those servers, any UID FETCH whose set contains it, metadata
    * or body, answers `NO Some messages could not be FETCHed (Unknown error)` for the whole
@@ -274,6 +279,7 @@ export class FakeImapServer implements ImapConnector {
     refuseSource: new Set(),
     refuseSourceCode: null,
     refuseMeta: new Set(),
+    limitMeta: new Set(),
     unreadable: new Set(),
   };
   private readonly arrivalListeners = new Set<ArrivalListener>();
@@ -620,6 +626,16 @@ class FakeSession implements ImapSession {
         `UID FETCH: NO [SERVERBUG] Internal error in ${folder.path}`,
         false,
       );
+    }
+    if (this.server.faults.limitMeta.has(folder.path)) {
+      const text = "Account exceeded command or bandwidth limits. (Failure)";
+      const cause = Object.assign(new Error("Command failed"), {
+        responseStatus: "NO",
+        responseText: text,
+        serverResponseCode: "ALERT",
+        executedCommand: `1F UID FETCH ${uids.join(",")} (UID RFC822.SIZE FLAGS INTERNALDATE ENVELOPE)`,
+      });
+      throw new ImapSessionError(`UID FETCH: NO ${text}`, false, { cause });
     }
     this.refuseUnreadable(folder, uids, "(UID RFC822.SIZE FLAGS INTERNALDATE ENVELOPE)");
     const result: ImapMessageMeta[] = [];

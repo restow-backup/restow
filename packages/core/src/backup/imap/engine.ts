@@ -1239,8 +1239,11 @@ class BackupRun {
    * ("Some messages could not be FETCHed") when one message of the set cannot be read; such a
    * slice is split in halves until the unreadable UIDs are isolated, so they alone go without
    * metadata (the body FETCH then records each as an item failure) and the rest of the folder
-   * is backed up. A dropped connection is rethrown (reconnect); a server that keeps refusing
-   * past {@link ImapEngineLimits.metaIsolationCommands} refuses the folder, not a message.
+   * is backed up. A dropped connection is rethrown (reconnect), and so is a command or download
+   * cap (imap.server_limit): more FETCHes only hit it again. When the bisection of a slice uses
+   * up {@link ImapEngineLimits.metaIsolationCommands}, the part not looked at yet goes on
+   * without metadata (the body FETCH and its one-by-one fallback sort it out); only a server
+   * that answered none of the bisection's FETCHes refuses the folder, not a message.
    */
   private async fetchMetas(
     session: ImapSession,
@@ -1249,6 +1252,7 @@ class BackupRun {
   ): Promise<Map<number, ImapMessageMeta>> {
     const metas = new Map<number, ImapMessageMeta>();
     const unreadable: number[] = [];
+    let unlooked = 0;
     for (let i = 0; i < uids.length; i += this.limits.metaBatchMessages) {
       this.throwIfStopping();
       const slice = uids.slice(i, i + this.limits.metaBatchMessages);
@@ -1257,45 +1261,59 @@ class BackupRun {
           metas.set(meta.uid, meta);
         }
       } catch (error) {
-        if (!isImapSessionError(error) || error.connectionLost) {
+        if (!isMetadataRefusal(error)) {
           throw error;
         }
-        unreadable.push(...(await this.isolateUnreadable(session, slice, metas, error)));
+        const isolated = await this.isolateUnreadable(session, slice, metas, error);
+        unreadable.push(...isolated.unreadable);
+        unlooked += isolated.unlooked;
       }
     }
-    if (unreadable.length > 0) {
+    if (unreadable.length > 0 || unlooked > 0) {
       this.logger.warn("imap messages whose metadata the server refuses, isolated", {
         folder: folderPath,
         uids: unreadable.slice(0, 50),
         count: unreadable.length,
+        ...(unlooked > 0 ? { withoutMetadata: unlooked } : {}),
       });
     }
     return metas;
   }
 
-  /** Bisect a refused metadata slice; the UIDs that are refused on their own. */
+  /**
+   * Bisect a refused metadata slice: the UIDs that are refused on their own, and how many UIDs
+   * were left without metadata when the command budget ran out.
+   */
   private async isolateUnreadable(
     session: ImapSession,
     slice: readonly number[],
     metas: Map<number, ImapMessageMeta>,
     refusal: ImapSessionError,
-  ): Promise<number[]> {
+  ): Promise<{ unreadable: number[]; unlooked: number }> {
     const unreadable: number[] = [];
+    if (slice.length === 1) {
+      return { unreadable: [slice[0] as number], unlooked: 0 };
+    }
     let budget = this.limits.metaIsolationCommands;
+    let answered = 0;
+    let unlooked = 0;
     const visit = async (part: readonly number[]): Promise<void> => {
       if (part.length === 0) {
         return;
       }
       this.throwIfStopping();
-      if (budget-- <= 0) {
-        throw refusal;
+      if (budget <= 0) {
+        unlooked += part.length;
+        return;
       }
+      budget--;
       try {
         for (const meta of await session.fetchMeta(part)) {
           metas.set(meta.uid, meta);
         }
+        answered++;
       } catch (error) {
-        if (!isImapSessionError(error) || error.connectionLost) {
+        if (!isMetadataRefusal(error)) {
           throw error;
         }
         if (part.length === 1) {
@@ -1310,11 +1328,12 @@ class BackupRun {
       await visit(part.slice(0, middle));
       await visit(part.slice(middle));
     };
-    if (slice.length === 1) {
-      return [slice[0] as number];
-    }
     await split(slice);
-    return unreadable;
+    if (unlooked > 0 && answered === 0) {
+      // Not one FETCH of the bisection went through: the server refuses the folder.
+      throw refusal;
+    }
+    return { unreadable, unlooked };
   }
 
   /**
@@ -1582,6 +1601,19 @@ class BackupRun {
 // ---------------------------------------------------------------------------
 // Small helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * A metadata FETCH the server refused for the messages in its set (bisected). Not: a dropped
+ * connection (reconnect) and a command or download cap (imap.server_limit: every further
+ * FETCH only hits it again, the folder fails as a whole and the next run resumes).
+ */
+function isMetadataRefusal(error: unknown): error is ImapSessionError {
+  return (
+    isImapSessionError(error) &&
+    !error.connectionLost &&
+    classifyFailure(error, { role: "imap" }).code !== "imap.server_limit"
+  );
+}
 
 function folderStateOf(folder: ImapFolderInfo, status: ImapFolderStatus): ImapFolderState {
   // A server without UIDNEXT, or a NIL delimiter, must not make the state unreadable (the
