@@ -132,6 +132,49 @@ export const archiveCapturePending = pgTable(
   ],
 );
 
+/** What a capture gap is about: a whole folder, or one message. */
+export const archiveCaptureGapKindEnum = pgEnum("archive_capture_gap_kind", ["folder", "message"]);
+
+/**
+ * Mail a capture way could not take into the archive (0.5.0, docs/ARCHIVE.md
+ * "Lücken der Erfassung"): a folder the server refuses, a message it lists but never
+ * delivers, a Graph message that has no MIME export. One row per stream, kind and `ref`
+ * (IMAP: the folder path, or `<folder>;<uidvalidity>;<uid>`; Graph: the immutable id).
+ * Every failed attempt counts (`attempts`); from the third on (or when a way gives up at
+ * once) the gap is open (`opened_at`): the stream shows "incomplete" with the count, never
+ * fine, and the capture alert `capture_gap` names it. Taken in later after all, it is
+ * resolved (`resolved_at`), kept as a record.
+ */
+export const archiveCaptureGaps = pgTable(
+  "archive_capture_gaps",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    streamId: uuid("stream_id")
+      .notNull()
+      .references(() => archiveCaptureStreams.id, { onDelete: "cascade" }),
+    kind: archiveCaptureGapKindEnum("kind").notNull(),
+    ref: text("ref").notNull(),
+    // A failure code of the catalog (`imap.server_limit`), or the way's own (`undelivered`,
+    // `too_large`, `not_convertible`, `export_failed`).
+    reason: text("reason").notNull(),
+    attempts: integer("attempts").notNull().default(1),
+    firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    openedAt: timestamp("opened_at", { withTimezone: true }),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    ...createdOnly(),
+  },
+  (t) => [
+    uniqueIndex("archive_capture_gaps_stream_ref_uq").on(t.streamId, t.kind, t.ref),
+    index("archive_capture_gaps_open_idx")
+      .on(t.tenantId, t.streamId)
+      .where(sql`${t.resolvedAt} IS NULL AND ${t.openedAt} IS NOT NULL`),
+  ],
+);
+
 /** A Microsoft Graph change notification subscription of one archived mailbox. */
 export const graphSubscriptions = pgTable(
   "graph_subscriptions",

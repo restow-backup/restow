@@ -556,6 +556,19 @@ private repository.
   running (after a failed job, once an hour), a failed backfill job can be retried under Jobs,
   and a takeover not done after 48 hours or whose last job failed is shown as stuck on the
   archive page and raises the capture alert `backfill_stalled`.
+- Mail archive: IMAP capture dropped mail with only a warning in the log, and the account stayed
+  "live". The takeover of the existing mail marked a folder done on any NO to EXAMINE, a
+  throttling cap such as Gmail's "[OVERQUOTA] Account exceeded command or bandwidth limits"
+  included, and gave up a message the server listed but did not deliver after one try; live
+  capture never reads below that point, so the folder's or message's older mail never reached
+  the archive. The catch-up skipped folders whose STATUS or EXAMINE failed and dropped the count
+  of messages it gave up on. Now a server limit stops the takeover and the next job resumes; a
+  folder refused otherwise and an undelivered message are tried again by the next jobs and only
+  given up after three. Whatever is given up, by the takeover or the catch-up, is kept as a
+  capture gap (migration 0080 `archive_capture_gaps`): the archive page shows the way and the
+  mailbox as incomplete with the count, `GET /api/v1/archive/capture/mailboxes/:objectId/gaps`
+  lists them, the capture alert `capture_gap` names them, and a gap that is taken in later is
+  resolved.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,

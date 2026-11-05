@@ -162,6 +162,12 @@ function WayCard({ status }: { status: MailboxWayStatus }) {
         </div>
       )}
 
+      {inUse && status.gaps.streams > 0 ? (
+        <p className="text-warning-text text-sm" data-slot="capture-way-gaps">
+          {t("capture.gaps.way", { count: status.gaps.streams, gaps: number(status.gaps.open) })}
+        </p>
+      ) : null}
+
       {inUse && status.modes.notifications + status.modes.poll > 0 ? (
         <p className="text-sm" data-slot="capture-way-mode">
           {status.way === "graph_sync"
@@ -376,6 +382,14 @@ function CaptureMailboxes() {
                   <StatusBadge tone={STREAM_TONE[row.status]} icon>
                     {t(`capture.status.${row.status}`)}
                   </StatusBadge>
+                  {row.gaps > 0 ? (
+                    <span
+                      className="text-warning-text block text-xs"
+                      data-slot="capture-mailbox-gaps"
+                    >
+                      {t("capture.gaps.mailbox", { count: row.gaps })}
+                    </span>
+                  ) : null}
                   {row.backfillStalled ? (
                     <span
                       className="text-warning-text block text-xs"

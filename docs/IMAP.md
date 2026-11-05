@@ -242,7 +242,9 @@ anderen Kopfzeilen), wird sie eine Erfassungszeile am vorhandenen Objekt; hat si
 anderen Inhalt, bleibt sie als eigenes Objekt erhalten (`message-id-conflict`, seit 0.5.0;
 vorher wurde sie ohne Download übersprungen). Ändert sich UIDVALIDITY, wird der Ordner von
 vorn gelesen, ohne Doppel im Archiv und ohne die schon archivierten Mails erneut zu laden. Ein Neuabgleich aus der Oberfläche liest alle
-Ordner von vorn.
+Ordner von vorn. Ordner, die der Server immer wieder verweigert, und Nachrichten, die er nie
+ausliefert, hält Restow als Lücke der Erfassung fest und zeigt das Konto als unvollständig
+(docs/ARCHIVE.md, "Lücken der Erfassung").
 
 **IDLE und Polling.** Jeder Worker-Prozess beobachtet bis zu `ARCHIVE_IMAP_IDLE_MAX` Konten
 (Standard 300, `0` schaltet IDLE ab) mit je einer Verbindung per IMAP IDLE auf INBOX (bei

@@ -54,7 +54,8 @@ export function bellEventKey(item: Pick<BellNotification, "event" | "details">):
     (reason === "capture_error" ||
       reason === "forward_stale" ||
       reason === "journal_stale" ||
-      reason === "backfill_stalled")
+      reason === "backfill_stalled" ||
+      reason === "capture_gap")
   ) {
     return `bellEvents.archive.${reason}`;
   }

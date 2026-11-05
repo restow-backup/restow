@@ -30,6 +30,7 @@ import {
 } from "../backup/imap/types.js";
 import type { Logger } from "../engine/types.js";
 import { classifyFailure } from "../failures/classify.js";
+import { type CaptureGap, type CaptureGapSink, GAP_OPEN_AFTER_ATTEMPTS } from "./capture-gaps.js";
 import { type HeldMails, heldBySize } from "./identity.js";
 
 /**
@@ -396,6 +397,8 @@ export async function activateImapCapture(
 }
 
 export interface ImapCatchUpOptions {
+  /** Where failing folders and given-up messages are recorded (./capture-gaps.ts). */
+  readonly gaps?: CaptureGapSink;
   readonly gmail?: boolean;
   /** Read every folder from its first UID (a requested resync); the archive's refs keep it cheap. */
   readonly rescan?: boolean;
@@ -413,9 +416,12 @@ export interface ImapCatchUpResult {
   readonly foldersRead: number;
   /**
    * Messages the server kept listing without delivering them that this pass gave up on
-   * (after {@link MAX_UNDELIVERED_ATTEMPTS} passes); they are not in the archive.
+   * (after {@link MAX_UNDELIVERED_ATTEMPTS} passes); they are not in the archive and are
+   * recorded as gaps.
    */
   readonly undeliverable: number;
+  /** Folders the server refused this pass (STATUS, EXAMINE, SEARCH or FETCH); counted as gaps. */
+  readonly foldersFailed: number;
 }
 
 /** The live catch-up of an activated account (see the module docstring). */
@@ -452,6 +458,17 @@ export async function catchUpImapCapture(
   let skipped = 0;
   let foldersRead = 0;
   let undeliverable = 0;
+  let foldersFailed = 0;
+  const gaps = options.gaps;
+  /** A folder the server refused this pass: one more attempt; open from the third pass on. */
+  const folderFailed = async (path: string, error: unknown) => {
+    foldersFailed++;
+    await gaps?.failed({
+      kind: "folder",
+      ref: path,
+      reason: classifyFailure(error, { role: "imap" }).code,
+    });
+  };
   for (const folder of plan.folders) {
     abortIfNeeded(sink.signal);
     visited.add(folder.path);
@@ -467,6 +484,7 @@ export async function catchUpImapCapture(
         folder: folder.path,
         errorMessage: error.message,
       });
+      await folderFailed(folder.path, error);
       if (known) {
         folders[folder.path] = known;
       }
@@ -476,6 +494,7 @@ export async function catchUpImapCapture(
     const from = sameValidity && !options.rescan ? known.lastUid : 0;
     if (sameValidity && !options.rescan && status.uidNext <= known.lastUid + 1) {
       folders[folder.path] = { ...known, uidNext: status.uidNext };
+      await gaps?.resolved("folder", folder.path);
       continue;
     }
     if (known && !sameValidity) {
@@ -541,6 +560,11 @@ export async function catchUpImapCapture(
             },
           );
           undeliverable++;
+          await gaps?.gaveUp({
+            kind: "message",
+            ref: imapExternalRef(folder.path, uidValidity, first),
+            reason: "undelivered",
+          });
           folders[folder.path] =
             next === undefined
               ? base(done, null)
@@ -548,6 +572,7 @@ export async function catchUpImapCapture(
         }
       }
       await session.closeFolder();
+      await gaps?.resolved("folder", folder.path);
     } catch (error) {
       if (!isImapSessionError(error) || error.connectionLost) {
         throw error;
@@ -556,6 +581,7 @@ export async function catchUpImapCapture(
         folder: folder.path,
         errorMessage: error.message,
       });
+      await folderFailed(folder.path, error);
       // What a checkpoint recorded before the error stays; otherwise what was known.
       if (folders[folder.path] === undefined && known) {
         folders[folder.path] = known;
@@ -568,20 +594,26 @@ export async function catchUpImapCapture(
       }
     }
   }
-  return { state: snapshot(), captured, skipped, foldersRead, undeliverable };
+  return { state: snapshot(), captured, skipped, foldersRead, undeliverable, foldersFailed };
 }
 
-/** Where a backfill stands: in the `archive` job's cursor. */
+/**
+ * Where a backfill stands (kept on the stream, apps/worker handlers/archive.ts): folders
+ * done, the folder in progress, and per folder the UIDs the server listed but did not
+ * deliver yet (retried by the next jobs until the gap sink gives them up).
+ */
 export interface ImapBackfillCursor {
   readonly completed: readonly string[];
-  /** Per folder in progress: every UID up to `lastUid` is taken over. */
+  /** Per folder in progress: every UID up to `lastUid` is taken over or in `retry`. */
   readonly active: Readonly<
     Record<string, { readonly uidValidity: string; readonly lastUid: number }>
   >;
+  /** Per folder: UIDs at or below `active[path].lastUid` still to be fetched again. */
+  readonly retry?: Readonly<Record<string, readonly number[]>>;
 }
 
 export function readImapBackfillCursor(raw: unknown): ImapBackfillCursor {
-  const value = (raw ?? {}) as { completed?: unknown; active?: unknown };
+  const value = (raw ?? {}) as { completed?: unknown; active?: unknown; retry?: unknown };
   const completed = Array.isArray(value.completed)
     ? value.completed.filter((path): path is string => typeof path === "string")
     : [];
@@ -594,7 +626,18 @@ export function readImapBackfillCursor(raw: unknown): ImapBackfillCursor {
       }
     }
   }
-  return { completed, active };
+  const retry: Record<string, number[]> = {};
+  if (value.retry && typeof value.retry === "object") {
+    for (const [path, entry] of Object.entries(value.retry as Record<string, unknown>)) {
+      const uids = Array.isArray(entry)
+        ? entry.filter((uid): uid is number => typeof uid === "number")
+        : [];
+      if (uids.length > 0) {
+        retry[path] = uids;
+      }
+    }
+  }
+  return { completed, active, ...(Object.keys(retry).length > 0 ? { retry } : {}) };
 }
 
 export interface ImapBackfillOptions {
@@ -605,12 +648,25 @@ export interface ImapBackfillOptions {
   /** Stop (not completed) once this time (epoch ms) has passed; the next job resumes. */
   readonly deadline?: number;
   readonly now?: () => number;
+  /**
+   * Where refused folders and undelivered messages are counted and given up
+   * (./capture-gaps.ts). Without one, each is given up after its first failure, as
+   * before 0.5.0, but never silently: the result counts it.
+   */
+  readonly gaps?: CaptureGapSink;
 }
 
 export interface ImapBackfillResult {
   readonly captured: number;
   readonly skipped: number;
   readonly completed: boolean;
+  /**
+   * Not completed because folders or messages failed and are retried later (not because
+   * the budget ran out): the next job should not start at once.
+   */
+  readonly retryLater: boolean;
+  /** Folders and messages given up in this run (open gaps). */
+  readonly gaveUp: number;
   readonly cursor: ImapBackfillCursor;
 }
 
@@ -618,6 +674,12 @@ export interface ImapBackfillResult {
  * The one-time takeover of the mail that existed when live capture started
  * (`backfillUpTo` of each folder), resumable from `cursor`. A folder whose UIDVALIDITY
  * changed since is the live capture's (it rescans it), and done here.
+ *
+ * Nothing is dropped on the first failure (0.5.0): a server limit on EXAMINE stops the run
+ * (the account's cap; the next job resumes), another NO keeps the folder pending and counts
+ * an attempt in the gap sink, and a message listed but not delivered stays in the cursor's
+ * `retry` list. After {@link GAP_OPEN_AFTER_ATTEMPTS} runs the folder or message is given
+ * up as an open gap (the stream shows it) and the backfill can complete.
  */
 export async function backfillImapCapture(
   session: ImapSession,
@@ -627,11 +689,43 @@ export async function backfillImapCapture(
   options: ImapBackfillOptions,
 ): Promise<ImapBackfillResult> {
   const now = options.now ?? Date.now;
+  const gaps = options.gaps;
   const completed = new Set(start.completed);
   const active: Record<string, { uidValidity: string; lastUid: number }> = { ...start.active };
-  const cursor = (): ImapBackfillCursor => ({ completed: [...completed], active: { ...active } });
+  const retry: Record<string, number[]> = Object.fromEntries(
+    Object.entries(start.retry ?? {}).map(([path, uids]) => [path, [...uids]]),
+  );
+  const cursor = (): ImapBackfillCursor => ({
+    completed: [...completed],
+    active: { ...active },
+    ...(Object.keys(retry).length > 0 ? { retry: { ...retry } } : {}),
+  });
+  const done = (path: string) => {
+    completed.add(path);
+    delete active[path];
+    delete retry[path];
+  };
   let captured = 0;
   let skipped = 0;
+  let gaveUp = 0;
+  let retryLater = false;
+  const result = (complete: boolean, later = retryLater): ImapBackfillResult => ({
+    captured,
+    skipped,
+    completed: complete,
+    retryLater: !complete && later,
+    gaveUp,
+    cursor: cursor(),
+  });
+  /** Count a failed attempt; true when the gap is now given up. */
+  const failedAttempt = async (gap: CaptureGap): Promise<boolean> => {
+    const attempts = gaps ? await gaps.failed(gap) : GAP_OPEN_AFTER_ATTEMPTS;
+    if (attempts >= GAP_OPEN_AFTER_ATTEMPTS) {
+      gaveUp++;
+      return true;
+    }
+    return false;
+  };
   // A job always reads at least one folder (or one batch of it) before its budget may stop
   // it, so every job moves the cursor on, however small the budget.
   let worked = false;
@@ -641,13 +735,13 @@ export async function backfillImapCapture(
       continue;
     }
     if (worked && options.deadline !== undefined && now() >= options.deadline) {
-      return { captured, skipped, completed: false, cursor: cursor() };
+      // The budget: the continuation starts at once.
+      return result(false, false);
     }
     abortIfNeeded(sink.signal);
     const upTo = folder.backfillUpTo ?? 0;
     if (upTo <= 0 || !listed.has(path)) {
-      completed.add(path);
-      delete active[path];
+      done(path);
       continue;
     }
     let opened: Awaited<ReturnType<ImapSession["openFolder"]>>;
@@ -657,59 +751,119 @@ export async function backfillImapCapture(
       if (!isImapSessionError(error) || error.connectionLost) {
         throw error;
       }
-      options.logger?.warn("imap archive backfill could not open a folder; it is left out", {
-        folder: path,
-        errorMessage: error.message,
-      });
-      completed.add(path);
-      continue;
-    }
-    if (opened.uidValidity !== folder.uidValidity) {
-      completed.add(path);
-      delete active[path];
+      const reason = classifyFailure(error, { role: "imap" }).code;
+      if (isServerLimit(error)) {
+        // The account's cap (throttling, a bandwidth limit), not this folder's: every further
+        // folder would only hit it too. The folder stays pending; a later job resumes.
+        options.logger?.warn("imap archive backfill stopped at the server's limit", {
+          folder: path,
+          errorMessage: error.message,
+        });
+        retryLater = true;
+        await options.saveCursor(cursor());
+        return result(false, true);
+      }
+      if (await failedAttempt({ kind: "folder", ref: path, reason })) {
+        options.logger?.warn("imap archive backfill gave up on a folder; recorded as a gap", {
+          folder: path,
+          errorMessage: error.message,
+        });
+        done(path);
+        await options.saveCursor(cursor());
+      } else {
+        options.logger?.warn("imap archive backfill could not open a folder; tried again later", {
+          folder: path,
+          errorMessage: error.message,
+        });
+        retryLater = true;
+      }
       continue;
     }
     worked = true;
+    await gaps?.resolved("folder", path);
+    if (opened.uidValidity !== folder.uidValidity) {
+      done(path);
+      await session.closeFolder();
+      continue;
+    }
+    const uidValidity = opened.uidValidity;
+    const refOf = (uid: number) => imapExternalRef(path, uidValidity, uid);
     const resumeAfter =
-      active[path]?.uidValidity === opened.uidValidity ? (active[path]?.lastUid ?? 0) : 0;
+      active[path]?.uidValidity === uidValidity ? (active[path]?.lastUid ?? 0) : 0;
+    if (active[path]?.uidValidity !== uidValidity) {
+      delete retry[path];
+    }
+    const captureOptions = {
+      ...(options.limits ? { limits: options.limits } : {}),
+      ...(options.logger ? { logger: options.logger } : {}),
+    };
+    // Messages an earlier job could not get: asked for once more.
+    const pending: number[] = [];
+    const earlier = (retry[path] ?? []).filter((uid) => uid <= resumeAfter);
+    if (earlier.length > 0) {
+      const again = await captureFolderUids(
+        session,
+        { path, uidValidity },
+        earlier,
+        sink,
+        captureOptions,
+      );
+      captured += again.captured;
+      skipped += again.skipped;
+      for (const uid of earlier) {
+        if (!again.missing.includes(uid)) {
+          await gaps?.resolved("message", refOf(uid));
+        }
+      }
+      pending.push(...again.missing);
+    }
     const uids = (await session.uidsAbove(resumeAfter)).filter((uid) => uid <= upTo);
-    const outcome = await captureFolderUids(
-      session,
-      { path, uidValidity: opened.uidValidity },
-      uids,
-      sink,
-      {
-        ...(options.limits ? { limits: options.limits } : {}),
-        ...(options.logger ? { logger: options.logger } : {}),
-        ...(options.deadline !== undefined ? { deadline: options.deadline, now } : {}),
-        progress: async (handledUpTo) => {
-          active[path] = { uidValidity: opened.uidValidity, lastUid: handledUpTo };
-          await options.saveCursor(cursor());
-        },
+    const outcome = await captureFolderUids(session, { path, uidValidity }, uids, sink, {
+      ...captureOptions,
+      ...(options.deadline !== undefined ? { deadline: options.deadline, now } : {}),
+      progress: async (handledUpTo) => {
+        active[path] = { uidValidity, lastUid: Math.max(resumeAfter, handledUpTo) };
+        await options.saveCursor(cursor());
       },
-    );
+    });
     captured += outcome.captured;
     skipped += outcome.skipped;
     await session.closeFolder();
     if (outcome.stopped) {
-      // The budget ran out inside the folder: the next job resumes after `active[path]`.
+      // The budget ran out inside the folder: the next job resumes after `active[path]`
+      // (which stays before an undelivered message, so that one is asked for again too).
+      if (pending.length > 0) {
+        retry[path] = pending;
+      }
       await options.saveCursor(cursor());
-      return { captured, skipped, completed: false, cursor: cursor() };
+      return result(false, false);
     }
-    // The UIDs after a message listed but not delivered were still read. That message itself
-    // is not retried by anyone (live capture starts above backfillUpTo; only a requested
-    // resync reads below it): an expunged message is gone anyway, and one without a source
-    // would hold the folder forever, so the folder counts as done, but not silently.
-    if (outcome.missing.length > 0) {
+    pending.push(...outcome.missing);
+    // Listed but not delivered (a NO for that message, no source): counted per job; it stays
+    // in the cursor until it is delivered or given up as a gap. Live capture starts above
+    // backfillUpTo, so nobody else would ever ask for it.
+    const kept: number[] = [];
+    for (const uid of [...new Set(pending)].sort((a, b) => a - b)) {
+      if (!(await failedAttempt({ kind: "message", ref: refOf(uid), reason: "undelivered" }))) {
+        kept.push(uid);
+      }
+    }
+    if (pending.length > 0) {
       options.logger?.warn("imap archive backfill: messages listed but not delivered", {
         folder: path,
-        uids: outcome.missing.slice(0, 20),
-        count: outcome.missing.length,
+        uids: pending.slice(0, 20),
+        count: pending.length,
+        triedAgainLater: kept.length,
       });
     }
-    completed.add(path);
-    delete active[path];
+    if (kept.length > 0) {
+      active[path] = { uidValidity, lastUid: upTo };
+      retry[path] = kept;
+      retryLater = true;
+    } else {
+      done(path);
+    }
     await options.saveCursor(cursor());
   }
-  return { captured, skipped, completed: true, cursor: cursor() };
+  return result(!retryLater);
 }

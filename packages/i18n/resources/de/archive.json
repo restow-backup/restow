@@ -376,6 +376,10 @@
       "last7Days": "7 Tage",
       "value": "{items} neu, {count, plural, one {# erneut} other {# erneut}}"
     },
+    "gaps": {
+      "way": "{count, plural, one {# Postfach ist} other {# Postfächer sind}} unvollständig: {gaps} Ordner oder Nachrichten konnten nicht übernommen werden und sind nicht im Archiv.",
+      "mailbox": "Unvollständig: {count, plural, one {# Ordner oder Nachricht} other {# Ordner oder Nachrichten}} nicht im Archiv"
+    },
     "backfill": {
       "label": "Übernommener Altbestand",
       "progress": "Altbestand übernommen: {completed} von {total} Postfächern",

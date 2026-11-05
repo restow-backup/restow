@@ -561,6 +561,13 @@
       "when": 1793874524484,
       "tag": "0079_archive_backfill_cursor",
       "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1793876505480,
+      "tag": "0080_archive_capture_gaps",
+      "breakpoints": true
     }
   ]
 }

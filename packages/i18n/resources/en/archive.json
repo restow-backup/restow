@@ -376,6 +376,10 @@
       "last7Days": "7 days",
       "value": "{items} new, {count, plural, one {# again} other {# again}}"
     },
+    "gaps": {
+      "way": "{count, plural, one {# mailbox is} other {# mailboxes are}} incomplete: {gaps} folders or messages could not be taken in and are not in the archive.",
+      "mailbox": "Incomplete: {count, plural, one {# folder or message} other {# folders or messages}} not in the archive"
+    },
     "backfill": {
       "label": "Existing mail taken over",
       "progress": "Existing mail taken over: {completed} of {total} mailboxes",

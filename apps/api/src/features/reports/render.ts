@@ -352,11 +352,15 @@ export function renderAlert(input: AlertInput): RenderedMessage {
       reason === "capture_error" ||
       reason === "forward_stale" ||
       reason === "journal_stale" ||
-      reason === "backfill_stalled"
+      reason === "backfill_stalled" ||
+      reason === "capture_gap"
     ) {
       rows.push([t("reports:mail.archiveProblem"), t(`reports:mail.archiveReason.${reason}`)]);
     }
-    const since = formatWhen(text(details.errorSince) ?? text(details.activatedAt), input.language);
+    const since = formatWhen(
+      text(details.errorSince) ?? text(details.activatedAt) ?? text(details.openedAt),
+      input.language,
+    );
     if (since) rows.push([t("reports:mail.archiveSince"), `${since} UTC`]);
     const last = formatWhen(text(details.lastCopyAt) ?? text(details.lastReportAt), input.language);
     if (last) rows.push([t("reports:mail.archiveLast"), `${last} UTC`]);

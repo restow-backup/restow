@@ -161,6 +161,33 @@ Kurz: Journaling beweist jede Mail so, wie sie durch den Server ging; die zeitna
 liefert jede Mail so, wie sie kurz danach im Postfach lag. Restow kennzeichnet beides und
 behauptet für die zeitnahe Erfassung keine Vollständigkeit.
 
+### Lücken der Erfassung
+
+Was ein Weg aus dem Postfach nicht übernehmen kann, hält Restow seit 0.5.0 dauerhaft fest
+(`archive_capture_gaps`), statt es nur zu protokollieren: einen Ordner, den der Server verweigert
+(STATUS, EXAMINE, SEARCH oder FETCH mit NO), eine Nachricht, die er auflistet, aber nie
+ausliefert, und bei Graph eine Nachricht ohne MIME-Export (docs/MICROSOFT.md). Jeder
+fehlgeschlagene Versuch zählt; vom dritten an (oder wenn der Weg sofort aufgibt) ist die Lücke
+offen. Eine Grenze des Kontos (`imap.server_limit`, etwa Gmails "[OVERQUOTA] Account exceeded
+command or bandwidth limits") zählt nicht gegen den Ordner: Die Übernahme hält an und setzt mit
+dem nächsten Job fort, die laufende Erfassung beim nächsten Durchgang.
+
+- **Übernahme des Altbestands (IMAP):** Ein verweigerter Ordner bleibt offen und wird von den
+  nächsten Jobs erneut versucht, eine nicht ausgelieferte Nachricht bleibt in der Position der
+  Übernahme und wird erneut angefordert; erst nach drei Jobs wird sie als Lücke aufgegeben und
+  die Übernahme kann abschließen. Vorher galt ein solcher Ordner nach dem ersten Fehler als
+  erledigt, eine solche Nachricht nach einem Versuch.
+- **Laufende Erfassung (IMAP):** Ein Ordner, der drei Durchgänge in Folge verweigert wird, ist
+  eine offene Lücke; eine Nachricht, die nach drei Durchgängen aufgegeben wird, ebenso.
+- **Anzeige:** Die Archiv-Seite zeigt beim Weg, wie viele Postfächer unvollständig sind, und je
+  Postfach die Zahl der offenen Lücken (gelb, nie als in Ordnung).
+  `GET /api/v1/archive/capture/mailboxes/:objectId/gaps` listet sie (Art, Ordner oder Nachricht,
+  Grund, Versuche, seit wann). Die Erfassungs-Warnung `capture_gap` (Ereignis `archive.failed`)
+  geht je Stream hinaus, wenn eine Lücke neu offen ist.
+- **Schließen:** Wird der Ordner später gelesen oder die Nachricht doch erfasst (ein Durchgang,
+  ein Neuabgleich, der alle Ordner von vorn liest), ist die Lücke erledigt; sie bleibt als
+  Eintrag erhalten.
+
 ## Exchange-Online-Journaling einrichten
 
 Journaling liefert die Kopie jeder Mail an Restow, bevor der Nutzer sie verändern oder

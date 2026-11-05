@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { type FakeFolder, FakeImapServer } from "../backup/imap/testing/fake-imap.js";
 import type { ImapAccountConfig, ImapSession } from "../backup/imap/types.js";
+import { GAP_OPEN_AFTER_ATTEMPTS, MemoryCaptureGaps } from "./capture-gaps.js";
 import { type HeldMails, holdMail, messageKey } from "./identity.js";
 import {
   activateImapCapture,
@@ -499,6 +500,154 @@ describe("IMAP archive capture", () => {
     expect(second.completed).toBe(true);
     expect(appended).toHaveLength(10);
     expect(new Set(appended.map((item) => item.ref)).size).toBe(10);
+  });
+
+  it("keeps a folder the server throttles on EXAMINE pending and takes it over on the next job", async () => {
+    const server = new FakeImapServer();
+    const inbox = server.addFolder("INBOX");
+    const projects = server.addFolder("Projekte");
+    put(inbox, "in@x");
+    put(projects, "p-1@x");
+    put(projects, "p-2@x");
+    const session = await connect(server);
+    const { sink, appended } = memorySink();
+    const gaps = new MemoryCaptureGaps();
+    const state = await activateImapCapture(session);
+    // Gmail's and Exchange's answer to too many commands: NO [OVERQUOTA] on EXAMINE.
+    server.faults.refuseOpen.set("Projekte", { code: "OVERQUOTA", remaining: 1 });
+    let saved = readImapBackfillCursor(null);
+    const run = () =>
+      backfillImapCapture(session, state, saved, sink, {
+        logger: silent,
+        gaps,
+        saveCursor: async (cursor) => {
+          saved = cursor;
+        },
+      });
+    const first = await run();
+    expect(first).toMatchObject({ completed: false, retryLater: true });
+    expect(saved.completed).not.toContain("Projekte");
+    // A server limit is the account's, not the folder's: no attempt against the folder.
+    expect(gaps.gaps.size).toBe(0);
+    const second = await run();
+    expect(second.completed).toBe(true);
+    expect(appended.map((item) => item.messageId).sort()).toEqual(["in@x", "p-1@x", "p-2@x"]);
+  });
+
+  it("retries a folder refused with a NO over three jobs, then records it as a gap", async () => {
+    const server = new FakeImapServer();
+    server.addFolder("INBOX");
+    const broken = server.addFolder("Broken");
+    put(broken, "lost@x");
+    const session = await connect(server);
+    const { sink } = memorySink();
+    const gaps = new MemoryCaptureGaps();
+    const state = await activateImapCapture(session);
+    server.faults.refuseOpen.set("Broken", { code: null, remaining: Number.POSITIVE_INFINITY });
+    let saved = readImapBackfillCursor(null);
+    const results = [];
+    for (let job = 1; job <= GAP_OPEN_AFTER_ATTEMPTS; job++) {
+      results.push(
+        await backfillImapCapture(session, state, saved, sink, {
+          logger: silent,
+          gaps,
+          saveCursor: async (cursor) => {
+            saved = cursor;
+          },
+        }),
+      );
+    }
+    expect(results.map((result) => result.completed)).toEqual([false, false, true]);
+    expect(results.at(-1)?.gaveUp).toBe(1);
+    expect(gaps.open()).toEqual(["folder:Broken"]);
+  });
+
+  it("asks again for a backfill message the server did not deliver, then records it as a gap", async () => {
+    const server = new FakeImapServer();
+    const inbox = server.addFolder("INBOX");
+    for (let i = 1; i <= 3; i++) {
+      put(inbox, `old-${i}@x`);
+    }
+    const session = await connect(server);
+    const { sink, appended } = memorySink();
+    const gaps = new MemoryCaptureGaps();
+    const state = await activateImapCapture(session);
+    server.faults.refuseSource.add("INBOX:2");
+    let saved = readImapBackfillCursor(null);
+    const run = () =>
+      backfillImapCapture(session, state, saved, sink, {
+        limits: { metaBatch: 10, maxBatchBytes: 1024 * 1024, maxBatchMessages: 10 },
+        logger: silent,
+        gaps,
+        saveCursor: async (cursor) => {
+          saved = cursor;
+        },
+      });
+    const first = await run();
+    expect(first).toMatchObject({ completed: false, retryLater: true });
+    expect(saved.retry).toEqual({ INBOX: [2] });
+    // Delivered on the second try: taken over, nothing open.
+    server.faults.refuseSource.clear();
+    expect((await run()).completed).toBe(true);
+    expect(appended.map((item) => item.messageId)).toEqual(["old-1@x", "old-3@x", "old-2@x"]);
+    expect(gaps.open()).toEqual([]);
+
+    // A message that never comes: given up after three jobs, as an open gap.
+    put(inbox, "never@x");
+    const later = await activateImapCapture(session);
+    server.faults.omitSource.add("INBOX:4");
+    saved = readImapBackfillCursor(null);
+    const runs = [];
+    for (let job = 1; job <= GAP_OPEN_AFTER_ATTEMPTS; job++) {
+      runs.push(
+        await backfillImapCapture(session, later, saved, sink, {
+          logger: silent,
+          gaps,
+          saveCursor: async (cursor) => {
+            saved = cursor;
+          },
+        }),
+      );
+    }
+    expect(runs.map((result) => result.completed)).toEqual([false, false, true]);
+    expect(gaps.open()).toEqual(["message:INBOX;1000;4"]);
+  });
+
+  it("counts a folder the server refuses on STATUS as a gap from the third pass, resolved once read", async () => {
+    const server = new FakeImapServer();
+    server.addFolder("INBOX");
+    const archived = server.addFolder("Archiv");
+    const session = await connect(server);
+    const { sink, appended } = memorySink();
+    const gaps = new MemoryCaptureGaps();
+    let state = await activateImapCapture(session);
+    put(archived, "a@x");
+    server.faults.openFailures.add("Archiv");
+    for (let pass = 1; pass <= GAP_OPEN_AFTER_ATTEMPTS; pass++) {
+      const result = await catchUpImapCapture(session, state, sink, { logger: silent, gaps });
+      expect(result.foldersFailed).toBe(1);
+      state = result.state;
+    }
+    expect(gaps.open()).toEqual(["folder:Archiv"]);
+    server.faults.openFailures.clear();
+    await catchUpImapCapture(session, state, sink, { logger: silent, gaps });
+    expect(appended.map((item) => item.messageId)).toEqual(["a@x"]);
+    expect(gaps.open()).toEqual([]);
+  });
+
+  it("records a message the catch-up gives up on as an open gap", async () => {
+    const server = new FakeImapServer();
+    const inbox = server.addFolder("INBOX");
+    const session = await connect(server);
+    const { sink } = memorySink();
+    const gaps = new MemoryCaptureGaps();
+    let state = await activateImapCapture(session);
+    put(inbox, "stuck@x");
+    server.faults.omitSource.add("INBOX:1");
+    for (let pass = 1; pass <= MAX_UNDELIVERED_ATTEMPTS; pass++) {
+      state = (await catchUpImapCapture(session, state, sink, { logger: silent, gaps })).state;
+    }
+    expect(gaps.open()).toEqual(["message:INBOX;1000;1"]);
   });
 
   it("tolerates unknown and malformed state", () => {

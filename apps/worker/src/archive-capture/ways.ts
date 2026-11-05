@@ -141,6 +141,11 @@ export interface CaptureContext {
   }): Promise<{ externalRefs: Set<string>; messages: archive.HeldMails }>;
   /** Persist `state` now, mid-step (a long catch-up), so an abort resumes from here. */
   checkpoint(state: ArchiveStreamState): Promise<void>;
+  /**
+   * What the way could not take in (./gaps.ts): a refused folder, a message never
+   * delivered or without a MIME export. A mail `append` captures resolves its gap itself.
+   */
+  readonly gaps: archive.CaptureGapSink;
 }
 
 /** What {@link CaptureWay.ensure} reports. */
@@ -193,6 +198,11 @@ export interface BackfillResult {
    * budget): the framework queues it again and it resumes from `job.cursor`.
    */
   readonly completed: boolean;
+  /**
+   * Not completed because folders or messages failed and are retried later: no
+   * continuation is queued at once; the next capture pass queues the backfill again.
+   */
+  readonly retryLater?: boolean;
 }
 
 /** What a way's background component gets (see {@link CaptureWay.start}). */

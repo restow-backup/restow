@@ -24,6 +24,7 @@ import {
 import type { Database } from "@restow/db";
 import { sql } from "drizzle-orm";
 import { alreadyCapturedFor, appendCapturedMail } from "../archive-capture/append.js";
+import { PgCaptureGaps } from "../archive-capture/gaps.js";
 import { CAPTURE_WAYS } from "../archive-capture/registry.js";
 import { type BackfillEnqueuer, pgBackfillEnqueuer } from "../archive-capture/service.js";
 import { PgStreamStore } from "../archive-capture/streams.js";
@@ -108,6 +109,7 @@ async function backfill(
     ...ctx,
     cursor: streamBackfillCursor(store, stream.id, ctx.cursor),
   };
+  const gaps = new PgCaptureGaps(ctx.db, ctx.tenantId, stream.id);
   const backfillContext: BackfillContext = {
     db: ctx.db,
     tenantId: ctx.tenantId,
@@ -119,8 +121,8 @@ async function backfill(
     signal: ctx.signal,
     now: ctx.now,
     job,
-    append: (mail) =>
-      appendCapturedMail(
+    append: async (mail) => {
+      const appended = await appendCapturedMail(
         {
           db: ctx.db,
           tenantId: ctx.tenantId,
@@ -134,7 +136,11 @@ async function backfill(
         },
         stream,
         mail,
-      ),
+      );
+      await gaps.resolved("message", mail.externalRef);
+      return appended;
+    },
+    gaps,
     alreadyCaptured: (query) =>
       alreadyCapturedFor(ctx.db, ctx.tenantId, stream.protectedObjectId, query),
     // The backfill's own position is its cursor (`job.cursor`, kept on the stream); the
@@ -144,6 +150,18 @@ async function backfill(
   const result = await way.backfill(backfillContext);
   if (ctx.signal.aborted) {
     throw new JobAbortedError();
+  }
+  if (!result.completed && result.retryLater) {
+    // Folders or messages failed and are tried again later: not at once (the server would
+    // most likely refuse again), but by the next capture pass, which queues the backfill
+    // again as no job of it is queued or running (../archive-capture/service.ts).
+    logger.info("archive backfill waits to retry what failed", {
+      captured: result.captured,
+      skipped: result.skipped,
+    });
+    return {
+      summary: { status: "retry_later", captured: result.captured, skipped: result.skipped },
+    };
   }
   if (!result.completed) {
     // The way stopped on its own budget: the next job resumes from the stream's cursor.

@@ -78,6 +78,11 @@ export interface MailboxWayStatusDto extends CaptureCounts {
   };
   /** Items of this way flagged `captured-late` in the last 7 days. */
   readonly capturedLate7d: number;
+  /**
+   * What the capture could not take in (`archive_capture_gaps`, open ones): streams that are
+   * incomplete for it, and the open gaps (folders and messages) in all. Never shown as fine.
+   */
+  readonly gaps: { readonly streams: number; readonly open: number };
 }
 
 export interface SmtpWayStatusDto extends CaptureCounts {
@@ -187,6 +192,15 @@ export async function captureStatus(
        where s.tenant_id = ${tenantId}::uuid
        group by 1, 2, 3, 4, 5, 6, 7
     `);
+    const gaps = await tx.execute<{ way: MailboxWay; streams: number; open: number }>(sql`
+      select s.way::text as way, count(distinct g.stream_id)::int as streams,
+             count(*)::int as open
+        from archive_capture_gaps g
+        join archive_capture_streams s on s.id = g.stream_id
+       where g.tenant_id = ${tenantId}::uuid and g.resolved_at is null
+         and g.opened_at is not null and s.status <> 'disabled'
+       group by s.way
+    `);
 
     const counts = (way: CaptureSourceName): CaptureCounts & { late: number } => {
       const row = items.rows.find((r) => r.way === way);
@@ -240,6 +254,10 @@ export async function captureStatus(
         pollReasons,
         backfill: { total, completed, stalled },
         capturedLate7d: late,
+        gaps: {
+          streams: gaps.rows.find((r) => r.way === way)?.streams ?? 0,
+          open: gaps.rows.find((r) => r.way === way)?.open ?? 0,
+        },
       };
     });
     const smtp = (["journal", "smtp_forward"] as const).map((way): SmtpWayStatusDto => {
@@ -334,12 +352,75 @@ export interface CaptureMailboxDto {
   readonly backfillCompletedAt: string | null;
   /** The takeover is stalled (see {@link MailboxWayStatusDto.backfill}). */
   readonly backfillStalled: boolean;
+  /** Open capture gaps of the stream: folders or messages it could not take in. */
+  readonly gaps: number;
   readonly lastCaptureAt: string | null;
   readonly lastSuccessAt: string | null;
   readonly nextDueAt: string | null;
   readonly consecutiveFailures: number;
   /** The classified failure of the last pass (FailureRecordJson), null when it worked. */
   readonly failure: unknown;
+}
+
+/** One open gap of a mailbox's capture (`archive_capture_gaps`). */
+export interface CaptureGapDto {
+  readonly way: MailboxWay;
+  readonly kind: "folder" | "message";
+  /** IMAP: the folder, or `<folder>;<uidvalidity>;<uid>`; Graph: the message's immutable id. */
+  readonly ref: string;
+  /** A failure code, or `undelivered`, `too_large`, `not_convertible`, `export_failed`. */
+  readonly reason: string;
+  readonly attempts: number;
+  readonly firstSeenAt: string;
+  readonly lastSeenAt: string;
+  readonly openedAt: string;
+}
+
+/** The most open gaps {@link captureGaps} lists for a mailbox. */
+export const CAPTURE_GAPS_LIMIT = 200;
+
+/** GET /archive/capture/mailboxes/:objectId/gaps: the mailbox's open gaps, newest first. */
+export async function captureGaps(
+  db: DbExecutor,
+  tenantId: string,
+  objectId: string,
+): Promise<{ items: CaptureGapDto[]; total: number }> {
+  return withTenantTx(db, tenantId, async (tx) => {
+    const result = await tx.execute<{
+      way: MailboxWay;
+      kind: "folder" | "message";
+      ref: string;
+      reason: string;
+      attempts: number;
+      first_seen_at: string;
+      last_seen_at: string;
+      opened_at: string;
+      total: number;
+    }>(sql`
+      select s.way::text as way, g.kind::text as kind, g.ref, g.reason, g.attempts,
+             g.first_seen_at::text as first_seen_at, g.last_seen_at::text as last_seen_at,
+             g.opened_at::text as opened_at, count(*) over ()::int as total
+        from archive_capture_gaps g
+        join archive_capture_streams s on s.id = g.stream_id
+       where g.tenant_id = ${tenantId}::uuid and s.protected_object_id = ${objectId}::uuid
+         and g.resolved_at is null and g.opened_at is not null
+       order by g.opened_at desc, g.ref
+       limit ${CAPTURE_GAPS_LIMIT}
+    `);
+    return {
+      items: result.rows.map((row) => ({
+        way: row.way,
+        kind: row.kind,
+        ref: row.ref,
+        reason: row.reason,
+        attempts: row.attempts,
+        firstSeenAt: new Date(row.first_seen_at).toISOString(),
+        lastSeenAt: new Date(row.last_seen_at).toISOString(),
+        openedAt: new Date(row.opened_at).toISOString(),
+      })),
+      total: result.rows[0]?.total ?? 0,
+    };
+  });
 }
 
 export interface CaptureMailboxPage {
@@ -369,6 +450,7 @@ export async function captureMailboxes(
       activated_at: string | null;
       backfill_completed_at: string | null;
       backfill_stalled: boolean;
+      gaps: number;
       last_capture_at: string | null;
       last_success_at: string | null;
       next_due_at: string | null;
@@ -379,6 +461,9 @@ export async function captureMailboxes(
              s.way::text as way, s.status::text as status, s.state->>'_mode' as mode,
              s.activated_at::text as activated_at, s.backfill_completed_at::text as backfill_completed_at,
              ${backfillStalledSql("s")} as backfill_stalled,
+             (select count(*)::int from archive_capture_gaps g
+               where g.stream_id = s.id and g.resolved_at is null
+                 and g.opened_at is not null) as gaps,
              s.last_capture_at::text as last_capture_at, s.last_success_at::text as last_success_at,
              s.next_due_at::text as next_due_at, s.consecutive_failures, s.failure
         from archive_capture_streams s
@@ -404,6 +489,7 @@ export async function captureMailboxes(
         activatedAt: iso(row.activated_at),
         backfillCompletedAt: iso(row.backfill_completed_at),
         backfillStalled: row.backfill_stalled === true,
+        gaps: Number(row.gaps ?? 0),
         lastCaptureAt: iso(row.last_capture_at),
         lastSuccessAt: iso(row.last_success_at),
         nextDueAt: iso(row.next_due_at),

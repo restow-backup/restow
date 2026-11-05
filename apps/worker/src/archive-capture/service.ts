@@ -47,6 +47,7 @@ import {
 import { archiveRetentionPolicyFor } from "../handlers/import-archive.js";
 import { recordLoginFailure, recordLoginSuccess } from "../imap-login-state.js";
 import { alreadyCapturedFor, appendCapturedMail } from "./append.js";
+import { PgCaptureGaps } from "./gaps.js";
 import { reconcileCaptureStreams } from "./reconcile.js";
 import { CAPTURE_WAYS } from "./registry.js";
 import { PgStreamStore, type StreamOutcome } from "./streams.js";
@@ -436,6 +437,7 @@ export class ArchiveCaptureService {
         this.retention.get(stream.tenantId),
       ]);
       const index = new PgChunkIndex(tenantRunner(this.deps.db, stream.tenantId), stream.tenantId);
+      const gaps = new PgCaptureGaps(this.deps.db, stream.tenantId, stream.id);
       const ctx = (): CaptureContext => ({
         db: this.deps.db,
         tenantId: stream.tenantId,
@@ -463,8 +465,10 @@ export class ArchiveCaptureService {
             mail,
           );
           captured++;
+          await gaps.resolved("message", mail.externalRef);
           return result;
         },
+        gaps,
         alreadyCaptured: (query) =>
           alreadyCapturedFor(this.deps.db, stream.tenantId, stream.protectedObjectId, query),
         checkpoint: async (next) => {

@@ -104,6 +104,8 @@ DECLARE
     -- Archive capture from the mailbox (0.4.4, docs/ARCHIVE.md "Erfassungswege").
     'archive_capture_streams',
     'archive_capture_pending',
+    -- What the capture could not take in (0.5.0).
+    'archive_capture_gaps',
     'graph_subscriptions',
     'archive_forward_addresses',
     'retention_policies',

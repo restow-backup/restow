@@ -253,6 +253,8 @@ export interface MailboxWayStatus extends CaptureCounts {
   /** Stalled: not done 48 hours after activation, or its newest job failed. */
   backfill: { total: number; completed: number; stalled: number };
   capturedLate7d: number;
+  /** Open capture gaps: streams incomplete for them, and the gaps in all. */
+  gaps: { streams: number; open: number };
 }
 
 export interface SmtpWayStatus extends CaptureCounts {
@@ -294,6 +296,8 @@ export interface CaptureMailbox {
   backfillCompletedAt: string | null;
   /** The takeover of the existing mail is stalled (see `backfill.stalled`). */
   backfillStalled: boolean;
+  /** Open capture gaps: folders or messages this stream could not take in. */
+  gaps: number;
   lastCaptureAt: string | null;
   lastSuccessAt: string | null;
   nextDueAt: string | null;

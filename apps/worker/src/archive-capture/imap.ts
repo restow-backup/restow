@@ -348,10 +348,18 @@ export function createImapCaptureWay(options: ImapCaptureWayOptions = {}): Captu
           gmail: loaded.gmail,
           rescan: ctx.reason === "resync",
           ...(options.limits ? { limits: options.limits } : {}),
+          gaps: ctx.gaps,
           logger: ctx.logger,
           checkpoint: (state) => ctx.checkpoint(withImapState(ctx.stream.state, state)),
         }),
       );
+      if (result.foldersFailed > 0 || result.undeliverable > 0) {
+        // Recorded as gaps (./gaps.ts): the stream shows them, the capture alert names them.
+        ctx.logger.warn("imap archive capture left folders or messages out this pass", {
+          foldersFailed: result.foldersFailed,
+          undeliverable: result.undeliverable,
+        });
+      }
       const watched = settings.idleMax > 0 && (await idleWatched(ctx.db, ctx.stream.id));
       const minutes = watched ? settings.watchedPassMinutes : settings.loginPollMinutes;
       return {
@@ -369,13 +377,19 @@ export function createImapCaptureWay(options: ImapCaptureWayOptions = {}): Captu
       const result = await withSession(ctx, loaded, (session) =>
         archive.backfillImapCapture(session, state, start, sink(ctx), {
           ...(options.limits ? { limits: options.limits } : {}),
+          gaps: ctx.gaps,
           logger: ctx.logger,
           deadline: ctx.now().getTime() + settings.backfillBudgetMs,
           now: () => ctx.now().getTime(),
           saveCursor: (cursor) => ctx.job.cursor.save({ ...(saved ?? {}), [CURSOR_KEY]: cursor }),
         }),
       );
-      return { captured: result.captured, skipped: result.skipped, completed: result.completed };
+      return {
+        captured: result.captured,
+        skipped: result.skipped,
+        completed: result.completed,
+        retryLater: result.retryLater,
+      };
     },
 
     start(services) {

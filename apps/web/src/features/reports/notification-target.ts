@@ -106,7 +106,9 @@ export function notificationTarget(
   // An alert of the archive capture: the archive page at the section that shows it.
   if (item.event === "archive.failed") {
     const section =
-      details.reason === "capture_error" || details.reason === "backfill_stalled"
+      details.reason === "capture_error" ||
+      details.reason === "backfill_stalled" ||
+      details.reason === "capture_gap"
         ? CAPTURE_SECTION_ANCHOR
         : details.reason === "forward_stale"
           ? FORWARDING_SECTION_ANCHOR

@@ -197,6 +197,13 @@ export interface FakeServerFaults {
   refuseSourceCode: string | null;
   /** Folders whose metadata FETCH fails with a NO (EXAMINE and STATUS still work). */
   refuseMeta: Set<string>;
+  /**
+   * Folders whose next EXAMINE/SELECT answers a NO (STATUS still works), `remaining` times
+   * (Infinity: always), with the RFC 5530 code the server sends: "OVERQUOTA" or "LIMIT" for
+   * Gmail's and Exchange's throttling ("Account exceeded command or bandwidth limits"),
+   * null for a plain NO.
+   */
+  refuseOpen: Map<string, { code: string | null; remaining: number }>;
 }
 
 export class FakeImapServer implements ImapConnector {
@@ -226,6 +233,7 @@ export class FakeImapServer implements ImapConnector {
     refuseSource: new Set(),
     refuseSourceCode: null,
     refuseMeta: new Set(),
+    refuseOpen: new Map(),
   };
   private readonly arrivalListeners = new Set<ArrivalListener>();
   /**
@@ -424,6 +432,20 @@ class FakeSession implements ImapSession {
     this.server.stats.opens++;
     if (this.server.faults.openFailures.has(path)) {
       throw new ImapSessionError(`EXAMINE ${path}: NO Mailbox does not exist`, false);
+    }
+    const refusal = this.server.faults.refuseOpen.get(path);
+    if (refusal && refusal.remaining > 0) {
+      refusal.remaining--;
+      const text = refusal.code
+        ? "Account exceeded command or bandwidth limits"
+        : "Server Unavailable. 15";
+      const cause = Object.assign(new Error("Command failed"), {
+        responseStatus: "NO",
+        responseText: text,
+        executedCommand: `1A EXAMINE "${path}"`,
+        ...(refusal.code ? { serverResponseCode: refusal.code } : {}),
+      });
+      throw new ImapSessionError(`EXAMINE ${path}: NO ${text}`, false, { cause });
     }
     const folder = this.server.folders.get(path);
     if (!folder?.selectable) {

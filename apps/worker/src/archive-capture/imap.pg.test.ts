@@ -24,12 +24,14 @@ import {
   type TenantKeyring,
 } from "@restow/core";
 import {
+  archiveCaptureGaps,
   archiveCaptureStreams,
   archiveItems,
   backupJobMembers,
   backupJobs,
   createDb,
   type Database,
+  notifications,
   protectedObjects,
   providers,
   secrets,
@@ -37,7 +39,7 @@ import {
   tenants,
 } from "@restow/db";
 import { runMigrations } from "@restow/db/migrate";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { FakeImapServer as DistFakeImapServer } from "../../../../packages/core/dist/backup/imap/testing/fake-imap.js";
 import { FakeImapServer } from "../../../../packages/core/src/backup/imap/testing/fake-imap.js";
@@ -422,6 +424,65 @@ describe.skipIf(!adminUrl)("IMAP capture way (Postgres)", () => {
       .where(eq(archiveCaptureStreams.protectedObjectId, object));
     expect(stream?.status).toBe("live");
     expect(stream?.backfillCursor).toBeNull();
+  });
+
+  it("records a message never delivered and a folder always refused as open gaps, alerted once", async () => {
+    const object = await account("ida@example.net");
+    // The built core's fake: its NOs are the ImapSessionError the worker's (built) capture
+    // knows, so a refused folder is a command-level error, as in production.
+    const dist = new DistFakeImapServer();
+    dist.addFolder("INBOX");
+    dist.addFolder("Sent", { specialUse: "\\Sent" });
+    server = dist as unknown as FakeImapServer;
+    const way = createImapCaptureWay({ connector: dist, env: {} });
+    const { instance } = captureService(way);
+    await instance.tick();
+    await instance.settle();
+    put("INBOX", "never@example.net");
+    put("INBOX", "fine@example.net");
+    server.faults.omitSource.add("INBOX:1");
+    server.faults.openFailures.add("Sent");
+    for (let n = 0; n < 3; n++) {
+      await pass(instance);
+    }
+    const gaps = await db
+      .select()
+      .from(archiveCaptureGaps)
+      .orderBy(archiveCaptureGaps.kind, archiveCaptureGaps.ref);
+    expect(gaps.map((gap) => [gap.kind, gap.ref, gap.reason, gap.openedAt !== null])).toEqual([
+      ["folder", "Sent", expect.any(String), true],
+      ["message", "INBOX;1000;1", "undelivered", true],
+    ]);
+    // The pass itself succeeds: the stream is live, but not complete (the gaps say so).
+    const [stream] = await db.select().from(archiveCaptureStreams);
+    expect(stream?.status).toBe("backfilling");
+    expect(stream?.consecutiveFailures).toBe(0);
+    expect((await itemsOf(object)).map((item) => item.externalRef)).toEqual(["INBOX;1000;2"]);
+
+    const { alertArchiveCapture } = await import("./alerts.js");
+    expect(await alertArchiveCapture({ db, providerDb: db }, new Date())).toBe(1);
+    const [alert] = await db
+      .select()
+      .from(notifications)
+      .where(eq(notifications.event, "archive.failed"));
+    expect(alert?.details).toMatchObject({
+      reason: "capture_gap",
+      protectedObjectId: object,
+      folders: 1,
+      messages: 1,
+    });
+    expect(await alertArchiveCapture({ db, providerDb: db }, new Date())).toBe(0);
+
+    // The folder works again: read, its gap resolved; the message stays open.
+    server.faults.openFailures.clear();
+    put("Sent", "out@example.net");
+    await pass(instance);
+    const open = await db
+      .select({ ref: archiveCaptureGaps.ref })
+      .from(archiveCaptureGaps)
+      .where(isNull(archiveCaptureGaps.resolvedAt));
+    expect(open.map((gap) => gap.ref)).toEqual(["INBOX;1000;1"]);
+    await db.execute(sql`delete from notifications`);
   });
 
   it("does not download mail the archive already holds for the account", async () => {
