@@ -243,16 +243,50 @@ const (
 	modaliasNVMe = "pci:v0000144Dd0000A808sv0000144Dsd0000A801bc01sc08i02"
 )
 
+var reHexWWN = regexp.MustCompile(`^[0-9a-f]{8,32}$`)
+
+// SplitWWN sorts the WWN column of lsblk (10.6). ATA and SCSI disks show
+// 0x<hex> (a naa.<hex> wwid is the same); for an NVMe namespace lsblk shows
+// the kernel's wwid there, which is no WWN: eui.<16 hex> is the EUI-64,
+// eui.<32 hex> the NGUID, anything else (nvme.<vendor-serial-model-nsid>)
+// is dropped, so serial and namespace decide. recover and the planner use
+// it alike, so both report the same identity for one disk.
+func SplitWWN(s string) (wwn, eui, nguid string) {
+	s = strings.ToLower(strings.TrimSpace(s))
+	switch {
+	case strings.HasPrefix(s, "0x"):
+		return strings.TrimPrefix(s, "0x"), "", ""
+	case strings.HasPrefix(s, "naa."):
+		return strings.TrimPrefix(s, "naa."), "", ""
+	case strings.HasPrefix(s, "eui."):
+		v := strings.TrimPrefix(s, "eui.")
+		if len(v) == 32 {
+			return "", "", v
+		}
+		return "", v, ""
+	case reHexWWN.MatchString(s):
+		return s, "", ""
+	}
+	return "", "", ""
+}
+
 // diskIdentity is the identity of a disk as recover reports it (10.6):
 // WWN, EUI-64 or NGUID, else serial and namespace, else nil.
 func diskIdentity(wwn, eui, nguid, serial *string, nsid *int64) *string {
+	w, e, g := SplitWWN(deref(wwn))
+	if deref(eui) != "" {
+		e = *eui
+	}
+	if deref(nguid) != "" {
+		g = *nguid
+	}
 	switch {
-	case deref(wwn) != "":
-		return strPtr("wwn." + strings.ToLower(strings.TrimPrefix(*wwn, "0x")))
-	case deref(eui) != "":
-		return strPtr("eui." + strings.ToLower(*eui))
-	case deref(nguid) != "":
-		return strPtr("nguid." + strings.ToLower(*nguid))
+	case w != "":
+		return strPtr("wwn." + w)
+	case e != "":
+		return strPtr("eui." + strings.ToLower(e))
+	case g != "":
+		return strPtr("nguid." + strings.ToLower(g))
 	case deref(serial) != "":
 		s := "serial." + *serial
 		if nsid != nil {

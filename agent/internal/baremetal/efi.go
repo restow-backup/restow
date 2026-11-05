@@ -98,7 +98,112 @@ func ParseLoadOption(b []byte) (LoadOption, error) {
 	return o, nil
 }
 
-// BuildLoadOption is part of the restore (M4).
+// Attributes of EFI variables (UEFI 2.10, 8.2).
+const (
+	EFIVarNonVolatile       = 0x00000001
+	EFIVarBootserviceAccess = 0x00000002
+	EFIVarRuntimeAccess     = 0x00000004
+	// LoadOptionActive is LOAD_OPTION_ACTIVE of a Boot#### variable.
+	LoadOptionActive = loadOptionActive
+)
+
+// LoadOptionPartition is the partition a Boot#### entry points to: its
+// number, start and size in LBA of the disk, and either the GPT PARTUUID
+// or the 32-bit MBR disk signature.
+type LoadOptionPartition struct {
+	Number   int64
+	StartLBA uint64
+	SizeLBA  uint64
+	PartUUID string
+	MBRSig   *uint32
+}
+
+// BuildLoadOption encodes an EFI_LOAD_OPTION (UEFI 2.10, 3.1.3): the
+// attributes, the length of the device path list, the description as
+// NUL-terminated UTF-16LE, then a hard drive node (type 4, subtype 1), a
+// file path node (4/4) with the loader path in back-slash form and an end
+// node. recover writes it as Boot#### (efivars_linux.go); ParseLoadOption
+// reads it back.
+func BuildLoadOption(attrs uint32, label string, part LoadOptionPartition, loaderPath string) ([]byte, error) {
+	hd := make([]byte, 42)
+	hd[0], hd[1] = 0x04, 0x01
+	binary.LittleEndian.PutUint16(hd[2:4], 42)
+	if part.Number <= 0 || part.Number > 0xffffffff {
+		return nil, fmt.Errorf("load option: partition number %d", part.Number)
+	}
+	binary.LittleEndian.PutUint32(hd[4:8], uint32(part.Number))
+	binary.LittleEndian.PutUint64(hd[8:16], part.StartLBA)
+	binary.LittleEndian.PutUint64(hd[16:24], part.SizeLBA)
+	switch {
+	case part.PartUUID != "":
+		g, err := encodeGUID(part.PartUUID)
+		if err != nil {
+			return nil, err
+		}
+		copy(hd[24:40], g)
+		hd[40], hd[41] = 0x02, 0x02 // GPT, GUID signature
+	case part.MBRSig != nil:
+		binary.LittleEndian.PutUint32(hd[24:28], *part.MBRSig)
+		hd[40], hd[41] = 0x01, 0x01 // MBR, 32-bit signature
+	default:
+		return nil, errors.New("load option: neither a PARTUUID nor an MBR signature")
+	}
+	p := strings.ReplaceAll(loaderPath, "/", `\`)
+	if !strings.HasPrefix(p, `\`) {
+		p = `\` + p
+	}
+	if strings.ContainsRune(p, 0) || strings.Contains(p, `\..\`) {
+		return nil, fmt.Errorf("load option: invalid loader path %q", loaderPath)
+	}
+	fp := utf16Z(p)
+	file := make([]byte, 4, 4+len(fp))
+	file[0], file[1] = 0x04, 0x04
+	binary.LittleEndian.PutUint16(file[2:4], uint16(4+len(fp)))
+	file = append(file, fp...)
+	end := []byte{0x7f, 0xff, 0x04, 0x00}
+	dp := append(append(append([]byte{}, hd...), file...), end...)
+	if len(dp) > 0xffff || len(label) > 1024 {
+		return nil, errors.New("load option: too long")
+	}
+	out := make([]byte, 6, 6+2*len(label)+2+len(dp))
+	binary.LittleEndian.PutUint32(out[0:4], attrs)
+	binary.LittleEndian.PutUint16(out[4:6], uint16(len(dp)))
+	out = append(out, utf16Z(label)...)
+	return append(out, dp...), nil
+}
+
+// utf16Z is s as UTF-16LE with a terminating NUL.
+func utf16Z(s string) []byte {
+	u := utf16.Encode([]rune(s))
+	b := make([]byte, 0, 2*len(u)+2)
+	for _, c := range u {
+		b = binary.LittleEndian.AppendUint16(b, c)
+	}
+	return append(b, 0, 0)
+}
+
+// guidBytes encodes a GUID the way guidString reads it.
+func encodeGUID(s string) ([]byte, error) {
+	raw, err := hex.DecodeString(strings.ReplaceAll(s, "-", ""))
+	if err != nil || len(raw) != 16 || len(s) != 36 {
+		return nil, fmt.Errorf("invalid GUID %q", s)
+	}
+	out := make([]byte, 16)
+	binary.LittleEndian.PutUint32(out[0:4], binary.BigEndian.Uint32(raw[0:4]))
+	binary.LittleEndian.PutUint16(out[4:6], binary.BigEndian.Uint16(raw[4:6]))
+	binary.LittleEndian.PutUint16(out[6:8], binary.BigEndian.Uint16(raw[6:8]))
+	copy(out[8:], raw[8:])
+	return out, nil
+}
+
+// EncodeBootOrder encodes BootOrder (a list of UINT16).
+func EncodeBootOrder(order []int64) []byte {
+	b := make([]byte, 0, 2*len(order))
+	for _, n := range order {
+		b = binary.LittleEndian.AppendUint16(b, uint16(n))
+	}
+	return b
+}
 
 func utf16String(b []byte) string {
 	u := make([]uint16, 0, len(b)/2)

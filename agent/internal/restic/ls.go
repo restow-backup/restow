@@ -11,13 +11,48 @@ import (
 // ErrStopLs may be returned by the Ls callback to end the listing early without an error.
 var ErrStopLs = errors.New("stop listing")
 
+// LsOptions are the options of LsWith.
+type LsOptions struct {
+	// NoLock lists without a lock (and without --retry-lock).
+	NoLock bool
+	// NoCache uses no local cache.
+	NoCache bool
+	// Recursive lists the paths below Paths too (--recursive).
+	Recursive bool
+	// Paths restrict the listing to these snapshot paths.
+	Paths []string
+}
+
 // Ls lists every node of a snapshot (recursively) and calls fn for each. fn
 // may return an error to stop; that error is returned.
 func (r *Runner) Ls(ctx context.Context, snapshotID string, fn func(Node) error) error {
+	return r.LsWith(ctx, snapshotID, LsOptions{}, fn)
+}
+
+// lsArgs is the argument vector of ls.
+func lsArgs(snapshotID string, o LsOptions) []string {
+	args := []string{"ls", "--json"}
+	if o.NoLock {
+		args = append(args, "--no-lock")
+	} else {
+		args = append(args, "--retry-lock", "5m")
+	}
+	if o.NoCache {
+		args = append(args, "--no-cache")
+	}
+	if o.Recursive {
+		args = append(args, "--recursive")
+	}
+	args = append(args, snapshotID)
+	return append(args, o.Paths...)
+}
+
+// LsWith is Ls with options.
+func (r *Runner) LsWith(ctx context.Context, snapshotID string, o LsOptions, fn func(Node) error) error {
 	lctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var fnErr error
-	xr, err := r.exec(lctx, execSpec{Command: "ls", Args: []string{"ls", "--json", "--retry-lock", "5m", snapshotID},
+	xr, err := r.exec(lctx, execSpec{Command: "ls", Args: lsArgs(snapshotID, o),
 		OnStdoutLine: func(line []byte) {
 			if fnErr != nil || peekType(line) != msgNode {
 				return

@@ -37,5 +37,26 @@
   },
   "steps": [],
   "target": "same",
-  "warnings": []
+  "warnings": [
+    {
+      "code": "untested_distribution",
+      "message": "Alpine Linux v3.20 is not among the tested distributions; the restore may need manual work after the start.",
+      "params": {
+        "init": "other",
+        "os": "Alpine Linux v3.20"
+      },
+      "ref": null,
+      "severity": "warning"
+    },
+    {
+      "code": "non_systemd_init",
+      "message": "Alpine Linux v3.20 starts with other, not systemd; the restore may need manual work after the start.",
+      "params": {
+        "init": "other",
+        "os": "Alpine Linux v3.20"
+      },
+      "ref": null,
+      "severity": "warning"
+    }
+  ]
 }

@@ -4,10 +4,14 @@
 # (agent/README.md, "Release signing").
 #
 #   scripts/release/sign-agent.sh --keygen <path>        create the key pair (once)
-#   scripts/release/sign-agent.sh <tag> --key <path> [--repo <owner/name>] [--yes]
+#   scripts/release/sign-agent.sh <tag> --key <path> [--iso <path>] [--repo <owner/name>] [--yes]
 #                                                        sign the agent of a release
 #
 #   --key <path>        the private key (default: $RESTOW_AGENT_SIGNING_KEY)
+#   --iso <path>        the recovery ISO rebuilt on this machine from <tag>
+#                       (docs/BAREMETAL.md 8.5). Needed when agent-SHA256SUMS lists
+#                       recovery/restow-recovery_<version>_amd64.iso: the script
+#                       signs only when the SHA-256 of this file equals that line
 #   --repo <owner/name> the GitHub repository that holds the release (default:
 #                       the repository of the clone this script lives in, as
 #                       `gh repo view` reports it, else restow-backup/restow)
@@ -20,6 +24,8 @@
 #      signs it with ssh-keygen (namespace restow-agent-release), verifies the
 #      signature against agent/release-signing.pub as committed at <tag>,
 #      uploads agent-SHA256SUMS.sig to the draft
+#      (with --iso first comparing the ISO rebuilt here with the line the two
+#      CI builds agreed on, and refusing on any difference)
 #   3. and lets the workflow continue (approves the waiting job of the
 #      environment agent-release-signing, or re-runs the failed signature job).
 #      The workflow then builds the images with the signed agent, runs the
@@ -31,6 +37,15 @@
 # (a `git fetch --tags` is tried first); otherwise (a clone without the tag,
 # a copy of the tree without a GitHub remote, no repository at all) they are
 # read from GitHub with `gh api`. Nothing is cloned or changed locally.
+#
+# Rebuilding the recovery ISO before signing (the release gate of
+# docs/BAREMETAL.md 21.4, item 20): check out <tag>, take the CI agent build of
+# that tag (its linux-amd64 folder; the hashes of its files are in the same
+# agent-SHA256SUMS, so it is the build being signed), and run the build recipe
+# of the recovery ISO (integrations/recovery/build.sh --agent-dist <that
+# folder> --version <version> --out <dir>) on a Docker host of your own. Then
+# pass the ISO it wrote with --iso. A runner that produced the same tampered
+# ISO twice is caught here, because this host builds it a third time.
 #
 # Needs: gh (logged in, push rights), ssh-keygen (OpenSSH 8.1 or newer; every
 # supported macOS has it). git is used only to find the tag in a local clone.
@@ -142,11 +157,38 @@ tag_from_github() {
     die "$tag has no agent/release-signing.pub in $repo: $(gh_error)"
 }
 
+# The recovery ISO line of a checksum list: "<sha256> <file name>", or nothing.
+iso_line() {
+  sed -n 's#^\([0-9a-fA-F]\{64\}\)[ *][ *]*recovery/\([^/ ]*\)$#\1 \2#p' "$1" | head -n 1
+}
+
+# With an ISO line in the list, the locally rebuilt ISO must be given and match it.
+check_iso() {
+  sums="$1"
+  iso="$2"
+  line=$(iso_line "$sums")
+  if [ -z "$line" ]; then
+    [ -z "$iso" ] || die "--iso was given, but agent-SHA256SUMS lists no recovery ISO"
+    return 0
+  fi
+  want=$(lower "${line%% *}")
+  name=${line#* }
+  [ -n "$iso" ] || die "agent-SHA256SUMS lists recovery/$name; rebuild it from the tag and pass it with --iso <path> (see --help)"
+  [ -f "$iso" ] || die "the ISO $iso does not exist"
+  have=$(sha256_of "$iso")
+  echo "Recovery ISO:   recovery/$name"
+  echo "    CI builds:  $want"
+  echo "    rebuilt:    $have ($iso)"
+  [ "$have" = "$want" ] ||
+    die "the ISO rebuilt here differs from the one the CI built; not signed (compare them with diffoscope)"
+}
+
 sign() {
   tag="$1"
   key="$2"
   yes="$3"
   repo="$4"
+  iso="${5:-}"
   [ -n "$key" ] || die "give the private key: $0 $tag --key <path>"
   [ -f "$key" ] || die "the private key $key does not exist"
   case "$tag" in
@@ -195,6 +237,7 @@ sign() {
   echo "agent-SHA256SUMS ($(wc -l <"$sums" | tr -d ' ') files, SHA-256 $(sha256_of "$sums")):"
   sed 's/^/    /' "$sums"
   echo
+  check_iso "$sums" "$iso"
   if [ "$yes" != yes ]; then
     printf 'Sign this agent release with %s? [y/N] ' "$key"
     read -r answer </dev/tty || answer=''
@@ -243,6 +286,7 @@ case "${1:-}" in
     tag=''
     key="${RESTOW_AGENT_SIGNING_KEY:-}"
     repo=''
+    iso=''
     yes=no
     while [ $# -gt 0 ]; do
       case "$1" in
@@ -258,6 +302,11 @@ case "${1:-}" in
         --repo)
           [ $# -ge 2 ] || die "--repo needs owner/name"
           repo="$2"
+          shift
+          ;;
+        --iso)
+          [ $# -ge 2 ] || die "--iso needs the path of the rebuilt ISO"
+          iso="$2"
           shift
           ;;
         --yes) yes=yes ;;
@@ -277,6 +326,6 @@ case "${1:-}" in
       usage >&2
       exit 2
     fi
-    sign "$tag" "$key" "$yes" "$repo"
+    sign "$tag" "$key" "$yes" "$repo" "$iso"
     ;;
 esac

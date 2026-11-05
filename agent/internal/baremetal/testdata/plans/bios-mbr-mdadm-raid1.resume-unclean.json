@@ -1,0 +1,483 @@
+{
+  "adopted": [],
+  "disks": [
+    {
+      "disk": "d0",
+      "lvs": [],
+      "partitions": [
+        {
+          "grown": false,
+          "number": 1,
+          "realigned": false,
+          "shrunk": false,
+          "sizeBytes": 1073741824,
+          "sizeLba": 2097152,
+          "startBytes": 1048576,
+          "startLba": 2048
+        },
+        {
+          "grown": false,
+          "number": 2,
+          "realigned": false,
+          "shrunk": false,
+          "sizeBytes": 966367641600,
+          "sizeLba": 1887436800,
+          "startBytes": 1074790400,
+          "startLba": 2099200
+        },
+        {
+          "grown": false,
+          "number": 3,
+          "realigned": false,
+          "shrunk": false,
+          "sizeBytes": 8589934592,
+          "sizeLba": 16777216,
+          "startBytes": 967442432000,
+          "startLba": 1889536000
+        }
+      ],
+      "sectorSize": 512,
+      "table": "dos",
+      "target": "t0"
+    },
+    {
+      "disk": "d1",
+      "lvs": [],
+      "partitions": [
+        {
+          "grown": false,
+          "number": 1,
+          "realigned": false,
+          "shrunk": false,
+          "sizeBytes": 1073741824,
+          "sizeLba": 2097152,
+          "startBytes": 1048576,
+          "startLba": 2048
+        },
+        {
+          "grown": false,
+          "number": 2,
+          "realigned": false,
+          "shrunk": false,
+          "sizeBytes": 966367641600,
+          "sizeLba": 1887436800,
+          "startBytes": 1074790400,
+          "startLba": 2099200
+        },
+        {
+          "grown": false,
+          "number": 3,
+          "realigned": false,
+          "shrunk": false,
+          "sizeBytes": 8589934592,
+          "sizeLba": 16777216,
+          "startBytes": 967442432000,
+          "startLba": 1889536000
+        }
+      ],
+      "sectorSize": 512,
+      "table": "dos",
+      "target": "t1"
+    }
+  ],
+  "drivers": {
+    "fallback": null,
+    "kernel": "6.1.0-27-amd64",
+    "nics": [],
+    "storage": [
+      {
+        "builtin": false,
+        "device": "t0",
+        "found": true,
+        "kernel": "6.1.0-27-amd64",
+        "modalias": "pci:v00008086d0000A352sv00001028sd0000085Abc01sc06i01",
+        "module": "ahci"
+      },
+      {
+        "builtin": false,
+        "device": "t1",
+        "found": true,
+        "kernel": "6.1.0-27-amd64",
+        "modalias": "pci:v00008086d0000A352sv00001028sd0000085Abc01sc06i01",
+        "module": "ahci"
+      }
+    ]
+  },
+  "format": "restow-plan-v1",
+  "mapping": [
+    {
+      "action": "erase",
+      "reason": "identity",
+      "source": "d0",
+      "target": "t0"
+    },
+    {
+      "action": "erase",
+      "reason": "identity",
+      "source": "d1",
+      "target": "t1"
+    }
+  ],
+  "minimumSizes": {
+    "disks": [
+      {
+        "disk": "d0",
+        "kname": "sda",
+        "minBytes": 238546845696,
+        "sizeBytes": 1000204886016
+      },
+      {
+        "disk": "d1",
+        "kname": "sdb",
+        "minBytes": 238546845696,
+        "sizeBytes": 1000204886016
+      }
+    ],
+    "filesystems": [
+      {
+        "fs": "f0",
+        "minBytes": 1018062439,
+        "mount": "/boot",
+        "restoreBytes": 214328934,
+        "type": "ext4"
+      },
+      {
+        "fs": "f1",
+        "minBytes": 228747418151,
+        "mount": "/",
+        "restoreBytes": 193273528320,
+        "type": "ext4"
+      }
+    ],
+    "lvs": [],
+    "thinPools": []
+  },
+  "ok": true,
+  "problems": [],
+  "secureBoot": {
+    "checked": false,
+    "loaders": [],
+    "targetSecureBoot": null
+  },
+  "steps": [
+    {
+      "args": [
+        "mdadm",
+        "--assemble",
+        "--uuid=b7000000:00004000:80000000:00000000",
+        "/dev/md/0",
+        "/dev/sda1",
+        "/dev/sdb1"
+      ],
+      "kind": "md_assemble",
+      "n": 1,
+      "phase": "md",
+      "reason": "assemble the array md0 the first run created",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/md/0"
+    },
+    {
+      "args": [
+        "mdadm",
+        "--assemble",
+        "--uuid=b7000000:00004000:80000000:00000001",
+        "/dev/md/1",
+        "/dev/sda2",
+        "/dev/sdb2"
+      ],
+      "kind": "md_assemble",
+      "n": 2,
+      "phase": "md",
+      "reason": "assemble the array md1 the first run created",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/md/1"
+    },
+    {
+      "args": [
+        "mount",
+        "-t",
+        "ext4",
+        "/dev/md/1",
+        "{target_root}"
+      ],
+      "kind": "mount",
+      "n": 3,
+      "phase": "mount",
+      "reason": "mount f1 at /",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/md/1"
+    },
+    {
+      "args": [
+        "mount",
+        "-t",
+        "ext4",
+        "/dev/md/0",
+        "{target_root}/boot"
+      ],
+      "kind": "mount",
+      "n": 4,
+      "phase": "mount",
+      "reason": "mount f0 at /boot",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/md/0"
+    },
+    {
+      "args": [
+        "restic",
+        "restore",
+        "--json",
+        "--no-lock",
+        "--no-cache",
+        "--target",
+        "{target_root}",
+        "--sparse",
+        "--verify",
+        "--overwrite",
+        "always",
+        "{snapshot}"
+      ],
+      "kind": "restore",
+      "n": 5,
+      "phase": "restore",
+      "reason": "restore the files of the snapshot again after an unclean end (restic compares the content)",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": null
+    },
+    {
+      "args": [
+        "restic",
+        "restore",
+        "--json",
+        "--no-lock",
+        "--no-cache",
+        "--target",
+        "{target_root}",
+        "--sparse",
+        "--verify",
+        "--overwrite",
+        "always",
+        "--include",
+        "/bin",
+        "--include",
+        "/boot",
+        "--include",
+        "/etc",
+        "--include",
+        "/lib",
+        "--include",
+        "/lib32",
+        "--include",
+        "/lib64",
+        "--include",
+        "/libx32",
+        "--include",
+        "/sbin",
+        "--include",
+        "/usr",
+        "{snapshot}"
+      ],
+      "kind": "restore_verify",
+      "n": 6,
+      "phase": "restore",
+      "reason": "check the system paths completely against the snapshot after an unclean end",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": null
+    },
+    {
+      "args": [
+        "mkdirs",
+        "/proc:0555",
+        "/sys:0555",
+        "/dev:0755",
+        "/run:0755",
+        "/tmp:1777",
+        "/boot:0755"
+      ],
+      "kind": "mkdirs",
+      "n": 7,
+      "phase": "post",
+      "reason": "create mount points and API folders that the snapshot may lack",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": null
+    },
+    {
+      "args": [
+        "fixup",
+        "/etc/default/grub",
+        "cmdline"
+      ],
+      "kind": "fixup",
+      "n": 8,
+      "phase": "post",
+      "reason": "rewrite device references in /etc/default/grub",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/etc/default/grub"
+    },
+    {
+      "args": [
+        "fixup",
+        "/etc/fstab",
+        "fstab"
+      ],
+      "kind": "fixup",
+      "n": 9,
+      "phase": "post",
+      "reason": "rewrite device references in /etc/fstab",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/etc/fstab"
+    },
+    {
+      "args": [
+        "fixup",
+        "/etc/initramfs-tools/conf.d/resume",
+        "resume"
+      ],
+      "kind": "fixup",
+      "n": 10,
+      "phase": "post",
+      "reason": "rewrite device references in /etc/initramfs-tools/conf.d/resume",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/etc/initramfs-tools/conf.d/resume"
+    },
+    {
+      "args": [
+        "fixup",
+        "/etc/mdadm.conf",
+        "mdadm"
+      ],
+      "kind": "fixup",
+      "n": 11,
+      "phase": "post",
+      "reason": "rewrite device references in /etc/mdadm.conf",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/etc/mdadm.conf"
+    },
+    {
+      "args": [
+        "fixup",
+        "/etc/mdadm/mdadm.conf",
+        "mdadm"
+      ],
+      "kind": "fixup",
+      "n": 12,
+      "phase": "post",
+      "reason": "rewrite device references in /etc/mdadm/mdadm.conf",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/etc/mdadm/mdadm.conf"
+    },
+    {
+      "args": [
+        "fixup",
+        "/var/cache/debconf/config.dat",
+        "grub_install_devices"
+      ],
+      "kind": "fixup",
+      "n": 13,
+      "phase": "post",
+      "reason": "rewrite device references in /var/cache/debconf/config.dat",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/var/cache/debconf/config.dat"
+    },
+    {
+      "args": [
+        "chroot-exec",
+        "update-initramfs",
+        "-u",
+        "-k",
+        "6.1.0-27-amd64"
+      ],
+      "kind": "initramfs",
+      "n": 14,
+      "phase": "post",
+      "reason": "rebuild the initramfs of 6.1.0-27-amd64 with MODULES=most",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "6.1.0-27-amd64"
+    },
+    {
+      "args": [
+        "chroot-exec",
+        "grub-mkconfig",
+        "-o",
+        "/boot/grub/grub.cfg"
+      ],
+      "kind": "grub_config",
+      "n": 15,
+      "phase": "post",
+      "reason": "write the GRUB configuration",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/boot/grub/grub.cfg"
+    },
+    {
+      "args": [
+        "chroot-exec",
+        "grub-install",
+        "--target=i386-pc",
+        "--no-nvram",
+        "/dev/sda"
+      ],
+      "kind": "bootloader_bios",
+      "n": 16,
+      "phase": "post",
+      "reason": "install the BIOS boot code of GRUB",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/sda"
+    },
+    {
+      "args": [
+        "chroot-exec",
+        "grub-install",
+        "--target=i386-pc",
+        "--no-nvram",
+        "/dev/sdb"
+      ],
+      "kind": "bootloader_bios",
+      "n": 17,
+      "phase": "post",
+      "reason": "install the BIOS boot code of GRUB",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/sdb"
+    },
+    {
+      "args": [
+        "verify"
+      ],
+      "kind": "verify",
+      "n": 18,
+      "phase": "post",
+      "reason": "check the restored system (identities, fstab, boot files)",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": null
+    }
+  ],
+  "target": "same",
+  "warnings": [
+    {
+      "code": "bios_boot_disk",
+      "message": "Select t0 as the boot disk in the BIOS (or as the boot volume of the controller).",
+      "params": {
+        "target": "t0"
+      },
+      "ref": "t0",
+      "severity": "warning"
+    }
+  ]
+}

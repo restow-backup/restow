@@ -245,7 +245,9 @@ Zeile in dieser Tabelle), bevor der jeweilige Meilenstein fertig ist:
 1. Linux (M4): dass `restore` Gerätedateien, FIFOs, Hardlinks innerhalb des
    wiederhergestellten Satzes, POSIX-ACLs und erweiterte Attribute einschließlich
    `security.capability` und `security.selinux` als root wiederherstellt; dass `restore` die
-   Linux-Dateiattribute (`chattr`: `+C`, `+i`) nicht kennt.
+   Linux-Dateiattribute (`chattr`: `+C`, `+i`) nicht kennt. **[CI]** in M4: Der Root-Test des
+   Agenten (`agent-root`, `internal/recovery`) stellt einen solchen Satz mit dem echten restic
+   her; das Ergebnis kommt als Zeile in die Tabelle, sobald der Job gelaufen ist.
 2. Linux (M1/M4): ob `backup -x` den **Ordner** eines Einhängepunkts (`/proc`, `/sys`, `/dev`,
    `/run`, `/tmp`, `/boot/efi`, `/home`) mit Modus und Besitzer in den Baum des
    Eltern-Dateisystems aufnimmt, wenn darunter ein anderes Dateisystem hängt. Unabhängig vom
@@ -254,7 +256,8 @@ Zeile in dieser Tabelle), bevor der jeweilige Meilenstein fertig ist:
 3. Fortsetzen (M4): woran `--overwrite if-changed` eine vorhandene Datei als gleich erkennt
    (Erwartung: Größe und mtime, kein Inhaltsvergleich) und ob `--verify` übersprungene
    Dateien liest. Darauf baut Abschnitt 10.18 nicht: Nach einem unsauberen Ende gilt
-   `--overwrite always` und eine vollständige Inhaltsprüfung der Systempfade.
+   `--overwrite always` und eine vollständige Inhaltsprüfung der Systempfade. **[CI]** in M4
+   (E8 in `recovery-nightly.yml` und der Root-Test des Agenten); offen, bis sie gelaufen sind.
 4. Größen (M2): ob `restic stats --mode restore-size` einen Unterordner kennt (Erwartung:
    nein, `stats` filtert nur Snapshots); Abschnitt 10.9 rechnet darum aus
    `restic ls --json --recursive`.
@@ -2149,7 +2152,14 @@ fremder Teile) und die NVRAM beschädigen. Darum läuft jeder dieser Schritte ü
 
 - `SysProcAttr.Unshareflags = CLONE_NEWNS|CLONE_NEWPID|CLONE_NEWNET|CLONE_NEWIPC|CLONE_NEWUTS`;
   im neuen PID-Namensraum ein frisches `/proc` (sieht nur die eigenen Prozesse), `/sys` nur
-  lesend, kein efivarfs, ein Netz-Namensraum nur mit `lo`.
+  lesend, kein efivarfs, ein Netz-Namensraum nur mit `lo`. Im frischen `/proc` sind
+  `sys`, `sysrq-trigger`, `irq`, `bus` und `fs` nur lesend gebunden, `kcore`, `kallsyms`,
+  `keys`, `latency_stats`, `timer_list`, `timer_stats`, `sched_debug` und `mtrr` mit
+  `/dev/null` überdeckt, `acpi`, `asound` und `scsi` mit einem leeren, nur lesbaren `tmpfs`
+  (wie Container-Laufzeiten): Schreiben dort braucht nur uid 0 und keine Capability, und
+  `/proc/sys/kernel/core_pattern` mit `|/pfad` ließe den Kernel eine Datei des Ziels als
+  volles root außerhalb jedes Namensraums starten, `/proc/sysrq-trigger` den Rechner neu
+  starten oder `recover` beenden.
 - `/dev` ist ein neues `tmpfs` mit `nodev`, darin als einzelne Bind-Mounts aus dem `/dev`
   des ISO genau `null`, `zero`, `full`, `random`, `urandom`, `tty`, `pts` (eigene Instanz)
   und die Knoten der **Zielgeräte** des Plans samt ihrer Partitionen, md-, dm- und
@@ -2180,8 +2190,9 @@ fremder Teile) und die NVRAM beschädigen. Darum läuft jeder dieser Schritte ü
   `FS_IOC_SETFLAGS` nur für die eigene Datei aufheben).
 - CI-Test im Job `agent-root`: Ein initramfs-Hook im Testsystem versucht `ping 1.1.1.1`,
   `cat /proc/1/environ`, `ls /proc` (erwartet nur eigene PIDs), Schreiben auf eine nicht
-  ausgewählte Loop-Platte, `mknod` und Öffnen eines neuen Knotens und `mount -t tmpfs`; alles
-  muss scheitern, der Hook schreibt das Ergebnis in eine Datei, die der Test prüft.
+  ausgewählte Loop-Platte, `mknod` und Öffnen eines neuen Knotens, `mount -t tmpfs` und das
+  Öffnen von `/proc/sys/kernel/core_pattern`, `/proc/sysrq-trigger` und
+  `/proc/irq/default_smp_affinity` zum Schreiben; alles muss scheitern, der Hook schreibt das Ergebnis in eine Datei, die der Test prüft.
 
 ### 10.15 initramfs, Bootloader, NVRAM
 
@@ -4040,14 +4051,24 @@ Alle übrigen Befunde der drei Reviews sind wie vorgeschlagen eingearbeitet.
 
 ## 26. Stand der Umsetzung
 
-**M1 (Ganz-Rechner-Sicherung, Linux), M2 (Planer und Stufe 1) und M3 (Code, Freigabe, Sitzung,
-Wiederanbindung) sind umgesetzt**, hinter `RESTOW_BAREMETAL_PREVIEW` (Standard aus; der Schalter
-hängt am Job-Schalter, 26.2, und seit M3 am Ausstellen eines Wiederherstellungscodes; die
-Wiederanbindung ist davon unabhängig, 26.8). M4 bis M6 sind offen; für sie bleibt dieses Dokument
-der Entwurf. Was M2 liefert und abweichend entschieden hat, steht in 26.4 bis 26.6, für M3 in 26.7
-bis 26.9. Die Migrationen auf diesem Zweig sind 0076 (M1), 0077 (M2) und 0078 (M3); die Nummern in
-14.2 sind die des Entwurfs. Die nächsten freien beim Merge bekommen M5 (`boot_probe`, 0079) und M6
-(`darwin_check`, 0080); M4 bringt keine Migration.
+**M1 (Ganz-Rechner-Sicherung, Linux), M2 (Planer und Stufe 1), M3 (Code, Freigabe, Sitzung,
+Wiederanbindung) und M4 (Recovery-ISO und `restow-agent recover`, ohne die in 26.12 genannten
+Teile von 10.6, 10.7 und 10.20) sind umgesetzt**, hinter
+`RESTOW_BAREMETAL_PREVIEW` (Standard aus; der Schalter hängt am Job-Schalter, 26.2, am Ausstellen
+eines Wiederherstellungscodes, 26.8, und seit M4 an den Texten "kein Bare-Metal-Restore" der Liste
+und des Enroll-Dialogs; die Wiederanbindung ist davon unabhängig). M5 und M6 sind offen; für sie
+bleibt dieses Dokument der Entwurf. Was M2 liefert und abweichend entschieden hat, steht in 26.4 bis
+26.6, für M3 in 26.7 bis 26.9, für M4 in 26.10 bis 26.12. Die Migrationen auf diesem Zweig sind
+0076 (M1), 0077 (M2), 0078 und 0079 (M3); die Nummern in 14.2 sind die des Entwurfs. **M4 bringt
+keine Migration** (alles passt in vorhandene Spalten: `endpoint_recoveries.verification` und
+`warnings` sind JSONB, der Zustand des ISO liegt in Dateien, der Hash-Zwischenspeicher im
+Speicher). Die nächsten freien beim Merge bekommen M5 (`boot_probe`, 0080) und M6 (`darwin_check`,
+0081).
+
+**M4 gilt als umgesetzt, aber noch nicht als reproduzierbar belegt:** Das erste `packages.lock`
+schreibt die CI (`ci.yml` von Hand mit `update-lock`, 26.11 R14); erst wenn danach zwei CI-Bauten
+bitgleich waren (`recovery-iso-compare`), ist M4 nach 8.3 fertig. Bis dahin baut keine CI und kein
+Release das ISO, und `GET /api/v1/recovery-iso` meldet kein geprüftes ISO.
 
 ### 26.1 Was M1 liefert
 
@@ -4663,6 +4684,267 @@ Live-Ansicht, Karte (Knopf nur bei geprüftem ISO), Presenter, i18n; Migrationst
 - Aus Abschnitt 27 offen für M3: 27.12 (Tastaturbelegungen beim Code, mit M4), 27.20 (Dauer einer
   Wiederherstellung über das Netz, Grundlage des Vorschlags der Gültigkeit); [CI]: der Ende-zu-Ende-Test
   mit `recover` gegen die Recovery-API (`recovery-e2e`, M4).
+
+### 26.10 Was M4 liefert
+
+Eigenes Werk `integrations/recovery` (GPL-3.0-or-later, kein TypeScript, JavaScript oder Go):
+
+- `LICENSE` (GPL-3-Volltext), `README.md` (Bau, Prüfung, Lizenzen, Firmware, Nachbau beim
+  Maintainer, Quellbündel), `firmware.md` (Tabelle aus 8.4 mit Grund und Lizenz je Paket, Hinweis
+  zu den GPU-Treibern), `snapshot.env` (`SNAPSHOT_TIMESTAMP=20261020T000000Z`,
+  `DEBIAN_IMAGE_DIGEST` des Tags `trixie-20261020` aus der Registry,
+  `LIVE_BUILD_VERSION=1:20250505`), `packages.lock` (nur Kopf, R14).
+- `build.sh` mit `--agent-dist`, `--version`, `--out`, `--update-lock`, `--sources`: prüft
+  `snapshot.env`, verweigert ein leeres Lock ohne `--update-lock`, erlaubt
+  `Check-Valid-Until=false` nur mit Lock, sucht `trusted=yes`, `--allow-unauthenticated` und
+  `AllowInsecureRepositories`, verlangt `restow-agent version --short` gleich der Version, legt
+  Agent, restic und Hinweise nach `/usr/lib/restow-recovery/` (Link `/usr/local/sbin/restow-agent`),
+  setzt alle Zeiten auf `SOURCE_DATE_EPOCH` des Snapshots und startet
+  `docker run --privileged --env-file` (nur die Bauvariablen, fester Hostname) im gepinnten Image;
+  `build-inner.sh` installiert live-build aus dem Snapshot, prüft dessen Version, führt
+  `lb config`/`lb build` aus. Ausgaben: ISO, `.sha256`, `…_FIRMWARE-LICENSES.txt`.
+- `auto/config` (trixie, `main non-free-firmware`, alle Spiegel auf den Snapshot, Security
+  desselben Zeitpunkts, ohne Recommends, `iso-hybrid`, `grub-efi,syslinux`, Secure Boot,
+  Volume `RESTOW_RECOVERY`); Paketlisten aus 8.2 und die feste Firmwareliste (R15); Hooks
+  `0100` (gpt-auto-generator maskiert, SSH aus, LVM/md-Units maskiert, `restow-recover.service`
+  an), `0500` (Lock-Vergleich aus `dpkg-query` und den `.deb`-Hashes, mit `--update-lock` das neue
+  Lock), `0600` (`FIRMWARE-LICENSES.txt` aus den `copyright`-Dateien), `9900` (Listen, Caches, Logs,
+  Maschinen-ID, Hostschlüssel weg); Includes `lvmlocal.conf`, `mdadm.conf` (`AUTO -all`), die zwei
+  maskierenden udev-Regeln (nur Kommentare), `restow-recover.service` (C-M4-2),
+  `80-restow-dhcp.network`, `README`; Startmenüs für GRUB (BIOS und UEFI gleich) und syslinux mit
+  englischen Einträgen (R17), seriell auf ttyS0 (Eintrag "Show this menu on ttyS1"), je fünf
+  Tastaturbelegungen, "with graphics drivers" ohne Sperrliste, "Check medium",
+  "Advanced > Read answers from medium".
+- `sources.sh` (Quellpakete genau der Versionen des Locks vom selben Snapshot, `…_sources.tar`,
+  ab 2 GiB in Teilen zu 1900 MiB, `…_sources.txt`), `lib/functions.sh` (die reinen Helfer),
+  `test/unit.sh` (198 Prüfungen: Lock- und Listenvergleich, verbotene apt-Optionen, Teilnamen,
+  Geheimnissuche positiv und negativ mit zur Laufzeit gebauten Geheimnissen, Argumente,
+  Verweigerung von `build.sh`, Menüs, Unit), `test/check-image.sh`, `test/no-secrets.sh`,
+  `test/no-autoactivation.sh`, die Testmaschinen-Fabrik `test/machines/` (`lib.sh` und E1, E1b,
+  E2, E6, E7, E9, E10; R10, C-M4-7).
+
+Skripte, CI, Release:
+
+- `scripts/ci/license-policy.json` (Eintrag `integrations/recovery` mit den erlaubten Verweisen,
+  R20), `check-separate-works.mjs` mit den GPL-3-Markern und Test;
+  `scripts/release/sign-agent.sh --iso` (verweigert die Signatur ohne bzw. mit abweichendem ISO,
+  wenn `agent-SHA256SUMS` die Zeile hat; die Hilfe beschreibt den Nachbau aus dem Tag).
+- `scripts/recovery-e2e/`: `run.mjs` (Testinstanz wie der Smoke mit Vorschau, Agent-Ordner mit
+  ISO-Zeile und Wegwerf-Schlüssel, Fabrik, Sicherung, Code, ISO mit Antworten über `fw_cfg`,
+  Freigabe, Ende über die API, Start der wiederhergestellten Platten), `cases.mjs` (E1 bis E10),
+  `lib/qemu.mjs` (R11), `images.json`, `run.test.mjs`, `README.md`.
+- `ci.yml`: `recovery-scripts`, `recovery-paths`, `recovery-iso`, `recovery-iso-rebuild`,
+  `recovery-iso-compare`, `recovery-e2e`, `internal/recovery` im Job `agent-root`, das Artefakt
+  `agent-dist-linux-amd64`, `workflow_dispatch` mit `update-lock`; **CI passed** zählt
+  übersprungene ISO-Jobs als bestanden. `recovery-nightly.yml` (neu, R12). `release.yml`:
+  `recovery-iso`, `recovery-iso-rebuild`, `recovery-e2e-full`, `agent-sums` mit der ISO-Zeile nur
+  bei gleichen Hashes (Artefakt `agent-dist-sums` für `agent-signature`), `publish` hängt ISO,
+  Firmware-Lizenzen und Quellbündel an (nicht in die `SHA256SUMS` des Release) und nennt sie in den
+  Release-Notes. `NOTICE` mit einem Absatz zum Werk.
+
+Server (`packages/`, `apps/`):
+
+- `packages/core`: `endpoints/baremetal/verification.ts` (`recoveryVerificationSchema`,
+  `parseRecoveryVerification`, `RECOVER_PROBLEM_CODES`, `RECOVER_WARNING_CODES`,
+  `VERIFICATION_CHECK_IDS`, `RECOVERY_HINT_PARAMS`, `FINISH_WARNING_CODES`; gleich
+  `recover-codes.json`), `endpoints/baremetal/hardware.ts` (`replacementHardware`), zwei neue
+  Warnungen des Planers in `PLAN_WARNING_CODES` (R24).
+- `apps/api`: `recovery-iso.ts` (C-M4-8: `source`, `sizeBytes`, `releaseUrl`, `sourcesUrl`,
+  `firmwareLicensesUrl`, GitHub-Basis aus `features/updates/source.ts` mit Alpha, Kopie aus
+  `RESTOW_RECOVERY_ISO_DIR` nur mit gleichem Hash, Zwischenspeicher je Pfad, Größe und mtime;
+  die Prüfbefehle nennen die Argumente von `verify-agent-signature.sh` in der richtigen Reihenfolge),
+  `GET /install/recovery/:version/:file` (R19, `RECOVERY_ISO_DOWNLOAD_LIMIT` 10 je Stunde und
+  Adresse), `parseChecksums` übergeht `recovery/` für Agent-Ziele ausdrücklich,
+  `getRecovery` gibt `verification` nur geparst oder `null` aus, `GET /:id/baremetal` mit
+  `snapshots`, `hardware`, `hardwareByLayout`, `activeRecovery`, `recovery` in Liste und
+  Rechnerseite, `GET /api/v1/endpoints/capabilities`, `RESTOW_RECOVERY_ISO_DIR` in `config.ts` und
+  `.env.example`. Worker: die Zusammenfassung des Planers im Bericht der Stufe 1 hält für
+  `other-controller` die Speichertreiber (`storage`).
+- `apps/web`: Assistent mit Snapshot-Auswahl (Vorauswahl der neueste bestandene, nie ein
+  `unsupported`), vollständigem Hardware-Schritt je Layout, Quelle des ISO mit GPL-Quellen und
+  Firmware-Lizenzen, Hinweisen und Warnungen im Schritt "Danach" (auch für die zuletzt beendete
+  Sitzung); Live-Ansicht mit dem Prüfbericht (zehn Prüfungen, Befunde als Text, Belege aufklappbar)
+  und den Warnungen je Code (`recovery.reported.<code>`, die Meldung des ISO darunter); Abzeichen
+  "Wird wiederhergestellt" in der Liste, Banner auf der Rechnerseite; Ehrlichkeitstext je nach
+  Vorschau (R18). Texte de/en (`recovery.reported`, `recovery.verification`, `recovery.hints`,
+  `recovery.wizard.snapshots`, `.hardware`, `.after`, `recovery.iso.source`, …); entfernt
+  `recovery.wizard.hardwareLater`.
+- Doku: CHANGELOG, docs/AGENT.md (Grundsatz, Recovery-ISO, Bericht, Codes), docs/CI.md,
+  README.md (Funktion, Fingerabdruck des Release-Schlüssels), docs/GLOSSARY.md.
+
+Agent (`agent/`, eigener Teil von M4): `restow-agent recover` (10.2 bis 10.20; nicht umgesetzt
+sind die Freigabe einer SAN-LUN je Gerät aus 10.6, die unbeaufsichtigte Übernahme verschlüsselter
+Volumes aus 10.7/10.20 und deutsche Schritttexte, 26.12) mit `--list-tools` (C-M4-1), Antworten
+(C-M4-4), TLS mit angeheftetem Blatt-Zertifikat nach eingetipptem Prüfwert (R3), Isolation über
+`pivot_root`, Namensräume, Capability-Bounding-Set, Seccomp und ein abgeschirmtes `/proc` (R4 bis
+R6, 10.14), Halterfreigabe (`holders_linux.go`, Abweichung in 26.11), Ausführung mit Fortsetzen
+(R13) und Prüfung `restow-verify-v1` (C-M4-6), die gemeinsamen Dateien
+`agent/internal/recovery/testdata/recover-codes.json`, `testdata/verification/*.json` und
+`testdata/hw/qemu-e2e.json` (Kennungen der QEMU-Platten, gegen `run.test.mjs` geprüft),
+Planer-Schritte aus R7, R8, R13 und R24. Tests: `go test ./...` (dabei der beaufsichtigte Ablauf
+mit Skript auf stdin gegen eine TLS-Testinstanz: Bestätigung, falsches Löschwort, falscher
+Prüfwert, Warten auf die Freigabe, Fortsetzen mit Marker; die Kennungen aus `lsblk`/sysfs; eine
+gleichnamige fremde Zuordnung bei `luks_open`), `go vet` für linux, windows und darwin; im Job
+`agent-root` (Build-Tag `agentroot`) die Isolation mit echten Namensräumen, die Ausführung auf
+Loop-Geräten mit echtem restic, die Halterfreigabe einfacher Einhängungen und eines Stapels aus
+md-RAID1, LUKS2, VG mit eingehängtem LV und Swap-LV, die O_DIRECT-Probe. In dieser Umgebung liefen
+davon die Isolation, die einfache Halterfreigabe und die O_DIRECT-Probe als root; der Stapel
+braucht mdadm, LVM, cryptsetup und einen Kernel mit md und device-mapper ([CI]). Die Einzelheiten
+stehen beim Agenten (agent/README.md).
+
+Tests (Server): `verification.test.ts` (Codes gleich `recover-codes.json`, jedes Beispiel des
+Agenten, Grenzen), `hardware.test.ts`, `plan.test.ts` (Codeliste); `recovery-iso.test.ts` (GitHub
+und Instanz, Hash-Abweichung, Zwischenspeicher, Alpha, ISO-Zeile in `parseChecksums`, die
+Download-Route mit 404-Fällen, `content-length`, 429); `recovery.pg.test.ts` (gültiger, fremder und
+zu großer Bericht, Liste mit `recovery`); `baremetal.pg.test.ts` (Snapshots, Hardware je Layout,
+`activeRecovery`); Web: Assistent (Auswahl, Hardware, Quelle, Danach), Live-Ansicht (Bericht in
+beiden Sprachen), Abzeichen, Banner, Ehrlichkeitstext in beiden Fällen, i18n (jeder Code, jede
+Prüfung, jeder Hinweis mit genau seinen Platzhaltern); `check-separate-works.test.mjs`;
+`run.test.mjs`; `integrations/recovery/test/unit.sh`.
+
+### 26.11 Abweichungen vom Entwurf (in M4 entschieden)
+
+- **R1 Migration:** keine; die nächsten freien Nummern sind 0080 (M5) und 0081 (M6), nicht 0079
+  und 0080 wie zuvor hier notiert.
+- **R2 `--retry-lock` mit `--no-lock`:** restic lehnt beides zusammen ab; jeder Aufruf von
+  `recover` (`restore`, `dump`, `ls`, `snapshots`) lässt `--retry-lock` weg.
+- **R3 TLS ohne CA:** Nach dem passenden Prüfwert schreibt `recover` das Blatt-Zertifikat der
+  Instanz nach `/run/restow-recovery/tls/pinned.pem` und gibt es restic als `RESTIC_CACERT`
+  (Hostname wird weiter geprüft); rotiert das Zertifikat mitten im Restore, endet es wie ein 401
+  ("Zugang abgelaufen").
+- **R4 bis R6 Isolation:** `chroot-exec` mit `pivot_root` statt `chroot`, ohne `CAP_SYS_CHROOT`,
+  `CAP_DAC_READ_SEARCH` und `CAP_SYS_PTRACE`; Seccomp verweigert zusätzlich `chroot`,
+  `open_by_handle_at`, `name_to_handle_at` und `clone` mit `CLONE_NEW*`, `clone3` antwortet
+  ENOSYS; PID-Namensraum über `Cloneflags`, der Helfer ist PID 1 mit leerer Umgebung und
+  `PR_SET_DUMPABLE 0`, `/proc/1/environ` ist darum nicht lesbar.
+- **R7 initramfs mehrerer Kernel:** `initramfs` für den Standardkernel (mkinitcpio `-p <preset>`),
+  `initramfs_extra` je weiterem Kernel nur bei genug Platz auf `/boot`, sonst
+  `initramfs_not_rebuilt`.
+- **R8 neue Schritte:** `uki`, `grub_env`, `bootctl_install`, `mok_import`, `selinux`,
+  `btrfs_quota`; neue Operationen `mok-import`, `selinux`, `pmbr-boot` (C-M4-5).
+- **R9 `probe`** in Antworten wird in M4 abgelehnt ("braucht ein neueres ISO"), nicht übergangen.
+- **R10 Fabrik:** Die Paketliste des ISO bleibt; die Fabrik-VM bekommt eine zweite, schreibgeschützte
+  Platte `RESTOWFACTORY` mit den `.deb` von debootstrap und den Schlüsselringen vom selben Snapshot
+  und legt Dateisysteme mit der Funktionsliste der Quelldistribution an, nie mit den Vorgaben von
+  trixie. Sie startet den Kernel des ISO direkt mit `systemd.mask=restow-recover.service` und
+  `systemd.run=`.
+- **R11 QEMU-Schicht** in `scripts/recovery-e2e/lib/qemu.mjs`; M5 zieht sie nach
+  `apps/worker/src/endpoints/lab/qemu.ts` um.
+- **R12 Release wartet auf die volle Matrix:** `recovery-nightly.yml` ist auch `workflow_call`;
+  `release.yml` ruft es als `recovery-e2e-full` mit dem ISO des Release und allen Fällen.
+- **R13 Fortsetzen:** eigener Plan (`PlanOptions.Resume`), `restore_verify` nach einem unsauberen
+  Ende, der Marker trägt die `planSha256` des ursprünglichen Plans.
+- **R14 erstes Lock:** `packages.lock` ist nur der Kopf; `build.sh` verweigert so den Bau, die CI
+  überspringt die ISO-Jobs mit einer Warnung, bis das Lock von Hand (`update-lock`) geschrieben und
+  eingecheckt ist. `snapshot.env` trägt echte Werte (Digest aus der Registry; der Snapshot-Zeitpunkt
+  löst snapshot.debian.org auf den letzten Stand davor auf; die live-build-Version prüft der Bau).
+- **R15 Intel `ice`:** Paket `firmware-intel-misc`; die Image-Prüfung verlangt
+  `intel/ice/ddp/ice.pkg`, ein falscher Name fällt in der CI auf.
+- **R16 Tastatur:** `ckbcomp | loadkeys -` (Debians `kbd` hat keine Konsolenbelegungen); die
+  Image-Prüfung kompiliert de, us, ch, at und fr.
+- **R17 Menü** englisch (es kommt vor jeder Sprachwahl); `recover` selbst spricht de und en.
+- **R18 Ehrlichkeitstext:** ohne Vorschau "kein Bare-Metal-Restore", mit Vorschau "Linux-Rechner
+  als Ganzes (Vorschau), keine Plattenabbilder"; die Liste und der Enroll-Dialog fragen
+  `GET /api/v1/endpoints/capabilities` (neu, Restore-Rolle).
+- **R19 Download von der Instanz:** Der Server vergleicht die SHA-256 mit der Zeile der
+  `SHA256SUMS` eines Release, das eine `.sig` hat; die Signatur prüft er nicht selbst (wie `verified`
+  seit M3). Die Route liegt in `install-routes.ts`, nicht in `recovery-iso.ts`.
+- **R20 Verweise:** Nur `agent/README.md` darf im Agenten den Pfad des Werks nennen; erlaubt sind
+  zusätzlich CHANGELOG, README, docs/GLOSSARY.md und die Dateien unter `scripts/recovery-e2e/`.
+- **R21 Aufteilung:** `integrations/recovery`, `scripts/`, `.github/`, `.env.example`, `NOTICE`,
+  `README.md` gehören zum Server-Teil.
+- **R22 MOK-Passwort** nur auf der Konsole des ISO, nie an den Server; der Hinweis sagt "das Passwort
+  der Recovery-Konsole".
+- **R23 Warnungen ohne Parameter:** Die Oberfläche übersetzt `warnings[].code` mit
+  parameterfreien Texten `recovery.reported.<code>` und zeigt die Meldung des ISO darunter;
+  Parameter tragen nur `verification.hints[]`.
+- **R24 nicht getestete Distribution:** erlaubt; der Planer übernimmt `untested_distribution` und
+  `non_systemd_init` als Warnungen in den Plan.
+- **Hardware je Layout:** `GET /:id/baremetal` liefert die Hardware-Anforderungen für bis zu zehn
+  Layouts der gelisteten Snapshots (`hardwareByLayout`), damit eine ältere Wahl im Assistenten die
+  passende Anleitung zeigt; die Speichertreiber am anderen Controller kommen aus einem neuen Feld
+  `storage` der Planer-Zusammenfassung des Berichts (ältere Berichte: leer). RAM: mindestens 2 GiB,
+  empfohlen 4 GiB (8.2); die Indexgröße kennt der Server erst beim Tausch.
+- **Freigabe-Hinweis "Danach"** gilt auch für die zuletzt beendete Sitzung (erfolgreich oder
+  fehlgeschlagen), nicht nur für eine im Assistenten gestartete.
+- **THIRD_PARTY_NOTICES.md** bleibt unverändert: Sie beschreibt Image und Web-Bundle, und das ISO
+  liegt in keinem von beiden; seine Hinweise sind `FIRMWARE-LICENSES.txt`, das Quellbündel und der
+  Absatz in `NOTICE`.
+- **Cloud-Images (E3, E4, E5, E6b):** `images.json` nennt die Quellen ohne Hash; `run.mjs`
+  verweigert diese Fälle, bis der Maintainer die Hashes (`--pin-images`) geprüft und eingecheckt hat.
+  In dieser Umgebung gab es keinen Zugang zu den Download-Servern.
+- **Halter freigeben ohne `vgchange -an`:** `holders_linux.go` entfernt jedes LV auf der
+  Zielplatte einzeln mit `dmsetup remove --retry` (dazu `cryptsetup close` für LUKS-Zuordnungen,
+  `mdadm --stop` für md, `swapoff` und `umount` vorher), nicht mit `vgchange -an --devices …`
+  wie in 10.10 Punkt 1: Eine VG kann LVs auf Platten haben, die bleiben; `vgchange -an` nähme
+  auch diese weg. Danach muss `/sys/class/block/<platte>/holders` leer sein, sonst
+  `holders_busy`.
+- **Schlüsseldatei für `luksAddKey` auf tmpfs:** Die neue Schlüsseldatei geht als Datei mit Modus
+  0600 im privaten `tmpfs`-Ordner des ISO (`/run/restow-recovery/tmp`) an
+  `cryptsetup luksAddKey`, die Passphrase über stdin; nicht als `/dev/fd/N` wie in 10.10. Die
+  Datei wird gleich danach gelöscht; sie liegt nie auf einer Platte.
+- **Übernahme ohne `mdadm --examine` und `pvs`:** Die Signaturen der Kandidaten für die Übernahme
+  (10.7) kommen allein aus `blkid -p` (md-Mitglied mit Array-UUID, PV-UUID, LUKS-UUID,
+  Dateisystem-UUID und -Typ); `mdadm --examine` und `pvs --devices … -o pv_uuid,vg_name,vg_uuid`
+  laufen nicht. Ob genug Mitglieder für einen lauffähigen Verbund da sind und ob alle PVs einer
+  VG da sind, prüft der Planer aus diesen UUIDs.
+- **Zugang abgelaufen während des Restores:** `recover` hält sauber an (Marker mit sauberem Ende,
+  Einhängungen und Zuordnungen geschlossen) und meldet `access_expired`; weiter geht es nur mit
+  einem neuen Code und einem neuen Start des ISO (Fortsetzen nach 10.18), nicht in derselben
+  Sitzung mit einem neuen Code, wie 10.18 es beschreibt.
+- **Abgeschirmtes `/proc` in der Isolation:** Das frische `/proc` des Helfers bindet `sys`,
+  `sysrq-trigger`, `irq`, `bus` und `fs` nur lesend und überdeckt `kcore`, `kallsyms` und weitere
+  mit `/dev/null` (10.14, nach dem Review ergänzt); geprüft im Job `agent-root` (in dieser
+  Umgebung als root gelaufen).
+- **`luks_open` mit vorhandener Zuordnung:** Gibt es `/dev/mapper/<name>` schon, nimmt der
+  Ausführer sie nur, wenn sie laut sysfs (`slaves`) auf genau der Partition des Plans liegt;
+  sonst bricht der Schritt mit der Zuordnung und ihrem Gerät ab. So bekommt eine gleichnamige
+  Zuordnung einer alten Platte außerhalb der Löschmenge (in der Shell geöffnet) nie die neuen
+  PVs, Dateisysteme und den Restore.
+- **Kennungen von NVMe-Platten:** `lsblk` zeigt in der Spalte WWN eines NVMe-Namensraums dessen
+  wwid (`eui.<hex>`, `nvme.<…>`), das ist keine WWN. `baremetal.SplitWWN` (Planer und `recover`
+  gleich) nimmt `0x<hex>`/`naa.<hex>` als WWN, `eui.<16 hex>` als EUI-64, `eui.<32 hex>` als
+  NGUID und übergeht den Rest (dann Seriennummer und Namensraum). Die QEMU-Platten der
+  End-to-End-Tests bekommen für NVMe eine feste EUI-64 (`nvme-ns,eui64=`), ihre Kennung ist
+  `eui.<hex>`; `testdata/hw/qemu-e2e.json` legt beide Seiten fest.
+- **Test "keine Auto-Aktivierung":** `scripts/recovery-e2e/no-autoactivation.mjs` startet den
+  Kernel des ISO zweimal direkt in QEMU/KVM: zuerst richtet das ISO selbst auf einer zweiten
+  Platte md-RAID1, eine VG mit ext4-LV und eine Swap-Partition ein und hält alles wieder an, dann
+  startet es normal (mit `restow-recover.service`) und führt `test/no-autoactivation.sh` von einem
+  ISO-9660-Träger aus; der Job `recovery-iso` in `ci.yml` schlägt bei `FAIL` fehl.
+
+### 26.12 Zurückgestellt (M4)
+
+- **[CI]**: das erste `packages.lock` (R14), danach der Doppelbau und `diffoscope` (8.3; M4 erst
+  dann fertig), die Image-Prüfungen (`check-image.sh`, Firmwareliste und `ice.pkg`, Werkzeuge aus
+  `--list-tools`, Tastaturbelegungen), der Test "keine Auto-Aktivierung" im gestarteten ISO
+(`no-autoactivation.mjs` im Job `recovery-iso`, hier ohne KVM und ohne ISO nicht gelaufen), ob die
+  Hooks `/live-build/config` im chroot sehen und die `.deb` im Cache finden, die live-build-Version
+  des Snapshots, `recovery-e2e` E1 und E2 je PR, E1b und E3 bis E10 nachts (E3 bis E6b erst mit
+  gepinnten Images), die Isolation mit `CAP_SYS_ADMIN` je initramfs-Erzeuger, `grub-install`,
+  `bootctl`, `vgimportdevices`, `restorecon`, `kernel-install`, die Ausführung des ganzen Stapels und
+  die Halterfreigabe von md, LUKS, VG und Swap (`TestRootHoldersReleaseStack`) im Job `agent-root`,
+  das Installationstest-Gerüst des Agenten (`agent/scripts/test-install.sh` mit Docker,
+  `test-install-macos.sh`, `test-install-windows.ps1`; in dieser Runde nicht gelaufen), die
+  mkfs-Funktionstabellen aus M2 gegen die echten Werkzeuge des ISO, [Quelle]
+  1.2 Punkte 1 und 3.
+- **[Maschine]**: Abschnitt 27 Punkte 2 bis 12, 18 und 20 bis 25 sowie die Gate-Punkte 20 und 31
+  bis 40 aus 21.4, insbesondere `sign-agent.sh --iso` in einem echten Release und der Nachbau auf
+  einem zweiten Docker-Host.
+- Die Startprobe in `recovery-e2e` über die Queue `endpoint-boot-probe` (M5, mit dem Labor).
+- Eine Prüfung der Signatur von `SHA256SUMS.sig` durch den Server selbst (R19).
+- Ein schriftliches Angebot des Quellcodes im ISO (24.1: nur das Bündel als Anhang) und ein
+  arm64-ISO (24.6).
+- **Freigabe einer SAN-LUN je Gerät (10.6):** Der Dialog von `recover` fragt nicht "SAN-LUN
+  erlauben"; `Choices.AllowDevices` des Planers setzt `recover` nie. SAN-LUNs (`fc`, `iscsi`) und
+  Wechseldatenträger sind darum in M4 nie Ziel, auch nicht auf ausdrückliche Wahl.
+- **Unbeaufsichtigte Übernahme verschlüsselter Volumes (10.7, 10.20):** Die Antwortdatei kann die
+  alte Passphrase nicht tragen; ein Plan, der ein LUKS-Volume übernimmt, bricht unbeaufsichtigt vor
+  jeder Änderung ab ("adopted LUKS volumes need their old passphrase"). Beaufsichtigt fragt
+  `recover` danach.
+- **Deutsche Schritttexte:** Die Begründungen der Planschritte (`steps[].reason`) kommen vom Planer
+  auf Englisch und erscheinen so auch auf der deutschen Konsole und im Fortschritt der Sitzung;
+  die übrigen Texte von `recover` sind de und en.
 
 ## 27. Nur auf echter Hardware zu prüfen
 

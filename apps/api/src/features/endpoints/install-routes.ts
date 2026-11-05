@@ -1,6 +1,8 @@
 import { Readable } from "node:stream";
 import { Hono } from "hono";
+import { clientIp } from "../../lib/request.js";
 import { ProblemError } from "../../problem.js";
+import { SlidingWindowRateLimiter } from "../apikeys/rate-limit.js";
 import {
   announcedAgentVersion,
   distributionFile,
@@ -13,6 +15,8 @@ import {
   renderInstallScript,
 } from "./distribution.js";
 import { instanceUrl } from "./instance-url.js";
+import { ONE_HOUR_MS, RECOVERY_ISO_DOWNLOAD_LIMIT } from "./rate-limits.js";
+import { isoChecksum, localRecoveryIso } from "./recovery-iso.js";
 
 /**
  * /install: what the one-line install command downloads (docs/AGENT.md).
@@ -24,6 +28,10 @@ import { instanceUrl } from "./instance-url.js";
  *   GET /install/linux.sh | macos.sh | windows.ps1   the install script for the system
  *   GET /install/agent/<version>/SHA256SUMS[.sig]    the signed checksums of a release, byte for byte
  *   GET /install/agent/<version>/<os>-<arch>/<file>  restow-agent, restic, THIRD_PARTY_NOTICES.txt, SHA256SUMS
+ *   GET /install/recovery/<version>/<file>           the recovery ISO from RESTOW_RECOVERY_ISO_DIR, only
+ *                                                    the file the signed SHA256SUMS of that release
+ *                                                    lists under `recovery/`, with that hash
+ *                                                    (docs/BAREMETAL.md 8.5; 10 per address and hour)
  *
  * windows.ps1 (0.5.0, preview) is Windows PowerShell; it is served as text/plain so
  * that `irm` hands it over as a string. The placeholders it carries are checked
@@ -101,6 +109,49 @@ installRoutes.get("/agent/:version/:target/:file", async (c) => {
       headers: {
         "content-type": "application/octet-stream",
         "content-length": String(found.size),
+        "cache-control": "public, max-age=300",
+        "x-content-type-options": "nosniff",
+      },
+    },
+  );
+});
+
+/** Downloads of the recovery ISO per client address (RECOVERY_ISO_DOWNLOAD_LIMIT per hour). */
+export const recoveryIsoDownloadLimiter = new SlidingWindowRateLimiter(
+  RECOVERY_ISO_DOWNLOAD_LIMIT,
+  ONE_HOUR_MS,
+);
+
+installRoutes.get("/recovery/:version/:file", async (c) => {
+  const { version, file } = c.req.param();
+  const decision = recoveryIsoDownloadLimiter.consume(clientIp(c) ?? "unknown", Date.now());
+  if (!decision.allowed) {
+    c.header("retry-after", String(Math.ceil(decision.retryAfterMs / 1000)));
+    throw new ProblemError(429, "Too many requests", {
+      detail: "Too many downloads of the recovery ISO from this address. Try again later.",
+    });
+  }
+  const notFound = () => new ProblemError(404, "Not Found", { detail: "No such file." });
+  // Only a release with the maintainer's signature, and only the exact name of its `recovery/`
+  // line: no other path, no folder, no `..`.
+  if (file.includes("/") || file.includes("..") || file.includes("\\")) {
+    throw notFound();
+  }
+  const signature = await readReleaseFile(version, "SHA256SUMS.sig");
+  const sums = signature ? await readReleaseFile(version, "SHA256SUMS") : null;
+  const sha256 = sums ? isoChecksum(sums.toString("utf8"), file) : null;
+  const found = sha256 ? await localRecoveryIso(file, sha256) : null;
+  if (!found) {
+    throw notFound();
+  }
+  return new Response(
+    Readable.toWeb(openDistributionFile(found.path)) as unknown as ReadableStream,
+    {
+      status: 200,
+      headers: {
+        "content-type": "application/octet-stream",
+        "content-length": String(found.size),
+        "content-disposition": `attachment; filename="${file}"`,
         "cache-control": "public, max-age=300",
         "x-content-type-options": "nosniff",
       },

@@ -31,6 +31,8 @@ type fakeRecovery struct {
 	secretSHA  string
 	status     string
 	repoURL    string // overrides the repository URL of the credentials
+	snapshotID string // overrides the snapshot of the credentials
+	layoutSHA  string // overrides its layoutSha256
 	seen       []string
 	bodies     []string
 	logLines   []string
@@ -146,12 +148,16 @@ func (f *fakeRecovery) serve(w http.ResponseWriter, r *http.Request) {
 		if repo == "" {
 			repo = "rest:" + f.srv.URL + ResticPathPrefix + f.sessionID + "/"
 		}
+		snap, layout := strings.Repeat("ab", 32), strings.Repeat("cd", 32)
+		if f.snapshotID != "" {
+			snap, layout = f.snapshotID, f.layoutSHA
+		}
 		writeJSON(w, 200, map[string]any{
 			"repository":   map[string]string{"url": repo, "password": "repo-password-for-recovery-0123"},
-			"snapshotId":   strings.Repeat("ab", 32),
-			"layoutSha256": strings.Repeat("cd", 32),
-			"snapshots": []map[string]any{{"id": strings.Repeat("ab", 32), "time": "2026-11-04T22:00:00.000Z",
-				"layoutSha256": strings.Repeat("cd", 32), "check": "passed"}},
+			"snapshotId":   snap,
+			"layoutSha256": layout,
+			"snapshots": []map[string]any{{"id": snap, "time": "2026-11-04T22:00:00.000Z",
+				"layoutSha256": layout, "check": "passed"}},
 			"indexBytes":         12345678,
 			"restoreSizes":       map[string]any{"/": map[string]int64{"bytes": 1, "files": 2, "inodes": 3}},
 			"minRecoveryVersion": "0.5.0",

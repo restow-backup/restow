@@ -43,6 +43,7 @@
     "md_degraded_first_boot",
     "mok_enroll_required",
     "nic_driver_missing",
+    "non_systemd_init",
     "other_controller_driver_missing",
     "partition_realigned",
     "partition_shrunk",
@@ -53,6 +54,7 @@
     "secure_boot_dbx_unknown",
     "secure_boot_disabled_by_choice",
     "secure_boot_unsigned_chain",
+    "untested_distribution",
     "vfat_sector_size_changed"
   ]
 }

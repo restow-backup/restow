@@ -1,0 +1,341 @@
+//go:build linux
+
+package recovery
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"os/signal"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/restow-backup/restow/agent/internal/api"
+	"github.com/restow-backup/restow/agent/internal/baremetal"
+	"github.com/restow-backup/restow/agent/internal/buildinfo"
+	"github.com/restow-backup/restow/agent/internal/cmdrun"
+	"github.com/restow-backup/restow/agent/internal/paths"
+	"github.com/restow-backup/restow/agent/internal/restic"
+)
+
+// LinuxEnv is FlowEnv on the recovery ISO.
+type LinuxEnv struct {
+	Exec       Exec
+	ResticBin  string
+	RunDir     string
+	TargetRoot string
+	Self       string
+	Log        func(string)
+	// Console is the console of the shell.
+	Console *os.File
+	// RepoOverride replaces the session's repository (tests only).
+	RepoOverride string
+
+	remote *Remote
+	ops    *LinuxOps
+	efi    EFIVars
+}
+
+func (e *LinuxEnv) runDir(sub string) string { return filepath.Join(e.RunDir, sub) }
+
+// Now implements FlowEnv.
+func (e *LinuxEnv) Now() time.Time { return time.Now() }
+
+// Hardware implements FlowEnv.
+func (e *LinuxEnv) Hardware(ctx context.Context) (HardwareInput, error) {
+	h := &HardwareCollector{Exec: e.Exec, EFI: e.efi, Probe: true}
+	return h.Collect(ctx)
+}
+
+// Interfaces implements FlowEnv.
+func (e *LinuxEnv) Interfaces() []NetIface { return Interfaces("") }
+
+// ApplyNetwork implements FlowEnv.
+func (e *LinuxEnv) ApplyNetwork(ctx context.Context, n AnswersNetwork) error {
+	return ApplyStatic(ctx, e.Exec, n)
+}
+
+// WaitNetwork implements FlowEnv.
+func (e *LinuxEnv) WaitNetwork(ctx context.Context, ui *UI, timeout time.Duration) []NetIface {
+	return WaitAddress(ctx, ui, timeout)
+}
+
+// NoDriverDevices implements FlowEnv.
+func (e *LinuxEnv) NoDriverDevices(ctx context.Context) []string {
+	res, err := e.Exec.Run(ctx, RunSpec{Argv: []string{"lspci", "-k"}, Timeout: time.Minute})
+	if err != nil {
+		return nil
+	}
+	return ParseLspciNoDriver(string(res.Output))
+}
+
+// LoadKeymap implements FlowEnv: ckbcomp <layout> [<variant>] | loadkeys -.
+func (e *LinuxEnv) LoadKeymap(ctx context.Context, layout, variant string) error {
+	if layout == "" {
+		return nil
+	}
+	res, err := e.Exec.Run(ctx, RunSpec{Argv: CkbcompArgs(layout, variant), Timeout: time.Minute})
+	if err != nil {
+		return err
+	}
+	_, err = e.Exec.Run(ctx, RunSpec{Argv: []string{"loadkeys", "-"}, Stdin: res.Output, Timeout: time.Minute})
+	return err
+}
+
+// SetClock implements FlowEnv.
+func (e *LinuxEnv) SetClock(t time.Time) error { return SetClock(t) }
+
+// ProbeTLS implements FlowEnv.
+func (e *LinuxEnv) ProbeTLS(ctx context.Context, origin, proxy string) (*TLSProbe, error) {
+	return ProbeTLS(ctx, origin, proxy, nil)
+}
+
+// DateHint implements FlowEnv.
+func (e *LinuxEnv) DateHint(ctx context.Context, origin, proxy string) (time.Time, error) {
+	return DateHint(ctx, origin, proxy)
+}
+
+// ReadFile implements FlowEnv (a CA file, at most 1 MiB).
+func (e *LinuxEnv) ReadFile(p string) ([]byte, error) {
+	f, err := os.Open(p)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return io.ReadAll(io.LimitReader(f, 1<<20))
+}
+
+// Restic implements FlowEnv.
+func (e *LinuxEnv) Restic(repo string, password []byte, user, pass string, trust TrustConfig) (ResticReader, ResticRestorer, func(), error) {
+	ca, err := WritePinnedLeaf(e.runDir("tls"), trust)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if e.RepoOverride != "" {
+		repo, user, pass = e.RepoOverride, "", ""
+	}
+	r := &restic.Runner{Bin: e.ResticBin, Repo: repo, PasswordBytes: password, RESTUser: user, RESTPass: pass,
+		TmpDir: e.runDir("tmp"), CACert: ca, Proxy: trust.Proxy, OwnProcessGroup: true, Log: e.Log}
+	return RunnerReader{Runner: r}, ResticExec{Runner: r}, r.ZeroSecrets, nil
+}
+
+// Executor implements FlowEnv.
+func (e *LinuxEnv) Executor(x *Executor, t *baremetal.Target) {
+	x.Exec = e.Exec
+	x.TargetRoot = e.TargetRoot
+	var rootfs *DirRootfs
+	e.ops = &LinuxOps{Exec: e.Exec, Holders: &Holders{Exec: e.Exec}, EFI: e.efi, TmpDir: e.runDir("tmp"), Rootfs: func() *DirRootfs { return rootfs }}
+	x.Ops = e.ops
+	x.Isolator = HelperIsolator{Self: e.Self}
+	x.OpenRootfs = func() (Rootfs, error) {
+		r, err := OpenRootfs(e.TargetRoot)
+		if err != nil {
+			return nil, err
+		}
+		rootfs = r
+		return r, nil
+	}
+	x.Verifier = StandardVerifier{Env: LinuxVerifyEnv{EFI: e.efi, HW: &HardwareCollector{Exec: e.Exec}}, Target: t}
+}
+
+// Finalize implements FlowEnv.
+func (e *LinuxEnv) Finalize(ctx context.Context, x *Executor) {
+	if e.ops != nil {
+		x.Shutdown(ctx, e.ops, x.TargetDevices)
+	}
+}
+
+// Shell implements FlowEnv: bash on the console, exit returns.
+func (e *LinuxEnv) Shell(ctx context.Context) error {
+	cmd := exec.CommandContext(ctx, "/bin/bash", "-l")
+	if e.Console != nil {
+		cmd.Stdin, cmd.Stdout, cmd.Stderr = e.Console, e.Console, e.Console
+	} else {
+		cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	}
+	cmd.Env = []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", "HOME=/root", "TERM=linux", "LANG=C.UTF-8"}
+	return cmd.Run()
+}
+
+// Reboot implements FlowEnv.
+func (e *LinuxEnv) Reboot(ctx context.Context) error {
+	_, err := e.Exec.Run(ctx, RunSpec{Argv: []string{"systemctl", "reboot"}, Timeout: time.Minute})
+	return err
+}
+
+// PowerOff implements FlowEnv.
+func (e *LinuxEnv) PowerOff(ctx context.Context) error {
+	_, err := e.Exec.Run(ctx, RunSpec{Argv: []string{"systemctl", "poweroff"}, Timeout: time.Minute})
+	return err
+}
+
+// EnableRemote implements FlowEnv.
+func (e *LinuxEnv) EnableRemote(ctx context.Context) (string, []api.RecoverySSHHostKey, error) {
+	if e.remote == nil {
+		e.remote = &Remote{Exec: e.Exec, RunDir: e.RunDir}
+	}
+	return e.remote.EnablePassword(ctx)
+}
+
+// RemoteKeys implements FlowEnv.
+func (e *LinuxEnv) RemoteKeys(ctx context.Context, keys []string) error {
+	if e.remote == nil {
+		return nil
+	}
+	return e.remote.UseKeys(ctx, keys)
+}
+
+// MainOptions are the flags of restow-agent recover.
+type MainOptions struct {
+	Console     string
+	AnswersFile string
+	PlanOnly    bool
+	LogFile     string
+	ResticBin   string
+	NotISO      bool
+	Stdin       io.Reader
+	Stdout      io.Writer
+	Stderr      io.Writer
+}
+
+// FWCfgAnswers is where QEMU's fw_cfg exposes the answers.
+const FWCfgAnswers = "/sys/firmware/qemu_fw_cfg/by_name/opt/restow/answers/raw"
+
+// Main runs restow-agent recover.
+func Main(o MainOptions) int {
+	if runtime.GOARCH != "amd64" {
+		fmt.Fprintln(o.Stderr, T(LangEN, "code."+ProblemArchUnsupported))
+		return 1
+	}
+	if os.Geteuid() != 0 {
+		fmt.Fprintln(o.Stderr, T(LangEN, "start.not_root"))
+		return 1
+	}
+	if _, err := os.Stat("/run/live/medium"); err != nil && !o.NotISO {
+		fmt.Fprintln(o.Stderr, T(LangEN, "start.not_iso"))
+		return 1
+	}
+	for _, d := range []string{"tmp", "tls", "log", "media"} {
+		if err := os.MkdirAll(filepath.Join(paths.RecoveryRunDir, d), 0o700); err != nil {
+			fmt.Fprintln(o.Stderr, err)
+			return 1
+		}
+	}
+	cmdlineRaw, _ := os.ReadFile("/proc/cmdline")
+	cl := ParseCmdline(string(cmdlineRaw))
+	console := o.Console
+	if cl.Console != "" {
+		console = cl.Console
+	}
+	in, out := o.Stdin, o.Stdout
+	var tty *os.File
+	if console != "" && console != "-" {
+		f, err := os.OpenFile(console, os.O_RDWR|syscall.O_NOCTTY, 0)
+		if err != nil {
+			fmt.Fprintln(o.Stderr, err)
+			return 1
+		}
+		defer f.Close()
+		tty, in, out = f, f, f
+	}
+	logPath := o.LogFile
+	if logPath == "" {
+		logPath = filepath.Join(paths.RecoveryRunDir, "log", "recover.log")
+	}
+	lf, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		fmt.Fprintln(o.Stderr, err)
+		return 1
+	}
+	defer lf.Close()
+	logBuf := &LogBuffer{File: lf}
+	exe := CmdExec{Runner: cmdrun.ExecRunner{OwnProcessGroup: true}, Log: logBuf.Add}
+	ui := &UI{In: in, Out: out, Lang: LangEN, Serial: strings.HasPrefix(console, "/dev/ttyS")}
+	answers, err := loadAnswers(context.Background(), o.AnswersFile, cl, exe)
+	if err != nil {
+		ui.Raw(err.Error())
+		return 2
+	}
+	resticBin := o.ResticBin
+	if resticBin == "" {
+		resticBin = filepath.Join(paths.RecoveryLibDir, "restic")
+	}
+	env := &LinuxEnv{Exec: exe, ResticBin: resticBin, RunDir: paths.RecoveryRunDir, TargetRoot: paths.RecoveryTargetRoot,
+		Self: "/proc/self/exe", Log: logBuf.Add, Console: tty}
+	r := &Recover{UI: ui, Env: env, Answers: answers, Cmdline: cl, Version: buildinfo.Version, PlanOnly: o.PlanOnly, PlanOut: o.Stdout, Log: logBuf}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sigs := make(chan os.Signal, 2)
+	signal.Notify(sigs, syscall.SIGINT)
+	signal.Ignore(syscall.SIGHUP)
+	go func() {
+		for range sigs {
+			r.Interrupt()
+		}
+	}()
+	res, err := r.Run(ctx)
+	if err != nil || res == nil || res.Status != api.RecoverySucceeded {
+		if res != nil && res.Status == api.RecoveryCancelled {
+			return 3
+		}
+		return 1
+	}
+	return 0
+}
+
+// loadAnswers reads the answers from the chosen source only (10.20).
+func loadAnswers(ctx context.Context, file string, cl CmdlineOptions, x Exec) (*Answers, error) {
+	vendor, _ := os.ReadFile("/sys/class/dmi/id/sys_vendor")
+	isQEMU := strings.TrimSpace(string(vendor)) == "QEMU"
+	if file != "" {
+		b, err := readCapped(file)
+		if err != nil {
+			return nil, err
+		}
+		return LoadAnswers(SourceFile, b, isQEMU)
+	}
+	if isQEMU {
+		if b, err := readCapped(FWCfgAnswers); err == nil {
+			return LoadAnswers(SourceFWCfg, b, isQEMU)
+		}
+	}
+	if !cl.AnswersMedia {
+		return nil, nil
+	}
+	res, err := x.Run(ctx, RunSpec{Argv: []string{"blkid", "-L", "RESTOWANS"}, Timeout: time.Minute})
+	if err != nil {
+		return nil, errors.New("restow.answers=media: no medium labelled RESTOWANS")
+	}
+	dev := strings.TrimSpace(string(res.Output))
+	media := filepath.Join(paths.RecoveryRunDir, "media")
+	if _, err := x.Run(ctx, RunSpec{Argv: []string{"mount", "-o", "ro,nosuid,nodev,noexec", dev, media}, Timeout: time.Minute}); err != nil {
+		return nil, err
+	}
+	b, err := readCapped(filepath.Join(media, "answers.json"))
+	if err != nil {
+		return nil, err
+	}
+	return LoadAnswers(SourceMedia, b, isQEMU)
+}
+
+func readCapped(p string) ([]byte, error) {
+	f, err := os.Open(p)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	b, err := io.ReadAll(io.LimitReader(f, MaxAnswersBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(b) > MaxAnswersBytes {
+		return nil, errors.New("answers: file too large")
+	}
+	return b, nil
+}

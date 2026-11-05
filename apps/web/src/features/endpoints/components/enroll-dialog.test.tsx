@@ -53,6 +53,7 @@ vi.mock("../api.js", async (importOriginal) => {
     ...actual,
     createToken: (...args: unknown[]) => createToken(...args),
     fetchTokens: (...args: unknown[]) => fetchTokens(...args),
+    fetchEndpointCapabilities: async () => ({ baremetalPreview: false }),
   };
 });
 

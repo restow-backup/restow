@@ -39,8 +39,10 @@ type RestorePlan struct {
 // names what recover feeds on stdin (passphrase, old_passphrase, keyfile).
 // The tokens {snapshot} and {target_root} in Args are filled in by
 // recover. Args starting with a name that is not a program (release-holders,
-// blkzero, fixup, mkdirs, swapfile, nvram, fallback-path, verify,
-// chroot-exec) are operations recover carries out itself.
+// blkzero, pmbr-boot, fixup, mkdirs, swapfile, keyfile, nvram,
+// fallback-path, mok-import, selinux, verify, chroot-exec) are operations
+// recover carries out itself (agent/internal/recovery, ops_linux.go); the
+// token {kernelopts} is the kernel command line after the fixups.
 type Step struct {
 	N           int64    `json:"n"`
 	Phase       string   `json:"phase"`
@@ -63,6 +65,7 @@ type planner struct {
 	mp       *mapper
 	plan     *RestorePlan
 	snapshot string
+	resume   string
 
 	partSize   map[string]int64 // planned partition sizes (node key)
 	lvSize     map[string]int64 // planned LV sizes (vg/lv)
@@ -80,7 +83,20 @@ func (pl *planner) add(fs ...Finding) { pl.findings = append(pl.findings, fs...)
 type PlanOptions struct {
 	// Snapshot replaces the token {snapshot} in the restore step.
 	Snapshot string
+	// Resume continues a recovery that was started before (10.18): "clean"
+	// after a clean stop, "unclean" after a power loss or crash, "" for a
+	// new recovery. A resumed plan erases, partitions and formats nothing;
+	// it assembles, opens, activates and mounts what the first run created
+	// and restores again (if-changed after a clean stop, always after an
+	// unclean one, plus a second pass over the system paths).
+	Resume string
 }
+
+// Values of PlanOptions.Resume.
+const (
+	ResumeClean   = "clean"
+	ResumeUnclean = "unclean"
+)
 
 // Plan computes the restore plan of m for target t (docs: baremetal.Plan).
 // f may be nil (restore sizes then come from the space in use, drivers are
@@ -96,7 +112,7 @@ func PlanWith(m *Manifest, t *Target, f *Facts, c Choices, o PlanOptions) (*Rest
 		MinimumSizes: MinimumSizes{Disks: []DiskMinimum{}, Filesystems: []FSMinimum{}, LVs: []LVMinimum{}, ThinPools: []LVMinimum{}},
 		SecureBoot:   ChainCheck{Loaders: []LoaderCheck{}, TargetSecureBoot: t.Firmware.SecureBoot},
 		Drivers:      DriverCheck{Storage: []DriverMatch{}, NICs: []DriverMatch{}}}
-	pl := &planner{m: m, t: t, f: f, c: c, plan: plan, snapshot: o.Snapshot,
+	pl := &planner{m: m, t: t, f: f, c: c, plan: plan, snapshot: o.Snapshot, resume: o.Resume,
 		partSize: map[string]int64{}, lvSize: map[string]int64{}, raidPVs: map[string][]int{}, lbs: map[string]int64{}, luksSector: map[string]int64{}, mixedVG: map[string]bool{}, unplaced: map[string]bool{}}
 	pl.run()
 	pl.finish()
@@ -137,6 +153,13 @@ func (pl *planner) run() {
 	pl.x = newLayoutModel(m, pl.f, rawLVs)
 	pl.x.fillMinimums(&pl.plan.MinimumSizes)
 	pl.add(pl.x.findings...)
+	// Distributions that are not tested and init systems other than systemd
+	// may be restored (24.7); the plan carries the assessment's warning.
+	for _, u := range pl.l.Unsupported {
+		if u.Code == CodeUntestedDistribution || u.Code == CodeNonSystemdInit {
+			pl.add(newFinding(u.Code, "", "os", osName(&pl.l.OS), "init", pl.l.OS.Init))
+		}
+	}
 	if pl.l.Verdict == VerdictUnsupported {
 		var codes []string
 		for _, u := range pl.l.Unsupported {
@@ -908,7 +931,7 @@ func (pl *planner) steps() {
 	var erased []*Disk
 	for i := range pl.l.Disks {
 		d := &pl.l.Disks[i]
-		if a := mp.assign[d.ID]; a != nil && a.Action == ActionErase && a.Target != nil {
+		if a := mp.assign[d.ID]; a != nil && a.Action == ActionErase && a.Target != nil && pl.resume == "" {
 			erased = append(erased, d)
 		}
 	}
@@ -941,7 +964,14 @@ func (pl *planner) steps() {
 	if pl.snapshot != "" {
 		snap = pl.snapshot
 	}
-	args := []string{"restic", "restore", "--json", "--no-lock", "--no-cache", "--target", "{target_root}", "--sparse", "--verify", "--overwrite", "never"}
+	overwrite, reason := "never", "restore the files of the snapshot"
+	switch pl.resume {
+	case ResumeClean:
+		overwrite, reason = "if-changed", "restore the files of the snapshot again after a clean stop (files that are complete are only read)"
+	case ResumeUnclean:
+		overwrite, reason = "always", "restore the files of the snapshot again after an unclean end (restic compares the content)"
+	}
+	args := []string{"restic", "restore", "--json", "--no-lock", "--no-cache", "--target", "{target_root}", "--sparse", "--verify", "--overwrite", overwrite}
 	var excludes []string
 	for _, u := range mp.units {
 		excludes = append(excludes, u.Mounts...)
@@ -950,7 +980,15 @@ func (pl *planner) steps() {
 		args = append(args, "--exclude", e)
 	}
 	args = append(args, snap)
-	pl.step("restore", "restore", "", args, nil, "", "restore the files of the snapshot")
+	pl.step("restore", "restore", "", args, nil, "", reason)
+	if pl.resume == ResumeUnclean {
+		args := []string{"restic", "restore", "--json", "--no-lock", "--no-cache", "--target", "{target_root}", "--sparse", "--verify", "--overwrite", "always"}
+		for _, p := range pl.systemPaths() {
+			args = append(args, "--include", p)
+		}
+		args = append(args, snap)
+		pl.step("restore", "restore_verify", "", args, nil, "", "check the system paths completely against the snapshot after an unclean end")
+	}
 	pl.postSteps()
 }
 
@@ -1065,7 +1103,7 @@ func (pl *planner) stackSteps() {
 			doneMD[md.ID], progress = true, true
 			ready[MDRef(md.ID).key()] = true
 			dev := pl.devPath(MDRef(md.ID))
-			if mp.adopted[MDRef(md.ID).key()] {
+			if mp.adopted[MDRef(md.ID).key()] || pl.resume != "" {
 				args := []string{"mdadm", "--assemble", "--uuid=" + md.UUID, dev}
 				for _, mem := range md.Members {
 					args = append(args, pl.devPath(mem.Device))
@@ -1075,7 +1113,11 @@ func (pl *planner) stackSteps() {
 						args = append(args, pl.devPath(sp))
 					}
 				}
-				pl.step("md", "md_assemble", dev, args, nil, "", "assemble the adopted array "+md.KName+"; nothing on it is erased")
+				reason := "assemble the adopted array " + md.KName + "; nothing on it is erased"
+				if !mp.adopted[MDRef(md.ID).key()] {
+					reason = "assemble the array " + md.KName + " the first run created"
+				}
+				pl.step("md", "md_assemble", dev, args, nil, "", reason)
 				continue
 			}
 			args := []string{"mdadm", "--create", dev, "--run", "--level=" + md.Level, "--raid-devices=" + itoa(md.RaidDevices),
@@ -1141,6 +1183,10 @@ func (pl *planner) stackSteps() {
 				pl.step("luks", "luks_open", dev, []string{"cryptsetup", "open", "--key-file", "-", dev, name}, nil, "old_passphrase", "open the adopted LUKS volume "+c.ID+" with its old passphrase")
 				continue
 			}
+			if pl.resume != "" {
+				pl.step("luks", "luks_open", dev, []string{"cryptsetup", "open", "--key-file", "-", dev, name}, nil, "passphrase", "open "+c.ID+" with the passphrase of the first run")
+				continue
+			}
 			args := []string{"cryptsetup", "luksFormat", "--type", "luks" + itoa(c.Version), "--uuid", c.UUID, "--cipher", c.Cipher,
 				"--key-size", itoa(c.KeyBits), "--sector-size", itoa(max(pl.luksSector[c.ID], 512))}
 			if c.Label != nil && *c.Label != "" {
@@ -1193,9 +1239,13 @@ func (pl *planner) stackSteps() {
 			for _, lv := range vg.LVs {
 				ready[LVRef(vg.Name, lv.Name).key()] = true
 			}
-			if len(vg.LVs) > 0 && mp.adopted[LVRef(vg.Name, vg.LVs[0].Name).key()] {
+			if adopted := len(vg.LVs) > 0 && mp.adopted[LVRef(vg.Name, vg.LVs[0].Name).key()]; adopted || pl.resume != "" {
 				args := append(pl.lvmArgs("vgchange", vg.Name), "-ay", vg.Name)
-				pl.step("lvm", "vg_activate", vg.Name, args, nil, "", "activate the adopted volume group "+vg.Name+"; nothing on it is erased")
+				reason := "activate the adopted volume group " + vg.Name + "; nothing on it is erased"
+				if !adopted {
+					reason = "activate the volume group " + vg.Name + " the first run created"
+				}
+				pl.step("lvm", "vg_activate", vg.Name, args, nil, "", reason)
 				continue
 			}
 			var devs []string
@@ -1286,6 +1336,9 @@ func (pl *planner) stackSteps() {
 func (pl *planner) mkfsSteps() {
 	x := pl.x
 	mp := pl.mp
+	if pl.resume != "" {
+		return
+	}
 	for _, fs := range pl.l.Filesystems {
 		if len(fs.Devices) == 0 || !recreatable(fs.Type) || mp.adopted[fs.Devices[0].key()] {
 			continue
@@ -1461,7 +1514,7 @@ func (pl *planner) mountSteps() {
 		pl.step("mount", "mount", devs[0], args, nil, "", reason)
 	}
 	for _, fs := range pl.l.Filesystems {
-		if fs.Btrfs == nil || !pl.present(fs.Devices[0]) || pl.mp.adopted[fs.Devices[0].key()] {
+		if fs.Btrfs == nil || pl.resume != "" || !pl.present(fs.Devices[0]) || pl.mp.adopted[fs.Devices[0].key()] {
 			continue
 		}
 		for _, dir := range fs.Btrfs.NoCowDirs {
@@ -1485,6 +1538,23 @@ func (pl *planner) postSteps() {
 		if t != "/" && reMountPath.MatchString(t) {
 			dirs = append(dirs, t+":0755")
 		}
+	}
+	// btrfs quota only after the restore: active qgroups slow a large
+	// restore down a lot (10.11).
+	for _, fs := range l.Filesystems {
+		if fs.Btrfs == nil || !fs.Btrfs.Quota || len(fs.Devices) == 0 || !pl.present(fs.Devices[0]) || pl.mp.adopted[fs.Devices[0].key()] {
+			continue
+		}
+		mts := uniqueSorted(x.mounts[fs.ID])
+		if len(mts) == 0 || !reMountPath.MatchString(mts[0]) {
+			continue
+		}
+		mt := "{target_root}" + strings.TrimSuffix(mts[0], "/")
+		if mts[0] == "/" {
+			mt = "{target_root}"
+		}
+		pl.step("post", "btrfs_quota", fs.ID, []string{"btrfs", "quota", "enable", mt}, nil, "", "turn the quota of "+fs.ID+" on again")
+		pl.step("post", "btrfs_quota", fs.ID, []string{"btrfs", "quota", "rescan", "-w", mt}, nil, "", "count the qgroups of "+fs.ID+" after the restore")
 	}
 	pl.step("post", "mkdirs", "", dirs, nil, "", "create mount points and API folders that the snapshot may lack")
 	// MACs change only on other hardware.
@@ -1513,6 +1583,7 @@ func (pl *planner) postSteps() {
 		pl.step("post", "keyfile", dev, []string{"keyfile", "{target_root}" + *c.KeyFile, dev}, nil, "passphrase", "create a new key file and add it as a second key slot")
 		pl.add(newFinding(WarnKeyfileRegenerated, c.ID, "luks", c.ID, "path", *c.KeyFile))
 	}
+	pl.mokSteps()
 	for _, s := range l.Swap {
 		if s.Kind == "file" && s.Path != nil {
 			pl.step("post", "swapfile", *s.Path, []string{"swapfile", "{target_root}" + *s.Path, itoa(s.SizeBytes)}, nil, "", "recreate the swap file (and its resume offset)")
@@ -1521,16 +1592,7 @@ func (pl *planner) postSteps() {
 	if l.LVM.UseDevicesFile {
 		pl.step("post", "lvm_devices", "", []string{"chroot-exec", "vgimportdevices", "--all", "--config", "devices/obtain_device_list_from_udev=0"}, nil, "", "write the LVM devices file for the new disks")
 	}
-	kver := deref(pl.plan.Drivers.Kernel)
-	switch deref(l.Initramfs.Generator) {
-	case "initramfs-tools":
-		pl.step("post", "initramfs", "", []string{"chroot-exec", "update-initramfs", "-u", "-k", kver}, nil, "", "rebuild the initramfs with MODULES=most")
-	case "dracut":
-		pl.step("post", "initramfs", "", []string{"chroot-exec", "dracut", "--force", "--no-hostonly", "--include", "/etc/crypttab", "/etc/crypttab",
-			"--include", "/etc/vconsole.conf", "/etc/vconsole.conf", "--kver", kver}, nil, "", "rebuild the initramfs without hostonly")
-	case "mkinitcpio":
-		pl.step("post", "initramfs", "", []string{"chroot-exec", "mkinitcpio", "-P"}, nil, "", "rebuild the initramfs of every preset")
-	}
+	pl.initramfsSteps()
 	if l.Bootloader.Kind == "grub" {
 		cfg := deref(l.Bootloader.GrubCfg)
 		switch {
@@ -1538,6 +1600,11 @@ func (pl *planner) postSteps() {
 			pl.step("post", "grub_config", cfg, []string{"chroot-exec", "grub2-mkconfig", "-o", cfg}, nil, "", "write the GRUB configuration")
 		case cfg != "":
 			pl.step("post", "grub_config", cfg, []string{"chroot-exec", "grub-mkconfig", "-o", cfg}, nil, "", "write the GRUB configuration")
+		}
+		if pl.rhel8() {
+			// grubenv has a fixed 1024-byte format: never edited as text.
+			pl.step("post", "grub_env", "/boot/grub2/grubenv", []string{"chroot-exec", "grub2-editenv", "-", "set", "kernelopts={kernelopts}"}, nil, "",
+				"store the new kernel command line in grubenv (kernelopts)")
 		}
 	}
 	if pl.t.Firmware.Mode == "bios" {
@@ -1556,6 +1623,14 @@ func (pl *planner) postSteps() {
 	}
 	if pl.t.Firmware.Mode == "uefi" {
 		roots := x.espMounts()
+		if l.Bootloader.Kind == "systemd-boot" && len(roots) > 0 {
+			esp := roots[0]
+			if l.Bootloader.EFIDirectory != nil && reMountPath.MatchString(*l.Bootloader.EFIDirectory) {
+				esp = *l.Bootloader.EFIDirectory
+			}
+			pl.step("post", "bootctl_install", esp, []string{"chroot-exec", "bootctl", "--esp-path=" + esp, "install", "--no-variables"}, nil, "",
+				"install systemd-boot on "+esp+" (only when its files are missing; the boot entry is written by recover)")
+		}
 		hasFallback := false
 		for _, ld := range l.Loaders {
 			base := strings.ToUpper(path.Base(ld.Path))
@@ -1587,7 +1662,149 @@ func (pl *planner) postSteps() {
 			pl.step("post", "fallback_path", roots[0], []string{"fallback-path", "{target_root}" + roots[0]}, nil, "", "set up \\EFI\\BOOT\\BOOTX64.EFI for firmware that forgets boot entries")
 		}
 	}
+	if se := deref(l.OS.SELinux); se != "" && se != "disabled" {
+		pl.step("post", "selinux", "", []string{"selinux"}, nil, "", "check the SELinux labels of the restore; relabel only what recover created or changed")
+	}
 	pl.step("post", "verify", "", []string{"verify"}, nil, "", "check the restored system (identities, fstab, boot files)")
+}
+
+// systemPaths are the paths a restore must bring back completely (10.12):
+// /boot, /usr, /etc, /lib*, /bin, /sbin and the ESPs.
+func (pl *planner) systemPaths() []string {
+	out := []string{"/bin", "/boot", "/etc", "/lib", "/lib32", "/lib64", "/libx32", "/sbin", "/usr"}
+	for _, r := range pl.x.espMounts() {
+		if r != "/" && reMountPath.MatchString(r) {
+			out = append(out, r)
+		}
+	}
+	return uniqueSorted(out)
+}
+
+// rhel8 reports a RHEL 8 family system with BLS, whose kernel command
+// line lives in grubenv (kernelopts).
+func (pl *planner) rhel8() bool {
+	l := pl.l
+	if !l.Bootloader.BLS {
+		return false
+	}
+	rhel := l.OS.ID == "rhel" || hasString(l.OS.IDLike, "rhel")
+	return rhel && strings.HasPrefix(deref(l.OS.VersionID), "8")
+}
+
+// mkinitcpioPreset is the preset of a kernel (linux, linux-lts, ...), or
+// "" when it cannot be told.
+func mkinitcpioPreset(k *Kernel) string {
+	if base, ok := strings.CutPrefix(path.Base(k.Image), "vmlinuz-"); ok && reSafeName.MatchString(base) {
+		return base
+	}
+	v := k.Version
+	for _, suffix := range []string{"lts", "zen", "hardened", "rt"} {
+		if strings.HasSuffix(v, "-"+suffix) {
+			return "linux-" + suffix
+		}
+	}
+	if strings.Contains(v, "-arch") {
+		return "linux"
+	}
+	return ""
+}
+
+// initramfsSteps rebuild the initramfs (10.15): first for the default
+// kernel, then (initramfs_extra) for every other kernel; recover runs an
+// extra step only when /boot has room for it. A UKI is rebuilt by the
+// generator of the target after /etc/kernel/cmdline has its fixup.
+func (pl *planner) initramfsSteps() {
+	l := pl.l
+	kver := deref(pl.plan.Drivers.Kernel)
+	var def *Kernel
+	var extra []*Kernel
+	for i := range l.Kernels {
+		k := &l.Kernels[i]
+		if k.UKI || !reSafeName.MatchString(k.Version) {
+			continue
+		}
+		if k.Version == kver || (kver == "" && k.Default && def == nil) {
+			def = k
+			kver = k.Version
+			continue
+		}
+		extra = append(extra, k)
+	}
+	gen := deref(l.Initramfs.Generator)
+	dracutArgs := func(v string, uefi bool) []string {
+		args := []string{"chroot-exec", "dracut", "--force", "--no-hostonly"}
+		if uefi {
+			args = append(args, "--uefi")
+		}
+		return append(args, "--include", "/etc/crypttab", "/etc/crypttab", "--include", "/etc/vconsole.conf", "/etc/vconsole.conf", "--kver", v)
+	}
+	one := func(kind, v string, k *Kernel) {
+		switch gen {
+		case "initramfs-tools":
+			pl.step("post", kind, v, []string{"chroot-exec", "update-initramfs", "-u", "-k", v}, nil, "", "rebuild the initramfs of "+v+" with MODULES=most")
+		case "dracut":
+			pl.step("post", kind, v, dracutArgs(v, false), nil, "", "rebuild the initramfs of "+v+" without hostonly")
+		case "mkinitcpio":
+			preset := ""
+			if k != nil {
+				preset = mkinitcpioPreset(k)
+			}
+			if preset != "" {
+				pl.step("post", kind, v, []string{"chroot-exec", "mkinitcpio", "-p", preset}, nil, "", "rebuild the initramfs of preset "+preset+" (with its fallback image)")
+			} else if kind == "initramfs" {
+				pl.step("post", kind, v, []string{"chroot-exec", "mkinitcpio", "-P"}, nil, "", "rebuild the initramfs of every preset")
+			}
+		}
+	}
+	if kver != "" {
+		one("initramfs", kver, def)
+	}
+	for _, k := range extra {
+		one("initramfs_extra", k.Version, k)
+	}
+	// UKI: mkinitcpio presets with a UKI are rebuilt above.
+	uki := false
+	for _, ld := range l.Loaders {
+		uki = uki || ld.UKI
+	}
+	for _, k := range l.Kernels {
+		uki = uki || k.UKI
+	}
+	if !uki || kver == "" || (gen == "mkinitcpio" && l.Initramfs.UKIPresets) {
+		return
+	}
+	switch {
+	case deref(l.Initramfs.KernelInstallLayout) == "uki":
+		pl.step("post", "uki", kver, []string{"chroot-exec", "kernel-install", "add", kver, "/usr/lib/modules/" + kver + "/vmlinuz"}, nil, "", "rebuild the unified kernel image of "+kver+" with the new command line")
+	case gen == "dracut":
+		pl.step("post", "uki", kver, dracutArgs(kver, true), nil, "", "rebuild the unified kernel image of "+kver+" with the new command line")
+	}
+}
+
+// mokSteps import the machine owner keys the target lacks (10.5): only
+// with Secure Boot on and when the key file is in the backup.
+func (pl *planner) mokSteps() {
+	if pl.t.Firmware.SecureBoot == nil || !*pl.t.Firmware.SecureBoot || pl.f == nil {
+		return
+	}
+	paths := map[string]string{}
+	for _, mf := range pl.f.MokFiles {
+		if mf.Present && mf.SHA256 != nil && reMountPath.MatchString(mf.Path) && !strings.Contains(mf.Path, "..") {
+			paths[strings.ToLower(*mf.SHA256)] = mf.Path
+		}
+	}
+	done := map[string]bool{}
+	for _, f := range pl.findings {
+		if f.Code != WarnMokEnrollRequired || f.Ref == nil || f.Params["fileMissing"] == true {
+			continue
+		}
+		p, ok := paths[strings.ToLower(*f.Ref)]
+		if !ok || done[p] {
+			continue
+		}
+		done[p] = true
+		pl.step("post", "mok_import", p, []string{"mok-import", "{target_root}" + p}, nil, "", "queue the machine owner key "+p+" for enrolment at the first start (MokManager)")
+	}
 }
 
 // EncodePlan writes the plan as JSON with sorted keys and without HTML

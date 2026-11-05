@@ -65,6 +65,9 @@ cp "$work/release-key.pub" "$work/src/release-signing.pub"
   cat "$work/build.log"
   fail "build failed"
 }
+# The release lists the recovery ISO too (docs/BAREMETAL.md, C-M4-3); the
+# installer must ignore that line.
+printf '%s  recovery/restow-recovery_%s_amd64.iso\n' "$(printf 'iso' | sha256sum | cut -d ' ' -f 1)" "$VERSION" >>"$dist/SHA256SUMS"
 sign() { # sign <dist>: writes <dist>/SHA256SUMS.sig
   rm -f "$1/SHA256SUMS.sig"
   ssh-keygen -q -Y sign -f "$work/release-key" -n restow-agent-release "$1/SHA256SUMS" >/dev/null 2>&1 || fail "signing failed"

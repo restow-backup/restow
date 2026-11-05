@@ -138,4 +138,88 @@ describe("the live view of a recovery (docs/BAREMETAL.md 9.4, 9.8)", () => {
     expect(document.querySelector('[data-action="cancel-recovery"]')).toBeNull();
     expect(page.text()).toContain("Step 40 of 40");
   });
+
+  it("shows the ISO's verification with each check, findings as text and the warnings by code", async () => {
+    for (const language of ["en", "de"] as const) {
+      await i18n.changeLanguage(language);
+      page = mount();
+      await page.render(
+        <RecoveryLiveView
+          recovery={recovery({
+            status: "succeeded",
+            phase: "done",
+            verification: {
+              format: "restow-verify-v1",
+              result: "warning",
+              snapshotId: "4f2a9c1d",
+              planSha256: "9".repeat(64),
+              startedAt: "2026-11-05T09:12:00Z",
+              finishedAt: "2026-11-05T10:40:13Z",
+              restoreErrors: 2,
+              checks: [
+                {
+                  id: "initramfs",
+                  result: "warning",
+                  findings: [
+                    {
+                      code: "initramfs_not_rebuilt",
+                      ref: "6.1.0-25-amd64",
+                      message: "<i>not enough space on /boot</i>",
+                      params: {},
+                    },
+                  ],
+                  evidence: { kernel: "6.1.0-27-amd64", readable: true, bootFreePercent: 23 },
+                },
+                {
+                  id: "restic_verify",
+                  result: "ok",
+                  findings: [],
+                  evidence: { files: 412233, errors: 0 },
+                },
+                { id: "future_check", result: "failed", findings: [], evidence: {} },
+              ],
+              hints: [],
+              fixups: [{ path: "/etc/fstab", rule: "device_names", backup: "/etc/fstab.restow-1" }],
+              notAdaptedKernels: ["6.1.0-25-amd64"],
+            },
+            warnings: [{ code: "mok_enroll_pending", message: "MOK import queued" }],
+          })}
+          endpointId="11111111-1111-4111-8111-111111111111"
+          pending={false}
+          onApprove={() => undefined}
+          onCancel={() => undefined}
+          onRevoke={() => undefined}
+          onExtend={() => undefined}
+        />,
+      );
+      const block = document.querySelector('[data-slot="recovery-verification"]');
+      // In the order of 10.17, an unknown check last by its id.
+      expect(
+        [...(block?.querySelectorAll("[data-check]") ?? [])].map((node) =>
+          node.getAttribute("data-check"),
+        ),
+      ).toEqual(["restic_verify", "initramfs", "future_check"]);
+      expect(block?.querySelector("i")).toBeNull();
+      const text = page.text();
+      expect(text).toContain("<i>not enough space on /boot</i>");
+      expect(text).toContain("6.1.0-27-amd64");
+      expect(text).toContain("future_check");
+      expect(text).toContain("/etc/fstab.restow-1");
+      expect(text).toContain("MOK import queued");
+      if (language === "en") {
+        expect(text).toContain("Initramfs");
+        expect(text).toContain("Reported by the recovery ISO");
+        expect(document.querySelector('[data-code="mok_enroll_pending"]')?.textContent).toContain(
+          "Secure Boot",
+        );
+      } else {
+        expect(text).toContain("Vom Recovery-ISO gemeldet");
+        expect(document.querySelector('[data-slot="verification-result"]')?.textContent).toBe(
+          "Mit Warnungen",
+        );
+      }
+      if (language === "en") page.unmount();
+    }
+    await i18n.changeLanguage("en");
+  });
 });

@@ -142,6 +142,8 @@ if (-not $SkipInstall) {
         $lines = foreach ($n in @('restow-agent.exe', 'restic.exe', 'THIRD_PARTY_NOTICES.txt')) {
             "$((Get-FileHash (Join-Path $target $n) -Algorithm SHA256).Hash.ToLowerInvariant())  windows-amd64/$n"
         }
+        # The release lists the recovery ISO too (C-M4-3); the installer ignores it.
+        $lines = @($lines) + ("{0}  recovery/restow-recovery_{1}_amd64.iso" -f ('ab' * 32), $version)
         [System.IO.File]::WriteAllText((Join-Path $dist 'SHA256SUMS'), (($lines -join "`n") + "`n"))
         $key = (& go run ./scripts/sigdiff -sign (Join-Path $dist 'SHA256SUMS') | Select-Object -First 1)
         [System.IO.File]::WriteAllText((Join-Path $work 'release-key.pub'), $key + "`n")

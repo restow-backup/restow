@@ -80,6 +80,34 @@
         "scripts/ci/check-separate-works.test.mjs",
         "scripts/ci/license-policy.json"
       ]
+    },
+    "integrations/recovery": {
+      "license": "GPL-3.0-or-later",
+      "reason": "The build recipe of the recovery ISO (maintainer decision: separate from the core, GPL; docs/BAREMETAL.md 8.1 and 24 item 10): live-build configuration, hooks and shell scripts that follow live-build (GPL-3.0-or-later) and may take over its example hooks. It holds no Restow code; restow-agent and restic are copied from an agent build into the image as programs of their own, with their notices. The ISO is a release attachment, its source bundle too.",
+      "allowedReferences": [
+        ".github/workflows/ci.yml",
+        ".github/workflows/recovery-nightly.yml",
+        ".github/workflows/release.yml",
+        "CHANGELOG.md",
+        "NOTICE",
+        "README.md",
+        "THIRD_PARTY_NOTICES.md",
+        "agent/README.md",
+        "docs/AGENT.md",
+        "docs/BAREMETAL.md",
+        "docs/CI.md",
+        "docs/GLOSSARY.md",
+        "scripts/ci/check-separate-works.mjs",
+        "scripts/ci/check-separate-works.test.mjs",
+        "scripts/ci/license-policy.json",
+        "scripts/recovery-e2e/README.md",
+        "scripts/recovery-e2e/cases.mjs",
+        "scripts/recovery-e2e/lib/qemu.mjs",
+        "scripts/recovery-e2e/no-autoactivation.mjs",
+        "scripts/recovery-e2e/run.mjs",
+        "scripts/recovery-e2e/run.test.mjs",
+        "scripts/release/sign-agent.sh"
+      ]
     }
   },
   "redistributedBinaries": {

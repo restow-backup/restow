@@ -188,7 +188,9 @@ async function targetFolder(root: string, version: string, target: string): Prom
 /**
  * `SHA256SUMS` as file name -> hash (`<hash>  <name>` and `<hash> *<name>`). A
  * line that names a folder (`linux-amd64/restow-agent`, from a list that covers
- * every target) only counts for that target.
+ * every target) only counts for that target. The recovery ISO's line
+ * (`recovery/restow-recovery_<v>_amd64.iso`, docs/BAREMETAL.md 8.5) belongs to
+ * no agent target and is never part of a target's list.
  */
 export function parseChecksums(text: string, target?: string): Map<string, string> {
   const sums = new Map<string, string>();
@@ -198,6 +200,9 @@ export function parseChecksums(text: string, target?: string): Map<string, strin
       continue;
     }
     const folder = match[2];
+    if (target !== undefined && (folder === "recovery" || folder?.startsWith("recovery/"))) {
+      continue;
+    }
     if (folder !== undefined && target !== undefined && !folder.endsWith(target)) {
       continue;
     }

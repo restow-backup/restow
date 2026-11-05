@@ -150,6 +150,9 @@ export const PUBLIC_ROUTES: ReadonlySet<string> = new Set([
   "GET /install/windows.ps1",
   "GET /install/agent/:version/:file",
   "GET /install/agent/:version/:target/:file",
+  // The recovery ISO from RESTOW_RECOVERY_ISO_DIR (docs/BAREMETAL.md 8.5): a public download of
+  // exactly the file the signed checksums of a release list.
+  "GET /install/recovery/:version/:file",
   // Proxmox VE (docs/PVE.md): the node helper authenticates with its own secret,
   // the node installer is a public download.
   "POST /agent/pve/v1/enroll",
@@ -638,6 +641,7 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "GET /api/v1/endpoints": view(),
   // The tenant's setting for automatic agent updates, and lifting a machine's own pause.
   "GET /api/v1/endpoints/removals": view(),
+  "GET /api/v1/endpoints/capabilities": view(),
   "GET /api/v1/endpoints/agent-updates": view(),
   "PUT /api/v1/endpoints/agent-updates": configure(),
   "DELETE /api/v1/endpoints/agent-updates/machines/:id": configure(),

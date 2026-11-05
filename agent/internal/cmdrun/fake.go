@@ -40,6 +40,7 @@ type FakeRunner struct {
 	mu     sync.Mutex
 	recs   map[string]Recorded
 	calls  [][]string
+	used   []string
 	noKill map[string]bool
 }
 
@@ -114,7 +115,13 @@ func (f *FakeRunner) Run(ctx context.Context, name string, args ...string) ([]by
 	f.mu.Lock()
 	f.calls = append(f.calls, argv)
 	r, ok := f.recs[key(argv)]
+	f.used = append(f.used, key(argv))
 	f.mu.Unlock()
+	return f.answer(ctx, argv, r, ok)
+}
+
+func (f *FakeRunner) answer(ctx context.Context, argv []string, r Recorded, ok bool) ([]byte, error) {
+	name := argv[0]
 	if err := Forbidden(argv); err != nil {
 		if f.T != nil {
 			f.T.Helper()
@@ -153,6 +160,37 @@ func (f *FakeRunner) RunNoKill(ctx context.Context, _ time.Duration, name string
 	return f.Run(context.WithoutCancel(ctx), name, args...)
 }
 
+// StdinMarker is what the fake records in place of the input of RunInput:
+// the size, never the content (a passphrase must not end up in a test log).
+func StdinMarker(n int) string { return fmt.Sprintf("<stdin:%d bytes>", n) }
+
+// RunInput answers like Run for argv; the call is recorded with
+// StdinMarker appended (the recording is looked up without it).
+func (f *FakeRunner) RunInput(ctx context.Context, stdin []byte, _ time.Duration, _ int, name string, args ...string) ([]byte, error) {
+	return f.runInput(ctx, false, stdin, name, args...)
+}
+
+// RunInputNoKill is RunInput through the no-kill path.
+func (f *FakeRunner) RunInputNoKill(ctx context.Context, stdin []byte, _ time.Duration, _ int, name string, args ...string) ([]byte, error) {
+	return f.runInput(context.WithoutCancel(ctx), true, stdin, name, args...)
+}
+
+func (f *FakeRunner) runInput(ctx context.Context, noKill bool, stdin []byte, name string, args ...string) ([]byte, error) {
+	argv := append([]string{name}, args...)
+	f.mu.Lock()
+	f.calls = append(f.calls, append(append([]string(nil), argv...), StdinMarker(len(stdin))))
+	r, ok := f.recs[key(argv)]
+	if noKill {
+		if f.noKill == nil {
+			f.noKill = map[string]bool{}
+		}
+		f.noKill[key(argv)] = true
+	}
+	f.used = append(f.used, key(argv))
+	f.mu.Unlock()
+	return f.answer(ctx, argv, r, ok)
+}
+
 // RanNoKill reports whether argv ran through RunNoKill.
 func (f *FakeRunner) RanNoKill(argv []string) bool {
 	f.mu.Lock()
@@ -184,8 +222,8 @@ func (f *FakeRunner) Unused() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	used := map[string]bool{}
-	for _, c := range f.calls {
-		used[key(c)] = true
+	for _, k := range f.used {
+		used[k] = true
 	}
 	var out []string
 	for k := range f.recs {

@@ -374,10 +374,10 @@
       "kind": "initramfs",
       "n": 15,
       "phase": "post",
-      "reason": "rebuild the initramfs with MODULES=most",
+      "reason": "rebuild the initramfs of 6.8.0-48-generic with MODULES=most",
       "stdin": null,
       "stdinSecret": null,
-      "target": null
+      "target": "6.8.0-48-generic"
     },
     {
       "args": [

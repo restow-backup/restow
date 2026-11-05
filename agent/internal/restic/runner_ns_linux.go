@@ -19,3 +19,11 @@ func newMountNS(cmd *exec.Cmd) error {
 	cmd.SysProcAttr.Pdeathsig = syscall.SIGKILL
 	return nil
 }
+
+// ownProcessGroup starts the command in a new process group.
+func ownProcessGroup(cmd *exec.Cmd) {
+	if cmd.SysProcAttr == nil {
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+	}
+	cmd.SysProcAttr.Setpgid = true
+}

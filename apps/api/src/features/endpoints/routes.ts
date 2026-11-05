@@ -3,6 +3,7 @@ import { endpointPrefix } from "@restow/core";
 import { endpoints } from "@restow/db";
 import { and, eq, isNull, or, sql } from "drizzle-orm";
 import { type Context, Hono, type MiddlewareHandler } from "hono";
+import { config as appConfig } from "../../config.js";
 import { db, providerDb } from "../../db.js";
 import { providerRoleSatisfies } from "../../lib/provider-access.js";
 import { assertRecentSignIn } from "../../lib/recent-sign-in.js";
@@ -106,6 +107,8 @@ import {
  * up now included, stays with the admins.
  *
  *   GET    /?profile=                           servers and clients with status and readiness
+ *   GET    /capabilities                        what this installation offers for machines: bare metal
+ *                                               (RESTOW_BAREMETAL_PREVIEW), for the texts of the list
  *   GET    /tokens?state=valid|all              enrollment tokens: the valid ones (default), or every state
  *   POST   /tokens                              create a one-time token; shown once, with the commands
  *   DELETE /tokens/:tokenId                     revoke an unused token
@@ -233,6 +236,10 @@ endpointsRoutes.get("/", restorer, async (c) => {
 });
 
 // Static paths first, so "tokens" is never read as an endpoint id.
+endpointsRoutes.get("/capabilities", restorer, (c) =>
+  c.json({ baremetalPreview: appConfig.baremetalPreview }),
+);
+
 endpointsRoutes.get("/tokens", admin, async (c) => {
   const query = parseOrProblem(listTokensQuerySchema, c.req.query());
   return c.json(await listEnrollmentTokens(db, c.get("tenantId"), query));

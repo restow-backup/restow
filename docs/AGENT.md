@@ -15,8 +15,9 @@ Entscheidungen und Testplan: docs/WINDOWS-AGENT.md.
 
 ## Grundsätze
 
-- Dateibasierte Sicherung mit restic. Keine Images, kein Bare-Metal-Restore. Das steht so
-  in der Oberfläche und in der Doku. Unter Windows heißt Wiederherstellung eines Rechners:
+- Dateibasierte Sicherung mit restic; Linux-Rechner lassen sich als Ganzes auf neuer Hardware
+  wiederherstellen (Vorschau, docs/BAREMETAL.md), keine Plattenabbilder. Das steht so in der
+  Oberfläche (ohne Vorschau weiter "kein Bare-Metal-Restore") und in der Doku. Unter Windows heißt Wiederherstellung eines Rechners:
   Windows neu installieren, dann die Dateien zurückholen (kein Systemzustand, keine Registry).
 - Ein Agent für Server und Clients, Profil `server` oder `client`.
 - Der Agent verbindet sich nur ausgehend per HTTPS mit der Restow-Instanz. Kein
@@ -517,6 +518,58 @@ enden, der bisherige Agent bekommt ab dann 401. Der erste gute Lauf danach ist d
 Ransomware-Signale (`endpoint_runs.activity_baseline`, docs/RANSOMWARE.md). Abgelehnt nach dem
 Einlösen: Das Token wird wieder freigegeben. `GET /api/v1/endpoints/tokens` zeigt `kind`
 (`enroll`/`rebind`), `purpose`, `endpointId` und `endpointName`.
+
+### Recovery-ISO und `restow-agent recover` (Vorschau, seit 0.5.0)
+
+Das Recovery-ISO (`restow-recovery_<v>_amd64.iso`, docs/BAREMETAL.md 8) ist ein Debian-13-Live-
+Abbild, gebaut aus dem eigenen Werk `integrations/recovery` (GPL-3.0-or-later, kein Teil des
+Apache-2.0-Kerns) mit einem festen snapshot.debian.org-Stand und einem Lockfile, zweimal auf zwei
+Runner-Images; nur wenn beide Bauten bitgleich sind, nimmt der Release die Zeile
+`<sha256>  recovery/restow-recovery_<v>_amd64.iso` in `agent-SHA256SUMS` auf, und der Maintainer
+signiert erst nach einem eigenen Nachbau (`scripts/release/sign-agent.sh <tag> --key … --iso …`).
+Anhänge des Release: das ISO, `restow-recovery_<v>_FIRMWARE-LICENSES.txt` (Lizenzen der festen
+Firmwareliste) und der Quellcode jedes Pakets (`…_sources.tar`, ab 2 GiB in Teilen, `…_sources.txt`).
+
+- **Prüfen, bevor das ISO auf einen Stick geht:** die Signatur von `agent-SHA256SUMS` mit
+  `scripts/release/verify-agent-signature.sh agent-SHA256SUMS agent-SHA256SUMS.sig release-signing.pub`,
+  mit `release-signing.pub` **aus dem Git-Tag** (`agent/release-signing.pub`), dann
+  `grep ' recovery/<datei>$' agent-SHA256SUMS | sed 's# recovery/# #' | sha256sum -c -`. Den
+  Fingerabdruck des Release-Schlüssels außerhalb der Instanz vergleichen (README und Release-Notes):
+  Eine kompromittierte Instanz könnte ISO, Prüfsumme und Fingerabdruck zugleich fälschen.
+- **`GET /api/v1/recovery-iso`** (Mandanten-Admin): Version, Dateiname, `url`, `source`
+  (`instance` oder `github`), SHA-256 aus den signierten `SHA256SUMS` der neuesten signierten
+  Agent-Version, `sizeBytes` (nur für die Kopie der Instanz), Fingerabdruck des Release-Schlüssels,
+  `verified`, `releaseUrl`, `sourcesUrl`, `firmwareLicensesUrl` und die Prüfbefehle. Die
+  GitHub-Adresse ist das Release des Projekts (bei einer Installation, die dem Alpha-Repository
+  folgt, dessen Release).
+- **Ohne Internet:** Liegt das ISO in `RESTOW_RECOVERY_ISO_DIR` (ein Volume) und hat genau die
+  SHA-256 der Zeile, liefert `GET /install/recovery/<version>/<datei>` es aus (`source: instance`):
+  nur eine SemVer-Version mit `SHA256SUMS.sig`, nur der Dateiname der `recovery/`-Zeile (kein `/`,
+  kein `..`), gestreamt mit `content-length`, 10 je Stunde und Adresse (429 mit `Retry-After`).
+  Die SHA-256 rechnet der Server einmal je Pfad, Größe und Änderungszeit. Die Signatur selbst prüft
+  der Server nicht (das tun die Installationsskripte und wer den Stick schreibt); er liefert nur
+  aus, was eine signierte Liste nennt.
+- **Im ISO** startet `restow-agent recover` auf tty1 (bzw. `restow.console=ttyS0|ttyS1`):
+  Tastaturbelegung, Netzwerk, Uhrzeit, TLS (System-CA, CA-Datei oder der Prüfwert der Instanz),
+  Adresse und Code, Freigabe der Sitzung, Snapshot, Manifest, Hardware, Plan mit jedem Befehl,
+  Bestätigung, Ausführung, Prüfung, Abschluss, optional Wiederanbindung. Unbeaufsichtigt über
+  `--answers` (`restow-answers-v1`; Medium `RESTOWANS` oder in QEMU `fw_cfg`). Code, Passphrase und
+  Wiederanbindungs-Token nimmt es nur aus `fw_cfg` an.
+- **Abschluss** (`POST /agent/v1/recovery/sessions/current/finish`): `verification` im Format
+  `restow-verify-v1` (Ergebnis `ok`, `warning` oder `failed`, die zehn Prüfungen aus
+  docs/BAREMETAL.md 10.17 mit Befunden und Belegen aus kurzen Zeichenketten, Zahlen und
+  Wahrheitswerten, Hinweise für danach mit Parametern, angepasste Dateien, nicht angepasste
+  Kernel; höchstens 64 KiB) und `warnings[]` mit Codes aus
+  `agent/internal/baremetal/testdata/plan-codes.json` und
+  `agent/internal/recovery/testdata/recover-codes.json`. Der Server speichert den Bericht
+  geschwärzt; `GET .../recoveries/:id` gibt ihn nur aus, wenn er dem Format entspricht, sonst
+  `null` (nie den Rohwert). Die Oberfläche übersetzt Warnungen und Hinweise je Code und zeigt die
+  Meldung des ISO darunter als "vom ISO gemeldet".
+- **Oberfläche:** `GET /api/v1/endpoints/:id/baremetal` liefert zusätzlich `snapshots` (höchstens
+  50, mit Prüfstand und ob das Layout das neueste ist), `hardware` und `hardwareByLayout` (was
+  Ersatzhardware braucht) und `activeRecovery`; Rechnerliste und -seite tragen `recovery`
+  (`status`, `phase`) einer laufenden Sitzung ("Wird wiederhergestellt"); `GET
+  /api/v1/endpoints/capabilities` sagt, ob die Vorschau an ist.
 
 ### Richtlinien (seit 0.4.0)
 

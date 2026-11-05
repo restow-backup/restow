@@ -21,3 +21,11 @@ export const RESTIC_API_LIMIT = 20_000;
  * the agent's 20,000 would slow a large one down.
  */
 export const RECOVERY_RESTIC_LIMIT = 120_000;
+
+export const ONE_HOUR_MS = 60 * 60 * 1000;
+/**
+ * Downloads of the recovery ISO from this instance (`GET /install/recovery/:version/:file`) per
+ * client address and hour (docs/BAREMETAL.md 8.5): an ISO is up to 900 MiB, and one machine
+ * needs it once.
+ */
+export const RECOVERY_ISO_DOWNLOAD_LIMIT = 10;

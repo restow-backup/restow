@@ -308,6 +308,8 @@ type planScenario struct {
 	choices *Choices
 	noFacts bool
 	facts   func(f *Facts)
+	// resume is PlanOptions.Resume.
+	resume string
 }
 
 func sameTarget(t testing.TB, m *Manifest) *Target {
@@ -376,6 +378,10 @@ func secureBoot(edit func(fw *TargetFirmware, m *Manifest)) func(testing.TB, *Ma
 func planScenarios() []planScenario {
 	auto := &Choices{Shrink: "auto"}
 	return []planScenario{
+		{manifest: "debian12-uefi-luks-lvm", name: "resume-clean", keyword: TargetSame, resume: ResumeClean},
+		{manifest: "debian12-uefi-luks-lvm", name: "resume-unclean", keyword: TargetSame, resume: ResumeUnclean},
+		{manifest: "bios-mbr-mdadm-raid1", name: "resume-clean", keyword: TargetSame, resume: ResumeClean},
+		{manifest: "bios-mbr-mdadm-raid1", name: "resume-unclean", keyword: TargetSame, resume: ResumeUnclean},
 		{manifest: "debian12-uefi-luks-lvm", name: "larger-1tb", target: resized(1000204886016)},
 		{manifest: "debian12-uefi-luks-lvm", name: "smaller-256gb", target: resized(256060514304)},
 		{manifest: "debian12-uefi-luks-lvm", name: "smaller-128gb", target: resized(128035676160)},
@@ -571,7 +577,7 @@ func planFor(t testing.TB, sc planScenario) (*RestorePlan, *Target) {
 	if sc.choices != nil {
 		c = *sc.choices
 	}
-	p, _ := Plan(m, tg, f, c)
+	p, _ := PlanWith(m, tg, f, c, PlanOptions{Resume: sc.resume})
 	return p, tg
 }
 

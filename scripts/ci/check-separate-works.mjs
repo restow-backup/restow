@@ -2,10 +2,12 @@
 /**
  * Separate works (CI): folders of this repository that are not part of the
  * Apache-2.0 core but separate works under their own license, listed under
- * "separateWorks" in scripts/ci/license-policy.json. Today that is the storage
+ * "separateWorks" in scripts/ci/license-policy.json. Today these are the storage
  * plugin shim for Proxmox VE (integrations/pve/plugin), AGPL-3.0-or-later,
- * because it subclasses AGPL-3+ Perl classes of pve-storage. The exception is
- * narrow, and this check keeps it so:
+ * because it subclasses AGPL-3+ Perl classes of pve-storage, and the build
+ * recipe of the recovery ISO (integrations/recovery), GPL-3.0-or-later, because
+ * it follows live-build (docs/BAREMETAL.md 8.1). The exceptions are narrow, and
+ * this check keeps them so:
  *
  *   - the folder carries the full license text (LICENSE) and every source file
  *     in it starts with an SPDX header naming exactly that license;
@@ -34,6 +36,7 @@ const CORE_CODE = /\.(ts|tsx|js|mjs|cjs|go)$/;
 const CORE_IMPORT = /@restow\/|github\.com\/restow-backup\/restow/;
 const LICENSE_MARKERS = {
   "AGPL-3.0-or-later": ["GNU AFFERO GENERAL PUBLIC LICENSE", "Version 3, 19 November 2007"],
+  "GPL-3.0-or-later": ["GNU GENERAL PUBLIC LICENSE", "Version 3, 29 June 2007"],
 };
 
 function sha256(bytes) {

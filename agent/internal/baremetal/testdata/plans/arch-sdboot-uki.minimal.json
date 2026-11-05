@@ -340,15 +340,32 @@
       "args": [
         "chroot-exec",
         "mkinitcpio",
-        "-P"
+        "-p",
+        "linux"
       ],
       "kind": "initramfs",
       "n": 14,
       "phase": "post",
-      "reason": "rebuild the initramfs of every preset",
+      "reason": "rebuild the initramfs of preset linux (with its fallback image)",
       "stdin": null,
       "stdinSecret": null,
-      "target": null
+      "target": "6.11.6-arch1-1"
+    },
+    {
+      "args": [
+        "chroot-exec",
+        "bootctl",
+        "--esp-path=/efi",
+        "install",
+        "--no-variables"
+      ],
+      "kind": "bootctl_install",
+      "n": 15,
+      "phase": "post",
+      "reason": "install systemd-boot on /efi (only when its files are missing; the boot entry is written by recover)",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/efi"
     },
     {
       "args": [
@@ -361,7 +378,7 @@
         "\\EFI\\systemd\\systemd-bootx64.efi"
       ],
       "kind": "nvram",
-      "n": 15,
+      "n": 16,
       "phase": "post",
       "reason": "create the boot entry Linux Boot Manager",
       "stdin": null,
@@ -373,7 +390,7 @@
         "verify"
       ],
       "kind": "verify",
-      "n": 16,
+      "n": 17,
       "phase": "post",
       "reason": "check the restored system (identities, fstab, boot files)",
       "stdin": null,

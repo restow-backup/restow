@@ -213,6 +213,15 @@ function plannerSummary(outcome: PlannerOutcome): Record<string, unknown> {
     ok: outcome.plan.ok,
     problems: keep(outcome.plan.problems),
     warnings: keep(outcome.plan.warnings),
+    // Which storage drivers the backed-up kernel has for that target's controllers: the wizard's
+    // hardware guide names them (docs/BAREMETAL.md 14.6 step 2).
+    storage: outcome.plan.drivers.storage.slice(0, 64).map((driver) =>
+      reportValue({
+        module: typeof driver.module === "string" ? driver.module : "",
+        found: driver.found === true,
+        builtin: driver.builtin === true,
+      }),
+    ),
   };
 }
 

@@ -1,0 +1,48 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# The recovery tools (README.md, "Contents"), without Recommends.
+# Live system
+linux-image-amd64
+live-boot
+live-config
+systemd
+systemd-resolved
+systemd-timesyncd
+udev
+kmod
+# Disks, partitions, RAID, LVM, encryption, file systems
+util-linux
+fdisk
+gdisk
+parted
+mdadm
+lvm2
+dmsetup
+thin-provisioning-tools
+cryptsetup
+cryptsetup-bin
+dosfstools
+e2fsprogs
+xfsprogs
+btrfs-progs
+nvme-cli
+sg3-utils
+smartmontools
+# Boot chain: shown and checked, NVRAM is written by the recovery program itself
+efibootmgr
+mokutil
+grub-efi-amd64-signed
+grub-pc-bin
+shim-signed
+# Network, remote access (off until chosen), certificates
+openssh-server
+openssh-client
+ca-certificates
+iproute2
+ethtool
+# Console and diagnosis
+kbd
+console-setup
+pciutils
+usbutils
+less
+nano

@@ -1,0 +1,23 @@
+{
+  "$comment": "The cloud images the source machines of E3 to E6b start from (docs/BAREMETAL.md 21.2), each pinned by its SHA-256. A null sha256 is not pinned yet: run.mjs refuses that case until `node scripts/recovery-e2e/run.mjs --pin-images` (by hand, with network access) has written the hash of the image it downloaded and the maintainer committed it after comparing it with the checksum file of the distribution.",
+  "almalinux9": {
+    "url": "https://repo.almalinux.org/almalinux/9/cloud/x86_64/images/AlmaLinux-9-GenericCloud-latest.x86_64.qcow2",
+    "checksums": "https://repo.almalinux.org/almalinux/9/cloud/x86_64/images/CHECKSUM",
+    "sha256": null
+  },
+  "fedora": {
+    "url": "https://download.fedoraproject.org/pub/fedora/linux/releases/43/Cloud/x86_64/images/Fedora-Cloud-Base-Generic-43-1.6.x86_64.qcow2",
+    "checksums": "https://download.fedoraproject.org/pub/fedora/linux/releases/43/Cloud/x86_64/images/Fedora-Cloud-43-1.6-x86_64-CHECKSUM",
+    "sha256": null
+  },
+  "opensuse-leap-15.6": {
+    "url": "https://download.opensuse.org/distribution/leap/15.6/appliances/openSUSE-Leap-15.6-Minimal-VM.x86_64-Cloud.qcow2",
+    "checksums": "https://download.opensuse.org/distribution/leap/15.6/appliances/openSUSE-Leap-15.6-Minimal-VM.x86_64-Cloud.qcow2.sha256",
+    "sha256": null
+  },
+  "arch": {
+    "url": "https://geo.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2",
+    "checksums": "https://geo.mirror.pkgbuild.com/images/latest/Arch-Linux-x86_64-cloudimg.qcow2.SHA256",
+    "sha256": null
+  }
+}

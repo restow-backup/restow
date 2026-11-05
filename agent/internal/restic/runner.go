@@ -48,6 +48,28 @@ type Runner struct {
 	// CancelGrace is how long restic gets to shut down after an interrupt
 	// before it is killed. Default 45 s.
 	CancelGrace time.Duration
+	// PasswordBytes replaces Password when set (recover keeps the password
+	// in a buffer it can zero, ZeroSecrets).
+	PasswordBytes []byte
+	// CACert is a PEM file of trusted certificates (RESTIC_CACERT): the
+	// instance's own CA, or its pinned leaf certificate (recover).
+	CACert string
+	// Proxy is an http:// proxy for the repository (HTTPS_PROXY).
+	Proxy string
+	// OwnProcessGroup starts restic in a process group of its own (Linux),
+	// so Ctrl+C on the console of recover reaches recover only, which asks
+	// before it stops restic.
+	OwnProcessGroup bool
+}
+
+// ZeroSecrets overwrites PasswordBytes (Go cannot promise this for the
+// copies the environment of a started process made; the real protection
+// of recover is the isolation of later steps, docs/BAREMETAL.md 10.13).
+func (r *Runner) ZeroSecrets() {
+	for i := range r.PasswordBytes {
+		r.PasswordBytes[i] = 0
+	}
+	r.PasswordBytes = nil
 }
 
 func (r *Runner) log(line string) {
@@ -63,7 +85,18 @@ func (r *Runner) Env() []string {
 		env = procenv.Set(env, "HOME", filepath.Dir(r.CacheDir))
 	}
 	env = procenv.Set(env, "RESTIC_REPOSITORY", r.Repo)
-	env = procenv.Set(env, "RESTIC_PASSWORD", r.Password)
+	if r.PasswordBytes != nil {
+		env = procenv.Set(env, "RESTIC_PASSWORD", string(r.PasswordBytes))
+	} else {
+		env = procenv.Set(env, "RESTIC_PASSWORD", r.Password)
+	}
+	if r.CACert != "" {
+		env = procenv.Set(env, "RESTIC_CACERT", r.CACert)
+	}
+	if r.Proxy != "" {
+		env = procenv.Set(env, "HTTPS_PROXY", r.Proxy)
+		env = procenv.Set(env, "HTTP_PROXY", r.Proxy)
+	}
 	if r.RESTUser != "" {
 		env = procenv.Set(env, "RESTIC_REST_USERNAME", r.RESTUser)
 		env = procenv.Set(env, "RESTIC_REST_PASSWORD", r.RESTPass)
@@ -148,6 +181,9 @@ func (r *Runner) exec(ctx context.Context, spec execSpec) (*execResult, error) {
 		if err := newMountNS(cmd); err != nil {
 			return nil, err
 		}
+	}
+	if r.OwnProcessGroup {
+		ownProcessGroup(cmd)
 	}
 	cmd.WaitDelay = r.CancelGrace
 	if cmd.WaitDelay == 0 {

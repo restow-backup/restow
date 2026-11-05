@@ -341,6 +341,41 @@ private repository.
   answers `rebound: true`) and from the recovery ISO after a successful restore; the operating
   system must match, pending uninstall orders end, and the first good backup afterwards is the
   new baseline of the ransomware signals. Pending tokens list rebind tokens as "Reconnect".
+- Recovery ISO (preview): a signed, reproducible Debian 13 live image
+  (`restow-recovery_<v>_amd64.iso`, GPL-3.0-or-later build recipe in `integrations/recovery`)
+  that boots with UEFI Secure Boot and legacy BIOS and restores a Linux machine from Restow onto
+  new disks: GPT and MBR, mdadm, LVM including thin, LUKS, ext4, XFS, btrfs, separate /boot and
+  EFI system partition, smaller and larger disks, 4Kn; intact data disks can be kept; the boot
+  chain, drivers and Secure Boot state are checked before anything is erased; initramfs and boot
+  loader are set up again with the restored system's own tools in an isolated environment.
+  Firmware packages: `firmware-bnx2`, `firmware-bnx2x`, `firmware-qlogic`, `firmware-realtek`,
+  `firmware-misc-nonfree` and `firmware-intel-misc` (wired network cards and storage controllers
+  only; their licences are in `restow-recovery_<v>_FIRMWARE-LICENSES.txt`, the reasons in
+  `integrations/recovery/firmware.md`). The image is built from one snapshot.debian.org time with
+  every package pinned in `packages.lock`, twice on two runner images; only when both builds are
+  equal does the release list it in `agent-SHA256SUMS` (`recovery/restow-recovery_<v>_amd64.iso`),
+  and the maintainer rebuilds it before signing (`scripts/release/sign-agent.sh --iso`). The
+  source code of every package is a release attachment (`restow-recovery_<v>_sources.tar`, in
+  parts when large, and `restow-recovery_<v>_sources.txt`). On the ISO, `restow-agent recover`
+  asks for the address and the code, waits for the release of the session, plans, shows every
+  command before it erases, restores, sets the boot chain up again and reports a verification of
+  ten checks (`restow-verify-v1`) and its warnings; `--answers` runs it unattended. With the
+  preview on, the code dialog and the bare metal wizard appear once a release carries the ISO.
+- The bare metal wizard: the whole machine snapshots with their check and whether their layout
+  is the newest one's (the newest that passed is chosen first), the full hardware guide of the
+  chosen backup (firmware mode and CSM, Secure Boot and the CA the firmware must trust, disks with
+  their minimum sizes, memory, the disk controllers the backed-up kernel has drivers for, what may
+  and may not change, hardware RAID, the keyboard layout of the passphrase at boot, TPM bindings,
+  old disks), where the ISO comes from with the GPL sources and firmware licences, and afterwards
+  the ISO's hints (MOK enrolment with the password of the recovery console, network names, boot
+  disk, degraded RAID, kernels not adapted, TPM). The live view shows the verification check by
+  check, with findings and evidence as text, and the finish warnings by code. The machine list
+  marks a machine "Being restored", its page says so on top. `GET /api/v1/endpoints/:id/baremetal`
+  adds `snapshots`, `hardware`, `hardwareByLayout` and `activeRecovery`; the machine list and page
+  add `recovery`; `GET /api/v1/endpoints/capabilities` says whether bare metal is on.
+- Recovery end-to-end tests in QEMU/KVM: E1 (Debian 12, BIOS, RAID1) and E2 (Ubuntu 24.04, UEFI
+  Secure Boot, LUKS2 and LVM) on every pull request that touches the restore, E1b and E3 to E10
+  every night and before each release (`scripts/recovery-e2e`, `.github/workflows/recovery-nightly.yml`).
 
 ### Changed
 
@@ -351,6 +386,15 @@ private repository.
   operators; selecting one is refused (422 or 403 `endpoint-restore-path-locked`), a folder ZIP
   leaves them out, and an administrator gets a key file only after a recent sign-in, audited as
   `endpoint.repository.secret_file_revealed`.
+- With `RESTOW_BAREMETAL_PREVIEW` on, the machine list and the enroll dialog no longer say there is
+  no bare-metal restore: Linux machines can be restored as a whole on new hardware (preview);
+  there are still no disk images.
+- The recovery ISO can come from the instance itself for installations without internet access:
+  when `RESTOW_RECOVERY_ISO_DIR` holds `restow-recovery_<v>_amd64.iso` with exactly the SHA-256 of
+  the signed checksums, `GET /api/v1/recovery-iso` names `<instance>/install/recovery/<v>/<file>`
+  (`source: instance`, 10 downloads per address and hour), otherwise the GitHub release
+  (`source: github`). The answer adds the release page, the GPL sources and the firmware licences.
+  The check commands name the arguments of `verify-agent-signature.sh` in their right order.
 - The explanations of `snapshot_failed` and `snapshot_unavailable` no longer speak of the shadow
   copy only: they name it, LVM and btrfs, and the steps cover Windows and Linux.
 - The agent's systemd unit allows mount namespaces (`RestrictNamespaces=mnt`) so the snapshot
@@ -567,6 +611,15 @@ fingerprint `SHA256:2LB7RPpIS0wqbcZ2NA8MjuQN7ZfFPqBX3CwrGFSu76o`.
   online-only cloud files are left out, junctions are backed up as links, no system state or
   registry, no bare-metal restore for Windows, and further data drives are not reported as
   data folders yet.
+- Bare metal (preview): Windows bare metal comes later; no change of the storage stack (BIOS to
+  UEFI is a 0.5.x candidate); no Wi-Fi, VLAN or bonding in the recovery ISO; TPM2 and FIDO2
+  bindings must be enrolled again; raw logical volumes (the VM disks of a Proxmox VE host) are
+  not backed up; amd64 only. The recovery ISO never restores onto SAN LUNs (Fibre Channel,
+  iSCSI) or removable disks yet, an unattended run (`--answers`) cannot keep an encrypted volume
+  (the old passphrase is asked on the console only), and the reasons of the plan steps are shown
+  in English on a German console. The first `packages.lock` of the recovery ISO is written by the CI
+  job `recovery-iso` (input `update-lock`) and committed by hand; until then the ISO is not
+  built, and it counts as reproducible only once two CI builds were equal.
 
 ## [0.4.12] - 2026-11-04
 

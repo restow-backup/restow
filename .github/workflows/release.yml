@@ -8,8 +8,16 @@ name: Release
 #                    build as a workflow artifact; it does not touch the release)
 #          -> agent-windows-check (on a Windows runner: the Windows files match
 #                    their SHA256SUMS and report the release versions)
-#          -> agent-sums (puts the build's SHA256SUMS on a DRAFT GitHub release
-#                    as agent-SHA256SUMS and asks the maintainer to sign it)
+#          -> recovery-iso, recovery-iso-rebuild (the recovery ISO from the
+#                    linux-amd64 agent of this build, twice, on two runner images;
+#                    the first also writes the firmware licences and the source
+#                    bundle of the GPL packages, docs/BAREMETAL.md 8.3 to 8.7)
+#          -> recovery-e2e-full (every restore case in QEMU/KVM against that ISO,
+#                    recovery-nightly.yml)
+#          -> agent-sums (adds recovery/restow-recovery_<v>_amd64.iso to the
+#                    build's SHA256SUMS when both ISO builds are equal, puts it on a
+#                    DRAFT GitHub release as agent-SHA256SUMS and asks the maintainer
+#                    to rebuild the ISO and sign it)
 #          -> agent-signature (waits in the environment agent-release-signing
 #                    until the maintainer signed agent-SHA256SUMS offline with
 #                    scripts/release/sign-agent.sh; checks the signature
@@ -311,11 +319,101 @@ jobs:
           # Creating and removing the service joins this job with the Windows service
           # manager (docs/WINDOWS-AGENT.md, section 9.1).
 
+  recovery-iso:
+    name: Recovery ISO (build, image checks, licences, sources)
+    # docs/BAREMETAL.md 8.5: from the linux-amd64 agent just built. The privileged build
+    # container gets the build variables only; no secret is in this job.
+    needs: [verify, agent]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Download the build
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: agent-dist
+          path: ${{ runner.temp }}/agent-dist
+
+      - name: Build the ISO and the source bundle
+        run: |
+          set -euo pipefail
+          chmod +x "$RUNNER_TEMP"/agent-dist/linux-amd64/restow-agent "$RUNNER_TEMP"/agent-dist/linux-amd64/restic
+          sh integrations/recovery/build.sh --agent-dist "$RUNNER_TEMP/agent-dist/linux-amd64" \
+            --version "$VERSION" --out "$RUNNER_TEMP/recovery" --sources
+          rm -rf "$RUNNER_TEMP/recovery/build" "$RUNNER_TEMP/recovery/sources" "$RUNNER_TEMP/recovery/build.env"
+
+      - name: Image checks
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends squashfs-tools xorriso
+          sudo sh integrations/recovery/test/check-image.sh "$RUNNER_TEMP/recovery/restow-recovery_${VERSION}_amd64.iso" "$VERSION"
+
+      - name: Keep the ISO, its licences and sources
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-recovery-iso
+          path: ${{ runner.temp }}/recovery
+          if-no-files-found: error
+          retention-days: 7
+
+  recovery-iso-rebuild:
+    name: Recovery ISO (second build on another runner image)
+    needs: [verify, agent]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+      TZ: Pacific/Auckland
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Download the build
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: agent-dist
+          path: ${{ runner.temp }}/agent-dist
+
+      - name: Build the ISO again
+        run: |
+          set -euo pipefail
+          umask 077
+          chmod +x "$RUNNER_TEMP"/agent-dist/linux-amd64/restow-agent "$RUNNER_TEMP"/agent-dist/linux-amd64/restic
+          sh integrations/recovery/build.sh --agent-dist "$RUNNER_TEMP/agent-dist/linux-amd64" \
+            --version "$VERSION" --out "$RUNNER_TEMP/recovery"
+
+      - name: Keep the hash
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-recovery-iso-rebuild
+          path: ${{ runner.temp }}/recovery/restow-recovery_*_amd64.iso.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+  recovery-e2e-full:
+    name: Recovery end to end (every case)
+    needs: [verify, agent, recovery-iso]
+    uses: ./.github/workflows/recovery-nightly.yml
+    permissions:
+      contents: read
+    with:
+      cases: all
+      iso-artifact: release-recovery-iso
+      agent-artifact: agent-dist
+
   agent-sums:
     name: Agent release (checksums on the draft)
     # After the Windows check: only now does the checksum list go on the draft and the
     # maintainer get the request to sign it.
-    needs: [verify, agent, agent-windows-check]
+    needs: [verify, agent, agent-windows-check, recovery-iso, recovery-iso-rebuild, recovery-e2e-full]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -331,6 +429,34 @@ jobs:
         with:
           name: agent-dist
           path: ${{ runner.temp }}/agent-dist
+
+      - name: The two ISO builds
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: release-recovery-iso*
+          path: ${{ runner.temp }}/recovery
+
+      - name: Add the recovery ISO to the checksums when both builds agree (docs/BAREMETAL.md 8.5)
+        run: |
+          set -euo pipefail
+          name="restow-recovery_${VERSION}_amd64.iso"
+          first="$(cut -d ' ' -f 1 "$RUNNER_TEMP/recovery/release-recovery-iso/$name.sha256")"
+          second="$(cut -d ' ' -f 1 "$RUNNER_TEMP/recovery/release-recovery-iso-rebuild/$name.sha256")"
+          have="$(sha256sum "$RUNNER_TEMP/recovery/release-recovery-iso/$name" | cut -d ' ' -f 1)"
+          if [ "$first" != "$second" ] || [ "$first" != "$have" ]; then
+            echo "::error::the two builds of the recovery ISO differ ($first, $second); it is not listed or released."
+            exit 1
+          fi
+          printf '%s  recovery/%s\n' "$first" "$name" >> "$RUNNER_TEMP/agent-dist/SHA256SUMS"
+          echo "::notice::recovery/$name SHA-256 $first (both builds)"
+
+      - name: Hand the checksums with the ISO line to the signature job
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agent-dist-sums
+          path: ${{ runner.temp }}/agent-dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Put agent-SHA256SUMS on the draft release (the maintainer signs it)
         env:
@@ -360,7 +486,7 @@ jobs:
             done < "$sums"
             echo "::notice::Before signing: submit windows-amd64/restow-agent.exe and restic.exe of this build to Microsoft (https://www.microsoft.com/wdsi/filesubmission, Software developer) unless they were submitted for this prerelease already (docs/WINDOWS-AGENT.md, section 15)."
           fi
-          echo "::notice::Sign the agent now, on the signing machine: scripts/release/sign-agent.sh $GITHUB_REF_NAME --key <private key>"
+          echo "::notice::Rebuild the recovery ISO from the tag on your own Docker host (scripts/release/sign-agent.sh --help), then sign: scripts/release/sign-agent.sh $GITHUB_REF_NAME --key <private key> --iso <rebuilt ISO>"
 
   agent-signature:
     name: Agent signature (maintainer, offline)
@@ -379,6 +505,12 @@ jobs:
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: agent-dist
+          path: agent-dist
+
+      - name: The checksums with the recovery ISO's line (agent-sums)
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: agent-dist-sums
           path: agent-dist
 
       - name: Download the signature from the draft
@@ -704,9 +836,9 @@ jobs:
 
   publish:
     name: Publish
-    needs: [verify, ci, release-smoke]
+    needs: [verify, ci, release-smoke, recovery-iso]
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60
     permissions:
       contents: write # the GitHub release and its assets
       packages: write # the image tags and signatures
@@ -938,6 +1070,17 @@ jobs:
               echo "Release signing key (agent/release-signing.pub): $(ssh-keygen -l -f agent/release-signing.pub)"
               echo
             fi
+            echo "### Recovery ISO (preview)"
+            echo
+            echo "restow-recovery_${VERSION}_amd64.iso restores a Linux machine from its whole machine backup onto new disks (docs/BAREMETAL.md). agent-SHA256SUMS lists it as recovery/restow-recovery_${VERSION}_amd64.iso and is signed with the release key; check it with the key of the Git tag (agent/release-signing.pub), not with one an instance shows:"
+            echo
+            echo "\`\`\`"
+            echo "scripts/release/verify-agent-signature.sh agent-SHA256SUMS agent-SHA256SUMS.sig release-signing.pub"
+            echo "grep ' recovery/restow-recovery_${VERSION}_amd64.iso\$' agent-SHA256SUMS | sed 's# recovery/# #' | sha256sum -c -"
+            echo "\`\`\`"
+            echo
+            echo "restow-recovery_${VERSION}_FIRMWARE-LICENSES.txt holds the licences of the non-free firmware in the image; restow-recovery_${VERSION}_sources.txt and restow-recovery_${VERSION}_sources.tar (in parts when large) are the source code of every package in it."
+            echo
             echo "docker-compose.yml and env.example are the release stack (deploy/release/); install.sh installs it on a dedicated Linux VM (README.md, \"Install with the script\"; install.sh.sha256 for \`sha256sum -c\` after the download); restow-agent-THIRD_PARTY_NOTICES.txt holds the licenses of the agent binaries and of the restic they run; SHA256SUMS lists every file of this release and is signed (SHA256SUMS.sigstore.json)."
           } >> notes.md
 
@@ -971,6 +1114,24 @@ jobs:
             }
           done
 
+      - name: The recovery ISO, its firmware licences and the GPL source bundle
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-recovery-iso
+          path: recovery-assets
+
+      - name: The recovery ISO is the one the signed checksums name
+        run: |
+          set -euo pipefail
+          name="restow-recovery_${VERSION}_amd64.iso"
+          sum="$(sha256sum "recovery-assets/$name" | cut -d ' ' -f 1)"
+          grep -qx "$sum  recovery/$name" agent-signed/agent-SHA256SUMS || {
+            echo "::error::recovery-assets/$name is not the ISO of the signed agent-SHA256SUMS."
+            exit 1
+          }
+          rm -f "recovery-assets/$name.sha256"
+          ls -l recovery-assets
+
       - name: Publish the GitHub release
         env:
           # Only these steps talk to the GitHub API; the token is not in the environment of the
@@ -986,6 +1147,9 @@ jobs:
           if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
             # The draft of the agent-sums job (or a re-run of a release that got this far): fill and publish it.
             gh release upload "$GITHUB_REF_NAME" --clobber assets/*
+            # The recovery ISO and its attachments (docs/BAREMETAL.md 8.5, 8.7): covered by
+            # agent-SHA256SUMS (the ISO) or plain attachments, not in the SHA256SUMS above.
+            gh release upload "$GITHUB_REF_NAME" --clobber recovery-assets/*
             gh release edit "$GITHUB_REF_NAME" --title "Restow $VERSION" --notes-file notes.md --draft=false "${flags[@]}"
           else
             echo "::error::There is no draft release $GITHUB_REF_NAME with the signed agent; the agent-sums job did not run."

@@ -246,3 +246,70 @@ type RecoveryRebindRequest struct {
 	OSVersion    string `json:"osVersion"`
 	Hooks        string `json:"hooks"`
 }
+
+// RecoveryVerificationFormat is the format of the verification report of
+// POST .../current/finish (contract C-M4-6).
+const RecoveryVerificationFormat = "restow-verify-v1"
+
+// Results of the verification report and of each check.
+const (
+	VerifyOK      = "ok"
+	VerifyWarning = "warning"
+	VerifyFailed  = "failed"
+)
+
+// Bounds of the verification report (C-M4-6).
+const (
+	RecoveryMaxFindingsPerCheck = 50
+	RecoveryMaxEvidenceString   = 300
+)
+
+// RecoveryVerification is the report of the checks after the restore
+// (docs/BAREMETAL.md 10.17): it carries no secret and no file content.
+// Evidence values are strings (at most 300 characters), integers or
+// booleans.
+type RecoveryVerification struct {
+	Format            string                `json:"format"`
+	Result            string                `json:"result"`
+	SnapshotID        string                `json:"snapshotId"`
+	PlanSHA256        string                `json:"planSha256"`
+	StartedAt         time.Time             `json:"startedAt"`
+	FinishedAt        time.Time             `json:"finishedAt"`
+	RestoreErrors     int64                 `json:"restoreErrors"`
+	Checks            []RecoveryCheck       `json:"checks"`
+	Hints             []RecoveryHint        `json:"hints"`
+	Fixups            []RecoveryFixupChange `json:"fixups"`
+	NotAdaptedKernels []string              `json:"notAdaptedKernels"`
+}
+
+// RecoveryCheck is one of the ten checks of 10.17.
+type RecoveryCheck struct {
+	ID       string            `json:"id"`
+	Result   string            `json:"result"`
+	Findings []RecoveryFinding `json:"findings"`
+	Evidence map[string]any    `json:"evidence"`
+}
+
+// RecoveryFinding is one finding of a check; Code is a plan or recover
+// code (agent/internal/recovery/testdata/recover-codes.json).
+type RecoveryFinding struct {
+	Code    string            `json:"code"`
+	Ref     string            `json:"ref"`
+	Message string            `json:"message"`
+	Params  map[string]string `json:"params"`
+}
+
+// RecoveryHint is advice for after the start, translated by the web from
+// its code and parameters (hintParams of recover-codes.json).
+type RecoveryHint struct {
+	Code   string            `json:"code"`
+	Params map[string]string `json:"params"`
+}
+
+// RecoveryFixupChange is a file a fixup changed and where the previous
+// version was kept.
+type RecoveryFixupChange struct {
+	Path   string `json:"path"`
+	Rule   string `json:"rule"`
+	Backup string `json:"backup"`
+}

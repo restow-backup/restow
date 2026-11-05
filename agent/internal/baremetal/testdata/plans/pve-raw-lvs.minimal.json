@@ -520,10 +520,10 @@
       "kind": "initramfs",
       "n": 21,
       "phase": "post",
-      "reason": "rebuild the initramfs with MODULES=most",
+      "reason": "rebuild the initramfs of 6.8.12-4-pve with MODULES=most",
       "stdin": null,
       "stdinSecret": null,
-      "target": null
+      "target": "6.8.12-4-pve"
     },
     {
       "args": [

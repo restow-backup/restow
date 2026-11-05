@@ -29,6 +29,7 @@ import {
   recoveryOpen,
 } from "../presenters.js";
 import { typedAddress } from "./recovery-code-dialog.js";
+import { RecoveryVerificationBlock, RecoveryWarnings } from "./recovery-verification.js";
 
 /** How much longer "Extend" asks for. */
 const EXTEND_HOURS = 4;
@@ -299,18 +300,10 @@ export function RecoveryLiveView(props: RecoveryLiveViewProps) {
         />
       ) : null}
       <ProgressBlock recovery={recovery} />
-      {recovery.warnings.length > 0 ? (
-        <ul className="grid gap-1 text-sm" data-slot="recovery-warnings">
-          {recovery.warnings.map((warning) => (
-            <li
-              key={`${warning.code}-${warning.message}`}
-              className="rounded-md border border-warning/40 bg-warning/5 px-2 py-1"
-            >
-              {warning.message}
-            </li>
-          ))}
-        </ul>
+      {recovery.verification ? (
+        <RecoveryVerificationBlock verification={recovery.verification} />
       ) : null}
+      <RecoveryWarnings warnings={recovery.warnings} />
       {open ? (
         <div className="flex flex-wrap gap-2">
           {recovery.status === "issued" ? (

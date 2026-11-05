@@ -1,0 +1,22 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Nothing of a connected disk becomes active by itself, SSH stays off until the
+# operator switches remote access on, and the recovery program owns the first
+# console (README.md, "No auto-activation").
+set -eu
+
+# GPT partitions of other disks are never mounted by the generator.
+ln -sf /dev/null /etc/systemd/system-generators/systemd-gpt-auto-generator
+# No swap of a connected disk, no LVM or RAID activation by event.
+for unit in lvm2-monitor.service lvm2-lvmpolld.socket mdmonitor.service mdcheck_start.timer \
+  mdcheck_continue.timer mdmonitor-oneshot.timer swap.target; do
+  systemctl mask "$unit" >/dev/null 2>&1 || true
+done
+# Remote access is switched on by the recovery program only.
+systemctl disable ssh.service ssh.socket >/dev/null 2>&1 || true
+systemctl mask ssh.socket >/dev/null 2>&1 || true
+# The address comes from systemd-networkd; the recovery program starts on tty1.
+systemctl enable systemd-networkd.service systemd-resolved.service systemd-timesyncd.service
+systemctl enable restow-recover.service
+ln -sf /usr/lib/restow-recovery/restow-agent /usr/local/sbin/restow-agent

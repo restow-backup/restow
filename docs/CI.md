@@ -10,8 +10,9 @@ key, stays on the maintainer's machine: the release waits until it is used there
 
 | Workflow | Runs on | What it does |
 | --- | --- | --- |
-| `ci.yml` | every push to a branch, every pull request, and as part of the release | lint (biome), the `ee/` import guard, the former-name guard (no tracked file or path may name the product before its rename) and the package file guard (`check-package-files.mjs`: no test file or test data folder in what a workspace package ships into the images), all in `scripts/ci`, typecheck, unit and Postgres tests (with the pinned restic installed, the endpoint suites run it) and the guard that no Postgres suite was skipped, i18n completeness (every key of `en` in `de` and the other way round), full build, Docker build of all four images, full and Community (no push, see "Two build targets"), with a look inside (the self-test of `scripts/docker`, restic, `restow-restore`, the agent checksums, the license texts, no `@tutao/oxmsg` in the production trees, the OCI labels with each build's license, the variant marker, no `ee/` code in the Community images and no license signing code in any image), `pnpm audit` for high and critical advisories, dependency licenses (see "Dependency licenses and Dependabot"), gitleaks over the history (over the commits of a pull request), the Go agent in `agent/` (its own scripts: `agent/scripts/test.sh` with gofmt, go vet for the five targets, `go test -race` and ShellCheck; `integration.sh` against the real restic and an append-only REST server; `test-install.sh` for the install script; then `agent/build.sh` for linux and darwin on amd64 and arm64 and windows on amd64, the license check of all five restic binaries and the byte guard on the snapshot error texts in `restic.exe`; passes with a notice on a commit that has no `agent/`), the Go agent on a Windows runner (job `agent-windows`, `windows-2022`: gofmt, native `go vet` and the unit tests without the `unix` build tag, see docs/WINDOWS-AGENT.md section 3.5), shellcheck for every `*.sh`, the tests of the server install script (`deploy/install/test.sh`, see "Server install script") and of the demo reset (`deploy/demo/test.sh`: the default mode and the follow mode of `deploy/demo/reset.sh` against a stub docker), actionlint for the workflows. The job **CI passed** is the one to require in branch protection. |
+| `ci.yml` | every push to a branch, every pull request, and as part of the release | lint (biome), the `ee/` import guard, the former-name guard (no tracked file or path may name the product before its rename) and the package file guard (`check-package-files.mjs`: no test file or test data folder in what a workspace package ships into the images), all in `scripts/ci`, typecheck, unit and Postgres tests (with the pinned restic installed, the endpoint suites run it) and the guard that no Postgres suite was skipped, i18n completeness (every key of `en` in `de` and the other way round), full build, Docker build of all four images, full and Community (no push, see "Two build targets"), with a look inside (the self-test of `scripts/docker`, restic, `restow-restore`, the agent checksums, the license texts, no `@tutao/oxmsg` in the production trees, the OCI labels with each build's license, the variant marker, no `ee/` code in the Community images and no license signing code in any image), `pnpm audit` for high and critical advisories, dependency licenses (see "Dependency licenses and Dependabot"), gitleaks over the history (over the commits of a pull request), the Go agent in `agent/` (its own scripts: `agent/scripts/test.sh` with gofmt, go vet for the five targets, `go test -race` and ShellCheck; `integration.sh` against the real restic and an append-only REST server; `test-install.sh` for the install script; then `agent/build.sh` for linux and darwin on amd64 and arm64 and windows on amd64, the license check of all five restic binaries and the byte guard on the snapshot error texts in `restic.exe`; passes with a notice on a commit that has no `agent/`), the Go agent on a Windows runner (job `agent-windows`, `windows-2022`: gofmt, native `go vet` and the unit tests without the `unix` build tag, see docs/WINDOWS-AGENT.md section 3.5), shellcheck for every `*.sh`, the tests of the server install script (`deploy/install/test.sh`, see "Server install script") and of the demo reset (`deploy/demo/test.sh`: the default mode and the follow mode of `deploy/demo/reset.sh` against a stub docker), actionlint for the workflows; the recovery ISO (see "Recovery ISO": `recovery-scripts`, `recovery-paths`, `recovery-iso`, `recovery-iso-rebuild`, `recovery-iso-compare`, `recovery-e2e`) and `agent-root` (the Go tests as root on loop devices). The job **CI passed** is the one to require in branch protection; it counts a recovery ISO job that the path filter skipped as passed. |
 | `release.yml` | a tag `v*` | see "Releasing" |
+| `recovery-nightly.yml` | nightly, on demand, and called by `release.yml` | the bare metal restore cases E1b and E3 to E10 in QEMU/KVM (all cases before a release) against the recovery ISO; see "Recovery ISO" |
 | `smoke.yml` | nightly on `main`, and on demand | builds the images of both builds from the checkout and runs every smoke check, once per build; nothing is published |
 | `contributor-checks.yml` | pull requests | CLA and DCO sign-off; the DCO job skips Dependabot's pull requests (its commits carry no sign-off; the CLA job allowlists it for the same reason) |
 
@@ -211,13 +212,21 @@ image).
      their `SHA256SUMS` (`Get-FileHash`), `restow-agent.exe version --short` is the
      release version and `restic.exe version` the pinned restic. Nothing that does not
      start on Windows gets signed.
-   - **agent-sums**: only after that check, puts the checksum list on a **draft**
-     release as `agent-SHA256SUMS` and asks for the signature, naming the SHA-256 of
+   - **recovery-iso** and **recovery-iso-rebuild**: the recovery ISO from the
+     `linux-amd64` folder of that build, on `ubuntu-24.04` and again on `ubuntu-22.04`
+     with another time zone and umask; the first also checks the image and writes the
+     firmware licences and the source bundle (see "Recovery ISO").
+   - **recovery-e2e-full**: every restore case of `recovery-nightly.yml` against that ISO.
+   - **agent-sums**: only after that check, adds `<sha256>  recovery/restow-recovery_<v>_amd64.iso`
+     to the checksum list when both ISO builds have the same SHA-256 (it fails otherwise),
+     puts the list on a **draft** release as `agent-SHA256SUMS` (and hands it to the
+     signature job as `agent-dist-sums`) and asks for the signature, naming the SHA-256 of
      `restow-agent.exe` and `restic.exe` and reminding of the Defender submission
      (maintainer step, see docs/WINDOWS-AGENT.md section 15).
    - **agent-signature** (environment `agent-release-signing`): waits until the
-     maintainer ran `scripts/release/sign-agent.sh vX.Y.Z --key <private key>` on the
-     signing machine (it signs `agent-SHA256SUMS`, checks the signature against the
+     maintainer rebuilt the recovery ISO from the tag on a Docker host of their own and ran
+     `scripts/release/sign-agent.sh vX.Y.Z --key <private key> --iso <rebuilt ISO>` on the
+     signing machine (it refuses when the rebuilt ISO's SHA-256 differs from the line) (it signs `agent-SHA256SUMS`, checks the signature against the
      committed public key, uploads `agent-SHA256SUMS.sig` and approves this job); then
      checks that the signature covers exactly this build. The script runs from any
      directory and needs no clone: without a clone that has the tag it reads the tag and
@@ -278,6 +287,32 @@ cosign verify ghcr.io/restow-backup/restow:0.2.1 \
 A failed run leaves untagged digests in the registry and a draft release at most; fix the cause and
 run it again (re-run the workflow, or delete and push the tag again; a published tag is
 never moved: a hotfix is a new PATCH release with its own smoke run).
+
+## Recovery ISO
+
+The build recipe of the recovery ISO is the separate work `integrations/recovery`
+(GPL-3.0-or-later, docs/BAREMETAL.md 8). Its jobs in `ci.yml`:
+
+| Job | What it does |
+| --- | --- |
+| `recovery-scripts` | always: `integrations/recovery/test/unit.sh` (lock and list compare, the forbidden apt options, the split names of the source bundle, the secret scan on fixtures, the refusals of `build.sh`, the boot menus, the unit) and shellcheck of the hooks and `auto/config` (the `*.sh` files are in `shellcheck`) |
+| `recovery-paths` | whether anything of the ISO changed: `integrations/recovery/**`, `agent/**`, `scripts/recovery-e2e/**` or the recovery API; always on a call from the release, a new branch or by hand. Without entries in `packages.lock` nothing is built (a warning says so) |
+| `recovery-iso` | `ubuntu-24.04`: `build.sh` from the `linux-amd64` agent of this commit (artifact `agent-dist-linux-amd64`), then `test/check-image.sh` (firmware list, the `ice` DDP package, every program of `restow-agent recover --list-tools`, the version, the BIOS and UEFI boot entries, under 900 MiB, the keyboard layouts, no auto-activation files, `no-secrets.sh`), then `scripts/recovery-e2e/no-autoactivation.mjs` in QEMU/KVM (the ISO prepares a second disk with md RAID1, a volume group and swap, then starts normally and runs `test/no-autoactivation.sh`; the job fails when anything of it is active); `permissions: contents: read`, no secrets |
+| `recovery-iso-rebuild` | the same build on `ubuntu-22.04` with another `TZ` and `umask` |
+| `recovery-iso-compare` | the SHA-256 of both builds must be equal; otherwise `diffoscope` and a failure |
+| `recovery-e2e` | E1 and E2 (`scripts/recovery-e2e/run.mjs --cases per-pr`) with KVM through a udev rule; the serial logs as an artifact |
+
+The first `packages.lock` comes from **Actions > CI > Run workflow** with `update-lock`:
+`recovery-iso` keeps the lock it wrote as the artifact `recovery-packages-lock`; review its
+diff and commit it as `integrations/recovery/packages.lock`. Do the same, by hand, whenever
+`snapshot.env` moves to a new snapshot time (each release). Until two builds of a commit were
+equal, the ISO is not reproducible and no release lists it.
+
+`recovery-nightly.yml` runs E1b and E3 to E10 every night (each case its own job, at most four
+at a time), builds the agent and the ISO of the default branch first, and is called by the
+release with the release's ISO and every case. The cloud image cases (E3, E4, E5, E6b) need the
+hashes in `scripts/recovery-e2e/images.json`; `run.mjs --pin-images` prints them, the
+maintainer compares them with the distribution's checksum file and commits them.
 
 ## Server install script
 

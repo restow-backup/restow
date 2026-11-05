@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# Every package installed into the recovery ISO, dependencies included:
+#   <package> <version> <SHA-256 of the .deb>
+# The hook config/hooks/live/0500-restow-lockcheck.hook.chroot compares the image with
+# this list after the packages are installed; any difference fails the build. The list
+# is written by `build.sh --update-lock` only (by hand, on the maintainer's machine or
+# in the CI job recovery-iso started with the input update-lock) and committed after a
+# review of its diff. Without entries build.sh refuses to build (except --update-lock).

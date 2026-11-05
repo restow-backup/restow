@@ -62,6 +62,14 @@ func RunNoKill(ctx context.Context, r Runner, timeout time.Duration, name string
 	return r.Run(ctx, name, args...)
 }
 
+// InputRunner runs a command with bytes on its stdin (an sfdisk script,
+// a passphrase for cryptsetup), its own time limit (0: the runner's) and
+// output cap (0: the runner's). Forbidden applies. The input is never
+// logged or recorded.
+type InputRunner interface {
+	RunInput(ctx context.Context, stdin []byte, timeout time.Duration, maxOut int, name string, args ...string) ([]byte, error)
+}
+
 // ToolDirs are the directories tools are taken from; PATH is not searched.
 var ToolDirs = []string{"/usr/sbin", "/sbin", "/usr/bin", "/bin"}
 
@@ -117,6 +125,10 @@ type ExecRunner struct {
 	MaxOutput int
 	// Dirs replaces ToolDirs (tests).
 	Dirs []string
+	// OwnProcessGroup starts every command in a process group of its own
+	// (Unix), so a Ctrl+C on recover's console does not reach a command
+	// that must not be interrupted (lvcreate, mkfs).
+	OwnProcessGroup bool
 }
 
 // Resolve finds a tool in the root-owned directories.
@@ -140,7 +152,33 @@ func (r ExecRunner) Resolve(name string) (string, error) {
 // Run runs name with args. At the time limit or on cancellation the
 // command is killed (read-only commands).
 func (r ExecRunner) Run(ctx context.Context, name string, args ...string) ([]byte, error) {
-	return r.run(ctx, r.Timeout, false, name, args...)
+	return r.run(ctx, r.Timeout, false, nil, 0, name, args...)
+}
+
+// RunInput runs name with stdin as its input (InputRunner); it is killed
+// at the time limit or on cancellation.
+func (r ExecRunner) RunInput(ctx context.Context, stdin []byte, timeout time.Duration, maxOut int, name string, args ...string) ([]byte, error) {
+	if timeout == 0 {
+		timeout = r.Timeout
+	}
+	return r.run(ctx, timeout, false, stdinOrEmpty(stdin), maxOut, name, args...)
+}
+
+// RunInputNoKill is RunInput for a state-changing command (see RunNoKill):
+// never killed, SIGTERM at the time limit (0 selects StateChangeTimeout).
+func (r ExecRunner) RunInputNoKill(ctx context.Context, stdin []byte, timeout time.Duration, maxOut int, name string, args ...string) ([]byte, error) {
+	if timeout == 0 {
+		timeout = StateChangeTimeout
+	}
+	return r.run(ctx, timeout, true, stdinOrEmpty(stdin), maxOut, name, args...)
+}
+
+// stdinOrEmpty keeps "no input" (nil: /dev/null) apart from empty input.
+func stdinOrEmpty(b []byte) []byte {
+	if b == nil {
+		return []byte{}
+	}
+	return b
 }
 
 // RunNoKill runs a state-changing command: the caller's cancellation does
@@ -150,10 +188,10 @@ func (r ExecRunner) RunNoKill(ctx context.Context, timeout time.Duration, name s
 	if timeout == 0 {
 		timeout = StateChangeTimeout
 	}
-	return r.run(ctx, timeout, true, name, args...)
+	return r.run(ctx, timeout, true, nil, 0, name, args...)
 }
 
-func (r ExecRunner) run(ctx context.Context, timeout time.Duration, noKill bool, name string, args ...string) ([]byte, error) {
+func (r ExecRunner) run(ctx context.Context, timeout time.Duration, noKill bool, stdin []byte, maxOut int, name string, args ...string) ([]byte, error) {
 	argv := append([]string{name}, args...)
 	if err := Forbidden(argv); err != nil {
 		return nil, err
@@ -165,20 +203,29 @@ func (r ExecRunner) run(ctx context.Context, timeout time.Duration, noKill bool,
 	if timeout == 0 {
 		timeout = DefaultTimeout
 	}
-	max := r.MaxOutput
+	max := maxOut
+	if max == 0 {
+		max = r.MaxOutput
+	}
 	if max == 0 {
 		max = DefaultMaxOutput
 	}
 	out := &capped{max: max}
 	var stderr bytes.Buffer
 	if noKill {
-		return runNoKill(timeout, bin, argv, out, &stderr)
+		return runNoKill(timeout, bin, argv, stdin, out, &stderr, r.OwnProcessGroup)
 	}
 	cctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(cctx, bin, args...)
 	cmd.Env = procenv.Set(procenv.Base(), "LC_ALL", "C")
 	cmd.Stdin = nil
+	if stdin != nil {
+		cmd.Stdin = bytes.NewReader(stdin)
+	}
+	if r.OwnProcessGroup {
+		setpgid(cmd)
+	}
 	cmd.Stdout = out
 	cmd.Stderr = &limitedWriter{w: &stderr, n: 64 << 10}
 	cmd.WaitDelay = 5 * time.Second
@@ -199,10 +246,16 @@ func (r ExecRunner) run(ctx context.Context, timeout time.Duration, noKill bool,
 // the time limit a timer sends SIGTERM and Wait goes on until it exits.
 // WaitDelay then bounds only the wait for the output pipes after the exit
 // (a daemon lvm starts, such as dmeventd, could hold them open).
-func runNoKill(timeout time.Duration, bin string, argv []string, out *capped, stderr *bytes.Buffer) ([]byte, error) {
+func runNoKill(timeout time.Duration, bin string, argv []string, stdin []byte, out *capped, stderr *bytes.Buffer, ownGroup bool) ([]byte, error) {
 	cmd := exec.Command(bin, argv[1:]...)
 	cmd.Env = procenv.Set(procenv.Base(), "LC_ALL", "C")
 	cmd.Stdin = nil
+	if stdin != nil {
+		cmd.Stdin = bytes.NewReader(stdin)
+	}
+	if ownGroup {
+		setpgid(cmd)
+	}
 	cmd.Stdout = out
 	cmd.Stderr = &limitedWriter{w: stderr, n: 64 << 10}
 	cmd.WaitDelay = 5 * time.Second

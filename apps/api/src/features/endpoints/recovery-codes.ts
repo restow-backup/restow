@@ -4,8 +4,10 @@ import {
   generateRecoveryCode,
   hashRecoveryCodeProof,
   MAX_RECOVERY_VALIDITY_HOURS,
+  parseRecoveryVerification,
   RECOVERY_APPROVAL_TIMEOUT_MS,
   RECOVERY_OPEN_LIMIT,
+  type RecoveryVerification,
   recoveryCodeProof,
   recoveryMatchCode,
   spkiCheckOf,
@@ -83,6 +85,56 @@ export function sessionEnded(detail = "The recovery session has ended."): Proble
   });
 }
 
+/** Sessions that run: redeemed and not ended (the list and the page say "Being restored"). */
+export const RUNNING_RECOVERY_STATES: readonly EndpointRecoveryStatus[] = [
+  "pending_approval",
+  "active",
+  "finishing",
+];
+
+/** The running session of a machine, as the list, the page and the bare metal card show it. */
+export interface ActiveRecoveryDto {
+  id: string;
+  status: EndpointRecoveryStatus;
+  phase: string | null;
+}
+
+/** The newest running session of each machine (`RUNNING_RECOVERY_STATES`). */
+export async function activeRecoveriesOf(
+  tx: Transaction,
+  endpointIds: readonly string[],
+): Promise<Map<string, ActiveRecoveryDto>> {
+  const out = new Map<string, ActiveRecoveryDto>();
+  if (endpointIds.length === 0) {
+    return out;
+  }
+  const rows = await tx
+    .select({
+      id: endpointRecoveries.id,
+      endpointId: endpointRecoveries.endpointId,
+      status: endpointRecoveries.status,
+      progress: endpointRecoveries.progress,
+    })
+    .from(endpointRecoveries)
+    .where(
+      and(
+        inArray(endpointRecoveries.endpointId, [...endpointIds]),
+        inArray(endpointRecoveries.status, [...RUNNING_RECOVERY_STATES]),
+      ),
+    )
+    .orderBy(desc(endpointRecoveries.issuedAt));
+  for (const row of rows) {
+    if (!out.has(row.endpointId)) {
+      out.set(row.endpointId, {
+        id: row.id,
+        status: row.status,
+        phase: row.progress?.phase ?? null,
+      });
+    }
+  }
+  return out;
+}
+
 /** Codes and sessions that are still open (count against the limit, can be extended). */
 export const OPEN_RECOVERY_STATES: readonly EndpointRecoveryStatus[] = [
   "issued",
@@ -148,7 +200,11 @@ export interface RecoveryDetailDto extends RecoveryDto {
   progress: EndpointRecovery["progress"];
   sshKeys: string[];
   sshHostKeys: { type: string; fingerprint: string }[];
-  verification: Record<string, unknown> | null;
+  /**
+   * The ISO's verification report (`restow-verify-v1`, docs/BAREMETAL.md 10.17) as far as it
+   * parses; null when there is none or it does not (the raw value is never handed out).
+   */
+  verification: RecoveryVerification | null;
   warnings: { code: string; message: string }[];
   /** `next`: the cursor of the next page (`logAfter`), or null. */
   log: { items: { id: string; at: string; lines: string[] }[]; next: string | null };
@@ -220,10 +276,14 @@ async function dtoOf(tx: Transaction, row: EndpointRecovery): Promise<RecoveryDt
 export interface BaremetalSnapshot {
   id: string;
   time: string;
+  layoutId: string;
   layoutSha256: string;
   verdict: string;
   check: "passed" | "failed" | "incomplete" | "none";
   restoreSizes: Record<string, unknown> | null;
+  /** From the stage 1 report: what the replacement hardware needs (14.6 step 2). */
+  minimumSizes: Record<string, unknown> | null;
+  planner: Record<string, unknown> | null;
 }
 
 /** The endpoint's good backups with a layout, newest first (at most 50). */
@@ -236,6 +296,7 @@ export async function baremetalSnapshots(
       snapshotId: endpointRuns.snapshotId,
       finishedAt: endpointRuns.finishedAt,
       startedAt: endpointRuns.startedAt,
+      layoutId: endpointLayouts.id,
       layoutSha256: endpointLayouts.sha256,
       verdict: endpointLayouts.verdict,
     })
@@ -280,9 +341,14 @@ export async function baremetalSnapshots(
     seen.add(id);
     const report = bySnapshot.get(id);
     const sizes = report?.summary.restoreSizes;
+    const recordOf = (value: unknown) =>
+      value !== null && typeof value === "object" && !Array.isArray(value)
+        ? (value as Record<string, unknown>)
+        : null;
     out.push({
       id,
       time: (run.finishedAt ?? run.startedAt).toISOString(),
+      layoutId: run.layoutId,
       layoutSha256: run.layoutSha256,
       verdict: run.verdict,
       check:
@@ -293,10 +359,9 @@ export async function baremetalSnapshots(
             : report?.readiness === "yellow"
               ? "incomplete"
               : "none",
-      restoreSizes:
-        sizes !== null && typeof sizes === "object" && !Array.isArray(sizes)
-          ? (sizes as Record<string, unknown>)
-          : null,
+      restoreSizes: recordOf(sizes),
+      minimumSizes: recordOf(report?.summary.minimumSizes),
+      planner: recordOf(report?.summary.planner),
     });
   }
   return out;
@@ -634,7 +699,7 @@ export async function getRecovery(
       progress: row.progress,
       sshKeys: row.sshKeys ?? [],
       sshHostKeys: row.sshHostKeys ?? [],
-      verification: row.verification,
+      verification: parseRecoveryVerification(row.verification),
       warnings: row.warnings ?? [],
       log: { items, next: more ? logCursorOf(items.at(-1)) : null },
     };

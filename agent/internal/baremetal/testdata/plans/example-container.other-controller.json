@@ -37,5 +37,26 @@
   },
   "steps": [],
   "target": "other-controller",
-  "warnings": []
+  "warnings": [
+    {
+      "code": "untested_distribution",
+      "message": "alpine is not among the tested distributions; the restore may need manual work after the start.",
+      "params": {
+        "init": "other",
+        "os": "alpine"
+      },
+      "ref": null,
+      "severity": "warning"
+    },
+    {
+      "code": "non_systemd_init",
+      "message": "alpine starts with other, not systemd; the restore may need manual work after the start.",
+      "params": {
+        "init": "other",
+        "os": "alpine"
+      },
+      "ref": null,
+      "severity": "warning"
+    }
+  ]
 }

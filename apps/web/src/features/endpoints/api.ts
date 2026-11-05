@@ -125,6 +125,11 @@ export interface EndpointSummary {
    * null when nobody. Absent on servers from before 0.2.1.
    */
   assignedTo?: EndpointAssignee | null;
+  /**
+   * A bare metal recovery session that runs for the machine (pending approval, active, finishing):
+   * the list and the page say "Being restored". Absent on servers before 0.5.0.
+   */
+  recovery?: { status: RecoveryStatus; phase: RecoveryPhase | null } | null;
   createdAt: string;
   revokedAt: string | null;
 }
@@ -653,6 +658,8 @@ export interface BaremetalPlannerRun {
   ok: boolean | null;
   problems?: { code: string; ref: string | null; params: Record<string, unknown> }[];
   warnings?: { code: string; ref: string | null; params: Record<string, unknown> }[];
+  /** The storage drivers the planner looked for (reports since 0.5.0). */
+  storage?: { module: string; found: boolean; builtin: boolean }[];
   incomplete?: string;
   refused?: string;
 }
@@ -779,6 +786,56 @@ export interface Baremetal {
     mounts: string[];
   } | null;
   check: BaremetalCheck | null;
+  /** The whole machine snapshots, newest first (servers since M4). */
+  snapshots?: BaremetalSnapshot[];
+  /** What replacement hardware needs for the newest layout. */
+  hardware?: ReplacementHardware | null;
+  /** The same per layout id of the listed snapshots. */
+  hardwareByLayout?: Record<string, ReplacementHardware>;
+  /** The running recovery session, if there is one. */
+  activeRecovery?: { id: string; status: RecoveryStatus; phase: RecoveryPhase | null } | null;
+}
+
+/** A whole machine snapshot the wizard offers. */
+export interface BaremetalSnapshot {
+  snapshotId: string;
+  time: string;
+  layoutId: string;
+  layoutSha256: string;
+  sameLayoutAsNewest: boolean;
+  check: "passed" | "failed" | "incomplete" | "none";
+  verdict: LayoutVerdict;
+}
+
+/** What replacement hardware needs (@restow/core `replacementHardware`). */
+export interface ReplacementHardware {
+  firmwareMode: "uefi" | "bios";
+  secureBoot: boolean | null;
+  requiredCAs: string[];
+  disks: {
+    id: string;
+    kname: string;
+    sizeBytes: number;
+    minBytes: number | null;
+    transport: string | null;
+    logicalSectorSize: number;
+    model: string | null;
+  }[];
+  ramMinBytes: number;
+  ramRecommendedBytes: number;
+  keymap: {
+    layout: string | null;
+    variant: string | null;
+    inInitramfs: boolean;
+    grubCryptodisk: boolean;
+  };
+  luksVolumes: number;
+  tokenTypes: string[];
+  tpm: boolean;
+  storageDriversOtherController: { module: string; ok: boolean }[];
+  hardwareRaidHint: { disk: string; minBytes: number | null }[];
+  biosNeedsCsm: boolean;
+  nics: number;
 }
 
 // --- Bare metal recovery (docs/BAREMETAL.md 9, 11) ------------------------------------------
@@ -788,8 +845,16 @@ export interface RecoveryIso {
   version: string | null;
   fileName: string | null;
   url: string | null;
+  /** Where the download comes from: this instance (RESTOW_RECOVERY_ISO_DIR) or the GitHub release. */
+  source?: "instance" | "github" | null;
   sha256: string | null;
+  /** Known for the copy on this instance only. */
+  sizeBytes?: number | null;
   releaseKeyFingerprint: string | null;
+  releaseUrl?: string | null;
+  /** The source bundle of the GPL packages in the image (release attachments). */
+  sourcesUrl?: string | null;
+  firmwareLicensesUrl?: string | null;
   /** Only a verified ISO lets codes be issued; until then the dialog and the wizard stay hidden. */
   verified: boolean;
   commands: { linux: string[]; macos: string[]; windows: string[] };
@@ -885,9 +950,51 @@ export interface RecoveryDetail extends Recovery {
   } | null;
   sshKeys: string[];
   sshHostKeys: { type: string; fingerprint: string }[];
-  verification: Record<string, unknown> | null;
+  /** The ISO's verification report (`restow-verify-v1`), null when there is none or it is not one. */
+  verification: RecoveryVerification | null;
   warnings: { code: string; message: string }[];
   log: { items: { id: string; at: string; lines: string[] }[]; next: string | null };
+}
+
+export type RecoveryCheckResult = "ok" | "warning" | "failed";
+
+/** The ten checks after a restore (docs/BAREMETAL.md 10.17), in the order they are shown. */
+export const RECOVERY_CHECK_IDS = [
+  "restic_verify",
+  "storage_stack",
+  "fstab",
+  "crypttab",
+  "initramfs",
+  "boot_entries",
+  "boot_config",
+  "identity_conflicts",
+  "mount_points",
+  "secure_boot",
+] as const;
+
+/** The verification report of the ISO (@restow/core `RecoveryVerification`). */
+export interface RecoveryVerification {
+  format: "restow-verify-v1";
+  result: RecoveryCheckResult;
+  snapshotId: string;
+  planSha256: string;
+  startedAt: string;
+  finishedAt: string;
+  restoreErrors: number;
+  checks: {
+    id: string;
+    result: RecoveryCheckResult;
+    findings: {
+      code: string;
+      ref: string | null;
+      message: string;
+      params: Record<string, string>;
+    }[];
+    evidence: Record<string, string | number | boolean>;
+  }[];
+  hints: { code: string; params: Record<string, string> }[];
+  fixups: { path: string; rule: string; backup: string | null }[];
+  notAdaptedKernels: string[];
 }
 
 /** The answer to issuing a code: the code is shown once, never stored. */
@@ -964,6 +1071,7 @@ export const endpointKeys = {
   recovery: (tenantId: TenantKey, endpointId: string, recoveryId: string) =>
     ["tenant", tenantId, "endpoints", "detail", endpointId, "recoveries", recoveryId] as const,
   recoveryIso: (tenantId: TenantKey) => ["tenant", tenantId, "recovery-iso"] as const,
+  capabilities: (tenantId: TenantKey) => ["tenant", tenantId, "endpoints", "capabilities"] as const,
 };
 
 // --- Requests ---------------------------------------------------------------------
@@ -1155,6 +1263,16 @@ export function resumeMachineUpdates(endpointId: string): Promise<AgentUpdates> 
   return apiFetch<AgentUpdates>(`${BASE}/agent-updates/machines/${id(endpointId)}`, {
     method: "DELETE",
   });
+}
+
+/** What the installation offers for machines (GET /api/v1/endpoints/capabilities). */
+export interface EndpointCapabilities {
+  /** Whole machine backups and bare metal recovery (preview, RESTOW_BAREMETAL_PREVIEW). */
+  baremetalPreview: boolean;
+}
+
+export function fetchEndpointCapabilities(): Promise<EndpointCapabilities> {
+  return apiFetch<EndpointCapabilities>(`${BASE}/capabilities`);
 }
 
 export function fetchRecoveryIso(): Promise<RecoveryIso> {

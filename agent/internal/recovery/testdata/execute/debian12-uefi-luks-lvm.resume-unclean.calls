@@ -1,0 +1,13 @@
+cryptsetup open --key-file - /dev/nvme0n1p3 nvme0n1p3_crypt <stdin:31 bytes>
+vgchange --devices /dev/mapper/nvme0n1p3_crypt -ay srv01-vg
+mount -t ext4 /dev/srv01-vg/root /mnt/restow-target
+mount -t ext4 /dev/nvme0n1p2 /mnt/restow-target/boot
+mount -t ext4 /dev/srv01-vg/home /mnt/restow-target/home
+mount -t vfat -o quiet /dev/nvme0n1p1 /mnt/restow-target/boot/efi
+restic restore --json --no-lock --no-cache --target /mnt/restow-target --sparse --verify --overwrite always abababababababababababababababababababababababababababababababab
+restic restore --json --no-lock --no-cache --target /mnt/restow-target --sparse --verify --overwrite always --include /bin --include /boot --include /boot/efi --include /etc --include /lib --include /lib32 --include /lib64 --include /libx32 --include /sbin --include /usr abababababababababababababababababababababababababababababababab
+session release
+zero repository secrets
+chroot-exec update-initramfs -u -k 6.1.0-27-amd64
+chroot-exec grub-mkconfig -o /boot/grub/grub.cfg
+op nvram debian 5e1c4d0a-1b2c-4d3e-8f90-a1b2c3d4e5f6 \EFI\debian\shimx64.efi

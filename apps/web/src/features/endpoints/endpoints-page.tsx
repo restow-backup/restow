@@ -15,7 +15,7 @@ import { PendingTokens } from "./components/pending-tokens.js";
 import { ProxmoxLink } from "./components/proxmox-link.js";
 import { RemovalsCard } from "./components/removals-card.js";
 import { canManageJobs, WithoutBackupBanner } from "./components/without-backup.js";
-import { useEndpoints } from "./hooks.js";
+import { useEndpointCapabilities, useEndpoints } from "./hooks.js";
 import { type EndpointArea, type EndpointProfile, profileOfArea } from "./paths.js";
 
 const AREA_ICON = { agents: Boxes, servers: Server, clients: Laptop } as const;
@@ -50,6 +50,7 @@ export function EndpointsPage({
   const { activeTenant, isProviderAdmin, role } = useSession();
   const profile = profileOfArea(area);
   const endpoints = useEndpoints(profile);
+  const capabilities = useEndpointCapabilities();
   const [enrolling, setEnrolling] = React.useState<EndpointProfile | null>(null);
   const jobsAccess = useJobsAccess();
   const manageJobs = canManageJobs(role);
@@ -109,7 +110,9 @@ export function EndpointsPage({
         </fieldset>
       ) : null}
 
-      <p className="max-w-prose text-sm text-muted-foreground">{t("list.honesty")}</p>
+      <p className="max-w-prose text-sm text-muted-foreground" data-slot="endpoints-honesty">
+        {capabilities.data?.baremetalPreview ? t("list.honestyBaremetal") : t("list.honesty")}
+      </p>
 
       <PendingTokens profile={profile} />
 

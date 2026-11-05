@@ -768,10 +768,10 @@
       "kind": "initramfs",
       "n": 31,
       "phase": "post",
-      "reason": "rebuild the initramfs without hostonly",
+      "reason": "rebuild the initramfs of 5.14.0-503.11.1.el9_5.x86_64 without hostonly",
       "stdin": null,
       "stdinSecret": null,
-      "target": null
+      "target": "5.14.0-503.11.1.el9_5.x86_64"
     },
     {
       "args": [
@@ -808,10 +808,22 @@
     },
     {
       "args": [
+        "selinux"
+      ],
+      "kind": "selinux",
+      "n": 34,
+      "phase": "post",
+      "reason": "check the SELinux labels of the restore; relabel only what recover created or changed",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": null
+    },
+    {
+      "args": [
         "verify"
       ],
       "kind": "verify",
-      "n": 34,
+      "n": 35,
       "phase": "post",
       "reason": "check the restored system (identities, fstab, boot files)",
       "stdin": null,

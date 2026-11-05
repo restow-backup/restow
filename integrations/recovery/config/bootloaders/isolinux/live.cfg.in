@@ -1,0 +1,196 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# The BIOS boot menu of the recovery ISO (syslinux), the same entries as the GRUB menu
+# (grub-pc/grub.cfg). live-build fills in @LINUX@, @INITRD@ and @APPEND_LIVE@.
+serial 0 115200
+default restow
+timeout 100
+prompt 0
+label restow
+	menu label Restow Recovery
+	linux @LINUX@
+	initrd @INITRD@
+	append @APPEND_LIVE@ noswap nopersistence live-media-timeout=30 modprobe.blacklist=amdgpu,radeon,nouveau,xe restow.keymap=us
+label restow-ttys0
+	menu label Restow Recovery (serial console ttyS0, 115200)
+	linux @LINUX@
+	initrd @INITRD@
+	append @APPEND_LIVE@ noswap nopersistence live-media-timeout=30 modprobe.blacklist=amdgpu,radeon,nouveau,xe console=tty0 console=ttyS0,115200n8 restow.console=ttyS0 restow.keymap=us
+label restow-ttys1
+	menu label Restow Recovery (serial console ttyS1, 115200)
+	linux @LINUX@
+	initrd @INITRD@
+	append @APPEND_LIVE@ noswap nopersistence live-media-timeout=30 modprobe.blacklist=amdgpu,radeon,nouveau,xe console=tty0 console=ttyS1,115200n8 restow.console=ttyS1 restow.keymap=us
+label restow-nomodeset
+	menu label Restow Recovery (basic graphics, nomodeset)
+	linux @LINUX@
+	initrd @INITRD@
+	append @APPEND_LIVE@ noswap nopersistence live-media-timeout=30 modprobe.blacklist=amdgpu,radeon,nouveau,xe nomodeset restow.keymap=us
+label restow-graphics
+	menu label Restow Recovery (with graphics drivers)
+	linux @LINUX@
+	initrd @INITRD@
+	append @APPEND_LIVE@ noswap nopersistence live-media-timeout=30 restow.keymap=us
+
+menu begin keymaps
+	menu title Keyboard layout (de, us, ch, at, fr)
+	label restow-us
+		menu label Restow Recovery, keyboard us
+		linux @LINUX@
+		initrd @INITRD@
+		append @APPEND_LIVE@ noswap nopersistence live-media-timeout=30 modprobe.blacklist=amdgpu,radeon,nouveau,xe restow.keymap=us
+	label restow-de
+		menu label Restow Recovery, keyboard de
+		linux @LINUX@
+		initrd @INITRD@
+		append @APPEND_LIVE@ noswap nopersistence live-media-timeout=30 modprobe.blacklist=amdgpu,radeon,nouveau,xe restow.keymap=de
+	label restow-ch
+		menu label Restow Recovery, keyboard ch
+		linux @LINUX@
+		initrd @INITRD@
+		append @APPEND_LIVE@ noswap nopersistence live-media-timeout=30 modprobe.blacklist=amdgpu,radeon,nouveau,xe restow.keymap=ch
+	label restow-at
+		menu label Restow Recovery, keyboard at
+		linux @LINUX@
+		initrd @INITRD@
+		append @APPEND_LIVE@ noswap nopersistence live-media-timeout=30 modprobe.blacklist=amdgpu,radeon,nouveau,xe restow.keymap=at
+	label restow-fr
+		menu label Restow Recovery, keyboard fr
+		linux @LINUX@
+		initrd @INITRD@
+		append @APPEND_LIVE@ noswap nopersistence live-media-timeout=30 modprobe.blacklist=amdgpu,radeon,nouveau,xe restow.keymap=fr
+	label restow-ttys0-us
+		menu label Restow Recovery (serial console ttyS0, 115200), keyboard us
+		linux @LINUX@
+		initrd @INITRD@
+		append @APPEND_LIVE@ noswap nopersistence live-media-timeout=30 modprobe.blacklist=amdgpu,radeon,nouveau,xe console=tty0 console=ttyS0,115200n8 restow.console=ttyS0 restow.keymap=us
+	label restow-ttys0-de
+		menu label Restow Recovery (serial console ttyS0, 115200), keyboard de
+		linux @LINUX@
+		initrd @INITRD@
+		append @APPEND_LIVE@ noswap nopersistence live-media-timeout=30 modprobe.blacklist=amdgpu,radeon,nouveau,xe console=tty0 console=ttyS0,115200n8 restow.console=ttyS0 restow.keymap=de
+	label restow-ttys0-ch
+		menu label Restow Recovery (serial console ttyS0, 115200), keyboard ch
+		linux @LINUX@
+		initrd @INITRD@
+		append @APPEND_LIVE@ noswap nopersistence live-media-timeout=30 modprobe.blacklist=amdgpu,radeon,nouveau,xe console=tty0 console=ttyS0,115200n8 restow.console=ttyS0 restow.keymap=ch
+	label restow-ttys0-at
+		menu label Restow Recovery (serial console ttyS0, 115200), keyboard at
+		linux @LINUX@
+		initrd @INITRD@
+		append @APPEND_LIVE@ noswap nopersistence live-media-timeout=30 modprobe.blacklist=amdgpu,radeon,nouveau,xe console=tty0 console=ttyS0,115200n8 restow.console=ttyS0 restow.keymap=at
+	label restow-ttys0-fr
+		menu label Restow Recovery (serial console ttyS0, 115200), keyboard fr
+		linux @LINUX@
+		initrd @INITRD@
+		append @APPEND_LIVE@ noswap nopersistence live-media-timeout=30 modprobe.blacklist=amdgpu,radeon,nouveau,xe console=tty0 console=ttyS0,115200n8 restow.console=ttyS0 restow.keymap=fr
+	label restow-ttys1-us
+		menu label Restow Recovery (serial console ttyS1, 115200), keyboard us
+		linux @LINUX@
+		initrd @INITRD@
+		append @APPEND_LIVE@ noswap nopersistence live-media-timeout=30 modprobe.blacklist=amdgpu,radeon,nouveau,xe console=tty0 console=ttyS1,115200n8 restow.console=ttyS1 restow.keymap=us
+	label restow-ttys1-de
+		menu label Restow Recovery (serial console ttyS1, 115200), keyboard de
+		linux @LINUX@
+		initrd @INITRD@
+		append @APPEND_LIVE@ noswap nopersistence live-media-timeout=30 modprobe.blacklist=amdgpu,radeon,nouveau,xe console=tty0 console=ttyS1,115200n8 restow.console=ttyS1 restow.keymap=de
+	label restow-ttys1-ch
+		menu label Restow Recovery (serial console ttyS1, 115200), keyboard ch
+		linux @LINUX@
+		initrd @INITRD@
+		append @APPEND_LIVE@ noswap nopersistence live-media-timeout=30 modprobe.blacklist=amdgpu,radeon,nouveau,xe console=tty0 console=ttyS1,115200n8 restow.console=ttyS1 restow.keymap=ch
+	label restow-ttys1-at
+		menu label Restow Recovery (serial console ttyS1, 115200), keyboard at
+		linux @LINUX@
+		initrd @INITRD@
+		append @APPEND_LIVE@ noswap nopersistence live-media-timeout=30 modprobe.blacklist=amdgpu,radeon,nouveau,xe console=tty0 console=ttyS1,115200n8 restow.console=ttyS1 restow.keymap=at
+	label restow-ttys1-fr
+		menu label Restow Recovery (serial console ttyS1, 115200), keyboard fr
+		linux @LINUX@
+		initrd @INITRD@
+		append @APPEND_LIVE@ noswap nopersistence live-media-timeout=30 modprobe.blacklist=amdgpu,radeon,nouveau,xe console=tty0 console=ttyS1,115200n8 restow.console=ttyS1 restow.keymap=fr
+	label restow-nomodeset-us
+		menu label Restow Recovery (basic graphics, nomodeset), keyboard us
+		linux @LINUX@
+		initrd @INITRD@
+		append @APPEND_LIVE@ noswap nopersistence live-media-timeout=30 modprobe.blacklist=amdgpu,radeon,nouveau,xe nomodeset restow.keymap=us
+	label restow-nomodeset-de
+		menu label Restow Recovery (basic graphics, nomodeset), keyboard de
+		linux @LINUX@
+		initrd @INITRD@
+		append @APPEND_LIVE@ noswap nopersistence live-media-timeout=30 modprobe.blacklist=amdgpu,radeon,nouveau,xe nomodeset restow.keymap=de
+	label restow-nomodeset-ch
+		menu label Restow Recovery (basic graphics, nomodeset), keyboard ch
+		linux @LINUX@
+		initrd @INITRD@
+		append @APPEND_LIVE@ noswap nopersistence live-media-timeout=30 modprobe.blacklist=amdgpu,radeon,nouveau,xe nomodeset restow.keymap=ch
+	label restow-nomodeset-at
+		menu label Restow Recovery (basic graphics, nomodeset), keyboard at
+		linux @LINUX@
+		initrd @INITRD@
+		append @APPEND_LIVE@ noswap nopersistence live-media-timeout=30 modprobe.blacklist=amdgpu,radeon,nouveau,xe nomodeset restow.keymap=at
+	label restow-nomodeset-fr
+		menu label Restow Recovery (basic graphics, nomodeset), keyboard fr
+		linux @LINUX@
+		initrd @INITRD@
+		append @APPEND_LIVE@ noswap nopersistence live-media-timeout=30 modprobe.blacklist=amdgpu,radeon,nouveau,xe nomodeset restow.keymap=fr
+	label restow-graphics-us
+		menu label Restow Recovery (with graphics drivers), keyboard us
+		linux @LINUX@
+		initrd @INITRD@
+		append @APPEND_LIVE@ noswap nopersistence live-media-timeout=30 restow.keymap=us
+	label restow-graphics-de
+		menu label Restow Recovery (with graphics drivers), keyboard de
+		linux @LINUX@
+		initrd @INITRD@
+		append @APPEND_LIVE@ noswap nopersistence live-media-timeout=30 restow.keymap=de
+	label restow-graphics-ch
+		menu label Restow Recovery (with graphics drivers), keyboard ch
+		linux @LINUX@
+		initrd @INITRD@
+		append @APPEND_LIVE@ noswap nopersistence live-media-timeout=30 restow.keymap=ch
+	label restow-graphics-at
+		menu label Restow Recovery (with graphics drivers), keyboard at
+		linux @LINUX@
+		initrd @INITRD@
+		append @APPEND_LIVE@ noswap nopersistence live-media-timeout=30 restow.keymap=at
+	label restow-graphics-fr
+		menu label Restow Recovery (with graphics drivers), keyboard fr
+		linux @LINUX@
+		initrd @INITRD@
+		append @APPEND_LIVE@ noswap nopersistence live-media-timeout=30 restow.keymap=fr
+menu end
+label check
+	menu label Check medium
+	linux @LINUX@
+	initrd @INITRD@
+	append @APPEND_LIVE@ noswap nopersistence live-media-timeout=30 modprobe.blacklist=amdgpu,radeon,nouveau,xe verify-checksums
+
+menu begin advanced
+	menu title Advanced
+	label answers-us
+		menu label Read answers from medium (unattended), keyboard us
+		linux @LINUX@
+		initrd @INITRD@
+		append @APPEND_LIVE@ noswap nopersistence live-media-timeout=30 modprobe.blacklist=amdgpu,radeon,nouveau,xe restow.keymap=us restow.answers=media
+	label answers-de
+		menu label Read answers from medium (unattended), keyboard de
+		linux @LINUX@
+		initrd @INITRD@
+		append @APPEND_LIVE@ noswap nopersistence live-media-timeout=30 modprobe.blacklist=amdgpu,radeon,nouveau,xe restow.keymap=de restow.answers=media
+	label answers-ch
+		menu label Read answers from medium (unattended), keyboard ch
+		linux @LINUX@
+		initrd @INITRD@
+		append @APPEND_LIVE@ noswap nopersistence live-media-timeout=30 modprobe.blacklist=amdgpu,radeon,nouveau,xe restow.keymap=ch restow.answers=media
+	label answers-at
+		menu label Read answers from medium (unattended), keyboard at
+		linux @LINUX@
+		initrd @INITRD@
+		append @APPEND_LIVE@ noswap nopersistence live-media-timeout=30 modprobe.blacklist=amdgpu,radeon,nouveau,xe restow.keymap=at restow.answers=media
+	label answers-fr
+		menu label Read answers from medium (unattended), keyboard fr
+		linux @LINUX@
+		initrd @INITRD@
+		append @APPEND_LIVE@ noswap nopersistence live-media-timeout=30 modprobe.blacklist=amdgpu,radeon,nouveau,xe restow.keymap=fr restow.answers=media
+menu end

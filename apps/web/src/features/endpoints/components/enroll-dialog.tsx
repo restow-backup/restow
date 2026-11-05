@@ -42,7 +42,12 @@ import {
   LIMITS,
   type TokenState,
 } from "../api.js";
-import { useCreateToken, useEndpointFormat, useEnrollmentTokens } from "../hooks.js";
+import {
+  useCreateToken,
+  useEndpointCapabilities,
+  useEndpointFormat,
+  useEnrollmentTokens,
+} from "../hooks.js";
 import { type EndpointProfile, endpointDetailTo } from "../paths.js";
 import { endpointErrorKey, isPreviewOs } from "../presenters.js";
 import { useCanManageJobs } from "./without-backup.js";
@@ -158,6 +163,7 @@ function OsChoice({
 
 function ChooseStep(props: EnrollViewProps) {
   const { t } = useTranslation("endpoints");
+  const capabilities = useEndpointCapabilities();
   const { profile } = props;
   return (
     <form
@@ -210,7 +216,9 @@ function ChooseStep(props: EnrollViewProps) {
         </p>
       </div>
 
-      <p className="text-sm text-muted-foreground">{t("enroll.honesty")}</p>
+      <p className="text-sm text-muted-foreground" data-slot="enroll-honesty">
+        {capabilities.data?.baremetalPreview ? t("enroll.honestyBaremetal") : t("enroll.honesty")}
+      </p>
       {/* Release 0.2.1: a new machine is backed up only once it is in a backup job. */}
       <p className="text-sm text-muted-foreground" data-slot="enroll-job-note">
         {t("enroll.jobNote")}

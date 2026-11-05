@@ -589,10 +589,26 @@
       "kind": "initramfs",
       "n": 30,
       "phase": "post",
-      "reason": "rebuild the initramfs with MODULES=most",
+      "reason": "rebuild the initramfs of 5.15.0-125-generic with MODULES=most",
       "stdin": null,
       "stdinSecret": null,
-      "target": null
+      "target": "5.15.0-125-generic"
+    },
+    {
+      "args": [
+        "chroot-exec",
+        "update-initramfs",
+        "-u",
+        "-k",
+        "5.15.0-124-generic"
+      ],
+      "kind": "initramfs_extra",
+      "n": 31,
+      "phase": "post",
+      "reason": "rebuild the initramfs of 5.15.0-124-generic with MODULES=most",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "5.15.0-124-generic"
     },
     {
       "args": [
@@ -602,7 +618,7 @@
         "/boot/grub/grub.cfg"
       ],
       "kind": "grub_config",
-      "n": 31,
+      "n": 32,
       "phase": "post",
       "reason": "write the GRUB configuration",
       "stdin": null,
@@ -618,7 +634,7 @@
         "/dev/sda"
       ],
       "kind": "bootloader_bios",
-      "n": 32,
+      "n": 33,
       "phase": "post",
       "reason": "install the BIOS boot code of GRUB",
       "stdin": null,
@@ -634,7 +650,7 @@
         "/dev/sdb"
       ],
       "kind": "bootloader_bios",
-      "n": 33,
+      "n": 34,
       "phase": "post",
       "reason": "install the BIOS boot code of GRUB",
       "stdin": null,
@@ -646,7 +662,7 @@
         "verify"
       ],
       "kind": "verify",
-      "n": 34,
+      "n": 35,
       "phase": "post",
       "reason": "check the restored system (identities, fstab, boot files)",
       "stdin": null,

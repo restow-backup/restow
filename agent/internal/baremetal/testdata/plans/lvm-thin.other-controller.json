@@ -532,17 +532,33 @@
       "kind": "initramfs",
       "n": 21,
       "phase": "post",
-      "reason": "rebuild the initramfs with MODULES=most",
+      "reason": "rebuild the initramfs of 6.12.12-amd64 with MODULES=most",
       "stdin": null,
       "stdinSecret": null,
-      "target": null
+      "target": "6.12.12-amd64"
+    },
+    {
+      "args": [
+        "chroot-exec",
+        "bootctl",
+        "--esp-path=/boot/efi",
+        "install",
+        "--no-variables"
+      ],
+      "kind": "bootctl_install",
+      "n": 22,
+      "phase": "post",
+      "reason": "install systemd-boot on /boot/efi (only when its files are missing; the boot entry is written by recover)",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/boot/efi"
     },
     {
       "args": [
         "verify"
       ],
       "kind": "verify",
-      "n": 22,
+      "n": 23,
       "phase": "post",
       "reason": "check the restored system (identities, fstab, boot files)",
       "stdin": null,

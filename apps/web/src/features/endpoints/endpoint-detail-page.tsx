@@ -5,6 +5,7 @@ import {
   Ban,
   Camera,
   LayoutDashboard,
+  LifeBuoy,
   Play,
   Settings,
   ShieldCheck,
@@ -53,7 +54,13 @@ import {
   useRequestEndpointUpdate,
   useRestoreTest,
 } from "./hooks.js";
-import { ENDPOINT_TABS, type EndpointTab, fileRestoreTo, inventoryTo } from "./paths.js";
+import {
+  baremetalWizardTo,
+  ENDPOINT_TABS,
+  type EndpointTab,
+  fileRestoreTo,
+  inventoryTo,
+} from "./paths.js";
 import { endpointErrorKey, endpointHostLine, endpointName, isWithoutBackup } from "./presenters.js";
 
 const TAB_ICON: Record<EndpointTab, typeof Camera> = {
@@ -346,6 +353,27 @@ export function EndpointDetailPage({
           <AttentionBadges attention={detail.attention} max={2} />
         ) : null}
       </div>
+
+      {detail.recovery ? (
+        <Alert variant="info" data-slot="recovery-banner">
+          <LifeBuoy />
+          <AlertDescription>
+            <p>
+              {t("detail.recoveryBanner", {
+                phase: detail.recovery.phase
+                  ? t(`recovery.phases.${detail.recovery.phase}`)
+                  : t(`recovery.status.${detail.recovery.status}`),
+              })}{" "}
+              <Link
+                to={baremetalWizardTo(detail.id)}
+                className="font-medium underline underline-offset-4"
+              >
+                {t("detail.recoveryBannerLink")}
+              </Link>
+            </p>
+          </AlertDescription>
+        </Alert>
+      ) : null}
 
       {detail.status === "revoked" ? (
         <Alert variant="warning" data-slot="revoked-banner">

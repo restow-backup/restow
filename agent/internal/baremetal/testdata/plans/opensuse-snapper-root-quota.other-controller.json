@@ -479,6 +479,37 @@
     },
     {
       "args": [
+        "btrfs",
+        "quota",
+        "enable",
+        "{target_root}"
+      ],
+      "kind": "btrfs_quota",
+      "n": 24,
+      "phase": "post",
+      "reason": "turn the quota of f0 on again",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "f0"
+    },
+    {
+      "args": [
+        "btrfs",
+        "quota",
+        "rescan",
+        "-w",
+        "{target_root}"
+      ],
+      "kind": "btrfs_quota",
+      "n": 25,
+      "phase": "post",
+      "reason": "count the qgroups of f0 after the restore",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "f0"
+    },
+    {
+      "args": [
         "mkdirs",
         "/proc:0555",
         "/sys:0555",
@@ -492,7 +523,7 @@
         "/var:0755"
       ],
       "kind": "mkdirs",
-      "n": 24,
+      "n": 26,
       "phase": "post",
       "reason": "create mount points and API folders that the snapshot may lack",
       "stdin": null,
@@ -506,7 +537,7 @@
         "cmdline"
       ],
       "kind": "fixup",
-      "n": 25,
+      "n": 27,
       "phase": "post",
       "reason": "rewrite device references in /etc/default/grub",
       "stdin": null,
@@ -520,7 +551,7 @@
         "grub_install_devices"
       ],
       "kind": "fixup",
-      "n": 26,
+      "n": 28,
       "phase": "post",
       "reason": "rewrite device references in /etc/default/grub_installdevice",
       "stdin": null,
@@ -534,7 +565,7 @@
         "fstab"
       ],
       "kind": "fixup",
-      "n": 27,
+      "n": 29,
       "phase": "post",
       "reason": "rewrite device references in /etc/fstab",
       "stdin": null,
@@ -557,12 +588,12 @@
         "6.4.0-150600.23.25-default"
       ],
       "kind": "initramfs",
-      "n": 28,
+      "n": 30,
       "phase": "post",
-      "reason": "rebuild the initramfs without hostonly",
+      "reason": "rebuild the initramfs of 6.4.0-150600.23.25-default without hostonly",
       "stdin": null,
       "stdinSecret": null,
-      "target": null
+      "target": "6.4.0-150600.23.25-default"
     },
     {
       "args": [
@@ -572,7 +603,7 @@
         "/boot/grub2/grub.cfg"
       ],
       "kind": "grub_config",
-      "n": 29,
+      "n": 31,
       "phase": "post",
       "reason": "write the GRUB configuration",
       "stdin": null,
@@ -588,7 +619,7 @@
         "/dev/nvme0n1"
       ],
       "kind": "bootloader_bios",
-      "n": 30,
+      "n": 32,
       "phase": "post",
       "reason": "install the BIOS boot code of GRUB",
       "stdin": null,
@@ -600,7 +631,7 @@
         "verify"
       ],
       "kind": "verify",
-      "n": 31,
+      "n": 33,
       "phase": "post",
       "reason": "check the restored system (identities, fstab, boot files)",
       "stdin": null,

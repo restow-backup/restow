@@ -390,10 +390,10 @@
       "kind": "initramfs",
       "n": 17,
       "phase": "post",
-      "reason": "rebuild the initramfs with MODULES=most",
+      "reason": "rebuild the initramfs of 5.15.0-125-generic with MODULES=most",
       "stdin": null,
       "stdinSecret": null,
-      "target": null
+      "target": "5.15.0-125-generic"
     },
     {
       "args": [

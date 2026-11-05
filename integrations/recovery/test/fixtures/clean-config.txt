@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# A configuration file without anything secret, for the negative case of the scan.
+ServerName recovery
+Port 22

@@ -333,6 +333,18 @@ describe("EndpointDetailPage", () => {
     );
   });
 
+  it("says on top of the page that the machine is being restored, with a link to follow it", async () => {
+    fetchEndpoint.mockResolvedValue(detail({ recovery: { status: "active", phase: "restoring" } }));
+    await open();
+    const banner = document.querySelector('[data-slot="recovery-banner"]');
+    expect(banner?.textContent).toContain("being restored on bare metal: Restoring files");
+    expect(banner?.querySelector("a")?.getAttribute("href")).toBe(`/inventory/${ID}/bare-metal`);
+    page.unmount();
+    fetchEndpoint.mockResolvedValue(detail());
+    await open();
+    expect(document.querySelector('[data-slot="recovery-banner"]')).toBeNull();
+  });
+
   it("names the actual age in the explanation of a silent server", async () => {
     fetchEndpoint.mockResolvedValue(
       detail({

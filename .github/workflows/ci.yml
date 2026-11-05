@@ -12,6 +12,16 @@ on:
     branches-ignore: ["dependabot/**"]
   pull_request:
   workflow_call:
+  # By hand only: write the recovery ISO's packages.lock anew from its snapshot
+  # (integrations/recovery/build.sh --update-lock); the job recovery-iso keeps the new
+  # lock as an artifact, and the maintainer commits it after reviewing the diff.
+  workflow_dispatch:
+    inputs:
+      update-lock:
+        description: "Write integrations/recovery/packages.lock anew (recovery-iso keeps it as an artifact)"
+        type: boolean
+        required: false
+        default: false
 
 # Cancel superseded runs on the same ref to save CI minutes. When the release
 # workflow calls this file, github.workflow is "Release", so the group never
@@ -155,6 +165,7 @@ jobs:
           scripts/ci/*.test.mjs
           scripts/smoke/run.test.mjs
           scripts/smoke/lib/*.test.mjs
+          scripts/recovery-e2e/run.test.mjs
 
       - name: Test
         # Root script builds the library packages first (consumers resolve their
@@ -558,6 +569,19 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+      - name: Hand the linux-amd64 build to the recovery ISO jobs (agent, restic, notices, sums)
+        if: steps.detect.outputs.present == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: agent-dist-linux-amd64
+          path: |
+            ${{ runner.temp }}/agent-dist/linux-amd64
+            ${{ runner.temp }}/agent-dist/SHA256SUMS
+            ${{ runner.temp }}/agent-dist/VERSION
+            ${{ runner.temp }}/agent-dist/RESTIC_VERSION
+          if-no-files-found: error
+          retention-days: 3
+
       - name: The Go modules inside restic are the ones whose licenses are vendored
         # The build information of the five pinned restic binaries just fetched (restic.exe
         # for Windows) must list the modules, versions and hashes of
@@ -620,7 +644,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            lvm2 thin-provisioning-tools btrfs-progs mdadm cryptsetup xfsprogs
+            lvm2 thin-provisioning-tools btrfs-progs mdadm cryptsetup xfsprogs dosfstools fdisk gdisk
 
       - name: restic and rest-server (pinned in agent/tools.env)
         if: steps.detect.outputs.present == 'true'
@@ -647,6 +671,14 @@ jobs:
           sudo -E env RESTOW_AGENT_ROOT=1 "PATH=$PATH" "$RUNNER_TEMP/fssnap.test" -test.v -test.count=1 -test.timeout=20m
           cd ../baremetal
           sudo -E env RESTOW_AGENT_ROOT=1 "PATH=$PATH" "$RUNNER_TEMP/baremetal.test" -test.v -test.count=1 -test.timeout=20m
+          # restow-agent recover (docs/BAREMETAL.md 10.10 to 10.14): the isolation of the
+          # programs of a backup, the executor on loop devices, holders, O_DIRECT probes.
+          if grep -rqs --include='*_test.go' 'agentroot' ../recovery; then
+            cd ..
+            go test -c -tags agentroot -o "$RUNNER_TEMP/recovery.test" ./recovery
+            cd recovery
+            sudo -E env RESTOW_AGENT_ROOT=1 "PATH=$PATH" "$RUNNER_TEMP/recovery.test" -test.v -test.count=1 -test.timeout=20m
+          fi
 
   agent-windows:
     name: Go agent on Windows (vet, unit tests)
@@ -752,6 +784,315 @@ jobs:
         # reset before anything is torn down, and what compose finally runs.
         run: bash deploy/demo/test.sh
 
+  recovery-scripts:
+    name: Recovery ISO scripts (self-tests, shellcheck of the hooks)
+    # The build recipe of the recovery ISO (integrations/recovery, a separate GPL work):
+    # its shell helpers, the refusals of build.sh, the boot menus and the package lists,
+    # without root or Docker. The *.sh files are in the shellcheck job as well; the hooks
+    # and auto/config have no .sh name and are checked here.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Is there a recovery ISO recipe in this commit?
+        id: detect
+        run: |
+          if [ -f integrations/recovery/test/unit.sh ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::integrations/recovery does not exist in this commit; nothing to check."
+          fi
+
+      - name: Self-tests (test/unit.sh)
+        if: steps.detect.outputs.present == 'true'
+        run: sh integrations/recovery/test/unit.sh
+
+      - name: shellcheck of the hooks and auto/config
+        if: steps.detect.outputs.present == 'true'
+        run: >-
+          shellcheck --external-sources --source-path=SCRIPTDIR --severity=style --shell=sh
+          integrations/recovery/config/hooks/live/*.hook.chroot
+          integrations/recovery/auto/config
+
+  recovery-paths:
+    name: Recovery ISO (does this change touch it?)
+    # The ISO is built and tested again when its recipe, the agent or the end-to-end driver
+    # changed, and always when the release workflow calls CI; otherwise the jobs below are
+    # skipped, and the last build of an unchanged state stands (docs/CI.md).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      changed: ${{ steps.diff.outputs.changed }}
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Changed paths
+        id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE: ${{ github.event.before }}
+          UPDATE_LOCK: ${{ inputs.update-lock && 'true' || 'false' }}
+        run: |
+          set -euo pipefail
+          if [ ! -f integrations/recovery/build.sh ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          base=""
+          case "$EVENT" in
+            pull_request) base="$BASE_SHA" ;;
+            push) base="$BEFORE" ;;
+          esac
+          # Without the first packages.lock (written by hand with update-lock) there is nothing
+          # to build: build.sh refuses an empty lock, and the release does too.
+          entries="$(grep -cvE '^[[:space:]]*(#|$)' integrations/recovery/packages.lock || true)"
+          if [ "$entries" = 0 ] && [ "$UPDATE_LOCK" != true ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::integrations/recovery/packages.lock has no entries yet; run this workflow by hand with update-lock and commit the lock it writes."
+            exit 0
+          fi
+          if [ "$UPDATE_LOCK" = true ] || [ -z "$base" ] || [ "$base" = "0000000000000000000000000000000000000000" ] ||
+            ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            # By hand, a call from the release workflow, a new branch, or an unknown base: build.
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed=false
+          if git diff --name-only "$base" HEAD |
+            grep -qE '^(integrations/recovery/|agent/|scripts/recovery-e2e/|apps/api/src/features/endpoints/recovery)'; then
+            changed=true
+          else
+            echo "::notice::nothing of the recovery ISO changed; its build, comparison and end-to-end tests are skipped."
+          fi
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+
+  recovery-iso:
+    name: Recovery ISO (build on ubuntu-24.04, image checks)
+    # docs/BAREMETAL.md 8.3: live-build in the pinned debian:trixie container from the
+    # snapshot of snapshot.env, with exactly the packages of packages.lock. No secrets: the
+    # privileged build container gets only the build variables (build.sh --env-file).
+    needs: [agent, recovery-paths]
+    if: needs.recovery-paths.outputs.changed == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: The agent build of this commit
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: agent-dist-linux-amd64
+          path: ${{ runner.temp }}/agent-dist
+
+      - name: Build the ISO
+        env:
+          UPDATE_LOCK: ${{ inputs.update-lock && '--update-lock' || '' }}
+        run: |
+          set -euo pipefail
+          chmod +x "$RUNNER_TEMP"/agent-dist/linux-amd64/restow-agent "$RUNNER_TEMP"/agent-dist/linux-amd64/restic
+          version="$(cat "$RUNNER_TEMP/agent-dist/VERSION")"
+          # shellcheck disable=SC2086 # empty or one flag
+          sh integrations/recovery/build.sh --agent-dist "$RUNNER_TEMP/agent-dist/linux-amd64" \
+            --version "$version" --out "$RUNNER_TEMP/recovery" $UPDATE_LOCK
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Keep the new packages.lock (update-lock)
+        if: inputs.update-lock
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: recovery-packages-lock
+          path: ${{ runner.temp }}/recovery/packages.lock
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Image checks (firmware list, tools, version, boot entries, size, keymaps, no secrets)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends squashfs-tools xorriso
+          sudo sh integrations/recovery/test/check-image.sh "$RUNNER_TEMP/recovery/restow-recovery_${VERSION}_amd64.iso" "$VERSION"
+
+      # docs/BAREMETAL.md 21.2 and the risk table (20): the started ISO activates nothing of an
+      # old disk with an md RAID1, a volume group and swap (test/no-autoactivation.sh in QEMU).
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: KVM for the runner user
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: No auto-activation in the started ISO (QEMU/KVM)
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils
+          node scripts/recovery-e2e/no-autoactivation.mjs \
+            --iso "$RUNNER_TEMP/recovery/restow-recovery_${VERSION}_amd64.iso" --work-dir "$RUNNER_TEMP/no-autoactivation"
+
+      - name: Keep the serial logs of the auto-activation test
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: recovery-no-autoactivation-logs
+          path: ${{ runner.temp }}/no-autoactivation/*.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Keep the ISO and its hash
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: recovery-iso
+          path: |
+            ${{ runner.temp }}/recovery/restow-recovery_*_amd64.iso
+            ${{ runner.temp }}/recovery/restow-recovery_*_amd64.iso.sha256
+            ${{ runner.temp }}/recovery/restow-recovery_*_FIRMWARE-LICENSES.txt
+          if-no-files-found: error
+          retention-days: 3
+
+  recovery-iso-rebuild:
+    name: Recovery ISO (second build on ubuntu-22.04, other TZ and umask)
+    needs: [agent, recovery-paths]
+    if: needs.recovery-paths.outputs.changed == 'true'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    env:
+      # build.sh sets TZ, umask and the locale inside the container; the host differs on purpose.
+      TZ: Pacific/Auckland
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: The agent build of this commit
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: agent-dist-linux-amd64
+          path: ${{ runner.temp }}/agent-dist
+
+      - name: Build the ISO again
+        env:
+          UPDATE_LOCK: ${{ inputs.update-lock && '--update-lock' || '' }}
+        run: |
+          set -euo pipefail
+          umask 077
+          chmod +x "$RUNNER_TEMP"/agent-dist/linux-amd64/restow-agent "$RUNNER_TEMP"/agent-dist/linux-amd64/restic
+          version="$(cat "$RUNNER_TEMP/agent-dist/VERSION")"
+          # shellcheck disable=SC2086 # empty or one flag
+          sh integrations/recovery/build.sh --agent-dist "$RUNNER_TEMP/agent-dist/linux-amd64" \
+            --version "$version" --out "$RUNNER_TEMP/recovery" $UPDATE_LOCK
+
+      - name: Keep the ISO and its hash
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: recovery-iso-rebuild
+          path: |
+            ${{ runner.temp }}/recovery/restow-recovery_*_amd64.iso
+            ${{ runner.temp }}/recovery/restow-recovery_*_amd64.iso.sha256
+          if-no-files-found: error
+          retention-days: 3
+
+  recovery-iso-compare:
+    name: Recovery ISO (both builds bit for bit equal)
+    needs: [recovery-iso, recovery-iso-rebuild]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - name: Both builds
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: recovery-iso*
+          path: builds
+
+      - name: Compare the SHA-256 (diffoscope on a difference)
+        run: |
+          set -euo pipefail
+          first="$(cut -d ' ' -f 1 builds/recovery-iso/*.iso.sha256)"
+          second="$(cut -d ' ' -f 1 builds/recovery-iso-rebuild/*.iso.sha256)"
+          echo "ubuntu-24.04: $first"
+          echo "ubuntu-22.04: $second"
+          if [ "$first" = "$second" ]; then
+            echo "::notice::the recovery ISO builds reproducibly ($first)"
+            exit 0
+          fi
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends diffoscope
+          diffoscope --max-report-size 20000000 --text diffoscope.txt \
+            builds/recovery-iso/*.iso builds/recovery-iso-rebuild/*.iso || true
+          head -n 400 diffoscope.txt
+          echo "::error::the two builds of the recovery ISO differ; see diffoscope above"
+          exit 1
+
+  recovery-e2e:
+    name: Recovery end to end (E1, E2 in QEMU/KVM)
+    # docs/BAREMETAL.md 21.2: a source machine is backed up, restored by the ISO onto other
+    # hardware through the recovery API and must boot. KVM through a udev rule; without
+    # it the driver stops with a clear message (TCG would take hours).
+    needs: [agent, recovery-iso, recovery-paths]
+    if: needs.recovery-paths.outputs.changed == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: KVM for the runner user
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: QEMU, OVMF and the firmware variable tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils ovmf \
+            python3-virt-firmware xorriso openssh-client
+
+      - name: The agent build and the ISO of this commit
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: "{agent-dist-linux-amd64,recovery-iso}"
+          path: ${{ runner.temp }}/artifacts
+
+      - name: E1 and E2
+        run: |
+          set -euo pipefail
+          iso="$(ls "$RUNNER_TEMP"/artifacts/recovery-iso/restow-recovery_*_amd64.iso)"
+          node scripts/recovery-e2e/run.mjs --iso "$iso" --agent-dist "$RUNNER_TEMP/artifacts/agent-dist-linux-amd64" \
+            --cases per-pr --work-dir "$RUNNER_TEMP/recovery-e2e"
+
+      - name: Keep the serial logs and the report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: recovery-e2e-logs
+          path: |
+            ${{ runner.temp }}/recovery-e2e/report.json
+            ${{ runner.temp }}/recovery-e2e/*/*.log
+          if-no-files-found: ignore
+          retention-days: 7
+
   actionlint:
     name: Workflows (actionlint)
     runs-on: ubuntu-24.04
@@ -784,17 +1125,29 @@ jobs:
       - agent-windows
       - shellcheck
       - actionlint
+      - recovery-scripts
+      - recovery-paths
+      - recovery-iso
+      - recovery-iso-rebuild
+      - recovery-iso-compare
+      - recovery-e2e
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Every job succeeded
+        # The recovery ISO jobs are skipped when nothing of the ISO changed (recovery-paths);
+        # a skipped one counts as passed, every other job has to succeed.
         env:
-          RESULTS: ${{ join(needs.*.result, ' ') }}
+          NEEDS: ${{ toJSON(needs) }}
         run: |
-          echo "job results: $RESULTS"
-          for result in $RESULTS; do
-            if [ "$result" != "success" ]; then
-              echo "::error::at least one job did not succeed"
-              exit 1
-            fi
-          done
+          echo "$NEEDS" | jq -r 'to_entries[] | "\(.key) \(.value.result)"' > results.txt
+          cat results.txt
+          failed=0
+          while read -r job result; do
+            case "$job:$result" in
+              *:success) ;;
+              recovery-iso:skipped | recovery-iso-rebuild:skipped | recovery-iso-compare:skipped | recovery-e2e:skipped) ;;
+              *) echo "::error::$job: $result"; failed=1 ;;
+            esac
+          done < results.txt
+          exit "$failed"

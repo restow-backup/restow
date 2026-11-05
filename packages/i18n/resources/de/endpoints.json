@@ -181,7 +181,9 @@
     "onlyRevoked": {
       "title": "Nur gesperrte Rechner",
       "description": "Alle Rechner hier sind gesperrt und werden nicht mehr gesichert; ihre Sicherungen bleiben wiederherstellbar."
-    }
+    },
+    "recovering": "Wird wiederhergestellt",
+    "honestyBaremetal": "Dateibasierte Sicherung mit restic: Einzelne Dateien und Ordner werden gesichert und zurückgeholt. Linux-Rechner lassen sich zudem als Ganzes auf neuer Hardware wiederherstellen (Vorschau); Plattenabbilder gibt es nicht. Ein Datei-Restore überschreibt nie etwas: Er landet in einem neuen Ordner auf dem Rechner oder wird als ZIP heruntergeladen."
   },
   "noJob": {
     "badge": "Ohne Backup",
@@ -415,7 +417,8 @@
       "intro": "{os, select, windows {Ohne Eingabe liest das Skript das Token aus einer Datei. Legen Sie das Token in {tokenFile} ab (der Ordner ist nur für SYSTEM und Administratoren zugänglich; ein 32-Bit-RMM-Prozess schreibt über C:\\Windows\\Sysnative\\config\\systemprofile) und führen Sie dann aus. Der Befehl hält den Fingerabdruck des Release-Schlüssels fest; gleichen Sie ihn einmal mit den Release-Notizen auf GitHub ab.} other {Ohne Terminal für die Eingabe liest das Skript das Token aus einer Datei. Legen Sie das Token in {tokenFile} ab (Modus 0600, Eigentümer root) und führen Sie dann aus:}}",
       "copy": "Befehl für die unbeaufsichtigte Installation kopieren",
       "cleanup": "Löschen Sie die Token-Datei nach der Installation. Das Token gilt einmal und läuft nach 24 Stunden ab."
-    }
+    },
+    "honestyBaremetal": "Der Agent sichert Dateien und Ordner. Er erstellt keine Plattenabbilder; Linux-Rechner lassen sich als Ganzes auf neuer Hardware wiederherstellen (Vorschau)."
   },
   "detail": {
     "title": "Rechner",
@@ -429,7 +432,9 @@
       "overview": "Übersicht",
       "snapshots": "Sicherungsstände",
       "settings": "Einstellungen"
-    }
+    },
+    "recoveryBanner": "Dieser Rechner wird gerade als Ganzes wiederhergestellt: {phase}.",
+    "recoveryBannerLink": "Wiederherstellung verfolgen"
   },
   "actions": {
     "backup": {
@@ -1698,7 +1703,9 @@
         "fs_not_recreated": "Das Dateisystem {fs} ({type}) wird nicht wieder angelegt; seine Partition bleibt leer.",
         "bios_boot_disk": "Wählen Sie {target} im BIOS als Startplatte.",
         "luks_tokens_not_restored": "Die Schlüsselbindungen des verschlüsselten Volumes {luks} ({tokens}) gehören zur alten Hardware; richten Sie sie nach dem Start neu ein.",
-        "keyfile_regenerated": "Die Schlüsseldatei {path} des verschlüsselten Volumes {luks} wird neu angelegt."
+        "keyfile_regenerated": "Die Schlüsseldatei {path} des verschlüsselten Volumes {luks} wird neu angelegt.",
+        "untested_distribution": "Die Distribution gehört nicht zu den getesteten; die Wiederherstellung kann Handarbeit brauchen.",
+        "non_systemd_init": "Das System startet nicht mit systemd; dafür ist die Wiederherstellung nicht getestet."
       }
     },
     "minimum": {
@@ -1830,11 +1837,47 @@
       "secureBoot": "Secure Boot war eingeschaltet.",
       "cable": "Netzwerk per Kabel, an einem Anschluss ohne VLAN-Tagging.",
       "oldDisks": "Alte Platten abziehen, außer Sie wollen sie übernehmen.",
-      "hardwareLater": "Eine vollständige Hardware-Anleitung (Controller, Tastaturbelegung, TPM) folgt mit dem Recovery-ISO.",
       "codeIntro": "Stellen Sie den Code aus, wenn die Ersatzhardware bereit ist. Die Gültigkeit wird aus der Datenmenge vorgeschlagen.",
       "liveEmpty": "Noch kein Code ausgestellt.",
       "liveOnly": "Ein neuer Code lässt sich gerade nicht ausstellen (Vorschau, Recovery-ISO oder Sicherung des Rechners haben sich geändert). Der offene Code bzw. die Sitzung unten lässt sich weiter verfolgen, freigeben, beenden oder widerrufen.",
-      "afterIntro": "Verbinden Sie den wiederhergestellten Rechner mit einem eigenen Wiederanbindungs-Token wieder mit {appName}."
+      "afterIntro": "Verbinden Sie den wiederhergestellten Rechner mit einem eigenen Wiederanbindungs-Token wieder mit {appName}.",
+      "snapshots": {
+        "choose": "Wählen Sie die Sicherung, die wiederhergestellt wird.",
+        "none": "Noch keine Ganz-Rechner-Sicherung mit Layout.",
+        "sameLayout": "Gleiches Layout wie die neueste",
+        "otherLayout": "Anderes Layout als die neueste",
+        "unsupported": "Dieses Layout lässt sich nicht wiederherstellen.",
+        "check": {
+          "passed": "Prüfung bestanden",
+          "failed": "Prüfung fehlgeschlagen",
+          "incomplete": "Prüfung unvollständig",
+          "none": "Noch nicht geprüft"
+        }
+      },
+      "hardware": {
+        "csm": "Wählen Sie Ersatzhardware mit einem Legacy-Startmodus (CSM): Viele aktuelle Modelle haben ihn nicht mehr.",
+        "secureBootCa": "Secure Boot war an: Die Firmware des Ersatzes muss {issuers} vertrauen.",
+        "disks": "{count, plural, one {Gebraucht wird # Platte:} other {Gebraucht werden # Platten:}}",
+        "diskMin": "für {disk} mindestens {min} (sie hatte {size})",
+        "diskSize": "für {disk} etwa {size} (die Prüfung hat noch kein Minimum berechnet)",
+        "ram": "Arbeitsspeicher: mindestens {min}, für große Sicherungen {recommended} oder mehr.",
+        "controllers": "Der gesicherte Kernel hat Treiber für diese Plattencontroller: {modules}.",
+        "controllersHint": "Nehmen Sie möglichst Plattencontroller derselben Art wie im alten Rechner (AHCI, NVMe).",
+        "driverMissing": "Der gesicherte Kernel hat keinen Treiber für: {modules}. Nutzen Sie solche Controller nicht für die Systemplatte.",
+        "mayChangeTitle": "Darf sich ändern:",
+        "mayChange": "Plattenmodelle und -größen (im Rahmen der Mindestgrößen), Plattencontroller (mit Treiber), Netzwerkkarten, Arbeitsspeicher, Prozessor derselben Architektur.",
+        "mayNotChangeTitle": "Darf sich nicht ändern:",
+        "mayNotChange": "der Firmwaremodus (UEFI oder BIOS), die Architektur (amd64) und der Speicheraufbau (Partitionen, RAID, Verschlüsselung, LVM und Dateisysteme werden angelegt, wie sie waren).",
+        "hwRaid": "Hardware-RAID: Legen Sie zuerst das virtuelle Laufwerk im Controller an, mindestens {min}, für {disk}.",
+        "encryption": "Sie vergeben beim Wiederherstellen eine Passphrase für die verschlüsselten Volumes.",
+        "keymapAtBoot": "Beim Start gilt für sie die Tastaturbelegung {layout}.",
+        "keymapGrub": "Der Bootloader fragt sie ebenfalls ab, mit der US-Belegung.",
+        "tpm": "Schlüsselbindungen an die alte Hardware ({tokens}) ziehen nicht mit um; richten Sie sie nach dem Start neu ein."
+      },
+      "after": {
+        "title": "Was das Recovery-ISO empfiehlt",
+        "none": "Das Recovery-ISO hat nichts zu tun gemeldet."
+      }
     },
     "iso": {
       "version": "Version",
@@ -1848,7 +1891,139 @@
         "macos": "macOS",
         "windows": "Windows"
       },
-      "writeUsb": "Schreiben Sie das ISO danach unverändert, Bit für Bit, auf einen USB-Stick (unter Linux etwa mit dd)."
+      "writeUsb": "Schreiben Sie das ISO danach unverändert, Bit für Bit, auf einen USB-Stick (unter Linux etwa mit dd).",
+      "source": {
+        "instance": "Der Download kommt von dieser Instanz; seine Prüfsumme passt zur signierten Liste.",
+        "github": "Der Download kommt von der öffentlichen Release-Seite des Projekts."
+      },
+      "sources": "Quellcode der GPL-Pakete im Abbild (Anhänge des Release)",
+      "firmwareLicenses": "Lizenzen der Firmware im Abbild",
+      "size": "Größe"
+    },
+    "reported": {
+      "access_expired": "Der Zugang zu den Sicherungen endete (Code abgelaufen oder Sitzung beendet), bevor die Wiederherstellung fertig war.",
+      "adopt_incomplete": "Ein Teil, der übernommen werden sollte, ließ sich nicht übernehmen.",
+      "arch_unsupported": "Das Recovery-ISO läuft nur auf amd64.",
+      "bios_4kn": "Im BIOS-Modus lässt sich nicht von einer Platte mit logischen Sektoren von 4096 Byte starten.",
+      "bios_boot_disk": "Wählen Sie im BIOS die richtige Startplatte.",
+      "boot_space_low": "Auf /boot ist wenig Platz frei.",
+      "btrfs_csum_assumed": "Die Prüfsummenart eines btrfs-Dateisystems war nicht erfasst; angenommen wurde crc32c.",
+      "btrfs_raid_missing_device": "Einem btrfs-Dateisystem fehlt eines seiner Geräte.",
+      "cancel_requested": "Die Wiederherstellung wurde abgebrochen.",
+      "clock_wrong": "Die Uhr der Ersatzhardware geht falsch; das Zertifikat der Instanz ließ sich nicht prüfen.",
+      "device_name_refs_found": "Konfigurationsdateien nennen Geräte noch mit ihrem Kernelnamen (/dev/sdX).",
+      "driver_facts_missing": "Die Modullisten eines Kernels waren nicht bekannt; Treiber wurden nicht geprüft.",
+      "dual_boot_windows_not_restored": "Ein weiteres Betriebssystem auf den Platten wird nicht wiederhergestellt, auch nicht seine Starteinträge.",
+      "esp_grown_4kn": "Die EFI-Systempartition ist für FAT32 mit Sektoren von 4096 Byte gewachsen.",
+      "ext_block_size_raised": "Ein Dateisystem wurde mit größeren Blöcken als vorher angelegt.",
+      "fallback_kernel_driver_missing": "Der Ersatzkernel hat keinen Treiber für eine Zielplatte.",
+      "firmware_mode_mismatch": "Das Ziel startet in einem anderen Firmwaremodus als der gesicherte Rechner.",
+      "fs_not_recreated": "Ein Dateisystem wurde nicht wieder angelegt; seine Partition bleibt leer.",
+      "grow_not_last": "Eine Partition, die wachsen soll, ist nicht die letzte ihrer Platte; sie behält ihre Größe.",
+      "holders_busy": "Eine Zielplatte ist noch belegt (eingehängt, RAID, LVM oder Verschlüsselung) und ließ sich nicht freigeben.",
+      "identity_conflict": "Ein angeschlossenes Gerät trägt die Kennung von Platten dieses Rechners.",
+      "initramfs_not_rebuilt": "Das initramfs eines Kernels wurde nicht neu gebaut.",
+      "keyfile_regenerated": "Eine Schlüsseldatei eines verschlüsselten Volumes wurde neu angelegt.",
+      "layout_unsupported": "Das Layout lässt sich nicht als Ganzes wiederherstellen.",
+      "low_memory": "Die Ersatzhardware hat für dieses Repository wenig Arbeitsspeicher.",
+      "luks_sector_size_changed": "Ein verschlüsseltes Volume wurde mit einer anderen Sektorgröße angelegt.",
+      "luks_tokens_not_restored": "Schlüsselbindungen eines verschlüsselten Volumes gehören zur alten Hardware; richten Sie sie neu ein.",
+      "lv_shrunk": "Ein logisches Volume wurde verkleinert.",
+      "lvm_filter_multiline": "Der LVM-Filter des gesicherten Systems reicht über mehrere Zeilen und lässt sich nicht anpassen.",
+      "lvm_mixed_block_sizes_allowed": "LVM reicht über Platten mit verschiedenen Sektorgrößen.",
+      "lvm_raid_missing_pv": "Einem RAID-Volume fehlt eines seiner physischen Volumes.",
+      "manifest_format_unknown": "Das Layout in der Sicherung hat ein Format, das dieses ISO nicht kennt; nehmen Sie ein neueres ISO.",
+      "manifest_invalid": "Das Layout in der Sicherung ist ungültig.",
+      "manifest_mismatch": "Das Layout in der Sicherung weicht von dem ab, das die Instanz erfasst hat.",
+      "mapping_invalid": "Die Zuordnung der Platten ist ungültig.",
+      "mbr_2tib_limit": "Eine Platte ist größer, als eine MBR-Partitionstabelle adressieren kann; der Rest bleibt ungenutzt.",
+      "md_degraded_first_boot": "Ein RAID wurde unvollständig angelegt; der erste Start kann länger dauern.",
+      "md_too_few_members": "Ein RAID hätte zu wenige Mitglieder, um zu laufen.",
+      "mkfs_feature_unknown": "Ein Dateisystem nutzt eine Funktion, die die Wiederherstellungswerkzeuge nicht anlegen können.",
+      "mkfs_readback_mismatch": "Ein angelegtes Dateisystem liest sich nicht wie geplant zurück.",
+      "mkfs_unsupported_type": "Ein Dateisystemtyp lässt sich nicht anlegen.",
+      "mok_enroll_pending": "Ein Schlüssel für Secure Boot wartet beim nächsten Start auf seine Einschreibung.",
+      "mok_enroll_required": "Ein Maschinenschlüssel muss beim ersten Start eingeschrieben werden.",
+      "mok_key_missing": "Ein Maschinenschlüssel, den die Startkette braucht, liegt weder in der Sicherung noch ist er eingeschrieben.",
+      "multipath_detected": "Mehrere Platten haben dieselbe WWN: Der Speicher ist über mehrere Pfade erreichbar.",
+      "nic_driver_missing": "Der gesicherte Kernel hat keinen Treiber für eine Netzwerkkarte.",
+      "nic_rename_skipped": "Die Netzwerknamen wurden nicht an die neuen Netzwerkkarten angepasst.",
+      "no_disks_found": "Das ISO fand keine Platte, auf die es schreiben darf.",
+      "non_systemd_init": "Das gesicherte System startet nicht mit systemd; dafür ist die Wiederherstellung nicht getestet.",
+      "old_disk_present": "Eine alte Platte dieses Rechners ist noch angeschlossen.",
+      "other_controller_driver_missing": "An einem anderen Plattencontroller hätte der gesicherte Kernel keinen Treiber.",
+      "partition_readback_mismatch": "Eine geschriebene Partitionstabelle liest sich nicht wie geplant zurück.",
+      "partition_realigned": "Eine Partition ist auf eine 1-MiB-Grenze gerückt; ihre PARTUUID bleibt.",
+      "partition_shrunk": "Eine Partition wurde verkleinert.",
+      "quota_rescan_failed": "Die btrfs-Quota ließ sich nicht neu zählen.",
+      "raw_lvs_created_empty": "Logische Volumes ohne Dateisystem wurden leer angelegt.",
+      "raw_lvs_skipped": "Logische Volumes ohne Dateisystem wurden nicht angelegt.",
+      "recovery_too_old": "Das Recovery-ISO ist für diese Instanz zu alt.",
+      "redundant_boot_partition_dropped": "Eine redundante Startpartition einer fehlenden Platte wurde nicht wieder angelegt.",
+      "restore_failed": "Das Zurückholen der Dateien ist fehlgeschlagen.",
+      "restore_file_errors": "Einige Dateien ließen sich nicht zurückholen; das Log nennt sie.",
+      "restore_size_estimated": "Eine Restore-Größe wurde aus dem belegten Platz geschätzt.",
+      "sector_size_incompatible": "Platten mit Sektorgrößen, die nicht zusammenpassen.",
+      "secure_boot_ca_missing": "Die Firmware des Ziels vertraut dem gesicherten Bootloader nicht.",
+      "secure_boot_dbx_unknown": "Die Sperrliste der Firmware des Ziels war nicht bekannt; gesperrte Bootloader wurden nicht geprüft.",
+      "secure_boot_disabled_by_choice": "Secure Boot soll auf dem Ziel ausgeschaltet werden; seine Prüfungen waren nur Hinweise.",
+      "secure_boot_revoked": "Die Firmware des Ziels hat den gesicherten Bootloader gesperrt.",
+      "secure_boot_sbat_revoked": "Die Firmware des Ziels hat diese Generation des Bootloaders gesperrt.",
+      "secure_boot_unsigned_chain": "Die Startkette ist nicht signiert: Der Rechner startet nur mit ausgeschaltetem Secure Boot oder mit eigenen Schlüsseln.",
+      "sed_locked": "Eine Platte meldet Lesefehler; sie ist womöglich eine gesperrte selbstverschlüsselnde Platte.",
+      "selinux_autorelabel": "SELinux vergibt beim ersten Start alle Kennzeichnungen neu; das kann dauern.",
+      "shrink_needs_confirmation": "Eine Platte passt nur, wenn mehr als das wachsende Volume schrumpft; das braucht eine Bestätigung.",
+      "spki_mismatch": "Der Prüfwert der Instanz stimmte nicht; das ISO hat sich nicht verbunden.",
+      "step_failed": "Ein Schritt des Plans ist fehlgeschlagen; das Log nennt ihn.",
+      "storage_driver_missing": "Der gesicherte Kernel hat keinen Treiber für eine Zielplatte.",
+      "system_files_incomplete": "Dateien, die das System zum Start braucht, fehlen nach der Wiederherstellung.",
+      "target_missing": "Für eine Platte der Sicherung gibt es keine Zielplatte.",
+      "target_too_small": "Eine Zielplatte ist zu klein.",
+      "target_unusable": "Auf eine Zielplatte lässt sich nicht schreiben.",
+      "tls_untrusted": "Das ISO vertraut dem Zertifikat der Instanz nicht.",
+      "untested_distribution": "Die Distribution des gesicherten Systems gehört nicht zu den getesteten; die Wiederherstellung kann Handarbeit brauchen.",
+      "verify_failed": "Die Prüfung nach der Wiederherstellung ist fehlgeschlagen.",
+      "vfat_sector_size_changed": "Ein FAT-Dateisystem wurde mit einer anderen Sektorgröße angelegt."
+    },
+    "verification": {
+      "title": "Prüfung nach der Wiederherstellung",
+      "isoReported": "Vom Recovery-ISO gemeldet.",
+      "isoMessage": "Das ISO meldet: {message}",
+      "result": {
+        "ok": "Bestanden",
+        "warning": "Mit Warnungen",
+        "failed": "Fehlgeschlagen"
+      },
+      "evidence": "Was geprüft wurde",
+      "fixups": "Angepasste Dateien (von jeder blieb eine Kopie)",
+      "notAdaptedKernels": "Kernel, deren initramfs nicht angepasst wurde: {kernels}",
+      "restoreErrors": "{count, plural, one {# Datei ließ sich nicht zurückholen.} other {# Dateien ließen sich nicht zurückholen.}}",
+      "checks": {
+        "restic_verify": "Dateien zurückgeholt und geprüft",
+        "storage_stack": "Partitionen, RAID, Verschlüsselung und LVM",
+        "fstab": "fstab",
+        "crypttab": "crypttab",
+        "initramfs": "initramfs und Treiber",
+        "boot_entries": "Starteinträge in der Firmware",
+        "boot_config": "Konfiguration des Bootloaders",
+        "identity_conflicts": "Keine Kennungskonflikte mit anderen Platten",
+        "mount_points": "Einhängepunkte und Ordnerrechte",
+        "secure_boot": "Secure-Boot-Kette"
+      }
+    },
+    "hints": {
+      "bios_boot_disk": "Wählen Sie {model} ({identity}) im BIOS als Startplatte.",
+      "device_name_refs": "{path} Zeile {line} nennt noch ein Gerät mit seinem Kernelnamen; prüfen Sie sie.",
+      "initramfs_not_adapted": "Das initramfs des Kernels {kernel} wurde nicht angepasst; starten Sie zuerst den Standardkernel.",
+      "keymap_at_boot": "Beim Start gilt für die Passphrase die Tastaturbelegung {layout}.",
+      "luks_reenroll_token": "Richten Sie die Schlüsselbindungen des verschlüsselten Volumes {volume} ({tokenTypes}) neu ein; sie gehörten zur alten Hardware.",
+      "md_add_disk": "Fügen Sie dem RAID {array} eine zweite Platte hinzu, sobald es eine gibt.",
+      "md_degraded_first_boot": "Das RAID {array} startet unvollständig; der erste Start kann länger dauern.",
+      "mok_enroll": "Schreiben Sie beim nächsten Start den Schlüssel im blauen Schlüsselmanager mit dem Passwort ein, das die Recovery-Konsole gezeigt hat.",
+      "nic_mapped": "Der Netzwerkname {oldName} ({oldMac}) gehört jetzt zur Karte {newMac}.",
+      "old_disk_present": "Trennen Sie die alte Platte {model} ({identity}) vor dem Start, oder löschen Sie sie.",
+      "secure_boot_disabled": "Secure Boot ist auf diesem Rechner aus; schalten Sie es wieder ein, wenn die Kette es erlaubt.",
+      "selinux_autorelabel": "SELinux kennzeichnet beim ersten Start alle Dateien neu; lassen Sie das zu Ende laufen."
     }
   },
   "rebind": {

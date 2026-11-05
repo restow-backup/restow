@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# What the image holds: lvm2 without its .deb in the cache.
+kmod 34.2-1 aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+lvm2 2.03.31-2 -
+mdadm 4.4-11 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc

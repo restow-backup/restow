@@ -33,6 +33,7 @@ import {
   fetchBaremetal,
   fetchBrowse,
   fetchEndpoint,
+  fetchEndpointCapabilities,
   fetchEndpoints,
   fetchRecoveries,
   fetchRecovery,
@@ -498,6 +499,21 @@ export function useSaveTenantAgentPolicy() {
 }
 
 // --- Bare metal recovery (docs/BAREMETAL.md 9, 11) ------------------------------------------
+
+/**
+ * What the installation offers for machines: whether bare metal is on (preview), so the list and
+ * the enroll dialog word what the agent can do. Absent on an older server: treated as off.
+ */
+export function useEndpointCapabilities() {
+  const { tenantId, enabled } = useTenantScope();
+  return useQuery({
+    queryKey: endpointKeys.capabilities(tenantId),
+    queryFn: fetchEndpointCapabilities,
+    enabled,
+    retry: false,
+    staleTime: 10 * 60_000,
+  });
+}
 
 /** The recovery ISO of the installation; the code dialog and the wizard need a verified one. */
 export function useRecoveryIso(wanted = true) {

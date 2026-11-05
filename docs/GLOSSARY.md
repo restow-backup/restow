@@ -50,6 +50,9 @@ literally (use `{appName}`).
 | The first 80 bits of the SHA-256 of the instance's TLS public key, typed into the ISO when it does not trust the certificate | instance check value | Prüfwert der Instanz | Fingerprint (alone), Zertifikats-Hash |
 | An admin letting a redeemed recovery code read the backups, after comparing the match number | release the session | die Sitzung freigeben (Freigabe der Sitzung) | genehmigen, zulassen |
 | Giving an existing machine a new agent secret after a restore or reinstall, with a token of its own (docs/BAREMETAL.md 11) | reconnect (rebind) | wieder anbinden (Wiederanbindung) | neu registrieren, neu einrichten (that makes a new machine) |
+| The signed live image that restores a Linux machine from its whole machine backup onto new disks (`restow-recovery_<v>_amd64.iso`, built from the separate work `integrations/recovery`, docs/BAREMETAL.md 8) | recovery ISO | Recovery-ISO | Rettungs-CD, Boot-Stick, Image (for the ISO) |
+| What the recovery ISO reports at the end: ten checks with findings and evidence (`restow-verify-v1`, docs/BAREMETAL.md 10.17) | check after the restore | Prüfung nach der Wiederherstellung | Test, Validierung |
+| Restoring a whole machine onto new disks (Linux, preview) | bare metal restore | Bare-Metal-Wiederherstellung (ein Rechner wird als Ganzes wiederhergestellt) | Image-Restore, Plattenabbild |
 
 Repository: maintainer decision 2026-10-10, replacing "storage location" /
 "Speicherort". German uses the neuter ("das Repository", "des Repositorys") and the

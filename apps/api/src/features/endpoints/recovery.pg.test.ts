@@ -792,6 +792,115 @@ describe.skipIf(!testDatabaseAdminUrl)("recovery codes and sessions", () => {
       ).toHaveLength(1);
     });
 
+    it("keeps the verification report and hands out only one that parses (restow-verify-v1)", async () => {
+      const { listEndpoints } = await import("./service.js");
+      const listed = async (endpointId: string) =>
+        (await listEndpoints(shared.db, fixture.tenantId)).items.find(
+          (item) => item.id === endpointId,
+        )?.recovery;
+      const verification = {
+        format: "restow-verify-v1",
+        result: "warning",
+        snapshotId: "4f2a9c1d",
+        planSha256: "9b1e".padEnd(64, "0"),
+        startedAt: "2026-11-05T09:12:00Z",
+        finishedAt: "2026-11-05T10:40:13Z",
+        restoreErrors: 0,
+        checks: [
+          { id: "restic_verify", result: "ok", findings: [], evidence: { files: 412233 } },
+          {
+            id: "initramfs",
+            result: "warning",
+            findings: [
+              {
+                code: "initramfs_not_rebuilt",
+                ref: "6.1.0-25-amd64",
+                message: "not enough space on /boot",
+                params: {},
+              },
+            ],
+            evidence: { kernel: "6.1.0-27-amd64", readable: true, bootFreePercent: 23 },
+          },
+        ],
+        hints: [{ code: "mok_enroll", params: {} }],
+        fixups: [],
+        notAdaptedKernels: ["6.1.0-25-amd64"],
+      };
+      const good = await session({ requireApproval: false });
+      // While it runs, the machine list says so.
+      expect(await listed(good.endpointId)).toEqual({ status: "active", phase: null });
+      const finish = await post(
+        "/sessions/current/finish",
+        {
+          status: "succeeded",
+          verification,
+          warnings: [{ code: "initramfs_not_rebuilt", message: "kernel 6.1.0-25-amd64" }],
+          durationSeconds: 600,
+        },
+        good.auth,
+      );
+      expect(finish.status, await finish.clone().text()).toBe(200);
+      expect(await listed(good.endpointId)).toBeNull();
+      const detail = await codes.getRecovery(
+        shared.db,
+        fixture.tenantId,
+        good.endpointId,
+        good.sessionId,
+      );
+      expect(detail.verification).toMatchObject({
+        format: "restow-verify-v1",
+        result: "warning",
+        checks: [
+          { id: "restic_verify" },
+          { id: "initramfs", findings: [{ ref: "6.1.0-25-amd64" }] },
+        ],
+        hints: [{ code: "mok_enroll", params: {} }],
+      });
+      expect(detail.warnings).toEqual([
+        { code: "initramfs_not_rebuilt", message: "kernel 6.1.0-25-amd64" },
+      ]);
+
+      // Another format (an older or broken ISO) is stored, but the detail says null.
+      const other = await session({ requireApproval: false });
+      expect(
+        (
+          await post(
+            "/sessions/current/finish",
+            {
+              status: "failed",
+              verification: { ...verification, format: "restow-verify-v9", checks: "none" },
+              warnings: [],
+              durationSeconds: 1,
+            },
+            other.auth,
+          )
+        ).status,
+      ).toBe(200);
+      expect((await stored(other.sessionId))?.verification).toMatchObject({
+        format: "restow-verify-v9",
+      });
+      expect(
+        (await codes.getRecovery(shared.db, fixture.tenantId, other.endpointId, other.sessionId))
+          .verification,
+      ).toBeNull();
+
+      // More than 64 KiB is refused, and the session stays open.
+      const large = await session({ requireApproval: false });
+      const oversized = await post(
+        "/sessions/current/finish",
+        {
+          status: "succeeded",
+          verification: { ...verification, padding: "p".repeat(64 * 1024) },
+          warnings: [],
+          durationSeconds: 1,
+        },
+        large.auth,
+      );
+      expect(oversized.status).toBe(422);
+      expect((await stored(large.sessionId))?.status).toBe("active");
+      expect(await listed(large.endpointId)).toEqual({ status: "active", phase: null });
+    });
+
     it("lets a cancelled session report on, but read and finish nothing", async () => {
       const s = await session({ requireApproval: false });
       await codes.cancelRecovery(shared.db, fixture.tenantId, s.endpointId, s.sessionId, actor());

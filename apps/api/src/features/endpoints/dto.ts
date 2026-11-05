@@ -130,6 +130,11 @@ export interface EndpointSummaryDto {
    * null when it is assigned to nobody.
    */
   assignedTo: EndpointAssigneeDto | null;
+  /**
+   * A bare metal recovery session that runs for the machine (pending approval, active,
+   * finishing; docs/BAREMETAL.md 14.6): the list and the page say "Being restored".
+   */
+  recovery: { status: string; phase: string | null } | null;
   createdAt: string;
   revokedAt: string | null;
 }
@@ -686,6 +691,7 @@ export function toSummary(
   rated: RatedTests,
   job: { id: string; name: string } | null = null,
   assignedTo: EndpointAssigneeDto | null = null,
+  recovery: { status: string; phase: string | null } | null = null,
 ): EndpointSummaryDto {
   return {
     id: endpoint.id,
@@ -709,6 +715,7 @@ export function toSummary(
     attention: attentionOf(endpoint, latestRun, readiness, now, job !== null),
     job,
     assignedTo,
+    recovery: recovery ? { status: recovery.status, phase: recovery.phase } : null,
     createdAt: endpoint.createdAt.toISOString(),
     revokedAt: iso(endpoint.revokedAt),
   };

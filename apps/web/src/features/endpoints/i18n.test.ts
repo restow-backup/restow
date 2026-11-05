@@ -152,6 +152,22 @@ const VALUES = {
   lvs: "vm-100-disk-0",
   restore: "9 GB",
   mount: "/",
+  // The recovery ISO's report (docs/BAREMETAL.md 10.17, C-M4-6) and the wizard's hardware guide.
+  issuers: "UEFI CA",
+  modules: "ahci, nvme",
+  recommended: "4 GB",
+  layout: "de",
+  kernels: "6.1.0-25-amd64",
+  model: "Samsung SSD 980",
+  identity: "serial.S64",
+  line: 3,
+  volume: "c0",
+  tokenTypes: "systemd-tpm2",
+  array: "md0",
+  oldName: "eno1",
+  oldMac: "52:54:00:12:34:56",
+  newMac: "52:54:00:65:43:21",
+  phase: "Restoring files",
 };
 
 /** The planner's codes (agent/internal/baremetal/testdata/plan-codes.json, C-M2-6). */
@@ -161,6 +177,20 @@ const PLAN_CODES = JSON.parse(
     "utf8",
   ),
 ) as { problems: string[]; warnings: string[] };
+
+/** The codes, checks and hints of `restow-agent recover` (agent/internal/recovery/testdata, C-M4-6). */
+const RECOVER_CODES = JSON.parse(
+  readFileSync(
+    new URL("../../../../../agent/internal/recovery/testdata/recover-codes.json", import.meta.url),
+    "utf8",
+  ),
+) as {
+  problems: string[];
+  warnings: string[];
+  checks: string[];
+  hints: string[];
+  hintParams: Record<string, string[]>;
+};
 
 /** The layout check's codes, as @restow/core lists them (`CHECK_FINDING_CODES`). */
 const CHECK_CODES = (() => {
@@ -187,6 +217,40 @@ describe("endpoints translations", () => {
     expect(deKeys).toEqual(enKeys);
     for (const [key, value] of [...leaves(en as Tree), ...leaves(de as Tree)]) {
       expect(value.trim(), key).not.toBe("");
+    }
+  });
+
+  it("words every code a recovery can report, every check and every hint, in both languages", () => {
+    const codes = [
+      ...PLAN_CODES.problems,
+      ...PLAN_CODES.warnings,
+      ...RECOVER_CODES.problems,
+      ...RECOVER_CODES.warnings,
+    ];
+    const placeholders = (text: string) =>
+      [...new Set([...text.matchAll(/\{([a-zA-Z]+)\}/g)].map((match) => match[1]))].sort();
+    for (const tree of [en, de] as Tree[]) {
+      const recovery = tree.recovery as Tree;
+      const reported = recovery.reported as Record<string, string>;
+      for (const code of codes) {
+        expect(reported[code], code).toBeTruthy();
+        // Finish warnings carry no parameters (C-M4-6): the ISO's message goes below the text.
+        expect(placeholders(reported[code] as string), code).toEqual([]);
+      }
+      expect(Object.keys(reported).sort()).toEqual([...new Set(codes)].sort());
+      const checks = (recovery.verification as Tree).checks as Record<string, string>;
+      expect(Object.keys(checks).sort()).toEqual([...RECOVER_CODES.checks].sort());
+      const hints = recovery.hints as Record<string, string>;
+      expect(Object.keys(hints).sort()).toEqual([...RECOVER_CODES.hints].sort());
+      for (const hint of RECOVER_CODES.hints) {
+        expect(placeholders(hints[hint] as string), hint).toEqual(
+          [...(RECOVER_CODES.hintParams[hint] ?? [])].sort(),
+        );
+      }
+      const planCodes = ((tree.baremetal as Tree).plan as Tree).codes as Record<string, string>;
+      for (const code of [...PLAN_CODES.problems, ...PLAN_CODES.warnings]) {
+        expect(planCodes[code], code).toBeTruthy();
+      }
     }
   });
 

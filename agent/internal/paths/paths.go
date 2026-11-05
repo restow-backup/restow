@@ -54,6 +54,16 @@ const (
 	LegacyResticBinary = LegacyLibDir + "/restic"
 )
 
+// Paths of the recovery ISO (restow-agent recover, docs/BAREMETAL.md 10).
+const (
+	// RecoveryTargetRoot is where recover mounts the restored system.
+	RecoveryTargetRoot = "/mnt/restow-target"
+	// RecoveryRunDir holds recover's files on tmpfs (tmp, tls, log, media).
+	RecoveryRunDir = "/run/restow-recovery"
+	// RecoveryLibDir holds the agent, restic and the notices on the ISO.
+	RecoveryLibDir = "/usr/lib/restow-recovery"
+)
+
 // WindowsInstallDir is the install prefix on Windows in the normal case. The
 // real one comes from the known folder FOLDERID_ProgramFiles (paths_windows.go).
 const WindowsInstallDir = `C:\Program Files\Restow`

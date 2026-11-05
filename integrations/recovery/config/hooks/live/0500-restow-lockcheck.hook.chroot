@@ -1,0 +1,43 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# The supply chain check (README.md, "Reproducible build"): every installed
+# package, its version and the SHA-256 of its .deb must equal packages.lock.
+# build.sh puts the lock and the helpers under /live-build/config/restow/. With
+# --update-lock the hook writes the new lock there instead of comparing.
+set -eu
+
+dir=/live-build/config/restow
+[ -f "$dir/functions.sh" ] || { echo "error: $dir/functions.sh is missing (run the build through build.sh)" >&2; exit 1; }
+# shellcheck source=../../../lib/functions.sh
+. "$dir/functions.sh"
+
+actual=$(mktemp)
+dpkg-query -W -f '${Package} ${Version} ${Architecture}\n' | while read -r package version arch; do
+  file=$(printf '%s_%s_%s.deb' "$package" "$(printf '%s' "$version" | sed 's/:/%3a/')" "$arch")
+  sum=-
+  for cache in /var/cache/apt/archives /live-build/cache/packages.chroot; do
+    if [ -f "$cache/$file" ]; then
+      sum=$(sha256sum "$cache/$file" | cut -d ' ' -f 1)
+      break
+    fi
+  done
+  printf '%s %s %s\n' "$package" "$version" "$sum"
+done >"$actual"
+
+if [ "${RESTOW_UPDATE_LOCK:-no}" = yes ]; then
+  {
+    sed -n '/^#/p' "$dir/packages.lock"
+    LC_ALL=C sort "$actual"
+  } >"$dir/packages.lock.new"
+  echo "wrote $dir/packages.lock.new ($(wc -l <"$actual" | tr -d ' ') packages)"
+  rm -f "$actual"
+  exit 0
+fi
+
+if ! rr_lock_compare "$dir/packages.lock" "$actual"; then
+  rm -f "$actual"
+  rr_die "the installed packages differ from packages.lock (above); update the lock by hand with build.sh --update-lock"
+fi
+rm -f "$actual"
+echo "packages.lock: every package matches"

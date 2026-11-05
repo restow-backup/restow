@@ -34,3 +34,20 @@ only pass the calls of Proxmox VE to the separate program restow-pve
 (Apache-2.0) over a documented command line and JSON protocol
 (docs/PVE-PROTOCOL.md). Proxmox is a trademark of Proxmox Server Solutions
 GmbH; Restow is not affiliated with or endorsed by it.
+
+Separate work: the build recipe of the recovery ISO
+
+The shell scripts and live-build configuration in integrations/recovery are a
+separate work licensed under the GNU General Public License, version 3 or (at
+your option) any later version; the full text is in
+integrations/recovery/LICENSE. They build the recovery ISO
+(restow-recovery_<version>_amd64.iso), a Debian live image that a release
+offers as an attachment, not part of the Restow image. The ISO contains Debian
+packages under their own licences, among them the non-free firmware packages
+listed in integrations/recovery/firmware.md, which are redistributed unmodified
+under the terms of their copyright files (collected in
+restow-recovery_<version>_FIRMWARE-LICENSES.txt, in the ISO and next to it);
+the source code of every package in the ISO is a release attachment as well
+(restow-recovery_<version>_sources.tar). The programs restow-agent (Apache-2.0)
+and restic (BSD-2-Clause) are copied into the ISO as separate programs with
+their notices (THIRD_PARTY_NOTICES.txt).

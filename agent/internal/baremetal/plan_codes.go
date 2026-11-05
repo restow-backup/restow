@@ -66,6 +66,8 @@ const (
 	WarnBIOSBootDisk                  = "bios_boot_disk"
 	WarnLUKSTokensNotRestored         = "luks_tokens_not_restored"
 	WarnKeyfileRegenerated            = "keyfile_regenerated"
+	WarnUntestedDistribution          = CodeUntestedDistribution
+	WarnNonSystemdInit                = CodeNonSystemdInit
 )
 
 // Severities of a Finding.
@@ -131,6 +133,8 @@ var planMessages = map[string]string{
 	WarnBIOSBootDisk:                  "Select {target} as the boot disk in the BIOS (or as the boot volume of the controller).",
 	WarnLUKSTokensNotRestored:         "The tokens of LUKS volume {luks} ({tokens}) are bound to the old hardware and are not restored; set them up again after the start.",
 	WarnKeyfileRegenerated:            "The key file {path} of LUKS volume {luks} is created new; the old one from the backup does not open the new volume.",
+	WarnUntestedDistribution:          "{os} is not among the tested distributions; the restore may need manual work after the start.",
+	WarnNonSystemdInit:                "{os} starts with {init}, not systemd; the restore may need manual work after the start.",
 }
 
 // PlanProblemCodes and PlanWarningCodes are the sorted code lists.
@@ -232,4 +236,15 @@ func paramText(v any) string {
 		return strings.Join(t, ", ")
 	}
 	return fmt.Sprint(v)
+}
+
+// osName names the system for messages: PRETTY_NAME, else ID and version.
+func osName(o *OSInfo) string {
+	if o.PrettyName != nil && *o.PrettyName != "" {
+		return *o.PrettyName
+	}
+	if o.VersionID != nil && *o.VersionID != "" {
+		return o.ID + " " + *o.VersionID
+	}
+	return o.ID
 }

@@ -1,0 +1,86 @@
+{
+  "firmware": {
+    "mode": "uefi",
+    "secureBoot": true,
+    "setupMode": false,
+    "db": [],
+    "dbx": null,
+    "sbatLevel": [],
+    "mokList": []
+  },
+  "ramBytes": 17179869184,
+  "liveMedium": "sdb",
+  "nics": [],
+  "blocks": [
+    {
+      "kname": "nvme0n1",
+      "sizeBytes": 512110190592,
+      "logicalSectorSize": 512,
+      "physicalSectorSize": 4096,
+      "readOnly": false,
+      "removable": false,
+      "zoned": "none",
+      "model": "Samsung SSD 980",
+      "serial": "S4EV",
+      "wwn": "",
+      "eui64": "0025385b71b0e1a2",
+      "nguid": "",
+      "nsid": 1,
+      "transport": "nvme",
+      "byPath": "",
+      "ioError": false,
+      "driverChain": [
+        "nvme"
+      ],
+      "modaliases": [
+        "pci:v0000144Dd0000A808sv0000144Dsd0000A801bc01sc08i02"
+      ],
+      "signatures": []
+    },
+    {
+      "kname": "sda",
+      "sizeBytes": 512110190592,
+      "logicalSectorSize": 512,
+      "physicalSectorSize": 4096,
+      "readOnly": false,
+      "removable": false,
+      "zoned": "none",
+      "model": "WDC",
+      "serial": "WD-1",
+      "wwn": "0x5000c500a1b2c3d4",
+      "eui64": "",
+      "nguid": "",
+      "nsid": 0,
+      "transport": "sata",
+      "byPath": "",
+      "ioError": false,
+      "driverChain": [
+        "sd",
+        "ahci"
+      ],
+      "modaliases": [],
+      "signatures": []
+    },
+    {
+      "kname": "sdb",
+      "sizeBytes": 16008609792,
+      "logicalSectorSize": 512,
+      "physicalSectorSize": 4096,
+      "readOnly": false,
+      "removable": true,
+      "zoned": "none",
+      "model": "USB Stick",
+      "serial": "USB1",
+      "wwn": "",
+      "eui64": "",
+      "nguid": "",
+      "nsid": 0,
+      "transport": "usb",
+      "byPath": "",
+      "ioError": false,
+      "driverChain": [],
+      "modaliases": [],
+      "signatures": []
+    }
+  ]
+}

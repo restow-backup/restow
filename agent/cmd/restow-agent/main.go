@@ -25,6 +25,7 @@ Commands:
   service      Control the system service: install | start | stop | restart | status
   hooks        Show or set whether hooks from the Restow server run here: status | off | scripts | any
   baremetal    Capture the disk layout of this machine (Linux, preview) or plan its restore: baremetal capture|plan
+  recover      Restore a whole machine to bare metal (on the Restow recovery ISO, preview)
   uninstall    Remove the agent, its service and its local secrets from this machine
   version      Print the version
 
@@ -73,6 +74,11 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "snapshot-exec":
 		// Hidden: the snapshot helper the agent itself starts.
 		return cmdSnapshotExec(rest, stdout, stderr)
+	case "recover":
+		return cmdRecover(rest, stdout, stderr)
+	case "chroot-exec":
+		// Hidden: the isolation helper recover itself starts.
+		return cmdChrootExec(rest, stderr)
 	case "uninstall":
 		return cmdUninstall(rest, stdout, stderr)
 	case "version", "--version", "-v":

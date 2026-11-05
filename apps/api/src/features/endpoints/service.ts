@@ -102,6 +102,7 @@ import {
 import { isInsecureTransport } from "./instance-url.js";
 import { ENDPOINT_PROBLEMS } from "./problems.js";
 import { loadEndpointReadiness } from "./readiness.js";
+import { activeRecoveriesOf } from "./recovery-codes.js";
 import { holdRepositoryForRead, repositoryAccess } from "./repository.js";
 import { resticGate } from "./restic-gate.js";
 import { resticProblem } from "./restic-problem.js";
@@ -360,6 +361,7 @@ export async function listEndpoints(
       tenantId,
       rows.map((row) => row.assignedUserId),
     );
+    const recoveries = await activeRecoveriesOf(tx, ids);
     return {
       items: rows.map((row) =>
         toSummary(
@@ -370,6 +372,7 @@ export async function listEndpoints(
           rated,
           jobsOf.get(row.id) ?? null,
           assigneeOf(assignees, row),
+          recoveries.get(row.id) ?? null,
         ),
       ),
     };
@@ -497,6 +500,7 @@ export async function getEndpoint(
     const jobsOf = await jobsOfEndpoints(tx, tenantId, [id]);
     const membership = await jobWithOverridesOf(tx, tenantId, id);
     const assignees = await loadAssignees(tx, tenantId, [endpoint.assignedUserId]);
+    const recoveries = await activeRecoveriesOf(tx, [id]);
     const summary = toSummary(
       endpoint,
       runs[0] ?? null,
@@ -505,6 +509,7 @@ export async function getEndpoint(
       rated,
       jobsOf.get(id) ?? null,
       assigneeOf(assignees, endpoint),
+      recoveries.get(id) ?? null,
     );
     const retention = latestPerKind.find((report) => report.kind === "retention");
     const [tenantUsage] = await tx

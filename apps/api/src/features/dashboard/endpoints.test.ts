@@ -40,6 +40,7 @@ function machine(
     attention: values.attention ?? [],
     job: null,
     assignedTo: null,
+    recovery: null,
     createdAt: "2026-09-01T00:00:00.000Z",
     revokedAt: values.status === "revoked" ? "2026-09-20T00:00:00.000Z" : null,
   };

@@ -20,6 +20,7 @@ import { ENDPOINT_QUEUES, generateAgentSecret, MAX_LAYOUT_BYTES } from "@restow/
 import {
   type EndpointConfig,
   endpointLayouts,
+  endpointRecoveries,
   endpointReports,
   endpointRuns,
   endpoints,
@@ -492,6 +493,81 @@ describe.skipIf(!testDatabaseAdminUrl)("layouts of whole machine backups", () =>
     // A newer backup without a check: the old report rates nothing any more.
     await backup(who, { layout: manifest("example-bios-mdadm-btrfs") });
     expect(await card()).toMatchObject({ state: "unverified", stateDetail: null, check: null });
+  });
+
+  it("lists the snapshots for the wizard with the hardware per layout and the running session", async () => {
+    const who = await machine({ config: { wholeMachine: true } });
+    const first = await backup(who, { layout: manifest(DEBIAN) });
+    await checkReport(who, first, "green", {
+      minimumSizes: { disks: [{ disk: "d0", minBytes: 123456789 }], filesystems: [] },
+      planner: {
+        same: { ok: true, problems: [], warnings: [] },
+        otherController: {
+          ok: true,
+          problems: [],
+          warnings: [],
+          storage: [{ module: "ahci", found: true, builtin: false }],
+        },
+      },
+    });
+    const second = await backup(who, { layout: manifest("example-bios-mdadm-btrfs") });
+    const card = await baremetal.getBaremetalState(shared.db, fixture.tenantId, who.id);
+    expect(card.snapshots).toEqual([
+      expect.objectContaining({
+        snapshotId: second.snapshotId,
+        layoutId: second.layoutId,
+        sameLayoutAsNewest: true,
+        check: "none",
+      }),
+      expect.objectContaining({
+        snapshotId: first.snapshotId,
+        layoutId: first.layoutId,
+        sameLayoutAsNewest: false,
+        check: "passed",
+        verdict: "supported",
+      }),
+    ]);
+    // The guide of the newest layout, and one per listed layout.
+    expect(card.hardware).toMatchObject({ firmwareMode: "bios", biosNeedsCsm: true });
+    expect(Object.keys(card.hardwareByLayout).sort()).toEqual(
+      [first.layoutId, second.layoutId].sort(),
+    );
+    expect(card.hardwareByLayout[first.layoutId as string]).toMatchObject({
+      firmwareMode: "uefi",
+      secureBoot: true,
+      requiredCAs: [expect.stringContaining("Microsoft Corporation UEFI CA 2011")],
+      disks: [expect.objectContaining({ id: "d0", minBytes: 123456789 })],
+      keymap: { layout: "de", variant: "nodeadkeys", inInitramfs: true },
+      storageDriversOtherController: [{ module: "ahci", ok: true }],
+    });
+    expect(card.activeRecovery).toBeNull();
+
+    // A running session shows on the card (and in the list, recovery.pg.test.ts).
+    const [session] = await fixture.db
+      .insert(endpointRecoveries)
+      .values({
+        tenantId: fixture.tenantId,
+        endpointId: who.id,
+        kind: "code",
+        status: "active",
+        codeHash: randomUUID().replace(/-/g, "").repeat(2),
+        requireApproval: true,
+        issuedAt: new Date(),
+        expiresAt: new Date(Date.now() + 3_600_000),
+        progress: { phase: "restoring" } as never,
+        updatedAt: new Date(),
+      })
+      .returning();
+    expect(
+      (await baremetal.getBaremetalState(shared.db, fixture.tenantId, who.id)).activeRecovery,
+    ).toEqual({ id: session?.id, status: "active", phase: "restoring" });
+    await fixture.db
+      .update(endpointRecoveries)
+      .set({ status: "succeeded", finishedAt: new Date() })
+      .where(eq(endpointRecoveries.id, session?.id as string));
+    expect(
+      (await baremetal.getBaremetalState(shared.db, fixture.tenantId, who.id)).activeRecovery,
+    ).toBeNull();
   });
 
   it("is not possible for an unsupported layout, also with a red check, and for arm64", async () => {

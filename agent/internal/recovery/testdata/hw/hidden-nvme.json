@@ -1,0 +1,58 @@
+{
+  "firmware": {
+    "mode": "uefi",
+    "secureBoot": true,
+    "setupMode": false,
+    "db": [],
+    "dbx": null,
+    "sbatLevel": [],
+    "mokList": []
+  },
+  "ramBytes": 8589934592,
+  "liveMedium": "",
+  "nics": [],
+  "blocks": [
+    {
+      "kname": "nvme0c0n1",
+      "sizeBytes": 512110190592,
+      "logicalSectorSize": 512,
+      "physicalSectorSize": 4096,
+      "readOnly": false,
+      "removable": false,
+      "zoned": "none",
+      "model": "",
+      "serial": "S1",
+      "wwn": "",
+      "eui64": "",
+      "nguid": "",
+      "nsid": 1,
+      "transport": "",
+      "byPath": "",
+      "ioError": false,
+      "driverChain": [],
+      "modaliases": [],
+      "signatures": []
+    },
+    {
+      "kname": "nvme0n1",
+      "sizeBytes": 512110190592,
+      "logicalSectorSize": 512,
+      "physicalSectorSize": 4096,
+      "readOnly": false,
+      "removable": false,
+      "zoned": "none",
+      "model": "",
+      "serial": "S1",
+      "wwn": "",
+      "eui64": "",
+      "nguid": "",
+      "nsid": 1,
+      "transport": "nvme",
+      "byPath": "",
+      "ioError": false,
+      "driverChain": [],
+      "modaliases": [],
+      "signatures": []
+    }
+  ]
+}

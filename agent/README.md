@@ -7,8 +7,9 @@ small Go program (standard library only, no third-party Go dependencies) that dr
 - **One agent, two profiles.** `server` (daily backup, default 22:00) and `client`
   (back up when the Restow instance becomes reachable, at most once per 4 hours).
 - **File-based backups with restic.** Deduplicated, compressed, encrypted with a
-  repository password that is unique per endpoint. No disk images, no bare-metal
-  restore (see [Known limits](#known-limits)).
+  repository password that is unique per endpoint. No disk images; a whole Linux machine
+  can be restored to bare metal from the recovery ISO (preview, see
+  [Recovery ISO](#recovery-iso-preview) and [Known limits](#known-limits)).
 - **Outbound only.** The agent opens no port. It connects to the instance over HTTPS
   and to nothing else.
 - **Append-only.** The agent writes to a restic repository that the instance exposes in
@@ -193,6 +194,10 @@ restow-agent baremetal capture [--raw-dir DIR] [--out FILE]
                            Capture the disk layout of this machine (Linux, preview; prints the manifest, sends nothing)
 restow-agent baremetal plan --manifest FILE|- --target same|minimal|other-controller|FILE [--json]
                            Plan the restore of a layout manifest (pure; any system; see "Whole machine")
+restow-agent recover [--console TTY] [--answers FILE] [--plan-only] [--log FILE] [--restic PATH]
+                           Restore a whole machine to bare metal (Linux, on the recovery ISO, preview)
+restow-agent recover --list-tools
+                           The programs recover calls and their Debian packages (any Linux, no root)
 restow-agent uninstall     Remove the agent (--yes, --keep-logs, --keep-binaries)
 restow-agent version       Version, commit, build date (--short for the number only)
 ```
@@ -340,8 +345,61 @@ an agent 0.5.0 instead backs up every local file system:
   `2` usage.
 
 macOS and Windows machines ignore `wholeMachine` and back up their folders (one log line).
-Restoring a whole machine onto new hardware is not part of this release; the planner only
-plans.
+
+### Recovery ISO (preview)
+
+The bare-metal restore runs from the Restow recovery ISO, a separate work under the GPL
+(GPL-3.0-or-later) in `integrations/recovery/` of the repository: Debian trixie with the
+Debian kernel and shim, the tools of `restow-agent recover --list-tools`, this agent and
+restic in `/usr/lib/restow-recovery/`, and a fixed list of non-free firmware packages
+whose licences are in `restow-recovery_<version>_FIRMWARE-LICENSES.txt`. The ISO is built
+reproducibly in CI (twice, on different runners; the release lists it only when both
+builds give the same bytes). The sources of every package are attached to the release
+(`restow-recovery_<version>_sources.tar`, split into parts of 1900 MiB when large).
+
+**Verify the ISO before you start a machine from it.** Its SHA-256 is a line of the
+release's signed `SHA256SUMS` (`recovery/restow-recovery_<version>_amd64.iso`):
+
+```sh
+scripts/release/verify-agent-signature.sh agent-SHA256SUMS agent-SHA256SUMS.sig release-signing.pub
+grep ' recovery/restow-recovery_0.5.0_amd64.iso$' agent-SHA256SUMS
+sha256sum restow-recovery_0.5.0_amd64.iso
+```
+
+Take `release-signing.pub` from the Git tag of the release (not from the instance) and
+compare its fingerprint with the one in the repository's README.
+
+**The restore.** Start the machine from the ISO, then `restow-agent recover` runs on the
+console (`tty1`; `restow.console=ttyS0|ttyS1` on the kernel command line moves it to a
+serial console): keyboard layout and language, network (DHCP, or a static address and an
+HTTP proxy), the address of the instance and its certificate (system CAs, the instance's
+own CA from a second USB stick, or the whole check value of the code dialog typed in), the
+recovery code, the match code to compare with the web interface, the approval there, the
+snapshot, the plan with every command (`p`), the confirmation (the last four characters of
+the identity of each disk that is erased, then `ERASE` or `LÖSCHEN`), the execution, the
+check after the restore, the report to the instance, optionally the reconnection of the
+restored machine with a reconnect token, and the restart. `?` opens the menu at any prompt
+(network, clock, shell, remote access over SSH, log, restart, power off); `a` and Enter,
+Ctrl+C, or the web interface cancel a running restore cleanly, and a later run with a new
+code offers to continue it without partitioning.
+
+Programs of the restored system (initramfs generators, `grub-install`, `bootctl`,
+`vgimportdevices`, `restorecon`) run through the hidden helper `restow-agent chroot-exec`:
+new mount, PID, network, IPC, UTS and cgroup namespaces, `pivot_root` into the target, a
+fresh `/proc` (with `/proc/sys`, `/proc/sysrq-trigger`, `/proc/irq`, `/proc/bus` and `/proc/fs`
+read-only and `kcore`, `kallsyms` and the other kernel views masked, so a program cannot set a
+core pattern that runs outside the isolation), `/sys` read-only, a `/dev` with only the null
+devices and the target devices,
+a reduced capability bounding set, no new privileges and a seccomp filter (no `mount`,
+`mknod`, `chroot`, module loading, `ptrace`, `kexec`, namespaces, file handles). The
+repository password is cleared and the session's read access ends before the first of
+them runs; the passphrases are cleared after the key files are written.
+
+`--answers FILE` (and fw_cfg in QEMU, or a medium labelled `RESTOWANS` with
+`restow.answers=media`) runs unattended (`restow-answers-v1`); without `confirmErase`
+naming exactly the disks that are erased, nothing is erased. `--plan-only` shows the plan
+and changes nothing. `recover` runs only as root and only on the ISO
+(`--i-know-this-is-not-the-iso` for tests); this release restores amd64 machines.
 
 **Recovery code (preview, server side only).** The instance can issue a one-time
 **recovery code** for a Linux machine (`RC-XXXXX-XXXXX-XXXXX-XXXXX-XXXXX`, valid for 4
@@ -867,8 +925,18 @@ carries all of them.
   use a pre hook for an application-consistent dump. Files listed under
   `HKLM\SYSTEM\CurrentControlSet\Control\BackupRestore\FilesNotToSnapshot` (by default
   Outlook OST files) are missing from the snapshot.
-- **File-based only.** No disk images, no bare-metal restore. Restoring a whole machine
-  means reinstalling the operating system and restoring the files.
+- **File-based backups; bare metal for Linux only, as a preview.** No disk images. A whole
+  Linux machine (amd64) can be restored from the recovery ISO onto new disks; macOS and
+  Windows machines are reinstalled and their files restored. The bare-metal restore keeps
+  the storage stack as it was (no change of RAID level, file system or BIOS to UEFI); a
+  machine backed up in BIOS mode needs replacement hardware with CSM. TPM2, FIDO2 and
+  Clevis bindings of LUKS volumes are set up again after the start; LVM VG and LV UUIDs
+  and btrfs subvolume IDs are new; file attributes (`chattr`) other than `+C` are not
+  restored; LUKS on an LV is backed up live; LVs without a file system (`raw`) are not
+  backed up; the initramfs of older kernels stays unchanged when `/boot` is short of
+  space; a Secure Boot chain the new firmware has revoked needs Secure Boot off or an
+  update after the start. Distributions that are not tested are restored with a warning
+  in the plan.
 - **Windows is a preview in 0.5.0.** Backups with shadow copies, restores and the service
   work as described in docs/WINDOWS-AGENT.md, but are tested on real machines only by the
   maintainer's checklist there. No Windows on ARM (installer and server refuse it). No

@@ -1,6 +1,7 @@
 export * from "./canonical.js";
 export * from "./check.js";
 export * from "./fingerprint.js";
+export * from "./hardware.js";
 export * from "./manifest.js";
 export * from "./paths.js";
 export * from "./plan.js";
@@ -8,3 +9,4 @@ export * from "./readiness.js";
 export * from "./recovery-code.js";
 export * from "./restore-sizes.js";
 export * from "./summary.js";
+export * from "./verification.js";

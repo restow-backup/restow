@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Every wired interface asks for an address by DHCP and accepts router
+# advertisements; the time comes from the NTP server DHCP names. A static
+# address is written by the recovery program to /run/systemd/network.
+[Match]
+Type=ether
+Kind=!*
+
+[Network]
+DHCP=yes
+IPv6AcceptRA=yes
+LinkLocalAddressing=ipv6
+
+[DHCPv4]
+UseNTP=yes
+UseDNS=yes
+
+[DHCPv6]
+UseNTP=yes

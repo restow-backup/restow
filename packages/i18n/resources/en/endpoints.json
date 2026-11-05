@@ -181,7 +181,9 @@
     "onlyRevoked": {
       "title": "Only revoked machines",
       "description": "Every machine here is revoked: it is no longer backed up, and its backups stay restorable."
-    }
+    },
+    "recovering": "Being restored",
+    "honestyBaremetal": "File-based backup with restic: single files and folders are backed up and restored. Linux machines can also be restored as a whole on new hardware (preview); there are no disk images. A file restore never overwrites anything: it goes into a new folder on the machine, or is downloaded as a ZIP."
   },
   "noJob": {
     "badge": "Without backup",
@@ -415,7 +417,8 @@
       "intro": "{os, select, windows {Without anyone to type, the installer reads the token from a file. Put the token into {tokenFile} (the folder is open to SYSTEM and administrators only; a 32-bit RMM process writes it through C:\\Windows\\Sysnative\\config\\systemprofile), then run the command. It pins the fingerprint of the release key; compare it once with the release notes on GitHub.} other {Without a terminal to type into, the installer reads the token from a file. Put the token into {tokenFile} (mode 0600, owned by root), then run:}}",
       "copy": "Copy the unattended install command",
       "cleanup": "Delete the token file after the installation. The token is single use and expires after 24 hours."
-    }
+    },
+    "honestyBaremetal": "The agent backs up files and folders. It does not create disk images; Linux machines can be restored as a whole on new hardware (preview)."
   },
   "detail": {
     "title": "Machine",
@@ -429,7 +432,9 @@
       "overview": "Overview",
       "snapshots": "Snapshots",
       "settings": "Settings"
-    }
+    },
+    "recoveryBanner": "This machine is being restored on bare metal: {phase}.",
+    "recoveryBannerLink": "Follow the recovery"
   },
   "actions": {
     "backup": {
@@ -1698,7 +1703,9 @@
         "fs_not_recreated": "File system {fs} ({type}) is not created again; its partition stays empty.",
         "bios_boot_disk": "Select {target} as the boot disk in the BIOS.",
         "luks_tokens_not_restored": "The key bindings of the encrypted volume {luks} ({tokens}) belong to the old hardware; set them up again after the start.",
-        "keyfile_regenerated": "The key file {path} of the encrypted volume {luks} is created new."
+        "keyfile_regenerated": "The key file {path} of the encrypted volume {luks} is created new.",
+        "untested_distribution": "The distribution is not among the tested ones; the restore may need manual work.",
+        "non_systemd_init": "The system does not start with systemd; the restore is not tested for that."
       }
     },
     "minimum": {
@@ -1830,11 +1837,47 @@
       "secureBoot": "Secure Boot was on.",
       "cable": "Network by cable, on a port without VLAN tagging.",
       "oldDisks": "Disconnect the old disks unless you want to keep them.",
-      "hardwareLater": "A full hardware guide (controllers, keyboard layout, TPM) follows with the recovery ISO.",
       "codeIntro": "Issue the code when the replacement hardware is ready. Its validity is suggested from the data to restore.",
       "liveEmpty": "No code issued yet.",
       "liveOnly": "A new code cannot be issued right now (the preview, the recovery ISO or the machine's backup changed). The open code or session below can still be followed, released, ended or revoked.",
-      "afterIntro": "Connect the restored machine to {appName} again with a rebind token of its own."
+      "afterIntro": "Connect the restored machine to {appName} again with a rebind token of its own.",
+      "snapshots": {
+        "choose": "Choose the backup to restore.",
+        "none": "No whole machine backup with a layout yet.",
+        "sameLayout": "Same layout as the newest",
+        "otherLayout": "Other layout than the newest",
+        "unsupported": "This layout cannot be restored.",
+        "check": {
+          "passed": "Check passed",
+          "failed": "Check failed",
+          "incomplete": "Check incomplete",
+          "none": "Not checked yet"
+        }
+      },
+      "hardware": {
+        "csm": "Choose replacement hardware with a legacy (CSM) boot mode: many current models no longer have it.",
+        "secureBootCa": "Secure Boot was on: the firmware of the replacement must trust {issuers}.",
+        "disks": "{count, plural, one {# disk is needed:} other {# disks are needed:}}",
+        "diskMin": "for {disk} at least {min} (it had {size})",
+        "diskSize": "for {disk} about {size} (the check has not computed a minimum yet)",
+        "ram": "Memory: at least {min}, {recommended} or more for large backups.",
+        "controllers": "The backed-up kernel has drivers for these disk controllers: {modules}.",
+        "controllersHint": "Prefer disk controllers of the same kind as the old machine had (AHCI, NVMe).",
+        "driverMissing": "The backed-up kernel has no driver for: {modules}. Do not use such a controller for the system disk.",
+        "mayChangeTitle": "May change:",
+        "mayChange": "disk models and sizes (within the minimums), disk controller (with a driver), network cards, memory, processor of the same architecture.",
+        "mayNotChangeTitle": "May not change:",
+        "mayNotChange": "the firmware mode (UEFI or BIOS), the architecture (amd64), and the storage stack (partitions, RAID, encryption, LVM, file systems are created as they were).",
+        "hwRaid": "Hardware RAID: create the virtual disk in the controller first, at least {min}, for {disk}.",
+        "encryption": "You set a passphrase for the encrypted volumes during the restore.",
+        "keymapAtBoot": "At the start, the keyboard layout {layout} applies to it.",
+        "keymapGrub": "The boot loader asks for it too, with the US layout.",
+        "tpm": "Key bindings to the old hardware ({tokens}) do not move with it; set them up again after the start."
+      },
+      "after": {
+        "title": "What the recovery ISO advises",
+        "none": "The recovery ISO reported nothing to do."
+      }
     },
     "iso": {
       "version": "Version",
@@ -1848,7 +1891,139 @@
         "macos": "macOS",
         "windows": "Windows"
       },
-      "writeUsb": "Then write the ISO to a USB stick as it is, bit for bit (for example with dd on Linux)."
+      "writeUsb": "Then write the ISO to a USB stick as it is, bit for bit (for example with dd on Linux).",
+      "source": {
+        "instance": "The download comes from this instance; its checksum matches the signed list.",
+        "github": "The download comes from the project's public release page."
+      },
+      "sources": "Source code of the GPL packages in the image (release attachments)",
+      "firmwareLicenses": "Licences of the firmware in the image",
+      "size": "Size"
+    },
+    "reported": {
+      "access_expired": "The access to the backups ended (code expired or session ended) before the restore was done.",
+      "adopt_incomplete": "A part that was to be kept could not be kept.",
+      "arch_unsupported": "The recovery ISO runs on amd64 only.",
+      "bios_4kn": "BIOS cannot start from a disk with 4096-byte logical sectors.",
+      "bios_boot_disk": "Select the right boot disk in the BIOS.",
+      "boot_space_low": "Little space is left on /boot.",
+      "btrfs_csum_assumed": "The checksum type of a btrfs file system was not recorded; crc32c was assumed.",
+      "btrfs_raid_missing_device": "A btrfs file system lacks one of its devices.",
+      "cancel_requested": "The restore was cancelled.",
+      "clock_wrong": "The clock of the replacement hardware is wrong; the certificate of the instance could not be checked.",
+      "device_name_refs_found": "Configuration files still name devices by their kernel name (/dev/sdX).",
+      "driver_facts_missing": "The module lists of a kernel were not known; drivers were not checked.",
+      "dual_boot_windows_not_restored": "Another operating system on the disks is not restored, nor its boot entries.",
+      "esp_grown_4kn": "The EFI system partition grew for FAT32 with 4096-byte sectors.",
+      "ext_block_size_raised": "A file system was created with larger blocks than before.",
+      "fallback_kernel_driver_missing": "The fallback kernel has no driver for a target disk.",
+      "firmware_mode_mismatch": "The target starts in another firmware mode than the backed-up machine.",
+      "fs_not_recreated": "A file system was not created again; its partition stays empty.",
+      "grow_not_last": "A partition marked to grow is not the last one on its disk; it keeps its size.",
+      "holders_busy": "A target disk is still in use (mounted, RAID, LVM or encryption) and could not be released.",
+      "identity_conflict": "A connected device carries the identity of this machine's disks.",
+      "initramfs_not_rebuilt": "The initramfs of a kernel was not built again.",
+      "keyfile_regenerated": "A key file of an encrypted volume was created new.",
+      "layout_unsupported": "The layout cannot be restored as a whole.",
+      "low_memory": "The replacement hardware has little memory for this repository.",
+      "luks_sector_size_changed": "An encrypted volume was created with another sector size.",
+      "luks_tokens_not_restored": "Key bindings of an encrypted volume belong to the old hardware; set them up again.",
+      "lv_shrunk": "A logical volume was made smaller.",
+      "lvm_filter_multiline": "The LVM filter of the backed-up system spans several lines and cannot be adapted.",
+      "lvm_mixed_block_sizes_allowed": "LVM spans disks with different sector sizes.",
+      "lvm_raid_missing_pv": "A RAID logical volume lacks one of its physical volumes.",
+      "manifest_format_unknown": "The layout in the backup has a format this ISO does not know; use a newer ISO.",
+      "manifest_invalid": "The layout in the backup is not valid.",
+      "manifest_mismatch": "The layout in the backup differs from the one the instance recorded.",
+      "mapping_invalid": "The disk mapping is not valid.",
+      "mbr_2tib_limit": "A disk is larger than an MBR partition table can address; the rest stays unused.",
+      "md_degraded_first_boot": "A RAID array was created degraded; the first start may take longer.",
+      "md_too_few_members": "A RAID array would have too few members to run.",
+      "mkfs_feature_unknown": "A file system uses a feature the recovery tools cannot create.",
+      "mkfs_readback_mismatch": "A file system that was created does not read back as planned.",
+      "mkfs_unsupported_type": "A file system type cannot be created.",
+      "mok_enroll_pending": "A key for Secure Boot waits for its enrolment at the next start.",
+      "mok_enroll_required": "A machine owner key must be enrolled at the first start.",
+      "mok_key_missing": "A machine owner key the boot chain needs is neither in the backup nor enrolled.",
+      "multipath_detected": "Several disks have the same WWN: the storage is reached over several paths.",
+      "nic_driver_missing": "The backed-up kernel has no driver for a network card.",
+      "nic_rename_skipped": "Network names were not adapted to the new network cards.",
+      "no_disks_found": "The ISO found no disk it may write.",
+      "non_systemd_init": "The backed-up system does not start with systemd; the restore is not tested for that.",
+      "old_disk_present": "An old disk of this machine is still connected.",
+      "other_controller_driver_missing": "On another disk controller the backed-up kernel would have no driver.",
+      "partition_readback_mismatch": "A partition table that was written does not read back as planned.",
+      "partition_realigned": "A partition moved to a 1 MiB boundary; its PARTUUID stays.",
+      "partition_shrunk": "A partition was made smaller.",
+      "quota_rescan_failed": "The btrfs quota could not be counted again.",
+      "raw_lvs_created_empty": "Logical volumes without a file system were created empty.",
+      "raw_lvs_skipped": "Logical volumes without a file system were not created.",
+      "recovery_too_old": "The recovery ISO is too old for this instance.",
+      "redundant_boot_partition_dropped": "A redundant boot partition of a missing disk was not created again.",
+      "restore_failed": "Restoring the files failed.",
+      "restore_file_errors": "Some files could not be restored; the log names them.",
+      "restore_size_estimated": "A restore size was estimated from the space in use.",
+      "sector_size_incompatible": "Disks with sector sizes that do not fit together.",
+      "secure_boot_ca_missing": "The target firmware does not trust the backed-up boot loader.",
+      "secure_boot_dbx_unknown": "The revocation list of the target firmware was not known; revoked boot loaders were not checked.",
+      "secure_boot_disabled_by_choice": "Secure Boot is to be turned off on the target; its checks were notes only.",
+      "secure_boot_revoked": "The target firmware has revoked the backed-up boot loader.",
+      "secure_boot_sbat_revoked": "The target firmware has revoked this generation of the boot loader.",
+      "secure_boot_unsigned_chain": "The boot chain is not signed: the machine starts only with Secure Boot off or with own keys.",
+      "sed_locked": "A disk returns read errors; it may be a locked self-encrypting drive.",
+      "selinux_autorelabel": "SELinux labels everything again at the first start; it may take a while.",
+      "shrink_needs_confirmation": "A disk fits only if more than the growing volume shrinks; this needs a confirmation.",
+      "spki_mismatch": "The check value of the instance did not match; the ISO did not connect.",
+      "step_failed": "A step of the plan failed; the log says which.",
+      "storage_driver_missing": "The backed-up kernel has no driver for a target disk.",
+      "system_files_incomplete": "Files the system needs to start are missing after the restore.",
+      "target_missing": "A disk of the backup has no target disk.",
+      "target_too_small": "A target disk is too small.",
+      "target_unusable": "A target disk cannot be written.",
+      "tls_untrusted": "The ISO does not trust the certificate of the instance.",
+      "untested_distribution": "The distribution of the backed-up system is not among the tested ones; the restore may need manual work.",
+      "verify_failed": "The check after the restore failed.",
+      "vfat_sector_size_changed": "A FAT file system was created with another sector size."
+    },
+    "verification": {
+      "title": "Check after the restore",
+      "isoReported": "Reported by the recovery ISO.",
+      "isoMessage": "The ISO reports: {message}",
+      "result": {
+        "ok": "Passed",
+        "warning": "With warnings",
+        "failed": "Failed"
+      },
+      "evidence": "What was checked",
+      "fixups": "Files that were adapted (a copy of each was kept)",
+      "notAdaptedKernels": "Kernels whose initramfs was not adapted: {kernels}",
+      "restoreErrors": "{count, plural, one {# file could not be restored.} other {# files could not be restored.}}",
+      "checks": {
+        "restic_verify": "Files restored and verified",
+        "storage_stack": "Partitions, RAID, encryption and LVM",
+        "fstab": "fstab",
+        "crypttab": "crypttab",
+        "initramfs": "Initramfs and drivers",
+        "boot_entries": "Boot entries in the firmware",
+        "boot_config": "Boot loader configuration",
+        "identity_conflicts": "No identity conflicts with other disks",
+        "mount_points": "Mount points and folder permissions",
+        "secure_boot": "Secure Boot chain"
+      }
+    },
+    "hints": {
+      "bios_boot_disk": "Select {model} ({identity}) as the boot disk in the BIOS.",
+      "device_name_refs": "{path} line {line} still names a device by its kernel name; check it.",
+      "initramfs_not_adapted": "The initramfs of kernel {kernel} was not adapted; start the default kernel first.",
+      "keymap_at_boot": "At the start, the passphrase is typed with the keyboard layout {layout}.",
+      "luks_reenroll_token": "Set up the key bindings of the encrypted volume {volume} ({tokenTypes}) again; they belonged to the old hardware.",
+      "md_add_disk": "Add a second disk to the RAID array {array} once there is one.",
+      "md_degraded_first_boot": "The RAID array {array} starts degraded; the first start may take longer.",
+      "mok_enroll": "At the next start, enroll the key in the blue key manager with the password shown on the recovery console.",
+      "nic_mapped": "The network name {oldName} ({oldMac}) now belongs to the card {newMac}.",
+      "old_disk_present": "Disconnect the old disk {model} ({identity}) before the start, or wipe it.",
+      "secure_boot_disabled": "Secure Boot is off on this machine; turn it on again if the chain allows it.",
+      "selinux_autorelabel": "SELinux labels every file again at the first start; let it finish."
     }
   },
   "rebind": {
