@@ -1,7 +1,7 @@
 {
   "errors": [
     {
-      "message": "master: DBCC CHECKDB of the copy under a check name reported 2 catalog error(s) (8992), as it does for every copy of master under another name; its backup is not checked.",
+      "message": "master: DBCC CHECKDB of the copy under a check name reported only catalog errors (3 rows, numbers 8992, 8991), as it does for every copy of master under another name; its backup is not checked.",
       "code": "sql_verify_system_db"
     }
   ],
@@ -36,7 +36,7 @@
         "logsApplied": 0,
         "durationMs": 3000,
         "code": "sql_verify_system_db",
-        "message": "master: DBCC CHECKDB of the copy under a check name reported 2 catalog error(s) (8992), as it does for every copy of master under another name; its backup is not checked."
+        "message": "master: DBCC CHECKDB of the copy under a check name reported only catalog errors (3 rows, numbers 8992, 8991), as it does for every copy of master under another name; its backup is not checked."
       }
     ]
   },

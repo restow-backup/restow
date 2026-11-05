@@ -477,12 +477,15 @@ function Get-SmartAppControlVerdict([int]$State) {
 # Get-SqlInstanceNames lists the SQL Server instances of this computer (the
 # value names of Instance Names\SQL); an empty list without SQL Server.
 function Get-SqlInstanceNames([string]$Key = 'HKLM:\SOFTWARE\Microsoft\Microsoft SQL Server\Instance Names\SQL') {
+    # The names go out one by one and the caller collects them with @(); a
+    # list returned as one object (return , @(...)) would come back as a
+    # list holding a list, never empty.
     try {
         $item = Get-Item -Path $Key -ErrorAction Stop
-        return , @($item.GetValueNames() | Where-Object { $_ -ne '' } | Sort-Object)
     } catch {
-        return , @()
+        return
     }
+    $item.GetValueNames() | Where-Object { $_ -ne '' } | Sort-Object
 }
 
 # Get-SqlLoginHint is what the installer says on a computer with SQL Server:

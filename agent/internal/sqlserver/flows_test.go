@@ -528,9 +528,9 @@ func TestVerifyCasesGolden(t *testing.T) {
 				t.Fatalf("%+v %+v", r, r.Checkdb)
 			}
 		}},
-		// A copy of master under a check name shows catalog errors (8992)
-		// only because it is not master (C22, seen in the CI): incomplete
-		// with sql_verify_system_db, never red.
+		// A copy of master under a check name shows catalog errors (8992,
+		// counted by 8991) only because it is not master (C22, seen in the
+		// CI): incomplete with sql_verify_system_db, never red.
 		{name: "master-catalog", verify: "verify-checkdb-master-catalog.jsonl", setup: func(f *fixture, p *api.SQLVerifyParams) { p.Databases[0].Name = "master" },
 			status: api.StatusFailed, check: func(t *testing.T, f *fixture, r api.SQLVerifyResult) {
 				if r.Code != api.SQLVerifySystemDB || r.Checkdb == nil || r.Checkdb.Ran || len(r.Checkdb.Errors) != 0 || !r.Dropped {
@@ -539,7 +539,7 @@ func TestVerifyCasesGolden(t *testing.T) {
 			}},
 		// The same catalog errors in a user database are evidence.
 		{name: "user-db-catalog", verify: "verify-checkdb-master-catalog.jsonl", status: api.StatusFailed, check: func(t *testing.T, f *fixture, r api.SQLVerifyResult) {
-			if r.Code != "" || r.Checkdb == nil || !r.Checkdb.Ran || len(r.Checkdb.Errors) != 2 || r.Checkdb.Errors[0].Number != 8992 {
+			if r.Code != "" || r.Checkdb == nil || !r.Checkdb.Ran || len(r.Checkdb.Errors) != 3 || r.Checkdb.Errors[0].Number != 8992 {
 				t.Fatalf("%+v %+v", r, r.Checkdb)
 			}
 		}},

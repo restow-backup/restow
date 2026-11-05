@@ -42,7 +42,14 @@ func integrationEnv(t *testing.T) (*sqlserver.Env, api.SQLInstanceFact, *restic.
 	if fact.Name == "" {
 		t.Fatalf("instance %s is not in the registry", inst)
 	}
-	root := t.TempDir()
+	// A short root: the check fetches the backup to RestoreRoot\<run>\<n>
+	// followed by the whole path the file had in the snapshot, so the
+	// staging path appears twice in the name RESTORE opens, and SQL Server
+	// refuses a device name over 259 characters (3057). Below the user's
+	// TEMP (C:\Users\RUNNER~1\AppData\Local\Temp\TestIntegration...\001)
+	// that is over the limit; the agent's own folders (C:\ProgramData\
+	// Restow\data) are not.
+	root := shortTempDir(t)
 	runner, err := sqlserver.NewScriptRunner(filepath.Join(root, "tmp"), func(s string) { t.Logf("script stderr: %s", s) })
 	if err != nil {
 		t.Fatal(err)
@@ -61,6 +68,21 @@ func integrationEnv(t *testing.T) (*sqlserver.Env, api.SQLInstanceFact, *restic.
 		StagingRoot: filepath.Join(root, "staging", "sql"), RestoreRoot: filepath.Join(root, "staging", "sql-restore"),
 		JournalPath: filepath.Join(root, "sql-verify-journal.json")}
 	return env, fact, r
+}
+
+// shortTempDir is a new folder below RUNNER_TEMP (D:\a\_temp on a hosted
+// runner), else below the system's TEMP, removed after the test.
+func shortTempDir(t *testing.T) string {
+	base := os.Getenv("RUNNER_TEMP")
+	if base == "" {
+		return t.TempDir()
+	}
+	dir, err := os.MkdirTemp(base, "sqli")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
 }
 
 type testLog struct{ t *testing.T }

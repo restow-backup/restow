@@ -1,7 +1,7 @@
 {
   "errors": [
     {
-      "message": "Sales: DBCC CHECKDB reported 2 error(s) in the backup restored from the repository; first: Check Catalog Msg 3851, State 1: An invalid row (class=60,depid=1,depsubid=0) was found in the system table sys.syssingleobjrefs (class=60). (8992)."
+      "message": "Sales: DBCC CHECKDB reported 3 error(s) (numbers 8992, 8991) in the backup restored from the repository; first: Check Catalog Msg 3851, State 1: An invalid row (class=60,depid=1,depsubid=0) was found in the system table sys.syssingleobjrefs (class=60). (8992)."
     }
   ],
   "ops": [
@@ -39,6 +39,12 @@
               "level": 16,
               "state": 1,
               "message": "Check Catalog Msg 3851, State 1: An invalid row (class=60,depid=2,depsubid=0) was found in the system table sys.syssingleobjrefs (class=60)."
+            },
+            {
+              "number": 8991,
+              "level": 16,
+              "state": 1,
+              "message": "CHECKDB found 0 allocation errors and 2 consistency errors not associated with any single object."
             }
           ],
           "durationMs": 2100

@@ -86,6 +86,16 @@ function Get-DbResult($Result, [string]$Section, [string]$Name) {
 
 function Show-Errors($Result) { return (ConvertTo-Json -InputObject @(Get-Field $Result 'errors') -Compress -Depth 6) }
 
+# Show-DbDetail prints what a check or restore said about one database: its
+# code and message, every RESTORE error and every CHECKDB row (not only the
+# first, which is all the run's error message names).
+function Show-DbDetail([string]$Label, $Db) {
+    if ($null -eq $Db) { Write-Host "${Label}: no result"; return }
+    Write-Host ("${Label}: " + (Get-Field $Db 'name') + ", code '" + (Get-Field $Db 'code') + "', message '" + (Get-Field $Db 'message') + "', sha256Match " + (Get-Field $Db 'sha256Match') + ", restore.ok " + (Get-Field $Db 'restore.ok') + ", checkdb.ran " + (Get-Field $Db 'checkdb.ran'))
+    foreach ($e in @(Get-Field $Db 'restore.errors')) { Write-Host ("  RESTORE " + (Get-Field $e 'number') + ": " + (Get-Field $e 'message')) }
+    foreach ($e in @(Get-Field $Db 'checkdb.errors')) { Write-Host ("  CHECKDB " + (Get-Field $e 'number') + " level " + (Get-Field $e 'level') + ": " + (Get-Field $e 'message')) }
+}
+
 function Write-Summary([string]$Text) {
     Write-Host $Text
     if ($env:GITHUB_STEP_SUMMARY) { Add-Content -Path $env:GITHUB_STEP_SUMMARY -Value $Text }
@@ -293,16 +303,32 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE object_id = OBJECT_ID('dbo.T') AN
         return ($text | ConvertFrom-Json)
     }
 
-    # 1. Without a login: none for the service SID, and none for the account
-    # the probe runs as (LocalSystem; setup may create a login for NT
-    # AUTHORITY\SYSTEM with public rights only).
-    Invoke-AdminSql 'SQLEXPRESS' "IF SUSER_ID('NT SERVICE\RestowSqlCi') IS NOT NULL DROP LOGIN [NT SERVICE\RestowSqlCi]; IF SUSER_ID('NT AUTHORITY\SYSTEM') IS NOT NULL DROP LOGIN [NT AUTHORITY\SYSTEM];"
+    # 1. Without a login of its own. The probe runs as LocalSystem: the CI
+    # showed that it still signs in on a fresh Express instance, as NT
+    # AUTHORITY\SYSTEM with public rights only, through a login setup made
+    # (the Windows logins are printed below). The agent then reports no
+    # rights: the server shows "Missing rights" with the T-SQL block, and a
+    # backup ends with sql_permission_missing. Without any login that admits
+    # it, the agent reports sql_login_missing; both are accepted, anything
+    # else fails.
+    Invoke-AdminSql 'SQLEXPRESS' "IF SUSER_ID('NT SERVICE\RestowSqlCi') IS NOT NULL DROP LOGIN [NT SERVICE\RestowSqlCi];"
+    $winLogins = Invoke-AdminSql 'SQLEXPRESS' "SELECT name, type_desc, CAST(is_disabled AS int) AS disabled FROM sys.server_principals WHERE type IN ('U', 'G') ORDER BY name" -Rows
+    Write-Host ('Windows logins of SQLEXPRESS: ' + ((@($winLogins.Rows) | ForEach-Object { [string]$_.name + ' (' + [string]$_.type_desc + $(if ([int]$_.disabled -eq 1) { ', disabled' } else { '' }) + ')' }) -join '; '))
     $r = Invoke-Probe @{ op = 'inventory'; instance = 'SQLEXPRESS' }
     $first = @(Get-Field $r 'errors') | Select-Object -First 1
-    if ((Get-Field $r 'status') -eq 'failed' -and (Get-Field $first 'code') -eq 'sql_login_missing') { Ok 'without a login: sql_login_missing' } else {
-        $as = @(Get-Field $r 'sqlInventory.instances') | Select-Object -First 1
-        Fail ("without a login: status " + (Get-Field $r 'status') + ", signed in as " + (ConvertTo-Json -InputObject @(Get-Field $as 'login') -Compress) + ", errors " + (Show-Errors $r))
-    }
+    $as = @(Get-Field $r 'sqlInventory.instances') | Select-Object -First 1
+    $login = Get-Field $as 'login'
+    $userDbs = @(@(Get-Field $as 'databases') | Where-Object { -not (Get-Field $_ 'system') })
+    $mayBackUp = @($userDbs | Where-Object { Get-Field $_ 'canBackup' } | ForEach-Object { Get-Field $_ 'name' })
+    $without = "status " + (Get-Field $r 'status') + ", signed in as " + (ConvertTo-Json -InputObject @($login) -Compress) + ", user databases " + $userDbs.Count + ", may back up: [" + ($mayBackUp -join ', ') + "], errors " + (Show-Errors $r)
+    if ((Get-Field $r 'status') -eq 'failed' -and (Get-Field $first 'code') -eq 'sql_login_missing') { Ok 'without a login: sql_login_missing' }
+    elseif ((Get-Field $r 'status') -eq 'succeeded' -and $null -ne $login -and -not (Get-Field $login 'sysadmin') -and -not (Get-Field $login 'canCreateDatabase') -and $userDbs.Count -gt 0 -and $mayBackUp.Count -eq 0) {
+        Ok ("without a login: signed in as " + (Get-Field $login 'name') + " without rights (the server shows missing rights)")
+        $nb = Invoke-Probe @{ op = 'backup'; instance = 'SQLEXPRESS'; databases = @('RestowCi') }
+        $codes = @(@(Get-Field $nb 'errors') | ForEach-Object { Get-Field $_ 'code' })
+        if ((Get-Field $nb 'status') -eq 'failed' -and $codes -contains 'sql_permission_missing') { Ok 'without a login: a backup ends with sql_permission_missing' }
+        else { Fail ("without a login, backup: status " + (Get-Field $nb 'status') + ", errors " + (Show-Errors $nb)) }
+    } else { Fail ("without a login: " + $without) }
 
     # 2. The small rights.
     Invoke-AdminSql 'SQLEXPRESS' @"
@@ -362,6 +388,7 @@ ALTER ROLE db_backupoperator ADD MEMBER [NT SERVICE\RestowSqlCi]; ALTER ROLE db_
     $vdbs = @(Get-Field $v 'sqlVerify.databases')
     $notGreen = @($vdbs | Where-Object { -not ((Get-Field $_ 'sha256Match') -and (Get-Field $_ 'restore.ok') -and (Get-Field $_ 'checkdb.ran') -and @(Get-Field $_ 'checkdb.errors').Count -eq 0) })
     $green = (Get-Field $v 'status') -eq 'succeeded' -and $vdbs.Count -gt 0 -and $notGreen.Count -eq 0
+    foreach ($d in $notGreen) { Show-DbDetail 'check from the repository, not green' $d }
     $sys = @($vdbs | Where-Object { (Get-Field $_ 'code') -eq 'sql_verify_system_db' } | ForEach-Object { Get-Field $_ 'name' })
     # C22 as the design records it: a copy of master under a check name is no
     # master, CHECKDB reports its server-level catalog rows (8992), so the
@@ -393,7 +420,7 @@ WHERE page_type_desc = 'DATA_PAGE' ORDER BY allocated_page_page_id;
     $vr = Invoke-Probe @{ op = 'verify'; instance = 'SQLEXPRESS'; from = $badJson }
     $s = Get-DbResult $vr 'sqlVerify' 'Scratch'
     $found = @(Get-Field $s 'checkdb.errors')
-    if ($null -ne $s -and (Get-Field $s 'checkdb.ran') -and $found.Count -gt 0) { Ok ("a damaged copy is red: CHECKDB " + (Get-Field $found[0] 'number')) } else { Fail ("a damaged copy was not found: " + (ConvertTo-Json $vr -Depth 6 -Compress)) }
+    if ($null -ne $s -and (Get-Field $s 'checkdb.ran') -and $found.Count -gt 0) { Ok ("a damaged copy is red: CHECKDB " + (Get-Field $found[0] 'number')) } else { Show-DbDetail 'damaged copy' $s; Fail ("a damaged copy was not found: " + (ConvertTo-Json $vr -Depth 6 -Compress)) }
 
     # Restore under a new name, then CHECKDB.
     $rs = Invoke-Probe @{ op = 'restore'; instance = 'SQLEXPRESS'; from = $fullJson; database = 'RestowCi'; newName = 'RestowCi_restored'; checkdb = $true }

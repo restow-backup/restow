@@ -31,22 +31,48 @@ var systemDatabases = map[string]bool{"master": true, "model": true, "msdb": tru
 // catalog check ("Check Catalog Msg 3851 ...").
 const checkCatalogError = 8992
 
+// checkdbTotals are the closing lines of CHECKDB that count the errors
+// listed on their own rows: per table (8990), not associated with any
+// single object (8991, where the catalog errors are counted) and per
+// database (8989, which JudgeCheckdb already leaves out).
+var checkdbTotals = map[int]bool{8989: true, 8990: true, 8991: true}
+
 // masterCatalogOnly reports whether a CHECKDB of a copy of master found
-// nothing but catalog errors. A copy of master under a check name is no
-// master: its catalog holds rows of server-level objects that only master
-// may hold, and CHECKDB reports each as error 8992 (the CI showed this on
-// SQL Server 2019 and 2022 Express, C22). Such a result proves neither a
-// good nor a bad backup. Any other error stays evidence of damage.
+// nothing but catalog errors (and the lines that count them). A copy of
+// master under a check name is no master: its catalog holds rows of
+// server-level objects that only master may hold, and CHECKDB reports each
+// as error 8992 (the CI showed this on SQL Server 2019 and 2022 Express,
+// C22). Such a result proves neither a good nor a bad backup. Any other
+// error stays evidence of damage.
 func masterCatalogOnly(name string, errs []api.SQLCheckdbError) bool {
-	if !strings.EqualFold(name, "master") || len(errs) == 0 {
+	if !strings.EqualFold(name, "master") {
 		return false
 	}
+	catalog := 0
 	for _, e := range errs {
-		if e.Number != checkCatalogError {
+		switch {
+		case e.Number == checkCatalogError:
+			catalog++
+		case checkdbTotals[e.Number]:
+		default:
 			return false
 		}
 	}
-	return true
+	return catalog > 0
+}
+
+// errorNumbers lists the distinct numbers of CHECKDB errors in their order,
+// for the run log.
+func errorNumbers(errs []api.SQLCheckdbError) string {
+	seen := map[int]bool{}
+	var out []string
+	for _, e := range errs {
+		if !seen[e.Number] {
+			seen[e.Number] = true
+			out = append(out, fmt.Sprint(e.Number))
+		}
+	}
+	return strings.Join(out, ", ")
 }
 
 // Verify checks the backups a sql_verify task names (docs/BAREMETAL-
@@ -118,8 +144,8 @@ func (e *Env) Verify(ctx context.Context, p api.SQLVerifyParams, fact api.SQLIns
 			}
 			e.Log.Infof("%s: restored from the repository and checked with DBCC CHECKDB%s without errors.", d.Name, kind)
 		case r.Checkdb != nil && len(r.Checkdb.Errors) > 0:
-			msg := BoundMessage(fmt.Sprintf("%s: DBCC CHECKDB reported %d error(s) in the backup restored from the repository; first: %s (%d).",
-				d.Name, len(r.Checkdb.Errors), r.Checkdb.Errors[0].Message, r.Checkdb.Errors[0].Number))
+			msg := BoundMessage(fmt.Sprintf("%s: DBCC CHECKDB reported %d error(s) (numbers %s) in the backup restored from the repository; first: %s (%d).",
+				d.Name, len(r.Checkdb.Errors), errorNumbers(r.Checkdb.Errors), r.Checkdb.Errors[0].Message, r.Checkdb.Errors[0].Number))
 			e.Log.Errorf("%s", msg)
 			out.Errors = append(out.Errors, api.RunError{Message: msg})
 		case r.Code != "":
@@ -263,9 +289,9 @@ func (e *Env) verifyOne(ctx context.Context, r *api.SQLVerifyResult, d api.SQLVe
 		incomplete(api.SQLRestoreFailed, "%s: RESTORE of the backup failed: %s", d.Name, first)
 	case vr.Checkdb != nil && vr.Checkdb.Ran && masterCatalogOnly(d.Name, vr.Checkdb.Errors):
 		// Not evidence (C22): the check is incomplete, never red.
-		n := len(vr.Checkdb.Errors)
+		n, numbers := len(vr.Checkdb.Errors), errorNumbers(vr.Checkdb.Errors)
 		r.Checkdb = &api.SQLCheckdbResult{Ran: false, PhysicalOnly: vr.Checkdb.PhysicalOnly, Errors: []api.SQLCheckdbError{}, DurationMs: vr.Checkdb.DurationMs}
-		incomplete(api.SQLVerifySystemDB, "%s: DBCC CHECKDB of the copy under a check name reported %d catalog error(s) (%d), as it does for every copy of master under another name; its backup is not checked.", d.Name, n, checkCatalogError)
+		incomplete(api.SQLVerifySystemDB, "%s: DBCC CHECKDB of the copy under a check name reported only catalog errors (%d rows, numbers %s), as it does for every copy of master under another name; its backup is not checked.", d.Name, n, numbers)
 	case vr.Checkdb == nil && !vr.NewBroker:
 		msg := "ALTER DATABASE SET NEW_BROKER failed"
 		if vr.NewBrokerProblem != nil {

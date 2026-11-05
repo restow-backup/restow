@@ -1,7 +1,7 @@
 {
   "errors": [
     {
-      "message": "Sales: DBCC CHECKDB reported 1 error(s) in the backup restored from the repository; first: Table error: page (1:312) allocated to object ID 245575913, index ID 1, partition ID 72057594041466880, alloc unit ID 72057594046971904 (type In-row data) was not seen. The page may be invalid or may have an incorrect alloc unit ID in its header. (2533)."
+      "message": "Sales: DBCC CHECKDB reported 1 error(s) (numbers 2533) in the backup restored from the repository; first: Table error: page (1:312) allocated to object ID 245575913, index ID 1, partition ID 72057594041466880, alloc unit ID 72057594046971904 (type In-row data) was not seen. The page may be invalid or may have an incorrect alloc unit ID in its header. (2533)."
     }
   ],
   "ops": [

@@ -1,7 +1,7 @@
 {
   "errors": [
     {
-      "message": "master: DBCC CHECKDB reported 2 error(s) in the backup restored from the repository; first: Object ID 245575913, index ID 1, partition ID 72057594041466880, alloc unit ID 72057594046971904 (type In-row data): Page (1:312) could not be processed. See other errors for details. (8928)."
+      "message": "master: DBCC CHECKDB reported 2 error(s) (numbers 8928, 8939) in the backup restored from the repository; first: Object ID 245575913, index ID 1, partition ID 72057594041466880, alloc unit ID 72057594046971904 (type In-row data): Page (1:312) could not be processed. See other errors for details. (8928)."
     }
   ],
   "ops": [

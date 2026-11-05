@@ -59,8 +59,9 @@ private repository.
   the repository, red only with evidence (CHECKDB consistency errors, a damaged backup, another
   SHA-256), incomplete otherwise (no space, a time limit, a CHECKDB that stopped because tempdb or
   its log ran full, memory ran out or the connection broke). A copy of `master` under a check
-  name reports the server-level entries of its catalog as CHECKDB errors (8992); when those are
-  its only errors, the check of `master` is incomplete (`sql_verify_system_db`), not red.
+  name reports the server-level entries of its catalog as CHECKDB errors (8992); when those and
+  the lines that count them (8990, 8991) are its only errors, the check of `master` is incomplete
+  (`sql_verify_system_db`), not red. A failed check names the numbers of all CHECKDB errors.
   Restore and check leave a reserve
   free on the volumes they write to, at least 1 GiB and a tenth of the volumes of the data and
   log files, so the live databases there can keep growing. New alerts `endpoint.sql_red`,
