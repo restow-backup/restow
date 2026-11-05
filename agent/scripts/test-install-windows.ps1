@@ -443,11 +443,19 @@ if (-not $SkipInstall) {
 
         # A tampered binary on the instance: refused, the installed one stays.
         $before = (Get-FileHash $agentExe).Hash
-        Add-Content -Path (Join-Path $target 'restic.exe') -Value 'x'
-        $r = Invoke-Installer @{} @()
-        if ($r.Code -eq 0 -or $r.Out -notmatch 'checksum mismatch') { Fail "a tampered restic.exe was not refused: $($r.Out)" }
-        elseif ((Get-FileHash $agentExe).Hash -ne $before) { Fail 'the installed agent changed although the release was refused' }
-        else { Ok 'tampered release refused' }
+        # The served restic.exe is restored afterwards: the install into the real
+        # Program Files below downloads it again.
+        $servedRestic = Join-Path $target 'restic.exe'
+        $resticBytes = [System.IO.File]::ReadAllBytes($servedRestic)
+        try {
+            Add-Content -Path $servedRestic -Value 'x'
+            $r = Invoke-Installer @{} @()
+            if ($r.Code -eq 0 -or $r.Out -notmatch 'checksum mismatch') { Fail "a tampered restic.exe was not refused: $($r.Out)" }
+            elseif ((Get-FileHash $agentExe).Hash -ne $before) { Fail 'the installed agent changed although the release was refused' }
+            else { Ok 'tampered release refused' }
+        } finally {
+            [System.IO.File]::WriteAllBytes($servedRestic, $resticBytes)
+        }
 
         # -Uninstall
         $r = Invoke-Installer @{} @('-Uninstall')
