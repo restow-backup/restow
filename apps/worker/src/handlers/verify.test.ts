@@ -181,6 +181,47 @@ describe("readinessNotification", () => {
     expect(redReasonOf(["no_snapshot"])).toBe("damaged");
   });
 
+  it("raises a rating that stayed the same again only when its cause got worse", () => {
+    const again = (
+      current: RecoveryReadiness,
+      previousReasons: string[] | null,
+      reasons: string[],
+    ) =>
+      readinessNotification({
+        tenantId: TENANT,
+        object: mailbox,
+        previous: current,
+        current,
+        reportId: "r",
+        reasons,
+        previousReasons,
+      });
+    // Red, first only too old, then data missing: the damage is news.
+    const damaged = again("red", ["snapshot_outdated"], ["items_missing", "snapshot_outdated"]);
+    expect(damaged).toMatchObject({
+      event: VERIFY_EVENTS.red,
+      level: "error",
+      details: { redReason: "damaged", previousRedReason: "outdated" },
+    });
+    expect(damaged?.message).toContain("a restore would not be complete");
+    // Damaged and damaged again, or damaged and now only too old: nothing new.
+    expect(again("red", ["items_missing"], ["items_unreadable"])).toBeNull();
+    expect(again("red", ["items_missing"], ["snapshot_outdated"])).toBeNull();
+    // Yellow, first only getting old, then a pack the storage check cannot read.
+    expect(
+      again("yellow", ["snapshot_stale"], ["snapshot_stale", "storage_unreadable"]),
+    ).toMatchObject({
+      event: VERIFY_EVENTS.yellow,
+    });
+    expect(again("yellow", ["storage_unreadable"], ["storage_unreadable"])).toBeNull();
+    // Only the age changed: no news.
+    expect(
+      again("yellow", ["backup_incomplete"], ["backup_incomplete", "snapshot_stale"]),
+    ).toBeNull();
+    // Earlier reasons unknown: as before, nothing for the same rating.
+    expect(again("red", null, ["items_missing"])).toBeNull();
+  });
+
   it("names an object without a display name by its external id", () => {
     const unnamed = readinessNotification({
       tenantId: TENANT,
@@ -1014,6 +1055,101 @@ describe.skipIf(!adminUrl)("verify handler against Postgres", () => {
     const [job] = await db.select({ payload: jobs.payload }).from(jobs).where(eq(jobs.id, jobId));
     expect(job?.payload?.result).toMatchObject({ readiness: "red", snapshotId });
     expect(job?.payload).toMatchObject({ kind: "verify", protectedObjectId: object.id });
+  });
+
+  it("alerts again when a red rating turns from 'backup too old' to damaged data", async () => {
+    // An object of its own: the notifications of the tests above stay out of it.
+    const [row] = await db
+      .insert(protectedObjects)
+      .values({
+        tenantId,
+        sourceId: object.sourceId,
+        kind: "mailbox",
+        externalId: "bob@example.org",
+        displayName: "Bob Example",
+      })
+      .returning();
+    const bob: ProtectedObjectRef = {
+      ...object,
+      id: row?.id as string,
+      externalId: "bob@example.org",
+    };
+    // In an enabled job of its own, so the age of its backup counts.
+    const [bobJob] = await db
+      .insert(backupJobs)
+      .values({ tenantId, kind: "mail", name: "Bob", scopeMode: "selected", enabled: true })
+      .returning();
+    await db
+      .insert(backupJobMembers)
+      .values({ tenantId, jobId: bobJob?.id as string, protectedObjectId: bob.id });
+    const [bobSnapshot] = await db
+      .insert(snapshots)
+      .values({
+        tenantId,
+        protectedObjectId: bob.id,
+        sequence: 1,
+        manifestPath: "tenants/t/manifests/bob-1.json",
+        completedAt: NOW,
+      })
+      .returning();
+    const engine = memoryEngine({ tenantId, object: bob });
+    const { chunksByPath } = await writeMailboxSnapshot(
+      { ...engine, ctx: { ...engine.ctx, db, jobId } },
+      bobSnapshot?.id as string,
+    );
+    // Checked eight days after the backup: the data reads back fine, the backup is too old.
+    let clock = NOW.getTime() + 8 * 24 * 3_600_000;
+    const ctx: WorkerJobContext = {
+      ...engine.ctx,
+      db,
+      jobId,
+      now: () => {
+        clock += 60_000;
+        return new Date(clock);
+      },
+    };
+    const handler = createVerifyHandler({ probes: () => null });
+    const run = () => handler.run(ctx, { ...payload, jobId, tenantId, protectedObjectId: bob.id });
+    const bobEvents = async () =>
+      (
+        await db
+          .select({ event: notifications.event, details: notifications.details })
+          .from(notifications)
+          .where(eq(notifications.tenantId, tenantId))
+          .orderBy(asc(notifications.createdAt))
+      ).filter(
+        (entry) =>
+          (entry.details as { protectedObjectId?: string } | null)?.protectedObjectId === bob.id &&
+          entry.event !== "verify.completed",
+      );
+
+    await run();
+    expect((await bobEvents()).map((entry) => entry.details)).toEqual([
+      expect.objectContaining({ readiness: "red", redReason: "outdated" }),
+    ]);
+    // Still red, still only too old: nothing new to say.
+    await run();
+    expect(await bobEvents()).toHaveLength(1);
+
+    // Now the next check finds a message that no longer reads back: the data is damaged.
+    const [corrupt] = chunksByPath.get("mail/Inbox/1.eml") ?? [];
+    const location = engine.index.chunks.get(corrupt as string);
+    if (!location) {
+      throw new Error("fixture chunk is not indexed");
+    }
+    engine.storage.flipByte(location.packPath, location.offset + Math.floor(location.length / 2));
+    await run();
+    const events = await bobEvents();
+    expect(events.map((entry) => entry.event)).toEqual([VERIFY_EVENTS.red, VERIFY_EVENTS.red]);
+    expect(events[1]?.details).toMatchObject({
+      readiness: "red",
+      previous: "red",
+      redReason: "damaged",
+      previousRedReason: "outdated",
+    });
+    // Damaged and damaged again: no repeat.
+    await run();
+    expect(await bobEvents()).toHaveLength(2);
   });
 
   it("notes an attempt that could not complete on the job, with no report and no notification", async () => {

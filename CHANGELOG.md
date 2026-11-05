@@ -660,6 +660,15 @@ private repository.
   when a check ran. It is now judged when the view is built, the worse of the check's rating and
   the age counts, and the reason ("the latest backup is n hours old") is listed with the current
   age. Objects removed from their source or in no backup job are still rated without it.
+- Restore check: a rating that stayed red or yellow raised nothing when its cause got worse. A
+  mailbox red only because its newest backup was too old ("Backup too old") gave no new alert
+  when the next check found messages missing, unreadable or different, its manifest unreadable
+  or the test restore failing, so the operator kept acting on "merely too old"; a yellow that
+  gained a new cause (a pack the storage check cannot read, items the backup could not back up,
+  an unconfirmed test restore, checks that could not complete) was just as quiet. Such a check
+  now raises `verify.red` again with the "a restore would not be complete" wording
+  (`previousRedReason: "outdated"` in its details), or `verify.yellow` for the new cause. Damage
+  the storage check finds still raises `scrub.corrupt`.
 - Mail archive: an announced Graph message that could not be fetched other than with 404 (a
   403 for an item the app may not read, a 5xx) stayed pending for good at the head of the
   queue. A pass in which no announced message could be fetched failed and skipped the

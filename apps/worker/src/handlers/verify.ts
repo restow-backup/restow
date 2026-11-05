@@ -20,7 +20,9 @@
  * and persists the outcome: a `verify_reports` row (the rating of the checked
  * snapshot, linked by `snapshot_id`, with its date), `jobs.payload.result` for
  * the job views, and an in-app notification whenever the rating changes for
- * the worse, or recovers. Every recorded outcome is also announced as the
+ * the worse, or recovers, and when it stays as bad but for a worse cause: a red
+ * that was only "the backup is too old" and now finds data missing or damaged,
+ * a yellow with a new cause that needs attention (0.5.0). Every recorded outcome is also announced as the
  * `verify.completed` webhook.
  *
  * An object removed from its source (status `orphaned`, its backups kept) is
@@ -157,10 +159,47 @@ export function redReasonOf(reasons: readonly string[]): "outdated" | "damaged" 
 }
 
 /**
+ * The yellow reasons that name a problem of the backup or its storage (not its age, not an
+ * empty object): a new one of them is news even while the rating stays yellow.
+ */
+const YELLOW_ATTENTION = new Set([
+  "storage_unreadable",
+  "backup_incomplete",
+  "test_restore_unconfirmed",
+  "check_incomplete",
+]);
+
+/**
+ * Whether a rating that stayed the same got a worse cause: red that was only "too old" and now
+ * finds data missing or damaged, or yellow with a new cause that needs attention. Unknown earlier
+ * reasons (null) change nothing.
+ */
+export function causeWorsened(
+  current: RecoveryReadiness,
+  previousReasons: readonly string[] | null,
+  reasons: readonly string[],
+): boolean {
+  if (previousReasons === null) {
+    return false;
+  }
+  if (current === "red") {
+    return redReasonOf(previousReasons) === "outdated" && redReasonOf(reasons) === "damaged";
+  }
+  if (current === "yellow") {
+    const before = new Set(previousReasons);
+    return reasons.some((reason) => YELLOW_ATTENTION.has(reason) && !before.has(reason));
+  }
+  return false;
+}
+
+/**
  * The notification for a rating change, or null when nothing changed for the
- * operator: a first report that is green, or the same rating as last time. A
- * red one says whether data is damaged or missing or the newest backup is
- * merely too old (`details.redReason`, which the bell and the alert mail word).
+ * operator: a first report that is green, or the same rating as last time for
+ * the same kind of cause. A red one says whether data is damaged or missing or
+ * the newest backup is merely too old (`details.redReason`, which the bell and
+ * the alert mail word); a red that stays red but turns from "too old" to
+ * damaged is raised again, and so is a yellow with a new cause that needs
+ * attention ({@link causeWorsened}).
  */
 export function readinessNotification(input: {
   readonly tenantId: string;
@@ -169,9 +208,13 @@ export function readinessNotification(input: {
   readonly current: RecoveryReadiness;
   readonly reportId: string;
   readonly reasons: readonly string[];
+  /** The reasons of the object's previous report; null when unknown. */
+  readonly previousReasons?: readonly string[] | null;
 }): NewNotification | null {
   const { previous, current, object } = input;
-  if (previous === current || (previous === null && current === "green")) {
+  const worsened =
+    previous === current && causeWorsened(current, input.previousReasons ?? null, input.reasons);
+  if ((previous === current && !worsened) || (previous === null && current === "green")) {
     return null;
   }
   const details = {
@@ -193,7 +236,11 @@ export function readinessNotification(input: {
         redReason === "outdated"
           ? `Recovery readiness of ${objectLabel(object)} is red: the newest backup is too old, newer data could not be restored.`
           : `Recovery readiness of ${objectLabel(object)} is red: a restore would not be complete.`,
-      details: { ...details, redReason },
+      details: {
+        ...details,
+        redReason,
+        ...(worsened ? { previousRedReason: "outdated" as const } : {}),
+      },
     };
   }
   if (current === "yellow") {
@@ -308,6 +355,8 @@ export interface VerifyRecord {
   readonly outcome: VerifyOutcome;
   /** The object's rating before this run (any snapshot), for the notification. */
   readonly previous: RecoveryReadiness | null;
+  /** The reason codes of that rating's report; null or absent when unknown. */
+  readonly previousReasons?: readonly string[] | null;
   readonly checkedAt: Date;
 }
 
@@ -362,6 +411,7 @@ export function verifyRecordNotification(
     current: record.outcome.readiness,
     reportId,
     reasons: record.outcome.details.reasons.map((reason) => reason.code),
+    previousReasons: record.previousReasons ?? null,
   });
 }
 
@@ -403,6 +453,11 @@ export interface VerifyStore {
     protectedObjectId: string,
     options?: { readonly withoutFreshness?: boolean },
   ): Promise<RecoveryReadiness | null>;
+  /**
+   * The reason codes of the object's newest report (the one {@link previousReadiness} rates);
+   * null before the first. Absent: not known, no "cause worsened" notification.
+   */
+  previousReasons?(protectedObjectId: string): Promise<string[] | null>;
   /** The object's protection status; null when the row is gone. */
   objectStatus(protectedObjectId: string): Promise<ProtectedObject["status"] | null>;
   /**
@@ -459,6 +514,23 @@ export function pgVerifyStore(db: Database, tenantId: string): VerifyStore {
       return options?.withoutFreshness
         ? readinessWithoutFreshness(storedReasons(row.reasons))
         : row.readiness;
+    },
+
+    async previousReasons(protectedObjectId) {
+      const [row] = await run((tx) =>
+        tx
+          .select({ reasons: sql<unknown>`${verifyReports.details}->'reasons'` })
+          .from(verifyReports)
+          .where(
+            and(
+              eq(verifyReports.tenantId, tenantId),
+              eq(verifyReports.protectedObjectId, protectedObjectId),
+            ),
+          )
+          .orderBy(desc(verifyReports.checkedAt), desc(verifyReports.createdAt))
+          .limit(1),
+      );
+      return row ? storedReasons(row.reasons).map((reason) => reason.code) : null;
     },
 
     async backupFailures(snapshot) {
@@ -712,8 +784,9 @@ export function createVerifyHandler(options: VerifyHandlerOptions): JobHandler<"
       const retained =
         (await store.objectStatus(object.id)) === "orphaned" ||
         (await store.withoutJob?.(object.id)) === true;
-      const [previous, findings] = await Promise.all([
+      const [previous, previousReasons, findings] = await Promise.all([
         store.previousReadiness(object.id, { withoutFreshness: retained }),
+        store.previousReasons?.(object.id) ?? Promise.resolve(null),
         store.packFindings(),
       ]);
       const resolver = options.probes();
@@ -783,6 +856,7 @@ export function createVerifyHandler(options: VerifyHandlerOptions): JobHandler<"
         kind,
         outcome,
         previous,
+        previousReasons,
         checkedAt: ctx.now(),
       });
       const reasons = outcome.details.reasons.map((reason) => reason.code);

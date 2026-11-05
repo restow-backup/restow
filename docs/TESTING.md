@@ -139,6 +139,10 @@ Postgres-Service bereit und setzt die Variable.
   Sicherung beim Anzeigen, nicht nur bei der Prüfung: Hören die Sicherungen nach einer grünen
   Prüfung auf, wird das Objekt nach 48 Stunden gelb und nach sieben Tagen rot, ohne auf die
   nächste Prüfung zu warten (nicht für Objekte, die ohne Alter bewertet werden).
+  Benachrichtigt wird bei jeder Änderung der Bewertung und, seit 0.5.0, auch bei gleicher
+  Bewertung mit schlimmerer Ursache: rot erst nur "Sicherung zu alt", dann fehlende oder
+  beschädigte Daten (erneut `verify.red`), gelb mit einem neuen Grund, der Aufmerksamkeit
+  braucht (erneut `verify.yellow`).
   Ein zusätzlicher Test-Restore in ein Prüfziel (Testpostfach des Mandanten) ist als
   optionale Sonde vorgesehen, in 0.1.0 aber nicht verdrahtet: Die Prüfung stellt nichts in ein
   Microsoft-365- oder IMAP-Ziel wieder her.
