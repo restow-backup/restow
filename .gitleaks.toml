@@ -21,6 +21,8 @@ paths = [
   '''(^|/)agent/scripts/test-pve-install\.sh$''',
   # Synthetic bare-metal layout recordings: SHA-256 sums of boot loaders and partition ids
   '''(^|/)agent/internal/baremetal/testdata/''',
+  # Generated test vectors of recovery codes and session secrets (shared by Go and TypeScript)
+  '''(^|/)agent/internal/recovery/testdata/''',
 ]
 regexes = [
   # i18n keys such as "m365.consentResult.granted" in presenters
