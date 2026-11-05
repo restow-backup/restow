@@ -557,6 +557,12 @@ private repository.
   every run downloaded the whole folder again, every night, which can hit the server's download
   limits. Such folders are now backed up incrementally. A folder the server opens without
   UIDVALIDITY made the whole run fail; now only that folder fails and keeps its previous copy.
+- Mail backup: IMAP runs are faster and upload far less. After every folder, also one in which
+  nothing had changed, and during a download every 250 messages, the run rewrote its whole
+  object list to every storage target; a nightly run over a large mailbox without new mail
+  uploaded about as many partial manifests as it had folders, and a first backup grew with the
+  square of the mailbox size. A folder without changes now writes no checkpoint, and checkpoints
+  during a download come at most once a minute and less often as the restore point grows.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,

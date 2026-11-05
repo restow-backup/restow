@@ -12,7 +12,7 @@ import {
   MemoryCursorStore,
   MemorySnapshotIndex,
 } from "../../engine/memory.js";
-import { loadManifest } from "../../engine/snapshot.js";
+import { loadManifest, SnapshotWriter } from "../../engine/snapshot.js";
 import type { JobContext, ProtectedObjectRef, RestoreRequest } from "../../engine/types.js";
 import { classifyFailure } from "../../failures/classify.js";
 import type { ManifestObject, SnapshotManifest } from "../../manifest.js";
@@ -75,7 +75,12 @@ describe("ImapBackupEngine", () => {
   });
 
   function context(
-    overrides: { signal?: AbortSignal; secrets?: Record<string, string>; logs?: LogRecord[] } = {},
+    overrides: {
+      signal?: AbortSignal;
+      secrets?: Record<string, string>;
+      logs?: LogRecord[];
+      now?: () => Date;
+    } = {},
   ) {
     const logs = overrides.logs;
     return createMemoryJobContext({
@@ -88,7 +93,7 @@ describe("ImapBackupEngine", () => {
       jobId: `job-${++jobCounter}`,
       secrets: overrides.secrets ?? { "secret-alice": "test-password-not-real" },
       signal: overrides.signal,
-      now: () => new Date("2026-09-22T10:00:00Z"),
+      now: overrides.now ?? (() => new Date("2026-09-22T10:00:00Z")),
       ...(logs ? { logger: createLogger({ sink: (record) => logs.push(record) }) } : {}),
     });
   }
@@ -107,7 +112,12 @@ describe("ImapBackupEngine", () => {
     return new ImapBackupEngine({
       resolveAccount: async () => account,
       connector: server,
-      limits: { checkpointEveryMessages: 3, fetchBatchMessages: 4, metaBatchMessages: 5 },
+      limits: {
+        checkpointEveryMessages: 3,
+        checkpointMinIntervalMs: 0,
+        fetchBatchMessages: 4,
+        metaBatchMessages: 5,
+      },
       ...options,
     });
   }
@@ -471,6 +481,91 @@ describe("ImapBackupEngine", () => {
       expect(messages(await manifestOf(result.snapshotId)).map((o) => o.path)).toEqual([
         "mail/INBOX/1.eml",
       ]);
+    });
+  });
+
+  describe("checkpoints (each one rewrites the whole object list)", () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it("writes none for folders an incremental run left unchanged", async () => {
+      for (let f = 1; f <= 20; f++) {
+        const folder = server.addFolder(`Folder ${String(f).padStart(2, "0")}`);
+        folder.add(eml(`a${f}`));
+        folder.add(eml(`b${f}`));
+      }
+      await engine().run(context(), protectedObject, {});
+      const checkpoints = vi.spyOn(SnapshotWriter.prototype, "checkpoint");
+
+      const result = await engine().run(context(), protectedObject, {});
+      expect(result.objectsWritten).toBe(0);
+      expect(checkpoints.mock.calls.length).toBeLessThanOrEqual(1);
+      expect(messages(await manifestOf(result.snapshotId))).toHaveLength(40);
+    });
+
+    it("bounds interval checkpoints of a long first backup by time", async () => {
+      const inbox = server.addFolder("INBOX");
+      for (let i = 1; i <= 2000; i++) {
+        inbox.add(eml(`m${i}`));
+      }
+      // 100 ms per message: the whole folder takes 200 s.
+      let clock = Date.parse("2026-09-22T10:00:00Z");
+      server.onDelivered = () => {
+        clock += 100;
+      };
+      const checkpoints = vi.spyOn(SnapshotWriter.prototype, "checkpoint");
+      const result = await engine({
+        limits: {
+          checkpointEveryMessages: 50,
+          checkpointMinIntervalMs: 60_000,
+          fetchBatchMessages: 100,
+          metaBatchMessages: 1000,
+        },
+      }).run(context({ now: () => new Date(clock) }), protectedObject, {});
+      server.onDelivered = null;
+      expect(messages(await manifestOf(result.snapshotId))).toHaveLength(2000);
+      // At most one per minute plus the one after the folder (before: one per 50 messages).
+      expect(checkpoints.mock.calls.length).toBeLessThanOrEqual(4);
+      expect(checkpoints.mock.calls.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it("resumes correctly after a crash that followed skipped checkpoints", async () => {
+      for (const name of ["A", "B", "C"]) {
+        const folder = server.addFolder(name);
+        folder.add(eml(`${name} 1`));
+        folder.add(eml(`${name} 2`));
+      }
+      await engine({ maxConnections: 1 }).run(context(), protectedObject, {});
+      const c = server.folder("C");
+      for (let i = 3; i <= 7; i++) {
+        c.add(eml(`C ${i}`));
+      }
+      const controller = new AbortController();
+      server.onDelivered = (folder, uid) => {
+        if (folder === "C" && uid === 5) {
+          controller.abort();
+        }
+      };
+      await expect(
+        engine({ maxConnections: 1 }).run(
+          context({ signal: controller.signal }),
+          protectedObject,
+          {},
+        ),
+      ).rejects.toBeInstanceOf(JobAbortedError);
+      server.onDelivered = null;
+      const saved = cursor.cursor?.imap as { completed: string[] };
+      expect(saved.completed).toEqual(["A", "B"]);
+
+      server.stats.sourcesDelivered.length = 0;
+      const result = await engine({ maxConnections: 1 }).run(context(), protectedObject, {});
+      const manifest = await manifestOf(result.snapshotId);
+      const paths = messages(manifest).map((o) => o.path);
+      expect(paths).toHaveLength(2 + 2 + 7);
+      expect(new Set(paths).size).toBe(paths.length);
+      // A and B were not downloaded again; C continues after what the crash had stored.
+      expect(server.stats.sourcesDelivered.every((key) => key.startsWith("C:"))).toBe(true);
     });
   });
 

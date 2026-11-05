@@ -37,6 +37,13 @@
   umbenannter Ordner steht dort nur unter seinem neuen Namen. Ältere Sicherungsstände behalten
   ihn.
 - Parallelität: max. 2 Verbindungen je Konto (viele Server limitieren).
+- Checkpoints (Pakete, Teilmanifest, Cursor) schreiben jedes Mal die ganze Objektliste an jedes
+  Speicherziel. Deshalb: nach einem Ordner nur, wenn er etwas geändert hat (geladene Nachricht,
+  gelöschte, geänderte Flags, nachgetragene Umschläge) oder noch ungesicherte Downloads offen
+  sind; ein unveränderter Ordner wird nach einem Absturz einfach neu geplant, ohne Download.
+  Während des Ladens alle `checkpointEveryMessages` Nachrichten (mindestens 1/20 der Objekte
+  des Sicherungsstands) oder `checkpointEveryBytes`, aber höchstens einmal je
+  `checkpointMinIntervalMs` (Vorgabe 60 s).
 - Restore: APPEND in Zielordner mit Original-Datum und Flags; Zielordner anlegen, falls
   fehlend; Duplikate über Message-ID prüfen. Geprüft wird gegen den Stand des Ordners,
   bevor dieser Lauf dort etwas geschrieben hat (ein Ordner kann zwei verschiedene Mails

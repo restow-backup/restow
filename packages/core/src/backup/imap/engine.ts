@@ -28,9 +28,11 @@
  * UIDVALIDITY those not read again yet; after a UIDVALIDITY change the
  * previous picture as a whole, so the restore point is never worse than the
  * last one); a dropped connection is re-opened. The
- * job checkpoints (packs, partial manifest, cursor) after every folder and
- * every few hundred messages, so a restarted worker resumes without
- * downloading anything it already stored.
+ * job checkpoints (packs, partial manifest, cursor) after every folder that
+ * changed something and, while downloading, every few hundred messages but at
+ * most once a minute, so a restarted worker resumes without downloading
+ * anything it already stored. Every checkpoint rewrites the whole object list,
+ * so an unchanged folder (redone cheaply after a crash) gets none.
  */
 import { chunkDataStats, JobAbortedError } from "../../engine/chunkstore.js";
 import { SnapshotWriter } from "../../engine/snapshot.js";
@@ -106,8 +108,14 @@ export interface ImapEngineLimits {
    * read (bisection). Past it the server is taken to refuse the folder, not a message.
    */
   readonly metaIsolationCommands: number;
+  /**
+   * Interval checkpoint after this many downloaded messages; grows with the restore point
+   * (at least 1/20 of its objects), since each checkpoint rewrites the whole object list.
+   */
   readonly checkpointEveryMessages: number;
   readonly checkpointEveryBytes: number;
+  /** And not before this long after the previous checkpoint (ms). */
+  readonly checkpointMinIntervalMs: number;
   /** Reconnects tolerated in one run before the job is failed (and resumed by the retry). */
   readonly maxReconnects: number;
 }
@@ -119,6 +127,7 @@ export const DEFAULT_IMAP_LIMITS: ImapEngineLimits = {
   metaIsolationCommands: 100,
   checkpointEveryMessages: 250,
   checkpointEveryBytes: 128 * 1024 * 1024,
+  checkpointMinIntervalMs: 60_000,
   maxReconnects: 5,
 };
 
@@ -369,6 +378,9 @@ class BackupRun {
   private discoveredTotal = 0;
   private messagesSinceCheckpoint = 0;
   private bytesSinceCheckpoint = 0;
+  private lastCheckpointAt: number;
+  /** Folders whose objects changed in this attempt against the previous restore point. */
+  private readonly changedFolders = new Set<string>();
   private reconnects = 0;
 
   constructor(options: BackupRunOptions) {
@@ -393,6 +405,7 @@ class BackupRun {
     }
     // A resumed run already has stored data worth keeping on the next failure.
     this.touched = this.completed.size > 0 || this.active.size > 0;
+    this.lastCheckpointAt = this.ctx.now().getTime();
   }
 
   async execute(): Promise<void> {
@@ -582,7 +595,16 @@ class BackupRun {
     this.completed.add(folder.path);
     this.touched = true;
     await this.closeFolderQuietly(worker);
-    await this.checkpoint("folder");
+    if (
+      this.changedFolders.has(folder.path) ||
+      this.messagesSinceCheckpoint > 0 ||
+      this.bytesSinceCheckpoint > 0
+    ) {
+      await this.checkpoint("folder");
+    } else {
+      // Nothing to lose: after a crash the folder is planned again, which costs no download.
+      this.logger.debug("imap folder unchanged, no checkpoint", { folder: folder.path });
+    }
   }
 
   /** Where a checkpointed earlier attempt stopped in this folder, if the UIDs still mean the same thing. */
@@ -626,7 +648,11 @@ class BackupRun {
           deleted++;
           continue;
         }
-        this.writer.add(withFlags(object, flags));
+        const current = withFlags(object, flags);
+        if (current !== object) {
+          this.changedFolders.add(folder.path);
+        }
+        this.writer.add(current);
         known.add(uid);
         if (!hasEnvelopeMetadata(object)) {
           needsEnvelope.push(uid);
@@ -634,6 +660,9 @@ class BackupRun {
       }
     }
     this.reconciled.add(folder.path);
+    if (deleted > 0) {
+      this.changedFolders.add(folder.path);
+    }
     if (needsEnvelope.length > 0) {
       await this.backfillEnvelopes(worker, folder, components, needsEnvelope);
     }
@@ -695,6 +724,7 @@ class BackupRun {
     if (backfilled > 0) {
       this.logger.info("imap envelope metadata backfilled", { folder: folder.path, backfilled });
       this.touched = true;
+      this.changedFolders.add(folder.path);
     }
   }
 
@@ -722,6 +752,7 @@ class BackupRun {
       }
     }
     if (purged > 0) {
+      this.changedFolders.add(folderPath);
       this.logger.info("imap objects from a previous attempt discarded (UIDVALIDITY changed)", {
         folder: folderPath,
         purged,
@@ -1184,6 +1215,7 @@ class BackupRun {
   }
 
   private noteStored(folderPath: string, uid: number, bytes: number): void {
+    this.changedFolders.add(folderPath);
     const entry = this.active.get(folderPath);
     if (entry && uid > entry.lastUid) {
       this.active.set(folderPath, { uidValidity: entry.uidValidity, lastUid: uid });
@@ -1296,10 +1328,23 @@ class BackupRun {
     }
   }
 
+  /**
+   * An interval checkpoint is due when enough was downloaded since the last one and that one
+   * is at least `checkpointMinIntervalMs` old. Each checkpoint rewrites the whole object list,
+   * so the message threshold grows with it (1/20 of the objects): a first backup of n
+   * messages costs O(n log n) object writes, not O(n²).
+   */
   private checkpointDue(): boolean {
+    const everyMessages = Math.max(
+      this.limits.checkpointEveryMessages,
+      Math.floor(this.writer.objectCount / 20),
+    );
+    const enough =
+      this.messagesSinceCheckpoint >= everyMessages ||
+      this.bytesSinceCheckpoint >= this.limits.checkpointEveryBytes;
     return (
-      this.messagesSinceCheckpoint >= this.limits.checkpointEveryMessages ||
-      this.bytesSinceCheckpoint >= this.limits.checkpointEveryBytes
+      enough &&
+      this.ctx.now().getTime() - this.lastCheckpointAt >= this.limits.checkpointMinIntervalMs
     );
   }
 
@@ -1311,6 +1356,7 @@ class BackupRun {
       await this.writer.checkpoint(this.cursor());
       this.messagesSinceCheckpoint = 0;
       this.bytesSinceCheckpoint = 0;
+      this.lastCheckpointAt = this.ctx.now().getTime();
       this.logger.debug("imap checkpoint", { reason, completed: this.completed.size });
     });
   }
