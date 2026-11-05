@@ -520,6 +520,11 @@ private repository.
   `PidTagMessageDeliveryTime` and `PidTagClientSubmitTime` are set when it is created); if
   Exchange still shows it as a draft or with other dates, the message is "Not confirmed" with the
   reason.
+- Mail restore: a message that Exchange created as a draft (a MIME import whose header lacks Date
+  or From, for example) counted as confirmed as soon as its Message-ID matched, although it was
+  no draft in the backup and Outlook shows it as an unsent draft. The draft state of every
+  restored message is now compared with the backup (`isDraft` of an Exchange backup, `\Draft` of
+  an IMAP backup or import); a difference makes it "Not confirmed" with the reason.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,

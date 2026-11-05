@@ -650,8 +650,18 @@ export class ExchangeRestoreSession {
         `${attachmentFailures} of ${attachments.length} attachments could not be added`,
       );
     }
+    const wasDraft = messageIsDraftOf(message);
+    if (created.isDraft === true && wasDraft === false) {
+      problems.push("Exchange created the restored message as a draft, the backup is no draft");
+    } else if (created.isDraft === true && wasDraft === undefined) {
+      notes.push(
+        isJson
+          ? "restored from the JSON fallback of an oversized message; Exchange shows it as a draft"
+          : "Exchange shows the restored message as a draft",
+      );
+    }
     if (isJson) {
-      this.checkJsonCreate(message, imported, problems, notes);
+      this.checkJsonCreate(imported, problems, notes);
     }
     const links = referenceAttachmentsOf(message);
     if (links.length > 0) {
@@ -676,26 +686,14 @@ export class ExchangeRestoreSession {
   }
 
   /**
-   * What a message created from its JSON fallback lost: the draft state and
-   * the dates the create set as extended properties (./graph/resources/mail.ts,
+   * What a message created from its JSON fallback lost: the dates the create
+   * set as extended properties (./graph/resources/mail.ts,
    * prepareMessageCreate) are compared with what Graph answered, and a
-   * difference makes the item unverified.
+   * difference makes the item unverified. (The draft state is compared for
+   * every created message in {@link restoreMessage}.)
    */
-  private checkJsonCreate(
-    message: ManifestObject,
-    imported: ImportedMessage,
-    problems: string[],
-    notes: string[],
-  ): void {
+  private checkJsonCreate(imported: ImportedMessage, problems: string[], notes: string[]): void {
     const { created, droppedHeaders, sentTimes } = imported;
-    const wasDraft = messageIsDraftOf(message);
-    if (created.isDraft === true && wasDraft === false) {
-      problems.push("Exchange created the restored message as a draft, the backup is no draft");
-    } else if (created.isDraft === true && wasDraft === undefined) {
-      notes.push(
-        "restored from the JSON fallback of an oversized message; Exchange shows it as a draft",
-      );
-    }
     const lostDates: string[] = [];
     if (
       sentTimes.received !== undefined &&

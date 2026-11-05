@@ -283,7 +283,9 @@ export class FakeMailbox {
       message.mime = mime;
       message.internetMessageId = /^Message-ID:\s*(.+)$/im.exec(mime)?.[1]?.trim();
       message.subject = /^Subject:\s*(.+)$/im.exec(mime)?.[1]?.trim();
-      message.isDraft = false;
+      // Graph makes a MIME import a draft when its header lacks Date or From.
+      const header = mime.split(/\r?\n\r?\n/, 1)[0] ?? "";
+      message.isDraft = !(/^Date:/im.test(header) && /^From:/im.test(header));
     } else if (json !== undefined) {
       message.json = json;
       message.internetMessageId =

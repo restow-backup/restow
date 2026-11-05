@@ -197,7 +197,10 @@ Zustand und lässt ihn nachträglich bestätigen, bei IMAP setzt ihn die Antwort
 - Nachricht aus MIME anlegen: `POST /users/{id}/mailFolders/{fid}/messages` mit
   `Content-Type: text/plain` und Base64-kodiertem MIME. Ergebnis ist ein neues Objekt
   (neue ID, `isDraft=false` wenn Header vollständig). Datum bleibt erhalten, Flags/
-  Kategorien danach per PATCH setzen.
+  Kategorien danach per PATCH setzen. Legt Graph eine Nachricht als Entwurf an, die laut
+  Sicherung keiner war (`isDraft` der Exchange-Sicherung, `\Draft` einer IMAP-Sicherung oder
+  eines Imports), etwa weil Date oder From im Header fehlen, ist das Element „Nicht bestätigt“
+  mit dem Grund; ist der Entwurfsstatus der Sicherung unbekannt, steht es nur als Hinweis da.
 - Nachricht aus dem JSON-Format anlegen (Graph hatte den MIME-Export verweigert, siehe
   „Sichern"): `POST /users/{id}/mailFolders/{fid}/messages` mit dem gesicherten JSON ohne die
   schreibgeschützten Felder (`toCreatableMessage`, `packages/core/src/graph/resources/mail.ts`).

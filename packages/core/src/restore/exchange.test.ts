@@ -862,6 +862,54 @@ describe("ExchangeRestoreEngine", () => {
     expect(item.reason).toMatch(/did not take the received date/);
   });
 
+  it("marks a MIME import unverified when Exchange creates a received message as a draft", async () => {
+    // A message without Date and From header: Graph imports it as a draft.
+    const headless = [
+      "Message-ID: <headless@example.org>",
+      "Subject: Scanner",
+      "MIME-Version: 1.0",
+      "Content-Type: text/plain",
+      "",
+      "scan attached",
+      "",
+    ].join("\r\n");
+    const object = (id: string, isDraft: string | undefined): FixtureObject => ({
+      path: `mail/Posteingang/Scanner.${id}.eml`,
+      type: "mail",
+      id,
+      content: headless,
+      metadata: {
+        messageId: "<headless@example.org>",
+        folderPath: "Posteingang",
+        wellKnownFolder: "inbox",
+        format: "mime",
+        ...(isDraft !== undefined ? { isDraft } : {}),
+      },
+    });
+    fixture = await createSnapshotFixture({
+      kind: "mailbox",
+      externalId: USER,
+      objects: [object("AAMk20", "false"), object("AAMk21", "true"), object("AAMk22", undefined)],
+    });
+    const mailbox = new FakeMailbox();
+
+    const report = await engineFor(mailbox).run(
+      fixture.ctx,
+      restoreRequestFor(fixture, { mode: "skip" }),
+    );
+
+    expect(report.restored).toBe(3);
+    const item = (id: string) => must(report.items.find((entry) => entry.id === id));
+    expect(item("AAMk20")).toMatchObject({ status: "restored", verified: false });
+    expect(item("AAMk20").reason).toMatch(/created the restored message as a draft/);
+    // A draft that comes back as a draft is what it was.
+    expect(item("AAMk21").verified).toBe(true);
+    expect(item("AAMk21").reason ?? "").not.toMatch(/draft/);
+    // Unknown draft state: said, not judged.
+    expect(item("AAMk22").verified).toBe(true);
+    expect(item("AAMk22").reason).toMatch(/shows the restored message as a draft/);
+  });
+
   it("explains a message Graph refuses as too large", async () => {
     fixture = await createSnapshotFixture({
       kind: "mailbox",
