@@ -271,6 +271,21 @@ describe("renderAlert", () => {
     expect(journal.subject).toBe("[Contoso] Archiv-Abgleich fehlgeschlagen: Archiv-Abgleich");
     expect(journal.text).toContain("Seit mehr als 24 Stunden ist kein Journal-Report angekommen");
     expect(journal.text).toContain("Zuletzt angekommen: 12.10.2026");
+    // A capture gap: the archive page shows the count only, the API the list; both languages
+    // promise the same retries, and never one for mail without a MIME export.
+    for (const language of ["en", "de"] as const) {
+      const gap = alert(language, {
+        reason: "capture_gap",
+        queue: "archive",
+        objectName: "alice@contoso.example",
+        openedAt: "2026-10-13T08:30:00.000Z",
+      }).text;
+      expect(gap).toContain("/api/v1/archive/capture/mailboxes/");
+      expect(gap).not.toMatch(/lists them with the mailbox|Die Liste steht auf der Archiv-Seite/);
+      expect(gap).toContain(language === "en" ? "once a day" : "einmal am Tag");
+      expect(gap).toContain(language === "en" ? "a resync" : "ein Neuabgleich");
+      expect(gap).not.toContain("{appName}");
+    }
   });
 
   it("says since when retention of a held object is paused", () => {
