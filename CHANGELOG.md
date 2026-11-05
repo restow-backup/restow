@@ -653,8 +653,12 @@ private repository.
   and hash with the backup's. The unchanged original is now recognised by the size and hash the
   library reported at backup time, the backup's own hash is used for everything else, and the job
   records which item it uploaded for which file, so a retry never uploads it again. Such files
-  were also marked "Not confirmed" after every restore because their hash was compared with the
-  library's; they are confirmed now when what was sent matches the backup.
+  were also marked "Not confirmed" after every restore because the sent bytes were compared with
+  the hash the library reported at backup time, which belongs to the library's rewritten copy;
+  that comparison is gone. A library that rewrites the uploaded file as well (the usual case for
+  SharePoint document properties) still reports another size or hash than was sent, and the file
+  stays "Not confirmed" with that size or hash as the reason: Restow cannot check what the
+  library made of it.
 - OneDrive/SharePoint restore: a OneNote section could not be restored into its notebook while
   the notebook was still there (the usual case: one section deleted or damaged). OneDrive lists a
   notebook as a package, not as a folder, and the restore stopped at it with "a file with that
