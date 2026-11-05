@@ -934,6 +934,94 @@ describe("OneDriveBackupEngine", () => {
     });
   });
 
+  it("takes back a failure when a later delta entry says the item was deleted", async () => {
+    const graph = createFakeGraph([
+      { url: deltaUrl(null), respond: { status: 200, json: fixture.initialPage1 } },
+      { url: deltaUrl("NEXT1"), respond: { status: 200, json: fixture.initialPage2 } },
+      ...contentRoutes({ notes: CONTENT.notes }),
+      {
+        url: downloadUrl("q3"),
+        respond: { status: 423, json: graphError("resourceLocked", "The file is checked out") },
+      },
+      {
+        // The retry pass cannot read it (a passing fault) ...
+        url: itemRoute("01Q3"),
+        respond: { status: 500, json: graphError("generalException", "General exception") },
+      },
+      {
+        // ... and the walk then says it was deleted.
+        url: deltaUrl("DELTA1"),
+        respond: {
+          status: 200,
+          json: page(
+            [{ id: "01Q3", deleted: { state: "deleted" }, parentReference: { driveId: DRIVE } }],
+            "DELTA2",
+          ),
+        },
+      },
+    ]);
+    const engine = harness.engine(graph);
+    const first = await engine.run(harness.context({ jobId: "job-1" }), oneDrive, {});
+    expect(state(await harness.manifest(first)).retry).toEqual(["01Q3"]);
+    harness.progress.updates.length = 0;
+
+    const second = await engine.run(harness.context({ jobId: "job-2" }), oneDrive, {});
+    expect(second.failures).toEqual([]);
+    const withdrawn = harness.progress.updates.flatMap((update) => update.withdrawn ?? []);
+    // Never stored, so the retry knew it by its id only.
+    expect(withdrawn.map((failure) => failure.itemRef)).toEqual(["01Q3"]);
+    const manifest = await harness.manifest(second);
+    expect(paths(manifest)).not.toContain(Q3_PATH);
+    expect(state(manifest).retry).toEqual([]);
+  });
+
+  it("takes back the failures of items below a folder deleted later in the same run", async () => {
+    const changedQ3 = q3Item({
+      cTag: '"c:{Q3},2"',
+      size: 12,
+      file: { mimeType: "text/plain", hashes: { quickXorHash: "cZgBCMbwBjfQoQxurAMIZAAAAAA=" } },
+      "@microsoft.graph.downloadUrl": downloadLink("q3v2"),
+    });
+    const newFile = q3Item({
+      id: "01NEW",
+      name: "new.txt",
+      cTag: '"c:{NEW},1"',
+      size: 5,
+      file: { mimeType: "text/plain" },
+      "@microsoft.graph.downloadUrl": downloadLink("new"),
+      parentReference: { driveId: DRIVE, id: "01REPORTS" },
+    });
+    const graph = createFakeGraph([
+      ...initialRoutes(),
+      {
+        url: deltaUrl("DELTA1"),
+        respond: {
+          status: 200,
+          json: page(
+            [
+              changedQ3,
+              newFile,
+              // Graph names only the folder; what was below it goes with it.
+              { id: "01DOCS", deleted: { state: "deleted" }, parentReference: { driveId: DRIVE } },
+            ],
+            "DELTA2",
+          ),
+        },
+      },
+      ...["q3v2", "new"].map((item) => ({
+        url: downloadUrl(item),
+        respond: { status: 500, json: graphError("generalException", "General exception") },
+      })),
+    ]);
+    const engine = harness.engine(graph);
+    await engine.run(harness.context({ jobId: "job-1" }), oneDrive, {});
+    const second = await engine.run(harness.context({ jobId: "job-2" }), oneDrive, {});
+    expect(second.failures).toEqual([]);
+    const manifest = await harness.manifest(second);
+    expect(paths(manifest)).toEqual(["Notebook", "Team files", "notes.txt"]);
+    expect(state(manifest).retry).toEqual([]);
+  });
+
   it("reports a download that breaks off mid-stream as an item failure and carries on", async () => {
     const graph = createFakeGraph(initialRoutes());
     const client = graph.client({

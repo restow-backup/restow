@@ -633,6 +633,10 @@ private repository.
   length, with the reported size. A file that changed while it was read is stored as its newer
   version; any other mismatch keeps the last good copy, is reported as a failed item and is read
   again on the next run.
+- OneDrive and SharePoint backup: a file that could not be read and was deleted later in the
+  same run (or a file in a folder deleted later in the same run) stayed in the run's failed
+  items and was tried again on the next run, although it no longer existed. Such failures are
+  now taken back.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,

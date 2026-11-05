@@ -465,6 +465,10 @@ export class DriveBackupRun {
   private readonly failures: ItemFailureRecord[] = [];
   /** The failures recorded for each item, so a later success in the same run takes them back. */
   private readonly failedById = new Map<string, ItemFailureRecord[]>();
+  /** The folder each failed item was in, so a deletion of that folder takes the failure back. */
+  private readonly failedParents = new Map<string, string | null>();
+  /** The item being processed, whose folder a failure records. */
+  private inFlight: DriveDeltaItem | undefined;
   private readonly retryIds = new Set<string>();
   private retryOverflow: boolean;
   private downloaded = 0;
@@ -657,6 +661,7 @@ export class DriveBackupRun {
   /** The drive's final objects into the sink, and the state the next run continues from. */
   private finish(outcome: DriveWalkOutcome): DriveRunOutcome {
     const tree = this.tree.materialize({ cascadeDeletions: true });
+    this.withdrawBelowDeleted(tree.cascadedIds);
     this.reportCollisions(tree.collisions);
     this.sink.replace(tree.objects);
     const changes = compareWithPrevious(this.previousById, tree.objects);
@@ -730,6 +735,15 @@ export class DriveBackupRun {
     delta: DriveDeltaItem,
     options: { retry?: boolean } = {},
   ): Promise<void> {
+    this.inFlight = delta;
+    try {
+      await this.processEntry(delta, options);
+    } finally {
+      this.inFlight = undefined;
+    }
+  }
+
+  private async processEntry(delta: DriveDeltaItem, options: { retry?: boolean }): Promise<void> {
     let item = delta;
     let kind = classifyItem(item);
     if (kind === "unknown" && options.retry !== true) {
@@ -761,6 +775,8 @@ export class DriveBackupRun {
       return;
     }
     if (kind === "deleted") {
+      // Gone, not failed: an earlier failure of it in this run no longer stands.
+      this.withdrawFailures(item.id);
       this.tree.remove(item.id);
       this.ctx.progress.advance(1);
       return;
@@ -1157,6 +1173,9 @@ export class DriveBackupRun {
     const record: ItemFailureRecord = { itemRef, reason, cause };
     this.failures.push(record);
     this.failedById.set(itemId, [...(this.failedById.get(itemId) ?? []), record]);
+    if (this.inFlight?.id === itemId) {
+      this.failedParents.set(itemId, this.inFlight.parentReference?.id ?? null);
+    }
     this.ctx.progress.fail(itemRef, reason, cause);
     if (!this.retryIds.has(itemId)) {
       if (this.retryIds.size < this.settings.maxRetryIds) {
@@ -1179,6 +1198,7 @@ export class DriveBackupRun {
       return;
     }
     this.failedById.delete(itemId);
+    this.failedParents.delete(itemId);
     const taken = new Set(records);
     for (let index = this.failures.length - 1; index >= 0; index--) {
       const failure = this.failures[index];
@@ -1188,6 +1208,36 @@ export class DriveBackupRun {
     }
     this.retryIds.delete(itemId);
     this.ctx.progress.withdraw?.(records);
+  }
+
+  /**
+   * A folder deleted in this run takes everything below it out of the
+   * snapshot (the cascade at commit), and with it the failures of those items:
+   * gone, not failed. `cascaded` are the stored items the cascade dropped; a
+   * failed item that has no copy in the snapshot is found through the folder
+   * it was in.
+   */
+  private withdrawBelowDeleted(cascaded: readonly string[]): void {
+    if (this.failedById.size === 0) {
+      return;
+    }
+    const deleted = new Set(this.tree.deletedIds());
+    const dropped = new Set(cascaded);
+    const below = (id: string, depth: number): boolean => {
+      if (depth > 64) {
+        return false;
+      }
+      const parent = this.failedParents.get(id) ?? this.previousById.get(id)?.metadata?.parentId;
+      if (parent === undefined || parent === null) {
+        return false;
+      }
+      return deleted.has(parent) || dropped.has(parent) || below(parent, depth + 1);
+    };
+    for (const id of [...this.failedById.keys()]) {
+      if (dropped.has(id) || below(id, 0)) {
+        this.withdrawFailures(id);
+      }
+    }
   }
 
   private reportCollisions(paths: readonly string[]): void {
