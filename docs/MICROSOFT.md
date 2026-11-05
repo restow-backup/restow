@@ -198,6 +198,21 @@ Zustand und lässt ihn nachträglich bestätigen, bei IMAP setzt ihn die Antwort
   `Content-Type: text/plain` und Base64-kodiertem MIME. Ergebnis ist ein neues Objekt
   (neue ID, `isDraft=false` wenn Header vollständig). Datum bleibt erhalten, Flags/
   Kategorien danach per PATCH setzen.
+- Nachricht aus dem JSON-Format anlegen (Graph hatte den MIME-Export verweigert, siehe
+  „Sichern"): `POST /users/{id}/mailFolders/{fid}/messages` mit dem gesicherten JSON ohne die
+  schreibgeschützten Felder (`toCreatableMessage`, `packages/core/src/graph/resources/mail.ts`).
+  Graph nimmt beim Anlegen in `internetMessageHeaders` nur eigene Header mit `x-`/`X-` an und
+  lehnt jeden anderen (Received, DKIM-Signature, Message-ID, ...) mit 400
+  `InvalidInternetMessageHeader` ab. Restow schickt deshalb nur `x-`-Header mit, ohne die von
+  Exchange beim Zustellen gestempelten (`X-MS-*`, `X-Microsoft-*`, `X-Forefront-*`), höchstens 5
+  und zusammen höchstens 2 KB; die übrigen bleiben in der Sicherung, die Wiederherstellung nennt
+  ihre Anzahl. Ohne weitere Angaben legt Graph eine JSON-Nachricht als Entwurf mit dem heutigen
+  Datum an. War die gesicherte Nachricht kein Entwurf (`isDraft` im JSON oder in den Metadaten),
+  setzt Restow beim Anlegen die erweiterten Eigenschaften `PidTagMessageFlags` (`Integer 0x0E07`,
+  gelesen-Bit aus `isRead`, nie das Entwurfs-Bit 0x8), `PidTagMessageDeliveryTime`
+  (`SystemTime 0x0E06` = `receivedDateTime`) und `PidTagClientSubmitTime` (`SystemTime 0x0039` =
+  `sentDateTime`). Graph wertet sie nur beim Anlegen aus. Meldet Graph die Nachricht danach doch
+  als Entwurf oder mit anderen Daten, ist das Element „Nicht bestätigt“ mit dem Grund.
 - Zielordner: Original-Pfad nachbauen oder "Wiederhergestellt <Datum>"-Ordner; beides
   anbieten. Duplikate vermeiden: vor Import per `internetMessageId` prüfen.
 - Kalender/Kontakte: POST auf `/events` bzw. `/contacts` aus dem JSON (IDs werden neu).

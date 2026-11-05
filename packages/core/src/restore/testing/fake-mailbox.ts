@@ -30,6 +30,40 @@ export interface FakeMessage {
   json: Record<string, unknown> | undefined;
   patches: Record<string, unknown>[];
   attachments: Record<string, unknown>[];
+  /** What Graph reports for the created item. */
+  isDraft: boolean;
+  receivedDateTime: string;
+  sentDateTime: string | null;
+}
+
+/** The time the fake stamps on an item created without its own dates. */
+export const FAKE_CREATED_AT = "2026-09-22T14:31:07Z";
+
+/** Graph's answer to a create whose custom headers include a standard header. */
+function invalidHeader(name: string): FixtureResponse {
+  return {
+    status: 400,
+    json: graphError(
+      "InvalidInternetMessageHeader",
+      `The internet message header name '${name}' should start with 'x-' or 'X-'.`,
+    ),
+  };
+}
+
+/**
+ * The extended properties Graph honours on a create from JSON:
+ * PidTagMessageFlags (0x0E07) decides the draft state (no property, or the
+ * unsent bit 0x8: a draft), PidTagMessageDeliveryTime (0x0E06) and
+ * PidTagClientSubmitTime (0x0039) the received and sent times.
+ */
+function extendedProperty(json: Record<string, unknown>, id: string): string | undefined {
+  const list = Array.isArray(json.singleValueExtendedProperties)
+    ? (json.singleValueExtendedProperties as Array<{ id?: unknown; value?: unknown }>)
+    : [];
+  const found = list.find(
+    (entry) => typeof entry.id === "string" && entry.id.toLowerCase() === id.toLowerCase(),
+  );
+  return typeof found?.value === "string" ? found.value : undefined;
 }
 
 export interface FakeCalendar {
@@ -91,6 +125,8 @@ export class FakeMailbox {
   private counter = 0;
   /** Occurrences the fake reports for `/events/{id}/instances`, by the master's subject. */
   readonly occurrences = new Map<string, Array<Record<string, unknown>>>();
+  /** Graph without support for the extended properties of a create: every JSON create is a draft dated now. */
+  ignoresExtendedProperties = false;
   /** When set, MIME imports with a longer base64 body are refused with 413. */
   maxMimeBytes: number | null = null;
 
@@ -131,6 +167,9 @@ export class FakeMailbox {
       json: undefined,
       patches: [],
       attachments: [],
+      isDraft: false,
+      receivedDateTime: "2026-01-15T10:30:00Z",
+      sentDateTime: "2026-01-15T10:29:00Z",
     };
     this.messages.set(message.id, message);
     return message;
@@ -212,7 +251,7 @@ export class FakeMailbox {
       .map((message) => ({
         id: message.id,
         parentFolderId: message.parentFolderId,
-        receivedDateTime: "2026-01-15T10:30:00Z",
+        receivedDateTime: message.receivedDateTime,
       }));
     return { status: 200, json: { value } };
   }
@@ -229,18 +268,37 @@ export class FakeMailbox {
         json: graphError("RequestBodyTooLarge", "The request body exceeds the maximum size"),
       };
     }
+    const json = isMime ? undefined : (call.json as Record<string, unknown>);
+    if (json !== undefined && Array.isArray(json.internetMessageHeaders)) {
+      for (const header of json.internetMessageHeaders as Array<{ name?: unknown }>) {
+        const name = typeof header.name === "string" ? header.name : "";
+        if (!/^x-/i.test(name)) {
+          return invalidHeader(name);
+        }
+      }
+    }
     const message = this.addMessage({ parentFolderId: folderId });
     if (isMime) {
       const mime = Buffer.from(String(call.body), "base64").toString("utf8");
       message.mime = mime;
       message.internetMessageId = /^Message-ID:\s*(.+)$/im.exec(mime)?.[1]?.trim();
       message.subject = /^Subject:\s*(.+)$/im.exec(mime)?.[1]?.trim();
-    } else {
-      const json = call.json as Record<string, unknown>;
+      message.isDraft = false;
+    } else if (json !== undefined) {
       message.json = json;
       message.internetMessageId =
         typeof json.internetMessageId === "string" ? json.internetMessageId : undefined;
       message.subject = typeof json.subject === "string" ? json.subject : undefined;
+      // Graph creates a message posted as JSON as a draft dated now, unless
+      // PidTagMessageFlags without the unsent bit says otherwise.
+      const property = (id: string) =>
+        this.ignoresExtendedProperties ? undefined : extendedProperty(json, id);
+      const flags = property("Integer 0x0E07");
+      message.isDraft = flags === undefined || (Number(flags) & 0x8) !== 0;
+      message.receivedDateTime = property("SystemTime 0x0E06") ?? FAKE_CREATED_AT;
+      message.sentDateTime = message.isDraft
+        ? null
+        : (property("SystemTime 0x0039") ?? FAKE_CREATED_AT);
     }
     return {
       status: 201,
@@ -249,8 +307,9 @@ export class FakeMailbox {
         internetMessageId: message.internetMessageId,
         subject: message.subject,
         parentFolderId: folderId,
-        // Graph creates messages posted as JSON as drafts; MIME with full headers is not.
-        isDraft: !isMime,
+        isDraft: message.isDraft,
+        receivedDateTime: message.receivedDateTime,
+        sentDateTime: message.sentDateTime,
       },
     };
   }

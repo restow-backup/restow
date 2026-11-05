@@ -77,9 +77,11 @@ import {
   createMessageFromMime,
   ensureMailFolderPath,
   findMessagesByInternetMessageId,
+  PID_TAG_CLIENT_SUBMIT_TIME,
+  PID_TAG_MESSAGE_DELIVERY_TIME,
   patchMessage,
+  prepareMessageCreate,
   resolveWellKnownFolders,
-  toCreatableMessage,
   WELL_KNOWN_FOLDER_NAMES,
   type WellKnownFolderName,
   type WellKnownFolders,
@@ -109,6 +111,7 @@ import {
   type CalendarFacts,
   messageFlagsOf,
   messageFormatOf,
+  messageIsDraftOf,
   referenceAttachmentsOf,
 } from "./conventions.js";
 import { type DuplicateSlot, MessageIdDuplicates } from "./duplicates.js";
@@ -424,6 +427,25 @@ function explainCreateFailure(error: unknown): unknown {
 /** Where the message ended up, for the skip reasons of its attachments. */
 type AttachmentRecorder = () => void;
 
+/** A created message and what its create could not carry over. */
+interface ImportedMessage {
+  readonly created: Message & { id: string };
+  /** JSON creates only: backed-up headers Graph does not take on create. */
+  readonly droppedHeaders: number;
+  /** JSON creates only: the times sent as extended properties, to compare with the result. */
+  readonly sentTimes: { readonly received?: string; readonly sent?: string };
+}
+
+/** Whether two Graph timestamps name the same second. */
+function sameSecond(a: string | null | undefined, b: string | undefined): boolean {
+  if (typeof a !== "string" || b === undefined) {
+    return false;
+  }
+  const left = Date.parse(a);
+  const right = Date.parse(b);
+  return !Number.isNaN(left) && Math.floor(left / 1000) === Math.floor(right / 1000);
+}
+
 export class ExchangeRestoreSession {
   private readonly folderCache = new Map<string, string>();
   private readonly contactFolderCache = new Map<string, string>();
@@ -556,7 +578,7 @@ export class ExchangeRestoreSession {
 
     const isJson = messageFormatOf(message) === "json";
     const messageId = duplicates.messageId;
-    let created: Message & { id: string };
+    let imported: ImportedMessage;
     try {
       const folderId = await this.mailFolderFor(this.o.catalog.mailFolderChain(message));
       const existing = await duplicates.existing(folderId, async (id) =>
@@ -581,8 +603,8 @@ export class ExchangeRestoreSession {
         skipAttachments("the message already exists in the target folder");
         return;
       }
-      created = await this.importMessage(message, folderId, isJson);
-      duplicates.wrote(folderId, created.id);
+      imported = await this.importMessage(message, folderId, isJson);
+      duplicates.wrote(folderId, imported.created.id);
     } catch (error) {
       duplicates.settle();
       if (isAbortError(error)) {
@@ -600,6 +622,7 @@ export class ExchangeRestoreSession {
       return;
     }
 
+    const { created } = imported;
     const problems: string[] = [];
     const notes: string[] = [];
     try {
@@ -627,10 +650,8 @@ export class ExchangeRestoreSession {
         `${attachmentFailures} of ${attachments.length} attachments could not be added`,
       );
     }
-    if (isJson && created.isDraft === true) {
-      notes.push(
-        "restored from the JSON fallback of an oversized message; Exchange shows it as a draft",
-      );
+    if (isJson) {
+      this.checkJsonCreate(message, imported, problems, notes);
     }
     const links = referenceAttachmentsOf(message);
     if (links.length > 0) {
@@ -655,6 +676,49 @@ export class ExchangeRestoreSession {
   }
 
   /**
+   * What a message created from its JSON fallback lost: the draft state and
+   * the dates the create set as extended properties (./graph/resources/mail.ts,
+   * prepareMessageCreate) are compared with what Graph answered, and a
+   * difference makes the item unverified.
+   */
+  private checkJsonCreate(
+    message: ManifestObject,
+    imported: ImportedMessage,
+    problems: string[],
+    notes: string[],
+  ): void {
+    const { created, droppedHeaders, sentTimes } = imported;
+    const wasDraft = messageIsDraftOf(message);
+    if (created.isDraft === true && wasDraft === false) {
+      problems.push("Exchange created the restored message as a draft, the backup is no draft");
+    } else if (created.isDraft === true && wasDraft === undefined) {
+      notes.push(
+        "restored from the JSON fallback of an oversized message; Exchange shows it as a draft",
+      );
+    }
+    const lostDates: string[] = [];
+    if (
+      sentTimes.received !== undefined &&
+      !sameSecond(created.receivedDateTime, sentTimes.received)
+    ) {
+      lostDates.push("received");
+    }
+    if (sentTimes.sent !== undefined && !sameSecond(created.sentDateTime, sentTimes.sent)) {
+      lostDates.push("sent");
+    }
+    if (lostDates.length > 0) {
+      problems.push(
+        `Exchange did not take the ${lostDates.join(" and ")} date of the backup; the restored message shows other dates`,
+      );
+    }
+    if (droppedHeaders > 0) {
+      notes.push(
+        `${droppedHeaders} transport headers of the original (Received, DKIM-Signature and similar) are kept in the backup; Exchange does not take them on a restored message`,
+      );
+    }
+  }
+
+  /**
    * Create a message from its backup. The backup is read (size and SHA-256
    * verified) and decoded before the request goes out, so a missing or
    * corrupt chunk never reaches the mailbox.
@@ -663,25 +727,36 @@ export class ExchangeRestoreSession {
     message: ManifestObject,
     folderId: string,
     isJson: boolean,
-  ): Promise<Message & { id: string }> {
+  ): Promise<ImportedMessage> {
     const { client, userId, reader } = this.o;
-    const result = isJson
-      ? await createMessageFromJson(
-          client,
-          userId,
-          folderId,
-          toCreatableMessage((await readJsonObject(reader, message)) as Message),
-        )
-      : await createMessageFromMime(
-          client,
-          userId,
-          folderId,
-          (await reader.readObjectToBuffer(message)).toString("base64"),
-        );
+    let result: Message;
+    let droppedHeaders = 0;
+    let sentTimes: ImportedMessage["sentTimes"] = {};
+    if (isJson) {
+      const { body, loss } = prepareMessageCreate(
+        (await readJsonObject(reader, message)) as Message,
+        { isDraft: messageIsDraftOf(message) },
+      );
+      droppedHeaders = loss.droppedHeaders;
+      const property = (id: string) =>
+        body.singleValueExtendedProperties?.find((entry) => entry.id === id)?.value ?? undefined;
+      sentTimes = {
+        received: property(PID_TAG_MESSAGE_DELIVERY_TIME),
+        sent: property(PID_TAG_CLIENT_SUBMIT_TIME),
+      };
+      result = await createMessageFromJson(client, userId, folderId, body);
+    } else {
+      result = await createMessageFromMime(
+        client,
+        userId,
+        folderId,
+        (await reader.readObjectToBuffer(message)).toString("base64"),
+      );
+    }
     if (!result.id) {
       throw new Error("Graph created the message but returned no id");
     }
-    return { ...result, id: result.id };
+    return { created: { ...result, id: result.id }, droppedHeaders, sentTimes };
   }
 
   /** Attach one backed-up attachment; the ledger entry is recorded after the message's. */

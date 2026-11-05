@@ -19,6 +19,7 @@ import {
   type MessageDeltaEntry,
   messagesDelta,
   patchMessage,
+  prepareMessageCreate,
   resolveWellKnownFolders,
   toCreatableMessage,
 } from "./mail.js";
@@ -543,6 +544,45 @@ describe("restore", () => {
       conversationId: "c",
     } as never);
     expect(creatable).toEqual({ subject: "Hi", body: { contentType: "text", content: "hello" } });
+  });
+
+  it("keeps only the custom x- headers Graph takes on create, within the limit", () => {
+    const headers = [
+      { name: "Received", value: "from a by b" },
+      { name: "Authentication-Results", value: "spf=pass" },
+      { name: "X-MS-Exchange-Organization-SCL", value: "1" },
+      { name: "X-Microsoft-Antispam", value: "BCL:0;" },
+      ...Array.from({ length: 7 }, (_, i) => ({ name: `X-Custom-${i}`, value: `v${i}` })),
+      { name: "X-Huge", value: "x".repeat(3000) },
+    ];
+    const { body, loss } = prepareMessageCreate({ subject: "Hi", internetMessageHeaders: headers });
+    expect(body.internetMessageHeaders).toEqual(
+      Array.from({ length: 5 }, (_, i) => ({ name: `X-Custom-${i}`, value: `v${i}` })),
+    );
+    expect(loss).toEqual({ droppedHeaders: headers.length - 5, draftStateUnknown: true });
+    // Nothing Graph refuses is ever left in the body.
+    expect(toCreatableMessage({ internetMessageHeaders: headers.slice(0, 2) })).toEqual({});
+  });
+
+  it("makes a JSON re-create of a received message a non-draft with its own dates", () => {
+    const body = toCreatableMessage({
+      subject: "Hi",
+      isDraft: false,
+      isRead: false,
+      receivedDateTime: "2026-01-01T10:00:00Z",
+      sentDateTime: "2026-01-01T09:59:58Z",
+    });
+    expect(body.singleValueExtendedProperties).toEqual([
+      { id: "Integer 0x0E07", value: "0" },
+      { id: "SystemTime 0x0E06", value: "2026-01-01T10:00:00.000Z" },
+      { id: "SystemTime 0x0039", value: "2026-01-01T09:59:58.000Z" },
+    ]);
+    // A draft stays a draft, also when only the manifest knows it is none.
+    expect(toCreatableMessage({ subject: "Draft", isDraft: true })).toEqual({ subject: "Draft" });
+    expect(
+      toCreatableMessage({ subject: "Read", isRead: true }, { isDraft: false })
+        .singleValueExtendedProperties,
+    ).toEqual([{ id: "Integer 0x0E07", value: "1" }]);
   });
 
   it("uploads a large attachment through an Outlook upload session with ≤ 4 MiB fragments", async () => {

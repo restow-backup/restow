@@ -680,9 +680,131 @@ const MESSAGE_READ_ONLY = [
   "singleValueExtendedProperties",
 ] as const;
 
-/** Strip read-only properties so a backed-up message JSON can be POSTed again. */
-export function toCreatableMessage(message: Message): Partial<Message> {
-  return stripReadOnly(message as Record<string, unknown>, MESSAGE_READ_ONLY) as Partial<Message>;
+/**
+ * MAPI properties (MS-OXPROPS) a message created from JSON gets, so it is a
+ * received or sent message with its own dates and not a draft dated today.
+ * Graph honours them only on create.
+ */
+export const PID_TAG_MESSAGE_FLAGS = "Integer 0x0E07";
+export const PID_TAG_MESSAGE_DELIVERY_TIME = "SystemTime 0x0E06";
+export const PID_TAG_CLIENT_SUBMIT_TIME = "SystemTime 0x0039";
+/** PidTagMessageFlags bits: read, and unsent (the draft bit, never set here). */
+export const MSGFLAG_READ = 0x1;
+export const MSGFLAG_UNSENT = 0x8;
+
+/**
+ * Custom headers a create may carry. Graph refuses any header whose name does
+ * not start with `x-` (400 InvalidInternetMessageHeader) and limits the custom
+ * headers of a message; Restow stays well below that with at most 5 headers of
+ * together at most 2 KB.
+ */
+export const MAX_CREATE_HEADERS = 5;
+export const MAX_CREATE_HEADER_BYTES = 2048;
+
+/**
+ * Headers Exchange and its filters stamp on delivery. They describe the
+ * original transport, not the message, and a create must not claim them.
+ */
+const TRANSPORT_STAMPED_HEADER = /^x-(ms-|microsoft-|forefront-|originatororg$)/i;
+
+/** What {@link toCreatableMessage} could not carry over. */
+export interface CreatableMessageLoss {
+  /** Backed-up headers left out: standard (transport) headers and x- headers over the limit. */
+  readonly droppedHeaders: number;
+  /** The backup does not say whether the message was a draft; it stays one (Graph's default). */
+  readonly draftStateUnknown: boolean;
+}
+
+function customHeadersOf(message: Message): {
+  kept: Array<{ name: string; value: string }>;
+  dropped: number;
+} {
+  const all = Array.isArray(message.internetMessageHeaders) ? message.internetMessageHeaders : [];
+  const kept: Array<{ name: string; value: string }> = [];
+  let bytes = 0;
+  for (const header of all) {
+    const name = typeof header?.name === "string" ? header.name.trim() : "";
+    const value = typeof header?.value === "string" ? header.value : "";
+    if (!/^x-/i.test(name) || TRANSPORT_STAMPED_HEADER.test(name)) {
+      continue;
+    }
+    const size = Buffer.byteLength(name) + Buffer.byteLength(value);
+    if (kept.length >= MAX_CREATE_HEADERS || bytes + size > MAX_CREATE_HEADER_BYTES) {
+      continue;
+    }
+    kept.push({ name, value });
+    bytes += size;
+  }
+  return { kept, dropped: all.length - kept.length };
+}
+
+function isoInstant(value: string | null | undefined): string | undefined {
+  if (typeof value !== "string" || Number.isNaN(Date.parse(value))) {
+    return undefined;
+  }
+  return new Date(value).toISOString();
+}
+
+/**
+ * The extended properties that make a message created from JSON what it was:
+ * not a draft (PidTagMessageFlags without the unsent bit, with the read bit
+ * from `isRead`), received and sent at its own times. Only for a message the
+ * backup recorded as not a draft; a draft stays a draft without dates.
+ */
+export function restoredMessageProperties(
+  message: Pick<Message, "isRead" | "receivedDateTime" | "sentDateTime">,
+): Array<{ id: string; value: string }> {
+  const properties = [
+    { id: PID_TAG_MESSAGE_FLAGS, value: String(message.isRead === true ? MSGFLAG_READ : 0) },
+  ];
+  const received = isoInstant(message.receivedDateTime);
+  if (received !== undefined) {
+    properties.push({ id: PID_TAG_MESSAGE_DELIVERY_TIME, value: received });
+  }
+  const sent = isoInstant(message.sentDateTime);
+  if (sent !== undefined) {
+    properties.push({ id: PID_TAG_CLIENT_SUBMIT_TIME, value: sent });
+  }
+  return properties;
+}
+
+/**
+ * Turn a backed-up message JSON into a body Graph accepts on create: read-only
+ * properties stripped, only the custom `x-` headers Graph takes (never the
+ * transport headers the backup fetched with the message), and, for a message
+ * that was not a draft (`isDraft` false in the JSON or, when the JSON lacks it,
+ * in `options.isDraft`), the extended properties of
+ * {@link restoredMessageProperties}.
+ */
+export function toCreatableMessage(
+  message: Message,
+  options: { isDraft?: boolean } = {},
+): Partial<Message> {
+  return prepareMessageCreate(message, options).body;
+}
+
+/** {@link toCreatableMessage}, also saying what could not be carried over. */
+export function prepareMessageCreate(
+  message: Message,
+  options: { isDraft?: boolean } = {},
+): { body: Partial<Message>; loss: CreatableMessageLoss } {
+  const { internetMessageHeaders: _headers, ...rest } = message;
+  const body = stripReadOnly(
+    rest as Record<string, unknown>,
+    MESSAGE_READ_ONLY,
+  ) as Partial<Message>;
+  const headers = customHeadersOf(message);
+  if (headers.kept.length > 0) {
+    body.internetMessageHeaders = headers.kept;
+  }
+  const isDraft = typeof message.isDraft === "boolean" ? message.isDraft : options.isDraft;
+  if (isDraft === false) {
+    body.singleValueExtendedProperties = restoredMessageProperties(message);
+  }
+  return {
+    body,
+    loss: { droppedHeaders: headers.dropped, draftStateUnknown: isDraft === undefined },
+  };
 }
 
 /** Create a message from JSON (fallback path for messages backed up as parts). */

@@ -39,6 +39,8 @@
  *     flagStatus         notFlagged | flagged | complete
  *     categories         JSON array (or whitespace list) of category names
  *     importance         low | normal | high
+ *     isDraft            "true" | "false"
+ *     receivedDateTime   ISO 8601 time Exchange received the message
  *     format             "mime" (default) | "json" ("parts" is read as "json")
  *     referenceAttachments  JSON message: JSON array of link attachment names
  *     folderKind         folder objects: mail | calendar | contacts | attachments | root
@@ -251,6 +253,22 @@ export function messageFlagsOf(object: ManifestObject): MessageFlags {
     flags.importance = metadata.importance as Importance;
   }
   return flags;
+}
+
+/**
+ * Whether the backed-up message was a draft: the Exchange backup records
+ * `isDraft`, an IMAP backup or import the `\Draft` flag. Undefined when the
+ * backup says neither.
+ */
+export function messageIsDraftOf(object: ManifestObject): boolean | undefined {
+  const recorded = parseBoolean(object.metadata?.isDraft);
+  if (recorded !== undefined) {
+    return recorded;
+  }
+  if (object.metadata?.flags === undefined) {
+    return undefined;
+  }
+  return imapFlagsOf(object).some((flag) => flag.toLowerCase() === "\\draft");
 }
 
 /** Names of link attachments a JSON message had; they carry no content to restore. */

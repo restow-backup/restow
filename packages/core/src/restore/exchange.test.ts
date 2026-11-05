@@ -736,6 +736,132 @@ describe("ExchangeRestoreEngine", () => {
     expect(fixture.ctx.progress.snapshot()).toMatchObject({ total: 6, done: 4, failed: 2 });
   });
 
+  it("restores a JSON-fallback message as received mail: x- headers only, not a draft, with its dates", async () => {
+    // The object exactly as the backup writes it when Graph refuses the MIME
+    // export: getMessage with MESSAGE_SELECT, body and internetMessageHeaders.
+    const backedUp = {
+      "@odata.etag": 'W/"CQAAABYAAAA"',
+      id: "AAMkAGI2THVSAAA=",
+      internetMessageId: "<big-12@contoso.example>",
+      conversationId: "AAQkAGI2conv",
+      conversationIndex: "AQHbQ1",
+      subject: "Quarterly figures",
+      from: { emailAddress: { name: "Bob", address: "bob@contoso.example" } },
+      sender: { emailAddress: { name: "Bob", address: "bob@contoso.example" } },
+      toRecipients: [{ emailAddress: { name: "Anna", address: USER } }],
+      ccRecipients: [],
+      bccRecipients: [],
+      replyTo: [],
+      receivedDateTime: "2026-03-02T08:15:42Z",
+      sentDateTime: "2026-03-02T08:15:30Z",
+      createdDateTime: "2026-03-02T08:15:43Z",
+      lastModifiedDateTime: "2026-03-02T09:00:00Z",
+      isRead: true,
+      isDraft: false,
+      flag: { flagStatus: "notFlagged" },
+      categories: [],
+      importance: "normal",
+      hasAttachments: false,
+      parentFolderId: "AAMkInbox",
+      body: { contentType: "html", content: "<p>Figures attached</p>" },
+      internetMessageHeaders: [
+        { name: "Received", value: "from EUR01-HE1.outbound.protection.outlook.com by ..." },
+        { name: "DKIM-Signature", value: "v=1; a=rsa-sha256; d=contoso.example; s=selector1" },
+        { name: "Message-ID", value: "<big-12@contoso.example>" },
+        { name: "From", value: "Bob <bob@contoso.example>" },
+        { name: "X-MS-Exchange-Organization-AuthAs", value: "Anonymous" },
+        { name: "X-Mailer", value: "Contoso Mailer 4.2" },
+        { name: "x-ticket-id", value: "T-4711" },
+      ],
+    };
+    const quarterly: FixtureObject = {
+      path: "mail/Posteingang/Quarterly figures.0012.json",
+      type: "mail",
+      id: "AAMk12",
+      metadata: {
+        subject: "Quarterly figures",
+        receivedDateTime: "2026-03-02T08:15:42Z",
+        isRead: "true",
+        isDraft: "false",
+        flagStatus: "notFlagged",
+        categories: "[]",
+        hasAttachments: "false",
+        messageId: "<big-12@contoso.example>",
+        folderPath: "Posteingang",
+        wellKnownFolder: "inbox",
+        format: "json",
+        contentType: "application/json",
+        attachmentCount: "0",
+      },
+      content: JSON.stringify(backedUp),
+    };
+    fixture = await createSnapshotFixture({
+      kind: "mailbox",
+      externalId: USER,
+      objects: [quarterly],
+    });
+    const mailbox = new FakeMailbox();
+
+    const report = await engineFor(mailbox).run(
+      fixture.ctx,
+      restoreRequestFor(fixture, { mode: "skip" }),
+    );
+
+    expect(report.failures).toEqual([]);
+    expect(report.restored).toBe(1);
+    const restored = must([...mailbox.messages.values()][0]);
+    expect(restored.json?.internetMessageHeaders).toEqual([
+      { name: "X-Mailer", value: "Contoso Mailer 4.2" },
+      { name: "x-ticket-id", value: "T-4711" },
+    ]);
+    expect(restored.json?.singleValueExtendedProperties).toEqual([
+      { id: "Integer 0x0E07", value: "1" },
+      { id: "SystemTime 0x0E06", value: "2026-03-02T08:15:42.000Z" },
+      { id: "SystemTime 0x0039", value: "2026-03-02T08:15:30.000Z" },
+    ]);
+    expect(restored.isDraft).toBe(false);
+    expect(Date.parse(restored.receivedDateTime)).toBe(Date.parse("2026-03-02T08:15:42Z"));
+    const item = must(report.items[0]);
+    expect(item.verified).toBe(true);
+    expect(item.reason).toMatch(/5 transport headers of the original/);
+    expect(item.reason).not.toMatch(/draft/);
+  });
+
+  it("marks a JSON-fallback message unverified when Exchange keeps it a draft or drops its dates", async () => {
+    const plain: FixtureObject = {
+      path: "mail/Posteingang/Plain.0013.json",
+      type: "mail",
+      id: "AAMk13",
+      metadata: {
+        format: "json",
+        isDraft: "false",
+        folderPath: "Posteingang",
+        wellKnownFolder: "inbox",
+      },
+      content: JSON.stringify({
+        subject: "Plain",
+        isDraft: false,
+        receivedDateTime: "2026-03-02T08:15:42Z",
+        body: { contentType: "text", content: "x" },
+      }),
+    };
+    fixture = await createSnapshotFixture({ kind: "mailbox", externalId: USER, objects: [plain] });
+    const mailbox = new FakeMailbox();
+    // A Graph that ignores the extended properties on create.
+    mailbox.ignoresExtendedProperties = true;
+
+    const report = await engineFor(mailbox).run(
+      fixture.ctx,
+      restoreRequestFor(fixture, { mode: "skip" }),
+    );
+
+    const item = must(report.items[0]);
+    expect(item.status).toBe("restored");
+    expect(item.verified).toBe(false);
+    expect(item.reason).toMatch(/created the restored message as a draft/);
+    expect(item.reason).toMatch(/did not take the received date/);
+  });
+
   it("explains a message Graph refuses as too large", async () => {
     fixture = await createSnapshotFixture({
       kind: "mailbox",

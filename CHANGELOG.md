@@ -508,6 +508,18 @@ private repository.
   one the pass started with.
   This was the cause of the IMAP test that failed now and then ("shows a watched account as
   IDLE"); with a pass slowed down on purpose it failed every time before and passes now.
+- Mail restore: a message backed up in the JSON format (Graph had refused its MIME export: larger
+  than about 150 MB, protected with IRM or not convertible) could not be restored into a mailbox.
+  The backup stores the message with its transport headers (Received, DKIM-Signature, Message-ID
+  and the like), the restore sent them back, and Graph refuses every header that does not start
+  with `x-` on a new message (400 `InvalidInternetMessageHeader`), so each such message failed.
+  The restore now sends only custom `x-` headers (at most 5, without the ones Exchange stamps on
+  delivery) and says how many transport headers stay in the backup. A message that was not a
+  draft also comes back as received mail with its own received and sent dates instead of a draft
+  dated the day of the restore (the properties `PidTagMessageFlags`,
+  `PidTagMessageDeliveryTime` and `PidTagClientSubmitTime` are set when it is created); if
+  Exchange still shows it as a draft or with other dates, the message is "Not confirmed" with the
+  reason.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,
