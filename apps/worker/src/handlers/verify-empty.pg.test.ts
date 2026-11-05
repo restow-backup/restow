@@ -87,7 +87,119 @@ function outcome(snapshotId: string, checked: number, contentBytes: number): Ver
   };
 }
 
+/** The same outcome with other reasons and rating (the source signal of 0.5.0). */
+function withReasons(
+  base: VerifyOutcome,
+  readiness: VerifyOutcome["readiness"],
+  reasons: VerifyOutcome["details"]["reasons"],
+): VerifyOutcome {
+  return { ...base, readiness, details: { ...base.details, reasons } };
+}
+
 describe.skipIf(!adminUrl)("a confirmation as empty in the worker", () => {
+  it("rates an object empty by the source quietly and lets a contradiction end a confirmation (0.5.0)", async () => {
+    const db = createDb(await recreate(adminUrl as string));
+    try {
+      const [provider] = await db.insert(providers).values({ name: "Provider" }).returning();
+      const [tenant] = await db
+        .insert(tenants)
+        .values({ providerId: provider?.id as string, name: "Contoso", slug: "contoso" })
+        .returning();
+      const tenantId = tenant?.id as string;
+      const [source] = await db
+        .insert(sources)
+        .values({ tenantId, kind: "m365", name: "M365", status: "active" })
+        .returning();
+      const [object] = await db
+        .insert(protectedObjects)
+        .values({
+          tenantId,
+          sourceId: source?.id as string,
+          kind: "onedrive",
+          externalId: "b!msp",
+          displayName: "msp@contoso.example",
+        })
+        .returning();
+      const objectId = object?.id as string;
+      const [snapshot] = await db
+        .insert(snapshots)
+        .values({ tenantId, protectedObjectId: objectId, sequence: 1 })
+        .returning();
+      const snapshotId = snapshot?.id as string;
+      const JOBS = ["00000000-0000-4000-8000-000000000011", "00000000-0000-4000-8000-000000000012"];
+      await db.insert(jobs).values(
+        JOBS.map((id) => ({
+          id,
+          tenantId,
+          queue: "verify" as const,
+          status: "active" as const,
+          protectedObjectId: objectId,
+        })),
+      );
+      const store = pgVerifyStore(db, tenantId);
+      const ref = {
+        id: objectId,
+        tenantId,
+        kind: "onedrive" as const,
+        externalId: "b!msp",
+        displayName: "msp@contoso.example",
+        sourceId: source?.id as string,
+        userId: null,
+      };
+      const raised = () =>
+        db
+          .select({ event: notifications.event, message: notifications.message })
+          .from(notifications)
+          .where(eq(notifications.tenantId, tenantId));
+
+      // A first check of a never-used OneDrive: empty by Microsoft 365 and by the backup.
+      await store.record({
+        tenantId,
+        jobId: JOBS[0] as string,
+        object: ref,
+        kind: "verify",
+        outcome: withReasons(outcome(snapshotId, 0, 0), "yellow", [
+          { code: "snapshot_empty_confirmed_by_source", severity: "yellow", count: 1 },
+        ]),
+        previous: null,
+        checkedAt: new Date(),
+      });
+      expect((await raised()).map((row) => row.event)).not.toContain(VERIFY_EVENTS.yellow);
+
+      // An admin confirmation from before, then Microsoft 365 reports content the backup lacks.
+      await db.insert(emptyConfirmations).values({
+        tenantId,
+        protectedObjectId: objectId,
+        snapshotId,
+        confirmedBy: "admin@contoso.example",
+      });
+      await store.record({
+        tenantId,
+        jobId: JOBS[1] as string,
+        object: ref,
+        kind: "verify",
+        outcome: withReasons(outcome(snapshotId, 0, 0), "red", [
+          { code: "backup_missing_source_content", severity: "red", bytes: 20_480 },
+        ]),
+        previous: "yellow",
+        previousReasons: ["snapshot_empty_confirmed_by_source"],
+        checkedAt: new Date(),
+      });
+      expect(
+        await db
+          .select({ id: emptyConfirmations.id })
+          .from(emptyConfirmations)
+          .where(eq(emptyConfirmations.protectedObjectId, objectId)),
+      ).toEqual([]);
+      const red = (await raised()).find((row) => row.event === VERIFY_EVENTS.red);
+      expect(red?.message).toBe(
+        "Recovery readiness of OneDrive · msp@contoso.example is red: a restore would not be complete.",
+      );
+    } finally {
+      await db.$client.end();
+    }
+  }, 60_000);
+
   it("survives a check that still finds the object empty and ends with one that finds content", async () => {
     const db = createDb(await recreate(adminUrl as string));
     try {

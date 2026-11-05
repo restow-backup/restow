@@ -160,6 +160,47 @@ const itemSchemaAt = (at: string) =>
   });
 export type ItemDto = z.infer<ReturnType<typeof itemSchemaAt>>;
 
+const optionalCount = count.nullable().optional().catch(null);
+
+/** One measure of the source signal (core manifest `DriveMeasure` / `MailMeasure`). */
+const measureSchema = z
+  .object({
+    rootBytes: optionalCount,
+    rootChildren: optionalCount,
+    visibleItems: optionalCount,
+    hiddenItems: optionalCount,
+    folders: optionalCount,
+    at: nullableNumber,
+  })
+  .nullable()
+  .catch(null);
+
+/** The source's own size signal and its verdict (core verify/source.ts, 0.5.0). */
+const sourceSchema = z
+  .object({
+    service: z.enum(["onedrive", "mailbox"]),
+    verdict: z.enum(["empty", "content", "unknown"]).catch("unknown"),
+    bytes: optionalCount,
+    items: optionalCount,
+    signal: z
+      .object({
+        before: measureSchema.optional().catch(null),
+        after: measureSchema.optional().catch(null),
+        quota: z
+          .object({ used: nullableNumber, deleted: nullableNumber, total: nullableNumber })
+          .nullable()
+          .optional()
+          .catch(null),
+        archive: z.enum(["present", "none", "unknown"]).optional().catch(undefined),
+      })
+      .nullable()
+      .optional()
+      .catch(null),
+  })
+  .nullable()
+  .optional()
+  .catch(null);
+
 const snapshotSchema = z
   .object({
     id: z.string(),
@@ -168,16 +209,59 @@ const snapshotSchema = z
     itemCount: count,
     packCount: count,
     /** Bytes and objects of content (no folders); absent before 0.4.9. */
-    contentBytes: count.nullable().optional().catch(null),
-    contentObjects: count.nullable().optional().catch(null),
+    contentBytes: optionalCount,
+    contentObjects: optionalCount,
+    /** What Microsoft 365 itself reported (0.5.0); absent without a signal. */
+    source: sourceSchema,
   })
   .nullable()
   .catch(null);
+
+/**
+ * What Microsoft 365 itself reported about the object when it was backed up (0.5.0), for the
+ * details view: `verdict` is the rule's outcome (core verify/source.ts), the figures are what it
+ * rests on. Bytes for a OneDrive (its root folder, and the quota for display), items for a
+ * mailbox (visible and hidden folders).
+ */
+export interface SourceStatsDto {
+  service: "onedrive" | "mailbox";
+  verdict: "empty" | "content" | "unknown";
+  /** OneDrive: bytes below the root, before and after the run (after only for an empty backup). */
+  rootBytesBefore: number | null;
+  rootBytesAfter: number | null;
+  /** OneDrive: the quota Microsoft 365 reports (recycle bin, versions and system lists included). */
+  quotaUsed: number | null;
+  quotaDeleted: number | null;
+  /** Mailbox: items Graph counts in visible and in hidden folders, before the run. */
+  visibleItems: number | null;
+  hiddenItems: number | null;
+  archive: "present" | "none" | "unknown" | null;
+}
 
 /** Items and content bytes of the checked backup, from a report's `details.snapshot`. */
 export interface ContentStatsDto {
   items: number;
   bytes: number;
+  /** What Microsoft 365 itself reported (0.5.0); absent without a signal. */
+  source?: SourceStatsDto;
+}
+
+function sourceStatsOf(source: z.infer<typeof sourceSchema>): SourceStatsDto | null {
+  if (!source) {
+    return null;
+  }
+  const signal = source.signal ?? null;
+  return {
+    service: source.service,
+    verdict: source.verdict,
+    rootBytesBefore: signal?.before?.rootBytes ?? null,
+    rootBytesAfter: signal?.after?.rootBytes ?? null,
+    quotaUsed: signal?.quota?.used ?? null,
+    quotaDeleted: signal?.quota?.deleted ?? null,
+    visibleItems: signal?.before?.visibleItems ?? null,
+    hiddenItems: signal?.before?.hiddenItems ?? null,
+    archive: signal?.archive ?? null,
+  };
 }
 
 /** The content figures of a stored snapshot reference; null for reports before 0.4.9. */
@@ -186,7 +270,12 @@ export function parseContentStats(value: unknown): ContentStatsDto | null {
   if (!snapshot || typeof snapshot.contentBytes !== "number") {
     return null;
   }
-  return { items: snapshot.itemCount, bytes: snapshot.contentBytes };
+  const source = sourceStatsOf(snapshot.source);
+  return {
+    items: snapshot.itemCount,
+    bytes: snapshot.contentBytes,
+    ...(source ? { source } : {}),
+  };
 }
 
 const testRestoreSchemaAt = (at: string) =>
@@ -212,7 +301,10 @@ const verifyDetailsSchemaAt = (at: string) =>
     kind: z.enum(["verify", "health_check"]).catch("verify"),
     scope: z.enum(["sample", "all"]).catch("sample"),
     seed: nullableNumber,
-    snapshot: snapshotSchema,
+    // The source signal flattened to the figures the details view shows (SourceStatsDto).
+    snapshot: snapshotSchema.transform((snapshot) =>
+      snapshot ? { ...snapshot, source: sourceStatsOf(snapshot.source) } : null,
+    ),
     /** Why the manifest of the checked snapshot could not be read, when it could not. */
     manifestFailure: z
       .unknown()

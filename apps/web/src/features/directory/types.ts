@@ -216,7 +216,15 @@ export interface ProtectedObject {
      */
     notBackedUp?: ObjectStatusReason | null;
   } | null;
-  readiness: { rating: RecoveryReadiness; checkedAt: string } | null;
+  /**
+   * `empty` (0.5.0): the object reads "empty", neutral, as on the readiness page: confirmed by
+   * an admin, or empty by Microsoft 365 as well. Absent from an older server.
+   */
+  readiness: {
+    rating: RecoveryReadiness;
+    checkedAt: string;
+    empty?: "admin" | "source" | null;
+  } | null;
   /** The backup job that covers it; null when none does (or an older server). */
   job?: { id: string; name: string; scheduled: boolean } | null;
   /** Null when it may not be backed up at all (excluded, orphaned, source not working). */

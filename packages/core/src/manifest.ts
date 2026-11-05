@@ -112,8 +112,66 @@ export interface SnapshotManifest {
    * here; an engine treats invalid state (410 Gone) as "start over".
    */
   state?: Record<string, unknown>;
+  /**
+   * What the source itself reported about how much it holds, measured by the backup run
+   * (0.5.0, verify/source.ts). Absent for sources without such a signal (IMAP, SharePoint)
+   * and in snapshots made before 0.5.0. Never carried over to the next snapshot.
+   */
+  sourceSignal?: SourceSignal;
   objects: ManifestObject[];
 }
+
+/**
+ * One measurement of a OneDrive's root folder: `size` (bytes of everything below the root,
+ * as Graph reports it for OneDrive for Business) and `folder.childCount`.
+ */
+export interface DriveMeasure {
+  readonly rootBytes: number;
+  readonly rootChildren: number;
+  /** Epoch milliseconds. */
+  readonly at: number;
+}
+
+/** The drive's storage quota at the end of the run: shown for information, never decided on. */
+export interface DriveQuotaInfo {
+  readonly used: number | null;
+  readonly deleted: number | null;
+  readonly remaining: number | null;
+  readonly total: number | null;
+  readonly state: string | null;
+}
+
+/** The items Graph counts in the mail folders the backup plans (`totalItemCount`). */
+export interface MailMeasure {
+  /** Items in folders that are not hidden. */
+  readonly visibleItems: number;
+  /** Items in hidden folders (`isHidden`). */
+  readonly hiddenItems: number;
+  /** Folders counted. */
+  readonly folders: number;
+  /** Epoch milliseconds. */
+  readonly at: number;
+}
+
+/**
+ * The source's own size signal, measured at the start of the run ("before") and, only when the
+ * snapshot about to be committed holds no content, once more at its end ("after"). Null: the
+ * measurement failed or was not taken.
+ */
+export type SourceSignal =
+  | {
+      readonly service: "onedrive";
+      readonly before: DriveMeasure | null;
+      readonly after: DriveMeasure | null;
+      readonly quota?: DriveQuotaInfo | null;
+    }
+  | {
+      readonly service: "mailbox";
+      readonly before: MailMeasure | null;
+      readonly after: MailMeasure | null;
+      /** The online archive, which Graph v1.0 does not reach (backup/exchange/online-archive.ts). */
+      readonly archive: "present" | "none" | "unknown";
+    };
 
 interface ZstdCodec {
   decompressSync(input: Buffer): Buffer;

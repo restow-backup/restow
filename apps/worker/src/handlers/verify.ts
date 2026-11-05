@@ -52,12 +52,14 @@
  * `unverifiedOutcome`): an earlier green no longer counts as proof while
  * nobody can read the backup, and the change raises "needs attention".
  */
+
 import {
   type BackupFailureFacts,
   DEFAULT_SAMPLE_SIZE,
   type FailureCause,
   INCOMPLETE_CHECKS_LIMIT,
   isEmptyFinding,
+  isSourceEmptyFinding,
   mailObjectEligible,
   mailObjectsInNoJob,
   PERSISTENT_FAILURE_RUNS,
@@ -66,6 +68,7 @@ import {
   type RestoreProbe,
   readinessWithoutFreshness,
   type SnapshotRecord,
+  SOURCE_CONTENT_REASON,
   unverifiedOutcome,
   VerifyIncompleteError,
   type VerifyJobPayload,
@@ -91,6 +94,7 @@ import {
 import { and, desc, eq, sql } from "drizzle-orm";
 import { QUEUE_DEFINITIONS } from "../queues.js";
 import { raiseEvents } from "../reporting.js";
+import { serviceObjectLabel } from "../service-label.js";
 import {
   InvalidPayloadError,
   type JobHandler,
@@ -144,6 +148,8 @@ const RED_EVIDENCE = new Set([
   "storage_corrupt",
   "storage_unreadable_persistent",
   "test_restore_failed",
+  // Microsoft 365 reports content the backup does not hold (0.5.0).
+  SOURCE_CONTENT_REASON,
 ]);
 
 /**
@@ -234,8 +240,8 @@ export function readinessNotification(input: {
       event: VERIFY_EVENTS.red,
       message:
         redReason === "outdated"
-          ? `Recovery readiness of ${objectLabel(object)} is red: the newest backup is too old, newer data could not be restored.`
-          : `Recovery readiness of ${objectLabel(object)} is red: a restore would not be complete.`,
+          ? `Recovery readiness of ${serviceObjectLabel(object)} is red: the newest backup is too old, newer data could not be restored.`
+          : `Recovery readiness of ${serviceObjectLabel(object)} is red: a restore would not be complete.`,
       details: {
         ...details,
         redReason,
@@ -251,15 +257,22 @@ export function readinessNotification(input: {
       tenantId: input.tenantId,
       level: "warning",
       event: VERIFY_EVENTS.yellow,
-      message: `Recovery readiness of ${objectLabel(object)} needs attention.`,
+      message: `Recovery readiness of ${serviceObjectLabel(object)} needs attention.`,
       details,
     };
+  }
+  if (
+    previous === "yellow" &&
+    isSourceEmptyFinding((input.previousReasons ?? []).map((code) => ({ code })))
+  ) {
+    // Empty by the source before, content now: it never needed attention, so nothing recovered.
+    return null;
   }
   return {
     tenantId: input.tenantId,
     level: "info",
     event: VERIFY_EVENTS.recovered,
-    message: `Recovery readiness of ${objectLabel(object)} is green again.`,
+    message: `Recovery readiness of ${serviceObjectLabel(object)} is green again.`,
     details,
   };
 }
@@ -384,19 +397,31 @@ export function verifyReportRow(record: VerifyRecord): NewVerifyReport {
  * content figures counts by what it read back only.
  */
 export function outcomeHasContent(outcome: Pick<VerifyOutcome, "checked" | "details">): boolean {
-  return outcome.checked > 0 || (outcome.details.snapshot?.contentBytes ?? 0) > 0;
+  return (
+    outcome.checked > 0 ||
+    (outcome.details.snapshot?.contentBytes ?? 0) > 0 ||
+    // Microsoft 365 reports content (0.5.0): the object is not empty, whatever the backup holds.
+    outcome.details.reasons.some((reason) => reason.code === SOURCE_CONTENT_REASON)
+  );
 }
 
 /**
  * The notification a recorded run raises, or null when the rating did not change. An object an
  * admin confirmed as empty that is still empty raises no "needs attention": the confirmation
- * already said it is fine.
+ * already said it is fine. Nor does an object empty by the source and by the backup (0.5.0): it
+ * reads "empty", not "needs attention".
  */
 export function verifyRecordNotification(
   record: VerifyRecord,
   reportId: string,
   options: { readonly confirmedEmpty?: boolean } = {},
 ): NewNotification | null {
+  if (
+    record.outcome.readiness === "yellow" &&
+    isSourceEmptyFinding(record.outcome.details.reasons)
+  ) {
+    return null;
+  }
   if (
     options.confirmedEmpty &&
     record.outcome.readiness === "yellow" &&
@@ -425,7 +450,7 @@ export function verifyCompletedNotification(
     tenantId: record.tenantId,
     level: "info",
     event: "verify.completed",
-    message: `The restore check of ${label} finished: ${record.outcome.readiness}.`,
+    message: `The restore check of ${serviceObjectLabel(record.object)} finished: ${record.outcome.readiness}.`,
     details: {
       protectedObjectId: record.object.id,
       objectName: label,

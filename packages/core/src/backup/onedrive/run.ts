@@ -57,6 +57,7 @@ import {
   versionPath,
   versionUnchanged,
 } from "./items.js";
+import type { DriveSourceProbe } from "./source.js";
 import {
   checkpointState,
   ENGINE_NAME,
@@ -502,6 +503,11 @@ export interface RunInput {
   readonly resumedDeletions: readonly string[];
   /** Where the objects go; the whole snapshot when absent (OneDrive). */
   readonly sink?: DriveObjectSink;
+  /**
+   * The drive's own size signal (OneDrive only, ./source.ts): the measure taken at the start
+   * of the run, and the one taken at the commit when the snapshot holds no content.
+   */
+  readonly sourceProbe?: DriveSourceProbe;
 }
 
 export class DriveBackupRun {
@@ -513,6 +519,7 @@ export class DriveBackupRun {
   private readonly settings: RunSettings;
   private readonly logger: Logger;
   private readonly sink: DriveObjectSink;
+  private readonly sourceProbe: DriveSourceProbe | undefined;
   private readonly tree: DriveTree;
   private readonly previousById = new Map<string, ManifestObject>();
   private readonly pool = new ContentPool();
@@ -556,6 +563,7 @@ export class DriveBackupRun {
     this.retryOverflow = input.plan.retryOverflow;
     this.lastCheckpointAt = this.now();
     this.sink = input.sink ?? writerSink(input.writer, input.driveId);
+    this.sourceProbe = input.sourceProbe;
 
     for (const object of input.previous?.objects ?? []) {
       if (object.id !== undefined) {
@@ -761,6 +769,7 @@ export class DriveBackupRun {
     const { state, changed, removed, activity } = outcome;
     this.writer.setState(state as unknown as Record<string, unknown>);
     this.ctx.progress.phase(ONEDRIVE_PHASES.commit);
+    await this.recordSourceSignal();
     const committed = await this.writer.commit();
     await this.ctx.cursor.clear();
 
@@ -789,6 +798,28 @@ export class DriveBackupRun {
       chunkStats: chunkDataStats(this.writer.chunks.stats),
       ...(activity ? { activity } : {}),
     };
+  }
+
+  /**
+   * The drive's own size signal into the manifest. The second measure is taken only for a
+   * snapshot without content, the only one the restore check consults it for, and only when
+   * the first one succeeded (a verdict needs both).
+   */
+  private async recordSourceSignal(): Promise<void> {
+    const probe = this.sourceProbe;
+    if (!probe) {
+      return;
+    }
+    const measured =
+      probe.before !== null && this.writer.contentBytes() === 0
+        ? await probe.measureAfter()
+        : { after: null, quota: null };
+    this.writer.setSourceSignal({
+      service: "onedrive",
+      before: probe.before,
+      after: measured.after,
+      ...(measured.quota ? { quota: measured.quota } : {}),
+    });
   }
 
   // -------------------------------------------------------------------------

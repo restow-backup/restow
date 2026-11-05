@@ -20,6 +20,18 @@ function alert(details: Record<string, unknown>, language: "en" | "de" = "en") {
 }
 
 describe("renderAlert", () => {
+  it("names the service with the object it is about (0.5.0)", () => {
+    expect(alert({ objectName: "msp@contoso.example", objectKind: "onedrive" }).text).toContain(
+      "OneDrive · msp@contoso.example",
+    );
+    expect(
+      alert({ objectName: "msp@contoso.example", objectKind: "mailbox" }, "de").text,
+    ).toContain("Postfach · msp@contoso.example");
+    // Without a kind, or with one no text knows, the name alone.
+    expect(alert({ objectKind: "something" }).text).toContain("Alice");
+    expect(alert({ objectKind: "something" }).text).not.toContain("· Alice");
+  });
+
   it("names the disk and what is left on it for the low disk space warning", () => {
     const disk = (language: "en" | "de") =>
       renderAlert({

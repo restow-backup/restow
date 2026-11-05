@@ -82,7 +82,8 @@ function reportFact(snapshotId: string, checkedAt: string) {
 /**
  * The directory page of GET /users: tenant, count, users, their objects, and
  * the newest snapshot and backup job per object, followed by the four
- * verification queries (`verification`) and the two reads of the objects in no backup job.
+ * verification queries (`verification`), the confirmations as empty and the two reads of the
+ * objects in no backup job.
  */
 function usersScript(verification: unknown[][]): unknown[][] {
   return [
@@ -126,6 +127,8 @@ function usersScript(verification: unknown[][]): unknown[][] {
     ],
     [],
     ...verification,
+    // The objects an admin confirmed as empty (none).
+    [],
     // The mail jobs and the objects behind "in no backup job" (the tenant has no job).
     [],
     [],

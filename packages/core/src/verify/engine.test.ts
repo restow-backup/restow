@@ -259,6 +259,41 @@ describe("verifyProtectedObject", () => {
     });
   });
 
+  it("rates an empty backup by the source's own size signal the backup recorded (0.5.0)", async () => {
+    const folders = [
+      { path: "files/Documents", type: "folder", size: 0 },
+      { path: "files/Pictures", type: "folder", size: 0 },
+    ];
+    const measure = (rootBytes: number) => ({ rootBytes, rootChildren: 2, at: 1 });
+
+    const empty = createStoreFixture();
+    const signal = { service: "onedrive" as const, before: measure(0), after: measure(0) };
+    await writeSnapshot(empty, folders, undefined, signal);
+    const neutral = await verify(empty);
+    expect(neutral.details.reasons).toEqual([
+      { code: "snapshot_empty_confirmed_by_source", severity: "yellow", count: 2 },
+    ]);
+    expect(neutral.details.snapshot?.source).toEqual({
+      service: "onedrive",
+      verdict: "empty",
+      bytes: 0,
+      signal,
+    });
+
+    const contradicted = createStoreFixture();
+    await writeSnapshot(contradicted, folders, undefined, {
+      service: "onedrive",
+      before: measure(20_480),
+      after: measure(20_480),
+    });
+    const red = await verify(contradicted);
+    expect(red.readiness).toBe("red");
+    expect(red.details.reasons).toEqual([
+      { code: "backup_missing_source_content", severity: "red", bytes: 20_480 },
+    ]);
+    expect(red.details.snapshot?.source?.verdict).toBe("content");
+  });
+
   it("keeps nothing_to_verify for data of a type a check cannot read back", async () => {
     const fixture = createStoreFixture();
     await writeSnapshot(fixture, [

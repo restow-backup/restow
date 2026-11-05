@@ -341,6 +341,55 @@ describe("protected objects", () => {
     expect(readinessOf(outdated, NOW, "excluded", true)).toMatchObject({ inJob: true });
   });
 
+  it("rates an empty object green and never overdue, as /v1/verify counts it", () => {
+    const facts = (
+      reasons: unknown,
+      origin: string | null = "verify",
+      rating: "yellow" | "red" = "yellow",
+    ) => ({
+      ...NO_FACTS,
+      snapshot: { id: "s", sequence: 1, completedAt: NOW, itemCount: 6, byteSize: 0 },
+      verify: {
+        rating,
+        kind: "verify" as const,
+        checkedAt: new Date("2026-09-01T00:00:00.000Z"),
+        reasons,
+        origin,
+      },
+    });
+    const confirmation = {
+      confirmedAt: "2026-09-01T00:00:00.000Z",
+      confirmedBy: "admin@contoso.test",
+      note: null,
+      snapshotId: "s",
+    };
+    const green = { state: "green", rating: "green", overdue: false };
+    // Empty by Microsoft 365 and by the backup: no confirmation needed.
+    const bySource = facts([
+      { code: "snapshot_empty_confirmed_by_source", severity: "yellow", count: 1 },
+    ]);
+    expect(readinessOf(bySource, NOW)).toMatchObject(green);
+    expect(readinessOf(bySource, NOW, "orphaned")).toMatchObject(green);
+    // Empty by the backup only: yellow until an admin confirms it.
+    const empty = facts([{ code: "snapshot_empty", severity: "yellow", count: 6 }]);
+    expect(readinessOf(empty, NOW)).toMatchObject({ state: "yellow", overdue: true });
+    expect(readinessOf({ ...empty, emptyConfirmation: confirmation }, NOW)).toMatchObject(green);
+    // A confirmation does not count for any other finding, nor does a storage finding read empty.
+    const contradicted = facts(
+      [{ code: "backup_missing_source_content", severity: "red" }],
+      "verify",
+      "red",
+    );
+    expect(readinessOf({ ...contradicted, emptyConfirmation: confirmation }, NOW)).toMatchObject({
+      state: "red",
+    });
+    const scrub = facts(
+      [{ code: "snapshot_empty_confirmed_by_source", severity: "yellow", count: 1 }],
+      "scrub",
+    );
+    expect(readinessOf(scrub, NOW)).toMatchObject({ state: "yellow" });
+  });
+
   it("rates excluded objects not at all and orphaned ones while backups exist", () => {
     expect(countsForReadiness("excluded", true)).toBe(false);
     expect(countsForReadiness("orphaned", false)).toBe(false);

@@ -131,10 +131,20 @@ export interface ObjectReadiness {
    * "In no backup job". Absent from an older server (reads as in a job).
    */
   inJob?: boolean;
-  /** Who confirmed the object as empty; set exactly while `state` is `empty` (servers from 0.4.9). */
+  /**
+   * Who confirmed the object as empty; set while `state` is `empty` by an admin's confirmation
+   * (servers from 0.4.9), not when it is empty by Microsoft 365 as well (`emptyBySource`).
+   */
   emptyConfirmation?: EmptyConfirmation | null;
   /** Items and content bytes of the checked backup; null for checks before 0.4.9. */
-  contentStats?: { items: number; bytes: number } | null;
+  contentStats?: {
+    items: number;
+    bytes: number;
+    /** What Microsoft 365 itself reported when it was backed up (0.5.0); absent without. */
+    source?: SourceStats;
+  } | null;
+  /** Empty by Microsoft 365 and by the backup (0.5.0): "empty" without a confirmation. */
+  emptyBySource?: boolean;
 }
 
 export interface EmptyConfirmation {
@@ -144,7 +154,25 @@ export interface EmptyConfirmation {
   snapshotId: string | null;
 }
 
-export type EmptySkipReason = "not_empty" | "no_report" | "not_found" | "excluded";
+/** What Microsoft 365 reported about an object (apps/api verify/details.ts SourceStatsDto). */
+export interface SourceStats {
+  service: "onedrive" | "mailbox";
+  verdict: "empty" | "content" | "unknown";
+  rootBytesBefore: number | null;
+  rootBytesAfter: number | null;
+  quotaUsed: number | null;
+  quotaDeleted: number | null;
+  visibleItems: number | null;
+  hiddenItems: number | null;
+  archive: "present" | "none" | "unknown" | null;
+}
+
+export type EmptySkipReason =
+  | "not_empty"
+  | "no_report"
+  | "not_found"
+  | "excluded"
+  | "empty_by_source";
 
 export interface ConfirmEmptyResult {
   confirmed: { protectedObjectId: string; displayName: string | null }[];
@@ -414,6 +442,8 @@ export interface VerifyDetails {
     completedAt: string | null;
     itemCount: number;
     packCount: number;
+    /** What Microsoft 365 itself reported when it was backed up (0.5.0); null without. */
+    source?: SourceStats | null;
   } | null;
   /** Why the manifest of the checked backup could not be read, when it could not. */
   manifestFailure: Failure | null;

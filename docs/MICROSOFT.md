@@ -92,6 +92,10 @@ ein Ordner liefert, bleibt ein Ordnerfehler.
 
 ## Exchange: Sichern
 
+- Leeres Postfach (ab 0.5.0): Die Sicherung zählt `totalItemCount` der geplanten Ordner vor und
+  (bei einem leeren Sicherungsstand) nach dem Lauf; sind beide 0, gilt das Postfach ohne
+  Bestätigung als leer, meldet Microsoft 365 Elemente in sichtbaren Ordnern, ist es rot. Siehe
+  „OneDrive: Sichern und Wiederherstellen“, Abschnitt „Leere Objekte: Nachweis durch Microsoft 365“.
 - Ordnerbaum: `/users/{id}/mailFolders` rekursiv (`childFolders`), inkl. versteckte
   Ordner (`includeHiddenFolders=true`), Wohlbekannte Namen (inbox, sentitems, ...)
   über `wellKnownName`.
@@ -457,6 +461,64 @@ Zustand und lässt ihn nachträglich bestätigen, bei IMAP setzt ihn die Antwort
   Hinweis „Das Konto hat keine Lizenz“.
 - Papierkorb: Elemente im OneDrive-Papierkorb sind über delta nicht erreichbar; ist ok,
   Restow hat sie im letzten Snapshot.
+
+### Leere Objekte: Nachweis durch Microsoft 365
+
+Ein Postfach mit nur seinen Standardordnern oder ein nie benutztes OneDrive wird gesichert wie
+jedes andere Objekt, aber die Restore-Prüfung findet darin nichts (`snapshot_empty`, gelb, ein
+Administrator kann es als leer bestätigen, ab 0.4.9). Ab 0.5.0 misst die Sicherung zusätzlich,
+was Microsoft 365 selbst über das Objekt meldet, und legt es im Manifest ab (`sourceSignal`,
+core `manifest.ts`). Die Regeln stehen an einer Stelle (core `verify/source.ts`):
+
+- **OneDrive:** `GET /drives/{did}/root?$select=id,size,folder` am Anfang jedes Laufs
+  („vorher“). Enthält der Sicherungsstand, der gleich festgeschrieben wird, 0 Byte Inhalt, folgt
+  dieselbe Anfrage noch einmal („nachher“) und `GET /drives/{did}?$select=id,quota` (nur zur
+  Anzeige). Beides braucht `Files.Read.All`, das die Delta-Abfrage ohnehin braucht. Für OneDrive
+  for Business meldet Graph als `size` eines Ordners die Summe von allem darunter: genau die
+  Bibliothek, die das Delta durchläuft, ohne Papierkorb, Versionen oder andere Listen.
+  `folder.childCount` wird nur angezeigt; leere Ordner enthalten keine Bytes.
+- **Warum nicht `quota.used`:** Das Kontingent gilt der ganzen persönlichen Website. Es zählt
+  Versionsverläufe, Systemlisten, beide Stufen des Papierkorbs und unter einer
+  Aufbewahrungsrichtlinie die Preservation Hold Library mit. Ein nie benutztes OneDrive meldet
+  deshalb einige KB, und eines, dessen Dateien unter einer Aufbewahrung gelöscht wurden, meldet
+  jahrelang Gigabyte. Weder `used` noch `used - deleted` mit einem Schwellwert taugt daher: Ein
+  Schwellwert machte solche Laufwerke rot oder verdeckte eine echte kleine Datei. Die Schwelle
+  für `size` ist exakt 0, weil `size` und die Sicherung dasselbe zählen (eine 0-Byte-Datei ergibt
+  auf beiden Seiten 0).
+- **Postfach:** die Summe von `totalItemCount` über die Ordner, die die Sicherung plant (mit
+  `includeHiddenFolders=true`, ohne den Teilbaum der Suchordner, also nichts doppelt), getrennt
+  nach sichtbaren und versteckten Ordnern (`isHidden`). „Vorher“ kostet nichts, der Lauf listet
+  den Ordnerbaum ohnehin; „nachher“ listet ihn bei einem leeren Sicherungsstand noch einmal (für
+  ein leeres Postfach eine oder zwei Anfragen). Konnte ein Teil des Baums nicht gelistet werden,
+  gibt es kein Signal.
+- **Kalender und Kontakte** haben in Graph v1.0 keine Elementzahl; für sie ist die vollständige
+  Aufzählung der Sicherung der einzige Nachweis.
+- **Online-Archiv:** Graph v1.0 erreicht es nicht. Hat das Postfach eines (siehe „Exchange:
+  Sichern“, Online-Archiv) oder ließ sich das nicht feststellen, gilt es nie als leer laut
+  Microsoft 365; es bleibt beim Bestätigen durch einen Admin.
+
+Das Urteil:
+
+| Vorher und nachher | Sicherung | Bewertung |
+|---|---|---|
+| OneDrive `size` = 0; Postfach 0 Elemente, auch in versteckten Ordnern, kein Online-Archiv | 0 Byte | „Leer laut Microsoft 365 und laut Sicherung“ (`snapshot_empty_confirmed_by_source`): Zustand `empty`, neutral, ohne Bestätigung, nicht in der Mandantenbewertung, nie überfällig, keine Benachrichtigung |
+| OneDrive `size` > 0; Postfach Elemente in sichtbaren Ordnern | 0 Byte | rot, `backup_missing_source_content` („Microsoft 365 meldet Inhalt, die Sicherung enthält keinen“); eine Bestätigung als leer endet damit und ist nicht mehr möglich |
+| alles andere: kein Signal, eine Messung fehlt, vorher und nachher widersprechen sich (während des Laufs geändert), nur versteckte Ordner enthalten Elemente, Online-Archiv | 0 Byte | wie bisher `snapshot_empty`, gelb, ein Administrator kann es bestätigen |
+
+Elemente nur in versteckten Systemordnern machen nichts rot: Die Sicherung kann sie nicht immer
+lesen, und ein Rot, das niemand beheben kann, hilft nicht. Eine fehlgeschlagene oder gedrosselte
+Messung lässt die Sicherung nie scheitern, sie liefert nur kein Signal; ein Abbruch beendet den
+Lauf wie sonst auch. Die Messwerte stehen im Prüfbericht unter „Gemeldet von Microsoft 365“.
+Ältere Sicherungsstände tragen kein Signal; ihre Bewertung ändert sich mit der nächsten
+Sicherung und Prüfung von selbst, eine Migration gibt es nicht.
+
+Die Nutzungsberichte (`getOneDriveUsageAccountDetail`, `getMailboxUsageDetail`) wären eine
+Alternative, brauchen aber `Reports.Read.All`, das Restow nicht anfordert, hinken 24 bis 48
+Stunden hinterher und können Benutzernamen verbergen.
+
+SharePoint ist (noch) nicht abgedeckt: `site.json` und die Listenobjekte zählen als Inhalt, eine
+Website ist also nie 0 Byte. Ein Abgleich je Bibliothek (Stammordner `size` > 0, aber keine
+Dateibytes dieser Bibliothek in der Sicherung) ist für später möglich.
 
 ## SharePoint Online: Sichern und Wiederherstellen
 

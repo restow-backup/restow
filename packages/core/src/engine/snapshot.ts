@@ -33,8 +33,10 @@ import {
   type ManifestObject,
   type ManifestSource,
   type SnapshotManifest,
+  type SourceSignal,
 } from "../manifest.js";
 import { ChunkWriter, readFromAnyTargetAs, writeToAllTargets } from "./chunkstore.js";
+import { contentOf } from "./content.js";
 import { deletePartialManifest, discardUncommittedSnapshot } from "./discard.js";
 import { manifestKey, partialManifestKey } from "./layout.js";
 import { noopLogger } from "./logger.js";
@@ -116,6 +118,7 @@ export class SnapshotWriter {
   readonly previous: SnapshotRecord | null;
   private readonly objects = new Map<string, ManifestObject>();
   private engineState: Record<string, unknown> | undefined;
+  private signal: SourceSignal | undefined;
   private readonly logger: Logger;
   private readonly source: ManifestSource;
   private committed: CommittedSnapshot | null = null;
@@ -301,6 +304,20 @@ export class SnapshotWriter {
     this.engineState = state;
   }
 
+  /**
+   * The source's own size signal for the final manifest (verify/source.ts). Only the commit
+   * writes it; checkpoints and {@link inherit} never carry it.
+   */
+  setSourceSignal(signal: SourceSignal | undefined): void {
+    this.assertWritable();
+    this.signal = signal;
+  }
+
+  /** Bytes of content (everything but folders and placeholders) the snapshot holds right now. */
+  contentBytes(): number {
+    return contentOf(this.objects.values()).bytes;
+  }
+
   /** Objects in path order. */
   listObjects(): ManifestObject[] {
     return [...this.objects.values()].sort((a, b) =>
@@ -323,6 +340,9 @@ export class SnapshotWriter {
     }
     if (this.engineState) {
       manifest.state = this.engineState;
+    }
+    if (packs && this.signal) {
+      manifest.sourceSignal = this.signal;
     }
     return manifest;
   }

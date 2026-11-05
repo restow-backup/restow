@@ -141,6 +141,8 @@ export const FAILURE_CODES = [
   "verify.backup_incomplete",
   "verify.backup_incomplete_persistent",
   "verify.snapshot_empty",
+  "verify.snapshot_empty_source",
+  "verify.backup_missing_source_content",
   "verify.nothing_to_verify",
   "verify.restore_test_unconfirmed",
   "verify.incomplete",

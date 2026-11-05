@@ -36,6 +36,7 @@
  * informational only.
  */
 import { ChunkReader } from "../engine/chunkstore.js";
+import { contentOf } from "../engine/content.js";
 import { loadManifest } from "../engine/snapshot.js";
 import type {
   ChunkIndex,
@@ -48,7 +49,6 @@ import type {
 import { buildCause, classifyFailure } from "../failures/classify.js";
 import type { FailureCause } from "../failures/types.js";
 import type { SnapshotManifest } from "../manifest.js";
-import { objectTypeOf } from "../restore/conventions.js";
 import {
   checkObjectWithParts,
   type InconclusiveRead,
@@ -82,6 +82,7 @@ import {
   type SamplePlan,
   type SampleQuota,
 } from "./sampling.js";
+import { sourceEvidence } from "./source.js";
 
 export type VerifyRunOptions = VerifyOptions & {
   /** Seed for the sample draw; a fresh random seed when omitted. */
@@ -145,28 +146,12 @@ export async function damagedPacksOfSnapshot(
   return [...found].sort();
 }
 
-/** Object types that structure a snapshot but hold no content of their own. */
-const STRUCTURE_TYPES: ReadonlySet<string> = new Set(["folder", "package", "shortcut"]);
-
-/** What a snapshot holds besides folders and placeholders: bytes and objects. */
-export function contentOf(manifest: Pick<SnapshotManifest, "objects">): {
-  bytes: number;
-  objects: number;
-} {
-  let bytes = 0;
-  let objects = 0;
-  for (const object of manifest.objects) {
-    if (STRUCTURE_TYPES.has(objectTypeOf(object))) {
-      continue;
-    }
-    objects += 1;
-    bytes += Math.max(0, object.size);
-  }
-  return { bytes, objects };
-}
+export { contentOf };
 
 function snapshotRef(record: SnapshotRecord, manifest: SnapshotManifest | null): ReportSnapshotRef {
   const content = manifest ? contentOf(manifest) : null;
+  const signal = manifest?.sourceSignal;
+  const evidence = sourceEvidence(signal);
   return {
     id: record.id,
     sequence: record.sequence,
@@ -174,6 +159,7 @@ function snapshotRef(record: SnapshotRecord, manifest: SnapshotManifest | null):
     itemCount: manifest?.objects.length ?? record.itemCount,
     packCount: manifest?.packs?.length ?? 0,
     ...(content ? { contentBytes: content.bytes, contentObjects: content.objects } : {}),
+    ...(signal && evidence ? { source: { ...evidence, signal } } : {}),
   };
 }
 
@@ -432,6 +418,7 @@ export async function verifyProtectedObject(
           }
         : null,
       backupFailures,
+      source: sourceEvidence(manifest?.sourceSignal),
       now,
     },
     options.policy ?? DEFAULT_READINESS_POLICY,

@@ -24,6 +24,11 @@ export interface FakeFolder {
   parentFolderId: string | null;
   isHidden?: boolean;
   wellKnownName?: string;
+  /**
+   * What Graph reports as the folder's `totalItemCount`, instead of the messages the fake
+   * holds in it (items the backup cannot see, or a count that changes between listings).
+   */
+  totalItemCount?: number | (() => number);
 }
 
 export interface FakeAttachment {
@@ -627,7 +632,11 @@ export class FakeMailbox {
           parentFolderId: f.parentFolderId ?? ROOT_FOLDER_ID,
           childFolderCount: [...this.folders.values()].filter((c) => c.parentFolderId === f.id)
             .length,
-          totalItemCount: [...this.messages.values()].filter((m) => m.folderId === f.id).length,
+          totalItemCount:
+            typeof f.totalItemCount === "function"
+              ? f.totalItemCount()
+              : (f.totalItemCount ??
+                [...this.messages.values()].filter((m) => m.folderId === f.id).length),
           unreadItemCount: 0,
           isHidden: f.isHidden ?? false,
         })),

@@ -148,6 +148,14 @@ Postgres-Service bereit und setzt die Variable.
   Bewertung mit schlimmerer Ursache: rot erst nur "Sicherung zu alt", dann fehlende oder
   beschädigte Daten (erneut `verify.red`), gelb mit einem neuen Grund, der Aufmerksamkeit
   braucht (erneut `verify.yellow`).
+  Leere Objekte: Ein Sicherungsstand mit nur Standardordnern und 0 Byte ist gelb "leer"
+  (`snapshot_empty`), ein Administrator kann ihn als leer bestätigen (seit 0.4.9). Seit 0.5.0
+  zählt auch, was Microsoft 365 selbst meldet, vor und nach der Sicherung gemessen
+  (docs/MICROSOFT.md, "Leere Objekte: Nachweis durch Microsoft 365"): leer auch dort, ist das
+  Objekt ohne Bestätigung neutral leer (`snapshot_empty_confirmed_by_source`, keine
+  Benachrichtigung, nicht in der Bewertung des Mandanten, nie überfällig); meldet Microsoft 365
+  Inhalt, ist es rot (`backup_missing_source_content`, kein "leer" mehr möglich, eine Bestätigung
+  endet).
   Ein zusätzlicher Test-Restore in ein Prüfziel (Testpostfach des Mandanten) ist als
   optionale Sonde vorgesehen, in 0.1.0 aber nicht verdrahtet: Die Prüfung stellt nichts in ein
   Microsoft-365- oder IMAP-Ziel wieder her.

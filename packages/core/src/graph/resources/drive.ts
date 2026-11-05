@@ -74,6 +74,39 @@ export async function getUserDrive(client: GraphClient, userId: string): Promise
   }
 }
 
+/**
+ * The root folder of a drive with its `size` and `folder.childCount`. For OneDrive for
+ * Business and SharePoint, Graph reports a folder's `size` as the total of everything below
+ * it: the library the root delta walks, without recycle bin, versions or other lists. Needs
+ * `Files.Read.All` like the delta (verify/source.ts, the empty-object signal).
+ */
+export async function getDriveRoot(
+  client: GraphClient,
+  driveId: string,
+): Promise<{ id: string; size: number | null; childCount: number | null }> {
+  const root = await requestOk<DriveItem & { id: string }>(client, {
+    method: "GET",
+    url: `/drives/${encodeURIComponent(driveId)}/root${query({ $select: "id,size,folder" })}`,
+  });
+  return {
+    id: root.id,
+    size: typeof root.size === "number" ? root.size : null,
+    childCount: typeof root.folder?.childCount === "number" ? root.folder.childCount : null,
+  };
+}
+
+/** A drive's storage quota (`used`, `deleted`, `remaining`, `total`, `state`), for display. */
+export async function getDriveQuota(
+  client: GraphClient,
+  driveId: string,
+): Promise<NonNullable<Drive["quota"]> | null> {
+  const drive = await requestOk<Pick<Drive, "id" | "quota">>(client, {
+    method: "GET",
+    url: `/drives/${encodeURIComponent(driveId)}${query({ $select: "id,quota" })}`,
+  });
+  return drive.quota ?? null;
+}
+
 /** The download URL Graph attaches to file items. Pre-authenticated, valid ~1 hour. */
 export const DOWNLOAD_URL_KEY = "@microsoft.graph.downloadUrl" as const;
 

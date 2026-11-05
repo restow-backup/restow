@@ -75,6 +75,7 @@ import {
 import { storedHostMayBePrivate } from "../sources/imap-host.js";
 import type { ImapAuthMode } from "../sources/schemas.js";
 import { parseReasons } from "../verify/details.js";
+import { emptyStateOf, loadEmptyConfirmations } from "../verify/empty.js";
 import { loadObjectVerifications, withBackupAgeNow } from "../verify/verification-state.js";
 import {
   acknowledgementDto,
@@ -292,7 +293,16 @@ export interface ProtectedObjectDto {
      */
     notBackedUp: "account_disabled" | "no_license" | "locked" | "login_refused" | null;
   } | null;
-  readiness: { rating: RecoveryReadiness; checkedAt: string } | null;
+  /**
+   * The rating of the newest backup. `empty` (0.5.0): the object reads "empty", neutral, as on
+   * the readiness page (verify/empty.ts emptyStateOf): confirmed by an admin, or empty by
+   * Microsoft 365 as well; null otherwise.
+   */
+  readiness: {
+    rating: RecoveryReadiness;
+    checkedAt: string;
+    empty?: "admin" | "source" | null;
+  } | null;
   /** The backup job that covers it; null when none does. */
   job: { id: string; name: string; scheduled: boolean } | null;
   /**
@@ -928,7 +938,11 @@ interface BackupFacts {
   snapshotCount: number;
   legalHold: boolean;
   latestJob: { id: string; status: Job["status"]; at: Date; failure: unknown } | null;
-  readiness: { rating: RecoveryReadiness; checkedAt: Date } | null;
+  readiness: {
+    rating: RecoveryReadiness;
+    checkedAt: Date;
+    empty: "admin" | "source" | null;
+  } | null;
 }
 
 function emptyFacts(): BackupFacts {
@@ -1031,13 +1045,15 @@ async function backupFacts(
   // The age of the newest backup judged now, as the readiness page does
   // (verification-state.ts verificationStateNow).
   const verifications = await loadObjectVerifications(tx, tenantId, objectIds);
+  const confirmations = await loadEmptyConfirmations(tx, tenantId, objectIds);
   for (const [objectId, objectFacts] of verifications) {
     const report = objectFacts.verification.report;
     if (report) {
       const rating = orphanedIds.has(objectId)
         ? readinessWithoutFreshness(parseReasons(report.reasons))
         : withBackupAgeNow(report.readiness, objectFacts.latestSnapshot?.completedAt, now, false);
-      factsOf(objectId).readiness = { rating, checkedAt: report.checkedAt };
+      const empty = emptyStateOf(report, confirmations.get(objectId), orphanedIds.has(objectId));
+      factsOf(objectId).readiness = { rating, checkedAt: report.checkedAt, empty };
     }
   }
   return facts;
@@ -1173,7 +1189,11 @@ async function toObjectDtos(
           }
         : null,
       readiness: fact.readiness
-        ? { rating: fact.readiness.rating, checkedAt: fact.readiness.checkedAt.toISOString() }
+        ? {
+            rating: fact.readiness.rating,
+            checkedAt: fact.readiness.checkedAt.toISOString(),
+            empty: fact.readiness.empty,
+          }
         : null,
       job: coverage.links.get(row.object.id) ?? null,
       withoutJob: row.object.status === "active" && coverage.withoutJob.has(row.object.id),

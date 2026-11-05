@@ -36,7 +36,12 @@ import {
 import { backupCalendar } from "./calendar.js";
 import { backupContacts } from "./contacts.js";
 import { folderObjectAt } from "./folders.js";
-import { backupMail, DEFAULT_SKIPPED_FOLDERS, type MailPhaseOptions } from "./mail.js";
+import {
+  backupMail,
+  DEFAULT_SKIPPED_FOLDERS,
+  type MailPhaseOptions,
+  measureMailSource,
+} from "./mail.js";
 import { checkOnlineArchive } from "./online-archive.js";
 import { CALENDAR_ROOT, CONTACTS_ROOT, MAIL_ROOT } from "./paths.js";
 import {
@@ -190,6 +195,7 @@ export class ExchangeBackupEngine<Db = unknown> implements BackupEngine<Db> {
 
       run.report(EXCHANGE_PHASES.commit);
       writer.setState(serializeState(run.state));
+      await this.recordSourceSignal(run);
       const committed = await writer.commit();
       await ctx.cursor.clear();
       await ctx.progress.flush();
@@ -233,6 +239,25 @@ export class ExchangeBackupEngine<Db = unknown> implements BackupEngine<Db> {
       }
       throw error;
     }
+  }
+
+  /**
+   * The mailbox's own size signal into the manifest (verify/source.ts): the folder counts the
+   * mail phase listed, and, only for a snapshot without content, the tree listed and counted
+   * once more, so an item added or deleted while the run went is not taken for "empty".
+   */
+  private async recordSourceSignal(run: BackupRun): Promise<void> {
+    const before = run.mailSourceBefore;
+    const after =
+      before !== null && run.writer.contentBytes() === 0
+        ? await measureMailSource(run, this.mailOptions)
+        : null;
+    run.writer.setSourceSignal({
+      service: "mailbox",
+      before,
+      after,
+      archive: run.state.onlineArchive?.status ?? "unknown",
+    });
   }
 
   /**
