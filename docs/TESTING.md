@@ -127,12 +127,22 @@ Postgres-Service bereit und setzt die Variable.
   (Netzwerkfehler, Zeitüberschreitung, 5xx, Drosselung, unbekannter Fehler, ein Manifest, das der
   Speicher nicht liefert), ist "nicht abgeschlossen": kein Bericht, keine Benachrichtigung, der
   Job wird mit Backoff wiederholt, der letzte Versuch endet ohne Bewertung, und die nächste
-  geplante Prüfung versucht es erneut. Eine zu alte neueste Sicherung (sieben Tage oder mehr) ist
+  geplante Prüfung versucht es erneut. Seit 0.5.0 bleibt ein altes Grün dabei nicht beliebig
+  stehen: Endet die Prüfung derselben Sicherung dreimal in Folge so (jeweils der letzte Versuch),
+  wird sie gelb ("die letzten Prüfungen konnten nicht abgeschlossen werden", `check_incomplete`) mit der Meldung "braucht
+  Aufmerksamkeit". Ein Manifest, das jedes Speicherziel als nicht vorhanden meldet, ist Beleg,
+  wenn dieselben Ziele die übrigen Daten des Mandanten noch halten (seine Schlüssel unter
+  `tenants/<tid>/keys/` oder ein anderes Manifest): rot `manifest_missing`; ein geleertes oder
+  nicht eingehängtes Ziel bleibt "nicht abgeschlossen". Eine zu alte neueste Sicherung (sieben Tage oder mehr) ist
   ein eigener roter Grund ("Sicherung zu alt").
   Ein zusätzlicher Test-Restore in ein Prüfziel (Testpostfach des Mandanten) ist als
   optionale Sonde vorgesehen, in 0.1.0 aber nicht verdrahtet: Die Prüfung stellt nichts in ein
   Microsoft-365- oder IMAP-Ziel wieder her.
-- Scrub: Pack-Integrität (SHA-256), Stichprobe wöchentlich, alles monatlich.
+- Scrub: Pack-Integrität (SHA-256), Stichprobe wöchentlich, alles monatlich. Seit 0.5.0 fragt
+  der Scrub außerdem jedes Ziel nach dem Manifest jeder aktiven Sicherung (Stichprobe: der
+  neuesten je Objekt; nicht während einer Speichermigration und nicht für Sicherungen vor einem
+  Austausch mit "keep"); fehlt es auf jedem Ziel bei sonst vorhandenen Daten des Mandanten,
+  bekommt das Objekt einen roten Befund `manifest_missing` und `scrub.corrupt` nennt die Zahl.
 - Kettenprüfung Archiv: auf Abruf (API und Schaltfläche auf der Archiv-Seite). Ein täglicher
   automatischer Lauf ist Zielbild und in 0.1.0 nicht umgesetzt.
 

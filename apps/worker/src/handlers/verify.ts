@@ -44,12 +44,17 @@
  * fails the attempt, so pg-boss repeats it with the queue's backoff; the last
  * attempt completes the job instead of failing it, so an outage never becomes
  * a failed job, a `job.failed` webhook or a red rating. The next scheduled
- * check tries again.
+ * check tries again. Once {@link INCOMPLETE_CHECKS_LIMIT} checks of the same
+ * backup ended so in a row (each on its last attempt, none completed since),
+ * the handler records a yellow `check_incomplete` report for that backup (core
+ * `unverifiedOutcome`): an earlier green no longer counts as proof while
+ * nobody can read the backup, and the change raises "needs attention".
  */
 import {
   type BackupFailureFacts,
   DEFAULT_SAMPLE_SIZE,
   type FailureCause,
+  INCOMPLETE_CHECKS_LIMIT,
   isEmptyFinding,
   mailObjectEligible,
   mailObjectsInNoJob,
@@ -59,6 +64,7 @@ import {
   type RestoreProbe,
   readinessWithoutFreshness,
   type SnapshotRecord,
+  unverifiedOutcome,
   VerifyIncompleteError,
   type VerifyJobPayload,
   type VerifyKind,
@@ -129,6 +135,7 @@ function objectLabel(object: ProtectedObjectRef): string {
 const RED_EVIDENCE = new Set([
   "no_snapshot",
   "manifest_unreadable",
+  "manifest_missing",
   "items_missing",
   "items_unreadable",
   "items_mismatched",
@@ -252,12 +259,15 @@ export interface StoredIncompleteVerify {
   failure: Pick<FailureCause, "code" | "params" | "transient">;
   willRetry: boolean;
   completedAt: string;
+  /** The backup the check tried to read (its newest one then); absent before 0.5.0. */
+  snapshotId?: string | null;
 }
 
 export function toStoredIncompleteVerify(
   error: VerifyIncompleteError,
   willRetry: boolean,
   at: Date,
+  snapshotId: string | null = null,
 ): StoredIncompleteVerify {
   return {
     incomplete: true,
@@ -269,6 +279,7 @@ export function toStoredIncompleteVerify(
     },
     willRetry,
     completedAt: at.toISOString(),
+    snapshotId,
   };
 }
 
@@ -414,6 +425,11 @@ export interface VerifyStore {
   record(record: VerifyRecord): Promise<StoredVerifyResult>;
   /** Note on the job that this attempt could not complete; nothing else is written. */
   recordIncomplete(jobId: string, result: StoredIncompleteVerify): Promise<void>;
+  /**
+   * How many checks of `snapshotId` ended incomplete on their last attempt since the object's
+   * last recorded check (the one just noted included). Absent: not counted, never downgraded.
+   */
+  incompleteChecks?(protectedObjectId: string, snapshotId: string): Promise<number>;
 }
 
 /** The production store: tenant-pinned transactions on the worker database (RLS applies). */
@@ -613,6 +629,27 @@ export function pgVerifyStore(db: Database, tenantId: string): VerifyStore {
       });
     },
 
+    async incompleteChecks(protectedObjectId, snapshotId) {
+      const result = await run((tx) =>
+        tx.execute<{ count: number }>(sql`
+          SELECT count(*)::int AS count
+            FROM ${jobs} AS j
+           WHERE j.tenant_id = ${tenantId}::uuid
+             AND j.queue = 'verify'
+             AND j.protected_object_id = ${protectedObjectId}::uuid
+             AND j.payload->'result'->>'incomplete' = 'true'
+             AND j.payload->'result'->>'willRetry' = 'false'
+             AND j.payload->'result'->>'snapshotId' = ${snapshotId}
+             AND (j.payload->'result'->>'completedAt')::timestamptz > coalesce((
+               SELECT max(r.checked_at) FROM ${verifyReports} AS r
+                WHERE r.tenant_id = ${tenantId}::uuid
+                  AND r.protected_object_id = ${protectedObjectId}::uuid
+                  AND coalesce(r.details->>'origin', '') <> 'scrub'
+             ), '-infinity'::timestamptz)`),
+      );
+      return result.rows[0]?.count ?? 0;
+    },
+
     async recordIncomplete(jobId, result) {
       await run((tx) =>
         tx
@@ -682,6 +719,7 @@ export function createVerifyHandler(options: VerifyHandlerOptions): JobHandler<"
       const resolver = options.probes();
       const probe = kind === "verify" && resolver ? await resolver(ctx, object) : null;
 
+      const startedAt = ctx.now();
       let outcome: VerifyOutcome;
       try {
         outcome = await verifyProtectedObject(ctx, object, {
@@ -706,7 +744,8 @@ export function createVerifyHandler(options: VerifyHandlerOptions): JobHandler<"
         // No rating: the storage (or the test target) could not be asked. pg-boss repeats the
         // attempt with the queue's backoff; the last one completes the job instead of failing it.
         const willRetry = ctx.attempt < QUEUE_DEFINITIONS.verify.retryLimit;
-        const result = toStoredIncompleteVerify(error, willRetry, ctx.now());
+        const snapshot = await ctx.snapshots.latestCompleted(object.id);
+        const result = toStoredIncompleteVerify(error, willRetry, ctx.now(), snapshot?.id ?? null);
         await store.recordIncomplete(ctx.jobId, result);
         ctx.logger.warn("restore check could not complete", {
           reason: result.reason,
@@ -717,7 +756,22 @@ export function createVerifyHandler(options: VerifyHandlerOptions): JobHandler<"
         if (willRetry) {
           throw error;
         }
-        return { summary: { ...result, kind, previous } };
+        // Checks of this backup that stayed incomplete one after the other: its earlier rating
+        // stops counting as proof (yellow, "the last checks could not complete").
+        const incompleteChecks =
+          snapshot && store.incompleteChecks
+            ? await store.incompleteChecks(object.id, snapshot.id)
+            : 0;
+        if (!snapshot || incompleteChecks < INCOMPLETE_CHECKS_LIMIT) {
+          return { summary: { ...result, kind, previous } };
+        }
+        outcome = unverifiedOutcome({
+          record: snapshot,
+          kind,
+          incompleteChecks,
+          startedAt,
+          now: ctx.now(),
+        });
       }
       if (retained) {
         outcome = { ...outcome, readiness: readinessWithoutFreshness(outcome.details.reasons) };

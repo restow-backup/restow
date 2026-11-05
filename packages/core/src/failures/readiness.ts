@@ -13,6 +13,7 @@ import type { FailureCause, FailureCode, FailureParams } from "./types.js";
 const REASON_CODES: Readonly<Record<ReadinessReasonCode, FailureCode>> = {
   no_snapshot: "verify.no_snapshot",
   manifest_unreadable: "verify.manifest_unreadable",
+  manifest_missing: "verify.manifest_missing",
   items_missing: "verify.chunk_missing",
   items_unreadable: "verify.pack_unreadable",
   items_mismatched: "verify.hash_mismatch",
@@ -27,6 +28,7 @@ const REASON_CODES: Readonly<Record<ReadinessReasonCode, FailureCode>> = {
   test_restore_unconfirmed: "verify.restore_test_unconfirmed",
   backup_incomplete: "verify.backup_incomplete",
   backup_incomplete_persistent: "verify.backup_incomplete_persistent",
+  check_incomplete: "verify.check_incomplete",
 };
 
 /** The failure cause a readiness reason stands for, or null for a reason code this build does not know. */

@@ -38,11 +38,16 @@ import {
   createDb,
   type Database,
   jobs,
+  notifications,
   packs,
+  protectedObjects,
   providers,
+  snapshots,
+  sources,
   storageMigrations,
   storageTargets,
   tenants,
+  verifyReports,
 } from "@restow/db";
 import { runMigrations } from "@restow/db/migrate";
 import { and, eq } from "drizzle-orm";
@@ -495,6 +500,90 @@ describe.skipIf(!adminUrl)("garbage collection against Postgres", SLOW_UNDER_LOA
     await index.addReferences(live.flatMap((object) => object.chunks));
     return { index, live };
   }
+
+  it("files a red finding for a backup whose manifest is gone from storage that still holds the tenant", async () => {
+    const tenant = await createTenant();
+    const { tenantId } = tenant;
+    const [source] = await db
+      .insert(sources)
+      .values({ tenantId, kind: "m365", name: "M365", status: "active" })
+      .returning();
+    const [object] = await db
+      .insert(protectedObjects)
+      .values({
+        tenantId,
+        sourceId: source?.id as string,
+        kind: "mailbox",
+        externalId: "anna@example.org",
+      })
+      .returning();
+    const objectId = object?.id as string;
+    const now = new Date("2026-10-01T03:00:00.000Z");
+    const [older, newest] = await db
+      .insert(snapshots)
+      .values(
+        [1, 2].map((sequence) => ({
+          id: randomUUID(),
+          tenantId,
+          protectedObjectId: objectId,
+          sequence,
+          status: "active" as const,
+          completedAt: new Date(now.getTime() - (3 - sequence) * 3_600_000),
+        })),
+      )
+      .returning({ id: snapshots.id });
+    for (const row of [older, newest]) {
+      await db
+        .update(snapshots)
+        .set({ manifestPath: manifestKey(tenantId, row?.id as string) })
+        .where(eq(snapshots.id, row?.id as string));
+    }
+    // The wrapped key the worker mirrors to every target, and only the older manifest.
+    await tenant.storage.primary.put(wrappedKeyKey(tenantId, 1), Buffer.from("wrapped"));
+    await tenant.storage.primary.put(manifestKey(tenantId, older?.id as string), Buffer.from("m"));
+
+    // A sample run asks for the newest manifest of each object.
+    const report = (await scrubAt(tenant, now, "sample")) as ScrubReport & {
+      manifests?: { checked: number; missing: { snapshotId: string }[] };
+    };
+    expect(report.manifests).toMatchObject({
+      checked: 1,
+      missing: [{ snapshotId: newest?.id, protectedObjectId: objectId }],
+    });
+    const findings = await db
+      .select({ readiness: verifyReports.recoveryReadiness, details: verifyReports.details })
+      .from(verifyReports)
+      .where(eq(verifyReports.tenantId, tenantId));
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.readiness).toBe("red");
+    expect(findings[0]?.details).toMatchObject({
+      origin: "scrub",
+      reasons: [{ code: "manifest_missing", severity: "red", count: 1 }],
+      manifests: [{ snapshotId: newest?.id }],
+    });
+    const raised = await db
+      .select({ event: notifications.event })
+      .from(notifications)
+      .where(eq(notifications.tenantId, tenantId));
+    expect(raised.map((row) => row.event)).toContain(SCRUB_EVENTS.corrupt);
+
+    // An emptied target proves nothing: no further finding.
+    for (const key of await tenant.storage.primary.list(`tenants/${tenantId}/`)) {
+      await tenant.storage.primary.delete(key);
+    }
+    const emptied = (await scrubAt(
+      tenant,
+      new Date(now.getTime() + 60_000),
+      "sample",
+    )) as ScrubReport & { manifests?: { missing: unknown[] } };
+    expect(emptied.manifests?.missing).toEqual([]);
+    expect(
+      await db
+        .select({ id: verifyReports.id })
+        .from(verifyReports)
+        .where(eq(verifyReports.tenantId, tenantId)),
+    ).toHaveLength(1);
+  });
 
   it("deletes no pack a running restore or verify of the tenant reads", async () => {
     const tenant = await createTenant();

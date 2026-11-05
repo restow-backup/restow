@@ -3,7 +3,8 @@
  * operator, with every reason that led to it.
  *
  *   red     a restore of this object would fail or be incomplete today: no
- *           backup, unreadable manifest, sampled items that do not come back
+ *           backup, unreadable manifest or one gone from every storage target
+ *           that still holds the tenant's other data (0.5.0), sampled items that do not come back
  *           byte-exact, storage the scrub found corrupt (or could not read in
  *           several checks over more than a day), a failed test restore,
  *           a latest backup so old that recent data is not recoverable, or
@@ -14,7 +15,9 @@
  *           snapshot is empty (only default folders or system pages, 0 bytes) or
  *           holds data of no type a check can read back, a test restore
  *           landed without the target confirming it, or the run that made
- *           the checked backup could not back up some items (0.5.0)
+ *           the checked backup could not back up some items (0.5.0), or the
+ *           last checks of the backup could not complete one after the other
+ *           (`check_incomplete`, 0.5.0: an earlier green no longer proves it)
  *   green   every sampled item came back byte-exact from a current backup
  *           that is complete: green needs both, an intact read-back and a
  *           backup without failed items
@@ -28,6 +31,7 @@ import type { ItemCheckStatus } from "./check.js";
 export type ReadinessReasonCode =
   | "no_snapshot"
   | "manifest_unreadable"
+  | "manifest_missing"
   | "items_missing"
   | "items_unreadable"
   | "items_mismatched"
@@ -41,7 +45,8 @@ export type ReadinessReasonCode =
   | "nothing_to_verify"
   | "test_restore_unconfirmed"
   | "backup_incomplete"
-  | "backup_incomplete_persistent";
+  | "backup_incomplete_persistent"
+  | "check_incomplete";
 
 export type ReadinessSeverity = "yellow" | "red";
 
@@ -73,6 +78,11 @@ export type ReadinessFacts = {
   snapshotCompletedAt: Date | null;
   hasSnapshot: boolean;
   manifestReadable: boolean;
+  /**
+   * The manifest that could not be read is gone from every target, while each target still
+   * holds the tenant's other data (presence.ts): evidence, `manifest_missing`.
+   */
+  manifestMissing?: boolean;
   /** Objects that were read back. */
   checked: number;
   /**
@@ -168,7 +178,10 @@ export function assessReadiness(
   };
 
   if (!facts.manifestReadable) {
-    reasons.push({ code: "manifest_unreadable", severity: "red" });
+    reasons.push({
+      code: facts.manifestMissing ? "manifest_missing" : "manifest_unreadable",
+      severity: "red",
+    });
   }
   add("items_missing", "red", facts.outcomes.missing);
   add("items_unreadable", "red", facts.outcomes.unreadable);

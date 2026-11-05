@@ -29,13 +29,18 @@
  *      again only while no such job is running; the ones still waiting are
  *      listed in the report, and the next run picks them up from there
  *   4. orphan sweep: full runs delete pack files no row points to
+ *   5. manifests (0.5.0, the worker, {@link findMissingManifests}): the manifest
+ *      of every active snapshot (a sample run: the newest of each object) is
+ *      asked for on every target; one no target has, while every target still
+ *      holds the tenant's other data (presence.ts), is evidence that backup
+ *      cannot be restored, and its object gets a red `manifest_missing` finding
  *
  * The result is a {@link ScrubReport}; the worker persists it with the job and
  * turns unrepaired corruption into red readiness reports for every object
  * whose snapshots use the damaged packs (yellow ones for packs that are only
  * unreadable so far).
  */
-import type { ProgressReporter, RecoveryReadiness } from "../engine/types.js";
+import type { ProgressReporter, RecoveryReadiness, StorageTargets } from "../engine/types.js";
 import { buildCause } from "../failures/classify.js";
 import type { CatalogPack, PackReadFailure, PackUnreadableState } from "./catalog.js";
 import { throwIfAborted } from "./errors.js";
@@ -63,6 +68,7 @@ import {
   selectPacks,
   UNREADABLE_CHECKS_LIMIT,
 } from "./integrity.js";
+import { targetsHoldTenant } from "./presence.js";
 import { newSeed, seededRandom } from "./random.js";
 import { type ReadinessReason, worstReadiness } from "./readiness.js";
 import { READINESS_REPORT_FORMAT } from "./report.js";
@@ -465,17 +471,107 @@ export type ScrubFindingDetails = {
   reasons: ReadinessReason[];
   scrubJobId: string;
   packs: (Pick<PackCheck, "path" | "targets"> & { unreadable?: UnreadableRun })[];
+  /** Manifests of the object's active snapshots no target has (0.5.0). */
+  manifests?: MissingManifest[];
   cleared?: true;
 };
+
+/** A committed manifest of an active snapshot, as the storage check asks for it. */
+export type ActiveManifest = {
+  readonly snapshotId: string;
+  readonly protectedObjectId: string;
+  readonly path: string;
+};
+
+export type MissingManifest = { snapshotId: string; path: string };
+
+/** What {@link findMissingManifests} found. */
+export type ManifestPresence = {
+  /** Manifests asked for. */
+  checked: number;
+  /** Gone from every target while every target holds the tenant's other data: evidence. */
+  missing: ActiveManifest[];
+  /** A target could not be asked, or no target holds anything of the tenant: no evidence. */
+  unknown: number;
+};
+
+/** Manifests asked for at once. */
+const MANIFEST_HEAD_CONCURRENCY = 8;
+
+/**
+ * Ask every target for each manifest (HEAD). A manifest is missing when every target answered
+ * "not found" and every target still holds the tenant's keys or other manifests; an error of
+ * any target, or targets that hold nothing of the tenant (emptied, unmounted), prove nothing.
+ */
+export async function findMissingManifests(
+  storage: StorageTargets,
+  tenantId: string,
+  manifests: readonly ActiveManifest[],
+  options: { readonly signal?: AbortSignal } = {},
+): Promise<ManifestPresence> {
+  const targets = [storage.primary, ...storage.copies];
+  const candidates: ActiveManifest[] = [];
+  let unknown = 0;
+  let next = 0;
+  const worker = async () => {
+    for (;;) {
+      const manifest = manifests[next++];
+      if (!manifest) {
+        return;
+      }
+      if (options.signal) {
+        throwIfAborted(options.signal);
+      }
+      let absent = 0;
+      for (const target of targets) {
+        try {
+          if ((await target.head(manifest.path)) !== null) {
+            break;
+          }
+          absent += 1;
+        } catch {
+          unknown += 1;
+          absent = -1;
+          break;
+        }
+      }
+      if (absent === targets.length) {
+        candidates.push(manifest);
+      }
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(MANIFEST_HEAD_CONCURRENCY, manifests.length) }, worker),
+  );
+  if (candidates.length === 0) {
+    return { checked: manifests.length, missing: [], unknown };
+  }
+  const held = await targetsHoldTenant(
+    storage,
+    tenantId,
+    new Set(candidates.map((manifest) => manifest.path)),
+  );
+  return held
+    ? {
+        checked: manifests.length,
+        missing: candidates.sort((a, b) => a.path.localeCompare(b.path)),
+        unknown,
+      }
+    : { checked: manifests.length, missing: [], unknown: unknown + candidates.length };
+}
 
 /** A finding for the packs an object uses: damaged ones, and ones no target could be read from. */
 export function scrubFindingDetails(
   scrubJobId: string,
   damaged: readonly PackCheck[],
   unreadable: readonly UnreadablePackCheck[] = [],
+  missingManifests: readonly MissingManifest[] = [],
 ): ScrubFindingDetails {
   const reasons: ReadinessReason[] = [];
   const persistent = unreadable.filter((pack) => pack.unreadable.persistent).length;
+  if (missingManifests.length > 0) {
+    reasons.push({ code: "manifest_missing", severity: "red", count: missingManifests.length });
+  }
   if (damaged.length > 0) {
     reasons.push({ code: "storage_corrupt", severity: "red", count: damaged.length });
   }
@@ -503,6 +599,14 @@ export function scrubFindingDetails(
         unreadable: pack.unreadable,
       })),
     ],
+    ...(missingManifests.length > 0
+      ? {
+          manifests: missingManifests.map((manifest) => ({
+            snapshotId: manifest.snapshotId,
+            path: manifest.path,
+          })),
+        }
+      : {}),
   };
 }
 

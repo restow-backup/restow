@@ -641,6 +641,18 @@ private repository.
   the checked backup into account: yellow ("the backup is incomplete") while items failed, red
   for items that failed in each of the last three runs. Green needs an intact read-back of a
   complete backup. The `job.completed` webhook of a backup now carries `failedItems`.
+- Restore check: a backup whose manifest was deleted on every storage target (a lifecycle rule
+  on the manifests prefix, a cleanup by hand) kept its last green rating for good. Every check
+  ended "not completed", which rates nothing, and the storage check read only packs; an object
+  no longer backed up (removed from its source, in no job) stayed green forever, although
+  nothing could be restored from that backup. A manifest that no target has, while the same
+  targets still hold the tenant's keys or other manifests, is now evidence: red "the index of
+  the latest backup is gone" (`manifest_missing`); an emptied or unmounted target still leaves
+  the check incomplete. The storage check asks every target for the manifest of each active
+  backup (a sample run: the newest of each object) and files the same red finding, named by the
+  `scrub.corrupt` alert. Three checks of the same backup in a row that could not complete now
+  rate it yellow ("the last checks could not complete", `check_incomplete`) with a "needs
+  attention" alert, so an old green no longer counts as proof while nobody can read the backup.
 - Mail archive: an announced Graph message that could not be fetched other than with 404 (a
   403 for an item the app may not read, a 5xx) stayed pending for good at the head of the
   queue. A pass in which no announced message could be fetched failed and skipped the

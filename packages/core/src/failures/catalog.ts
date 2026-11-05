@@ -524,6 +524,26 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
       step("restore_from_copy", "storage"),
     ],
   },
+  // The manifest is gone from every target that still holds the tenant's keys or other
+  // manifests: deleted (a lifecycle rule, a cleanup), the backup cannot be restored.
+  "verify.manifest_missing": {
+    category: "verify",
+    transient: false,
+    retryable: true,
+    steps: () => [
+      step("check_storage_health", "storage"),
+      step("restore_from_copy", "storage"),
+      step("run_backup_again", "jobs"),
+    ],
+  },
+  // The last checks of the backup could not complete one after the other (the storage did
+  // not answer): an earlier green rating no longer proves it restorable.
+  "verify.check_incomplete": {
+    category: "verify",
+    transient: false,
+    retryable: true,
+    steps: () => [step("check_storage_health", "storage")],
+  },
   "verify.no_snapshot": {
     category: "verify",
     transient: false,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { manifestKey } from "../engine/layout.js";
+import { manifestKey, wrappedKeyKey } from "../engine/layout.js";
 import { noopLogger } from "../engine/logger.js";
 import { sealManifest } from "../engine/sealed-manifest.js";
 import { loadManifest } from "../engine/snapshot.js";
@@ -441,6 +441,54 @@ describe("a check that cannot read the data rates nothing", () => {
       await gone.primary.delete(key);
     }
     await expect(verify(gone)).rejects.toBeInstanceOf(VerifyIncompleteError);
+  });
+
+  it("rates a manifest gone from every target red when the targets still hold the tenant", async () => {
+    // A lifecycle rule on the manifests prefix (or a cleanup by hand) removed the latest
+    // backup's manifest on the primary and its copy; the tenant's wrapped key is still on both,
+    // as the worker mirrors it to every target.
+    const fixture = createStoreFixture({ copies: 1 });
+    await writeSnapshot(fixture, mailboxItems(3));
+    const { tenantId } = fixture.ctx;
+    for (const target of [fixture.primary, ...fixture.copies]) {
+      await target.put(wrappedKeyKey(tenantId, 1), Buffer.from("wrapped dek"));
+      for (const key of await target.list(`tenants/${tenantId}/manifests/`)) {
+        await target.delete(key);
+      }
+    }
+    const outcome = await verify(fixture);
+    expect(outcome.readiness).toBe("red");
+    expect(outcome.details.reasons.map((reason) => reason.code)).toEqual(["manifest_missing"]);
+    expect(outcome.details.manifestCause?.code).toBe("verify.manifest_missing");
+    expect(fixture.ctx.progressSink.failures).toHaveLength(1);
+  });
+
+  it("rates a manifest missing on every target red when an older manifest is still there", async () => {
+    const fixture = createStoreFixture({ copies: 1 });
+    await writeSnapshot(fixture, mailboxItems(3));
+    fixture.clock.now = new Date(fixture.clock.now.getTime() + HOUR);
+    const latest = await writeSnapshot(fixture, mailboxItems(4));
+    const key = manifestKey(fixture.ctx.tenantId, latest.snapshotId);
+    for (const target of [fixture.primary, ...fixture.copies]) {
+      await target.delete(key);
+    }
+    const outcome = await verify(fixture);
+    expect(outcome.details.reasons[0]).toMatchObject({ code: "manifest_missing", severity: "red" });
+  });
+
+  it("stays incomplete for a missing manifest when a copy target is empty or cannot be listed", async () => {
+    const empty = createStoreFixture({ copies: 1 });
+    await writeSnapshot(empty, mailboxItems(3));
+    const { tenantId } = empty.ctx;
+    await empty.primary.put(wrappedKeyKey(tenantId, 1), Buffer.from("wrapped dek"));
+    // The copy is an emptied bucket: it holds nothing of the tenant.
+    for (const key of (await empty.copies[0]?.list(`tenants/${tenantId}/`)) ?? []) {
+      await empty.copies[0]?.delete(key);
+    }
+    for (const key of await empty.primary.list(`tenants/${tenantId}/manifests/`)) {
+      await empty.primary.delete(key);
+    }
+    await expect(verify(empty)).rejects.toBeInstanceOf(VerifyIncompleteError);
   });
 
   it("rates a manifest that does not decode red", async () => {

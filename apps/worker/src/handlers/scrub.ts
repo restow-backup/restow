@@ -33,6 +33,12 @@
  *     at the next weekly verify; and a green "cleared" finding for every
  *     object whose latest finding named only packs this run read intact
  *     again, which ends that finding (verification-state.ts in the API)
+ *   - asks every target for the manifest of each active snapshot (a sample
+ *     run: the newest of each object; core `findMissingManifests`), except
+ *     while a storage migration runs and for snapshots from before a "keep"
+ *     replacement; a manifest no target has while the targets hold the
+ *     tenant's other data files a red `manifest_missing` finding for its
+ *     object, the same evidence a restore check records
  *   - keeps the run of failed checks of every unreadable pack in
  *     `pack_read_failures` (core `runScrub` through {@link PgPackCatalog})
  *   - excludes packs a "keep" storage replacement left on its retired,
@@ -57,12 +63,15 @@
  * by SHA-256.
  */
 import {
+  type ActiveManifest,
   type ArchiveRecordRetention,
   type CatalogChunk,
   type CatalogPack,
+  findMissingManifests,
   type GcBlocker,
   isPersistentlyUnreadable,
   type JobQueue,
+  type ManifestPresence,
   mirrorTenantStorage,
   type PackCatalog,
   type PackCheck,
@@ -85,6 +94,7 @@ import {
   objectsReferencingChunks,
   packReadFailures,
   packs,
+  snapshots,
   storageMigrations,
   storageTargets,
   verifyReports,
@@ -820,17 +830,21 @@ export function scrubNotifications(
   report: Pick<ScrubReport, "corrupt" | "repaired" | "mode"> &
     Partial<Pick<ScrubReport, "unreadable">>,
   affectedObjects: number,
+  missingManifests: readonly ActiveManifest[] = [],
 ): NewNotification[] {
   const result: NewNotification[] = [];
   // A pack that is only temporarily unreadable raises nothing: the next check reads it first.
   const persistent = (report.unreadable ?? []).filter((pack) => pack.unreadable.persistent);
-  if (report.corrupt.length > 0 || persistent.length > 0) {
+  if (report.corrupt.length > 0 || persistent.length > 0 || missingManifests.length > 0) {
     const parts = [
       report.corrupt.length > 0
         ? `${report.corrupt.length} pack files are damaged on every storage target and could not be repaired.`
         : null,
       persistent.length > 0
         ? `${persistent.length} pack files could not be read in several consecutive storage checks over more than a day.`
+        : null,
+      missingManifests.length > 0
+        ? `${missingManifests.length} backup manifests are gone from every storage target; those backups cannot be restored.`
         : null,
     ].filter((part): part is string => part !== null);
     result.push({
@@ -843,6 +857,7 @@ export function scrubNotifications(
         mode: report.mode,
         corrupt: report.corrupt.length,
         unreadable: persistent.length,
+        ...(missingManifests.length > 0 ? { manifests: missingManifests.length } : {}),
         affectedObjects,
         packs: [...report.corrupt, ...persistent].slice(0, 20).map((pack) => pack.path),
       },
@@ -865,11 +880,66 @@ export function scrubNotifications(
   return result;
 }
 
+/**
+ * The manifests the storage check asks for: every active snapshot's on a full run, the newest
+ * of each object otherwise; none from before a "keep" replacement (they live on the retired
+ * target only).
+ */
+export async function loadActiveManifests(
+  run: TenantTxRunner,
+  tenantId: string,
+  options: { readonly newestOnly: boolean; readonly keepCutover: Date | null },
+): Promise<ActiveManifest[]> {
+  const result = await run((tx) =>
+    tx.execute<{ id: string; protected_object_id: string; manifest_path: string }>(sql`
+      SELECT ${options.newestOnly ? sql`DISTINCT ON (s.protected_object_id)` : sql``}
+             s.id, s.protected_object_id, s.manifest_path
+        FROM ${snapshots} AS s
+       WHERE s.tenant_id = ${tenantId}::uuid
+         AND s.status = 'active'
+         AND s.manifest_path IS NOT NULL
+         ${options.keepCutover ? sql`AND s.completed_at >= ${options.keepCutover.toISOString()}::timestamptz` : sql``}
+       ORDER BY s.protected_object_id, s.sequence DESC`),
+  );
+  return result.rows.map((row) => ({
+    snapshotId: row.id,
+    protectedObjectId: row.protected_object_id,
+    path: row.manifest_path,
+  }));
+}
+
+/** The missing manifests whose snapshot is still active (retention may have pruned it meanwhile). */
+async function stillActive(
+  tx: TenantTx,
+  tenantId: string,
+  missing: readonly ActiveManifest[],
+): Promise<ActiveManifest[]> {
+  if (missing.length === 0) {
+    return [];
+  }
+  const rows = await tx
+    .select({ id: snapshots.id })
+    .from(snapshots)
+    .where(
+      and(
+        eq(snapshots.tenantId, tenantId),
+        eq(snapshots.status, "active"),
+        inArray(
+          snapshots.id,
+          missing.map((manifest) => manifest.snapshotId),
+        ),
+      ),
+    );
+  const active = new Set(rows.map((row) => row.id));
+  return missing.filter((manifest) => active.has(manifest.snapshotId));
+}
+
 async function persistReport(
   run: TenantTxRunner,
   ctx: WorkerJobContext,
   report: ScrubReport,
   copies: CopyMirrorSummary | null,
+  manifests: ManifestPresence | null = null,
 ): Promise<number> {
   return run(async (tx) => {
     const flagged: PackCheck[] = [...report.corrupt, ...report.unreadable];
@@ -877,6 +947,17 @@ async function persistReport(
       flagged.length > 0
         ? await objectsUsingPacks(tx, ctx.tenantId, flagged)
         : new Map<string, PackCheck[]>();
+    const missingManifests = await stillActive(tx, ctx.tenantId, manifests?.missing ?? []);
+    const manifestsOf = new Map<string, ActiveManifest[]>();
+    for (const manifest of missingManifests) {
+      manifestsOf.set(manifest.protectedObjectId, [
+        ...(manifestsOf.get(manifest.protectedObjectId) ?? []),
+        manifest,
+      ]);
+      if (!affected.has(manifest.protectedObjectId)) {
+        affected.set(manifest.protectedObjectId, []);
+      }
+    }
     const checkedAt = ctx.now();
     for (const batch of batches([...affected.entries()])) {
       await tx.insert(verifyReports).values(
@@ -885,6 +966,7 @@ async function persistReport(
             ctx.jobId,
             used.filter((pack) => !isUnreadableCheck(pack)),
             used.filter(isUnreadableCheck),
+            manifestsOf.get(protectedObjectId) ?? [],
           );
           return {
             tenantId: ctx.tenantId,
@@ -921,10 +1003,12 @@ async function persistReport(
     const persistentlyUnreadable = new Set(
       report.unreadable.filter((pack) => pack.unreadable.persistent).map((pack) => pack.path),
     );
-    const notified = [...affected.values()].filter((used) =>
-      used.some((pack) => !isUnreadableCheck(pack) || persistentlyUnreadable.has(pack.path)),
+    const notified = [...affected.entries()].filter(
+      ([objectId, used]) =>
+        manifestsOf.has(objectId) ||
+        used.some((pack) => !isUnreadableCheck(pack) || persistentlyUnreadable.has(pack.path)),
     ).length;
-    const raised = scrubNotifications(ctx.tenantId, ctx.jobId, report, notified);
+    const raised = scrubNotifications(ctx.tenantId, ctx.jobId, report, notified, missingManifests);
     await raiseEvents(tx, raised);
     await tx.execute(sql`
       UPDATE ${storageTargets}
@@ -935,7 +1019,21 @@ async function persistReport(
     await tx
       .update(jobs)
       .set({
-        payload: sql`coalesce(${jobs.payload}, '{}'::jsonb) || ${JSON.stringify({ result: { ...report, copies } })}::jsonb`,
+        payload: sql`coalesce(${jobs.payload}, '{}'::jsonb) || ${JSON.stringify({
+          result: {
+            ...report,
+            copies,
+            ...(manifests
+              ? {
+                  manifests: {
+                    checked: manifests.checked,
+                    missing: missingManifests,
+                    unknown: manifests.unknown,
+                  },
+                }
+              : {}),
+          },
+        })}::jsonb`,
       })
       .where(and(eq(jobs.tenantId, ctx.tenantId), eq(jobs.id, ctx.jobId)));
     return affected.size;
@@ -1075,7 +1173,21 @@ export const scrubHandler: JobHandler<"scrub"> = {
               },
       },
     );
-    const affectedObjects = await persistReport(run, ctx, report, copies);
+    // A manifest no target has is evidence like a damaged pack; not while a migration moves the
+    // tenant's data (the new targets may not hold everything yet).
+    const manifests =
+      migrationActive || mode === "recheck"
+        ? null
+        : await findMissingManifests(
+            ctx.storage,
+            ctx.tenantId,
+            await loadActiveManifests(run, ctx.tenantId, {
+              newestOnly: mode !== "full",
+              keepCutover,
+            }),
+            { signal: ctx.signal },
+          );
+    const affectedObjects = await persistReport(run, ctx, report, copies, manifests);
     return {
       summary: {
         mode,
@@ -1089,6 +1201,9 @@ export const scrubHandler: JobHandler<"scrub"> = {
         unreadable: report.unreadable.length,
         retired: report.retired.length,
         affectedObjects,
+        ...(manifests
+          ? { manifestsChecked: manifests.checked, manifestsMissing: manifests.missing.length }
+          : {}),
         abandonedSnapshots,
         gc: report.gc.status === "completed" ? "completed" : report.gc.reason,
         supersededReleased: report.superseded.released,

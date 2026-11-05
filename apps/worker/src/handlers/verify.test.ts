@@ -15,6 +15,7 @@ import {
   DEFAULT_SAMPLE_SIZE,
   generateDek,
   type HeadResult,
+  INCOMPLETE_CHECKS_LIMIT,
   Keyring,
   MemoryChunkIndex,
   type MemoryProgressSink,
@@ -472,10 +473,20 @@ function memoryStore(
   const reports: StoredReport[] = [];
   const raised: NewNotification[] = [];
   const incomplete: StoredIncompleteVerify[] = [];
+  /** How many reports existed when each incomplete attempt was noted (its place in time). */
+  const noted: number[] = [];
   const store: VerifyStore = {
     recordIncomplete: async (_jobId, result) => {
       incomplete.push(result);
+      noted.push(reports.length);
     },
+    incompleteChecks: async (objectId, snapshotId) =>
+      incomplete.filter(
+        (result, index) =>
+          !result.willRetry &&
+          result.snapshotId === snapshotId &&
+          noted[index] === reports.filter((report) => report.protectedObjectId === objectId).length,
+      ).length,
     previousReadiness: async (objectId, options) => {
       const last = reports.filter((report) => report.protectedObjectId === objectId).at(-1);
       if (!last) {
@@ -766,6 +777,37 @@ describe("verify handler on the memory engine", () => {
     expect(events).toHaveLength(1);
   });
 
+  it("stops counting an old green once the same backup's checks stayed incomplete three times", async () => {
+    const engine = memoryEngine();
+    const { snapshotId } = await writeMailboxSnapshot(engine);
+    const { store, reports, raised } = memoryStore();
+    const handler = handlerWith(store);
+    await handler.run(engine.ctx, payload);
+    expect(reports.map((report) => report.recoveryReadiness)).toEqual(["green"]);
+
+    engine.storage.outage = () =>
+      Object.assign(new Error("connect ETIMEDOUT 10.0.0.5:9000"), { code: "ETIMEDOUT" });
+    const last = { ...engine.ctx, attempt: QUEUE_DEFINITIONS.verify.retryLimit };
+    // An outage now and then leaves the green: the first two checks rate nothing.
+    for (let check = 1; check < INCOMPLETE_CHECKS_LIMIT; check++) {
+      expect((await handler.run(last, payload))?.summary).toMatchObject({ incomplete: true });
+    }
+    expect(reports).toHaveLength(1);
+    const third = await handler.run(last, payload);
+    expect(third?.summary).toMatchObject({ readiness: "yellow", snapshotId });
+    expect(reports).toHaveLength(2);
+    expect(reports[1]).toMatchObject({ recoveryReadiness: "yellow", snapshotId });
+    expect((reports[1]?.details as VerifyOutcome["details"] | undefined)?.reasons).toEqual([
+      { code: "check_incomplete", severity: "yellow", count: INCOMPLETE_CHECKS_LIMIT },
+    ]);
+    expect(raised.map((notification) => notification.event)).toEqual([VERIFY_EVENTS.yellow]);
+
+    // Once the storage answers again, the next check rates the backup by what it reads.
+    engine.storage.outage = null;
+    await handler.run(engine.ctx, payload);
+    expect(reports.map((report) => report.recoveryReadiness)).toEqual(["green", "yellow", "green"]);
+  });
+
   it("rates a pack the latest scrub left corrupt red although the sample reads fine", async () => {
     const engine = memoryEngine();
     const { snapshotId } = await writeMailboxSnapshot(engine);
@@ -997,6 +1039,43 @@ describe.skipIf(!adminUrl)("verify handler against Postgres", () => {
     });
     // The rating the object had stays its newest.
     expect(await pgVerifyStore(db, tenantId).previousReadiness(object.id)).toBe("red");
+  });
+
+  it("counts the checks of a backup that ended incomplete since the object's last report", async () => {
+    const store = pgVerifyStore(db, tenantId);
+    const [newest] = await db
+      .select({ checkedAt: verifyReports.checkedAt })
+      .from(verifyReports)
+      .where(eq(verifyReports.tenantId, tenantId))
+      .orderBy(asc(verifyReports.checkedAt));
+    const after = (minutes: number) =>
+      new Date((newest?.checkedAt ?? NOW).getTime() + minutes * 60_000 + 3_600_000).toISOString();
+    const incompleteJob = (result: Record<string, unknown>) => ({
+      id: randomUUID(),
+      tenantId,
+      queue: "verify" as const,
+      status: "completed" as const,
+      protectedObjectId: object.id,
+      payload: {
+        kind: "verify",
+        result: {
+          incomplete: true,
+          reason: "storage did not answer",
+          failure: { code: "storage.timeout", params: {}, transient: true },
+          ...result,
+        },
+      },
+    });
+    const before = await store.incompleteChecks?.(object.id, snapshotId);
+    await db.insert(jobs).values([
+      incompleteJob({ willRetry: false, snapshotId, completedAt: after(1) }),
+      incompleteJob({ willRetry: false, snapshotId, completedAt: after(2) }),
+      // An attempt that was retried, another backup, and a check before the last report.
+      incompleteJob({ willRetry: true, snapshotId, completedAt: after(3) }),
+      incompleteJob({ willRetry: false, snapshotId: randomUUID(), completedAt: after(4) }),
+      incompleteJob({ willRetry: false, snapshotId, completedAt: NOW.toISOString() }),
+    ]);
+    expect(await store.incompleteChecks?.(object.id, snapshotId)).toBe((before ?? 0) + 2);
   });
 
   it("reads the newest rating of the object as the previous one", async () => {

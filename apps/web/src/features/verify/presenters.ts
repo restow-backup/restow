@@ -258,6 +258,7 @@ export function sortRowsByUrgency(rows: readonly ReadinessRow[]): ReadinessRow[]
 const KNOWN_REASONS = new Set([
   "no_snapshot",
   "manifest_unreadable",
+  "manifest_missing",
   "items_missing",
   "items_unreadable",
   "items_mismatched",
@@ -272,6 +273,7 @@ const KNOWN_REASONS = new Set([
   "test_restore_unconfirmed",
   "backup_incomplete",
   "backup_incomplete_persistent",
+  "check_incomplete",
 ]);
 
 /** The finding of a check that found the object empty (core verify/readiness.ts). */

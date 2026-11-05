@@ -106,6 +106,7 @@ export const FAILURE_CODES = [
   "verify.storage_unreadable_persistent",
   "verify.restore_test_failed",
   "verify.manifest_unreadable",
+  "verify.manifest_missing",
   "verify.no_snapshot",
   "verify.snapshot_outdated",
   "verify.snapshot_stale",
@@ -115,6 +116,7 @@ export const FAILURE_CODES = [
   "verify.nothing_to_verify",
   "verify.restore_test_unconfirmed",
   "verify.incomplete",
+  "verify.check_incomplete",
   // Configuration the operator has to fix first
   "config.source_not_connected",
   "config.source_disabled",
