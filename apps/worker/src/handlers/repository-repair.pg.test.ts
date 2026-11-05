@@ -15,7 +15,7 @@
  */
 import { spawn, spawnSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
-import { cp, mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -587,7 +587,10 @@ describe.skipIf(!canRun)("the repository repair rebuilds split repositories", ()
     const ct123 = await container(123, defaultDir);
     // Damage one pack on the only place that holds it: its name no longer matches its content.
     const { shard, pack } = await firstPack(ct123.repo);
-    await writeFile(join(ct123.repo, "data", shard, pack), randomBytes(64));
+    // restic writes its packs read-only; as root (a developer's container) that never shows.
+    const damaged = join(ct123.repo, "data", shard, pack);
+    await chmod(damaged, 0o600);
+    await writeFile(damaged, randomBytes(64));
     const scanId = await queue("scan");
     const applied = new Map(
       (await result<StorageRepositoryRepairEntry>(await queue("apply", scanId))).map((e) => [
