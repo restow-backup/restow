@@ -583,6 +583,12 @@ private repository.
   committed a restore point that carried those folders forward without reading them, shown as
   "completed with warnings". Once the mailbox itself refuses access, the run now fails with the
   access cause and keeps no such restore point; a refusal of a single folder stays a warning.
+- Mail backup: a Microsoft 365 message whose content changed while its subject and preview stayed
+  the same kept its old copy in the backup: an attachment removed from a received mail in
+  Outlook, or its text edited after the first 255 characters. The backup now also compares the
+  message size Exchange reports and downloads the message again when it changed. Flag and
+  read-state changes still download nothing; a copy stored before this version is downloaded
+  once more on its next change.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,

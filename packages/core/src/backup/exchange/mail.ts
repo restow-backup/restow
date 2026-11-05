@@ -38,6 +38,7 @@ import { query, requestOk, userPath } from "../../graph/resources/common.js";
 import {
   fetchMessageContent,
   getMessage,
+  getMessageSizes,
   isMimeServerError,
   listMailFolderTree,
   type MailFolderNode,
@@ -672,6 +673,7 @@ const CONTENT_METADATA = [
   META.referenceAttachments,
   META.protection,
   META.formatReason,
+  META.messageSize,
 ] as const;
 
 /** Refresh a stored message without fetching its bytes again. */
@@ -906,6 +908,7 @@ async function fetchMessage(
   mtime: number,
   fingerprint: string,
   options: MailPhaseOptions,
+  size: number | undefined,
 ): Promise<void> {
   const serverErrorRuns = run.state.mailMimeServerErrors[entry.id] ?? 0;
   let content: MessageContent;
@@ -928,6 +931,10 @@ async function fetchMessage(
     ...mailMetadata(entry, folder, existing),
     [META.fingerprint]: fingerprint,
   };
+  // Asked before the download: an edit in between shows as a new size on the next change.
+  if (size !== undefined) {
+    metadata[META.messageSize] = String(size);
+  }
 
   if (content.kind === "parts") {
     const protection = protectionFromHeaders(content.message.internetMessageHeaders);
@@ -988,16 +995,91 @@ async function storeMimeMessage(
   ]);
 }
 
+/** Message size of a delta entry; ids of the entries whose size is worth asking ({@link storeMessage}). */
+export type MessageSizes = ReadonlyMap<string, number>;
+
+function entryMtime(entry: MailDeltaEntry): number {
+  return toMillis(entry.lastModifiedDateTime) || toMillis(entry.receivedDateTime);
+}
+
+/**
+ * The entries of a delta page whose PidTagMessageSize {@link storeMessage} needs: those
+ * whose content will be fetched (the size is stored with it) and those modified with an
+ * unchanged fingerprint (the size tells whether the content changed). An entry whose
+ * modification time did not move needs none.
+ */
+export function entriesNeedingSize(run: BackupRun, entries: readonly MailDeltaEntry[]): string[] {
+  const ids: string[] = [];
+  for (const entry of entries) {
+    if (isRemoved(entry)) {
+      continue;
+    }
+    const existing = run.index.get(OBJECT_TYPES.mail, entry.id);
+    if (
+      run.reusable(existing, contentFingerprint(entry)) &&
+      (existing.mtime === entryMtime(entry) || entry.isDraft === true)
+    ) {
+      continue;
+    }
+    ids.push(entry.id);
+  }
+  return ids;
+}
+
+/** {@link getMessageSizes} for a page; a $batch Graph refuses leaves every size unknown. */
+async function messageSizes(run: BackupRun, ids: readonly string[]): Promise<MessageSizes> {
+  try {
+    return await getMessageSizes(run.client, run.userId, ids);
+  } catch (error) {
+    if (!isItemLevelError(error)) {
+      throw error;
+    }
+    run.logger.warn(
+      "message sizes could not be read, content changes behind an unchanged preview are checked on the next change",
+      {
+        messages: ids.length,
+        reason: describeError(error),
+      },
+    );
+    return new Map();
+  }
+}
+
+/**
+ * Whether an unchanged fingerprint still hides a content change. Subject, `hasAttachments`
+ * and `bodyPreview` (the first 255 characters) stay the same when an attachment of a received
+ * mail is removed or its body is edited further down; only `lastModifiedDateTime` and the
+ * message size move. Flag, read-state and category changes move the modification time but
+ * not the content: the size answers which it was. A stored copy without a size (before 0.5.0)
+ * is fetched again once; an unknown current size changes nothing.
+ */
+function contentChangedBehindFingerprint(
+  existing: ManifestObject,
+  entry: MailDeltaEntry,
+  mtime: number,
+  size: number | undefined,
+): boolean {
+  if (existing.mtime === mtime || size === undefined) {
+    return false;
+  }
+  return existing.metadata?.[META.messageSize] !== String(size);
+}
+
 async function storeMessage(
   run: BackupRun,
   folder: PlannedFolder,
   entry: MailDeltaEntry,
   options: MailPhaseOptions,
+  sizes: MessageSizes,
 ): Promise<void> {
   const fingerprint = contentFingerprint(entry);
-  const mtime = toMillis(entry.lastModifiedDateTime) || toMillis(entry.receivedDateTime);
+  const mtime = entryMtime(entry);
   const existing = run.index.get(OBJECT_TYPES.mail, entry.id);
-  if (run.reusable(existing, fingerprint)) {
+  const size = sizes.get(entry.id);
+  if (
+    run.reusable(existing, fingerprint) &&
+    !contentChangedBehindFingerprint(existing, entry, mtime, size)
+  ) {
     if (needsMimeAgain(existing) && !run.fetchedInThisRun(existing)) {
       await askMimeAgain(run, folder, entry, existing, mtime, fingerprint);
       return;
@@ -1005,7 +1087,14 @@ async function storeMessage(
     carryMessage(run, folder, entry, existing, mtime);
     return;
   }
-  await fetchMessage(run, folder, entry, existing, mtime, fingerprint, options);
+  if (existing && run.reusable(existing, fingerprint)) {
+    run.logger.info("message content changed behind an unchanged preview, fetched again", {
+      messageId: entry.id,
+      storedSize: existing.metadata?.[META.messageSize] ?? null,
+      size: size ?? null,
+    });
+  }
+  await fetchMessage(run, folder, entry, existing, mtime, fingerprint, options, size);
 }
 
 type EntryOutcome = "stored" | "removed" | "vanished" | "failed";
@@ -1026,6 +1115,7 @@ async function processEntry(
   entry: MailDeltaEntry,
   seen: Set<string>,
   options: MailPhaseOptions,
+  sizes: MessageSizes = new Map(),
 ): Promise<EntryOutcome> {
   if (isRemoved(entry)) {
     const existing = run.index.get(OBJECT_TYPES.mail, entry.id);
@@ -1039,7 +1129,7 @@ async function processEntry(
   seen.add(entry.id);
   const itemRef = mailObjectPath(folder.path, entry.subject, entry.id);
   try {
-    await storeMessage(run, folder, entry, options);
+    await storeMessage(run, folder, entry, options, sizes);
     return "stored";
   } catch (error) {
     if (isVanished(error)) {
@@ -1239,10 +1329,12 @@ export async function syncMailFolder(
       run.expectMore(folder.node.totalItemCount);
       countedFull = true;
     }
-    for (const entry of batch.items as MailDeltaEntry[]) {
+    const entries = batch.items as MailDeltaEntry[];
+    const sizes = await messageSizes(run, entriesNeedingSize(run, entries));
+    for (const entry of entries) {
       run.throwIfAborted();
       listed.add(entry.id);
-      const outcome = await processEntry(run, folder, entry, seen, options);
+      const outcome = await processEntry(run, folder, entry, seen, options, sizes);
       if (outcome === "failed") {
         failed.add(entry.id);
       } else {

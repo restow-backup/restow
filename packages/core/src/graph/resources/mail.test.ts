@@ -698,3 +698,34 @@ describe("restore", () => {
     expect((error as GraphError).code).toBe("ErrorAccessDenied");
   });
 });
+
+describe("messageSizeOf (PidTagMessageSize)", () => {
+  it("reads the property in the form Graph answers it, and nothing else", async () => {
+    const { messageSizeOf, messageSizeUrl } = await import("./mail.js");
+    // Graph normalises the id it was asked for ('Long 0x0E08') to lower case without zeros.
+    expect(
+      messageSizeOf({
+        id: "AAMk1",
+        singleValueExtendedProperties: [{ id: "Long 0xe08", value: "48213" }],
+      }),
+    ).toBe(48213);
+    expect(
+      messageSizeOf({ singleValueExtendedProperties: [{ id: "Long 0x0E08", value: "7" }] }),
+    ).toBe(7);
+    expect(messageSizeOf({ id: "AAMk1" })).toBeUndefined();
+    expect(
+      messageSizeOf({ singleValueExtendedProperties: [{ id: "Long 0xe080", value: "1" }] }),
+    ).toBeUndefined();
+    expect(
+      messageSizeOf({ singleValueExtendedProperties: [{ id: "Long 0xe08", value: "x" }] }),
+    ).toBeUndefined();
+    const url = new URL(
+      messageSizeUrl("alice@contoso.example", "AAMk/1"),
+      "https://graph.microsoft.com/v1.0/",
+    );
+    expect(url.searchParams.get("$expand")).toBe(
+      "singleValueExtendedProperties($filter=id eq 'Long 0x0E08')",
+    );
+    expect(url.searchParams.get("$select")).toBe("id");
+  });
+});

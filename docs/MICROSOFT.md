@@ -101,6 +101,18 @@ ein Ordner liefert, bleibt ein Ordnerfehler.
 - Inhalt: `/users/{id}/messages/{mid}/$value` liefert MIME (RFC 5322) inklusive
   Anhänge. Das ist das Format im Backup. Nachteil: Änderungen an Flags/Kategorien
   erzeugen kein neues MIME; Metadaten separat speichern.
+- Wann der Inhalt neu geladen wird: Ein Fingerabdruck aus Betreff, `hasAttachments`, `isDraft`
+  und `bodyPreview` (bei Entwürfen zusätzlich `lastModifiedDateTime`) entscheidet über den
+  Download. Entfernt jemand in Outlook einen Anhang einer empfangenen Mail oder bearbeitet ihren
+  Text hinter den ersten 255 Zeichen, bleibt dieser Abdruck gleich. Deshalb liest der Lauf für
+  jede Nachricht, deren Inhalt er lädt oder deren `lastModifiedDateTime` sich bei gleichem
+  Abdruck geändert hat, die Größe PidTagMessageSize (`singleValueExtendedProperties` mit
+  `Long 0x0E08`, je 20 Nachrichten ein `$batch`; ob das Delta selbst `$expand` dafür annimmt, ist
+  nicht verlässlich belegt) und speichert sie als `messageSize`. Weicht sie ab, wird der Inhalt
+  neu geladen. Flags und Lesestatus ändern die Größe nicht; eine neue Kategorie oder Kennzeichnung
+  kann sie um wenige Bytes ändern und lädt die Nachricht dann einmal neu. Eine Kopie ohne
+  `messageSize` (vor 0.5.0) wird bei ihrer nächsten Änderung einmal neu geladen. `changeKey`
+  taugt dafür nicht, er ändert sich auch bei Flags und Lesestatus.
 - Große Anhänge (>4 MB) kommen im MIME mit; `$value` kann für sehr große Mails
   (>150 MB) fehlschlagen; Fallback: Anhänge einzeln über `/attachments/{id}/$value`.
 - JSON-Format (Graph-JSON der Nachricht mit `body` und `internetMessageHeaders`, dazu jeder
@@ -974,7 +986,8 @@ zeigt den übersetzten Grund, nie die rohe Serverantwort.
 - Delta-Token ungültig (410 Gone) nach längerer Pause oder Ordner-Änderung: vollen
   Neuabgleich für diesen Ordner, nicht für das ganze Postfach.
 - `lastModifiedDateTime` ändert sich bei Flag-Änderung; MIME nicht neu laden, nur
-  Metadaten.
+  Metadaten. Ob sich doch der Inhalt geändert hat, sagt die Nachrichtengröße (siehe „Wann der
+  Inhalt neu geladen wird“ oben), nicht `changeKey`.
 - Zeitzonen: Graph liefert UTC; Anzeige in Nutzerzeitzone (MailboxSettings).
 - Große Tenants: `users` mit `$filter=accountEnabled eq true` reicht nicht (geteilte
   Postfächer sind disabled). Schutzregeln, nicht Filter.

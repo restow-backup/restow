@@ -441,6 +441,70 @@ export async function getMessage(
   });
 }
 
+/**
+ * PidTagMessageSize (MAPI 0x0E08): the size of the whole message with every attachment, as a
+ * single-value extended property. Graph v1.0 messages have no `size`; this is how a backup
+ * notices a change behind an unchanged subject and `bodyPreview` (an attachment removed, the
+ * body edited past its first 255 characters). Graph names it `Long 0xe08` in answers.
+ */
+export const MESSAGE_SIZE_PROPERTY = "Long 0x0E08";
+
+export function messageSizeUrl(userId: string, messageId: string): string {
+  return `${userPath(userId)}/messages/${encodeURIComponent(messageId)}${query({
+    $select: "id",
+    $expand: `singleValueExtendedProperties($filter=id eq '${MESSAGE_SIZE_PROPERTY}')`,
+  })}`;
+}
+
+/** The PidTagMessageSize of a message answer, or undefined when it is not there. */
+export function messageSizeOf(body: unknown): number | undefined {
+  const properties = (body as { singleValueExtendedProperties?: unknown } | null | undefined)
+    ?.singleValueExtendedProperties;
+  if (!Array.isArray(properties)) {
+    return undefined;
+  }
+  for (const property of properties as Array<{ id?: unknown; value?: unknown }>) {
+    if (typeof property?.id === "string" && /^long\s+0x0*e08$/i.test(property.id.trim())) {
+      const size = Number(property.value);
+      return Number.isSafeInteger(size) && size >= 0 ? size : undefined;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * PidTagMessageSize of several messages through `$batch` (20 per request). A message Graph
+ * does not answer for (gone, refused, no such property) is absent from the map: unknown, not 0.
+ */
+export async function getMessageSizes(
+  client: GraphClient,
+  userId: string,
+  messageIds: readonly string[],
+): Promise<Map<string, number>> {
+  const sizes = new Map<string, number>();
+  if (messageIds.length === 0) {
+    return sizes;
+  }
+  const responses = await client.batch(
+    messageIds.map((id, index) => ({
+      id: String(index),
+      method: "GET",
+      url: messageSizeUrl(userId, id),
+    })),
+  );
+  for (const response of responses) {
+    const id = messageIds[Number(response.id)];
+    if (id === undefined || response.status < 200 || response.status >= 300) {
+      continue;
+    }
+    const size = messageSizeOf(response.body);
+    if (size !== undefined) {
+      sizes.set(id, size);
+    }
+  }
+  return sizes;
+}
+
 function messageMimeUrl(userId: string, messageId: string): string {
   return `${userPath(userId)}/messages/${encodeURIComponent(messageId)}/$value`;
 }

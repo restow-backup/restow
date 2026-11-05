@@ -40,7 +40,7 @@ import { ExchangeBackupEngine, type ExchangeBackupEngineOptions } from "./engine
 import { mailObjectPath, shortId } from "./paths.js";
 import { EXCHANGE_PHASES, MailboxAccessError, META } from "./run.js";
 import { MAIL_SELECT_VERSION, parseCursor, readState } from "./state.js";
-import { FakeMailbox, type FakeMessage } from "./testing/fake-mailbox.js";
+import { FakeMailbox, type FakeMessage, messageSize } from "./testing/fake-mailbox.js";
 
 const TENANT = "aaaaaaaa-0000-4000-8000-000000000001";
 const USER = "alice@contoso.example";
@@ -826,6 +826,106 @@ describe("ExchangeBackupEngine", () => {
     expect(byId(manifest, "ct-1").metadata?.displayName).toBe("Bob Example Jr.");
     expect(byId(manifest, "ct-2").metadata?.[META.fetchedInSnapshot]).toBe("snap-1");
     expect(result.bytes).toBeGreaterThan(0);
+  });
+
+  describe("content changes behind an unchanged subject and preview", () => {
+    function withAttachments(): void {
+      box.addMessage(
+        message("AAMkMsgAtt", F.inbox, "Contract drafts", {
+          hasAttachments: true,
+          bodyPreview: "Please find the drafts attached.",
+          attachments: [
+            {
+              id: "a1",
+              name: "v1.docx",
+              contentType: "application/msword",
+              bytes: new Uint8Array(4000),
+            },
+            {
+              id: "a2",
+              name: "v2.docx",
+              contentType: "application/msword",
+              bytes: new Uint8Array(5000),
+            },
+          ],
+        }),
+      );
+    }
+
+    it("fetches a received mail again when an attachment was removed", async () => {
+      withAttachments();
+      const first = await engine.run(newContext(), mailbox, {});
+      expect(
+        byId(await manifestOf(first.snapshotId), "AAMkMsgAtt").metadata?.[META.messageSize],
+      ).toBe(String(messageSize(fake("AAMkMsgAtt"))));
+      graph.calls.length = 0;
+
+      // Outlook "Remove attachment": subject, hasAttachments and bodyPreview stay the same.
+      const before = fake("AAMkMsgAtt");
+      box.updateMessage("AAMkMsgAtt", {
+        attachments: before.attachments?.slice(0, 1),
+        mime: `${before.mime}\r\n(attachment v2.docx removed)`,
+      });
+      const second = await engine.run(newContext({ jobId: "job-2" }), mailbox, {});
+      expect(mimeDownloads()).toEqual(["AAMkMsgAtt"]);
+      const stored = byId(await manifestOf(second.snapshotId), "AAMkMsgAtt");
+      expect(stored.metadata?.[META.fetchedInSnapshot]).toBe("snap-2");
+      expect(stored.metadata?.[META.messageSize]).toBe(String(messageSize(fake("AAMkMsgAtt"))));
+    });
+
+    it("does not fetch again for a flag, read-state or category change", async () => {
+      withAttachments();
+      await engine.run(newContext(), mailbox, {});
+      graph.calls.length = 0;
+      box.updateMessage("AAMkMsgAtt", {
+        isRead: false,
+        flagStatus: "flagged",
+        categories: ["Legal"],
+      });
+      const second = await engine.run(newContext({ jobId: "job-2" }), mailbox, {});
+      expect(mimeDownloads()).toEqual([]);
+      expect(byId(await manifestOf(second.snapshotId), "AAMkMsgAtt").metadata).toMatchObject({
+        [META.flagStatus]: "flagged",
+        [META.fetchedInSnapshot]: "snap-1",
+        [META.messageSize]: String(messageSize(fake("AAMkMsgAtt"))),
+      });
+      // Sizes are only asked for the entries that changed, in one $batch.
+      const sizeCalls = graph
+        .callsTo("POST", "/$batch")
+        .flatMap((call) => (call.json as { requests: Array<{ url: string }> }).requests)
+        .filter((sub) => sub.url.includes("singleValueExtendedProperties"));
+      expect(sizeCalls).toHaveLength(1);
+    });
+
+    it("fetches a copy stored without a size once on its next change, then trusts the size", async () => {
+      withAttachments();
+      const first = await engine.run(newContext(), mailbox, {});
+      // A restore point written before the size was recorded.
+      const manifest = await manifestOf(first.snapshotId);
+      const legacy = {
+        ...manifest,
+        objects: manifest.objects.map((o) => {
+          if (o.id !== "AAMkMsgAtt") {
+            return o;
+          }
+          const { [META.messageSize]: _size, ...metadata } = o.metadata ?? {};
+          return { ...o, metadata };
+        }),
+      };
+      const record = must(await snapshots.get(first.snapshotId));
+      await new LocalStorageBackend(root).put(
+        must(record.manifestPath),
+        await sealManifest(legacy, dek, must(record.manifestPath)),
+      );
+      box.updateMessage("AAMkMsgAtt", { isRead: false });
+      graph.calls.length = 0;
+      await engine.run(newContext({ jobId: "job-2" }), mailbox, {});
+      expect(mimeDownloads()).toEqual(["AAMkMsgAtt"]);
+      box.updateMessage("AAMkMsgAtt", { isRead: true });
+      graph.calls.length = 0;
+      await engine.run(newContext({ jobId: "job-3" }), mailbox, {});
+      expect(mimeDownloads()).toEqual([]);
+    });
   });
 
   it("resyncs only the folder whose delta token is gone", async () => {

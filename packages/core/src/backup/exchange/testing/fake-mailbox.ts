@@ -109,6 +109,17 @@ function selectOf(params: URLSearchParams): string[] {
 
 export const ROOT_FOLDER_ID = "AAMkRoot";
 
+/**
+ * PidTagMessageSize of a fake message: its MIME plus its attachments. It moves when the body
+ * or an attachment changes, not when flags, read state or categories do.
+ */
+export function messageSize(message: Pick<FakeMessage, "mime" | "attachments">): number {
+  return (
+    Buffer.byteLength(message.mime, "utf8") +
+    (message.attachments ?? []).reduce((sum, attachment) => sum + attachment.bytes.length, 0)
+  );
+}
+
 /** Build a MIME body for a fake message. */
 export function mimeFor(
   message: Pick<FakeMessage, "subject" | "internetMessageId">,
@@ -406,7 +417,7 @@ export class FakeMailbox {
       ([id = ""], params) => {
         const message = this.messages.get(id);
         return message
-          ? { status: 200, json: this.messageJson(message, selectOf(params)) }
+          ? { status: 200, json: this.messageJson(message, selectOf(params), params) }
           : this.notFound("message");
       },
     ],
@@ -635,12 +646,24 @@ export class FakeMailbox {
     return { status: 200, headers: { "content-type": "message/rfc822" }, text: message.mime };
   }
 
-  private messageJson(message: FakeMessage, select: string[]): Record<string, unknown> {
+  private messageJson(
+    message: FakeMessage,
+    select: string[],
+    params?: URLSearchParams,
+  ): Record<string, unknown> {
     const full = {
       ...this.properties(message),
       body: { contentType: "text", content: `Body of ${message.subject}` },
     };
-    return this.project(full, select);
+    const projected = this.project(full, select);
+    // As Graph: an extended property only with $expand, named in Graph's normalised form.
+    const expand = params?.get("$expand") ?? "";
+    if (/singleValueExtendedProperties\(\$filter=id eq 'Long 0x0E08'\)/i.test(expand)) {
+      projected.singleValueExtendedProperties = [
+        { id: "Long 0xe08", value: String(messageSize(message)) },
+      ];
+    }
+    return projected;
   }
 
   private eventJson(event: FakeEvent): Event {

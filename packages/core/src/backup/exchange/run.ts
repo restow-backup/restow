@@ -78,6 +78,11 @@ export const META = {
   wellKnownName: "wellKnownName",
   /** Digest of the content-relevant properties; equal digests mean the bytes need not be fetched again. */
   fingerprint: "fingerprint",
+  /**
+   * Mail: PidTagMessageSize (bytes, with attachments) when the content was fetched. A change
+   * with an equal fingerprint means the content changed anyway (mail.ts storeMessage).
+   */
+  messageSize: "messageSize",
   /** Snapshot in which the bytes were last fetched from Graph (kept on metadata-only updates). */
   fetchedInSnapshot: "fetchedInSnapshot",
   /** For attachments and their folder: the Graph id of the message they belong to. */
