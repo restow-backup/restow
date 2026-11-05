@@ -24,6 +24,7 @@ import {
   driveDeltaUrl,
   getItem,
   type ItemDownload,
+  isSharingChange,
   listItemVersions,
   openItemDownload,
   openVersionDownload,
@@ -39,6 +40,7 @@ import { type DriveWalkOutcome, walkDriveDelta } from "./delta.js";
 import {
   canReuseContent,
   classifyItem,
+  type DriveItemKind,
   fileObject,
   folderObject,
   graphPathOf,
@@ -147,6 +149,11 @@ async function* sourceBytes(stream: Readable): AsyncGenerator<Buffer> {
 type FetchOutcome =
   | { readonly ok: true; readonly content: WrittenObject; readonly contentType: string | null }
   | { readonly ok: false; readonly error: unknown };
+
+type FetchedItem =
+  | { readonly gone: true; readonly item?: undefined }
+  | { readonly gone: false; readonly item: DriveDeltaItem }
+  | { readonly gone: false; readonly item?: undefined; readonly error: unknown };
 
 interface PlacedItem {
   readonly item: DriveDeltaItem;
@@ -487,20 +494,16 @@ export class DriveBackupRun {
     this.ctx.progress.total(this.seen);
     for (const id of this.plan.retryIds) {
       this.throwIfAborted();
-      let item: DriveDeltaItem;
-      try {
-        item = await getItem(this.client, this.driveId, id);
-      } catch (error) {
-        this.rethrowIfAborted(error);
-        if (isNotFound(error)) {
-          // Gone for good: the snapshot drops it, the previous snapshots keep it.
-          this.forget(id);
-        } else {
-          this.recordFailure(id, this.knownPath(id), error);
-        }
+      // Gone for good: the snapshot drops it, the previous snapshots keep it.
+      const current = await this.fetchItem(id);
+      if (current.gone) {
         continue;
       }
-      await this.processItem(item, { retry: true });
+      if (current.item === undefined) {
+        this.recordFailure(id, this.knownPath(id), current.error);
+        continue;
+      }
+      await this.processItem(current.item, { retry: true });
       await this.maybeCheckpoint();
     }
     this.retriesDone = true;
@@ -647,9 +650,10 @@ export class DriveBackupRun {
   // Items
 
   private async processItem(
-    item: DriveDeltaItem,
+    delta: DriveDeltaItem,
     options: { retry?: boolean } = {},
   ): Promise<void> {
+    let item = delta;
     const kind = classifyItem(item);
     if (kind === "root") {
       this.tree.rootId = item.id;
@@ -660,6 +664,51 @@ export class DriveBackupRun {
       this.ctx.progress.advance(1);
       return;
     }
+    // Listed for a sharing change (DRIVE_DELTA_HEADERS): the entry need not
+    // carry the sharing itself, so it is read from the item. The content is
+    // not downloaded for it; unchanged bytes are reused as always.
+    let sharingError: unknown;
+    if (isSharingChange(item)) {
+      const current = await this.fetchItem(item.id);
+      if (current.gone) {
+        return;
+      }
+      if (current.item === undefined) {
+        sharingError = current.error;
+      } else {
+        item = { ...item, shared: current.item.shared ?? null };
+      }
+    }
+    await this.processKnown(item, kind, options);
+    if (sharingError !== undefined) {
+      // After the item: storing it takes back its earlier failures of this run.
+      this.recordFailure(item.id, this.knownPath(item.id), sharingError, "reading the sharing");
+    }
+  }
+
+  /**
+   * The item as Graph has it now ({@link getItem}). An item that no longer
+   * exists is dropped from the snapshot (`gone`); any other error comes back
+   * for the caller to report.
+   */
+  private async fetchItem(itemId: string): Promise<FetchedItem> {
+    try {
+      return { gone: false, item: await getItem(this.client, this.driveId, itemId) };
+    } catch (error) {
+      this.rethrowIfAborted(error);
+      if (isNotFound(error)) {
+        this.forget(itemId);
+        return { gone: true };
+      }
+      return { gone: false, error };
+    }
+  }
+
+  private async processKnown(
+    item: DriveDeltaItem,
+    kind: DriveItemKind,
+    options: { retry?: boolean },
+  ): Promise<void> {
     if (kind === "unknown") {
       this.skipped++;
       this.logger.warn("item has no file, folder or shortcut facet, skipped", { itemId: item.id });

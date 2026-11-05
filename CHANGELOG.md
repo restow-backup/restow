@@ -613,6 +613,12 @@ private repository.
   it again: the snapshot showed a shared file as not shared, and a shortcut was dropped without a
   word. Such items are now stored as completely as any other, and a file whose content is
   unchanged keeps what the earlier backup knew about it.
+- OneDrive and SharePoint backup: a file or folder whose only change was its sharing (shared
+  with the organisation or through a link after its last edit, or no longer shared) kept its old
+  sharing in every later restore point, because the incremental backup never heard of the
+  change. Restow now asks Microsoft for sharing changes too and records the current sharing
+  without downloading the file again; a sharing change that cannot be read is reported as a
+  failed item and read again on the next run.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,

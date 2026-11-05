@@ -78,6 +78,19 @@ function itemAnswer(id: string, item: DriveDeltaItem): FixtureRoute {
   };
 }
 
+/**
+ * A delta page as OneDrive for Business answers it: an item whose only change
+ * is its sharing is listed (flagged `@microsoft.graph.sharedChanged`) only when
+ * the request asks for it with `Prefer: deltashowsharingchanges`.
+ */
+function sharingDelta(changed: DriveDeltaItem[], deltaToken: string): FixtureRoute["respond"] {
+  return (call) => {
+    const prefer = call.headers.prefer ?? "";
+    const asked = prefer.split(",").some((value) => value.trim() === "deltashowsharingchanges");
+    return { status: 200, json: page(asked ? changed : [], deltaToken) };
+  };
+}
+
 function downloadLink(item: string): string {
   return `${DOWNLOAD_HOST}?item=${item}&tempauth=OK`;
 }
@@ -717,6 +730,78 @@ describe("OneDriveBackupEngine", () => {
       metadata: { remoteItemId: "01REMOTE", remoteDriveId: "b!teamdrive" },
     });
     expect(state(manifest).retry).toEqual([]);
+  });
+
+  it("records a sharing-only change on the next incremental run without downloading again", async () => {
+    // With hierarchicalsharing the entry does not have to carry the sharing: it is read from the item.
+    const flagged = q3Item({ "@microsoft.graph.sharedChanged": "True" });
+    const shared = q3Item({
+      shared: {
+        scope: "anonymous",
+        sharedBy: { user: { displayName: "Bob Example", id: "user-2" } },
+        sharedDateTime: "2026-09-20T12:00:00Z",
+      },
+    });
+    let current = shared;
+    const graph = createFakeGraph([
+      ...initialRoutes(),
+      { url: deltaUrl("DELTA1"), respond: sharingDelta([flagged], "DELTA2") },
+      { url: deltaUrl("DELTA2"), respond: sharingDelta([flagged], "DELTA3") },
+      {
+        url: itemRoute("01Q3"),
+        respond: (call) => ({ status: 200, json: selectedEntity(call, current) }),
+      },
+    ]);
+    const engine = harness.engine(graph);
+    const first = await engine.run(harness.context({ jobId: "job-1" }), oneDrive, {});
+    const before = objectAt(await harness.manifest(first), Q3_PATH);
+    expect(before.metadata?.sharedScope).toBeUndefined();
+    const downloads = () => graph.callsTo("GET", "item=q3").length;
+    expect(downloads()).toBe(1);
+
+    const second = await engine.run(harness.context({ jobId: "job-2" }), oneDrive, {});
+    expect(second.failures).toEqual([]);
+    const after = objectAt(await harness.manifest(second), Q3_PATH);
+    expect(after.metadata).toMatchObject({
+      sharedScope: "anonymous",
+      sharedBy: "Bob Example",
+      sharedDateTime: "2026-09-20T12:00:00Z",
+    });
+    expect(after.chunks).toEqual(before.chunks);
+    expect(downloads()).toBe(1);
+    for (const call of graph.callsTo("GET", "/root/delta")) {
+      expect(call.headers.prefer).toBe("deltashowsharingchanges, hierarchicalsharing");
+    }
+
+    // The link is removed again: the item comes without `shared`, and the sharing goes.
+    current = q3Item();
+    const third = await engine.run(harness.context({ jobId: "job-3" }), oneDrive, {});
+    const unshared = objectAt(await harness.manifest(third), Q3_PATH);
+    expect(unshared.metadata?.sharedScope).toBeUndefined();
+    expect(unshared.metadata?.sharedBy).toBeUndefined();
+    expect(downloads()).toBe(1);
+  });
+
+  it("reports a sharing change it could not read and keeps the file", async () => {
+    const flagged = q3Item({ "@microsoft.graph.sharedChanged": "True" });
+    const graph = createFakeGraph([
+      ...initialRoutes(),
+      { url: deltaUrl("DELTA1"), respond: sharingDelta([flagged], "DELTA2") },
+      {
+        url: itemRoute("01Q3"),
+        respond: { status: 403, json: graphError("accessDenied", "Access denied") },
+      },
+    ]);
+    const engine = harness.engine(graph);
+    const first = await engine.run(harness.context({ jobId: "job-1" }), oneDrive, {});
+    const second = await engine.run(harness.context({ jobId: "job-2" }), oneDrive, {});
+    expect(second.failures.map((f) => f.itemRef)).toEqual([Q3_PATH]);
+    expect(must(second.failures[0]).reason).toMatch(/^reading the sharing: Graph 403/);
+    const manifest = await harness.manifest(second);
+    expect(objectAt(manifest, Q3_PATH).chunks).toEqual(
+      objectAt(await harness.manifest(first), Q3_PATH).chunks,
+    );
+    expect(state(manifest).retry).toEqual(["01Q3"]);
   });
 
   it("reports a download that breaks off mid-stream as an item failure and carries on", async () => {

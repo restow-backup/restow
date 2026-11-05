@@ -76,10 +76,36 @@ export async function getUserDrive(client: GraphClient, userId: string): Promise
 /** The download URL Graph attaches to file items. Pre-authenticated, valid ~1 hour. */
 export const DOWNLOAD_URL_KEY = "@microsoft.graph.downloadUrl" as const;
 
+/**
+ * The annotation a delta entry carries when the item is listed because its
+ * sharing changed (only sent with {@link DRIVE_DELTA_HEADERS}). Graph writes
+ * the value as the string "True".
+ */
+export const SHARED_CHANGED_KEY = "@microsoft.graph.sharedChanged" as const;
+
 export type DriveDeltaItem = DriveItem & {
   id: string;
   [DOWNLOAD_URL_KEY]?: string;
+  [SHARED_CHANGED_KEY]?: string;
 };
+
+/**
+ * Sent with every page of a drive delta. Without `deltashowsharingchanges`,
+ * OneDrive for Business and SharePoint leave an item whose only change is its
+ * sharing (shared with the organisation, a link created or removed) out of the
+ * delta, so an incremental backup would keep recording the old sharing for
+ * good. `hierarchicalsharing` keeps that from flooding the feed: a change is
+ * reported at the item where the sharing is set, not again for every item
+ * below a shared folder.
+ */
+export const DRIVE_DELTA_HEADERS: Readonly<Record<string, string>> = {
+  Prefer: "deltashowsharingchanges, hierarchicalsharing",
+};
+
+/** True when Graph lists the entry because its sharing changed. */
+export function isSharingChange(item: DriveDeltaItem): boolean {
+  return String(item[SHARED_CHANGED_KEY] ?? "").toLowerCase() === "true";
+}
 
 export function driveDeltaKey(driveId: string): string {
   return `drive:${driveId}`;
@@ -102,6 +128,7 @@ export function driveDelta(
     store,
     key: options.key ?? driveDeltaKey(driveId),
     initialUrl: driveDeltaUrl(driveId),
+    headers: { ...DRIVE_DELTA_HEADERS },
     onResync: options.onResync,
   });
 }
