@@ -125,6 +125,10 @@
         "title": "The online archive of this mailbox is not backed up",
         "why": "This mailbox has an online archive (In-Place Archive). Microsoft Graph offers no generally available interface for it, so {appName} backs up the primary mailbox only. Mail that a retention policy or the user moves to the online archive is missing from new restore points from then on; older restore points keep it until their retention ends."
       },
+      "online_archive_unknown": {
+        "title": "Whether this mailbox has an online archive could not be checked",
+        "why": "On every run {appName} asks Microsoft whether the mailbox has an online archive (In-Place Archive), because the archive is not backed up. This time Microsoft did not answer (for example the User.Read.All permission is missing or the beta interface is unavailable). If the mailbox has an archive, mail that a retention policy moves there is missing from new restore points from then on, without anything showing it. The next run asks again."
+      },
       "group_event_attachments_not_covered": {
         "title": "Attachments of events in the group calendar are not backed up",
         "why": "{count, plural, one {# event} other {# events}} in this group's calendar {count, plural, one {has} other {have}} attachments. Microsoft Graph does not hand attachments of group events to the app, so {appName} backs up the events themselves only. A restore creates these events without their attachments."

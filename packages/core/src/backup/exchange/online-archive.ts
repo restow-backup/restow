@@ -8,8 +8,11 @@
  * So every run asks once whether the mailbox has an archive (cached for a day in
  * the state) and, when it has one, records a warning with the cause
  * `graph.online_archive_not_covered`: the run completes with warnings, never
- * plain green. A probe Graph refuses (no User.Read.All, beta unavailable) is
- * logged as unknown and claims nothing (docs/MICROSOFT.md "Online-Archiv").
+ * plain green. Only a proven "no archive" leaves the run green: a probe Graph
+ * refuses or does not answer (no User.Read.All, beta unavailable, 403, 5xx) is a
+ * warning of its own, `graph.online_archive_unknown`, and the next run asks
+ * again. An archive seen before stays reported while the probe is unknown
+ * (docs/MICROSOFT.md "Online-Archiv").
  */
 import { buildCause } from "../../failures/classify.js";
 import { probeOnlineArchive } from "../../graph/resources/users.js";
@@ -31,11 +34,26 @@ export async function checkOnlineArchive(run: BackupRun): Promise<void> {
     const probe = await probeOnlineArchive(run.client, run.userId);
     status = probe.status;
     if (probe.status === "unknown") {
-      // No claim either way; the next run asks again.
-      delete run.state.onlineArchive;
-      run.logger.info("online archive of the mailbox unknown, Graph did not tell", {
+      // Not proven either way: an archive seen before is still there (archives are not
+      // switched off in passing); otherwise the run says it could not check. The cached
+      // answer keeps its time, so the next run asks again.
+      if (cached?.status === "present") {
+        status = "present";
+      } else {
+        delete run.state.onlineArchive;
+      }
+      run.logger.warn("online archive of the mailbox unknown, Graph did not tell", {
         reason: probe.reason,
       });
+      if (status === "unknown") {
+        const reason = `Restow could not check whether the mailbox has an online archive (${probe.reason}); mail moved to one would leave new restore points unnoticed`;
+        run.warn(
+          ONLINE_ARCHIVE_ITEM_REF,
+          reason,
+          buildCause("graph.online_archive_unknown", {}, { message: reason }),
+        );
+        return;
+      }
     } else {
       run.state.onlineArchive = { status: probe.status, checkedAt: now.toISOString() };
     }

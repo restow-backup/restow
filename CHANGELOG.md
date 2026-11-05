@@ -585,7 +585,9 @@ private repository.
   reported as removed by Graph, left the new restore points, and the run stayed green. Every run
   now asks Microsoft whether the mailbox has an online archive and, if it has one, ends with a
   warning that it is not covered (Graph offers no generally available way to read it). When
-  Microsoft does not answer that question, nothing is claimed and the next run asks again.
+  Microsoft does not answer that question (a missing permission, the beta interface not
+  available), the run also ends with a warning, saying that Restow could not check, and the next
+  run asks again; only a proven "no archive" leaves the run green.
 - Mail backup: when the consent was revoked or an Application Access Policy was added while a
   Microsoft 365 mailbox backup was running, every further folder became a warning and the run
   committed a restore point that carried those folders forward without reading them, shown as

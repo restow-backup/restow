@@ -54,6 +54,8 @@ export const FAILURE_CODES = [
   // The mailbox has an online archive (In-Place Archive) the backup does not reach
   // (backup/exchange/online-archive.ts). A warning on every run of that mailbox.
   "graph.online_archive_not_covered",
+  // Graph did not answer whether a mailbox has an online archive: never plain green.
+  "graph.online_archive_unknown",
   // Events of a group calendar with attachments: Graph does not hand those to the app
   // (backup/exchange/calendar.ts). One warning per run and group.
   "graph.group_event_attachments_not_covered",

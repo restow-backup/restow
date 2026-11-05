@@ -182,9 +182,11 @@ ein Ordner liefert, bleibt ein Ordnerfehler.
   Anwendungsberechtigung User.Read.All, die die App für den Verzeichnis-Sync ohnehin hat). Nennt
   Graph ein `inPlaceArchiveMailboxId`, endet jeder Lauf des Postfachs mit der Warnung
   `graph.online_archive_not_covered` (Element `online-archive`, nicht wiederholbar), nie einfach
-  grün; die Warnung lässt sich bestätigen. Verweigert Graph die Abfrage (fehlende Berechtigung,
-  Beta nicht verfügbar), steht „unbekannt“ im Protokoll und es wird nichts behauptet; der
-  nächste Lauf fragt erneut. Wer das Archiv braucht, sichert es auf anderem Weg (etwa per
+  grün; die Warnung lässt sich bestätigen. Grün bleibt ein Lauf nur bei der belegten Antwort
+  „kein Archiv“. Verweigert Graph die Abfrage oder beantwortet sie nicht (fehlende Berechtigung,
+  Beta nicht verfügbar, 403, 5xx), endet der Lauf mit der Warnung `graph.online_archive_unknown`
+  (wiederholbar), und der nächste Lauf fragt erneut; ein früher erkanntes Archiv bleibt solange
+  als `graph.online_archive_not_covered` gemeldet. Wer das Archiv braucht, sichert es auf anderem Weg (etwa per
   eDiscovery-Export) oder bewahrt die Sicherungsstände so lange auf, wie die Mails gebraucht
   werden.
 - Geteilte Postfächer und Ressourcen: normale Nutzerobjekte ohne Lizenz; Schutzregel

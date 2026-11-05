@@ -2025,18 +2025,38 @@ describe("ExchangeBackupEngine", () => {
       });
     });
 
-    it("claims nothing when Graph refuses the probe, and asks again next run", async () => {
+    it("is not plain green when Graph refuses the probe, and asks again next run", async () => {
       box.onlineArchive = {
         status: 403,
         json: graphError("Authorization_RequestDenied", "Insufficient privileges"),
       };
       const result = await engine.run(newContext(), mailbox, {});
-      expect(result.failures).toEqual([]);
+      expect(result.failures).toEqual([
+        expect.objectContaining({
+          itemRef: "online-archive",
+          cause: expect.objectContaining({ code: "graph.online_archive_unknown" }),
+        }),
+      ]);
       expect(readState((await manifestOf(result.snapshotId)).state).onlineArchive).toBeUndefined();
       graph.calls.length = 0;
       box.onlineArchive = "MBX:archive@a7809c93";
       const next = await engine.run(newContext({ jobId: "job-2" }), mailbox, {});
       expect(archiveProbes()).toBe(1);
+      expect(next.failures.map((failure) => failure.cause?.code)).toEqual([
+        "graph.online_archive_not_covered",
+      ]);
+    });
+
+    it("keeps reporting an archive seen before while the probe goes unanswered", async () => {
+      box.onlineArchive = "MBX:archive@a7809c93";
+      await engine.run(newContext(), mailbox, {});
+      box.onlineArchive = { status: 503, json: graphError("ServiceUnavailable", "try later") };
+      // A day later the cached answer is due again.
+      const later = (): JobContext => {
+        const ctx = newContext({ jobId: "job-2" });
+        return { ...ctx, now: () => new Date("2026-09-24T10:00:00Z") };
+      };
+      const next = await engine.run(later(), mailbox, {});
       expect(next.failures.map((failure) => failure.cause?.code)).toEqual([
         "graph.online_archive_not_covered",
       ]);

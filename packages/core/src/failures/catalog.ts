@@ -195,6 +195,12 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     retryable: false,
     steps: () => [step("check_archive_policy")],
   },
+  "graph.online_archive_unknown": {
+    category: "microsoft",
+    transient: true,
+    retryable: true,
+    steps: () => [step("verify_permissions"), step("check_archive_policy")],
+  },
   "graph.group_event_attachments_not_covered": {
     category: "microsoft",
     transient: false,

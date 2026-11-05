@@ -125,6 +125,10 @@
         "title": "Das Online-Archiv dieses Postfachs wird nicht gesichert",
         "why": "Dieses Postfach hat ein Online-Archiv (In-Place Archive). Microsoft Graph bietet dafür keine allgemein verfügbare Schnittstelle, deshalb sichert {appName} nur das primäre Postfach. Mails, die eine Aufbewahrungsrichtlinie oder ein Benutzer ins Online-Archiv verschiebt, fehlen ab dann in den neuen Sicherungsständen; ältere Sicherungsstände behalten sie, bis deren Aufbewahrung abläuft."
       },
+      "online_archive_unknown": {
+        "title": "Ob dieses Postfach ein Online-Archiv hat, ließ sich nicht prüfen",
+        "why": "{appName} fragt bei jedem Lauf bei Microsoft nach, ob das Postfach ein Online-Archiv (In-Place Archive) hat, denn das Archiv wird nicht gesichert. Microsoft hat die Frage diesmal nicht beantwortet (zum Beispiel fehlende Berechtigung User.Read.All oder die Beta-Schnittstelle nicht verfügbar). Hat das Postfach ein Archiv, fehlen Mails, die eine Aufbewahrungsrichtlinie dorthin verschiebt, ab dann in den neuen Sicherungsständen, ohne dass es auffällt. Der nächste Lauf fragt erneut."
+      },
       "group_event_attachments_not_covered": {
         "title": "Anhänge von Terminen im Gruppenkalender werden nicht gesichert",
         "why": "{count, plural, one {# Termin} other {# Termine}} im Kalender dieser Gruppe {count, plural, one {hat} other {haben}} Anhänge. Microsoft Graph gibt Anhänge von Gruppenterminen nicht an die App heraus, deshalb sichert {appName} nur die Termine selbst. Eine Wiederherstellung legt diese Termine ohne ihre Anhänge an."
