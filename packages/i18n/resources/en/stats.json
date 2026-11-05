@@ -132,7 +132,6 @@
         "cancelled": "Cancelled"
       },
       "empty": {
-        "title": "No backup runs",
         "description": "No backup ran in this period."
       },
       "summary": "In this period {succeeded} backup runs succeeded, {failed} failed and {cancelled} were cancelled."
@@ -145,7 +144,6 @@
         "failed": "Failed"
       },
       "empty": {
-        "title": "No restores",
         "description": "No restore ran in this period."
       },
       "summary": "In this period {completed} restores completed and {failed} failed."
@@ -154,7 +152,6 @@
       "title": "Recovery readiness",
       "description": "Protected objects by the result of their last restore check, {granularity}.",
       "empty": {
-        "title": "No protected objects",
         "description": "There were no protected objects in this period."
       },
       "summary": "At the end of the period {green} objects were ready, {yellow} needed attention, {unverified} were not verified, {red} were not restorable and {noBackup} had no backup yet."
@@ -167,7 +164,6 @@
         "physical": "Physical"
       },
       "empty": {
-        "title": "No data backed up",
         "description": "No data was backed up in this period."
       },
       "dedup": "Deduplication saves {savings} of the backed-up data (ratio {factor} : 1).",
@@ -181,7 +177,6 @@
         "bytes": "Stored"
       },
       "empty": {
-        "title": "The store is empty",
         "description": "Nothing was stored in this period."
       },
       "summary": "The store went from {first} to {last} in this period."
@@ -194,7 +189,6 @@
         "p95": "95th percentile (p95)"
       },
       "empty": {
-        "title": "No finished runs",
         "description": "No run finished in this period."
       },
       "tooltipLabel": "{kind} · {runs}",
@@ -209,10 +203,12 @@
         "events": "Throttling events"
       },
       "empty": {
-        "title": "No throttling",
         "description": "Microsoft 365 did not throttle {appName} in this period."
       },
       "summary": "In this period Microsoft 365 made {appName} wait {wait} in total, across {events} throttling events."
+    },
+    "notShown": {
+      "title": "Not shown, because there is nothing to chart:"
     }
   },
   "tables": {

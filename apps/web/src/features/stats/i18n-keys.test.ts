@@ -7,7 +7,7 @@ import statsEn from "@restow/i18n/resources/en/stats.json" with { type: "json" }
 import uiEn from "@restow/i18n/resources/en/ui.json" with { type: "json" };
 import { describe, expect, it } from "vitest";
 
-import { KPI_NAMES, UNAVAILABLE_REASONS } from "./api.js";
+import { KPI_NAMES, SERIES_NAMES, UNAVAILABLE_REASONS } from "./api.js";
 import { GRANULARITIES, PERIOD_PRESETS } from "./period.js";
 import { KNOWN_OBJECT_STATES, KPI_SPECS } from "./presenters.js";
 
@@ -72,6 +72,11 @@ function dynamicKeys(): string[] {
     "stats:unavailable.reasons.missing",
     ...UNAVAILABLE_REASONS.map((reason) => `stats:unavailable.reasons.${reason}`),
     ...KNOWN_OBJECT_STATES.map((state) => `stats:objectStates.${state}`),
+    // ChartsNotShown names each chart without data, and why.
+    ...SERIES_NAMES.flatMap((name) => [
+      `stats:charts.${name}.title`,
+      `stats:charts.${name}.empty.description`,
+    ]),
   ];
 }
 

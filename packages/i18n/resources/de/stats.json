@@ -132,7 +132,6 @@
         "cancelled": "Abgebrochen"
       },
       "empty": {
-        "title": "Keine Sicherungsläufe",
         "description": "In diesem Zeitraum lief keine Sicherung."
       },
       "summary": "In diesem Zeitraum waren {succeeded} Sicherungsläufe erfolgreich, {failed} schlugen fehl und {cancelled} wurden abgebrochen."
@@ -145,7 +144,6 @@
         "failed": "Fehlgeschlagen"
       },
       "empty": {
-        "title": "Keine Wiederherstellungen",
         "description": "In diesem Zeitraum lief keine Wiederherstellung."
       },
       "summary": "In diesem Zeitraum wurden {completed} Wiederherstellungen abgeschlossen und {failed} schlugen fehl."
@@ -154,7 +152,6 @@
       "title": "Wiederherstellbarkeit",
       "description": "Geschützte Objekte nach dem Ergebnis ihrer letzten Restore-Prüfung, {granularity}.",
       "empty": {
-        "title": "Keine geschützten Objekte",
         "description": "In diesem Zeitraum gab es keine geschützten Objekte."
       },
       "summary": "Am Ende des Zeitraums waren {green} Objekte bereit, {yellow} brauchten Aufmerksamkeit, {unverified} waren nicht geprüft, {red} waren nicht wiederherstellbar und {noBackup} hatten noch keine Sicherung."
@@ -167,7 +164,6 @@
         "physical": "Physisch"
       },
       "empty": {
-        "title": "Keine Daten gesichert",
         "description": "In diesem Zeitraum wurden keine Daten gesichert."
       },
       "dedup": "Die Deduplizierung spart {savings} der gesicherten Daten (Verhältnis {factor} : 1).",
@@ -181,7 +177,6 @@
         "bytes": "Belegt"
       },
       "empty": {
-        "title": "Der Speicher ist leer",
         "description": "In diesem Zeitraum wurde nichts gespeichert."
       },
       "summary": "Der Speicher wuchs in diesem Zeitraum von {first} auf {last}."
@@ -194,7 +189,6 @@
         "p95": "95. Perzentil (p95)"
       },
       "empty": {
-        "title": "Keine abgeschlossenen Läufe",
         "description": "In diesem Zeitraum wurde kein Lauf abgeschlossen."
       },
       "tooltipLabel": "{kind} · {runs}",
@@ -209,10 +203,12 @@
         "events": "Drosselungen"
       },
       "empty": {
-        "title": "Keine Drosselung",
         "description": "Microsoft 365 hat {appName} in diesem Zeitraum nicht gedrosselt."
       },
       "summary": "In diesem Zeitraum ließ Microsoft 365 {appName} insgesamt {wait} warten, verteilt auf {events} Drosselungen."
+    },
+    "notShown": {
+      "title": "Nicht angezeigt, weil es nichts darzustellen gibt:"
     }
   },
   "tables": {

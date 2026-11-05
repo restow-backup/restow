@@ -8,6 +8,7 @@ import { i18n } from "@/i18n";
 
 import { KPI_NAMES, type Kpi, MISSING_REASON, type StatsOverview } from "./api.js";
 import { StatsExportsProvider } from "./components/chart-parts.js";
+import { ChartsNotShown } from "./components/charts-not-shown.js";
 import { KpiGrid } from "./components/kpi-grid.js";
 import { BackupsChart, ReadinessChart, RestoresChart } from "./components/outcome-charts.js";
 import { PeriodSelector } from "./components/period-selector.js";
@@ -15,6 +16,7 @@ import { TableCard } from "./components/table-card.js";
 import { VolumeChart } from "./components/volume-charts.js";
 import "./i18n.js";
 import { resolvePeriod } from "./period.js";
+import { absentCharts } from "./presenters.js";
 
 /**
  * Static markup covers the page's contracts: every dataset renders or shows
@@ -53,32 +55,16 @@ beforeAll(async () => {
 });
 
 describe("charts", () => {
-  it("show the unavailable state with the server's reason", () => {
-    const html = render(
-      <BackupsChart
-        data={{ status: "unavailable", reason: "Backups are not recorded before 0.301." }}
-        granularity="day"
-      />,
-    );
-    expect(html).toContain('data-state="unavailable"');
-    expect(html).toContain("Not available");
-    expect(html).toContain("Backups are not recorded before 0.301.");
-    // Nothing to export from a dataset that does not exist.
-    expect(html).not.toContain("Export options for");
-  });
-
-  it("word the server's reason codes", () => {
-    const html = render(
-      <BackupsChart data={{ status: "unavailable", reason: "no_backups_yet" }} granularity="day" />,
-    );
-    expect(html).toContain("No backup has run yet. The figures appear after the first backup.");
-  });
-
-  it("explain a dataset the server did not send", () => {
-    const html = render(
-      <BackupsChart data={{ status: "unavailable", reason: MISSING_REASON }} granularity="day" />,
-    );
-    expect(html).toContain("This server version does not report this figure yet.");
+  it("render nothing for a dataset the server has no source for: no empty card", () => {
+    for (const reason of [
+      "Backups are not recorded before 0.301.",
+      "no_backups_yet",
+      MISSING_REASON,
+    ]) {
+      expect(
+        render(<BackupsChart data={{ status: "unavailable", reason }} granularity="day" />),
+      ).toBe("");
+    }
   });
 
   it("show a skeleton while loading", () => {
@@ -87,7 +73,7 @@ describe("charts", () => {
     expect(html).toContain('data-slot="skeleton"');
   });
 
-  it("say so when nothing happened instead of drawing zeros", () => {
+  it("render nothing when nothing happened, instead of drawing zeros or an empty card", () => {
     const html = render(
       <BackupsChart
         data={{
@@ -97,8 +83,7 @@ describe("charts", () => {
         granularity="day"
       />,
     );
-    expect(html).toContain("No backup runs");
-    expect(html).not.toContain('data-slot="chart"');
+    expect(html).toBe("");
   });
 
   it("render the chart with its export menu and a summary for screen readers", () => {
@@ -184,6 +169,63 @@ describe("charts", () => {
     );
     expect(html).toContain("Deduplication saves 75% of the backed-up data (ratio 4 : 1).");
     expect(html).toContain("per week");
+  });
+});
+
+describe("charts not shown", () => {
+  const series = (over: Partial<StatsOverview["series"]>): StatsOverview["series"] => ({
+    backups: { status: "ok", rows: [{ t: "2026-09-17", succeeded: 3, failed: 0, cancelled: 0 }] },
+    volume: { status: "ok", rows: [{ t: "2026-09-17", logicalBytes: 10, physicalBytes: 5 }] },
+    storage: { status: "ok", rows: [{ t: "2026-09-17", bytes: 5 }] },
+    jobDurations: {
+      status: "ok",
+      rows: [{ kind: "mailbox", p50Seconds: 1, p95Seconds: 2, count: 3 }],
+    },
+    throttling: { status: "ok", rows: [{ t: "2026-09-17", waitSeconds: 4, events: 1 }] },
+    restores: { status: "ok", rows: [{ t: "2026-09-17", completed: 1, failed: 0 }] },
+    readiness: {
+      status: "ok",
+      rows: [{ t: "2026-09-17", green: 1, yellow: 0, red: 0, unverified: 0, noBackup: 0 }],
+    },
+    ...over,
+  });
+
+  it("names every chart without data and why, in page order, in a few lines", () => {
+    const html = render(
+      <ChartsNotShown
+        series={series({
+          throttling: { status: "unavailable", reason: "no_microsoft_365_source" },
+          restores: { status: "ok", rows: [{ t: "2026-09-17", completed: 0, failed: 0 }] },
+        })}
+      />,
+    );
+    const text = plain(html.replace(/<[^>]*>/g, ""));
+    expect(text).toContain("Not shown, because there is nothing to chart:");
+    expect(text).toContain("Restores: No restore ran in this period.");
+    expect(text).toContain(
+      "Throttling waits: Throttling only happens with Microsoft 365, and there is no Microsoft 365 source here.",
+    );
+    expect(html.indexOf('data-chart="restores"')).toBeLessThan(
+      html.indexOf('data-chart="throttling"'),
+    );
+    // A note, not a card.
+    expect(html).not.toContain('data-slot="card"');
+  });
+
+  it("says nothing while the figures load or when every chart has something to draw", () => {
+    expect(render(<ChartsNotShown series={undefined} />)).toBe("");
+    expect(render(<ChartsNotShown series={series({})} />)).toBe("");
+  });
+
+  it("follows the same rule as the charts: those it names render nothing", () => {
+    const data = series({
+      restores: { status: "ok", rows: [{ t: "2026-09-17", completed: 0, failed: 0 }] },
+    });
+    expect(render(<RestoresChart data={data.restores} granularity="day" />)).toBe("");
+    expect(absentCharts(data).map((chart) => chart.name)).toEqual(["restores"]);
+    expect(render(<BackupsChart data={data.backups} granularity="day" />)).toContain(
+      'data-slot="chart"',
+    );
   });
 });
 

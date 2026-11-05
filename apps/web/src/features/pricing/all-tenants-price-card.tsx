@@ -64,7 +64,7 @@ export function AllTenantsPriceCard({
   if (session.isProviderAdmin && query.isError && !estimate) {
     // A failed read says so, like the tenant's card: a missing card would pass for "no price set".
     return (
-      <Card className="h-full gap-3" data-widget="allTenantsPrice" data-state="error">
+      <Card className="gap-3" data-widget="allTenantsPrice" data-state="error">
         <CardContent>
           <ErrorState
             title={t("all.loadError")}
@@ -83,7 +83,7 @@ export function AllTenantsPriceCard({
   const money = (value: number) => formatMoney(value, estimate.currency, language);
   const { top, more } = topTenants(estimate, ALL_TENANTS_TOP);
   return (
-    <Card className="h-full gap-3" data-widget="allTenantsPrice">
+    <Card className="gap-3" data-widget="allTenantsPrice">
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <Coins className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />

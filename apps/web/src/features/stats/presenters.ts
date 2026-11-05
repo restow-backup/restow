@@ -1,7 +1,7 @@
 import { READINESS_CATEGORY_META, type StatusTone, toneOf } from "@/components/kit";
 import { dedupSavings, formatPercent, parseTimestamp } from "@/lib/format";
 
-import type { Kpi, KpiName, StatsOverview } from "./api.js";
+import type { Dataset, Kpi, KpiName, SeriesName, StatsOverview } from "./api.js";
 import { dayStart, type Granularity, toDay } from "./period.js";
 
 /**
@@ -165,6 +165,63 @@ export function sumOf<T>(rows: readonly T[], key: keyof T): number {
  */
 export function isEmptySeries<T>(rows: readonly T[], keys: readonly (keyof T)[]): boolean {
   return maxOf(rows, keys) === 0;
+}
+
+type SeriesRow<K extends SeriesName> =
+  StatsOverview["series"][K] extends Dataset<infer T> ? T : never;
+
+/** The values each chart draws: a series whose values are all zero has nothing to chart. */
+export const CHART_VALUE_KEYS: { readonly [K in SeriesName]: readonly (keyof SeriesRow<K>)[] } = {
+  backups: ["succeeded", "failed", "cancelled"],
+  restores: ["completed", "failed"],
+  readiness: ["green", "yellow", "unverified", "red", "noBackup"],
+  volume: ["logicalBytes", "physicalBytes"],
+  storage: ["bytes"],
+  jobDurations: ["count"],
+  throttling: ["waitSeconds", "events"],
+};
+
+/** Why a chart is not on the page: nothing happened in the period, or the server has no source. */
+export type ChartAbsence = { kind: "empty" } | { kind: "unavailable"; reason: string };
+
+/**
+ * Whether a chart has nothing to draw, and why; null when it has (and while it loads, when its
+ * skeleton holds the place). A chart with nothing to draw is no empty card: it is left out, the
+ * charts around it close up, and the page names it in one line (ChartsNotShown).
+ */
+export function chartAbsence<K extends SeriesName>(
+  name: K,
+  dataset: Dataset<SeriesRow<K>> | undefined,
+): ChartAbsence | null {
+  if (dataset === undefined) {
+    return null;
+  }
+  if (dataset.status === "unavailable") {
+    return { kind: "unavailable", reason: dataset.reason };
+  }
+  return isEmptySeries(dataset.rows, CHART_VALUE_KEYS[name]) ? { kind: "empty" } : null;
+}
+
+/** The charts of the trends section in page order, with why each one is not shown (if so). */
+export function absentCharts(
+  series: StatsOverview["series"] | undefined,
+): { name: SeriesName; absence: ChartAbsence }[] {
+  if (!series) {
+    return [];
+  }
+  const order: readonly SeriesName[] = [
+    "backups",
+    "restores",
+    "readiness",
+    "volume",
+    "storage",
+    "jobDurations",
+    "throttling",
+  ];
+  return order.flatMap((name) => {
+    const absence = chartAbsence(name, series[name] as Dataset<SeriesRow<typeof name>>);
+    return absence ? [{ name, absence }] : [];
+  });
 }
 
 // --- Dates --------------------------------------------------------------------

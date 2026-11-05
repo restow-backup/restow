@@ -1495,8 +1495,92 @@ describe("widget registry", () => {
     // The setup checklist is the sidebar's Start entry, not a card here, and nothing says "complete".
     expect(html).not.toContain('data-widget="setup"');
     expect(html).not.toContain("Setup complete");
-    // Three figures for a member: no gap where the mailbox tile would be.
-    expect(html).toContain("xl:grid-cols-3");
+    // Three figures for a member: three a row, no gap where the mailbox tile would be.
+    const figures = /<section[^>]*data-section="figures"[^>]*>/.exec(html)?.[0] ?? "";
+    expect(figures).toContain('data-layout="tiles"');
+    expect(figures).toContain("@[48rem]/card-flow:grid-cols-3");
+    expect(figures).not.toContain("grid-cols-4");
+  });
+
+  describe("without empty gaps", () => {
+    const all = () => Object.fromEntries(PAGE_WIDGETS.map((id) => [id, ok(id)])) as TenantWidgets;
+    const section = (html: string, id: string) =>
+      new RegExp(`<section[^>]*data-section="${id}"[^>]*>`).exec(html)?.[0] ?? "";
+    const renderAll = (widgets: TenantWidgets) =>
+      render(<DashboardWidgets widgets={widgets} loading={false} canAdminister {...context} />);
+
+    it("fills two columns from the top with the four charts and retention", () => {
+      const html = renderAll(all());
+      expect(section(html, "trends")).toContain('data-layout="columns"');
+      // Storage growth and retention are one flow with the trends, not a row of their own.
+      expect(html).not.toContain('data-section="storage"');
+      const at = (id: string) => html.indexOf(`data-widget="${id}"`);
+      expect(at("backupTrend")).toBeLessThan(at("verificationHistory"));
+      expect(at("verificationHistory")).toBeLessThan(at("storageGrowth"));
+      expect(at("storageGrowth")).toBeLessThan(at("retention"));
+    });
+
+    it("leaves out a chart with nothing to draw instead of an empty card, and the rest closes up", () => {
+      const html = renderAll({
+        ...all(),
+        verificationHistory: {
+          state: "ok",
+          data: { ...data.verificationHistory, series: [], lastCheckedAt: null },
+        },
+        storageGrowth: {
+          state: "ok",
+          data: { ...data.storageGrowth, series: [{ date: "2026-08-01", bytes: 0 }] },
+        },
+      });
+      expect(html).not.toContain('data-widget="verificationHistory"');
+      expect(html).not.toContain('data-widget="storageGrowth"');
+      // Two cards left: one row, each at its own height.
+      expect(section(html, "trends")).toContain('data-layout="rows"');
+      expect(html).toContain('data-widget="backupTrend"');
+      expect(html).toContain('data-widget="retention"');
+      const cells = html.slice(html.indexOf('data-section="trends"')).split("</section>")[0] ?? "";
+      expect(cells.match(/data-slot="widget-cell"/g)).toHaveLength(2);
+    });
+
+    it("keeps the backup runs card while another window has runs, for its toggle", () => {
+      // No run in the 14 days shown, but some earlier in the series the server sent.
+      const series = data.backupTrend.series.map((day, index) =>
+        index < 10 ? day : { ...day, succeeded: 0, withItemFailures: 0, failed: 0 },
+      );
+      const quiet = renderAll({
+        ...all(),
+        backupTrend: { state: "ok", data: { days: 60, series } },
+      });
+      expect(quiet).toMatch(/data-widget="backupTrend" data-state="empty"/);
+      const none = renderAll({
+        ...all(),
+        backupTrend: {
+          state: "ok",
+          data: {
+            days: 60,
+            series: series.map((day) => ({ ...day, succeeded: 0, withItemFailures: 0, failed: 0 })),
+          },
+        },
+      });
+      expect(none).not.toContain('data-widget="backupTrend"');
+      // The success tile of the same source still says that nothing ran.
+      expect(none).toContain('data-widget="backupSuccess"');
+    });
+
+    it("shows the charts while loading and on an error, never leaving them out then", () => {
+      const loading = render(
+        <DashboardWidgets widgets={undefined} loading canAdminister {...context} />,
+      );
+      expect(loading).toMatch(/data-widget="verificationHistory" data-state="loading"/);
+      const failed = renderAll({ ...all(), verificationHistory: { state: "error" } });
+      expect(failed).toMatch(/data-widget="verificationHistory" data-state="error"/);
+    });
+
+    it("stretches no card to its neighbour: no h-full, no row-height grid on the status section", () => {
+      const html = renderAll(all());
+      expect(section(html, "status")).toContain('data-layout="columns"');
+      expect(html).not.toMatch(/data-slot="chart-card" class="[^"]*\bh-full\b/);
+    });
   });
 
   it("shows one failed widget without taking the others down", () => {

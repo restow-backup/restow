@@ -234,7 +234,6 @@ export function BackupTrendWidget({
           runs: rate.runs,
           succeeded: rate.succeeded,
         })}
-        className="h-full"
       >
         <BarChart data={rows} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
           <CartesianGrid {...HORIZONTAL_GRID} stroke="var(--border)" />
@@ -351,7 +350,6 @@ export function VerificationHistoryWidget({
             </span>
           ) : undefined
         }
-        className="h-full"
       >
         <BarChart data={rows} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
           <CartesianGrid {...HORIZONTAL_GRID} stroke="var(--border)" />
@@ -620,7 +618,7 @@ export function StorageGrowthWidget({
             </span>
           ) : undefined
         }
-        className={cn("h-full", updating && "motion-safe:transition-opacity opacity-70")}
+        className={cn(updating && "motion-safe:transition-opacity opacity-70")}
       >
         <ComposedChart data={rows} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
           <CartesianGrid {...HORIZONTAL_GRID} stroke="var(--border)" />

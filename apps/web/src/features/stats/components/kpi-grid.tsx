@@ -11,7 +11,7 @@ import {
   SquareCheckBig,
 } from "lucide-react";
 
-import { type KpiDelta, KpiTile } from "@/components/kit";
+import { CardFlow, type KpiDelta, KpiTile } from "@/components/kit";
 
 import type { KpiName, StatsOverview } from "../api.js";
 import {
@@ -128,10 +128,11 @@ export function KpiGrid({ kpis }: KpiGridProps) {
   };
 
   return (
-    <div className="grid grid-cols-1 gap-4 *:min-w-0 sm:grid-cols-2 lg:grid-cols-3">
+    // Nine tiles of one size: three a row on a wide page, so no row has an empty cell.
+    <CardFlow layout="tiles" tileColumns={3}>
       {KPI_SPECS.map(tile)}
       <DedupTile kpis={kpis} />
-    </div>
+    </CardFlow>
   );
 }
 

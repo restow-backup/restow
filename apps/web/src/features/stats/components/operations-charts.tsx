@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/chart";
 
 import type { Dataset, JobDurationRow, ThrottlingPoint } from "../api.js";
-import { countTicks, durationTicks, isEmptySeries, maxOf, sumOf } from "../presenters.js";
+import { chartAbsence, countTicks, durationTicks, maxOf, sumOf } from "../presenters.js";
 import { useStatsFormat } from "../use-stats-format.js";
 import {
   AXIS_PROPS,
@@ -42,7 +42,7 @@ export function JobDurationsChart({ data }: { data: Dataset<JobDurationRow> | un
     p95Seconds: { label: t("charts.jobDurations.series.p95"), color: "var(--chart-4)" },
   } satisfies ChartConfig;
   const order = seriesOrder(Object.keys(config));
-  const state = datasetState(data, format, (rows) => isEmptySeries(rows, ["count"]));
+  const state = datasetState(data);
   const rows: DurationDatum[] = state.rows
     .filter((row) => row.count > 0)
     .map((row) => ({ ...row, label: format.jobKind(row.kind) }));
@@ -52,6 +52,11 @@ export function JobDurationsChart({ data }: { data: Dataset<JobDurationRow> | un
     null,
   );
 
+  // Nothing to draw: no card; the page names the chart under the others (ChartsNotShown).
+  if (chartAbsence("jobDurations", data)) {
+    return null;
+  }
+
   return (
     <ChartCard
       title={title}
@@ -59,10 +64,6 @@ export function JobDurationsChart({ data }: { data: Dataset<JobDurationRow> | un
       menu={data?.status === "ok" ? <DatasetMenu dataset="jobDurations" title={title} /> : null}
       config={config}
       loading={state.loading}
-      unavailable={state.unavailable}
-      empty={state.empty}
-      emptyTitle={t("charts.jobDurations.empty.title")}
-      emptyDescription={t("charts.jobDurations.empty.description")}
       summary={
         slowest
           ? t("charts.jobDurations.summary", {
@@ -77,7 +78,7 @@ export function JobDurationsChart({ data }: { data: Dataset<JobDurationRow> | un
         data={rows}
         layout="vertical"
         accessibilityLayer
-        margin={{ left: 4, right: 16 }}
+        margin={{ top: 12, left: 4, right: 16 }}
         barGap={2}
       >
         <CartesianGrid {...VERTICAL_GRID} />
@@ -116,8 +117,6 @@ export function JobDurationsChart({ data }: { data: Dataset<JobDurationRow> | un
   );
 }
 
-const THROTTLING_KEYS = ["waitSeconds", "events"] as const;
-
 export function ThrottlingChart({ data, granularity }: SeriesChartProps<ThrottlingPoint>) {
   const format = useStatsFormat();
   const { t } = format;
@@ -127,9 +126,14 @@ export function ThrottlingChart({ data, granularity }: SeriesChartProps<Throttli
     events: { label: t("charts.throttling.series.events"), color: "var(--chart-5)" },
   } satisfies ChartConfig;
   const order = seriesOrder(Object.keys(config));
-  const state = datasetState(data, format, (rows) => isEmptySeries(rows, THROTTLING_KEYS));
+  const state = datasetState(data);
   const ticks = durationTicks(maxOf(state.rows, ["waitSeconds"]));
   const eventTicks = countTicks(maxOf(state.rows, ["events"]));
+
+  // Nothing to draw: no card; the page names the chart under the others (ChartsNotShown).
+  if (chartAbsence("throttling", data)) {
+    return null;
+  }
 
   return (
     <ChartCard
@@ -140,16 +144,12 @@ export function ThrottlingChart({ data, granularity }: SeriesChartProps<Throttli
       menu={data?.status === "ok" ? <DatasetMenu dataset="throttling" title={title} /> : null}
       config={config}
       loading={state.loading}
-      unavailable={state.unavailable}
-      empty={state.empty}
-      emptyTitle={t("charts.throttling.empty.title")}
-      emptyDescription={t("charts.throttling.empty.description")}
       summary={t("charts.throttling.summary", {
         wait: format.duration(sumOf(state.rows, "waitSeconds")),
         events: format.integer(sumOf(state.rows, "events")),
       })}
     >
-      <ComposedChart data={state.rows} accessibilityLayer margin={{ left: 4, right: 4 }}>
+      <ComposedChart data={state.rows} accessibilityLayer margin={{ top: 12, left: 4, right: 4 }}>
         <CartesianGrid {...HORIZONTAL_GRID} />
         <XAxis
           dataKey="t"

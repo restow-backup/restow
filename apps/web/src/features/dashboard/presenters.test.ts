@@ -12,6 +12,9 @@ import {
 import type { BackupDay, EndpointsWidget, RecentJob, StorageGrowthWidget } from "./api.js";
 import {
   byteTicks,
+  chartsBackupRuns,
+  chartsRestoreChecks,
+  chartsStorageGrowth,
   dayLabel,
   dedupSaving,
   endpointFindings,
@@ -48,11 +51,49 @@ describe("which widgets the page shows", () => {
     expect(widgetView({ state: "ok", data: 3 }, false)).toEqual({ kind: "ready", data: 3 });
   });
 
-  it("lays out as many tile columns as there are tiles", () => {
-    expect(tileColumns(4)).toBe("sm:grid-cols-2 xl:grid-cols-4");
-    expect(tileColumns(3)).toBe("sm:grid-cols-2 xl:grid-cols-3");
-    expect(tileColumns(2)).toBe("sm:grid-cols-2");
-    expect(tileColumns(1)).toBe("");
+  it("lays out as many tile columns as there are tiles, at most four", () => {
+    expect(tileColumns(5)).toBe(4);
+    expect(tileColumns(4)).toBe(4);
+    expect(tileColumns(3)).toBe(3);
+    expect(tileColumns(2)).toBe(2);
+    expect(tileColumns(1)).toBe(2);
+  });
+
+  it("leaves out a chart only once its data is there and holds nothing to draw", () => {
+    const loading = { kind: "loading" } as const;
+    const failed = { kind: "error", error: new WidgetUnavailableError() } as const;
+    for (const check of [chartsBackupRuns, chartsRestoreChecks, chartsStorageGrowth]) {
+      expect(check(loading)).toBe(true);
+      expect(check(failed)).toBe(true);
+    }
+    const runs = (succeeded: number) => ({
+      kind: "ready" as const,
+      data: {
+        days: 30,
+        series: [{ date: "2026-09-01", succeeded, withItemFailures: 0, failed: 0 }],
+      },
+    });
+    expect(chartsBackupRuns(runs(0))).toBe(false);
+    expect(chartsBackupRuns(runs(1))).toBe(true);
+    const checks = (green: number) => ({
+      kind: "ready" as const,
+      data: {
+        days: 30,
+        series: [{ date: "2026-09-01", green, yellow: 0, red: 0 }],
+        lastCheckedAt: null,
+      },
+    });
+    expect(chartsRestoreChecks(checks(0))).toBe(false);
+    expect(chartsRestoreChecks(checks(2))).toBe(true);
+    const stored = (bytes: number) => ({
+      kind: "ready" as const,
+      data: { days: 30, series: [{ date: "2026-09-01", bytes }], growthBytes: 0, forecast: null },
+    });
+    expect(chartsStorageGrowth(stored(0))).toBe(false);
+    expect(chartsStorageGrowth({ ...stored(0), data: { ...stored(0).data, series: [] } })).toBe(
+      false,
+    );
+    expect(chartsStorageGrowth(stored(10))).toBe(true);
   });
 });
 

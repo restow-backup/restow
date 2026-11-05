@@ -366,15 +366,20 @@ describe("the layout of the overview across all tenants", () => {
       />,
     );
 
-  it("puts the readiness card and the price card side by side in the first row, readiness wider", () => {
+  it("puts the readiness card and the price card side by side, each at its own height", () => {
     const html = page({ state: "ok", data: VIEW });
-    // A container query on the widget area, as on the tenant's Status tab: 42rem and 68rem.
+    // The widget area stays a container; the row's columns follow its own width (kit/card-flow).
     expect(html).toContain("@container/widgets");
+    const element = /<div[^>]*data-section="provider-status"[^>]*>/.exec(html)?.[0] ?? "";
+    const classes = /class="([^"]*)"/.exec(element)?.[1] ?? "";
+    expect(element).toContain('data-layout="rows"');
+    expect(classes).toContain("@[42rem]/card-flow:grid-cols-2");
+    // Neither card is stretched to the other's height.
+    expect(classes).toContain("items-start");
+    expect(html).not.toMatch(/data-widget="allTenantsPrice"[^>]*class="[^"]*\bh-full\b/);
+    expect(html).not.toMatch(/class="[^"]*\bh-full\b[^"]*"[^>]*data-widget="allTenantsPrice"/);
+    // Readiness first, then the price card, both inside that one row; running after it.
     const row = html.slice(html.indexOf('data-section="provider-status"'));
-    const classes = /class="([^"]*)"/.exec(row)?.[1] ?? "";
-    expect(classes).toContain("@[42rem]/widgets:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]");
-    expect(classes).toContain("@[68rem]/widgets:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]");
-    // Readiness first, then the price card, both inside that one row.
     const readiness = row.indexOf('data-widget="provider-readiness"');
     const priceAt = row.indexOf('data-widget="allTenantsPrice"');
     const rowEnd = row.indexOf('data-widget="running"');
@@ -396,10 +401,11 @@ describe("the layout of the overview across all tenants", () => {
     expect(html).toContain('data-widget="provider-readiness"');
   });
 
-  it("sets the figure tiles in columns by the width of the widget area", () => {
+  it("sets the six figure tiles in a regular grid by the width of the page", () => {
     const html = page({ state: "ok", data: VIEW });
-    expect(html).toContain("@[26rem]/widgets:grid-cols-2");
-    expect(html).toContain("@[56rem]/widgets:grid-cols-3");
+    const tiles = /<div[^>]*data-layout="tiles"[^>]*>/.exec(html)?.[0] ?? "";
+    expect(tiles).toContain("@[26rem]/card-flow:grid-cols-2");
+    expect(tiles).toContain("@[48rem]/card-flow:grid-cols-3");
     expect(html).not.toMatch(/class="[^"]*\bxl:grid-cols-3/);
   });
 

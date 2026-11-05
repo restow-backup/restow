@@ -1,12 +1,15 @@
 import type * as React from "react";
+import { CardFlow, type CardFlowLayout } from "@/components/kit";
 import { RecommendedJobButton } from "@/features/backup-jobs/components/recommended-job";
 import type { PricingEstimate } from "@/features/pricing/api";
 import { usePricingEstimate } from "@/features/pricing/use-estimate";
 import { useSession } from "@/lib/session";
-import { cn } from "@/lib/utils";
 import type { TenantWidgets, WidgetData, WidgetId } from "./api.js";
 import {
   ADMIN_WIDGETS,
+  chartsBackupRuns,
+  chartsRestoreChecks,
+  chartsStorageGrowth,
   showEndpoints,
   tileColumns,
   type WidgetView,
@@ -42,13 +45,13 @@ import {
  */
 
 /**
- * The price card next to "Last successful backup" (0.4.8). It is not a widget of the response: its
+ * The price card under "Last successful backup" (0.4.8). It is not a widget of the response: its
  * figures are the server's estimate for the active tenant, and the card is there only for a
- * provider admin whose installation has a price (the tenant's own counts), so the status row of
- * everybody else stays exactly as it was.
+ * provider admin whose installation has a price (the tenant's own counts), so the status section
+ * of everybody else stays exactly as it was.
  */
 export interface PriceCell {
-  /** The card is on the page, and the status row has three cells. */
+  /** The card is on the page, in the status section. */
   show: boolean;
   tenantId: string;
   tenantName: string;
@@ -79,38 +82,29 @@ interface Entry {
   key: string;
   /** The response widget the entry renders (several entries may share one). */
   source: WidgetId;
-  /** The entry is left out of the page for this view state (its source is present). */
+  /**
+   * The entry is left out of the page for this view state (its source is present), e.g. a chart
+   * with nothing to draw: no empty card, the others close up.
+   */
   hidden?: (context: WidgetContext) => boolean;
-  /** Classes of the entry's cell (e.g. the columns it spans), for this view state and count. */
-  cell?: (context: WidgetContext, count: number) => string;
   render: (context: WidgetContext) => React.ReactNode;
 }
 
 interface Section {
   id: string;
-  /** Grid columns for the number of entries present. */
-  columns: (count: number, context: WidgetContext) => string;
+  /** How the section lays out the number of entries present (kit/card-flow.tsx). */
+  layout: (count: number) => CardFlowLayout;
   entries: Entry[];
 }
 
-const twoUp = (count: number) => (count >= 2 ? "lg:grid-cols-2" : "");
-
 /**
- * The status row: readiness and "Last successful backup" side by side. With a price card the
- * last backup and the price card always stand next to each other (a vertical split, both at the
- * full height of their row), never one above the other. The page's width decides the rest (a
- * container query on the widget area, so a collapsed sidebar counts): from 68rem all three in
- * one row, readiness the widest; from 42rem readiness above, the two cards below it; narrower,
- * one below the other in that order. The last backup's list needs about 21rem, which a quarter
- * of a laptop page does not give it.
+ * The status section by the number of its cards. Three or four (readiness, last backup, the price
+ * card, "Running now") fill two columns from the top: readiness, the tallest, in the first, the
+ * others stacked beside it. Two (a plain member: readiness and last backup) stand one below the
+ * other: side by side the short last backup card would leave a hole as tall as the readiness card
+ * is taller. One has the whole width.
  */
-const priceBesideLastBackup = (count: number, context: WidgetContext) =>
-  context.price.show && count >= 3;
-
-const statusColumns = (count: number, context: WidgetContext) =>
-  priceBesideLastBackup(count, context)
-    ? "@[42rem]/widgets:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)] @[68rem]/widgets:grid-cols-[minmax(0,1.8fr)_minmax(0,1.25fr)_minmax(0,0.85fr)]"
-    : twoUp(count);
+const statusLayout = (count: number): CardFlowLayout => (count >= 3 ? "columns" : "stack");
 
 const state = (context: WidgetContext) => ({
   onRetry: context.onRetry,
@@ -124,16 +118,15 @@ const state = (context: WidgetContext) => ({
  */
 export const SECTIONS: readonly Section[] = [
   {
+    // Readiness first: on a wide page it fills the first column, and last backup, the price
+    // card and "Running now" stack beside it, so no card is stretched to the readiness card's
+    // height and no hole is left below a short one. On a phone, one below the other in this order.
     id: "status",
-    columns: statusColumns,
+    layout: statusLayout,
     entries: [
       {
         key: "readiness",
         source: "readiness",
-        cell: (c, count) =>
-          priceBesideLastBackup(count, c)
-            ? "@[42rem]/widgets:col-span-2 @[68rem]/widgets:col-span-1"
-            : "",
         render: (c) => (
           <ReadinessWidget
             view={c.view("readiness")}
@@ -170,12 +163,6 @@ export const SECTIONS: readonly Section[] = [
           />
         ),
       },
-    ],
-  },
-  {
-    id: "running",
-    columns: () => "",
-    entries: [
       {
         key: "running",
         source: "running",
@@ -184,8 +171,9 @@ export const SECTIONS: readonly Section[] = [
     ],
   },
   {
+    // Key figures of one size: a regular grid of tiles (layout "tiles" below).
     id: "figures",
-    columns: tileColumns,
+    layout: () => "tiles",
     entries: [
       {
         key: "backupSuccess",
@@ -227,7 +215,7 @@ export const SECTIONS: readonly Section[] = [
   },
   {
     id: "endpoints",
-    columns: () => "",
+    layout: () => "rows",
     entries: [
       {
         key: "endpoints",
@@ -239,12 +227,16 @@ export const SECTIONS: readonly Section[] = [
     ],
   },
   {
+    // The charts, and retention beside storage growth. Four cards fill two columns from the top:
+    // backup runs and restore checks in the first, storage growth and retention in the second
+    // (the reading order down each column). A chart with nothing to draw is left out.
     id: "trends",
-    columns: twoUp,
+    layout: (count) => (count >= 4 ? "columns" : "rows"),
     entries: [
       {
         key: "backupTrend",
         source: "backupTrend",
+        hidden: (c) => !chartsBackupRuns(c.view("backupTrend")),
         render: (c) => (
           <BackupTrendWidget
             view={c.view("backupTrend")}
@@ -258,6 +250,7 @@ export const SECTIONS: readonly Section[] = [
       {
         key: "verificationHistory",
         source: "verificationHistory",
+        hidden: (c) => !chartsRestoreChecks(c.view("verificationHistory")),
         render: (c) => (
           <VerificationHistoryWidget
             view={c.view("verificationHistory")}
@@ -266,15 +259,10 @@ export const SECTIONS: readonly Section[] = [
           />
         ),
       },
-    ],
-  },
-  {
-    id: "storage",
-    columns: twoUp,
-    entries: [
       {
         key: "storageGrowth",
         source: "storageGrowth",
+        hidden: (c) => !chartsStorageGrowth(c.view("storageGrowth")),
         render: (c) => (
           <StorageGrowthWidget
             view={c.view("storageGrowth")}
@@ -294,7 +282,7 @@ export const SECTIONS: readonly Section[] = [
   },
   {
     id: "activity",
-    columns: () => "",
+    layout: () => "rows",
     entries: [
       {
         key: "recentJobs",
@@ -337,10 +325,10 @@ export interface DashboardWidgetsProps extends Omit<WidgetContext, "view" | "pri
 /**
  * The price card's cell from the estimate query of the active tenant: shown once the installation
  * has a price that applies, and in its error state when the estimate failed. After a tenant
- * switch the previous tenant's answer keeps the cell (and so the row's three columns) while the
- * new one loads, with the card as a skeleton, so the row does not collapse and grow again. Only
- * the very first load of a session cannot know yet, and shows the row without the card until the
- * answer is there (nobody without a price sees the row change).
+ * switch the previous tenant's answer keeps the cell (and so the section's layout) while the
+ * new one loads, with the card as a skeleton, so the section does not collapse and grow again.
+ * Only the very first load of a session cannot know yet, and shows the section without the card
+ * until the answer is there (nobody without a price sees the section change).
  */
 function usePriceCell(isProviderAdmin: boolean): PriceCell {
   const tenant = useSession().activeTenant;
@@ -387,23 +375,21 @@ export function DashboardWidgets({ widgets, loading, ...context }: DashboardWidg
           return null;
         }
         return (
-          <section
+          <CardFlow
+            as="section"
             key={section.id}
             data-section={section.id}
-            className={cn("grid gap-4 *:min-w-0", section.columns(entries.length, full))}
+            layout={section.layout(entries.length)}
+            tileColumns={tileColumns(entries.length)}
           >
             {entries.map((entry) => (
               // One shrinkable track (minmax(0, 1fr)), so a wide table scrolls
               // inside its card instead of widening the page on a phone.
-              <div
-                key={entry.key}
-                data-slot="widget-cell"
-                className={cn("grid grid-cols-1", entry.cell?.(full, entries.length))}
-              >
+              <div key={entry.key} data-slot="widget-cell" className="grid grid-cols-1">
                 {entry.render(full)}
               </div>
             ))}
-          </section>
+          </CardFlow>
         );
       })}
     </div>

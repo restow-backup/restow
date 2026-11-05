@@ -9,10 +9,12 @@ import {
 
 import type {
   BackupDay,
+  BackupTrendWidget,
   EndpointsWidget,
   Readiness,
   RecentJob,
   StorageGrowthWidget,
+  VerificationHistoryWidget,
   WidgetId,
   WidgetResult,
 } from "./api.js";
@@ -62,15 +64,44 @@ export function widgetView<T>(
     : { kind: "error", error: new WidgetUnavailableError() };
 }
 
-/** Columns of a row of tiles: as many as there are tiles, at most four. */
-export function tileColumns(count: number): string {
+/**
+ * The most columns of a row of tiles: as many as there are tiles, at most four, so the row has
+ * no empty cell on a wide page (kit/card-flow.tsx, layout `tiles`).
+ */
+export function tileColumns(count: number): 2 | 3 | 4 {
   if (count >= 4) {
-    return "sm:grid-cols-2 xl:grid-cols-4";
+    return 4;
   }
-  if (count === 3) {
-    return "sm:grid-cols-2 xl:grid-cols-3";
-  }
-  return count === 2 ? "sm:grid-cols-2" : "";
+  return count === 3 ? 3 : 2;
+}
+
+/**
+ * Whether a chart has anything to draw: while loading and on an error it has (a skeleton, the
+ * failure with a retry); once its data is there, only when the data holds a value. A chart with
+ * nothing to draw is left out of the page (no empty card), and the cards around it close up.
+ */
+function charted<T>(view: WidgetView<T>, hasData: (data: T) => boolean): boolean {
+  return view.kind !== "ready" || hasData(view.data);
+}
+
+/**
+ * Backup runs: any run in the whole series the server sent, not only in the window chosen, so a
+ * window without runs keeps its card and the toggle that leads back to the wider one.
+ */
+export function chartsBackupRuns(view: WidgetView<BackupTrendWidget>): boolean {
+  return charted(view, (data) =>
+    data.series.some((day) => day.succeeded + day.withItemFailures + day.failed > 0),
+  );
+}
+
+/** Restore checks: any check in the series. */
+export function chartsRestoreChecks(view: WidgetView<VerificationHistoryWidget>): boolean {
+  return charted(view, (data) => data.series.some((day) => day.green + day.yellow + day.red > 0));
+}
+
+/** Storage growth: any stored bytes in the series. */
+export function chartsStorageGrowth(view: WidgetView<StorageGrowthWidget>): boolean {
+  return charted(view, (data) => data.series.some((point) => point.bytes > 0));
 }
 
 // ---------------------------------------------------------------------------

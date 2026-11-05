@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import * as React from "react";
 
-import { ErrorState, PageHeader, RefreshButton } from "@/components/kit";
+import { CardFlow, ErrorState, PageHeader, RefreshButton } from "@/components/kit";
 import { RequireRole } from "@/components/require-role";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,7 @@ import {
   type StatsExports,
   StatsExportsProvider,
 } from "./components/chart-parts.js";
+import { ChartsNotShown } from "./components/charts-not-shown.js";
 import { FailuresTable } from "./components/failures-table.js";
 import { KpiGrid } from "./components/kpi-grid.js";
 import { LargestObjectsTable } from "./components/largest-objects-table.js";
@@ -309,7 +310,12 @@ function StatsView({ access, title, search, update, period }: StatsViewProps) {
 
             <StatsSection id={`${sectionId}-trends`} title={t("charts.sectionLabel")}>
               <BackupsChart data={data?.series.backups} granularity={period.granularity} />
-              <div className="grid grid-cols-1 gap-4 *:min-w-0 lg:grid-cols-2">
+              {/*
+                Two charts a row, each at its own height; a chart with nothing to draw renders
+                nothing, the others close up (an odd one at the end takes the whole row), and
+                ChartsNotShown names it below.
+              */}
+              <CardFlow layout="rows" data-slot="stats-charts">
                 <RestoresChart data={data?.series.restores} granularity={period.granularity} />
                 <ReadinessChart data={data?.series.readiness} granularity={period.granularity} />
                 <VolumeChart
@@ -320,7 +326,8 @@ function StatsView({ access, title, search, update, period }: StatsViewProps) {
                 <StorageChart data={data?.series.storage} granularity={period.granularity} />
                 <JobDurationsChart data={data?.series.jobDurations} />
                 <ThrottlingChart data={data?.series.throttling} granularity={period.granularity} />
-              </div>
+              </CardFlow>
+              <ChartsNotShown series={data?.series} />
             </StatsSection>
 
             <StatsSection id={`${sectionId}-details`} title={t("tables.sectionLabel")}>

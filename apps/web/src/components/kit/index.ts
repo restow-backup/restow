@@ -18,6 +18,13 @@ export {
   type ActivityOrbProps,
   type ActivityOrbSize,
 } from "./activity-orb.js";
+export {
+  CARD_FLOW_CLASS,
+  CardFlow,
+  type CardFlowLayout,
+  type CardFlowProps,
+  cardFlowClass,
+} from "./card-flow.js";
 export { ChartCard, type ChartCardProps } from "./chart-card.js";
 export { type ChartStatusTone, chartTone, STATUS_CHART_COLOR } from "./chart-colors.js";
 export {

@@ -15,7 +15,7 @@ import {
 
 import type { Dataset, StatsDataset } from "../api.js";
 import type { Granularity } from "../period.js";
-import { type StatsFormat, useStatsFormat } from "../use-stats-format.js";
+import { useStatsFormat } from "../use-stats-format.js";
 
 /**
  * Parts every statistics chart shares: the export context the menus call,
@@ -97,24 +97,16 @@ export function DatasetMenu({ dataset, title }: DatasetMenuProps) {
   );
 }
 
-/** The ChartCard props that follow from a dataset (undefined while loading). */
-export function datasetState<T>(
-  dataset: Dataset<T> | undefined,
-  format: StatsFormat,
-  isEmpty: (rows: readonly T[]) => boolean,
-): { rows: T[]; loading: boolean; unavailable: string | null; empty: boolean } {
+/**
+ * The ChartCard props that follow from a dataset: its rows, or loading while it is undefined.
+ * A dataset without anything to draw never gets here: the chart renders nothing then
+ * (`chartAbsence`, presenters.ts) and the page names it under the others.
+ */
+export function datasetState<T>(dataset: Dataset<T> | undefined): { rows: T[]; loading: boolean } {
   if (dataset === undefined) {
-    return { rows: [], loading: true, unavailable: null, empty: false };
+    return { rows: [], loading: true };
   }
-  if (dataset.status === "unavailable") {
-    return { rows: [], loading: false, unavailable: format.reason(dataset.reason), empty: false };
-  }
-  return {
-    rows: dataset.rows,
-    loading: false,
-    unavailable: null,
-    empty: isEmpty(dataset.rows),
-  };
+  return { rows: dataset.status === "ok" ? dataset.rows : [], loading: false };
 }
 
 /** Props of every time-series chart card. */

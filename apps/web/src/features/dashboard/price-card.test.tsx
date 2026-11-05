@@ -102,25 +102,59 @@ function plain(html: string): string {
 }
 
 describe("the status row", () => {
-  it("is readiness on the left half and last backup and price side by side on the right", () => {
+  it("fills two columns from the top: readiness, then last backup and price beside it", () => {
     const { columns, cells, order, status } = row(true, seeded(estimateFixture()));
     expect(order).toEqual(["readiness", "lastBackup", "price"]);
-    // Wide: three columns in one row. Medium: readiness spans both columns above the two cards,
-    // which stay side by side. The widths are the widget area's (a container query).
-    expect(columns).toContain(
-      "@[68rem]/widgets:grid-cols-[minmax(0,1.8fr)_minmax(0,1.25fr)_minmax(0,0.85fr)]",
-    );
-    expect(columns).toContain("@[42rem]/widgets:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]");
-    expect(columns).not.toContain("lg:grid-cols-2");
+    // CSS columns that fill from the top (kit/card-flow.tsx), by the section's own width: the
+    // short cards stack beside the tall readiness card instead of being stretched to its height.
+    expect(status).toContain('data-layout="columns"');
+    expect(columns).toContain("@[42rem]/card-flow:columns-2");
+    expect(columns).toContain("*:break-inside-avoid");
+    expect(columns).not.toMatch(/grid-cols-\[|items-stretch/);
     expect(cells).toHaveLength(3);
-    expect(cells[0]).toContain("@[42rem]/widgets:col-span-2");
-    expect(cells[0]).toContain("@[68rem]/widgets:col-span-1");
-    expect(cells[1]).not.toContain("col-span");
-    expect(cells[2]).not.toContain("col-span");
-    // Narrow: no column classes below 42rem, so the cells wrap one below the other.
-    expect(columns).not.toMatch(/(^|\s)(sm|md|lg):grid-cols/);
+    // No cell spans or stretches: each card keeps its own height.
+    expect(cells.join(" ")).not.toContain("col-span");
+    expect(cells.join(" ")).not.toContain("h-full");
+    // Narrow: no column classes for small viewports, so the cells wrap one below the other.
+    expect(columns).not.toMatch(/(^|\s)(sm|md|lg):(grid-cols|columns)/);
     expect(status).toContain('data-widget="price" data-state="ready"');
     expect(plain(status)).toContain("€36.80 / month");
+  });
+
+  it("takes what is running into the columns, under the short cards", () => {
+    const html = render(
+      <DashboardWidgets
+        widgets={{
+          ...widgets,
+          running: {
+            state: "ok",
+            data: {
+              generatedAt: new Date().toISOString(),
+              runs: [],
+              pve: [],
+              truncated: false,
+              nextRunAt: null,
+            },
+          },
+        }}
+        loading={false}
+        canAdminister
+        isProviderAdmin={false}
+        onRetry={() => {}}
+        retrying={false}
+        trendDays={14}
+        onTrendDaysChange={() => {}}
+      />,
+    );
+    const section =
+      /<section[^>]*data-section="status"[^>]*>(.*?)<\/section>/s.exec(html)?.[0] ?? "";
+    expect([...section.matchAll(/data-widget="(\w+)"/g)].map((match) => match[1])).toEqual([
+      "readiness",
+      "lastBackup",
+      "running",
+    ]);
+    expect(section).toContain('data-layout="columns"');
+    expect(html).not.toContain('data-section="running"');
   });
 
   it("also appears for a tenant that has a price only through its own", () => {
@@ -136,15 +170,16 @@ describe("the status row", () => {
     expect(order).toContain("price");
   });
 
-  it("is exactly the two cells it was without a price", () => {
-    const { columns, cells, order } = row(true, seeded(noPriceEstimate()));
+  it("stacks readiness and last backup without a price, so the short card leaves no hole", () => {
+    const { columns, cells, order, status } = row(true, seeded(noPriceEstimate()));
     expect(order).toEqual(["readiness", "lastBackup"]);
-    expect(columns).toContain("lg:grid-cols-2");
+    expect(status).toContain('data-layout="stack"');
+    expect(columns).not.toMatch(/grid-cols-[2-9]|columns-/);
     expect(cells).toHaveLength(2);
     expect(cells.join(" ")).not.toContain("col-span");
   });
 
-  it("is unchanged while the estimate is not there yet, and for anybody but a provider admin", () => {
+  it("has no price card while the estimate is not there yet, and for anybody but a provider admin", () => {
     expect(row(true, newQueryClient()).order).toEqual(["readiness", "lastBackup"]);
     const member = row(
       false,
@@ -152,7 +187,7 @@ describe("the status row", () => {
       sessionAs({ isProviderAdmin: false, activeTenant: TENANT }),
     );
     expect(member.order).toEqual(["readiness", "lastBackup"]);
-    expect(member.columns).toContain("lg:grid-cols-2");
+    expect(member.status).toContain('data-layout="stack"');
   });
 
   it("shows the card in its error state when the estimate could not be read", async () => {

@@ -16,7 +16,7 @@ import {
 } from "@/components/ui/chart";
 
 import type { BackupPoint, ReadinessPoint, RestorePoint } from "../api.js";
-import { countTicks, isEmptySeries, maxStacked, sumOf } from "../presenters.js";
+import { chartAbsence, countTicks, maxStacked, sumOf } from "../presenters.js";
 import { useStatsFormat } from "../use-stats-format.js";
 import {
   AXIS_PROPS,
@@ -51,8 +51,13 @@ export function BackupsChart({ data, granularity }: SeriesChartProps<BackupPoint
     cancelled: { label: t("charts.backups.series.cancelled"), color: STATUS_CHART_COLOR.muted },
   } satisfies ChartConfig;
   const order = seriesOrder(Object.keys(config));
-  const state = datasetState(data, format, (rows) => isEmptySeries(rows, BACKUP_KEYS));
+  const state = datasetState(data);
   const ticks = countTicks(maxStacked(state.rows, BACKUP_KEYS));
+
+  // Nothing to draw: no card; the page names the chart under the others (ChartsNotShown).
+  if (chartAbsence("backups", data)) {
+    return null;
+  }
 
   return (
     <ChartCard
@@ -63,17 +68,13 @@ export function BackupsChart({ data, granularity }: SeriesChartProps<BackupPoint
       menu={data?.status === "ok" ? <DatasetMenu dataset="backups" title={title} /> : null}
       config={config}
       loading={state.loading}
-      unavailable={state.unavailable}
-      empty={state.empty}
-      emptyTitle={t("charts.backups.empty.title")}
-      emptyDescription={t("charts.backups.empty.description")}
       summary={t("charts.backups.summary", {
         succeeded: format.integer(sumOf(state.rows, "succeeded")),
         failed: format.integer(sumOf(state.rows, "failed")),
         cancelled: format.integer(sumOf(state.rows, "cancelled")),
       })}
     >
-      <BarChart data={state.rows} accessibilityLayer margin={{ left: 4, right: 4 }}>
+      <BarChart data={state.rows} accessibilityLayer margin={{ top: 12, left: 4, right: 4 }}>
         <CartesianGrid {...HORIZONTAL_GRID} />
         <XAxis
           dataKey="t"
@@ -116,8 +117,13 @@ export function RestoresChart({ data, granularity }: SeriesChartProps<RestorePoi
     failed: { label: t("charts.restores.series.failed"), color: STATUS_CHART_COLOR.destructive },
   } satisfies ChartConfig;
   const order = seriesOrder(Object.keys(config));
-  const state = datasetState(data, format, (rows) => isEmptySeries(rows, RESTORE_KEYS));
+  const state = datasetState(data);
   const ticks = countTicks(maxStacked(state.rows, RESTORE_KEYS));
+
+  // Nothing to draw: no card; the page names the chart under the others (ChartsNotShown).
+  if (chartAbsence("restores", data)) {
+    return null;
+  }
 
   return (
     <ChartCard
@@ -128,16 +134,12 @@ export function RestoresChart({ data, granularity }: SeriesChartProps<RestorePoi
       menu={data?.status === "ok" ? <DatasetMenu dataset="restores" title={title} /> : null}
       config={config}
       loading={state.loading}
-      unavailable={state.unavailable}
-      empty={state.empty}
-      emptyTitle={t("charts.restores.empty.title")}
-      emptyDescription={t("charts.restores.empty.description")}
       summary={t("charts.restores.summary", {
         completed: format.integer(sumOf(state.rows, "completed")),
         failed: format.integer(sumOf(state.rows, "failed")),
       })}
     >
-      <BarChart data={state.rows} accessibilityLayer margin={{ left: 4, right: 4 }}>
+      <BarChart data={state.rows} accessibilityLayer margin={{ top: 12, left: 4, right: 4 }}>
         <CartesianGrid {...HORIZONTAL_GRID} />
         <XAxis
           dataKey="t"
@@ -201,9 +203,14 @@ export function ReadinessChart({ data, granularity }: SeriesChartProps<Readiness
     noBackup: { label: t("readiness.noBackup"), color: STATUS_CHART_COLOR.destructive },
   } satisfies ChartConfig;
   const order = seriesOrder(Object.keys(config));
-  const state = datasetState(data, format, (rows) => isEmptySeries(rows, READINESS_KEYS));
+  const state = datasetState(data);
   const ticks = countTicks(maxStacked(state.rows, READINESS_KEYS));
   const last = state.rows.at(-1);
+
+  // Nothing to draw: no card; the page names the chart under the others (ChartsNotShown).
+  if (chartAbsence("readiness", data)) {
+    return null;
+  }
 
   return (
     <ChartCard
@@ -214,10 +221,6 @@ export function ReadinessChart({ data, granularity }: SeriesChartProps<Readiness
       menu={data?.status === "ok" ? <DatasetMenu dataset="readiness" title={title} /> : null}
       config={config}
       loading={state.loading}
-      unavailable={state.unavailable}
-      empty={state.empty}
-      emptyTitle={t("charts.readiness.empty.title")}
-      emptyDescription={t("charts.readiness.empty.description")}
       summary={
         last
           ? t("charts.readiness.summary", {
@@ -230,7 +233,7 @@ export function ReadinessChart({ data, granularity }: SeriesChartProps<Readiness
           : undefined
       }
     >
-      <AreaChart data={state.rows} accessibilityLayer margin={{ left: 4, right: 4 }}>
+      <AreaChart data={state.rows} accessibilityLayer margin={{ top: 12, left: 4, right: 4 }}>
         <CartesianGrid {...HORIZONTAL_GRID} />
         <XAxis
           dataKey="t"

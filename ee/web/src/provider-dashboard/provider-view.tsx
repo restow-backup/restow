@@ -10,7 +10,7 @@ import {
 import type * as React from "react";
 import { useTranslation } from "react-i18next";
 
-import { EmptyState, ErrorState, type KpiDelta, KpiTile } from "@/components/kit";
+import { CardFlow, EmptyState, ErrorState, type KpiDelta, KpiTile } from "@/components/kit";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { ProviderView as ProviderData, ProviderKpis } from "@/features/dashboard/api";
@@ -33,7 +33,7 @@ interface ProviderViewProps {
   onOpenReadiness: (tenantId: string, state: ReadinessState) => void;
   /** The price card of the page (null where there is none); it sits beside the readiness card. */
   priceCard: React.ReactNode;
-  /** "Running now" of the page, laid out under the first row. */
+  /** "Running now" of the page, laid out with the readiness and price cards. */
   runningNow: React.ReactNode;
 }
 
@@ -118,8 +118,8 @@ function ProviderKpiTiles({ kpis, loading }: { kpis: ProviderKpis | null; loadin
   const incomplete = missing > 0 ? t("provider.kpis.incomplete", { count: missing }) : null;
 
   return (
-    // Columns by the width of the widget area (a container query), so a collapsed sidebar counts.
-    <div className="grid gap-4 @[26rem]/widgets:grid-cols-2 @[56rem]/widgets:grid-cols-3">
+    // Six tiles of one size in a regular grid: two, then three a row by the width of the page.
+    <CardFlow layout="tiles" tileColumns={3}>
       {KPI_KEYS.map((key) => (
         <KpiTile
           key={key}
@@ -131,34 +131,39 @@ function ProviderKpiTiles({ kpis, loading }: { kpis: ProviderKpis | null; loadin
           loading={loading}
         />
       ))}
-    </div>
+    </CardFlow>
   );
 }
 
 /**
- * The first row: the readiness card with the price card beside it, both at the full height of the
- * row. As on the tenant's Status tab the width of the widget area decides (a container query on
- * `@container/widgets`, so a collapsed sidebar counts): from 68rem the readiness card takes two
- * thirds and the price card the third; from 42rem a little more than half and the rest; narrower,
- * the price card below the readiness card. Without a price card the readiness card has the row.
+ * The status section: the readiness card with the price card beside it, each at its own height
+ * (kit/card-flow.tsx, layout `rows`: neither is stretched to the other's height), then "Running
+ * now" across the whole width. The readiness card here is shorter than on a tenant's Status tab,
+ * so the two stand in one row; "Running now" beside them would leave a hole below the readiness
+ * card. Without a price card the readiness card has the row. On a phone, one below the other.
  */
-function StatusRow({ main, aside }: { main: React.ReactNode; aside: React.ReactNode }) {
-  if (!aside) {
-    return <>{main}</>;
-  }
+function StatusRow({
+  main,
+  aside,
+  running,
+}: {
+  main: React.ReactNode;
+  aside: React.ReactNode;
+  running: React.ReactNode;
+}) {
   return (
-    <div
-      data-section="provider-status"
-      className="grid gap-4 *:min-w-0 @[42rem]/widgets:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] @[68rem]/widgets:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]"
-    >
-      {/* One shrinkable track, so the card fills the height of its row. */}
-      <div data-slot="widget-cell" className="grid grid-cols-1">
-        {main}
-      </div>
-      <div data-slot="widget-cell" className="grid grid-cols-1">
-        {aside}
-      </div>
-    </div>
+    <>
+      {aside ? (
+        // The cards are the flow's children themselves: one that renders nothing leaves no cell.
+        <CardFlow layout="rows" data-section="provider-status">
+          {main}
+          {aside}
+        </CardFlow>
+      ) : (
+        main
+      )}
+      {running}
+    </>
   );
 }
 
@@ -209,8 +214,8 @@ export function ProviderView({
             />
           }
           aside={priceCard}
+          running={runningNow}
         />
-        {runningNow}
       </div>
     );
   }
@@ -218,8 +223,11 @@ export function ProviderView({
   if (view.kind === "loading") {
     return (
       <div data-widget="provider" data-state="loading" className="@container/widgets space-y-6">
-        <StatusRow main={<ProviderReadinessCard readiness={null} loading />} aside={priceCard} />
-        {runningNow}
+        <StatusRow
+          main={<ProviderReadinessCard readiness={null} loading />}
+          aside={priceCard}
+          running={runningNow}
+        />
         <ProviderKpiTiles kpis={null} loading />
         <MatrixCard>
           <div className="space-y-2" aria-busy="true">
@@ -255,8 +263,8 @@ export function ProviderView({
       <StatusRow
         main={<ProviderReadinessCard readiness={data.kpis.readiness} loading={false} />}
         aside={priceCard}
+        running={runningNow}
       />
-      {runningNow}
       <ProviderKpiTiles kpis={data.kpis} loading={false} />
       <AlertList alerts={data.alerts} onOpenTenant={onOpenTenant} />
       <MatrixCard>

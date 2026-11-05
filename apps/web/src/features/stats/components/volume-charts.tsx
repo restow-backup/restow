@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/chart";
 
 import type { StoragePoint, VolumePoint } from "../api.js";
-import { byteTicks, type DedupFigures, isEmptySeries, maxOf } from "../presenters.js";
+import { byteTicks, chartAbsence, type DedupFigures, maxOf } from "../presenters.js";
 import { useStatsFormat } from "../use-stats-format.js";
 import {
   AXIS_PROPS,
@@ -44,7 +44,7 @@ export function VolumeChart({ data, granularity, dedup }: VolumeChartProps) {
     physicalBytes: { label: t("charts.volume.series.physical"), color: "var(--chart-5)" },
   } satisfies ChartConfig;
   const order = seriesOrder(Object.keys(config));
-  const state = datasetState(data, format, (rows) => isEmptySeries(rows, VOLUME_KEYS));
+  const state = datasetState(data);
   const ticks = byteTicks(maxOf(state.rows, VOLUME_KEYS));
   const last = state.rows.at(-1);
 
@@ -58,6 +58,11 @@ export function VolumeChart({ data, granularity, dedup }: VolumeChartProps) {
         : t("charts.volume.dedupShare", { savings: format.share(dedup.savings) })
       : null;
 
+  // Nothing to draw: no card; the page names the chart under the others (ChartsNotShown).
+  if (chartAbsence("volume", data)) {
+    return null;
+  }
+
   return (
     <ChartCard
       title={title}
@@ -67,11 +72,7 @@ export function VolumeChart({ data, granularity, dedup }: VolumeChartProps) {
       menu={data?.status === "ok" ? <DatasetMenu dataset="volume" title={title} /> : null}
       config={config}
       loading={state.loading}
-      unavailable={state.unavailable}
-      empty={state.empty}
-      emptyTitle={t("charts.volume.empty.title")}
-      emptyDescription={t("charts.volume.empty.description")}
-      footer={state.loading || state.unavailable || state.empty ? null : footer}
+      footer={state.loading ? null : footer}
       summary={
         last
           ? t("charts.volume.summary", {
@@ -81,7 +82,7 @@ export function VolumeChart({ data, granularity, dedup }: VolumeChartProps) {
           : undefined
       }
     >
-      <AreaChart data={state.rows} accessibilityLayer margin={{ left: 4, right: 4 }}>
+      <AreaChart data={state.rows} accessibilityLayer margin={{ top: 12, left: 4, right: 4 }}>
         <CartesianGrid {...HORIZONTAL_GRID} />
         <XAxis
           dataKey="t"
@@ -131,10 +132,15 @@ export function StorageChart({ data, granularity }: SeriesChartProps<StoragePoin
     bytes: { label: t("charts.storage.series.bytes"), color: "var(--chart-1)" },
   } satisfies ChartConfig;
   const order = seriesOrder(Object.keys(config));
-  const state = datasetState(data, format, (rows) => isEmptySeries(rows, ["bytes"]));
+  const state = datasetState(data);
   const ticks = byteTicks(maxOf(state.rows, ["bytes"]));
   const first = state.rows[0];
   const last = state.rows.at(-1);
+
+  // Nothing to draw: no card; the page names the chart under the others (ChartsNotShown).
+  if (chartAbsence("storage", data)) {
+    return null;
+  }
 
   return (
     <ChartCard
@@ -145,10 +151,6 @@ export function StorageChart({ data, granularity }: SeriesChartProps<StoragePoin
       menu={data?.status === "ok" ? <DatasetMenu dataset="storage" title={title} /> : null}
       config={config}
       loading={state.loading}
-      unavailable={state.unavailable}
-      empty={state.empty}
-      emptyTitle={t("charts.storage.empty.title")}
-      emptyDescription={t("charts.storage.empty.description")}
       summary={
         first && last
           ? t("charts.storage.summary", {
@@ -158,7 +160,7 @@ export function StorageChart({ data, granularity }: SeriesChartProps<StoragePoin
           : undefined
       }
     >
-      <AreaChart data={state.rows} accessibilityLayer margin={{ left: 4, right: 4 }}>
+      <AreaChart data={state.rows} accessibilityLayer margin={{ top: 12, left: 4, right: 4 }}>
         <CartesianGrid {...HORIZONTAL_GRID} />
         <XAxis
           dataKey="t"
