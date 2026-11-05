@@ -22,6 +22,7 @@ import { GraphError, isGraphError, isMailboxUnavailable, isNotFound } from "../e
 import {
   bodyOrThrow,
   collect,
+  isWriteOutcomeUnknown,
   odataString,
   paginate,
   query,
@@ -1013,6 +1014,37 @@ async function createChildFolder(
 }
 
 /**
+ * Create a folder without ever creating it twice: when Graph answers 409 (it
+ * exists, for example because an earlier POST went through unanswered) or the
+ * outcome of the POST is unknown, the folder is looked up again and taken;
+ * only a folder that is still missing after an unknown outcome is created
+ * once more.
+ */
+async function createChildFolderOnce(
+  client: GraphClient,
+  userId: string,
+  parentFolderId: string | undefined,
+  displayName: string,
+): Promise<string> {
+  try {
+    return await createChildFolder(client, userId, parentFolderId, displayName);
+  } catch (error) {
+    const exists = isGraphError(error) && error.status === 409;
+    if (!exists && !isWriteOutcomeUnknown(error)) {
+      throw error;
+    }
+    const found = await findChildFolder(client, userId, parentFolderId, displayName);
+    if (found !== null) {
+      return found;
+    }
+    if (exists) {
+      throw error;
+    }
+    return createChildFolder(client, userId, parentFolderId, displayName);
+  }
+}
+
+/**
  * Walk (and create where missing) a folder path like `Inbox/Projects/2026` and
  * return the id of the last folder. Lookups are by display name, case-insensitive
  * as Graph's `$filter eq` is; existing folders are never duplicated.
@@ -1033,7 +1065,7 @@ export async function ensureMailFolderPath(
     const id: string =
       cached ??
       (await findChildFolder(client, userId, parentId, segment)) ??
-      (await createChildFolder(client, userId, parentId, segment));
+      (await createChildFolderOnce(client, userId, parentId, segment));
     cache.set(cacheKey, id);
     current = id;
   }

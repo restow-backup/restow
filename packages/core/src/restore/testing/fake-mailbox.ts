@@ -163,7 +163,58 @@ export class FakeMailbox {
       name: "Calendar",
       isDefaultCalendar: true,
     });
-    this.graph = createFakeGraph(this.routes());
+    this.graph = createFakeGraph(this.routes().map((route) => this.withFaults(route)));
+  }
+
+  /**
+   * Faults after the commit, as Graph shows them: the request is carried
+   * out, and then the gateway answers 504 or the connection breaks before the
+   * answer arrives. Each fault applies to the next `times` successful calls
+   * of `method` on a path matching `path`.
+   */
+  readonly faults: Array<{
+    method: string;
+    path: RegExp;
+    after: "504" | "reset";
+    times: number;
+  }> = [];
+
+  failAfterCommit(method: string, path: RegExp, after: "504" | "reset" = "504", times = 1): void {
+    this.faults.push({ method, path, after, times });
+  }
+
+  private withFaults(route: FixtureRoute): FixtureRoute {
+    const { respond } = route;
+    return {
+      ...route,
+      respond: (call, index) => {
+        const result =
+          typeof respond === "function"
+            ? respond(call, index)
+            : Array.isArray(respond)
+              ? (respond[Math.min(index, respond.length - 1)] as FixtureResponse)
+              : respond;
+        const fault = this.faults.find(
+          (entry) =>
+            entry.times > 0 &&
+            entry.method === call.method &&
+            entry.path.test(new URL(call.url).pathname),
+        );
+        if (!fault || result.status >= 300) {
+          return result;
+        }
+        fault.times--;
+        if (fault.after === "reset") {
+          throw Object.assign(new TypeError("fetch failed"), {
+            cause: Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }),
+          });
+        }
+        return {
+          status: 504,
+          json: graphError("GatewayTimeout", "The gateway did not receive a response"),
+        };
+      },
+    };
   }
 
   nextId(prefix: string): string {
@@ -257,6 +308,17 @@ export class FakeMailbox {
     const body = call.json as { displayName?: string };
     if (!body.displayName) {
       return { status: 400, json: graphError("ErrorInvalidRequest") };
+    }
+    const name = body.displayName.toLowerCase();
+    if (
+      [...this.folders.values()].some(
+        (folder) => folder.parentFolderId === parentId && folder.displayName.toLowerCase() === name,
+      )
+    ) {
+      return {
+        status: 409,
+        json: graphError("ErrorFolderExists", "A folder with the specified name already exists."),
+      };
     }
     const folder = this.addFolder(body.displayName, parentId);
     return { status: 201, json: { id: folder.id, displayName: folder.displayName } };
@@ -467,6 +529,48 @@ export class FakeMailbox {
           const id = this.nextId("att");
           message.attachments.push({ id, ...json });
           return { status: 201, json: { id } };
+        },
+      },
+      {
+        method: "GET",
+        url: path(/\/users\/[^/]+\/messages\/[^/]+\/attachments$/),
+        respond: (call) => {
+          const message = this.messages.get(segment(new URL(call.url), "messages") ?? "");
+          if (!message) {
+            return NOT_FOUND;
+          }
+          const value = message.attachments.map((attachment) => ({
+            id: attachment.id,
+            name: attachment.name,
+            contentType: attachment.contentType,
+            isInline: attachment.isInline ?? false,
+            // Graph's size counts a little more than the content.
+            size:
+              (typeof attachment.contentBytes === "string"
+                ? Buffer.from(attachment.contentBytes, "base64").length
+                : 0) + 120,
+          }));
+          return { status: 200, json: { value } };
+        },
+      },
+      {
+        method: "GET",
+        url: path(/\/users\/[^/]+\/messages\/[^/]+$/),
+        respond: (call) => {
+          const message = this.messages.get(segment(new URL(call.url), "messages") ?? "");
+          return message
+            ? {
+                status: 200,
+                json: {
+                  id: message.id,
+                  internetMessageId: message.internetMessageId,
+                  subject: message.subject,
+                  isDraft: message.isDraft,
+                  receivedDateTime: message.receivedDateTime,
+                  sentDateTime: message.sentDateTime,
+                },
+              }
+            : NOT_FOUND;
         },
       },
       {

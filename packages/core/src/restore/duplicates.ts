@@ -31,6 +31,8 @@ const SEPARATOR = "\u0000";
 interface GroupState<Id> {
   /** Copies the target had before this run wrote to the group, not yet claimed; undefined until asked. */
   copies: Id[] | undefined;
+  /** Every copy the target had before this run wrote to the group, claimed or not. */
+  before: Id[] | undefined;
   /** Messages of the group not settled yet. */
   pending: number;
 }
@@ -61,6 +63,17 @@ export interface DuplicateSlot<Id> {
   claimEarlierCopy(
     sameContent: (copy: Id) => Promise<boolean | undefined>,
   ): Promise<EarlierCopy<Id> | undefined>;
+  /**
+   * After a create whose outcome is unknown (Graph did not answer): the copy
+   * under this Message-ID in `container` that neither the target had before
+   * this run nor this run wrote for another message, i.e. the one the
+   * unanswered create made. Undefined when there is none, or the message has
+   * no Message-ID. Call after {@link existing}.
+   */
+  findOwnWrite(
+    container: string,
+    lookup: (messageId: string) => Promise<Id[]>,
+  ): Promise<Id | undefined>;
   /** A copy this run wrote for the message (never a duplicate of a later message). */
   wrote(container: string, copy: Id | undefined): void;
   /** Finish the message, however it ended. Safe to call more than once. */
@@ -121,11 +134,11 @@ export class MessageIdDuplicates<Id> {
       if (open) {
         state = open;
       } else {
-        state = { copies: undefined, pending: this.sizes.get(key) ?? 1 };
+        state = { copies: undefined, before: undefined, pending: this.sizes.get(key) ?? 1 };
         this.groups.set(key, state);
       }
     } else {
-      state = { copies: undefined, pending: 1 };
+      state = { copies: undefined, before: undefined, pending: 1 };
     }
     let settled = false;
 
@@ -141,8 +154,18 @@ export class MessageIdDuplicates<Id> {
             ? this.written.get(`${container}${SEPARATOR}${messageId}`)
             : undefined;
           state.copies = ours ? found.filter((copy) => !ours.includes(copy)) : found;
+          state.before = [...state.copies];
         }
         return [...state.copies];
+      },
+      findOwnWrite: async (container, lookup) => {
+        if (messageId === undefined || state.before === undefined) {
+          return undefined;
+        }
+        const before = state.before;
+        const ours = this.written.get(`${container}${SEPARATOR}${messageId}`) ?? [];
+        const found = await lookup(messageId);
+        return found.find((copy) => !before.includes(copy) && !ours.includes(copy));
       },
       claimEarlierCopy: async (sameContent) => {
         const copies = state.copies ?? [];

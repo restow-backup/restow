@@ -1135,6 +1135,215 @@ describe("ExchangeRestoreEngine", () => {
     expect(item.reason).toMatch(/1 of 1 attachments could not be added \(huge\.bin: /);
   });
 
+  describe("when Exchange carries out a POST but its answer is lost", () => {
+    /** A client that never sends a POST twice on its own, as the Graph client does for an unknown outcome. */
+    const onceEngine = (mailbox: FakeMailbox) =>
+      new ExchangeRestoreEngine({ graph: () => mailbox.graph.client({ maxRetries: 0 }) });
+
+    it("keeps the message the unanswered create made instead of creating a second one", async () => {
+      fixture = await createSnapshotFixture({
+        kind: "mailbox",
+        externalId: USER,
+        objects: [kickoff, offer],
+      });
+      for (const after of ["504", "reset"] as const) {
+        const mailbox = new FakeMailbox();
+        // The Inbox already holds an older copy of the Kickoff mail: never taken for the new one.
+        const older = mailbox.addMessage({
+          parentFolderId: "wk-inbox",
+          internetMessageId: "<one@example.org>",
+        });
+        mailbox.failAfterCommit("POST", /\/mailFolders\/[^/]+\/messages$/, after, 2);
+
+        const report = await onceEngine(mailbox).run(
+          fixture.ctx,
+          restoreRequestFor(fixture, { mode: "rename" }),
+        );
+
+        expect(report.failures, after).toEqual([]);
+        expect(report.restored, after).toBe(2);
+        const restored = [...mailbox.messages.values()].filter((m) => m.id !== older.id);
+        expect(restored.map((m) => m.internetMessageId).sort(), after).toEqual([
+          "<one@example.org>",
+          "<two@example.org>",
+        ]);
+        for (const item of report.items) {
+          expect(item.targetRef, after).not.toBe(older.id);
+          // Found, not confirmed: restored, without the green of a confirmed item.
+          expect(item, after).toMatchObject({
+            status: "restored",
+            code: "restored",
+            verified: false,
+          });
+          expect(item.reason, after).toMatch(/did not answer the create.*not created twice/);
+        }
+        // Flags were applied to the message that was found.
+        const kick = must(restored.find((m) => m.internetMessageId === "<one@example.org>"));
+        expect(kick.patches).toEqual([
+          {
+            isRead: false,
+            flag: { flagStatus: "flagged" },
+            categories: ["Red"],
+            importance: "high",
+          },
+        ]);
+      }
+    });
+
+    it("never sends a message without Message-ID twice", async () => {
+      const anonymous: FixtureObject = {
+        ...offer,
+        path: "mail/Gesendete Elemente/Anonymous.0040.eml",
+        id: "AAMk40",
+        content:
+          "Subject: no id\r\nFrom: a@example.org\r\nDate: Thu, 15 Jan 2026 10:30:00 +0000\r\n\r\nbody\r\n",
+        metadata: {
+          folderPath: "Gesendete Elemente",
+          wellKnownFolder: "sentitems",
+          format: "mime",
+        },
+      };
+      fixture = await createSnapshotFixture({
+        kind: "mailbox",
+        externalId: USER,
+        objects: [anonymous],
+      });
+      const mailbox = new FakeMailbox();
+      mailbox.failAfterCommit("POST", /\/messages$/);
+
+      const report = await onceEngine(mailbox).run(fixture.ctx, restoreRequestFor(fixture));
+
+      expect(mailbox.messages.size).toBe(1);
+      expect(report.items[0]?.status).toBe("failed");
+      expect(report.items[0]?.reason).toMatch(/not sent again so that no second copy is made/);
+    });
+
+    it("takes the folder an unanswered POST created, also when the resend gets 409", async () => {
+      fixture = await createSnapshotFixture({
+        kind: "mailbox",
+        externalId: USER,
+        objects: [kickoff],
+      });
+      // The Graph client of today resends after the 504 and Exchange answers 409.
+      const resent = new FakeMailbox();
+      resent.failAfterCommit("POST", /\/childFolders$|\/mailFolders$/);
+      const first = await engineFor(resent).run(
+        fixture.ctx,
+        restoreRequestFor(fixture, { mode: "rename", requestedAt: NOW }),
+      );
+      // Without a resend: the folder is looked up again.
+      const once = new FakeMailbox();
+      once.failAfterCommit("POST", /\/childFolders$|\/mailFolders$/, "504", 3);
+      const second = await onceEngine(once).run(
+        fixture.ctx,
+        restoreRequestFor(fixture, { mode: "rename", requestedAt: NOW }),
+      );
+
+      for (const [report, mailbox] of [
+        [first, resent],
+        [second, once],
+      ] as const) {
+        expect(report.failures).toEqual([]);
+        expect(report.restored).toBe(1);
+        const message = must([...mailbox.messages.values()][0]);
+        expect(mailbox.folderPath(message.parentFolderId)).toEqual([
+          RESTORE_FOLDER,
+          "Posteingang",
+          "Projekte",
+        ]);
+        expect(
+          [...mailbox.folders.values()].filter((f) => f.displayName === RESTORE_FOLDER),
+        ).toHaveLength(1);
+      }
+    });
+
+    it("sends an unanswered event once more with the same transactionId", async () => {
+      fixture = await createSnapshotFixture({
+        kind: "mailbox",
+        externalId: USER,
+        objects: [dentist],
+      });
+      const mailbox = new FakeMailbox();
+      mailbox.failAfterCommit("POST", /\/events$/);
+
+      const report = await onceEngine(mailbox).run(
+        fixture.ctx,
+        restoreRequestFor(fixture, { mode: "skip" }),
+      );
+
+      expect(report.failures).toEqual([]);
+      expect(mailbox.events.size).toBe(1);
+      const posts = mailbox.graph.callsTo("POST", "/events");
+      expect(posts).toHaveLength(2);
+      const ids = posts.map((post) => (post.json as { transactionId: string }).transactionId);
+      expect(ids[0]).toBe(ids[1]);
+    });
+
+    it("keeps the contact and the attachment an unanswered POST made", async () => {
+      const withAttachment: FixtureObject = {
+        path: "mail/Posteingang/Plan.0041.json",
+        type: "mail",
+        id: "AAMk41",
+        metadata: {
+          format: "json",
+          messageId: "<plan@example.org>",
+          folderPath: "Posteingang",
+          wellKnownFolder: "inbox",
+          isDraft: "false",
+        },
+        content: JSON.stringify({
+          subject: "Plan",
+          internetMessageId: "<plan@example.org>",
+          isDraft: false,
+        }),
+      };
+      fixture = await createSnapshotFixture({
+        kind: "mailbox",
+        externalId: USER,
+        objects: [
+          withAttachment,
+          {
+            path: "mail/Posteingang/Plan.0041.attachments/plan.txt.aa",
+            type: "attachment",
+            id: "AAMk41/a1",
+            metadata: {
+              messagePath: withAttachment.path,
+              name: "plan.txt",
+              contentType: "text/plain",
+            },
+            content: "the plan",
+          },
+          clientsFolder,
+          ben,
+        ],
+      });
+      const mailbox = new FakeMailbox();
+      // An older Ben in the folder is never mistaken for the one this run made.
+      const clients = mailbox.addContactFolder("Clients", null);
+      const olderBen = mailbox.addContact(clients.id, {
+        displayName: "Ben Example",
+        emailAddresses: [{ address: "ben@example.org" }],
+      });
+      mailbox.failAfterCommit("POST", /\/attachments$/);
+      mailbox.failAfterCommit("POST", /\/contacts$/);
+
+      const report = await onceEngine(mailbox).run(
+        fixture.ctx,
+        restoreRequestFor(fixture, { mode: "rename" }),
+      );
+
+      expect(report.failures).toEqual([]);
+      const message = must([...mailbox.messages.values()][0]);
+      expect(message.attachments).toHaveLength(1);
+      expect(mailbox.contacts.size).toBe(2);
+      const contact = must(report.items.find((item) => item.id === "C1"));
+      expect(contact.status).toBe("restored");
+      expect(contact.targetRef).not.toBe(olderBen.id);
+      expect(contact).toMatchObject({ code: "restored", verified: false });
+      expect(contact.reason).toMatch(/found by its name and address/);
+    });
+  });
+
   it("explains a message Graph refuses as too large", async () => {
     fixture = await createSnapshotFixture({
       kind: "mailbox",

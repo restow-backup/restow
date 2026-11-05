@@ -4,7 +4,9 @@
  */
 import type { Contact, ContactFolder } from "@microsoft/microsoft-graph-types";
 import type { GraphClient } from "../client.js";
+import { isGraphError } from "../errors.js";
 import {
+  isWriteOutcomeUnknown,
   odataString,
   paginate,
   query,
@@ -156,13 +158,35 @@ async function findOrCreateContactFolder(
     $filter: `displayName eq ${odataString(displayName)}`,
     $select: "id",
   })}`;
-  for await (const folder of paginate<{ id: string }>(client, lookup)) {
-    return folder.id;
+  const find = async (): Promise<string | null> => {
+    for await (const folder of paginate<{ id: string }>(client, lookup)) {
+      return folder.id;
+    }
+    return null;
+  };
+  const create = async (): Promise<string> =>
+    (await requestOk<{ id: string }>(client, { method: "POST", url: base, body: { displayName } }))
+      .id;
+  const existing = await find();
+  if (existing !== null) {
+    return existing;
   }
-  const created = await requestOk<{ id: string }>(client, {
-    method: "POST",
-    url: base,
-    body: { displayName },
-  });
-  return created.id;
+  try {
+    return await create();
+  } catch (error) {
+    // It exists after all (409), or the POST may have gone through unanswered:
+    // take the folder Graph has; create it once more only when it is missing.
+    const exists = isGraphError(error) && error.status === 409;
+    if (!exists && !isWriteOutcomeUnknown(error)) {
+      throw error;
+    }
+    const found = await find();
+    if (found !== null) {
+      return found;
+    }
+    if (exists) {
+      throw error;
+    }
+    return create();
+  }
 }

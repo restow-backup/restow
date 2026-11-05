@@ -6,6 +6,7 @@ import { batchEnvelope, createFakeGraph, graphError, must } from "../testing/fak
 import foldersFixture from "../testing/fixtures/mail-folders.json" with { type: "json" };
 import contentFixture from "../testing/fixtures/message-content.json" with { type: "json" };
 import deltaFixture from "../testing/fixtures/messages-delta.json" with { type: "json" };
+import { isWriteOutcomeUnknown } from "./common.js";
 import {
   addFileAttachment,
   attachmentIdFromLocation,
@@ -544,6 +545,23 @@ describe("restore", () => {
       conversationId: "c",
     } as never);
     expect(creatable).toEqual({ subject: "Hi", body: { contentType: "text", content: "hello" } });
+  });
+
+  it("knows which failed writes may have gone through", () => {
+    const status = (code: number) => new GraphError({ status: code, method: "POST", url: "/x" });
+    expect(isWriteOutcomeUnknown(status(504))).toBe(true);
+    expect(isWriteOutcomeUnknown(status(502))).toBe(true);
+    expect(isWriteOutcomeUnknown(status(400))).toBe(false);
+    expect(isWriteOutcomeUnknown(status(429))).toBe(false);
+    const named = (name: string) => Object.assign(new Error("x"), { name });
+    expect(isWriteOutcomeUnknown(named("GraphOutcomeUnknownError"))).toBe(true);
+    expect(isWriteOutcomeUnknown(named("GraphResponseTimeoutError"))).toBe(true);
+    expect(
+      isWriteOutcomeUnknown(
+        Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNRESET" } }),
+      ),
+    ).toBe(true);
+    expect(isWriteOutcomeUnknown(named("AbortError"))).toBe(false);
   });
 
   it("keeps only the custom x- headers Graph takes on create, within the limit", () => {

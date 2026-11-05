@@ -530,6 +530,19 @@ private repository.
   is read twice as a stream and no attachment is held in memory. What does not come back
   (transport headers such as Received and References, the exact MIME) is said on the item; a
   missing attachment or a different Message-ID makes it "Not confirmed".
+- Mail restore: when Exchange carried out a create but its answer was lost (the gateway answered
+  504, no answer came in time, or the connection broke), nothing checked whether the item already
+  existed. A message was then reported as failed although it was in the folder, or, sent again,
+  ended up there twice; a folder whose create was sent again failed the message with 409; a
+  contact or an attachment could be duplicated. The restore now looks first: a message by its
+  Message-ID in the target folder (a copy the folder did not have before the restore is the one
+  the create made), a folder by its name (also after a 409), an attachment by name and size on
+  its message, a contact by name and address. What it finds is kept and the item says so (it counts
+  as restored, without the confirmation a matching item gets); only what is not there is sent once
+  more. An event is sent once more
+  with the same `transactionId`, so Exchange returns the one it made. A message without
+  Message-ID and a contact that is not found are never sent again but reported, so that no second
+  copy is made.
 - Mail restore: a message that Exchange created as a draft (a MIME import whose header lacks Date
   or From, for example) counted as confirmed as soon as its Message-ID matched, although it was
   no draft in the backup and Outlook shows it as an unsent draft. The draft state of every

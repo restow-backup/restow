@@ -22,6 +22,13 @@
  * Contacts  Contacts are POSTed from JSON into the recreated folder path.
  * Folders   Selected folders are recreated even when empty.
  *
+ * A POST is never sent twice blindly: when Graph's answer is lost
+ * (isWriteOutcomeUnknown: 502/504, a timeout, a broken connection) the item
+ * may exist all the same, so the engine looks for it first (a message by
+ * Message-ID, a folder by name, an attachment by name and size, a contact by
+ * name and address) and keeps what it finds; an event is resent with its
+ * transactionId, which Graph deduplicates.
+ *
  * A mailbox restore never replaces an original (docs/ARCHITECTURE.md,
  * Restore): nothing here is ever deleted, overwritten or moved. Where a
  * restored item lands depends on the mode:
@@ -63,6 +70,7 @@ import {
 import {
   collect,
   isGroupOwner,
+  isWriteOutcomeUnknown,
   type MailboxOwner,
   odataString,
   paginate,
@@ -81,6 +89,8 @@ import {
   createMessageFromMime,
   ensureMailFolderPath,
   findMessagesByInternetMessageId,
+  getMessage,
+  listAttachments,
   MIME_IMPORT_LIMIT_BASE64_BYTES,
   PID_TAG_CLIENT_SUBMIT_TIME,
   PID_TAG_MESSAGE_DELIVERY_TIME,
@@ -450,6 +460,29 @@ interface ImportedMessage {
   readonly sentTimes: { readonly received?: string; readonly sent?: string };
   /** A MIME too large for one request: its attachments, added after the create. */
   readonly mimeParts?: MimeOutline;
+  /**
+   * Graph did not answer the create; the message it had made was found by
+   * its Message-ID and taken (or, when there was none, the create was sent
+   * once more). Says so on the item.
+   */
+  readonly recovered?: { readonly adopted: boolean; readonly note: string };
+}
+
+/** What Graph says about a message a create made, for the checks after it. */
+const CREATED_MESSAGE_SELECT = [
+  "id",
+  "internetMessageId",
+  "isDraft",
+  "receivedDateTime",
+  "sentDateTime",
+] as const;
+
+/** Why a failed write is not sent again: it may have gone through. */
+function outcomeUnknownError(what: string, error: unknown): Error {
+  return new Error(
+    `Exchange did not answer whether it created ${what} (${describeRestoreError(error)}); it was not sent again so that no second copy is made, check the target for it`,
+    { cause: error },
+  );
 }
 
 function withId(message: Message): Message & { id: string } {
@@ -482,6 +515,10 @@ export class ExchangeRestoreSession {
    * an earlier attempt restored.
    */
   private readonly contactsByFolder = new Map<string, Map<string, ExistingContact[]>>();
+  /** Every contact a folder held when this run first looked at it. */
+  private readonly contactsBefore = new Set<string>();
+  /** Contacts this run created (or found its unanswered create had made). */
+  private readonly contactsCreated = new Set<string>();
 
   /** Whose calendar the events go into (see {@link SessionOptions.owner}). */
   private readonly owner: MailboxOwner;
@@ -626,7 +663,7 @@ export class ExchangeRestoreSession {
         skipAttachments("the message already exists in the target folder");
         return;
       }
-      imported = await this.importMessage(message, folderId, isJson);
+      imported = await this.importMessage(message, folderId, isJson, duplicates);
       duplicates.wrote(folderId, imported.created.id);
     } catch (error) {
       duplicates.settle();
@@ -647,7 +684,7 @@ export class ExchangeRestoreSession {
 
     const { created } = imported;
     const problems: string[] = [];
-    const notes: string[] = [];
+    const notes: string[] = imported.recovered ? [imported.recovered.note] : [];
     try {
       await patchMessage(client, userId, created.id, messageFlagsOf(message));
     } catch (error) {
@@ -668,8 +705,9 @@ export class ExchangeRestoreSession {
 
     const recorders: AttachmentRecorder[] = [];
     let attachmentFailures = 0;
+    const taken = new Set<string>();
     for (const attachment of attachments) {
-      const outcome = await this.addAttachment(created.id, attachment, isJson);
+      const outcome = await this.addAttachment(created.id, attachment, isJson, taken);
       if (outcome.failed) {
         attachmentFailures++;
       }
@@ -707,7 +745,12 @@ export class ExchangeRestoreSession {
     ledger.restored(message, {
       targetRef: created.id,
       bytes: message.size,
-      verified: problems.length > 0 ? false : messageId === undefined ? undefined : true,
+      verified:
+        problems.length > 0
+          ? false
+          : messageId === undefined || imported.recovered?.adopted
+            ? undefined
+            : true,
       note: this.withLegacyReplaceNote([...problems, ...notes].join("; ") || undefined),
     });
     for (const record of recorders) {
@@ -755,16 +798,21 @@ export class ExchangeRestoreSession {
     message: ManifestObject,
     folderId: string,
     isJson: boolean,
+    slot: DuplicateSlot<string>,
   ): Promise<ImportedMessage> {
     const { client, userId, reader } = this.o;
     if (!isJson && base64Length(message.size) <= MIME_IMPORT_LIMIT_BASE64_BYTES) {
-      const result = await createMessageFromMime(
-        client,
-        userId,
-        folderId,
-        (await reader.readObjectToBuffer(message)).toString("base64"),
+      const mime = (await reader.readObjectToBuffer(message)).toString("base64");
+      const { result, recovered } = await this.createMessageOnce(folderId, slot, () =>
+        createMessageFromMime(client, userId, folderId, mime),
       );
-      return { created: withId(result), fromJson: false, droppedHeaders: 0, sentTimes: {} };
+      return {
+        created: withId(result),
+        fromJson: false,
+        droppedHeaders: 0,
+        sentTimes: {},
+        ...(recovered ? { recovered } : {}),
+      };
     }
     // The JSON fallback, or a MIME whose base64 would exceed Graph's 4 MB
     // request limit: created from JSON, attachments added afterwards. The
@@ -779,8 +827,11 @@ export class ExchangeRestoreSession {
     const { body, loss } = prepareMessageCreate(json, { isDraft: messageIsDraftOf(message) });
     const property = (id: string) =>
       body.singleValueExtendedProperties?.find((entry) => entry.id === id)?.value ?? undefined;
-    const result = await createMessageFromJson(client, userId, folderId, body);
+    const { result, recovered } = await this.createMessageOnce(folderId, slot, () =>
+      createMessageFromJson(client, userId, folderId, body),
+    );
     return {
+      ...(recovered ? { recovered } : {}),
       created: withId(result),
       fromJson: true,
       droppedHeaders: loss.droppedHeaders,
@@ -790,6 +841,116 @@ export class ExchangeRestoreSession {
       },
       ...(mimeParts ? { mimeParts } : {}),
     };
+  }
+
+  /**
+   * POST a message, never twice: when Graph does not answer (504, a timeout,
+   * a broken connection) the message may exist all the same. Its Message-ID
+   * is looked up in the folder, and a copy neither the folder had before
+   * this run nor this run wrote for another message is the one the create
+   * made. Only when there is none is the create sent once more; a message
+   * without Message-ID cannot be looked up and is reported instead.
+   */
+  private async createMessageOnce(
+    folderId: string,
+    slot: DuplicateSlot<string>,
+    post: () => Promise<Message>,
+  ): Promise<{ result: Message; recovered?: ImportedMessage["recovered"] }> {
+    const { client, userId } = this.o;
+    try {
+      return { result: await post() };
+    } catch (error) {
+      if (!isWriteOutcomeUnknown(error)) {
+        throw error;
+      }
+      if (slot.messageId === undefined) {
+        throw outcomeUnknownError("the message", error);
+      }
+      const own = await slot.findOwnWrite(folderId, async (id) =>
+        (await findMessagesByInternetMessageId(client, userId, id, { folderId })).map(
+          (found) => found.id,
+        ),
+      );
+      if (own !== undefined) {
+        const result = await getMessage(client, userId, own, { select: CREATED_MESSAGE_SELECT });
+        return {
+          result: { ...result, id: own },
+          recovered: {
+            adopted: true,
+            note: "Exchange did not answer the create; the message it had made was found by its Message-ID and kept, not created twice",
+          },
+        };
+      }
+      try {
+        return {
+          result: await post(),
+          recovered: {
+            adopted: false,
+            note: "Exchange did not answer the first create and had not made the message; it was sent once more",
+          },
+        };
+      } catch (retryError) {
+        throw isWriteOutcomeUnknown(retryError)
+          ? outcomeUnknownError("the message", retryError)
+          : retryError;
+      }
+    }
+  }
+
+  /**
+   * Add a file attachment, never twice: after an unknown outcome the
+   * message's attachments are listed, and one of the same name and size that
+   * this restore has not counted yet is the one the POST made. Only a source
+   * that can be read again (`reopen`) is sent once more when there is none.
+   */
+  private async addFileAttachmentOnce(
+    messageGraphId: string,
+    file: Parameters<typeof addFileAttachment>[3],
+    source: Readable,
+    reopen: (() => Readable) | undefined,
+    taken: Set<string>,
+  ): Promise<{ id: string | undefined }> {
+    const { client, userId } = this.o;
+    try {
+      const added = await addFileAttachment(client, userId, messageGraphId, file, source);
+      if (added.id !== undefined) {
+        taken.add(added.id);
+      }
+      return added;
+    } catch (error) {
+      if (!isWriteOutcomeUnknown(error)) {
+        throw error;
+      }
+      for await (const attachment of listAttachments(client, userId, messageGraphId)) {
+        const size = attachment.size ?? -1;
+        if (
+          attachment.name === file.name &&
+          !taken.has(attachment.id) &&
+          size >= file.size &&
+          size <= file.size + 64 * 1024
+        ) {
+          taken.add(attachment.id);
+          return { id: attachment.id };
+        }
+      }
+      if (reopen === undefined) {
+        throw outcomeUnknownError(`the attachment ${file.name}`, error);
+      }
+      const again = reopen();
+      try {
+        const added = await addFileAttachment(client, userId, messageGraphId, file, again);
+        if (added.id !== undefined) {
+          taken.add(added.id);
+        }
+        return added;
+      } catch (retryError) {
+        throw isWriteOutcomeUnknown(retryError)
+          ? outcomeUnknownError(`the attachment ${file.name}`, retryError)
+          : retryError;
+      } finally {
+        again.destroy();
+      }
+    }
   }
 
   /** When the backup says the message arrived: Exchange's receivedDateTime, IMAP's internal date. */
@@ -813,8 +974,9 @@ export class ExchangeRestoreSession {
     messageGraphId: string,
     outline: MimeOutline,
   ): Promise<string[]> {
-    const { ctx, client, userId, reader } = this.o;
+    const { ctx, reader } = this.o;
     const failed: string[] = [];
+    const taken = new Set<string>();
     let seen = 0;
     try {
       await forEachMimeAttachment(reader.objectStream(message), async (index, content) => {
@@ -826,9 +988,7 @@ export class ExchangeRestoreSession {
         }
         throwIfAborted(ctx);
         try {
-          await addFileAttachment(
-            client,
-            userId,
+          await this.addFileAttachmentOnce(
             messageGraphId,
             {
               name: facts.name,
@@ -838,6 +998,8 @@ export class ExchangeRestoreSession {
               contentId: facts.contentId,
             },
             content,
+            undefined,
+            taken,
           );
         } catch (error) {
           if (isAbortError(error)) {
@@ -869,8 +1031,9 @@ export class ExchangeRestoreSession {
     messageGraphId: string,
     attachment: ManifestObject,
     ownerIsJson: boolean,
+    taken: Set<string>,
   ): Promise<{ failed: boolean; record: AttachmentRecorder }> {
-    const { ctx, client, userId, reader, ledger } = this.o;
+    const { ctx, reader, ledger } = this.o;
     throwIfAborted(ctx);
     const skip = (code: Exclude<RestoreItemCode, "restored" | "unverified">, reason: string) => ({
       failed: false,
@@ -892,9 +1055,7 @@ export class ExchangeRestoreSession {
     let stream: Readable | null = null;
     try {
       stream = reader.objectStream(attachment);
-      const added = await addFileAttachment(
-        client,
-        userId,
+      const added = await this.addFileAttachmentOnce(
         messageGraphId,
         {
           name,
@@ -905,6 +1066,8 @@ export class ExchangeRestoreSession {
           contentId: facts.contentId,
         },
         stream,
+        () => reader.objectStream(attachment),
+        taken,
       );
       return {
         failed: false,
@@ -998,7 +1161,17 @@ export class ExchangeRestoreSession {
         ...toCreatableEvent(item.event, { keepAttendees: this.o.keepAttendees }),
         transactionId: eventTransactionId(this.o.restoreJobId, object),
       };
-      const created = await createEvent(client, this.owner, calendarId, body);
+      // The transactionId makes Graph answer a repeated POST with the event
+      // the first one made, so after an unanswered POST it is safe to send
+      // the same body once more.
+      const created = await createEvent(client, this.owner, calendarId, body).catch(
+        (error: unknown) => {
+          if (!isWriteOutcomeUnknown(error)) {
+            throw error;
+          }
+          return createEvent(client, this.owner, calendarId, body);
+        },
+      );
       if (!created.id) {
         throw new Error("Graph created the event but returned no id");
       }
@@ -1155,20 +1328,45 @@ export class ExchangeRestoreSession {
         }
       }
 
-      const created = await createContact(client, userId, folderId, toCreatableContact(contact));
+      let created: Contact;
+      let adopted = false;
+      try {
+        created = await createContact(client, userId, folderId, toCreatableContact(contact));
+      } catch (error) {
+        if (!isWriteOutcomeUnknown(error)) {
+          throw error;
+        }
+        // A contact has no key Graph deduplicates by: never sent again. One
+        // with its name and address that the folder did not have before this
+        // run, and no other contact of this run took, is the one the POST made.
+        const own = key.length > 0 ? await this.findOwnContact(folderId, key) : undefined;
+        if (own === undefined) {
+          throw outcomeUnknownError("the contact", error);
+        }
+        created = own;
+        adopted = true;
+      }
       if (!created.id) {
         throw new Error("Graph created the contact but returned no id");
       }
       const createdId = created.id;
+      this.contactsCreated.add(createdId);
       const verified = contactKey(created) === key;
       ledger.restored(object, {
         targetRef: createdId,
         bytes: object.size,
-        verified,
+        verified: adopted && verified ? undefined : verified,
         note: this.withLegacyReplaceNote(
-          verified
-            ? undefined
-            : "name or e-mail address of the restored contact differs from the backup",
+          [
+            ...(adopted
+              ? [
+                  "Exchange did not answer the create; the contact it had made was found by its name and address and kept, not created twice",
+                ]
+              : []),
+            ...(verified
+              ? []
+              : ["name or e-mail address of the restored contact differs from the backup"]),
+          ].join("; ") || undefined,
         ),
       });
     } catch (error) {
@@ -1188,6 +1386,25 @@ export class ExchangeRestoreSession {
     });
   }
 
+  /** A contact under `key` the folder did not hold before this run and this run did not count yet. */
+  private async findOwnContact(
+    folderId: string | null,
+    key: string,
+  ): Promise<ExistingContact | undefined> {
+    await this.existingContacts(folderId);
+    for await (const contact of listContacts(this.o.client, this.o.userId, folderId)) {
+      if (
+        contact.id &&
+        contactKey(contact) === key &&
+        !this.contactsCreated.has(contact.id) &&
+        !this.contactsBefore.has(contact.id)
+      ) {
+        return { ...contact, id: contact.id };
+      }
+    }
+    return undefined;
+  }
+
   private async existingContacts(folderId: string | null): Promise<Map<string, ExistingContact[]>> {
     const cacheKey = folderId ?? "";
     const cached = this.contactsByFolder.get(cacheKey);
@@ -1197,6 +1414,9 @@ export class ExchangeRestoreSession {
     const index = new Map<string, ExistingContact[]>();
     for await (const contact of listContacts(this.o.client, this.o.userId, folderId)) {
       const key = contactKey(contact);
+      if (contact.id) {
+        this.contactsBefore.add(contact.id);
+      }
       if (contact.id && key.length > 0) {
         const matches = index.get(key);
         const existing = { ...contact, id: contact.id };
