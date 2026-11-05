@@ -539,10 +539,12 @@ private repository.
   with edited content, a sender who copies an archived mail's id on purpose) was therefore never
   archived and only counted as skipped, although the archive's own rule keeps both and flags
   `message-id-conflict`. A Message-ID now skips the download only together with a cheap check
-  that it is the same mail: the size for IMAP (RFC822.SIZE), the Date header for Graph
-  (`sentDateTime`). Anything else is downloaded and decided by the append, which merges a true
-  duplicate and keeps a different mail. A rescan after a UIDVALIDITY change still downloads
-  nothing that is archived already.
+  that it is the same mail: for IMAP the size (RFC822.SIZE) or the Date header (ENVELOPE),
+  for Graph the Date header (`sentDateTime`). Anything else is downloaded and decided by the
+  append, which merges a true duplicate and keeps a different mail. A rescan after a
+  UIDVALIDITY change still downloads nothing that is archived already, also on Exchange, whose
+  RFC822.SIZE is an estimate unless `EnableExactRFC822Size` is set (by size alone it would have
+  downloaded the whole mailbox again after every mailbox move).
 - Mail archive: the one-time takeover of a mailbox's existing mail (the backfill) could restart
   forever or never run. Its position lived only in the job's cursor, and a continuation after the
   time budget (2 hours for Graph, 30 minutes for IMAP, the latter only checked between folders)

@@ -85,7 +85,12 @@ function memorySink() {
     async append(item) {
       refs.add(item.externalRef);
       const id = /Message-ID: <([^>]+)>/i.exec(item.original.toString())?.[1] ?? null;
-      holdMail(held, id, { sizeBytes: item.original.length, sentAt: null });
+      // The Date header, as the archive keeps it (archive_items.sent_at).
+      const date = /^Date: (.+)$/im.exec(item.original.toString())?.[1]?.trim();
+      holdMail(held, id, {
+        sizeBytes: item.original.length,
+        sentAt: date ? new Date(date) : null,
+      });
       appended.push({ ref: item.externalRef, messageId: id });
     },
   };
@@ -308,6 +313,36 @@ describe("IMAP archive capture", () => {
     // Message-ID and size skip the two known mails before any download: only the new one.
     expect(server.stats.sourcesDelivered.slice(delivered)).toHaveLength(1);
     expect(appended.map((item) => item.messageId)).toEqual(["one@x", "two@x", "three@x"]);
+  });
+
+  it("does not download held mail again after a UIDVALIDITY change on Exchange's estimated sizes", async () => {
+    const server = new FakeImapServer();
+    const inbox = server.addFolder("INBOX");
+    const session = await connect(server);
+    const { sink, appended } = memorySink();
+    let state = await activateImapCapture(session);
+    const dated = (id: string, date: string, body = `Body of ${id}`) =>
+      inbox.add(
+        `Message-ID: <${id}>\r\nDate: ${date}\r\nFrom: bob@example.net\r\nSubject: ${id}\r\n\r\n${body}\r\n`,
+        { messageId: `<${id}>`, envelope: { sentDateTime: new Date(date) } },
+      );
+    for (let i = 1; i <= 3; i++) {
+      dated(`ex-${i}@x`, `Mon, 02 Nov 2026 0${i}:00:00 +0000`);
+    }
+    // Exchange (without EnableExactRFC822Size) reports an estimate, not the BODY[] length.
+    server.faults.sizeSkew = 37;
+    state = (await catchUpImapCapture(session, state, sink, { logger: silent })).state;
+    expect(appended).toHaveLength(3);
+    const delivered = server.stats.sourcesDelivered.length;
+    // A mailbox move: new UIDVALIDITY, the folder is read again; nothing is fetched twice.
+    inbox.resetUidValidity();
+    state = (await catchUpImapCapture(session, state, sink, { logger: silent })).state;
+    expect(server.stats.sourcesDelivered.length).toBe(delivered);
+    // Another mail under a known Message-ID with another Date header is still downloaded.
+    dated("ex-1@x", "Tue, 03 Nov 2026 09:00:00 +0000", "Other content");
+    await catchUpImapCapture(session, state, sink, { logger: silent });
+    expect(server.stats.sourcesDelivered.length).toBe(delivered + 1);
+    expect(appended).toHaveLength(4);
   });
 
   it("retries a message the server listed but did not deliver", async () => {

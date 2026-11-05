@@ -70,9 +70,10 @@ export function heldBySize(
 }
 
 /**
- * A Graph message (Message-ID and `sentDateTime`, the Date header) is one the archive holds
- * already: a mail with the same Date header, to the second. Graph names no size of the MIME
- * it exports, so the date is the cheap check; refs (immutable ids) cover the rest.
+ * A message (Message-ID and its Date header: Graph's `sentDateTime`, the IMAP ENVELOPE date)
+ * is one the archive holds already: a mail with the same Date header, to the second. Graph
+ * names no size of the MIME it exports, and Exchange's IMAP RFC822.SIZE is an estimate, so
+ * the date is the cheap check there; refs cover the rest.
  */
 export function heldBySentAt(
   held: HeldMails,

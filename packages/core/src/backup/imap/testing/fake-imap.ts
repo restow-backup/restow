@@ -204,6 +204,11 @@ export interface FakeServerFaults {
    * null for a plain NO.
    */
   refuseOpen: Map<string, { code: string | null; remaining: number }>;
+  /**
+   * Added to every RFC822.SIZE the server reports: Exchange's estimated size (without
+   * `Set-ImapSettings -EnableExactRFC822Size $true`), which differs from the bytes of BODY[].
+   */
+  sizeSkew: number;
   /** Like {@link refuseOpen}, for STATUS (Gmail's cap answers every command with the NO). */
   refuseStatus: Map<string, { code: string | null; remaining: number }>;
 }
@@ -258,6 +263,7 @@ export class FakeImapServer implements ImapConnector {
     refuseMeta: new Set(),
     refuseOpen: new Map(),
     refuseStatus: new Map(),
+    sizeSkew: 0,
   };
   private readonly arrivalListeners = new Set<ArrivalListener>();
   /**
@@ -510,7 +516,7 @@ class FakeSession implements ImapSession {
       this.server.stats.metaDelivered.push(key);
       result.push({
         uid,
-        size: message.source.length,
+        size: message.source.length + this.server.faults.sizeSkew,
         flags: [...message.flags],
         internalDate: message.internalDate,
         messageId: message.messageId,
@@ -550,7 +556,7 @@ class FakeSession implements ImapSession {
       this.server.stats.sourcesDelivered.push(key);
       yield {
         uid,
-        size: message.source.length,
+        size: message.source.length + this.server.faults.sizeSkew,
         flags: [...message.flags],
         internalDate: message.internalDate,
         messageId: message.messageId,

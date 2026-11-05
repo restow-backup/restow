@@ -237,9 +237,10 @@ dahin übernimmt einmalig der Backfill-Job ("Archiv-Übernahme", fortsetzbar, ma
 nachträglich erfasst), danach erfasst jeder Durchlauf nur Neues: STATUS je Ordner, und nur ein
 Ordner, dessen UIDNEXT weitergerückt ist, wird geöffnet; von neuen UIDs erst die Metadaten,
 dann nur die Quellen der Mails, die das Archiv für dieses Konto noch nicht hält (nach
-`<Ordner>;<UIDVALIDITY>;<UID>`, oder nach Message-ID zusammen mit der Größe RFC822.SIZE).
-Eine verschobene Mail wird so nicht erneut geladen. Eine Mail mit bekannter Message-ID, aber
-anderer Größe wird geladen: Ist es dieselbe Mail (etwa eine schon weitergeleitete Kopie mit
+`<Ordner>;<UIDVALIDITY>;<UID>`, oder nach Message-ID zusammen mit der Größe RFC822.SIZE oder
+dem Date-Header aus dem ENVELOPE). Eine verschobene Mail wird so nicht erneut geladen, auch bei
+Exchange, das ohne `Set-ImapSettings -EnableExactRFC822Size $true` nur eine geschätzte Größe
+meldet. Eine Mail mit bekannter Message-ID, aber anderer Größe und anderem Datum wird geladen: Ist es dieselbe Mail (etwa eine schon weitergeleitete Kopie mit
 anderen Kopfzeilen), wird sie eine Erfassungszeile am vorhandenen Objekt; hat sie einen
 anderen Inhalt, bleibt sie als eigenes Objekt erhalten (`message-id-conflict`, seit 0.5.0;
 vorher wurde sie ohne Download übersprungen). Ändert sich UIDVALIDITY, wird der Ordner von

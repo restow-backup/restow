@@ -17,9 +17,10 @@
  * to it is handled). A pass asks STATUS first and selects a folder only when UIDNEXT moved
  * past `lastUid`; then only the new UIDs are read, metadata first, and the source only of
  * mail the archive does not hold for this mailbox yet (by `<folder>;<uidvalidity>;<uid>`, or
- * by Message-ID together with the exact size). A changed UIDVALIDITY rescans the folder from
- * the start: Message-ID and size keep that from downloading anything twice, and a mail with
- * a known Message-ID but other content is downloaded and kept.
+ * by Message-ID together with the exact size or the Date header). A changed UIDVALIDITY
+ * rescans the folder from the start: Message-ID with size or date keeps that from downloading
+ * anything twice (Exchange's RFC822.SIZE is an estimate, the date still matches), and a mail
+ * with a known Message-ID but other content is downloaded and kept.
  *
  * Activation records where live capture starts (`backfillUpTo` per folder); the one-time
  * backfill takes over the UIDs up to it, checkpointed in its job's cursor.
@@ -34,7 +35,7 @@ import {
 import type { Logger } from "../engine/types.js";
 import { classifyFailure } from "../failures/classify.js";
 import { type CaptureGap, type CaptureGapSink, GAP_OPEN_AFTER_ATTEMPTS } from "./capture-gaps.js";
-import { type HeldMails, heldBySize } from "./identity.js";
+import { type HeldMails, heldBySentAt, heldBySize } from "./identity.js";
 
 /**
  * A NO that is the account's temporary cap (throttling, a download or bandwidth limit), not
@@ -322,11 +323,15 @@ export async function captureFolderUids(
     });
     const wanted: ImapMessageMeta[] = [];
     for (const meta of metas) {
-      // By ref, or by Message-ID only when the archived mail has this exact size: the same
-      // Message-ID with other content is another mail, downloaded and kept (identity.ts).
+      // By ref, or by Message-ID together with the exact size or the Date header (ENVELOPE):
+      // the same Message-ID with other content is another mail, downloaded and kept
+      // (identity.ts). Exchange reports an estimated RFC822.SIZE (unless EnableExactRFC822Size
+      // is set), which almost never equals the archived bytes; without the date every
+      // UIDVALIDITY change and every copy in another folder downloaded the mail again.
       if (
         known.externalRefs.has(refOf(meta.uid)) ||
-        heldBySize(known.messages, meta.messageId, meta.size)
+        heldBySize(known.messages, meta.messageId, meta.size) ||
+        heldBySentAt(known.messages, meta.messageId, meta.envelope?.sentDateTime)
       ) {
         skipped++;
       } else {
