@@ -94,12 +94,14 @@ export type DriveDeltaItem = DriveItem & {
  * OneDrive for Business and SharePoint leave an item whose only change is its
  * sharing (shared with the organisation, a link created or removed) out of the
  * delta, so an incremental backup would keep recording the old sharing for
- * good. `hierarchicalsharing` keeps that from flooding the feed: a change is
- * reported at the item where the sharing is set, not again for every item
- * below a shared folder.
+ * good. Deliberately without `hierarchicalsharing`: with it Graph reports the
+ * sharing only at the root of a permission hierarchy and drops the inherited
+ * sharing from every item below, so a file edited (or added) in a shared folder
+ * would be recorded as not shared, and the files below a folder whose sharing
+ * was removed would keep their old sharing in every later restore point.
  */
 export const DRIVE_DELTA_HEADERS: Readonly<Record<string, string>> = {
-  Prefer: "deltashowsharingchanges, hierarchicalsharing",
+  Prefer: "deltashowsharingchanges",
 };
 
 /** True when Graph lists the entry because its sharing changed. */

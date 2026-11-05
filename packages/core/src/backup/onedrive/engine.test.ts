@@ -734,7 +734,7 @@ describe("OneDriveBackupEngine", () => {
   });
 
   it("records a sharing-only change on the next incremental run without downloading again", async () => {
-    // With hierarchicalsharing the entry does not have to carry the sharing: it is read from the item.
+    // A flagged entry need not carry the sharing itself: it is read from the item.
     const flagged = q3Item({ "@microsoft.graph.sharedChanged": "True" });
     const shared = q3Item({
       shared: {
@@ -771,7 +771,7 @@ describe("OneDriveBackupEngine", () => {
     expect(after.chunks).toEqual(before.chunks);
     expect(downloads()).toBe(1);
     for (const call of graph.callsTo("GET", "/root/delta")) {
-      expect(call.headers.prefer).toBe("deltashowsharingchanges, hierarchicalsharing");
+      expect(call.headers.prefer).toBe("deltashowsharingchanges");
     }
 
     // The link is removed again: the item comes without `shared`, and the sharing goes.
@@ -781,6 +781,49 @@ describe("OneDriveBackupEngine", () => {
     expect(unshared.metadata?.sharedScope).toBeUndefined();
     expect(unshared.metadata?.sharedBy).toBeUndefined();
     expect(downloads()).toBe(1);
+  });
+
+  it("records the sharing a new file inherits from its shared folder", async () => {
+    // As OneDrive for Business answers: with `hierarchicalsharing` the inherited sharing is left
+    // out of every item below the folder where it is set.
+    const inherited = {
+      scope: "organization",
+      sharedBy: { user: { displayName: "Alice Example", id: "user-1" } },
+      sharedDateTime: "2026-09-10T08:00:00Z",
+    };
+    const newFile = q3Item({
+      id: "01NEW",
+      name: "new.txt",
+      cTag: '"c:{NEW},1"',
+      size: 5,
+      file: { mimeType: "text/plain" },
+      "@microsoft.graph.downloadUrl": downloadLink("new"),
+      parentReference: { driveId: DRIVE, id: "01REPORTS" },
+    });
+    const graph = createFakeGraph([
+      ...initialRoutes(),
+      {
+        url: deltaUrl("DELTA1"),
+        respond: (call) => {
+          const hierarchical = (call.headers.prefer ?? "").includes("hierarchicalsharing");
+          return {
+            status: 200,
+            json: page([hierarchical ? newFile : { ...newFile, shared: inherited }], "DELTA2"),
+          };
+        },
+      },
+      {
+        url: downloadUrl("new"),
+        respond: { status: 200, bytes: new TextEncoder().encode("new!!") },
+      },
+    ]);
+    const engine = harness.engine(graph);
+    await engine.run(harness.context({ jobId: "job-1" }), oneDrive, {});
+    const second = await engine.run(harness.context({ jobId: "job-2" }), oneDrive, {});
+    expect(second.failures).toEqual([]);
+    expect(
+      objectAt(await harness.manifest(second), "Documents/Reports/new.txt").metadata,
+    ).toMatchObject({ sharedScope: "organization", sharedBy: "Alice Example" });
   });
 
   it("reports a sharing change it could not read and keeps the file", async () => {

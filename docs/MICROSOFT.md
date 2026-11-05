@@ -334,17 +334,20 @@ Zustand und lässt ihn nachträglich bestätigen, bei IMAP setzt ihn die Antwort
   eine Abfrage je Seite über den Index `directory_memberships_user_idx`).
 - Freigaben/Berechtigungen werden als Information gesichert, nicht wiederhergestellt
   (v1): je Element die Freigabe-Facette (`sharedScope`, `sharedBy`, `sharedDateTime`).
-  Jede Delta-Seite fragt mit `Prefer: deltashowsharingchanges, hierarchicalsharing` (ab 0.5.0):
+  Jede Delta-Seite fragt mit `Prefer: deltashowsharingchanges` (ab 0.5.0):
   Ohne den Header lässt OneDrive for Business/SharePoint ein Element, an dem sich nur die Freigabe
   geändert hat, aus dem Delta weg, und ein inkrementeller Lauf behielte die alte Freigabe für
   immer. Ein so gemeldetes Element (`@microsoft.graph.sharedChanged: "True"`) liest der Lauf
   einmal einzeln (`GET /drives/{did}/items/{id}`, ohne Download; unveränderte Bytes werden wie
   immer übernommen) und übernimmt dessen Freigabe; lässt es sich nicht lesen, ist das ein
-  Elementfehler mit Wiederholung im nächsten Lauf, die Datei bleibt gesichert. Mit
-  `hierarchicalsharing` meldet Graph eine Freigabe an dem Element, an dem sie gesetzt ist, nicht
-  noch einmal für jedes Element darunter: Dateien in einem freigegebenen Ordner erben dessen
-  Freigabe, im Sicherungsstand steht sie am Ordner. Sagt ein Delta-Eintrag zur Freigabe nichts,
-  behält eine Datei mit unveränderten Bytes die zuletzt gesicherte.
+  Elementfehler mit Wiederholung im nächsten Lauf, die Datei bleibt gesichert. Bewusst ohne
+  `hierarchicalsharing`: Damit meldet Graph eine Freigabe nur an der Wurzel der
+  Berechtigungshierarchie und lässt die geerbte Freigabe an jedem Element darunter weg. Eine
+  bearbeitete oder neue Datei in einem freigegebenen Ordner stünde dann als nicht freigegeben im
+  Sicherungsstand, und die Dateien unter einem Ordner, dessen Freigabe entfernt wurde, behielten
+  ihre alte. Ohne den Header trägt jedes gemeldete Element seine geltende (auch geerbte)
+  Freigabe. Sagt ein Delta-Eintrag zur Freigabe nichts, behält eine Datei mit unveränderten
+  Bytes die zuletzt gesicherte.
 - Gesperrtes OneDrive (ab 0.4.7): Microsoft sperrt das OneDrive eines Kontos ohne Lizenz nach
   einiger Zeit. Jeder Zugriff antwortet dann HTTP 423 mit `notAllowed`/`resourceLocked` („Access
   to this site has been blocked. Please contact the administrator to resolve this problem.“),

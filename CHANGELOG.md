@@ -636,9 +636,9 @@ private repository.
 - OneDrive and SharePoint backup: a file or folder whose only change was its sharing (shared
   with the organisation or through a link after its last edit, or no longer shared) kept its old
   sharing in every later restore point, because the incremental backup never heard of the
-  change. Restow now asks Microsoft for sharing changes too and records the current sharing
-  without downloading the file again; a sharing change that cannot be read is reported as a
-  failed item and read again on the next run.
+  change. Restow now asks Microsoft for sharing changes too, with the sharing each item inherits
+  from its folder, and records the current sharing without downloading the file again; a sharing
+  change that cannot be read is reported as a failed item and read again on the next run.
 - OneDrive and SharePoint backup: an item that Microsoft listed without saying whether it is a
   file, a folder or a shortcut was skipped with a line in the log only, and the run was green; a
   new file that arrived this way was missing from every restore point until it changed again.
