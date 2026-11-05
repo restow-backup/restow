@@ -1094,6 +1094,142 @@ describe("ImapBackupEngine", () => {
     }
   });
 
+  describe("Gmail (labels are folders; every message is in All Mail once)", () => {
+    const ALL = "[Gmail]/All Mail";
+
+    /** 10 messages in All Mail: 4 also in INBOX, 3 labelled Projekte; one in Spam, one in Trash. */
+    function seedGmail(options: { allMailHidden?: boolean } = {}) {
+      server.setupGmail({ labels: ["Projekte"], ...options });
+      const labelsOf = (i: number): string[] => [
+        ...(i < 4 ? ["\\Inbox"] : []),
+        ...(i >= 4 && i < 7 ? ["Projekte"] : []),
+        ...(i === 9 ? ["\\Sent"] : []),
+      ];
+      const mails = Array.from({ length: 10 }, (_, i) =>
+        server.addGmailMessage(eml(`gmail ${i}`), labelsOf(i)),
+      );
+      server.folder("[Gmail]/Spam").add(eml("spam"));
+      server.folder("[Gmail]/Trash").add(eml("trash"));
+      return mails;
+    }
+
+    it("downloads each message once from All Mail, Spam and Trash and records the labels", async () => {
+      seedGmail();
+      // What this test guards against: INBOX (4), Projekte (3) and Sent Mail (1) read again.
+      expect(server.folder("INBOX").messages.size).toBe(4);
+      expect(server.folder("Projekte").messages.size).toBe(3);
+      const result = await engine().run(context(), protectedObject, {});
+      expect(result.failures).toEqual([]);
+
+      expect(server.stats.sourcesDelivered).toHaveLength(12);
+      expect(new Set(server.stats.sourcesDelivered.map((key) => key.split(":")[0]))).toEqual(
+        new Set([ALL, "[Gmail]/Spam", "[Gmail]/Trash"]),
+      );
+      const manifest = await manifestOf(result.snapshotId);
+      const stored = messages(manifest);
+      expect(stored.filter((o) => o.metadata?.[META.mailbox] === ALL)).toHaveLength(10);
+      expect(stored).toHaveLength(12);
+      expect(
+        stored.filter((o) =>
+          ["INBOX", "Projekte", "[Gmail]/Sent Mail"].includes(o.metadata?.[META.mailbox] ?? ""),
+        ),
+      ).toEqual([]);
+
+      const labels = stored
+        .filter((o) => o.metadata?.[META.mailbox] === ALL)
+        .map((o) => o.metadata?.[META.gmailLabels])
+        .sort();
+      expect(labels).toEqual([
+        '["Projekte"]',
+        '["Projekte"]',
+        '["Projekte"]',
+        '["\\\\Inbox"]',
+        '["\\\\Inbox"]',
+        '["\\\\Inbox"]',
+        '["\\\\Inbox"]',
+        '["\\\\Sent"]',
+        "[]",
+        "[]",
+      ]);
+      // Label folders stay in the restore point as structure, with their special use.
+      const folderPaths = manifest.objects.filter((o) => o.type === "folder").map((o) => o.path);
+      expect(folderPaths).toEqual(
+        expect.arrayContaining(["mail/INBOX", "mail/Projekte", "mail/[Gmail]/Sent Mail"]),
+      );
+      const sent = manifest.objects.find((o) => o.path === "mail/[Gmail]/Sent Mail");
+      expect(sent?.metadata?.[META.specialUse]).toBe("\\Sent");
+      const state = manifest.state as {
+        imap: { layout?: string; folders: Record<string, unknown> };
+      };
+      expect(state.imap.layout).toBe("gmail");
+      expect(state.imap.folders.INBOX).toMatchObject({ messages: 4 });
+    });
+
+    it("updates the labels of a carried-forward message without downloading it again", async () => {
+      const mails = seedGmail();
+      await engine().run(context(), protectedObject, {});
+      server.stats.sourcesDelivered.length = 0;
+
+      server.setGmailLabels(mails[0] as never, ["Projekte"]);
+      const second = await engine().run(context(), protectedObject, {});
+      expect(second.failures).toEqual([]);
+      expect(server.stats.sourcesDelivered).toEqual([]);
+      const manifest = await manifestOf(second.snapshotId);
+      const uid = mails[0]?.copies.get(ALL);
+      const object = manifest.objects.find((o) => o.path === `mail/[Gmail]/All Mail/${uid}.eml`);
+      expect(object?.metadata?.[META.gmailLabels]).toBe('["Projekte"]');
+      expect(messages(manifest)).toHaveLength(12);
+    });
+
+    it("drops the per-label copies of a restore point taken before, keeping All Mail with labels", async () => {
+      seedGmail();
+      // An earlier backup without the Gmail layout: every folder with its own messages.
+      server.gmailExtensions = false;
+      const before = await engine().run(context(), protectedObject, {});
+      expect(messages(await manifestOf(before.snapshotId))).toHaveLength(20);
+      server.gmailExtensions = true;
+      server.stats.sourcesDelivered.length = 0;
+      const logs: LogRecord[] = [];
+
+      const after = await engine().run(context({ logs }), protectedObject, {});
+      expect(server.stats.sourcesDelivered).toEqual([]);
+      const manifest = await manifestOf(after.snapshotId);
+      expect(messages(manifest)).toHaveLength(12);
+      expect(
+        messages(manifest).filter(
+          (o) => o.metadata?.[META.mailbox] === ALL && o.metadata?.[META.gmailLabels],
+        ),
+      ).toHaveLength(10);
+      expect(
+        logs.some((record) => String(record.message).startsWith("gmail account now stored once")),
+      ).toBe(true);
+    });
+
+    it("warns that every label is a copy when All Mail is hidden from IMAP", async () => {
+      seedGmail({ allMailHidden: true });
+      const result = await engine().run(context(), protectedObject, {});
+      expect(result.failures).toEqual([
+        expect.objectContaining({
+          itemRef: "[Gmail]/All Mail",
+          cause: expect.objectContaining({ code: "imap.gmail_all_mail_hidden" }),
+        }),
+      ]);
+      // Folder by folder: nothing is left out.
+      const manifest = await manifestOf(result.snapshotId);
+      expect(messages(manifest)).toHaveLength(10);
+      expect((manifest.state as { imap: { layout?: string } }).imap.layout).toBeUndefined();
+    });
+
+    it("leaves a server without X-GM-EXT-1 as it was, even with an \\All folder", async () => {
+      seedGmail();
+      server.gmailExtensions = false;
+      const result = await engine().run(context(), protectedObject, {});
+      expect(result.failures).toEqual([]);
+      expect(server.stats.listFlagsWithLabels).toBe(0);
+      expect(messages(await manifestOf(result.snapshotId))).toHaveLength(20);
+    });
+  });
+
   it("drops the messages of a folder that vanished from the server", async () => {
     seedMailbox();
     await engine().run(context(), protectedObject, {});

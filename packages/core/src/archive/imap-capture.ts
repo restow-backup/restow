@@ -20,6 +20,7 @@
  * Activation records where live capture starts (`backfillUpTo` per folder); the one-time
  * backfill takes over the UIDs up to it, checkpointed in its job's cursor.
  */
+import { gmailMessageFolders, isGmailFolderList } from "../backup/imap/gmail.js";
 import { batchBySize, isInbox, orderFolders } from "../backup/imap/planning.js";
 import {
   type ImapFolderInfo,
@@ -130,13 +131,7 @@ export function imapExternalRef(path: string, uidValidity: string, uid: number):
   return `${path};${uidValidity};${uid}`;
 }
 
-const GMAIL_PREFIX = /^\[(gmail|google mail)\](\/|$)/i;
 const DRAFT_NAMES = /^(drafts|entw(ü|ue)rfe|brouillons|borradores|bozze|concepten)$/i;
-
-/** Whether a folder list is Gmail's (`[Gmail]/All Mail` with the `\All` attribute). */
-export function isGmailFolderList(folders: readonly ImapFolderInfo[]): boolean {
-  return folders.some((folder) => folder.specialUse === "\\All" && GMAIL_PREFIX.test(folder.path));
-}
 
 export interface CaptureFolderPlan {
   /** The folders a pass reads, INBOX (or All Mail) first. */
@@ -157,19 +152,13 @@ export function captureFolderPlan(
 ): CaptureFolderPlan {
   const selectable = orderFolders(listed);
   if (options.gmail || isGmailFolderList(listed)) {
-    const all = selectable.find(
-      (folder) => folder.specialUse === "\\All" || /\/all mail$/i.test(folder.path),
-    );
-    if (all) {
-      const others = selectable.filter(
-        (folder) =>
-          folder !== all &&
-          GMAIL_PREFIX.test(folder.path) &&
-          (folder.specialUse === "\\Junk" ||
-            folder.specialUse === "\\Trash" ||
-            /\/(spam|trash|bin|papierkorb)$/i.test(folder.path)),
-      );
-      return { folders: [all, ...others], idleFolder: all.path, gmail: true };
+    const gmail = gmailMessageFolders(selectable);
+    if (gmail) {
+      return {
+        folders: [gmail.allMail, ...gmail.outsideAllMail],
+        idleFolder: gmail.allMail.path,
+        gmail: true,
+      };
     }
   }
   const folders = selectable.filter((folder) => !isDrafts(folder));

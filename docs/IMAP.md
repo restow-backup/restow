@@ -59,6 +59,26 @@
   Ergebnis. Ein wiederholter "rename"-Job erkennt eigene frühere Kopien nur am gleichen
   Inhalt (SHA-256), jede Kopie steht für genau eine Mail
   (packages/core/src/restore/duplicates.ts).
+- Gmail und Google Workspace (packages/core/src/backup/imap/gmail.ts): Gmail kennt Labels statt
+  Ordner und zeigt jedes Label als IMAP-Ordner (INBOX, Gesendet, Markiert, Wichtig, Entwürfe,
+  jedes eigene Label), jede Nachricht zusätzlich in `[Gmail]/All Mail` (Alle Nachrichten,
+  SPECIAL-USE `\All`), jede Kopie mit eigener UID. Erkannt wird Gmail an der Erweiterung
+  `X-GM-EXT-1` und an All Mail mit `\All` unter `[Gmail]`/`[Google Mail]`. Das Backup lädt die
+  Nachrichten dann nur aus All Mail, Spam und Papierkorb (die beiden halten, was All Mail nicht
+  hat), also jede genau einmal; das schont die tägliche IMAP-Download-Grenze von Gmail. Die
+  Labels jeder Nachricht in All Mail (`X-GM-LABELS`, mit den Flags im selben `FETCH 1:*`
+  gelesen) stehen als `metadata.gmailLabels` (sortiertes JSON-Array, etwa
+  `["\\Inbox","Projekte"]`) am Nachrichtenobjekt und werden wie die Flags bei jedem Lauf ohne
+  neuen Download aktualisiert. Die Label-Ordner stehen nur als Ordnerobjekte (mit
+  SPECIAL-USE) im Sicherungsstand, ohne eigene Nachrichten; der Zustand trägt
+  `imap.layout: "gmail"`. Ein Sicherungsstand von vor 0.5.0 enthielt jede Nachricht einmal je
+  Label: Der erste Lauf danach übernimmt diese Kopien nicht mehr (ältere Sicherungsstände
+  behalten sie), die Nachrichten in All Mail tragen die Labels. Ist All Mail in Gmail für IMAP
+  ausgeblendet (Einstellungen → Labels → „In IMAP anzeigen“), sichert Restow Ordner für Ordner
+  wie bei jedem anderen Server, jede Nachricht also einmal je Label, und meldet das in jedem
+  Lauf als Warnung `imap.gmail_all_mail_hidden`: Es fehlt nichts, aber eine Wiederherstellung zu
+  einem anderen Anbieter legt jede Kopie an. Abhilfe: „In IMAP anzeigen“ für Alle Nachrichten
+  einschalten.
 - Grenzen: Kalender/Kontakte gibt es per IMAP nicht (CalDAV/CardDAV später).
 - Importierte Postfächer (Mail-Dateien statt Server, docs/IMPORT.md) nutzen dasselbe
   Manifestformat wie ein IMAP-Backup; sie werden nie gesichert, aber wie ein IMAP-Konto

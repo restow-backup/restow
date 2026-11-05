@@ -716,6 +716,31 @@ describe("ImapFlowSession archive capture commands", () => {
     return { session, options };
   }
 
+  it("asks for X-GM-LABELS in the FLAGS listing only when asked and the server is Gmail", async () => {
+    const { client } = captureClient();
+    const queries: Record<string, unknown>[] = [];
+    Object.assign(client, {
+      async *fetch(_range: string, query: Record<string, unknown>) {
+        queries.push(query);
+        yield {
+          uid: 7,
+          flags: new Set(["\\Seen"]),
+          ...(query.labels ? { labels: new Set(["\\Inbox", "Projekte"]) } : {}),
+        };
+      },
+    });
+    const { session } = await sessionOf(client);
+    expect(session.gmailExtensions).toBe(false);
+    expect(await session.listFlags({ labels: true })).toEqual([{ uid: 7, flags: ["\\Seen"] }]);
+    client.capabilities.set("X-GM-EXT-1", true);
+    expect(session.gmailExtensions).toBe(true);
+    expect(await session.listFlags()).toEqual([{ uid: 7, flags: ["\\Seen"] }]);
+    expect(await session.listFlags({ labels: true })).toEqual([
+      { uid: 7, flags: ["\\Seen"], labels: ["\\Inbox", "Projekte"] },
+    ]);
+    expect(queries.map((query) => query.labels === true)).toEqual([false, false, true]);
+  });
+
   it("reads STATUS without selecting and passes maxIdleTime through", async () => {
     const { client, calls } = captureClient();
     const { session, options } = await sessionOf(client, 25 * 60_000);

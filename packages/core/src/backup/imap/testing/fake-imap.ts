@@ -33,6 +33,18 @@ export interface FakeMessage {
   readonly messageId: string | null;
   /** Always present on the fake message; `faults.envelopeFailures` decides whether a FETCH returns it. */
   readonly envelope: ImapEnvelopeMeta;
+  /**
+   * Gmail: the one message behind this copy, shared by its copies in All Mail and in every
+   * label folder (each copy has its own UID). Its labels are what X-GM-LABELS answers.
+   */
+  readonly gmail?: FakeGmailMessage;
+}
+
+/** One Gmail message (see {@link FakeImapServer.addGmailMessage}). */
+export interface FakeGmailMessage {
+  labels: string[];
+  readonly source: Buffer;
+  readonly copies: Map<string, number>;
 }
 
 export interface FakeFolderOptions {
@@ -66,9 +78,22 @@ export interface FakeAddOptions {
   readonly internalDate?: Date;
   readonly messageId?: string | null;
   readonly envelope?: FakeEnvelopeOptions;
+  /** Internal: the Gmail message this copy belongs to. */
+  readonly gmail?: FakeGmailMessage;
 }
 
 let messageCounter = 0;
+
+export const GMAIL_ALL_MAIL = "[Gmail]/All Mail";
+
+/** Gmail's system labels (X-GM-LABELS) and the SPECIAL-USE of the folder that shows them. */
+const GMAIL_SYSTEM_LABELS: Record<string, string> = {
+  "\\Inbox": "\\Inbox",
+  "\\Sent": "\\Sent",
+  "\\Draft": "\\Drafts",
+  "\\Important": "\\Important",
+  "\\Starred": "\\Flagged",
+};
 
 /** Who is told when mail arrives in a folder (IDLE sessions of the fake server). */
 type ArrivalListener = (folder: FakeFolder) => void;
@@ -130,6 +155,7 @@ export class FakeFolder {
       messageId:
         options.messageId === undefined ? `<msg-${messageCounter}@fake.test>` : options.messageId,
       envelope,
+      ...(options.gmail ? { gmail: options.gmail } : {}),
     };
     this.messages.set(uid, message);
     this.onArrival?.(this);
@@ -172,6 +198,8 @@ export interface FakeServerStats {
   listFolders: number;
   opens: number;
   listFlags: number;
+  /** Of `listFlags`, how many asked for X-GM-LABELS. */
+  listFlagsWithLabels: number;
   metaFetches: number;
   /** STATUS commands (archive capture). */
   statusCalls: number;
@@ -225,6 +253,7 @@ export class FakeImapServer implements ImapConnector {
     listFolders: 0,
     opens: 0,
     listFlags: 0,
+    listFlagsWithLabels: 0,
     metaFetches: 0,
     statusCalls: 0,
     idles: 0,
@@ -259,6 +288,95 @@ export class FakeImapServer implements ImapConnector {
   }> = [];
   /** Called after each delivered source; tests use it to cancel mid-run. */
   onDelivered: ((folder: string, uid: number) => void) | null = null;
+  /** The server announces X-GM-EXT-1 (Gmail): FETCH answers X-GM-LABELS. */
+  gmailExtensions = false;
+
+  /**
+   * A Gmail account as imap.gmail.com lists it: INBOX, the `[Gmail]` container with All Mail
+   * (`\\All`), Sent Mail, Drafts, Starred, Important, Spam and Trash, plus the user labels
+   * given, and X-GM-EXT-1. `allMailHidden`: the user unticked "Show in IMAP" for All Mail.
+   */
+  setupGmail(
+    options: { readonly labels?: readonly string[]; readonly allMailHidden?: boolean } = {},
+  ): void {
+    this.gmailExtensions = true;
+    this.addFolder("INBOX");
+    this.addFolder("[Gmail]", { selectable: false });
+    if (!options.allMailHidden) {
+      this.addFolder(GMAIL_ALL_MAIL, { specialUse: "\\All", uidValidity: 11 });
+    }
+    this.addFolder("[Gmail]/Drafts", { specialUse: "\\Drafts", uidValidity: 12 });
+    this.addFolder("[Gmail]/Important", { specialUse: "\\Important", uidValidity: 13 });
+    this.addFolder("[Gmail]/Sent Mail", { specialUse: "\\Sent", uidValidity: 14 });
+    this.addFolder("[Gmail]/Spam", { specialUse: "\\Junk", uidValidity: 15 });
+    this.addFolder("[Gmail]/Starred", { specialUse: "\\Flagged", uidValidity: 16 });
+    this.addFolder("[Gmail]/Trash", { specialUse: "\\Trash", uidValidity: 17 });
+    for (const label of options.labels ?? []) {
+      this.addFolder(label, { uidValidity: 20 });
+    }
+  }
+
+  /**
+   * One Gmail message: a copy in All Mail (when listed) and one in the folder of each label,
+   * each with its own UID, as Gmail's IMAP server exposes it.
+   */
+  addGmailMessage(
+    source: Buffer | string,
+    labels: readonly string[],
+    options: Omit<FakeAddOptions, "gmail"> = {},
+  ): FakeGmailMessage {
+    const gmail: FakeGmailMessage = {
+      labels: [...labels],
+      source: Buffer.isBuffer(source) ? source : Buffer.from(source, "utf8"),
+      copies: new Map(),
+    };
+    const messageId =
+      options.messageId === undefined ? `<gmail-${++messageCounter}@fake.test>` : options.messageId;
+    for (const path of this.gmailFoldersOf(gmail.labels)) {
+      const copy = this.folder(path).add(gmail.source, { ...options, messageId, gmail });
+      gmail.copies.set(path, copy.uid);
+    }
+    return gmail;
+  }
+
+  /** Relabel a Gmail message: copies appear in newly labelled folders and leave the others. */
+  setGmailLabels(gmail: FakeGmailMessage, labels: readonly string[]): void {
+    const [firstPath, firstUid] = [...gmail.copies.entries()][0] ?? [];
+    const existing =
+      firstPath === undefined ? undefined : this.folder(firstPath).messages.get(firstUid as number);
+    gmail.labels = [...labels];
+    const wanted = new Set(this.gmailFoldersOf(gmail.labels));
+    for (const [path, uid] of [...gmail.copies]) {
+      if (!wanted.has(path)) {
+        this.folder(path).delete(uid);
+        gmail.copies.delete(path);
+      }
+    }
+    for (const path of wanted) {
+      if (!gmail.copies.has(path)) {
+        const copy = this.folder(path).add(gmail.source, {
+          messageId: existing?.messageId ?? null,
+          ...(existing ? { internalDate: existing.internalDate } : {}),
+          gmail,
+        });
+        gmail.copies.set(path, copy.uid);
+      }
+    }
+  }
+
+  private gmailFoldersOf(labels: readonly string[]): string[] {
+    const paths = this.folders.has(GMAIL_ALL_MAIL) ? [GMAIL_ALL_MAIL] : [];
+    for (const label of labels) {
+      const special = GMAIL_SYSTEM_LABELS[label];
+      const folder = special
+        ? [...this.folders.values()].find((candidate) => candidate.specialUse === special)
+        : this.folders.get(label);
+      if (folder && !paths.includes(folder.path)) {
+        paths.push(folder.path);
+      }
+    }
+    return paths;
+  }
 
   addFolder(path: string, options?: FakeFolderOptions): FakeFolder {
     const folder = new FakeFolder(path, options);
@@ -464,13 +582,26 @@ class FakeSession implements ImapSession {
     };
   }
 
-  async listFlags(): Promise<ImapMessageFlags[]> {
+  get gmailExtensions(): boolean {
+    return this.server.gmailExtensions;
+  }
+
+  async listFlags(options: { readonly labels?: boolean } = {}): Promise<ImapMessageFlags[]> {
     await this.command();
     this.server.stats.listFlags++;
+    // As imapflow: X-GM-LABELS is only asked for on a server that announced X-GM-EXT-1.
+    const labels = options.labels === true && this.server.gmailExtensions;
+    if (labels) {
+      this.server.stats.listFlagsWithLabels++;
+    }
     const folder = this.requireFolder();
     return folder.uids().map((uid) => {
       const message = folder.messages.get(uid) as FakeMessage;
-      return { uid, flags: [...message.flags] };
+      return {
+        uid,
+        flags: [...message.flags],
+        ...(labels ? { labels: [...(message.gmail?.labels ?? [])] } : {}),
+      };
     });
   }
 

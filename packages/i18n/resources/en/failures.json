@@ -207,6 +207,10 @@
         "title": "The IMAP server did not deliver a message",
         "why": "The server listed the message in the folder but did not return it when it was fetched. Usually it was deleted or moved in the meantime, or the server cut the fetch short because of a limit. The next run tries again."
       },
+      "gmail_all_mail_hidden": {
+        "title": "All Mail is hidden from IMAP for this Gmail account",
+        "why": "Gmail shows every label as an IMAP folder of its own. On Gmail, {appName} reads each message only once from [Gmail]/All Mail and records its labels. That folder is hidden from IMAP, so {appName} backed up folder by folder: each message is in the backup once per label, and a restore to another provider creates every one of those copies. Nothing is missing."
+      },
       "idle_unsupported": {
         "title": "The IMAP server does not offer IDLE",
         "why": "The server does not announce new mail as it arrives (IMAP IDLE). {appName} checks the account for new mail at regular intervals instead, so mail reaches the archive with the delay of that interval."
@@ -687,6 +691,7 @@
     "free_target_space": "Free up space in the target, or choose another target for the restore.",
     "check_app_password": "Check the username and the password in the source settings. If the provider requires two-step verification, create an app password and use that.",
     "enable_imap_access": "Make sure IMAP access is switched on for the account at the mail provider.",
+    "show_gmail_all_mail_in_imap": "In Gmail, open Settings > Labels and tick \"Show in IMAP\" for All Mail. The next run then backs up each message only once.",
     "reauthorize_oauth": "Connect the account again in the source settings so that {appName} receives a new OAuth token.",
     "set_object_password": "Set or correct the password of this account on the Protected objects page.",
     "check_host_reachable": "{has_host, select, yes {Check that {host}{has_port, select, yes {:{port}} other {}} is reachable from the {appName} server} other {Check that the server is reachable from the {appName} server}}: name, port, firewall and proxy.",

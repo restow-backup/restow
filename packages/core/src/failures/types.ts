@@ -73,6 +73,9 @@ export const FAILURE_CODES = [
   "imap.server_limit",
   "imap.connection_lost",
   "imap.message_missing",
+  // A Gmail account whose All Mail is hidden from IMAP: backed up folder by folder, so every
+  // message once per label (backup/imap/gmail.ts). A warning; nothing is missing.
+  "imap.gmail_all_mail_hidden",
   // Archive capture over IMAP (0.4.4): why an account is polled instead of watched with IDLE.
   // Informational: the account is still captured, only with the delay of the poll.
   "imap.idle_unsupported",
@@ -295,6 +298,7 @@ export const FAILURE_STEP_IDS = [
   "free_target_space",
   "check_app_password",
   "enable_imap_access",
+  "show_gmail_all_mail_in_imap",
   "reauthorize_oauth",
   "set_object_password",
   "check_host_reachable",

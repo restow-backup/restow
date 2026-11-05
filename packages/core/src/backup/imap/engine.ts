@@ -5,7 +5,10 @@
  *
  *   connect   -> resolve the credential (password or a fresh OAuth2 access
  *                token) and open the first session; TLS is mandatory.
- *   enumerate -> LIST with SPECIAL-USE, INBOX first, containers skipped.
+ *   enumerate -> LIST with SPECIAL-USE, INBOX first, containers skipped. On Gmail
+ *                (X-GM-EXT-1 and `[Gmail]/All Mail` with `\All`, ./gmail.ts) bodies
+ *                come only from All Mail, Spam and Trash; All Mail's X-GM-LABELS
+ *                become metadata, the label folders are recorded as structure.
  *   download  -> up to two sessions work through the folder queue. Per folder:
  *                EXAMINE, one FETCH 1:* (UID FLAGS), then a plan:
  *                  incremental  same UIDVALIDITY as the previous snapshot:
@@ -52,6 +55,7 @@ import type { ManifestObject, SnapshotManifest } from "../../manifest.js";
 import { CredentialSource, SessionPool } from "./connections.js";
 import { MessageDedupIndex, type StoredContent } from "./dedup.js";
 import { ReadWriteGate } from "./gate.js";
+import { encodeGmailLabels, gmailMessageFolders, isGmailFolderList } from "./gmail.js";
 import { ImapFlowConnector } from "./imapflow-connector.js";
 import type { FetchLike } from "./oauth2.js";
 import {
@@ -382,6 +386,12 @@ class BackupRun {
   /** Folders whose objects changed in this attempt against the previous restore point. */
   private readonly changedFolders = new Set<string>();
   private reconnects = 0;
+  /** Gmail layout (./gmail.ts): All Mail's path; null for every other server. */
+  private gmailAllMail: string | null = null;
+  /** Gmail label folders: recorded as folders, their messages are the All Mail ones. */
+  private readonly labelFolders = new Set<string>();
+  /** X-GM-LABELS of All Mail's messages, from this attempt's FLAGS listing. */
+  private liveLabels: ReadonlyMap<number, readonly string[]> = new Map();
 
   constructor(options: BackupRunOptions) {
     this.ctx = options.ctx;
@@ -411,11 +421,18 @@ class BackupRun {
   async execute(): Promise<void> {
     const firstSession = await this.pool.acquire();
     this.ctx.progress.phase("enumerate");
-    const folders = orderFolders(await firstSession.listFolders());
+    const listed = await firstSession.listFolders();
+    const folders = orderFolders(listed);
+    this.planLayout(listed, folders, firstSession.gmailExtensions);
     this.logVanishedFolders(folders);
     this.dropUnlistedFromEarlierAttempt(folders);
 
-    for (const folder of folders) {
+    // On Gmail the folders with bodies first: the label folders are structure only.
+    const ordered = [
+      ...folders.filter((folder) => !this.labelFolders.has(folder.path)),
+      ...folders.filter((folder) => this.labelFolders.has(folder.path)),
+    ];
+    for (const folder of ordered) {
       if (!this.completed.has(folder.path)) {
         this.queue.push(folder);
       }
@@ -424,6 +441,7 @@ class BackupRun {
       folders: folders.length,
       pending: this.queue.length,
       resumedCompleted: this.completed.size,
+      ...(this.gmailAllMail ? { layout: "gmail", labelFolders: this.labelFolders.size } : {}),
     });
 
     this.ctx.progress.phase("download");
@@ -434,6 +452,55 @@ class BackupRun {
     if (this.failure !== null) {
       throw this.failure;
     }
+  }
+
+  /**
+   * Gmail (./gmail.ts): with X-GM-EXT-1 and All Mail listed, every message is read once from
+   * All Mail (labels as metadata) and Spam and Trash; every other folder is a label folder.
+   * A Gmail account whose All Mail is hidden from IMAP ("Show in IMAP" off) can only be read
+   * folder by folder: each message is stored once per label, and a restore to another
+   * provider brings each copy back. That is said once per run, as a warning the operator
+   * can fix or acknowledge (docs/IMAP.md "Gmail").
+   */
+  private planLayout(
+    listed: readonly ImapFolderInfo[],
+    folders: readonly ImapFolderInfo[],
+    gmailExtensions: boolean,
+  ): void {
+    if (!gmailExtensions) {
+      return;
+    }
+    const gmail = isGmailFolderList(listed) ? gmailMessageFolders(folders) : null;
+    if (!gmail) {
+      const reason =
+        "Gmail account without All Mail in IMAP: every message is backed up once per label and a restore to another provider duplicates it";
+      const cause = buildCause("imap.gmail_all_mail_hidden", {}, { message: reason });
+      this.failures.push({ itemRef: "[Gmail]/All Mail", reason, cause });
+      this.ctx.progress.fail("[Gmail]/All Mail", reason, cause);
+      this.logger.warn("gmail account without All Mail in IMAP, backing up folder by folder", {
+        folders: folders.length,
+      });
+      return;
+    }
+    this.gmailAllMail = gmail.allMail.path;
+    const bodies = new Set([gmail.allMail.path, ...gmail.outsideAllMail.map((f) => f.path)]);
+    for (const folder of folders) {
+      if (!bodies.has(folder.path)) {
+        this.labelFolders.add(folder.path);
+      }
+    }
+    const legacy = [...this.labelFolders].reduce(
+      (count, path) =>
+        count + (this.previousByFolder.get(path) ?? []).filter(isMessageObject).length,
+      0,
+    );
+    if (legacy > 0) {
+      this.logger.info(
+        "gmail account now stored once from All Mail with labels; the per-label copies of earlier restore points are not carried into this one (older restore points keep them)",
+        { labelFolders: this.labelFolders.size, messages: legacy },
+      );
+    }
+    this.publishState();
   }
 
   /** On failure, keep whatever was stored so the retry resumes; discard an untouched snapshot. */
@@ -548,13 +615,23 @@ class BackupRun {
   // -- folders ---------------------------------------------------------------
 
   private async processFolder(worker: FolderWorker, folder: ImapFolderInfo): Promise<void> {
+    if (this.labelFolders.has(folder.path)) {
+      await this.processLabelFolder(worker, folder);
+      return;
+    }
     const status = await worker.session.openFolder(folder.path);
     this.opened.set(folder.path, status);
     const previous = this.previousState.imap.folders[folder.path];
     const plan = planFolder(previous, status, { full: this.full });
     const resumeAfterUid = this.resumePoint(folder.path, status);
-    const live = await worker.session.listFlags();
+    const allMail = folder.path === this.gmailAllMail;
+    const live = await worker.session.listFlags(allMail ? { labels: true } : {});
     const liveFlags = new Map(live.map((message) => [message.uid, message.flags]));
+    if (allMail) {
+      this.liveLabels = new Map(
+        live.flatMap((message) => (message.labels ? [[message.uid, message.labels]] : [])),
+      );
+    }
     const components = folderComponents(folder);
     this.planned.set(folder.path, { plan, liveFlags });
 
@@ -607,6 +684,41 @@ class BackupRun {
     }
   }
 
+  /**
+   * A Gmail label folder: EXAMINE for its UIDVALIDITY, then a folder object and its state, no
+   * FETCH. Its messages are the All Mail ones that carry the label (metadata.gmailLabels).
+   */
+  private async processLabelFolder(worker: FolderWorker, folder: ImapFolderInfo): Promise<void> {
+    const status = await worker.session.openFolder(folder.path);
+    this.opened.set(folder.path, status);
+    const dropped = this.dropLabelCopies(folder.path);
+    if (dropped > 0 || (this.previousByFolder.get(folder.path) ?? []).some(isMessageObject)) {
+      this.changedFolders.add(folder.path);
+    }
+    this.writer.add(this.folderObject(folder, status, folderComponents(folder)));
+    this.folderState[folder.path] = folderStateOf(folder, status);
+    this.publishState();
+    this.active.delete(folder.path);
+    this.completed.add(folder.path);
+    this.touched = true;
+    await this.closeFolderQuietly(worker);
+    if (this.changedFolders.has(folder.path)) {
+      await this.checkpoint("folder");
+    }
+  }
+
+  /** Message objects an earlier attempt (before the Gmail layout) stored for a label folder. */
+  private dropLabelCopies(path: string): number {
+    let dropped = 0;
+    for (const object of this.partialByFolder.get(path) ?? []) {
+      if (isMessageObject(object) && this.writer.remove(object.path)) {
+        dropped++;
+      }
+    }
+    this.partialByFolder.delete(path);
+    return dropped;
+  }
+
   /** Where a checkpointed earlier attempt stopped in this folder, if the UIDs still mean the same thing. */
   private resumePoint(path: string, status: ImapFolderStatus): number {
     const entry = this.active.get(path);
@@ -648,7 +760,7 @@ class BackupRun {
           deleted++;
           continue;
         }
-        const current = withFlags(object, flags);
+        const current = withFlags(object, flags, this.labelsOf(folder.path, uid));
         if (current !== object) {
           this.changedFolders.add(folder.path);
         }
@@ -767,6 +879,25 @@ class BackupRun {
     this.ctx.progress.fail(folder.path, reason, cause);
     this.logger.error("imap folder failed", { folder: folder.path, error });
 
+    if (this.labelFolders.has(folder.path)) {
+      // Structure only: keep the folder as last recorded; its messages are in All Mail.
+      this.dropLabelCopies(folder.path);
+      const recorded = (this.previousByFolder.get(folder.path) ?? []).find(
+        (object) => !isMessageObject(object),
+      );
+      if (recorded) {
+        this.writer.add(recorded);
+      }
+      const previous = this.previousState.imap.folders[folder.path];
+      if (previous) {
+        this.folderState[folder.path] = previous;
+      }
+      this.publishState();
+      this.active.delete(folder.path);
+      this.completed.add(folder.path);
+      return;
+    }
+
     const status = this.opened.get(folder.path);
     const planned = this.planned.get(folder.path);
     if (this.reconciled.has(folder.path) && status && planned?.plan.mode === "full") {
@@ -855,7 +986,7 @@ class BackupRun {
       if (uid === null || flags === undefined || this.writer.has(object.path)) {
         continue;
       }
-      this.writer.add(withFlags(object, flags));
+      this.writer.add(withFlags(object, flags, this.labelsOf(folder.path, uid)));
       carried++;
     }
     const covered = [...liveFlags.keys()].every((uid) =>
@@ -1267,6 +1398,10 @@ class BackupRun {
     if (message.envelope) {
       Object.assign(metadata, encodeEnvelope(message.envelope));
     }
+    const labels = this.labelsOf(folder.path, message.uid);
+    if (labels) {
+      metadata[META.gmailLabels] = encodeGmailLabels(labels);
+    }
     return {
       path: messageObjectPath(components, message.uid),
       id: messageObjectId(folder.path, status.uidValidity, message.uid),
@@ -1303,8 +1438,19 @@ class BackupRun {
     };
   }
 
+  /** The X-GM-LABELS of an All Mail message; undefined elsewhere and on other servers. */
+  private labelsOf(folderPath: string, uid: number): readonly string[] | undefined {
+    return folderPath === this.gmailAllMail ? this.liveLabels.get(uid) : undefined;
+  }
+
   private publishState(): void {
-    const state: ImapEngineState = { imap: { version: 1, folders: { ...this.folderState } } };
+    const state: ImapEngineState = {
+      imap: {
+        version: 1,
+        folders: { ...this.folderState },
+        ...(this.gmailAllMail ? { layout: "gmail" as const } : {}),
+      },
+    };
     this.writer.setState(state as unknown as Record<string, unknown>);
   }
 
@@ -1416,11 +1562,29 @@ function groupByFolder(objects: readonly ManifestObject[]): Map<string, Manifest
   return groups;
 }
 
-/** The same object with its flags brought up to date (a new object only when they changed). */
-function withFlags(object: ManifestObject, flags: readonly string[]): ManifestObject {
+/**
+ * The same object with its flags (and on Gmail's All Mail its labels) brought up to date; a
+ * new object only when they changed. `labels` undefined leaves the labels as they are.
+ */
+function withFlags(
+  object: ManifestObject,
+  flags: readonly string[],
+  labels?: readonly string[],
+): ManifestObject {
   const encoded = encodeFlags(flags);
-  if (object.metadata?.[META.flags] === encoded) {
+  const encodedLabels = labels === undefined ? undefined : encodeGmailLabels(labels);
+  if (
+    object.metadata?.[META.flags] === encoded &&
+    (encodedLabels === undefined || object.metadata?.[META.gmailLabels] === encodedLabels)
+  ) {
     return object;
   }
-  return { ...object, metadata: { ...object.metadata, [META.flags]: encoded } };
+  return {
+    ...object,
+    metadata: {
+      ...object.metadata,
+      [META.flags]: encoded,
+      ...(encodedLabels === undefined ? {} : { [META.gmailLabels]: encodedLabels }),
+    },
+  };
 }

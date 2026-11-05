@@ -326,6 +326,12 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     retryable: true,
     steps: () => [step("wait_automatic"), step("check_server_limits")],
   },
+  "imap.gmail_all_mail_hidden": {
+    category: "imap",
+    transient: false,
+    retryable: false,
+    steps: () => [step("show_gmail_all_mail_in_imap")],
+  },
   // Archive capture (0.4.4): the account is polled instead of watched with IDLE (informational).
   "imap.idle_unsupported": {
     category: "imap",

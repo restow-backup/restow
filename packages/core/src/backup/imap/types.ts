@@ -103,6 +103,11 @@ export interface ImapFolderStatus {
 export interface ImapMessageFlags {
   readonly uid: number;
   readonly flags: readonly string[];
+  /**
+   * Gmail labels (X-GM-LABELS: `\\Inbox`, `\\Sent`, `\\Important`, user labels), only from
+   * {@link ImapSession.listFlags} with `labels` on a server with X-GM-EXT-1 (./gmail.ts).
+   */
+  readonly labels?: readonly string[];
 }
 
 /** How a message is protected against casual reading, detected without a full MIME parse. */
@@ -154,8 +159,11 @@ export interface ImapSession {
   listFolders(): Promise<ImapFolderInfo[]>;
   /** EXAMINE (read-only select). */
   openFolder(path: string): Promise<ImapFolderStatus>;
-  /** UID and flags of every message in the open folder (one FETCH 1:* (UID FLAGS)). */
-  listFlags(): Promise<ImapMessageFlags[]>;
+  /**
+   * UID and flags of every message in the open folder (one FETCH 1:* (UID FLAGS)); with
+   * `labels` on a Gmail server also X-GM-LABELS (./gmail.ts).
+   */
+  listFlags(options?: { readonly labels?: boolean }): Promise<ImapMessageFlags[]>;
   /** Size, flags, internal date, Message-ID and envelope metadata of the given UIDs (no bodies). */
   fetchMeta(uids: readonly number[]): Promise<ImapMessageMeta[]>;
   /** Byte-exact sources of the given UIDs, in server order. UIDs the server does not return are simply absent. */
@@ -171,6 +179,8 @@ export interface ImapSession {
   uidsAbove(uid: number): Promise<number[]>;
   /** Whether the server announced IDLE (RFC 2177) in its capabilities. */
   readonly idleSupported: boolean;
+  /** Whether the server announced Gmail's IMAP extension X-GM-EXT-1 (labels, ./gmail.ts). */
+  readonly gmailExtensions: boolean;
   /**
    * IDLE on the open folder: yields once whenever new mail arrived (EXISTS grew) since the
    * last yield. Another command on the session (STATUS, a FETCH) ends IDLE for its
@@ -224,6 +234,12 @@ export interface ImapEngineState {
   readonly imap: {
     readonly version: 1;
     readonly folders: Record<string, ImapFolderState>;
+    /**
+     * `gmail`: the snapshot holds Gmail's messages once, from All Mail, Spam and Trash, with
+     * their labels as metadata; the label folders are structure only (./gmail.ts). Absent:
+     * every folder holds its own messages.
+     */
+    readonly layout?: "gmail";
   };
 }
 

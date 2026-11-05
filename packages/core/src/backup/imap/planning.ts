@@ -171,7 +171,9 @@ export function readImapState(state: Record<string, unknown> | undefined): ImapE
       clean[path] = normalized;
     }
   }
-  return { imap: { version: 1, folders: clean } };
+  const layout =
+    (imap as { layout?: unknown }).layout === "gmail" ? { layout: "gmail" as const } : {};
+  return { imap: { version: 1, folders: clean, ...layout } };
 }
 
 function isFolderState(value: unknown): value is ImapFolderState {

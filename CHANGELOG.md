@@ -563,6 +563,15 @@ private repository.
   uploaded about as many partial manifests as it had folders, and a first backup grew with the
   square of the mailbox size. A folder without changes now writes no checkpoint, and checkpoints
   during a download come at most once a minute and less often as the restore point grows.
+- Mail backup: a Gmail or Google Workspace account was downloaded and stored once per label plus
+  once more in All Mail, because Gmail shows every label as an IMAP folder. A first backup
+  transferred several times the mailbox size against Gmail's daily download limit, every newly
+  labelled message was downloaded again per label, and a restore to another provider created a
+  copy per label. Messages are now read once, from All Mail, Spam and Trash, and their labels are
+  kept with each message; the label folders are kept as folders. The first run after the update
+  no longer carries the per-label copies of earlier restore points forward (those keep them). If
+  All Mail is hidden from IMAP in the Gmail settings, the account is still backed up folder by
+  folder and every run says so in a warning.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,
