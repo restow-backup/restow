@@ -240,6 +240,8 @@ async function capturePage(
       known.externalRefs.has(message.id) ||
       heldBySentAt(known.messages, message.internetMessageId, sentAt)
     ) {
+      // In the archive: a gap of it (an earlier failure, asked for again) is closed.
+      await options.sink.gaps?.resolved("message", message.id);
       counts.skipped++;
       continue;
     }
@@ -411,6 +413,7 @@ export async function drainGraphPending(options: GraphDrainOptions): Promise<Gra
   const open: string[] = [];
   for (const ref of refs) {
     if (held.externalRefs.has(ref)) {
+      await options.sink.gaps?.resolved("message", ref);
       result.handled.push(ref);
       result.skipped++;
     } else {

@@ -646,8 +646,10 @@ Code: `packages/core/src/graph/resources/subscriptions.ts`, `packages/core/src/a
   `not_convertible`), werden sofort als offene Lücke der Erfassung festgehalten (docs/ARCHIVE.md,
   "Lücken der Erfassung"). Ein 5xx ist keine Weigerung: Die Mail bleibt ausstehend (aus dem
   Nachholen und der Übernahme kommt sie dafür in die Liste der ausstehenden Mails) und wird bei
-  den nächsten Durchgängen erneut geholt; erst nach drei Fehlschlägen ist sie eine Lücke
-  (`export_failed`). Bis 0.4.12 galt jede solche Mail als "zu groß", auch nach zwei
+  den nächsten Durchgängen erneut geholt, mit wachsendem Abstand (10 Minuten, dann doppelt so
+  lang, höchstens eine Stunde); erst nach drei Fehlschlägen, die mindestens je eine Stunde
+  auseinanderliegen, ist sie eine Lücke (`export_failed`), und auch dann fragt Restow einmal am
+  Tag erneut nach ihr. Bis 0.4.12 galt jede solche Mail als "zu groß", auch nach zwei
   vorübergehenden 500ern, und war für immer verloren.
 - **Nachholen:** Delta über alle Ordner (versteckte eingeschlossen; ohne Suchordner, Entwürfe,
   Postausgang, Synchronisierungsprobleme) plus `recoverableitemsdeletions`, alle

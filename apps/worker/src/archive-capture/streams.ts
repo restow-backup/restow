@@ -34,6 +34,12 @@ interface StreamRow {
   last_capture_at: Date | string | null;
 }
 
+/**
+ * How long a pending ref waits after a failed or deferred fetch: 10 minutes after the first,
+ * doubling, at most an hour (`attempts` counts them).
+ */
+const PENDING_RETRY_DELAY = sql`least(interval '1 hour', interval '5 minutes' * power(2, attempts))`;
+
 function date(value: Date | string | null): Date | null {
   return value === null ? null : value instanceof Date ? value : new Date(value);
 }
@@ -290,19 +296,51 @@ export class PgStreamStore {
     return new Set(result.rows.map((row) => row.tenant_id));
   }
 
-  /** Refs notifications announced for a stream's mailbox, oldest first. */
   /**
    * The next refs to fetch: those tried least often first, then the longest untried, so refs
-   * that keep failing never crowd newer ones out of the batch.
+   * that keep failing never crowd newer ones out of the batch. A ref that failed (or whose
+   * export was deferred) waits {@link pendingRetryDelay} before it is fetched again, so a
+   * failing ref is not asked for on every pass (passes run back to back while a full batch
+   * waits) and its attempts are spread over hours, not minutes.
    */
   async pendingRefs(stream: CaptureStream, limit: number): Promise<string[]> {
     const result = await this.db.execute<{ external_ref: string }>(sql`
       select external_ref from archive_capture_pending
        where protected_object_id = ${stream.protectedObjectId}::uuid and way = ${stream.way}
+         and (last_attempt_at is null or last_attempt_at <= now() - ${PENDING_RETRY_DELAY})
        order by attempts, last_attempt_at nulls first, created_at
        limit ${limit}
     `);
     return result.rows.map((row) => row.external_ref);
+  }
+
+  /** When the earliest waiting pending ref may be fetched again; null when none waits. */
+  async nextPendingRetryAt(stream: CaptureStream): Promise<Date | null> {
+    const result = await this.db.execute<{ at: Date | string | null }>(sql`
+      select min(last_attempt_at + ${PENDING_RETRY_DELAY}) as at from archive_capture_pending
+       where protected_object_id = ${stream.protectedObjectId}::uuid and way = ${stream.way}
+         and last_attempt_at is not null
+    `);
+    return date(result.rows[0]?.at ?? null);
+  }
+
+  /**
+   * Refs whose MIME export was deferred (a 5xx): one more attempt and the time, so they wait
+   * before the next fetch; the gap sink counts them and gives them up (./gaps.ts).
+   */
+  async deferPending(stream: CaptureStream, refs: readonly string[], error: string): Promise<void> {
+    if (refs.length === 0) {
+      return;
+    }
+    await this.db.execute(sql`
+      update archive_capture_pending
+         set attempts = attempts + 1, last_error = ${error.slice(0, 500)}, last_attempt_at = now()
+       where protected_object_id = ${stream.protectedObjectId}::uuid and way = ${stream.way}
+         and external_ref = any(ARRAY[${sql.join(
+           refs.map((ref) => sql`${ref}`),
+           sql`, `,
+         )}]::text[])
+    `);
   }
 
   /**

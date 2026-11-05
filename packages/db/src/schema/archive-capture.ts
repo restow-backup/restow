@@ -176,6 +176,9 @@ export const archiveCaptureGaps = pgTable(
     attempts: integer("attempts").notNull().default(1),
     firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull().defaultNow(),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    // When the last attempt counted, or the open gap was last asked for again (0.5.0): an
+    // attempt counts at most once an hour, an open gap is retried once a day.
+    lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
     openedAt: timestamp("opened_at", { withTimezone: true }),
     resolvedAt: timestamp("resolved_at", { withTimezone: true }),
     ...createdOnly(),

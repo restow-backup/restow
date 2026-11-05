@@ -819,6 +819,7 @@ export function createGraphCaptureWay(deps: GraphWayDeps): CaptureWay {
         state: result.missing > 0 || result.failure ? { ...state, forceCatchUp: true } : undefined,
         handled: result.handled,
         captured: result.captured,
+        ...(result.deferred.length > 0 ? { deferred: result.deferred } : {}),
         ...(result.failed.length > 0
           ? {
               failed: {
@@ -830,6 +831,19 @@ export function createGraphCaptureWay(deps: GraphWayDeps): CaptureWay {
             }
           : {}),
       };
+    },
+
+    async retryGaps(ctx): Promise<number> {
+      // A message whose export or fetch kept failing is asked for once a day through the
+      // pending list; one too large or not convertible for a MIME export is not (no retry
+      // changes that).
+      const due =
+        (await ctx.gaps.retryDue?.({
+          kinds: ["message"],
+          reasons: ["export_failed", "fetch_failed"],
+        })) ?? [];
+      await captureSink(ctx).retryLater?.(due.map((gap) => gap.ref));
+      return due.length;
     },
 
     async catchUp(ctx): Promise<CatchUpResult> {

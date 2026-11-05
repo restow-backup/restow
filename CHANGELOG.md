@@ -590,6 +590,17 @@ private repository.
   fetched again on the next passes, given up only after three failures; a message too large or
   not convertible is recorded as an open capture gap at once (`too_large`, `not_convertible`,
   `export_failed`), shown on the archive page and named by the capture alert.
+  Attempts counted once per pass, with no time between them, so an outage of minutes still lost
+  mail for good: with a full batch of 500 announced messages passes ran back to back, and
+  Exchange answering 500 on `$value` for two minutes during a backlog made 600 fetchable messages
+  gaps nobody asked for again; an IMAP folder or message the takeover gave up after three jobs
+  (about half an hour) was just as final. An attempt now counts at most once an hour (migration
+  0087), so a gap opens after two hours of failures at the earliest; a pending message that
+  failed or whose export failed waits before its next fetch (10 minutes, doubling, at most an
+  hour; the mailbox is due again then), also when passes run back to back; and an open gap that
+  may succeed later is asked for again once a day: an undelivered IMAP message, the older mail
+  of a folder the takeover gave up (read from its first UID), a Graph message whose export or
+  fetch failed. One too large or not convertible is not.
 - Mail archive: a captured mail could be committed with a chunk that existed nowhere. Capture
   reuses a chunk the store already holds, also one an expired backup left unreferenced, and
   scrub's garbage collection does not wait for continuous capture or the journal receiver: when

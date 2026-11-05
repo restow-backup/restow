@@ -538,12 +538,19 @@ export class ArchiveCaptureService {
       }
 
       step = "drain";
+      if (way.retryGaps) {
+        const retried = await way.retryGaps(ctx());
+        if (retried > 0) {
+          logger.info("open capture gaps are asked for again", { gaps: retried });
+        }
+      }
       const refs = await this.store.pendingRefs(stream, this.settings.drainBatch);
       let morePending = false;
       if (refs.length > 0) {
         const drained = await way.drain(ctx(), refs);
         state = drained.state ?? state;
         await this.store.deletePending(stream, drained.handled);
+        await this.store.deferPending(stream, drained.deferred ?? [], "MIME export failed (5xx)");
         if (drained.failed && drained.failed.refs.length > 0) {
           // Counted per ref; after PENDING_MAX_ATTEMPTS passes a ref is dropped as an open
           // capture gap (shown, alerted) and left to the catch-up, which finds it in its
@@ -564,8 +571,12 @@ export class ArchiveCaptureService {
             });
           }
         }
+        // A full batch: more may wait, the next pass follows at once. Refs that failed or were
+        // deferred now wait out their delay, so that pass never asks for them again.
         morePending = refs.length >= this.settings.drainBatch;
       }
+      // Refs waiting out their delay: the stream is due again when the first may be fetched.
+      const pendingRetryAt = await this.store.nextPendingRetryAt(stream);
 
       step = "catch_up";
       const caught = await way.catchUp(ctx());
@@ -583,7 +594,9 @@ export class ArchiveCaptureService {
         const { resyncRequestedAt: _done, ...rest } = state;
         state = rest;
       }
-      const due = [caught.nextDueAt, ensured.nextDueAt].filter((d): d is Date => d !== undefined);
+      const due = [caught.nextDueAt, ensured.nextDueAt, pendingRetryAt ?? undefined].filter(
+        (d): d is Date => d !== undefined,
+      );
       const nextDueAt = morePending
         ? passStartedAt
         : new Date(Math.min(...due.map((d) => d.getTime())));

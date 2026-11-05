@@ -166,9 +166,18 @@ behauptet für die zeitnahe Erfassung keine Vollständigkeit.
 Was ein Weg aus dem Postfach nicht übernehmen kann, hält Restow seit 0.5.0 dauerhaft fest
 (`archive_capture_gaps`), statt es nur zu protokollieren: einen Ordner, den der Server verweigert
 (STATUS, EXAMINE, SEARCH oder FETCH mit NO), eine Nachricht, die er auflistet, aber nie
-ausliefert, und bei Graph eine Nachricht ohne MIME-Export (docs/MICROSOFT.md). Jeder
-fehlgeschlagene Versuch zählt; vom dritten an (oder wenn der Weg sofort aufgibt) ist die Lücke
-offen. Eine Grenze des Kontos (`imap.server_limit`, etwa Gmails "[OVERQUOTA] Account exceeded
+ausliefert, und bei Graph eine Nachricht ohne MIME-Export (docs/MICROSOFT.md). Ein
+fehlgeschlagener Versuch zählt höchstens einmal je Stunde (Migration 0087, `last_attempt_at`),
+denn Durchgänge laufen Minuten auseinander und ein Server, der eine Viertelstunde lang verweigert
+(eine Folge von 5xx, ein gedrosselter Ordner), soll nicht alle Versuche einer Mail verbrauchen,
+die kurz darauf wieder abrufbar ist. Vom dritten gezählten Versuch an (frühestens nach zwei
+Stunden, oder wenn der Weg sofort aufgibt) ist die Lücke offen. Eine offene Lücke ist nicht
+endgültig: Einmal am Tag fragt die Erfassung erneut nach einer nicht ausgelieferten
+IMAP-Nachricht, nach dem Altbestand eines Ordners, den die Übernahme aufgegeben hat (der Ordner
+wird dafür von der ersten UID an gelesen), und nach einer Graph-Nachricht, deren Export oder
+Abruf scheiterte (`export_failed`, `fetch_failed`, über die Liste der ausstehenden Mails). Eine
+Mail über ~150 MB oder eine, die Exchange nicht umwandeln kann, fragt sie nicht erneut ab: daran
+ändert ein neuer Versuch nichts. Eine Grenze des Kontos (`imap.server_limit`, etwa Gmails "[OVERQUOTA] Account exceeded
 command or bandwidth limits") zählt nicht gegen den Ordner: Die Übernahme hält an und setzt mit
 dem nächsten Job fort, die laufende Erfassung beim nächsten Durchgang.
 
@@ -191,7 +200,10 @@ dem nächsten Job fort, die laufende Erfassung beim nächsten Durchgang.
   eine Lücke (`export_failed`). Eine gemeldete Mail, die sich nicht abrufen lässt (Graph
   antwortet etwa 403 `ErrorAccessDenied` für ein Element, das die App nicht lesen darf), bleibt
   ausstehend und zählt ihre Versuche (Migration 0084); seltener versuchte Meldungen kommen zuerst
-  an die Reihe, und nach fünf Fehlschlägen wird sie als offene Lücke (`fetch_failed`) aus der
+  an die Reihe, eine gescheiterte wartet vor dem nächsten Abruf (10 Minuten, dann doppelt so lang,
+  höchstens eine Stunde; der Stream wird zu diesem Zeitpunkt wieder fällig), auch wenn Durchgänge
+  wegen eines vollen Stapels direkt aufeinander folgen, und nach fünf Fehlschlägen wird sie als
+  offene Lücke (`fetch_failed`) aus der
   Warteschlange genommen und dem Nachholen überlassen. Ein Durchgang, in dem keine Meldung
   abgerufen werden konnte, schlägt nicht mehr fehl und überspringt das Nachholen nicht (vorher
   blockierte schon eine solche Meldung jeden Durchgang des Postfachs). docs/MICROSOFT.md,
@@ -202,8 +214,8 @@ dem nächsten Job fort, die laufende Erfassung beim nächsten Durchgang.
   Grund, Versuche, seit wann). Die Erfassungs-Warnung `capture_gap` (Ereignis `archive.failed`)
   geht je Stream hinaus, wenn eine Lücke neu offen ist.
 - **Schließen:** Wird der Ordner später gelesen oder die Nachricht doch erfasst (ein Durchgang,
-  ein Neuabgleich, der alle Ordner von vorn liest), ist die Lücke erledigt; sie bleibt als
-  Eintrag erhalten.
+  die tägliche erneute Abfrage, ein Neuabgleich, der alle Ordner von vorn liest), ist die Lücke
+  erledigt; sie bleibt als Eintrag erhalten.
 
 ## Exchange-Online-Journaling einrichten
 

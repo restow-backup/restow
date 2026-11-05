@@ -442,7 +442,11 @@ describe.skipIf(!adminUrl)("IMAP capture way (Postgres)", () => {
     put("INBOX", "fine@example.net");
     server.faults.omitSource.add("INBOX:1");
     server.faults.openFailures.add("Sent");
+    // Three passes an hour apart (an attempt counts at most once an hour, ./gaps.ts).
     for (let n = 0; n < 3; n++) {
+      await db.execute(
+        sql`update archive_capture_gaps set last_attempt_at = last_attempt_at - interval '1 hour'`,
+      );
       await pass(instance);
     }
     const gaps = await db

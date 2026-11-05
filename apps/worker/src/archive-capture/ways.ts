@@ -179,6 +179,11 @@ export interface DrainResult {
    * (./service.ts), left to the catch-up. `error` says why, for the log and the pending row.
    */
   readonly failed?: { readonly refs: readonly string[]; readonly error: string };
+  /**
+   * Refs whose MIME export failed with a 5xx this time and that stay pending: they wait
+   * before the next fetch (./streams.ts), the gap sink counts their attempts.
+   */
+  readonly deferred?: readonly string[];
 }
 
 export interface CatchUpResult {
@@ -237,6 +242,11 @@ export interface CaptureWay {
   ensure(ctx: CaptureContext): Promise<EnsureResult>;
   drain(ctx: CaptureContext, refs: readonly string[]): Promise<DrainResult>;
   catchUp(ctx: CaptureContext): Promise<CatchUpResult>;
+  /**
+   * Ask once more for open gaps that may succeed by now (./gaps.ts `retryDue`, once a day):
+   * the way puts them where its next drain or catch-up finds them. Called before the drain.
+   */
+  retryGaps?(ctx: CaptureContext): Promise<number>;
   /** No job wants the stream any more: remove what the way set up (a subscription). Best effort. */
   release?(ctx: CaptureContext): Promise<void>;
   /** The one-time takeover of the mailbox's existing mail, checkpointed in `ctx.job.cursor`. */

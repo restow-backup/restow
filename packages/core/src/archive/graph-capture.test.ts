@@ -192,7 +192,7 @@ describe("drainGraphPending", () => {
     const fake = mailbox();
     fake.addMessage(USER, { id: "big", folderId: "inbox", tooLarge: true });
     const sink = new MemorySink();
-    const gaps = new MemoryCaptureGaps();
+    const gaps = new MemoryCaptureGaps({ spacingMs: 0 });
     sink.gaps = gaps;
     const result = await drainGraphPending({
       client: fake.client(),
@@ -214,7 +214,7 @@ describe("drainGraphPending", () => {
       mimeError: { status: 500, code: "ErrorMimeContentConversionFailed" },
     });
     const sink = new MemorySink();
-    const gaps = new MemoryCaptureGaps();
+    const gaps = new MemoryCaptureGaps({ spacingMs: 0 });
     sink.gaps = gaps;
     const result = await drainGraphPending({
       client: fake.client(),
@@ -231,7 +231,7 @@ describe("drainGraphPending", () => {
     const fake = mailbox();
     fake.failNext("/messages/m2/$value", 500, 500);
     const sink = new MemorySink();
-    const gaps = new MemoryCaptureGaps();
+    const gaps = new MemoryCaptureGaps({ spacingMs: 0 });
     sink.gaps = gaps;
     const drain = () =>
       drainGraphPending({ client: fake.client(), userId: USER, refs: ["m2"], sink });
@@ -250,7 +250,7 @@ describe("drainGraphPending", () => {
     const fake = mailbox();
     fake.failNext("/messages/m2/$value", 500, 500, 500);
     const sink = new MemorySink();
-    const gaps = new MemoryCaptureGaps();
+    const gaps = new MemoryCaptureGaps({ spacingMs: 0 });
     sink.gaps = gaps;
     for (let pass = 1; pass <= 3; pass++) {
       await drainGraphPending({ client: fake.client(), userId: USER, refs: ["m2"], sink });

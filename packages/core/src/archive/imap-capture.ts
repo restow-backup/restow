@@ -135,6 +135,23 @@ export function imapExternalRef(path: string, uidValidity: string, uid: number):
   return `${path};${uidValidity};${uid}`;
 }
 
+/** The parts of an {@link imapExternalRef} (a folder name may hold `;`), or null. */
+export function parseImapExternalRef(
+  ref: string,
+): { path: string; uidValidity: string; uid: number } | null {
+  const last = ref.lastIndexOf(";");
+  const middle = last > 0 ? ref.lastIndexOf(";", last - 1) : -1;
+  if (middle <= 0) {
+    return null;
+  }
+  const uid = Number(ref.slice(last + 1));
+  const uidValidity = ref.slice(middle + 1, last);
+  if (!Number.isSafeInteger(uid) || uid <= 0 || uidValidity.length === 0) {
+    return null;
+  }
+  return { path: ref.slice(0, middle), uidValidity, uid };
+}
+
 const GMAIL_PREFIX = /^\[(gmail|google mail)\](\/|$)/i;
 const DRAFT_NAMES = /^(drafts|entw(ü|ue)rfe|brouillons|borradores|bozze|concepten)$/i;
 
@@ -484,10 +501,29 @@ export async function catchUpImapCapture(
       reason: classifyFailure(error, { role: "imap" }).code,
     });
   };
+  // Open gaps that may be fetchable by now (once a day): a message the server listed but did
+  // not deliver, and a folder whose older mail the backfill could not take over (read from its
+  // first UID here). Live capture never reads below its checkpoint otherwise.
+  const retryMessages = new Map<string, { uidValidity: string; uid: number }[]>();
+  const retryFolders = new Set<string>();
+  for (const gap of (await gaps?.retryDue?.({ kinds: ["message", "backfill_folder"] })) ?? []) {
+    if (gap.kind === "backfill_folder") {
+      retryFolders.add(gap.ref);
+      continue;
+    }
+    const parsed = parseImapExternalRef(gap.ref);
+    if (parsed) {
+      const list = retryMessages.get(parsed.path) ?? [];
+      list.push({ uidValidity: parsed.uidValidity, uid: parsed.uid });
+      retryMessages.set(parsed.path, list);
+    }
+  }
   for (const folder of plan.folders) {
     abortIfNeeded(sink.signal);
     visited.add(folder.path);
     const known = previous.folders[folder.path];
+    const rescan = options.rescan === true || retryFolders.has(folder.path);
+    const retrying = retryMessages.get(folder.path) ?? [];
     let status: Awaited<ReturnType<ImapSession["status"]>>;
     try {
       status = await session.status(folder.path);
@@ -506,8 +542,13 @@ export async function catchUpImapCapture(
       continue;
     }
     const sameValidity = known !== undefined && known.uidValidity === status.uidValidity;
-    const from = sameValidity && !options.rescan ? known.lastUid : 0;
-    if (sameValidity && !options.rescan && status.uidNext <= known.lastUid + 1) {
+    const from = sameValidity && !rescan ? known.lastUid : 0;
+    if (
+      sameValidity &&
+      !rescan &&
+      status.uidNext <= known.lastUid + 1 &&
+      !retrying.some((entry) => entry.uidValidity === status.uidValidity)
+    ) {
       folders[folder.path] = { ...known, uidNext: status.uidNext };
       await gaps?.resolved("folder", folder.path);
       continue;
@@ -523,7 +564,7 @@ export async function catchUpImapCapture(
       const opened = await session.openFolder(folder.path);
       const uidValidity = opened.uidValidity;
       const backfillUpTo = known?.uidValidity === uidValidity ? known.backfillUpTo : undefined;
-      const stuck = sameValidity && !options.rescan ? known.stuck : undefined;
+      const stuck = sameValidity && !rescan ? known.stuck : undefined;
       const base = (
         lastUid: number,
         holding: ImapCaptureFolderState["stuck"] | null = stuck,
@@ -552,12 +593,47 @@ export async function catchUpImapCapture(
       );
       captured += outcome.captured;
       skipped += outcome.skipped;
+      // Messages given up on an earlier pass, below the checkpoint (or the backfill's): asked
+      // for once more; one delivered now resolves its gap.
+      const again = retrying
+        .filter((entry) => entry.uidValidity === uidValidity && entry.uid <= from)
+        .map((entry) => entry.uid)
+        .sort((a, b) => a - b);
+      if (again.length > 0) {
+        const retried = await captureFolderUids(
+          session,
+          { path: folder.path, uidValidity },
+          again,
+          sink,
+          {
+            ...(options.limits ? { limits: options.limits } : {}),
+            ...(options.logger ? { logger: options.logger } : {}),
+          },
+        );
+        captured += retried.captured;
+        skipped += retried.skipped;
+        for (const uid of again) {
+          if (!retried.missing.includes(uid)) {
+            await gaps?.resolved("message", imapExternalRef(folder.path, uidValidity, uid));
+          }
+        }
+      }
       const done = Math.max(from, outcome.handledUpTo, opened.uidNext - 1);
       const [first, next] = outcome.missing;
       if (first === undefined) {
         folders[folder.path] = base(done, null);
       } else {
-        const attempts = stuck?.uid === first ? stuck.attempts + 1 : 1;
+        // Counted through the gap sink when there is one: at most once per hour, so a burst of
+        // NO answers over a few passes does not give up a message fetchable shortly after.
+        const attempts = gaps
+          ? await gaps.failed({
+              kind: "message",
+              ref: imapExternalRef(folder.path, uidValidity, first),
+              reason: "undelivered",
+            })
+          : stuck?.uid === first
+            ? stuck.attempts + 1
+            : 1;
         if (attempts < MAX_UNDELIVERED_ATTEMPTS) {
           folders[folder.path] = base(Math.max(from, outcome.handledUpTo), {
             uid: first,
