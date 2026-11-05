@@ -12,6 +12,19 @@ private repository.
 
 ### Added
 
+- Restore mode after restoring a database dump (docs/STORAGE.md, "Restore mode and progress
+  markers"): while it is on, Restow deletes nothing (no retention, no clean-up, no purge, no
+  restic forget or prune), holds every job created before the restore instead of resuming it,
+  and keeps running new backups and checks. A banner on every page tells provider
+  administrators; Installation › Restore mode compares every tenant's storage targets with the
+  database, lists refused deletions, held jobs, key versions found in storage and wrapped keys
+  that differ, imports those key versions and lets a provider owner end it with a recent
+  sign-in, a description of what was checked and a choice what happens to data only storage
+  knows (kept for good by default). The command line has `restow restore-mode status`, `on`,
+  `check`, `import-keys` and `off`, to be run before the worker starts after a rollback. The
+  alerts `installation.restore_mode` and `installation.key_mirror_conflict` can be put into
+  notification rules by provider administrators.
+
 - Installation › Capacity planning (`/resources`, formerly announced as "Soon"): utilisation and
   growth per tenant and per repository, with a plain forecast such as "full in about 120 days".
   Provider admins only; a member of the provider team limited to some tenants sees those. Key
@@ -401,6 +414,30 @@ private repository.
 
 ### Fixed
 
+- Data safety: after restoring a database dump (the documented rollback with migrations, a host
+  move from an online dump), the database knew less than the storage, and several passes
+  deleted by the database's view without asking: the orphan sweep after every storage check
+  removed every pack file without a row older than 24 hours on the primary and on every copy,
+  overdue retention ran on the first scheduler tick without the legal holds and suspicion holds
+  set after the dump, the clean-up removed staging and export areas without a row, the
+  comparison of container repositories forgot restic snapshots no restore point named after 6
+  hours, repository repairs and resets moved chains aside, and jobs that were running in the dump
+  (restores into mailboxes, storage migrations, the file share purge, which the update pause did
+  not stop) were put back into their queues two minutes after the start. Backups written after
+  the dump could be lost. Now every deletion pass asks the deletion guard first, the storage
+  backends refuse a delete outside one while restore mode is on, restore mode is switched on by
+  the command line in the rollback procedure or by the worker itself when a storage target shows
+  progress the database does not have (progress markers written next to the data), and jobs from
+  before the restore are held: queued jobs, file share runs (restores into a share, mirror copies)
+  and the tasks machines and Proxmox VE nodes fetch with their heartbeat (restores over a guest,
+  uninstalls), while backups queued after the restore still run. The key mirror could also
+  overwrite `tenants/<tid>/keys/<v>` in storage with another key when the restored database
+  handed out a version again; it now never overwrites a stored key that differs (it reports it,
+  always), the copy mirror and storage migrations neither, and a new key version is allocated
+  above every version in storage. The same holds for the sealed repository password next to a
+  restic repository: a file share whose first backup ran after the dump got a new password and
+  its stored password was replaced, which made those backups unreadable; now the stored password
+  is never replaced and the share begins a new repository next to the old one.
 - The API now writes an unexpected error to its log before it answers with HTTP 500: the method,
   the path, the error's name and message (with secrets masked) and the first frames of its stack.
   Until now such a request failed in the browser while `docker compose logs api` showed nothing,
@@ -1257,7 +1294,17 @@ private repository.
 
 ### Upgrade Notes
 
-Six database migrations run on start: 0073 creates the new table `storage_samples` and 0074
+Seven database migrations run on start (0073 to 0079). The last one, 0079, creates the new
+tables `installation_restore_mode` (installation-level) and `storage_progress`,
+`storage_progress_checks`, `restore_mode_refusals` and `key_mirror_findings` (under Row Level
+Security like every tenant table); it changes no existing table and writes no row (a tenant
+without a row in `storage_progress` counts as 0). From this release on every storage target gets
+small progress markers under `tenants/<tid>/progress/`; they are never copied or counted, and the
+storage check prunes old ones on mutable targets. Restore mode never comes on by itself after the update: a
+target without markers triggers nothing. Rolling back below 0.5.0 with migrations cannot use
+restore mode; docs/UPDATING.md ("Rollback") says how to keep that version from deleting.
+
+The other six: 0073 creates the new table `storage_samples` and 0074
 the new table `directory_memberships`; neither rewrites anything. 0075 serves the restore
 explorer's "From the archive": an index on `archive_items` (tenant, mailbox, capture time), the
 index on `archive_item_mailboxes` (tenant, mailbox) replaced by one that adds the time of the

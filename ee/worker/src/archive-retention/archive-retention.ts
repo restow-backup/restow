@@ -27,7 +27,7 @@
  * evaluated here (a known limitation): query-scoped holds need the same
  * search machinery as features/archive/search.ts.
  */
-import { archive } from "@restow/core";
+import { archive, deletionDecision, withDeletionPermit } from "@restow/core";
 import {
   archiveItemMailboxIds,
   archiveItems,
@@ -51,6 +51,8 @@ export interface ArchiveRetentionSummary {
   readonly deleted: number;
   readonly held: number;
   readonly dryRun: boolean;
+  /** Nothing was deleted: deleting is paused (restore mode after restoring a database dump). */
+  readonly restoreMode?: boolean;
 }
 
 const DEFAULT_ARCHIVE_POLICY: archive.RetentionPolicy = { mode: "end_of_year", years: 8 };
@@ -115,6 +117,22 @@ export async function runArchiveRetention(
   now: () => Date,
 ): Promise<ArchiveRetentionSummary> {
   const policy = await loadArchivePolicy(providerDb, tenantId);
+  // Restore mode after restoring a database dump (docs/STORAGE.md): the restored database lacks
+  // the legal holds and policy changes made after the dump. Nothing is deleted.
+  if (!options.dryRun) {
+    const decision = await deletionDecision({ pass: "archive_retention", tenantId });
+    if (!decision.allowed) {
+      return {
+        policyYears: policy.years,
+        policyMode: policy.mode,
+        candidates: 0,
+        deleted: 0,
+        held: 0,
+        dryRun: options.dryRun,
+        restoreMode: true,
+      };
+    }
+  }
   const holds = await loadHolds(providerDb, tenantId);
   const currentTime = now();
 
@@ -144,29 +162,10 @@ export async function runArchiveRetention(
       deleted++;
       continue;
     }
-    await providerDb.transaction(async (tx) => {
-      const removed = await tx
-        .delete(archiveItems)
-        .where(and(eq(archiveItems.id, item.id), eq(archiveItems.tenantId, tenantId)))
-        .returning({ id: archiveItems.id });
-      if (removed.length === 0) {
-        return;
-      }
-      await appendAuditEntry(tx, {
-        tenantId,
-        actor: "system",
-        action: "archive.item.deleted",
-        target: item.id,
-        targetType: "archive_item",
-        details: {
-          itemHash: item.itemHash,
-          chainHash: item.chainHash,
-          retentionUntil: item.retentionUntil?.toISOString() ?? null,
-          policyYears: policy.years,
-          policyMode: policy.mode,
-        },
-      });
-    });
+    // The permit is asked again per item: restore mode may come on while the run goes.
+    await withDeletionPermit({ pass: "archive_retention", tenantId }, () =>
+      deleteItem(providerDb, tenantId, item, policy),
+    );
     deleted++;
   }
   return {
@@ -177,6 +176,42 @@ export async function runArchiveRetention(
     held,
     dryRun: options.dryRun,
   };
+}
+
+async function deleteItem(
+  providerDb: Database,
+  tenantId: string,
+  item: {
+    id: string;
+    itemHash: string;
+    chainHash: string;
+    retentionUntil: Date | null;
+  },
+  policy: archive.RetentionPolicy,
+): Promise<void> {
+  await providerDb.transaction(async (tx) => {
+    const removed = await tx
+      .delete(archiveItems)
+      .where(and(eq(archiveItems.id, item.id), eq(archiveItems.tenantId, tenantId)))
+      .returning({ id: archiveItems.id });
+    if (removed.length === 0) {
+      return;
+    }
+    await appendAuditEntry(tx, {
+      tenantId,
+      actor: "system",
+      action: "archive.item.deleted",
+      target: item.id,
+      targetType: "archive_item",
+      details: {
+        itemHash: item.itemHash,
+        chainHash: item.chainHash,
+        retentionUntil: item.retentionUntil?.toISOString() ?? null,
+        policyYears: policy.years,
+        policyMode: policy.mode,
+      },
+    });
+  });
 }
 
 /**

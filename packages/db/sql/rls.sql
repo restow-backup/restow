@@ -157,6 +157,13 @@ DECLARE
     'storage_samples',
     -- Who belongs to a Microsoft 365 group or a SharePoint site (0.5.0, #89).
     'directory_memberships',
+    -- Restore mode after restoring a database dump (0.5.0, src/restore-mode.ts): the database's
+    -- progress per tenant, its comparison with each storage target, refused deletions, wrapped
+    -- keys in storage that differ. Written on the installation pool.
+    'storage_progress',
+    'storage_progress_checks',
+    'restore_mode_refusals',
+    'key_mirror_findings',
     -- Read and written only by the installation role (packages/db roles.ts);
     -- the policy is a second line should the tenant role ever be granted it.
     'provider_member_tenants'

@@ -54,6 +54,8 @@ export * from "./pool-size.js";
 export * from "./repository-lock.js";
 // Services that need a manual restart, and why (the Updates tab shows them).
 export * from "./restart-requests.js";
+// Restore mode after restoring a database dump: the state, the progress values, the findings.
+export * from "./restore-mode.js";
 // The database roles and the startup check of the pools.
 export * from "./roles.js";
 // The throughput history of runs (sparklines and the run drawer's charts).

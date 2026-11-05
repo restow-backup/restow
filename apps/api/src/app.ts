@@ -1,3 +1,4 @@
+import { withStorageOperation } from "@restow/core";
 import { Hono } from "hono";
 import { auth } from "./auth.js";
 import { isDatabaseReachable, readWorkerAndScheduler } from "./db.js";
@@ -72,6 +73,8 @@ import {
 } from "./features/reports/routes.js";
 import { mountPath as restoreMountPath } from "./features/restore/meta.js";
 import { restoreRoutes } from "./features/restore/routes.js";
+import { mountPath as restoreModeMountPath } from "./features/restore-mode/meta.js";
+import { restoreModeRoutes } from "./features/restore-mode/routes.js";
 import { mountPath as retentionMountPath } from "./features/retention/meta.js";
 import { retentionRoutes } from "./features/retention/routes.js";
 import { mountPath as runningMountPath } from "./features/running/meta.js";
@@ -154,6 +157,9 @@ export function buildApp() {
   app.use("*", demoGuard);
   // A signed-in user's 403s end up in the audit log, throttled (lib/denied-audit.ts).
   app.use("*", deniedAudit());
+  // One storage operation per request: what it writes it may delete again while restore mode
+  // holds every other deletion (@restow/core storage/deletion-guard.ts).
+  app.use("*", (_c, next) => withStorageOperation(() => next()));
 
   // Liveness: the process is up.
   app.get("/healthz", (c) => c.json({ status: "ok" }));
@@ -267,6 +273,7 @@ export function buildApp() {
   app.route(`${API_V1}${settingsMountPath}`, settingsRoutes);
   app.route(`${API_V1}${endpointsMountPath}`, endpointsRoutes);
   app.route(`${API_V1}${updatesMountPath}`, updatesRoutes);
+  app.route(`${API_V1}${restoreModeMountPath}`, restoreModeRoutes);
   app.route(`${API_V1}${maintenanceMountPath}`, maintenanceRoutes);
   app.route(`${API_V1}${mountsMountPath}`, mountsRoutes);
   app.route(`${API_V1}${pveMountPath}`, pveRoutes);

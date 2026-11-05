@@ -27,6 +27,12 @@ import {
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import type { Readable } from "node:stream";
 import type { HeadResult, PutOptions, StorageBackend } from "./backend.js";
+import { isObjectNotFound } from "./backend.js";
+import {
+  assertDeletionPermitted,
+  assertKeyWritePermitted,
+  noteStorageWrite,
+} from "./deletion-guard.js";
 
 /** Suffix of the temporary files a write goes through; never a key, never listed. */
 const TEMP_SUFFIX = ".restow-tmp";
@@ -105,6 +111,14 @@ export class LocalStorageBackend implements StorageBackend {
     // Object-lock/retention (_options.retainUntil) is not enforceable on a plain
     // filesystem; archive WORM guarantees require an object-lock capable target.
     const target = this.pathFor(key);
+    await assertKeyWritePermitted(key, data, () =>
+      this.get(key).catch((error: unknown) => {
+        if (isObjectNotFound(error)) {
+          return null;
+        }
+        throw error;
+      }),
+    );
     const directory = dirname(target);
     const created = await mkdir(directory, { recursive: true });
     const temp = join(
@@ -137,6 +151,7 @@ export class LocalStorageBackend implements StorageBackend {
       }
       await syncDirectory(dirname(created));
     }
+    noteStorageWrite(key);
   }
 
   async get(key: string): Promise<Buffer> {
@@ -251,6 +266,7 @@ export class LocalStorageBackend implements StorageBackend {
   }
 
   async delete(key: string): Promise<void> {
+    assertDeletionPermitted(key);
     try {
       await rm(this.pathFor(key));
     } catch (error) {

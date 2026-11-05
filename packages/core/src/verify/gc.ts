@@ -57,6 +57,11 @@ import type {
 } from "../engine/types.js";
 import { PackReader, PackWriter } from "../pack.js";
 import { lockedErrorOf, type StorageBackend } from "../storage/backend.js";
+import {
+  deletionDecision,
+  deletionsHeldErrorOf,
+  withDeletionPermit,
+} from "../storage/deletion-guard.js";
 import type { CatalogChunk, CatalogPack, PackCatalog } from "./catalog.js";
 import { describeError, isAbortError, throwIfAborted } from "./errors.js";
 
@@ -192,13 +197,28 @@ export async function chunksHeldByPartialManifests(
   const partials = (await storage.primary.list(manifestPrefix(tenantId))).filter((key) =>
     key.endsWith(".partial"),
   );
+  // Deleting is paused after restoring a database dump (storage/deletion-guard.ts): a checkpoint
+  // whose row the database lacks may belong to a backup made after the dump, so it is read and
+  // keeps its chunks like a resumable one.
+  let mayDiscard: boolean | null = null;
   for (const key of partials) {
     const named = parseManifestKey(key);
     if (named?.partial && options.abandoned && (await options.abandoned(named.snapshotId))) {
-      if (await deleteOnAllTargets(storage, key, logger)) {
-        discarded.push(key);
+      mayDiscard ??= (await deletionDecision({ pass: "abandoned_checkpoint", tenantId })).allowed;
+      if (mayDiscard) {
+        const removed = await withDeletionPermit({ pass: "abandoned_checkpoint", tenantId }, () =>
+          deleteOnAllTargets(storage, key, logger),
+        ).catch((error: unknown) => {
+          if (deletionsHeldErrorOf(error)) {
+            return false;
+          }
+          throw error;
+        });
+        if (removed) {
+          discarded.push(key);
+        }
+        continue;
       }
-      continue;
     }
     try {
       const manifest = await loadManifest(storage, key, keys);
@@ -407,6 +427,26 @@ export async function collectGarbage(
   const threshold = options.minDeadFraction ?? DEFAULT_MIN_DEAD_FRACTION;
   const newPackId = options.packIdGenerator ?? randomUUID;
   const supersededGraceMs = Math.max(0, options.supersededGraceMs ?? DEFAULT_SUPERSEDED_GRACE_MS);
+  // Throws DeletionsHeldError while deleting is paused (restore mode); the scrub asks first.
+  await withDeletionPermit({ pass: "gc_repack", tenantId: env.tenantId }, () =>
+    repackAll(env, options, summary, threshold, newPackId, supersededGraceMs),
+  );
+  env.logger.info("garbage collection finished", {
+    ...summary,
+    skipped: summary.skipped.length,
+    superseded: summary.superseded.length,
+  });
+  return summary;
+}
+
+async function repackAll(
+  env: ScrubEnvironment,
+  options: GcOptions,
+  summary: GcSummary,
+  threshold: number,
+  newPackId: () => string,
+  supersededGraceMs: number,
+): Promise<void> {
   for (const pack of await env.catalog.collectablePacks(options.cutoff)) {
     throwIfAborted(env.signal);
     if (options.exclude?.has(pack.path)) {
@@ -426,18 +466,12 @@ export async function collectGarbage(
     try {
       await repackOne(env, pack, plan, newPackId, supersededGraceMs, summary);
     } catch (error) {
-      if (isAbortError(error)) {
+      if (isAbortError(error) || deletionsHeldErrorOf(error)) {
         throw error;
       }
       summary.skipped.push({ path: pack.path, reason: describeError(error) });
     }
   }
-  env.logger.info("garbage collection finished", {
-    ...summary,
-    skipped: summary.skipped.length,
-    superseded: summary.superseded.length,
-  });
-  return summary;
 }
 
 export type SupersededRelease = {
@@ -475,6 +509,27 @@ export async function releaseSupersededPacks(
   if (superseded.length === 0) {
     return result;
   }
+  const decision = await deletionDecision({ pass: "superseded_release", tenantId: env.tenantId });
+  if (!decision.allowed) {
+    // Deleting is paused (restore mode): every superseded file stays pending.
+    return { ...result, pending: [...superseded] };
+  }
+  return withDeletionPermit({ pass: "superseded_release", tenantId: env.tenantId }, () =>
+    releaseAll(env, superseded, graceMs, result),
+  ).catch((error: unknown) => {
+    if (deletionsHeldErrorOf(error)) {
+      return { ...result, released: 0, releasedBytes: 0, pending: [...superseded] };
+    }
+    throw error;
+  });
+}
+
+async function releaseAll(
+  env: ScrubEnvironment,
+  superseded: readonly SupersededPack[],
+  graceMs: number,
+  result: SupersededRelease,
+): Promise<SupersededRelease> {
   const live = new Set((await env.catalog.listPacks()).map((pack) => pack.path));
   const now = env.now().getTime();
   const seen = new Set<string>();
@@ -516,6 +571,8 @@ export type OrphanSweep = {
   kept: number;
   /** Unrecorded files kept because the target still locks them (also counted in `kept`). */
   deferredByLock: number;
+  /** Nothing was swept: deleting is paused (restore mode after restoring a database dump). */
+  held?: boolean;
 };
 
 /**
@@ -524,15 +581,41 @@ export type OrphanSweep = {
  * `retained` are superseded packs still inside their own grace period; their
  * file time is the time they were written, not swapped out, so they are
  * skipped by path.
+ *
+ * After restoring a database dump every pack written since the dump has no row: while restore
+ * mode is on nothing is swept ({@link OrphanSweep.held}), and once it ended with "keep", files
+ * older than its end (`keepUnknownBefore`) stay for good (storage/deletion-guard.ts).
  */
 export async function sweepOrphanPacks(
   env: ScrubEnvironment,
   graceMs: number = DEFAULT_ORPHAN_GRACE_MS,
   retained: ReadonlySet<string> = new Set(),
 ): Promise<OrphanSweep> {
+  const decision = await deletionDecision({ pass: "orphan_sweep", tenantId: env.tenantId });
+  if (!decision.allowed) {
+    env.logger.warn("orphan sweep held: deleting is paused", { reason: decision.reason });
+    return { removed: 0, bytes: 0, kept: 0, deferredByLock: 0, held: true };
+  }
+  return withDeletionPermit({ pass: "orphan_sweep", tenantId: env.tenantId }, (permit) =>
+    sweepWithPermit(env, graceMs, retained, permit.keepUnknownBefore),
+  ).catch((error: unknown) => {
+    if (deletionsHeldErrorOf(error)) {
+      return { removed: 0, bytes: 0, kept: 0, deferredByLock: 0, held: true };
+    }
+    throw error;
+  });
+}
+
+async function sweepWithPermit(
+  env: ScrubEnvironment,
+  graceMs: number,
+  retained: ReadonlySet<string>,
+  keepUnknownBefore: Date | null,
+): Promise<OrphanSweep> {
   const known = new Set((await env.catalog.listPacks()).map((pack) => pack.path));
   const sweep: OrphanSweep = { removed: 0, bytes: 0, kept: 0, deferredByLock: 0 };
   const now = env.now().getTime();
+  const floor = keepUnknownBefore?.getTime() ?? null;
   const targets: readonly StorageBackend[] = [env.storage.primary, ...env.storage.copies];
   for (const target of targets) {
     for (const key of await target.list(packPrefix(env.tenantId))) {
@@ -547,6 +630,11 @@ export async function sweepOrphanPacks(
       const head = await target.head(key);
       const modified = head?.lastModified?.getTime();
       if (!head || modified === undefined || now - modified < graceMs) {
+        sweep.kept++;
+        continue;
+      }
+      // Kept for good when a restore mode ended with "keep" after it was written.
+      if (floor !== null && modified < floor) {
         sweep.kept++;
         continue;
       }

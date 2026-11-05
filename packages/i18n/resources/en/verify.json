@@ -231,7 +231,8 @@
         "backup_running": "Cleanup was postponed because a backup was running.",
         "restore_running": "Cleanup was postponed because a restore was running.",
         "verify_running": "Cleanup was postponed because a restore check was running.",
-        "other": "Cleanup was skipped."
+        "other": "Cleanup was skipped.",
+        "restore_mode": "Cleanup was skipped: restore mode is on after restoring a database dump, so nothing is deleted."
       }
     },
     "failed": "The last storage check failed",

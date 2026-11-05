@@ -36,6 +36,7 @@
  * `restow.file-share-repository:<tenant id>:<share id>`. Both are the generic document below
  * with their own {@link RepositoryPasswordKind}.
  */
+import { createHash } from "node:crypto";
 import { type Dek, decryptChunk, encryptChunk } from "../crypto.js";
 import { sealedAad } from "../engine/keyring.js";
 import type { StorageBackend } from "../storage/backend.js";
@@ -166,10 +167,29 @@ export function openRepositoryPassword(
   return { tenantId: document.tenantId, id: document.id, password: plaintext.toString("utf8") };
 }
 
+/** A stored password document that differs from what the database holds: never replaced. */
+export interface RepositoryPasswordFileFinding {
+  /** Its storage key. */
+  readonly key: string;
+  /** SHA-256 (hex) of the stored bytes. */
+  readonly storedSha256: string;
+  /**
+   * `conflict`: it opens, but holds another password or is bound to another tenant or owner;
+   * `damaged`: it is not a document of this kind or does not open with the tenant's keys.
+   */
+  readonly kind: "conflict" | "damaged";
+}
+
 /**
- * Make sure the storage holds the sealed password of a repository: write it when it is missing,
- * damaged, sealed for something else or holds another password. Idempotent; an intact document
- * is left as it is.
+ * Make sure the storage holds the sealed password of a repository: write it when it is missing.
+ * Idempotent; an intact document is left as it is.
+ *
+ * A stored document that differs is never replaced (0.5.0, docs/STORAGE.md "Restore mode and
+ * progress markers"): after restoring a database dump it can be the only remaining copy of the
+ * password of backups written after the dump, and a document that does not open with the
+ * database's keys may be sealed with a key the database lost. It is left as it is and reported
+ * (`onDifferent`); the result is `kept`. A document that cannot be read this time (the storage
+ * does not answer) throws: nothing is written.
  */
 export async function ensureRepositoryPasswordFile(
   kind: RepositoryPasswordKind,
@@ -181,25 +201,40 @@ export async function ensureRepositoryPasswordFile(
     keys: { readonly current: Dek; open(sealed: Buffer): Buffer };
     /** The repository's prefix when it is not the owner's default (a chain under a fresh prefix). */
     prefix?: string;
+    /** A stored document that differs: reported, never replaced. */
+    onDifferent?: (finding: RepositoryPasswordFileFinding) => Promise<void> | void;
   },
-): Promise<"written" | "unchanged"> {
+): Promise<"written" | "unchanged" | "kept"> {
   const key = input.prefix
     ? `${input.prefix}${ENDPOINT_PASSWORD_FILE}`
     : repositoryPasswordKey(kind, input.id);
   if (await storage.head(key)) {
+    const stored = await storage.get(key);
+    let different: RepositoryPasswordFileFinding["kind"];
     try {
       const opened = openRepositoryPassword(
         kind,
-        await storage.get(key),
+        stored,
         (sealed) => input.keys.open(sealed),
         input.id,
       );
       if (opened.tenantId === input.tenantId && opened.password === input.password) {
         return "unchanged";
       }
-    } catch {
-      // Damaged or foreign: written anew below.
+      different = "conflict";
+    } catch (error) {
+      // Bound to another tenant or owner: a valid document of something else.
+      different =
+        error instanceof Error && /belongs to|bound to another/.test(error.message)
+          ? "conflict"
+          : "damaged";
     }
+    await input.onDifferent?.({
+      key,
+      storedSha256: createHash("sha256").update(stored).digest("hex"),
+      kind: different,
+    });
+    return "kept";
   }
   await storage.put(
     key,
@@ -270,9 +305,9 @@ export function openEndpointPassword(
 }
 
 /**
- * Make sure the storage holds the sealed password of an endpoint: write it
- * when it is missing, damaged, sealed for something else or holds another
- * password. Idempotent; an intact document is left as it is.
+ * Make sure the storage holds the sealed password of an endpoint: write it when it is missing.
+ * Idempotent; an intact document is left as it is, one that differs is never replaced
+ * ({@link ensureRepositoryPasswordFile}).
  */
 export function ensureEndpointPasswordFile(
   storage: StorageBackend,
@@ -281,13 +316,15 @@ export function ensureEndpointPasswordFile(
     endpointId: string;
     password: string;
     keys: { readonly current: Dek; open(sealed: Buffer): Buffer };
+    onDifferent?: (finding: RepositoryPasswordFileFinding) => Promise<void> | void;
   },
-): Promise<"written" | "unchanged"> {
+): Promise<"written" | "unchanged" | "kept"> {
   return ensureRepositoryPasswordFile(ENDPOINT_PASSWORD_KIND, storage, {
     tenantId: input.tenantId,
     id: input.endpointId,
     password: input.password,
     keys: input.keys,
+    ...(input.onDifferent ? { onDifferent: input.onDifferent } : {}),
   });
 }
 

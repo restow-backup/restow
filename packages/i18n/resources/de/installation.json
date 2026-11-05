@@ -21,7 +21,8 @@
     "ransomware": "Ransomware-Erkennung",
     "agentPolicy": "Richtlinie der Agenten",
     "proxmox": "Proxmox VE",
-    "pricing": "Preise"
+    "pricing": "Preise",
+    "restoreMode": "Wiederherstellungsmodus"
   },
   "descriptions": {
     "server": "Wie Browser diesen Server erreichen, ob Passkeys angeboten werden und die Zeitzone der Installation. Gilt für {scope, select, organisation {Ihre Organisation} other {alle Mandanten}}.",
@@ -39,7 +40,8 @@
     "ransomware": "Wie Sicherungsstände auf Anzeichen von Ransomware geprüft werden, und die Schwellenwerte jedes Signals, für {scope, select, organisation {Ihre Organisation} other {alle Mandanten}}.",
     "agentPolicy": "Sicherungsfenster, verpasste Sicherungen, Bandbreite, Netzteil und Wiederholungen der Server und Clients, und was Mandanten ändern dürfen.",
     "proxmox": "Wie die Sicherungsstände von VMs und Containern geprüft werden, für {scope, select, organisation {Ihre Organisation} other {alle Mandanten}}.",
-    "pricing": "Was Sie Ihren Kunden je Monat berechnen: je Postfach und je GB oder TB gesicherter Daten. Das Dashboard und die Übersicht jedes Mandanten zeigen, was er zu diesen Preisen ausmacht. Abgerechnet wird damit nichts."
+    "pricing": "Was Sie Ihren Kunden je Monat berechnen: je Postfach und je GB oder TB gesicherter Daten. Das Dashboard und die Übersicht jedes Mandanten zeigen, was er zu diesen Preisen ausmacht. Abgerechnet wird damit nichts.",
+    "restoreMode": "Nach dem Zurückspielen eines Datenbank-Dumps: Nichts wird gelöscht, bis ein Provider-Inhaber die zurückgespielte Datenbank geprüft hat."
   },
   "access": {
     "owner": "Sie können diese Einstellungen ansehen. Zum Ändern brauchen Sie die Rolle Inhaber im Provider-Team.",
@@ -622,6 +624,132 @@
       "mailbox": "{price} je Postfach",
       "storage": "{price} je {unit}",
       "loadError": "Die Liste der Mandanten mit eigenen Preisen konnte nicht geladen werden."
+    }
+  },
+  "restoreMode": {
+    "banner": {
+      "text": "Der Wiederherstellungsmodus ist aktiv: {appName} löscht nichts (keine Aufbewahrung, keine Bereinigung, kein Löschen von Freigaben). Sicherungen laufen weiter. Ein Provider-Inhaber beendet ihn nach der Prüfung.",
+      "link": "Wiederherstellungsmodus öffnen"
+    },
+    "loadError": "Der Wiederherstellungsmodus konnte nicht geladen werden.",
+    "state": {
+      "title": "Zustand",
+      "on": "Der Wiederherstellungsmodus ist aktiv",
+      "off": "Der Wiederherstellungsmodus ist aus",
+      "offText": "Löschen läuft wie gewohnt. Wenn Sie einen Datenbank-Dump zurückspielen, schalten Sie den Wiederherstellungsmodus mit der Kommandozeile ein, bevor der Worker startet (docs/UPDATING.md, Rollback), oder hier.",
+      "since": "Aktiv seit {when}",
+      "by": "Von {actor}",
+      "reason": "Grund: {reason}",
+      "holds": "Aufträge, die vor {when} angelegt wurden, werden angehalten und laufen nicht. Neue Sicherungen und Prüfungen laufen wie gewohnt.",
+      "detection": "Erkannt auf Ziel {target} des Mandanten {tenant}: Stand im Speicher {marker}, Stand der Datenbank {db}.",
+      "sources": {
+        "cli": "Mit der Kommandozeile eingeschaltet",
+        "api": "In der Weboberfläche eingeschaltet",
+        "detected": "Von selbst eingeschaltet: Ein Speicherziel zeigt einen Stand, den die Datenbank nicht kennt",
+        "other": "Eingeschaltet"
+      }
+    },
+    "start": {
+      "title": "Wiederherstellungsmodus einschalten",
+      "description": "Für die ganze Installation: Nichts wird gelöscht, und Aufträge, die vor jetzt angelegt wurden, werden angehalten, bis ein Provider-Inhaber die Datenbank geprüft und den Wiederherstellungsmodus beendet hat. Sicherungen und Prüfungen laufen weiter.",
+      "reason": "Grund",
+      "submit": "Wiederherstellungsmodus einschalten"
+    },
+    "targets": {
+      "title": "Speicher im Vergleich mit der Datenbank",
+      "description": "Jedes Speicherziel hält fest, wie weit die Datenbank war, als Daten darauf geschrieben wurden. Ein Ziel, das der Datenbank voraus ist, bedeutet: Die Datenbank ist älter als ihr Speicher.",
+      "check": "Jetzt vergleichen",
+      "empty": "Noch kein Vergleich.",
+      "tenant": "Mandant",
+      "target": "Ziel",
+      "outcome": "Ergebnis",
+      "storage": "Speicher",
+      "database": "Datenbank",
+      "checked": "Verglichen",
+      "outcomes": {
+        "ok": "Stimmt überein",
+        "none": "Noch keine Markierung",
+        "ahead": "Der Datenbank voraus",
+        "unreachable": "Nicht lesbar",
+        "foreign": "Markierungen einer anderen Installation"
+      }
+    },
+    "refusals": {
+      "title": "Abgelehnte Löschungen",
+      "empty": "Bisher wurde nichts abgelehnt.",
+      "row": "{pass}: {count, plural, one {# Mal} other {# Mal}}, zuletzt {when}"
+    },
+    "passes": {
+      "orphan_sweep": "Bereinigung verwaister Dateien",
+      "gc_repack": "Speicherbereinigung (Umpacken)",
+      "superseded_release": "Freigabe ersetzter Daten",
+      "abandoned_checkpoint": "Verwaiste Zwischenstände",
+      "job_checkpoint_discard": "Verworfene Zwischenstände von Aufträgen",
+      "snapshot_retention": "Aufbewahrung der Sicherungsstände",
+      "mail_files_cleanup": "Bereinigung der Mail-Dateien",
+      "import_staging": "Bereinigung der Import-Ablage",
+      "export_reset": "Bereinigung der Exporte",
+      "archive_retention": "Aufbewahrung des Archivs",
+      "file_share_purge": "Löschen von Freigaben",
+      "file_share_retention": "Aufbewahrung der Freigaben",
+      "endpoint_retention": "Aufbewahrung der Geräte",
+      "endpoint_removal": "Entfernen von Geräten",
+      "pve_retention": "Aufbewahrung Proxmox VE",
+      "pve_reconcile_forget": "Abgleich der Proxmox-VE-Repositories",
+      "pve_repository_reset": "Zurücksetzen eines Proxmox-VE-Repositorys",
+      "pve_chain_clear": "Zurücksetzen einer Proxmox-VE-Kette",
+      "repository_repair_apply": "Reparatur eines Repositorys",
+      "enrollment_cleanup": "Bereinigung nach der Registrierung",
+      "progress_marker_prune": "Aufräumen der Fortschrittsmarkierungen",
+      "storage_target_removal": "Entfernen eines Speicherziels",
+      "primary_replacement": "Ersetzen des primären Speicherziels",
+      "other": "Andere Löschung"
+    },
+    "jobs": {
+      "title": "Angehaltene Aufträge",
+      "text": "{held, plural, =0 {Bisher wurde kein Auftrag angehalten.} one {# Auftrag von vor dem Zurückspielen wurde angehalten.} other {# Aufträge von vor dem Zurückspielen wurden angehalten.}} {waiting, plural, =0 {} one {# weiterer wartet noch.} other {# weitere warten noch.}}",
+      "hint": "Starten Sie einen angehaltenen Auftrag erneut, wenn er noch gebraucht wird. Wiederherstellungen in Postfächer und Speicherumzüge von vor dem Zurückspielen werden nie fortgesetzt."
+    },
+    "keys": {
+      "title": "Schlüsselversionen im Speicher",
+      "none": "Jede Schlüsselversion im Speicher ist in der Datenbank.",
+      "unknown": "Mandant {tenant}, Ziel {target}: Die Versionen {versions} liegen im Speicher, aber nicht in der Datenbank.",
+      "import": "Schlüssel übernehmen",
+      "imported": "{count, plural, =0 {Kein Schlüssel wurde übernommen.} one {# Schlüssel wurde übernommen.} other {# Schlüssel wurden übernommen.}}",
+      "refused": "{count, plural, one {# Schlüsselversion konnte nicht übernommen werden.} other {# Schlüsselversionen konnten nicht übernommen werden.}} Prüfen Sie sie mit der Kommandozeile (restow restore-mode import-keys).",
+      "conflicts": "Abweichende Schlüssel",
+      "conflict": "Mandant {tenant}, Ziel {target}, Version {version}: {kind, select, conflict {Unter dieser Version liegt ein anderer gültiger Schlüssel} other {Der gespeicherte Schlüssel lässt sich nicht öffnen}}. Er wurde nicht überschrieben.",
+      "passwordConflict": "Mandant {tenant}, Ziel {target}, {object}: {kind, select, conflict {Das versiegelte Repository-Passwort enthält ein anderes Passwort als die Datenbank} other {Das versiegelte Repository-Passwort lässt sich nicht öffnen}}. Es wurde nicht überschrieben.",
+      "conflictHint": "Daten, die mit dem gespeicherten Schlüssel geschrieben wurden, brauchen ihn möglicherweise. Behalten Sie das gespeicherte Objekt; docs/STORAGE.md beschreibt, wie Sie es vergleichen und klären."
+    },
+    "end": {
+      "title": "Wiederherstellungsmodus beenden",
+      "description": "Beendet den Wiederherstellungsmodus für die ganze Installation, nachdem Sie die zurückgespielte Datenbank geprüft haben: Aufbewahrung, Bereinigungen und Löschungen laufen wieder.",
+      "checked": "Was Sie geprüft haben",
+      "checkedHint": "Mindestens 20 Zeichen, im Audit-Log festgehalten, zum Beispiel welche Wiederherstellungspunkte Sie verglichen haben.",
+      "storageOnly": "Daten im Speicher, die die Datenbank nicht kennt",
+      "keep": "Dauerhaft behalten (empfohlen)",
+      "keepHint": "Sicherungen, die nach dem Dump geschrieben wurden, bleiben im Speicher und lassen sich mit dem eigenständigen Wiederherstellungswerkzeug weiterhin wiederherstellen. Bereinigungen entfernen nie Daten, die älter als dieser Zeitpunkt sind.",
+      "release": "Von den Bereinigungen entfernen lassen",
+      "releaseHint": "Die Bereinigung verwaister Dateien und die anderen Bereinigungen dürfen Daten im Speicher, zu denen die Datenbank keine Zeile hat, nach ihren üblichen Wartezeiten löschen.",
+      "unreachable": "Diese Ziele konnten nicht gelesen werden. Akzeptieren Sie sie als nicht erreichbar, um den Wiederherstellungsmodus trotzdem zu beenden:",
+      "accept": "Als nicht erreichbar akzeptieren",
+      "confirm": "Geben Sie END zur Bestätigung ein",
+      "submit": "Wiederherstellungsmodus beenden",
+      "ownerOnly": "Nur ein Provider-Inhaber kann den Wiederherstellungsmodus beenden.",
+      "done": "Der Wiederherstellungsmodus wurde beendet."
+    },
+    "history": {
+      "title": "Frühere Wiederherstellungsmodi",
+      "row": "{from} bis {to}, beendet von {actor}: {checked}"
+    },
+    "errors": {
+      "checked_length": "Beschreiben Sie in 20 bis 2000 Zeichen, was Sie geprüft haben.",
+      "confirmation": "Geben Sie END zur Bestätigung ein.",
+      "off": "Der Wiederherstellungsmodus ist nicht aktiv.",
+      "unreachable": "Ein Speicherziel konnte nicht gelesen werden. Akzeptieren Sie es unten als nicht erreichbar oder warten Sie, bis es antwortet, und beenden Sie dann den Wiederherstellungsmodus.",
+      "unknown_key_versions": "Im Speicher liegen Schlüsselversionen, die nicht in der Datenbank sind. Übernehmen Sie sie zuerst (Schlüssel übernehmen) und beenden Sie dann den Wiederherstellungsmodus.",
+      "changed": "Der Wiederherstellungsmodus wurde inzwischen beendet."
     }
   }
 }

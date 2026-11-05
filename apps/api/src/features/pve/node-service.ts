@@ -37,6 +37,7 @@ import {
   distributionFile,
   readReleaseFile,
 } from "../endpoints/distribution.js";
+import { RESTORE_MODE_TASK_HOLD_MESSAGE, restoreModeTaskHoldBefore } from "../restore-mode/hold.js";
 import { auditPve, nodeActor, PVE_AUDIT_ACTIONS } from "./audit.js";
 import { markBootTestLeftoversGone, recordBootTestResult } from "./boot-tests.js";
 import { cancelOrders, taskCancelledOrFailed } from "./cancel.js";
@@ -302,6 +303,8 @@ export async function nodeHeartbeat(
   // them on the first heartbeat after the pause.
   const pause = await startPause();
   const paused = pause.paused;
+  // Restore mode: tasks from the restored dump are never handed out (restore-mode/hold.ts).
+  const holdBefore = await restoreModeTaskHoldBefore();
   // The tasks the node holds (restow-pve from 0.5.0); null from an older helper.
   const held = input.heldTasks
     ? new Set(
@@ -387,6 +390,37 @@ export async function nodeHeartbeat(
     for (const task of lost) {
       await finishFailedTaskRun(tx, task, TASK_NO_LONGER_HELD, now);
     }
+    // Restore mode: a task from before the restore, waiting or delivered without a running run
+    // (a restore over a guest, a backup the node may have done already in the timeline the
+    // database lost), is cancelled, never delivered again; one the node still queues is in the
+    // cancel orders below.
+    const heldByRestoreMode = holdBefore
+      ? await tx
+          .update(pveTasks)
+          .set({
+            status: "cancelled",
+            finishedAt: now,
+            errorMessage: RESTORE_MODE_TASK_HOLD_MESSAGE,
+          })
+          .where(
+            and(
+              eq(pveTasks.nodeId, node.nodeId),
+              lt(pveTasks.createdAt, holdBefore),
+              or(
+                eq(pveTasks.status, "pending"),
+                and(
+                  eq(pveTasks.status, "delivered"),
+                  // The ones a redelivery would hand out again (none of its runs is open).
+                  sql`NOT EXISTS (SELECT 1 FROM pve_runs r WHERE r.task_id = "pve_tasks"."id" AND r.status = 'running')`,
+                ),
+              ),
+            ),
+          )
+          .returning()
+      : [];
+    for (const task of heldByRestoreMode) {
+      await finishFailedTaskRun(tx, task, RESTORE_MODE_TASK_HOLD_MESSAGE, now);
+    }
     // A boot test queued for a node that no longer announces them (an older helper after a
     // reinstall, or boot tests switched off on the node) fails instead of being delivered.
     const capable = pveNodeDeclares(
@@ -412,7 +446,9 @@ export async function nodeHeartbeat(
     // What the node is to stop: delivered tasks and running backups with a cancel request, and
     // every delivered task the server just closed, so the node drops a copy it still queues.
     const orders = await cancelOrders(tx, node.nodeId);
-    const closedHere = [...expired, ...lost].filter((t) => t.deliveredAt !== null).map((t) => t.id);
+    const closedHere = [...expired, ...lost, ...heldByRestoreMode]
+      .filter((t) => t.deliveredAt !== null)
+      .map((t) => t.id);
     const cancel = {
       ...orders,
       tasks: [...new Set([...orders.tasks, ...closedHere])].slice(0, MAX_CANCEL_ORDERS),

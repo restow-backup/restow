@@ -9,6 +9,7 @@ import { runMigrations } from "@restow/db/migrate";
 import PgBoss from "pg-boss";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { reconcileJobs, reconcileJobsOnce } from "./reconcile.js";
+import { RestoreModeJobHold } from "./restore-mode.js";
 import { dropTestDatabase, ignoreTerminatedConnection } from "./testing/database.js";
 
 const adminUrl = process.env.RESTOW_TEST_DATABASE_URL;
@@ -238,5 +239,36 @@ describe.skipIf(!adminUrl)("reconciling jobs a stopped worker left behind", () =
         "SELECT id FROM jobs j WHERE j.status = 'active' AND j.pg_boss_job_id IS NOT NULL AND j.updated_at < now()",
       ),
     ).toContain("jobs_active_boss_idx");
+  });
+
+  it("cancels an orphan from before restore mode instead of putting it back (a restored dump)", async () => {
+    const orphan = await running(30, 0);
+    await liveWorker(5);
+    const activatedAt = new Date();
+    const hold = new RestoreModeJobHold(
+      db,
+      async () => ({
+        active: true,
+        id: "rm",
+        activatedAt,
+        holdJobsBefore: activatedAt,
+        keepUnknownBefore: null,
+      }),
+      noopLogger as never,
+    );
+    const summary = await reconcileJobs(db, {
+      now: new Date(),
+      selfStartedAt: new Date(),
+      logger: noopLogger as never,
+      hold,
+    });
+    expect(summary).toEqual({ requeued: 0, settled: 0, held: 1 });
+    expect((await bossJob(orphan.bossId))?.state).toBe("cancelled");
+    expect(await jobRow(orphan.jobId)).toMatchObject({
+      status: "cancelled",
+      failure: { code: "job.restore_mode_hold" },
+    });
+    // A job created after restore mode began is not held.
+    expect(await hold.holds(new Date(activatedAt.getTime() + 1000))).toBeNull();
   });
 });

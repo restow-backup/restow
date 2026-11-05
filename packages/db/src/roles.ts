@@ -425,6 +425,8 @@ export const TABLE_ACCESS: Readonly<Record<string, TableAccess>> = {
   restart_requests: "installation",
   // New job starts paused for an update (job-start-pause.ts); no tenant data.
   job_start_pause: "installation",
+  // Restore mode after restoring a database dump (restore-mode.ts); no tenant data beyond ids.
+  installation_restore_mode: "installation",
   // Who may do what on the provider side (schema/provider-team.ts): no
   // tenant-scoped code path can widen a provider admin's rights.
   provider_members: "installation",

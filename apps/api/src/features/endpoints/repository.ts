@@ -21,6 +21,7 @@ import type { DbExecutor } from "../../lib/tenant-context.js";
 import { withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
 import { currentDefaultStorage, resolveTenantStorage } from "../restore/storage.js";
+import { markerWrapper } from "../restore-mode/markers.js";
 import { ENDPOINT_PROBLEMS } from "./problems.js";
 
 /**
@@ -74,9 +75,11 @@ export async function tenantStorage(
     return cached;
   }
   const resolved = await resolveTenantStorage(database, tenantId);
+  // What the restic routes write records the database's progress first (restore mode).
+  const wrap = markerWrapper(tenantId, (_backend, fallback) => fallback);
   const entry = {
-    storage: resolved.primary,
-    copies: resolved.copies,
+    storage: wrap(resolved.primary, "primary"),
+    copies: resolved.copies.map((copy, index) => wrap(copy, `copy:${index}`)),
     generation: generation ?? "",
     expiresAt: now + STORAGE_TTL_MS,
   };

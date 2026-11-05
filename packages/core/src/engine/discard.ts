@@ -13,6 +13,11 @@
  * no references, and garbage collection reclaims them after its grace period.
  */
 import type { StorageBackend } from "../storage/backend.js";
+import {
+  type DeletionPass,
+  deletionsHeldErrorOf,
+  withDeletionPermit,
+} from "../storage/deletion-guard.js";
 import { manifestKey, partialManifestKey } from "./layout.js";
 import type { Logger, SnapshotIndex, StorageTargets } from "./types.js";
 
@@ -20,6 +25,11 @@ export interface SnapshotCleanupEnv {
   readonly tenantId: string;
   readonly storage: StorageTargets;
   readonly logger: Logger;
+  /**
+   * The deletion pass this cleanup runs as (storage/deletion-guard.ts): a job's own checkpoint
+   * (`job_checkpoint_discard`, the default) or a sweep over abandoned ones (`abandoned_checkpoint`).
+   */
+  readonly pass?: Extract<DeletionPass, "job_checkpoint_discard" | "abandoned_checkpoint">;
 }
 
 /** What {@link discardUncommittedSnapshot} found and did. */
@@ -29,7 +39,13 @@ export type SnapshotDiscardOutcome =
   /** The snapshot is committed: only a leftover partial manifest was removed. */
   | "committed"
   /** No row exists: only a leftover partial manifest was removed. */
-  | "missing";
+  | "missing"
+  /**
+   * Deleting is paused (restore mode after restoring a database dump): nothing was removed. A
+   * checkpoint whose row the restored database lacks, or holds as in progress, may belong to a
+   * snapshot committed after the dump.
+   */
+  | "held";
 
 /**
  * Delete one key on every target. A failure is logged and reported as false,
@@ -55,12 +71,31 @@ export async function deleteOnAllTargets(
   return results.every(Boolean);
 }
 
-/** Delete a snapshot's checkpoint (partial manifest) on every target. */
-export function deletePartialManifest(
+/**
+ * Delete a snapshot's checkpoint (partial manifest) on every target. `startedAt` is when its
+ * snapshot row began (a job's own checkpoint may go in restore mode when it began after it).
+ * False when deleting is paused or a target failed.
+ */
+export async function deletePartialManifest(
   env: SnapshotCleanupEnv,
   snapshotId: string,
+  startedAt: Date | null = null,
 ): Promise<boolean> {
-  return deleteOnAllTargets(env.storage, partialManifestKey(env.tenantId, snapshotId), env.logger);
+  try {
+    return await withDeletionPermit(
+      { pass: env.pass ?? "job_checkpoint_discard", tenantId: env.tenantId, createdAt: startedAt },
+      () =>
+        deleteOnAllTargets(env.storage, partialManifestKey(env.tenantId, snapshotId), env.logger),
+    );
+  } catch (error) {
+    if (deletionsHeldErrorOf(error)) {
+      env.logger.warn("deletion held: restore mode", {
+        pass: env.pass ?? "job_checkpoint_discard",
+      });
+      return false;
+    }
+    throw error;
+  }
 }
 
 /**
@@ -74,14 +109,32 @@ export async function discardUncommittedSnapshot(
   snapshotId: string,
 ): Promise<SnapshotDiscardOutcome> {
   const record = await env.snapshots.get(snapshotId);
-  await deletePartialManifest(env, snapshotId);
-  if (!record) {
-    return "missing";
+  const pass = env.pass ?? "job_checkpoint_discard";
+  try {
+    return await withDeletionPermit(
+      { pass, tenantId: env.tenantId, createdAt: record?.startedAt ?? null },
+      async () => {
+        await deleteOnAllTargets(
+          env.storage,
+          partialManifestKey(env.tenantId, snapshotId),
+          env.logger,
+        );
+        if (!record) {
+          return "missing";
+        }
+        if (record.manifestPath !== null) {
+          return "committed";
+        }
+        await deleteOnAllTargets(env.storage, manifestKey(env.tenantId, snapshotId), env.logger);
+        await env.snapshots.discard(snapshotId);
+        return "discarded";
+      },
+    );
+  } catch (error) {
+    if (deletionsHeldErrorOf(error)) {
+      env.logger.warn("deletion held: restore mode", { pass, snapshotId });
+      return "held";
+    }
+    throw error;
   }
-  if (record.manifestPath !== null) {
-    return "committed";
-  }
-  await deleteOnAllTargets(env.storage, manifestKey(env.tenantId, snapshotId), env.logger);
-  await env.snapshots.discard(snapshotId);
-  return "discarded";
 }

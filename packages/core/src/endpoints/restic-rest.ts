@@ -49,6 +49,7 @@ import {
   readRange,
   type StorageBackend,
 } from "../storage/backend.js";
+import { deletionsHeldErrorOf } from "../storage/deletion-guard.js";
 import {
   actionOf,
   authorizeResticAction,
@@ -453,7 +454,7 @@ export async function handleResticRequest(
       try {
         await storage.delete(key);
       } catch (error) {
-        if (isDeleteRefused(error)) {
+        if (isDeleteRefused(error) || deletionsHeldErrorOf(error)) {
           refused++;
           continue;
         }
@@ -561,8 +562,9 @@ export async function handleResticRequest(
       try {
         await storage.delete(key);
       } catch (error) {
-        if (isDeleteRefused(error)) {
-          // A write-once share: final, so restic gives up at once instead of trying again.
+        if (isDeleteRefused(error) || deletionsHeldErrorOf(error)) {
+          // A write-once share, or deleting paused (restore mode): final, so restic gives up
+          // at once instead of trying again.
           return text(403, "forbidden: the storage refuses deletes");
         }
         const locked = lockedErrorOf(error);

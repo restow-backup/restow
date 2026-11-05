@@ -21,7 +21,8 @@
     "ransomware": "Ransomware detection",
     "agentPolicy": "Agent policy",
     "proxmox": "Proxmox VE",
-    "pricing": "Prices"
+    "pricing": "Prices",
+    "restoreMode": "Restore mode"
   },
   "descriptions": {
     "server": "How browsers reach this server, whether passkeys are offered and the installation's time zone. Applies to {scope, select, organisation {your organisation} other {all tenants}}.",
@@ -39,7 +40,8 @@
     "ransomware": "How restore points are checked for signs of ransomware, and the thresholds of each signal, for {scope, select, organisation {your organisation} other {all tenants}}.",
     "agentPolicy": "Backup window, missed backups, bandwidth, AC power and retries of servers and clients, and what tenants may change.",
     "proxmox": "How the restore points of VMs and containers are checked, for {scope, select, organisation {your organisation} other {all tenants}}.",
-    "pricing": "What you charge your customers per month: per mailbox and per GB or TB of backups. The dashboard and each tenant's overview show what it comes to at these prices. Nothing is billed."
+    "pricing": "What you charge your customers per month: per mailbox and per GB or TB of backups. The dashboard and each tenant's overview show what it comes to at these prices. Nothing is billed.",
+    "restoreMode": "After restoring a database dump: nothing is deleted until a provider owner has checked the restored database."
   },
   "access": {
     "owner": "You can look at these settings. Changing them needs the Owner role in the provider team.",
@@ -622,6 +624,132 @@
       "mailbox": "{price} per mailbox",
       "storage": "{price} per {unit}",
       "loadError": "The list of tenants with their own prices could not be loaded."
+    }
+  },
+  "restoreMode": {
+    "banner": {
+      "text": "Restore mode is on: {appName} deletes nothing (no retention, no clean-up, no purge). Backups continue. A provider owner ends it after checking.",
+      "link": "Open restore mode"
+    },
+    "loadError": "Restore mode could not be loaded.",
+    "state": {
+      "title": "State",
+      "on": "Restore mode is on",
+      "off": "Restore mode is off",
+      "offText": "Deleting runs as usual. When you restore a database dump, switch restore mode on with the command line before the worker starts (docs/UPDATING.md, Rollback), or here.",
+      "since": "On since {when}",
+      "by": "By {actor}",
+      "reason": "Reason: {reason}",
+      "holds": "Jobs created before {when} are held and do not run. New backups and checks run as usual.",
+      "detection": "Detected on target {target} of tenant {tenant}: storage value {marker}, database value {db}.",
+      "sources": {
+        "cli": "Switched on with the command line",
+        "api": "Switched on in the web interface",
+        "detected": "Switched on by itself: a storage target shows progress the database does not have",
+        "other": "Switched on"
+      }
+    },
+    "start": {
+      "title": "Switch restore mode on",
+      "description": "For the whole installation: nothing is deleted and jobs created before now are held, until a provider owner has checked the database and ends restore mode. Backups and checks keep running.",
+      "reason": "Reason",
+      "submit": "Switch restore mode on"
+    },
+    "targets": {
+      "title": "Storage compared with the database",
+      "description": "Each storage target records how far the database had come when data was written to it. A target ahead of the database means the database is older than its storage.",
+      "check": "Compare now",
+      "empty": "No comparison yet.",
+      "tenant": "Tenant",
+      "target": "Target",
+      "outcome": "Result",
+      "storage": "Storage",
+      "database": "Database",
+      "checked": "Compared",
+      "outcomes": {
+        "ok": "Matches",
+        "none": "No marker yet",
+        "ahead": "Ahead of the database",
+        "unreachable": "Could not be read",
+        "foreign": "Markers of another installation"
+      }
+    },
+    "refusals": {
+      "title": "Refused deletions",
+      "empty": "Nothing was refused so far.",
+      "row": "{pass}: {count, plural, one {# time} other {# times}}, last {when}"
+    },
+    "passes": {
+      "orphan_sweep": "Orphan sweep",
+      "gc_repack": "Garbage collection (repack)",
+      "superseded_release": "Release of superseded data",
+      "abandoned_checkpoint": "Abandoned checkpoints",
+      "job_checkpoint_discard": "Discarded job checkpoints",
+      "snapshot_retention": "Snapshot retention",
+      "mail_files_cleanup": "Mail file clean-up",
+      "import_staging": "Import staging clean-up",
+      "export_reset": "Export clean-up",
+      "archive_retention": "Archive retention",
+      "file_share_purge": "File share purge",
+      "file_share_retention": "File share retention",
+      "endpoint_retention": "Machine retention",
+      "endpoint_removal": "Machine removal",
+      "pve_retention": "Proxmox VE retention",
+      "pve_reconcile_forget": "Proxmox VE repository comparison",
+      "pve_repository_reset": "Proxmox VE repository reset",
+      "pve_chain_clear": "Proxmox VE chain reset",
+      "repository_repair_apply": "Repository repair",
+      "enrollment_cleanup": "Enrollment clean-up",
+      "progress_marker_prune": "Progress marker pruning",
+      "storage_target_removal": "Storage target removal",
+      "primary_replacement": "Primary target replacement",
+      "other": "Other deletion"
+    },
+    "jobs": {
+      "title": "Held jobs",
+      "text": "{held, plural, =0 {No job was held so far.} one {# job from before the restore was held.} other {# jobs from before the restore were held.}} {waiting, plural, =0 {} one {# more is still queued.} other {# more are still queued.}}",
+      "hint": "Start a held job again if it is still needed. Restores into mailboxes and storage migrations from before the restore are never resumed."
+    },
+    "keys": {
+      "title": "Key versions in storage",
+      "none": "Every key version in storage is in the database.",
+      "unknown": "Tenant {tenant}, target {target}: versions {versions} are in storage but not in the database.",
+      "import": "Import keys",
+      "imported": "{count, plural, =0 {No key was imported.} one {# key was imported.} other {# keys were imported.}}",
+      "refused": "{count, plural, one {# key version could not be imported.} other {# key versions could not be imported.}} Check them with the command line (restow restore-mode import-keys).",
+      "conflicts": "Wrapped keys that differ",
+      "conflict": "Tenant {tenant}, target {target}, version {version}: {kind, select, conflict {another valid key is stored under this version} other {the stored key cannot be opened}}. It was not overwritten.",
+      "passwordConflict": "Tenant {tenant}, target {target}, {object}: {kind, select, conflict {the sealed repository password holds another password than the database} other {the sealed repository password cannot be opened}}. It was not overwritten.",
+      "conflictHint": "Data written under the stored key may need it. Keep the stored object; docs/STORAGE.md describes how to compare and resolve it."
+    },
+    "end": {
+      "title": "End restore mode",
+      "description": "Ends restore mode for the whole installation after you have checked the restored database: retention, clean-ups and purges run again.",
+      "checked": "What you checked",
+      "checkedHint": "At least 20 characters, recorded in the audit log, for example which restore points you compared.",
+      "storageOnly": "Data in storage the database does not know",
+      "keep": "Keep it for good (recommended)",
+      "keepHint": "Backups written after the dump stay in storage and can still be restored with the standalone restore tool. Clean-ups never remove data older than this moment.",
+      "release": "Let the clean-ups remove it",
+      "releaseHint": "The orphan sweep and the other clean-ups may delete data in storage that the database has no row for, after their usual grace periods.",
+      "unreachable": "These targets could not be read. Accept them as unreachable to end restore mode anyway:",
+      "accept": "Accept as unreachable",
+      "confirm": "Type END to confirm",
+      "submit": "End restore mode",
+      "ownerOnly": "Only a provider owner can end restore mode.",
+      "done": "Restore mode ended."
+    },
+    "history": {
+      "title": "Earlier restore modes",
+      "row": "{from} to {to}, ended by {actor}: {checked}"
+    },
+    "errors": {
+      "checked_length": "Describe in 20 to 2000 characters what you checked.",
+      "confirmation": "Type END to confirm.",
+      "off": "Restore mode is not on.",
+      "unreachable": "A storage target could not be read. Accept it as unreachable below, or wait until it answers, then end restore mode.",
+      "unknown_key_versions": "Key versions in storage are not in the database. Import them first (Import keys), then end restore mode.",
+      "changed": "Restore mode was ended meanwhile."
     }
   }
 }

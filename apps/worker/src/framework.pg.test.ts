@@ -55,6 +55,7 @@ import {
   abandonedCheckpointProbe,
   discardAbandonedSnapshots,
   type JobHandler,
+  type KeyMirrorFinding,
   loadTenantKeyring,
   mirrorTenantKeys,
   PgChunkIndex,
@@ -224,17 +225,99 @@ describe.skipIf(!adminUrl)("framework against Postgres", () => {
     expect(await storage.copies[0].head(key)).not.toBeNull();
     const wrapped = await storage.primary.get(key);
 
-    // A truncated or damaged mirror is rewritten, not taken for present.
+    // A stored key that differs is never overwritten (0.5.0): after restoring a database dump
+    // it may be the only key that opens data written under it. It is reported instead, as a
+    // different valid key ("conflict") or as damaged bytes ("damaged").
     await storage.primary.put(key, wrapped.subarray(0, 7));
-    const flipped = Buffer.from(wrapped);
-    flipped[flipped.length - 1] = (flipped[flipped.length - 1] ?? 0) ^ 0xff;
-    await storage.copies[0].put(key, flipped);
-    await mirrorTenantKeys({ run, tenantId: fixture.tenantId, storage, logger: noopLogger });
-    expect((await storage.primary.get(key)).equals(wrapped)).toBe(true);
-    expect((await storage.copies[0].get(key)).equals(wrapped)).toBe(true);
+    const other = await new EnvKeyProvider(kek).wrapDek(generateDek(1));
+    await storage.copies[0].put(key, other);
+    const reported: KeyMirrorFinding[] = [];
+    const findings = await mirrorTenantKeys({
+      run,
+      tenantId: fixture.tenantId,
+      storage,
+      logger: noopLogger,
+      unwraps: async (bytes) => {
+        await new EnvKeyProvider(kek).unwrapDek(bytes);
+        return true;
+      },
+      report: async (finding) => {
+        reported.push(finding);
+      },
+    });
+    expect(findings.map((finding) => finding.kind)).toEqual(["damaged", "conflict"]);
+    expect(reported).toEqual(findings);
+    expect((await storage.primary.get(key)).equals(wrapped.subarray(0, 7))).toBe(true);
+    expect((await storage.copies[0].get(key)).equals(other)).toBe(true);
     await expect(
       loadTenantKeyring({ db, tenantId: randomUUID(), keyProvider: new EnvKeyProvider(kek) }),
     ).rejects.toThrow(/no data-encryption key/);
+  });
+
+  it("skips a stored key it cannot read this time and resolves findings once storage matches", async () => {
+    const { EnvKeyProvider } = await import("@restow/core");
+    const run = tenantRunner(db, fixture.tenantId);
+    await mirrorTenantKeys({ run, tenantId: fixture.tenantId, storage, logger: noopLogger });
+    const key = `tenants/${fixture.tenantId}/keys/1`;
+    const wrapped = await storage.primary.get(key);
+    const reported: KeyMirrorFinding[] = [];
+    const resolved: { targetId: string; keepSha256: string | null }[] = [];
+    const options = {
+      run,
+      tenantId: fixture.tenantId,
+      logger: noopLogger,
+      unwraps: async (bytes: Buffer) => {
+        await new EnvKeyProvider(kek).unwrapDek(bytes);
+        return true;
+      },
+      report: async (finding: KeyMirrorFinding) => {
+        reported.push(finding);
+      },
+      resolve: async (input: { targetId: string; keepSha256: string | null }) => {
+        resolved.push({ targetId: input.targetId, keepSha256: input.keepSha256 });
+      },
+    };
+    // A GET that fails (throttling, a timeout) is neither a finding nor an overwrite.
+    let failures = 1;
+    const flaky = {
+      ...storage.primary,
+      head: storage.primary.head.bind(storage.primary),
+      put: storage.primary.put.bind(storage.primary),
+      get: async (name: string) => {
+        if (name === key && failures-- > 0) {
+          throw new Error("503 Slow Down");
+        }
+        return storage.primary.get(name);
+      },
+    };
+    const findings = await mirrorTenantKeys({
+      ...options,
+      storage: { ...storage, primary: flaky as typeof storage.primary },
+    });
+    expect(findings).toEqual([]);
+    expect(reported).toEqual([]);
+    expect((await storage.primary.get(key)).equals(wrapped)).toBe(true);
+    // The next run reads it, finds the database's bytes and resolves what was open.
+    resolved.length = 0;
+    await mirrorTenantKeys({
+      ...options,
+      storage: { ...storage, primary: flaky as typeof storage.primary },
+    });
+    expect(reported).toEqual([]);
+    expect(resolved.map((entry) => entry.keepSha256)).toEqual([null, null]);
+
+    // Another key in storage is reported; once the operator puts the database's bytes back,
+    // its finding is resolved.
+    const other = await new EnvKeyProvider(kek).wrapDek(generateDek(1));
+    await storage.primary.put(key, other);
+    resolved.length = 0;
+    const conflict = await mirrorTenantKeys({ ...options, storage });
+    expect(conflict.map((finding) => finding.kind)).toEqual(["conflict"]);
+    expect(resolved[0]?.keepSha256).toBe(conflict[0]?.storedSha256);
+    await storage.primary.put(key, wrapped);
+    resolved.length = 0;
+    expect(await mirrorTenantKeys({ ...options, storage })).toEqual([]);
+    expect(resolved).toContainEqual({ targetId: "primary", keepSha256: null });
   });
 
   it("round-trips objects through the pack store with the Postgres chunk index", async () => {

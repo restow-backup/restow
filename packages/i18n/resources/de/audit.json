@@ -162,7 +162,8 @@
     "file_share": "Freigaben",
     "warning": "Warnungen",
     "database": "Datenbank",
-    "suspicion": "Ransomware-Erkennung"
+    "suspicion": "Ransomware-Erkennung",
+    "installation": "Installation"
   },
   "events": {
     "account": {
@@ -473,6 +474,9 @@
       },
       "agent_policy": {
         "updated": "Richtlinie der Agenten des Mandanten geändert"
+      },
+      "key_mirror": {
+        "conflict": "Gespeicherter Schlüssel weicht ab (nicht überschrieben)"
       }
     },
     "verify": {
@@ -712,6 +716,14 @@
       "false_alarm": "Verdächtiger Sicherungsstand als Fehlalarm markiert",
       "false_alarm_revoked": "Fehlalarm eines Sicherungsstands zurückgenommen",
       "hold_released": "Angehaltene Aufbewahrung eines Objekts freigegeben"
+    },
+    "installation": {
+      "restore_mode": {
+        "started": "Wiederherstellungsmodus eingeschaltet",
+        "detected": "Wiederherstellungsmodus von selbst eingeschaltet (Speicher der Datenbank voraus)",
+        "ended": "Wiederherstellungsmodus beendet",
+        "keys_imported": "Schlüsselversion aus dem Speicher übernommen"
+      }
     }
   },
   "targetTypes": {

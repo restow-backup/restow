@@ -1064,13 +1064,25 @@ docker compose --profile updater cp updater:/state/dumps/<file> ./<file>
 # stop the application and restore
 docker compose stop api worker scheduler
 docker compose exec -T postgres pg_restore -U restow -d restow --clean --if-exists < <file>
-# put the previous images back into .env (RESTOW_IMAGE, RESTOW_WEB_IMAGE), then
+# put the previous images back into .env (RESTOW_IMAGE, RESTOW_WEB_IMAGE), then switch
+# restore mode on with that image, before the worker and the scheduler start
+# (only when the previous image is 0.5.0 or later, see below):
+docker compose run --rm --no-deps --entrypoint restow api restore-mode on --reason "rollback after a failed update"
 docker compose up -d
 ```
 
-Backups made after the update are in the chunk store but not in the restored
-database; run a backup after the rollback. Then report the failure with the
-log tail the tab shows.
+`restow restore-mode` exists from 0.5.0 on. When the previous image is older
+(an update from 0.4.x to 0.5.0, for example), its command line has no such
+command and answers "Unknown command": do not run the `restore-mode on` line and
+do not run `docker compose up -d` either. Follow "Rolling back to a version
+before 0.5.0" under [Rollback](#rollback) instead: keep the worker stopped and
+switch the storage check and retention schedules off before that version starts.
+
+Backups made after the update are in storage but not in the restored database.
+Restore mode keeps them: nothing is deleted until a provider owner has checked
+the restored database and ended restore mode under Installation, Restore mode
+(see [Rollback](#rollback) for the whole procedure). Then report the failure
+with the log tail the tab shows.
 
 ### Settings of the updater
 
@@ -1204,22 +1216,62 @@ migrations, so going back needs no restore, or starts as Community with
   back update leaves the updater where it was). After rolling back by hand,
   the updater may run a newer version than the application; that is harmless,
   and the next update aligns them again.
-- **With migrations:** migrations are not reversible. Stop the stack, restore
-  the database dump taken before the update, then start the previous version:
+- **With migrations:** migrations are not reversible. The rollback restores the
+  database dump taken before the update, and a restored dump knows less than
+  the storage: backups, keys and settings made after the dump are in storage,
+  not in the database. It therefore starts with **restore mode**
+  ([STORAGE.md](STORAGE.md#restore-mode-and-progress-markers)), which deletes
+  nothing until a provider owner has checked the restored database:
+
+  1. Stop the application: `docker compose stop api worker scheduler`.
+  2. Restore the dump:
+     `docker compose exec -T postgres pg_restore -U restow -d restow --clean --if-exists < restow-YYYY-MM-DD.dump`.
+  3. Switch restore mode on with the image you roll back to (`git checkout vPREVIOUS`
+     and `docker compose build`, or the previous tags in `RESTOW_IMAGE` and
+     `RESTOW_WEB_IMAGE`), while only postgres runs:
+
+     ```sh
+     docker compose run --rm --no-deps --entrypoint restow api restore-mode on --reason "rollback to vPREVIOUS"
+     ```
+
+  4. Start the stack: `docker compose up -d`. A banner on every page tells
+     provider administrators that restore mode is on. Backups and checks run
+     as usual; retention, clean-ups, purges, restic forget and prune, the
+     orphan sweep and repository repairs do not, and jobs created before the
+     restore are held instead of resumed (start them again if they are still
+     needed).
+  5. Under Installation, Restore mode: compare the storage with the database
+     (**Compare now**), import key versions found in storage if the page lists
+     any, check the restore points you care about, then end restore mode with a
+     short description of what you checked. Keeping data that only storage
+     knows is the default: backups written after the dump stay restorable with
+     the standalone restore tool and are never cleaned up. The command line can
+     do the same: `restow restore-mode check`, `restow restore-mode import-keys`,
+     `restow restore-mode off --email <owner> --checked "<what you checked>"`.
+
+  **If step 3 is forgotten,** the worker notices by itself: every storage target
+  records how far the database had come when data was last written to it
+  (progress markers). At its start and before every deletion pass the worker
+  compares them with the database; a target ahead of the database switches
+  restore mode on, raises the alert `installation.restore_mode` (bell, e-mail
+  and webhooks per the notification rules) and refuses the deletion. Writes in
+  the last minute before the dump may carry no marker yet, which is why the
+  command line step comes first.
+
+  **Rolling back to a version before 0.5.0** (which has no restore mode) with
+  migrations cannot be protected by that version's code. Keep the worker
+  stopped and switch the storage checks and retention off before the old
+  version starts, then check the restored database by hand:
 
   ```sh
   docker compose stop api worker scheduler
   docker compose exec -T postgres pg_restore -U restow -d restow --clean --if-exists < restow-YYYY-MM-DD.dump
-  git checkout vPREVIOUS
-  docker compose up -d --build
+  docker compose exec -T postgres psql -U restow -d restow -c "UPDATE schedules SET enabled = false WHERE kind IN ('scrub', 'retention')"
+  docker compose up -d api scheduler web
   ```
 
-  With the release stack, put the previous tags back into `RESTOW_IMAGE` and
-  `RESTOW_WEB_IMAGE` instead of checking out a tag, then run
-  `docker compose up -d`.
-
-  Backups taken after the update are in the chunk store but not in the
-  restored database; run a backup after the rollback.
+  Better still, do not roll back below 0.5.0 once a release with migrations
+  ran: restore the dump into 0.5.0 or later instead.
 
 ## Versions and channels
 

@@ -271,6 +271,14 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   // Reading is for every provider admin; everything that changes something (the source, a
   // check, announcing, cancelling or dismissing an update, which restarts the installation)
   // is for the owner.
+  // Restore mode after restoring a database dump (features/restore-mode): every provider admin
+  // sees it and may compare again; switching it on or off and importing keys is the owner's.
+  "GET /api/v1/restore-mode": view(PROVIDER),
+  "GET /api/v1/restore-mode/banner": view(NONE),
+  "POST /api/v1/restore-mode/check": configure(PROVIDER),
+  "POST /api/v1/restore-mode/start": own(),
+  "POST /api/v1/restore-mode/import-keys": own(),
+  "POST /api/v1/restore-mode/end": own(),
   "GET /api/v1/updates": view(PROVIDER),
   "PATCH /api/v1/updates/settings": own(),
   "POST /api/v1/updates/check": own(),

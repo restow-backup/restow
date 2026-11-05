@@ -24,6 +24,7 @@ import { loadTenantDek, openSecret } from "../../lib/secrets.js";
 import { type DbExecutor, withTenantTx } from "../../lib/tenant-context.js";
 import { defaultWriteOnce } from "../../lib/write-once.js";
 import { currentDefaultStorage } from "../restore/storage.js";
+import { markerWrapper } from "../restore-mode/markers.js";
 import { loadTenantKeyring } from "../snapshots/content.js";
 
 /**
@@ -124,13 +125,21 @@ export async function tenantChunkStore(
     (await currentDefaultStorage()
       .then((d) => d.primary)
       .catch(() => null));
+  // What the api writes for VMs records the database's progress first (restore mode); every
+  // backend keeps one wrapper, so `targets`, `write` and `read` still name the same objects.
+  const ids = new Map(resolved.targets.map((target) => [target.backend, target.id]));
+  const wrap = markerWrapper(tenantId, (backend, fallback) => ids.get(backend) ?? fallback);
+  const primary = wrap(resolved.primary, "primary");
+  const copies = resolved.copies.map((copy, index) => wrap(copy, `copy:${index}`));
   const store: TenantChunkStore = {
     tenantId,
-    write: { primary: resolved.primary, copies: resolved.copies },
-    read: { primary: resolved.primary, copies: [...resolved.copies, ...resolved.previous] },
+    write: { primary, copies },
+    read: { primary, copies: [...copies, ...resolved.previous] },
     keys,
     index: new PveChunkIndex(tenantId),
-    targets: resolved.targets,
+    targets: resolved.targets.map((target) =>
+      target.role === "previous" ? target : { ...target, backend: wrap(target.backend, target.id) },
+    ),
     primaryTarget: resolved.primaryTarget,
     generation: current,
     installationDefault,

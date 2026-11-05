@@ -35,6 +35,7 @@
  */
 import {
   classifyFailure,
+  deletionDecision,
   type JobRetentionAssignment,
   jobRetentionAssignments,
   type LegalHoldScope,
@@ -47,6 +48,7 @@ import {
   type RetentionJobPayload,
   type RetentionPolicyRow,
   type SnapshotCandidate,
+  withDeletionPermit,
   withJobRetention,
 } from "@restow/core";
 import {
@@ -389,23 +391,31 @@ export async function pruneSnapshot(
     }
   }
   const manifestObjectsDeleted = await store.deleteManifestObjects(snapshot.id);
-  for (const target of [ctx.storage.primary, ...ctx.storage.copies]) {
-    try {
-      await target.delete(manifestPath);
-    } catch (error) {
-      const locked = lockedErrorOf(error);
-      if (!locked) {
-        throw error;
+  await withDeletionPermit({ pass: "snapshot_retention", tenantId: ctx.tenantId }, async () => {
+    for (const target of [ctx.storage.primary, ...ctx.storage.copies]) {
+      try {
+        await target.delete(manifestPath);
+      } catch (error) {
+        const locked = lockedErrorOf(error);
+        if (!locked) {
+          throw error;
+        }
+        // Checked before pruning; a target that locks it longer (or a lock set meanwhile)
+        // keeps the file. It is recorded and removed by hand or left to the storage.
+        logger.warn("manifest still locked on a target; left in place", {
+          snapshotId: snapshot.id,
+          retainUntil: locked.retainUntil?.toISOString() ?? null,
+        });
+        await recordDeferredDeletion(
+          ctx.db,
+          ctx.tenantId,
+          target,
+          manifestPath,
+          locked.retainUntil,
+        );
       }
-      // Checked before pruning; a target that locks it longer (or a lock set meanwhile)
-      // keeps the file. It is recorded and removed by hand or left to the storage.
-      logger.warn("manifest still locked on a target; left in place", {
-        snapshotId: snapshot.id,
-        retainUntil: locked.retainUntil?.toISOString() ?? null,
-      });
-      await recordDeferredDeletion(ctx.db, ctx.tenantId, target, manifestPath, locked.retainUntil);
     }
-  }
+  });
   logger.info("snapshot pruned", {
     snapshotId: snapshot.id,
     sequence: snapshot.sequence,
@@ -504,6 +514,18 @@ export function createSnapshotRetentionTask(
       if (primaryWriteOnce(ctx.storage as Partial<ResolvedTenantStorage>)) {
         logger.info("snapshot retention not applied: the primary storage target is write-once");
         return { ...summary, writeOnce: true };
+      }
+      // Restore mode after restoring a database dump (docs/STORAGE.md): the restored database
+      // lacks every legal hold, suspicion hold and policy change made after the dump.
+      if (!options.dryRun) {
+        const decision = await deletionDecision({
+          pass: "snapshot_retention",
+          tenantId: ctx.tenantId,
+        });
+        if (!decision.allowed) {
+          logger.warn("snapshot retention held: deleting is paused", { reason: decision.reason });
+          return { ...summary, restoreMode: true };
+        }
       }
 
       const holds = await store.loadLegalHolds();

@@ -22,6 +22,7 @@ import {
 import { instanceUrl } from "../endpoints/instance-url.js";
 import { ENDPOINT_PROBLEMS } from "../endpoints/problems.js";
 import { MAX_DOWNLOAD_BODY_BYTES } from "../endpoints/schemas.js";
+import { assertNotInRestoreMode } from "../restore-mode/service.js";
 import { pveActivity } from "./activity.js";
 import type { PveActor } from "./audit.js";
 import { requestBootTest } from "./boot-tests.js";
@@ -206,6 +207,8 @@ pveRoutes.post("/guests/:id/repository/reset", admin, async (c) => {
   const { id } = parseOrProblem(idParamSchema, c.req.param());
   const { confirmName } = await parseJsonBody(c.req, resetRepositorySchema);
   assertRecentSignIn(c.get("auth").session);
+  // Restore mode: the chain the restored database knows may not be the newest one in storage.
+  await assertNotInRestoreMode("pve_repository_reset", c.get("tenantId"));
   return c.json(await resetGuestRepository(db, c.get("tenantId"), id, confirmName, actorOf(c)));
 });
 

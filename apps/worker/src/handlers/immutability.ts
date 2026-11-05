@@ -27,6 +27,7 @@ import {
   listWithSizes,
   lockClassOf,
   lockUntil,
+  packPrefix,
   RENEWAL_CONCURRENCY,
   type RenewalReport,
   renewalDue,
@@ -238,8 +239,16 @@ export async function maintainImmutableTarget(options: {
     const packPaths = await withTenantTx(db, tenantId, (tx) =>
       tx.select({ path: packs.path }).from(packs).where(eq(packs.tenantId, tenantId)),
     );
+    // The catalogued packs and every pack file the target lists: after restoring a database
+    // dump the catalog lacks the packs written since, and they must stay locked as well
+    // (docs/STORAGE.md, "Restore mode and progress markers"). Packs whose deletion was refused
+    // by the lock are left out so they run out.
+    const listedPacks = await backend.list(packPrefix(tenantId));
+    const packKeys = [...new Set([...packPaths.map((pack) => pack.path), ...listedPacks])].filter(
+      (path) => !skip.has(path),
+    );
     const keys = [
-      ...packPaths.map((pack) => pack.path).filter((path) => !skip.has(path)),
+      ...packKeys,
       ...(await backend.list(keyPrefix(tenantId))),
       ...(await resticKeys(backend, repositories, skip)),
     ];

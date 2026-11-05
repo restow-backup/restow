@@ -225,6 +225,21 @@ describe("installation translations", () => {
       zone: "Europe/Berlin",
       price: "€2.50",
       unit: "GB",
+      // Installation > Restore mode.
+      actor: "owner@example.test",
+      reason: "rollback to 0.5.0",
+      tenant: "Contoso",
+      target: "Primary",
+      marker: 120,
+      db: 80,
+      pass: "orphan_sweep",
+      count: 2,
+      held: 2,
+      waiting: 1,
+      versions: "2, 3",
+      kind: "conflict",
+      object: "file-shares/1/restow-repository-password.json",
+      checked: "Compared the restore points.",
     };
     for (const language of ["en", "de"]) {
       await i18n.changeLanguage(language);

@@ -254,7 +254,168 @@ tenants share:
 
 The daily retention run removes what is left of failed or cancelled exports and every
 staging or export area that no database row knows any more. Do not keep files of your
-own under these prefixes.
+own under these prefixes. In restore mode (after restoring a database dump, see
+[Restore mode and progress markers](#restore-mode-and-progress-markers)) it removes
+nothing: an area without a row may belong to an upload or export made after the dump.
+
+`tenants/<tenant id>/progress/` holds the tenant's progress markers (see the same
+section): small objects that record how far the database had come. They are never copied
+by the copy mirror or a storage migration and never counted as data.
+
+## Restore mode and progress markers
+
+After a database dump is restored (a rollback with migrations, see
+[UPDATING.md](UPDATING.md#rollback), or a move to a new host from an online dump), the
+database knows less than the storage: backups, checkpoints, keys and holds made after the
+dump are in storage but not in the database. Every pass that decides by the database what
+may go would delete them. Restore mode prevents that.
+
+### What restore mode does
+
+While it is on, for the whole installation:
+
+- **Nothing is deleted.** Refused are the orphan sweep and garbage collection of the
+  storage check, the release of superseded packs, abandoned checkpoints, snapshot
+  retention, the clean-up of staging and export areas, archive retention, restic forget
+  and prune of machines, file shares and Proxmox VE containers (including the comparison
+  that forgets restic snapshots no restore point names), the removal of a machine's
+  backups, the purge of a file share, repository repairs, a container's repository reset,
+  the pruning of old progress markers, the removal of a storage target and the replacement
+  of the primary. Each refusal is logged (`deletion held: restore mode`) and counted on the
+  Restore mode page. The api answers such an action with 409
+  `urn:restow:problem:restore-mode`.
+- **Jobs from before the restore are held.** Every job created before the hold point is
+  cancelled with the explanation `job.restore_mode_hold` instead of being run or resumed
+  (a backup from the dump could otherwise continue a checkpoint the restored index does not
+  know, a restore could write into a mailbox again). The same holds for what is not a queued
+  job: file share runs (a restore into a share, a mirror copy) are cancelled instead of
+  started, and the tasks machines and Proxmox VE nodes fetch with their heartbeat (a restore
+  over a guest, an uninstall) are cancelled instead of handed out or handed out again. Start a
+  job again if it is still needed. The hold point is the moment restore mode was switched on by
+  hand; for a detection it is the start of the processes that run on the restored database (the
+  earliest start among the scheduler and workers that beat in `service_heartbeats`, and the
+  detecting process), never the moment of the detection, so backups the scheduler queued on its
+  first tick still run.
+- **New backups and checks run as usual.** They only add data. A container whose repository
+  the restored database does not consider ready begins its new chain under a fresh prefix,
+  as on write-once storage, so nothing is moved aside. A file share whose repository is in
+  storage but whose password the restored database lacks (its first backup ran after the dump)
+  begins a new repository under a fresh prefix too; the old one and its sealed password stay.
+- **Immutable backups stay locked.** The Object Lock renewal renews every pack the target
+  lists, not only the catalogued ones, so packs written after the dump keep their lock.
+
+The storage backends themselves refuse a delete outside a registered deletion pass while
+restore mode is on, so a pass that forgot to ask cannot delete either. Restic lock files,
+probe objects and objects an operation wrote itself (a failed enrollment's own repository)
+may always go.
+
+### Switching it on
+
+- **With the command line, before the worker starts** (the rollback procedure):
+  `docker compose run --rm --no-deps --entrypoint restow api restore-mode on --reason "..."`.
+- **By itself.** Every storage target carries progress markers:
+
+  ```
+  tenants/<tenant id>/progress/<floor(seq / 1000), 12 digits>/<seq, 20 digits>.json
+  ```
+
+  Before the first write of a tenant's data to a target, and again at most once a minute
+  while data is written, the writer takes the next value of the tenant's counter in the
+  database (`storage_progress`, committed on its own) and only then writes a new marker
+  object and the data. A marker is never overwritten, so write-once targets work; the newest
+  wins. The marker names the installation (the id of its settings row) and the value.
+
+  At its start, before it takes any job, and before every deletion pass (at most every ten
+  minutes per tenant) the worker lists the markers and the wrapped keys of each primary and
+  copy target first and reads the database's value afterwards. On a healthy installation
+  every marker it saw was committed before that read, so none is above it. A marker of this
+  installation above the database's value, or a key version in storage above the database's
+  newest, means the database is older than its storage: restore mode comes on, the alert
+  `installation.restore_mode` is raised (bell, e-mail and webhooks per the notification
+  rules), the audit entry `installation.restore_mode.detected` is written and the deletion
+  is refused. A target that cannot be read refuses deletions for that tenant this time
+  without switching restore mode on.
+
+  Every process (the worker and the api) compares a tenant's targets once before it takes the
+  first value for that tenant: an allocation raises the database's value, and after a few of
+  them a comparison could no longer see storage that is only a few values ahead. A writer that
+  finds the value it was given already taken by a marker of this installation has proof by
+  itself that the storage is ahead (the value was handed out before, in the timeline the
+  database lost): restore mode comes on at once, with that value as the storage's and the one
+  below as the database's, and the value is lifted above the storage's.
+
+  It does not trigger on a fresh installation or an upgrade from before 0.5.0 (no markers
+  yet), on a copy that is being filled or a promoted copy and a new primary after a storage
+  migration (markers are never copied, a target only holds markers written to it since), on
+  storage copied by hand with rsync (its markers are at most the database's value), or after
+  a database move with the stack stopped. Markers of another installation (a second
+  installation pointed at the same storage) only give a warning. It does trigger, on
+  purpose, for an online dump used for a host move (writes after the dump), for a failover
+  to an asynchronous replica that lags, and for a second installation restored from the same
+  dump that writes to the same storage. Writes in the last minute before a dump may carry no
+  marker yet: the command line step of the rollback closes that window.
+- **In the web interface.** A provider owner can also switch it on under Installation, Restore
+  mode (**Switch restore mode on**, with a reason and a recent sign-in; the audit entry is
+  `installation.restore_mode.started`). Jobs created before that moment are held. After a
+  rollback the command line step stays first: it runs before the worker and the scheduler start.
+
+### Ending it
+
+Under Installation, Restore mode a provider owner (with a recent sign-in) ends it after
+checking the restored database, or on the command line
+`restow restore-mode off --email <owner> --checked "<what you checked>"`:
+
+1. **Compare now** runs the comparison again for every tenant. Every target must answer, or
+   be accepted by name as unreachable.
+2. **Import keys** takes key versions found in storage that the database lacks into the
+   database (each must open with the master key and be the same on every target that has
+   it). Ending is refused while such versions remain.
+3. The form asks what was checked (at least 20 characters, kept in the audit log), what
+   happens to data that only storage knows, and the typed confirmation `END`:
+   - **Keep it for good** (the default): data in storage the database has no row for and
+     that is older than this moment stays for good. The orphan sweep and the comparison of
+     container repositories skip it; backups written after the dump remain restorable with
+     the standalone restore tool (packages/cli) from their manifests.
+   - **Let the clean-ups remove it**: the usual grace periods apply again.
+
+Ending lifts each tenant's progress value above everything storage showed (by a margin of
+one million, so markers on a target that was offline stay below it), records who ended it
+and the audit entry `installation.restore_mode.ended` with what was checked. The history of
+restore modes stays.
+
+### Wrapped keys and repository passwords are never overwritten
+
+`tenants/<tenant id>/keys/<version>` is the wrapped DEK the standalone restore opens data
+with. The key mirror writes a missing key and leaves an identical one alone; a stored key
+that differs from the database's under the same version is never overwritten, always, not
+only in restore mode. It is reported instead (`installation.key_mirror_conflict`, the audit
+entry `tenant.key_mirror.conflict`, listed under Installation, Restore mode): as a
+**conflict** when the stored bytes open with the master key (another valid key under the
+same version, for example after restoring a dump and creating a key again) or as
+**damaged** when they do not. The copy mirror and a storage migration do the same for a
+copy (`key_conflict`). A new key version is always allocated above every version stored
+for the tenant on any target; a target that cannot be listed refuses the new version.
+
+To resolve a finding by hand: keep the stored object (data written under it may need it);
+compare its SHA-256 with the database's (`SELECT encode(sha256(decode(encrypted_dek,
+'base64')), 'hex') FROM tenant_keys WHERE tenant_id = '<tenant>' AND key_version = <v>`). A
+**conflict** whose stored key belongs to backups made after a dump is taken into the
+database with `restow restore-mode import-keys` when the database lacks the version; when
+the database holds another key under it, copy the stored object aside before anything else
+and contact support. A **damaged** copy on one target can be replaced by hand with the
+intact object of another target or of the database, at the storage provider.
+
+A finding resolves itself once the target holds the database's bytes again (the next key
+mirror sees it). A stored key that cannot be read this time (throttling, a timeout) is no
+finding: it is compared again at the next resolution of the tenant's storage.
+
+The sealed repository password next to a restic repository
+(`.../restow-repository-password.json`, of a machine, a file share or a Proxmox VE guest) is
+treated the same way: one that holds another password than the database's, or does not open
+with the tenant's keys, is never replaced (also not by a copy or a storage migration). It is
+reported as a finding with key version 0 and its storage key, with the same alert and audit
+entry. After restoring a dump it may be the only copy of the password of backups written after
+the dump.
 
 ## Capacity planning
 
@@ -867,6 +1028,10 @@ A folder the repository repair or a new backup chain moved aside
 (`<prefix>.orphaned-<time>/`) that no current target has blocks it too
 (`previous-holds-moved-aside`): a `move` does not copy those folders, so copy it elsewhere
 or delete it by hand once it is not needed.
+Progress markers (`tenants/<tid>/progress/`, see
+[Restore mode and progress markers](#restore-mode-and-progress-markers)) are ignored here:
+they are never copied and never block a removal. While restore mode is on, no target can be
+removed (409 `urn:restow:problem:restore-mode`).
 Run a `move`
 replacement first to copy them onto the current targets, which also closes the
 scrub's integrity-checking gap for them (see above); removal is possible once nothing

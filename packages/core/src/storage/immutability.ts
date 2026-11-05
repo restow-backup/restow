@@ -45,6 +45,7 @@ import {
   type PutOptions,
   readRange,
   type StorageBackend,
+  unwrapBackend,
 } from "./backend.js";
 
 /** How a target protects its backups. */
@@ -444,7 +445,8 @@ export class ImmutableStorageBackend implements StorageBackend {
 
 /** The immutable view of a backend, when it has one (unwrapping read-only fallbacks is the caller's). */
 export function immutableBackendOf(backend: StorageBackend): ImmutableStorageBackend | null {
-  return backend instanceof ImmutableStorageBackend ? backend : null;
+  const inner = unwrapBackend(backend);
+  return inner instanceof ImmutableStorageBackend ? inner : null;
 }
 
 /** Apply a target's stored immutability to its backend; without a setting or history it stays as is. */

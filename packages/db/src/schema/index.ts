@@ -44,6 +44,7 @@ export * from "./provider-team.js";
 export * from "./providers.js";
 export * from "./pve.js";
 export * from "./reports.js";
+export * from "./restore-mode.js";
 export * from "./run-samples.js";
 export * from "./schedules.js";
 export * from "./secrets.js";

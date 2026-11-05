@@ -188,6 +188,8 @@ export const FAILURE_CODES = [
   "database.error",
   "directory.conflict",
   "job.interrupted",
+  // Held in restore mode: the job is from before a restored database dump (docs/STORAGE.md).
+  "job.restore_mode_hold",
   "unknown",
 ] as const;
 
@@ -332,6 +334,7 @@ export const FAILURE_STEP_IDS = [
   "raise_export_limit",
   "check_database",
   "worker_resources",
+  "start_again_if_needed",
   "check_share_account",
   "check_share_server",
   "check_share_path",

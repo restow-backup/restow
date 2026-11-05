@@ -57,7 +57,7 @@ export async function endRun(
   run: Pick<FileShareRun, "id" | "tenantId">,
   outcome:
     | { status: "failed"; cause: FailureCause; message?: string | null; logTail?: string | null }
-    | { status: "cancelled"; message?: string | null }
+    | { status: "cancelled"; message?: string | null; cause?: FailureCause }
     | { status: "succeeded"; stats?: Record<string, unknown>; note?: string },
   now: Date = deps.runtime.now(),
 ): Promise<boolean> {
@@ -68,7 +68,11 @@ export async function endRun(
       .where(eq(fileShareRuns.id, run.id))
       .limit(1);
     const failure =
-      outcome.status === "failed" ? toFailureRecord(outcome.cause, { now, step: "server" }) : null;
+      outcome.status === "failed"
+        ? toFailureRecord(outcome.cause, { now, step: "server" })
+        : outcome.status === "cancelled" && outcome.cause
+          ? toFailureRecord(outcome.cause, { now, step: null, retry: null })
+          : null;
     const [row] = await tx
       .update(fileShareRuns)
       .set({

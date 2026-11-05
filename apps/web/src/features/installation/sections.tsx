@@ -4,6 +4,7 @@ import {
   Coins,
   Container,
   Database,
+  DatabaseBackup,
   Download,
   HardDrive,
   Info,
@@ -25,6 +26,7 @@ import { DatabaseSection } from "./sections/database-section";
 import { EditionSection } from "./sections/edition-section";
 import { MicrosoftAppSection } from "./sections/microsoft-app-section";
 import { RepositorySection } from "./sections/repository-section";
+import { RestoreModeSection } from "./sections/restore-mode-section";
 import { MailSectionPage, ServerSectionPage } from "./sections/settings-sections";
 
 /**
@@ -92,6 +94,16 @@ export const CORE_INSTALLATION_SECTIONS: readonly InstallationSectionSpec[] = [
     icon: Database,
     order: 55,
     component: DatabaseSection,
+  },
+  {
+    // Restore mode after restoring a database dump (docs/STORAGE.md, "Restore mode and progress
+    // markers"): nothing is deleted until a provider owner has checked the restored database.
+    id: "restore-mode",
+    labelKey: "installation:sections.restoreMode",
+    descriptionKey: "installation:descriptions.restoreMode",
+    icon: DatabaseBackup,
+    order: 56,
+    component: RestoreModeSection,
   },
   {
     // The thresholds of the ransomware detection on backups (docs/RANSOMWARE.md).

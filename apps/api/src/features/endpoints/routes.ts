@@ -19,6 +19,7 @@ import {
 } from "../../middleware/session.js";
 import { ProblemError } from "../../problem.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
+import { assertNotInRestoreMode } from "../restore-mode/service.js";
 import { resticRestorePointImmutability } from "../storage/immutability.js";
 import { retentionHoldSettings } from "../suspicion/service.js";
 import {
@@ -273,6 +274,10 @@ endpointsRoutes.post("/:id/remove", admin, async (c) => {
   const input = await parseJsonBody(c.req, removeEndpointSchema);
   // Deleting backups cannot be undone: a sign-in from the last minutes, like other such actions.
   assertRecentSignIn(c.get("auth").session);
+  // Restore mode: the restored database may not know every backup of the machine.
+  if (input.mode === "delete") {
+    await assertNotInRestoreMode("endpoint_removal", c.get("tenantId"));
+  }
   const holdSettings = await retentionHoldSettings(providerDb).catch(() => null);
   return c.json(
     await removeEndpoint(db, c.get("tenantId"), id, input, actorOf(c), {

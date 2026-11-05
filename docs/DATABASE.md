@@ -178,6 +178,31 @@ up in `.env` first (the last assignment wins, but one line each is clearer). To
 undo before the application started, empty the two lines again, rename
 `PG_VERSION.restow-moved` back and start the stack.
 
+## Moving to a new host, restoring a dump, failing over
+
+A copy of the database that is older than its storage (a dump restored after the
+application kept running, a replica that lagged) knows less than the storage: backups
+written since are in storage, not in the database. The installation then runs in
+**restore mode** until a provider owner has checked it
+([STORAGE.md](STORAGE.md#restore-mode-and-progress-markers)): nothing is deleted, jobs from
+before the restore are held, new backups run.
+
+- **A host move:** stop the application before the dump and keep it stopped until the
+  database runs on the new host (`docker compose stop api worker scheduler`, then
+  `pg_dump`, copy, `pg_restore`, start there). The copy is then exactly as new as the
+  storage and nothing triggers. A dump taken while the application ran is older than the
+  storage it is started against: switch restore mode on before the new host's worker
+  starts (`docker compose run --rm --no-deps --entrypoint restow api restore-mode on
+  --reason "host move"`), or the worker switches it on by itself at its start.
+- **A restored dump** (a rollback, see [UPDATING.md](UPDATING.md#rollback)): restore
+  mode first, then start the stack, check, and end it under Installation, Restore mode.
+- **A failover to a replica:** an asynchronous replica that lags behind the primary at the
+  failover is an older copy; restore mode comes on by itself once its worker sees a target
+  ahead of it. A synchronous replica, or one that had caught up, triggers nothing.
+- **Moving back to an old copy** after the installation ran on a newer one (the old copy a
+  move left under Installation, Database) is a restored dump as well and triggers restore
+  mode.
+
 ## Not covered
 
 - The updater's dumps stay in its volume (`restow-updater`, `/state/dumps`), on

@@ -53,6 +53,16 @@ export function notificationTarget(
       ? { to: installationSectionPath("database"), tenantId: null }
       : null;
   }
+  // Restore mode after restoring a database dump, and a wrapped key that differs: Installation >
+  // Restore mode.
+  if (
+    item.event === "installation.restore_mode" ||
+    item.event === "installation.key_mirror_conflict"
+  ) {
+    return viewer.isProviderAdmin
+      ? { to: installationSectionPath("restore-mode"), tenantId: null }
+      : null;
+  }
   // The central Microsoft 365 app's credential runs out: Installation > Microsoft 365 app.
   if (item.event === "installation.app_secret_expiring") {
     return viewer.isProviderAdmin

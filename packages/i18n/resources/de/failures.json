@@ -416,6 +416,10 @@
       "interrupted": {
         "title": "Der Lauf wurde unterbrochen",
         "why": "{reason, select, shutdown {Der Worker wurde gestoppt oder neu gestartet, während der Lauf aktiv war.} update {Der Lauf wurde sauber angehalten, damit ein Update von {appName} installiert werden konnte.} expired {Der Lauf hat seine Zeitgrenze erreicht.} other {Der Lauf wurde unterbrochen, bevor er fertig war.}} {final, select, yes {Das war sein letzter Versuch, deshalb endete der Lauf als fehlgeschlagen: Sein Kontrollpunkt wurde verworfen, und der nächste Lauf beginnt von vorn. Sicherungen früherer Läufe sind davon nicht betroffen.} other {{appName} macht vom letzten Kontrollpunkt weiter und behält, was schon gesichert ist. Ein Halt durch ein Update oder einen Neustart verbraucht keinen der Versuche des Laufs.}}"
+      },
+      "restore_mode_hold": {
+        "title": "Der Auftrag wurde nach dem Zurückspielen der Datenbank angehalten",
+        "why": "Der Auftrag wurde angelegt, bevor der Datenbank-Dump zurückgespielt wurde, und der Wiederherstellungsmodus ist aktiv. {appName} setzt solche Aufträge nicht fort: Die zurückgespielte Datenbank kennt möglicherweise nicht, was der Auftrag nach dem Dump getan hat. Sicherungen früherer Läufe sind davon nicht betroffen."
       }
     },
     "unknown": {
@@ -740,7 +744,8 @@
     "choose_empty_restore_folder": "Fordern Sie die Wiederherstellung erneut an und wählen Sie einen Ordner, der noch nicht existiert oder leer ist. Eine Wiederherstellung überschreibt nie Dateien.",
     "wait_endpoint_retry": "Nichts zu tun. Der Agent versucht es beim nächsten geplanten Lauf erneut, oder starten Sie mit Jetzt sichern einen.",
     "set_public_https_url": "Hinterlegen Sie unter Installation › Server & Betrieb (oder in RESTOW_PUBLIC_URL) eine öffentliche URL, die mit https:// beginnt und die Microsoft auf Port 443 erreicht. {appName} richtet die Änderungsbenachrichtigungen dann selbst ein.",
-    "unlock_object": "Wenn das Objekt wieder gesichert werden soll, weisen Sie dem Benutzer eine Lizenz mit OneDrive zu oder heben Sie die Sperre im SharePoint Admin Center auf. Nach dem nächsten Verzeichnisabgleich wird von selbst wieder gesichert."
+    "unlock_object": "Wenn das Objekt wieder gesichert werden soll, weisen Sie dem Benutzer eine Lizenz mit OneDrive zu oder heben Sie die Sperre im SharePoint Admin Center auf. Nach dem nächsten Verzeichnisabgleich wird von selbst wieder gesichert.",
+    "start_again_if_needed": "Starten Sie den Auftrag erneut, wenn er noch gebraucht wird. Neue Sicherungen laufen im Wiederherstellungsmodus wie gewohnt."
   },
   "go": {
     "settings_microsoft": "Microsoft-365-Einstellungen öffnen",

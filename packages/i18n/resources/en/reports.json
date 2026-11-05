@@ -421,7 +421,9 @@
     },
     "installation": {
       "disk_low": "Low disk space",
-      "app_secret_expiring": "Microsoft 365 app credential expires"
+      "app_secret_expiring": "Microsoft 365 app credential expires",
+      "restore_mode": "Restore mode switched on by itself",
+      "key_mirror_conflict": "Wrapped key in storage differs"
     },
     "source": {
       "app_secret_expiring": "Own app credential of a source expires"
@@ -479,7 +481,9 @@
     },
     "installation": {
       "disk_low": "The disk under the database or under the local default repository has less than a tenth of its size free (and less than 5 GiB). Raised once until the disk recovers, for the whole installation, so only provider administrators can choose it.",
-      "app_secret_expiring": "Warns before the client secret or certificate of the central Microsoft 365 app registration expires: 30 days before, again 7 days before, and once it has expired. Only when its expiry is known. Raised for the whole installation, so only provider administrators can choose it."
+      "app_secret_expiring": "Warns before the client secret or certificate of the central Microsoft 365 app registration expires: 30 days before, again 7 days before, and once it has expired. Only when its expiry is known. Raised for the whole installation, so only provider administrators can choose it.",
+      "restore_mode": "A storage target shows progress the database does not have (a database dump was restored). Nothing is deleted until a provider owner ends restore mode.",
+      "key_mirror_conflict": "A wrapped tenant key in storage differs from the database's under the same version. It is never overwritten."
     },
     "source": {
       "app_secret_expiring": "Warns before the client secret or certificate of a Microsoft 365 source's own app expires: 30 days before, again 7 days before, and once it has expired. Only for sources whose expiry is known (the date noted for the secret, or the certificate's own end). Once it has expired, backups of the source fail until a new secret or certificate is entered."
@@ -578,7 +582,11 @@
     "inactiveCount": "Objects",
     "inactiveConfirm": "Check under Protection whether this is intended and confirm it with \"Yes, intended\". Existing backups are kept. When the object becomes active at the source again, {appName} backs it up again by itself.",
     "loginQuestionConfirm": "Answer under Protection whether this account was shut down. \"Yes, shut down\" stops the backups and shows the account grey; \"No, fix the login\" keeps it protected. Existing backups are kept either way.",
-    "loginQuestionSourceFirst": "The login is refused for several accounts of the same source. Check the source's password first, then answer under Protection whether the accounts were shut down. Existing backups are kept either way."
+    "loginQuestionSourceFirst": "The login is refused for several accounts of the same source. Check the source's password first, then answer under Protection whether the accounts were shut down. Existing backups are kept either way.",
+    "restoreModeTodo": "Check the restored database under Installation, Restore mode, import key versions found in storage, then end restore mode. Until then nothing is deleted; backups continue.",
+    "keyMirrorTodo": "Keep the stored key: data written under it may need it. Compare it with the database's under Installation, Restore mode (docs/STORAGE.md).",
+    "keyVersion": "Key version",
+    "storageTarget": "Storage target"
   },
   "summary": {
     "previous": "previous period",
@@ -668,7 +676,9 @@
       "app_secret_expiring": "Microsoft 365 app credential expires on {date}",
       "app_secret_expiring_soon30": "Microsoft 365 app credential expires {days, plural, =0 {today} one {in # day} other {in # days}} ({date})",
       "app_secret_expiring_soon7": "Microsoft 365 app credential expires {days, plural, =0 {today} one {in # day} other {in # days}} ({date}). Renew it now",
-      "app_secret_expiring_expired": "Microsoft 365 app credential has expired ({date}). Microsoft 365 backups fail"
+      "app_secret_expiring_expired": "Microsoft 365 app credential has expired ({date}). Microsoft 365 backups fail",
+      "restore_mode": "Restore mode is on: the database is older than its storage. Nothing is deleted until a provider owner checks it",
+      "key_mirror_conflict": "A wrapped key in storage (version {keyVersion}) differs from the database's and was not overwritten"
     },
     "database": {
       "move": {

@@ -39,6 +39,7 @@ import {
   type WorkerRuntime,
   withTenantTx,
 } from "../handlers/framework.js";
+import { reportRepositoryPasswordFinding, targetIdOfBackend } from "../restore-mode.js";
 
 export interface FileShareDeps {
   /** The application role (Row Level Security). */
@@ -63,6 +64,12 @@ export interface FileShareDeps {
   readonly maintenanceLockWaitMs?: number;
   /** New starts are paused for an update (#46): the dispatcher starts no run meanwhile. */
   readonly startsPaused?: () => boolean;
+  /**
+   * Restore mode after restoring a database dump (restore-mode.ts): runs queued, or started,
+   * before this are from the restored dump and are held (cancelled with the explanation), never
+   * started or watched on. Null while restore mode is off.
+   */
+  readonly holdRunsBefore?: () => Promise<Date | null>;
 }
 
 export const MAINTENANCE_LOCK_WAIT_MS = 60_000;
@@ -194,6 +201,24 @@ export async function keepSharePasswordFile(
       password: access.repositoryPassword,
       keys,
       prefix: access.prefix,
+      // A stored document that differs is never replaced: it may be the only copy of the
+      // password of backups the database does not know (after restoring a database dump).
+      onDifferent: async (finding) =>
+        reportRepositoryPasswordFinding(
+          deps.providerDb,
+          {
+            tenantId: share.tenantId,
+            targetId: await targetIdOfBackend(
+              (id) => deps.runtime.storage.get(id),
+              share.tenantId,
+              access.storage,
+            ),
+            objectKey: finding.key,
+            storedSha256: finding.storedSha256,
+            kind: finding.kind,
+          },
+          deps.runtime.logger,
+        ),
     });
   } catch (error) {
     deps.runtime.logger.warn("could not store the sealed file share repository password", {

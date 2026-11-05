@@ -231,7 +231,8 @@
         "backup_running": "Die Bereinigung wurde verschoben, weil eine Sicherung lief.",
         "restore_running": "Die Bereinigung wurde verschoben, weil eine Wiederherstellung lief.",
         "verify_running": "Die Bereinigung wurde verschoben, weil eine Restore-Prüfung lief.",
-        "other": "Die Bereinigung wurde übersprungen."
+        "other": "Die Bereinigung wurde übersprungen.",
+        "restore_mode": "Die Bereinigung wurde übersprungen: Nach dem Zurückspielen eines Datenbank-Dumps ist der Wiederherstellungsmodus aktiv, deshalb wird nichts gelöscht."
       }
     },
     "failed": "Die letzte Speicherprüfung ist fehlgeschlagen",

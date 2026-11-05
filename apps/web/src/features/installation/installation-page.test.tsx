@@ -125,6 +125,7 @@ describe("who opens the installation page", () => {
       "Microsoft multi-tenant app",
       "Default repository & network shares",
       "Database",
+      "Restore mode",
       "Ransomware detection",
       "Agent policy",
       "Proxmox VE",

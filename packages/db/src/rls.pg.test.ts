@@ -231,6 +231,8 @@ describe.skipIf(!adminUrl)("Row Level Security on the application role", () => {
       "job_start_pause",
       "provider_members",
       "provider_member_tenants",
+      // Restore mode after restoring a database dump (0.5.0): the installation's alone.
+      "installation_restore_mode",
     ]) {
       for (const tenantId of [null, contoso]) {
         await expect(

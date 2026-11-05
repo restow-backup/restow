@@ -245,6 +245,20 @@ export function renderAlert(input: AlertInput): RenderedMessage {
     if (free !== null) rows.push([t("reports:mail.free"), formatGib(free, input.language)]);
     if (total !== null) rows.push([t("reports:mail.total"), formatGib(total, input.language)]);
   }
+  if (event === "installation.restore_mode") {
+    // Restore mode came on by itself (a database dump was restored): what to do now.
+    const targetId = text(details.targetId);
+    if (targetId) rows.push([t("reports:mail.storageTarget"), targetId]);
+    rows.push([t("reports:mail.todo"), t("reports:mail.restoreModeTodo")]);
+  }
+  if (event === "installation.key_mirror_conflict") {
+    const targetId = text(details.targetId);
+    if (typeof details.keyVersion === "number") {
+      rows.push([t("reports:mail.keyVersion"), String(details.keyVersion)]);
+    }
+    if (targetId) rows.push([t("reports:mail.storageTarget"), targetId]);
+    rows.push([t("reports:mail.todo"), t("reports:mail.keyMirrorTodo")]);
+  }
   if (event === "installation.app_secret_expiring" || event === "source.app_secret_expiring") {
     // The expiry reminder of an app credential (the central app: features/updates/secret-watch.ts;
     // a source's own app: apps/worker source-app-expiry.ts): when it runs out, how long is left,

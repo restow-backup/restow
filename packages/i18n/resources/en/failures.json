@@ -416,6 +416,10 @@
       "interrupted": {
         "title": "The run was interrupted",
         "why": "{reason, select, shutdown {The worker was stopped or restarted while the run was in progress.} update {The run was stopped cleanly so that an update of {appName} could be installed.} expired {The run reached its time limit.} other {The run was interrupted before it finished.}} {final, select, yes {This was its last attempt, so the run ended as failed: its checkpoint was discarded and the next run starts over. Backups of earlier runs are not affected.} other {{appName} continues from the last checkpoint and keeps what was already saved. A stop by an update or a restart does not use up one of the run's attempts.}}"
+      },
+      "restore_mode_hold": {
+        "title": "The job was held after the database was restored",
+        "why": "The job was created before the database dump was restored, while restore mode is on. {appName} does not continue such jobs: the restored database may not know what the job did after the dump. Backups of earlier runs are not affected."
       }
     },
     "unknown": {
@@ -740,7 +744,8 @@
     "choose_empty_restore_folder": "Request the restore again and choose a folder that does not exist yet or is empty. A restore never overwrites files.",
     "wait_endpoint_retry": "Nothing to do. The agent tries again at its next scheduled run, or start one with Back up now.",
     "set_public_https_url": "Set a public URL starting with https:// under Installation › Server & operation (or RESTOW_PUBLIC_URL) that Microsoft can reach on port 443. {appName} then sets up change notifications by itself.",
-    "unlock_object": "If the object should be backed up again, assign the user a licence that includes OneDrive, or lift the lock in the SharePoint admin center. Backups resume by themselves after the next directory sync."
+    "unlock_object": "If the object should be backed up again, assign the user a licence that includes OneDrive, or lift the lock in the SharePoint admin center. Backups resume by themselves after the next directory sync.",
+    "start_again_if_needed": "Start the job again if it is still needed. New backups run as usual while restore mode is on."
   },
   "go": {
     "settings_microsoft": "Open Microsoft 365 settings",

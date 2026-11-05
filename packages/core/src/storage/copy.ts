@@ -29,7 +29,9 @@ import type { Logger, PackRecord, ProgressReporter, StorageTargets } from "../en
 import { buildCause, classifyFailure } from "../failures/classify.js";
 import type { FailureCause } from "../failures/types.js";
 import { isObjectNotFound, type StorageBackend } from "./backend.js";
+import { isNeverReplacedKey } from "./deletion-guard.js";
 import { describeStorageError } from "./factory.js";
+import { isProgressKey } from "./progress-marker.js";
 
 /** One object to mirror. Packs carry their recorded size and hash; other objects are compared with the source. */
 export interface MirrorItem {
@@ -61,7 +63,12 @@ export type MirrorItemOutcome =
   /** Written to the copy, but the read-back did not match. */
   | "verify_failed"
   /** Reading or writing failed. */
-  | "failed";
+  | "failed"
+  /**
+   * A wrapped key on the copy differs from the primary's: never overwritten (a key in storage
+   * may be the only one that opens data written under it); reported instead.
+   */
+  | "key_conflict";
 
 export interface MirrorItemResult {
   readonly key: string;
@@ -238,6 +245,15 @@ export async function mirrorItem(
     );
   }
 
+  if (existing && isNeverReplacedKey(item.key)) {
+    return result(
+      item.key,
+      "key_conflict",
+      0,
+      "the copy holds a different wrapped key or sealed repository password here; it is never overwritten",
+      integrityCause("verify_failed"),
+    );
+  }
   const source = await readSource(options, item);
   if ("failure" in source) {
     return source.failure;
@@ -512,7 +528,9 @@ export async function checkSourceExclusiveObjects(options: {
   readonly maxReportedKeys?: number;
   readonly isLive?: (key: string) => boolean;
 }): Promise<ExclusiveObjectsCheck> {
-  const listed = await options.source.list(options.prefix);
+  // Progress markers (progress-marker.ts) say how far this installation had come, not what it
+  // stored: they are never copied, so they never make a location the only holder of anything.
+  const listed = (await options.source.list(options.prefix)).filter((key) => !isProgressKey(key));
   const sourceKeys = options.isLive ? listed.filter((key) => options.isLive?.(key)) : listed;
   const maxReported = options.maxReportedKeys ?? DEFAULT_MAX_EXCLUSIVE_KEYS;
   const exclusiveKeys: string[] = [];

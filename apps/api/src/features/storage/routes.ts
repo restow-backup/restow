@@ -5,6 +5,7 @@ import { assertRecentSignIn } from "../../lib/recent-sign-in.js";
 import { clientIp } from "../../lib/request.js";
 import { requireTenant, type TenantEnv } from "../../middleware/session.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
+import { assertNotInRestoreMode } from "../restore-mode/service.js";
 import { backupDestination } from "./destination.js";
 import { setImmutability, verifyImmutabilityNow } from "./immutability.js";
 import {
@@ -130,6 +131,11 @@ export function buildStorageRoutes(deps: StorageRoutesDeps): Hono<TenantEnv> {
 
   routes.post("/targets", deps.requireAdmin, async (c) => {
     const input = await parseJsonBody(c.req, createStorageTargetSchema);
+    // Restore mode: a new primary is filled from what the restored database knows; data written
+    // after the dump would stay behind on the old one (docs/STORAGE.md).
+    if (input.role === "primary") {
+      await assertNotInRestoreMode("primary_replacement", c.get("tenantId"));
+    }
     return c.json(await createTarget(deps.db, c.get("tenantId"), input, actorOf(c)), 201);
   });
 
@@ -152,6 +158,7 @@ export function buildStorageRoutes(deps: StorageRoutesDeps): Hono<TenantEnv> {
   });
 
   routes.delete("/targets/:id", deps.requireAdmin, async (c) => {
+    await assertNotInRestoreMode("storage_target_removal", c.get("tenantId"));
     await deleteTarget(deps.db, c.get("tenantId"), targetId(c), actorOf(c));
     return c.body(null, 204);
   });
@@ -177,6 +184,7 @@ export function buildStorageRoutes(deps: StorageRoutesDeps): Hono<TenantEnv> {
   routes.post("/repositories/repair", deps.requireAdmin, async (c) => {
     const input = await parseJsonBody(c.req, requestRepairSchema);
     assertRecentSignIn(c.get("auth").session);
+    await assertNotInRestoreMode("repository_repair_apply", c.get("tenantId"));
     return c.json(
       await requestRepositoryRepair(deps.db, c.get("tenantId"), input, actorOf(c)),
       202,
@@ -184,6 +192,7 @@ export function buildStorageRoutes(deps: StorageRoutesDeps): Hono<TenantEnv> {
   });
 
   routes.post("/targets/:id/promote", deps.requireAdmin, async (c) => {
+    await assertNotInRestoreMode("primary_replacement", c.get("tenantId"));
     return c.json(await promoteTarget(deps.db, c.get("tenantId"), targetId(c), actorOf(c)));
   });
 
@@ -193,6 +202,7 @@ export function buildStorageRoutes(deps: StorageRoutesDeps): Hono<TenantEnv> {
   });
 
   routes.post("/targets/:id/migration/retry", deps.requireAdmin, async (c) => {
+    await assertNotInRestoreMode("primary_replacement", c.get("tenantId"));
     const id = parseOrProblem(migrationIdParamSchema, c.req.param()).id;
     return c.json(await retryMigration(deps.db, c.get("tenantId"), id, actorOf(c)));
   });

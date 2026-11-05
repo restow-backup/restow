@@ -746,6 +746,17 @@ alle Schritte erledigt oder nicht nötig, verschwindet „Start" aus dem Menü.
   Browser-Schutz der Session-Routen (`requireSameOrigin`: Cross-Site 403, Body nicht JSON
   415). Der Demo-Modus hat kein Setup-Token; dort richtet nur der Seed mit seinem
   Seed-Token ein.
+- Wiederherstellungsmodus (`apps/api/src/cli/restore-mode.ts`, `apps/api/src/features/restore-mode`,
+  docs/STORAGE.md „Restore mode and progress markers“): Nach dem Zurückspielen eines
+  Datenbank-Dumps löscht die Installation nichts, bis ein Provider-Owner die Datenbank geprüft
+  hat. `restow restore-mode status|on|check|import-keys|off` läuft im api-Image auch ohne
+  laufenden Server (`docker compose run --rm --no-deps --entrypoint restow api restore-mode on
+  --reason "..."`, vor dem Start von Worker und Scheduler); `off` verlangt die Adresse eines
+  aktiven Owners und eine Beschreibung des Geprüften und schreibt wie die Seite unter
+  Installation › Wiederherstellungsmodus `installation.restore_mode.ended` in die
+  Installationskette. Jede Löschung läuft über den Deletion Guard (`@restow/core`
+  storage/deletion-guard.ts), die Speicher-Backends prüfen ihn selbst; Fortschrittsmarker je
+  Speicherziel lassen den Worker eine ältere Datenbank selbst erkennen.
 - Admin-Wiederherstellung (`apps/api/src/cli`): Ein verlorener Owner wird über
   die Kommandozeile des Servers wiederhergestellt, nie über den Wizard:
   `docker compose exec api restow admin recover --email <owner>` (Liste:

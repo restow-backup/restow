@@ -172,8 +172,11 @@ async function main(): Promise<void> {
     });
   }
 
-  await election.start();
+  // The heartbeat first: its start comes before the first tick queues anything, so a restore
+  // mode detected later holds only jobs from before this process (packages/db restore-mode.ts
+  // `detectedHoldBoundary`).
   await heartbeat.start();
+  await election.start();
 }
 
 main().catch((err) => {

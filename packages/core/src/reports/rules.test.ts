@@ -196,7 +196,10 @@ describe("installation events", () => {
       "update.available",
       "installation.disk_low",
       "installation.app_secret_expiring",
+      "installation.restore_mode",
+      "installation.key_mirror_conflict",
     ]);
+    expect(isInstallationReportEvent("installation.restore_mode")).toBe(true);
     expect(isInstallationReportEvent("installation.app_secret_expiring")).toBe(true);
     expect(isInstallationReportEvent("source.app_secret_expiring")).toBe(false);
     expect(isInstallationReportEvent("installation.disk_low")).toBe(true);

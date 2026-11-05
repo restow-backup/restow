@@ -16,6 +16,7 @@
  *     aborts the engine) and graceful shutdown (abort, checkpoint, retry later)
  *   - structured logs without secrets or payloads
  */
+import { createHash } from "node:crypto";
 import {
   type ChunkIndex,
   type ChunkLocation,
@@ -55,6 +56,7 @@ import {
   type TenantKeyring,
   withImmutability,
   withReadOnlyFallback,
+  withStorageOperation,
   wrappedKeyKey,
 } from "@restow/core";
 import {
@@ -71,6 +73,7 @@ import {
   releaseManifestSnapshot,
   reportableError,
   type StorageTarget,
+  safeErrorMessage,
   secrets,
   snapshots,
   sources,
@@ -825,7 +828,15 @@ export async function discardAbandonedSnapshots(
   let discarded = 0;
   for (const { id } of rows) {
     try {
-      const outcome = await discardUncommittedSnapshot({ ...env, snapshots: index }, id);
+      const outcome = await discardUncommittedSnapshot(
+        {
+          ...env,
+          snapshots: index,
+          // A sweep over the tenant may find checkpoints of snapshots the database lost track of.
+          pass: "jobId" in scope ? "job_checkpoint_discard" : "abandoned_checkpoint",
+        },
+        id,
+      );
       if (outcome === "discarded") {
         discarded++;
       }
@@ -1262,20 +1273,55 @@ export async function loadTenantKeyring(options: {
   return new Keyring(tenantId, deks);
 }
 
+/** A wrapped key in storage that differs from the database's under the same version. */
+export interface KeyMirrorFinding {
+  readonly tenantId: string;
+  readonly targetId: string;
+  readonly keyVersion: number;
+  /** SHA-256 (hex) of what the target holds ("unreadable" when it could not be read). */
+  readonly storedSha256: string;
+  /** `conflict`: a different valid key under the same version; `damaged`: it does not unwrap. */
+  readonly kind: "conflict" | "damaged";
+}
+
 /**
  * Mirror the wrapped (never plaintext) DEKs into every storage target under
  * `tenants/<tid>/keys/<version>`, so the standalone restore can unwrap them
- * with the KEK alone (packages/cli). Idempotent. A mirror is compared byte
- * for byte with the database, not only checked for existence: a truncated or
- * damaged copy (an interrupted write, a bit flip) is rewritten, because the
- * standalone restore cannot open data encrypted under a key it cannot unwrap.
+ * with the KEK alone (packages/cli). Idempotent: a missing key is written, an
+ * identical one is left alone.
+ *
+ * A stored key that differs is never overwritten (0.5.0): after restoring a database
+ * dump the database may hand out a version again that storage already holds with
+ * another key, and the stored one may be the only key that opens data written under
+ * it. It is reported instead (`report`, the alert and the audit entry), classified by
+ * whether it unwraps with the KEK (`unwraps`): a different valid key (`conflict`) or
+ * damaged bytes (`damaged`, docs/STORAGE.md says how to replace it by hand).
+ *
+ * A stored key that cannot be read this time (throttling, a timeout) is skipped with a
+ * warning and tried again on the next resolution; it is no finding. Once a target holds
+ * the database's bytes again (the operator resolved it by hand), its open findings for
+ * that version are resolved (`resolve`), and a finding for other stored bytes than the
+ * target now holds is resolved too (the new bytes are reported on their own).
  */
 export async function mirrorTenantKeys(options: {
   readonly run: TenantTxRunner;
   readonly tenantId: string;
   readonly storage: StorageTargets;
   readonly logger: Logger;
-}): Promise<void> {
+  /** Whether stored bytes unwrap with the KEK (the key provider). */
+  readonly unwraps?: (wrapped: Buffer) => Promise<boolean>;
+  readonly report?: (finding: KeyMirrorFinding) => Promise<void>;
+  /**
+   * Resolve the open findings of `keyVersion` on `targetId` except the one for
+   * `keepSha256` (null: resolve all of them, the target holds the database's key).
+   */
+  readonly resolve?: (input: {
+    readonly tenantId: string;
+    readonly targetId: string;
+    readonly keyVersion: number;
+    readonly keepSha256: string | null;
+  }) => Promise<void>;
+}): Promise<KeyMirrorFinding[]> {
   const { run, tenantId, storage, logger } = options;
   const rows = await run((tx) =>
     tx
@@ -1283,35 +1329,72 @@ export async function mirrorTenantKeys(options: {
       .from(tenantKeys)
       .where(eq(tenantKeys.tenantId, tenantId)),
   );
+  const resolved = storage as Partial<ResolvedTenantStorage>;
+  const targetIdOf = (backend: StorageBackend, index: number): string =>
+    resolved.targets?.find((target) => target.backend === backend)?.id ??
+    (index === 0 ? "primary" : `copy:${index - 1}`);
+  const resolve = async (targetId: string, keyVersion: number, keepSha256: string | null) => {
+    await options
+      .resolve?.({ tenantId, targetId, keyVersion, keepSha256 })
+      .catch((error: unknown) =>
+        logger.warn("could not resolve a wrapped key finding", {
+          targetId,
+          keyVersion,
+          errorMessage: safeErrorMessage(error),
+        }),
+      );
+  };
+  const findings: KeyMirrorFinding[] = [];
   for (const row of rows) {
     const key = wrappedKeyKey(tenantId, row.keyVersion);
     const wrapped = Buffer.from(row.encryptedDek, "base64");
-    for (const target of [storage.primary, ...storage.copies]) {
+    for (const [index, target] of [storage.primary, ...storage.copies].entries()) {
+      const targetId = targetIdOf(target, index);
       const present = (await target.head(key)) !== null;
-      if (present && (await storedBytesEqual(target, key, wrapped))) {
+      if (!present) {
+        await target.put(key, wrapped);
+        logger.info("mirrored wrapped tenant key to storage", { key });
         continue;
       }
-      await target.put(key, wrapped);
-      if (present) {
-        logger.warn("rewrote a damaged wrapped tenant key in storage", { key });
-      } else {
-        logger.info("mirrored wrapped tenant key to storage", { key });
+      let stored: Buffer;
+      try {
+        stored = await target.get(key);
+      } catch (error) {
+        // Not readable this time: neither overwritten nor reported; the next resolution
+        // tries again.
+        logger.warn("could not read a wrapped tenant key in storage; it is compared next time", {
+          key,
+          targetId,
+          errorMessage: safeErrorMessage(error),
+        });
+        continue;
       }
+      if (stored.equals(wrapped)) {
+        await resolve(targetId, row.keyVersion, null);
+        continue;
+      }
+      const valid = options.unwraps ? await options.unwraps(stored).catch(() => false) : false;
+      const finding: KeyMirrorFinding = {
+        tenantId,
+        targetId,
+        keyVersion: row.keyVersion,
+        storedSha256: createHash("sha256").update(stored).digest("hex"),
+        kind: valid ? "conflict" : "damaged",
+      };
+      findings.push(finding);
+      logger.error(
+        "a wrapped tenant key in storage differs from the database; it is not overwritten",
+        {
+          key,
+          targetId: finding.targetId,
+          kind: finding.kind,
+        },
+      );
+      await options.report?.(finding);
+      await resolve(targetId, row.keyVersion, finding.storedSha256);
     }
   }
-}
-
-/** Whether `key` holds exactly `expected`; an object that cannot be read does not. */
-async function storedBytesEqual(
-  target: StorageBackend,
-  key: string,
-  expected: Buffer,
-): Promise<boolean> {
-  try {
-    return (await target.get(key)).equals(expected);
-  } catch {
-    return false;
-  }
+  return findings;
 }
 
 /** Per-tenant keyring cache with a TTL, so a rotation is picked up without a restart. */
@@ -2139,7 +2222,9 @@ export function createWorkHandler(
 ): PgBoss.WorkWithMetadataHandler<unknown> {
   return async (delivered) => {
     for (const job of delivered) {
-      await runJob(runtime, handler, job);
+      // One storage operation per job: what it writes it may delete again in restore mode
+      // (@restow/core storage/deletion-guard.ts).
+      await withStorageOperation(() => runJob(runtime, handler, job));
     }
   };
 }
