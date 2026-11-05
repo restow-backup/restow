@@ -2,7 +2,9 @@
  * Postgres-backed test of the archive deletion run (docs/ARCHIVE.md):
  * expired, unheld items are deleted and audited; items under either a
  * tenant-wide or a mailbox-scoped legal hold are never touched, however far
- * past their retention date they are (a hold wins over expiry).
+ * past their retention date they are (a hold wins over expiry). In restore mode
+ * (after restoring a database dump) nothing is deleted at all: no row, no chunk
+ * reference, no sealed record, also when restore mode comes on while the run goes.
  *
  * Runs when RESTOW_TEST_DATABASE_URL points at a Postgres server (a database
  * named `restow_worker_archive_retention_test` is dropped and recreated
@@ -12,7 +14,11 @@
 import { randomUUID } from "node:crypto";
 import {
   archive,
+  assertDeletionPermitted,
+  type DeletionGuard,
+  DeletionsHeldError,
   generateDek,
+  installDeletionEnforcement,
   Keyring,
   MemoryChunkIndex,
   ObjectLockedError,
@@ -68,6 +74,91 @@ async function recreateTestDatabase(base: string): Promise<string> {
   const url = testDatabaseUrl(base);
   await runMigrations(url);
   return url;
+}
+
+/**
+ * A deletion guard as the worker installs it (restore-mode.ts), reduced to two switches: whether
+ * a pass is granted a permit, and whether restore mode is known to be on (another process may
+ * have switched it on after a permit was given).
+ */
+function testGuard(state: { refuse: boolean; holding: boolean }): {
+  guard: DeletionGuard;
+  passes: string[];
+} {
+  const passes: string[] = [];
+  return {
+    passes,
+    guard: {
+      async decide(request) {
+        passes.push(request.pass);
+        return state.refuse
+          ? { allowed: false, reason: "restore_mode", restoreModeId: null }
+          : { allowed: true, keepUnknownBefore: null, inRestoreMode: false };
+      },
+      holding: () => state.holding,
+    },
+  };
+}
+
+/**
+ * A memory backend that checks the deletion guard of `@restow/core` before every delete, as every
+ * real backend does (MemoryStorage is imported from the sources and so sees another instance).
+ */
+function guardedMemoryStorage(): StorageBackend {
+  const inner = new MemoryStorage();
+  return Object.assign(Object.create(inner), {
+    delete: async (key: string) => {
+      assertDeletionPermitted(key);
+      await inner.delete(key);
+    },
+  });
+}
+
+/** A tenant with due items, their chunk references and their sealed records on two targets. */
+async function seedSealedItems(db: Database, due: number) {
+  const [provider] = await db.insert(providers).values({ name: "Provider" }).returning();
+  const [tenant] = await db
+    .insert(tenants)
+    .values({ providerId: provider?.id as string, name: "Contoso", slug: "contoso" })
+    .returning();
+  const tenantId = tenant?.id as string;
+  const [pack] = await db
+    .insert(packs)
+    .values({ tenantId, path: `tenants/${tenantId}/packs/aa/p1`, sha256: "s", size: 100 })
+    .returning();
+  await db
+    .insert(chunks)
+    .values({ tenantId, storedId: "c1", length: 10, packId: pack?.id as string, refcount: due });
+  const primary = guardedMemoryStorage();
+  const copy = guardedMemoryStorage();
+  const received = new Date("2026-01-10T00:00:00.000Z");
+  const paths: string[] = [];
+  let prev: string | null = null;
+  for (let n = 0; n < due; n++) {
+    const id = randomUUID();
+    const storagePath = archive.archiveItemKey(tenantId, received, id);
+    paths.push(storagePath);
+    for (const target of [primary, copy]) {
+      await target.put(storagePath, Buffer.from(`sealed ${n}`));
+    }
+    const chainHash = archive.computeArchiveChainHash(prev, `h-${n}`, received);
+    await db.insert(archiveItems).values({
+      id,
+      tenantId,
+      messageId: `m-${n}`,
+      itemHash: `h-${n}`,
+      prevChainHash: prev,
+      chainHash,
+      receivedAt: received,
+      capturedVia: "journal",
+      retentionUntil: daysAgo(1),
+      storagePath,
+      chunks: ["c1"],
+      createdAt: new Date(received.getTime() + n),
+    });
+    prev = chainHash;
+  }
+  return { tenantId, primary, copy, paths, storage: { primary, copies: [copy] } };
 }
 
 async function seedItem(
@@ -715,6 +806,148 @@ describe.skipIf(!adminUrl)("runArchiveRetention against Postgres", () => {
       expect(await inner.head(storagePath)).toBeNull();
       expect(await db.select().from(archiveRecordDeletions)).toHaveLength(0);
     } finally {
+      await db.$client.end();
+    }
+  }, 60_000);
+
+  it("deletes nothing in restore mode: rows, chunk references and sealed records (queued ones too) stay", async () => {
+    const url = await recreateTestDatabase(adminUrl as string);
+    const db = createDb(url);
+    const state = { refuse: true, holding: true };
+    const { guard, passes } = testGuard(state);
+    const uninstall = installDeletionEnforcement(guard, { strict: true });
+    try {
+      const { tenantId, primary, copy, paths, storage } = await seedSealedItems(db, 2);
+      // A record an earlier run could not delete is still queued (its row is gone).
+      const queuedPath = `tenants/${tenantId}/archive/earlier-run`;
+      await primary.put(queuedPath, Buffer.from("sealed earlier"));
+      await db
+        .insert(archiveRecordDeletions)
+        .values({ tenantId, itemId: randomUUID(), storagePath: queuedPath });
+
+      const summary = await runArchiveRetention(db, tenantId, { dryRun: false }, () => NOW, {
+        storage,
+      });
+
+      expect(summary).toMatchObject({
+        restoreMode: true,
+        candidates: 0,
+        deleted: 0,
+        chunkReferencesReleased: 0,
+        recordsDeleted: 0,
+        recordsDeferred: 0,
+        recordsPending: 1,
+      });
+      expect(passes).toEqual(["archive_retention"]);
+      expect(await db.select().from(archiveItems)).toHaveLength(2);
+      expect(await db.select().from(archiveChainTombstones)).toHaveLength(0);
+      const [chunk] = await db.select({ refcount: chunks.refcount }).from(chunks);
+      expect(chunk?.refcount).toBe(2);
+      for (const target of [primary, copy]) {
+        for (const path of paths) {
+          expect(await target.head(path)).not.toBeNull();
+        }
+      }
+      expect(await primary.head(queuedPath)).not.toBeNull();
+      expect(await db.select().from(archiveRecordDeletions)).toHaveLength(1);
+      const audit = await db.select({ action: auditLog.action }).from(auditLog);
+      expect(audit.filter((row) => row.action.startsWith("archive."))).toEqual([]);
+
+      // A dry run still counts what would go.
+      const dry = await runArchiveRetention(db, tenantId, { dryRun: true }, () => NOW, {
+        storage,
+      });
+      expect(dry).toMatchObject({ deleted: 2, dryRun: true });
+      expect(dry.restoreMode).toBeUndefined();
+
+      // Once restore mode is ended the run deletes as before, the earlier queued record too.
+      state.refuse = false;
+      state.holding = false;
+      const after = await runArchiveRetention(db, tenantId, { dryRun: false }, () => NOW, {
+        storage,
+      });
+      expect(after).toMatchObject({ deleted: 2, recordsDeleted: 3, recordsPending: 0 });
+      expect(after.restoreMode).toBeUndefined();
+      expect(await primary.head(queuedPath)).toBeNull();
+    } finally {
+      uninstall();
+      await db.$client.end();
+    }
+  }, 60_000);
+
+  it("stops at the next batch when restore mode comes on while the run goes", async () => {
+    const url = await recreateTestDatabase(adminUrl as string);
+    const db = createDb(url);
+    const state = { refuse: false, holding: false };
+    const { guard, passes } = testGuard(state);
+    const uninstall = installDeletionEnforcement(guard, { strict: true });
+    try {
+      const { tenantId, primary, copy, paths, storage } = await seedSealedItems(db, 2);
+
+      await expect(
+        runArchiveRetention(db, tenantId, { dryRun: false }, () => NOW, {
+          storage,
+          batchSize: 1,
+          // Restore mode comes on after the first batch committed.
+          afterBatch: async () => {
+            state.refuse = true;
+            state.holding = true;
+          },
+        }),
+      ).rejects.toBeInstanceOf(DeletionsHeldError);
+
+      expect(passes).toEqual(["archive_retention", "archive_retention", "archive_retention"]);
+      // The first batch went (row, tombstone, reference); its sealed record stays queued and in
+      // storage, the second item is untouched.
+      expect(await db.select().from(archiveItems)).toHaveLength(1);
+      expect(await db.select().from(archiveChainTombstones)).toHaveLength(1);
+      const [chunk] = await db.select({ refcount: chunks.refcount }).from(chunks);
+      expect(chunk?.refcount).toBe(1);
+      expect(await db.select().from(archiveRecordDeletions)).toHaveLength(1);
+      for (const target of [primary, copy]) {
+        for (const path of paths) {
+          expect(await target.head(path)).not.toBeNull();
+        }
+      }
+    } finally {
+      uninstall();
+      await db.$client.end();
+    }
+  }, 60_000);
+
+  it("keeps the sealed records queued when restore mode comes on after the permit was given", async () => {
+    const url = await recreateTestDatabase(adminUrl as string);
+    const db = createDb(url);
+    // Every permit is granted, but another process switched restore mode on meanwhile: the
+    // backends refuse the delete themselves (assertDeletionPermitted).
+    const state = { refuse: false, holding: false };
+    const { guard } = testGuard(state);
+    const uninstall = installDeletionEnforcement(guard, { strict: true });
+    try {
+      const { tenantId, primary, copy, paths, storage } = await seedSealedItems(db, 1);
+
+      await expect(
+        runArchiveRetention(db, tenantId, { dryRun: false }, () => NOW, {
+          storage,
+          afterBatch: async () => {
+            state.holding = true;
+          },
+        }),
+      ).rejects.toBeInstanceOf(DeletionsHeldError);
+
+      for (const target of [primary, copy]) {
+        expect(await target.head(paths[0] as string)).not.toBeNull();
+      }
+      // Still queued, not counted as a refusal of the target (no attempt, no deferred audit).
+      const [queued] = await db.select().from(archiveRecordDeletions);
+      expect(queued).toMatchObject({ attempts: 0, lastError: null });
+      const deferred = await db
+        .select({ action: auditLog.action })
+        .from(auditLog)
+        .where(eq(auditLog.action, "archive.record.deletion_deferred"));
+      expect(deferred).toHaveLength(0);
+    } finally {
+      uninstall();
       await db.$client.end();
     }
   }, 60_000);

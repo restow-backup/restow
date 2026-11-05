@@ -276,7 +276,8 @@ While it is on, for the whole installation:
 
 - **Nothing is deleted.** Refused are the orphan sweep and garbage collection of the
   storage check, the release of superseded packs, abandoned checkpoints, snapshot
-  retention, the clean-up of staging and export areas, archive retention, restic forget
+  retention, the clean-up of staging and export areas, archive retention (no item row, no
+  chunk reference and no sealed record goes; records queued for deletion stay queued), restic forget
   and prune of machines, file shares and Proxmox VE containers (including the comparison
   that forgets restic snapshots no restore point names), the removal of a machine's
   backups, the purge of a file share, repository repairs, a container's repository reset,
@@ -291,7 +292,9 @@ While it is on, for the whole installation:
   job: file share runs (a restore into a share, a mirror copy) are cancelled instead of
   started, and the tasks machines and Proxmox VE nodes fetch with their heartbeat (a restore
   over a guest, an uninstall) are cancelled instead of handed out or handed out again. Start a
-  job again if it is still needed. The hold point is the moment restore mode was switched on by
+  job again if it is still needed. A held job's cursor entries go with it (a restore's
+  record of what it restored); a held archive backfill is queued again by the next capture
+  pass and continues from the stream's own position. The hold point is the moment restore mode was switched on by
   hand; for a detection it is the start of the processes that run on the restored database (the
   earliest start among the scheduler and workers that beat in `service_heartbeats`, and the
   detecting process), never the moment of the detection, so backups the scheduler queued on its
