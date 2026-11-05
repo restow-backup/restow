@@ -125,6 +125,7 @@ import {
 import {
   attachmentFactsOf,
   type CalendarFacts,
+  imapFlagsNotCarried,
   imapInternalDateOf,
   messageFlagsOf,
   messageFormatOf,
@@ -829,6 +830,12 @@ export class ExchangeRestoreSession {
     }
     if (imported.fromJson) {
       this.checkJsonCreate(imported, problems, imported.mimeParts === undefined ? notes : []);
+    }
+    const uncarried = imapFlagsNotCarried(message);
+    if (uncarried.length > 0) {
+      notes.push(
+        `IMAP flags Microsoft 365 has no counterpart for were not set: ${uncarried.join(" ")}`,
+      );
     }
     const links = referenceAttachmentsOf(message);
     if (links.length > 0) {

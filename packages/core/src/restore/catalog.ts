@@ -26,6 +26,7 @@ import {
   objectTypeOf,
   parseBoolean,
   pathSegments,
+  unescapeImapComponent,
   wellKnownFolderOf,
 } from "./conventions.js";
 
@@ -66,6 +67,35 @@ function nonEmpty(value: string | undefined): string | undefined {
 }
 
 const INBOX_ANCHOR = "\\Inbox";
+
+/** The Graph well-known folder for an IMAP SPECIAL-USE (and INBOX). */
+const SPECIAL_USE_WELL_KNOWN: Readonly<Record<string, string>> = {
+  "\\inbox": "inbox",
+  "\\sent": "sentitems",
+  "\\drafts": "drafts",
+  "\\trash": "deleteditems",
+  "\\junk": "junkemail",
+  "\\archive": "archive",
+};
+
+/** An object an IMAP backup or a mailbox import wrote (docs: conventions, IMAP). */
+function isImapLayout(object: ManifestObject): boolean {
+  const metadata = object.metadata ?? {};
+  return metadata.mailbox !== undefined || metadata.uidValidity !== undefined;
+}
+
+/** The first mailbox component as the source named it, before INBOX is normalised. */
+function rawImapFirstComponent(object: ManifestObject): string | undefined {
+  const mailbox = nonEmpty(object.metadata?.mailbox);
+  const delimiter = imapDelimiterOf(object);
+  const first =
+    mailbox !== undefined
+      ? delimiter === undefined
+        ? mailbox
+        : mailbox.split(delimiter)[0]
+      : folderSegmentsOf(object, "mail")[0];
+  return first === undefined || first.length === 0 ? undefined : unescapeImapComponent(first);
+}
 
 function displayNameKey(area: MailboxArea, segments: readonly string[]): string {
   return `${area}\n${segments.join("/")}`;
@@ -138,10 +168,32 @@ export class SnapshotCatalog {
    * well-known name when the backup recorded one.
    */
   mailFolderChain(object: ManifestObject): FolderStep[] {
+    if (isImapLayout(object)) {
+      return this.imapFolderChainForExchange(object);
+    }
     const anchor = wellKnownFolderOf(object);
     return this.realNames("mail", folderSegmentsOf(object, "mail")).map((name, index) =>
       index === 0 && anchor !== undefined ? { name, anchor } : { name },
     );
+  }
+
+  /**
+   * The Exchange folders of an object in the IMAP layout (an IMAP backup or
+   * an imported mailbox): the real mailbox names, not their percent-escaped
+   * path segments ("100%", "A/B"), and the levels the source marked as
+   * INBOX or with a SPECIAL-USE anchored on the matching well-known folder.
+   */
+  private imapFolderChainForExchange(object: ManifestObject): FolderStep[] {
+    const steps = this.imapFolderChain(object);
+    // INBOX is spelled INBOX on the wire; the name the source gave it (an
+    // import's "Inbox") is what a rename-mode restore folder shows.
+    const firstRaw = rawImapFirstComponent(object);
+    return steps.map((step, index) => {
+      const name = index === 0 && step.name === "INBOX" && firstRaw ? firstRaw : step.name;
+      const anchor =
+        step.anchor === undefined ? undefined : SPECIAL_USE_WELL_KNOWN[step.anchor.toLowerCase()];
+      return anchor !== undefined ? { name, anchor } : { name };
+    });
   }
 
   /** Exchange contact folders below the default contacts folder (empty: the default folder). */

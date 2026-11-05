@@ -558,6 +558,15 @@ private repository.
   different messages with the same Message-ID are still both restored), finds an IMAP message
   without Message-ID by date, size and SHA-256, and adds missing attachments to an Exchange message
   it finds in its restore folder.
+- Mail restore: an imported mailbox (PST, MBOX, EML) or an IMAP backup restored into a Microsoft
+  365 mailbox lost its read state, follow-up flags and keywords, yet every message counted as
+  confirmed. The restore only read Exchange's own properties; the IMAP flags were ignored. `\Seen`
+  now sets the read state (unread without it), `\Flagged` the follow-up flag, keywords become
+  categories, and flags Microsoft 365 has no counterpart for (`\Answered`, `$Forwarded`) are
+  named on the item. Folder names came from the escaped path ("100%" became "100%25", "A/B"
+  became "A%2FB"); they are now the real mailbox names, and in "skip" mode `INBOX` goes into the
+  target's inbox and a mailbox with a SPECIAL-USE (`\Sent`, `\Drafts`, `\Trash`, `\Junk`,
+  `\Archive`) into the matching folder, instead of new top-level folders "INBOX" and "Sent".
 - Mail restore: a message that Exchange created as a draft (a MIME import whose header lacks Date
   or From, for example) counted as confirmed as soon as its Message-ID matched, although it was
   no draft in the backup and Outlook shows it as an unsent draft. The draft state of every

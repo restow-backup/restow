@@ -234,20 +234,45 @@ function parseStringArray(value: string | undefined): string[] | undefined {
 const FLAG_STATUSES = new Set(["notFlagged", "flagged", "complete"]);
 const IMPORTANCES = new Set(["low", "normal", "high"]);
 
-/** Flags, categories and importance that a MIME import does not carry. */
+/** IMAP keywords that are client bookkeeping, never a category a person gave a message. */
+const BOOKKEEPING_KEYWORDS = new Set(["junk", "nonjunk", "notjunk"]);
+
+/**
+ * Flags, categories and importance that a MIME import does not carry. An
+ * IMAP backup or import records IMAP flags instead of Graph's properties:
+ * `\Seen` is the read state (absent: unread, set explicitly), `\Flagged`
+ * the follow-up flag, a keyword a category (except `$`-keywords and junk
+ * markers, which are a client's bookkeeping).
+ */
 export function messageFlagsOf(object: ManifestObject): MessageFlags {
   const metadata = object.metadata ?? {};
   const flags: MessageFlags = {};
+  const imap = metadata.flags !== undefined ? imapFlagsOf(object) : undefined;
+  const has = (flag: string) => imap?.some((entry) => entry.toLowerCase() === flag) === true;
   const isRead = parseBoolean(metadata.isRead);
   if (isRead !== undefined) {
     flags.isRead = isRead;
+  } else if (imap !== undefined) {
+    flags.isRead = has("\\seen");
   }
   if (metadata.flagStatus !== undefined && FLAG_STATUSES.has(metadata.flagStatus)) {
     flags.flag = { flagStatus: metadata.flagStatus as FollowupFlag["flagStatus"] };
+  } else if (imap !== undefined) {
+    flags.flag = { flagStatus: has("\\flagged") ? "flagged" : "notFlagged" };
   }
   const categories = parseStringArray(metadata.categories);
   if (categories !== undefined) {
     flags.categories = categories;
+  } else if (imap !== undefined) {
+    const keywords = imap.filter(
+      (entry) =>
+        !entry.startsWith("\\") &&
+        !entry.startsWith("$") &&
+        !BOOKKEEPING_KEYWORDS.has(entry.toLowerCase()),
+    );
+    if (keywords.length > 0) {
+      flags.categories = keywords;
+    }
   }
   if (metadata.importance !== undefined && IMPORTANCES.has(metadata.importance)) {
     flags.importance = metadata.importance as Importance;
@@ -269,6 +294,26 @@ export function messageIsDraftOf(object: ManifestObject): boolean | undefined {
     return undefined;
   }
   return imapFlagsOf(object).some((flag) => flag.toLowerCase() === "\\draft");
+}
+
+/**
+ * IMAP flags of a message that a restore into Microsoft 365 cannot carry
+ * (`\Answered`, `$Forwarded` and other client keywords); `\Seen`,
+ * `\Flagged`, `\Draft`, `\Recent`, `\Deleted` and keywords that become
+ * categories are not listed.
+ */
+export function imapFlagsNotCarried(object: ManifestObject): string[] {
+  if (object.metadata?.flags === undefined) {
+    return [];
+  }
+  const carried = new Set(["\\seen", "\\flagged", "\\draft", "\\recent", "\\deleted"]);
+  return imapFlagsOf(object).filter(
+    (flag) =>
+      !carried.has(flag.toLowerCase()) &&
+      (flag.startsWith("\\") ||
+        flag.startsWith("$") ||
+        BOOKKEEPING_KEYWORDS.has(flag.toLowerCase())),
+  );
 }
 
 /** Names of link attachments a JSON message had; they carry no content to restore. */

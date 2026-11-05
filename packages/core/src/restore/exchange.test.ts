@@ -1455,6 +1455,58 @@ describe("ExchangeRestoreEngine", () => {
     );
   });
 
+  it("restores an IMAP backup into Microsoft 365 by meaning: SPECIAL-USE, unescaped names, flags", async () => {
+    const sentFolder: FixtureObject = {
+      path: "mail/Gesendet",
+      type: "folder",
+      id: "imap:Gesendet:7",
+      content: "",
+      metadata: { mailbox: "Gesendet", delimiter: ".", uidValidity: "7", specialUse: "\\Sent" },
+    };
+    const imapMessage = (
+      mailbox: string,
+      path: string,
+      uid: number,
+      flags: string,
+    ): FixtureObject => ({
+      path,
+      type: "message",
+      id: `imap:${mailbox}:7:${uid}`,
+      content: mimeMessage({ messageId: `<imap-${uid}@example.org>`, subject: `IMAP ${uid}` }),
+      metadata: {
+        mailbox,
+        delimiter: ".",
+        uid: String(uid),
+        uidValidity: "7",
+        flags,
+        messageId: `<imap-${uid}@example.org>`,
+      },
+    });
+    fixture = await createSnapshotFixture({
+      kind: "imap",
+      externalId: "anna",
+      objects: [
+        sentFolder,
+        imapMessage("Gesendet", "mail/Gesendet/1.eml", 1, "\\Seen"),
+        imapMessage("Kunden.A/B 100%", "mail/Kunden/A%2FB 100%25/2.eml", 2, "\\Flagged"),
+      ],
+    });
+    const mailbox = new FakeMailbox();
+
+    const report = await engineFor(mailbox).run(
+      fixture.ctx,
+      restoreRequestFor(fixture, { mode: "skip", target: { type: "other", ref: USER } }),
+    );
+
+    expect(report.failures).toEqual([]);
+    const sent = must([...mailbox.messages.values()].find((m) => m.subject === "IMAP 1"));
+    expect(sent.parentFolderId).toBe("wk-sentitems");
+    expect(sent.patches).toEqual([{ isRead: true, flag: { flagStatus: "notFlagged" } }]);
+    const client = must([...mailbox.messages.values()].find((m) => m.subject === "IMAP 2"));
+    expect(mailbox.folderPath(client.parentFolderId)).toEqual(["Kunden", "A/B 100%"]);
+    expect(client.patches).toEqual([{ isRead: false, flag: { flagStatus: "flagged" } }]);
+  });
+
   it("explains a message Graph refuses as too large", async () => {
     fixture = await createSnapshotFixture({
       kind: "mailbox",
