@@ -392,11 +392,16 @@ export class ArchiveCaptureService {
     this.running.set(stream.id, { stream, controller, done });
   }
 
+  /**
+   * Why this pass runs. A resync request decides first: it is only set by an administrator
+   * and only cleared by a pass that ran as a resync, so it must not depend on `dirty_since`,
+   * which a pass started by a notification clears although a resync arrived meanwhile.
+   */
   private reasonOf(stream: CaptureStream): PassReason {
-    if (stream.dirtySince === null) {
-      return "scheduled";
+    if (stream.state.resyncRequestedAt !== undefined) {
+      return "resync";
     }
-    return stream.state.resyncRequestedAt !== undefined ? "resync" : "notified";
+    return stream.dirtySince === null ? "scheduled" : "notified";
   }
 
   private async pass(stream: CaptureStream, signal: AbortSignal): Promise<void> {
@@ -532,7 +537,12 @@ export class ArchiveCaptureService {
         _mode: ensured.mode,
         _pollReason: ensured.pollReason ?? null,
       };
-      if (state.resyncRequestedAt !== undefined) {
+      // The request this pass ran as a resync for is done; only that one (the value it was
+      // claimed with). One asked for meanwhile is merged back by complete().
+      if (
+        this.reasonOf(stream) === "resync" &&
+        state.resyncRequestedAt === stream.state.resyncRequestedAt
+      ) {
         const { resyncRequestedAt: _done, ...rest } = state;
         state = rest;
       }

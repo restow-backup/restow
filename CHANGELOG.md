@@ -516,6 +516,13 @@ private repository.
   one the pass started with.
   This was the cause of the IMAP test that failed now and then ("shows a watched account as
   IDLE"); with a pass slowed down on purpose it failed every time before and passes now.
+- Mail archive: a resync asked for while a pass ran that a change notification or IDLE had
+  started was still lost. The end of that pass cleared the mailbox's "new mail" mark, and the
+  next pass then counted as a scheduled one because the request was only looked at when the mark
+  was set: Graph skipped the full catch-up, IMAP did not rescan, and the request was removed as
+  if it had been carried out. A resync request now decides the next pass by itself, keeps the
+  mailbox marked until it ran, and only the pass that ran as that resync clears it (a request
+  made during that pass stays for the next one).
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,

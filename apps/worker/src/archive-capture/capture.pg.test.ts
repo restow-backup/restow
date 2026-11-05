@@ -660,6 +660,56 @@ describe.skipIf(!adminUrl)("archive capture (Postgres)", () => {
     });
   });
 
+  it("runs a resync asked for during a pass a notification started, then clears it", async () => {
+    const object = await imapObject("resync-race@example.net");
+    await member(object);
+    const reasons: string[] = [];
+    let during: (() => Promise<void>) | null = null;
+    const way: CaptureWay = {
+      ...fakeWay(new Map()),
+      async catchUp(ctx) {
+        reasons.push(ctx.reason);
+        const ask = during;
+        during = null;
+        await ask?.();
+        return { state: {}, captured: 0, nextDueAt: new Date(ctx.now().getTime() + 3_600_000) };
+      },
+    };
+    const { instance } = service({ imap_sync: way });
+    // Activation pass.
+    await instance.tick();
+    await instance.settle();
+    // A change notification makes the stream dirty and due (dirty_since = T0) ...
+    await db.execute(sql`
+      update archive_capture_streams
+         set next_due_at = now(), dirty_since = now() - interval '1 second'
+       where protected_object_id = ${object}::uuid
+    `);
+    // ... and while that pass runs, an administrator asks for a resync (as the api does).
+    during = async () => {
+      await db.execute(sql`
+        update archive_capture_streams
+           set dirty_since = coalesce(dirty_since, now()), next_due_at = now(),
+               state = state || jsonb_build_object('resyncRequestedAt', now()::text)
+         where protected_object_id = ${object}::uuid
+      `);
+    };
+    await instance.tick();
+    await instance.settle();
+    const [afterNotified] = await streams();
+    expect(afterNotified?.state).toHaveProperty("resyncRequestedAt");
+    expect(afterNotified?.dirtySince).not.toBeNull();
+
+    // The next pass runs as the resync that was asked for (a full catch-up) ...
+    await instance.tick();
+    await instance.settle();
+    expect(reasons).toEqual(["scheduled", "notified", "resync"]);
+    // ... and only then is the request done.
+    const [afterResync] = await streams();
+    expect(afterResync?.state).not.toHaveProperty("resyncRequestedAt");
+    expect(afterResync?.dirtySince).toBeNull();
+  });
+
   it("runs the backfill job: captured late, stream live; skipped while the gate is closed", async () => {
     const object = await imapObject("dora@example.net");
     await member(object);

@@ -228,7 +228,10 @@ export class PgStreamStore {
                            else ${next}::timestamptz end,
         activated_at = coalesce(activated_at, ${outcome.activatedAt?.toISOString() ?? null}::timestamptz),
         backfill_job_id = coalesce(${outcome.backfillJobId ?? null}::uuid, backfill_job_id),
-        dirty_since = case when ${ok} and dirty_since <= ${outcome.passStartedAt.toISOString()}::timestamptz
+        -- A resync asked for while the pass ran keeps the stream dirty: that pass did not
+        -- run the full catch-up the request asked for.
+        dirty_since = case when ${keepResync} <> '{}'::jsonb then coalesce(dirty_since, now())
+                           when ${ok} and dirty_since <= ${outcome.passStartedAt.toISOString()}::timestamptz
                            then null else dirty_since end,
         last_capture_at = case when ${outcome.captured} > 0 then now() else last_capture_at end,
         last_success_at = case when ${ok} then now() else last_success_at end,
