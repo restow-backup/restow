@@ -1111,6 +1111,76 @@ describe("OneDriveBackupEngine", () => {
     expect(state(manifest).retry).toEqual(["01NEW"]);
   });
 
+  describe("an Office document SharePoint rewrites, served without Content-Length", () => {
+    /** A ZIP with one stored entry, as an Office document is one. */
+    function zipOf(name: string, data: Buffer): Buffer {
+      const nameBytes = Buffer.from(name, "utf8");
+      const local = Buffer.alloc(30);
+      local.writeUInt32LE(0x04034b50, 0);
+      local.writeUInt16LE(20, 4);
+      local.writeUInt32LE(data.length, 18);
+      local.writeUInt32LE(data.length, 22);
+      local.writeUInt16LE(nameBytes.length, 26);
+      const central = Buffer.alloc(46);
+      central.writeUInt32LE(0x02014b50, 0);
+      central.writeUInt16LE(20, 4);
+      central.writeUInt16LE(20, 6);
+      central.writeUInt32LE(data.length, 20);
+      central.writeUInt32LE(data.length, 24);
+      central.writeUInt16LE(nameBytes.length, 28);
+      const directoryOffset = local.length + nameBytes.length + data.length;
+      const end = Buffer.alloc(22);
+      end.writeUInt32LE(0x06054b50, 0);
+      end.writeUInt16LE(1, 8);
+      end.writeUInt16LE(1, 10);
+      end.writeUInt32LE(central.length + nameBytes.length, 12);
+      end.writeUInt32LE(directoryOffset, 16);
+      return Buffer.concat([local, nameBytes, data, central, nameBytes, end]);
+    }
+
+    /** The document as Graph lists it (the size of `rewritten` before SharePoint's rewrite), served as `served`. */
+    function routesFor(rewritten: Buffer, served: Buffer = rewritten): FixtureRoute[] {
+      const docx = q3Item({
+        id: "01DOCX",
+        name: "minutes.docx",
+        cTag: '"c:{DOCX},1"',
+        // What Graph reports: the size before SharePoint promoted its properties into the file.
+        size: rewritten.length - 37,
+        file: {
+          mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        },
+        "@microsoft.graph.downloadUrl": downloadLink("docx"),
+        parentReference: { driveId: DRIVE, id: "01ROOT" },
+      });
+      return [
+        ...initialRoutes(),
+        { url: deltaUrl("DELTA1"), respond: { status: 200, json: page([docx], "DELTA2") } },
+        // Chunked: no Content-Length.
+        { url: downloadUrl("docx"), respond: { status: 200, bytes: new Uint8Array(served) } },
+      ];
+    }
+
+    it("stores the rewritten document when its bytes are a complete ZIP", async () => {
+      const served = zipOf("word/document.xml", Buffer.from("<w:document>promoted</w:document>"));
+      const engine = harness.engine(createFakeGraph(routesFor(served)));
+      await engine.run(harness.context({ jobId: "job-1" }), oneDrive, {});
+      const second = await engine.run(harness.context({ jobId: "job-2" }), oneDrive, {});
+      expect(second.failures).toEqual([]);
+      const stored = objectAt(await harness.manifest(second), "minutes.docx");
+      expect(await harness.readObject(stored)).toEqual(served);
+    });
+
+    it("still fails a document cut short", async () => {
+      const whole = zipOf("word/document.xml", Buffer.alloc(4000, 0x41));
+      // The connection ends half-way, without a length to tell.
+      const engine = harness.engine(createFakeGraph(routesFor(whole, whole.subarray(0, 2000))));
+      await engine.run(harness.context({ jobId: "job-1" }), oneDrive, {});
+      const second = await engine.run(harness.context({ jobId: "job-2" }), oneDrive, {});
+      expect(second.failures.map((f) => f.itemRef)).toEqual(["minutes.docx"]);
+      expect(must(second.failures[0]).reason).toMatch(/TruncatedDownloadError/);
+    });
+  });
+
   it("reports a download that breaks off mid-stream as an item failure and carries on", async () => {
     const graph = createFakeGraph(initialRoutes());
     const client = graph.client({

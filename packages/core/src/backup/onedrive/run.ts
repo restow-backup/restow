@@ -138,25 +138,88 @@ async function* measured(
   chunks: AsyncIterable<Buffer>,
   windows: EntropyWindows | undefined,
   hash?: QuickXorHash,
+  tail?: TailBytes,
 ): AsyncGenerator<Buffer> {
   for await (const chunk of chunks) {
     windows?.push(chunk);
     hash?.update(chunk);
+    tail?.push(chunk);
     yield chunk;
   }
 }
+
+/** The end of a ZIP's central directory record is within this many bytes of its end. */
+const ZIP_TAIL_BYTES = 22 + 0xffff;
+
+/** The last {@link ZIP_TAIL_BYTES} bytes of a stream. */
+class TailBytes {
+  private chunks: Buffer[] = [];
+  private length = 0;
+
+  push(chunk: Buffer): void {
+    this.chunks.push(chunk);
+    this.length += chunk.length;
+    while (
+      this.chunks.length > 1 &&
+      this.length - (this.chunks[0]?.length ?? 0) >= ZIP_TAIL_BYTES
+    ) {
+      this.length -= (this.chunks.shift() as Buffer).length;
+    }
+  }
+
+  bytes(): Buffer {
+    const all = Buffer.concat(this.chunks);
+    return all.subarray(Math.max(0, all.length - ZIP_TAIL_BYTES));
+  }
+}
+
+/**
+ * Whether `tail` (the last bytes of a stream of `total` bytes) ends a complete ZIP: an
+ * end-of-central-directory record that closes the stream exactly, whose central directory
+ * ends right before it. A download cut short ends without one (or with one that points
+ * elsewhere). ZIP64 archives point through their own locator and count as complete when it
+ * is there.
+ */
+export function endsCompleteZip(tail: Buffer, total: number): boolean {
+  for (let at = tail.length - 22; at >= 0; at--) {
+    if (tail.readUInt32LE(at) !== 0x06054b50) {
+      continue;
+    }
+    const commentLength = tail.readUInt16LE(at + 20);
+    if (at + 22 + commentLength !== tail.length) {
+      continue;
+    }
+    const directorySize = tail.readUInt32LE(at + 12);
+    const directoryOffset = tail.readUInt32LE(at + 16);
+    if (directoryOffset === 0xffffffff || directorySize === 0xffffffff) {
+      return at >= 20 && tail.readUInt32LE(at - 20) === 0x07064b50;
+    }
+    return directoryOffset + directorySize === total - tail.length + at;
+  }
+  return false;
+}
+
+/**
+ * Office Open XML documents (ZIP containers): the files SharePoint rewrites on download
+ * (property promotion), so their bytes legitimately differ from the size Graph reports.
+ */
+const OFFICE_DOCUMENT =
+  /\.(docx|docm|dotx|dotm|xlsx|xlsm|xltx|xltm|xlsb|pptx|pptm|potx|potm|ppsx|ppsm|vsdx|vsdm)$/i;
 
 /** What the bytes of a file must match: the size and hashes Graph reported for it. */
 interface ExpectedContent {
   readonly size?: number;
   readonly quickXorHash?: string;
   readonly sha256Hash?: string;
+  /** An Office document SharePoint may rewrite on download ({@link OFFICE_DOCUMENT}). */
+  readonly officeDocument?: boolean;
 }
 
 function expectedContent(item: DriveDeltaItem): ExpectedContent {
   const hashes = item.file?.hashes;
   return {
     ...(typeof item.size === "number" ? { size: item.size } : {}),
+    ...(OFFICE_DOCUMENT.test(item.name ?? "") ? { officeDocument: true } : {}),
     ...(hashes?.quickXorHash ? { quickXorHash: hashes.quickXorHash } : {}),
     ...(hashes?.sha256Hash ? { sha256Hash: hashes.sha256Hash } : {}),
   };
@@ -995,10 +1058,14 @@ export class DriveBackupRun {
       return { ok: false, error };
     }
     const hash = expected.quickXorHash !== undefined ? new QuickXorHash() : undefined;
+    const tail =
+      expected.officeDocument === true && download.contentLength === null
+        ? new TailBytes()
+        : undefined;
     let content: WrittenObject;
     try {
       content = await this.writer.chunks.write(
-        measured(sourceBytes(download.stream), windows, hash),
+        measured(sourceBytes(download.stream), windows, hash, tail),
       );
     } catch (error) {
       this.rethrowIfAborted(error);
@@ -1011,11 +1078,14 @@ export class DriveBackupRun {
       return { ok: false, error: new TruncatedDownloadError(download.contentLength, content.size) };
     }
     // No length announced (an encoded body, a chunked one): the size Graph
-    // reported for the item is the only measure left.
+    // reported for the item is the only measure left. An Office document
+    // SharePoint rewrote has another size; it is taken when its bytes are a
+    // complete ZIP (a download cut short is not), as with an announced length.
     if (
       download.contentLength === null &&
       expected.size !== undefined &&
-      expected.size !== content.size
+      expected.size !== content.size &&
+      !(tail !== undefined && endsCompleteZip(tail.bytes(), content.size))
     ) {
       return { ok: false, error: new TruncatedDownloadError(expected.size, content.size) };
     }

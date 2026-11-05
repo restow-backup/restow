@@ -650,7 +650,8 @@ private repository.
   bytes were not checked at all. Restow now compares every downloaded file with the QuickXorHash
   Microsoft reports for it (files of another size than reported, such as Office documents
   SharePoint rewrites on download, carry no hash to compare with) and, without an announced
-  length, with the reported size. A file that changed while it was read is stored as its newer
+  length, with the reported size; such a rewritten Office document is then taken when its
+  bytes form a complete ZIP, so it does not fail on every run. A file that changed while it was read is stored as its newer
   version; any other mismatch keeps the last good copy, is reported as a failed item and is read
   again on the next run.
 - OneDrive and SharePoint backup: a file that could not be read and was deleted later in the
