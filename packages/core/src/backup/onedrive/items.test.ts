@@ -110,7 +110,7 @@ describe("manifest objects", () => {
       createdBy: "Alice Example",
       lastModifiedBy: "Bob Example",
       contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      quickXorHash: "q3hash1=",
+      quickXorHash: "cZgBCMbwBjfQoQxuq0MIAAAAAAA=",
     });
 
     const folder = folderObject(docs, "Documents", NOW);
@@ -179,7 +179,10 @@ describe("canReuseContent", () => {
 
   it("falls back to the quickXorHash when no content tag is available", () => {
     const untagged = { ...movedQ3, cTag: undefined };
-    const withoutTag: ManifestObject = { ...previous, metadata: { quickXorHash: "q3hash1=" } };
+    const withoutTag: ManifestObject = {
+      ...previous,
+      metadata: { quickXorHash: "cZgBCMbwBjfQoQxuq0MIAAAAAAA=" },
+    };
     expect(canReuseContent(withoutTag, untagged)).toBe(true);
     expect(canReuseContent({ ...withoutTag, metadata: { quickXorHash: "x" } }, untagged)).toBe(
       false,
@@ -249,7 +252,7 @@ describe("canReuseContent", () => {
       stale: "true",
       cTag: '"c:{Q3},1"',
       sourceSize: "11",
-      quickXorHash: "q3hash1=",
+      quickXorHash: "cZgBCMbwBjfQoQxuq0MIAAAAAAA=",
       contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       eTag: '"{Q3},2"',
     });

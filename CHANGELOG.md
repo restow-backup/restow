@@ -624,6 +624,15 @@ private repository.
   new file that arrived this way was missing from every restore point until it changed again.
   Restow now asks Microsoft for the item itself and backs it up; an item that still cannot be
   told apart is reported as a failed item and tried again on the next run.
+- OneDrive and SharePoint backup: a downloaded file was checked only for its length, so bytes
+  of the right length but the wrong content were stored as a good copy, and restore checks
+  confirmed them (they compare with what was stored). When the server announced no length, the
+  bytes were not checked at all. Restow now compares every downloaded file with the QuickXorHash
+  Microsoft reports for it (files of another size than reported, such as Office documents
+  SharePoint rewrites on download, carry no hash to compare with) and, without an announced
+  length, with the reported size. A file that changed while it was read is stored as its newer
+  version; any other mismatch keeps the last good copy, is reported as a failed item and is read
+  again on the next run.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,

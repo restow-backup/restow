@@ -17,6 +17,7 @@ import { ONEDRIVE_OBJECT_TYPES } from "./items.js";
 import { ONEDRIVE_PHASES } from "./run.js";
 import { type OneDriveCursor, type OneDriveManifestState, readCursor } from "./state.js";
 import {
+  bytesResponse,
   contentRoutes,
   createFakeGraph,
   DELTA_PATH,
@@ -592,7 +593,7 @@ describe("OneDriveBackupEngine", () => {
       eTag: '"{Q3},3"',
       cTag: '"c:{Q3},2"',
       size: 12,
-      file: { mimeType: "text/plain", hashes: { quickXorHash: "q3hash2=" } },
+      file: { mimeType: "text/plain", hashes: { quickXorHash: "cZgBCMbwBjfQoQxurAMIZAAAAAA=" } },
       "@microsoft.graph.downloadUrl": downloadLink("q3v2"),
     });
     const newFile = q3Item({
@@ -855,6 +856,84 @@ describe("OneDriveBackupEngine", () => {
     expect(state(await harness.manifest(second)).retry).toEqual(["01ALBUM"]);
   });
 
+  describe("proves the downloaded bytes against the hash Graph reported", () => {
+    const QXH_V2 = "cZgBCMbwBjfQoQxurAMIZAAAAAA="; // "q3 content 2"
+    const QXH_V3 = "cZgBCMbwBjfQoQxurAMIZgAAAAA="; // "q3 content 3"
+    const v2 = q3Item({
+      eTag: '"{Q3},2"',
+      cTag: '"c:{Q3},2"',
+      size: 12,
+      file: { mimeType: "text/plain", hashes: { quickXorHash: QXH_V2 } },
+      "@microsoft.graph.downloadUrl": downloadLink("q3v2"),
+    });
+
+    function routes(served: string, current: DriveDeltaItem): FixtureRoute[] {
+      return [
+        ...initialRoutes(),
+        { url: deltaUrl("DELTA1"), respond: { status: 200, json: page([v2], "DELTA2") } },
+        ...contentRoutes({ q3v2: served }),
+        itemAnswer("01Q3", current),
+      ];
+    }
+
+    it("keeps the last good copy and retries when bytes of the right length are not the file's", async () => {
+      // Same length, other bytes: a Content-Length check alone passes them.
+      const graph = createFakeGraph(routes("Q3 CONTENT 2", v2));
+      const engine = harness.engine(graph);
+      await engine.run(harness.context({ jobId: "job-1" }), oneDrive, {});
+      const second = await engine.run(harness.context({ jobId: "job-2" }), oneDrive, {});
+      expect(second.failures.map((f) => f.itemRef)).toEqual([Q3_PATH]);
+      expect(must(second.failures[0]).reason).toMatch(
+        new RegExp(
+          `ContentMismatchError: .*QuickXorHash .*reported ${QXH_V2.replace(/[+/=]/g, ".")}`,
+        ),
+      );
+      const manifest = await harness.manifest(second);
+      const stale = objectAt(manifest, Q3_PATH);
+      expect(stale.metadata).toMatchObject({ stale: "true", cTag: '"c:{Q3},1"' });
+      expect((await harness.readObject(stale)).toString()).toBe(CONTENT.q3);
+      expect(state(manifest).retry).toEqual(["01Q3"]);
+      // Graph was asked once whether the file had changed in between.
+      expect(graph.callsTo("GET", "/items/01Q3")).toHaveLength(1);
+    });
+
+    it("stores a revision that arrived after the delta page under that revision's tag and hash", async () => {
+      const v3 = q3Item({
+        eTag: '"{Q3},3"',
+        cTag: '"c:{Q3},3"',
+        size: 12,
+        file: { mimeType: "text/plain", hashes: { quickXorHash: QXH_V3 } },
+        "@microsoft.graph.downloadUrl": downloadLink("q3v3"),
+      });
+      const graph = createFakeGraph(routes("q3 content 3", v3));
+      const engine = harness.engine(graph);
+      await engine.run(harness.context({ jobId: "job-1" }), oneDrive, {});
+      const second = await engine.run(harness.context({ jobId: "job-2" }), oneDrive, {});
+      expect(second.failures).toEqual([]);
+      const q3 = objectAt(await harness.manifest(second), Q3_PATH);
+      expect(q3.metadata).toMatchObject({ cTag: '"c:{Q3},3"', quickXorHash: QXH_V3 });
+      expect(q3.metadata?.stale).toBeUndefined();
+      expect((await harness.readObject(q3)).toString()).toBe("q3 content 3");
+    });
+
+    it("measures a download without Content-Length against the size Graph reported", async () => {
+      const graph = createFakeGraph([
+        { url: deltaUrl(null), respond: { status: 200, json: fixture.initialPage1 } },
+        { url: deltaUrl("NEXT1"), respond: { status: 200, json: fixture.initialPage2 } },
+        {
+          url: downloadUrl("q3"),
+          // An encoded body: Content-Length (if any) says nothing about the bytes fetch hands over.
+          respond: bytesResponse("q3 cont", { "content-encoding": "gzip" }),
+        },
+        ...contentRoutes({ notes: CONTENT.notes }),
+      ]);
+      const result = await harness.engine(graph).run(harness.context(), oneDrive, {});
+      expect(result.failures.map((f) => f.itemRef)).toEqual([Q3_PATH]);
+      expect(must(result.failures[0]).reason).toMatch(/TruncatedDownloadError: .*7 of 11/);
+      expect(paths(await harness.manifest(result))).not.toContain(Q3_PATH);
+    });
+  });
+
   it("reports a download that breaks off mid-stream as an item failure and carries on", async () => {
     const graph = createFakeGraph(initialRoutes());
     const client = graph.client({
@@ -1065,6 +1144,7 @@ describe("OneDriveBackupEngine", () => {
     const changedQ3 = q3Item({
       size: 12,
       cTag: '"c:{Q3},2"',
+      file: { mimeType: "text/plain", hashes: { quickXorHash: "cZgBCMbwBjfQoQxurAMIZAAAAAA=" } },
       "@microsoft.graph.downloadUrl": downloadLink("q3v2"),
     });
     const trimmed = {
