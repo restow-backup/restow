@@ -10,7 +10,7 @@ import {
   type GraphCatchUpState,
   graphCaptureFolders,
 } from "./graph-capture.js";
-import { messageKey } from "./identity.js";
+import { type HeldMails, messageKey } from "./identity.js";
 
 const USER = "anna";
 const FOLDERS: FakeFolder[] = [
@@ -30,30 +30,48 @@ const FOLDERS: FakeFolder[] = [
 
 /** A sink like the worker's: what was appended, and the dedupe query over it. */
 class MemorySink implements GraphCaptureSink {
-  readonly appended: Array<{ ref: string; key: string | null; received: Date | null }> = [];
+  readonly appended: Array<{
+    ref: string;
+    key: string | null;
+    received: Date | null;
+    sentAt: Date | null;
+    size: number;
+  }> = [];
 
   async alreadyCaptured(query: {
     externalRefs?: readonly string[];
     messageIds?: readonly string[];
   }) {
     const refs = new Set(this.appended.map((a) => a.ref));
-    const keys = new Set(this.appended.map((a) => a.key).filter((k): k is string => k !== null));
+    const messages: HeldMails = new Map();
+    for (const id of query.messageIds ?? []) {
+      const key = messageKey(id);
+      if (key === null) {
+        continue;
+      }
+      const held = this.appended
+        .filter((a) => a.key === key)
+        .map((a) => ({ sizeBytes: a.size, sentAt: a.sentAt }));
+      if (held.length > 0) {
+        messages.set(key, held);
+      }
+    }
     return {
       externalRefs: new Set((query.externalRefs ?? []).filter((ref) => refs.has(ref))),
-      messageKeys: new Set(
-        (query.messageIds ?? [])
-          .map((id) => messageKey(id))
-          .filter((key): key is string => key !== null && keys.has(key)),
-      ),
+      messages,
     };
   }
 
   async append(mail: { original: Buffer; externalRef: string; receivedByService: Date | null }) {
-    const id = /^Message-ID: (.*)$/m.exec(mail.original.toString("utf8"))?.[1]?.trim() ?? null;
+    const text = mail.original.toString("utf8");
+    const id = /^Message-ID: (.*)$/m.exec(text)?.[1]?.trim() ?? null;
+    const date = /^Date: (.*)$/m.exec(text)?.[1]?.trim();
     this.appended.push({
       ref: mail.externalRef,
       key: messageKey(id),
       received: mail.receivedByService,
+      sentAt: date ? new Date(date) : null,
+      size: mail.original.length,
     });
   }
 
@@ -127,6 +145,44 @@ describe("drainGraphPending", () => {
     });
     expect(result.handled).toEqual(["m2"]);
     expect(result.failure?.status).toBe(403);
+  });
+
+  it("downloads a mail whose Message-ID the archive holds under another date", async () => {
+    // Same Message-ID, other content (a resend with edited content, a reused id): another
+    // mail, which the append keeps next to the first (`message-id-conflict`).
+    const fake = mailbox();
+    const sink = new MemorySink();
+    const mime = (date: string, body: string) =>
+      `Message-ID: <ticket-7@helpdesk.example>\r\nFrom: helpdesk@fabrikam.example\r\nTo: user@contoso.example\r\nSubject: Ticket 7\r\nDate: ${date}\r\n\r\n${body}\r\n`;
+    fake.addMessage(USER, {
+      id: "t1",
+      folderId: "inbox",
+      internetMessageId: "<ticket-7@helpdesk.example>",
+      mime: mime("Mon, 02 Nov 2026 08:00:00 +0000", "Status: open"),
+    });
+    fake.addMessage(USER, {
+      id: "t2",
+      folderId: "inbox",
+      internetMessageId: "<ticket-7@helpdesk.example>",
+      mime: mime("Tue, 03 Nov 2026 15:30:00 +0000", "Status: closed"),
+    });
+    // The same mail again (a copy in another folder, other immutable id): not downloaded.
+    fake.addMessage(USER, {
+      id: "t1-copy",
+      folderId: "projects",
+      internetMessageId: "<ticket-7@helpdesk.example>",
+      mime: mime("Mon, 02 Nov 2026 08:00:00 +0000", "Status: open"),
+    });
+    await drainGraphPending({ client: fake.client(), userId: USER, refs: ["t1"], sink });
+    const result = await drainGraphPending({
+      client: fake.client(),
+      userId: USER,
+      refs: ["t2", "t1-copy"],
+      sink,
+    });
+    expect(result).toMatchObject({ captured: 1, skipped: 1 });
+    expect(sink.refs()).toEqual(["t1", "t2"]);
+    expect(fake.graph.callsTo("GET", "/messages/t1-copy/$value")).toHaveLength(0);
   });
 
   it("does not archive a message too large for a MIME export", async () => {

@@ -463,7 +463,13 @@ Wann was:
   Erfassungszeile an diesem Objekt (`archive_item_captures`, Beleg außerhalb der Kette) und
   eine Zuordnung zum Postfach; eine stärkere wird ein neues Objekt, das das schwächere
   ersetzt (`supersedes_item_id`; das alte bleibt unverändert). Gleiche Message-ID mit anderem
-  Body bleibt zweimal erhalten (`message-id-conflict`). Journal-Reports und importierte Mail
+  Body bleibt zweimal erhalten (`message-id-conflict`). Vor dem Download überspringt die
+  Erfassung aus dem Postfach eine Mail nur, wenn ihre Fundstelle (Graph-ID, IMAP-Ordner und
+  UID) bekannt ist oder unter ihrer Message-ID eine Mail mit gleichem Merkmal archiviert ist:
+  bei IMAP die Größe (RFC822.SIZE), bei Graph das Datum aus dem Date-Header
+  (`sentDateTime`, auf die Sekunde). Sonst wird sie geladen und wie oben entschieden (seit
+  0.5.0; vorher genügte die Message-ID, und eine andere Mail mit derselben Message-ID kam nie
+  ins Archiv). Journal-Reports und importierte Mail
   bleiben eigene Objekte. Alle Schreiber hängen über einen gemeinsamen Weg an die Kette an:
   das Original wird vor der Sperre der Kette hochgeladen, unter der Sperre steigt
   `created_at` je Mandant streng monoton (seit 0.4.4 keine Gabelung der Kette bei gleichem

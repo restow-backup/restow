@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { type FakeFolder, FakeImapServer } from "../backup/imap/testing/fake-imap.js";
 import type { ImapAccountConfig, ImapSession } from "../backup/imap/types.js";
-import { messageKey } from "./identity.js";
+import { type HeldMails, holdMail, messageKey } from "./identity.js";
 import {
   activateImapCapture,
   backfillImapCapture,
@@ -54,34 +54,35 @@ async function connect(server: FakeImapServer): Promise<ImapSession> {
   );
 }
 
-/** An archive of refs and Message-IDs, like the worker's per-mailbox lookup. */
+/** An archive of refs and Message-IDs (with the size of each mail), like the worker's lookup. */
 function memorySink() {
   const refs = new Set<string>();
-  const keys = new Set<string>();
+  const held: HeldMails = new Map();
   const appended: { ref: string; messageId: string | null }[] = [];
   const sink: ImapCaptureSink = {
     signal: new AbortController().signal,
     async alreadyCaptured(query) {
+      const messages: HeldMails = new Map();
+      for (const id of query.messageIds) {
+        const key = messageKey(id);
+        const found = key === null ? undefined : held.get(key);
+        if (key !== null && found) {
+          messages.set(key, [...found]);
+        }
+      }
       return {
         externalRefs: new Set(query.externalRefs.filter((ref) => refs.has(ref))),
-        messageKeys: new Set(
-          query.messageIds
-            .map((id) => messageKey(id))
-            .filter((key): key is string => key !== null && keys.has(key)),
-        ),
+        messages,
       };
     },
     async append(item) {
       refs.add(item.externalRef);
       const id = /Message-ID: <([^>]+)>/i.exec(item.original.toString())?.[1] ?? null;
-      const key = messageKey(id);
-      if (key) {
-        keys.add(key);
-      }
+      holdMail(held, id, { sizeBytes: item.original.length, sentAt: null });
       appended.push({ ref: item.externalRef, messageId: id });
     },
   };
-  return { sink, appended, keys };
+  return { sink, appended, held };
 }
 
 describe("captureFolderPlan", () => {
@@ -189,13 +190,16 @@ describe("IMAP archive capture", () => {
     expect(appended.map((item) => item.ref)).toContain("INBOX;1000;1");
   });
 
-  it("skips mail the archive already holds for the mailbox, by Message-ID", async () => {
+  it("skips mail the archive already holds for the mailbox, by Message-ID and size", async () => {
     const server = new FakeImapServer();
     const inbox = server.addFolder("INBOX");
     const session = await connect(server);
-    const { sink, appended, keys } = memorySink();
+    const { sink, appended, held } = memorySink();
     const state = await activateImapCapture(session);
-    keys.add("forwarded@x");
+    holdMail(held, "forwarded@x", {
+      sizeBytes: Buffer.byteLength(mail("forwarded@x")),
+      sentAt: null,
+    });
     put(inbox, "forwarded@x");
     put(inbox, "fresh@x");
     const result = await catchUpImapCapture(session, state, sink);
@@ -203,6 +207,24 @@ describe("IMAP archive capture", () => {
     expect(result.skipped).toBe(1);
     expect(appended.map((item) => item.messageId)).toEqual(["fresh@x"]);
     expect(server.stats.sourcesDelivered).toEqual(["INBOX:2"]);
+  });
+
+  it("downloads a mail whose Message-ID the archive holds with other content", async () => {
+    // A ticket system resending edited content, or a sender reusing an archived mail's
+    // Message-ID: another mail, not a duplicate (the append keeps both, flagged).
+    const server = new FakeImapServer();
+    const inbox = server.addFolder("INBOX");
+    const session = await connect(server);
+    const { sink, appended } = memorySink();
+    let state = await activateImapCapture(session);
+    inbox.add(mail("ticket-7@x", "Status: open"), { messageId: "<ticket-7@x>" });
+    state = (await catchUpImapCapture(session, state, sink)).state;
+    inbox.add(mail("ticket-7@x", "Status: closed, the refund was paid"), {
+      messageId: "<ticket-7@x>",
+    });
+    const result = await catchUpImapCapture(session, state, sink);
+    expect(result).toMatchObject({ captured: 1, skipped: 0 });
+    expect(appended.map((item) => item.ref)).toEqual(["INBOX;1000;1", "INBOX;1000;2"]);
   });
 
   it("reads a folder again after a UIDVALIDITY change without archiving anything twice", async () => {
@@ -218,10 +240,13 @@ describe("IMAP archive capture", () => {
 
     inbox.resetUidValidity();
     put(inbox, "three@x");
+    const delivered = server.stats.sourcesDelivered.length;
     const after = await catchUpImapCapture(session, state, sink);
     expect(after.state.folders.INBOX?.uidValidity).toBe("1001");
     expect(after.captured).toBe(1);
     expect(after.skipped).toBe(2);
+    // Message-ID and size skip the two known mails before any download: only the new one.
+    expect(server.stats.sourcesDelivered.slice(delivered)).toHaveLength(1);
     expect(appended.map((item) => item.messageId)).toEqual(["one@x", "two@x", "three@x"]);
   });
 

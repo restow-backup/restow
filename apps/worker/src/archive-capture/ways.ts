@@ -131,13 +131,14 @@ export interface CaptureContext {
    */
   append(mail: CapturedMail): Promise<archive.CaptureArchiveItemResult>;
   /**
-   * Which of the given refs and Message-IDs the archive already holds for this mailbox
-   * (as an item, an assignment or a capture row): check before downloading a mail.
+   * Which of the given refs the archive already holds for this mailbox (as an item, an
+   * assignment or a capture row), and what it holds under the given Message-IDs (size and
+   * date per mail): check before downloading a mail.
    */
   alreadyCaptured(query: {
     readonly externalRefs?: readonly string[];
     readonly messageIds?: readonly string[];
-  }): Promise<{ externalRefs: Set<string>; messageKeys: Set<string> }>;
+  }): Promise<{ externalRefs: Set<string>; messages: archive.HeldMails }>;
   /** Persist `state` now, mid-step (a long catch-up), so an abort resumes from here. */
   checkpoint(state: ArchiveStreamState): Promise<void>;
 }

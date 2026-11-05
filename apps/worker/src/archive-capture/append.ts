@@ -17,7 +17,7 @@ import {
 } from "@restow/core";
 import {
   capturedExternalRefs,
-  capturedMessageKeys,
+  capturedMessages,
   type Database,
   PgArchiveAppendStore,
 } from "@restow/db";
@@ -94,13 +94,16 @@ export async function appendCapturedMail(
   });
 }
 
-/** Which refs and Message-IDs the archive already holds for a mailbox. */
+/**
+ * Which refs the archive already holds for a mailbox, and what it holds there under the
+ * given Message-IDs (size and date per mail; a Message-ID alone is not the same mail).
+ */
 export async function alreadyCapturedFor(
   db: Database,
   tenantId: string,
   protectedObjectId: string,
   query: { readonly externalRefs?: readonly string[]; readonly messageIds?: readonly string[] },
-): Promise<{ externalRefs: Set<string>; messageKeys: Set<string> }> {
+): Promise<{ externalRefs: Set<string>; messages: archive.HeldMails }> {
   const keys = [
     ...new Set(
       (query.messageIds ?? [])
@@ -110,6 +113,6 @@ export async function alreadyCapturedFor(
   ];
   return withTenantTx(db, tenantId, async (tx) => ({
     externalRefs: await capturedExternalRefs(tx, protectedObjectId, query.externalRefs ?? []),
-    messageKeys: await capturedMessageKeys(tx, tenantId, protectedObjectId, keys),
+    messages: await capturedMessages(tx, tenantId, protectedObjectId, keys),
   }));
 }

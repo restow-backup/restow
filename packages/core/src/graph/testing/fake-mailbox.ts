@@ -36,6 +36,8 @@ export interface FakeMessage {
   folderId: string;
   internetMessageId?: string;
   receivedDateTime?: string;
+  /** The Date header; defaults to the one of `mime` (or of the generated mail). */
+  sentDateTime?: string;
   isDraft?: boolean;
   /** The MIME `$value` returns; defaults to a small generated mail. */
   mime?: string;
@@ -302,10 +304,18 @@ export class FakeMailboxGraph {
   }
 
   private messageJson(message: FakeMessage) {
+    // Graph's sentDateTime is the Date header of the MIME it exports.
+    const date = /^Date:\s*(.+)$/im.exec(message.mime ?? defaultMime(message))?.[1]?.trim();
+    const parsed = date ? new Date(date) : null;
     return {
       id: message.id,
       internetMessageId: message.internetMessageId ?? `<${message.id}@fake.example>`,
       receivedDateTime: message.receivedDateTime ?? "2026-11-02T08:00:00Z",
+      sentDateTime:
+        message.sentDateTime ??
+        (parsed && !Number.isNaN(parsed.getTime())
+          ? parsed.toISOString().replace(".000Z", "Z")
+          : "2026-11-02T08:00:00Z"),
       isDraft: message.isDraft ?? false,
       parentFolderId: message.folderId,
     };

@@ -35,13 +35,14 @@ import {
   type WellKnownFolderName,
 } from "../graph/resources/mail.js";
 import { IMMUTABLE_ID_PREFER } from "../graph/resources/subscriptions.js";
-import { messageKey } from "./identity.js";
+import { type HeldMails, heldBySentAt, holdMail } from "./identity.js";
 
 /** Metadata the capture reads per message, in delta pages and in the drain's `$batch`. */
 export const GRAPH_CAPTURE_MESSAGE_SELECT = [
   "id",
   "internetMessageId",
   "receivedDateTime",
+  "sentDateTime",
   "isDraft",
   "parentFolderId",
 ] as const;
@@ -74,6 +75,8 @@ export interface GraphMessageMeta {
   readonly id: string;
   readonly internetMessageId?: string | null;
   readonly receivedDateTime?: string | null;
+  /** The Date header. */
+  readonly sentDateTime?: string | null;
   readonly isDraft?: boolean | null;
   readonly parentFolderId?: string | null;
   readonly "@removed"?: unknown;
@@ -81,11 +84,14 @@ export interface GraphMessageMeta {
 
 /** Where captured mail goes (the worker's capture context). */
 export interface GraphCaptureSink {
-  /** Which refs and Message-IDs (as {@link messageKey}s) the archive holds for the mailbox. */
+  /**
+   * Which refs the archive holds for the mailbox, and what it holds under the given
+   * Message-IDs (size and date of each mail, to compare before a download).
+   */
   alreadyCaptured(query: {
     readonly externalRefs?: readonly string[];
     readonly messageIds?: readonly string[];
-  }): Promise<{ externalRefs: Set<string>; messageKeys: Set<string> }>;
+  }): Promise<{ externalRefs: Set<string>; messages: HeldMails }>;
   append(mail: {
     readonly original: Buffer;
     readonly externalRef: string;
@@ -138,7 +144,10 @@ export interface GraphCaptureCounts {
 
 /**
  * Capture the messages of one page: those the archive does not hold yet for the mailbox
- * (by ref or Message-ID) are downloaded and appended, in page order.
+ * are downloaded and appended, in page order. Held means the ref (immutable id) is known,
+ * or a mail with the same Message-ID and the same Date header is: the same Message-ID with
+ * another date is downloaded, and the append keeps it if its body differs
+ * (`message-id-conflict`) or merges it if it is the same mail.
  */
 async function capturePage(
   options: {
@@ -161,8 +170,11 @@ async function capturePage(
   });
   for (const message of messages) {
     throwIfAborted(options.signal);
-    const key = messageKey(message.internetMessageId ?? null);
-    if (known.externalRefs.has(message.id) || (key !== null && known.messageKeys.has(key))) {
+    const sentAt = dateOf(message.sentDateTime);
+    if (
+      known.externalRefs.has(message.id) ||
+      heldBySentAt(known.messages, message.internetMessageId, sentAt)
+    ) {
       counts.skipped++;
       continue;
     }
@@ -185,10 +197,8 @@ async function capturePage(
       externalRef: message.id,
       receivedByService: dateOf(message.receivedDateTime),
     });
-    if (key !== null) {
-      // A second copy of the same mail later in the page is not downloaded again.
-      known.messageKeys.add(key);
-    }
+    // A second copy of the same mail later in the page is not downloaded again.
+    holdMail(known.messages, message.internetMessageId, { sizeBytes: original.length, sentAt });
     known.externalRefs.add(message.id);
     counts.captured++;
   }

@@ -13,9 +13,10 @@
  * Per folder the state keeps UIDVALIDITY, the UIDNEXT last seen and `lastUid` (every UID up
  * to it is handled). A pass asks STATUS first and selects a folder only when UIDNEXT moved
  * past `lastUid`; then only the new UIDs are read, metadata first, and the source only of
- * mail the archive does not hold for this mailbox yet (by `<folder>;<uidvalidity>;<uid>` or
- * Message-ID). A changed UIDVALIDITY rescans the folder from the start: the mailbox's
- * Message-IDs keep that from archiving anything twice.
+ * mail the archive does not hold for this mailbox yet (by `<folder>;<uidvalidity>;<uid>`, or
+ * by Message-ID together with the exact size). A changed UIDVALIDITY rescans the folder from
+ * the start: Message-ID and size keep that from downloading anything twice, and a mail with
+ * a known Message-ID but other content is downloaded and kept.
  *
  * Activation records where live capture starts (`backfillUpTo` per folder); the one-time
  * backfill takes over the UIDs up to it, checkpointed in its job's cursor.
@@ -29,7 +30,7 @@ import {
 } from "../backup/imap/types.js";
 import type { Logger } from "../engine/types.js";
 import { classifyFailure } from "../failures/classify.js";
-import { messageKey } from "./identity.js";
+import { type HeldMails, heldBySize } from "./identity.js";
 
 /**
  * A NO that is the account's temporary cap (throttling, a download or bandwidth limit), not
@@ -180,11 +181,14 @@ export function captureFolderPlan(
 /** Where captured mail goes and what the capture checks before downloading. */
 export interface ImapCaptureSink {
   readonly signal: AbortSignal;
-  /** Which refs and Message-IDs the archive already holds for this mailbox. */
+  /**
+   * Which refs the archive already holds for this mailbox, and what it holds under the
+   * given Message-IDs (size and date of each mail, to compare before a download).
+   */
   alreadyCaptured(query: {
     readonly externalRefs: readonly string[];
     readonly messageIds: readonly string[];
-  }): Promise<{ externalRefs: Set<string>; messageKeys: Set<string> }>;
+  }): Promise<{ externalRefs: Set<string>; messages: HeldMails }>;
   append(mail: {
     readonly original: Buffer;
     readonly externalRef: string;
@@ -271,8 +275,12 @@ export async function captureFolderUids(
     });
     const wanted: ImapMessageMeta[] = [];
     for (const meta of metas) {
-      const key = messageKey(meta.messageId);
-      if (known.externalRefs.has(refOf(meta.uid)) || (key !== null && known.messageKeys.has(key))) {
+      // By ref, or by Message-ID only when the archived mail has this exact size: the same
+      // Message-ID with other content is another mail, downloaded and kept (identity.ts).
+      if (
+        known.externalRefs.has(refOf(meta.uid)) ||
+        heldBySize(known.messages, meta.messageId, meta.size)
+      ) {
         skipped++;
       } else {
         wanted.push(meta);

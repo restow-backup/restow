@@ -340,6 +340,28 @@ describe.skipIf(!adminUrl)("IMAP capture way (Postgres)", () => {
     expect(await itemsOf(object)).toHaveLength(1);
   });
 
+  it("archives a second mail with the same Message-ID and other content, flagged as a conflict", async () => {
+    const object = await account("greta@example.net");
+    const way = createImapCaptureWay({ connector: server, env: {} });
+    const { instance } = captureService(way);
+    await instance.tick();
+    await instance.settle();
+    const ticket = (body: string) =>
+      `Message-ID: <ticket-7@helpdesk.example>\r\nFrom: helpdesk@example.org\r\nTo: erik@example.net\r\nSubject: Ticket 7\r\nDate: Mon, 02 Nov 2026 08:00:00 +0000\r\n\r\n${body}\r\n`;
+    server
+      .folder("INBOX")
+      .add(ticket("Status: open"), { messageId: "<ticket-7@helpdesk.example>" });
+    await pass(instance);
+    // Edited content under the same Message-ID (a ticket system, or a sender reusing it).
+    server.folder("INBOX").add(ticket("Status: closed, the refund of 1,200 EUR was paid"), {
+      messageId: "<ticket-7@helpdesk.example>",
+    });
+    await pass(instance);
+    const items = await itemsOf(object);
+    expect(items.map((item) => item.externalRef)).toEqual(["INBOX;1000;1", "INBOX;1000;2"]);
+    expect(items[1]?.flags).toContain("message-id-conflict");
+  });
+
   it("watches accounts with IDLE within the budget, shared by two processes through locks", async () => {
     const first = await account("carla@example.net");
     const second = await account("dora@example.net");
@@ -460,7 +482,7 @@ describe.skipIf(!adminUrl)("IMAP capture way (Postgres)", () => {
   it("shows a watched account as IDLE without waiting for its next scheduled pass (service loop)", async () => {
     // As the worker runs it: the service's own loop starts the IDLE manager with its
     // services (gate, keyrings, installation pool); no pass is forced by the test.
-    const object = await account("erik@example.net");
+    const object = await account("frida@example.net");
     const way = createImapCaptureWay({
       connector: server,
       env: {},
