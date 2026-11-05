@@ -243,6 +243,20 @@ Zustand und lässt ihn nachträglich bestätigen, bei IMAP setzt ihn die Antwort
   als Entwurf oder mit anderen Daten, ist das Element „Nicht bestätigt“ mit dem Grund.
 - Zielordner: Original-Pfad nachbauen oder "Wiederhergestellt <Datum>"-Ordner; beides
   anbieten. Duplikate vermeiden: vor Import per `internetMessageId` prüfen.
+- Unbekannter Ausgang: Ein POST ist nicht idempotent. Antwortet das Gateway 502/504, kommt keine
+  Antwort rechtzeitig oder bricht die Verbindung ab, kann Exchange das Element trotzdem anlegen,
+  auch erst Sekunden bis Minuten später (ein großer MIME-Import in ein gedrosseltes Postfach).
+  Restow sendet dann nicht sofort erneut, sondern sucht das Element etwa zwei Minuten lang
+  (Abfragen nach 0, 5, 15, 30 und 60 s, `UNKNOWN_OUTCOME_LOOKS_MS` in
+  `packages/core/src/restore/common.ts`): eine Nachricht über ihre Message-ID im Zielordner, einen
+  Anhang über Name und Größe, einen Kontakt über Name und Adresse. Was es findet, wird übernommen
+  (wiederhergestellt, aber nicht bestätigt). Erst wenn keine Abfrage etwas sieht, geht die Anfrage
+  ein zweites Mal hinaus; danach sieht Restow noch einmal nach, und eine zweite Kopie, die doch
+  noch entstanden ist, macht das Element „Nicht bestätigt“ mit dem Hinweis, die überzählige zu
+  entfernen. Ein Ordner wird erneut angelegt; antwortet Exchange darauf 409, weil der erste doch
+  entstanden ist, wird er übernommen. Eine Nachricht ohne Message-ID und ein nicht gefundener
+  Kontakt werden nie ein zweites Mal gesendet, sondern gemeldet. Termine gehen mit derselben
+  `transactionId` erneut hinaus, Graph liefert dann den schon angelegten.
 - Kalender/Kontakte: POST auf `/events` bzw. `/contacts` aus dem JSON (IDs werden neu).
 - Grenzen: Send/Receive-Status, Konversations-IDs und einige Header werden neu erzeugt.
   Das ist bei jedem Produkt so; in der Doku sagen.

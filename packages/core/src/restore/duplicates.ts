@@ -81,6 +81,12 @@ export interface DuplicateSlot<Id> {
     container: string,
     lookup: (messageId: string) => Promise<Id[]>,
   ): Promise<Id | undefined>;
+  /**
+   * Every such copy (see {@link findOwnWrite}): after an unanswered create
+   * that was sent once more, more than one means the first create went
+   * through after all.
+   */
+  ownWrites(container: string, lookup: (messageId: string) => Promise<Id[]>): Promise<Id[]>;
   /** A copy this run wrote for the message (never a duplicate of a later message). */
   wrote(container: string, copy: Id | undefined): void;
   /** Finish the message, however it ended. Safe to call more than once. */
@@ -148,6 +154,18 @@ export class MessageIdDuplicates<Id> {
       state = { copies: undefined, before: undefined, pending: 1 };
     }
     let settled = false;
+    const ownWrites = async (
+      container: string,
+      lookup: (messageId: string) => Promise<Id[]>,
+    ): Promise<Id[]> => {
+      if (messageId === undefined || state.before === undefined) {
+        return [];
+      }
+      const before = state.before;
+      const ours = this.written.get(`${container}${SEPARATOR}${messageId}`) ?? [];
+      const found = await lookup(messageId);
+      return found.filter((copy) => !before.includes(copy) && !ours.includes(copy));
+    };
 
     return {
       messageId,
@@ -165,15 +183,8 @@ export class MessageIdDuplicates<Id> {
         }
         return [...state.copies];
       },
-      findOwnWrite: async (container, lookup) => {
-        if (messageId === undefined || state.before === undefined) {
-          return undefined;
-        }
-        const before = state.before;
-        const ours = this.written.get(`${container}${SEPARATOR}${messageId}`) ?? [];
-        const found = await lookup(messageId);
-        return found.find((copy) => !before.includes(copy) && !ours.includes(copy));
-      },
+      findOwnWrite: async (container, lookup) => (await ownWrites(container, lookup))[0],
+      ownWrites: (container, lookup) => ownWrites(container, lookup),
       claimEarlierCopy: async (sameContent, options = {}) => {
         const copies = state.copies ?? [];
         let accepted: EarlierCopy<Id> | undefined;

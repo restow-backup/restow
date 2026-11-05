@@ -24,9 +24,13 @@
  *
  * A POST is never sent twice blindly: when Graph's answer is lost
  * (isWriteOutcomeUnknown: 502/504, a timeout, a broken connection) the item
- * may exist all the same, so the engine looks for it first (a message by
- * Message-ID, a folder by name, an attachment by name and size, a contact by
- * name and address) and keeps what it finds; an event is resent with its
+ * may exist all the same, or appear a minute later (the mailbox may still be
+ * working on it when the gateway gives up), so the engine looks for it for
+ * about two minutes (./common.ts, UNKNOWN_OUTCOME_LOOKS_MS) before anything
+ * is sent again (a message by Message-ID, a folder by name, an attachment by
+ * name and size, a contact by name and address) and keeps what it finds. What
+ * was sent again is looked up once more, and a second copy that appeared
+ * after all makes the item unconfirmed. An event is resent with its
  * transactionId, which Graph deduplicates.
  *
  * A mailbox restore never replaces an original (docs/ARCHITECTURE.md,
@@ -117,6 +121,7 @@ import {
   chunkReaderFor,
   isRecord,
   LEGACY_REPLACE_MODE_NOTE,
+  lookAfterUnknownOutcome,
   mailboxRestoreMode,
   type RestoreGraphClientFactory,
   readJsonObject,
@@ -165,6 +170,8 @@ export interface ExchangeRestoreEngineOptions {
   readonly graph: RestoreGraphClientFactory;
   /** First wait after a failed attachment fragment before the session is asked (tests: 0). */
   readonly fragmentRetryDelayMs?: number;
+  /** Waits before each look for what an unanswered POST made (./common.ts; tests: zeros). */
+  readonly unknownOutcomeLooksMs?: readonly number[];
 }
 
 /** Mailbox address (or user id) a restore writes into. */
@@ -259,6 +266,7 @@ export class ExchangeRestoreEngine implements RestoreEngine {
       catalog: plan.catalog,
       reader: chunkReaderFor(ctx),
       fragmentRetryDelayMs: this.options.fragmentRetryDelayMs,
+      unknownOutcomeLooksMs: this.options.unknownOutcomeLooksMs,
       ledger,
       logger,
     });
@@ -450,6 +458,7 @@ interface SessionOptions {
   readonly catalog: SnapshotCatalog;
   readonly reader: ChunkReader;
   readonly fragmentRetryDelayMs?: number | undefined;
+  readonly unknownOutcomeLooksMs?: readonly number[] | undefined;
   readonly ledger: RestoreLedger;
   readonly logger: Logger;
   /** What earlier attempts of this job restored (./progress.ts). */
@@ -516,7 +525,12 @@ interface ImportedMessage {
    * its Message-ID and taken (or, when there was none, the create was sent
    * once more). Says so on the item.
    */
-  readonly recovered?: { readonly adopted: boolean; readonly note: string };
+  readonly recovered?: {
+    readonly adopted: boolean;
+    readonly note: string;
+    /** Sent once more, and the first create made its copy after all: the ids of those copies. */
+    readonly twins?: readonly string[];
+  };
   /** A message an earlier attempt created: the attachments it has already. */
   readonly present?: readonly AttachmentMeta[];
 }
@@ -810,6 +824,11 @@ export class ExchangeRestoreSession {
     const { created } = imported;
     const problems: string[] = [];
     const notes: string[] = imported.recovered ? [imported.recovered.note] : [];
+    if (imported.recovered?.twins !== undefined) {
+      problems.push(
+        `the first create went through after all: the folder holds ${imported.recovered.twins.length + 1} copies of this message, remove the extra one`,
+      );
+    }
     try {
       await patchMessage(client, userId, created.id, messageFlagsOf(message));
     } catch (error) {
@@ -838,6 +857,7 @@ export class ExchangeRestoreSession {
 
     const recorders: AttachmentRecorder[] = [];
     let attachmentFailures = 0;
+    let attachmentTwins = 0;
     const taken = new Set<string>();
     for (const attachment of attachments) {
       const outcome = await this.addAttachment(
@@ -850,7 +870,13 @@ export class ExchangeRestoreSession {
       if (outcome.failed) {
         attachmentFailures++;
       }
+      if (outcome.twin === true) {
+        attachmentTwins++;
+      }
       recorders.push(outcome.record);
+    }
+    if (attachmentTwins > 0) {
+      problems.push(`${attachmentTwins} attachments are on the restored message twice`);
     }
     if (attachmentFailures > 0) {
       attachmentsComplete = false;
@@ -1048,11 +1074,14 @@ export class ExchangeRestoreSession {
 
   /**
    * POST a message, never twice: when Graph does not answer (504, a timeout,
-   * a broken connection) the message may exist all the same. Its Message-ID
-   * is looked up in the folder, and a copy neither the folder had before
-   * this run nor this run wrote for another message is the one the create
-   * made. Only when there is none is the create sent once more; a message
-   * without Message-ID cannot be looked up and is reported instead.
+   * a broken connection) the message may exist all the same, or appear a
+   * little later. Its Message-ID is looked up in the folder for about two
+   * minutes, and a copy neither the folder had before this run nor this run
+   * wrote for another message is the one the create made. Only when none of
+   * the looks finds one is the create sent once more, and then the folder is
+   * looked at again: a further copy means the first create went through
+   * after all (`recovered.twins`). A message without Message-ID cannot be
+   * looked up and is reported instead.
    */
   private async createMessageOnce(
     folderId: string,
@@ -1069,10 +1098,14 @@ export class ExchangeRestoreSession {
       if (slot.messageId === undefined) {
         throw outcomeUnknownError("the message", error);
       }
-      const own = await slot.findOwnWrite(folderId, async (id) =>
+      const lookup = async (id: string) =>
         (await findMessagesByInternetMessageId(client, userId, id, { folderId })).map(
           (found) => found.id,
-        ),
+        );
+      const own = await lookAfterUnknownOutcome(
+        this.o.ctx,
+        () => slot.findOwnWrite(folderId, lookup),
+        this.o.unknownOutcomeLooksMs,
       );
       if (own !== undefined) {
         const result = await getMessage(client, userId, own, { select: CREATED_MESSAGE_SELECT });
@@ -1084,19 +1117,30 @@ export class ExchangeRestoreSession {
           },
         };
       }
+      let result: Message;
       try {
-        return {
-          result: await post(),
-          recovered: {
-            adopted: false,
-            note: "Exchange did not answer the first create and had not made the message; it was sent once more",
-          },
-        };
+        result = await post();
       } catch (retryError) {
         throw isWriteOutcomeUnknown(retryError)
           ? outcomeUnknownError("the message", retryError)
           : retryError;
       }
+      // The first create may still have gone through after the last look.
+      const twins = (await slot.ownWrites(folderId, lookup)).filter((id) => id !== result.id);
+      return {
+        result,
+        recovered:
+          twins.length > 0
+            ? {
+                adopted: false,
+                twins,
+                note: "Exchange did not answer the first create and showed no message for two minutes; it was sent once more",
+              }
+            : {
+                adopted: false,
+                note: "Exchange did not answer the first create and showed no message for two minutes; it was sent once more, and the folder holds this one copy",
+              },
+      };
     }
   }
 
@@ -1113,7 +1157,7 @@ export class ExchangeRestoreSession {
     reopen: (() => Readable) | undefined,
     taken: Set<string>,
     present?: readonly AttachmentMeta[],
-  ): Promise<{ id: string | undefined; existed?: boolean }> {
+  ): Promise<{ id: string | undefined; existed?: boolean; twin?: boolean }> {
     const { client, userId } = this.o;
     const uploadOptions = this.uploadOptions();
     const match = (attachment: AttachmentMeta): boolean => {
@@ -1148,11 +1192,22 @@ export class ExchangeRestoreSession {
       if (!isWriteOutcomeUnknown(error)) {
         throw error;
       }
-      for await (const attachment of listAttachments(client, userId, messageGraphId)) {
-        if (match(attachment)) {
-          taken.add(attachment.id);
-          return { id: attachment.id };
+      const findMade = async (): Promise<AttachmentMeta | undefined> => {
+        for await (const attachment of listAttachments(client, userId, messageGraphId)) {
+          if (match(attachment)) {
+            return attachment;
+          }
         }
+        return undefined;
+      };
+      const made = await lookAfterUnknownOutcome(
+        this.o.ctx,
+        findMade,
+        this.o.unknownOutcomeLooksMs,
+      );
+      if (made !== undefined) {
+        taken.add(made.id);
+        return { id: made.id };
       }
       if (reopen === undefined) {
         throw outcomeUnknownError(`the attachment ${file.name}`, error);
@@ -1169,6 +1224,12 @@ export class ExchangeRestoreSession {
         );
         if (added.id !== undefined) {
           taken.add(added.id);
+        }
+        // The first POST may still have gone through after the last look.
+        const late = await findMade();
+        if (late !== undefined) {
+          taken.add(late.id);
+          return { ...added, twin: true };
         }
         return added;
       } catch (retryError) {
@@ -1273,7 +1334,7 @@ export class ExchangeRestoreSession {
     ownerIsJson: boolean,
     taken: Set<string>,
     present?: readonly AttachmentMeta[],
-  ): Promise<{ failed: boolean; record: AttachmentRecorder }> {
+  ): Promise<{ failed: boolean; twin?: boolean; record: AttachmentRecorder }> {
     const { ctx, reader, ledger } = this.o;
     throwIfAborted(ctx);
     const skip = (code: Exclude<RestoreItemCode, "restored" | "unverified">, reason: string) => ({
@@ -1313,12 +1374,19 @@ export class ExchangeRestoreSession {
       );
       return {
         failed: false,
+        ...(added.twin ? { twin: true } : {}),
         record: () =>
           ledger.restored(attachment, {
             targetRef: added.id,
             bytes: attachment.size,
+            ...(added.twin ? { verified: false } : {}),
             note:
               [
+                ...(added.twin
+                  ? [
+                      "Exchange did not answer the first add and showed no attachment for two minutes; it was sent once more, and then the first add went through after all: the message holds this attachment twice",
+                    ]
+                  : []),
                 ...(added.existed ? ["added by an earlier attempt of this job"] : []),
                 ...(isItem ? ["an attached item is restored as a message file (.eml)"] : []),
               ].join("; ") || undefined,
@@ -1472,6 +1540,9 @@ export class ExchangeRestoreSession {
           `${attached.unconfirmed} of ${attachments.length} attachments are not on the restored event`,
         );
       }
+      if (attached.twins > 0) {
+        problems.push(`${attached.twins} attachments are on the restored event twice`);
+      }
       const hadAttachments =
         item.event.hasAttachments === true ||
         parseBoolean(object.metadata?.hasAttachments) === true;
@@ -1513,10 +1584,10 @@ export class ExchangeRestoreSession {
   private async restoreEventAttachments(
     eventId: string,
     attachments: readonly ManifestObject[],
-  ): Promise<{ failed: number; unconfirmed: number }> {
+  ): Promise<{ failed: number; unconfirmed: number; twins: number }> {
     const { ctx, client, reader, ledger } = this.o;
     if (attachments.length === 0) {
-      return { failed: 0, unconfirmed: 0 };
+      return { failed: 0, unconfirmed: 0, twins: 0 };
     }
     const listed = async () => {
       const all: AttachmentMeta[] = [];
@@ -1537,7 +1608,12 @@ export class ExchangeRestoreSession {
     };
     let present = await listed();
     let failed = 0;
-    const added: Array<{ attachment: ManifestObject; id: string | undefined; note: string[] }> = [];
+    const added: Array<{
+      attachment: ManifestObject;
+      id: string | undefined;
+      note: string[];
+      twin?: boolean;
+    }> = [];
     for (const attachment of attachments) {
       throwIfAborted(ctx);
       const facts = attachmentFactsOf(attachment);
@@ -1571,6 +1647,7 @@ export class ExchangeRestoreSession {
       const source = new ObjectRangeSource(reader, attachment);
       try {
         let id: string | undefined;
+        let twin = false;
         try {
           id = (
             await addEventFileAttachment(
@@ -1586,12 +1663,18 @@ export class ExchangeRestoreSession {
           if (!isWriteOutcomeUnknown(error)) {
             throw error;
           }
-          present = await listed();
-          const made = present.find(fits(file));
+          const made = await lookAfterUnknownOutcome(
+            ctx,
+            async () => {
+              present = await listed();
+              return present.find(fits(file));
+            },
+            this.o.unknownOutcomeLooksMs,
+          );
           // The source reads again from its chunks: sent once more only when nothing arrived.
-          id =
-            made?.id ??
-            (
+          id = made?.id;
+          if (made === undefined) {
+            id = (
               await addEventFileAttachment(
                 client,
                 this.owner,
@@ -1605,11 +1688,21 @@ export class ExchangeRestoreSession {
                   : retryError;
               })
             ).id;
+            if (id !== undefined) {
+              taken.add(id);
+            }
+            // The first POST may still have gone through after the last look.
+            const late = (await listed()).find(fits(file));
+            if (late !== undefined) {
+              taken.add(late.id);
+              twin = true;
+            }
+          }
         }
         if (id !== undefined) {
           taken.add(id);
         }
-        added.push({ attachment, id, note });
+        added.push({ attachment, id, note, ...(twin ? { twin } : {}) });
       } catch (error) {
         if (isAbortError(error)) {
           throw error;
@@ -1623,6 +1716,7 @@ export class ExchangeRestoreSession {
     // Confirm by what the event holds now.
     const after = added.length > 0 ? await listed() : [];
     let unconfirmed = 0;
+    let twins = 0;
     const confirmedIds = new Set<string>();
     for (const entry of added) {
       const facts = attachmentFactsOf(entry.attachment);
@@ -1643,18 +1737,26 @@ export class ExchangeRestoreSession {
       } else {
         unconfirmed++;
       }
+      if (entry.twin === true) {
+        twins++;
+      }
       ledger.restored(entry.attachment, {
         targetRef: match?.id ?? entry.id,
         bytes: entry.attachment.size,
-        verified: match !== undefined,
+        verified: match !== undefined && entry.twin !== true,
         note:
           [
             ...entry.note,
             ...(match === undefined ? ["the restored event does not list this attachment"] : []),
+            ...(entry.twin === true
+              ? [
+                  "Exchange did not answer the first add and showed no attachment for two minutes; it was sent once more, and then the first add went through after all: the event holds this attachment twice",
+                ]
+              : []),
           ].join("; ") || undefined,
       });
     }
-    return { failed, unconfirmed };
+    return { failed, unconfirmed, twins };
   }
 
   /** Re-apply a backed-up exception to the matching occurrence of the recreated series. */
@@ -1775,7 +1877,14 @@ export class ExchangeRestoreSession {
         // A contact has no key Graph deduplicates by: never sent again. One
         // with its name and address that the folder did not have before this
         // run, and no other contact of this run took, is the one the POST made.
-        const own = key.length > 0 ? await this.findOwnContact(folderId, key) : undefined;
+        const own =
+          key.length > 0
+            ? await lookAfterUnknownOutcome(
+                ctx,
+                () => this.findOwnContact(folderId, key),
+                this.o.unknownOutcomeLooksMs,
+              )
+            : undefined;
         if (own === undefined) {
           throw outcomeUnknownError("the contact", error);
         }

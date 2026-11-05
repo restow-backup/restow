@@ -20,8 +20,14 @@ const RESTORE_FOLDER = "Restow 2026-09-22 1430";
 
 const sha256 = (bytes: Buffer): string => createHash("sha256").update(bytes).digest("hex");
 
+/** The looks after an unanswered POST, without the waits between them. */
+const NO_WAITS = [0, 0, 0, 0, 0];
+
 function engineFor(mailbox: FakeMailbox): ExchangeRestoreEngine {
-  return new ExchangeRestoreEngine({ graph: () => mailbox.graph.client() });
+  return new ExchangeRestoreEngine({
+    graph: () => mailbox.graph.client(),
+    unknownOutcomeLooksMs: NO_WAITS,
+  });
 }
 
 /** Position of the first call from `from` on matching `method` and a path pattern, or -1. */
@@ -684,6 +690,7 @@ describe("ExchangeRestoreEngine", () => {
     const report = await new ExchangeRestoreEngine({
       graph: () => mailbox.graph.client(),
       fragmentRetryDelayMs: 0,
+      unknownOutcomeLooksMs: NO_WAITS,
     }).run(fixture.ctx, restoreRequestFor(fixture, { mode: "skip" }));
 
     expect(report.failures).toEqual([]);
@@ -1133,6 +1140,7 @@ describe("ExchangeRestoreEngine", () => {
     const report = await new ExchangeRestoreEngine({
       graph: () => mailbox.graph.client(),
       fragmentRetryDelayMs: 0,
+      unknownOutcomeLooksMs: NO_WAITS,
     }).run(fixture.ctx, restoreRequestFor(fixture, { mode: "skip" }));
 
     expect(report.failures).toEqual([]);
@@ -1262,7 +1270,10 @@ describe("ExchangeRestoreEngine", () => {
   describe("when Exchange carries out a POST but its answer is lost", () => {
     /** A client that never sends a POST twice on its own, as the Graph client does for an unknown outcome. */
     const onceEngine = (mailbox: FakeMailbox) =>
-      new ExchangeRestoreEngine({ graph: () => mailbox.graph.client({ maxRetries: 0 }) });
+      new ExchangeRestoreEngine({
+        graph: () => mailbox.graph.client({ maxRetries: 0 }),
+        unknownOutcomeLooksMs: NO_WAITS,
+      });
 
     it("keeps the message the unanswered create made instead of creating a second one", async () => {
       fixture = await createSnapshotFixture({
@@ -1311,6 +1322,176 @@ describe("ExchangeRestoreEngine", () => {
             importance: "high",
           },
         ]);
+      }
+    });
+
+    it("keeps looking for a message the mailbox was still importing when the gateway gave up", async () => {
+      fixture = await createSnapshotFixture({
+        kind: "mailbox",
+        externalId: USER,
+        objects: [kickoff],
+      });
+      const mailbox = new FakeMailbox();
+      // The import commits, but shows in no list for three more requests (a throttled mailbox).
+      mailbox.failAfterCommit("POST", /\/mailFolders\/[^/]+\/messages$/, "504", 1, {
+        visibleAfter: 3,
+      });
+
+      const report = await onceEngine(mailbox).run(
+        fixture.ctx,
+        restoreRequestFor(fixture, { mode: "rename" }),
+      );
+
+      expect(report.failures).toEqual([]);
+      expect([...mailbox.messages.values()]).toHaveLength(1);
+      expect(mailbox.graph.callsTo("POST", "/messages")).toHaveLength(1);
+      const item = must(report.items.find((entry) => entry.id === "AAMk1"));
+      expect(item).toMatchObject({ status: "restored", verified: false });
+      expect(item.reason).toMatch(/found by its Message-ID and kept, not created twice/);
+    });
+
+    it("never confirms a message sent once more when the first create still made its copy", async () => {
+      fixture = await createSnapshotFixture({
+        kind: "mailbox",
+        externalId: USER,
+        objects: [kickoff],
+      });
+      const mailbox = new FakeMailbox();
+      // Hidden during all five looks, there by the time the folder is looked at after the resend.
+      mailbox.failAfterCommit("POST", /\/mailFolders\/[^/]+\/messages$/, "504", 1, {
+        visibleAfter: 6,
+      });
+
+      const report = await onceEngine(mailbox).run(
+        fixture.ctx,
+        restoreRequestFor(fixture, { mode: "rename" }),
+      );
+
+      expect(mailbox.graph.callsTo("POST", "/messages")).toHaveLength(2);
+      expect([...mailbox.messages.values()]).toHaveLength(2);
+      const item = must(report.items.find((entry) => entry.id === "AAMk1"));
+      expect(item).toMatchObject({ status: "restored", verified: false });
+      expect(item.reason).toMatch(/the folder holds 2 copies of this message/);
+    });
+
+    it("keeps looking for an attachment and a folder the mailbox was still making", async () => {
+      const withAttachment: FixtureObject = {
+        path: "mail/Posteingang/Projekte/Plan.0042.json",
+        type: "mail",
+        id: "AAMk42",
+        metadata: {
+          format: "json",
+          messageId: "<plan-42@example.org>",
+          folderPath: "Posteingang/Projekte",
+          wellKnownFolder: "inbox",
+          isDraft: "false",
+        },
+        content: JSON.stringify({
+          subject: "Plan",
+          internetMessageId: "<plan-42@example.org>",
+          isDraft: false,
+        }),
+      };
+      fixture = await createSnapshotFixture({
+        kind: "mailbox",
+        externalId: USER,
+        objects: [
+          withAttachment,
+          {
+            path: "mail/Posteingang/Projekte/Plan.0042.attachments/plan.txt.aa",
+            type: "attachment",
+            id: "AAMk42/a1",
+            metadata: {
+              messagePath: withAttachment.path,
+              name: "plan.txt",
+              contentType: "text/plain",
+            },
+            content: "the plan",
+          },
+        ],
+      });
+      const mailbox = new FakeMailbox();
+      mailbox.failAfterCommit("POST", /\/attachments$/, "504", 1, { visibleAfter: 3 });
+      // The restore folder is made, but listed only after the create was sent once more,
+      // which Exchange then refuses with 409.
+      mailbox.failAfterCommit("POST", /\/mailFolders$/, "504", 1, { visibleAfter: 2 });
+
+      const report = await onceEngine(mailbox).run(
+        fixture.ctx,
+        restoreRequestFor(fixture, { mode: "rename", requestedAt: NOW }),
+      );
+
+      expect(report.failures).toEqual([]);
+      expect(
+        [...mailbox.folders.values()].filter((f) => f.displayName === RESTORE_FOLDER),
+      ).toHaveLength(1);
+      const message = must([...mailbox.messages.values()][0]);
+      expect(mailbox.folderPath(message.parentFolderId)).toEqual([
+        RESTORE_FOLDER,
+        "Posteingang",
+        "Projekte",
+      ]);
+      expect(message.attachments).toHaveLength(1);
+      expect(mailbox.graph.callsTo("POST", "/attachments")).toHaveLength(1);
+    });
+
+    it("keeps looking for an event attachment, and never confirms one that arrived twice", async () => {
+      const event: FixtureObject = {
+        path: "calendar/Kalender/Review.0011.json",
+        type: "event",
+        id: "EV11",
+        metadata: { calendarName: "Kalender", isDefaultCalendar: "true", hasAttachments: "true" },
+        content: JSON.stringify({
+          event: {
+            subject: "Review",
+            hasAttachments: true,
+            start: { dateTime: "2026-03-03T10:00:00.0000000", timeZone: "UTC" },
+            end: { dateTime: "2026-03-03T11:00:00.0000000", timeZone: "UTC" },
+          },
+          exceptions: [],
+        }),
+      };
+      fixture = await createSnapshotFixture({
+        kind: "mailbox",
+        externalId: USER,
+        objects: [
+          event,
+          {
+            path: "calendar/Kalender/Review.0011.attachments/notes.txt",
+            type: "event-attachment",
+            id: "EA11",
+            content: "notes",
+            metadata: {
+              eventItemId: "EV11",
+              name: "notes.txt",
+              contentType: "text/plain",
+              attachmentType: "#microsoft.graph.fileAttachment",
+            },
+          },
+        ],
+      });
+      for (const [visibleAfter, twice] of [
+        [3, false],
+        [6, true],
+      ] as const) {
+        const mailbox = new FakeMailbox();
+        mailbox.failAfterCommit("POST", /\/events\/[^/]+\/attachments$/, "504", 1, {
+          visibleAfter,
+        });
+        const report = await onceEngine(mailbox).run(
+          fixture.ctx,
+          restoreRequestFor(fixture, { mode: "skip" }),
+        );
+        const restored = must([...mailbox.events.values()][0]);
+        expect(restored.attachments).toHaveLength(twice ? 2 : 1);
+        const attachment = must(report.items.find((item) => item.id === "EA11"));
+        const owner = must(report.items.find((item) => item.id === "EV11"));
+        expect(attachment.verified).toBe(!twice);
+        expect(owner.verified).toBe(!twice);
+        if (twice) {
+          expect(owner.reason).toMatch(/1 attachments are on the restored event twice/);
+          expect(attachment.reason).toMatch(/holds this attachment twice/);
+        }
       }
     });
 

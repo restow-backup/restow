@@ -188,10 +188,41 @@ export class FakeMailbox {
     path: RegExp;
     after: "504" | "reset";
     times: number;
+    visibleAfter: number;
   }> = [];
 
-  failAfterCommit(method: string, path: RegExp, after: "504" | "reset" = "504", times = 1): void {
-    this.faults.push({ method, path, after, times });
+  /**
+   * With `visibleAfter`, the mailbox is still working on the request when the
+   * gateway gives up, as with a large import into a throttled mailbox: what
+   * it creates shows in no list until that many further requests have
+   * reached the mailbox.
+   */
+  failAfterCommit(
+    method: string,
+    path: RegExp,
+    after: "504" | "reset" = "504",
+    times = 1,
+    options: { readonly visibleAfter?: number } = {},
+  ): void {
+    this.faults.push({ method, path, after, times, visibleAfter: options.visibleAfter ?? 0 });
+  }
+
+  /** Requests the fake has answered, the clock of {@link failAfterCommit}'s `visibleAfter`. */
+  private requests = 0;
+  /** What the last request created (a message, folder, attachment or contact). */
+  private lastCreated: object | undefined;
+  /** Items that show in no list before the request count reaches the value. */
+  private readonly hiddenUntil = new Map<object, number>();
+
+  /** Whether a list shows `item` yet. */
+  private visible(item: object): boolean {
+    const until = this.hiddenUntil.get(item);
+    return until === undefined || this.requests >= until;
+  }
+
+  private created<T extends object>(item: T): T {
+    this.lastCreated = item;
+    return item;
   }
 
   /**
@@ -210,6 +241,8 @@ export class FakeMailbox {
     return {
       ...route,
       respond: (call, index) => {
+        this.requests++;
+        this.lastCreated = undefined;
         const stop = this.interruptions.find(
           (entry) =>
             entry.remaining > 0 &&
@@ -235,6 +268,9 @@ export class FakeMailbox {
           return result;
         }
         fault.times--;
+        if (fault.visibleAfter > 0 && this.lastCreated !== undefined) {
+          this.hiddenUntil.set(this.lastCreated, this.requests + fault.visibleAfter);
+        }
         if (fault.after === "reset") {
           throw Object.assign(new TypeError("fetch failed"), {
             cause: Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }),
@@ -254,7 +290,7 @@ export class FakeMailbox {
   }
 
   addFolder(displayName: string, parentFolderId: string | null, id?: string): FakeMailFolder {
-    const folder = { id: id ?? this.nextId("folder"), displayName, parentFolderId };
+    const folder = this.created({ id: id ?? this.nextId("folder"), displayName, parentFolderId });
     this.folders.set(folder.id, folder);
     return folder;
   }
@@ -264,7 +300,7 @@ export class FakeMailbox {
     internetMessageId?: string;
     subject?: string;
   }): FakeMessage {
-    const message: FakeMessage = {
+    const message: FakeMessage = this.created({
       id: this.nextId("msg"),
       parentFolderId: input.parentFolderId,
       internetMessageId: input.internetMessageId,
@@ -276,7 +312,7 @@ export class FakeMailbox {
       isDraft: false,
       receivedDateTime: "2026-01-15T10:30:00Z",
       sentDateTime: "2026-01-15T10:29:00Z",
-    };
+    });
     this.messages.set(message.id, message);
     return message;
   }
@@ -288,7 +324,7 @@ export class FakeMailbox {
   }
 
   addContact(folderId: string | null, body: Record<string, unknown>): FakeContact {
-    const contact = { id: this.nextId("contact"), folderId, body };
+    const contact = this.created({ id: this.nextId("contact"), folderId, body });
     this.contacts.set(contact.id, contact);
     return contact;
   }
@@ -332,7 +368,7 @@ export class FakeMailbox {
   private folderList(parentId: string | null, url: URL): FixtureResponse {
     const filter = parseEqFilter(url);
     const value = [...this.folders.values()]
-      .filter((folder) => folder.parentFolderId === parentId)
+      .filter((folder) => folder.parentFolderId === parentId && this.visible(folder))
       .filter((folder) =>
         filter && filter[0] === "displayName"
           ? folder.displayName.toLowerCase() === filter[1].toLowerCase()
@@ -366,6 +402,7 @@ export class FakeMailbox {
     const folderId = segment(url, "mailFolders");
     const filter = parseEqFilter(url);
     const value = [...this.messages.values()]
+      .filter((message) => this.visible(message))
       .filter((message) => (folderId ? message.parentFolderId === folderId : true))
       .filter((message) =>
         filter && filter[0] === "internetMessageId"
@@ -480,7 +517,7 @@ export class FakeMailbox {
 
   private contactList(folderId: string | null): FixtureResponse {
     const value = [...this.contacts.values()]
-      .filter((contact) => contact.folderId === folderId)
+      .filter((contact) => contact.folderId === folderId && this.visible(contact))
       .map((contact) => ({ id: contact.id, ...contact.body }));
     return { status: 200, json: { value } };
   }
@@ -575,7 +612,7 @@ export class FakeMailbox {
             return TOO_LARGE;
           }
           const id = this.nextId("att");
-          message.attachments.push({ id, ...json });
+          message.attachments.push(this.created({ id, ...json }));
           return { status: 201, json: { id } };
         },
       },
@@ -587,17 +624,19 @@ export class FakeMailbox {
           if (!message) {
             return NOT_FOUND;
           }
-          const value = message.attachments.map((attachment) => ({
-            id: attachment.id,
-            name: attachment.name,
-            contentType: attachment.contentType,
-            isInline: attachment.isInline ?? false,
-            // Graph's size counts a little more than the content.
-            size:
-              (typeof attachment.contentBytes === "string"
-                ? Buffer.from(attachment.contentBytes, "base64").length
-                : 0) + 120,
-          }));
+          const value = message.attachments
+            .filter((attachment) => this.visible(attachment))
+            .map((attachment) => ({
+              id: attachment.id,
+              name: attachment.name,
+              contentType: attachment.contentType,
+              isInline: attachment.isInline ?? false,
+              // Graph's size counts a little more than the content.
+              size:
+                (typeof attachment.contentBytes === "string"
+                  ? Buffer.from(attachment.contentBytes, "base64").length
+                  : 0) + 120,
+            }));
           return { status: 200, json: { value } };
         },
       },
@@ -842,12 +881,14 @@ export class FakeMailbox {
     const message = upload.holder;
     const attachmentId = this.nextId("att");
     const { attachmentType: _type, ...facts } = upload.item;
-    message.attachments.push({
-      id: attachmentId,
-      "@odata.type": "#microsoft.graph.fileAttachment",
-      ...facts,
-      contentBytes: Buffer.concat(upload.parts).toString("base64"),
-    });
+    message.attachments.push(
+      this.created({
+        id: attachmentId,
+        "@odata.type": "#microsoft.graph.fileAttachment",
+        ...facts,
+        contentBytes: Buffer.concat(upload.parts).toString("base64"),
+      }),
+    );
     return {
       status: 201,
       headers: {

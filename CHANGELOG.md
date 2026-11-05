@@ -537,9 +537,13 @@ private repository.
   contact or an attachment could be duplicated. The restore now looks first: a message by its
   Message-ID in the target folder (a copy the folder did not have before the restore is the one
   the create made), a folder by its name (also after a 409), an attachment by name and size on
-  its message, a contact by name and address. What it finds is kept and the item says so (it counts
-  as restored, without the confirmation a matching item gets); only what is not there is sent once
-  more. An event is sent once more
+  its message, a contact by name and address. Exchange may still be working on the request when
+  the gateway gives up (a large import into a throttled mailbox commits a minute later), so it
+  keeps looking for about two minutes before anything is sent again. What it finds is kept and
+  the item says so (it counts as restored, without the confirmation a matching item gets); only
+  what none of the looks found is sent once more, and when the first create still made its copy
+  after all, the message or attachment is "Not confirmed" with both copies named. An event is
+  sent once more
   with the same `transactionId`, so Exchange returns the one it made. A message without
   Message-ID and a contact that is not found are never sent again but reported, so that no second
   copy is made.

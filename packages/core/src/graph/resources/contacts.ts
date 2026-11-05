@@ -187,6 +187,15 @@ async function findOrCreateContactFolder(
     if (exists) {
       throw error;
     }
-    return create();
+    try {
+      return await create();
+    } catch (retryError) {
+      // The first create went through while its answer was lost: the folder is there now.
+      const late = isGraphError(retryError) && retryError.status === 409 ? await find() : null;
+      if (late === null) {
+        throw retryError;
+      }
+      return late;
+    }
   }
 }

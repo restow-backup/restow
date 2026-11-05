@@ -1052,7 +1052,10 @@ async function createChildFolder(
  * exists, for example because an earlier POST went through unanswered) or the
  * outcome of the POST is unknown, the folder is looked up again and taken;
  * only a folder that is still missing after an unknown outcome is created
- * once more.
+ * once more. Exchange refuses a second folder of the same name, so that
+ * create cannot make a twin: when the first one went through meanwhile (it
+ * was still being made when its answer was lost) it answers 409, and the
+ * folder is looked up once more.
  */
 async function createChildFolderOnce(
   client: GraphClient,
@@ -1060,10 +1063,11 @@ async function createChildFolderOnce(
   parentFolderId: string | undefined,
   displayName: string,
 ): Promise<string> {
+  const isExists = (error: unknown) => isGraphError(error) && error.status === 409;
   try {
     return await createChildFolder(client, userId, parentFolderId, displayName);
   } catch (error) {
-    const exists = isGraphError(error) && error.status === 409;
+    const exists = isExists(error);
     if (!exists && !isWriteOutcomeUnknown(error)) {
       throw error;
     }
@@ -1074,7 +1078,18 @@ async function createChildFolderOnce(
     if (exists) {
       throw error;
     }
-    return createChildFolder(client, userId, parentFolderId, displayName);
+    try {
+      return await createChildFolder(client, userId, parentFolderId, displayName);
+    } catch (retryError) {
+      if (!isExists(retryError)) {
+        throw retryError;
+      }
+      const late = await findChildFolder(client, userId, parentFolderId, displayName);
+      if (late === null) {
+        throw retryError;
+      }
+      return late;
+    }
   }
 }
 
