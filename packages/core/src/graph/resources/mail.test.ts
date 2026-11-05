@@ -209,6 +209,29 @@ describe("mail folder tree with a folder deleted while it is listed", () => {
     expect(vanished).toEqual(["AAMkFolderProjects"]);
   });
 
+  it("reports a parent without a usable answer as unlisted, never as one without subfolders", async () => {
+    for (const answer of [
+      { status: 502, body: graphError("MissingBatchResponse") },
+      { status: 503, body: graphError("ServiceUnavailable") },
+      { status: 429, body: graphError("TooManyRequests") },
+    ]) {
+      const graph = treeGraph(answer);
+      const unlisted: Array<[string, number]> = [];
+      const tree = await listMailFolderTree(graph.client({ maxRetries: 0 }), USER, {
+        onVanishedFolder: () => {
+          throw new Error("not a vanished folder");
+        },
+        onUnlistedFolder: (folder, error) => unlisted.push([folder.id, error.status]),
+      });
+      expect(tree.find((f) => f.id === "AAMkFolderRestow")).toBeUndefined();
+      expect(unlisted).toEqual([["AAMkFolderProjects", answer.status]]);
+      // Without the callback the answer is an error, as before.
+      await expect(listMailFolderTree(graph.client({ maxRetries: 0 }), USER)).rejects.toMatchObject(
+        { status: answer.status },
+      );
+    }
+  });
+
   it("still fails on a 404 that says the mailbox itself is unavailable", async () => {
     const graph = treeGraph({ status: 404, body: graphError("MailboxNotEnabledForRESTAPI") });
     await expect(listMailFolderTree(graph.client(), USER)).rejects.toMatchObject({ status: 404 });

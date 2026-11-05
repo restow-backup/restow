@@ -1270,6 +1270,29 @@ describe("ExchangeBackupEngine", () => {
     expect(state.mailDeltaLinks[F.restow]).toBeDefined();
   });
 
+  it("keeps the subtree of a folder whose child listing is missing from the $batch answer", async () => {
+    const first = await engine.run(newContext(), mailbox, {});
+    const restowBefore = (await manifestOf(first.snapshotId)).objects.filter((o) =>
+      o.path.startsWith("mail/Inbox/Projects/Restow"),
+    );
+    expect(restowBefore.length).toBeGreaterThan(0);
+    // Graph's envelope answers 200 but leaves out the sub-response for this parent, every time.
+    box.omitBatchSub = (url) => url.includes(`/mailFolders/${F.projects}/childFolders`);
+
+    const result = await engine.run(newContext({ jobId: "job-2" }), mailbox, {});
+    box.omitBatchSub = undefined;
+    const manifest = await manifestOf(result.snapshotId);
+
+    expect(result.failures.map((f) => f.itemRef)).toEqual(["mail/Inbox/Projects"]);
+    expect(result.counters.removed).toBe(0);
+    expect(manifest.objects.filter((o) => o.path.startsWith("mail/Inbox/Projects/Restow"))).toEqual(
+      restowBefore,
+    );
+    const state = readState(manifest.state);
+    expect(state.mailFolders[F.restow]?.path).toBe("mail/Inbox/Projects/Restow");
+    expect(state.mailDeltaLinks[F.restow]).toBeDefined();
+  });
+
   it("drops a folder deleted between the tree listing and its enumeration without a failure", async () => {
     await engine.run(newContext(), mailbox, {});
     box.intercept = (call) => {

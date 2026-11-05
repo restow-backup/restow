@@ -1163,6 +1163,13 @@ export async function backupMail(run: BackupRun, options: MailPhaseOptions): Pro
         });
         unlisted.set(folder.id, error);
       },
+      onUnlistedFolder: (folder, error) => {
+        run.logger.warn("subfolders of a mail folder could not be listed, kept as they were", {
+          folderId: folder.id,
+          reason: describeError(error),
+        });
+        unlisted.set(folder.id, error);
+      },
     });
   } catch (error) {
     throw toMailboxAccessError(error, "mail folders");

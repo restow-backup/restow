@@ -635,13 +635,15 @@ export class FetchGraphClient implements GraphClient {
       const refused: BatchRequest[] = [];
       let refusedToken: string | undefined;
       let longestRetryAfter: string | null = null;
+      // Reported as throttling when Graph throttled a sub-request, else as the missing answer.
+      let waitStatus = 502;
       for (const group of chunkIntoBatches(pending, this.maxBatchSize)) {
         // A $batch of reads changes nothing, so a broken connection may send it again.
         const readOnly = group.every((r) => IDEMPOTENT_METHODS.has(r.method.toUpperCase()));
         // The envelope may be sent again after a 504 or a timeout unless a sub-request
         // creates something (POST): then its outcome is unknown, as for a single request.
         const idempotent = group.every(isIdempotentRequest);
-        const { result, sentToken } = await this.requestTracked<{ responses?: BatchResponse[] }>(
+        const { result, sentToken } = await this.requestTracked<unknown>(
           {
             method: "POST",
             url: "/$batch",
@@ -659,9 +661,27 @@ export class FetchGraphClient implements GraphClient {
             payload: result.body,
           });
         }
-        for (const sub of result.body.responses ?? []) {
-          const normalised = { ...sub, headers: lowerCaseKeys(sub.headers) };
+        const answered = batchResponsesOf(result.body);
+        if (answered === null) {
+          // A 2xx that is not Graph's envelope (a proxy's HTML page, a body without
+          // `responses`): nothing is known about any sub-request. A batch of reads asks
+          // again like after a 503; one that writes cannot know what happened.
+          if (idempotent && attempt < this.maxRetries) {
+            throttled.push(...group);
+            continue;
+          }
+          throw malformedBatchError(result.status, result.headers);
+        }
+        const seenInGroup = new Set<string>();
+        for (const sub of answered) {
           const original = group.find((r) => r.id === sub.id);
+          if (!original || seenInGroup.has(sub.id)) {
+            // Not one of this envelope's ids (or a second answer for one): ignored, never
+            // stored under a slot of another envelope.
+            continue;
+          }
+          seenInGroup.add(sub.id);
+          const normalised = { ...sub, headers: lowerCaseKeys(sub.headers) };
           if (
             original &&
             !refreshed &&
@@ -681,12 +701,26 @@ export class FetchGraphClient implements GraphClient {
               provesNotCarriedOut(sub.status, normalised.headers["retry-after"]))
           ) {
             throttled.push(original);
+            waitStatus = 429;
             longestRetryAfter = pickLongerRetryAfter(
               longestRetryAfter,
               normalised.headers["retry-after"] ?? null,
             );
           }
           responses.set(sub.id, normalised);
+        }
+        // Graph answers every sub-request; one without an answer is unknown, never "nothing
+        // there". A read asks again within the retry budget; what is still missing then, and
+        // every write, is handed back as a 502 so each caller gets exactly one answer.
+        for (const original of group) {
+          if (seenInGroup.has(original.id)) {
+            continue;
+          }
+          if (isIdempotentRequest(original) && attempt < this.maxRetries) {
+            throttled.push(original);
+          } else if (!responses.has(original.id)) {
+            responses.set(original.id, missingBatchResponse(original.id));
+          }
         }
       }
       // The refusals stay in `responses`: when the provider keeps its token they are the answer.
@@ -697,14 +731,14 @@ export class FetchGraphClient implements GraphClient {
       }
       pending = resend ? [...throttled, ...refused] : throttled;
       if (throttled.length > 0) {
-        await this.waitForRetry(429, attempt, "/$batch", longestRetryAfter);
+        await this.waitForRetry(waitStatus, attempt, "/$batch", longestRetryAfter);
       }
     }
     // Keep the caller's order so results line up with the requests; a collapsed read
     // answers each of its callers under that caller's own id.
-    return callerRequests.flatMap((r, index) => {
-      const found = responses.get(String(slotOf[index]));
-      return found ? [{ ...found, id: r.id }] : [];
+    return callerRequests.map((r, index) => {
+      const slot = String(slotOf[index]);
+      return { ...(responses.get(slot) ?? missingBatchResponse(slot)), id: r.id };
     });
   }
 
@@ -737,6 +771,57 @@ export class FetchGraphClient implements GraphClient {
       url = nextLink;
     }
   }
+}
+
+/** The sub-responses of a `$batch` answer, or null when the body is not Graph's envelope. */
+function batchResponsesOf(body: unknown): BatchResponse[] | null {
+  if (typeof body !== "object" || body === null) {
+    return null;
+  }
+  const responses = (body as { responses?: unknown }).responses;
+  if (!Array.isArray(responses)) {
+    return null;
+  }
+  return responses.filter(
+    (sub): sub is BatchResponse =>
+      typeof sub === "object" &&
+      sub !== null &&
+      typeof (sub as BatchResponse).id === "string" &&
+      typeof (sub as BatchResponse).status === "number",
+  );
+}
+
+/** Error code of a sub-request Graph's `$batch` answer left out (synthetic 502). */
+export const MISSING_BATCH_RESPONSE_CODE = "MissingBatchResponse";
+
+/** The answer handed back for a sub-request Graph did not answer: a 502 with an error body. */
+function missingBatchResponse(id: string): BatchResponse {
+  return {
+    id,
+    status: 502,
+    headers: {},
+    body: {
+      error: {
+        code: MISSING_BATCH_RESPONSE_CODE,
+        message: "Microsoft Graph's $batch answer contained no response for this request",
+      },
+    },
+  };
+}
+
+function malformedBatchError(status: number, headers: Record<string, string>): GraphError {
+  return new GraphError({
+    status: 502,
+    method: "POST",
+    url: "/$batch",
+    headers,
+    payload: {
+      error: {
+        code: "MalformedBatchResponse",
+        message: `Microsoft Graph answered the $batch with ${status} but without its list of responses`,
+      },
+    },
+  });
 }
 
 /** Graph requires an explicit Content-Type on batch sub-requests that carry a body. */

@@ -518,6 +518,13 @@ private repository.
   the change was carried out" (`graph.outcome_unknown`), and the next attempt checks the target
   first. Reads, PATCH, PUT and DELETE are retried as before; inside a `$batch` a creating
   sub-request answered 504 is handed back instead of being sent again.
+- Mail backup: a mailbox folder whose subfolder listing was missing from Microsoft Graph's
+  `$batch` answer counted as a folder without subfolders. The backup then removed the mail of
+  the whole subtree from the new restore point, forgot its delta links and reported success. A
+  `$batch` now hands back one answer per request: a read Graph left out is asked again and,
+  if it is still missing, comes back as a 502; a 200 that is not Graph's envelope (a proxy's
+  page, a body without `responses`) is an error. A folder whose subfolders could not be listed
+  (left out, server error, throttled) keeps its stored subtree and is recorded as a failure.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,

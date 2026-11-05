@@ -180,6 +180,14 @@ export interface ListMailFolderTreeOptions {
    * decides what to do with that subtree; the tree is not proof that it is gone.
    */
   onVanishedFolder?: (folder: MailFolderNode, error: unknown) => void;
+  /**
+   * Called for a folder whose child listing got no usable answer: a server error or
+   * throttling the client retried in vain, or no answer at all inside the `$batch` (a
+   * synthetic 502). Its subfolders are missing from the tree and nothing says whether they
+   * exist. Without this callback such an answer throws, as it always did. A refusal of the
+   * mailbox (401, 403, "no mailbox") throws either way.
+   */
+  onUnlistedFolder?: (folder: MailFolderNode, error: GraphError) => void;
 }
 
 type RawFolder = Pick<MailFolder, (typeof MAIL_FOLDER_SELECT)[number]> & { id: string };
@@ -187,6 +195,15 @@ type RawFolder = Pick<MailFolder, (typeof MAIL_FOLDER_SELECT)[number]> & { id: s
 /** A folder that no longer exists (deleted or moved after it was listed), not a missing mailbox. */
 function isVanishedFolder(error: unknown): boolean {
   return isNotFound(error) && !isMailboxUnavailable(error);
+}
+
+/** A child listing that says nothing about the folder: throttled or a server error. */
+function isUnknownChildListing(error: unknown): error is GraphError {
+  if (!isGraphError(error)) {
+    return false;
+  }
+  const status = error.status;
+  return (status === 429 || status >= 500) && !isMailboxUnavailable(error);
 }
 
 /**
@@ -266,6 +283,12 @@ export async function listMailFolderTree(
         // mailbox" codes that also come as 404 stay fatal.
         if (isVanishedFolder(error)) {
           options.onVanishedFolder?.(parent, error);
+          continue;
+        }
+        // Not an answer about the folder at all (5xx, throttled, missing in the $batch):
+        // the subtree is unknown, which the caller must not take for "no subfolders".
+        if (options.onUnlistedFolder && isUnknownChildListing(error)) {
+          options.onUnlistedFolder(parent, error);
           continue;
         }
         throw error;

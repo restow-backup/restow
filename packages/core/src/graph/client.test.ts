@@ -189,6 +189,113 @@ describe("batching", () => {
   });
 });
 
+describe("an incomplete $batch answer", () => {
+  /** A $batch route that leaves out the sub-responses `omit` names, for the first `rounds`. */
+  function omitting(omit: (sub: { url: string }) => boolean, rounds = Number.POSITIVE_INFINITY) {
+    let round = 0;
+    return createFakeGraph([
+      {
+        method: "POST",
+        url: "/v1.0/$batch",
+        respond: (call) => {
+          round += 1;
+          const envelope = batchEnvelope(call, (sub) => ({ status: 200, body: { url: sub.url } }));
+          const sent = (call.json as { requests: { id: string; url: string }[] }).requests;
+          const left = new Set(
+            sent.filter((sub) => round <= rounds && omit(sub)).map((sub) => sub.id),
+          );
+          const { responses } = envelope.json as { responses: { id: string }[] };
+          return { status: 200, json: { responses: responses.filter((r) => !left.has(r.id)) } };
+        },
+      },
+    ]);
+  }
+
+  it("answers every request: a read Graph left out is asked again, then handed back as 502", async () => {
+    const graph = omitting((sub) => sub.url === "/b");
+    const responses = await graph.client({ maxRetries: 2 }).batch([
+      { id: "a", method: "GET", url: "/a" },
+      { id: "b", method: "GET", url: "/b" },
+      { id: "c", method: "GET", url: "/c" },
+    ]);
+    expect(responses.map((r) => [r.id, r.status])).toEqual([
+      ["a", 200],
+      ["b", 502],
+      ["c", 200],
+    ]);
+    expect(responses[1]?.body).toMatchObject({ error: { code: "MissingBatchResponse" } });
+    // The first round and two more for the missing read only.
+    const rounds = graph
+      .callsTo("POST", "$batch")
+      .map((call) => (call.json as { requests: { url: string }[] }).requests.map((r) => r.url));
+    expect(rounds).toEqual([["/a", "/b", "/c"], ["/b"], ["/b"]]);
+  });
+
+  it("gets the left-out read when Graph answers it on the next round", async () => {
+    const graph = omitting((sub) => sub.url === "/b", 1);
+    const responses = await graph.client().batch([
+      { id: "a", method: "GET", url: "/a" },
+      { id: "b", method: "GET", url: "/b" },
+    ]);
+    expect(responses.map((r) => [r.id, r.status])).toEqual([
+      ["a", 200],
+      ["b", 200],
+    ]);
+  });
+
+  it("does not send a left-out write again", async () => {
+    const graph = omitting(() => true);
+    const responses = await graph
+      .client()
+      .batch([{ id: "s", method: "POST", url: "/subscriptions", body: {} }]);
+    expect(responses.map((r) => [r.id, r.status])).toEqual([["s", 502]]);
+    expect(graph.callsTo("POST", "$batch")).toHaveLength(1);
+  });
+
+  it("fails on a 200 that is not Graph's envelope instead of reading it as no answers", async () => {
+    for (const answer of [
+      { status: 200, text: "<html>proxy</html>", headers: { "content-type": "text/html" } },
+      { status: 200, json: { value: [] } },
+    ]) {
+      const graph = createFakeGraph([{ method: "POST", url: "/v1.0/$batch", respond: answer }]);
+      const error = await graph
+        .client({ maxRetries: 1 })
+        .batch([{ id: "a", method: "GET", url: "/a" }])
+        .catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(GraphError);
+      expect(error).toMatchObject({ status: 502, code: "MalformedBatchResponse" });
+      // A batch of reads asks once more first.
+      expect(graph.calls).toHaveLength(2);
+    }
+  });
+
+  it("ignores an answer under an id it did not send", async () => {
+    const graph = createFakeGraph([
+      {
+        method: "POST",
+        url: "/v1.0/$batch",
+        respond: {
+          status: 200,
+          json: {
+            responses: [
+              { id: "0", status: 200, body: { url: "/a" } },
+              { id: "7", status: 200, body: { url: "/stray" } },
+            ],
+          },
+        },
+      },
+    ]);
+    const responses = await graph.client({ maxRetries: 0 }).batch([
+      { id: "a", method: "GET", url: "/a" },
+      { id: "b", method: "GET", url: "/b" },
+    ]);
+    expect(responses.map((r) => [r.id, r.status])).toEqual([
+      ["a", 200],
+      ["b", 502],
+    ]);
+  });
+});
+
 describe("throttling", () => {
   /** The waits of a client whose first GET is answered 429 with Retry-After: 300. */
   async function retryAfterWaits(options: { signal?: AbortSignal; maxRetryAfterMs?: number }) {

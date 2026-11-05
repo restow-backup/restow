@@ -136,6 +136,11 @@ export class FakeMailbox {
   intercept: ((call: RecordedCall) => FixtureResponse | undefined) | undefined;
   /** Hook run before every $batch sub-request; may return a sub-response to short-circuit. */
   interceptBatchSub: ((url: string) => { status: number; body?: unknown } | undefined) | undefined;
+  /**
+   * Sub-requests whose answer the `$batch` envelope leaves out, as a misbehaving gateway or
+   * Graph itself has done: the envelope is a 200 whose `responses` lack these ids.
+   */
+  omitBatchSub: ((url: string) => boolean) | undefined;
 
   private version = 0;
   private readonly log: ChangeLogEntry[] = [];
@@ -310,7 +315,18 @@ export class FakeMailbox {
     }
     const url = new URL(call.url);
     if (call.method === "POST" && url.pathname.endsWith("/$batch")) {
-      return batchEnvelope(call, (sub) => this.answerBatchSub(sub.url));
+      const envelope = batchEnvelope(call, (sub) => this.answerBatchSub(sub.url));
+      const omit = this.omitBatchSub;
+      if (!omit || envelope.status !== 200) {
+        return envelope;
+      }
+      const requests = (call.json as { requests: Array<{ id: string; url: string }> }).requests;
+      const omitted = new Set(requests.filter((sub) => omit(sub.url)).map((sub) => sub.id));
+      const body = envelope.json as { responses: Array<{ id: string }> };
+      return {
+        ...envelope,
+        json: { responses: body.responses.filter((sub) => !omitted.has(sub.id)) },
+      };
     }
     return this.answer(url);
   }
