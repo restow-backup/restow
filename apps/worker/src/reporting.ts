@@ -39,6 +39,7 @@ import {
   type RestoreCounts,
   restoreOutcome,
 } from "./restore-outcome.js";
+import { serviceLabel } from "./service-label.js";
 
 /**
  * Where the installation's time zone comes from: `settings.time_zone`, which only the
@@ -154,6 +155,7 @@ export function jobFinishedNotification(
   tenantId: string,
   job: FinishedJob,
   objectName: string | null,
+  objectKind: string | null = null,
 ): NewNotification | null {
   let event: ReportEvent | undefined;
   if (
@@ -182,7 +184,8 @@ export function jobFinishedNotification(
   if (!event) {
     return null;
   }
-  const target = objectName ?? job.queue;
+  // The service named with the object (0.5.0): a person's mailbox and OneDrive share a name.
+  const target = objectName ? serviceLabel(objectKind, objectName) : job.queue;
   const failed = job.status === "failed" || outcome === "nothingRestored";
   // The run itself went through: its error is that not one item could be written.
   const errorMessage =
@@ -205,6 +208,7 @@ export function jobFinishedNotification(
       queue: job.queue,
       protectedObjectId: job.protectedObjectId,
       objectName,
+      ...(objectKind ? { objectKind } : {}),
       errorMessage,
       // Set only for a restore that did not restore anything (restore-outcome.ts).
       ...(outcome === "nothingRestored" || outcome === "allSkipped"
@@ -224,11 +228,13 @@ export async function raiseJobFinished(tx: TenantTx, tenantId: string, finished:
       ? { ...finished, restoreResult: await loadRestoreCounts(tx, finished) }
       : finished;
   let objectName: string | null = null;
+  let objectKind: string | null = null;
   if (job.protectedObjectId) {
     const [object] = await tx
       .select({
         displayName: protectedObjects.displayName,
         externalId: protectedObjects.externalId,
+        kind: protectedObjects.kind,
       })
       .from(protectedObjects)
       .where(
@@ -238,8 +244,9 @@ export async function raiseJobFinished(tx: TenantTx, tenantId: string, finished:
         ),
       );
     objectName = object ? object.displayName?.trim() || object.externalId : null;
+    objectKind = object?.kind ?? null;
   }
-  const notification = jobFinishedNotification(tenantId, job, objectName);
+  const notification = jobFinishedNotification(tenantId, job, objectName, objectKind);
   if (notification) {
     await raiseEvents(tx, [notification]);
   }

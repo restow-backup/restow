@@ -19,7 +19,7 @@ import type {
   ProtectedObjectRef,
   StorageTargets,
 } from "../engine/types.js";
-import type { ManifestObject } from "../manifest.js";
+import type { ManifestObject, SourceSignal } from "../manifest.js";
 import type { HeadResult, StorageBackend } from "../storage/backend.js";
 import {
   assertDeletionPermitted,
@@ -214,6 +214,7 @@ export async function writeSnapshot(
   fixture: StoreFixture,
   items: readonly FixtureItem[],
   maxPackBytes = 16 * 1024,
+  sourceSignal?: SourceSignal,
 ): Promise<{ snapshotId: string; objects: ManifestObject[] }> {
   const writer = await SnapshotWriter.begin(fixture.ctx, {
     protectedObject: fixture.protectedObject,
@@ -236,6 +237,9 @@ export async function writeSnapshot(
     };
     writer.add(object);
     objects.push(object);
+  }
+  if (sourceSignal) {
+    writer.setSourceSignal(sourceSignal);
   }
   const committed = await writer.commit();
   return { snapshotId: committed.snapshotId, objects };

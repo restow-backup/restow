@@ -53,7 +53,7 @@ import {
   resolveWellKnownFolders,
   type WellKnownFolderName,
 } from "../../graph/resources/mail.js";
-import type { ManifestObject } from "../../manifest.js";
+import type { MailMeasure, ManifestObject } from "../../manifest.js";
 import {
   assignFolderPaths,
   attachmentObjectPath,
@@ -1557,6 +1557,68 @@ export function announceFirstBackup(run: BackupRun, planned: readonly PlannedFol
   run.reporter.firstBackup?.({ itemsBefore, itemsTotal });
 }
 
+/**
+ * The items Graph counts (`totalItemCount`) in the folders the backup plans, split by hidden
+ * and visible folders: the mailbox's own size signal for the restore check (verify/source.ts).
+ * The search-folder subtree is not planned, so nothing is counted twice.
+ */
+export function measureMailFolders(planned: readonly PlannedFolder[], at: number): MailMeasure {
+  let visibleItems = 0;
+  let hiddenItems = 0;
+  for (const folder of planned) {
+    const count = Number.isFinite(folder.node.totalItemCount)
+      ? Math.max(0, folder.node.totalItemCount)
+      : 0;
+    if (folder.node.isHidden) {
+      hiddenItems += count;
+    } else {
+      visibleItems += count;
+    }
+  }
+  return { visibleItems, hiddenItems, folders: planned.length, at };
+}
+
+/**
+ * List the folder tree once more and count it (the "after" of the source signal), with the
+ * options the mail phase used. Null when the tree could not be listed completely; a failure
+ * never fails the backup, only a cancellation ends the run.
+ */
+export async function measureMailSource(
+  run: BackupRun,
+  options: Pick<MailPhaseOptions, "includeHiddenFolders" | "skipWellKnownFolders">,
+): Promise<MailMeasure | null> {
+  try {
+    const wellKnown = await resolveWellKnownFolders(run.client, run.userId);
+    let incomplete = false;
+    const tree = await listMailFolderTree(run.client, run.userId, {
+      includeHidden: options.includeHiddenFolders,
+      wellKnown,
+      onVanishedFolder: () => {
+        incomplete = true;
+      },
+      onUnlistedFolder: () => {
+        incomplete = true;
+      },
+    });
+    if (incomplete) {
+      return null;
+    }
+    return measureMailFolders(
+      planMailFolders(tree, options.skipWellKnownFolders),
+      run.ctx.now().getTime(),
+    );
+  } catch (error) {
+    if (error instanceof JobAbortedError) {
+      throw error;
+    }
+    run.throwIfAborted();
+    run.logger.info("mail folders could not be counted again, no source signal", {
+      reason: describeError(error),
+    });
+    return null;
+  }
+}
+
 /** The whole mail phase: tree, reconciliation, one delta run per folder. */
 export async function backupMail(run: BackupRun, options: MailPhaseOptions): Promise<void> {
   run.enterPhase("mail", EXCHANGE_PHASES.folders);
@@ -1605,6 +1667,9 @@ export async function backupMail(run: BackupRun, options: MailPhaseOptions): Pro
     }
   }
   reconcileMailFolders(run, planned, keepBelow);
+  // Only a complete tree counts as the mailbox's own size signal.
+  run.mailSourceBefore =
+    unlisted.size === 0 ? measureMailFolders(planned, run.ctx.now().getTime()) : null;
   run.logger.info("mail folders enumerated", {
     folders: planned.length,
     skipped: tree.length - planned.length,

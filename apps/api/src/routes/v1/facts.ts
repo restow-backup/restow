@@ -3,6 +3,11 @@ import { type Job, jobs, snapshots, type VerifyReport } from "@restow/db";
 import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { z } from "zod";
 import { parseReasons } from "../../features/verify/details.js";
+import {
+  type EmptyConfirmationDto,
+  emptyStateOf,
+  loadEmptyConfirmations,
+} from "../../features/verify/empty.js";
 import { isOverdue, objectStateOf } from "../../features/verify/summary.js";
 import {
   loadObjectVerifications,
@@ -43,14 +48,21 @@ export interface VerifyFact {
   rating: VerifyReport["recoveryReadiness"];
   kind: VerifyReport["kind"];
   checkedAt: Date;
-  /** The report's stored reasons (raw jsonb): an orphaned object is rated by them. */
+  /**
+   * The report's stored reasons (raw jsonb): an orphaned object is rated by them, and an object
+   * whose reasons say "empty" and nothing else reads empty ({@link readinessOf}).
+   */
   reasons?: unknown;
+  /** `details->>'origin'`: a storage finding (`scrub`) never reads empty. */
+  origin?: string | null;
 }
 
 export interface ObjectFacts {
   snapshot: SnapshotFact | null;
   job: JobFact | null;
   verify: VerifyFact | null;
+  /** An admin's "confirm as empty" (verify/empty.ts); it counts only while the check says empty. */
+  emptyConfirmation?: EmptyConfirmationDto | null;
 }
 
 export const NO_FACTS: ObjectFacts = { snapshot: null, job: null, verify: null };
@@ -58,7 +70,9 @@ export const NO_FACTS: ObjectFacts = { snapshot: null, job: null, verify: null }
 /**
  * Newest restorable snapshot, newest backup job and the verification that
  * rates that snapshot per object. After a new backup the object has no rating
- * (it reads `unverified`) until a check has read that backup back.
+ * (it reads `unverified`) until a check has read that backup back. With them
+ * the admin confirmations as empty, so an empty object reads as the readiness
+ * page shows it.
  */
 export async function loadObjectFacts(
   tx: Transaction,
@@ -137,8 +151,13 @@ export async function loadObjectFacts(
         kind: report.kind,
         checkedAt: report.checkedAt,
         reasons: report.reasons,
+        origin: report.origin,
       };
     }
+  }
+  const confirmations = await loadEmptyConfirmations(tx, tenantId, ids);
+  for (const [objectId, confirmation] of confirmations) {
+    entry(objectId).emptyConfirmation = confirmation;
   }
   return facts;
 }
@@ -174,6 +193,11 @@ export type ObjectReadinessDto = z.infer<typeof objectReadinessSchema>;
  * schedules checks for it any more. So is an active object in no enabled backup job
  * (`withoutJob`, @restow/core `mailObjectsInNoJob`): no new backup is due, so the age of the last
  * one is no fault (the tenant is still kept from green, see summary `withoutJob`).
+ *
+ * An object that reads "empty" on the readiness page (verify/empty.ts `emptyStateOf`: empty by
+ * Microsoft 365 and by the backup, or confirmed as empty by an admin) is green here and never
+ * overdue, as /v1/verify and /v1/status count it: v1 knows no state "empty", and nothing about
+ * such an object needs attention.
  */
 export function readinessOf(
   facts: ObjectFacts,
@@ -186,6 +210,23 @@ export function readinessOf(
   const withoutAge = retained || (withoutJob && status === "active");
   // The backup's age now, not at the check (verification-state.ts withBackupAgeNow), as the
   // readiness page rates it: a mailbox whose backups stopped turns yellow and red here too.
+  const empty = facts.verify
+    ? emptyStateOf(
+        { reasons: facts.verify.reasons, origin: facts.verify.origin ?? null },
+        facts.emptyConfirmation,
+        withoutAge,
+      )
+    : null;
+  if (empty !== null) {
+    return {
+      state: "green",
+      rating: "green",
+      kind: facts.verify?.kind ?? null,
+      checkedAt: checkedAt?.toISOString() ?? null,
+      overdue: false,
+      inJob: !(withoutJob && status === "active"),
+    };
+  }
   const rating = facts.verify
     ? withoutAge
       ? readinessWithoutFreshness(parseReasons(facts.verify.reasons))

@@ -364,6 +364,7 @@ function PersonItem({
           objects={person.objects}
           deleted={person.accountDeleted ? (m365 ? "account" : "source") : null}
           suspicious={suspicious}
+          perService
         />
       </div>
       {active ? <Check className="mt-0.5 size-4 shrink-0 text-primary" aria-hidden="true" /> : null}
@@ -420,10 +421,17 @@ function EntryStatus({
   objects,
   deleted,
   suspicious,
+  perService = false,
 }: {
   objects: readonly SnapshotObject[];
   deleted: "account" | "source" | null;
   suspicious: boolean;
+  /**
+   * A person's entry: one rating per object with a backup, each naming its service ("Mailbox:
+   * Green", "OneDrive: Empty", 0.5.0), so an empty OneDrive does not make the whole person read
+   * like it needs attention, and a mailbox that does is not hidden behind a merged badge.
+   */
+  perService?: boolean;
 }) {
   const { t } = useTranslation("restore");
   const { t: ts } = useTranslation("suspicion");
@@ -459,7 +467,19 @@ function EntryStatus({
         <StatusBadge tone="muted">{t("explorer.restorePoint.none")}</StatusBadge>
       ) : (
         <>
-          {imported ? null : <StateBadge state={readiness} />}
+          {imported ? null : perService ? (
+            objects
+              .filter((object) => object.snapshotCount > 0)
+              .map((object) => (
+                <StateBadge
+                  key={object.id}
+                  state={object.readiness}
+                  service={t(`explorer.object.kinds.${object.kind}`)}
+                />
+              ))
+          ) : (
+            <StateBadge state={readiness} />
+          )}
           <span className="text-muted-foreground">
             {t(imported ? "explorer.accounts.lastImport" : "explorer.accounts.lastBackup")}{" "}
             <RelativeTime value={latestBackupOf(objects)} focusable={false} />

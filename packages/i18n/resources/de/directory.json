@@ -75,6 +75,7 @@
     "green": "Bereit",
     "yellow": "Achtung",
     "red": "Nicht wiederherstellbar",
+    "empty": "Leer",
     "unverified": "Nicht nachgewiesen",
     "none": "Keine Sicherung",
     "needs_credential": "Braucht Aufmerksamkeit",

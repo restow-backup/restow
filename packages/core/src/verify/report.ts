@@ -9,11 +9,13 @@
  */
 import type { VerifyKind } from "../engine/types.js";
 import type { FailureCause } from "../failures/types.js";
+import type { SourceSignal } from "../manifest.js";
 import type { ItemCheck, ItemCheckStatus } from "./check.js";
 import type { TestRestoreOutcome } from "./probe.js";
 import type { ReadinessReason } from "./readiness.js";
 import type { CategoryCounts, SampleQuota } from "./sampling.js";
 import type { ScrubFindingDetails } from "./scrub.js";
+import type { SourceEvidence } from "./source.js";
 
 export const READINESS_REPORT_FORMAT = 1;
 
@@ -37,6 +39,11 @@ export type ReportSnapshotRef = {
    */
   contentBytes?: number;
   contentObjects?: number;
+  /**
+   * The source's own size signal the backup recorded, with its verdict (verify/source.ts).
+   * Absent for sources without one and in snapshots before 0.5.0.
+   */
+  source?: SourceEvidence & { signal: SourceSignal };
 };
 
 export type VerifyCounts = {

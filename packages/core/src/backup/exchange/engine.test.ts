@@ -349,6 +349,98 @@ describe("ExchangeBackupEngine", () => {
     await rm(root, { recursive: true, force: true });
   });
 
+  describe("records the mailbox's own size signal for the restore check (0.5.0)", () => {
+    const AT = Date.parse("2026-09-22T10:00:00Z");
+    const treeListings = () =>
+      graph.calls.filter((call) => new URL(call.url).pathname.endsWith("/mailFolders"));
+
+    function emptyMailbox(): FakeMailbox {
+      const empty = new FakeMailbox(USER);
+      empty.addFolder({
+        id: F.inbox,
+        displayName: "Inbox",
+        parentFolderId: null,
+        wellKnownName: "inbox",
+      });
+      empty.addFolder({
+        id: F.sent,
+        displayName: "Sent Items",
+        parentFolderId: null,
+        wellKnownName: "sentitems",
+      });
+      empty.addFolder({
+        id: F.hidden,
+        displayName: "Quick Step Settings",
+        parentFolderId: null,
+        isHidden: true,
+      });
+      empty.addCalendar({ id: "cal-default", name: "Calendar", isDefaultCalendar: true });
+      return empty;
+    }
+
+    it("counts the planned folders once for a mailbox with content, search folders left out", async () => {
+      const result = await engine.run(newContext(), mailbox, {});
+      const manifest = await manifestOf(result.snapshotId);
+      expect(manifest.sourceSignal).toEqual({
+        service: "mailbox",
+        // Inbox 3, Projects 1, Restow 1, Sent Items 1; the hidden folder holds 1.
+        before: { visibleItems: 6, hiddenItems: 1, folders: 5, at: AT },
+        after: null,
+        archive: "none",
+      });
+      expect(treeListings()).toHaveLength(1);
+    });
+
+    it("counts an empty mailbox before and after the run", async () => {
+      box = emptyMailbox();
+      graph = createFakeGraph(box.routes());
+      const result = await engine.run(newContext(), mailbox, {});
+      const manifest = await manifestOf(result.snapshotId);
+      expect(manifest.sourceSignal).toEqual({
+        service: "mailbox",
+        before: { visibleItems: 0, hiddenItems: 0, folders: 3, at: AT },
+        after: { visibleItems: 0, hiddenItems: 0, folders: 3, at: AT },
+        archive: "none",
+      });
+      expect(treeListings()).toHaveLength(2);
+    });
+
+    it("records what Graph counts when the backup finds nothing, and a count that changes", async () => {
+      box = emptyMailbox();
+      let listing = 0;
+      must(box.folders.get(F.inbox)).totalItemCount = () => (listing++ === 0 ? 4 : 5);
+      must(box.folders.get(F.hidden)).totalItemCount = 2;
+      graph = createFakeGraph(box.routes());
+      const result = await engine.run(newContext(), mailbox, {});
+      const manifest = await manifestOf(result.snapshotId);
+      expect(manifest.sourceSignal).toEqual({
+        service: "mailbox",
+        before: { visibleItems: 4, hiddenItems: 2, folders: 3, at: AT },
+        after: { visibleItems: 5, hiddenItems: 2, folders: 3, at: AT },
+        archive: "none",
+      });
+    });
+
+    it("gives no second count when the folders cannot be listed again", async () => {
+      box = emptyMailbox();
+      graph = createFakeGraph(box.routes());
+      let listings = 0;
+      box.intercept = (call) => {
+        if (new URL(call.url).pathname.endsWith("/mailFolders") && listings++ > 0) {
+          return { status: 503, json: graphError("ServiceUnavailable") };
+        }
+        return undefined;
+      };
+      const result = await engine.run(newContext(), mailbox, {});
+      const manifest = await manifestOf(result.snapshotId);
+      expect(manifest.sourceSignal).toMatchObject({
+        service: "mailbox",
+        before: { visibleItems: 0, hiddenItems: 0 },
+        after: null,
+      });
+    });
+  });
+
   it("stores every message, folder, event and contact on the first run", async () => {
     const ctx = newContext();
     const result = await engine.run(ctx, mailbox, {});

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { assessReadiness, isEmptyFinding, type ReadinessFacts } from "./readiness.js";
+import {
+  assessReadiness,
+  isEmptyFinding,
+  isSourceEmptyFinding,
+  type ReadinessFacts,
+} from "./readiness.js";
 
 const NOW = new Date("2026-10-01T01:00:00Z");
 
@@ -57,6 +62,74 @@ describe("assessReadiness: empty objects", () => {
   it("says nothing about content when the manifest could not be read", () => {
     const codes = assessReadiness(facts({ manifestReadable: false })).reasons.map((r) => r.code);
     expect(codes).toEqual(["manifest_unreadable"]);
+  });
+});
+
+describe("assessReadiness: the source's own size signal (0.5.0)", () => {
+  it("rates an object empty by the source and by the backup as empty, without confirmation", () => {
+    const rated = assessReadiness(
+      facts({ source: { service: "onedrive", verdict: "empty", bytes: 0 } }),
+    );
+    expect(rated.reasons).toEqual([
+      { code: "snapshot_empty_confirmed_by_source", severity: "yellow", count: 9 },
+    ]);
+    expect(isSourceEmptyFinding(rated.reasons)).toBe(true);
+    // Nothing for an admin to confirm.
+    expect(isEmptyFinding(rated.reasons)).toBe(false);
+  });
+
+  it("turns red when the source reports content and the backup holds none", () => {
+    const drive = assessReadiness(
+      facts({ source: { service: "onedrive", verdict: "content", bytes: 20_480 } }),
+    );
+    expect(drive).toEqual({
+      readiness: "red",
+      reasons: [{ code: "backup_missing_source_content", severity: "red", bytes: 20_480 }],
+    });
+    expect(isEmptyFinding(drive.reasons)).toBe(false);
+    expect(isSourceEmptyFinding(drive.reasons)).toBe(false);
+
+    const mailbox = assessReadiness(
+      facts({ source: { service: "mailbox", verdict: "content", items: 12 } }),
+    );
+    expect(mailbox.reasons).toEqual([
+      { code: "backup_missing_source_content", severity: "red", count: 12 },
+    ]);
+  });
+
+  it("stays yellow and confirmable without a signal, or with one that proves nothing", () => {
+    for (const source of [null, undefined, { service: "mailbox", verdict: "unknown" } as const]) {
+      const rated = assessReadiness(facts({ source }));
+      expect(rated.reasons).toEqual([{ code: "snapshot_empty", severity: "yellow", count: 9 }]);
+      expect(isEmptyFinding(rated.reasons)).toBe(true);
+    }
+  });
+
+  it("ignores the signal for a backup with content", () => {
+    const rated = assessReadiness(
+      facts({
+        checked: 1,
+        contentBytes: 10,
+        contentObjects: 1,
+        outcomes: { verified: 1, mismatch: 0, missing: 0, unreadable: 0 },
+        source: { service: "onedrive", verdict: "content", bytes: 10 },
+      }),
+    );
+    expect(rated).toEqual({ readiness: "green", reasons: [] });
+  });
+
+  it("does not call an old empty backup empty by the source alone", () => {
+    const rated = assessReadiness(
+      facts({
+        snapshotCompletedAt: new Date("2026-09-28T00:00:00Z"),
+        source: { service: "onedrive", verdict: "empty", bytes: 0 },
+      }),
+    );
+    expect(rated.reasons.map((reason) => reason.code)).toEqual([
+      "snapshot_stale",
+      "snapshot_empty_confirmed_by_source",
+    ]);
+    expect(isSourceEmptyFinding(rated.reasons)).toBe(false);
   });
 });
 

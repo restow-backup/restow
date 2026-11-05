@@ -16,6 +16,19 @@ function failedJob(failure: unknown) {
 }
 
 describe("jobFinishedNotification", () => {
+  it("names the service of the object it is about (0.5.0)", () => {
+    const notification = jobFinishedNotification(
+      TENANT,
+      failedJob(null),
+      "msp@contoso.example",
+      "onedrive",
+    );
+    expect(notification?.message).toMatch(
+      /^The backup job for OneDrive · msp@contoso\.example failed/,
+    );
+    expect(notification?.details).toMatchObject({ objectKind: "onedrive" });
+  });
+
   it("carries the cause of a failed job with the ids of the steps to take", () => {
     const notification = jobFinishedNotification(
       TENANT,

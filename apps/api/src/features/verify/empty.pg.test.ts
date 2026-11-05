@@ -10,6 +10,7 @@
 import { randomUUID } from "node:crypto";
 import {
   auditLog,
+  backupJobs,
   createDb,
   type Database,
   emptyConfirmations,
@@ -18,12 +19,17 @@ import {
   snapshots,
   sources,
   tenants,
+  users,
   verifyReports,
 } from "@restow/db";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ProblemError } from "../../problem.js";
+import { listProtectedObjects, objectsQuerySchema } from "../../routes/v1/objects.js";
+import { listDirectoryUsers, usersQuerySchema } from "../../routes/v1/users.js";
 import { latestVerification, verifyLatestQuerySchema } from "../../routes/v1/verify.js";
+import { listObjects as listDirectoryObjects } from "../directory/service.js";
+import { listObjects as listExplorerObjects } from "../snapshots/service.js";
 import {
   dropDatabase,
   recreateDatabase,
@@ -132,6 +138,7 @@ async function report(
   reasons: Reasons,
   checkedAt: Date,
   content = { bytes: 0, items: 6 },
+  source?: Record<string, unknown>,
 ): Promise<void> {
   await db.insert(verifyReports).values({
     tenantId: tenant.tenantId,
@@ -155,6 +162,7 @@ async function report(
         packCount: 1,
         contentBytes: content.bytes,
         contentObjects: content.bytes > 0 ? 1 : 0,
+        ...(source ? { source } : {}),
       },
       counts: { checked: content.bytes > 0 ? 1 : 0, verified: content.bytes > 0 ? 1 : 0 },
     },
@@ -266,6 +274,18 @@ describe.skipIf(!testDatabaseAdminUrl)("confirm as empty against Postgres", () =
     expect(v1.summary).not.toHaveProperty("empty");
     expect(v1.summary.green).toBe(summary.green + 1);
     expect(v1.items.find((row) => row.protectedObjectId === empty.id)?.state).toBe("green");
+    // So do /v1/objects and /v1/users.
+    const objects = await listProtectedObjects(
+      db,
+      contoso.tenantId,
+      objectsQuerySchema.parse({}),
+      NOW,
+    );
+    expect(objects.items.find((row) => row.id === empty.id)?.readiness).toMatchObject({
+      state: "green",
+      rating: "green",
+      overdue: false,
+    });
   });
 
   it("is never overdue, even when its check is weeks old", async () => {
@@ -364,5 +384,196 @@ describe.skipIf(!testDatabaseAdminUrl)("confirm as empty against Postgres", () =
     await expect(
       revokeEmptyConfirmation(db, contoso.tenantId, empty.id, ACTOR),
     ).rejects.toMatchObject({ status: 404 });
+  });
+  describe("empty by Microsoft 365 as well (0.5.0)", () => {
+    let northwind: Tenant;
+    let drive: { id: string; snapshotId: string };
+    let contradicted: { id: string; snapshotId: string };
+    const SOURCE_EMPTY: Reasons = [
+      { code: "snapshot_empty_confirmed_by_source", severity: "yellow", count: 1 },
+    ];
+    const measure = { rootBytes: 0, rootChildren: 0, at: ago(30).getTime() };
+
+    beforeAll(async () => {
+      northwind = await createTenant(db, "northwind");
+      // In a mail job, so nothing but the rating decides the tenant's overall state.
+      await db.insert(backupJobs).values({
+        tenantId: northwind.tenantId,
+        kind: "mail",
+        name: "All",
+        scopeMode: "all",
+        enabled: true,
+        schedule: { kind: "cron", cron: "0 22 * * *", timeZone: "UTC" },
+      });
+      drive = await object(db, northwind, "msp@northwind.example");
+      await report(db, northwind, drive.id, drive.snapshotId, SOURCE_EMPTY, ago(24), undefined, {
+        service: "onedrive",
+        verdict: "empty",
+        bytes: 0,
+        signal: {
+          service: "onedrive",
+          before: measure,
+          after: measure,
+          quota: { used: 12_288, deleted: 0, remaining: 1, total: 2, state: "normal" },
+        },
+      });
+    }, 60_000);
+
+    const northwindEntry = async (id: string) => {
+      const found = (await readinessOverview(db, northwind.tenantId, NOW)).objects.find(
+        (item) => item.object.id === id,
+      );
+      if (!found) {
+        throw new Error(`no entry for ${id}`);
+      }
+      return found;
+    };
+
+    it("reads empty without a confirmation, with the figures, and counts for no attention", async () => {
+      const item = await northwindEntry(drive.id);
+      expect(item.state).toBe("empty");
+      expect(item.emptyBySource).toBe(true);
+      expect(item.emptyConfirmation).toBeNull();
+      expect(item.overdue).toBe(false);
+      expect(item.contentStats).toMatchObject({
+        items: 6,
+        bytes: 0,
+        source: {
+          service: "onedrive",
+          verdict: "empty",
+          rootBytesBefore: 0,
+          rootBytesAfter: 0,
+          quotaUsed: 12_288,
+        },
+      });
+      const { summary } = await readinessOverview(db, northwind.tenantId, NOW);
+      expect(summary).toMatchObject({ empty: 1, yellow: 0, red: 0, withoutJob: 0, overdue: 0 });
+      expect(summary.overall).toBe("green");
+      // Nothing for an admin to confirm, listed or by the filter.
+      const listed = await confirmEmpty(db, northwind.tenantId, { objectIds: [drive.id] }, ACTOR);
+      expect(listed).toEqual({
+        confirmed: [],
+        skipped: [
+          {
+            protectedObjectId: drive.id,
+            displayName: "msp@northwind.example",
+            reason: "empty_by_source",
+          },
+        ],
+      });
+      const filtered = await confirmEmpty(
+        db,
+        northwind.tenantId,
+        { filter: { state: "empty_unconfirmed" } },
+        ACTOR,
+      );
+      expect(filtered).toEqual({ confirmed: [], skipped: [] });
+    });
+
+    it("reads empty in the restore explorer and the directory too", async () => {
+      const explorer = await listExplorerObjects(db, northwind.tenantId, {
+        role: "tenant_admin",
+        userId: null,
+        email: "admin@northwind.test",
+      });
+      expect(explorer.find((row) => row.id === drive.id)?.readiness).toBe("empty");
+      const page = await listDirectoryObjects(
+        db,
+        northwind.tenantId,
+        { page: 1, pageSize: 50, sort: "name", order: "asc" },
+        NOW,
+      );
+      expect(page.items.find((row) => row.id === drive.id)?.readiness).toMatchObject({
+        empty: "source",
+      });
+    });
+
+    it("reads green and not overdue in /v1/users and /v1/objects, as /v1/verify does", async () => {
+      // The maintainer's case: a person with a backed-up mailbox and a never-used OneDrive.
+      const person = one(
+        await db
+          .insert(users)
+          .values({ tenantId: northwind.tenantId, email: "msp@northwind.example" })
+          .returning(),
+      );
+      const mailbox = await object(db, northwind, "msp@northwind.example mailbox", [], {
+        bytes: 4096,
+        items: 3,
+      });
+      await db
+        .update(protectedObjects)
+        .set({ kind: "mailbox", userId: person.id })
+        .where(eq(protectedObjects.id, mailbox.id));
+      await db
+        .update(protectedObjects)
+        .set({ userId: person.id })
+        .where(eq(protectedObjects.id, drive.id));
+
+      const v1 = await latestVerification(
+        db,
+        northwind.tenantId,
+        verifyLatestQuerySchema.parse({}),
+        NOW,
+      );
+      const verified = v1.items.find((row) => row.protectedObjectId === drive.id);
+      expect(verified).toMatchObject({ state: "green", rating: "green", overdue: false });
+
+      const objects = await listProtectedObjects(
+        db,
+        northwind.tenantId,
+        objectsQuerySchema.parse({}),
+        NOW,
+      );
+      expect(objects.items.find((row) => row.id === drive.id)?.readiness).toMatchObject({
+        state: "green",
+        rating: "green",
+        overdue: false,
+        inJob: true,
+      });
+
+      const directory = await listDirectoryUsers(
+        db,
+        northwind.tenantId,
+        usersQuerySchema.parse({}),
+        NOW,
+      );
+      const msp = directory.items.find((row) => row.id === person.id);
+      expect(msp?.recoveryReadiness).toBe("green");
+      expect(msp?.objects.find((row) => row.id === drive.id)?.readiness).toMatchObject({
+        state: "green",
+        rating: "green",
+        overdue: false,
+      });
+      expect(msp?.objects.find((row) => row.id === mailbox.id)?.readiness.state).toBe("green");
+    });
+
+    it("turns red when Microsoft 365 reports content, and an admin confirmation no longer counts", async () => {
+      contradicted = await object(db, northwind, "full@northwind.example");
+      await report(
+        db,
+        northwind,
+        contradicted.id,
+        contradicted.snapshotId,
+        [{ code: "backup_missing_source_content", severity: "red" }],
+        ago(24),
+      );
+      await db.insert(emptyConfirmations).values({
+        tenantId: northwind.tenantId,
+        protectedObjectId: contradicted.id,
+        snapshotId: contradicted.snapshotId,
+        confirmedBy: "admin@northwind.test",
+      });
+      const item = await northwindEntry(contradicted.id);
+      expect(item.state).toBe("red");
+      expect(item.emptyBySource).toBe(false);
+      expect(item.emptyConfirmation).toBeNull();
+      const result = await confirmEmpty(
+        db,
+        northwind.tenantId,
+        { objectIds: [contradicted.id] },
+        ACTOR,
+      );
+      expect(result.skipped).toMatchObject([{ reason: "not_empty" }]);
+    });
   });
 });

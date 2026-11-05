@@ -334,9 +334,16 @@ export function renderAlert(input: AlertInput): RenderedMessage {
         : isReportEvent(event)
           ? t(`reports:events.${event as ReportEvent}`)
           : event;
-  const target =
-    text(details.objectName) ??
-    (text(details.queue) ? t(`reports:queues.${details.queue as string}`) : input.tenantName);
+  // The service named with the object (0.5.0): a person's mailbox and OneDrive share a name.
+  const objectName = text(details.objectName);
+  const kindKey = text(details.objectKind) ? `verify:kind.${details.objectKind as string}` : null;
+  const target = objectName
+    ? kindKey && i18n.exists(kindKey)
+      ? `${t(kindKey)} · ${objectName}`
+      : objectName
+    : text(details.queue)
+      ? t(`reports:queues.${details.queue as string}`)
+      : input.tenantName;
 
   const rows: [string, string][] = [
     [t("reports:mail.tenant"), input.tenantName],

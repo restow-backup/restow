@@ -63,6 +63,7 @@ import { MAX_CONTINUATION_DAYS } from "./continuation.js";
 import type { EndpointJobDeps } from "./endpoints/common.js";
 import { withTenantTx } from "./handlers/framework.js";
 import { lastAlertAt, queueRuleDeliveries, raiseEvents } from "./reporting.js";
+import { serviceLabel } from "./service-label.js";
 
 const HOUR_MS = 60 * 60 * 1000;
 /** At most this many alerts per tenant and pass: an outage of the monitor must not flood. */
@@ -72,6 +73,8 @@ export interface OverdueCandidate {
   kind: "object" | "endpoint" | "guest" | "file_share";
   id: string;
   name: string;
+  /** What a protected object is (mailbox, onedrive, site): the alert names the service. */
+  objectKind?: string;
   /** The newest successful backup, or when protection started without one. */
   since: Date;
   /** Whether a backup ever succeeded. */
@@ -149,7 +152,10 @@ function subjectDetails(candidate: OverdueCandidate): Record<string, string> {
     case "file_share":
       return { fileShareId: candidate.id };
     default:
-      return { protectedObjectId: candidate.id };
+      return {
+        protectedObjectId: candidate.id,
+        ...(candidate.objectKind ? { objectKind: candidate.objectKind } : {}),
+      };
   }
 }
 
@@ -169,8 +175,8 @@ export function overdueNotification(
     level: "warning",
     event: "backup.overdue",
     message: candidate.backedUp
-      ? `No successful backup of ${candidate.name} for more than ${days} days.`
-      : `${candidate.name} has never been backed up successfully in ${days} days of protection.`,
+      ? `No successful backup of ${serviceLabel(candidate.objectKind, candidate.name)} for more than ${days} days.`
+      : `${serviceLabel(candidate.objectKind, candidate.name)} has never been backed up successfully in ${days} days of protection.`,
     details: {
       ...subjectDetails(candidate),
       objectName: candidate.name,
@@ -241,6 +247,7 @@ async function tenantCandidates(
   const objects = await db
     .select({
       id: protectedObjects.id,
+      kind: protectedObjects.kind,
       status: protectedObjects.status,
       sourceKind: sources.kind,
       sourceStatus: sources.status,
@@ -452,6 +459,7 @@ async function tenantCandidates(
           kind: "object" as const,
           id: object.id,
           name: object.name,
+          objectKind: object.kind,
           // The later of its last snapshot and its return to `active`: a mailbox back from
           // orphaned (account enabled or licensed again) is not overdue by its old snapshot.
           since: object.last && object.last > object.since ? object.last : object.since,

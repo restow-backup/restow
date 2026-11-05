@@ -5,7 +5,7 @@ import {
   worstReadiness,
 } from "@restow/core";
 import { parseReasons } from "../verify/details.js";
-import { restsOnEmpty } from "../verify/empty.js";
+import { restsOnEmpty, restsOnSourceEmpty } from "../verify/empty.js";
 import {
   isOverdue,
   type ObjectState,
@@ -261,12 +261,14 @@ export class ReadinessTimeline {
       const unaged = retained || withoutJob;
       const report = verification.report;
       const confirmedAt = object.emptyConfirmedAt ?? null;
+      // Confirmed as empty by then, or empty by Microsoft 365 as well (0.5.0, verify/empty.ts).
       const empty =
-        confirmedAt !== null &&
-        confirmedAt.getTime() < moment.getTime() &&
         report !== null &&
         !isStorageFinding(report) &&
-        restsOnEmpty(parseReasons(report.reasons), unaged);
+        (restsOnSourceEmpty(parseReasons(report.reasons), unaged) ||
+          (confirmedAt !== null &&
+            confirmedAt.getTime() < moment.getTime() &&
+            restsOnEmpty(parseReasons(report.reasons), unaged)));
       const checkedState: ObjectState = empty
         ? "empty"
         : unaged && report

@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { i18n } from "@/i18n";
-import { bellEventKey } from "./notification-item";
+import { bellEventKey, notificationObject } from "./notification-item";
 
 /**
  * The bell line of an expiring app credential names its stage (core entra/expiry.ts: 30 days,
@@ -91,6 +91,31 @@ describe("the bell line of a failed delivery (0.5.0)", () => {
         i18n.t("reports:bellEvents.notification.delivery_failed_webhook", { webhook: "Ops" }),
       ).toContain("Ops");
     }
+    await i18n.changeLanguage("en");
+  });
+});
+
+describe("the object a notification names (0.5.0)", () => {
+  it("names the service with the object when the event says which one", async () => {
+    await i18n.changeLanguage("de");
+    const t = (key: string, options?: { defaultValue?: string }) =>
+      String(i18n.t(`reports:${key}`, options));
+    expect(
+      notificationObject(
+        { details: { objectName: "msp@contoso.example", objectKind: "onedrive" } },
+        t,
+      ),
+    ).toBe("OneDrive · msp@contoso.example");
+    expect(
+      notificationObject(
+        { details: { objectName: "msp@contoso.example", objectKind: "mailbox" } },
+        t,
+      ),
+    ).toBe("Postfach · msp@contoso.example");
+    expect(notificationObject({ details: { objectName: "Contoso" } }, t)).toBe("Contoso");
+    expect(
+      notificationObject({ details: { objectName: "x", objectKind: "something-new" } }, t),
+    ).toBe("x");
     await i18n.changeLanguage("en");
   });
 });

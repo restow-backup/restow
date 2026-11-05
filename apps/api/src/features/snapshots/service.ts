@@ -20,6 +20,7 @@ import { and, desc, eq, inArray, isNotNull, ne, type SQL, sql } from "drizzle-or
 import { type AuditEvent, audit } from "../../lib/audit.js";
 import { type DbExecutor, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
+import { emptyStateOf, loadEmptyConfirmations } from "../verify/empty.js";
 import type { ObjectState } from "../verify/summary.js";
 import {
   loadObjectVerifications,
@@ -405,6 +406,25 @@ async function selectObjects(
     tenantId,
     rows.map((row) => row.id),
   );
+  const confirmations = await loadEmptyConfirmations(
+    tx,
+    tenantId,
+    rows.map((row) => row.id),
+  );
+  // "Empty" as the readiness page reads it (verify/empty.ts emptyStateOf): confirmed by an
+  // admin, or empty by Microsoft 365 as well. An orphaned object is rated without its age.
+  const readinessOf = (row: (typeof rows)[number]): ObjectState => {
+    const verification = verifications.get(row.id)?.verification;
+    if (!verification) {
+      return "no_backup";
+    }
+    const empty = emptyStateOf(
+      verification.report,
+      confirmations.get(row.id),
+      row.status === "orphaned",
+    );
+    return empty ? "empty" : verification.state;
+  };
 
   return rows.map((row) => ({
     id: row.id,
@@ -422,7 +442,7 @@ async function selectObjects(
     snapshotCount: Number(row.snapshotCount),
     latestSnapshotId: row.latestSnapshotId,
     latestSnapshotAt: iso(row.latestSnapshotAt),
-    readiness: verifications.get(row.id)?.verification.state ?? "no_backup",
+    readiness: readinessOf(row),
   }));
 }
 

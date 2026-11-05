@@ -10,8 +10,9 @@
     "unverified": "Nicht nachgewiesen",
     "no_backup": "Noch keine Sicherung",
     "waitingForFirstBackup": "Wartet auf erste Sicherung",
-    "empty": "Als leer bestätigt"
+    "empty": "Leer"
   },
+  "serviceState": "{service}: {state}",
   "kind": {
     "mailbox": "Postfach",
     "onedrive": "OneDrive",
@@ -130,7 +131,9 @@
     "emptyState": "Kein Objekt in diesem Zustand: {state}.",
     "toConfirm": "Bitte bestätigen",
     "confirmed": "Absichtlich nicht mehr gesichert",
-    "emptyConfirmed": "Als leer bestätigt von {who} am {date}"
+    "emptyConfirmed": "Als leer bestätigt von {who} am {date}",
+    "emptyBySource": "Leer laut Microsoft 365",
+    "emptyBySourceHint": "Microsoft 365 meldet dieses Objekt als leer, gemessen vor und nach der Sicherung, und auch die Sicherung enthält nichts. Eine Bestätigung ist nicht nötig."
   },
   "snapshot": {
     "column": "Restore-Prüfung",
@@ -159,6 +162,10 @@
     "snapshot_outdated": "Die letzte Sicherung ist {days, plural, one {# Tag} other {# Tage}} alt; neuere Daten ließen sich nicht wiederherstellen.",
     "snapshot_stale": "Die letzte Sicherung ist {hours, plural, one {# Stunde} other {# Stunden}} alt.",
     "snapshot_empty": "Leer: nur Standardordner bzw. Systemseiten, 0 Bytes ({count, plural, one {# Element} other {# Elemente}}). Es gibt nichts wiederherzustellen.",
+    "snapshot_empty_confirmed_by_source": "Leer laut Microsoft 365 und laut Sicherung ({count, plural, one {# Element} other {# Elemente}}, 0 Bytes): Es gibt nichts wiederherzustellen. Eine Bestätigung ist nicht nötig.",
+    "backup_missing_source_content": "Microsoft 365 meldet Inhalt ({size}), die Sicherung enthält keinen.",
+    "backup_missing_source_content_items": "Microsoft 365 meldet Inhalt ({count, plural, one {# Element} other {# Elemente}}), die Sicherung enthält keinen.",
+    "backup_missing_source_content_unsized": "Microsoft 365 meldet Inhalt, die Sicherung enthält keinen.",
     "nothing_to_verify": "Die letzte Sicherung enthält Daten ({size}) einer Art, die eine Prüfung nicht zurücklesen kann.",
     "nothing_to_verify_unsized": "Die letzte Sicherung enthält nichts, was geprüft werden könnte.",
     "test_restore_unconfirmed": "Das Prüfziel hat {count, plural, one {# wiederhergestelltes Element} other {# wiederhergestellte Elemente}} nicht bestätigt.",
@@ -296,6 +303,17 @@
       "bytes": "Gelesene Daten",
       "duration": "Dauer"
     },
+    "source": {
+      "title": "Gemeldet von Microsoft 365",
+      "drive": "Stammordner des OneDrive: {before} vor der Sicherung, {after} danach",
+      "quota": "Belegter Speicher: {used}, davon im Papierkorb: {deleted} (zählt auch Versionen und Systemlisten, nur zur Information)",
+      "mailbox": "Elemente in den Mail-Ordnern: {visible}, in versteckten Ordnern: {hidden}",
+      "verdict": {
+        "empty": "Leer laut Microsoft 365 und laut Sicherung.",
+        "content": "Microsoft 365 meldet Inhalt, den die Sicherung nicht enthält.",
+        "unknown": "Belegt weder das eine noch das andere (nicht zweimal gemessen, während der Sicherung geändert, Elemente nur in versteckten Ordnern oder ein Online-Archiv)."
+      }
+    },
     "snapshot": {
       "title": "Geprüfte Sicherung",
       "sequence": "Sicherungsstand #{sequence}",
@@ -419,7 +437,7 @@
     "label": "Nach Zustand filtern",
     "all": "Alle",
     "empty_unconfirmed": "Leer (nicht bestätigt)",
-    "empty": "Als leer bestätigt"
+    "empty": "Leer"
   },
   "selection": {
     "all": "Alle auswählen",

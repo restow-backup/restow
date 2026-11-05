@@ -268,6 +268,22 @@ describe("ReadinessTimeline", () => {
     expect(aside.at(day(25)).states.get("drive")).toBe("yellow");
   });
 
+  it("rates an object empty by Microsoft 365 as well neutral from its check on (0.5.0)", () => {
+    const emptyCheck = {
+      ...check("drive", 1, 3, "yellow"),
+      reasons: [{ code: "snapshot_empty_confirmed_by_source", severity: "yellow", count: 4 }],
+    };
+    const timeline = new ReadinessTimeline(
+      [object("drive", 1)],
+      [snapshot("drive", 1, 2)],
+      [emptyCheck],
+    );
+    const after = timeline.at(day(25));
+    expect(after.states.get("drive")).toBe("empty");
+    expect(after.counts).toEqual({ green: 1, yellow: 0, red: 0, unverified: 0 });
+    expect(after.overall).toBe("green");
+  });
+
   it("rates a backup by its age at the moment, not at its check", () => {
     const fine = new ReadinessTimeline(
       [object("anna", 1)],

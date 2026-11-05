@@ -24,6 +24,8 @@ const REASON_CODES: Readonly<Record<ReadinessReasonCode, FailureCode>> = {
   snapshot_outdated: "verify.snapshot_outdated",
   snapshot_stale: "verify.snapshot_stale",
   snapshot_empty: "verify.snapshot_empty",
+  snapshot_empty_confirmed_by_source: "verify.snapshot_empty_source",
+  backup_missing_source_content: "verify.backup_missing_source_content",
   nothing_to_verify: "verify.nothing_to_verify",
   test_restore_unconfirmed: "verify.restore_test_unconfirmed",
   backup_incomplete: "verify.backup_incomplete",

@@ -399,6 +399,14 @@
         "title": "Empty: nothing to restore",
         "why": "The latest backup holds only default folders or system pages and 0 bytes of content. This is no failure. An admin can confirm the object as empty, and it no longer counts as needing attention. Once a later backup holds content, it is rated like any other object again."
       },
+      "snapshot_empty_source": {
+        "title": "Empty according to Microsoft 365 and to the backup: nothing to restore",
+        "why": "Microsoft 365 reports the object empty, measured before and after the backup, and the latest backup holds only default folders and 0 bytes. No confirmation is needed: the object counts as empty, not as needing attention. Once a later backup holds content, it is rated like any other object again."
+      },
+      "backup_missing_source_content": {
+        "title": "Microsoft 365 reports content, the backup holds none",
+        "why": "Microsoft 365 reports content for this object{has_count, select, yes { ({count, plural, one {# item} other {# items}})} other {}}, measured before and after the backup, but the latest backup holds only default folders and 0 bytes. A restore would bring back nothing. Start a full backup and check the latest run."
+      },
       "nothing_to_verify": {
         "title": "The backup holds nothing a check can read back",
         "why": "The latest backup holds data, but only of a type a restore check cannot read back, so the rating rests on nothing yet."

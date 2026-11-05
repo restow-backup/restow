@@ -24,6 +24,9 @@ import {
   DRIVE,
   deltaUrl,
   downloadUrl,
+  driveQuotaRoute,
+  driveRootRoute,
+  FIXED_NOW,
   failingPackStorage,
   Harness,
   interruptedFetch,
@@ -34,6 +37,7 @@ import {
   streamingFetch,
 } from "./testing.js";
 
+const FIXED_NOW_MS = FIXED_NOW.getTime();
 const Q3_PATH = "Documents/Reports/Q3 report.xlsx";
 const Q3_ARCHIVED = "Documents/Archive/Q3 report.xlsx";
 const DOWNLOAD_HOST = "https://contoso-my.sharepoint.example/download.aspx";
@@ -1521,6 +1525,96 @@ describe("OneDriveBackupEngine", () => {
     });
     // A checkpoint was left behind so the retry does not start from nothing.
     expect(readCursor(harness.cursor.cursor, DRIVE)?.snapshot?.snapshotId).toBe("snap-1");
+  });
+
+  describe("records the drive's own size signal for the restore check (0.5.0)", () => {
+    const rootItem = fixture.initialPage1.value[0] as DriveDeltaItem;
+    const emptyDrive = (): FixtureRoute => ({
+      url: deltaUrl(null),
+      respond: {
+        status: 200,
+        json: page([{ ...rootItem, folder: { childCount: 0 } }], "DELTA1"),
+      },
+    });
+    const rootCalls = (graph: ReturnType<typeof createFakeGraph>) =>
+      graph.calls.filter((call) => new URL(call.url).pathname === `/v1.0/drives/${DRIVE}/root`);
+
+    it("measures an empty drive before and after the walk, with the quota for display", async () => {
+      const graph = createFakeGraph([
+        emptyDrive(),
+        driveRootRoute([0, 0]),
+        driveQuotaRoute({
+          used: 12_288,
+          deleted: 0,
+          remaining: 1e12,
+          total: 1e12,
+          state: "normal",
+        }),
+      ]);
+      const result = await harness.engine(graph).run(harness.context(), oneDrive, {});
+      const manifest = await harness.manifest(result);
+      expect(manifest.sourceSignal).toEqual({
+        service: "onedrive",
+        before: { rootBytes: 0, rootChildren: 0, at: FIXED_NOW_MS },
+        after: { rootBytes: 0, rootChildren: 0, at: FIXED_NOW_MS },
+        quota: { used: 12_288, deleted: 0, remaining: 1e12, total: 1e12, state: "normal" },
+      });
+      expect(rootCalls(graph)).toHaveLength(2);
+      expect(new URL(rootCalls(graph)[0]?.url ?? "").searchParams.get("$select")).toBe(
+        "id,size,folder",
+      );
+    });
+
+    it("measures a drive with content once, before the walk", async () => {
+      const graph = createFakeGraph([...initialRoutes(), driveRootRoute([4096])]);
+      const result = await harness.engine(graph).run(harness.context(), oneDrive, {});
+      const manifest = await harness.manifest(result);
+      expect(manifest.sourceSignal).toEqual({
+        service: "onedrive",
+        before: { rootBytes: 4096, rootChildren: 1, at: FIXED_NOW_MS },
+        after: null,
+      });
+      expect(rootCalls(graph)).toHaveLength(1);
+      expect(graph.callsTo("GET", `/drives/${DRIVE}?`)).toHaveLength(0);
+    });
+
+    it("gives no signal when Graph does not answer, and the backup still completes", async () => {
+      for (const failure of [
+        { status: 404, json: graphError("itemNotFound") },
+        { status: 503, json: graphError("serviceNotAvailable") },
+      ]) {
+        const own = await Harness.create();
+        try {
+          const graph = createFakeGraph([emptyDrive(), driveRootRoute([failure])]);
+          const result = await own.engine(graph).run(own.context(), oneDrive, {});
+          expect(result.failures).toEqual([]);
+          const manifest = await own.manifest(result);
+          expect(manifest.sourceSignal).toEqual({ service: "onedrive", before: null, after: null });
+          // Without a first measure the second one is not taken.
+          expect(rootCalls(graph).length).toBeGreaterThan(0);
+          expect(graph.callsTo("GET", `/drives/${DRIVE}?`)).toHaveLength(0);
+        } finally {
+          await own.dispose();
+        }
+      }
+    });
+
+    it("ends the run on a cancellation while the drive is measured", async () => {
+      const controller = new AbortController();
+      const graph = createFakeGraph([
+        emptyDrive(),
+        {
+          url: (url) => url.pathname === `/v1.0/drives/${DRIVE}/root`,
+          respond: () => {
+            controller.abort();
+            return { status: 503, json: graphError("serviceNotAvailable") };
+          },
+        },
+      ]);
+      await expect(
+        harness.engine(graph).run(harness.context({ signal: controller.signal }), oneDrive, {}),
+      ).rejects.toBeInstanceOf(JobAbortedError);
+    });
   });
 
   it("refuses protected objects of another kind", async () => {

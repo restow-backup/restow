@@ -23,7 +23,7 @@ import type { FailureCause } from "../../failures/types.js";
 import { type GraphClient, RETRYABLE_STATUSES } from "../../graph/client.js";
 import { isGraphError, isMailboxUnavailable, isNotFound } from "../../graph/errors.js";
 import type { MailboxOwner } from "../../graph/resources/common.js";
-import type { ManifestObject } from "../../manifest.js";
+import type { MailMeasure, ManifestObject } from "../../manifest.js";
 import {
   type ExchangeCursor,
   type ExchangePhase,
@@ -404,6 +404,11 @@ export class BackupRun {
    * backup, {@link announceFirstBackup}); the folders then do not add their own.
    */
   mailTotalKnown = false;
+  /**
+   * The items Graph counts in the planned mail folders when the mail phase listed them (the
+   * "before" of the source signal, verify/source.ts); null when the tree was incomplete.
+   */
+  mailSourceBefore: MailMeasure | null = null;
 
   constructor(options: BackupRunOptions) {
     this.ctx = options.ctx;

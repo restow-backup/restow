@@ -143,7 +143,8 @@ describe("readinessNotification", () => {
       tenantId: TENANT,
       level: "error",
       event: VERIFY_EVENTS.red,
-      message: "Recovery readiness of Anna Example is red: a restore would not be complete.",
+      message:
+        "Recovery readiness of Mailbox · Anna Example is red: a restore would not be complete.",
       details: {
         protectedObjectId: mailbox.id,
         objectName: "Anna Example",
@@ -172,7 +173,7 @@ describe("readinessNotification", () => {
     const old = red(["snapshot_outdated", "nothing_to_verify"]);
     expect(old?.details).toMatchObject({ redReason: "outdated" });
     expect(old?.message).toBe(
-      "Recovery readiness of Anna Example is red: the newest backup is too old, newer data could not be restored.",
+      "Recovery readiness of Mailbox · Anna Example is red: the newest backup is too old, newer data could not be restored.",
     );
     expect(red(["items_mismatched", "snapshot_outdated"])?.details).toMatchObject({
       redReason: "damaged",
@@ -352,6 +353,36 @@ describe("verifyReportRow / verifyRecordNotification", () => {
     );
   });
 
+  it("raises nothing for an object empty by the source and by the backup (0.5.0)", () => {
+    const empty = outcome({ readiness: "yellow", checked: 0, mismatched: 0, missing: 0 });
+    empty.details.reasons = [
+      { code: "snapshot_empty_confirmed_by_source", severity: "yellow", count: 4 },
+    ];
+    expect(verifyRecordNotification(record({ outcome: empty, previous: null }), "r1")).toBeNull();
+    expect(
+      verifyRecordNotification(record({ outcome: empty, previous: "green" }), "r1"),
+    ).toBeNull();
+  });
+
+  it("raises no 'recovered' for content after an empty by the source, but a red for a contradiction", () => {
+    const after = (current: RecoveryReadiness, reasons: string[]) =>
+      readinessNotification({
+        tenantId: TENANT,
+        object: { ...mailbox, kind: "onedrive" },
+        previous: "yellow",
+        current,
+        reportId: "r1",
+        reasons,
+        previousReasons: ["snapshot_empty_confirmed_by_source"],
+      });
+    expect(after("green", [])).toBeNull();
+    const red = after("red", ["backup_missing_source_content", "snapshot_outdated"]);
+    expect(red?.details).toMatchObject({ redReason: "damaged", objectKind: "onedrive" });
+    expect(red?.message).toBe(
+      "Recovery readiness of OneDrive · Anna Example is red: a restore would not be complete.",
+    );
+  });
+
   it("tells a run that found content from an empty one", () => {
     expect(outcomeHasContent(outcome())).toBe(true);
     const empty = outcome({ checked: 0 });
@@ -366,6 +397,12 @@ describe("verifyReportRow / verifyRecordNotification", () => {
       contentObjects: 1,
     };
     expect(outcomeHasContent(empty)).toBe(true);
+    // Microsoft 365 reports content the backup lacks: not empty, whatever the backup holds.
+    const contradicted = outcome({ checked: 0 });
+    contradicted.details.reasons = [
+      { code: "backup_missing_source_content", severity: "red", bytes: 100 },
+    ];
+    expect(outcomeHasContent(contradicted)).toBe(true);
   });
 });
 

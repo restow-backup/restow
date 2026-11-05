@@ -76,6 +76,23 @@ const LEVEL_DOT: Record<BellNotification["level"], string> = {
   error: "bg-destructive",
 };
 
+/**
+ * The object a notification names, with its service when the event says which one (0.5.0):
+ * "OneDrive · msp@contoso.example". A person's mailbox and OneDrive share the person's name.
+ */
+export function notificationObject(
+  item: Pick<BellNotification, "details">,
+  t: (key: string, options?: { defaultValue?: string }) => string,
+): string {
+  const name = typeof item.details?.objectName === "string" ? item.details.objectName : "";
+  const kind = typeof item.details?.objectKind === "string" ? item.details.objectKind : null;
+  if (!name || !kind) {
+    return name;
+  }
+  const service = t(`objectKinds.${kind}`, { defaultValue: "" });
+  return service ? `${service} · ${name}` : name;
+}
+
 /** The line of a notification in the reader's language. */
 export function useNotificationText() {
   const { t, i18n } = useTranslation("reports");
@@ -83,7 +100,7 @@ export function useNotificationText() {
   return (item: BellNotification) =>
     t(bellEventKey(item), {
       defaultValue: item.message,
-      object: typeof item.details?.objectName === "string" ? item.details.objectName : "",
+      object: notificationObject(item, t),
       rule: typeof item.details?.ruleName === "string" ? item.details.ruleName : "",
       version: typeof item.details?.version === "string" ? item.details.version : "",
       days: typeof item.details?.days === "number" ? item.details.days : "",

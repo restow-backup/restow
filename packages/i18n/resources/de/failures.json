@@ -399,6 +399,14 @@
         "title": "Leer: Es gibt nichts wiederherzustellen",
         "why": "Das letzte Backup enthält nur Standardordner bzw. Systemseiten und 0 Bytes Inhalt. Das ist kein Fehler. Ein Administrator kann das Objekt als leer bestätigen, dann zählt es nicht mehr als „Achtung“. Sobald ein späteres Backup Inhalt enthält, wird es wieder wie jedes andere Objekt bewertet."
       },
+      "snapshot_empty_source": {
+        "title": "Leer laut Microsoft 365 und laut Sicherung: Es gibt nichts wiederherzustellen",
+        "why": "Microsoft 365 meldet das Objekt als leer, gemessen vor und nach der Sicherung, und die letzte Sicherung enthält nur Standardordner und 0 Bytes. Eine Bestätigung ist nicht nötig: Das Objekt zählt als leer, nicht als „Achtung“. Sobald ein späteres Backup Inhalt enthält, wird es wieder wie jedes andere Objekt bewertet."
+      },
+      "backup_missing_source_content": {
+        "title": "Microsoft 365 meldet Inhalt, die Sicherung enthält keinen",
+        "why": "Microsoft 365 meldet für dieses Objekt Inhalt{has_count, select, yes { ({count, plural, one {# Element} other {# Elemente}})} other {}}, gemessen vor und nach der Sicherung, aber die letzte Sicherung enthält nur Standardordner und 0 Bytes. Eine Wiederherstellung brächte nichts zurück. Starten Sie eine vollständige Sicherung und prüfen Sie den letzten Lauf."
+      },
       "nothing_to_verify": {
         "title": "Das Backup enthält nichts, was eine Prüfung zurücklesen kann",
         "why": "Das letzte Backup enthält Daten, aber nur von einer Art, die eine Restore-Prüfung nicht zurücklesen kann. Die Bewertung beruht daher noch auf nichts."

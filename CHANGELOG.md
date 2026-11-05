@@ -441,6 +441,30 @@ private repository.
   System group of the rule dialog shows it, the installation's own events stay with the provider.
 - The tenant page's Branding section is closed in the public demo, like the other settings this
   release adds.
+- Empty Microsoft 365 objects need no confirmation when Microsoft 365 says so as well: a backup of
+  a OneDrive or a mailbox now records what Microsoft 365 itself reports, before and after the run
+  (the OneDrive's root folder `size`, the `totalItemCount` of the mail folders the backup reads;
+  the quota is recorded for display only, it counts recycle bin, versions and system lists). When
+  the backup holds only default folders and 0 bytes and Microsoft 365 reports the object empty
+  both times, the restore check rates it "Empty according to Microsoft 365 and to the backup"
+  (`snapshot_empty_confirmed_by_source`): neutral like an object an admin confirmed as empty, not
+  needing attention, not in the tenant rating, never overdue, and it raises no alert. A never-used
+  OneDrive next to a backed-up mailbox no longer reads "Attention". Without such a signal (IMAP,
+  SharePoint, items only in hidden folders, an online archive, a count that changed during the
+  run, backups made before this version) nothing changes: the object stays yellow and can be
+  confirmed as empty. Existing ratings follow with the next backup and check; there is no
+  migration. See docs/MICROSOFT.md, "Leere Objekte: Nachweis durch Microsoft 365".
+- An empty backup of an object Microsoft 365 reports content for, before and after the run, is
+  red: "Microsoft 365 reports content, the backup holds none" (`backup_missing_source_content`).
+  It cannot be confirmed as empty, and it ends an existing confirmation.
+- Ratings and alerts name the service with the object, since a person's mailbox and OneDrive
+  share the person's name: the readiness table reads "OneDrive · msp@contoso.example", the
+  person's entry in the restore explorer shows one rating per service ("Mailbox: Ready",
+  "OneDrive: Empty") instead of one merged badge, and the bell, the alert mails and the stored
+  alert texts of restore checks, finished jobs and overdue backups say "OneDrive · …" or
+  "Mailbox · …" (`details.objectKind` on job and overdue alerts as well). The check report shows
+  what Microsoft 365 reported under "Reported by Microsoft 365". The state "empty" now reads
+  "Empty" ("Leer"), since it is no longer only a confirmation.
 - Proxmox VE inventory (#58): a guest's row says how large its first backup was and when
   ("First backup: 32 GB on 3 Oct"), what the last follow-up added ("Last follow-up: +210 MB", or
   "No follow-up backup yet") and the average follow-up ("Average follow-up: +180 MB (last 7
@@ -597,6 +621,13 @@ private repository.
   bound and destructured deletes and raw SQL on `archive_items` through the TypeScript checker,
   and counts each delete separately, so a second delete in a registered function is no longer
   missed.
+- The restore explorer and the directory ignored a confirmation as empty: an object an admin had
+  confirmed as empty still read yellow there while the readiness page showed it neutral. Both now
+  read "empty" by the same rule as the readiness page. So do `/api/v1/users` and
+  `/api/v1/objects`: an empty object (confirmed by an admin, or empty according to Microsoft 365
+  and to the backup) is green there and never overdue, as `/api/v1/verify` and `/api/v1/status`
+  already counted it, so a person with a backed-up mailbox and an empty OneDrive no longer reads
+  yellow in `recoveryReadiness`.
 - The API now writes an unexpected error to its log before it answers with HTTP 500: the method,
   the path, the error's name and message (with secrets masked) and the first frames of its stack.
   Until now such a request failed in the browser while `docker compose logs api` showed nothing,

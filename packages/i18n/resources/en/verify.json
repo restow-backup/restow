@@ -10,8 +10,9 @@
     "unverified": "Unverified",
     "no_backup": "No backup yet",
     "waitingForFirstBackup": "Waiting for first backup",
-    "empty": "Confirmed empty"
+    "empty": "Empty"
   },
+  "serviceState": "{service}: {state}",
   "kind": {
     "mailbox": "Mailbox",
     "onedrive": "OneDrive",
@@ -130,7 +131,9 @@
     "emptyState": "No object in this state: {state}.",
     "toConfirm": "Please confirm",
     "confirmed": "Intentionally no longer backed up",
-    "emptyConfirmed": "Confirmed empty by {who} on {date}"
+    "emptyConfirmed": "Confirmed empty by {who} on {date}",
+    "emptyBySource": "Empty according to Microsoft 365",
+    "emptyBySourceHint": "Microsoft 365 reports this object empty, measured before and after the backup, and the backup holds nothing either. No confirmation is needed."
   },
   "snapshot": {
     "column": "Restore check",
@@ -159,6 +162,10 @@
     "snapshot_outdated": "The latest backup is {days, plural, one {# day} other {# days}} old; newer data could not be restored.",
     "snapshot_stale": "The latest backup is {hours, plural, one {# hour} other {# hours}} old.",
     "snapshot_empty": "Empty: only default folders and system pages, 0 bytes ({count, plural, one {# item} other {# items}}). Nothing to restore.",
+    "snapshot_empty_confirmed_by_source": "Empty according to Microsoft 365 and to the backup ({count, plural, one {# item} other {# items}}, 0 bytes): nothing to restore. No confirmation is needed.",
+    "backup_missing_source_content": "Microsoft 365 reports content ({size}), the backup holds none.",
+    "backup_missing_source_content_items": "Microsoft 365 reports content ({count, plural, one {# item} other {# items}}), the backup holds none.",
+    "backup_missing_source_content_unsized": "Microsoft 365 reports content, the backup holds none.",
     "nothing_to_verify": "The latest backup holds data ({size}) of a type a check cannot read back.",
     "nothing_to_verify_unsized": "The latest backup contains nothing that could be verified.",
     "test_restore_unconfirmed": "The test target did not confirm {count, plural, one {# restored item} other {# restored items}}.",
@@ -296,6 +303,17 @@
       "bytes": "Data read",
       "duration": "Duration"
     },
+    "source": {
+      "title": "Reported by Microsoft 365",
+      "drive": "Root folder of the OneDrive: {before} before the backup, {after} after it",
+      "quota": "Storage used: {used}, of it in the recycle bin: {deleted} (counts versions and system lists too, for information only)",
+      "mailbox": "Items in the mail folders: {visible}, in hidden folders: {hidden}",
+      "verdict": {
+        "empty": "Empty according to Microsoft 365 and to the backup.",
+        "content": "Microsoft 365 reports content the backup does not hold.",
+        "unknown": "Proves nothing either way (not measured twice, changed during the backup, items in hidden folders only, or an online archive)."
+      }
+    },
     "snapshot": {
       "title": "Checked backup",
       "sequence": "Restore point #{sequence}",
@@ -419,7 +437,7 @@
     "label": "Filter by state",
     "all": "All",
     "empty_unconfirmed": "Empty (not confirmed)",
-    "empty": "Confirmed empty"
+    "empty": "Empty"
   },
   "selection": {
     "all": "Select all",

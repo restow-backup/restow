@@ -203,6 +203,10 @@ export function readinessView(object: ProtectedObject): {
   if (hasCredentialProblem(object)) {
     return { variant: "warning", key: "readiness.needs_credential" };
   }
+  if (object.readiness?.empty) {
+    // Nothing to restore, and nothing to do: grey, like on the readiness page.
+    return { variant: "muted", key: "readiness.empty" };
+  }
   if (object.readiness) {
     return {
       variant: READINESS_VARIANT[object.readiness.rating],

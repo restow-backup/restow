@@ -42,10 +42,16 @@ const STATE_ICON = {
 export function StateBadge({
   state,
   overdue = false,
+  service,
   className,
 }: {
   state: ObjectState;
   overdue?: boolean;
+  /**
+   * The service the rating is about ("OneDrive", "Mailbox"), named in front of it where a
+   * person's objects are shown together (0.5.0): "OneDrive: Empty".
+   */
+  service?: string;
   className?: string;
 }) {
   const { t } = useTranslation("verify");
@@ -55,8 +61,9 @@ export function StateBadge({
       tone={tone}
       icon={STATE_ICON[state]}
       className={cn("whitespace-nowrap", className)}
+      data-service={service}
     >
-      {t(key)}
+      {service ? t("serviceState", { service, state: t(key) }) : t(key)}
     </StatusBadge>
   );
 }

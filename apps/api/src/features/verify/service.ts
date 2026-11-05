@@ -45,7 +45,7 @@ import {
   type ReportDetailsDto,
   type ScrubReportDto,
 } from "./details.js";
-import { confirmationApplies, type EmptyConfirmationDto, loadEmptyConfirmations } from "./empty.js";
+import { type EmptyConfirmationDto, emptyStateOf, loadEmptyConfirmations } from "./empty.js";
 import type {
   ListReportsQuery,
   RunScrubInput,
@@ -182,10 +182,17 @@ export interface ObjectReadinessDto {
    */
   previousCheck?: PreviousCheckDto | null;
   /**
-   * Who confirmed the object as empty (empty.ts), while that counts: set exactly when `state` is
-   * `empty`. Always set by the service; null otherwise.
+   * Who confirmed the object as empty (empty.ts), while that counts: set when `state` is `empty`
+   * by an admin's confirmation (not when it is empty by the source, `emptyBySource`). Always set
+   * by the service; null otherwise.
    */
   emptyConfirmation?: EmptyConfirmationDto | null;
+  /**
+   * The object reads "empty" because Microsoft 365 reports it empty as well, before and after
+   * the backup (0.5.0, empty.ts `emptyStateOf`), not because an admin confirmed it. Always set
+   * by the service.
+   */
+  emptyBySource?: boolean;
   /**
    * Items and content bytes of the backup the rating checked (0.4.9); null without a check, for
    * a storage finding, and for a check before 0.4.9. Always set by the service.
@@ -693,10 +700,12 @@ export async function readinessOverview(
       // The backup's age now, not at the check: a rated backup that stopped being renewed turns
       // yellow after 48 hours and red after 7 days without waiting for the next check.
       const live = report ? liveFreshness(latestSnapshot?.completedAt, now, withoutAge) : null;
-      // Confirmed as empty, and the newest check still finds nothing to restore: neutral grey,
-      // never overdue (there is nothing whose check could be due), counted for no attention.
+      // Confirmed as empty, or empty by Microsoft 365 as well (0.5.0), and the newest check still
+      // finds nothing to restore: neutral grey, never overdue (there is nothing whose check
+      // could be due), counted for no attention.
       const confirmation = emptyConfirmations.get(object.id) ?? null;
-      const confirmedEmpty = confirmationApplies(confirmation, report, withoutAge);
+      const empty = emptyStateOf(report, confirmation, withoutAge);
+      const confirmedEmpty = empty !== null;
       // A fresh "no_backup" object is not a problem yet, only once it missed
       // its first chance (isFirstBackupOverdue); every other state keeps the
       // ordinary "the last check is stale" rule. Either way, an object whose
@@ -729,7 +738,8 @@ export async function readinessOverview(
           ? toPreviousCheck(facts.verification.previous)
           : null,
         inJob: !withoutJob,
-        emptyConfirmation: confirmedEmpty ? confirmation : null,
+        emptyConfirmation: empty === "admin" ? confirmation : null,
+        emptyBySource: empty === "source",
         contentStats:
           report && report.origin !== "scrub" ? parseContentStats(report.content) : null,
       });

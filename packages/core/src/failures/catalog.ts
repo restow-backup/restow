@@ -644,6 +644,22 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     retryable: false,
     steps: () => [step("run_backup_again", "jobs")],
   },
+  // Empty by the source and by the backup (0.5.0): nothing to restore, nothing to confirm. As
+  // for an empty one, the next backup that holds content ends it.
+  "verify.snapshot_empty_source": {
+    category: "verify",
+    transient: false,
+    retryable: false,
+    steps: () => [step("run_backup_again", "jobs")],
+  },
+  // Microsoft 365 reports content before and after the run, the backup holds none: a full
+  // backup reads the object again; the source shows what it holds.
+  "verify.backup_missing_source_content": {
+    category: "verify",
+    transient: false,
+    retryable: true,
+    steps: () => [step("run_backup_again", "jobs"), step("open_item_at_source", "source")],
+  },
   "verify.nothing_to_verify": {
     category: "verify",
     transient: false,
