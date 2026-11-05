@@ -21,21 +21,22 @@
  * {@link runArchiveRetention}, the run reports it as a failed item rather
  * than crashing the whole retention job).
  *
+ * Batches (0.5.0): due items are read in pages of {@link ARCHIVE_RETENTION_BATCH} in
+ * (retention_until, id) order and each page is deleted in one transaction, with the legal
+ * hold check inside the DELETE statement and the audit entries in the same transaction.
+ * Before, the run read the holds and every due item of the tenant once (a whole capture year
+ * under end_of_year) and then deleted item by item: a hold placed meanwhile did not stop it.
+ * The job's signal is checked between batches.
+ *
  * Legal hold coverage: a tenant-wide hold (no `protected_object_id`) blocks
  * every item; a hold scoped to a mailbox blocks items captured for that
  * mailbox and journal reports assigned to it (archive_item_mailboxes). A hold scoped to a search query (`legal_holds.scope`) is not
  * evaluated here (a known limitation): query-scoped holds need the same
  * search machinery as features/archive/search.ts.
  */
-import { archive } from "@restow/core";
-import {
-  archiveItemMailboxIds,
-  archiveItems,
-  type Database,
-  legalHolds,
-  retentionPolicies,
-} from "@restow/db";
-import { and, eq, lte, sql } from "drizzle-orm";
+import { type archive, JobAbortedError } from "@restow/core";
+import { archiveItems, type Database, legalHolds, retentionPolicies } from "@restow/db";
+import { and, asc, count, eq, inArray, lte, type SQL, sql } from "drizzle-orm";
 import { appendAuditEntry } from "../../../../apps/worker/src/audit.js";
 import type { WorkerJobContext } from "../../../../apps/worker/src/handlers/framework.js";
 import type {
@@ -74,37 +75,57 @@ async function loadArchivePolicy(
     : DEFAULT_ARCHIVE_POLICY;
 }
 
-interface HoldScope {
-  readonly tenantWide: boolean;
-  readonly protectedObjectIds: ReadonlySet<string>;
+/** Due items read and deleted per transaction. */
+export const ARCHIVE_RETENTION_BATCH = 500;
+
+export interface ArchiveRetentionRunOptions {
+  /** Checked between batches: a cancelled job stops after the batch it is in. */
+  readonly signal?: AbortSignal;
+  /** Due items per batch (tests); default {@link ARCHIVE_RETENTION_BATCH}. */
+  readonly batchSize?: number;
+  /** Called after each batch committed (tests). */
+  readonly afterBatch?: () => Promise<void>;
 }
 
-async function loadHolds(providerDb: Database, tenantId: string): Promise<HoldScope> {
-  const rows = await providerDb
-    .select({ protectedObjectId: legalHolds.protectedObjectId })
-    .from(legalHolds)
-    .where(and(eq(legalHolds.tenantId, tenantId), eq(legalHolds.active, true)));
-  const protectedObjectIds = new Set<string>();
-  let tenantWide = false;
-  for (const row of rows) {
-    if (row.protectedObjectId === null) {
-      tenantWide = true;
-    } else {
-      protectedObjectIds.add(row.protectedObjectId);
-    }
-  }
-  return { tenantWide, protectedObjectIds };
-}
+/** One deleted row, as the DELETE returned it. */
+type DeletedRow = {
+  readonly id: string;
+  readonly item_hash: string;
+  readonly chain_hash: string;
+  readonly prev_chain_hash: string | null;
+  readonly received_at: string;
+  readonly created_at: string;
+  readonly retention_until: string | null;
+  readonly storage_path: string;
+  readonly chunks: string[] | null;
+};
 
 /**
- * Whether a hold covers an item: a tenant-wide hold, or a hold on any mailbox
- * the item belongs to (its own, or a journal report's assignments, #32).
+ * The legal-hold predicate, inside the statement that deletes: a hold placed while the run is
+ * going covers every item the run has not reached yet, never a stale list read at its start.
+ * A tenant-wide hold (no mailbox) covers every item; a mailbox hold the items of that mailbox,
+ * their own (`protected_object_id`) and assigned ones (archive_item_mailboxes, #32).
  */
-function isHeld(mailboxIds: readonly string[], holds: HoldScope): boolean {
-  if (holds.tenantWide) {
-    return true;
+function notHeld(tenantId: string): SQL {
+  return sql`not exists (
+    select 1 from ${legalHolds} h
+     where h.tenant_id = ${tenantId}::uuid
+       and h.active
+       and (
+         h.protected_object_id is null
+         or h.protected_object_id = archive_items.protected_object_id
+         or h.protected_object_id in (
+           select aim.protected_object_id from archive_item_mailboxes aim
+            where aim.archive_item_id = archive_items.id
+         )
+       )
+  )`;
+}
+
+function throwIfAborted(signal: AbortSignal | undefined): void {
+  if (signal?.aborted) {
+    throw new JobAbortedError();
   }
-  return mailboxIds.some((id) => holds.protectedObjectIds.has(id));
 }
 
 /** The task's own run, separated from {@link createArchiveRetentionTask} so tests can call it directly. */
@@ -113,66 +134,102 @@ export async function runArchiveRetention(
   tenantId: string,
   options: RetentionTaskOptions,
   now: () => Date,
+  run: ArchiveRetentionRunOptions = {},
 ): Promise<ArchiveRetentionSummary> {
   const policy = await loadArchivePolicy(providerDb, tenantId);
-  const holds = await loadHolds(providerDb, tenantId);
   const currentTime = now();
+  const batchSize = Math.max(1, run.batchSize ?? ARCHIVE_RETENTION_BATCH);
 
-  const candidates = await providerDb
-    .select({
-      id: archiveItems.id,
-      itemHash: archiveItems.itemHash,
-      chainHash: archiveItems.chainHash,
-      mailboxIds: archiveItemMailboxIds,
-      retentionUntil: archiveItems.retentionUntil,
-    })
-    .from(archiveItems)
-    .where(and(eq(archiveItems.tenantId, tenantId), lte(archiveItems.retentionUntil, currentTime)));
-
+  let candidates = 0;
   let deleted = 0;
   let held = 0;
+  // Keyset over (retention_until, id): an item kept (held) is never read again in this run,
+  // and every page is an index range (archive_items_tenant_retention_idx).
+  let after: { retentionUntil: string; id: string } | null = null;
 
-  for (const item of candidates) {
-    const itemHeld = isHeld(item.mailboxIds ?? [], holds);
-    if (!archive.isDueForDeletion(item.retentionUntil, itemHeld, currentTime)) {
-      if (itemHeld) {
-        held++;
-      }
-      continue;
+  for (;;) {
+    throwIfAborted(run.signal);
+    const page: { id: string; retentionUntil: string }[] = await providerDb
+      .select({
+        id: archiveItems.id,
+        retentionUntil: sql<string>`${archiveItems.retentionUntil}::text`,
+      })
+      .from(archiveItems)
+      .where(
+        and(
+          eq(archiveItems.tenantId, tenantId),
+          lte(archiveItems.retentionUntil, currentTime),
+          after
+            ? sql`(${archiveItems.retentionUntil}, ${archiveItems.id}) > (${after.retentionUntil}::timestamptz, ${after.id}::uuid)`
+            : undefined,
+        ),
+      )
+      .orderBy(asc(archiveItems.retentionUntil), asc(archiveItems.id))
+      .limit(batchSize);
+    const last = page[page.length - 1];
+    if (!last) {
+      break;
     }
+    after = { retentionUntil: last.retentionUntil, id: last.id };
+    candidates += page.length;
+    const ids = page.map((row) => row.id);
+
     if (options.dryRun) {
-      deleted++;
-      continue;
-    }
-    await providerDb.transaction(async (tx) => {
-      const removed = await tx
-        .delete(archiveItems)
-        .where(and(eq(archiveItems.id, item.id), eq(archiveItems.tenantId, tenantId)))
-        .returning({ id: archiveItems.id });
-      if (removed.length === 0) {
-        return;
-      }
-      await appendAuditEntry(tx, {
-        tenantId,
-        actor: "system",
-        action: "archive.item.deleted",
-        target: item.id,
-        targetType: "archive_item",
-        details: {
-          itemHash: item.itemHash,
-          chainHash: item.chainHash,
-          retentionUntil: item.retentionUntil?.toISOString() ?? null,
-          policyYears: policy.years,
-          policyMode: policy.mode,
-        },
+      const [free] = await providerDb
+        .select({ value: count() })
+        .from(archiveItems)
+        .where(
+          and(
+            eq(archiveItems.tenantId, tenantId),
+            inArray(archiveItems.id, ids),
+            notHeld(tenantId),
+          ),
+        );
+      deleted += free?.value ?? 0;
+      held += page.length - (free?.value ?? 0);
+    } else {
+      const removed = await providerDb.transaction(async (tx) => {
+        const rows = await tx.execute<DeletedRow>(sql`
+          delete from ${archiveItems}
+           where ${archiveItems.tenantId} = ${tenantId}::uuid
+             and ${inArray(archiveItems.id, ids)}
+             and ${archiveItems.retentionUntil} <= ${currentTime.toISOString()}::timestamptz
+             and ${notHeld(tenantId)}
+          returning id, item_hash, chain_hash, prev_chain_hash, received_at::text,
+                    created_at::text, retention_until::text, storage_path, chunks`);
+        for (const row of rows.rows) {
+          await appendAuditEntry(tx, {
+            tenantId,
+            actor: "system",
+            action: "archive.item.deleted",
+            target: row.id,
+            targetType: "archive_item",
+            details: {
+              itemHash: row.item_hash,
+              chainHash: row.chain_hash,
+              retentionUntil: row.retention_until
+                ? new Date(row.retention_until).toISOString()
+                : null,
+              policyYears: policy.years,
+              policyMode: policy.mode,
+            },
+          });
+        }
+        return rows.rows;
       });
-    });
-    deleted++;
+      deleted += removed.length;
+      // Not returned: a hold covers it (checked in the DELETE itself), or it is already gone.
+      held += page.length - removed.length;
+    }
+    await run.afterBatch?.();
+    if (page.length < batchSize) {
+      break;
+    }
   }
   return {
     policyYears: policy.years,
     policyMode: policy.mode,
-    candidates: candidates.length,
+    candidates,
     deleted,
     held,
     dryRun: options.dryRun,
@@ -202,7 +259,9 @@ export function createArchiveRetentionTask(providerDb: Database): RetentionTask 
         });
         return { skipped: true, reason: "edition_required" };
       }
-      const summary = await runArchiveRetention(providerDb, ctx.tenantId, options, ctx.now);
+      const summary = await runArchiveRetention(providerDb, ctx.tenantId, options, ctx.now, {
+        signal: ctx.signal,
+      });
       ctx.logger.info("archive retention run", { task: "archive", ...summary });
       return { ...summary };
     },

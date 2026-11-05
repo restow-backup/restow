@@ -545,7 +545,11 @@ und Legal Hold sind Edition Business und Service Provider.
   `{ "reason": … }`), den das Audit-Log (`archive.legal_hold.released`) festhält; ein bereits
   freigegebener Hold wird nicht ein zweites Mal freigegeben (409).
 - Löschlauf: täglich (Aufgabe `retention`, empfohlener Zeitplan 04:30), löscht nur abgelaufene
-  Objekte ohne Hold und schreibt jede Löschung ins Audit-Log. Zielbild: ein Löschprotokoll
+  Objekte ohne Hold und schreibt jede Löschung ins Audit-Log. Seit 0.5.0 seitenweise: je 500
+  fällige Objekte in der Reihenfolge des Fristendes (Index aus Migration 0081), je Seite eine
+  Transaktion; der Legal Hold wird in der Löschanweisung selbst geprüft, ein während des Laufs
+  gesetzter Hold schützt also alles, was der Lauf noch nicht erreicht hat. Ein abgebrochener
+  Job hört nach der laufenden Seite auf. Zielbild: ein Löschprotokoll
   (Anzahl, Zeitraum, Hashes der gelöschten Objekte) als eigener Eintrag der Kette.
 
 ## Suche und Export

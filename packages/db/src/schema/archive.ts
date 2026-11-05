@@ -148,6 +148,9 @@ export const archiveItems = pgTable(
       t.protectedObjectId,
       t.receivedAt,
     ),
+    // The deletion run pages the items whose retention ended (ee/worker archive-retention.ts)
+    // in (retention_until, id) order: an index range instead of the tenant's whole archive.
+    index("archive_items_tenant_retention_idx").on(t.tenantId, t.retentionUntil, t.id),
   ],
 );
 

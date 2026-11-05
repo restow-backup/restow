@@ -21,7 +21,7 @@ import {
   tenants,
 } from "@restow/db";
 import { runMigrations } from "@restow/db/migrate";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { runArchiveRetention } from "./archive-retention.js";
 
@@ -282,4 +282,121 @@ describe.skipIf(!adminUrl)("runArchiveRetention against Postgres", () => {
       await db.$client.end();
     }
   }, 60_000);
+  it("a hold placed between two batches protects every item the run has not reached yet", async () => {
+    const url = await recreateTestDatabase(adminUrl as string);
+    const db = createDb(url);
+    try {
+      const [provider] = await db.insert(providers).values({ name: "Provider" }).returning();
+      const [tenant] = await db
+        .insert(tenants)
+        .values({ providerId: provider?.id as string, name: "Contoso", slug: "contoso" })
+        .returning();
+      const tenantId = tenant?.id as string;
+      const [source] = await db
+        .insert(sources)
+        .values({ tenantId, kind: "m365", name: "Contoso M365", status: "active" })
+        .returning();
+      const [mailbox] = await db
+        .insert(protectedObjects)
+        .values({
+          tenantId,
+          sourceId: source?.id as string,
+          kind: "mailbox",
+          externalId: "x@contoso.example",
+        })
+        .returning();
+      // Six due items of mailbox X, due one day apart: two batches of three.
+      for (let n = 0; n < 6; n++) {
+        await seedItem(db, tenantId, {
+          protectedObjectId: mailbox?.id as string,
+          receivedAt: daysAgo(3000),
+          retentionUntil: daysAgo(10 - n),
+          chainHash: `x-${n}`,
+        });
+      }
+
+      let batches = 0;
+      const summary = await runArchiveRetention(db, tenantId, { dryRun: false }, () => NOW, {
+        batchSize: 3,
+        afterBatch: async () => {
+          batches++;
+          if (batches === 1) {
+            // Legal places a hold on X while the run is between batches.
+            await db.insert(legalHolds).values({
+              tenantId,
+              reason: "Litigation (mailbox X)",
+              protectedObjectId: mailbox?.id as string,
+              active: true,
+            });
+          }
+        },
+      });
+
+      expect(summary).toMatchObject({ candidates: 6, deleted: 3, held: 3 });
+      const remaining = await db
+        .select({ chainHash: archiveItems.chainHash })
+        .from(archiveItems)
+        .where(eq(archiveItems.tenantId, tenantId));
+      expect(remaining.map((row) => row.chainHash).sort()).toEqual(["x-3", "x-4", "x-5"]);
+    } finally {
+      await db.$client.end();
+    }
+  }, 60_000);
+
+  it("deletes 10,000 items due on the same day in bounded batches, and stops on a cancelled job", async () => {
+    const url = await recreateTestDatabase(adminUrl as string);
+    const db = createDb(url);
+    try {
+      const [provider] = await db.insert(providers).values({ name: "Provider" }).returning();
+      const [tenant] = await db
+        .insert(tenants)
+        .values({ providerId: provider?.id as string, name: "Contoso", slug: "contoso" })
+        .returning();
+      const tenantId = tenant?.id as string;
+      // end_of_year: a whole capture year falls due on the same 1 January.
+      const due = daysAgo(1).toISOString();
+      await db.execute(sql`
+        insert into archive_items
+          (tenant_id, message_id, item_hash, chain_hash, received_at, captured_via, retention_until, storage_path)
+        select ${tenantId}::uuid, 'm-' || n, 'h-' || n, 'c-' || n, ${daysAgo(3000).toISOString()}::timestamptz,
+               'journal', ${due}::timestamptz, 'tenants/' || ${tenantId} || '/archive/' || n
+          from generate_series(1, 10000) as n`);
+
+      const cancel = new AbortController();
+      let batches = 0;
+      const stopped = await runArchiveRetention(db, tenantId, { dryRun: false }, () => NOW, {
+        signal: cancel.signal,
+        afterBatch: async () => {
+          batches++;
+          if (batches === 4) {
+            cancel.abort();
+          }
+        },
+      }).catch((error: unknown) => error);
+      expect(stopped).toBeInstanceOf(Error);
+      expect((stopped as Error).name).toBe("JobAbortedError");
+      const [afterCancel] = await db
+        .select({ value: sql<number>`count(*)::int` })
+        .from(archiveItems)
+        .where(eq(archiveItems.tenantId, tenantId));
+      // Four batches committed before the run stopped; nothing of a fifth.
+      expect(afterCancel?.value).toBe(10_000 - 4 * 500);
+
+      batches = 0;
+      const summary = await runArchiveRetention(db, tenantId, { dryRun: false }, () => NOW, {
+        afterBatch: async () => {
+          batches++;
+        },
+      });
+      expect(summary).toMatchObject({ candidates: 8000, deleted: 8000, held: 0 });
+      expect(batches).toBe(16);
+      const audits = await db
+        .select({ value: sql<number>`count(*)::int` })
+        .from(auditLog)
+        .where(eq(auditLog.action, "archive.item.deleted"));
+      expect(audits[0]?.value).toBe(10_000);
+    } finally {
+      await db.$client.end();
+    }
+  }, 300_000);
 });

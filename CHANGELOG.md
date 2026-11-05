@@ -600,6 +600,14 @@ private repository.
   check now include them, each written with the item's retention (records of items deleted
   after their retention are left out), and removing an old location is refused while it holds
   a record no current target has. The copy dialog lists "Sealed archive records".
+- Mail archive: the deletion run after the retention period read the legal holds and every
+  due item of a tenant once (a whole capture year under the default "end of year" rule) and
+  then deleted item by item. A legal hold placed while it ran did not stop it for the items it
+  had not reached yet, the list of all due items sat in the worker's memory, and a cancelled
+  job did not stop. The run now reads the due items in batches of 500 in retention order (an
+  index, migration 0081), checks the legal hold inside the delete statement itself and writes
+  the audit entries in the same transaction, and stops between batches when the job is
+  cancelled.
 - Old images filled the disk: neither the updater nor the demo reset ever removed the images of
   earlier releases, the updater only refused an update when the space was short. A demo host
   that followed the releases had 25 GB of images (half of them unused) and 3.7 GB of build cache,
