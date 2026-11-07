@@ -881,7 +881,13 @@ export function hasControlCharacters(value: string): boolean {
 const PROBLEM_KEYS: Readonly<Record<string, string>> = {
   "urn:restow:problem:restic-busy": "endpoints:errors.resticBusy",
   "urn:restow:problem:endpoint-repository-locked": "endpoints:errors.repositoryLocked",
+  // Before 0.5.0 the type of the three causes below; still worded for an older server.
   "urn:restow:problem:endpoint-repository-unavailable": "endpoints:errors.repositoryUnavailable",
+  "urn:restow:problem:endpoint-repository-not-found": "endpoints:errors.repositoryNotFound",
+  "urn:restow:problem:endpoint-repository-password-rejected":
+    "endpoints:errors.repositoryPasswordRejected",
+  "urn:restow:problem:endpoint-repository-password-missing":
+    "endpoints:errors.repositoryPasswordMissing",
   "urn:restow:problem:restic-failed": "endpoints:errors.resticFailed",
   "urn:restow:problem:restic-unavailable": "endpoints:errors.resticUnavailable",
   "urn:restow:problem:unsupported-os": "endpoints:errors.unsupportedOs",

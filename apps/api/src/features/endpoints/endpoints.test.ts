@@ -1256,8 +1256,16 @@ describe("restic failures become problems an admin can act on", () => {
       status: 503,
       type: "urn:restow:problem:endpoint-repository-locked",
     });
-    expect(resticProblem(error("no_repository"))).toMatchObject({ status: 409 });
-    expect(resticProblem(error("wrong_password"))).toMatchObject({ status: 500 });
+    expect(resticProblem(error("no_repository"))).toMatchObject({
+      status: 409,
+      type: "urn:restow:problem:endpoint-repository-not-found",
+      extensions: { category: "urn:restow:problem:endpoint-repository-unavailable" },
+    });
+    expect(resticProblem(error("wrong_password"))).toMatchObject({
+      status: 500,
+      type: "urn:restow:problem:endpoint-repository-password-rejected",
+      extensions: { category: "urn:restow:problem:endpoint-repository-unavailable" },
+    });
     expect(resticProblem(error("other"))).toMatchObject({
       status: 502,
       type: "urn:restow:problem:restic-failed",

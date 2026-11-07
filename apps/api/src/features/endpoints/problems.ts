@@ -41,8 +41,18 @@ export const ENDPOINT_PROBLEMS = {
   invalidCursor: "urn:restow:problem:endpoint-invalid-cursor",
   /** 503: the repository is locked by a running backup or maintenance job. */
   repositoryLocked: "urn:restow:problem:endpoint-repository-locked",
-  /** 409 or 500: the repository, or its password, is not available. */
+  /**
+   * Before 0.5.0 the type of all three causes below. Since then no answer carries it as `type`:
+   * each cause has a type of its own, and carries this one as `category` (an RFC 7807 extension
+   * member), so a client that matched it can match `category` instead.
+   */
   repositoryUnavailable: "urn:restow:problem:endpoint-repository-unavailable",
+  /** 409: no storage target of the tenant (nor the installation default) holds the repository. */
+  repositoryNotFound: "urn:restow:problem:endpoint-repository-not-found",
+  /** 500: the stored password does not open the repository. */
+  repositoryPasswordRejected: "urn:restow:problem:endpoint-repository-password-rejected",
+  /** 409: the machine has no stored repository password (never stored, or deleted). */
+  repositoryPasswordMissing: "urn:restow:problem:endpoint-repository-password-missing",
   /** 502: restic failed in a way with no more specific type. */
   resticFailed: "urn:restow:problem:restic-failed",
   /** 503: the restic binary is missing on the server. */

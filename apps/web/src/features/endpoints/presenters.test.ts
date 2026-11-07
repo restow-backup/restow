@@ -683,6 +683,15 @@ describe("problems", () => {
   it("words every problem of the endpoint API by its type, never by its title", () => {
     const keys: Record<string, string> = {
       "urn:restow:problem:endpoint-revoked": "endpoints:errors.revoked",
+      // Each cause of an unreadable repository has a text with its own next step; the type of
+      // releases before 0.5.0 keeps its general one.
+      "urn:restow:problem:endpoint-repository-not-found": "endpoints:errors.repositoryNotFound",
+      "urn:restow:problem:endpoint-repository-password-rejected":
+        "endpoints:errors.repositoryPasswordRejected",
+      "urn:restow:problem:endpoint-repository-password-missing":
+        "endpoints:errors.repositoryPasswordMissing",
+      "urn:restow:problem:endpoint-repository-unavailable":
+        "endpoints:errors.repositoryUnavailable",
       "urn:restow:problem:endpoint-nothing-to-test": "endpoints:errors.nothingToTest",
       "urn:restow:problem:endpoint-no-samples": "endpoints:errors.noSamples",
       "urn:restow:problem:endpoint-instance-unknown": "endpoints:errors.instanceUnknown",

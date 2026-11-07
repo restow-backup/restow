@@ -479,6 +479,13 @@ private repository.
 
 ### Changed
 
+- Machines and File restore: when the restore points of a machine cannot be read, the message
+  now says which of three causes it is and what to do next: the repository is on no storage
+  target of the tenant, the stored password does not open it, or no password is stored. The API
+  answers with `endpoint-repository-not-found` (409), `endpoint-repository-password-rejected`
+  (500) or `endpoint-repository-password-missing` (409) instead of the shared
+  `endpoint-repository-unavailable`, which each of them carries as `category` for clients that
+  matched it (docs/AGENT.md, "Problem types").
 - The bell always shows the critical events and failed deliveries: its column can no longer
   switch them off (a column saved earlier keeps everything else as it was).
 - The weekly report of the tenants' notification recipients covers the calendar week (Monday

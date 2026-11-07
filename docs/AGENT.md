@@ -1251,7 +1251,10 @@ hier.
 | `endpoint-download-too-large` | 413 | Die Auswahl eines Downloads ist zu groß (Body über 4 MiB). |
 | `endpoint-invalid-cursor` | 400 | Der Cursor einer Ordnerseite stammt nicht vom Server. |
 | `endpoint-repository-locked` | 503 | Das Repository ist durch eine Sicherung oder Wartung gesperrt, später erneut versuchen. |
-| `endpoint-repository-unavailable` | 409 oder 500 | Das Repository oder sein Passwort ist nicht verfügbar. |
+| `endpoint-repository-not-found` | 409 | Kein Speicherziel des Mandanten (und auch nicht der Standardspeicher der Installation) enthält das Repository des Rechners. |
+| `endpoint-repository-password-rejected` | 500 | Das gespeicherte Passwort öffnet das Repository nicht. |
+| `endpoint-repository-password-missing` | 409 | Für den Rechner ist kein Repository-Passwort gespeichert. |
+| `endpoint-repository-unavailable` | 409 oder 500 | Bis 0.4.x der gemeinsame Typ der drei Fälle darüber. Seit 0.5.0 trägt keine Antwort ihn mehr als `type`; jede der drei trägt ihn als Erweiterungsfeld `category`, sodass ein Client, der auf ihn prüfte, stattdessen `category` prüfen kann. |
 | `restic-busy` | 429 | Zu viele Snapshot-Lesevorgänge gleichzeitig (6 insgesamt, 3 je Mandant). |
 | `restic-failed` | 502 | restic ist auf eine Weise gescheitert, die keinen eigenen Typ hat. |
 | `restic-unavailable` | 503 | Das restic-Binary fehlt auf dem Server. |
