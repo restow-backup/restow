@@ -102,6 +102,19 @@ function text(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
+/**
+ * The object with its service (0.5.0), "OneDrive · msp@contoso.example": a person's mailbox and
+ * OneDrive share the person's name. The bare name for a kind without a label.
+ */
+function serviceTarget(
+  i18n: ReturnType<typeof createI18n>,
+  name: string,
+  kind: string | null | undefined,
+): string {
+  const key = kind ? `verify:kind.${kind}` : null;
+  return key && i18n.exists(key) ? `${String(i18n.t(key))} · ${name}` : name;
+}
+
 function formatWhen(iso: string | null, language: SupportedLanguage): string | null {
   if (!iso) return null;
   const date = new Date(iso);
@@ -336,11 +349,8 @@ export function renderAlert(input: AlertInput): RenderedMessage {
           : event;
   // The service named with the object (0.5.0): a person's mailbox and OneDrive share a name.
   const objectName = text(details.objectName);
-  const kindKey = text(details.objectKind) ? `verify:kind.${details.objectKind as string}` : null;
   const target = objectName
-    ? kindKey && i18n.exists(kindKey)
-      ? `${t(kindKey)} · ${objectName}`
-      : objectName
+    ? serviceTarget(i18n, objectName, text(details.objectKind))
     : text(details.queue)
       ? t(`reports:queues.${details.queue as string}`)
       : input.tenantName;
@@ -647,6 +657,11 @@ export interface DigestItem {
   readonly occurredAt: string | null;
   /** What it is about (object, queue), as the alert mail names it. */
   readonly target: string | null;
+  /**
+   * What kind of protected object `target` is (`details.objectKind`, 0.5.0): the line names the
+   * service with it, as the alert mail does. Absent for a queue or another target.
+   */
+  readonly objectKind?: string | null;
 }
 
 export interface DigestInput {
@@ -706,7 +721,7 @@ export function renderDigest(input: DigestInput): RenderedMessage {
       lines.push({
         label: `${t(`reports:digest.level.${item.level}`)}: ${label}`,
         when: when ? `${when} UTC` : "",
-        target: item.target ?? "",
+        target: item.target ? serviceTarget(i18n, item.target, item.objectKind) : "",
       });
       shown++;
     }

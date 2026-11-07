@@ -248,6 +248,40 @@ describe("buildChatMessage", () => {
     expect(red.fields).toContainEqual({ name: "Gründe", value: "mismatch" });
   });
 
+  it("names the service with the object of a check or a job (0.5.0)", () => {
+    const check = buildChatMessage(
+      "verify.completed",
+      envelope("verify.completed", {
+        reportId: "rep-1",
+        readiness: "yellow",
+        objectName: "msp@contoso.example",
+        objectKind: "onedrive",
+        reasons: [],
+      }),
+      DE,
+    );
+    expect(check.title).toContain("OneDrive · msp@contoso.example");
+    expect(check.fields).toContainEqual({
+      name: "Betrifft",
+      value: "OneDrive · msp@contoso.example",
+    });
+    const job = buildChatMessage(
+      "job.failed",
+      envelope("job.failed", {
+        job: { id: "j-1", queue: "backup.mail", status: "failed", errorMessage: "quota" },
+      }),
+      { ...EN, objectKind: "mailbox" },
+    );
+    expect(job.title).toContain("Mailbox · anna@contoso.example");
+    // Without a kind, or with one it has no label for, the bare name as before.
+    const bare = buildChatMessage(
+      "job.failed",
+      envelope("job.failed", { job: { id: "j-1", queue: "backup.mail", status: "failed" } }),
+      { ...EN, objectKind: "something-new" },
+    );
+    expect(bare.title).toContain(": anna@contoso.example");
+  });
+
   it("builds the test message with a link to the webhook", () => {
     const msg = buildChatMessage(
       "webhook.test",

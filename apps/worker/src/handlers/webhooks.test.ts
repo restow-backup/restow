@@ -1456,6 +1456,7 @@ describe.skipIf(!adminUrl)("webhook deliveries against Postgres", () => {
         tenantName: "Contoso",
         publicUrl: "https://backup.example.com",
         objectName: null,
+        objectKind: null,
         brand: null,
       });
       const sent: WebhookHttpRequest[] = [];

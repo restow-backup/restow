@@ -1194,7 +1194,7 @@ function jobObjectId(payload: Record<string, unknown>): string | null {
 /**
  * Postgres source: the tenant's name and language (the installation default
  * when it has none, like the alert mails), the public URL from Settings (else
- * RESTOW_PUBLIC_URL) and the protected object's name. Reads run on the
+ * RESTOW_PUBLIC_URL) and the protected object's name and kind. Reads run on the
  * dispatcher's installation pool, the tenant's rows tenant-pinned.
  */
 export function pgChatContextSource(
@@ -1208,31 +1208,38 @@ export function pgChatContextSource(
       .from(settings)
       .limit(1);
     const objectId = jobObjectId(delivery.payload);
-    const { tenant, objectName } = await withTenantTx(db, delivery.tenantId, async (tx) => {
-      const [row] = await tx
-        .select({ name: tenants.name, language: tenants.language })
-        .from(tenants)
-        .where(eq(tenants.id, delivery.tenantId))
-        .limit(1);
-      let name: string | null = null;
-      if (objectId) {
-        const [object] = await tx
-          .select({
-            displayName: protectedObjects.displayName,
-            externalId: protectedObjects.externalId,
-          })
-          .from(protectedObjects)
-          .where(
-            and(
-              eq(protectedObjects.tenantId, delivery.tenantId),
-              eq(protectedObjects.id, objectId),
-            ),
-          )
+    const { tenant, objectName, objectKind } = await withTenantTx(
+      db,
+      delivery.tenantId,
+      async (tx) => {
+        const [row] = await tx
+          .select({ name: tenants.name, language: tenants.language })
+          .from(tenants)
+          .where(eq(tenants.id, delivery.tenantId))
           .limit(1);
-        name = object ? object.displayName?.trim() || object.externalId : null;
-      }
-      return { tenant: row ?? null, objectName: name };
-    });
+        let name: string | null = null;
+        let kind: string | null = null;
+        if (objectId) {
+          const [object] = await tx
+            .select({
+              displayName: protectedObjects.displayName,
+              externalId: protectedObjects.externalId,
+              kind: protectedObjects.kind,
+            })
+            .from(protectedObjects)
+            .where(
+              and(
+                eq(protectedObjects.tenantId, delivery.tenantId),
+                eq(protectedObjects.id, objectId),
+              ),
+            )
+            .limit(1);
+          name = object ? object.displayName?.trim() || object.externalId : null;
+          kind = object?.kind ?? null;
+        }
+        return { tenant: row ?? null, objectName: name, objectKind: kind };
+      },
+    );
     const language: SupportedLanguage = tenant?.language ?? defaultLanguage;
     const publicUrl = originOf(installation?.publicUrl) ?? originOf(env.RESTOW_PUBLIC_URL);
     return {
@@ -1240,6 +1247,7 @@ export function pgChatContextSource(
       tenantName: tenant?.name ?? delivery.tenantId,
       publicUrl,
       objectName,
+      objectKind,
       brand: await loadChatBrand(db, delivery.tenantId, gate, publicUrl),
     };
   };

@@ -82,6 +82,8 @@ export interface ChatContext {
   publicUrl: string | null;
   /** Display name of the protected object a job event names, when there is one. */
   objectName: string | null;
+  /** What that object is (mailbox, onedrive ...): the message names the service (0.5.0). */
+  objectKind?: string | null;
   /** The effective brand of the tenant (0.5.0); null or absent: the product name. */
   brand?: ChatBrand | null;
 }
@@ -194,6 +196,20 @@ function readEnvelope(event: string, payload: Record<string, unknown>): Envelope
 }
 
 /** The label of a job queue (`backup`, `endpoint_backup`, ...); unknown ones read "Job". */
+/**
+ * The object with its service (0.5.0), "OneDrive · msp@contoso.example", as the alert mails and
+ * the bell name it: a person's mailbox and OneDrive share the person's name.
+ */
+function serviceTarget(
+  t: Translate,
+  exists: (key: string) => boolean,
+  name: string,
+  kind: string | null | undefined,
+): string {
+  const key = kind ? `verify:kind.${kind}` : null;
+  return key && exists(key) ? `${t(key)} · ${name}` : name;
+}
+
 function jobLabel(t: Translate, exists: (key: string) => boolean, queue: string | null): string {
   const key = `notifications:chat.jobs.${queue ?? ""}`;
   return queue && exists(key) ? t(key) : t("notifications:chat.jobs.other");
@@ -316,7 +332,9 @@ export function buildChatMessage(
         str(endpoint.displayName) ??
         str(endpoint.hostname) ??
         str(fileShare.name) ??
-        context.objectName ??
+        (context.objectName
+          ? serviceTarget(t, exists, context.objectName, context.objectKind)
+          : null) ??
         tenant;
       const label = jobLabel(t, exists, str(job.queue));
       const fields: ChatField[] = [
@@ -364,7 +382,10 @@ export function buildChatMessage(
     case "verify.completed": {
       const readiness =
         data.readiness === "green" || data.readiness === "yellow" ? data.readiness : "red";
-      const target = str(data.objectName) ?? context.objectName ?? tenant;
+      const objectName = str(data.objectName) ?? context.objectName;
+      const target = objectName
+        ? serviceTarget(t, exists, objectName, str(data.objectKind) ?? context.objectKind)
+        : tenant;
       const reasons = Array.isArray(data.reasons)
         ? data.reasons.filter((reason): reason is string => typeof reason === "string")
         : [];

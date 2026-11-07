@@ -54,6 +54,9 @@ async function tenantNameOf(providerDb: DbExecutor, tenantId: string | undefined
   return row.name;
 }
 
+/** The person the samples name, with the service: "Mailbox · anna@contoso.example" (0.5.0). */
+const SAMPLE_PERSON = "anna@contoso.example";
+
 /** A sample message of `kind` in `brand`. */
 export function sampleMessage(
   kind: (typeof PREVIEW_KINDS)[number],
@@ -73,8 +76,22 @@ export function sampleMessage(
       windowStart: new Date(now.getTime() - 24 * 60 * 60_000).toISOString(),
       windowEnd: occurredAt,
       items: [
-        { tenantName, event: "backup.failed", level: "error", occurredAt, target: "Mailbox" },
-        { tenantName, event: "backup.overdue", level: "warning", occurredAt, target: "OneDrive" },
+        {
+          tenantName,
+          event: "backup.failed",
+          level: "error",
+          occurredAt,
+          target: SAMPLE_PERSON,
+          objectKind: "mailbox",
+        },
+        {
+          tenantName,
+          event: "backup.overdue",
+          level: "warning",
+          occurredAt,
+          target: SAMPLE_PERSON,
+          objectKind: "onedrive",
+        },
       ],
       brand,
       test,
@@ -107,7 +124,7 @@ export function sampleMessage(
       event: "backup.failed",
       level: "error",
       occurredAt,
-      details: { objectName: "Mailbox", errorMessage: "Sample error" },
+      details: { objectName: SAMPLE_PERSON, objectKind: "mailbox", errorMessage: "Sample error" },
     },
     brand,
     test,

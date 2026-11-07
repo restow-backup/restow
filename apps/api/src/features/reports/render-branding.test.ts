@@ -178,6 +178,26 @@ describe("renderDigest", () => {
     expect(digest.text).not.toContain(`Object ${DIGEST_MAX_LINES}`);
   });
 
+  it("names the service with the object, as the alert mail does (0.5.0)", () => {
+    const digest = renderDigest({
+      language: "de",
+      audience: "tenant",
+      tenantName: "Contoso",
+      window: "daily",
+      windowStart: null,
+      windowEnd: "2026-09-30T07:00:00.000Z",
+      items: [
+        item({ target: "msp@contoso.example", objectKind: "onedrive" }),
+        item({ target: "msp@contoso.example", objectKind: "mailbox", level: "warning" }),
+        item({ target: "Contoso", objectKind: "something-new", level: "info" }),
+      ],
+    });
+    expect(digest.text).toContain("OneDrive · msp@contoso.example");
+    expect(digest.text).toContain("Postfach · msp@contoso.example");
+    expect(digest.html).toContain("Postfach · msp@contoso.example");
+    expect(digest.text).not.toContain("something-new");
+  });
+
   it("carries the brand", () => {
     const digest = renderDigest({
       language: "en",

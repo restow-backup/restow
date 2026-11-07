@@ -620,16 +620,16 @@ function digestItem(delivery: ReportDelivery, tenantName: string | null): Digest
   const payload = delivery.payload ?? {};
   const details = (payload.details ?? {}) as Record<string, unknown>;
   const level = payload.level === "error" || payload.level === "warning" ? payload.level : "info";
-  const target =
-    (typeof details.objectName === "string" && details.objectName.trim()) ||
-    (typeof details.queue === "string" && details.queue.trim()) ||
-    null;
+  const objectName = (typeof details.objectName === "string" && details.objectName.trim()) || null;
+  const target = objectName || (typeof details.queue === "string" && details.queue.trim()) || null;
   return {
     tenantName,
     event: typeof delivery.event === "string" ? delivery.event : String(payload.event ?? ""),
     level,
     occurredAt: typeof payload.occurredAt === "string" ? payload.occurredAt : null,
     target,
+    // The service named with the object (0.5.0), as in the alert mail.
+    objectKind: objectName && typeof details.objectKind === "string" ? details.objectKind : null,
   };
 }
 

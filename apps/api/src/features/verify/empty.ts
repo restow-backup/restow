@@ -101,15 +101,19 @@ export function restsOnSourceEmpty(
   );
 }
 
+/** What the empty rule reads of a report: its stored reasons and where it came from. */
+export type EmptyRatedReport = Pick<ReportFact, "origin"> & { readonly reasons?: unknown };
+
 /**
  * Why the object reads "empty" now, or null when it does not: `source` when the report that
  * rates it says "empty by Microsoft 365 and by the backup" and nothing else, `admin` when an
  * admin's confirmation counts for it ({@link confirmationApplies}). A storage finding never
- * reads "empty".
+ * reads "empty". The statistics and the reports built from them (stats/readiness.ts) ask the
+ * same, with a confirmation only from the moment it was given.
  */
 export function emptyStateOf(
-  report: Pick<ReportFact, "reasons" | "origin"> | null | undefined,
-  confirmation: EmptyConfirmationDto | null | undefined,
+  report: EmptyRatedReport | null | undefined,
+  confirmation: Pick<EmptyConfirmationDto, "confirmedAt"> | null | undefined,
   withoutAge: boolean,
 ): "source" | "admin" | null {
   if (!report || report.origin === "scrub") {
@@ -123,8 +127,8 @@ export function emptyStateOf(
 
 /** Whether a stored confirmation counts for the report that rates the object now. */
 export function confirmationApplies(
-  confirmation: EmptyConfirmationDto | null | undefined,
-  report: Pick<ReportFact, "reasons" | "origin"> | null | undefined,
+  confirmation: Pick<EmptyConfirmationDto, "confirmedAt"> | null | undefined,
+  report: EmptyRatedReport | null | undefined,
   withoutAge: boolean,
 ): boolean {
   if (!confirmation || !report || report.origin === "scrub") {

@@ -86,6 +86,7 @@ import {
   useTestRule,
   useUpdateRule,
 } from "./hooks";
+import { notificationObject } from "./notification-item";
 import { reportsTo } from "./paths";
 import { channelSummary, failureReasonKey, presetOf, REPORTS_ROLES } from "./presenters";
 import { reportErrorMessage } from "./report-errors";
@@ -737,6 +738,13 @@ function DeliveryLog({ allTenants }: { allTenants: boolean }) {
               {rows.map((row) => {
                 const tenantId = row.tenant?.id;
                 const path = allTenants ? null : subjectPath(row);
+                // The service named with the object (0.5.0), as in the bell and the mails.
+                const target = row.target
+                  ? notificationObject(
+                      { details: { objectName: row.target, objectKind: row.targetKind } },
+                      t,
+                    )
+                  : null;
                 return (
                   <TableRow key={row.id} data-delivery={row.id}>
                     <TableCell pin={PIN_FIRST} className="whitespace-nowrap">
@@ -794,17 +802,17 @@ function DeliveryLog({ allTenants }: { allTenants: boolean }) {
                             ? t(`events.${row.event}`)
                             : "–"}
                       </span>
-                      {row.target ? (
+                      {target ? (
                         path ? (
                           <Link
                             to={path as never}
                             className="block truncate text-xs text-primary hover:underline"
                           >
-                            {row.target}
+                            {target}
                           </Link>
                         ) : (
                           <span className="block truncate text-xs text-muted-foreground">
-                            {row.target}
+                            {target}
                           </span>
                         )
                       ) : null}

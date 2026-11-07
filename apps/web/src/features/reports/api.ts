@@ -201,6 +201,8 @@ export interface ReportDelivery {
   createdAt: string;
   sentAt: string | null;
   target: string | null;
+  /** What kind of protected object `target` is (0.5.0; absent from an older server). */
+  targetKind?: string | null;
   /** What the alert is about, for links: the protected object, the machine, the run. */
   subject?: {
     objectId: string | null;

@@ -24,6 +24,7 @@ import {
 } from "@restow/db";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
 import { listProtectedObjects, objectsQuerySchema } from "../../routes/v1/objects.js";
 import { listDirectoryUsers, usersQuerySchema } from "../../routes/v1/users.js";
@@ -35,6 +36,10 @@ import {
   recreateDatabase,
   testDatabaseAdminUrl,
 } from "../snapshots/testing/explorer-fixture.js";
+import { aggregateTenant } from "../stats/aggregate.js";
+import { buildStats } from "../stats/build.js";
+import { collectTenantFacts } from "../stats/collect.js";
+import { resolvePeriod } from "../stats/period.js";
 import {
   confirmEmpty,
   EMPTY_AUDIT_ACTIONS,
@@ -468,6 +473,20 @@ describe.skipIf(!testDatabaseAdminUrl)("confirm as empty against Postgres", () =
         ACTOR,
       );
       expect(filtered).toEqual({ confirmed: [], skipped: [] });
+    });
+
+    it("counts green, not needing attention, in the statistics the reports are built from", async () => {
+      // The summary reports, the provider's report and the customer monthly report read these
+      // figures (ee/api reports): a source-proven empty OneDrive must not count as yellow there.
+      const period = resolvePeriod({ from: "2026-11-03", to: "2026-11-09" }, NOW);
+      const facts = await withTenantTx(db, northwind.tenantId, (tx) =>
+        collectTenantFacts(tx, { id: northwind.tenantId, name: "northwind" }, period),
+      );
+      const aggregate = aggregateTenant(facts, period, "tenant");
+      expect(aggregate.readinessEnd).toEqual({ green: 1, yellow: 0, red: 0, unverified: 0 });
+      expect(aggregate.overallEnd).toBe("green");
+      const stats = buildStats({ period, scope: "tenant", tenants: [aggregate], generatedAt: NOW });
+      expect(stats.kpis.verifiedShare.value).toBe(1);
     });
 
     it("reads empty in the restore explorer and the directory too", async () => {

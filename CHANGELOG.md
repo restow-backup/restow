@@ -462,9 +462,13 @@ private repository.
   person's entry in the restore explorer shows one rating per service ("Mailbox: Ready",
   "OneDrive: Empty") instead of one merged badge, and the bell, the alert mails and the stored
   alert texts of restore checks, finished jobs and overdue backups say "OneDrive · …" or
-  "Mailbox · …" (`details.objectKind` on job and overdue alerts as well). The check report shows
-  what Microsoft 365 reported under "Reported by Microsoft 365". The state "empty" now reads
-  "Empty" ("Leer"), since it is no longer only a confirmation.
+  "Mailbox · …" (`details.objectKind` on job and overdue alerts as well), and so do the lines of a
+  digest mail, the Teams, Slack and Discord messages of finished jobs and restore checks, the
+  delivery log (`targetKind`, additive) and the samples of the branding preview. The statistics
+  behind the summary reports, the provider's report and the customer monthly report rate an
+  empty object by the same rule as the readiness page: green, never needing attention. The check
+  report shows what Microsoft 365 reported under "Reported by Microsoft 365". The state "empty"
+  now reads "Empty" ("Leer"), since it is no longer only a confirmation.
 - Proxmox VE inventory (#58): a guest's row says how large its first backup was and when
   ("First backup: 32 GB on 3 Oct"), what the last follow-up added ("Last follow-up: +210 MB", or
   "No follow-up backup yet") and the average follow-up ("Average follow-up: +180 MB (last 7

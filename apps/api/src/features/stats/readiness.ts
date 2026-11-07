@@ -5,7 +5,7 @@ import {
   worstReadiness,
 } from "@restow/core";
 import { parseReasons } from "../verify/details.js";
-import { restsOnEmpty, restsOnSourceEmpty } from "../verify/empty.js";
+import { emptyStateOf } from "../verify/empty.js";
 import {
   isOverdue,
   type ObjectState,
@@ -57,8 +57,11 @@ import type {
  *
  * An object an admin confirmed as empty (verify/empty.ts) is `empty` from the moment of the
  * confirmation while the check that rates it still finds nothing but "empty", as on the
- * readiness page: never overdue, never needing attention. The counts have no column for it, so
- * it is counted with green (nothing about it needs attention, and there is nothing to lose).
+ * readiness page: never overdue, never needing attention. So is an object empty according to
+ * Microsoft 365 and to the backup (0.5.0, `snapshot_empty_confirmed_by_source`), from the check
+ * that says so, without a confirmation. The counts have no column for it, so it is counted with
+ * green (nothing about it needs attention, and there is nothing to lose). The summary reports,
+ * the provider's report and the customer monthly report read these counts (ee/api reports).
  */
 
 export interface ReadinessCounts {
@@ -261,14 +264,17 @@ export class ReadinessTimeline {
       const unaged = retained || withoutJob;
       const report = verification.report;
       const confirmedAt = object.emptyConfirmedAt ?? null;
-      // Confirmed as empty by then, or empty by Microsoft 365 as well (0.5.0, verify/empty.ts).
+      // Confirmed as empty by then, or empty by Microsoft 365 as well (0.5.0): the rule of the
+      // readiness page (verify/empty.ts emptyStateOf), so the summary and customer reports and
+      // the provider's report never count an object it reads "empty" as needing attention.
       const empty =
-        report !== null &&
-        !isStorageFinding(report) &&
-        (restsOnSourceEmpty(parseReasons(report.reasons), unaged) ||
-          (confirmedAt !== null &&
-            confirmedAt.getTime() < moment.getTime() &&
-            restsOnEmpty(parseReasons(report.reasons), unaged)));
+        emptyStateOf(
+          report,
+          confirmedAt !== null && confirmedAt.getTime() < moment.getTime()
+            ? { confirmedAt: confirmedAt.toISOString() }
+            : null,
+          unaged,
+        ) !== null;
       const checkedState: ObjectState = empty
         ? "empty"
         : unaged && report

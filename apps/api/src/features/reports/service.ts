@@ -138,6 +138,11 @@ export interface ReportDeliveryDto {
   sentAt: string | null;
   /** Object or queue the alert is about, when known. */
   target: string | null;
+  /**
+   * What kind of protected object `target` is (`details.objectKind`, 0.5.0), so the log names
+   * the service with it ("OneDrive · …"); null for a queue or an older alert.
+   */
+  targetKind: string | null;
   /** What the alert is about, for a link: the protected object, the machine, the run. */
   subject: DeliverySubjectDto;
   /**
@@ -262,6 +267,10 @@ export function toDeliveryDto(
       : typeof details.queue === "string"
         ? details.queue
         : null;
+  const targetKind =
+    typeof details.objectName === "string" && typeof details.objectKind === "string"
+      ? details.objectKind
+      : null;
   const status = deliveryStatusOf(row, hook);
   return {
     id: row.id,
@@ -277,6 +286,7 @@ export function toDeliveryDto(
     createdAt: row.createdAt.toISOString(),
     sentAt: hook ? iso(hook.deliveredAt) : iso(row.sentAt),
     target,
+    targetKind,
     subject: {
       objectId: stringOr(details.protectedObjectId),
       endpointId: stringOr(details.endpointId),
