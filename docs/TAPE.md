@@ -1,9 +1,14 @@
 # LTO-Bandlaufwerke (Entwurf, Roadmap nach 0.5.0)
 
-Stand: Planung, nichts davon ist umgesetzt. Entscheidung des Maintainers (November 2026): Band
-kommt auf die Roadmap, wenn es sinnvoll machbar ist, und **nur für vollständige Tages-, Wochen-,
-Monats- und Jahressicherungen**. Dieses Dokument hält fest, wie das gebaut würde und was vorher zu
-klären ist.
+Stand: Planung, nichts davon ist umgesetzt. Entscheidungen des Maintainers (November 2026):
+
+- Band kommt auf die Roadmap, wenn es sinnvoll machbar ist, **frühestens für 0.7**, und **nur für
+  vollständige Tages-, Wochen-, Monats- und Jahressicherungen**.
+- **Ab LTO-8**, ältere Generationen werden nicht unterstützt (keine Altlasten).
+- **Mail** (Postfächer, M365, Mail-Archiv) kommt auf Band, wenn der Admin es im Band-Job wählt.
+- Je Band-Job wählbar: **ein Satz je Mandant oder Mandanten kombiniert**.
+
+Dieses Dokument hält fest, wie das gebaut würde und was vorher zu klären ist.
 
 ## 0. Kurzfassung
 
@@ -56,9 +61,21 @@ klären ist.
 
 ## 3. Hardware
 
-- **Laufwerke:** LTO-6 bis LTO-9 (und neuer), Einzellaufwerk oder Wechsler (Autoloader, Library).
-  Native Kapazität und Rate grob: LTO-7 6 TB / 300 MB/s, LTO-8 12 TB / 360 MB/s, LTO-9 18 TB /
-  400 MB/s.
+- **Laufwerke:** ab LTO-8, Einzellaufwerk oder Wechsler (Autoloader, Library). Native Kapazität
+  und Rate grob: LTO-8 12 TB / 360 MB/s, LTO-9 18 TB / 400 MB/s, LTO-10 30 TB (Herstellerangabe,
+  vor der Umsetzung prüfen).
+- **Kompatibilität zwischen Generationen** (vor der Umsetzung mit Datenblättern bestätigen):
+  - Seit LTO-8 liest ein Laufwerk nur noch **eine** Generation zurück, nicht mehr zwei: LTO-8
+    liest und schreibt LTO-7, LTO-9 liest und schreibt LTO-8.
+  - LTO-10 ist nach Herstellerangaben gar nicht rückwärtskompatibel: Es nimmt nur LTO-10-Bänder.
+  - LTO-9 kalibriert ein neues Band beim ersten Einlegen (Medienoptimierung, je Band von einigen
+    Minuten bis über eine Stunde). Der Band-Job muss das einplanen und darf es nicht als Hänger
+    werten.
+  - Folge: Restow verlässt sich nicht auf Rückwärtskompatibilität. Unterstützt werden Laufwerke
+    und Bänder ab LTO-8 (LTO-7-Bänder im LTO-8-Laufwerk nicht). Für Jahressätze, die länger
+    liegen als eine Laufwerksgeneration lebt, gibt es eine **Umkopier-Funktion**: Sätze werden
+    vom alten Band über den Zwischenspeicher auf neue Medien geschrieben, geprüft und das alte
+    Band erst danach freigegeben.
 - **Anschluss:** SAS (selten FC). Ein SAS-HBA im IT-Modus, kein RAID-Controller.
 - **Wechsler:** über SCSI Media Changer; Barcode-Leser für die Inventur.
 - **WORM:** LTO-WORM-Kassetten werden unterstützt (einmal beschreibbar).
@@ -95,8 +112,10 @@ klären ist.
 
 ## 6. Datenfluss eines Band-Jobs
 
-1. **Auswahl:** Der Job nennt die Objekte (Rechner, VMs, Container, Dateifreigaben, optional
-   Postfächer und Archiv) und nimmt je Objekt den neuesten grünen Stand zum Stichzeitpunkt.
+1. **Auswahl:** Der Job nennt die Objekte (Rechner, VMs, Container, Dateifreigaben; Postfächer,
+   M365 und Mail-Archiv, wenn der Admin sie im Job wählt) und nimmt je Objekt den neuesten
+   grünen Stand zum Stichzeitpunkt. Der Job legt fest, ob je Mandant ein eigener Satz entsteht
+   oder die Mandanten in einem Satz kombiniert werden (siehe 7).
 2. **Zusammenstellen:** `restic copy` der gewählten Stände in ein **neues, leeres Repository** im
    Zwischenspeicher des Bandknotens, mit eigenem Passwort. Die Repositories der Objekte bleiben
    unverändert.
@@ -126,6 +145,14 @@ warnt der Job im Bericht.
   Mandantenschlüssel heute). Wer den Master-Key hat, kann den Satz öffnen; wer nur das Band hat,
   nicht.
 - **Abschluss-Etikett:** Prüfsumme über das Inhaltsverzeichnis, Anzahl Dateien und Bytes.
+- **Je Mandant oder kombiniert** (Einstellung im Band-Job):
+  - *Je Mandant:* ein Satz und ein Repository je Mandant, verpackt mit dem Schlüssel dieses
+    Mandanten. Ein Satz lässt sich einem Kunden mitgeben oder für ihn allein vernichten; mehr
+    Etiketten und Bandwechsel.
+  - *Kombiniert:* ein Satz mit einem Repository je Mandant hintereinander auf denselben Bändern.
+    Spart Bänder und Wechsel; ein Band trägt dann Daten mehrerer Kunden, das Inhaltsverzeichnis
+    nennt sie, und ein einzelner Kunde lässt sich nicht getrennt herausgeben oder vernichten.
+  - Mandanten werden auch kombiniert nie in ein gemeinsames Repository gemischt.
 - Ein Satz ohne gültiges Abschluss-Etikett gilt als unvollständig und wird nie als grün geführt.
 
 ## 8. Medienverwaltung
@@ -178,11 +205,13 @@ warnt der Job im Bericht.
 - **CI ohne Hardware:** virtuelle Bandbibliothek `mhvtl` (Linux, emuliert Laufwerke und
   Wechsler über `st` und `sg`) in einem eigenen CI-Job: Schreiben, Zurücklesen, Bandwechsel über
   mehrere Bänder, Wechsler-Inventur, Fehler beim Lesen, Wiederherstellung ohne Server.
-- **Echte Hardware vor der Freigabe:** mindestens eine Matrix aus zwei LTO-Generationen,
+- **Echte Hardware vor der Freigabe:** mindestens eine Matrix aus zwei LTO-Generationen ab LTO-8,
   Einzellaufwerk und Wechsler, Bare Metal und Proxmox-VM mit durchgereichtem HBA; Messung der
   Rate gegen das Minimum des Laufwerks.
 
 ## 13. Meilensteine (Vorschlag)
+
+Ziel-Release: frühestens 0.7.
 
 | T | Inhalt |
 | --- | --- |
@@ -194,8 +223,9 @@ warnt der Job im Bericht.
 
 ## 14. Offene Fragen an den Maintainer
 
-1. Welche LTO-Generationen und Wechsler sind bei Ihnen oder Ihren Kunden im Einsatz?
-2. Sollen Postfächer, M365 und das Mail-Archiv auch auf Band, oder nur Rechner, VMs, Container und
-   Dateifreigaben?
-3. Ein Satz je Mandant oder Mandanten gemischt auf einem Band (Speicherplatz gegen Trennung)?
-4. Edition: Band nur ab Business oder Service Provider?
+Entschieden (November 2026): ab LTO-8; Mail auf Wunsch des Admins; je Mandant oder kombiniert
+wählbar; frühestens 0.7. Noch offen:
+
+1. Edition: Band nur ab Business oder Service Provider?
+2. Testhardware: Für das Hardware-Gate (12) braucht es mindestens ein LTO-8- oder LTO-9-Laufwerk
+   mit SAS-HBA, besser auch einen kleinen Wechsler; heute ist keins im Einsatz.
