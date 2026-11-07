@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os/exec"
 	"path/filepath"
 	"syscall"
@@ -112,7 +113,20 @@ try {
 
 // runWMIQuery runs the fixed query with Windows PowerShell 5.1 from the
 // system folder, without a window and with a 30 second limit.
+//
+// -EncodedCommand, not "-Command -" with the script on stdin: PowerShell 5.1
+// reads stdin like the interactive console, so a statement over several
+// lines waits for an empty line and an open block at EOF is dropped without
+// output (PowerShell issue #3223). The query then wrote nothing, and domain
+// membership and BitLocker were missing on every machine. The Windows
+// integration test (wmi_windows_test.go) pins both behaviours.
 func runWMIQuery() ([]byte, error) {
+	return runPowerShell(nil, "-EncodedCommand", hooks.EncodePowerShell(wmiQuery))
+}
+
+// runPowerShell runs powershell.exe from the system folder with the fixed
+// options and args, stdin (nil: none) and keeps at most 256 KiB of stdout.
+func runPowerShell(stdin io.Reader, args ...string) ([]byte, error) {
 	sys, err := winapi.SystemDirectory()
 	if err != nil {
 		return nil, err
@@ -120,12 +134,11 @@ func runWMIQuery() ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	ps := filepath.Join(sys, "WindowsPowerShell", "v1.0", "powershell.exe")
-	// -EncodedCommand, not "-Command -": PowerShell 5.1 reads stdin like the
-	// interactive console, so a statement over several lines waits for an
-	// empty line and an open block at EOF is dropped without output.
-	cmd := exec.CommandContext(ctx, ps, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", hooks.EncodePowerShell(wmiQuery))
+	argv := append([]string{"-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass"}, args...)
+	cmd := exec.CommandContext(ctx, ps, argv...)
 	cmd.Env = procenv.Base()
 	cmd.Dir = sys
+	cmd.Stdin = stdin
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: winapi.CreateNoWindow}
 	var out bytes.Buffer
 	cmd.Stdout = &limited{w: &out, n: 256 << 10}

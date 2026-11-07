@@ -621,12 +621,14 @@ jobs:
             CGO_ENABLED=0 go test -count=1 ./...
           fi
 
-      - name: Windows integration tests (service, DPAPI, ACLs, Job Objects, hooks, junction sources)
+      - name: Windows integration tests (service, DPAPI, ACLs, Job Objects, hooks, junction sources, WMI facts)
         # docs/WINDOWS-AGENT.md, section 22.1. The hosted runner runs as an
         # administrator: the tests create and delete the service RestowAgentTest.
+        # ./internal/sysinfo/ runs the real WMI query of the machine facts
+        # (domain membership, BitLocker).
         if: steps.detect.outputs.present == 'true'
         working-directory: agent
-        run: go test -count=1 -tags windowsintegration ./internal/state/ ./internal/paths/ ./internal/hooks/ ./internal/svc/ ./internal/procctl/ ./internal/core/ ./internal/update/
+        run: go test -count=1 -tags windowsintegration ./internal/state/ ./internal/paths/ ./internal/hooks/ ./internal/svc/ ./internal/procctl/ ./internal/core/ ./internal/update/ ./internal/sysinfo/
 
       - name: Installer tests (Ed25519 against Go, SSHSIG, full run against the fake instance)
         # Windows PowerShell 5.1, the version every supported Windows has. The
