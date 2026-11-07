@@ -16,13 +16,16 @@ export function resticProblem(error: unknown): ProblemError {
         });
       case "no_repository":
         return new ProblemError(409, "Repository not found", {
-          type: ENDPOINT_PROBLEMS.repositoryUnavailable,
-          detail: "The repository of this endpoint was not found in the storage target.",
+          type: ENDPOINT_PROBLEMS.repositoryNotFound,
+          detail:
+            "The repository of this endpoint was not found on any storage target of the tenant.",
+          extensions: { category: ENDPOINT_PROBLEMS.repositoryUnavailable },
         });
       case "wrong_password":
         return new ProblemError(500, "Repository password rejected", {
-          type: ENDPOINT_PROBLEMS.repositoryUnavailable,
+          type: ENDPOINT_PROBLEMS.repositoryPasswordRejected,
           detail: "The stored password does not open the repository.",
+          extensions: { category: ENDPOINT_PROBLEMS.repositoryUnavailable },
         });
       default:
         return new ProblemError(502, "restic failed", {

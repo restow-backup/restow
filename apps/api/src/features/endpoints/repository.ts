@@ -126,6 +126,14 @@ export async function backendHolding(
   return targets.storage;
 }
 
+function passwordMissing(): ProblemError {
+  return new ProblemError(409, "Repository password missing", {
+    type: ENDPOINT_PROBLEMS.repositoryPasswordMissing,
+    detail: "The repository password of this endpoint is not stored.",
+    extensions: { category: ENDPOINT_PROBLEMS.repositoryUnavailable },
+  });
+}
+
 /** Everything restic needs to open an endpoint's repository (the password opened from the secret store). */
 export async function repositoryAccess(
   database: DbExecutor,
@@ -133,20 +141,14 @@ export async function repositoryAccess(
   options: { forWrite?: boolean } = {},
 ): Promise<RepositoryAccess> {
   if (!endpoint.repositorySecretId) {
-    throw new ProblemError(409, "Repository password missing", {
-      type: ENDPOINT_PROBLEMS.repositoryUnavailable,
-      detail: "The repository password of this endpoint is not available.",
-    });
+    throw passwordMissing();
   }
   const password = await readSecret(database, {
     id: endpoint.repositorySecretId,
     tenantId: endpoint.tenantId,
   });
   if (password === null) {
-    throw new ProblemError(409, "Repository password missing", {
-      type: ENDPOINT_PROBLEMS.repositoryUnavailable,
-      detail: "The repository password of this endpoint is not available.",
-    });
+    throw passwordMissing();
   }
   const prefix = endpointPrefix(endpoint.id);
   const targets = await tenantStorage(database, endpoint.tenantId);

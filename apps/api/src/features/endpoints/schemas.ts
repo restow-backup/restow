@@ -410,6 +410,8 @@ export const removeEndpointSchema = z
   .object({
     mode: z.enum(["delete", "expire"]),
     confirmHostname: z.string().max(300),
+    /** Required for `delete` (removal.ts); kept in the audit entry. */
+    reason: z.string().max(1000).optional(),
   })
   .strict();
 export const tokenIdParamSchema = z.object({ tokenId: uuid });

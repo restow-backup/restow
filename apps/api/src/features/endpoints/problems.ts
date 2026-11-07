@@ -41,8 +41,18 @@ export const ENDPOINT_PROBLEMS = {
   invalidCursor: "urn:restow:problem:endpoint-invalid-cursor",
   /** 503: the repository is locked by a running backup or maintenance job. */
   repositoryLocked: "urn:restow:problem:endpoint-repository-locked",
-  /** 409 or 500: the repository, or its password, is not available. */
+  /**
+   * Before 0.5.0 the type of all three causes below. Since then no answer carries it as `type`:
+   * each cause has a type of its own, and carries this one as `category` (an RFC 7807 extension
+   * member), so a client that matched it can match `category` instead.
+   */
   repositoryUnavailable: "urn:restow:problem:endpoint-repository-unavailable",
+  /** 409: no storage target of the tenant (nor the installation default) holds the repository. */
+  repositoryNotFound: "urn:restow:problem:endpoint-repository-not-found",
+  /** 500: the stored password does not open the repository. */
+  repositoryPasswordRejected: "urn:restow:problem:endpoint-repository-password-rejected",
+  /** 409: the machine has no stored repository password (never stored, or deleted). */
+  repositoryPasswordMissing: "urn:restow:problem:endpoint-repository-password-missing",
   /** 502: restic failed in a way with no more specific type. */
   resticFailed: "urn:restow:problem:restic-failed",
   /** 503: the restic binary is missing on the server. */
@@ -100,6 +110,17 @@ export const ENDPOINT_PROBLEMS = {
   removalLegalHold: "urn:restow:problem:endpoint-removal-legal-hold",
   /** 409: ... and while a suspicious restore point of the machine holds them. */
   removalSuspicionHold: "urn:restow:problem:endpoint-removal-suspicion-hold",
+  /** 409: the machine's backups are already scheduled for deletion (cancel that first). */
+  removalScheduled: "urn:restow:problem:endpoint-removal-scheduled",
+  /** 422: deleting a machine's backups needs a reason. */
+  removalReasonRequired: "urn:restow:problem:endpoint-removal-reason-required",
+  /** 409: no deletion to cancel, or the worker has started deleting already. */
+  removalNotCancellable: "urn:restow:problem:endpoint-removal-not-cancellable",
+  /**
+   * 403: deleting a machine's backups (and cancelling that) is for the provider's owners
+   * (the same type as other owner-only actions).
+   */
+  ownerRequired: "urn:restow:problem:owner-required",
   /** 409: keeping the backups until they expire, but the machine's retention keeps everything. */
   removalNeverExpires: "urn:restow:problem:endpoint-removal-never-expires",
 } as const;

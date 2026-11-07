@@ -128,6 +128,9 @@ export const EVENT_GROUPS: Record<
     "scrub.repaired",
     "endpoint.suspicious_snapshot",
     "endpoint.storage_quota",
+    // Deleting a revoked machine's backups (0.5.0): asked for (critical), and done.
+    "endpoint.backups_deletion_scheduled",
+    "endpoint.backups_deleted",
     "file_share.storage_quota",
   ],
   // About the installation, not a tenant's data: only provider administrators may pick these,

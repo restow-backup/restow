@@ -707,7 +707,8 @@ Für Betreiber beschrieben in [NOTIFICATIONS.md](NOTIFICATIONS.md); hier, wie es
   `raiseInstallationEvent` (`apps/api/src/features/updates/notify.ts`) schreibt die
   Installations-Ereignisse mit `tenant_id` NULL.
 - **Kritische Ereignisse** (`critical` im Katalog: `backup.suspicious`,
-  `endpoint.suspicious_snapshot`, `scrub.corrupt`, `verify.red`, `installation.disk_low`) und
+  `endpoint.suspicious_snapshot`, `endpoint.backups_deletion_scheduled`, `scrub.corrupt`,
+  `verify.red`, `installation.disk_low`) und
   `notification.delivery_failed` gehen immer sofort, immer an die Pflichtempfänger und immer in
   die Glocke (`bellEventsOf`, `BELL_LOCKED_EVENTS`).
 - **Empfänger des Providers** (`provider_notification_recipients`, Installationsrolle): die

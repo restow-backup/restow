@@ -34,6 +34,8 @@ export const REPORT_EVENTS = [
   "endpoint.sql_red",
   "endpoint.sql_recovered",
   "endpoint.sql_overdue",
+  "endpoint.backups_deletion_scheduled",
+  "endpoint.backups_deleted",
   "file_share.storage_quota",
   "file_share.repository_locked",
   "source.app_secret_expiring",
@@ -60,6 +62,7 @@ export const CRITICAL_REPORT_EVENTS: readonly ReportEvent[] = [
   "verify.red",
   "scrub.corrupt",
   "endpoint.suspicious_snapshot",
+  "endpoint.backups_deletion_scheduled",
   "installation.disk_low",
 ];
 

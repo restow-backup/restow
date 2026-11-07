@@ -18,6 +18,8 @@ import {
   endpointRuns,
   endpoints,
   legalHolds,
+  notifications,
+  reportEvents,
   restorePointSuspicions,
 } from "@restow/db";
 import { and, eq } from "drizzle-orm";
@@ -90,13 +92,20 @@ describe.skipIf(!testDatabaseAdminUrl)("removing a machine against Postgres", ()
 
   const remove = (
     id: string,
-    input: { mode: "delete" | "expire"; confirmHostname: string },
+    input: { mode: "delete" | "expire"; confirmHostname: string; reason?: string },
     options: { tenantId?: string; suspicionHoldsApply?: boolean } = {},
   ) =>
-    removal.removeEndpoint(shared.db, options.tenantId ?? fixture.tenantId, id, input, actor(), {
-      now: NOW,
-      suspicionHoldsApply: options.suspicionHoldsApply,
-    });
+    removal.removeEndpoint(
+      shared.db,
+      options.tenantId ?? fixture.tenantId,
+      id,
+      // A deletion needs a reason (0.5.0); the tests that are not about it give one.
+      input.mode === "delete" && input.reason === undefined
+        ? { ...input, reason: "Machine sold" }
+        : input,
+      actor(),
+      { now: NOW, suspicionHoldsApply: options.suspicionHoldsApply },
+    );
 
   async function hostnameOf(id: string): Promise<string> {
     const [row] = await fixture.db.select().from(endpoints).where(eq(endpoints.id, id));
@@ -130,7 +139,7 @@ describe.skipIf(!testDatabaseAdminUrl)("removing a machine against Postgres", ()
     expect(row?.removedAt).toBeNull();
   });
 
-  it("deletes at once: gone from every list and lookup, out of its job, audited, history kept", async () => {
+  it("schedules deleting in seven days: still listed, out of its job, audited, alerted", async () => {
     const id = await machine({ hostname: "paperless" });
     const [job] = await fixture.db
       .insert(backupJobs)
@@ -146,37 +155,52 @@ describe.skipIf(!testDatabaseAdminUrl)("removing a machine against Postgres", ()
       status: "succeeded",
       startedAt: new Date(NOW.getTime() - 3 * DAY),
     });
-    const before = (await service.listEndpoints(shared.db, fixture.tenantId, {}, NOW)).items;
-    expect(before.map((item) => item.id)).toContain(id);
 
-    const result = await remove(id, { mode: "delete", confirmHostname: " paperless " });
+    const due = new Date(NOW.getTime() + removal.BACKUP_DELETION_DELAY_DAYS * DAY).toISOString();
+    expect(removal.BACKUP_DELETION_DELAY_DAYS).toBe(7);
+    const result = await remove(id, {
+      mode: "delete",
+      confirmHostname: " paperless ",
+      reason: "  Machine sold  ",
+    });
     expect(result).toMatchObject({
       id,
       mode: "delete",
       state: "scheduled",
-      dueAt: NOW.toISOString(),
+      dueAt: due,
       expiresAt: null,
       requestedBy: "admin@contoso.example",
       repositoryBytes: 4096,
+      reason: "Machine sold",
+      cancellable: true,
     });
 
-    const after = (await service.listEndpoints(shared.db, fixture.tenantId, {}, NOW)).items;
-    expect(after.map((item) => item.id)).not.toContain(id);
-    // Until its backups are gone, its page opens for restoring from them, and only for that.
-    const kept = await service.getEndpoint(
+    // Until the worker starts, the machine stays listed (revoked) and its page says when.
+    const listed = (await service.listEndpoints(shared.db, fixture.tenantId, {}, NOW)).items;
+    expect(listed.map((item) => item.id)).toContain(id);
+    const detail = await service.getEndpoint(
       shared.db,
       fixture.tenantId,
       id,
       "https://restow.test.example",
     );
-    expect(kept.removed).toMatchObject({ mode: "delete", state: "scheduled" });
-    await expect(
-      service.revokeEndpoint(shared.db, fixture.tenantId, id, actor()),
-    ).rejects.toMatchObject({ status: 404 });
-    // A second removal finds nothing to remove.
+    expect(detail.removed).toBeNull();
+    expect(detail.backupDeletion).toEqual({
+      dueAt: due,
+      requestedAt: NOW.toISOString(),
+      requestedBy: "admin@contoso.example",
+      reason: "Machine sold",
+      state: "scheduled",
+      heldBy: null,
+    });
+    // Not among the removed machines yet; and asking again is refused.
     expect(
-      (await problemOf(remove(id, { mode: "delete", confirmHostname: "paperless" }))).status,
-    ).toBe(404);
+      (await removal.listRemovals(shared.db, fixture.tenantId)).items.map((item) => item.id),
+    ).not.toContain(id);
+    expect(await problemOf(remove(id, { mode: "expire", confirmHostname: "paperless" }))).toEqual({
+      status: 409,
+      type: "urn:restow:problem:endpoint-removal-scheduled",
+    });
 
     const members = await fixture.db
       .select()
@@ -191,15 +215,128 @@ describe.skipIf(!testDatabaseAdminUrl)("removing a machine against Postgres", ()
     const [entry] = await fixture.db
       .select()
       .from(auditLog)
-      .where(and(eq(auditLog.target, id), eq(auditLog.action, "endpoint.removed")));
+      .where(and(eq(auditLog.target, id), eq(auditLog.action, "endpoint.removal.scheduled")));
     expect(entry?.details).toMatchObject({
       hostname: "paperless",
       mode: "delete",
+      dueAt: due,
+      reason: "Machine sold",
       leftJobs: [job?.id],
+      queued: false,
     });
+    // The critical alert: in the bell and for the provider's recipients (report_events).
+    const [alert] = await fixture.db
+      .select()
+      .from(reportEvents)
+      .where(
+        and(
+          eq(reportEvents.tenantId, fixture.tenantId),
+          eq(reportEvents.event, "endpoint.backups_deletion_scheduled"),
+        ),
+      );
+    expect(alert).toMatchObject({ level: "warning" });
+    expect(alert?.details).toMatchObject({
+      endpointId: id,
+      objectName: "paperless",
+      dueAt: due,
+      reason: "Machine sold",
+    });
+    const bell = await fixture.db
+      .select()
+      .from(notifications)
+      .where(eq(notifications.event, "endpoint.backups_deletion_scheduled"));
+    expect(bell.length).toBeGreaterThan(0);
+  });
 
-    const listed = await removal.listRemovals(shared.db, fixture.tenantId);
-    expect(listed.items.map((item) => item.id)).toContain(id);
+  it("needs a reason to delete, not to keep until expiry", async () => {
+    const id = await machine();
+    expect(
+      await problemOf(
+        remove(id, { mode: "delete", confirmHostname: await hostnameOf(id), reason: "   " }),
+      ),
+    ).toEqual({ status: 422, type: "urn:restow:problem:endpoint-removal-reason-required" });
+    expect(
+      (await remove(id, { mode: "expire", confirmHostname: await hostnameOf(id) })).state,
+    ).toBe("scheduled");
+  });
+
+  it("cancels a scheduled deletion until the worker starts, audited", async () => {
+    const id = await machine({ hostname: "nas-old" });
+    await remove(id, { mode: "delete", confirmHostname: "nas-old" });
+    await removal.cancelRemoval(shared.db, fixture.tenantId, id, actor());
+    const [row] = await fixture.db.select().from(endpoints).where(eq(endpoints.id, id));
+    expect(row).toMatchObject({ removal: null, removalDueAt: null, removedAt: null });
+    const [entry] = await fixture.db
+      .select()
+      .from(auditLog)
+      .where(and(eq(auditLog.target, id), eq(auditLog.action, "endpoint.removal.cancelled")));
+    expect(entry?.details).toMatchObject({
+      hostname: "nas-old",
+      requestedBy: "admin@contoso.example",
+      reason: "Machine sold",
+    });
+    // Nothing left to cancel.
+    expect(
+      await problemOf(removal.cancelRemoval(shared.db, fixture.tenantId, id, actor())),
+    ).toEqual({ status: 409, type: "urn:restow:problem:endpoint-removal-not-cancellable" });
+
+    // Once the worker started (startedAt, removed_at), it can no longer be cancelled.
+    const started = await machine({ hostname: "nas-gone" });
+    await remove(started, { mode: "delete", confirmHostname: "nas-gone" });
+    const [before] = await fixture.db.select().from(endpoints).where(eq(endpoints.id, started));
+    await fixture.db
+      .update(endpoints)
+      .set({
+        removedAt: NOW,
+        removal: { ...(before?.removal as object), startedAt: NOW.toISOString() } as never,
+      })
+      .where(eq(endpoints.id, started));
+    expect(
+      await problemOf(removal.cancelRemoval(shared.db, fixture.tenantId, started, actor())),
+    ).toEqual({ status: 409, type: "urn:restow:problem:endpoint-removal-not-cancellable" });
+
+    // An expiry is no deletion to cancel.
+    const expiring = await machine();
+    await remove(expiring, { mode: "expire", confirmHostname: await hostnameOf(expiring) });
+    expect(
+      (await problemOf(removal.cancelRemoval(shared.db, fixture.tenantId, expiring, actor())))
+        .status,
+    ).toBe(409);
+    // Another tenant's machine is not found.
+    expect(
+      (await problemOf(removal.cancelRemoval(shared.db, fixture.otherTenantId, id, actor())))
+        .status,
+    ).toBe(404);
+  });
+
+  it("removes at once when keeping until expiry: gone from every list, readable until done", async () => {
+    const id = await machine({ hostname: "paperless-old", lastSuccessAt: null });
+    const result = await remove(id, { mode: "expire", confirmHostname: "paperless-old" });
+    expect(result).toMatchObject({ id, mode: "expire", dueAt: NOW.toISOString() });
+    const after = (await service.listEndpoints(shared.db, fixture.tenantId, {}, NOW)).items;
+    expect(after.map((item) => item.id)).not.toContain(id);
+    const kept = await service.getEndpoint(
+      shared.db,
+      fixture.tenantId,
+      id,
+      "https://restow.test.example",
+    );
+    expect(kept.removed).toMatchObject({ mode: "expire", state: "scheduled" });
+    expect(kept.backupDeletion).toBeNull();
+    await expect(
+      service.revokeEndpoint(shared.db, fixture.tenantId, id, actor()),
+    ).rejects.toMatchObject({ status: 404 });
+    expect(
+      (await problemOf(remove(id, { mode: "expire", confirmHostname: "paperless-old" }))).status,
+    ).toBe(404);
+    const [entry] = await fixture.db
+      .select()
+      .from(auditLog)
+      .where(and(eq(auditLog.target, id), eq(auditLog.action, "endpoint.removed")));
+    expect(entry?.details).toMatchObject({ hostname: "paperless-old", mode: "expire" });
+    expect(
+      (await removal.listRemovals(shared.db, fixture.tenantId)).items.map((item) => item.id),
+    ).toContain(id);
 
     // Once its backups are deleted, the machine is gone for every reader.
     const [row] = await fixture.db.select().from(endpoints).where(eq(endpoints.id, id));

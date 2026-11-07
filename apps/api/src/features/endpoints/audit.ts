@@ -22,6 +22,10 @@ export const ENDPOINT_AUDIT_ACTIONS = {
   uninstallRequested: "endpoint.uninstall.requested",
   /** Removed from Restow (#65); the worker's steps follow as `endpoint.removal.*`. */
   removed: "endpoint.removed",
+  /** A provider owner asked to delete the backups of a revoked machine, in seven days (0.5.0). */
+  removalScheduled: "endpoint.removal.scheduled",
+  /** ... and someone cancelled that before the worker started. */
+  removalCancelled: "endpoint.removal.cancelled",
   browse: "endpoint.snapshot.browsed",
   download: "endpoint.snapshot.downloaded",
   repositoryDenied: "endpoint.repository.denied",

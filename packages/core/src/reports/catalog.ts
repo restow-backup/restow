@@ -35,6 +35,8 @@ export const REPORT_EVENTS = [
   "endpoint.sql_red",
   "endpoint.sql_recovered",
   "endpoint.sql_overdue",
+  "endpoint.backups_deletion_scheduled",
+  "endpoint.backups_deleted",
   "file_share.storage_quota",
   "file_share.repository_locked",
   "source.app_secret_expiring",
@@ -141,6 +143,12 @@ export const REPORT_EVENT_INFO: Readonly<Record<ReportEvent, ReportEventInfo>> =
   "endpoint.sql_red": { group: "jobs", level: "error" },
   "endpoint.sql_recovered": { group: "jobs", level: "info" },
   "endpoint.sql_overdue": { group: "jobs", level: "warning" },
+  // A provider owner asked to delete every backup of a revoked machine (0.5.0, apps/api
+  // features/endpoints/removal.ts): they go in seven days unless someone cancels. Critical, so
+  // the provider's mandatory recipients learn of it at once and can still stop it.
+  "endpoint.backups_deletion_scheduled": { group: "storage", level: "warning", critical: true },
+  // ... and the worker deleted them (apps/worker endpoints/removal.ts).
+  "endpoint.backups_deleted": { group: "storage", level: "info" },
   // A file share's repository (or all of a tenant's shares) reached 80 % of its storage budget,
   // or the budget is used up and new backups are refused (docs/FILESHARES.md 7.4).
   "file_share.storage_quota": { group: "storage", level: "warning" },

@@ -12,6 +12,14 @@ private repository.
 
 ### Added
 
+- Machines: a scheduled deletion of a revoked machine's backups can be cancelled until the worker
+  starts (Cancel deletion on the machine's page and in File restore, `POST
+  /api/v1/endpoints/:id/remove/cancel`, provider owners, audited as `endpoint.removal.cancelled`).
+  Two new catalog events: `endpoint.backups_deletion_scheduled` (critical, so it always reaches
+  the bell and the provider's mandatory recipients at once) when the deletion is requested, and
+  `endpoint.backups_deleted` (info) when the worker has deleted them, with the number of files and
+  snapshots and the last measured size, also recorded in `endpoint.removal.completed`.
+
 - The setup wizard and `install.sh` ask first, after the language, what to set up: a new
   installation, a restore of an installation from a database dump, or a worker for an existing
   installation on another host (with the note that real replication, a second server that takes
@@ -479,6 +487,22 @@ private repository.
 
 ### Changed
 
+- Machines: "Delete every backup" of a revoked machine (Remove from Restow, mode `delete`) is now
+  delayed and owner-only. The backups are deleted seven days after the request, not at once; the
+  machine stays listed as revoked until then, and its page and File restore show "Backups will be
+  deleted on <date>" with who asked and why. Only an owner of the provider team may request it,
+  with a reason (kept in the audit entry `endpoint.removal.scheduled`); tenant administrators and
+  provider members below owner can still remove a machine and keep its backups until they expire.
+  The refusals under a legal hold, an unresolved suspicious restore point and restore mode, and
+  the deferral of objects write-once storage still locks, stay as they were (docs/AGENT.md,
+  "Rechner entfernen"). Once deleted, the machine stays hidden as before.
+- Machines and File restore: when the restore points of a machine cannot be read, the message
+  now says which of three causes it is and what to do next: the repository is on no storage
+  target of the tenant, the stored password does not open it, or no password is stored. The API
+  answers with `endpoint-repository-not-found` (409), `endpoint-repository-password-rejected`
+  (500) or `endpoint-repository-password-missing` (409) instead of the shared
+  `endpoint-repository-unavailable`, which each of them carries as `category` for clients that
+  matched it (docs/AGENT.md, "Problem types").
 - The bell always shows the critical events and failed deliveries: its column can no longer
   switch them off (a column saved earlier keeps everything else as it was).
 - The weekly report of the tenants' notification recipients covers the calendar week (Monday

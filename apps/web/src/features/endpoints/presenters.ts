@@ -881,7 +881,13 @@ export function hasControlCharacters(value: string): boolean {
 const PROBLEM_KEYS: Readonly<Record<string, string>> = {
   "urn:restow:problem:restic-busy": "endpoints:errors.resticBusy",
   "urn:restow:problem:endpoint-repository-locked": "endpoints:errors.repositoryLocked",
+  // Before 0.5.0 the type of the three causes below; still worded for an older server.
   "urn:restow:problem:endpoint-repository-unavailable": "endpoints:errors.repositoryUnavailable",
+  "urn:restow:problem:endpoint-repository-not-found": "endpoints:errors.repositoryNotFound",
+  "urn:restow:problem:endpoint-repository-password-rejected":
+    "endpoints:errors.repositoryPasswordRejected",
+  "urn:restow:problem:endpoint-repository-password-missing":
+    "endpoints:errors.repositoryPasswordMissing",
   "urn:restow:problem:restic-failed": "endpoints:errors.resticFailed",
   "urn:restow:problem:restic-unavailable": "endpoints:errors.resticUnavailable",
   "urn:restow:problem:unsupported-os": "endpoints:errors.unsupportedOs",
@@ -909,6 +915,10 @@ const PROBLEM_KEYS: Readonly<Record<string, string>> = {
   "urn:restow:problem:endpoint-removal-legal-hold": "endpoints:errors.removalLegalHold",
   "urn:restow:problem:endpoint-removal-suspicion-hold": "endpoints:errors.removalSuspicionHold",
   "urn:restow:problem:endpoint-removal-never-expires": "endpoints:errors.removalNeverExpires",
+  "urn:restow:problem:endpoint-removal-scheduled": "endpoints:errors.removalScheduled",
+  "urn:restow:problem:endpoint-removal-reason-required": "endpoints:errors.removalReasonRequired",
+  "urn:restow:problem:endpoint-removal-not-cancellable": "endpoints:errors.removalNotCancellable",
+  "urn:restow:problem:owner-required": "endpoints:errors.ownerRequired",
   // The file restore of Proxmox VE containers (apps/api features/pve/files.ts, #62).
   "urn:restow:problem:pve-files-not-a-container": "endpoints:errors.containerNotBrowsable",
   "urn:restow:problem:pve-files-no-repository": "endpoints:errors.containerNoRepository",
