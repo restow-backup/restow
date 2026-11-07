@@ -28,6 +28,7 @@ vi.mock("@tanstack/react-router", () => ({
     ...props
   }: Record<string, unknown>) => <a {...(props as object)}>{children as React.ReactNode}</a>,
   useNavigate: () => () => undefined,
+  useSearch: () => ({}),
 }));
 vi.mock("@/features/storage", () => ({
   BackupDestinationNote: () => null,

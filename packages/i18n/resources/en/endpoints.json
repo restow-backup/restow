@@ -1221,6 +1221,8 @@
     "emptyDescription": "Once the container is backed up, its files can be browsed and downloaded here.",
     "downloadOnly": "Files of a container are downloaded as a ZIP. To put the whole container back, restore it under VMs & containers.",
     "downloadOnlyRestorer": "Files of a container are downloaded as a ZIP. Putting the whole container back is up to an administrator.",
+    "restoreWhole": "Restore whole container …",
+    "restoreWholeHint": "Puts the whole container back from this restore point (on the container's page).",
     "openGuest": "Open the container"
   },
   "vmFiles": {
@@ -1230,6 +1232,8 @@
     "emptyDescription": "Once the VM is backed up, the files on its disks can be browsed and downloaded here.",
     "downloadOnly": "The files of a VM are read from the disks of the restore point on the server, in an isolated reader: nothing is mounted, the VM and its node are not touched. Readable: ext2/3/4, XFS, NTFS and FAT, also on LVM. Files are downloaded as a ZIP; to put the whole VM back, restore it under VMs & containers.",
     "downloadOnlyRestorer": "The files of a VM are read from the disks of the restore point on the server, in an isolated reader: nothing is mounted, the VM and its node are not touched. Readable: ext2/3/4, XFS, NTFS and FAT, also on LVM. Files are downloaded as a ZIP; putting the whole VM back is up to an administrator.",
+    "restoreWhole": "Restore whole VM …",
+    "restoreWholeHint": "Puts the whole VM back from this restore point (on the VM's page).",
     "openGuest": "Open the VM",
     "unreadable": "Not readable on this restore point:",
     "unreadableItem": "{name}: {reason}",

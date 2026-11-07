@@ -204,7 +204,10 @@ export function RestoreTimeline<T>({
               endMonth={newest}
               modifiers={{ hasRestorePoint: days.map((day) => day.date) }}
               modifiersClassNames={{
-                hasRestorePoint: "[&>button]:font-semibold [&>button]:text-primary",
+                // A dot under the number, not only weight and colour: a day with a restore point
+                // must stand out in every theme. Primary, not green: green means proof.
+                hasRestorePoint:
+                  "[&>button]:relative [&>button]:font-semibold [&>button]:text-primary [&>button]:after:absolute [&>button]:after:bottom-1 [&>button]:after:left-1/2 [&>button]:after:size-1.5 [&>button]:after:-translate-x-1/2 [&>button]:after:rounded-full [&>button]:after:bg-primary [&>button]:after:content-['']",
               }}
               autoFocus
             />
