@@ -671,7 +671,10 @@
       "removed": "{count, plural, one {# Snapshot entfernt} other {# Snapshots entfernt}}",
       "kept": "{kept} Snapshots behalten",
       "size": "Größe der Sicherungsdaten danach: {size}",
-      "unrecorded": "{count, plural, one {# Snapshot, den keine Sicherung gemeldet hat, wurde behalten} other {# Snapshots, die keine Sicherung gemeldet hat, wurden behalten}}"
+      "unrecorded": "{count, plural, one {# Snapshot, den keine Sicherung gemeldet hat, wurde behalten} other {# Snapshots, die keine Sicherung gemeldet hat, wurden behalten}}",
+      "targetFull": "Aufbewahrung konnte keinen Platz freigeben: Speicherziel voll",
+      "targetFullHint": "Auf dem Speicherziel ist kein Platz mehr frei, nicht einmal für die Bereinigung. Geben Sie auf dem Speicherziel Platz frei oder vergrößern Sie es (bei einem S3-Bucket: Kontingent erhöhen). Der nächste Aufbewahrungslauf löscht dann die Daten, die kein Snapshot mehr braucht.",
+      "deleteOnly": "Auf dem Speicherziel war wenig Platz frei: Gelöscht wurden nur Daten, die kein Snapshot mehr nutzt. Teilweise genutzte Daten werden in einem späteren Lauf neu geordnet, sobald Platz frei ist."
     },
     "mismatches": {
       "show": "{count, plural, one {# Abweichung anzeigen} other {# Abweichungen anzeigen}}",

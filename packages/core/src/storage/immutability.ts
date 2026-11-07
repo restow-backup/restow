@@ -45,6 +45,7 @@ import {
   type PutOptions,
   readRange,
   type StorageBackend,
+  type StorageSpace,
   unwrapBackend,
 } from "./backend.js";
 
@@ -433,6 +434,10 @@ export class ImmutableStorageBackend implements StorageBackend {
 
   listWithSizes(prefix: string): Promise<{ key: string; size: number }[]> {
     return listWithSizes(this.inner, prefix);
+  }
+
+  freeSpace(): Promise<StorageSpace | null> {
+    return this.inner.freeSpace ? this.inner.freeSpace() : Promise.resolve(null);
   }
 
   retention(key: string): Promise<ObjectRetention | null> {

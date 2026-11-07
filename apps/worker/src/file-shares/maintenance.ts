@@ -40,6 +40,7 @@ import {
   restoreTestSamples,
   SHARE_NO_SAMPLES,
   splitLockedSnapshots,
+  storageShortOfSpace,
   withDeletionPermit,
   withRepository,
 } from "@restow/core";
@@ -64,6 +65,7 @@ import {
   LOCKED_ALERT_ATTEMPTS,
   LOCKED_ALERT_MIN_MS,
 } from "../endpoints/maintenance.js";
+import { pruneFailureSummary, pruneSummary, targetFull } from "../endpoints/prune-summary.js";
 import { ratingOf } from "../endpoints/verify.js";
 import { primaryWriteOnce, tenantRunner, withTenantTx } from "../handlers/framework.js";
 import { hasActiveMigration } from "../handlers/storage-migration.js";
@@ -319,6 +321,18 @@ async function retain(
           ),
         ),
     );
+    const [lastReport] = await withTenantTx(deps.db, share.tenantId, (tx) =>
+      tx
+        .select({ summary: fileShareReports.summary })
+        .from(fileShareReports)
+        .where(
+          and(eq(fileShareReports.fileShareId, share.id), eq(fileShareReports.kind, "retention")),
+        )
+        .orderBy(desc(fileShareReports.checkedAt))
+        .limit(1),
+    );
+    const pending =
+      lastReport?.summary.prunePending === true || (await storageShortOfSpace(access.storage));
     const result = await withRepository(access, async (session) => {
       await resticUnlock(session, { signal: deps.runtime.shutdownSignal }).catch(() => undefined);
       const stored = await listRepositoryObjects(access.storage, access.prefix, "snapshots");
@@ -351,9 +365,14 @@ async function retain(
         : await splitLockedSnapshots(access.storage, access.prefix, planned);
       if (remove.length > 0) {
         await resticForget(session, remove, { signal });
-        await resticPrune(session, { signal });
       }
-      return { audit, remove, heldBack: planned.length, total: stored.length };
+      // One policy for a target short of space (docs/STORAGE.md, "A full target"), and a
+      // prune the last run left due runs even when nothing is forgotten.
+      const prune =
+        remove.length > 0 || pending
+          ? await resticPrune(session, { signal, storage: access.storage })
+          : null;
+      return { audit, remove, heldBack: planned.length, total: stored.length, prune };
     });
     await recordShareUnlocked(deps, share);
     const removedIds = new Set(result.remove);
@@ -399,6 +418,7 @@ async function retain(
           futureSnapshots: result.audit.flags.filter((flag) => flag.reasons.includes("future_time"))
             .length,
           removedLocks,
+          ...pruneSummary(result.prune),
           ...(held
             ? { ...retentionHoldSummary(holds, share.id), heldBackSnapshots: result.heldBack }
             : {}),
@@ -424,10 +444,16 @@ async function retain(
         fileShareId: share.id,
         kind: "retention",
         readiness: null,
-        summary: { errorMessage: reportableMessage(error) },
+        summary: { errorMessage: reportableMessage(error), ...pruneFailureSummary(error) },
       },
       now,
     ).catch(() => undefined);
+    if (targetFull(error)) {
+      deps.runtime.logger.warn(
+        "file share retention could not free space: the storage target is full",
+        { tenantId: share.tenantId, fileShareId: share.id },
+      );
+    }
     throw error;
   }
 }

@@ -23,16 +23,20 @@ import {
   rename,
   rm,
   stat,
+  statfs,
 } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import type { Readable } from "node:stream";
-import type { HeadResult, PutOptions, StorageBackend } from "./backend.js";
+import type { HeadResult, PutOptions, StorageBackend, StorageSpace } from "./backend.js";
 import { isObjectNotFound } from "./backend.js";
 import {
   assertDeletionPermitted,
   assertKeyWritePermitted,
   noteStorageWrite,
 } from "./deletion-guard.js";
+
+/** How long {@link LocalStorageBackend.freeSpace} waits for a (hung network) file system. */
+const STATFS_TIMEOUT_MS = 5000;
 
 /** Suffix of the temporary files a write goes through; never a key, never listed. */
 const TEMP_SUFFIX = ".restow-tmp";
@@ -250,6 +254,28 @@ export class LocalStorageBackend implements StorageBackend {
         // A temporary file is a write in flight, or one a crash interrupted.
         out.push(relative(this.root, full).split(sep).join("/"));
       }
+    }
+  }
+
+  /** statfs of the root (an NFS or SMB mount reports its server's space); null when it fails or hangs. */
+  async freeSpace(): Promise<StorageSpace | null> {
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<null>((resolveTimeout) => {
+      timer = setTimeout(() => resolveTimeout(null), STATFS_TIMEOUT_MS);
+      timer.unref();
+    });
+    try {
+      return await Promise.race([
+        statfs(this.root).then((stats) => ({
+          freeBytes: Number(stats.bavail) * Number(stats.bsize),
+          totalBytes: Number(stats.blocks) * Number(stats.bsize),
+        })),
+        timeout,
+      ]);
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
     }
   }
 

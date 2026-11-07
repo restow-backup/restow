@@ -35,6 +35,11 @@
  *     again for a quarter of an hour). Lock files are exempt, so a restore on
  *     the machine still works when the budget is used up.
  *
+ * A write the storage refuses because it is full (no space left, a disk quota, an S3 service at
+ * its quota) is answered with 403 as well when the caller asks for it (`onStorageFull`, the
+ * server's own maintenance listener): restic stops at once and the server, told about it, runs
+ * a prune that only deletes (./restic-cli.ts, docs/STORAGE.md "A full target").
+ *
  * A deletion the storage refuses for good (a write-once share or a read-only mount: EPERM,
  * EACCES, EROFS) is answered with 403, like one Object Lock refuses. restic treats 403 as
  * final; a 500 it tries again for a quarter of an hour per file (lock files included), which
@@ -44,6 +49,7 @@ import { createHash } from "node:crypto";
 import { Readable, Transform, type TransformCallback } from "node:stream";
 import {
   isDeleteRefused,
+  isNoSpaceError,
   listWithSizes,
   lockedErrorOf,
   readRange,
@@ -109,6 +115,12 @@ export interface ResticRestOptions {
     key: string;
     retainUntil: Date | null;
   }) => void | Promise<void>;
+  /**
+   * Called for an upload the storage refused because it is full; with it, such an upload is
+   * answered with 403 (final for restic) instead of 500 (which restic retries for a quarter of
+   * an hour per file).
+   */
+  onStorageFull?: (event: { resource: ResticResource }) => void;
   /** Called for every request the authorization matrix refused. */
   onDenied?: (event: { action: ResticAction; resource: ResticResource; reason: string }) => void;
   /** The agent's lock files (see {@link ResticLockRegistry}); without it the agent deletes no lock. */
@@ -532,15 +544,28 @@ export async function handleResticRequest(
       if (agentLock !== null) {
         await options.locks?.created(agentLock);
       }
-      const { response, bytes, overBudget } = await writeObject(
-        storage,
-        key,
-        resource,
-        request,
-        limit,
-        budget,
-        options.quotaProblem,
-      );
+      let written: Awaited<ReturnType<typeof writeObject>>;
+      try {
+        written = await writeObject(
+          storage,
+          key,
+          resource,
+          request,
+          limit,
+          budget,
+          options.quotaProblem,
+        );
+      } catch (error) {
+        if (!options.onStorageFull || !isNoSpaceError(error)) {
+          throw error;
+        }
+        if (agentLock !== null) {
+          await options.locks?.removed(agentLock).catch(() => undefined);
+        }
+        options.onStorageFull({ resource });
+        return text(403, "forbidden: the storage is full");
+      }
+      const { response, bytes, overBudget } = written;
       if (response.ok) {
         await options.onAllowed?.({ action, resource, bytes });
       } else {

@@ -472,6 +472,52 @@ gate shows its one tenant.
 - **Quota** is what exists: the budgets of the machines (see "Other data on a target, and its
   budgets") and of the file shares (`docs/FILESHARES.md`). The chunk store has none.
 
+## A full target
+
+Retention frees space by forgetting restic snapshots and pruning the repository. restic's normal
+`prune` repacks partly used packs: it writes the new packs before it deletes the old ones, and it
+needs room for new index files, its lock and its cache. On a full target (a local directory, an
+NFS or SMB share, an S3 bucket at its quota) that prune fails and frees nothing, so retention could
+never get the space back by itself. Every prune the server runs, for machines
+(`apps/worker/src/endpoints/retention.ts`), file shares (`file-shares/maintenance.ts`) and Proxmox
+VE containers (`pve/maintenance.ts`, `reconcileGuestRepository`), therefore goes through one policy,
+`resticPrune` in `packages/core/src/endpoints/restic-cli.ts`:
+
+- **Headroom check.** A target that reports its free space (a directory, also a mounted NFS or SMB
+  share: `statfs`; `StorageBackend.freeSpace`) and has less than 8 GiB or 20 % of it free gets a
+  dry run first (`restic prune --dry-run --no-lock`, it writes nothing). What the repack would
+  write (what it reads minus what it drops) plus 64 MiB of scratch room must fit, or only the
+  delete-only prune runs.
+- **Delete-only prune.** `restic prune --max-unused unlimited --max-repack-size 0 --no-cache`:
+  packs no snapshot uses at all are deleted, partly used packs stay as they are
+  (`--max-unused unlimited` selects none of them, `--max-repack-size 0` stops any repack, also of
+  packs restic would rewrite for duplicates or mixed content). It writes only the new index files
+  and its lock. `--no-cache` keeps restic's cache off the server's disk, which may be full too, or
+  be the same disk as a local target (the cache of the other runs is `RESTOW_RESTIC_CACHE_DIR`,
+  else the temporary folder; put it on another disk than a local target).
+  `--unsafe-recover-no-free-space` is never used.
+- **Fallback.** A normal prune that fails for lack of space (also on an S3 service at its quota)
+  is followed by the delete-only prune at once. The server's maintenance listener answers an
+  upload the storage refuses as full (`ENOSPC`, `EDQUOT`, an S3 quota error or HTTP 507) with 403,
+  which restic treats as final, instead of 500, which it retries for a quarter of an hour per
+  file; restic's run then ends as `storage_full`.
+- **Repack later.** When the delete-only prune leaves more unused data than restic tolerates by
+  default (5 %), the retention report records `prunePending`; the next run prunes again even when
+  it has nothing to forget, and repacks once the headroom check lets it. A target that reports it
+  is nearly full (less than 128 MiB or 2 % free) is pruned on every run as well, for containers too.
+
+The delete-only prune is a deletion like every other: it runs under the pass's deletion permit
+(`withDeletionPermit`, the deletion sites registry) and not at all in restore mode.
+
+When not even the delete-only prune fits (the lock or the new index files need a few KiB), the
+run fails as `storage_full`: the machine's retention report reads "Retention could not free space:
+target full" with the next step (free space on the target or enlarge it, for an S3 bucket raise
+its quota), the report keeps the prune due, and the next run deletes what no snapshot needs. A
+repository check or a container listing that fails the same way is no finding about the
+repository. The test `packages/core/src/endpoints/restic-prune-space.test.ts` fills a 96 MiB ext4
+file system in a loop device with backups until the next pack does not fit (over 99 % used) and
+checks that retention brings it back below the limit (it runs only as root where `losetup` works).
+
 ## Immutable backups
 
 Backup data that someone who controls Restow cannot delete or alter before a date: an

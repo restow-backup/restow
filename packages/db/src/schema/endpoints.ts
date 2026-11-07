@@ -760,6 +760,14 @@ export type EndpointReportSummary = {
   futureSnapshots?: number;
   /** Agent lock files removed before the run (no backup of the agent was running). */
   removedLocks?: number;
+  /** How the prune of this run went: restic's normal prune, or one that only deleted (docs/STORAGE.md). */
+  pruneMode?: "full" | "delete_only";
+  /** Why it only deleted: too little free space for the repack, or the normal prune ran out of it. */
+  pruneReason?: "low_space" | "storage_full";
+  /** A prune is still due (repacking deferred, or a prune that failed): the next run prunes. */
+  prunePending?: boolean;
+  /** Retention could not free space: the storage target is full (docs/STORAGE.md, "A full target"). */
+  targetFull?: boolean;
   /** SQL backups whose snapshot retention forgot (W2a). */
   prunedSqlBackups?: number;
   // sql_verify (W2a): one report per database; `outcome` is the server's judgement.
