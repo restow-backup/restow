@@ -258,6 +258,10 @@ export interface ReportData {
   unrecordedSnapshots?: number;
   /** Snapshots dated in the future or after their file was stored. */
   futureSnapshots?: number;
+  /** The prune only deleted unused data because space was short (docs/STORAGE.md). */
+  pruneMode?: "full" | "delete_only";
+  /** Retention could not free space: the storage target is full. */
+  targetFull?: boolean;
   errorMessage?: string;
   [key: string]: unknown;
 }

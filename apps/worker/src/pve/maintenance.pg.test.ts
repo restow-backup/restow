@@ -1778,13 +1778,13 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
         [],
       );
       await storage.primary.delete(recent);
-      expect((await restic.read()).map((line) => line.split(" ")[0])).toEqual([
-        "cat",
-        "unlock",
-        "snapshots",
-        "forget",
-        "prune",
-      ]);
+      // The headroom check's dry run (docs/STORAGE.md, "A full target") runs only when the
+      // file system under the test's folder is short of space: not counted here.
+      expect(
+        (await restic.read())
+          .filter((line) => !line.includes("--dry-run"))
+          .map((line) => line.split(" ")[0]),
+      ).toEqual(["cat", "unlock", "snapshots", "forget", "prune"]);
       expect((await guestRow())?.repositoryReconciledAt).toEqual(clock);
     });
   }, 60_000);

@@ -285,6 +285,10 @@ export function withProgressMarkers(
     const rootState = backend.rootState.bind(backend);
     wrapped.rootState = () => rootState();
   }
+  if (backend.freeSpace) {
+    const freeSpace = backend.freeSpace.bind(backend);
+    wrapped.freeSpace = () => freeSpace();
+  }
   return wrapped;
 }
 

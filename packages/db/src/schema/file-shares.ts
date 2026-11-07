@@ -372,6 +372,14 @@ export type FileShareReportSummary = {
   repositoryBytes?: number;
   unrecordedSnapshots?: number;
   futureSnapshots?: number;
+  /** How the prune of this run went: restic's normal prune, or one that only deleted (docs/STORAGE.md). */
+  pruneMode?: "full" | "delete_only";
+  /** Why it only deleted: too little free space for the repack, or the normal prune ran out of it. */
+  pruneReason?: "low_space" | "storage_full";
+  /** A prune is still due (repacking deferred, or a prune that failed): the next run prunes. */
+  prunePending?: boolean;
+  /** Retention could not free space: the storage target is full (docs/STORAGE.md, "A full target"). */
+  targetFull?: boolean;
   removedLocks?: number;
   errorMessage?: string;
   [key: string]: unknown;

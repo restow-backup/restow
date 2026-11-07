@@ -20,7 +20,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import type { Readable } from "node:stream";
-import type { StorageBackend } from "../storage/backend.js";
+import type { StorageBackend, StorageSpace } from "../storage/backend.js";
 import { type LoopbackRepository, serveMaintenanceRepository } from "./loopback.js";
 
 /** The pinned restic version the server and the agents are built against. */
@@ -45,6 +45,11 @@ export interface ResticSession {
   readonly repositoryPassword: string;
   readonly cacheDir: string;
   readonly binary?: string;
+  /**
+   * Uploads the maintenance listener refused so far because the storage is full (loopback.ts):
+   * a run that fails after one more is a `storage_full` failure, whatever restic printed.
+   */
+  readonly storageFullRefusals?: () => number;
 }
 
 export type ResticFailure =
@@ -57,6 +62,11 @@ export type ResticFailure =
   | "killed"
   /** Stopped by the server because it ran longer than its time limit (`timeoutMs`). */
   | "timeout"
+  /**
+   * The storage target (or the server's own disk for restic's cache) is full or over its quota:
+   * a write failed for lack of space (docs/STORAGE.md, "A full target").
+   */
+  | "storage_full"
   | "other";
 
 /** A restic run that ended with a non-zero exit code, or that a signal stopped. */
@@ -86,8 +96,13 @@ function failureOf(exitCode: number | null, stderr: string): ResticFailure {
   if (exitCode === 130) return "interrupted";
   if (/already locked|unable to create lock/i.test(stderr)) return "locked";
   if (/wrong password|no key found/i.test(stderr)) return "wrong_password";
+  if (NO_SPACE_TEXT.test(stderr)) return "storage_full";
   return "other";
 }
+
+/** What restic (or the storage behind it) prints when a write failed for lack of space. */
+const NO_SPACE_TEXT =
+  /no space left on device|disk quota exceeded|quota ?exceeded|insufficient storage|storage (?:is )?full/i;
 
 /** Strip anything credential-shaped from text that may reach a log or a response. */
 export function redactSecrets(
@@ -174,8 +189,12 @@ function failure(
   exitCode: number | null,
   stderr: string,
   signal: NodeJS.Signals | null = null,
+  storageFull = false,
 ): ResticError {
-  const kind = failureOf(exitCode, stderr);
+  const kind =
+    storageFull && exitCode !== null && exitCode !== 11
+      ? "storage_full"
+      : failureOf(exitCode, stderr);
   if (exitCode === null) {
     return new ResticError(
       `restic ${args[0] ?? ""} was stopped by ${signal ?? "a signal"} before it finished; its output is incomplete`,
@@ -223,6 +242,7 @@ export async function runRestic(
     killGraceMs?: number;
   } = {},
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  const refusedBefore = session.storageFullRefusals?.() ?? 0;
   const { child, done } = spawnRestic(session, args, { signal: options.signal });
   const chunks: Buffer[] = [];
   let size = 0;
@@ -268,7 +288,8 @@ export async function runRestic(
     exitCode === null ||
     (exitCode !== 0 && !(options.acceptExitCodes ?? []).includes(exitCode))
   ) {
-    throw failure(args, exitCode, stderr, signal);
+    const refused = (session.storageFullRefusals?.() ?? 0) > refusedBefore;
+    throw failure(args, exitCode, stderr, signal, refused);
   }
   return { stdout: Buffer.concat(chunks).toString("utf8"), stderr, exitCode };
 }
@@ -329,6 +350,7 @@ export async function openRepository(access: RepositoryAccess): Promise<OpenRepo
       repositoryPassword: access.repositoryPassword,
       cacheDir: join(access.cacheBase ?? resticCacheBase(), access.repositoryKey),
       binary: access.binary,
+      storageFullRefusals: listener.storageFullRefusals,
     },
     close: () => listener.close(),
   };
@@ -761,17 +783,187 @@ export async function resticForget(
 }
 
 /**
+ * restic's flags for a prune that only deletes: packs no snapshot uses at all are removed,
+ * partly used ones stay as they are (`--max-unused unlimited` selects none of them, and
+ * `--max-repack-size 0` stops restic from repacking anything at all, also the packs it would
+ * otherwise rewrite for duplicates or mixed content). Nothing is written but the new index files
+ * and the lock, so it frees space on a full target. `--no-cache`: the cache would be written on
+ * the server's disk, which may be full as well (or be the same disk as a local target).
+ * docs/STORAGE.md, "A full target".
+ */
+export const DELETE_ONLY_PRUNE_ARGS: readonly string[] = [
+  "--max-unused",
+  "unlimited",
+  "--max-repack-size",
+  "0",
+  "--no-cache",
+];
+
+/** Room a normal prune needs beyond what it repacks: new index files, the lock, a pack in flight. */
+export const PRUNE_SCRATCH_BYTES = 64 * 1024 * 1024;
+
+/**
+ * Above this much free space (and {@link PRUNE_HEADROOM_CHECK_FRACTION} of the target) the
+ * headroom check is left out: a dry run reads the whole index and every snapshot once more.
+ */
+export const PRUNE_HEADROOM_CHECK_BYTES = 8 * 1024 * 1024 * 1024;
+export const PRUNE_HEADROOM_CHECK_FRACTION = 0.2;
+
+/** Unused data a later normal prune would repack: restic's own default (`--max-unused 5%`). */
+const REPACK_DUE_PERCENT = 5;
+
+/** How a prune went (see {@link resticPrune}). */
+export interface PruneOutcome {
+  /** `full`: restic's normal prune; `delete_only`: {@link DELETE_ONLY_PRUNE_ARGS}. */
+  readonly mode: "full" | "delete_only";
+  /**
+   * Why only deleted: the target reported too little free space for what the normal prune would
+   * write (`low_space`), or the normal prune failed for lack of space (`storage_full`).
+   */
+  readonly reason: "low_space" | "storage_full" | null;
+  /**
+   * Partly used packs hold more unused data than restic tolerates by default: a later prune with
+   * headroom should repack them (the caller runs one even when it has nothing to forget).
+   */
+  readonly repackDeferred: boolean;
+  /** Free bytes on the target before the prune, when it reports them. */
+  readonly freeBytesBefore: number | null;
+}
+
+const SIZE_UNITS: Record<string, number> = {
+  B: 1,
+  KiB: 1024,
+  MiB: 1024 ** 2,
+  GiB: 1024 ** 3,
+  TiB: 1024 ** 4,
+};
+
+/** A size as restic prints it (`11.492 MiB`, `0 B`), in bytes; null when it is none. */
+function parseResticSize(text: string): number | null {
+  const match = /^\s*([\d.]+)\s*(B|KiB|MiB|GiB|TiB)\s*$/.exec(text);
+  if (!match) {
+    return null;
+  }
+  return Math.round(Number(match[1]) * (SIZE_UNITS[match[2] as string] ?? 1));
+}
+
+/** The figures of restic's prune statistics (the dry run prints them, the real run too). */
+export function parsePruneStatistics(output: string): {
+  repackBytes: number | null;
+  repackRemovesBytes: number | null;
+  unusedAfterPercent: number | null;
+} {
+  const size = (label: string) => {
+    const match = new RegExp(`^${label}:\\s*\\d+ blobs / (.+)$`, "m").exec(output);
+    return match ? parseResticSize(match[1] as string) : null;
+  };
+  const unused = /^unused size after prune: .+\(([\d.]+)% of remaining size\)/m.exec(output);
+  return {
+    repackBytes: size("to repack"),
+    repackRemovesBytes: size("this removes"),
+    unusedAfterPercent: unused ? Number(unused[1]) : null,
+  };
+}
+
+/**
+ * Whether a target reports that it is (nearly) full: less than twice the scratch room
+ * ({@link PRUNE_SCRATCH_BYTES}) or 2 % of its size free. Retention prunes such a target even
+ * when it has nothing to forget (an earlier prune may have stopped there). False when the
+ * target reports no free space (S3).
+ */
+export async function storageShortOfSpace(
+  storage: Pick<StorageBackend, "freeSpace">,
+): Promise<boolean> {
+  const space = storage.freeSpace ? await storage.freeSpace().catch(() => null) : null;
+  return (
+    space !== null &&
+    (space.freeBytes < 2 * PRUNE_SCRATCH_BYTES || space.freeBytes < space.totalBytes * 0.02)
+  );
+}
+
+/** Whether the target is short enough of space that a dry run should tell what prune would write. */
+function headroomCheckDue(space: StorageSpace): boolean {
+  return (
+    space.freeBytes < PRUNE_HEADROOM_CHECK_BYTES ||
+    space.freeBytes < space.totalBytes * PRUNE_HEADROOM_CHECK_FRACTION
+  );
+}
+
+/**
  * `restic prune`: remove the data no snapshot refers to any more (takes the exclusive lock).
  * `retryLock` waits that long for another run's lock (`--retry-lock`) before it gives up.
+ *
+ * One policy for every repository the server prunes (docs/STORAGE.md, "A full target"):
+ * a normal prune repacks partly used packs, writing the new packs before it deletes the old
+ * ones, so on a full target it fails and frees nothing. Hence
+ *
+ *   - with `storage` (a target that reports its free space: a directory, an NFS or SMB share) and little
+ *     of it, a dry run (`--no-lock`, it writes nothing) tells what the normal prune would write;
+ *     when that does not fit, only the delete-only prune runs ({@link DELETE_ONLY_PRUNE_ARGS});
+ *   - a normal prune that fails for lack of space (`storage_full`, also an S3 service at its
+ *     quota) is followed by the delete-only prune;
+ *   - the repack is left to a later prune with headroom (`repackDeferred`).
+ *
+ * The delete-only prune is a deletion like any other: it runs under the caller's deletion
+ * permit (storage/deletion-guard.ts). When even it fails for lack of space (the lock or the new
+ * index does not fit), the `storage_full` ResticError goes to the caller.
  */
 export async function resticPrune(
   session: ResticSession,
-  options: { signal?: AbortSignal; retryLock?: string; timeoutMs?: number } = {},
-): Promise<void> {
-  await runRestic(session, ["prune", ...retryLockArgs(options.retryLock)], {
-    signal: options.signal,
-    timeoutMs: options.timeoutMs,
-  });
+  options: {
+    signal?: AbortSignal;
+    retryLock?: string;
+    timeoutMs?: number;
+    /** The repository's storage: where it reports its free space (`freeSpace`), the headroom check. */
+    storage?: Pick<StorageBackend, "freeSpace">;
+  } = {},
+): Promise<PruneOutcome> {
+  const lock = retryLockArgs(options.retryLock);
+  const run = { signal: options.signal, timeoutMs: options.timeoutMs };
+  const space = options.storage?.freeSpace
+    ? await options.storage.freeSpace().catch(() => null)
+    : null;
+  const freeBytesBefore = space?.freeBytes ?? null;
+  let reason: PruneOutcome["reason"] = null;
+  if (space && headroomCheckDue(space)) {
+    let need: number;
+    try {
+      const { stdout } = await runRestic(session, ["prune", "--dry-run", "--no-lock"], run);
+      const figures = parsePruneStatistics(stdout);
+      // What the repack writes is what it keeps of the packs it reads.
+      need =
+        Math.max(0, (figures.repackBytes ?? 0) - (figures.repackRemovesBytes ?? 0)) +
+        PRUNE_SCRATCH_BYTES;
+    } catch (error) {
+      if (error instanceof ResticError && error.failure === "locked") {
+        throw error;
+      }
+      // Without the figures only the scratch room is known to be needed.
+      need = PRUNE_SCRATCH_BYTES;
+    }
+    if (need > space.freeBytes) {
+      reason = "low_space";
+    }
+  }
+  if (reason === null) {
+    try {
+      await runRestic(session, ["prune", ...lock], run);
+      return { mode: "full", reason: null, repackDeferred: false, freeBytesBefore };
+    } catch (error) {
+      if (!(error instanceof ResticError && error.failure === "storage_full")) {
+        throw error;
+      }
+      reason = "storage_full";
+    }
+  }
+  const { stdout } = await runRestic(session, ["prune", ...lock, ...DELETE_ONLY_PRUNE_ARGS], run);
+  const unused = parsePruneStatistics(stdout).unusedAfterPercent;
+  return {
+    mode: "delete_only",
+    reason,
+    repackDeferred: unused === null || unused > REPACK_DUE_PERCENT,
+    freeBytesBefore,
+  };
 }
 
 function retryLockArgs(retryLock: string | undefined): string[] {

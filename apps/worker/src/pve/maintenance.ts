@@ -89,6 +89,7 @@ import {
   type StorageBackend,
   type StorageTargets,
   sampleDataBlocks,
+  storageShortOfSpace,
   storageStaleLocks,
   type TenantKeyring,
   withDeletionPermit,
@@ -1059,11 +1060,31 @@ export async function reconcileGuestRepository(
               signal,
               timeoutMs: PVE_FORGET_TIMEOUT_MS,
             });
-            await resticPrune(session, {
+          }
+          // One policy for a target short of space (@restow/core `resticPrune`, docs/STORAGE.md
+          // "A full target"): a full target is pruned even with nothing to forget, since
+          // an earlier prune may have stopped there after its snapshots were forgotten.
+          if (ids.length > 0 || (await storageShortOfSpace(access.storage))) {
+            const prune = await resticPrune(session, {
               retryLock: PVE_FORGET_RETRY_LOCK,
               signal,
               timeoutMs: PVE_PRUNE_TIMEOUT_MS,
+              storage: access.storage,
+            }).catch((error: unknown) => {
+              if (error instanceof ResticError && error.failure === "storage_full") {
+                deps.runtime.logger.warn(
+                  "pve retention could not free space: the storage target is full",
+                  { guestId: guest.id },
+                );
+              }
+              throw error;
             });
+            if (prune.mode === "delete_only") {
+              deps.runtime.logger.warn(
+                "pve retention: space is short, prune only deleted unused data",
+                { guestId: guest.id, reason: prune.reason, repackDeferred: prune.repackDeferred },
+              );
+            }
           }
           return ids;
         }),
@@ -1629,7 +1650,9 @@ function resticListTransient(error: unknown): boolean {
     error.failure === "killed" ||
     error.failure === "interrupted" ||
     error.failure === "timeout" ||
-    error.failure === "locked"
+    error.failure === "locked" ||
+    // The server's disk (restic's cache) or the target is full: nothing about the repository.
+    error.failure === "storage_full"
   ) {
     return true;
   }

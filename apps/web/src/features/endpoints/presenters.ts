@@ -589,6 +589,17 @@ export function reportView(report: EndpointReport, format: Formatters): ReportVi
       };
     }
     default: {
+      if (data.targetFull === true) {
+        // Not even the delete-only prune got through: the next step is the operator's.
+        return {
+          tone: "destructive",
+          headline: { key: "reports.retention.targetFull" },
+          details: [{ key: "reports.retention.targetFullHint" }, ...details],
+        };
+      }
+      if (data.pruneMode === "delete_only") {
+        details.push({ key: "reports.retention.deleteOnly" });
+      }
       if (typeof data.removedSnapshots === "number" && typeof data.keptSnapshots === "number") {
         details.push({
           key: "reports.retention.kept",

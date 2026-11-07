@@ -667,6 +667,19 @@ private repository.
   closed with it.
 
 ### Fixed
+
+- Retention frees space on a full storage target (#100). restic's normal prune writes repacked
+  packs before it deletes the old ones, so on a full directory, NFS or SMB share, or an S3 bucket
+  at its quota it failed and freed nothing. Every server-side prune (machines, file shares,
+  Proxmox VE containers) now follows one policy: where the target reports its free space, a dry
+  run checks that the repack fits; otherwise, and whenever a prune fails for lack of space, a
+  prune that only deletes unused packs runs (`--max-unused unlimited --max-repack-size 0
+  --no-cache`), and the repack follows in a later run once there is room. The maintenance
+  listener answers an upload the full storage refuses with 403, so restic stops at once instead
+  of retrying for a quarter of an hour. A machine's retention report says "Retention could not
+  free space: target full" with the next step instead of a generic prune failure
+  (docs/STORAGE.md, "A full target").
+
 - File restore of a Proxmox VE container or VM: restoring the guest as a whole is now a button in the title row of the chosen restore point ("Restore whole container …"), which opens the restore dialog for exactly that point on the guest's page. Before, the only way there was a link under the file list.
 - The calendar behind "Jump to date" marks every day with a restore point with a dot; bold text alone was hard to see.
 - Dialogs no longer cut off their right side when a line inside cannot wrap (a long mail subject, an address): the dialog's grid columns may shrink below their content.

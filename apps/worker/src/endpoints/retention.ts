@@ -27,7 +27,11 @@
  * `sql:<instance>` for those of the native SQL Server backup (one snapshot per
  * instance and run), so neither pushes the other out. A SQL snapshot is
  * recorded by its `sql` run and by its rows in `endpoint_sql_backups`, never
- * flagged `unrecorded`; a forgotten one turns its rows `pruned`. The run also measures the bytes the repository takes (the
+ * flagged `unrecorded`; a forgotten one turns its rows `pruned`. The prune follows the one
+ * policy for a target short of space (@restow/core `resticPrune`, docs/STORAGE.md "Volles
+ * Speicherziel"): it only deletes when the repack does not fit, and a prune still due (repacking
+ * deferred, or a prune the full target stopped) runs again even when nothing is forgotten. The
+ * report says how it went, and "target full" when not even that freed space. The run also measures the bytes the repository takes (the
  * storage budget counts them) and keeps the sealed repository password next
  * to the repository.
  */
@@ -53,11 +57,13 @@ import {
   type SnapshotFlag,
   splitLockedSnapshots,
   sqlRetentionGroup,
+  storageShortOfSpace,
   withDeletionPermit,
   withRepository,
 } from "@restow/core";
 import {
   type Endpoint,
+  endpointReports,
   endpointRuns,
   endpointSnapshotFlags,
   endpointSqlBackups,
@@ -65,7 +71,7 @@ import {
   endpoints,
   tenants,
 } from "@restow/db";
-import { and, eq, inArray, isNotNull, isNull, notInArray } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, notInArray } from "drizzle-orm";
 import { primaryWriteOnce, withTenantTx } from "../handlers/framework.js";
 import { recordDeferredDeletion } from "../handlers/immutability.js";
 import { raiseEvents } from "../reporting.js";
@@ -89,6 +95,7 @@ import {
   recordMaintenanceUnlocked,
 } from "./maintenance.js";
 import { endpointName } from "./monitor.js";
+import { pruneFailureSummary, pruneSummary, targetFull } from "./prune-summary.js";
 
 /** Snapshot ids an alert names at most (the count says how many there are). */
 const ALERT_SNAPSHOT_IDS = 10;
@@ -161,6 +168,26 @@ async function recordedSnapshots(deps: EndpointJobDeps, tenantId: string, endpoi
     ];
     return { recorded, groups };
   });
+}
+
+/**
+ * Whether the last retention run left a prune due: it only deleted and deferred the repack, or the
+ * full target stopped its prune after the snapshots were forgotten (nothing is left to forget then).
+ */
+async function prunePending(
+  deps: EndpointJobDeps,
+  tenantId: string,
+  endpointId: string,
+): Promise<boolean> {
+  const [last] = await withTenantTx(deps.db, tenantId, (tx) =>
+    tx
+      .select({ summary: endpointReports.summary })
+      .from(endpointReports)
+      .where(and(eq(endpointReports.endpointId, endpointId), eq(endpointReports.kind, "retention")))
+      .orderBy(desc(endpointReports.checkedAt))
+      .limit(1),
+  );
+  return last?.summary.prunePending === true;
 }
 
 /** The SQL backups whose snapshot retention forgot: `pruned`, so nothing offers them again. */
@@ -355,6 +382,9 @@ async function retain(
       onDeletionDeferred: (key, retainUntil) =>
         recordDeferredDeletion(deps.db, tenantId, access.storage, key, retainUntil),
     };
+    const pending =
+      (await prunePending(deps, tenantId, endpointId)) ||
+      (await storageShortOfSpace(access.storage));
     const result = await withRepository(lockedAccess, async (session) => {
       // Locks restic itself calls stale (by their content) go as well.
       await resticUnlock(session, { signal: deps.runtime.shutdownSignal }).catch(() => undefined);
@@ -389,9 +419,13 @@ async function retain(
       const decision = { ...planned, remove: split.remove };
       if (decision.remove.length > 0) {
         await resticForget(session, decision.remove, { signal });
-        await resticPrune(session, { signal });
       }
+      const prune =
+        decision.remove.length > 0 || pending
+          ? await resticPrune(session, { signal, storage: access.storage })
+          : null;
       return {
+        prune,
         audit,
         decision,
         heldBack: planned.remove.length,
@@ -426,6 +460,7 @@ async function retain(
           removedLocks,
           deferredByLock: result.deferredByLock,
           ...(prunedSqlBackups > 0 ? { prunedSqlBackups } : {}),
+          ...pruneSummary(result.prune),
           ...(retentionHeld(holds, endpointId)
             ? { ...retentionHoldSummary(holds, endpointId), heldBackSnapshots: result.heldBack }
             : {}),
@@ -460,10 +495,16 @@ async function retain(
         kind: "retention",
         origin: "server",
         readiness: null,
-        summary: { errorMessage: reportableMessage(error) },
+        summary: { errorMessage: reportableMessage(error), ...pruneFailureSummary(error) },
       },
       now,
     ).catch(() => undefined);
+    if (targetFull(error)) {
+      logger.warn("endpoint retention could not free space: the storage target is full", {
+        tenantId,
+        endpointId,
+      });
+    }
     throw error;
   }
 }

@@ -1080,6 +1080,10 @@ const S3_NAMES: Record<string, StorageErrorCode> = {
   RequestTimeoutException: "timeout",
   StorageProbeTimeout: "timeout",
   StorageIntegrityError: "integrity",
+  QuotaExceeded: "no_space",
+  StorageFull: "no_space",
+  XMinioStorageFull: "no_space",
+  InsufficientStorage: "no_space",
 };
 
 interface ErrorShape {

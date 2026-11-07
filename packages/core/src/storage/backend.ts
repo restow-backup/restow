@@ -89,6 +89,19 @@ export interface StorageBackend {
    * an empty one (the repository repair) asks this first.
    */
   rootState?(): Promise<"present" | "empty" | "missing">;
+  /**
+   * Optional (a directory, also a mounted NFS or SMB share): the free and total bytes of the
+   * file system the root is on (statfs), or null when it cannot tell in time. An S3 bucket
+   * reports none: a quota of the service is not visible through the S3 API.
+   */
+  freeSpace?(): Promise<StorageSpace | null>;
+}
+
+/** Free and total bytes of a storage target, as far as it reports them ({@link StorageBackend.freeSpace}). */
+export interface StorageSpace {
+  /** Bytes an unprivileged writer may still use (not the blocks reserved for root). */
+  readonly freeBytes: number;
+  readonly totalBytes: number;
 }
 
 /**
@@ -237,6 +250,46 @@ export function lockedErrorOf(error: unknown): ObjectLockedError | null {
 /** Whether `error` (or its cause) is an {@link ObjectLockedError}. */
 export function isObjectLocked(error: unknown): boolean {
   return lockedErrorOf(error) !== null;
+}
+
+/** File system codes of a write the storage refused because it is full or over its quota. */
+const NO_SPACE_CODES = new Set([
+  "ENOSPC",
+  "EDQUOT",
+  // S3-compatible services at their quota or out of disk.
+  "QuotaExceeded",
+  "QuotaExceededException",
+  "StorageFull",
+  "XMinioStorageFull",
+  "InsufficientStorage",
+]);
+
+/**
+ * Whether `error` (or its cause) says the storage is full: no space left on the file system,
+ * a disk quota exceeded, or an S3 service at its quota (HTTP 507 or an error code that says so).
+ * Writing the same object again changes nothing until space is freed (docs/STORAGE.md).
+ */
+export function isNoSpaceError(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; depth < 5 && current && typeof current === "object"; depth++) {
+    const shape = current as {
+      code?: unknown;
+      Code?: unknown;
+      name?: unknown;
+      $metadata?: { httpStatusCode?: unknown };
+      cause?: unknown;
+    };
+    for (const candidate of [shape.code, shape.Code, shape.name]) {
+      if (typeof candidate === "string" && NO_SPACE_CODES.has(candidate)) {
+        return true;
+      }
+    }
+    if (shape.$metadata?.httpStatusCode === 507) {
+      return true;
+    }
+    current = shape.cause;
+  }
+  return false;
 }
 
 /** File system codes of a deletion the storage refuses for good (write-once share, read-only). */

@@ -671,7 +671,10 @@
       "removed": "{count, plural, one {# snapshot removed} other {# snapshots removed}}",
       "kept": "{kept} snapshots kept",
       "size": "Size of the backup data afterwards: {size}",
-      "unrecorded": "{count, plural, one {# snapshot no backup reported was kept} other {# snapshots no backup reported were kept}}"
+      "unrecorded": "{count, plural, one {# snapshot no backup reported was kept} other {# snapshots no backup reported were kept}}",
+      "targetFull": "Retention could not free space: target full",
+      "targetFullHint": "The storage target has no room left, not even for the cleanup. Free space on the target or enlarge it (for an S3 bucket: raise its quota). The next retention run then deletes the data no snapshot needs any more.",
+      "deleteOnly": "Space on the storage target was short: only data no snapshot uses was deleted. Partly used data is reorganised in a later run once there is room."
     },
     "mismatches": {
       "show": "{count, plural, one {Show # difference} other {Show # differences}}",

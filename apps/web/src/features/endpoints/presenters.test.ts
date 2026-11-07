@@ -547,11 +547,47 @@ describe("reports", () => {
       "reports.retention.kept",
       "reports.retention.size",
     ]);
+    const deleteOnly = reportView(
+      report({
+        kind: "retention",
+        readiness: null,
+        summary: { removedSnapshots: 3, keptSnapshots: 40, pruneMode: "delete_only" },
+      }),
+      format,
+    );
+    expect(deleteOnly.details.map((d) => d.key)).toEqual([
+      "reports.retention.deleteOnly",
+      "reports.retention.kept",
+    ]);
     const check = reportView(
       report({ kind: "repository_check", summary: { subsetPercent: 12.4 } }),
       format,
     );
     expect(check.headline).toEqual({ key: "reports.check.subset", values: { percent: 12 } });
+  });
+});
+
+describe("a retention run on a full target", () => {
+  it("says the target is full and what to do, not a generic prune failure", () => {
+    const format = { bytes: (n: number) => `${n} B`, integer: (n: number) => String(n) };
+    const view = reportView(
+      {
+        id: "r1",
+        kind: "retention",
+        origin: "server",
+        snapshotId: null,
+        readiness: null,
+        checkedAt: "2026-11-07T10:00:00Z",
+        summary: { targetFull: true, errorMessage: "restic prune failed (exit code 1)" },
+      },
+      format,
+    );
+    expect(view.tone).toBe("destructive");
+    expect(view.headline).toEqual({ key: "reports.retention.targetFull" });
+    expect(view.details.map((d) => d.key)).toEqual([
+      "reports.retention.targetFullHint",
+      "reports.errorMessage",
+    ]);
   });
 });
 

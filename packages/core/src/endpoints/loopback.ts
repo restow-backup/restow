@@ -34,6 +34,8 @@ export interface LoopbackRepository {
   readonly password: string;
   /** Requests served so far (tests, logs). */
   readonly requests: () => number;
+  /** Uploads the storage refused so far because it is full (answered with 403, restic-rest.ts). */
+  readonly storageFullRefusals: () => number;
   close(): Promise<void>;
 }
 
@@ -94,6 +96,7 @@ export async function serveMaintenanceRepository(
 ): Promise<LoopbackRepository> {
   const password = randomBytes(32).toString("base64url");
   let served = 0;
+  let full = 0;
   // restic's requests run in the deletion context of the operation that started restic: a
   // forget or prune deletes only under that pass's permit (storage/deletion-guard.ts).
   const inContext = bindDeletionContext();
@@ -118,6 +121,9 @@ export async function serveMaintenanceRepository(
           principal: "maintenance",
           path: url.pathname,
           query: url.searchParams,
+          onStorageFull: () => {
+            full += 1;
+          },
           ...(options.onDeletionDeferred
             ? {
                 onDeletionDeferred: (event) =>
@@ -144,6 +150,7 @@ export async function serveMaintenanceRepository(
     username: MAINTENANCE_USERNAME,
     password,
     requests: () => served,
+    storageFullRefusals: () => full,
     close: () =>
       new Promise<void>((resolve) => {
         server.close(() => resolve());
