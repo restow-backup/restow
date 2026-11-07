@@ -591,12 +591,13 @@ describe.skipIf(!adminUrl)("garbage collection against Postgres", SLOW_UNDER_LOA
     const tenant = await createTenant();
     const copy = new LocalStorageBackend(join(root, `${tenant.tenantId}-copy`));
     const withCopy = { ...tenant, storage: { ...tenant.storage, copies: [copy] } };
+    // The records are written a batch at a time (writes side by side, one insert per batch):
+    // one write and one insert per record took the test past its time on a busy CI runner.
     const archived = async (count: number, at: Date) => {
-      for (let n = 0; n < count; n++) {
-        const id = randomUUID();
-        const key = archive.archiveItemKey(tenant.tenantId, at, id);
-        await tenant.storage.primary.put(key, Buffer.from(`sealed record ${id}`));
-        await db.insert(archiveItems).values({
+      const ids = Array.from({ length: count }, () => randomUUID());
+      for (let start = 0; start < ids.length; start += 100) {
+        const batch = ids.slice(start, start + 100);
+        const rows = batch.map((id) => ({
           id,
           tenantId: tenant.tenantId,
           messageId: `<${id}@contoso.example>`,
@@ -604,10 +605,16 @@ describe.skipIf(!adminUrl)("garbage collection against Postgres", SLOW_UNDER_LOA
           prevChainHash: null,
           chainHash: `chain-${id}`,
           receivedAt: at,
-          capturedVia: "journal",
-          storagePath: key,
+          capturedVia: "journal" as const,
+          storagePath: archive.archiveItemKey(tenant.tenantId, at, id),
           createdAt: at,
-        });
+        }));
+        await Promise.all(
+          rows.map((row) =>
+            tenant.storage.primary.put(row.storagePath, Buffer.from(`sealed record ${row.id}`)),
+          ),
+        );
+        await db.insert(archiveItems).values(rows);
       }
     };
     const archiveHeads = () => {
@@ -654,7 +661,8 @@ describe.skipIf(!adminUrl)("garbage collection against Postgres", SLOW_UNDER_LOA
     const both = { ...tenant, storage: { ...tenant.storage, copies: [copy, second] } };
     await scrubAt(both, day(8), "sample");
     expect((await second.list(archive.archivePrefix(tenant.tenantId))).length).toBe(1204);
-  });
+    // Mirrors 1200 records to a copy several times: seconds here, more on a busy CI runner.
+  }, 120_000);
 
   it("deletes no pack a running restore or verify of the tenant reads", async () => {
     const tenant = await createTenant();
