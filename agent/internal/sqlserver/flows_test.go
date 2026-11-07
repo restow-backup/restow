@@ -10,6 +10,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -637,8 +638,13 @@ func TestVerifyRequests(t *testing.T) {
 		!strings.HasPrefix(vp.Moves[1].PhysicalName, `L:\Log\`) || !strings.HasSuffix(vp.Moves[1].PhysicalName, "_2.ldf") {
 		t.Fatalf("moves %+v", vp.Moves)
 	}
-	if vp.Path != sqlserver.RestoredPath(filepath.Join(f.env.RestoreRoot, "run-1", "0"), salesPath) {
+	// The file is fetched right into the folder of the check, not below the
+	// whole path it had on the machine: restic restores only its folder.
+	if vp.Path != filepath.Join(f.env.RestoreRoot, "run-1", "0", "full-20261105T020011Z.bak") {
 		t.Fatalf("path %s", vp.Path)
+	}
+	if rs := f.restic.Restores; len(rs) != 1 || rs[0].Subfolder != path.Dir(salesPath) || !reflect.DeepEqual(rs[0].Includes, []string{"/full-20261105T020011Z.bak"}) {
+		t.Fatalf("restic restore %+v", rs)
 	}
 	sid, _ := sqlserver.ServiceSID("MSSQL$SQLEXPRESS")
 	if d := f.fs.DACL(filepath.Join(f.env.RestoreRoot, "run-1", "0")); len(d) != 2 || d[0] != "read" || d[1] != sid {
@@ -788,6 +794,32 @@ func TestRestoreCasesGolden(t *testing.T) {
 			}
 			f.golden("restore-"+c.name, map[string]any{"status": out.Status, "errors": out.Errors, "sqlRestore": out.Report, "ops": f.runner.Ops()})
 		})
+	}
+}
+
+// A backup file whose name in the restore staging folder would be longer
+// than SQL Server opens (3057) is not fetched: the check is incomplete and
+// the restore fails with sql_staging_unusable and a message that says why.
+func TestFetchPathTooLong(t *testing.T) {
+	deep := func(f *fixture) { f.env.RestoreRoot = filepath.Join(f.env.RestoreRoot, strings.Repeat("d", 240)) }
+	f := verifyFixture(t, "verify-green.jsonl")
+	deep(f)
+	out := f.env.Verify(context.Background(), salesVerifyTask(), f.fact, "run-1")
+	r := out.Report.Databases[0]
+	if out.Status != api.StatusFailed || r.Code != api.SQLStagingUnusable || r.Fetched || !strings.Contains(r.Message, "SQL Server opens at most 259") || len(f.restic.Restores) != 0 {
+		t.Fatalf("%+v %+v", out, r)
+	}
+	for _, op := range f.runner.Ops() {
+		if strings.HasPrefix(op, "filelist") || strings.HasPrefix(op, "verify") {
+			t.Fatalf("SQL Server was given the long name: %v", f.runner.Ops())
+		}
+	}
+	g := newFixture(t, map[string]string{"inventory": "inventory-ok.jsonl", "filelist": "filelist-Sales.jsonl", "restore": "restore-ok.jsonl"})
+	g.restic.Put(salesSnapshot, salesPath, salesContent)
+	deep(g)
+	ro := g.env.Restore(context.Background(), salesRestoreTask(), g.fact, "run-7")
+	if ro.Status != api.StatusFailed || ro.Report.Code != api.SQLStagingUnusable || ro.Report.Fetched || len(g.restic.Restores) != 0 {
+		t.Fatalf("%+v %+v", ro, ro.Report)
 	}
 }
 

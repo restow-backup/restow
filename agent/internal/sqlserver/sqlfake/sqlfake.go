@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -346,7 +347,13 @@ func (r *Restic) Restore(ctx context.Context, o restic.RestoreOptions) (*restic.
 		return nil, err
 	}
 	for _, inc := range o.Includes {
-		b, ok := snap[inc]
+		// With a subfolder, includes are relative to it, and what is below
+		// it lands at the root of the target (restic's snapshotID:subfolder).
+		key := inc
+		if o.Subfolder != "" {
+			key = path.Join(o.Subfolder, inc)
+		}
+		b, ok := snap[key]
 		if !ok {
 			continue
 		}

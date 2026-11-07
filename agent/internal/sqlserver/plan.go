@@ -5,11 +5,13 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf16"
 	"unicode/utf8"
 
 	"github.com/restow-backup/restow/agent/internal/api"
@@ -103,6 +105,25 @@ func SnapshotPathOf(p string) string {
 		return "/" + strings.ToUpper(p[:1]) + rest
 	}
 	return filepath.ToSlash(p)
+}
+
+// MaxDeviceName is the longest file name SQL Server opens for BACKUP and
+// RESTORE, in UTF-16 code units; a longer one fails with 3057.
+const MaxDeviceName = 259
+
+// DeviceNameLength is the length of p as SQL Server counts it.
+func DeviceNameLength(p string) int { return len(utf16.Encode([]rune(p))) }
+
+// maxBackupSuffix is the most a backup adds below the staging root:
+// \<instance, 16>\<SafeFolder, 57>\full-20261105T020011Z.bak.
+const maxBackupSuffix = 1 + 16 + 1 + 48 + 1 + 8 + 1 + len("full-20261105T020011Z.bak")
+
+// FetchedPath is where a restore or a check fetches a backup file: right
+// in target under the file's own name, whatever folder it had in the
+// snapshot (restic restores that folder as the root of target, so the
+// staging path of the machine does not repeat in the name SQL Server opens).
+func FetchedPath(target, pathInSnapshot string) string {
+	return filepath.Join(target, path.Base(pathInSnapshot))
 }
 
 // RestoredPath is where restic restores a snapshot path below target: it
@@ -480,6 +501,10 @@ func ValidateStagingDir(dir string, vol VolumeFacts, blocked []string) error {
 	}
 	if len(clean) <= 4 { // X:\ itself
 		return fmt.Errorf("the staging folder %q is the root of a drive; use a folder on it", dir)
+	}
+	if n := DeviceNameLength(strings.TrimRight(dir, `\`)); n+maxBackupSuffix > MaxDeviceName {
+		return fmt.Errorf("the staging folder %q is %d characters long; with the folders and the file name of a backup below it, SQL Server would get a file name over %d characters. Use a folder of at most %d characters",
+			dir, n, MaxDeviceName, MaxDeviceName-maxBackupSuffix)
 	}
 	return nil
 }

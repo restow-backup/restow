@@ -185,19 +185,28 @@ function Get-RestowSafeName([string]$Value) {
 
 Write-Host ('Backup of ' + $Data.database + ' on ' + $Data.hostname + '\' + $Data.instance + ', finished ' + $Data.backup.backupFinish)
 
-# 1. Fetch exactly the backup file from the repository, into a new folder of this script.
+# 1. Fetch exactly the backup file from the repository, into a new folder of this script: its
+#    folder in the snapshot is restored as the root of that folder, so the file lands right in it.
 $readerSid = Get-RestowServiceSid $SqlServiceAccount
 $staging = New-RestowStagingFolder $StagingDir $readerSid
 $connection = $null
 try {
-  & $Restic -r $Repository --password-file $PasswordFile restore $Data.backup.snapshotId --include $Data.backup.pathInSnapshot --target $staging
+  $snapshotPath = [string]$Data.backup.pathInSnapshot
+  $cut = $snapshotPath.LastIndexOf('/')
+  if ($cut -lt 0 -or $cut -eq $snapshotPath.Length - 1) { throw ('The path ' + $snapshotPath + ' of the backup in the snapshot is not valid.') }
+  $folderInSnapshot = $snapshotPath.Substring(0, $cut)
+  if (-not $folderInSnapshot) { $folderInSnapshot = '/' }
+  $fileName = $snapshotPath.Substring($cut + 1)
+  $bak = Join-Path $staging $fileName
+  if ($bak.Length -gt 259) {
+    throw ('The fetched backup would be ' + $bak + ', ' + $bak.Length + ' characters; SQL Server opens at most 259. Pass a shorter folder with -StagingDir.')
+  }
+  & $Restic -r $Repository --password-file $PasswordFile restore ($Data.backup.snapshotId + ':' + $folderInSnapshot) --include ('/' + $fileName) --target $staging
   if ($LASTEXITCODE -ne 0) { throw ('restic restore ended with exit code ' + $LASTEXITCODE + '.') }
 
   # 2. restic restored the permissions of the backed-up machine; give the fetched items the
   #    access of this script's folder again (SQL Server of this instance may read), no links.
   Set-RestowStagingAccess $staging $readerSid
-  $relative = $Data.backup.pathInSnapshot.TrimStart('/') -replace '/', '\'
-  $bak = Join-Path $staging $relative
   if (-not (Test-Path -LiteralPath $bak -PathType Leaf)) { throw ('restic did not restore ' + $Data.backup.pathInSnapshot + '.') }
 
   # 3. The file must be the one that was backed up.

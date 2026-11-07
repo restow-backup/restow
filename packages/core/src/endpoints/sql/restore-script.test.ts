@@ -134,6 +134,20 @@ describe("renderSqlRestoreScript", () => {
     expect(script).toContain("$inherit = [System.Security.AccessControl.InheritanceFlags]::None");
   });
 
+  it("fetches the file right into its folder, with a name SQL Server can open", () => {
+    // The whole snapshot path below the staging folder would repeat the machine's staging path in
+    // the name RESTORE opens; SQL Server takes at most 259 characters (error 3057).
+    const script = renderSqlRestoreScript(input);
+    expect(script).toContain(
+      "restore ($Data.backup.snapshotId + ':' + $folderInSnapshot) --include ('/' + $fileName) --target $staging",
+    );
+    expect(script).toContain("$bak = Join-Path $staging $fileName");
+    expect(script).not.toContain("--include $Data.backup.pathInSnapshot");
+    const lengthCheck = script.indexOf("if ($bak.Length -gt 259) {");
+    expect(lengthCheck).toBeGreaterThan(0);
+    expect(script.indexOf("& $Restic -r $Repository")).toBeGreaterThan(lengthCheck);
+  });
+
   it("gives what restic fetched the folder's access again before SQL Server reads it", () => {
     // restic restores the security descriptors of the snapshot: the agent's staging folders grant
     // only the SQL Server service of the machine that made the backup, so another instance here

@@ -181,18 +181,21 @@ ls)
   exit 0 ;;
 restore)
   printf '%s\n' "$@" > "$FAKE_DIR/restore-args.txt"
-  target=""; prev=""
+  target=""; prev=""; sub=""
   for a in "$@"; do
     if [ "$prev" = "--target" ]; then target="$a"; fi
+    # snapshotID:/folder restores that folder as the root of the target, and
+    # the includes are relative to it.
+    case "$a" in -*) ;; *:/*) sub="${a#*:}" ;; esac
     prev="$a"
   done
   prev=""
   for a in "$@"; do
     if [ "$prev" = "--include" ] && [ -n "$FAKE_RESTORE_SRC" ]; then
       p=$(printf '%s' "$a" | sed 's/\\\(.\)/\1/g')
-      if [ -f "$FAKE_RESTORE_SRC$p" ]; then
+      if [ -f "$FAKE_RESTORE_SRC$sub$p" ]; then
         mkdir -p "$target$(dirname "$p")"
-        cp "$FAKE_RESTORE_SRC$p" "$target$p"
+        cp "$FAKE_RESTORE_SRC$sub$p" "$target$p"
       fi
     fi
     prev="$a"

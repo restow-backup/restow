@@ -20,7 +20,12 @@ type RestoreOptions struct {
 	Target string
 	// Includes are snapshot paths (forward slashes, starting with /). Empty
 	// restores the whole snapshot.
-	Includes   []string
+	Includes []string
+	// Subfolder, when set, is a folder of the snapshot (forward slashes,
+	// starting with /) whose contents restic restores at the root of Target
+	// (restic's snapshotID:subfolder), instead of the whole path below it;
+	// Includes are then relative to it ("/file" is Subfolder/file).
+	Subfolder  string
 	OnProgress func(Progress)
 }
 
@@ -36,6 +41,10 @@ func (r *Runner) Restore(ctx context.Context, o RestoreOptions) (*RestoreResult,
 		return nil, errors.New("restore: snapshot id and target are required")
 	}
 	args := []string{"restore", "--json", "--target", o.Target, "--overwrite", "never", "--verify", "--retry-lock", "15m"}
+	if o.Subfolder != "" && (!strings.HasPrefix(o.Subfolder, "/") || strings.ContainsRune(o.Subfolder, 0) ||
+		strings.Contains(o.Subfolder+"/", "/../") || strings.Contains(o.Subfolder+"/", "/./")) {
+		return nil, fmt.Errorf("restore: invalid snapshot folder %q (must start with /)", o.Subfolder)
+	}
 	total := 0
 	for _, inc := range o.Includes {
 		if !strings.HasPrefix(inc, "/") || strings.ContainsRune(inc, 0) {
@@ -48,7 +57,11 @@ func (r *Runner) Restore(ctx context.Context, o RestoreOptions) (*RestoreResult,
 	if total > maxIncludeArgBytes {
 		return nil, fmt.Errorf("restore: the selection is too large (%d bytes of paths); restore a parent folder or fewer items", total)
 	}
-	args = append(args, o.SnapshotID)
+	if o.Subfolder != "" {
+		args = append(args, o.SnapshotID+":"+o.Subfolder)
+	} else {
+		args = append(args, o.SnapshotID)
+	}
 
 	res := &RestoreResult{}
 	var summary *RestoreSummary

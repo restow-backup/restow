@@ -3,6 +3,7 @@ package sqlserver
 import (
 	"context"
 	"fmt"
+	"path"
 	"regexp"
 	"strings"
 	"time"
@@ -114,12 +115,23 @@ type fetched struct {
 // its SHA-256 and gives the SQL Server service SIDs Read on it.
 func (e *Env) fetch(ctx context.Context, snapshotID, pathInSnapshot, sha string, size int64, target string, readSIDs []string, db string) fetched {
 	var f fetched
+	// SQL Server opens the file under this name: refused before anything is
+	// fetched if it is longer than SQL Server takes (3057).
+	local := FetchedPath(target, pathInSnapshot)
+	if n := DeviceNameLength(local); n > MaxDeviceName {
+		f.Problem = &Problem{Code: api.SQLStagingUnusable, Step: StepFetch, Message: BoundMessage(fmt.Sprintf(
+			"The backup of %s was not fetched: in the restore staging folder it would be %s, %d characters, and SQL Server opens at most %d.", db, local, n, MaxDeviceName))}
+		return f
+	}
 	if err := e.FS.MkdirWithSIDs(target, nil); err != nil {
 		f.Problem = &Problem{Code: api.SQLStagingUnusable, Step: StepFetch, Message: BoundMessage(fmt.Sprintf("The restore staging folder %s could not be created: %v.", target, err))}
 		return f
 	}
 	e.Log.Infof("Fetching the backup of %s from snapshot %s.", db, short(snapshotID))
-	_, err := e.Restic.Restore(ctx, restic.RestoreOptions{SnapshotID: snapshotID, Target: target, Includes: []string{pathInSnapshot},
+	// Only the folder of the file, restored as the root of target: the file
+	// lands right in target (FetchedPath).
+	_, err := e.Restic.Restore(ctx, restic.RestoreOptions{SnapshotID: snapshotID, Target: target,
+		Subfolder: path.Dir(pathInSnapshot), Includes: []string{"/" + path.Base(pathInSnapshot)},
 		OnProgress: func(p restic.Progress) {
 			e.progress(Progress{Database: db, Step: StepFetch, BytesDone: p.BytesDone, TotalBytes: p.TotalBytes, Percent: int(p.Percent * 100)})
 		}})
@@ -127,7 +139,7 @@ func (e *Env) fetch(ctx context.Context, snapshotID, pathInSnapshot, sha string,
 		f.Problem = &Problem{Code: api.SQLRestoreFailed, Step: StepFetch, Message: BoundMessage(fmt.Sprintf("The backup of %s could not be fetched from the repository: %v.", db, err))}
 		return f
 	}
-	f.Local = RestoredPath(target, pathInSnapshot)
+	f.Local = local
 	sum, n, err := e.FS.SHA256File(ctx, f.Local)
 	if err != nil {
 		f.Problem = &Problem{Code: api.SQLRestoreFailed, Step: StepFetch, Message: BoundMessage(fmt.Sprintf("restic restored no backup file of %s from snapshot %s: %v.", db, short(snapshotID), err))}

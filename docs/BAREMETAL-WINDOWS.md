@@ -1593,7 +1593,10 @@ Express (2019 und 2022), auf echter Hardware mit 2019 Standard und 2022 Express 
   `.restow-sql-staging`; ein vorhandener gilt nur, wenn Eigentümer und DACL vertrauenswürdig sind
   (`paths.CheckTarget`) und er leer ist oder die Markierung trägt. Sonst `sql_staging_unusable`:
   ein fremder Ordner wird weder neu berechtigt noch geleert. Unterordner, die jemand anderes
-  angelegt hat, lehnt `MkdirWithSIDs` ab (ein Eigentümer behält `WRITE_DAC`).
+  angelegt hat, lehnt `MkdirWithSIDs` ab (ein Eigentümer behält `WRITE_DAC`). Höchstens 158
+  Zeichen lang: darunter kommen Instanz (bis 16), Datenbankordner (bis 57) und
+  `full-<zeit>.bak`, und `BACKUP` nimmt wie `RESTORE` höchstens 259 Zeichen (3057); ein
+  längerer Ordner ist `sql_staging_unusable`, bevor eine Sicherung beginnt.
 - **Sperren:** Der Agent erlaubt heute nur einen Lauf gleichzeitig (`lock.TryAcquire` auf
   `data\run.lock`, `core/backup.go:39`, `run.go:322`, `agent.go:845`). Ein `sql_log` alle 15
   Minuten fiele aus, solange ein Image-, Datei-, `sql_verify`- oder `kit_build`-Lauf über
@@ -1658,6 +1661,15 @@ Express (2019 und 2022), auf echter Hardware mit 2019 Standard und 2022 Express 
   `RESTORE LOG @new FROM DISK=@log WITH NORECOVERY[, STOPAT=@t]`, zum Schluss
   `RESTORE DATABASE @new WITH RECOVERY`; optional `DBCC CHECKDB` (Vorgabe an bis `maxGiB`);
   Bericht mit Dauer, LSN, Ergebnis; Staging löschen.
+- **Umsetzung W2a, Abruf der Datei** (Restore, Prüfung und Restore-Skript gleich): restic stellt
+  nur den Ordner der Datei im Snapshot als Wurzel des Restore-Staging-Ordners wieder her
+  (`restic restore <snapshot>:<ordner> --include /<datei>`), die Datei liegt also direkt darin
+  unter ihrem eigenen Namen (`FetchedPath`), statt unter dem ganzen Pfad, den sie auf dem Rechner
+  hatte. Sonst stünde der Staging-Pfad zweimal im Namen, den `RESTORE` öffnet, und SQL Server
+  nimmt höchstens 259 Zeichen (3057). Wäre der Name trotzdem länger, holt der Agent nichts und
+  meldet `sql_staging_unusable` mit Pfad und Länge (Prüfung unvollständig, Restore gescheitert);
+  das Skript bricht vor restic ab und nennt `-StagingDir`. Hash, `SetReadSIDs` bzw.
+  `Set-RestowStagingAccess` und die Ablehnung von Links bleiben, wie sie sind.
 - **Über die vorhandene** (W2b): frische Anmeldung, Eingabe des Datenbanknamens, Hinweis auf
   Verbindungen. Reihenfolge auf **derselben Verbindung**: zuerst
   `ALTER DATABASE … SET SINGLE_USER WITH ROLLBACK IMMEDIATE` (über `QUOTENAME`, 5.1.2), dann
@@ -2841,7 +2853,7 @@ Oberfläche "Vorschau".
 | Erster CI-Lauf `windows-sql`: "ohne Anmeldung" meldete keinen Fehler. Das Setup machte `BUILTIN\Administrators` zu sysadmin, und die Probe läuft als LocalSystem, das dazugehört | Angenommen: sysadmin ist nur das Konto des Runners (`/SQLSYSADMINACCOUNTS`); so greift die kleine Rechtevariante nur über die Dienst-SID. **Zweiter Lauf:** auch ohne eigene Anmeldung (auch nachdem Schritt 1 eine etwaige Anmeldung `NT AUTHORITY\SYSTEM` entfernt hatte) meldet sich die Probe auf einer frischen Express-Instanz als `NT AUTHORITY\SYSTEM` an, über eine Anmeldung, die das Setup angelegt hat, mit Rechten von `public`: kein sysadmin, kein `CREATE ANY DATABASE`, keine Datenbank sicherbar. Das ist der Normalfall beim Kunden; der Server zeigt dann "Rechte fehlen" mit dem T-SQL-Block, eine Sicherung endet mit `sql_permission_missing`. Schritt 1 lässt die Instanz darum, wie sie ist, gibt ihre Windows-Anmeldungen aus und nimmt `sql_login_missing` oder genau diesen Zustand samt `sql_permission_missing` einer Sicherung an |
 | Erster CI-Lauf: `DBCC WRITEPAGE` mit Nullen über dem Satzkopf scheiterte selbst (8944 "Test (offsetNull >= BASEOFFSET)") und beendete das Skript | Angenommen: die beschädigte Kopie entsteht über ein Byte der Daten (`V` der ersten Zeile wird `y`, der Index `IX_T_V` hält `z`); die Seite bleibt wohlgeformt, nur CHECKDB sieht den Widerspruch (8951/8952) |
 | Zweiter CI-Lauf, Installertest: "a missing SQL Server key lists instances" und "SQL Server instances: System.Object[]". `Get-SqlInstanceNames` gab die Liste mit `return , @(...)` als ein Objekt zurück, `@(...)` beim Aufrufer machte daraus eine Liste mit einer Liste, nie leer; der Installer hätte auch ohne SQL Server den Anmeldeblock für "SQL Server: ." ausgegeben | Angenommen: die Namen gehen einzeln in die Pipeline, ohne Schlüssel nichts |
-| Zweiter CI-Lauf, `go test -tags sqlintegration`: `RESTORE HEADERONLY` scheiterte mit 3057 (Gerätename über 259 Zeichen). Die Prüfung holt die Sicherung nach `<RestoreRoot>\<Lauf>\<n>\` und darunter den ganzen Pfad, den die Datei im Snapshot hatte; der Staging-Pfad steht also zweimal im Namen, und der Test lag unter dem TEMP des Benutzerprofils | Angenommen: der Test nimmt einen kurzen Ordner unter `RUNNER_TEMP`. Mit den Ordnern des Agenten (`C:\ProgramData\Restow\data`) bleibt der Name bei etwa 220 Zeichen; ein eigener `stagingDir` mit mehr als etwa 70 Zeichen kann die Grenze aber reißen (Prüfung und Restore unvollständig mit 3057). Offen: aus dem Snapshot nur den Ordner der Datei holen (`<snapshot>:<ordner>`) oder die Länge vorher prüfen |
+| Zweiter CI-Lauf, `go test -tags sqlintegration`: `RESTORE HEADERONLY` scheiterte mit 3057 (Gerätename über 259 Zeichen). Die Prüfung holt die Sicherung nach `<RestoreRoot>\<Lauf>\<n>\` und darunter den ganzen Pfad, den die Datei im Snapshot hatte; der Staging-Pfad steht also zweimal im Namen, und der Test lag unter dem TEMP des Benutzerprofils | Angenommen: der Test nimmt einen kurzen Ordner unter `RUNNER_TEMP`. Das Problem traf auch Kunden: mit einem eigenen `stagingDir` über etwa 70 Zeichen endeten Prüfung und Restore unvollständig mit 3057. **Behoben** (5.1.4): restic holt nur den Ordner der Datei (`<snapshot>:<ordner>`), die Datei liegt direkt im Restore-Staging-Ordner (Agent etwa 100 Zeichen, Skript unter TEMP etwa 120), unabhängig vom Staging-Pfad des Rechners; ein trotzdem zu langer Name ist vorher `sql_staging_unusable`, ein eigener `stagingDir` über 158 Zeichen ebenfalls (5.1.3). Flows-Tests mit Fakes (Pfad, Aufruf von restic, zu tiefer Ordner), restic-Argumente, Golden-Datei des Skripts; `<snapshot>:<ordner>` mit `--include` lokal mit restic 0.19.1 unter Linux nachgeprüft, unter Windows belegt es der nächste CI-Lauf |
 | Erster CI-Lauf: der Mehr-Volume-Befund sah in beiden Jobs keine Schattenkopie (`map[]`). Die feste WMI-Abfrage ging über `-Command -` an PowerShell 5.1, das stdin wie die Konsole liest: eine Anweisung über mehrere Zeilen wartet auf eine Leerzeile, die nie kommt, die Abfrage schrieb nichts | Angenommen: `-EncodedCommand`; leere Ausgabe ist ein Fehler, fehlgeschlagene Abfragen und das, was restic über die Schattenkopien meldet, stehen im Beleg |
 | Aufgaben-Fixtures nur von Go gelesen | Angenommen: Core- und Postgres-Test vergleichen die gebauten `params` mit den Fixtures |
 | W1-Gate nicht wie 8.2 gebaut | Angenommen: C23 |

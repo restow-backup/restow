@@ -197,6 +197,19 @@ func TestValidateStagingDir(t *testing.T) {
 	if err := ValidateStagingDir(`E:\SqlStaging`, good, blocked); err != nil {
 		t.Fatal(err)
 	}
+	// The longest folder that still leaves room for a backup below it.
+	longest := `E:\` + strings.Repeat("s", MaxDeviceName-maxBackupSuffix-3)
+	if err := ValidateStagingDir(longest, good, blocked); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateStagingDir(longest+"s", good, blocked); err == nil || !strings.Contains(err.Error(), "over 259 characters") {
+		t.Fatalf("one character more: %v", err)
+	}
+	// The name of a backup below the longest folder fits exactly.
+	at := time.Date(2026, 11, 5, 2, 0, 11, 0, time.UTC)
+	if n := DeviceNameLength(strings.ReplaceAll(longest, `\`, "/") + "/" + strings.Repeat("I", 16) + "/" + SafeFolder(strings.Repeat("x", 60)) + "/full-" + TimeStamp(at) + ".bak"); n != MaxDeviceName {
+		t.Fatalf("a backup below the longest folder is %d characters", n)
+	}
 	for dir, vol := range map[string]VolumeFacts{
 		`SqlStaging`:          good,
 		`\\server\share\x`:    good,
@@ -208,6 +221,9 @@ func TestValidateStagingDir(t *testing.T) {
 		`E:\y`:                {Root: `E:\`, Fixed: true, FileSystem: "ReFS"},
 		`E:\z`:                {Root: `E:\`, Fixed: true, FileSystem: "NTFS", ReparseAt: `E:\z`},
 		"E:\\bad\x01":         good,
+		// With the folders and the file of a backup below it, SQL Server
+		// would get a name over 259 characters.
+		`E:\` + strings.Repeat("s", 160): good,
 	} {
 		if err := ValidateStagingDir(dir, vol, blocked); err == nil {
 			t.Errorf("%q accepted", dir)
