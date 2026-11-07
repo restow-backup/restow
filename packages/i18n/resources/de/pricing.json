@@ -10,7 +10,14 @@
     "none": "Für diesen Mandanten ist noch kein Preis festgelegt.",
     "link": "Preise anpassen",
     "edit": "Preise für diesen Mandanten",
-    "loadError": "Der Preis konnte nicht geladen werden."
+    "loadError": "Der Preis konnte nicht geladen werden.",
+    "units": {
+      "servers": "{count, plural, one {# Server} other {# Server}} × {price} = {amount}",
+      "clients": "{count, plural, one {# Client} other {# Clients}} × {price} = {amount}",
+      "vms": "{count, plural, one {# VM} other {# VMs}} × {price} = {amount}",
+      "containers": "{count, plural, one {# Container} other {# Container}} × {price} = {amount}",
+      "fileShares": "{count, plural, one {# Dateifreigabe} other {# Dateifreigaben}} × {price} = {amount}"
+    }
   },
   "editor": {
     "title": "Preise für {name}",
@@ -27,7 +34,13 @@
     "saved": "Preise für {name} gespeichert.",
     "loadError": "Die Preise konnten nicht geladen werden.",
     "unavailable": "Eigene Preise je Mandant gehören zu Service Provider.",
-    "invalid": "Bitte einen Preis wie 2,50 eingeben (höchstens vier Nachkommastellen) oder das Feld leer lassen."
+    "invalid": "Bitte einen Preis wie 2,50 eingeben (höchstens vier Nachkommastellen) oder das Feld leer lassen.",
+    "server": "Preis je Server",
+    "client": "Preis je Client",
+    "vm": "Preis je VM",
+    "container": "Preis je Container",
+    "fileShare": "Preis je Dateifreigabe",
+    "unitsTitle": "Je geschützter Einheit"
   },
   "all": {
     "title": "Preis je Monat, alle Mandanten",
@@ -39,5 +52,12 @@
     "listTitle": "Die Preise aller Mandanten unter Kapazitätsplanung ansehen",
     "missing": "{count, plural, one {Die Zahlen von # Mandant sind noch nicht verfügbar.} other {Die Zahlen von # Mandanten sind noch nicht verfügbar.}} Die Summe ist unvollständig.",
     "loadError": "Die Preise aller Mandanten konnten nicht geladen werden."
+  },
+  "count": {
+    "servers": "{count, plural, one {# Server} other {# Server}}",
+    "clients": "{count, plural, one {# Client} other {# Clients}}",
+    "vms": "{count, plural, one {# VM} other {# VMs}}",
+    "containers": "{count, plural, one {# Container} other {# Container}}",
+    "fileShares": "{count, plural, one {# Dateifreigabe} other {# Dateifreigaben}}"
   }
 }

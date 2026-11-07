@@ -43,7 +43,7 @@
     "ransomware": "How restore points are checked for signs of ransomware, and the thresholds of each signal, for {scope, select, organisation {your organisation} other {all tenants}}.",
     "agentPolicy": "Backup window, missed backups, bandwidth, AC power and retries of servers and clients, and what tenants may change.",
     "proxmox": "How the restore points of VMs and containers are checked, for {scope, select, organisation {your organisation} other {all tenants}}.",
-    "pricing": "What you charge your customers per month: per mailbox and per GB or TB of backups. The dashboard and each tenant's overview show what it comes to at these prices. Nothing is billed.",
+    "pricing": "What you charge your customers per month: per mailbox, per GB or TB of backups and, if you like, per server, client, VM, container or file share. The dashboard and each tenant's overview show what it comes to at these prices. Nothing is billed.",
     "notifications": "Who on your side is told what about {scope, select, organisation {your organisation} other {every tenant}} and the installation: the recipients, the mandatory ones, digests and the summary reports.",
     "branding": "Your logo, sender, accent colour and footer on the mails and chat messages of {scope, select, organisation {your organisation} other {every tenant}}.",
     "restoreMode": "After restoring a database dump: nothing is deleted until a provider owner has checked the restored database.",
@@ -634,7 +634,26 @@
       "hint": "Set the prices of a single tenant on the price card of its overview. Only the owner can; every other tenant uses the prices above.",
       "mailbox": "{price} per mailbox",
       "storage": "{price} per {unit}",
-      "loadError": "The list of tenants with their own prices could not be loaded."
+      "loadError": "The list of tenants with their own prices could not be loaded.",
+      "server": "{price} per server",
+      "client": "{price} per client",
+      "vm": "{price} per VM",
+      "container": "{price} per container",
+      "fileShare": "{price} per file share"
+    },
+    "units": {
+      "title": "Prices per protected unit",
+      "description": "Optional, per month and unit, in addition to the mailboxes and the storage. A unit counts while it is protected: in a backup job and neither revoked, removed nor retired. Leave a price empty if you do not bill the type.",
+      "server": "Price per server",
+      "serverHint": "Per server with the agent in a backup job. Revoked and removed machines do not count.",
+      "client": "Price per client",
+      "clientHint": "Per client (desktop or laptop) with the agent in a backup job. Revoked and removed machines do not count.",
+      "vm": "Price per VM",
+      "vmHint": "Per Proxmox VE VM in an active job. Excluded guests and templates do not count.",
+      "container": "Price per container",
+      "containerHint": "Per Proxmox VE container in an active job. Excluded guests do not count.",
+      "fileShare": "Price per file share",
+      "fileShareHint": "Per file share in an active backup job. Retired shares do not count."
     }
   },
   "featureLocked": "Not part of this build",

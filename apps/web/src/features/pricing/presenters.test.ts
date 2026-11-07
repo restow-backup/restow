@@ -18,6 +18,7 @@ describe("tenantPriceView", () => {
       total: 36.8,
       mailboxes: { quantity: 12, price: 2.5, amount: 30 },
       storage: { quantity: 340, price: 0.02, amount: 6.8, unit: "GB", billed: null },
+      units: [],
       custom: false,
     });
   });

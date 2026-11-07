@@ -15,6 +15,10 @@ import { ProblemError } from "../../problem.js";
  * Since 0.4.8 a tenant can have prices of its own where the installation offers several tenants
  * (tenant-pricing.ts), and one estimate answers for both the dashboard and the tenant page
  * (pricing-estimate.ts).
+ *
+ * Since 0.5.0 a price per protected unit can be set besides: per server, per client (the agent
+ * machines by their profile), per Proxmox VE VM, per container and per file share
+ * ({@link UNIT_LINES}; counted as usage/units.ts says). Each is optional like the others.
  */
 
 export const PRICING_AUDIT_ACTIONS = { updated: "settings.pricing.updated" } as const;
@@ -48,6 +52,47 @@ export function billedBytes(storedBytes: number, billing: StorageBilling): numbe
   return Math.ceil(storedBytes / block) * block;
 }
 
+/**
+ * The lines priced per protected unit (0.5.0), besides the mailboxes: the line of the estimate
+ * (`key`, also the count's name), the price (`price`) and its flag in `overridden` (`flag`).
+ */
+export const UNIT_LINES = [
+  { key: "servers", price: "serverPrice", flag: "server" },
+  { key: "clients", price: "clientPrice", flag: "client" },
+  { key: "vms", price: "vmPrice", flag: "vm" },
+  { key: "containers", price: "containerPrice", flag: "container" },
+  { key: "fileShares", price: "fileSharePrice", flag: "fileShare" },
+] as const;
+
+export type UnitLine = (typeof UNIT_LINES)[number]["key"];
+export type UnitPriceKey = (typeof UNIT_LINES)[number]["price"];
+export type UnitFlag = (typeof UNIT_LINES)[number]["flag"];
+
+/** The price per unit and month of each line; null = the line is not billed. */
+export type UnitPrices = Record<UnitPriceKey, number | null>;
+
+/** Every price key a tenant can have of its own, and the installation has. */
+export const PRICE_KEYS = [
+  "mailboxPrice",
+  "storagePrice",
+  ...UNIT_LINES.map((line) => line.price),
+] as const;
+export type PriceKey = (typeof PRICE_KEYS)[number];
+
+/** Each unit price of `source`, null where it has none. */
+export function unitPricesOf(source: Partial<Record<UnitPriceKey, unknown>> | null | undefined) {
+  const prices = {} as UnitPrices;
+  for (const line of UNIT_LINES) {
+    prices[line.price] = priceOrNull(source?.[line.price]);
+  }
+  return prices;
+}
+
+/** A stored price, or null for whatever is not one. */
+export function priceOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+}
+
 /** One price: null clears it. The limits also hold for a tenant's own price (tenant-pricing.ts). */
 export const priceSchema = z.number().min(0).max(1_000_000).multipleOf(0.0001).nullable();
 
@@ -58,10 +103,15 @@ export const pricingSchema = z
     storageUnit: z.enum(["GB", "TB"]).optional(),
     storageBilling: z.enum(STORAGE_BILLING).optional(),
     mailboxPrice: priceSchema.optional(),
+    serverPrice: priceSchema.optional(),
+    clientPrice: priceSchema.optional(),
+    vmPrice: priceSchema.optional(),
+    containerPrice: priceSchema.optional(),
+    fileSharePrice: priceSchema.optional(),
   })
   .strict();
 
-export interface PricingDto {
+export interface PricingDto extends UnitPrices {
   currency: string;
   storagePrice: number | null;
   storageUnit: "GB" | "TB";
@@ -71,8 +121,7 @@ export interface PricingDto {
 }
 
 export function resolvePricing(stored: PricingSettings | null | undefined): PricingDto {
-  const number = (value: unknown) =>
-    typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+  const number = priceOrNull;
   return {
     currency:
       typeof stored?.currency === "string" &&
@@ -85,6 +134,7 @@ export function resolvePricing(stored: PricingSettings | null | undefined): Pric
       ? (stored?.storageBilling as StorageBilling)
       : "exact",
     mailboxPrice: number(stored?.mailboxPrice),
+    ...unitPricesOf(stored),
   };
 }
 

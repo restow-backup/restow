@@ -1,7 +1,28 @@
 import { apiFetch } from "@/lib/api";
 
+/**
+ * The lines priced per protected unit (servers from 0.5.0, apps/api settings/pricing.ts
+ * `UNIT_LINES`): the estimate's line and count (`key`), the price (`price`) and its flag in
+ * `overridden` (`flag`). Servers and clients are the agent machines by their profile.
+ */
+export const UNIT_LINES = [
+  { key: "servers", price: "serverPrice", flag: "server" },
+  { key: "clients", price: "clientPrice", flag: "client" },
+  { key: "vms", price: "vmPrice", flag: "vm" },
+  { key: "containers", price: "containerPrice", flag: "container" },
+  { key: "fileShares", price: "fileSharePrice", flag: "fileShare" },
+] as const;
+
+export type UnitLineDef = (typeof UNIT_LINES)[number];
+export type UnitLine = UnitLineDef["key"];
+export type UnitPriceKey = UnitLineDef["price"];
+export type UnitFlag = UnitLineDef["flag"];
+
+/** A price per unit and month for each line; absent (an older server) or null = not billed. */
+export type UnitPrices = Partial<Record<UnitPriceKey, number | null>>;
+
 /** The provider's prices per month (apps/api settings/pricing.ts); nothing bills them. */
-export interface Pricing {
+export interface Pricing extends UnitPrices {
   /** ISO 4217 code: EUR, CHF, USD or GBP. */
   currency: string;
   storagePrice: number | null;
@@ -28,13 +49,17 @@ export const savePricing = (input: Partial<Pricing>) =>
   apiFetch<Pricing>("/settings/pricing", { method: "PUT", body: input });
 
 /** What a tenant comes to per month (apps/api settings/pricing-estimate.ts). */
-export interface EstimateAmount {
+export interface EstimateAmount extends Partial<Record<UnitLine, number | null>> {
   mailboxes: number | null;
   storage: number | null;
   total: number | null;
 }
 
-export interface EstimateTenant {
+/**
+ * One tenant of the estimate. The unit lines (servers from 0.5.0) carry the protected units of
+ * each type (null: not available or not read) and the price per unit that applies.
+ */
+export interface EstimateTenant extends Partial<Record<UnitLine, number | null>>, UnitPrices {
   tenantId: string;
   name: string;
   /** `internal`: the operator's own organisation, which is no customer. */
@@ -52,7 +77,7 @@ export interface EstimateTenant {
   mailboxPrice: number | null;
   /** Per `storageUnit` of the estimate. */
   storagePrice: number | null;
-  overridden: { mailbox: boolean; storage: boolean };
+  overridden: { mailbox: boolean; storage: boolean } & Partial<Record<UnitFlag, boolean>>;
   amount: EstimateAmount;
 }
 
@@ -61,7 +86,7 @@ export interface PricingEstimate {
   storageUnit: "GB" | "TB";
   /** How the stored bytes are counted (servers from 0.4.9; absent reads as exact). */
   storageBilling?: StorageBilling;
-  global: { mailboxPrice: number | null; storagePrice: number | null };
+  global: { mailboxPrice: number | null; storagePrice: number | null } & UnitPrices;
   /** Tenants may have prices of their own (the gate `tenants.additional` is open). */
   perTenantOverrides: boolean;
   /** The installation has a price, or a listed tenant has one of its own. */
@@ -90,10 +115,16 @@ export interface TenantPricing {
   currency: string;
   storageUnit: "GB" | "TB";
   overridesEnabled: boolean;
-  global: { mailboxPrice: number | null; storagePrice: number | null };
-  overrides: { mailboxPrice: number | null; storagePrice: number | null };
-  effective: { mailboxPrice: number | null; storagePrice: number | null };
+  global: TenantPriceSet;
+  overrides: TenantPriceSet;
+  effective: TenantPriceSet;
 }
+
+/** Every price of one side; null = none. */
+export type TenantPriceSet = {
+  mailboxPrice: number | null;
+  storagePrice: number | null;
+} & UnitPrices;
 
 export const tenantPricingKey = (tenantId: string) => [...pricingKey, "tenant", tenantId] as const;
 
@@ -103,7 +134,7 @@ export const fetchTenantPricing = (tenantId: string) =>
 /** A price as a number sets the tenant's own, null removes it so the installation's applies. */
 export const saveTenantPricing = (
   tenantId: string,
-  input: { mailboxPrice?: number | null; storagePrice?: number | null },
+  input: { mailboxPrice?: number | null; storagePrice?: number | null } & UnitPrices,
 ) =>
   apiFetch<TenantPricing>(`/tenants/${encodeURIComponent(tenantId)}/pricing`, {
     method: "PUT",

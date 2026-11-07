@@ -10,7 +10,14 @@
     "none": "No price is set for this tenant yet.",
     "link": "Adjust prices",
     "edit": "Prices for this tenant",
-    "loadError": "The price could not be loaded."
+    "loadError": "The price could not be loaded.",
+    "units": {
+      "servers": "{count, plural, one {# server} other {# servers}} × {price} = {amount}",
+      "clients": "{count, plural, one {# client} other {# clients}} × {price} = {amount}",
+      "vms": "{count, plural, one {# VM} other {# VMs}} × {price} = {amount}",
+      "containers": "{count, plural, one {# container} other {# containers}} × {price} = {amount}",
+      "fileShares": "{count, plural, one {# file share} other {# file shares}} × {price} = {amount}"
+    }
   },
   "editor": {
     "title": "Prices for {name}",
@@ -27,7 +34,13 @@
     "saved": "Prices for {name} saved.",
     "loadError": "The prices could not be loaded.",
     "unavailable": "Prices of their own for a tenant come with Service Provider.",
-    "invalid": "Please enter a price such as 2.50 (at most four decimals) or leave the field empty."
+    "invalid": "Please enter a price such as 2.50 (at most four decimals) or leave the field empty.",
+    "server": "Price per server",
+    "client": "Price per client",
+    "vm": "Price per VM",
+    "container": "Price per container",
+    "fileShare": "Price per file share",
+    "unitsTitle": "Per protected unit"
   },
   "all": {
     "title": "Price per month, all tenants",
@@ -39,5 +52,12 @@
     "listTitle": "See the prices of all tenants under Capacity planning",
     "missing": "{count, plural, one {The figures of # tenant are not available yet.} other {The figures of # tenants are not available yet.}} The total is incomplete.",
     "loadError": "The prices of all tenants could not be loaded."
+  },
+  "count": {
+    "servers": "{count, plural, one {# server} other {# servers}}",
+    "clients": "{count, plural, one {# client} other {# clients}}",
+    "vms": "{count, plural, one {# VM} other {# VMs}}",
+    "containers": "{count, plural, one {# container} other {# containers}}",
+    "fileShares": "{count, plural, one {# file share} other {# file shares}}"
   }
 }

@@ -21,6 +21,8 @@ import { randomBytes, randomUUID } from "node:crypto";
 import {
   account,
   auditLog,
+  backupJobMembers,
+  backupJobs,
   createDb,
   type Database,
   endpoints,
@@ -49,6 +51,23 @@ import type { PricingEstimateDto } from "./pricing-estimate.js";
 import type { TenantPricingDto } from "./tenant-pricing.js";
 
 const DATABASE = "restow_api_tenant_pricing_test";
+
+/** The prices per unit (0.5.0) of an installation and a tenant that set none. */
+const NO_UNIT_PRICES = {
+  serverPrice: null,
+  clientPrice: null,
+  vmPrice: null,
+  containerPrice: null,
+  fileSharePrice: null,
+};
+/** The unit lines of an estimate without a price per unit. */
+const NO_UNIT_LINES = {
+  servers: null,
+  clients: null,
+  vms: null,
+  containers: null,
+  fileShares: null,
+};
 const PUBLIC_URL = "http://localhost:3000";
 const OWNER_EMAIL = "owner@example.com";
 const PASSWORD = "correct-horse-battery-1";
@@ -342,7 +361,12 @@ describe.skipIf(!testDatabaseAdminUrl)("a tenant's own prices and the estimate",
       storedBytes: 0,
       amount: { mailboxes: 2, storage: 0, total: 2 },
     });
-    expect(entryOf(body, gamma).amount).toEqual({ mailboxes: 0, storage: 0, total: 0 });
+    expect(entryOf(body, gamma).amount).toEqual({
+      mailboxes: 0,
+      storage: 0,
+      ...NO_UNIT_LINES,
+      total: 0,
+    });
     // The own organisation is listed with its amount but is no customer: 6 + 2 + 0.
     expect(entryOf(body, internalTenant).amount.total).toBe(2);
     expect(body.total).toBe(8);
@@ -483,9 +507,9 @@ describe.skipIf(!testDatabaseAdminUrl)("a tenant's own prices and the estimate",
       currency: "EUR",
       storageUnit: "GB",
       overridesEnabled: true,
-      global: { mailboxPrice: 2, storagePrice: 0.5 },
-      overrides: { mailboxPrice: null, storagePrice: null },
-      effective: { mailboxPrice: 2, storagePrice: 0.5 },
+      global: { mailboxPrice: 2, storagePrice: 0.5, ...NO_UNIT_PRICES },
+      overrides: { mailboxPrice: null, storagePrice: null, ...NO_UNIT_PRICES },
+      effective: { mailboxPrice: 2, storagePrice: 0.5, ...NO_UNIT_PRICES },
     });
     expect(
       (await call("PUT", `/api/v1/tenants/${alpha}/pricing`, administrator, { mailboxPrice: 1 }))
@@ -511,7 +535,15 @@ describe.skipIf(!testDatabaseAdminUrl)("a tenant's own prices and the estimate",
       amount: { mailboxes: 3, storage: 2, total: 5 },
     });
     // The other tenants keep the installation's prices.
-    expect(entryOf(body, beta).overridden).toEqual({ mailbox: false, storage: false });
+    expect(entryOf(body, beta).overridden).toEqual({
+      mailbox: false,
+      storage: false,
+      server: false,
+      client: false,
+      vm: false,
+      container: false,
+      fileShare: false,
+    });
 
     // A free storage (0) is a price of its own, not "none"; what is left out stays.
     await put({ storagePrice: 0 });
@@ -673,6 +705,82 @@ describe.skipIf(!testDatabaseAdminUrl)("a tenant's own prices and the estimate",
     } finally {
       logged.mockRestore();
     }
+  });
+
+  it("prices the protected servers per unit, the tenant's own unit price included", async () => {
+    // Alpha's server web01 is in no backup job yet: it is not protected and counts nothing.
+    expect((await setGlobal({ serverPrice: 10, fileSharePrice: 3 })).status).toBe(200);
+    let body = await estimate();
+    expect(body.global).toMatchObject({ serverPrice: 10, fileSharePrice: 3, vmPrice: null });
+    expect(entryOf(body, alpha)).toMatchObject({
+      servers: 0,
+      clients: 0,
+      fileShares: 0,
+      serverPrice: 10,
+      amount: { servers: 0, fileShares: 0, vms: null, mailboxes: 4, storage: 2, total: 6 },
+    });
+
+    // Once it is in a backup job it is protected: one server at 10.
+    const [machine] = await owner
+      .select({ id: endpoints.id })
+      .from(endpoints)
+      .where(eq(endpoints.tenantId, alpha));
+    const [job] = await owner
+      .insert(backupJobs)
+      .values({ tenantId: alpha, kind: "endpoint", name: "Servers" })
+      .returning();
+    await owner.insert(backupJobMembers).values({
+      tenantId: alpha,
+      jobId: (job as { id: string }).id,
+      endpointId: (machine as { id: string }).id,
+    });
+    // The route keeps a tenant's figures for a while; read them afresh.
+    const shared = await import("../../db.js");
+    const { loadPricingEstimate } = await import("./pricing-estimate.js");
+    const fresh = () =>
+      loadPricingEstimate({ db: shared.db, providerDb: shared.providerDb }, null, {
+        tenantId: alpha,
+      });
+    body = await fresh();
+    expect(entryOf(body, alpha)).toMatchObject({
+      servers: 1,
+      amount: { servers: 10, total: 16 },
+      overridden: { server: false },
+    });
+
+    // The tenant's own price per server replaces the installation's, and null removes it.
+    const put = (input: Record<string, unknown>) =>
+      call("PUT", `/api/v1/tenants/${alpha}/pricing`, ownerCookie, input);
+    const own = await put({ serverPrice: 7.5 });
+    expect(own.status).toBe(200);
+    expect((await own.json()) as TenantPricingDto).toMatchObject({
+      overrides: { serverPrice: 7.5, vmPrice: null },
+      effective: { serverPrice: 7.5, fileSharePrice: 3 },
+    });
+    body = await fresh();
+    expect(entryOf(body, alpha)).toMatchObject({
+      serverPrice: 7.5,
+      overridden: { server: true },
+      amount: { servers: 7.5, total: 13.5 },
+    });
+    expect((await put({ vmPrice: -1 })).status).toBe(422);
+
+    // A revoked machine is no longer protected.
+    await owner
+      .update(endpoints)
+      .set({ status: "revoked" })
+      .where(eq(endpoints.id, (machine as { id: string }).id));
+    expect(entryOf(await fresh(), alpha)).toMatchObject({
+      servers: 0,
+      amount: { servers: 0 },
+    });
+
+    await put({ serverPrice: null });
+    await setGlobal({ serverPrice: null, fileSharePrice: null });
+    await owner
+      .update(endpoints)
+      .set({ status: "active" })
+      .where(eq(endpoints.id, (machine as { id: string }).id));
   });
 
   it("reads on the application role, which Row Level Security binds", async () => {

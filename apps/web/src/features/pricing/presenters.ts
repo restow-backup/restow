@@ -1,4 +1,4 @@
-import type { EstimateTenant, PricingEstimate } from "./api.js";
+import { type EstimateTenant, type PricingEstimate, UNIT_LINES, type UnitLine } from "./api.js";
 
 const UNIT_BYTES = { GB: 1e9, TB: 1e12 } as const;
 
@@ -19,6 +19,46 @@ export interface StorageLine extends PriceLine {
   billed: { storedGb: number; quantity: number } | null;
 }
 
+/** A line priced per protected unit: servers, clients, VMs, containers or file shares. */
+export interface UnitPriceLine extends PriceLine {
+  line: UnitLine;
+  /** The tenant's own price applies to this line. */
+  custom: boolean;
+}
+
+/**
+ * The unit lines of a tenant that have a price and a count, in the order of {@link UNIT_LINES};
+ * a line without a price is not billed and left out.
+ */
+export function unitLines(entry: EstimateTenant): UnitPriceLine[] {
+  return UNIT_LINES.flatMap((def) => {
+    const price = entry[def.price] ?? null;
+    const quantity = entry[def.key] ?? null;
+    const amount = entry.amount[def.key] ?? null;
+    return price !== null && quantity !== null && amount !== null
+      ? [{ line: def.key, quantity, price, amount, custom: entry.overridden[def.flag] === true }]
+      : [];
+  });
+}
+
+/** Whether any price applies to the tenant, its own or the installation's. */
+export function hasAnyPrice(entry: EstimateTenant): boolean {
+  return (
+    entry.mailboxPrice !== null ||
+    entry.storagePrice !== null ||
+    UNIT_LINES.some((def) => (entry[def.price] ?? null) !== null)
+  );
+}
+
+/** Whether the tenant has a price of its own on any line. */
+export function hasOwnPrice(entry: EstimateTenant): boolean {
+  return (
+    entry.overridden.mailbox ||
+    entry.overridden.storage ||
+    UNIT_LINES.some((def) => entry.overridden[def.flag] === true)
+  );
+}
+
 /** What a price card shows for one tenant. */
 export type TenantPriceView =
   /** No price applies to the tenant: nothing to show (the installation has none, nor the tenant). */
@@ -30,6 +70,8 @@ export type TenantPriceView =
       total: number;
       mailboxes: PriceLine | null;
       storage: StorageLine | null;
+      /** The lines priced per unit (servers from 0.5.0), each with a price and a count. */
+      units: UnitPriceLine[];
       /** The tenant's own price applies to at least one line. */
       custom: boolean;
     };
@@ -42,10 +84,10 @@ export type TenantPriceView =
  */
 export function tenantPriceView(estimate: PricingEstimate, tenantId: string): TenantPriceView {
   const entry = estimate.tenants.find((tenant) => tenant.tenantId === tenantId);
-  if (!entry || (entry.mailboxPrice === null && entry.storagePrice === null)) {
+  if (!entry || !hasAnyPrice(entry)) {
     return { kind: "none" };
   }
-  const custom = entry.overridden.mailbox || entry.overridden.storage;
+  const custom = hasOwnPrice(entry);
   if (entry.amount.total === null) {
     return { kind: "unavailable", custom };
   }
@@ -79,6 +121,7 @@ export function tenantPriceView(estimate: PricingEstimate, tenantId: string): Te
     total: entry.amount.total,
     mailboxes: mailboxLine,
     storage: storageLine,
+    units: unitLines(entry),
     custom,
   };
 }
@@ -96,9 +139,7 @@ export function topTenants(
 
 /** The tenants with a price of their own, in the order the server lists them (by name). */
 export function tenantsWithOwnPrices(estimate: PricingEstimate): EstimateTenant[] {
-  return estimate.tenants.filter(
-    (tenant) => tenant.overridden.mailbox || tenant.overridden.storage,
-  );
+  return estimate.tenants.filter(hasOwnPrice);
 }
 
 /** A price or an amount in the provider's currency, in the UI language. */

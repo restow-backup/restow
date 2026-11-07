@@ -29,6 +29,11 @@ describe("resolvePricing", () => {
       storageUnit: "GB",
       storageBilling: "exact",
       mailboxPrice: null,
+      serverPrice: null,
+      clientPrice: null,
+      vmPrice: null,
+      containerPrice: null,
+      fileSharePrice: null,
     });
     expect(resolvePricing({ storageBilling: "block_9tb" as never }).storageBilling).toBe("exact");
     expect(
@@ -88,6 +93,11 @@ describe.skipIf(!testDatabaseAdminUrl)("the provider's prices against Postgres",
       storageUnit: "TB",
       storageBilling: "exact",
       mailboxPrice: 2.5,
+      serverPrice: null,
+      clientPrice: null,
+      vmPrice: null,
+      containerPrice: null,
+      fileSharePrice: null,
     });
     const cleared = await pricing.updatePricing(providerDb, { mailboxPrice: null }, actor);
     expect(cleared.mailboxPrice).toBeNull();

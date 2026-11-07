@@ -62,6 +62,26 @@ Worker skalierbar. Postgres 16 ist die einzige Zustandsquelle außer dem Chunk-S
   `tenant.pricing.updated`; ohne die Erweiterung gelten wieder die Preise der Installation). Den
   ersten Mandanten legt der Kern immer an; jeder weitere existiert nur, solange eine Erweiterung
   `tenants.additional` freischaltet (siehe unten).
+- Preise je geschützter Einheit (0.5.0): Auf Wunsch kommt je Art ein Monatspreis je geschützter
+  Einheit hinzu (`serverPrice`, `clientPrice`, `vmPrice`, `containerPrice`, `fileSharePrice`, in
+  `settings.pricing` und als eigener Preis eines Mandanten in `tenants.pricing`; leer = wird nicht
+  berechnet, gleiche Währung, ungerundet wie der Postfachpreis). Ohne diese Preise zählen Rechner,
+  Gäste und Freigaben nur über ihren Speicher. Die Zählregel (`apps/api` `usage/units.ts`
+  `countProtectedUnits`) folgt der der Postfächer: Es zählt, was jetzt geschützt ist, je Einheit
+  einmal, gleich ob im Monat eine Sicherung lief.
+  - Server und Clients: Rechner mit Agent nach ihrem Profil (`server`, `client`), aktiv (nicht
+    gesperrt), nicht aus Restow entfernt (`removed_at` leer) und Mitglied eines Backup-Jobs (wie
+    „geschützt“ im Dashboard).
+  - VMs und Container: Proxmox-VE-Gäste nach ihrer Art, nicht stillgelegt (`retired_at` leer) und
+    in einem aktiven PVE-Job, dem eigenen oder dem für alle Gäste (`pveJobOfGuest`: vom Knoten
+    gemeldet, keine VM-Vorlage, nicht ausgeschlossen, keine wiederhergestellte Kopie ohne Job).
+  - Dateifreigaben: nicht stillgelegt und Mitglied eines aktiven Freigabe-Jobs
+    (`PROTECTED_SHARE_SQL`).
+
+  Die Schätzung (`GET /api/v1/settings/pricing/estimate`) führt je Mandant zusätzlich die Zahlen
+  (`servers`, `clients`, `vms`, `containers`, `fileShares`), die geltenden Preise und je Zeile den
+  Betrag (`amount.servers` usw.) und `overridden.server` usw.; die bisherigen Felder bleiben. Die
+  Preise sind JSON-Schlüssel der vorhandenen Spalten, eine Migration braucht es nicht.
 - Eigene Organisation (`tenant.kind`): Ein Mandant ist `customer` (Standard) oder `internal`,
   die eigene Organisation des Betreibers mit seinem eigenen M365, seinen Servern und seinem
   Speicher. Höchstens einer je Provider ist `internal` (partieller Unique-Index

@@ -42,6 +42,12 @@ export const tenantKindEnum = pgEnum("tenant_kind", ["customer", "internal"]);
 export interface TenantPricing {
   mailboxPrice?: number;
   storagePrice?: number;
+  /** Per protected unit (0.5.0), as in settings.pricing (PricingSettings). */
+  serverPrice?: number;
+  clientPrice?: number;
+  vmPrice?: number;
+  containerPrice?: number;
+  fileSharePrice?: number;
 }
 
 /**

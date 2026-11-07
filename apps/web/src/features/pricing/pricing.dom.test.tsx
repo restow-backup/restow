@@ -28,6 +28,7 @@ import {
   BERG,
   estimateFixture,
   estimateTenant,
+  NO_UNIT_PRICES,
   noPriceEstimate,
   OWN,
   tenantPricingFixture,
@@ -314,7 +315,7 @@ describe("the editor of a tenant's prices", () => {
     await click(buttonByText(dialog, "Save"));
     await flush(5);
     expect(requests.filter((request) => request.method === "PUT").map((r) => r.body)).toEqual([
-      { mailboxPrice: 1.5, storagePrice: 0.015 },
+      { mailboxPrice: 1.5, storagePrice: 0.015, ...NO_UNIT_PRICES },
     ]);
     // The estimate was read again, so the card shows the new price at once.
     expect(requests.filter((request) => request.path.endsWith("/estimate")).length).toBe(2);
@@ -330,18 +331,23 @@ describe("the editor of a tenant's prices", () => {
     const buttons = [...dialog.querySelectorAll("button")].filter(
       (button) => button.textContent === "Use installation price",
     );
-    expect(buttons).toHaveLength(2);
+    expect(buttons).toHaveLength(7);
     // Each button names the price it clears for a screen reader.
     expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual([
       "Price per mailbox: use installation price",
       "Price per GB: use installation price",
+      "Price per server: use installation price",
+      "Price per client: use installation price",
+      "Price per VM: use installation price",
+      "Price per container: use installation price",
+      "Price per file share: use installation price",
     ]);
     await click(buttons[0]);
     expect(inputs(dialog)[0]?.value).toBe("");
     await click(buttonByText(dialog, "Save"));
     await flush(5);
     expect(requests.filter((request) => request.method === "PUT").map((r) => r.body)).toEqual([
-      { mailboxPrice: null, storagePrice: 0.015 },
+      { mailboxPrice: null, storagePrice: 0.015, ...NO_UNIT_PRICES },
     ]);
   });
 
@@ -525,6 +531,7 @@ describe("the price settings", () => {
         storageBilling: "exact",
         storagePrice: null,
         mailboxPrice: 2.5,
+        ...NO_UNIT_PRICES,
       },
     ]);
     // The estimate is derived from the prices: it is read again, not served from the cache.
@@ -621,5 +628,203 @@ describe("the price settings", () => {
     it("is not there where tenants cannot have prices of their own", async () => {
       expect(await section(estimateFixture({ perTenantOverrides: false }))).toBeNull();
     });
+  });
+});
+
+describe("prices per protected unit (0.5.0)", () => {
+  /** Acme at 30 per server and its own 10 per VM: 2 servers, 5 VMs; clients and the rest unpriced. */
+  const unitEstimate = () =>
+    estimateFixture({
+      global: { mailboxPrice: 2.5, storagePrice: 0.02, ...NO_UNIT_PRICES, serverPrice: 30 },
+      tenants: [
+        estimateTenant({
+          servers: 2,
+          clients: 3,
+          vms: 5,
+          containers: 1,
+          fileShares: 0,
+          ...NO_UNIT_PRICES,
+          serverPrice: 30,
+          vmPrice: 10,
+          overridden: {
+            mailbox: false,
+            storage: false,
+            server: false,
+            client: false,
+            vm: true,
+            container: false,
+            fileShare: false,
+          },
+          amount: {
+            mailboxes: 30,
+            storage: 6.8,
+            servers: 60,
+            clients: null,
+            vms: 50,
+            containers: null,
+            fileShares: null,
+            total: 146.8,
+          },
+        }),
+      ],
+      total: 146.8,
+    });
+
+  it("shows a line per type with a price on the card, and marks the tenant's own", async () => {
+    api(unitEstimate());
+    const shown = await showCard();
+    expect(shown?.textContent).toContain("€146.80 / month");
+    expect(shown?.textContent).toContain("12 mailboxes × €2.50 = €30.00");
+    expect(shown?.textContent).toContain("2 servers × €30.00 = €60.00");
+    expect(shown?.textContent).toContain("5 VMs × €10.00 = €50.00");
+    // Clients, containers and file shares have no price: not billed, no line.
+    expect(
+      [...(shown?.querySelectorAll('[data-slot="unit-line"]') ?? [])].map((line) =>
+        line.getAttribute("data-line"),
+      ),
+    ).toEqual(["servers", "vms"]);
+    expect(shown?.textContent).not.toContain("client");
+    expect(shown?.textContent).toContain("Custom price");
+  });
+
+  it("shows the card for a tenant priced per unit only, in German as well", async () => {
+    api(
+      estimateFixture({
+        global: { mailboxPrice: null, storagePrice: null, ...NO_UNIT_PRICES, containerPrice: 4 },
+        tenants: [
+          estimateTenant({
+            mailboxPrice: null,
+            storagePrice: null,
+            containers: 3,
+            ...NO_UNIT_PRICES,
+            containerPrice: 4,
+            amount: { mailboxes: null, storage: null, containers: 12, total: 12 },
+          }),
+        ],
+        total: 12,
+      }),
+    );
+    await i18n.changeLanguage("de");
+    try {
+      const shown = await showCard();
+      expect(shown?.getAttribute("data-state")).toBeNull();
+      expect(shown?.textContent).toMatch(/3 Container × 4,00\s€ = 12,00\s€/);
+      expect(shown?.textContent).not.toContain("Postf");
+    } finally {
+      await i18n.changeLanguage("en");
+    }
+  });
+
+  it("lets the owner enter a price per server, client, VM, container and file share", async () => {
+    const { mock, requests } = routedFetch({
+      "GET /settings/pricing": () => json({ ...PRICING, ...NO_UNIT_PRICES, vmPrice: 12 }),
+      "GET /settings/pricing/estimate": () => json(noPriceEstimate({ perTenantOverrides: false })),
+      "PUT /settings/pricing": (request) => json({ ...PRICING, ...(request.body as object) }),
+    });
+    vi.stubGlobal("fetch", mock);
+    mounted = mount(<PricingSection />, { session: sessionAs({}) });
+    await flush(5);
+    const units = mounted.container.querySelector('[data-slot="unit-prices"]') as HTMLElement;
+    expect(units.textContent).toContain("Prices per protected unit");
+    for (const label of [
+      "Price per server",
+      "Price per client",
+      "Price per VM",
+      "Price per container",
+      "Price per file share",
+    ]) {
+      expect(units.textContent).toContain(label);
+    }
+    expect(units.textContent).toContain("Revoked and removed machines do not count.");
+    const [server, client, vm, container, share] = [...units.querySelectorAll("input")];
+    expect(vm?.value).toBe("12");
+    expect(server?.value).toBe("");
+    // Unchanged, nothing to save.
+    expect(buttonByText(mounted.container, "Save")?.disabled).toBe(true);
+    await type(server, "30");
+    await type(client, "4,5");
+    await type(vm, "");
+    await type(container, "abc");
+    expect(container?.getAttribute("aria-invalid")).toBe("true");
+    expect(buttonByText(mounted.container, "Save")?.disabled).toBe(true);
+    await type(container, "");
+    await type(share, "8");
+    await click(buttonByText(mounted.container, "Save"));
+    await flush(5);
+    expect(requests.filter((request) => request.method === "PUT").map((r) => r.body)).toEqual([
+      {
+        currency: "EUR",
+        storageUnit: "GB",
+        storageBilling: "exact",
+        storagePrice: 0.02,
+        mailboxPrice: 2.5,
+        serverPrice: 30,
+        clientPrice: 4.5,
+        vmPrice: null,
+        containerPrice: null,
+        fileSharePrice: 8,
+      },
+    ]);
+  });
+
+  it("lets the owner set a tenant's own price per unit in the dialog", async () => {
+    const pricing = tenantPricingFixture({
+      global: { mailboxPrice: 2.5, storagePrice: 0.02, ...NO_UNIT_PRICES, serverPrice: 30 },
+      overrides: { mailboxPrice: null, storagePrice: null, ...NO_UNIT_PRICES },
+    });
+    const routes: Parameters<typeof routedFetch>[0] = {
+      [`GET /tenants/${ACME}/pricing`]: () => json(pricing),
+      [`PUT /tenants/${ACME}/pricing`]: () => json(pricing),
+    };
+    const { requests } = api(estimateFixture(), routes);
+    const shown = await showCard();
+    await click(buttonByText(shown as HTMLElement, "Prices for this tenant"));
+    await flush(5);
+    const dialog = await waitFor(
+      () => document.querySelector<HTMLElement>('[data-slot="tenant-price-dialog"]'),
+      { what: "the dialog" },
+    );
+    await flush(3);
+    expect(dialog.textContent).toContain("Per protected unit");
+    const fields = [...dialog.querySelectorAll("input")];
+    expect(fields).toHaveLength(7);
+    // The installation's price per server is the placeholder; a VM has none.
+    expect(fields[2]?.placeholder).toBe("30");
+    expect(fields[4]?.placeholder).toBe("");
+    await type(fields[2], "25");
+    await type(fields[6], "0");
+    await click(buttonByText(dialog, "Save"));
+    await flush(5);
+    expect(requests.filter((request) => request.method === "PUT").map((r) => r.body)).toEqual([
+      {
+        mailboxPrice: null,
+        storagePrice: null,
+        ...NO_UNIT_PRICES,
+        serverPrice: 25,
+        fileSharePrice: 0,
+      },
+    ]);
+  });
+
+  it("lists a tenant's own unit prices among the tenants with their own prices", async () => {
+    api(
+      estimateFixture({
+        tenants: [
+          estimateTenant({
+            tenantId: BERG,
+            name: "Berg",
+            ...NO_UNIT_PRICES,
+            vmPrice: 10,
+            overridden: { mailbox: false, storage: false, vm: true },
+          }),
+        ],
+      }),
+      { "GET /settings/pricing": () => json(PRICING) },
+    );
+    mounted = mount(<PricingSection />, { session: sessionAs({}) });
+    await flush(5);
+    const shown = mounted.container.querySelector('[data-slot="tenants-own-prices"]');
+    expect(shown?.textContent).toContain("Berg");
+    expect(shown?.textContent).toContain("€10.00 per VM");
   });
 });
