@@ -1,9 +1,14 @@
 /**
  * `endpoint-removal` (release 0.4.5, #65): delete the backups of a machine an admin removed
  * from Restow (@restow/db `EndpointRemoval`; the api accepts the removal, features/endpoints/
- * removal.ts). Due when `endpoints.removal_due_at` has come: at once for "delete", at the end of
- * the machine's retention for "expire". The scheduler hands every due one over each minute.
+ * removal.ts). Due when `endpoints.removal_due_at` has come: seven days after the request for
+ * "delete" (0.5.0; the machine stays listed until then and the request can be cancelled), at the
+ * end of the machine's retention for "expire". The scheduler hands every due one over each minute.
  *
+ *   claimed    before the first object goes, the worker claims the removal on the machine's row
+ *              (`startedAt`, and `removed_at` for a "delete" that kept the machine listed): from
+ *              then on it can no longer be cancelled. A cancel that came first leaves nothing to
+ *              claim, and nothing is deleted.
  *   held       a legal hold over the whole tenant, or a suspicious restore point of the machine
  *              nobody resolved (suspicion/holds.ts), keeps everything: nothing is deleted, and
  *              the worker looks again a day later.
@@ -17,7 +22,8 @@
  *              machines), and the worker tries again once the latest lock has run out.
  *   done       nothing of the repository is left: the repository password, the stored samples
  *              and the snapshot marks go as well. The machine's row stays (a tombstone) with its
- *              runs and reports, for the history and the audit trail.
+ *              runs and reports, for the history and the audit trail; `endpoint.backups_deleted`
+ *              tells the tenant's rules and the provider what went (objects, snapshots, bytes).
  *
  * Every step that changes the state is audited (`endpoint.removal.*`, actor `system`).
  */
@@ -41,10 +47,11 @@ import {
   legalHolds,
   secrets,
 } from "@restow/db";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { appendAuditEntry } from "../audit.js";
 import { withTenantTx } from "../handlers/framework.js";
 import { recordDeferredDeletion } from "../handlers/immutability.js";
+import { raiseEvents } from "../reporting.js";
 import { loadRetentionHolds, retentionHeld, retentionHoldMode } from "../suspicion/holds.js";
 import {
   type EndpointJobDeps,
@@ -66,6 +73,7 @@ export const ENDPOINT_REMOVAL_AUDIT_ACTIONS = {
 
 export type EndpointRemovalOutcome =
   | { state: "skipped" }
+  | { state: "cancelled" }
   | { state: "held"; heldBy: "legal_hold" | "suspicion" }
   | { state: "deferred"; deleted: number; locked: number; lockedUntil: Date | null }
   | { state: "done"; deleted: number };
@@ -128,12 +136,17 @@ async function saveRemoval(
   });
 }
 
-/** Delete every object under `prefix` on `backend`; what the storage still locks is counted. */
+/**
+ * Delete every object under `prefix` on `backend`; what the storage still locks is counted. The
+ * ids of the restic snapshot files deleted go into `snapshots` (the same snapshot on a copy is
+ * counted once).
+ */
 async function deleteUnder(
   deps: EndpointJobDeps,
   tenantId: string,
   backend: StorageBackend,
   prefix: string,
+  snapshots: Set<string>,
 ): Promise<{ deleted: number; locked: number; lockedUntil: Date | null; unknownUntil: boolean }> {
   let deleted = 0;
   let locked = 0;
@@ -144,6 +157,10 @@ async function deleteUnder(
     try {
       await backend.delete(key);
       deleted++;
+      const snapshot = /(?:^|\/)snapshots\/([0-9a-f]{64})$/.exec(key.slice(prefix.length));
+      if (snapshot?.[1]) {
+        snapshots.add(snapshot[1]);
+      }
     } catch (error) {
       const refusal = lockedErrorOf(error);
       if (!refusal) {
@@ -161,6 +178,46 @@ async function deleteUnder(
   return { deleted, locked, lockedUntil, unknownUntil };
 }
 
+/**
+ * Mark the removal as started on the machine's row (FOR UPDATE, like the api's cancel): false
+ * when it is gone or another request replaced it. A "delete" that kept the machine listed is
+ * removed now (`removed_at`), so it leaves every list once its backups start to go.
+ */
+async function claimRemoval(
+  deps: EndpointJobDeps,
+  endpoint: Endpoint,
+  now: Date,
+): Promise<boolean> {
+  return withTenantTx(deps.db, endpoint.tenantId, async (tx) => {
+    const [row] = await tx
+      .select({
+        removedAt: endpoints.removedAt,
+        removal: endpoints.removal,
+      })
+      .from(endpoints)
+      .where(eq(endpoints.id, endpoint.id))
+      .limit(1)
+      .for("update");
+    const removal = row?.removal;
+    if (!removal || removal.requestedAt !== endpoint.removal?.requestedAt) {
+      return false;
+    }
+    if (removal.startedAt && row.removedAt) {
+      return true;
+    }
+    await tx
+      .update(endpoints)
+      .set({
+        removedAt: row.removedAt ?? now,
+        removal: sql`${endpoints.removal} || ${JSON.stringify({
+          startedAt: removal.startedAt ?? now.toISOString(),
+        })}::jsonb`,
+      })
+      .where(eq(endpoints.id, endpoint.id));
+    return true;
+  });
+}
+
 export async function endpointRemoval(
   deps: EndpointJobDeps,
   payload: { tenantId: string; endpointId: string },
@@ -168,9 +225,10 @@ export async function endpointRemoval(
   const { tenantId, endpointId } = payload;
   const endpoint = await loadEndpoint(deps, tenantId, endpointId);
   const now = deps.runtime.now();
+  // A "delete" keeps `removed_at` empty until the worker starts (0.5.0); an "expire" has it.
   if (
-    !endpoint?.removedAt ||
-    !endpoint.removal ||
+    !endpoint?.removal ||
+    (!endpoint.removedAt && endpoint.removal.mode !== "delete") ||
     endpoint.removal.state === "done" ||
     !endpoint.removalDueAt ||
     endpoint.removalDueAt > now
@@ -218,8 +276,20 @@ export async function endpointRemoval(
     return { state: "skipped" };
   }
 
+  // Claim it before anything goes: a cancel (apps/api removal.ts, the same row FOR UPDATE) that
+  // came first leaves nothing to claim.
+  if (!(await claimRemoval(deps, endpoint, now))) {
+    deps.runtime.logger.info("machine's backups not deleted: the deletion was cancelled", {
+      tenantId,
+      endpointId,
+    });
+    return { state: "cancelled" };
+  }
+  removal.startedAt ??= now.toISOString();
+
   const targets = repositoryTargets(await deps.runtime.storage.get(tenantId));
   const prefix = endpointPrefix(endpointId);
+  const snapshots = new Set<string>();
   let result: Awaited<ReturnType<typeof deleteUnder>>;
   try {
     result = await withDeletionPermit({ pass: "endpoint_removal", tenantId }, () =>
@@ -231,7 +301,7 @@ export async function endpointRemoval(
           unknownUntil: false,
         };
         for (const backend of targets) {
-          const part = await deleteUnder(deps, tenantId, backend, prefix);
+          const part = await deleteUnder(deps, tenantId, backend, prefix, snapshots);
           total.deleted += part.deleted;
           total.locked += part.locked;
           total.unknownUntil ||= part.unknownUntil;
@@ -259,6 +329,7 @@ export async function endpointRemoval(
     throw error;
   }
   const deletedObjects = (removal.deletedObjects ?? 0) + result.deleted;
+  const deletedSnapshots = (removal.deletedSnapshots ?? 0) + snapshots.size;
 
   if (result.locked > 0) {
     // Without a known retain-until, look again in a day.
@@ -278,6 +349,7 @@ export async function endpointRemoval(
         lockedUntil,
         lockedObjects: result.locked,
         deletedObjects,
+        deletedSnapshots,
         lastError: null,
       },
       dueAt,
@@ -315,6 +387,7 @@ export async function endpointRemoval(
           lockedUntil: null,
           lockedObjects: 0,
           deletedObjects,
+          deletedSnapshots,
           lastError: null,
           completedAt: now.toISOString(),
         },
@@ -338,9 +411,32 @@ export async function endpointRemoval(
         hostname: endpoint.hostname,
         mode: removal.mode,
         deletedObjects,
+        deletedSnapshots,
         repositoryBytes: endpoint.repositoryBytes,
       },
     });
+    const name = endpoint.displayName ?? endpoint.hostname;
+    await raiseEvents(
+      tx,
+      [
+        {
+          tenantId,
+          level: "info",
+          event: "endpoint.backups_deleted",
+          message: `Every backup of the removed machine ${name} was deleted: ${deletedSnapshots} snapshots, ${deletedObjects} files.`,
+          details: {
+            endpointId,
+            objectName: name,
+            mode: removal.mode,
+            deletedObjects,
+            deletedSnapshots,
+            repositoryBytes: endpoint.repositoryBytes,
+          },
+          createdAt: now,
+        },
+      ],
+      now,
+    );
   });
   await removeCache(endpointId);
   deps.runtime.logger.info("removed machine's backups deleted", {

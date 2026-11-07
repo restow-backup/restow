@@ -110,6 +110,17 @@ export const ENDPOINT_PROBLEMS = {
   removalLegalHold: "urn:restow:problem:endpoint-removal-legal-hold",
   /** 409: ... and while a suspicious restore point of the machine holds them. */
   removalSuspicionHold: "urn:restow:problem:endpoint-removal-suspicion-hold",
+  /** 409: the machine's backups are already scheduled for deletion (cancel that first). */
+  removalScheduled: "urn:restow:problem:endpoint-removal-scheduled",
+  /** 422: deleting a machine's backups needs a reason. */
+  removalReasonRequired: "urn:restow:problem:endpoint-removal-reason-required",
+  /** 409: no deletion to cancel, or the worker has started deleting already. */
+  removalNotCancellable: "urn:restow:problem:endpoint-removal-not-cancellable",
+  /**
+   * 403: deleting a machine's backups (and cancelling that) is for the provider's owners
+   * (the same type as other owner-only actions).
+   */
+  ownerRequired: "urn:restow:problem:owner-required",
   /** 409: keeping the backups until they expire, but the machine's retention keeps everything. */
   removalNeverExpires: "urn:restow:problem:endpoint-removal-never-expires",
 } as const;

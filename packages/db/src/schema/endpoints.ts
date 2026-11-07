@@ -233,7 +233,10 @@ export type EndpointRetention = {
  * while its runs, reports and audit entries stay (the row is kept as a tombstone).
  *
  *   delete   its restic repository (`endpoints/<id>/` on every target of the tenant that holds
- *            files of it) is deleted as soon as nothing holds it.
+ *            files of it) is deleted as soon as nothing holds it, at the earliest seven days
+ *            after the request (since 0.5.0; a provider owner asks, with a reason, and may
+ *            cancel until the worker starts). Until it starts the machine stays listed as
+ *            revoked (`removed_at` stays NULL); the worker sets `removed_at` when it starts.
  *   expire   its backups stay until the machine's retention would have let the newest of them
  *            go (`expiresAt`), then they are deleted the same way.
  *
@@ -254,6 +257,15 @@ export type EndpointRemoval = {
   requestedAt: string;
   /** `expire`: when the machine's retention lets the newest backup go. */
   expiresAt?: string | null;
+  /** `delete` (0.5.0): why, as the requester gave it (also in the audit entry). */
+  reason?: string | null;
+  /**
+   * `delete` (0.5.0): when the worker started deleting. From then on the removal can no longer be
+   * cancelled, and the machine is removed (`removed_at`).
+   */
+  startedAt?: string | null;
+  /** Snapshots deleted so far, over every attempt and target (distinct snapshot ids). */
+  deletedSnapshots?: number;
   /** `held`: what holds it. */
   heldBy?: "legal_hold" | "suspicion" | null;
   /** `deferred`: the latest retain-until of the objects the storage refused to delete. */

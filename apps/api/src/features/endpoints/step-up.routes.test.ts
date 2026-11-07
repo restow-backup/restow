@@ -19,7 +19,10 @@ const mocks = vi.hoisted(() => ({
   updateEndpoint: vi.fn(),
   revealRepositoryPassword: vi.fn(),
   removeEndpoint: vi.fn(),
+  cancelRemoval: vi.fn(),
   holdSettings: vi.fn(),
+  /** The provider team role of the person; null for a tenant's own administrator. */
+  provider: null as null | { role: "owner" | "administrator"; allTenants: boolean },
 }));
 
 vi.mock("../../db.js", () => ({ db: {}, providerDb: {}, authDb: {} }));
@@ -31,8 +34,8 @@ vi.mock("../../middleware/session.js", () => {
       c.set("tenantId", ids.tenant);
       c.set("user", user);
       c.set("auth", { session: mocks.session, user });
-      c.set("isProviderAdmin", false);
-      c.set("providerAccess", null);
+      c.set("isProviderAdmin", mocks.provider !== null);
+      c.set("providerAccess", mocks.provider);
       await next();
     },
     authenticate: async () => {
@@ -53,6 +56,7 @@ vi.mock("./service.js", async (importOriginal) => ({
 vi.mock("./removal.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./removal.js")>()),
   removeEndpoint: mocks.removeEndpoint,
+  cancelRemoval: mocks.cancelRemoval,
 }));
 vi.mock("../suspicion/service.js", () => ({ retentionHoldSettings: mocks.holdSettings }));
 
@@ -97,6 +101,8 @@ beforeEach(() => {
     },
   );
   mocks.removeEndpoint.mockResolvedValue({ id: ids.endpoint, state: "scheduled" });
+  mocks.cancelRemoval.mockResolvedValue(undefined);
+  mocks.provider = { role: "owner", allTenants: true };
   mocks.holdSettings.mockResolvedValue({ enabled: false });
   mocks.revealRepositoryPassword.mockResolvedValue({
     password: "restic-password",
@@ -160,7 +166,8 @@ describe("showing the repository password", () => {
 });
 
 describe("removing a machine (#65)", () => {
-  const body = { mode: "delete", confirmHostname: "srv-01" };
+  const body = { mode: "delete", confirmHostname: "srv-01", reason: "Machine sold" };
+  const OWNER_REQUIRED = "urn:restow:problem:owner-required";
 
   it("is refused eleven minutes after the sign-in and never reaches the service", async () => {
     signedIn(11 * 60);
@@ -176,7 +183,40 @@ describe("removing a machine (#65)", () => {
     expect(response.status).toBe(202);
     expect(mocks.removeEndpoint).toHaveBeenCalledTimes(1);
     expect(mocks.removeEndpoint.mock.calls[0]?.[3]).toEqual(body);
-    expect(mocks.removeEndpoint.mock.calls[0]?.[5]).toEqual({ suspicionHoldsApply: false });
+    expect(mocks.removeEndpoint.mock.calls[0]?.[5]).toMatchObject({ suspicionHoldsApply: false });
+  });
+
+  it("leaves deleting the backups to the provider's owners; expiring stays with the admins (0.5.0)", async () => {
+    signedIn(30);
+    for (const provider of [null, { role: "administrator" as const, allTenants: true }]) {
+      mocks.provider = provider;
+      const refused = await call("POST", "/remove", body);
+      expect(refused.status, String(provider?.role)).toBe(403);
+      expect(await refused.json()).toMatchObject({ type: OWNER_REQUIRED, required: "owner" });
+      const cancel = await call("POST", "/remove/cancel");
+      expect(cancel.status, String(provider?.role)).toBe(403);
+      expect(
+        (await call("POST", "/remove", { ...body, mode: "expire" })).status,
+        String(provider?.role),
+      ).toBe(202);
+    }
+    expect(mocks.cancelRemoval).not.toHaveBeenCalled();
+    expect(mocks.removeEndpoint).toHaveBeenCalledTimes(2);
+    expect(mocks.removeEndpoint.mock.calls.every((call) => call[3]?.mode === "expire")).toBe(true);
+
+    mocks.provider = { role: "owner", allTenants: true };
+    expect((await call("POST", "/remove/cancel")).status).toBe(204);
+    expect(mocks.cancelRemoval).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks an owner without a recent sign-in to confirm it is them before deleting", async () => {
+    signedIn(11 * 60);
+    expect((await call("POST", "/remove", body)).status).toBe(403);
+    mocks.provider = null;
+    // The role is checked first: a tenant admin is not asked to sign in again for nothing.
+    expect(await (await call("POST", "/remove", body)).json()).toMatchObject({
+      type: OWNER_REQUIRED,
+    });
   });
 
   it("needs the typed hostname and a known mode", async () => {

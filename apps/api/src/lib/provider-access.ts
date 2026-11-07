@@ -704,6 +704,8 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "POST /api/v1/endpoints/:id/revoke": configure(),
   "POST /api/v1/endpoints/:id/uninstall": configure(),
   "POST /api/v1/endpoints/:id/remove": configure(),
+  // Only a `delete` removal can be cancelled, and that is the owners' (features/endpoints/routes.ts).
+  "POST /api/v1/endpoints/:id/remove/cancel": own(TENANT),
   "POST /api/v1/endpoints/:id/tasks": operate(),
   "POST /api/v1/endpoints/:id/cancel": operate(),
   "POST /api/v1/endpoints/:id/update": configure(),

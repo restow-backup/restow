@@ -1018,7 +1018,7 @@
   },
   "danger": {
     "title": "Sicherung dieses Rechners beenden",
-    "description": "Deinstallieren und Sperren löschen nichts: Der Rechner bleibt als gesperrt im Inventar (ausgeblendet, bis Sie gesperrte Rechner einblenden), und seine Sicherungen bleiben wiederherstellbar. Erst das Entfernen eines gesperrten Rechners löscht seine Sicherungen, sofort oder wenn sie ablaufen.",
+    "description": "Deinstallieren und Sperren löschen nichts: Der Rechner bleibt als gesperrt im Inventar (ausgeblendet, bis Sie gesperrte Rechner einblenden), und seine Sicherungen bleiben wiederherstellbar. Erst das Entfernen eines gesperrten Rechners löscht seine Sicherungen, wenn sie ablaufen oder sieben Tage nach dem Auftrag.",
     "uninstall": {
       "title": "Agent deinstallieren",
       "description": "Der Rechner entfernt den Agent bei seinem nächsten Kontakt selbst und wird dabei gesperrt. Nutzen Sie das, wenn der Rechner nicht mehr gesichert werden soll.",
@@ -1052,7 +1052,7 @@
     "revokeSuggested": "{days, plural, one {Dieser Rechner hat sich seit mehr als # Tag nicht gemeldet. Wenn es ihn nicht mehr gibt, sperren Sie ihn und entfernen Sie ihn danach.} other {Dieser Rechner hat sich seit mehr als # Tagen nicht gemeldet. Wenn es ihn nicht mehr gibt, sperren Sie ihn und entfernen Sie ihn danach.}}",
     "remove": {
       "title": "Aus {appName} entfernen",
-      "description": "Nimmt den Rechner aus jeder Liste und löscht seine Sicherungen, sofort oder wenn seine Aufbewahrung sie gehen lässt. Seine Läufe und das Audit-Log behalten ihre Einträge.",
+      "description": "Nimmt den Rechner aus jeder Liste und löscht seine Sicherungen, wenn seine Aufbewahrung sie gehen lässt. Ein Inhaber des Provider-Teams kann stattdessen jede Sicherung sieben Tage nach dem Auftrag löschen lassen. Seine Läufe und das Audit-Log behalten ihre Einträge.",
       "revokeFirst": "Sperren Sie den Rechner zuerst. Ein nicht gesperrter Rechner lässt sich nicht entfernen.",
       "action": "Rechner entfernen",
       "mode": {
@@ -1061,26 +1061,39 @@
           "description": "Die Sicherungen bleiben gespeichert, bis die Aufbewahrung des Rechners die neueste von ihnen hätte gehen lassen, dann werden sie gelöscht. Bis dahin bietet die Seite des entfernten Rechners ihre Wiederherstellung weiter an."
         },
         "delete": {
-          "label": "Rechner und seine Sicherungen löschen",
-          "description": "Jede Sicherung des Rechners wird jetzt gelöscht. Nicht möglich, solange eine Legal Hold oder ein ungeklärter verdächtiger Sicherungsstand sie hält."
+          "label": "Jede Sicherung in sieben Tagen löschen",
+          "description": "Der Rechner bleibt noch sieben Tage als gesperrt in der Liste, dann wird jede seiner Sicherungen gelöscht und er verlässt die Listen. Bis dahin lässt sich das Löschen abbrechen. Die Pflichtempfänger des Providers werden sofort benachrichtigt. Nicht möglich, solange eine Legal Hold oder ein ungeklärter verdächtiger Sicherungsstand die Sicherungen hält.",
+          "ownerOnly": "Nur ein Inhaber des Provider-Teams kann Sicherungen löschen."
         }
       },
       "confirm": {
         "title": "{name} entfernen?",
-        "description": "Der Rechner verschwindet aus jeder Liste, Übersicht und Zählung. Das lässt sich nicht rückgängig machen: Gelöschte Sicherungen lassen sich nicht wiederherstellen.",
+        "description": "Ist das Löschen gelaufen, lässt es sich nicht rückgängig machen: Gelöschte Sicherungen lassen sich nicht wiederherstellen.",
         "locks": "Sicherungsdateien, die der Speicher noch sperrt (unveränderliche Sicherungen), werden gelöscht, sobald ihre Sperre abläuft; die Rechner-Seite zeigt, wann.",
         "typeHostname": "Geben Sie zur Bestätigung den Hostnamen {hostname} ein",
         "cancel": "Abbrechen",
         "action": {
           "expire": "Rechner entfernen",
-          "delete": "Rechner und Sicherungen löschen"
-        }
+          "delete": "Sicherungen in sieben Tagen löschen"
+        },
+        "reason": "Grund (wird im Audit-Log festgehalten)"
       },
       "toast": {
-        "delete": "{name} wurde entfernt. Seine Sicherungen werden gelöscht.",
+        "delete": "Die Sicherungen von {name} werden am {date} gelöscht. Bis dahin können Sie das auf der Seite des Rechners abbrechen.",
         "expire": "{name} wurde entfernt. Seine Sicherungen werden am {date} gelöscht."
-      }
+      },
+      "scheduled": "Die Sicherungen dieses Rechners sind zum Löschen vorgemerkt; der Hinweis oben auf der Seite nennt das Datum. Brechen Sie das ab, um anders zu entscheiden."
     }
+  },
+  "backupDeletion": {
+    "title": "Sicherungen werden am {date} gelöscht",
+    "requested": "Beauftragt von {person} am {date}.",
+    "reason": "Grund: {reason}",
+    "heldLegal": "Eine Legal Hold über diesen Mandanten hält das Löschen an: Solange sie besteht, wird nichts gelöscht; geprüft wird täglich erneut.",
+    "heldSuspicion": "Ein ungeklärter verdächtiger Sicherungsstand dieses Rechners hält das Löschen an: Bis er geklärt ist, wird nichts gelöscht; geprüft wird täglich erneut.",
+    "cancel": "Löschen abbrechen",
+    "cancelled": "Das Löschen wurde abgebrochen. Die Sicherungen bleiben erhalten.",
+    "ownerCancels": "Nur ein Inhaber des Provider-Teams kann das Löschen abbrechen."
   },
   "errors": {
     "resticBusy": "Der Server liest gerade andere Sicherungen. Versuchen Sie es gleich noch einmal.",
@@ -1122,7 +1135,11 @@
     "sqlUnsupported": "Der Agent auf diesem Rechner kann SQL Server noch nicht nativ sichern. Aktualisieren Sie zuerst den Agenten.",
     "sqlBackupPruned": "Diese Sicherung wird nicht mehr aufbewahrt, die Aufbewahrung hat sie entfernt. Wählen Sie eine neuere.",
     "sqlNameTaken": "Auf der Instanz gibt es schon eine Datenbank mit diesem Namen. Wählen Sie einen anderen Namen.",
-    "sqlNothingToVerify": "Noch keine Datenbank dieses Rechners hat eine Sicherung in den Sicherungsdaten."
+    "sqlNothingToVerify": "Noch keine Datenbank dieses Rechners hat eine Sicherung in den Sicherungsdaten.",
+    "removalScheduled": "Die Sicherungen dieses Rechners sind bereits zum Löschen vorgemerkt. Brechen Sie das zuerst ab, um anders zu entscheiden.",
+    "removalReasonRequired": "Geben Sie einen Grund für das Löschen der Sicherungen an.",
+    "removalNotCancellable": "Das Löschen lässt sich nicht mehr abbrechen: Es hat begonnen, oder es ist keines vorgemerkt.",
+    "ownerRequired": "Das kann nur ein Inhaber des Provider-Teams."
   },
   "readinessSection": {
     "overdue": "Überfällig",

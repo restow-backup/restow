@@ -180,9 +180,12 @@ describe("critical events (0.5.0)", () => {
       "verify.red",
       "scrub.corrupt",
       "endpoint.suspicious_snapshot",
+      // Deleting a revoked machine's backups was asked for (0.5.0): the floor can still stop it.
+      "endpoint.backups_deletion_scheduled",
       "installation.disk_low",
     ]);
     expect(isCriticalReportEvent("backup.suspicious")).toBe(true);
+    expect(isCriticalReportEvent("endpoint.backups_deleted")).toBe(false);
     expect(isCriticalReportEvent("backup.failed")).toBe(false);
     expect(isCriticalReportEvent("notification.delivery_failed")).toBe(false);
   });

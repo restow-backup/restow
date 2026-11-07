@@ -465,7 +465,9 @@
       "repository_locked": "Sicherungsdaten eines Servers oder Clients bleiben gesperrt",
       "sql_red": "Die Prüfung einer SQL-Server-Sicherung hat Schäden gefunden",
       "sql_recovered": "Eine SQL-Server-Sicherung wurde wieder ohne Fehler geprüft",
-      "sql_overdue": "Eine SQL-Server-Sicherung wurde seit mehr als 8 Tagen nicht geprüft"
+      "sql_overdue": "Eine SQL-Server-Sicherung wurde seit mehr als 8 Tagen nicht geprüft",
+      "backups_deletion_scheduled": "Sicherungen eines gesperrten Rechners zum Löschen vorgemerkt",
+      "backups_deleted": "Sicherungen eines entfernten Rechners gelöscht"
     },
     "file_share": {
       "storage_quota": "Speicherbudget der Freigaben",
@@ -531,7 +533,9 @@
       "repository_locked": "Aufbewahrung und Prüfungen fanden die Sicherungsdaten eines Rechners länger als zwölf Stunden gesperrt vor.",
       "sql_red": "Die Prüfung hat die neueste Sicherung einer Datenbank aus den Sicherungsdaten zurückgeholt, und DBCC CHECKDB, die Wiederherstellung oder die Prüfsumme hat Schäden gefunden.",
       "sql_recovered": "Eine Datenbank, deren letzte Prüfung Schäden fand, wurde wieder ohne Fehler geprüft.",
-      "sql_overdue": "Seit mehr als 8 Tagen kam keine Prüfung einer gesicherten Datenbank ohne Fehler zum Ergebnis."
+      "sql_overdue": "Seit mehr als 8 Tagen kam keine Prüfung einer gesicherten Datenbank ohne Fehler zum Ergebnis.",
+      "backups_deletion_scheduled": "Ein Inhaber des Providers hat beauftragt, jede Sicherung eines gesperrten Rechners zu löschen. Sie werden in sieben Tagen gelöscht, wenn niemand das auf der Seite des Rechners abbricht; geht immer sofort an die Pflichtempfänger.",
+      "backups_deleted": "Jede Sicherung eines entfernten Rechners wurde gelöscht, mit der Zahl der Snapshots und Dateien."
     },
     "file_share": {
       "storage_quota": "Die Sicherungsdaten einer Freigabe oder aller Freigaben eines Mandanten zusammen haben 80 Prozent des Speicherbudgets erreicht, oder neue Sicherungen werden abgelehnt, weil es aufgebraucht ist.",
@@ -741,7 +745,9 @@
       "repository_locked": "Sicherungsdaten gesperrt: {object}",
       "sql_red": "SQL-Server-Prüfung hat Schäden gefunden: {object}",
       "sql_recovered": "SQL-Server-Prüfung wieder ohne Fehler: {object}",
-      "sql_overdue": "SQL-Server-Prüfung überfällig: {object}"
+      "sql_overdue": "SQL-Server-Prüfung überfällig: {object}",
+      "backups_deletion_scheduled": "Sicherungen zum Löschen vorgemerkt: {object}",
+      "backups_deleted": "Sicherungen gelöscht: {object}"
     },
     "file_share": {
       "storage_quota": "Speicherbudget: {object}",

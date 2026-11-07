@@ -1069,6 +1069,8 @@ Bericht oder Endpunkt wird in derselben Transaktion gesetzt).
 | `endpoint.storage_quota` (Gruppe Speicher, Warnung bzw. Fehler) | ein Repository hat 90 Prozent seines Budgets erreicht, das Budget ist ausgeschöpft oder ein Upload wurde abgelehnt; je Stufe einmal. Dazu höchstens einmal am Tag, wenn alle Endpunkte eines Mandanten 90 Prozent des Mandantenbudgets erreichen (Gegenstand ist dann der Mandant). |
 | `backup.suspicious` (Gruppe Wiederherstellbarkeit, Fehler) | ein Sicherungsstand zeigt Anzeichen von Ransomware (docs/RANSOMWARE.md); einmal je Episode. |
 | `endpoint.repository_locked` (Gruppe Aufträge, Warnung) | Aufbewahrung und Prüfung fanden das Repository sechsmal in Folge über mindestens zwölf Stunden gesperrt. |
+| `endpoint.backups_deletion_scheduled` (Gruppe Speicher, Warnung, kritisch) | ein Inhaber hat beauftragt, jede Sicherung eines gesperrten Rechners in sieben Tagen zu löschen (siehe "Rechner entfernen"); geht immer sofort an die Pflichtempfänger. |
+| `endpoint.backups_deleted` (Gruppe Speicher, Info) | der Worker hat jede Sicherung eines entfernten Rechners gelöscht (Objekte, Snapshots, Bytes). |
 
 Damit deckt eine bestehende Alarmregel für `backup.failed` und `verify.red` Endpunkte ohne
 Änderung mit ab. Zusätzlich löst ein fehlgeschlagener Lauf das Webhook-Ereignis `job.failed`
@@ -1089,20 +1091,38 @@ Aufmerksamkeit braucht, schlagen vor, ihn zu sperren. (Die Integrations-API meld
 noch nicht; ein solcher Rechner ist ohnehin `silent` oder `backup_overdue`.)
 
 Ein gesperrter Rechner lässt sich dann **entfernen** (`POST /api/v1/endpoints/:id/remove`,
-`{ "mode": "delete" | "expire", "confirmHostname": "<hostname>" }`, nur Mandanten-Admins, frische
-Anmeldung wie bei anderen unumkehrbaren Aktionen, auditiert als `endpoint.removed`):
+`{ "mode": "delete" | "expire", "confirmHostname": "<hostname>", "reason": "..." }`, frische
+Anmeldung wie bei anderen unumkehrbaren Aktionen):
 
-- `delete`: Rechner und Sicherungen löschen. Abgelehnt (409), solange eine Legal Hold über den
-  ganzen Mandanten besteht (ein Rechner ist kein geschütztes Objekt, nur eine Hold ohne Objekt
-  erfasst ihn) oder ein ungeklärter Verdacht auf dem Rechner seine Sicherungen hält
-  (docs/RANSOMWARE.md, "Retention hold"; nur, solange der Halt der Installation eingeschaltet ist).
-- `expire`: aus der Liste entfernen, die Sicherungen bis zum Ablauf behalten. Ablauf ist die neueste
+- `delete` (seit 0.5.0 verzögert): jede Sicherung des Rechners **sieben Tage nach dem Auftrag**
+  löschen (`BACKUP_DELETION_DELAY_DAYS` in `apps/api/src/features/endpoints/removal.ts`). Nur
+  **Inhaber des Provider-Teams** (wie beim Löschen eines Mandanten; ein Provider-Admin ohne
+  Teamrolle zählt als Inhaber), alle anderen erhalten 403 `owner-required`. Mandanten-Admins
+  (auch der "owner" einer Organisation ist in Restow Mandanten-Admin) und Provider-Mitglieder
+  unter Inhaber bleibt `expire`. `reason` ist Pflicht (422 `endpoint-removal-reason-required`)
+  und steht im Audit-Eintrag `endpoint.removal.scheduled` und in `removal.reason`. Abgelehnt
+  (409), solange eine Legal Hold über den ganzen Mandanten besteht (ein Rechner ist kein
+  geschütztes Objekt, nur eine Hold ohne Objekt erfasst ihn) oder ein ungeklärter Verdacht auf
+  dem Rechner seine Sicherungen hält (docs/RANSOMWARE.md, "Retention hold"; nur, solange der
+  Halt der Installation eingeschaltet ist), sowie im Wiederherstellungsmodus
+  (`assertNotInRestoreMode("endpoint_removal")`). Bis der Worker beginnt, bleibt der Rechner als
+  gesperrt in den Listen (`removed_at` bleibt leer, Sicherungspunkte und Dateiwiederherstellung
+  bleiben nutzbar); Rechnerseite und Dateiwiederherstellung zeigen "Sicherungen werden am
+  <Datum> gelöscht" mit Auftraggeber und Grund (`backupDeletion` in `GET /:id`). Sofort geht das
+  kritische Ereignis `endpoint.backups_deletion_scheduled` an die Glocke und an die
+  Pflichtempfänger des Providers. **Abbrechen** (`POST /api/v1/endpoints/:id/remove/cancel`,
+  ebenfalls nur Inhaber, auditiert als `endpoint.removal.cancelled`) geht, bis der Worker
+  begonnen hat; danach 409 `endpoint-removal-not-cancellable`. Ein abgebrochener Rechner bleibt
+  gesperrt mit seinen Sicherungen, aber außerhalb seines Backup-Jobs. Ein zweiter Auftrag, solange
+  einer wartet, wird abgelehnt (409 `endpoint-removal-scheduled`).
+- `expire`: aus der Liste entfernen, die Sicherungen bis zum Ablauf behalten (Mandanten-Admins,
+  auditiert als `endpoint.removed`). Ablauf ist die neueste
   gute Sicherung plus die längste Regel der Aufbewahrung des Rechners, als Zeit gelesen (N Tage,
   N Wochen, N Kalendermonate; Standard also zwölf Monate). restics Regeln zählen Snapshots, nicht
   Zeit, und würden auf einem Rechner ohne neue Sicherungen die letzten für immer behalten. Eine
   Aufbewahrung ohne Regel behält alles und wird abgelehnt (409).
 
-Ab dann fehlt der Rechner in jeder Liste, Auswahl, Übersicht und Zählung (Inventar, auch hinter
+Ab dann (bei `delete` ab dem Beginn des Löschens) fehlt der Rechner in jeder Liste, Auswahl, Übersicht und Zählung (Inventar, auch hinter
 "Gesperrte Rechner anzeigen", Auswahl der Dateiwiederherstellung, Jobs, Live-Ansicht, Dashboard)
 und jede Anfrage an ihn antwortet 404, außer dem Lesen seiner Sicherungen, solange sie noch
 liegen (unten). Er verlässt seinen Backup-Job. Seine Zeile bleibt als Grabstein
@@ -1111,7 +1131,10 @@ Audit-Einträgen, damit Verlauf und Audit-Log ihn weiter nennen.
 
 Die Sicherungen löscht der Worker (`endpoint-removal`), sobald `removal_due_at` erreicht ist; der
 Scheduler übergibt fällige Entfernungen jede Minute (partieller Index), die API sofort nach einem
-`delete`. Der Lauf hält die Wartungssperre des Repositorys exklusiv und löscht jedes Objekt unter
+schon fälligen `expire`. Bevor das erste Objekt geht, beansprucht der Worker die Entfernung auf der
+Zeile des Rechners (`FOR UPDATE`, wie das Abbrechen): Er setzt `removal.startedAt` und, bei
+`delete`, `removed_at`. Kam ein Abbruch zuvor, gibt es nichts zu beanspruchen, und nichts wird
+gelöscht. Der Lauf hält die Wartungssperre des Repositorys exklusiv und löscht jedes Objekt unter
 `endpoints/<id>/` auf jedem Ziel des Mandanten, das Dateien davon halten kann: Primärziel, Kopien
 und stillgelegte Primärziele eines Wechsels mit "behalten". Zustände in `endpoints.removal.state`:
 
@@ -1120,7 +1143,7 @@ und stillgelegte Primärziele eines Wechsels mit "behalten". Zustände in `endpo
 | `scheduled` | wartet auf `removal_due_at` (sofort bzw. Ablauf). |
 | `held` | eine Legal Hold über den Mandanten oder ein Verdacht hält die Sicherungen (`heldBy`); nichts wird gelöscht, nach einem Tag wird erneut geprüft. Auditiert als `endpoint.removal.held`. |
 | `deferred` | der Speicher sperrt noch Objekte (S3 Object Lock, Löschverzögerung eines Verzeichnisses): Sie bleiben, werden wie ein verweigertes Prune in `immutability_deferred_deletions` vermerkt, und der nächste Versuch folgt eine Stunde nach dem spätesten `lockedUntil` (ohne bekanntes Datum: nach einem Tag). Die Verlängerung der Sperren lässt das Repository eines entfernten Rechners aus, sobald seine Sicherungen gehen sollen; bis zum Ablauf eines `expire` verlängert sie weiter. Auditiert als `endpoint.removal.deferred`. |
-| `done` | nichts mehr übrig; Repository-Passwort, Stichproben und Snapshot-Markierungen sind gelöscht. Auditiert als `endpoint.removal.completed`. |
+| `done` | nichts mehr übrig; Repository-Passwort, Stichproben und Snapshot-Markierungen sind gelöscht. Auditiert als `endpoint.removal.completed` mit `deletedObjects`, `deletedSnapshots` (verschiedene Snapshot-IDs über alle Ziele) und `repositoryBytes` (zuletzt gemessen); dazu das Ereignis `endpoint.backups_deleted` (Info) mit denselben Zahlen. Der Rechner bleibt wie bisher als Grabstein verborgen (keine Anzeige "Sicherungen gelöscht am"); Verlauf und Audit-Log nennen ihn weiter. |
 
 `GET /api/v1/endpoints/removals` listet die entfernten Rechner, deren Sicherungen noch nicht
 gelöscht sind; die Rechnerseite zeigt sie Admins mit Datum, Halt oder Sperrfrist. Die weitere
@@ -1272,6 +1295,10 @@ hier.
 | `endpoint-removal-legal-hold` | 409 | Sicherungen jetzt löschen, aber eine Legal Hold über den ganzen Mandanten hält sie. |
 | `endpoint-removal-suspicion-hold` | 409 | Sicherungen jetzt löschen, aber ein ungeklärter verdächtiger Sicherungsstand des Rechners hält sie. |
 | `endpoint-removal-never-expires` | 409 | Bis zum Ablauf behalten, aber die Aufbewahrung des Rechners behält alles. |
+| `endpoint-removal-scheduled` | 409 | Die Sicherungen des Rechners sind schon zum Löschen vorgemerkt; erst abbrechen. |
+| `endpoint-removal-reason-required` | 422 | Sicherungen löschen ohne Grund (Feld `reason`). |
+| `endpoint-removal-not-cancellable` | 409 | Abbrechen, aber es wartet kein Löschen (mehr): Der Worker hat begonnen, oder es ist keines (bzw. nur ein `expire`) vorgemerkt. |
+| `owner-required` | 403 | Sicherungen löschen oder das Löschen abbrechen, ohne Inhaber des Provider-Teams zu sein (`required: "owner"`). |
 | `unsupported-os` | 422 | Betriebssystem nicht unterstützt: ein unbekanntes System oder Windows on ARM (Windows nur amd64). |
 | `enrollment-token-invalid` | 401 | Das Enrollment-Token ist unbekannt, abgelaufen, widerrufen oder verwendet. |
 | `agent-unauthorized` | 401 | Falsche oder fehlende Zugangsdaten des Agenten. |

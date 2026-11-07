@@ -465,7 +465,9 @@
       "repository_locked": "Backup data of a server or client stays locked",
       "sql_red": "The check of a SQL Server backup found damage",
       "sql_recovered": "A SQL Server backup was checked without errors again",
-      "sql_overdue": "A SQL Server backup has not been checked for more than 8 days"
+      "sql_overdue": "A SQL Server backup has not been checked for more than 8 days",
+      "backups_deletion_scheduled": "Backups of a revoked machine scheduled for deletion",
+      "backups_deleted": "Backups of a removed machine deleted"
     },
     "file_share": {
       "storage_quota": "Storage budget of file shares",
@@ -531,7 +533,9 @@
       "repository_locked": "Retention and checks kept finding a machine's backup data locked for more than twelve hours.",
       "sql_red": "The check restored the newest backup of a database from the backup data and DBCC CHECKDB, the restore or the checksum found damage.",
       "sql_recovered": "A database whose last check found damage was checked without errors again.",
-      "sql_overdue": "No check of a backed-up database came out without errors for more than 8 days."
+      "sql_overdue": "No check of a backed-up database came out without errors for more than 8 days.",
+      "backups_deletion_scheduled": "A provider owner asked to delete every backup of a revoked machine. They are deleted in seven days unless someone cancels on the machine's page; always sent to the mandatory recipients at once.",
+      "backups_deleted": "Every backup of a removed machine was deleted, with the number of snapshots and files."
     },
     "file_share": {
       "storage_quota": "The backup data of a file share, or all of a tenant's shares together, reached 80 percent of the storage budget, or new backups are refused because it is used up.",
@@ -741,7 +745,9 @@
       "repository_locked": "Backup data locked: {object}",
       "sql_red": "SQL Server check found damage: {object}",
       "sql_recovered": "SQL Server check without errors again: {object}",
-      "sql_overdue": "SQL Server check overdue: {object}"
+      "sql_overdue": "SQL Server check overdue: {object}",
+      "backups_deletion_scheduled": "Backups scheduled for deletion: {object}",
+      "backups_deleted": "Backups deleted: {object}"
     },
     "file_share": {
       "storage_quota": "Storage budget: {object}",

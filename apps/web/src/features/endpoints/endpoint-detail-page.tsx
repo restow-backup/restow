@@ -33,6 +33,7 @@ import { ApiError, errorMessageKey } from "@/lib/api";
 
 import type { EndpointDetail } from "./api.js";
 import { AttentionArea } from "./components/attention-area.js";
+import { BackupDeletionNotice } from "./components/backup-deletion-notice.js";
 import { stoppableBackup } from "./components/machine-cells.js";
 import { OverviewTab } from "./components/overview-tab.js";
 import { RunSheet } from "./components/run-sheet.js";
@@ -368,6 +369,7 @@ export function EndpointDetailPage({
           </AlertDescription>
         </Alert>
       ) : null}
+      <BackupDeletionNotice detail={detail} />
 
       <RetentionHoldNotice
         target={{ kind: "endpoint", objectId: detail.id }}

@@ -371,6 +371,11 @@ export interface EndpointDetail extends EndpointSummary {
     state: "scheduled" | "held" | "deferred" | "done";
     expiresAt: string | null;
   } | null;
+  /**
+   * A requested deletion of the machine's backups that has not started yet (0.5.0): they go on
+   * `dueAt` unless a provider owner cancels. Null or missing for none.
+   */
+  backupDeletion?: BackupDeletion | null;
   config: EndpointConfig;
   /** null when the agent does not report data folders (before 0.4.0, macOS). */
   dataFolders: EndpointDataFolders | null;
@@ -713,8 +718,22 @@ export function revokeEndpoint(endpointId: string): Promise<void> {
   return apiFetch<void>(`${BASE}/${id(endpointId)}/revoke`, { method: "POST" });
 }
 
-/** How a removed machine's backups go (#65): deleted now, or kept until they expire. */
+/**
+ * How a removed machine's backups go (#65): deleted (since 0.5.0 seven days after the request,
+ * provider owners only), or kept until they expire.
+ */
 export type RemovalMode = "delete" | "expire";
+
+/** A pending deletion of a machine's backups (EndpointDetail.backupDeletion). */
+export interface BackupDeletion {
+  dueAt: string;
+  requestedAt: string;
+  requestedBy: string;
+  reason: string | null;
+  /** `held`: a legal hold or a suspicion holds it; the worker looks again daily. */
+  state: "scheduled" | "held";
+  heldBy: "legal_hold" | "suspicion" | null;
+}
 
 /** A removed machine whose backups are not deleted yet (GET /endpoints/removals). */
 export interface EndpointRemoval {
@@ -734,17 +753,29 @@ export interface EndpointRemoval {
   deletedObjects: number;
   repositoryBytes: number | null;
   lastError: string | null;
+  /** `delete` (0.5.0): why. Missing from older servers. */
+  reason?: string | null;
+  /** `delete` (0.5.0): not started yet, so it can still be cancelled. */
+  cancellable?: boolean;
 }
 
-/** Remove a revoked machine from the lists; its backups go now or when they expire. */
+/**
+ * Remove a revoked machine: its backups are deleted in seven days (`delete`, with a reason; the
+ * machine stays listed until then), or it leaves the lists and its backups go when they expire.
+ */
 export function removeEndpoint(
   endpointId: string,
-  input: { mode: RemovalMode; confirmHostname: string },
+  input: { mode: RemovalMode; confirmHostname: string; reason?: string },
 ): Promise<EndpointRemoval> {
   return apiFetch<EndpointRemoval>(`${BASE}/${id(endpointId)}/remove`, {
     method: "POST",
     body: input,
   });
+}
+
+/** Cancel a scheduled deletion of a machine's backups before it starts (provider owners). */
+export function cancelRemoval(endpointId: string): Promise<void> {
+  return apiFetch<void>(`${BASE}/${id(endpointId)}/remove/cancel`, { method: "POST" });
 }
 
 export async function fetchRemovals(): Promise<EndpointRemoval[]> {

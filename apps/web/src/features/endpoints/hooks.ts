@@ -19,6 +19,7 @@ import {
   type CreateTaskInput,
   type CreateTokenInput,
   cancelEndpointBackup,
+  cancelRemoval,
   confirmSqlTde,
   createDownload,
   createTask,
@@ -245,17 +246,44 @@ export function useRemoveEndpoint(endpointId: string) {
   const queryClient = useQueryClient();
   const { tenantId } = useTenantScope();
   return useMutation({
-    mutationFn: (input: { mode: RemovalMode; confirmHostname: string }) =>
+    mutationFn: (input: { mode: RemovalMode; confirmHostname: string; reason?: string }) =>
       removeEndpoint(endpointId, input),
-    onSuccess: () => {
-      queryClient.removeQueries({ queryKey: endpointKeys.detail(tenantId, endpointId) });
+    onSuccess: (_result, input) => {
+      // A scheduled deletion keeps the machine (and its page) until it starts.
+      if (input.mode === "expire") {
+        queryClient.removeQueries({ queryKey: endpointKeys.detail(tenantId, endpointId) });
+      }
     },
     onSettled: () =>
       Promise.all([
+        queryClient.invalidateQueries({ queryKey: endpointKeys.detail(tenantId, endpointId) }),
         queryClient.invalidateQueries({ queryKey: endpointKeys.lists(tenantId) }),
         queryClient.invalidateQueries({ queryKey: endpointKeys.removals(tenantId) }),
       ]),
   });
+}
+
+/** Cancel a scheduled deletion of the machine's backups (provider owners, 0.5.0). */
+export function useCancelRemoval(endpointId: string) {
+  const queryClient = useQueryClient();
+  const { tenantId } = useTenantScope();
+  return useMutation({
+    mutationFn: () => cancelRemoval(endpointId),
+    onSettled: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: endpointKeys.detail(tenantId, endpointId) }),
+        queryClient.invalidateQueries({ queryKey: endpointKeys.lists(tenantId) }),
+      ]),
+  });
+}
+
+/**
+ * Whether the viewer may delete a machine's backups and cancel that (0.5.0): an owner of the
+ * provider team (a provider admin without a team role is one, as on the server).
+ */
+export function useMayDeleteBackups(): boolean {
+  const { isProviderAdmin, providerRole } = useSession();
+  return isProviderAdmin === true && (providerRole ?? "owner") === "owner";
 }
 
 /** Removed machines whose backups are not deleted yet; only for who may remove machines. */

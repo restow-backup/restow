@@ -1018,7 +1018,7 @@
   },
   "danger": {
     "title": "Stop backing up this machine",
-    "description": "Uninstalling and revoking delete nothing: the machine stays in the inventory as revoked (hidden until you show revoked machines), and its backups stay restorable. Only removing a revoked machine deletes its backups, at once or when they expire.",
+    "description": "Uninstalling and revoking delete nothing: the machine stays in the inventory as revoked (hidden until you show revoked machines), and its backups stay restorable. Only removing a revoked machine deletes its backups, when they expire or seven days after the request.",
     "uninstall": {
       "title": "Uninstall the agent",
       "description": "The machine removes the agent by itself with its next contact, and is revoked when it does. Use this when you no longer want to back the machine up.",
@@ -1052,7 +1052,7 @@
     "revokeSuggested": "{days, plural, one {This machine has not been in contact for more than # day. If it is gone for good, revoke it, then remove it.} other {This machine has not been in contact for more than # days. If it is gone for good, revoke it, then remove it.}}",
     "remove": {
       "title": "Remove from {appName}",
-      "description": "Takes the machine out of every list and deletes its backups, at once or when its retention lets them go. Its runs and the audit log keep their entries.",
+      "description": "Takes the machine out of every list and deletes its backups when its retention lets them go. An owner of the provider team can instead have every backup deleted seven days after the request. Its runs and the audit log keep their entries.",
       "revokeFirst": "Revoke the machine first. A machine that is not revoked cannot be removed.",
       "action": "Remove machine",
       "mode": {
@@ -1061,26 +1061,39 @@
           "description": "The backups stay stored until the machine's retention would have let the newest of them go, then they are deleted. Until then the page of the removed machine still offers their restore."
         },
         "delete": {
-          "label": "Delete the machine and its backups",
-          "description": "Every backup of the machine is deleted now. Not possible while a legal hold or an unresolved suspicious restore point holds them."
+          "label": "Delete every backup in seven days",
+          "description": "The machine stays listed as revoked for seven more days, then every backup of it is deleted and the machine leaves the lists. Until then the deletion can be cancelled. The provider's mandatory recipients are alerted at once. Not possible while a legal hold or an unresolved suspicious restore point holds the backups.",
+          "ownerOnly": "Only an owner of the provider team can delete backups."
         }
       },
       "confirm": {
         "title": "Remove {name}?",
-        "description": "The machine disappears from every list, dashboard and count. This cannot be undone: deleted backups cannot be restored.",
+        "description": "This cannot be undone once the deletion has run: deleted backups cannot be restored.",
         "locks": "Backup files the storage still locks (immutable backups) are deleted once their lock runs out; the machines page shows when.",
         "typeHostname": "Type the hostname {hostname} to confirm",
         "cancel": "Cancel",
         "action": {
           "expire": "Remove machine",
-          "delete": "Delete machine and backups"
-        }
+          "delete": "Delete backups in seven days"
+        },
+        "reason": "Reason (kept in the audit log)"
       },
       "toast": {
-        "delete": "{name} was removed. Its backups are being deleted.",
+        "delete": "The backups of {name} will be deleted on {date}. You can cancel that on the machine's page until then.",
         "expire": "{name} was removed. Its backups are deleted on {date}."
-      }
+      },
+      "scheduled": "The backups of this machine are scheduled for deletion; the notice at the top of the page says when. Cancel that to choose differently."
     }
+  },
+  "backupDeletion": {
+    "title": "Backups will be deleted on {date}",
+    "requested": "Requested by {person} on {date}.",
+    "reason": "Reason: {reason}",
+    "heldLegal": "A legal hold over this tenant holds the deletion: nothing is deleted while it stands, and it is checked again daily.",
+    "heldSuspicion": "An unresolved suspicious restore point of this machine holds the deletion: nothing is deleted until it is resolved, and it is checked again daily.",
+    "cancel": "Cancel deletion",
+    "cancelled": "The deletion was cancelled. The backups stay.",
+    "ownerCancels": "Only an owner of the provider team can cancel the deletion."
   },
   "errors": {
     "resticBusy": "The server is reading other backups right now. Try again in a moment.",
@@ -1122,7 +1135,11 @@
     "sqlUnsupported": "The agent on this machine cannot back up SQL Server natively yet. Update the agent first.",
     "sqlBackupPruned": "This backup is no longer kept: retention removed it. Choose a newer one.",
     "sqlNameTaken": "A database of that name already exists on the instance. Choose another name.",
-    "sqlNothingToVerify": "No database of this machine has a backup in the backup data yet."
+    "sqlNothingToVerify": "No database of this machine has a backup in the backup data yet.",
+    "removalScheduled": "The backups of this machine are already scheduled for deletion. Cancel that first to choose differently.",
+    "removalReasonRequired": "Give a reason for deleting the backups.",
+    "removalNotCancellable": "The deletion can no longer be cancelled: it has started, or there is none to cancel.",
+    "ownerRequired": "Only an owner of the provider team can do this."
   },
   "readinessSection": {
     "overdue": "Overdue",

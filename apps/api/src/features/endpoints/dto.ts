@@ -249,6 +249,18 @@ export interface EndpointDetailDto extends EndpointSummaryDto {
     state: "scheduled" | "held" | "deferred" | "done";
     expiresAt: string | null;
   } | null;
+  /**
+   * A requested deletion of the machine's backups that has not started yet (0.5.0, removal.ts):
+   * the date it starts, who asked and why; it can still be cancelled. Null for none.
+   */
+  backupDeletion: {
+    dueAt: string;
+    requestedAt: string;
+    requestedBy: string;
+    reason: string | null;
+    state: "scheduled" | "held";
+    heldBy: "legal_hold" | "suspicion" | null;
+  } | null;
   config: EndpointConfig;
   /** null when the agent does not report data folders. */
   dataFolders: DataFoldersDto | null;

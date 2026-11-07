@@ -98,6 +98,7 @@ import {
 import { isInsecureTransport } from "./instance-url.js";
 import { ENDPOINT_PROBLEMS } from "./problems.js";
 import { loadEndpointReadiness } from "./readiness.js";
+import { pendingBackupDeletion } from "./removal.js";
 import { holdRepositoryForRead, repositoryAccess } from "./repository.js";
 import { resticGate } from "./restic-gate.js";
 import { resticProblem } from "./restic-problem.js";
@@ -460,6 +461,7 @@ export async function getEndpoint(
               expiresAt: endpoint.removal.expiresAt ?? null,
             }
           : null,
+      backupDeletion: pendingBackupDeletion(endpoint),
       config: options.revealHooks ? endpoint.config : { ...endpoint.config, hooks: {} },
       configVersion: endpoint.configVersion,
       agentConfigVersion: endpoint.agentConfigVersion,

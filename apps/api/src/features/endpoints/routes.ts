@@ -4,6 +4,7 @@ import { endpoints } from "@restow/db";
 import { and, eq, isNull, or, sql } from "drizzle-orm";
 import { type Context, Hono, type MiddlewareHandler } from "hono";
 import { db, providerDb } from "../../db.js";
+import { loadInstallationTimeZone } from "../../lib/installation-time-zone.js";
 import { providerRoleSatisfies } from "../../lib/provider-access.js";
 import { assertRecentSignIn } from "../../lib/recent-sign-in.js";
 import { clientIp } from "../../lib/request.js";
@@ -31,7 +32,7 @@ import type { EndpointActor } from "./audit.js";
 import { cancelEndpointBackup, requestEndpointUpdate } from "./cancel.js";
 import { instanceUrl } from "./instance-url.js";
 import { ENDPOINT_PROBLEMS } from "./problems.js";
-import { listRemovals, removeEndpoint } from "./removal.js";
+import { cancelRemoval, listRemovals, removeEndpoint } from "./removal.js";
 import {
   agentPolicyLevelSchema,
   agentUpdatesSchema,
@@ -118,8 +119,10 @@ import {
  *   POST   /:id/revoke                          refuse the endpoint from now on
  *   POST   /:id/uninstall                       have the agent remove itself, then revoke
  *   POST   /:id/remove                          remove a revoked machine from Restow: its backups are
- *                                               deleted at once or when they expire (#65; typed
- *                                               hostname, recent sign-in)
+ *                                               deleted when they expire, or (`delete`, provider
+ *                                               owners only, with a reason) in seven days (#65;
+ *                                               typed hostname, recent sign-in)
+ *   POST   /:id/remove/cancel                   cancel a `delete` before the worker starts (owners)
  *   GET    /removals                            removed machines whose backups are not deleted yet
  *   POST   /:id/tasks                           back up now, or restore into a new folder on the endpoint
  *   POST   /:id/cancel                          stop the running backup, withdraw a queued one
@@ -290,9 +293,30 @@ endpointsRoutes.post("/:id/uninstall", admin, async (c) => {
   return c.json(await requestUninstall(db, c.get("tenantId"), id, actorOf(c)), 202);
 });
 
+/**
+ * Deleting a machine's backups (and cancelling that) is the provider owners' (0.5.0), like
+ * deleting a tenant: the strongest role there is. A tenant's own administrators (an
+ * organization's "owner" is a tenant administrator too) and provider members below owner may
+ * still remove a machine with its backups kept until they expire.
+ */
+function assertProviderOwner(c: Context<TenantEnv>): void {
+  if (c.get("isProviderAdmin") && c.get("providerAccess")?.role === "owner") {
+    return;
+  }
+  throw new ProblemError(403, "Owner only", {
+    type: ENDPOINT_PROBLEMS.ownerRequired,
+    detail:
+      "Only an owner of the provider team can delete the backups of a machine or cancel such a deletion.",
+    extensions: { required: "owner" },
+  });
+}
+
 endpointsRoutes.post("/:id/remove", admin, async (c) => {
   const { id } = parseOrProblem(endpointIdParamSchema, c.req.param());
   const input = await parseJsonBody(c.req, removeEndpointSchema);
+  if (input.mode === "delete") {
+    assertProviderOwner(c);
+  }
   // Deleting backups cannot be undone: a sign-in from the last minutes, like other such actions.
   assertRecentSignIn(c.get("auth").session);
   // Restore mode: the restored database may not know every backup of the machine.
@@ -303,9 +327,17 @@ endpointsRoutes.post("/:id/remove", admin, async (c) => {
   return c.json(
     await removeEndpoint(db, c.get("tenantId"), id, input, actorOf(c), {
       suspicionHoldsApply: holdSettings?.enabled ?? true,
+      installationTimeZone: async () => (await loadInstallationTimeZone(providerDb)).timeZone,
     }),
     202,
   );
+});
+
+endpointsRoutes.post("/:id/remove/cancel", admin, async (c) => {
+  const { id } = parseOrProblem(endpointIdParamSchema, c.req.param());
+  assertProviderOwner(c);
+  await cancelRemoval(db, c.get("tenantId"), id, actorOf(c));
+  return c.body(null, 204);
 });
 
 endpointsRoutes.post("/:id/tasks", restorer, async (c) => {

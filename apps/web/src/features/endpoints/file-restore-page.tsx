@@ -25,6 +25,7 @@ import { useHasRole, useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
 
 import type { EndpointSummary } from "./api.js";
+import { BackupDeletionNotice } from "./components/backup-deletion-notice.js";
 import { SnapshotsTab } from "./components/snapshots-tab.js";
 import { type EndpointFormat, useEndpoint, useEndpointFormat, useEndpoints } from "./hooks.js";
 import {
@@ -560,14 +561,17 @@ function MachineRestorePoints({
     return <Skeleton className="h-64 w-full" aria-busy="true" />;
   }
   return (
-    <SnapshotsTab
-      detail={query.data}
-      onShowOverview={
-        // A removed machine has no overview left to show.
-        administers && !query.data.removed
-          ? () => void navigate({ to: endpointDetailTo(machineId) })
-          : undefined
-      }
-    />
+    <div className="space-y-4">
+      <BackupDeletionNotice detail={query.data} />
+      <SnapshotsTab
+        detail={query.data}
+        onShowOverview={
+          // A removed machine has no overview left to show.
+          administers && !query.data.removed
+            ? () => void navigate({ to: endpointDetailTo(machineId) })
+            : undefined
+        }
+      />
+    </div>
   );
 }
