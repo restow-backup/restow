@@ -17,6 +17,7 @@ export function RangeToggle<T extends string>({
   onChange,
   label,
   disabled,
+  className,
 }: {
   value: T;
   options: readonly { value: T; label: string }[];
@@ -24,6 +25,8 @@ export function RangeToggle<T extends string>({
   /** The accessible name of the group ("Period"). */
   label: string;
   disabled?: boolean;
+  /** For the group, e.g. to stretch it across a narrow card. */
+  className?: string;
 }) {
   return (
     <ToggleGroup
@@ -33,6 +36,7 @@ export function RangeToggle<T extends string>({
       value={value}
       aria-label={label}
       disabled={disabled}
+      className={className}
       onValueChange={(next) => {
         const option = options.find((candidate) => candidate.value === next);
         if (option) {
@@ -58,10 +62,12 @@ export function StorageRangeToggle({
   value,
   onChange,
   disabled,
+  className,
 }: {
   value: StorageRange;
   onChange: (value: StorageRange) => void;
   disabled?: boolean;
+  className?: string;
 }) {
   const { t } = useTranslation("dashboard");
   return (
@@ -74,6 +80,7 @@ export function StorageRangeToggle({
       onChange={onChange}
       label={t("storageGrowth.range")}
       disabled={disabled}
+      className={className}
     />
   );
 }

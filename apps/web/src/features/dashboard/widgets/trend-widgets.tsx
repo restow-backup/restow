@@ -491,6 +491,32 @@ function capacityLines(
 }
 
 /**
+ * The four-range toggle needs about 300 px beside the title, which a card in
+ * two columns at 1024 px or on a phone does not have: it stuck out of the card
+ * (and the page scrolled sideways) while the description shrank to a column of
+ * a few words. So the card is a container, and below 36rem the toggle moves to
+ * a row of its own under the title and description, as wide as the header.
+ * The header drops to one column so the description gets the full width
+ * again, and the action's `min-w-0` keeps the toggle's label widths from
+ * stretching that column past the card.
+ */
+const STORAGE_CARD_NARROW = cn(
+  "@container/storage-growth",
+  "@max-xl/storage-growth:[&_[data-slot=card-header]]:grid-cols-1",
+  "@max-xl/storage-growth:[&_[data-slot=card-action]]:col-start-1 @max-xl/storage-growth:[&_[data-slot=card-action]]:row-span-1 @max-xl/storage-growth:[&_[data-slot=card-action]]:row-start-3 @max-xl/storage-growth:[&_[data-slot=card-action]]:mt-2 @max-xl/storage-growth:[&_[data-slot=card-action]]:min-w-0 @max-xl/storage-growth:[&_[data-slot=card-action]]:justify-self-stretch",
+);
+
+/**
+ * Under the title the toggle fills the row, its four options sharing the width;
+ * on the narrowest cards (a 320 px phone) their padding shrinks so the labels
+ * still fit.
+ */
+const STORAGE_TOGGLE_NARROW = cn(
+  "@max-xl/storage-growth:w-full @max-xl/storage-growth:*:flex-auto @max-xl/storage-growth:*:shrink @max-xl/storage-growth:*:px-2",
+  "@max-xs/storage-growth:*:px-1",
+);
+
+/**
  * Stored bytes over the chosen window (a week, a month, three months or a
  * year; the server sums long windows up per week or month) and, dashed and
  * labelled as such, an estimate as far ahead. From three months on the
@@ -556,7 +582,11 @@ export function StorageGrowthWidget({
         description={t("storageGrowth.description", { days: data?.days ?? 30, granularity })}
         menu={
           range && onRangeChange ? (
-            <StorageRangeToggle value={range} onChange={onRangeChange} />
+            <StorageRangeToggle
+              value={range}
+              onChange={onRangeChange}
+              className={STORAGE_TOGGLE_NARROW}
+            />
           ) : undefined
         }
         config={config}
@@ -618,7 +648,11 @@ export function StorageGrowthWidget({
             </span>
           ) : undefined
         }
-        className={cn("h-full", updating && "motion-safe:transition-opacity opacity-70")}
+        className={cn(
+          "h-full",
+          STORAGE_CARD_NARROW,
+          updating && "motion-safe:transition-opacity opacity-70",
+        )}
       >
         <ComposedChart data={rows} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
           <CartesianGrid {...HORIZONTAL_GRID} stroke="var(--border)" />
