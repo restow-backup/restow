@@ -37,28 +37,17 @@ const checkCatalogError = 8992
 // database (8989, which JudgeCheckdb already leaves out).
 var checkdbTotals = map[int]bool{8989: true, 8990: true, 8991: true}
 
-// masterCatalogOnly reports whether a CHECKDB of a copy of master found
-// nothing but catalog errors (and the lines that count them). A copy of
-// master under a check name is no master: its catalog holds rows of
-// server-level objects that only master may hold, and CHECKDB reports each
-// as error 8992 (the CI showed this on SQL Server 2019 and 2022 Express,
-// C22). Such a result proves neither a good nor a bad backup. Any other
-// error stays evidence of damage.
-func masterCatalogOnly(name string, errs []api.SQLCheckdbError) bool {
-	if !strings.EqualFold(name, "master") {
-		return false
-	}
-	catalog := 0
-	for _, e := range errs {
-		switch {
-		case e.Number == checkCatalogError:
-			catalog++
-		case checkdbTotals[e.Number]:
-		default:
-			return false
-		}
-	}
-	return catalog > 0
+// masterCopyNotEvidence reports whether a CHECKDB of a copy of master found
+// errors. A copy of master under a check name is no master: its catalog holds
+// rows of server-level objects that only master may hold (8992, counted by
+// 8990/8991), and on fresh SQL Server 2019 and 2022 Express instances the copy
+// also shows allocation errors such as 8906 (C22, seen in the CI). Which
+// numbers an undamaged copy shows depends on the version, so for master no
+// CHECKDB error is evidence either way: the check is incomplete, never green
+// and never red, and the message names every number. User databases and msdb
+// keep the strict rule.
+func masterCopyNotEvidence(name string, errs []api.SQLCheckdbError) bool {
+	return strings.EqualFold(name, "master") && len(errs) > 0
 }
 
 // errorNumbers lists the distinct numbers of CHECKDB errors in their order,
@@ -287,11 +276,11 @@ func (e *Env) verifyOne(ctx context.Context, r *api.SQLVerifyResult, d api.SQLVe
 			return
 		}
 		incomplete(api.SQLRestoreFailed, "%s: RESTORE of the backup failed: %s", d.Name, first)
-	case vr.Checkdb != nil && vr.Checkdb.Ran && masterCatalogOnly(d.Name, vr.Checkdb.Errors):
+	case vr.Checkdb != nil && vr.Checkdb.Ran && masterCopyNotEvidence(d.Name, vr.Checkdb.Errors):
 		// Not evidence (C22): the check is incomplete, never red.
 		n, numbers := len(vr.Checkdb.Errors), errorNumbers(vr.Checkdb.Errors)
 		r.Checkdb = &api.SQLCheckdbResult{Ran: false, PhysicalOnly: vr.Checkdb.PhysicalOnly, Errors: []api.SQLCheckdbError{}, DurationMs: vr.Checkdb.DurationMs}
-		incomplete(api.SQLVerifySystemDB, "%s: DBCC CHECKDB of the copy under a check name reported only catalog errors (%d rows, numbers %s), as it does for every copy of master under another name; its backup is not checked.", d.Name, n, numbers)
+		incomplete(api.SQLVerifySystemDB, "%s: DBCC CHECKDB of the copy under a check name reported %d error row(s) (numbers %s); a copy of master under another name shows such errors also when its backup is intact, so its backup is not checked.", d.Name, n, numbers)
 	case vr.Checkdb == nil && !vr.NewBroker:
 		msg := "ALTER DATABASE SET NEW_BROKER failed"
 		if vr.NewBrokerProblem != nil {

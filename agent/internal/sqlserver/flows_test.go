@@ -543,10 +543,12 @@ func TestVerifyCasesGolden(t *testing.T) {
 				t.Fatalf("%+v %+v", r, r.Checkdb)
 			}
 		}},
-		// Any other CHECKDB error in a copy of master stays evidence.
+		// Any CHECKDB error in a copy of master is no evidence either way
+		// (the CI showed 8906 next to 8992 on fresh instances): incomplete,
+		// never green, with every number in the message.
 		{name: "master-damage", verify: "verify-checkdb-8928.jsonl", setup: func(f *fixture, p *api.SQLVerifyParams) { p.Databases[0].Name = "master" },
 			status: api.StatusFailed, check: func(t *testing.T, f *fixture, r api.SQLVerifyResult) {
-				if r.Code != "" || r.Checkdb == nil || !r.Checkdb.Ran || len(r.Checkdb.Errors) != 2 || r.Checkdb.Errors[0].Number != 8928 {
+				if r.Code != api.SQLVerifySystemDB || r.Checkdb == nil || r.Checkdb.Ran || !r.Dropped || !strings.Contains(r.Message, "8928, 8939") {
 					t.Fatalf("%+v %+v", r, r.Checkdb)
 				}
 			}},
