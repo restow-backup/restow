@@ -244,7 +244,8 @@ describe("OwnAppExpiryItem", () => {
     await click(buttonByText(container, "Note expiry date"));
     await type(input("own-app-expiry-edit"), "2027-03-01");
     await click(buttonByText(container, "Save date"));
-    expect(text()).toContain("Enter a valid date.");
+    // The refusal arrives after the click's own update: wait for it.
+    await vi.waitFor(() => expect(text()).toContain("Enter a valid date."));
   });
 
   it("offers no date for a certificate, which carries its own", () => {
