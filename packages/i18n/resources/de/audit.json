@@ -561,6 +561,8 @@
       "revoked": "Rechner gesperrt",
       "removed": "Rechner aus {appName} entfernt",
       "removal": {
+        "scheduled": "Löschen der Sicherungen des gesperrten Rechners geplant",
+        "cancelled": "Geplantes Löschen der Sicherungen des gesperrten Rechners abgebrochen",
         "held": "Löschen der Sicherungen des entfernten Rechners angehalten",
         "deferred": "Löschen der Sicherungen des entfernten Rechners wegen Speichersperren verschoben",
         "completed": "Sicherungen des entfernten Rechners gelöscht",
