@@ -576,6 +576,9 @@ private repository.
   closed with it.
 
 ### Fixed
+- File restore of a Proxmox VE container or VM: restoring the guest as a whole is now a button in the title row of the chosen restore point ("Restore whole container …"), which opens the restore dialog for exactly that point on the guest's page. Before, the only way there was a link under the file list.
+- The calendar behind "Jump to date" marks every day with a restore point with a dot; bold text alone was hard to see.
+- Dialogs no longer cut off their right side when a line inside cannot wrap (a long mail subject, an address): the dialog's grid columns may shrink below their content.
 
 - Data safety: after restoring a database dump (the documented rollback with migrations, a host
   move from an online dump), the database knew less than the storage, and several passes

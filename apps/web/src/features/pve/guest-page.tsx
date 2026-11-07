@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { ArrowLeft, History, Play, RotateCcw, TriangleAlert } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
@@ -892,6 +892,20 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
     onError: (error) => toast.error((error as Error).message),
   });
   const data = detail.data;
+  // ?restore=<point>: File restore sends the admin here to restore the guest as a whole from the
+  // restore point shown there; open its dialog once and drop the parameter again.
+  const { restore: wantedRestore } = useSearch({ strict: false }) as { restore?: string };
+  const navigate = useNavigate();
+  React.useEffect(() => {
+    if (!wantedRestore || !data) {
+      return;
+    }
+    const point = data.snapshots.find((p) => p.id === wantedRestore && p.available !== false);
+    if (point) {
+      setRestoring(point);
+    }
+    void navigate({ to: ".", search: {} as never, replace: true });
+  }, [wantedRestore, data, navigate]);
   const title = data ? `${data.guest.name ?? data.guest.vmid} (${data.guest.vmid})` : "";
   // What can be stopped (0.4.2): the running backup, else a backup that waits for the node.
   const runningBackup = data?.runs.find((r) => r.kind === "backup" && r.status === "running");

@@ -1221,6 +1221,8 @@
     "emptyDescription": "Sobald der Container gesichert ist, können Sie hier seine Dateien durchsuchen und herunterladen.",
     "downloadOnly": "Dateien eines Containers laden Sie als ZIP herunter. Um den ganzen Container zurückzuholen, stellen Sie ihn unter VMs & Container wieder her.",
     "downloadOnlyRestorer": "Dateien eines Containers laden Sie als ZIP herunter. Den ganzen Container stellt ein Administrator wieder her.",
+    "restoreWhole": "Ganzen Container wiederherstellen …",
+    "restoreWholeHint": "Stellt den ganzen Container aus diesem Sicherungsstand wieder her (auf der Seite des Containers).",
     "openGuest": "Container öffnen"
   },
   "vmFiles": {
@@ -1230,6 +1232,8 @@
     "emptyDescription": "Sobald die VM gesichert ist, können Sie hier die Dateien auf ihren Festplatten durchsuchen und herunterladen.",
     "downloadOnly": "Die Dateien einer VM liest {appName} auf dem Server aus den Festplatten des Sicherungsstands, in einem abgeschotteten Leseprozess: Nichts wird eingehängt, die VM und ihr Knoten bleiben unberührt. Lesbar sind ext2/3/4, XFS, NTFS und FAT, auch auf LVM. Dateien laden Sie als ZIP herunter; um die ganze VM zurückzuholen, stellen Sie sie unter VMs & Container wieder her.",
     "downloadOnlyRestorer": "Die Dateien einer VM liest {appName} auf dem Server aus den Festplatten des Sicherungsstands, in einem abgeschotteten Leseprozess: Nichts wird eingehängt, die VM und ihr Knoten bleiben unberührt. Lesbar sind ext2/3/4, XFS, NTFS und FAT, auch auf LVM. Dateien laden Sie als ZIP herunter; die ganze VM stellt ein Administrator wieder her.",
+    "restoreWhole": "Ganze VM wiederherstellen …",
+    "restoreWholeHint": "Stellt die ganze VM aus diesem Sicherungsstand wieder her (auf der Seite der VM).",
     "openGuest": "VM öffnen",
     "unreadable": "In diesem Sicherungsstand nicht lesbar:",
     "unreadableItem": "{name}: {reason}",

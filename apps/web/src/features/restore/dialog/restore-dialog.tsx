@@ -295,7 +295,7 @@ function RestoreForm({
   const modeChoices = allModeChoices.filter((choice) => allowedModes.includes(choice.value));
 
   return (
-    <form onSubmit={submit} className="grid gap-5" noValidate>
+    <form onSubmit={submit} className="grid grid-cols-[minmax(0,1fr)] gap-5" noValidate>
       <DialogHeader>
         <DialogTitle>{t(download ? "dialog.titleDownload" : "dialog.title")}</DialogTitle>
         <DialogDescription>

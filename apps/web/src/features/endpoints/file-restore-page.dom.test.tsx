@@ -303,6 +303,11 @@ describe("FileRestorePage", () => {
     expect(bar?.textContent).toContain("Download as ZIP");
     expect(bar?.textContent).not.toContain("Restore to the machine");
     expect(page.text()).toContain("Files of a container are downloaded as a ZIP.");
+    // Restoring the whole container is offered in the title row, not only under the list.
+    const whole = document.querySelector(
+      "[data-slot='browser-card'] [data-slot='restore-whole-guest']",
+    );
+    expect(whole?.textContent).toContain("Restore whole container");
     // A path in the list opens that folder.
     const mount = page.byText("[data-slot='restore-point-contents'] button", "/mnt/data");
     await page.click(mount);
@@ -356,6 +361,7 @@ describe("FileRestorePage", () => {
       "Files of a container are downloaded as a ZIP. Putting the whole container back is up to an administrator.",
     );
     expect(page.text()).not.toContain("Open the container");
+    expect(document.querySelector("[data-slot='restore-whole-guest']")).toBeNull();
     expect(document.querySelector("a[href^='/virtualization']")).toBeNull();
   });
 
