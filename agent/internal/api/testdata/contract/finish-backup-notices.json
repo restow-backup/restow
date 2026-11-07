@@ -1,0 +1,9 @@
+{
+  "notices": [
+    {
+      "code": "app_files_not_app_backup",
+      "subjects": ["sql_server", "active_directory"],
+      "message": "Files of open databases are not a restorable SQL Server or Active Directory backup."
+    }
+  ]
+}

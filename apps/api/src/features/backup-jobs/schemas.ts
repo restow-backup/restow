@@ -1,3 +1,4 @@
+import { MAX_SQL_VERIFY_GIB } from "@restow/core";
 import { z } from "zod";
 import { ProblemError } from "../../problem.js";
 import {
@@ -66,6 +67,56 @@ export const jobScheduleSchema = z.object({
   timeZone: z.string().trim().min(1).max(64),
 });
 
+/** A database of the SQL settings: its name, and its instance when only that one's is meant. */
+const sqlDatabaseRef = z
+  .object({
+    instance: z.string().trim().min(1).max(64).optional(),
+    name: z
+      .string()
+      .min(1)
+      .max(128)
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are refused.
+      .refine((value) => !/[\u0000-\u001f]/.test(value), "contains control characters"),
+  })
+  .strict();
+
+/**
+ * The native SQL Server backup of a machine job (W2a, docs/BAREMETAL-WINDOWS.md 5.1.3): Windows
+ * members only (the others never get it), mode `alongside` only (an unknown mode would make the
+ * agent refuse with `sql_mode_unsupported`). The check slot is checked against the job's daily
+ * backup by the service (at least an hour apart).
+ */
+export const sqlSettingsSchema = z
+  .object({
+    enabled: z.boolean(),
+    mode: z.literal("alongside").default("alongside"),
+    instances: z.union([
+      z.literal("all"),
+      z.array(z.string().trim().min(1).max(64)).min(1).max(50),
+    ]),
+    databases: z.union([z.literal("all"), z.array(sqlDatabaseRef).min(1).max(1000)]),
+    exclude: z.array(sqlDatabaseRef).max(1000).default([]),
+    // A staging folder of its own: a local absolute path (the agent checks NTFS, no reparse point).
+    stagingDir: z
+      .string()
+      .trim()
+      .max(240)
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are refused.
+      .regex(/^[A-Za-z]:\\[^\u0000-\u001f]*$/, "a local folder such as E:\\SqlStaging")
+      .optional(),
+    verify: z
+      .object({
+        enabled: z.boolean(),
+        weekday: z.number().int().min(1).max(7),
+        time: timeOfDay,
+        maxGiB: z.number().int().min(1).max(MAX_SQL_VERIFY_GIB),
+        physicalOnly: z.boolean(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
 /** Settings of a machine job (and the part of a member's override that is not a schedule). */
 const endpointSettingsShape = {
   paths: z.array(absolutePath).min(1).max(200).optional(),
@@ -81,6 +132,7 @@ const endpointSettingsShape = {
   /** Time windows with a limit of their own; checked for overlap by the service. */
   bandwidthWindows: bandwidthWindowsSchema.optional(),
   retention: retentionSchema.optional(),
+  sql: sqlSettingsSchema.optional(),
 };
 
 /** A file extension to skip, without the dot (`bak`, `tmp`). */

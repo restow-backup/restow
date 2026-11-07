@@ -171,7 +171,7 @@ func cmdEnroll(args []string, stdout, stderr io.Writer) int {
 	resp, err := api.Enroll(ectx, baseURL, *insecure, api.EnrollRequest{
 		Token: token, Hostname: hostname, OS: sysinfo.OS(), Arch: sysinfo.Arch(),
 		AgentVersion: buildinfo.Version, OSVersion: sysinfo.OSVersion(), Hooks: hooksMode,
-		Machine: machine, DataFolders: dataFolders,
+		Machine: machine, DataFolders: dataFolders, Capabilities: core.Capabilities(machine.Windows != nil),
 	})
 	if err != nil {
 		var ae *api.APIError

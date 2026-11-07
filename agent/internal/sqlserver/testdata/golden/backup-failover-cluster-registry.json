@@ -1,0 +1,15 @@
+{
+  "status": "failed",
+  "errors": [
+    {
+      "message": "SQL Server instance SQLEXPRESS is a failover cluster instance; the native backup does not support it yet.",
+      "code": "sql_fci_unsupported"
+    }
+  ],
+  "sql": {
+    "instance": "SQLEXPRESS",
+    "databases": []
+  },
+  "notices": null,
+  "ops": null
+}

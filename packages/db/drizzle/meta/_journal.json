@@ -645,6 +645,13 @@
       "when": 1793897991964,
       "tag": "0091_mails_reports_branding",
       "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1793898051964,
+      "tag": "0092_endpoint_sql",
+      "breakpoints": true
     }
   ]
 }

@@ -462,7 +462,10 @@
       "stale": "Server oder Client meldet sich nicht",
       "suspicious_snapshot": "Verdächtiger Snapshot eines Servers oder Clients",
       "storage_quota": "Speicherbudget von Servern und Clients",
-      "repository_locked": "Sicherungsdaten eines Servers oder Clients bleiben gesperrt"
+      "repository_locked": "Sicherungsdaten eines Servers oder Clients bleiben gesperrt",
+      "sql_red": "Die Prüfung einer SQL-Server-Sicherung hat Schäden gefunden",
+      "sql_recovered": "Eine SQL-Server-Sicherung wurde wieder ohne Fehler geprüft",
+      "sql_overdue": "Eine SQL-Server-Sicherung wurde seit mehr als 8 Tagen nicht geprüft"
     },
     "file_share": {
       "storage_quota": "Speicherbudget der Freigaben",
@@ -525,7 +528,10 @@
       "stale": "Ein Server hat sich länger als zwei Stunden nicht gemeldet, oder ein Client hat seit mehreren Tagen keine gute Sicherung.",
       "suspicious_snapshot": "Ein Snapshot ist aufgetaucht, den kein Sicherungslauf gemeldet hat, oder einer, der in der Zukunft datiert ist. Die Aufbewahrung behält ihn; der Rechner könnte kompromittiert sein.",
       "storage_quota": "Die Sicherungsdaten eines Rechners oder alle eines Mandanten zusammen haben 90 Prozent des Speicherbudgets erreicht, oder Sicherungen wurden abgelehnt, weil es ausgeschöpft ist.",
-      "repository_locked": "Aufbewahrung und Prüfungen fanden die Sicherungsdaten eines Rechners länger als zwölf Stunden gesperrt vor."
+      "repository_locked": "Aufbewahrung und Prüfungen fanden die Sicherungsdaten eines Rechners länger als zwölf Stunden gesperrt vor.",
+      "sql_red": "Die Prüfung hat die neueste Sicherung einer Datenbank aus den Sicherungsdaten zurückgeholt, und DBCC CHECKDB, die Wiederherstellung oder die Prüfsumme hat Schäden gefunden.",
+      "sql_recovered": "Eine Datenbank, deren letzte Prüfung Schäden fand, wurde wieder ohne Fehler geprüft.",
+      "sql_overdue": "Seit mehr als 8 Tagen kam keine Prüfung einer gesicherten Datenbank ohne Fehler zum Ergebnis."
     },
     "file_share": {
       "storage_quota": "Die Sicherungsdaten einer Freigabe oder aller Freigaben eines Mandanten zusammen haben 80 Prozent des Speicherbudgets erreicht, oder neue Sicherungen werden abgelehnt, weil es aufgebraucht ist.",
@@ -732,7 +738,10 @@
       "stale": "Meldet sich nicht: {object}",
       "suspicious_snapshot": "Verdächtiger Snapshot: {object}",
       "storage_quota": "Speicherbudget: {object}",
-      "repository_locked": "Sicherungsdaten gesperrt: {object}"
+      "repository_locked": "Sicherungsdaten gesperrt: {object}",
+      "sql_red": "SQL-Server-Prüfung hat Schäden gefunden: {object}",
+      "sql_recovered": "SQL-Server-Prüfung wieder ohne Fehler: {object}",
+      "sql_overdue": "SQL-Server-Prüfung überfällig: {object}"
     },
     "file_share": {
       "storage_quota": "Speicherbudget: {object}",

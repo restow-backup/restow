@@ -197,7 +197,7 @@ Alle Antworten sind JSON, Fehler `application/problem+json` wie im Rest der API.
 | `POST /enroll` | Token gegen Zugangsdaten tauschen (siehe oben). |
 | `GET /config` | `{ profile, schedule, paths, excludes, hooks, bandwidthKbps, onlyOnAcPower, useVss, configVersion }`, bei einem Rechner in einem Job mit Größenlimit zusätzlich `excludeLargerThanBytes` (siehe "Jobs"; ein Agent, der das Feld nicht kennt, ignoriert es). `schedule.kind` ist `interval`, `daily`, `on_connect` oder (seit 0.2.1) `none`; bei `none` sind `paths` leer und `hooks` `{}` (siehe "Rechner ohne Job"). `bandwidthKbps` ist das Limit, das **im Moment der Anfrage** gilt (aktives Zeitfenster des Jobs, sonst der Standard, `null` = unbegrenzt); die Zeitfenster selbst bekommt der Agent nie. Ab 0.4.0 zusätzlich `startsPaused` (pausiert ein Update gerade neue Läufe, siehe "Update-Pause") und, wenn eine Richtlinie etwas festlegt, `policy: { backupWindow?, catchUp, maxRetries, snapshotOnFailure? }` (siehe "Richtlinien"; `snapshotOnFailure` seit 0.5.0 und nur als `"fail"`, fehlt es, gilt `continue`); Bandbreite und Netzteil der Richtlinie stecken dann schon in `bandwidthKbps` und `onlyOnAcPower`. Ein älterer Agent ignoriert beide Felder. `Cache-Control: no-store`. |
 | `POST /heartbeat` | `{ agentVersion, osVersion, state: idle/running, nextRunAt, configVersion, hooks, hookScripts?, machine?, dataFolders?, waiting? }` ergibt `{ tasks, startsPaused, cancel, updateNow }` (`startsPaused` ab 0.4.0; solange es `true` ist, enthält `tasks` keine `backup_now`-Aufgabe; `cancel` und `updateNow` ab 0.4.2, siehe "Sicherung stoppen" und "Selbstaktualisierung"). Alle 5 Minuten (Jitter +-60 s), während ein Lauf läuft jede Minute (Agent ab 0.4.2), und sofort beim Start. `hooks` ist die Hook-Regel des Rechners (`off`, `scripts`, `any`), `hookScripts` die Skripte in `/etc/restow-agent/hooks.d` (Regel `scripts`, höchstens 50). `machine` und `dataFolders` (Agent ab 0.4.0) siehe "Rechner und Datenordner". `waiting` (Agent ab 0.4.0, immer gesendet): worauf eine fällige Sicherung wartet, `""` wenn nichts wartet (siehe "Richtlinien"); fehlt es, gilt es als unbekannt. |
-| `POST /runs` | `{ kind: backup/restore/verify_sample, taskId?, startedAt }` ergibt `{ runId }`. |
+| `POST /runs` | `{ kind: backup/restore/verify_sample/sql/sql_restore/sql_verify, taskId?, startedAt }` ergibt `{ runId }`. Ein `sql`-Lauf (Agent ab 0.5.0) gehört nie zu einer Aufgabe; mit `taskId` antwortet der Server 409. |
 | `POST /runs/:id/progress` | `{ filesDone, bytesDone, totalFiles?, totalBytes?, currentPath? }`, alle 5 s (Agent ab 0.2.0; 0.1.x: alle 10 s). Das Limit der Agent-API (600 Aufrufe je Endpunkt und 10 Minuten, gleitendes Fenster) lässt das zu: Mit Heartbeat, Konfiguration und Start und Ende des Laufs sind es etwa 125 Aufrufe in 10 Minuten. Der Verlauf (`run_samples`) behält Punkte, die mindestens 1,5 s auseinanderliegen. |
 | `POST /runs/:id/finish` | `{ status: succeeded/partial/failed, finishedAt, snapshotId?, stats?, sample?, errors, logTail, restoreTest?, activity?, consistency? }`. `consistency` (Agent ab 0.5.0, jeder Backup-Lauf, der restic erreicht hat, auch ein fehlgeschlagener, wenn der Snapshot der Grund ist): `{ method?: vss/lvm/btrfs/apfs/mixed, state: used/partial/unavailable/off, liveFilesystems? }`, siehe "Konsistenz"; der Server prüft und begrenzt es und legt es als `stats.consistency` ab, ein fehlerhaftes wird verworfen. `activity` (Agent ab 0.4.0, nur bei einem Backup mit vorigem Snapshot): was sich gegenüber dem vorigen Snapshot geändert hat, für die Ransomware-Erkennung (Format und Grenzen: docs/RANSOMWARE.md, "The activity report"); ein Server, der das Feld nicht kennt, ignoriert es, ein fehlerhafter Bericht wird verworfen, ohne den Abschluss abzulehnen. `restoreTest` nur bei `verify_sample`: `{ files: [{ path, sha256? \| missing: true \| error }], restic?: { exitCode, fatal, errors: [{ item, message }] } }` (siehe "Restore-Test"). Wiederholung für einen beendeten Lauf antwortet gleich und ändert nichts. |
 | `GET /update` | `{ version, url, sha256 }` oder `null`: neuere **signierte** Agent-Version auf dieser Instanz; `null` auch, solange der Mandant Agent-Updates pausiert hat. |
@@ -532,7 +532,8 @@ der Agent das im Heartbeat (`waiting: "update_pause"`), und die Seite des Rechne
 
 ### Aufgaben (`tasks`)
 
-`backup_now`, `restore`, `verify_sample`, `update_config`, `uninstall`. Eine Aufgabe ist
+`backup_now`, `restore`, `verify_sample`, `update_config`, `uninstall`, seit 0.5.0 `sql_restore`,
+`sql_verify`, `sql_inventory` (siehe "SQL Server (native Sicherung, Vorschau)"). Eine Aufgabe ist
 `pending`, dann `delivered` (der Agent hat sie mit dem Heartbeat erhalten), dann `done` oder
 `failed`; seit 0.4.2 auch `cancelled` (in der Oberfläche zurückgezogen, siehe "Sicherung stoppen").
 
@@ -540,6 +541,10 @@ der Agent das im Heartbeat (`waiting: "update_pause"`), und die Seite des Rechne
   Eine zugestellte Aufgabe, für die 30 Minuten lang kein Lauf begann, wird erneut zugestellt.
   Eine offene Aufgabe mit `params.notBefore` (ein erneut angebotener Restore-Test) gibt der
   Heartbeat erst ab diesem Zeitpunkt aus.
+- `sql_restore` und `sql_verify` enden mit ihrem Lauf; `sql_inventory` gilt wie `update_config`
+  mit der Zustellung als erledigt (der Agent antwortet mit einem frischen SQL-Inventar im
+  nächsten Heartbeat). Solange ein Update neue Läufe anhält, hält der Heartbeat `sql_verify`
+  wie `backup_now` zurück.
 - `update_config` und `uninstall` gelten mit der Zustellung als erledigt. Nach `uninstall`
   ist der Endpunkt widerrufen (der Agent entfernt sich selbst; das Repository bleibt
   wiederherstellbar).
@@ -634,7 +639,15 @@ darf weitere senden), die Oberfläche formuliert die bekannten (`endpoints:runEr
 `interrupted`, `cancelled` (seit 0.4.2, siehe "Sicherung stoppen"), `no_paths`, `pre_hook_failed`, `post_hook_failed`, `hooks_not_allowed`, `timeout`,
 `target_not_empty`, `invalid_task`, `hash_mismatch`, `missing`, `not_regular`, `read_error`,
 `snapshot_failed`, `snapshot_unavailable`, `snapshot_cleanup_failed` (seit 0.5.0, siehe
-"Konsistenz"), `source_unreadable`, `source_is_mount_point` (seit 0.5.0) und `restic_exit_<N>`.
+"Konsistenz"), `source_unreadable`, `source_is_mount_point` (seit 0.5.0), die Codes der
+nativen SQL-Server-Sicherung (seit 0.5.0, `endpoints:sql.codes.<code>`: `sql_instance_unreachable`,
+`sql_login_missing`, `sql_permission_missing`, `sql_powershell_constrained`,
+`sql_strict_encryption`, `sql_fci_unsupported`, `sql_mode_unsupported`, `sql_staging_unusable`,
+`sql_staging_too_small`, `sql_database_unavailable`, `sql_backup_failed`, `sql_snapshot_failed`,
+`sql_script_failed`, `sql_restore_name_taken`, `sql_restore_no_space`, `sql_restore_failed`,
+`sql_backup_mismatch`, `sql_verify_no_space`, `sql_verify_timeout`, `sql_verify_system_db`; jeder
+hat eine Erklärung `endpoint.sql_*`, vorübergehend sind `sql_instance_unreachable` und
+`sql_verify_timeout`) und `restic_exit_<N>`.
 `source_unreadable` heißt: Ein Sicherungspfad existiert, ist aber nicht lesbar (mit BitLocker
 gesperrt, offline oder nicht bereit, kein Zugriff, ein Link, dem restic nicht folgt) oder restic hat
 aus einem als Link eingetragenen Ordner mit Dateien keine Datei gesichert; `source_is_mount_point`:
@@ -676,6 +689,82 @@ unvollständig) und nach dem Text des Fehlers (Netzwerk, abgelehnt). Die Detaila
 Endpunkts erklärt jeden Grund für Aufmerksamkeit ebenso (`problems`: still, überfällig, letzte
 Sicherung fehlgeschlagen, Restore-Test fehlgeschlagen, Repository beschädigt). Die Texte stehen
 in `failures.json` (de/en); ein Test in apps/api verlangt sie für jeden Code.
+
+### SQL Server (native Sicherung, Vorschau, seit 0.5.0)
+
+Entwurf und Entscheidungen: docs/BAREMETAL-WINDOWS.md 5.1 (Stufe W2a). Der Vertrag ist mit
+Testdaten festgelegt, die Agent und Server teilen (`agent/internal/api/testdata/contract/*.json`;
+der Go-Test dekodiert sie strikt, `packages/core/src/endpoints/sql/contract.test.ts` und
+`apps/api/src/features/endpoints/sql.pg.test.ts` lesen dieselben Dateien). LSNs sind
+Dezimal-**Zeichenketten** (numeric(25,0) ist größer als 2^53), GUIDs klein mit Bindestrichen,
+Zeiten RFC 3339 UTC; ein optionales Feld fehlt, statt `null` zu sein.
+
+- **Fähigkeit:** Enroll und Heartbeat tragen `capabilities: ["sql_native_v1"]`
+  (`settings.agent.capabilities`). Jede SQL-Aktion der Oberfläche verlangt sie und einen
+  aktiven Windows-Rechner, sonst 409 `urn:restow:problem:endpoint-sql-unsupported`.
+- **Heartbeat:** `machine.windows` (Version, Build, UBR, Produkt- und Installationsart, Domäne,
+  Rollen `domainController`, `dfsr`, `exchange`, `hyperV`, `sqlServer`, SQL-Instanzen aus der
+  Registry, BitLocker je Volume) und `sqlInventory` (höchstens 64 KiB; zu groß: Datenbanken vom
+  Ende weg und `truncated: true`). Der Server schreibt je Datenbank eine Zeile in
+  `endpoint_sql_databases` (nach `family_guid`: dieselbe Name, neue `family_guid` = eine andere
+  Datenbank), setzt `dropped_at` für eine Datenbank, die ein vollständiges Inventar einer
+  `ok`-Instanz nicht mehr nennt, und legt die Instanzen ohne Datenbanken mit eigenem
+  `jsonb_set` in `settings.sqlInstances` ab (ein Heartbeat ohne Inventar entfernt nichts). Das
+  Inventar läuft nur alle 6 Stunden, solange die native Sicherung an ist; sonst nur nach
+  `sql_inventory` ("Anmeldung prüfen"), weil jede gescheiterte Anmeldung im Fehlerprotokoll
+  der Instanz landet.
+- **Konfiguration:** `GET /config` trägt `sql: { enabled, mode: "alongside", instances: "all" |
+  [..], databases: "all" | [{ instance?, name }], exclude: [..], stagingDir? }`, nur für
+  Windows-Rechner in einem Job, der es setzt, und nie mit `verify` (das plant der Server).
+  Ein unbekannter `mode` ergibt `sql_mode_unsupported`, kein stiller Rückfall.
+- **Lauf `sql`** (ein Lauf je Instanz, ohne Aufgabe, nach der Dateisicherung): `finish` trägt
+  `sql: { instance, databases: [{ name, familyGuid, databaseGuid, recoveryModel, outcome:
+  backed_up/skipped/failed, backup?: { kind: "full", copyOnly, compressed, checksum,
+  pathInSnapshot, sha256, bytes, firstLsn, lastLsn, databaseBackupLsn?, checkpointLsn?,
+  firstRecoveryForkGuid?, lastRecoveryForkGuid?, beginsLogChain, hasBulkLoggedData, backupStart,
+  backupFinish, fileList }, code?, message? }] }` und `notices`. Jede Sicherung mit der vollen
+  Snapshot-ID wird eine Zeile in `endpoint_sql_backups`; die Kettenangaben stammen nur aus
+  `RESTORE HEADERONLY` der eigenen Datei, nie aus msdb. Snapshot-Tags `restow-sql`,
+  `restow-sql-instance=<instanz>`. Bei einem Rechner ohne Ordner zählt der `sql`-Lauf als seine
+  Sicherung (`last_success_at`), sonst entscheidet die Dateisicherung.
+- **Lauf `sql_verify`** (Aufgabe je Instanz, geplant vom Monitor am Prüftermin des Jobs,
+  Vorgabe Sonntag 03:00 in der Zone des Zeitplans, oder "Jetzt prüfen"; Parameter wie
+  `task-sql-verify.json`): Der Agent meldet nur Fakten (`sqlVerify.databases[]`: `fetched`,
+  `sha256Match`, `restore { ok, errors }`, `checkdb { ran, physicalOnly, errors }`, `code`).
+  Der Server urteilt (`packages/core/src/endpoints/sql/judge.ts`): **rot** bei anderer SHA-256,
+  CHECKDB-Fehlern oder einem RESTORE-Fehler 3183, 3189, 3241, 3242 oder 3243; **grün** nur mit
+  `method: "restore+checkdb"`, geholter Datei, passender SHA-256, gelungenem RESTORE und
+  fehlerfreiem CHECKDB; sonst **unvollständig** mit dem Code des Agenten. Je Datenbank der
+  Aufgabe ein Bericht `endpoint_reports.kind = sql_verify` (`readiness` green/red, `null` bei
+  unvollständig), `summary` mit `databaseId`, `backupId`, `outcome`, `evidence`. Ein Bericht
+  über eine Datenbank, die nicht in der Aufgabe stand, wird ignoriert. `last_restore_test_at`
+  bleibt unberührt (das ist der Restore-Test der Dateisicherung).
+- **Lauf `sql_restore`** (Aufgabe aus `POST /api/v1/endpoints/:id/sql/restore`, auditiert):
+  Restore einer Sicherung unter einem neuen Namen (1 bis 128 Zeichen, keine Steuerzeichen,
+  keine Systemdatenbank, nicht mit `__restow_verify_`); eine vorhandene Datenbank wird nie
+  ersetzt. `finish` trägt `sqlRestore`; der Server auditiert `endpoint.sql.restore.finished`.
+- **Bewertung je Datenbank:** `not_protected`, `unverified`, `green`, `red`, `overdue` (letzte
+  grüne Prüfung älter als 8 Tage). Alarme `endpoint.sql_red`, `endpoint.sql_recovered`,
+  `endpoint.sql_overdue`, je einmal (Gruppe `jobs`).
+- **Aufbewahrung:** Die Regeln des Rechners gelten je Gruppe (`files` für Backup-Läufe,
+  `sql:<INSTANZ>` für `sql`-Läufe und die aktiven Zeilen von `endpoint_sql_backups`); SQL-Snapshots
+  werden nie als `unrecorded` markiert. Eine Sicherung, deren Snapshot vergessen wurde, wird
+  `pruned`.
+- **Session-API:** `GET /:id/sql` (Instanzen, Anmeldung mit T-SQL-Block je Instanz, Datenbanken
+  mit Bewertung, letzter Sicherung und Prüfung; auch Restore-Bediener),
+  `GET /:id/sql/databases/:databaseId/backups`, `POST /:id/sql/restore`, `POST /:id/sql/verify`,
+  `POST /:id/sql/inventory`, `GET /:id/sql/backups/:backupId/restore-script` (PowerShell-Skript
+  für einen anderen Rechner, `text/plain`, auditiert, ohne Geheimnis) und
+  `POST /:id/sql/databases/:databaseId/tde-confirm` (alle Aktionen nur für Admins).
+  Problem-Typen: `endpoint-sql-unsupported`, `endpoint-sql-backup-pruned` (409),
+  `endpoint-sql-name-taken` (409), `endpoint-sql-nothing-to-verify` (409).
+- **Anmeldung:** Der Agent meldet sich als `NT SERVICE\RestowAgent` mit integrierter
+  Authentifizierung an; nirgends liegt ein SQL-Kennwort. Ohne Anmeldung auf der Instanz
+  scheitert jede Verbindung mit 18456 (`sql_login_missing`); die Oberfläche zeigt den
+  T-SQL-Block (sysadmin oder die kleine Variante).
+- **Hinweise eines Laufs** (`notices`, auch beim Datei-Lauf): `app_files_not_app_backup`
+  (`subjects` aus `sql_server`, `exchange`, `active_directory`, `hyper_v`), `sql_log_growing`,
+  `sql_tde_certificate`, `sql_version_untested`; höchstens 16, als `stats.notices` gespeichert.
 
 ### Grenzen, die der Server erzwingt
 
@@ -1439,8 +1528,11 @@ Mandantentabellen (`packages/db/sql/rls.sql`).
   `vss.exclude-volumes`), wenn `useVss` am Rechner an ist. Das Ergebnis ist **dateikonsistent,
   nicht anwendungskonsistent**: restic fordert eine Kopie-Sicherung ohne Writer-Komponenten an,
   offene Datenbanken (SQL Server, Exchange) sind absturzkonsistent und ihre Protokolle werden
-  nicht gekürzt; Anwendungskonsistenz geht über einen Pre-Hook (`sqlcmd -Q "BACKUP DATABASE
-  ..."`). restic endet bei einer fehlgeschlagenen Schattenkopie mit Exit 0 und liest das Volume
+  nicht gekürzt. Für SQL Server gibt es die native Sicherung (Abschnitt "SQL Server (native
+  Sicherung, Vorschau)"). Ein Pre-Hook mit `sqlcmd -Q "BACKUP DATABASE ..."` ist kein Ausweg:
+  Hooks laufen als SYSTEM, und SQL Server gibt seit 2012 weder SYSTEM noch den
+  Administratoren sysadmin; ein solcher Hook bräuchte eine Anmeldung für die Dienst-SID
+  `NT SERVICE\RestowAgent` (dieselbe, die die native Sicherung braucht). restic endet bei einer fehlgeschlagenen Schattenkopie mit Exit 0 und liest das Volume
   live; der Agent erkennt das an restics Fehlereinträgen (`failed to create snapshot for [...]`)
   und wendet `snapshotOnFailure` an. Ist VSS gar nicht nutzbar (Dienst deaktiviert, keine
   Rechte, COM), startet der Agent restic unter `continue` ein zweites Mal ohne Schattenkopie

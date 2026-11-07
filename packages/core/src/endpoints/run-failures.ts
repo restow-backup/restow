@@ -13,6 +13,7 @@ import type {
   FailureTechnical,
 } from "../failures/types.js";
 import { INTERRUPTED_RUN_CODE, resticExitCodeOf, SNAPSHOT_CLEANUP_RUN_CODE } from "./run-errors.js";
+import { SQL_ERROR_CODES } from "./sql/schemas.js";
 
 export interface RunErrorInput {
   path?: string | null;
@@ -40,6 +41,10 @@ const BY_CODE: Readonly<Record<string, FailureCode>> = {
   source_unreadable: "endpoint.source_unreadable",
   source_is_mount_point: "endpoint.source_is_mount_point",
   [INTERRUPTED_RUN_CODE]: "endpoint.interrupted",
+  // The native SQL Server backup (W2a): every code of the contract has its own explanation.
+  ...Object.fromEntries(
+    SQL_ERROR_CODES.map((sqlCode) => [sqlCode, `endpoint.${sqlCode}` as FailureCode]),
+  ),
 };
 
 /** The codes whose explanation is transient: the agent's next attempt may well work. */
@@ -47,6 +52,8 @@ const TRANSIENT: ReadonlySet<FailureCode> = new Set([
   "endpoint.timeout",
   "endpoint.interrupted",
   "endpoint.snapshot_failed",
+  "endpoint.sql_instance_unreachable",
+  "endpoint.sql_verify_timeout",
 ]);
 
 /** restic's words for "the server could not be reached or answered badly" (exit code 1). */
@@ -55,6 +62,10 @@ const NETWORK_TEXT =
 const REFUSED_TEXT = /unexpected http response \(40[13]\)|403 forbidden/i;
 
 const NEEDS_FIRST = [
+  // The sign-in to SQL Server decides before anything the run met afterwards.
+  "sql_login_missing",
+  "sql_powershell_constrained",
+  "sql_strict_encryption",
   "pre_hook_failed",
   "hooks_not_allowed",
   "snapshot_unavailable",

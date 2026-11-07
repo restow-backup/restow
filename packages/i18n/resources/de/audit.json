@@ -598,7 +598,25 @@
           "revealed": "Repository-Passwort angezeigt"
         }
       },
-      "update_requested": "Aktualisierung des Agenten angefordert"
+      "update_requested": "Aktualisierung des Agenten angefordert",
+      "sql": {
+        "inventory": {
+          "requested": "Prüfung der SQL-Server-Anmeldung angefordert"
+        },
+        "restore": {
+          "requested": "SQL-Server-Wiederherstellung unter neuem Namen angefordert",
+          "finished": "SQL-Server-Wiederherstellung unter neuem Namen beendet"
+        },
+        "restore_script": {
+          "downloaded": "SQL-Server-Restore-Skript heruntergeladen"
+        },
+        "tde": {
+          "confirmed": "Sicherung des TDE-Zertifikats bestätigt"
+        },
+        "verify": {
+          "requested": "SQL-Server-Prüfung angefordert"
+        }
+      }
     },
     "backup_job": {
       "created": "Backup-Job angelegt",

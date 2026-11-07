@@ -49,6 +49,8 @@ import {
   endpointRuns,
   endpointSamples,
   endpointSnapshotFlags,
+  endpointSqlBackups,
+  endpointSqlDatabases,
   endpoints,
   endpointTasks,
   notifications,
@@ -1666,5 +1668,248 @@ describe.skipIf(!adminUrl || !resticAvailable())(
       );
       expect(seenByContoso).toHaveLength(1);
     }, 60_000);
+    describe("the native SQL Server backup (W2a)", () => {
+      const SQL = {
+        enabled: true,
+        mode: "alongside" as const,
+        instances: "all" as const,
+        databases: "all" as const,
+        exclude: [],
+        verify: { enabled: true, weekday: 7, time: "03:00", maxGiB: 200, physicalOnly: false },
+      };
+
+      async function sqlDatabase(endpoint: { id: string; tenantId: string }, name: string) {
+        const [row] = await owner
+          .insert(endpointSqlDatabases)
+          .values({
+            tenantId: endpoint.tenantId,
+            endpointId: endpoint.id,
+            instance: "SQLEXPRESS",
+            database: name,
+            familyGuid: randomUUID(),
+            databaseGuid: randomUUID(),
+            recoveryModel: "FULL",
+            facts: { usedBytes: 1024 },
+          })
+          .returning();
+        return row?.id ?? "";
+      }
+
+      async function sqlBackup(
+        endpoint: { id: string; tenantId: string },
+        databaseId: string,
+        snapshotId: string,
+        finishedAt: Date,
+      ) {
+        const [run] = await owner
+          .insert(endpointRuns)
+          .values({
+            tenantId: endpoint.tenantId,
+            endpointId: endpoint.id,
+            kind: "sql",
+            status: "succeeded",
+            startedAt: finishedAt,
+            finishedAt,
+            snapshotId,
+            stats: { sql: { instance: "SQLEXPRESS", databases: [] } },
+          })
+          .returning();
+        const [backup] = await owner
+          .insert(endpointSqlBackups)
+          .values({
+            tenantId: endpoint.tenantId,
+            endpointId: endpoint.id,
+            databaseId,
+            runId: run?.id ?? null,
+            kind: "full",
+            copyOnly: true,
+            resticSnapshotId: snapshotId,
+            pathInSnapshot:
+              "/C/ProgramData/Restow/data/staging/sql/SQLEXPRESS/Sales~8de4e0ea/full.bak",
+            sha256: "d".repeat(64),
+            firstLsn: "37000000012800001",
+            lastLsn: "37000000014400001",
+            databaseGuid: randomUUID(),
+            familyGuid: randomUUID(),
+            backupStart: finishedAt,
+            backupFinish: finishedAt,
+            bytes: 4096,
+          })
+          .returning();
+        return backup?.id ?? "";
+      }
+
+      it("keeps the SQL snapshots per group, never flags them, and marks the forgotten ones pruned", async () => {
+        const made = await makeEndpoint({
+          snapshots: 3,
+          settings: { retention: { keepDaily: 2, keepWeekly: 0, keepMonthly: 0 } },
+        });
+        const salesId = await sqlDatabase(made, "Sales");
+        const backups: string[] = [];
+        for (let index = 0; index < 3; index++) {
+          // The SQL snapshots are a few hours newer than the file backups of the same days.
+          const taken = new Date(Date.now() - (3 - index) * DAY + 3 * HOUR);
+          const snapshotId = await backUp(made, { taken, record: false });
+          backups.push(await sqlBackup(made, salesId, snapshotId, taken));
+        }
+        clock = new Date();
+        await endpointRetention(deps, { tenantId: made.tenantId, endpointId: made.id });
+        // Two of each group: the SQL snapshots do not push the file backups out, nor back.
+        expect(await snapshotIds(made)).toHaveLength(4);
+        const [report] = await reportsOf(made.id, "retention");
+        expect(report?.summary).toMatchObject({
+          removedSnapshots: 2,
+          keptSnapshots: 4,
+          unrecordedSnapshots: 0,
+          prunedSqlBackups: 1,
+        });
+        const rows = await owner
+          .select({ id: endpointSqlBackups.id, status: endpointSqlBackups.status })
+          .from(endpointSqlBackups)
+          .where(eq(endpointSqlBackups.endpointId, made.id));
+        expect(rows.find((row) => row.id === backups[0])?.status).toBe("pruned");
+        expect(rows.filter((row) => row.status === "active")).toHaveLength(2);
+        const flags = await owner
+          .select()
+          .from(endpointSnapshotFlags)
+          .where(eq(endpointSnapshotFlags.endpointId, made.id));
+        expect(flags).toEqual([]);
+      }, 180_000);
+
+      async function sqlMachine(capabilities: string[] = ["sql_native_v1"]) {
+        const id = randomUUID();
+        const config = {
+          ...defaultEndpointConfig("windows", "server", { timeZone: "Europe/Berlin" }),
+          sql: SQL,
+        };
+        await owner.insert(endpoints).values({
+          id,
+          tenantId: fabrikam,
+          hostname: `sql-${id.slice(0, 4)}`,
+          os: "windows",
+          arch: "amd64",
+          profile: "server",
+          secretHash: hashSecret("rsea_x"),
+          config,
+          settings: { agent: { capabilities, reportedAt: new Date().toISOString() } },
+          lastSeenAt: clock,
+        });
+        return { id, tenantId: fabrikam };
+      }
+
+      const sqlTasks = (endpointId: string) =>
+        owner
+          .select()
+          .from(endpointTasks)
+          .where(
+            and(eq(endpointTasks.endpointId, endpointId), eq(endpointTasks.kind, "sql_verify")),
+          );
+
+      it("plans one check per instance at the job's slot, once, and none for an older agent", async () => {
+        // Sunday 8 November 2026, 03:10 in Berlin.
+        clock = new Date("2026-11-08T02:10:00Z");
+        const machine = await sqlMachine();
+        const older = await sqlMachine([]);
+        for (const target of [machine, older]) {
+          const salesId = await sqlDatabase(target, "Sales");
+          await sqlBackup(
+            target,
+            salesId,
+            randomBytes(32).toString("hex"),
+            new Date("2026-11-07T22:00:00Z"),
+          );
+        }
+        await endpointMonitor(deps);
+        const tasks = await sqlTasks(machine.id);
+        expect(tasks).toHaveLength(1);
+        expect(tasks[0]?.params).toMatchObject({
+          instance: "SQLEXPRESS",
+          maxGiB: 200,
+          physicalOnly: false,
+          databases: [expect.objectContaining({ name: "Sales", usedBytes: 1024, bytes: 4096 })],
+        });
+        expect(await sqlTasks(older.id)).toEqual([]);
+        // Waiting: no second one; done: none before the next slot.
+        await endpointMonitor(deps);
+        expect(await sqlTasks(machine.id)).toHaveLength(1);
+        await owner
+          .update(endpointTasks)
+          .set({ status: "done" })
+          .where(eq(endpointTasks.id, tasks[0]?.id ?? ""));
+        clock = new Date("2026-11-08T04:00:00Z");
+        await endpointMonitor(deps);
+        expect(await sqlTasks(machine.id)).toHaveLength(1);
+        clock = new Date("2026-11-15T02:05:00Z");
+        await endpointMonitor(deps);
+        expect(await sqlTasks(machine.id)).toHaveLength(2);
+      }, 60_000);
+
+      it("raises a red check, its recovery and an overdue database once each", async () => {
+        clock = new Date("2026-11-20T12:00:00Z");
+        const machine = await sqlMachine();
+        const salesId = await sqlDatabase(machine, "Sales");
+        await sqlBackup(
+          machine,
+          salesId,
+          randomBytes(32).toString("hex"),
+          new Date("2026-11-19T22:00:00Z"),
+        );
+        const report = (readiness: "red" | "green", checkedAt: Date) =>
+          owner.insert(endpointReports).values({
+            tenantId: machine.tenantId,
+            endpointId: machine.id,
+            kind: "sql_verify",
+            origin: "agent",
+            readiness,
+            summary: {
+              databaseId: salesId,
+              instance: "SQLEXPRESS",
+              database: "Sales",
+              outcome: readiness,
+              ...(readiness === "red"
+                ? {
+                    evidence: [
+                      {
+                        source: "checkdb",
+                        number: 8928,
+                        message: "Page (1:312) could not be processed.",
+                      },
+                    ],
+                  }
+                : {}),
+            },
+            checkedAt,
+          });
+        await report("red", new Date("2026-11-20T03:00:00Z"));
+        await endpointMonitor(deps);
+        await endpointMonitor(deps);
+        const red = await eventsOf(machine.tenantId, "endpoint.sql_red");
+        expect(red.filter((event) => event.details?.databaseId === salesId)).toHaveLength(1);
+        expect(red.find((event) => event.details?.databaseId === salesId)?.message).toContain(
+          "8928",
+        );
+
+        await report("green", new Date("2026-11-20T11:00:00Z"));
+        await endpointMonitor(deps);
+        await endpointMonitor(deps);
+        const recovered = await eventsOf(machine.tenantId, "endpoint.sql_recovered");
+        expect(recovered.filter((event) => event.details?.databaseId === salesId)).toHaveLength(1);
+
+        // Backed up ten days ago, never checked green: overdue, once.
+        const archiveId = await sqlDatabase(machine, "Archive");
+        await sqlBackup(
+          machine,
+          archiveId,
+          randomBytes(32).toString("hex"),
+          new Date("2026-11-10T22:00:00Z"),
+        );
+        await endpointMonitor(deps);
+        await endpointMonitor(deps);
+        const overdue = (await eventsOf(machine.tenantId, "endpoint.sql_overdue")).filter(
+          (event) => event.details?.endpointId === machine.id,
+        );
+        expect(overdue.map((event) => event.details?.databaseId)).toEqual([archiveId]);
+      }, 60_000);
+    });
   },
 );

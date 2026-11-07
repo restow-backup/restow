@@ -7,6 +7,9 @@ import {
   MAX_BANDWIDTH_KBPS,
   MAX_BANDWIDTH_WINDOWS,
   MAX_ENDPOINT_QUOTA_GIB,
+  parseCapabilities,
+  parseWindowsFacts,
+  sqlNewNameIssue,
 } from "@restow/core";
 import { z } from "zod";
 
@@ -63,9 +66,25 @@ export const machineFactsSchema = z
       .max(64)
       .transform((value) => value.replace(/[^a-z0-9_-]/gi, "").slice(0, 32)),
     desktop: z.boolean(),
+    // Windows only (agent 0.5.0, W1): checked and bounded in @restow/core (parseWindowsFacts); a
+    // malformed one is dropped, the rest of the facts stays.
+    windows: z
+      .unknown()
+      .optional()
+      .transform((value) => parseWindowsFacts(value)),
   })
+  .transform(({ windows, ...rest }) => (windows ? { ...rest, windows } : rest))
   .optional()
   .catch(undefined);
+
+/**
+ * What the agent can do beyond the base contract (agent 0.5.0: `sql_native_v1`): known-looking
+ * codes only (@restow/core parseCapabilities). Absent from an older agent.
+ */
+export const capabilitiesSchema = z
+  .unknown()
+  .optional()
+  .transform((value) => parseCapabilities(value));
 
 /**
  * The data folders an agent found (agent 0.4.0 and later): names only; the service keeps those of
@@ -90,6 +109,7 @@ export const enrollSchema = z.object({
   hooks: hookPolicySchema.optional().catch("off"),
   machine: machineFactsSchema,
   dataFolders: dataFoldersSchema,
+  capabilities: capabilitiesSchema,
 });
 
 /** A code of what a due backup waits for, or "" for nothing. */
@@ -124,10 +144,15 @@ export const heartbeatSchema = z.object({
    * may add is kept and shown as "waiting".
    */
   waiting: z.string().regex(AGENT_WAITING_CODE).optional().catch(undefined),
+  capabilities: capabilitiesSchema,
+  // The SQL inventory (agent 0.5.0, W2a; at most 64 KiB from the agent): checked and bounded in
+  // @restow/core (parseSqlInventory); a malformed one is dropped and the heartbeat still counts.
+  sqlInventory: z.unknown().optional(),
 });
 
 export const startRunSchema = z.object({
-  kind: z.enum(["backup", "restore", "verify_sample"]),
+  // `sql`, `sql_restore`, `sql_verify`: the native SQL Server backup (agent 0.5.0, W2a).
+  kind: z.enum(["backup", "restore", "verify_sample", "sql", "sql_restore", "sql_verify"]),
   taskId: uuid.nullish(),
   startedAt: isoDate,
 });
@@ -230,6 +255,13 @@ export const finishRunSchema = z.object({
   // Whether a file system snapshot was used (agents from 0.5.0 on): checked and bounded where it is
   // kept (@restow/core parseRunConsistency); an older agent sends none, a malformed one is dropped.
   consistency: z.unknown().optional(),
+  // The native SQL Server backup (agents from 0.5.0, W2a): the report of a `sql`, `sql_restore` or
+  // `sql_verify` run, and the fixed warnings of any run. Checked and bounded in @restow/core
+  // (parseSqlBackupReport, parseSqlRestoreReport, parseSqlVerifyReport, parseRunNotices).
+  sql: z.unknown().optional(),
+  sqlRestore: z.unknown().optional(),
+  sqlVerify: z.unknown().optional(),
+  notices: z.unknown().optional(),
 });
 
 export const runIdParamSchema = z.object({ runId: uuid });
@@ -507,6 +539,40 @@ export const globalAgentPolicySchema = z
       .max(6),
   })
   .strict();
+
+// ---------------------------------------------------------------------------
+// The native SQL Server backup (W2a, docs/BAREMETAL-WINDOWS.md 5.1)
+// ---------------------------------------------------------------------------
+
+/** A database name for SQL Server: 1 to 128 characters, the agent's rules (@restow/core sqlNewNameIssue). */
+export const sqlNewNameSchema = z.string().superRefine((value, context) => {
+  const issue = sqlNewNameIssue(value);
+  if (issue !== null) {
+    context.addIssue({ code: "custom", message: issue, params: { issue } });
+  }
+});
+
+const sqlInstanceName = z
+  .string()
+  .min(1)
+  .max(64)
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what is refused
+  .refine((value) => !/[\u0000-\u001f]/.test(value), "contains control characters");
+
+export const sqlRestoreSchema = z
+  .object({
+    backupId: uuid,
+    newName: sqlNewNameSchema,
+    // W2a restores on the instance of the backup or another instance of the same machine.
+    targetInstance: sqlInstanceName.optional(),
+    checkdb: z.boolean().optional(),
+  })
+  .strict();
+
+export const sqlVerifySchema = z.object({ databaseId: uuid.optional() }).strict();
+
+export const sqlDatabaseParamSchema = z.object({ id: uuid, databaseId: uuid });
+export const sqlBackupParamSchema = z.object({ id: uuid, backupId: uuid });
 
 export const agentUpdatesSchema = z.object({
   paused: z.boolean(),

@@ -888,6 +888,127 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     retryable: true,
     steps: () => [step("check_endpoint_agent"), step("check_endpoint_paths")],
   },
+  // The native SQL Server backup (W2a, docs/BAREMETAL-WINDOWS.md 5.1): the agent's codes.
+  "endpoint.sql_instance_unreachable": {
+    category: "endpoint",
+    transient: true,
+    retryable: true,
+    steps: () => [step("start_sql_instance"), step("wait_endpoint_retry")],
+  },
+  "endpoint.sql_login_missing": {
+    category: "endpoint",
+    transient: false,
+    retryable: true,
+    steps: () => [step("create_sql_login")],
+  },
+  "endpoint.sql_permission_missing": {
+    category: "endpoint",
+    transient: false,
+    retryable: true,
+    steps: () => [step("grant_sql_permissions"), step("create_sql_login")],
+  },
+  "endpoint.sql_powershell_constrained": {
+    category: "endpoint",
+    transient: false,
+    retryable: true,
+    steps: () => [step("allow_sql_powershell")],
+  },
+  "endpoint.sql_strict_encryption": {
+    category: "endpoint",
+    transient: false,
+    retryable: true,
+    steps: () => [step("check_sql_encryption")],
+  },
+  "endpoint.sql_fci_unsupported": {
+    category: "endpoint",
+    transient: false,
+    retryable: true,
+    steps: () => [READ_DETAILS],
+  },
+  "endpoint.sql_mode_unsupported": {
+    category: "endpoint",
+    transient: false,
+    retryable: true,
+    steps: () => [step("check_endpoint_agent")],
+  },
+  "endpoint.sql_staging_unusable": {
+    category: "endpoint",
+    transient: false,
+    retryable: true,
+    steps: () => [step("check_sql_staging")],
+  },
+  "endpoint.sql_staging_too_small": {
+    category: "endpoint",
+    transient: false,
+    retryable: true,
+    steps: () => [step("free_sql_staging")],
+  },
+  "endpoint.sql_database_unavailable": {
+    category: "endpoint",
+    transient: false,
+    retryable: true,
+    steps: () => [step("check_sql_database")],
+  },
+  "endpoint.sql_backup_failed": {
+    category: "endpoint",
+    transient: false,
+    retryable: true,
+    steps: () => [READ_DETAILS, step("run_backup_again")],
+  },
+  "endpoint.sql_snapshot_failed": {
+    category: "endpoint",
+    transient: false,
+    retryable: true,
+    steps: () => [step("check_endpoint_agent"), READ_DETAILS],
+  },
+  "endpoint.sql_script_failed": {
+    category: "endpoint",
+    transient: false,
+    retryable: true,
+    steps: () => [step("check_endpoint_agent"), READ_DETAILS],
+  },
+  "endpoint.sql_restore_name_taken": {
+    category: "endpoint",
+    transient: false,
+    retryable: true,
+    steps: () => [step("choose_sql_restore_name")],
+  },
+  "endpoint.sql_restore_no_space": {
+    category: "endpoint",
+    transient: false,
+    retryable: true,
+    steps: () => [step("free_sql_restore_space")],
+  },
+  "endpoint.sql_restore_failed": {
+    category: "endpoint",
+    transient: false,
+    retryable: true,
+    steps: () => [READ_DETAILS],
+  },
+  "endpoint.sql_backup_mismatch": {
+    category: "endpoint",
+    transient: false,
+    retryable: true,
+    steps: () => [step("run_backup_again"), READ_DETAILS],
+  },
+  "endpoint.sql_verify_no_space": {
+    category: "endpoint",
+    transient: false,
+    retryable: true,
+    steps: () => [step("free_sql_restore_space")],
+  },
+  "endpoint.sql_verify_timeout": {
+    category: "endpoint",
+    transient: true,
+    retryable: true,
+    steps: () => [step("wait_endpoint_retry")],
+  },
+  "endpoint.sql_verify_system_db": {
+    category: "endpoint",
+    transient: false,
+    retryable: true,
+    steps: () => [READ_DETAILS],
+  },
 
   // --- File shares (docs/FILESHARES.md section 11) -----------------------------------------
   "share.auth_failed": {

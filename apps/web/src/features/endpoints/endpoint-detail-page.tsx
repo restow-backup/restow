@@ -4,6 +4,7 @@ import {
   ArrowUpCircle,
   Ban,
   Camera,
+  Database,
   LayoutDashboard,
   Play,
   Settings,
@@ -37,6 +38,7 @@ import { OverviewTab } from "./components/overview-tab.js";
 import { RunSheet } from "./components/run-sheet.js";
 import { SettingsTab } from "./components/settings-tab.js";
 import { MachineNewDataChart, SnapshotsTab } from "./components/snapshots-tab.js";
+import { SqlTab } from "./components/sql-tab.js";
 import {
   ActivityBadge,
   AttentionBadges,
@@ -53,11 +55,18 @@ import {
   useRestoreTest,
 } from "./hooks.js";
 import { ENDPOINT_TABS, type EndpointTab, fileRestoreTo, inventoryTo } from "./paths.js";
-import { endpointErrorKey, endpointHostLine, endpointName, isWithoutBackup } from "./presenters.js";
+import {
+  endpointErrorKey,
+  endpointHostLine,
+  endpointName,
+  isWithoutBackup,
+  showsSqlTab,
+} from "./presenters.js";
 
 const TAB_ICON: Record<EndpointTab, typeof Camera> = {
   overview: LayoutDashboard,
   snapshots: Camera,
+  sql: Database,
   settings: Settings,
 };
 
@@ -313,6 +322,11 @@ export function EndpointDetailPage({
     );
   }
   const hostLine = endpointHostLine(detail);
+  // SQL Server (preview): only for a Windows machine that reports it; another tab in the URL of
+  // a machine without it opens the overview.
+  const sqlTab = showsSqlTab(detail);
+  const tabs = ENDPOINT_TABS.filter((item) => item !== "sql" || sqlTab);
+  const shownTab = tab === "sql" && !sqlTab ? "overview" : tab;
   return (
     <div className="space-y-5">
       <PageHeader
@@ -365,9 +379,9 @@ export function EndpointDetailPage({
       {/* The repository this machine's backups land in. */}
       <BackupDestinationNote />
 
-      <Tabs value={tab} onValueChange={(value) => onTabChange(value as EndpointTab)}>
+      <Tabs value={shownTab} onValueChange={(value) => onTabChange(value as EndpointTab)}>
         <TabsList>
-          {ENDPOINT_TABS.map((item) => {
+          {tabs.map((item) => {
             const Icon = TAB_ICON[item];
             return (
               <TabsTrigger key={item} value={item}>
@@ -384,6 +398,12 @@ export function EndpointDetailPage({
           <MachineNewDataChart endpointId={detail.id} />
           <SnapshotsTab detail={detail} onShowOverview={() => onTabChange("overview")} />
         </TabsContent>
+        {sqlTab ? (
+          <TabsContent value="sql" className="pt-2">
+            {/* The machine page is the administrators' (route-pages.tsx, ENDPOINT_ROLES). */}
+            <SqlTab detail={detail} canAct />
+          </TabsContent>
+        ) : null}
         <TabsContent value="settings" className="pt-2">
           <SettingsTab detail={detail} />
         </TabsContent>

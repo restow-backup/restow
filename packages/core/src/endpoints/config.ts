@@ -25,6 +25,7 @@
 
 import type { BandwidthWindow } from "../backup-jobs/bandwidth.js";
 import type { AgentPolicyWire, EndpointPolicy } from "./agent-policy.js";
+import { type AgentSqlConfig, agentSqlConfig, type SqlSettings } from "./sql/settings.js";
 
 export const ENDPOINT_PROFILES = ["server", "client"] as const;
 export type EndpointProfileName = (typeof ENDPOINT_PROFILES)[number];
@@ -104,6 +105,11 @@ export interface AgentConfig {
    * `onlyOnAcPower`.
    */
   policy?: EndpointPolicy;
+  /**
+   * The native SQL Server backup (W2a, Windows only); present only when a backup job sets it. The
+   * agent gets it without `verify` ({@link agentFacingConfig}).
+   */
+  sql?: SqlSettings;
 }
 
 /**
@@ -111,8 +117,9 @@ export interface AgentConfig {
  * form (agent 0.4.0; an older agent ignores it) and whether the server pauses new runs for an
  * update right now (`startsPaused`, from 0.4.0; it never changes the version).
  */
-export interface AgentConfigResponse extends Omit<AgentConfig, "policy"> {
+export interface AgentConfigResponse extends Omit<AgentConfig, "policy" | "sql"> {
   configVersion: number;
+  sql?: AgentSqlConfig;
   policy?: AgentPolicyWire;
   startsPaused?: boolean;
 }
@@ -265,11 +272,17 @@ export function enrolledEndpointConfig(
  * run stops before restic or a hook starts (`no_paths`), so nothing is backed up and no command
  * runs. An agent of 0.2.1 or later never starts a scheduled backup with `none` anyway.
  */
-export function agentFacingConfig<T extends AgentConfig>(config: T): T {
+export function agentFacingConfig<T extends AgentConfig>(
+  config: T,
+): Omit<T, "sql"> & { sql?: AgentSqlConfig } {
+  // The check settings of the native SQL backup are the server's (it plans `sql_verify`); the
+  // agent gets the maximum size and PHYSICAL_ONLY with each task.
+  const { sql, ...rest } = config;
   if (!isUnscheduled(config.schedule)) {
-    return config;
+    return sql ? { ...rest, sql: agentSqlConfig(sql) } : config;
   }
-  return { ...config, paths: [], hooks: {} };
+  // A machine in no job backs up nothing, its databases neither.
+  return { ...rest, paths: [], hooks: {} };
 }
 
 /** Retention every endpoint starts with (docs/AGENT.md): daily 30, weekly 12, monthly 12. */

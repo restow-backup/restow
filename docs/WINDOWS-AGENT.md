@@ -204,8 +204,11 @@ Der Server nimmt `os=windows` nur mit `arch=amd64` an (Abschnitt 19.1).
   bei einem Domänencontroller (`ProductType = LanmanNT`) zeigt die Oberfläche einen festen
   Hinweis.
 - **Hyper-V-Host** (VM-Dateien im laufenden Betrieb), **Exchange und SQL Server als
-  Anwendung** (siehe Abschnitt 17.5: dateikonsistent, nicht anwendungskonsistent; für
-  Anwendungskonsistenz bleiben Hooks wie `sqlcmd -Q "BACKUP DATABASE …"`).
+  Anwendung** (siehe Abschnitt 17.5: dateikonsistent, nicht anwendungskonsistent). Für SQL
+  Server gibt es seit 0.5.0 die native Sicherung (Vorschau, docs/BAREMETAL-WINDOWS.md 5.1);
+  ein Hook wie `sqlcmd -Q "BACKUP DATABASE …"` scheitert ohne Anmeldung, weil Hooks als
+  SYSTEM laufen und SYSTEM seit SQL Server 2012 kein sysadmin ist. Die Oberfläche zeigt für
+  diese Rollen einen festen Hinweis (`app_files_not_app_backup`).
 - **Alternate Data Streams, EFS-Dateien anderer Benutzer, Authenticode, Windows on ARM.**
 - **WPAD/PAC und NTLM/Kerberos am Proxy** (Abschnitt 12.5).
 
@@ -1636,9 +1639,12 @@ Feld nicht und läuft auf Linux/macOS ohnehin ohne Snapshot).
   "konsistent": restic fordert eine Kopie-Sicherung ohne Writer-Komponenten an
   (`VSS_BT_COPY`, Abschnitt 1.2). Dateien offener Datenbanken (SQL Server, Exchange) sind
   absturzkonsistent, ein Administrator muss sie nach dem Restore anhängen bzw. wiederherstellen
-  lassen, und Transaktionsprotokolle werden nicht gekürzt. Anwendungskonsistenz geht über
-  Hooks (`sqlcmd -Q "BACKUP DATABASE … TO DISK=…"` als Pre-Hook). Das steht in docs/AGENT.md
-  und agent/README.md unter den bekannten Grenzen.
+  lassen, und Transaktionsprotokolle werden nicht gekürzt. Für SQL Server ist die native
+  Sicherung der Weg (0.5.0, Vorschau, docs/BAREMETAL-WINDOWS.md 5.1). Ein Pre-Hook
+  `sqlcmd -Q "BACKUP DATABASE … TO DISK=…"` ist es nicht: Hooks laufen als SYSTEM, und SYSTEM
+  ist seit SQL Server 2012 kein sysadmin; er bräuchte eine Anmeldung für
+  `NT SERVICE\RestowAgent`. Das steht in docs/AGENT.md und agent/README.md unter den
+  bekannten Grenzen.
 - **Lauf-Log:** eine Zeile je Volume mit dem Grund und dem Hinweis "Ereignisanzeige >
   Windows-Protokolle > Anwendung, Quelle VSS; `vssadmin list writers` als Administrator".
 - **Erklärung** (`endpoint_runs.failure`): neue Codes `endpoint.snapshot_failed` und
@@ -1919,7 +1925,11 @@ Zugangsdaten (12.5), keine Gnadenfrist für Hooks unter Windows und Hooks nur `.
 nach Deinstallation über das Binary bis zum Neustart liegen (9.4), Restrisiko beim
 Job-Zuordnen (12.3), Installer-Prüfung schützt ohne Pin nicht gegen eine feindliche Instanz
 (14.3), Smart App Control im Auswertungsmodus kann den Agenten nach der Installation
-blockieren, ohne dass der Agent das noch melden kann (15).
+blockieren, ohne dass der Agent das noch melden kann (15). Seit 0.5.0 (W1, W2a,
+docs/BAREMETAL-WINDOWS.md): Die Dateisicherung ist keine Sicherung von SQL Server, Exchange,
+Active Directory oder Hyper-V (fester Hinweis `app_files_not_app_backup`); die native
+SQL-Server-Sicherung ist Vorschau (nur Kopie-Vollsicherungen, kein Point-in-Time, keine
+Failover-Cluster, kein Restore über die vorhandene Datenbank).
 
 ## 22. Testplan
 
@@ -2223,6 +2233,10 @@ Der Maintainer hat alle Punkte entschieden; die Begründungen der Empfehlungen g
    hält beide gleich.
 
 ## 26. Stand der Umsetzung
+
+**0.5.0, W1 und W2a (Windows-Fakten, Hinweise, native SQL-Server-Sicherung):** siehe
+docs/BAREMETAL-WINDOWS.md, Abschnitt "Stand der Umsetzung". Die Hook-Empfehlung mit `sqlcmd`
+ist in diesem Dokument (2.2, 17.5), in docs/AGENT.md und agent/README.md korrigiert.
 
 **M1, Teil Build, CI und Release-Gerüst (umgesetzt):**
 

@@ -107,6 +107,7 @@ import {
   EndpointScheduleFields,
   HooksField,
   RetentionField,
+  SqlField,
   useProblemText,
 } from "./settings-fields.js";
 
@@ -1005,6 +1006,29 @@ function EditorForm({
                   onChange={(policy) => editSettings({ policy })}
                   zone={draft.endpointSchedule.timeZone}
                 />
+
+                <EditorSection
+                  id={ids("sql")}
+                  title={t("editor.sql.title")}
+                  description={t("editor.sql.description")}
+                >
+                  <SqlField
+                    idPrefix={ids("sql-field")}
+                    sql={draft.settings.sql}
+                    onChange={(sql) => editSettings({ sql })}
+                    dailyTime={
+                      draft.endpointSchedule.kind === "daily"
+                        ? draft.endpointSchedule.timeOfDay
+                        : null
+                    }
+                    problems={{
+                      databases: settingsText("sqlDatabases"),
+                      stagingDir: settingsText("sqlStagingDir"),
+                      verifyTime: settingsText("sqlVerifyTime") ?? at("sql"),
+                      verifyMaxGiB: settingsText("sqlVerifyMaxGiB"),
+                    }}
+                  />
+                </EditorSection>
 
                 <EditorSection
                   id={ids("retention")}

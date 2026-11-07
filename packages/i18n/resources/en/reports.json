@@ -462,7 +462,10 @@
       "stale": "Server or client not reporting",
       "suspicious_snapshot": "Suspicious snapshot of a server or client",
       "storage_quota": "Storage budget of servers and clients",
-      "repository_locked": "Backup data of a server or client stays locked"
+      "repository_locked": "Backup data of a server or client stays locked",
+      "sql_red": "The check of a SQL Server backup found damage",
+      "sql_recovered": "A SQL Server backup was checked without errors again",
+      "sql_overdue": "A SQL Server backup has not been checked for more than 8 days"
     },
     "file_share": {
       "storage_quota": "Storage budget of file shares",
@@ -525,7 +528,10 @@
       "stale": "A server has not reported for more than two hours, or a client has had no good backup for several days.",
       "suspicious_snapshot": "A snapshot appeared that no backup run reported, or one dated in the future. Retention keeps it; the machine may be compromised.",
       "storage_quota": "The backup data of a machine, or all of a tenant's together, reached 90 percent of the storage budget, or backups were refused because it is used up.",
-      "repository_locked": "Retention and checks kept finding a machine's backup data locked for more than twelve hours."
+      "repository_locked": "Retention and checks kept finding a machine's backup data locked for more than twelve hours.",
+      "sql_red": "The check restored the newest backup of a database from the backup data and DBCC CHECKDB, the restore or the checksum found damage.",
+      "sql_recovered": "A database whose last check found damage was checked without errors again.",
+      "sql_overdue": "No check of a backed-up database came out without errors for more than 8 days."
     },
     "file_share": {
       "storage_quota": "The backup data of a file share, or all of a tenant's shares together, reached 80 percent of the storage budget, or new backups are refused because it is used up.",
@@ -732,7 +738,10 @@
       "stale": "Not reporting: {object}",
       "suspicious_snapshot": "Suspicious snapshot: {object}",
       "storage_quota": "Storage budget: {object}",
-      "repository_locked": "Backup data locked: {object}"
+      "repository_locked": "Backup data locked: {object}",
+      "sql_red": "SQL Server check found damage: {object}",
+      "sql_recovered": "SQL Server check without errors again: {object}",
+      "sql_overdue": "SQL Server check overdue: {object}"
     },
     "file_share": {
       "storage_quota": "Storage budget: {object}",

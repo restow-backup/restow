@@ -22,6 +22,7 @@ const (
 	ErrorInsufficientBuffer        = 122
 	ErrorAlreadyExists             = 183
 	ErrorMoreData                  = 234
+	ErrorNoMoreItems               = 259
 	ErrorIOPending                 = 997
 	ErrorServiceAlreadyRunning     = 1056
 	ErrorServiceDoesNotExist       = 1060

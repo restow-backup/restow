@@ -28,6 +28,13 @@ export const ENDPOINT_AUDIT_ACTIONS = {
   repositoryPasswordRevealed: "endpoint.repository.password.revealed",
   updatesPaused: "endpoint.updates.paused",
   updatesResumed: "endpoint.updates.resumed",
+  // The native SQL Server backup (W2a, docs/BAREMETAL-WINDOWS.md 5.1)
+  sqlRestoreRequested: "endpoint.sql.restore.requested",
+  sqlRestoreFinished: "endpoint.sql.restore.finished",
+  sqlVerifyRequested: "endpoint.sql.verify.requested",
+  sqlInventoryRequested: "endpoint.sql.inventory.requested",
+  sqlRestoreScriptDownloaded: "endpoint.sql.restore_script.downloaded",
+  sqlTdeConfirmed: "endpoint.sql.tde.confirmed",
 } as const;
 
 /** Who did it: a signed-in admin, or the agent of an endpoint. */

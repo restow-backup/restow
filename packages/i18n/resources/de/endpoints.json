@@ -37,7 +37,10 @@
     "backup": "Sicherung läuft",
     "restore": "Wiederherstellung läuft",
     "verify_sample": "Restore-Prüfung läuft",
-    "busy": "Arbeitet"
+    "busy": "Arbeitet",
+    "sql": "SQL-Server-Sicherung läuft",
+    "sql_restore": "SQL-Server-Wiederherstellung läuft",
+    "sql_verify": "SQL-Server-Prüfung läuft"
   },
   "readiness": {
     "state": {
@@ -58,7 +61,10 @@
   "runKind": {
     "backup": "Sicherung",
     "restore": "Wiederherstellung auf den Rechner",
-    "verify_sample": "Restore-Prüfung auf dem Rechner"
+    "verify_sample": "Restore-Prüfung auf dem Rechner",
+    "sql": "SQL-Server-Sicherung",
+    "sql_restore": "SQL-Server-Wiederherstellung unter neuem Namen",
+    "sql_verify": "SQL-Server-Prüfung"
   },
   "runStatus": {
     "running": "Läuft",
@@ -425,7 +431,8 @@
     "tabs": {
       "overview": "Übersicht",
       "snapshots": "Sicherungsstände",
-      "settings": "Einstellungen"
+      "settings": "Einstellungen",
+      "sql": "SQL Server"
     }
   },
   "actions": {
@@ -538,7 +545,10 @@
       "restore": "Wiederherstellung",
       "verify_sample": "Restore-Prüfung",
       "update_config": "Neue Einstellungen anwenden",
-      "uninstall": "Agent deinstallieren"
+      "uninstall": "Agent deinstallieren",
+      "sql_restore": "SQL-Server-Datenbank unter neuem Namen wiederherstellen",
+      "sql_verify": "SQL-Server-Sicherungen prüfen",
+      "sql_inventory": "SQL-Server-Anmeldung prüfen"
     },
     "restore": "{count, plural, one {# Element in einen neuen Ordner wiederherstellen} other {# Elemente in einen neuen Ordner wiederherstellen}}",
     "status": {
@@ -638,7 +648,8 @@
     "kind": {
       "restore_test": "Restore-Prüfung",
       "repository_check": "Integritätsprüfung",
-      "retention": "Aufbewahrungslauf"
+      "retention": "Aufbewahrungslauf",
+      "sql_verify": "SQL-Server-Prüfung"
     },
     "origin": {
       "server": "Vom Server zurückgelesen",
@@ -668,6 +679,12 @@
       "actual": "Gefunden",
       "missing": "Datei ließ sich nicht zurücklesen",
       "reason": "Grund"
+    },
+    "sqlVerify": {
+      "green": "{name}: aus den Sicherungsdaten zurückgeholt und mit DBCC CHECKDB ohne Fehler geprüft",
+      "red": "{name}: Die Prüfung hat Schäden gefunden",
+      "incomplete": "{name}: Die Prüfung ist nicht fertig geworden und bewertet nichts",
+      "evidence": "Fehler {code}: {message}"
     }
   },
   "snapshots": {
@@ -1098,7 +1115,11 @@
     "confirmHostname": "Der Hostname stimmt nicht. Geben Sie ihn genau wie angezeigt ein.",
     "removalLegalHold": "Eine Legal Hold umfasst jede Sicherung dieses Mandanten, daher lassen sie sich jetzt nicht löschen. Behalten Sie sie stattdessen bis zum Ablauf, oder heben Sie die Hold zuerst auf.",
     "removalSuspicionHold": "Ein verdächtiger Sicherungsstand dieses Rechners ist nicht geklärt und hält seine Sicherungen. Klären Sie ihn zuerst, oder behalten Sie die Sicherungen bis zum Ablauf.",
-    "removalNeverExpires": "Die Aufbewahrung dieses Rechners behält jede Sicherung, sie würden also nie ablaufen. Löschen Sie sie stattdessen."
+    "removalNeverExpires": "Die Aufbewahrung dieses Rechners behält jede Sicherung, sie würden also nie ablaufen. Löschen Sie sie stattdessen.",
+    "sqlUnsupported": "Der Agent auf diesem Rechner kann SQL Server noch nicht nativ sichern. Aktualisieren Sie zuerst den Agenten.",
+    "sqlBackupPruned": "Diese Sicherung wird nicht mehr aufbewahrt, die Aufbewahrung hat sie entfernt. Wählen Sie eine neuere.",
+    "sqlNameTaken": "Auf der Instanz gibt es schon eine Datenbank mit diesem Namen. Wählen Sie einen anderen Namen.",
+    "sqlNothingToVerify": "Noch keine Datenbank dieses Rechners hat eine Sicherung in den Sicherungsdaten."
   },
   "readinessSection": {
     "overdue": "Überfällig",
@@ -1435,5 +1456,214 @@
     "openPage": "Seite des Rechners öffnen",
     "progressOf": "Fortschritt der Sicherung von {name}",
     "adminOnly": "Sichern und Stoppen ist Sache der Administratoren von Backup-Jobs."
+  },
+  "windowsFacts": {
+    "title": "Windows",
+    "description": "Was der Agent aus dem System liest. Nur Fakten, keine Bewertung.",
+    "version": "Version",
+    "productType": "Art",
+    "productTypes": {
+      "workstation": "Arbeitsplatz",
+      "server": "Server",
+      "domain_controller": "Domänencontroller",
+      "unknown": "Unbekannt"
+    },
+    "core": "ohne Desktop",
+    "domain": "Domäne",
+    "noDomain": "In keiner Domäne",
+    "rolesLabel": "Rollen",
+    "noRoles": "Keine, die mehr als eine Dateisicherung braucht",
+    "roles": {
+      "domainController": "Active-Directory-Domänencontroller",
+      "sqlServer": "SQL Server",
+      "exchange": "Exchange",
+      "hyperV": "Hyper-V-Host",
+      "dfsr": "DFS-Replikation"
+    },
+    "sqlInstances": "SQL-Server-Instanzen",
+    "bitlocker": "Laufwerksverschlüsselung",
+    "bitlockerNone": "Kein verschlüsseltes Laufwerk",
+    "bitlockerVolume": "{name} {status}",
+    "protection": {
+      "on": "geschützt",
+      "off": "nicht geschützt",
+      "unknown": "Zustand unbekannt"
+    },
+    "bitlockerState": {
+      "ok": "Gelesen",
+      "unavailable": "Auf diesem Rechner nicht installiert",
+      "error": "Konnte nicht gelesen werden"
+    }
+  },
+  "notices": {
+    "apps": {
+      "sql_server": "SQL Server",
+      "exchange": "Exchange",
+      "active_directory": "Active Directory",
+      "hyper_v": "Hyper-V"
+    },
+    "app_files_not_app_backup": {
+      "title": "Die Dateisicherung bringt diese Anwendungen nicht zurück",
+      "body": "Auf diesem Rechner läuft {subjects}. Die Dateisicherung enthält die Dateien der geöffneten Datenbanken, aber aus diesen Dateien lassen sich die Anwendungen nicht wiederherstellen. Sichern Sie sie mit einem Werkzeug, das dafür gemacht ist.",
+      "sqlHint": "Für SQL Server schalten Sie im Backup-Job dieses Rechners die native SQL-Server-Sicherung ein (Vorschau)."
+    },
+    "sql_log_growing": {
+      "title": "Ein Transaktionslog wächst weiter",
+      "body": "{subjects}: Das Wiederherstellungsmodell ist FULL, aber in den letzten 24 Stunden hat niemand das Transaktionslog gesichert, darum wächst es weiter. Sichern Sie das Log mit Ihrem bisherigen Werkzeug, oder stellen Sie die Datenbank auf SIMPLE, wenn Sie keine Wiederherstellung auf einen Zeitpunkt brauchen."
+    },
+    "sql_tde_certificate": {
+      "title": "Sichern Sie das TDE-Zertifikat an anderer Stelle",
+      "body": "{subjects}: Die Datenbank ist mit TDE verschlüsselt. Ohne Zertifikat und Schlüssel kann keine andere Instanz sie wiederherstellen. Die Sicherung enthält beides nicht; bewahren Sie es an anderer Stelle auf und bestätigen Sie das im Reiter SQL Server."
+    },
+    "sql_version_untested": {
+      "title": "SQL-Server-Version nicht geprüft",
+      "body": "{subjects}: Diese Version von SQL Server wurde mit der nativen Sicherung nicht geprüft. Sie läuft, aber eine Wiederherstellung wurde damit noch nicht ausprobiert."
+    },
+    "other": {
+      "title": "Hinweis des Agenten"
+    }
+  },
+  "sql": {
+    "title": "SQL Server",
+    "preview": "Vorschau",
+    "intro": "Die native SQL-Server-Sicherung macht neben Ihren eigenen Sicherungen eine Kopie-Vollsicherung jeder Datenbank, Ihre Sicherungskette bleibt also unberührt. Eine wöchentliche Prüfung holt die neueste Sicherung aus den Sicherungsdaten zurück, stellt sie unter einem Prüfnamen wieder her und führt DBCC CHECKDB darauf aus. Grün erst nach dieser bestandenen Prüfung.",
+    "notCapable": "Der Agent auf diesem Rechner kann das noch nicht. Aktualisieren Sie ihn, um die native Sicherung zu sehen und zu nutzen.",
+    "notEnabled": "Die native Sicherung ist aus. Schalten Sie sie im Backup-Job dieses Rechners ein.",
+    "loadError": "Der SQL-Server-Teil dieses Rechners konnte nicht geladen werden.",
+    "instances": {
+      "title": "Instanzen",
+      "inventoryAt": "Zuletzt gelesen",
+      "noInventory": "Der Agent hat die Instanzen noch nicht gelesen.",
+      "none": "Der Agent meldet keine SQL-Server-Instanz.",
+      "clustered": "Failover-Cluster-Instanz: von der nativen Sicherung nicht unterstützt.",
+      "strictEncryption": "Strikte Verschlüsselung ist an: Der Agent kann sich möglicherweise nicht verbinden.",
+      "compressionDefault": "Auf dieser Instanz ist die Sicherungskomprimierung als Vorgabe an; der Agent sichert trotzdem unkomprimiert, damit die Sicherungsdaten dedupliziert bleiben."
+    },
+    "signIn": {
+      "ok": "Angemeldet",
+      "missing": "Keine Anmeldung",
+      "permission": "Rechte fehlen",
+      "error": "Problem",
+      "unknown": "Nicht geprüft",
+      "check": "Anmeldung prüfen",
+      "checkQueued": "Der Rechner prüft die Anmeldung bei seinem nächsten Kontakt.",
+      "howTo": "Der Agent meldet sich als {account} mit Windows-Authentifizierung an; nirgends wird ein Kennwort gespeichert. Lassen Sie einen Datenbankadministrator dies einmal auf der Instanz ausführen:",
+      "variant": "Rechte für den Agenten",
+      "sysadmin": "Einfach",
+      "minimal": "Kleine Rechte",
+      "sysadminHint": "Das Konto wird Mitglied von sysadmin. Einfach, und neue Datenbanken sind sofort abgedeckt.",
+      "minimalHint": "dbcreator, VIEW SERVER STATE und je Datenbank db_backupoperator und db_owner. Für eine später angelegte Datenbank sind diese Zeilen erneut nötig.",
+      "copy": "Kopieren"
+    },
+    "databases": {
+      "title": "Datenbanken",
+      "description": "Wöchentlich geprüft, {day} um {time} in der Zeitzone des Backup-Jobs.",
+      "empty": "Noch keine Datenbank gemeldet",
+      "emptyHint": "Die Datenbanken erscheinen, sobald der Agent die Instanz gelesen hat.",
+      "model": "Wiederherstellungsmodell {model}",
+      "system": "Systemdatenbank",
+      "dropped": "nicht mehr auf der Instanz",
+      "notSelected": "vom Backup-Job nicht erfasst",
+      "lastBackup": "Neueste Sicherung",
+      "noBackup": "Keine in den Sicherungsdaten",
+      "lastCheck": "Neueste Prüfung",
+      "noCheck": "Noch nicht geprüft",
+      "physicalOnly": "nur physisch geprüft",
+      "evidence": "Fehler {code}: {message}",
+      "tde": "Diese Datenbank ist mit TDE verschlüsselt. Sichern Sie Zertifikat und Schlüssel an anderer Stelle und bestätigen Sie das hier.",
+      "tdeConfirm": "Zertifikat ist gesichert"
+    },
+    "rating": {
+      "green": "Geprüft",
+      "red": "Schaden gefunden",
+      "overdue": "Prüfung überfällig",
+      "unverified": "Noch nicht geprüft",
+      "not_protected": "Nicht gesichert"
+    },
+    "outcome": {
+      "green": "Ohne Fehler",
+      "red": "Schaden gefunden",
+      "incomplete": "Nicht abgeschlossen",
+      "restored": "Wiederhergestellt",
+      "backed_up": "Gesichert",
+      "skipped": "Übersprungen",
+      "failed": "Fehlgeschlagen"
+    },
+    "weekday": {
+      "1": "Montag",
+      "2": "Dienstag",
+      "3": "Mittwoch",
+      "4": "Donnerstag",
+      "5": "Freitag",
+      "6": "Samstag",
+      "7": "Sonntag"
+    },
+    "verify": {
+      "all": "Alle jetzt prüfen",
+      "one": "Jetzt prüfen",
+      "queued": "Die Prüfung von {name} wartet auf den Rechner.",
+      "alreadyQueued": "Eine Prüfung dieser Instanz wartet bereits."
+    },
+    "restore": {
+      "open": "Unter neuem Namen wiederherstellen",
+      "title": "{name} unter neuem Namen wiederherstellen",
+      "description": "Der Agent holt die Sicherung aus den Sicherungsdaten, prüft ihre Prüfsumme und stellt sie neben der vorhandenen Datenbank wieder her, die unverändert bleibt.",
+      "backup": "Sicherung",
+      "backupOption": "{at}, {size}",
+      "loading": "Sicherungen werden geladen",
+      "noBackup": "Von dieser Datenbank wird keine Sicherung aufbewahrt.",
+      "newName": "Neuer Name",
+      "newNameHint": "Die Datenbank wird unter diesem Namen angelegt; eine vorhandene wird nie ersetzt.",
+      "nameProblem": {
+        "empty": "Geben Sie einen Namen ein.",
+        "tooLong": "Ein Name darf höchstens 128 Zeichen haben.",
+        "control": "Ein Name darf keine Steuerzeichen enthalten.",
+        "system": "Eine Systemdatenbank kann nicht das Ziel sein.",
+        "reserved": "Dieser Namensteil ist für Prüfdatenbanken reserviert.",
+        "same": "Wählen Sie einen anderen Namen als den der vorhandenen Datenbank."
+      },
+      "target": "Instanz",
+      "checkdb": "Die Kopie mit DBCC CHECKDB prüfen",
+      "checkdbHint": "Empfohlen. Bis zur im Backup-Job eingestellten Größe prüft sie alles, darüber nur die physische Struktur.",
+      "cancel": "Abbrechen",
+      "submit": "Wiederherstellen",
+      "queued": "Die Wiederherstellung als {name} wartet auf den Rechner."
+    },
+    "script": {
+      "download": "Wiederherstellungsskript für einen anderen Rechner"
+    },
+    "run": {
+      "heading": "Datenbanken von {instance}",
+      "restoredAs": "Als {name} auf {instance} wiederhergestellt",
+      "checkdb": {
+        "clean": "DBCC CHECKDB hat in der Kopie keinen Fehler gefunden.",
+        "errors": "DBCC CHECKDB hat in der Kopie Fehler gemeldet.",
+        "skipped": "DBCC CHECKDB lief auf der Kopie nicht."
+      }
+    },
+    "codes": {
+      "sql_instance_unreachable": "Die Instanz war nicht erreichbar. Läuft der SQL-Server-Dienst?",
+      "sql_login_missing": "Der Agent konnte sich nicht anmelden: Die Instanz hat keine Anmeldung für ihn.",
+      "sql_permission_missing": "Der Agent ist angemeldet, ihm fehlen aber Rechte für die Sicherung.",
+      "sql_powershell_constrained": "Die Skriptumgebung von Windows läuft eingeschränkt (Constrained Language Mode), darum kann sich der Agent nicht verbinden.",
+      "sql_strict_encryption": "Die Instanz verlangt strikte Verschlüsselung; die native Sicherung verbindet sich nicht mit ihr.",
+      "sql_fci_unsupported": "Failover-Cluster-Instanzen werden von der nativen Sicherung nicht unterstützt.",
+      "sql_mode_unsupported": "Der Agent kennt die im Job eingestellte Sicherungsart nicht. Aktualisieren Sie den Agenten.",
+      "sql_staging_unusable": "Der Staging-Ordner kann nicht verwendet werden.",
+      "sql_staging_too_small": "Im Staging-Ordner ist nicht genug Platz frei.",
+      "sql_database_unavailable": "Die Datenbank ist nicht online.",
+      "sql_backup_failed": "SQL Server konnte die Sicherung nicht anlegen.",
+      "sql_snapshot_failed": "Die Sicherungsdatei konnte nicht in den Sicherungsdaten abgelegt werden.",
+      "sql_script_failed": "Das SQL-Skript des Agenten endete unerwartet.",
+      "sql_restore_name_taken": "Eine Datenbank dieses Namens gibt es bereits.",
+      "sql_restore_no_space": "Für die Wiederherstellung ist nicht genug Platz frei.",
+      "sql_restore_failed": "Die Wiederherstellung ist fehlgeschlagen.",
+      "sql_backup_mismatch": "Die aus den Sicherungsdaten geholte Sicherung weicht von der angelegten ab.",
+      "sql_verify_no_space": "Für die Prüfung ist nicht genug Platz frei: unvollständig, nicht fehlgeschlagen.",
+      "sql_verify_timeout": "Die Prüfung dauerte zu lange und wurde beendet: unvollständig, nicht fehlgeschlagen.",
+      "sql_verify_system_db": "Diese Systemdatenbank lässt sich nicht unter neuem Namen prüfen.",
+      "sql_verify_incomplete": "Die Prüfung kam zu keinem Ergebnis.",
+      "unknown": "Code {code}"
+    }
   }
 }

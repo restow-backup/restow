@@ -317,10 +317,13 @@ export const QUEUES_OF_CATEGORY: Readonly<Record<RunCategory, readonly JobQueueN
 export function categoryOfEndpointKind(kind: EndpointRun["kind"]): RunCategory {
   switch (kind) {
     case "backup":
+    case "sql":
       return "backup";
     case "restore":
+    case "sql_restore":
       return "restore";
     default:
+      // verify_sample, sql_verify (the check of a SQL Server backup restored from the repository)
       return "restore_check";
   }
 }
@@ -328,9 +331,9 @@ export function categoryOfEndpointKind(kind: EndpointRun["kind"]): RunCategory {
 export const ENDPOINT_KINDS_OF_CATEGORY: Readonly<
   Record<RunCategory, readonly EndpointRun["kind"][]>
 > = {
-  backup: ["backup"],
-  restore: ["restore"],
-  restore_check: ["verify_sample"],
+  backup: ["backup", "sql"],
+  restore: ["restore", "sql_restore"],
+  restore_check: ["verify_sample", "sql_verify"],
   export: [],
   import: [],
   maintenance: [],
@@ -670,7 +673,13 @@ export function endpointRun(input: EndpointRunInput): RunDto {
     throttle: null,
     errorMessage: interruptedOnly ? null : (run.errors[0]?.message ?? null),
     failure: failureDto(run.failure),
-    cancellable: running && run.kind === "backup" && run.cancelRequestedAt === null,
+    cancellable:
+      running &&
+      (run.kind === "backup" ||
+        run.kind === "sql" ||
+        run.kind === "sql_verify" ||
+        run.kind === "sql_restore") &&
+      run.cancelRequestedAt === null,
     cancelling: running && run.cancelRequestedAt !== null,
     cancelledBy: run.cancelledBy ?? null,
   };

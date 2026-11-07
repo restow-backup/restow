@@ -22,17 +22,24 @@
  *
  * The policy is the endpoint's own: daily, weekly and monthly snapshots to
  * keep, 30 / 12 / 12 unless an admin changed them, counted in the tenant's
- * time zone. The run also measures the bytes the repository takes (the
+ * time zone. It applies to each retention group on its own (@restow/core
+ * `applyGroupedRetention`, W2a): `files` for the snapshots of backup runs,
+ * `sql:<instance>` for those of the native SQL Server backup (one snapshot per
+ * instance and run), so neither pushes the other out. A SQL snapshot is
+ * recorded by its `sql` run and by its rows in `endpoint_sql_backups`, never
+ * flagged `unrecorded`; a forgotten one turns its rows `pruned`. The run also measures the bytes the repository takes (the
  * storage budget counts them) and keeps the sealed repository password next
  * to the repository.
  */
 import {
-  applyRetentionPolicy,
+  applyGroupedRetention,
   auditSnapshots,
   DEFAULT_ENDPOINT_RETENTION,
   DEFAULT_SCHEDULE_TIMEZONE,
   deletionDecision,
   type EndpointJobPayload,
+  FILES_RETENTION_GROUP,
+  type GroupedSnapshot,
   isValidTimeZone,
   listRepositoryObjects,
   measureRepositoryBytes,
@@ -45,11 +52,20 @@ import {
   resticUnlock,
   type SnapshotFlag,
   splitLockedSnapshots,
+  sqlRetentionGroup,
   withDeletionPermit,
   withRepository,
 } from "@restow/core";
-import { type Endpoint, endpointRuns, endpointSnapshotFlags, endpoints, tenants } from "@restow/db";
-import { and, eq, isNotNull, isNull, notInArray } from "drizzle-orm";
+import {
+  type Endpoint,
+  endpointRuns,
+  endpointSnapshotFlags,
+  endpointSqlBackups,
+  endpointSqlDatabases,
+  endpoints,
+  tenants,
+} from "@restow/db";
+import { and, eq, inArray, isNotNull, isNull, notInArray } from "drizzle-orm";
 import { primaryWriteOnce, withTenantTx } from "../handlers/framework.js";
 import { recordDeferredDeletion } from "../handlers/immutability.js";
 import { raiseEvents } from "../reporting.js";
@@ -85,21 +101,92 @@ async function tenantTimeZone(deps: EndpointJobDeps, tenantId: string): Promise<
   return zone && isValidTimeZone(zone) ? zone : DEFAULT_SCHEDULE_TIMEZONE;
 }
 
-/** The snapshots backup runs of this endpoint reported, and when each run ended. */
+/**
+ * The snapshots the runs of this endpoint reported, when each run ended, and the retention group
+ * each belongs to: backup runs are `files`; `sql` runs and the active rows of
+ * `endpoint_sql_backups` (whose run may be gone) are `sql:<instance>`.
+ */
 async function recordedSnapshots(deps: EndpointJobDeps, tenantId: string, endpointId: string) {
-  const rows = await withTenantTx(deps.db, tenantId, (tx) =>
-    tx
-      .select({ snapshotId: endpointRuns.snapshotId, finishedAt: endpointRuns.finishedAt })
+  return withTenantTx(deps.db, tenantId, async (tx) => {
+    const runs = await tx
+      .select({
+        kind: endpointRuns.kind,
+        snapshotId: endpointRuns.snapshotId,
+        finishedAt: endpointRuns.finishedAt,
+        stats: endpointRuns.stats,
+      })
       .from(endpointRuns)
       .where(
         and(
           eq(endpointRuns.endpointId, endpointId),
-          eq(endpointRuns.kind, "backup"),
+          inArray(endpointRuns.kind, ["backup", "sql"]),
           isNotNull(endpointRuns.snapshotId),
         ),
+      );
+    const backups = await tx
+      .select({
+        snapshotId: endpointSqlBackups.resticSnapshotId,
+        backupFinish: endpointSqlBackups.backupFinish,
+        instance: endpointSqlDatabases.instance,
+        runFinishedAt: endpointRuns.finishedAt,
+      })
+      .from(endpointSqlBackups)
+      .innerJoin(endpointSqlDatabases, eq(endpointSqlDatabases.id, endpointSqlBackups.databaseId))
+      .leftJoin(endpointRuns, eq(endpointRuns.id, endpointSqlBackups.runId))
+      .where(
+        and(eq(endpointSqlBackups.endpointId, endpointId), eq(endpointSqlBackups.status, "active")),
+      );
+    const recorded = [
+      ...runs.map((row) => ({ snapshotId: row.snapshotId as string, finishedAt: row.finishedAt })),
+      // A backup row is dated by its run as the server recorded it, never by the agent's time.
+      ...backups.flatMap((row) =>
+        row.runFinishedAt ? [{ snapshotId: row.snapshotId, finishedAt: row.runFinishedAt }] : [],
       ),
+    ];
+    // The backup rows first: they name the instance even where a run's statistics do not.
+    const groups: GroupedSnapshot[] = [
+      ...backups.map((row) => ({
+        snapshotId: row.snapshotId,
+        group: sqlRetentionGroup(row.instance),
+      })),
+      ...runs.map((row) => ({
+        snapshotId: row.snapshotId as string,
+        group:
+          row.kind === "sql" && row.stats?.sql?.instance
+            ? sqlRetentionGroup(row.stats.sql.instance)
+            : row.kind === "sql"
+              ? sqlRetentionGroup("")
+              : FILES_RETENTION_GROUP,
+      })),
+    ];
+    return { recorded, groups };
+  });
+}
+
+/** The SQL backups whose snapshot retention forgot: `pruned`, so nothing offers them again. */
+async function markPrunedSqlBackups(
+  deps: EndpointJobDeps,
+  tenantId: string,
+  endpointId: string,
+  removed: readonly string[],
+): Promise<number> {
+  if (removed.length === 0) {
+    return 0;
+  }
+  const pruned = await withTenantTx(deps.db, tenantId, (tx) =>
+    tx
+      .update(endpointSqlBackups)
+      .set({ status: "pruned" })
+      .where(
+        and(
+          eq(endpointSqlBackups.endpointId, endpointId),
+          eq(endpointSqlBackups.status, "active"),
+          inArray(endpointSqlBackups.resticSnapshotId, [...removed]),
+        ),
+      )
+      .returning({ id: endpointSqlBackups.id }),
   );
-  return rows.map((row) => ({ snapshotId: row.snapshotId as string, finishedAt: row.finishedAt }));
+  return pruned.length;
 }
 
 /**
@@ -281,9 +368,10 @@ async function retain(
       } catch (error) {
         listing = error;
       }
+      const reported = await recordedSnapshots(deps, tenantId, endpointId);
       const audit = auditSnapshots({
         stored: stored.map((snapshot) => ({ id: snapshot.name, storedAt: snapshot.storedAt })),
-        recorded: await recordedSnapshots(deps, tenantId, endpointId),
+        recorded: reported.recorded,
         claimed,
         now,
       });
@@ -291,7 +379,7 @@ async function retain(
       if (listing !== null) {
         throw listing;
       }
-      const planned = applyRetentionPolicy(audit.dated, policy, timeZone);
+      const planned = applyGroupedRetention(audit.dated, reported.groups, policy, timeZone);
       // Held on suspicion: every snapshot stays (and with it every pack it references).
       const held = retentionHeld(holds, endpointId);
       // Snapshots the storage still locks stay until a later run (restic cannot remove them).
@@ -312,6 +400,12 @@ async function retain(
       };
     });
     await recordMaintenanceUnlocked(deps, tenantId, endpointId);
+    const prunedSqlBackups = await markPrunedSqlBackups(
+      deps,
+      tenantId,
+      endpointId,
+      result.decision.remove,
+    );
     const repositoryBytes = await measureRepositoryBytes(access.storage, access.prefix);
     const removed = result.decision.remove.length;
     await writeReport(
@@ -331,6 +425,7 @@ async function retain(
             .length,
           removedLocks,
           deferredByLock: result.deferredByLock,
+          ...(prunedSqlBackups > 0 ? { prunedSqlBackups } : {}),
           ...(retentionHeld(holds, endpointId)
             ? { ...retentionHoldSummary(holds, endpointId), heldBackSnapshots: result.heldBack }
             : {}),

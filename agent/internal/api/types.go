@@ -39,6 +39,12 @@ const (
 	TaskVerifySample = "verify_sample"
 	TaskUpdateConfig = "update_config"
 	TaskUninstall    = "uninstall"
+	// SQL Server (agent 0.5.0, Windows): restore under a new name, the
+	// check of a backup from the repository, and a fresh SQL inventory
+	// (the "Check sign-in" button; it ends on delivery, like update_config).
+	TaskSQLRestore   = "sql_restore"
+	TaskSQLVerify    = "sql_verify"
+	TaskSQLInventory = "sql_inventory"
 )
 
 // Run kinds.
@@ -46,6 +52,20 @@ const (
 	RunBackup       = "backup"
 	RunRestore      = "restore"
 	RunVerifySample = "verify_sample"
+	// RunSQL is the native SQL Server backup of one instance (one run per
+	// instance and slot; never started by a task). RunSQLRestore and
+	// RunSQLVerify belong to the tasks of the same name.
+	RunSQL        = "sql"
+	RunSQLRestore = "sql_restore"
+	RunSQLVerify  = "sql_verify"
+)
+
+// Capabilities an agent announces at enrollment and in every heartbeat.
+const (
+	// CapabilitySQLNative: the agent backs up SQL Server natively (W2a:
+	// COPY_ONLY fulls, restore under a new name, check with CHECKDB). Only
+	// a Windows agent sends it; the server offers no SQL action without it.
+	CapabilitySQLNative = "sql_native_v1"
 )
 
 // Run statuses.
@@ -113,6 +133,8 @@ type EnrollRequest struct {
 	// catch_up_skipped; "" when nothing waits. nil leaves it out (unknown). A
 	// server of an earlier release ignores it.
 	Waiting *string `json:"waiting,omitempty"`
+	// Capabilities (agent 0.5.0): see the Capability constants.
+	Capabilities []string `json:"capabilities,omitempty"`
 }
 
 // MachineFacts say what the machine is (agent 0.4.0 and later). The server
@@ -125,6 +147,9 @@ type MachineFacts struct {
 	Technology string `json:"technology"`
 	// Desktop: a graphical session is installed.
 	Desktop bool `json:"desktop"`
+	// Windows (agent 0.5.0) are the facts of a Windows machine; absent on
+	// other systems.
+	Windows *WindowsFacts `json:"windows,omitempty"`
 }
 
 // Repository is the restic repository the endpoint writes to.
@@ -186,6 +211,9 @@ type Config struct {
 	// for the pause to end; the backup is not missed and not failed. Absent
 	// on an older server, which means not paused.
 	StartsPaused bool `json:"startsPaused,omitempty"`
+	// SQL (server 0.5.0) is the native SQL Server backup of the job; absent
+	// when the job does not set it. Only a Windows agent acts on it.
+	SQL *SQLConfig `json:"sql,omitempty"`
 }
 
 // Catch-up modes of a policy.
@@ -260,6 +288,13 @@ type HeartbeatRequest struct {
 	// catch_up_skipped; "" when nothing waits. nil leaves it out (unknown). A
 	// server of an earlier release ignores it.
 	Waiting *string `json:"waiting,omitempty"`
+	// Capabilities (agent 0.5.0): see the Capability constants.
+	Capabilities []string `json:"capabilities,omitempty"`
+	// SQLInventory (agent 0.5.0, Windows) is the SQL Server inventory,
+	// sent once after it was collected (every 6 hours while the native SQL
+	// backup is on, or after a sql_inventory task); at most
+	// MaxSQLInventoryBytes.
+	SQLInventory *SQLInventory `json:"sqlInventory,omitempty"`
 }
 
 // Task is a command from the server, delivered in the heartbeat answer.
@@ -367,6 +402,14 @@ type FinishRequest struct {
 	// whether a file system snapshot was used. Set for every backup that got
 	// as far as restic; a server of an earlier release ignores it.
 	Consistency *Consistency `json:"consistency,omitempty"`
+	// SQL is the result of a sql run (one instance), SQLRestore of a
+	// sql_restore run, SQLVerify of a sql_verify run (facts only: the
+	// server judges them). Notices are fixed warnings of the run (at most
+	// MaxNotices). A server of an earlier release ignores them.
+	SQL        *SQLRunReport     `json:"sql,omitempty"`
+	SQLRestore *SQLRestoreReport `json:"sqlRestore,omitempty"`
+	SQLVerify  *SQLVerifyReport  `json:"sqlVerify,omitempty"`
+	Notices    []Notice          `json:"notices,omitempty"`
 }
 
 // Consistency is the report field shared by every snapshot method (VSS on

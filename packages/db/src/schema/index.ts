@@ -34,6 +34,7 @@ export * from "./backup-jobs.js";
 export * from "./branding.js";
 export * from "./cluster.js";
 export * from "./empty-confirmations.js";
+export * from "./endpoint-sql.js";
 export * from "./endpoints.js";
 export * from "./file-shares.js";
 export * from "./imports.js";

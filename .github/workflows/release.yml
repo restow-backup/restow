@@ -234,6 +234,17 @@ jobs:
     permissions:
       contents: read
 
+  sql-server:
+    # The native SQL Server backup (docs/BAREMETAL-WINDOWS.md 8.2): strict, so a release is never
+    # published on an "incomplete" because SQL Server could not be downloaded.
+    name: SQL Server
+    needs: verify
+    uses: ./.github/workflows/sql-server.yml
+    with:
+      strict: true
+    permissions:
+      contents: read
+
   agent:
     name: Agent release (build)
     needs: verify
@@ -704,7 +715,7 @@ jobs:
 
   publish:
     name: Publish
-    needs: [verify, ci, release-smoke]
+    needs: [verify, ci, sql-server, release-smoke]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:

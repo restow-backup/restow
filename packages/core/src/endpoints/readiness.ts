@@ -17,7 +17,8 @@ export type EndpointReadiness = "green" | "yellow" | "red";
 export type EndpointState = EndpointReadiness | "unverified" | "no_backup";
 
 export interface ReadinessReportFact {
-  kind: "restore_test" | "repository_check" | "retention";
+  /** `sql_verify` (W2a) rates the SQL databases on their own, never the machine's file backup. */
+  kind: "restore_test" | "repository_check" | "retention" | "sql_verify";
   origin: "server" | "agent";
   snapshotId: string | null;
   readiness: EndpointReadiness | null;

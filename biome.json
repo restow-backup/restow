@@ -14,6 +14,7 @@
       "!**/drizzle",
       "!**/.claude",
       "!**/packages/db/src/schema/auth.ts",
+      "!**/agent/**/testdata",
       "!**/*.md",
       "!**/*.yml",
       "!**/*.yaml"

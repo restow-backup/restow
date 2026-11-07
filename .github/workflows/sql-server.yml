@@ -1,0 +1,227 @@
+name: SQL Server
+
+# The native SQL Server backup of the Windows agent (W2a) and the multi-volume finding of W1
+# (docs/BAREMETAL-WINDOWS.md 8.2). Three jobs:
+#
+#   tsql-linux           the T-SQL of agent/internal/sqlserver/statements.go against the SQL Server
+#                        Linux container with the Developer edition (MSSQL_PID=Developer): variables
+#                        in BACKUP and RESTORE, NO_COMPRESSION against "backup compression default"
+#                        (Express has no backup compression, so this gate needs Developer), the
+#                        FILELISTONLY and HEADERONLY columns, CHECKDB TABLERESULTS, NEW_BROKER, the
+#                        name guard of RESTORE, DropRestoring, DROP through QUOTENAME.
+#   windows-multivolume  W1 with plain files: a backup over two VHDX volumes shows two shadow copy
+#                        sets with two times (restic gives each volume its own set).
+#   windows-sql          W2a on SQL Server Express 2019 and 2022: no login (sql_login_missing), the
+#                        small rights, the service SID login, a full under load, W1 again with the
+#                        data (Q:) and log (L:) of that database under the same load, a check from
+#                        the repository green and a damaged copy red, restore under a new name with
+#                        CHECKDB, the rendered restore script on a second instance with its default
+#                        staging folder.
+#
+# Editions, both free of charge: SQL Server Developer in the Linux container (tsql-linux) and SQL
+# Server Express on the Windows runner (windows-sql). The maintainer confirms their licences for
+# this use; that question is separate from the Windows evaluation images and blocks nothing.
+# Nothing from Microsoft is kept: no cache and no artifact holds an installer, an image layer or a
+# database file; the evidence is the step summary.
+#
+# A download of SQL Server that fails is "incomplete" (a note in the step summary, exit 0);
+# called from the release with strict: true it fails the run.
+#
+# Pin policy as in ci.yml: every third-party action by full commit SHA, every image by digest.
+
+on:
+  # push: schedule and workflow_dispatch only work once this file is on the default branch, so a
+  # push to any branch that touches these paths runs it too (a wip branch without a pull request
+  # included). Dependabot branches are covered by their pull_request run, as in ci.yml.
+  push:
+    branches-ignore: ["dependabot/**"]
+    paths:
+      - "agent/internal/sqlserver/**"
+      - "agent/internal/core/sql*.go"
+      - "agent/internal/sysinfo/**"
+      - "agent/internal/restic/multivolume*"
+      - "agent/scripts/test-sql-windows.ps1"
+      - "packages/core/src/endpoints/sql/**"
+      - "scripts/ci/render-sql-restore-script.mts"
+      - ".github/workflows/sql-server.yml"
+  pull_request:
+    paths:
+      - "agent/internal/sqlserver/**"
+      - "agent/internal/core/sql*.go"
+      - "agent/internal/sysinfo/**"
+      - "agent/internal/restic/multivolume*"
+      - "agent/scripts/test-sql-windows.ps1"
+      - "packages/core/src/endpoints/sql/**"
+      - "scripts/ci/render-sql-restore-script.mts"
+      - ".github/workflows/sql-server.yml"
+  schedule:
+    # Nightly, outside the busy hours of the hosted runners.
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+    inputs:
+      strict:
+        description: "Fail when SQL Server cannot be downloaded (instead of reporting incomplete)"
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      strict:
+        description: "Fail when SQL Server cannot be downloaded (the release sets it)"
+        type: boolean
+        default: false
+
+# A newer run of the same event on the same ref cancels the older one. The event is part of the
+# group: a push run (refs/heads/<branch>) and a pull_request run (refs/pull/<n>/merge) differ in
+# the ref anyway, and on the default branch the nightly schedule or a manual run neither cancels
+# nor is cancelled by a push run. Called from the release, github.workflow is "Release".
+concurrency:
+  group: sql-server-${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # SQL Server 2022 on Ubuntu 22.04; the edition is chosen with MSSQL_PID (Developer below).
+  MSSQL_IMAGE: mcr.microsoft.com/mssql/server:2022-CU22-ubuntu-22.04@sha256:db9a8fe3098b7e8bbde41106bdc7caee942e97124e5fdb71b872ca208de3092d
+
+jobs:
+  tsql-linux:
+    name: T-SQL (SQL Server Linux container, Developer)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: agent/go.mod
+          cache: false
+
+      - name: Start SQL Server (Developer)
+        # A random sa password for this run only, masked in the log and passed through the
+        # environment (never on a command line).
+        run: |
+          password="Rw1!$(openssl rand -hex 16)"
+          echo "::add-mask::$password"
+          echo "SQLCMDPASSWORD=$password" >> "$GITHUB_ENV"
+          export MSSQL_SA_PASSWORD="$password"
+          docker run -d --name restow-sql \
+            -e ACCEPT_EULA=Y -e MSSQL_PID=Developer -e MSSQL_SA_PASSWORD \
+            "$MSSQL_IMAGE"
+          for _ in $(seq 1 60); do
+            if docker exec -e SQLCMDPASSWORD="$password" restow-sql \
+              /opt/mssql-tools18/bin/sqlcmd -C -b -S localhost -U sa -Q "SELECT 1" >/dev/null 2>&1; then
+              echo "SQL Server is up"
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs restow-sql | tail -50
+          echo "::error::SQL Server did not start"
+          exit 1
+
+      - name: go test -tags sqltsql
+        working-directory: agent
+        env:
+          RESTOW_SQL_CONTAINER: restow-sql
+        run: go test -count=1 -v -tags sqltsql -run TSQL ./internal/sqlserver/
+
+      - name: Stop SQL Server
+        if: always()
+        run: docker rm -f restow-sql >/dev/null 2>&1 || true
+
+  windows-multivolume:
+    name: Shadow copy sets over two volumes (W1)
+    runs-on: windows-2022
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Keep LF line endings
+        run: git config --global core.autocrlf false
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: agent/go.mod
+          cache: false
+
+      - name: Fetch restic.exe (pinned, checked)
+        # The version and SHA-256 of tools.env, through the helper build.sh uses.
+        working-directory: agent
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/restic"
+          AGENT_DIR="$PWD"
+          export AGENT_DIR
+          # shellcheck source=/dev/null
+          . ./scripts/lib.sh
+          fetch_tool restic windows amd64 "$RUNNER_TEMP/restic/restic.exe"
+          echo "RESTIC_BINARY=$RUNNER_TEMP/restic/restic.exe" >> "$GITHUB_ENV"
+
+      - name: Multi-volume evidence
+        working-directory: agent
+        run: |
+          $strict = '${{ inputs.strict }}' -eq 'true'
+          $psArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts/test-sql-windows.ps1', '-Mode', 'multivolume')
+          if ($strict) { $psArgs += '-Strict' }
+          powershell.exe @psArgs
+          exit $LASTEXITCODE
+
+  windows-sql:
+    name: SQL Server ${{ matrix.sql }} Express (W2a)
+    runs-on: windows-2022
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        sql: ["2019", "2022"]
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Keep LF line endings
+        run: git config --global core.autocrlf false
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: agent/go.mod
+          cache: false
+
+      - name: Set up Node.js (renders the restore script without a build of the monorepo)
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Fetch restic.exe (pinned, checked)
+        # The version and SHA-256 of tools.env, through the helper build.sh uses.
+        working-directory: agent
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/restic"
+          AGENT_DIR="$PWD"
+          export AGENT_DIR
+          # shellcheck source=/dev/null
+          . ./scripts/lib.sh
+          fetch_tool restic windows amd64 "$RUNNER_TEMP/restic/restic.exe"
+          echo "RESTIC_BINARY=$RUNNER_TEMP/restic/restic.exe" >> "$GITHUB_ENV"
+
+      - name: SQL Server path
+        working-directory: agent
+        run: |
+          $strict = '${{ inputs.strict }}' -eq 'true'
+          $psArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts/test-sql-windows.ps1', '-Mode', 'sql', '-SqlVersion', '${{ matrix.sql }}')
+          if ($strict) { $psArgs += '-Strict' }
+          powershell.exe @psArgs
+          exit $LASTEXITCODE

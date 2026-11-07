@@ -1,0 +1,25 @@
+{
+  "errors": [
+    {
+      "message": "A database named Sales_restored_20261105 exists already on instance SQLEXPRESS; choose another name. The existing database was not touched.",
+      "code": "sql_restore_name_taken"
+    }
+  ],
+  "ops": [
+    "inventory",
+    "filelist:Sales_restored_20261105"
+  ],
+  "sqlRestore": {
+    "backupId": "a9e8d7c6-b5a4-4392-8170-6f5e4d3c2b1a",
+    "instance": "SQLEXPRESS",
+    "newName": "Sales_restored_20261105",
+    "fetched": true,
+    "sha256Match": true,
+    "restored": false,
+    "moves": [],
+    "durationMs": 1000,
+    "code": "sql_restore_name_taken",
+    "message": "A database named Sales_restored_20261105 exists already on instance SQLEXPRESS; choose another name. The existing database was not touched."
+  },
+  "status": "failed"
+}

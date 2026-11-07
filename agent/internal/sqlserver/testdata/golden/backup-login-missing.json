@@ -1,0 +1,28 @@
+{
+  "status": "failed",
+  "errors": [
+    {
+      "message": "SQL Server instance SQLEXPRESS: Login failed for user 'NT SERVICE\\RestowAgent'.",
+      "code": "sql_login_missing"
+    }
+  ],
+  "sql": {
+    "instance": "SQLEXPRESS",
+    "databases": []
+  },
+  "notices": null,
+  "ops": [
+    "inventory"
+  ],
+  "inventory": {
+    "name": "SQLEXPRESS",
+    "state": "error",
+    "error": {
+      "code": "sql_login_missing",
+      "step": "connect",
+      "number": 18456,
+      "message": "Login failed for user 'NT SERVICE\\RestowAgent'."
+    },
+    "databases": []
+  }
+}

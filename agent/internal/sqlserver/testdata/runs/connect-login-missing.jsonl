@@ -1,0 +1,2 @@
+{"type":"error","problem":{"code":"sql_login_missing","step":"connect","number":18456,"message":"Login failed for user 'NT SERVICE\\RestowAgent'."}}
+#exit 2

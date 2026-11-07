@@ -1,0 +1,39 @@
+{
+  "description": "Windows 11 Pro 24H2 on a laptop; C: encrypted, D: being encrypted, a recovery partition without a letter",
+  "osVersion": "Windows 11 Pro 24H2 (build 26100.2314)",
+  "virtualization": "none",
+  "technology": "",
+  "desktop": true,
+  "windows": {
+    "bitlocker": {
+      "state": "ok",
+      "volumes": [
+        {
+          "conversion": "fully_encrypted",
+          "mount": "C:",
+          "protection": "on"
+        },
+        {
+          "conversion": "encryption_in_progress",
+          "mount": "D:",
+          "protection": "off"
+        }
+      ]
+    },
+    "build": 26100,
+    "displayVersion": "24H2",
+    "domainMember": false,
+    "editionId": "Professional",
+    "installationType": "client",
+    "productName": "Windows 11 Pro",
+    "productType": "workstation",
+    "roles": {
+      "dfsr": false,
+      "domainController": false,
+      "exchange": false,
+      "hyperV": false,
+      "sqlServer": false
+    },
+    "ubr": 2314
+  }
+}

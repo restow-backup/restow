@@ -32,6 +32,9 @@ export const REPORT_EVENTS = [
   "endpoint.suspicious_snapshot",
   "endpoint.storage_quota",
   "endpoint.repository_locked",
+  "endpoint.sql_red",
+  "endpoint.sql_recovered",
+  "endpoint.sql_overdue",
   "file_share.storage_quota",
   "file_share.repository_locked",
   "source.app_secret_expiring",
@@ -132,6 +135,12 @@ export const REPORT_EVENT_INFO: Readonly<Record<ReportEvent, ReportEventInfo>> =
   "endpoint.storage_quota": { group: "storage", level: "warning" },
   // Retention and checks of an endpoint's repository kept finding it locked.
   "endpoint.repository_locked": { group: "jobs", level: "warning" },
+  // The check of a SQL Server database restored from the repository found damage (CHECKDB, a
+  // damaged backup, another SHA-256), a red database is green again, or no check of a backed-up
+  // database was green for more than 8 days (W2a, docs/BAREMETAL-WINDOWS.md 5.1.7). Once each.
+  "endpoint.sql_red": { group: "jobs", level: "error" },
+  "endpoint.sql_recovered": { group: "jobs", level: "info" },
+  "endpoint.sql_overdue": { group: "jobs", level: "warning" },
   // A file share's repository (or all of a tenant's shares) reached 80 % of its storage budget,
   // or the budget is used up and new backups are refused (docs/FILESHARES.md 7.4).
   "file_share.storage_quota": { group: "storage", level: "warning" },

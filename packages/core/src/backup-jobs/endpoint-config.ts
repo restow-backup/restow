@@ -39,6 +39,7 @@ export const OVERRIDABLE_SETTING_KEYS = [
   "bandwidthKbps",
   "bandwidthWindows",
   "retention",
+  "sql",
 ] as const satisfies readonly (keyof JobEndpointSettings)[];
 
 /** The job's settings with every field the member overrides replaced by the member's value. */
@@ -113,7 +114,12 @@ export function buildEndpointConfig(
   settings: JobEndpointSettings,
   policy?: PolicyLevels,
 ): AgentConfig {
-  const { excludeLargerThanBytes: _dropped, bandwidthWindows: _windows, ...rest } = current;
+  const {
+    excludeLargerThanBytes: _dropped,
+    bandwidthWindows: _windows,
+    sql: _sql,
+    ...rest
+  } = current;
   const next: AgentConfig = {
     ...rest,
     schedule: schedule ? scheduleToWrite(current.schedule, schedule) : current.schedule,
@@ -128,6 +134,11 @@ export function buildEndpointConfig(
   }
   if (settings.bandwidthWindows && settings.bandwidthWindows.length > 0) {
     next.bandwidthWindows = normalizeBandwidthWindows(settings.bandwidthWindows);
+  }
+  // Only when the job sets it (and the caller passes it for Windows machines only), so every other
+  // configuration stays byte-for-byte what it was.
+  if (settings.sql) {
+    next.sql = structuredClone(settings.sql);
   }
   return policy ? withEndpointPolicy(next, endpointPolicyFor(policy, settings.policy)) : next;
 }

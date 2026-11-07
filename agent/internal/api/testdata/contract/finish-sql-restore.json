@@ -1,0 +1,20 @@
+{
+  "status": "succeeded",
+  "finishedAt": "2026-11-05T10:12:00Z",
+  "errors": [],
+  "logTail": "2026-11-05T10:12:00Z INFO Sales was restored as Sales_restored_20261105 and checked with DBCC CHECKDB without errors.",
+  "sqlRestore": {
+    "backupId": "a9e8d7c6-b5a4-4392-8170-6f5e4d3c2b1a",
+    "instance": "SQLEXPRESS",
+    "newName": "Sales_restored_20261105",
+    "fetched": true,
+    "sha256Match": true,
+    "restored": true,
+    "moves": [
+      { "logicalName": "Sales", "physicalName": "C:\\Program Files\\Microsoft SQL Server\\MSSQL16.SQLEXPRESS\\MSSQL\\DATA\\Sales_restored_20261105_3f9a1c2e_1.mdf" },
+      { "logicalName": "Sales_log", "physicalName": "C:\\Program Files\\Microsoft SQL Server\\MSSQL16.SQLEXPRESS\\MSSQL\\DATA\\Sales_restored_20261105_3f9a1c2e_2.ldf" }
+    ],
+    "checkdb": { "ran": true, "physicalOnly": false, "errors": [], "durationMs": 40000 },
+    "durationMs": 120000
+  }
+}

@@ -594,6 +594,86 @@
       "repository_damaged": {
         "title": "The backup data is damaged",
         "why": "The integrity check found damaged or missing data among this machine's backups. Backups made from now on are not affected, but older data may not be restorable. The technical details show what the check reported."
+      },
+      "sql_instance_unreachable": {
+        "title": "The SQL Server instance could not be reached",
+        "why": "The agent could not connect to the instance over the local connection. Usually the SQL Server service of the instance is stopped or still starting. The next run tries again."
+      },
+      "sql_login_missing": {
+        "title": "The agent has no sign-in on SQL Server",
+        "why": "SQL Server gives neither the system account nor the administrators of the machine rights of their own, so the agent's service account needs a login on the instance. Until it has one, every connection fails with error 18456."
+      },
+      "sql_permission_missing": {
+        "title": "The agent lacks rights on SQL Server",
+        "why": "The agent signed in, but its login lacks a right the backup, the restore or the check needs (for example db_backupoperator on a database created after the rights were granted)."
+      },
+      "sql_powershell_constrained": {
+        "title": "The agent cannot connect: restricted script environment",
+        "why": "On this machine the script environment of Windows runs in Constrained Language Mode (often through application control such as WDAC). In that mode the agent cannot open a connection to SQL Server."
+      },
+      "sql_strict_encryption": {
+        "title": "The instance requires strict encryption",
+        "why": "The instance is set to strict encryption (TDS 8). The native backup does not connect to instances that require strict encryption."
+      },
+      "sql_fci_unsupported": {
+        "title": "Failover cluster instances are not supported",
+        "why": "The instance is part of a failover cluster. The native backup does not back up such instances."
+      },
+      "sql_mode_unsupported": {
+        "title": "The agent does not know this backup mode",
+        "why": "The backup job sets a mode of the native SQL Server backup that this agent does not know. It backs up nothing rather than something else."
+      },
+      "sql_staging_unusable": {
+        "title": "The staging folder cannot be used",
+        "why": "The staging folder must be a local folder on an NTFS drive with a drive letter, not a link and not below the Windows or program folders. Its parent folder must exist, and only SYSTEM and the Administrators may change it. The agent takes over a new or empty folder and marks it; a folder that already holds other files is refused, so nothing of anyone else is changed or deleted."
+      },
+      "sql_staging_too_small": {
+        "title": "Not enough space in the staging folder",
+        "why": "A database was not backed up because its backup needs more space in the staging folder than is free. The other databases were backed up."
+      },
+      "sql_database_unavailable": {
+        "title": "A database was not online",
+        "why": "The database was offline, restoring, in single-user mode or otherwise unavailable, so it was not backed up."
+      },
+      "sql_backup_failed": {
+        "title": "SQL Server could not make the backup",
+        "why": "BACKUP DATABASE ended with an error. The message of SQL Server is in the details."
+      },
+      "sql_snapshot_failed": {
+        "title": "The backup could not be stored",
+        "why": "The backup files were made, but storing them in the backup data failed. They stay in the staging folder until the next run."
+      },
+      "sql_script_failed": {
+        "title": "The SQL script of the agent ended unexpectedly",
+        "why": "The script the agent runs for SQL Server ended without a readable result. The details show what was received."
+      },
+      "sql_restore_name_taken": {
+        "title": "The new name is taken",
+        "why": "A database with the chosen name exists on the target instance. The restore never replaces an existing database."
+      },
+      "sql_restore_no_space": {
+        "title": "Not enough space for the restore",
+        "why": "The data or log folder of the target instance, or the restore staging folder, has less free space than the restore needs plus the reserve that stays free for the databases already on those volumes (at least 1 GiB or a tenth of the volume)."
+      },
+      "sql_restore_failed": {
+        "title": "The restore failed",
+        "why": "RESTORE DATABASE ended with an error. The message of SQL Server is in the details."
+      },
+      "sql_backup_mismatch": {
+        "title": "The backup does not match",
+        "why": "The file fetched from the backup data has another checksum than the one recorded when the backup was made, or the agent reported a backup without the facts needed to keep it."
+      },
+      "sql_verify_no_space": {
+        "title": "Not enough space for the check",
+        "why": "The check restores the backup under a check name and needs about the size of the data in free space, plus a reserve that stays free on the volumes of the data and log files (at least 1 GiB or a tenth of the volume) so the databases already there can keep growing. DBCC CHECKDB also needs room in tempdb. The check is incomplete, not failed: it rates nothing."
+      },
+      "sql_verify_timeout": {
+        "title": "The check took too long",
+        "why": "A step of the check ran longer than its limit and was stopped. The check is incomplete, not failed; the next one tries again."
+      },
+      "sql_verify_system_db": {
+        "title": "This system database cannot be checked",
+        "why": "A copy of this system database under another name cannot be restored, or is not checked correctly (for master, DBCC CHECKDB reports the server-level entries of its catalog as errors), so it cannot be checked this way."
       }
     },
     "share": {
@@ -812,7 +892,17 @@
     "wait_endpoint_retry": "Nothing to do. The agent tries again at its next scheduled run, or start one with Back up now.",
     "set_public_https_url": "Set a public URL starting with https:// under Installation › Server & operation (or RESTOW_PUBLIC_URL) that Microsoft can reach on port 443. {appName} then sets up change notifications by itself.",
     "unlock_object": "If the object should be backed up again, assign the user a licence that includes OneDrive, or lift the lock in the SharePoint admin center. Backups resume by themselves after the next directory sync.",
-    "start_again_if_needed": "Start the job again if it is still needed. New backups run as usual while restore mode is on."
+    "start_again_if_needed": "Start the job again if it is still needed. New backups run as usual while restore mode is on.",
+    "create_sql_login": "Let a database administrator create the login for the agent on the instance: the SQL Server tab of the machine shows the T-SQL to run and offers to check the sign-in.",
+    "grant_sql_permissions": "Grant the missing rights: run the T-SQL of the small variant again for the new databases, or make the login a member of sysadmin.",
+    "start_sql_instance": "Check that the SQL Server service of the instance is running on the machine.",
+    "allow_sql_powershell": "Allow the agent's script in the application control of the machine, or ask your administrator. Until then, keep backing the databases up with your existing tool.",
+    "check_sql_encryption": "Turn strict encryption off for this instance, or keep backing it up with your existing tool.",
+    "check_sql_staging": "Choose a new or empty local NTFS folder with a drive letter as staging folder in the backup job, or leave the field empty for the agent's own folder.",
+    "free_sql_staging": "Free space on the drive of the staging folder, or choose a staging folder on a larger drive in the backup job.",
+    "check_sql_database": "Bring the database online, or leave it out in the backup job.",
+    "choose_sql_restore_name": "Choose another name for the restored database.",
+    "free_sql_restore_space": "Free space on the drives of the data and log folders of the instance, or choose a smaller backup."
   },
   "go": {
     "settings_microsoft": "Open Microsoft 365 settings",

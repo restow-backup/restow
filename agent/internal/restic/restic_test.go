@@ -537,6 +537,22 @@ func TestRestoreArgsAndSummary(t *testing.T) {
 	if _, err := r.Restore(context.Background(), RestoreOptions{SnapshotID: "x", Target: "/t", Includes: []string{"relative/path"}}); err == nil {
 		t.Fatal("relative include must be refused")
 	}
+	// A subfolder: its contents land at the root of the target.
+	if _, err := r.Restore(context.Background(), RestoreOptions{SnapshotID: "abcd1234", Target: "/t",
+		Subfolder: "/C/ProgramData/Restow/data/staging/sql/SQLEXPRESS/Sales~8de4e0ea", Includes: []string{"/full-20261105T020011Z.bak"}}); err != nil {
+		t.Fatal(err)
+	}
+	args = readFile(t, argsFile)
+	for _, want := range []string{"--include\n/full-20261105T020011Z.bak\n", "\nabcd1234:/C/ProgramData/Restow/data/staging/sql/SQLEXPRESS/Sales~8de4e0ea"} {
+		if !strings.Contains(args, want) {
+			t.Errorf("args lack %q:\n%s", want, args)
+		}
+	}
+	for _, bad := range []string{"relative", "/a/../b", "/a/./b", "/a/..", "/a\x00b"} {
+		if _, err := r.Restore(context.Background(), RestoreOptions{SnapshotID: "x", Target: "/t", Subfolder: bad}); err == nil {
+			t.Errorf("subfolder %q was accepted", bad)
+		}
+	}
 	if _, err := r.Restore(context.Background(), RestoreOptions{SnapshotID: "", Target: "/t"}); err == nil {
 		t.Fatal("missing snapshot must be refused")
 	}

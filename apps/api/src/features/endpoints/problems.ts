@@ -9,6 +9,14 @@
  * documented in docs/AGENT.md and not there.
  */
 export const ENDPOINT_PROBLEMS = {
+  /** 409: a SQL Server action for a machine whose agent cannot back up SQL Server (W2a). */
+  sqlUnsupported: "urn:restow:problem:endpoint-sql-unsupported",
+  /** 409: the SQL backup asked for is no longer in the repository (retention removed it). */
+  sqlBackupPruned: "urn:restow:problem:endpoint-sql-backup-pruned",
+  /** 409: a restore under a new name names a database that exists on the target instance. */
+  sqlNameTaken: "urn:restow:problem:endpoint-sql-name-taken",
+  /** 409: a SQL check was asked for, but no database has a backup in the repository yet. */
+  sqlNothingToVerify: "urn:restow:problem:endpoint-sql-nothing-to-verify",
   /** 422: the operating system is not supported (Windows is planned, not shipped). */
   unsupportedOs: "urn:restow:problem:unsupported-os",
   /** 401 to an agent with a revoked endpoint's credentials, 409 for an admin change or task on it. */

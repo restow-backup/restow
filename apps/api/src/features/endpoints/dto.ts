@@ -253,6 +253,14 @@ export interface EndpointDetailDto extends EndpointSummaryDto {
   /** null when the agent does not report data folders. */
   dataFolders: DataFoldersDto | null;
   machine: MachineDto;
+  /**
+   * The fixed warnings of W1 (docs/BAREMETAL-WINDOWS.md 6.5): the file backup of this machine
+   * holds files of open databases that are no restorable backup of the roles named. The SQL Server
+   * part goes once the native backup covers every database.
+   */
+  appNotices: { code: string; subjects?: string[] }[];
+  /** The native SQL Server backup (W2a): the agent can do it, and a job switched it on. */
+  sqlNative: { capable: boolean; enabled: boolean };
   configVersion: number;
   /** The configuration version the agent runs; differs from `configVersion` until it fetched the change. */
   agentConfigVersion: number | null;

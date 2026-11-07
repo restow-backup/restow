@@ -1,0 +1,29 @@
+{
+  "description": "Windows Server 2019 Datacenter domain controller with DFS Replication, a Hyper-V guest, no BitLocker volumes",
+  "registry": {
+    "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion": {
+      "ProductName": "Windows Server 2019 Datacenter",
+      "EditionID": "ServerDatacenter",
+      "CurrentBuildNumber": "17763",
+      "UBR": 6414,
+      "ReleaseId": "1809",
+      "InstallationType": "Server"
+    },
+    "SYSTEM\\CurrentControlSet\\Control\\ProductOptions": {
+      "ProductType": "LanmanNT"
+    },
+    "SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters": {
+      "Domain": "ad.example.org."
+    },
+    "HARDWARE\\DESCRIPTION\\System\\BIOS": {
+      "SystemManufacturer": "Microsoft Corporation",
+      "SystemProductName": "Virtual Machine",
+      "BaseBoardManufacturer": "Microsoft Corporation"
+    }
+  },
+  "services": {
+    "NTDS": "LocalSystem",
+    "DFSR": "LocalSystem"
+  },
+  "wmi": "{\"computer\":{\"partOfDomain\":true,\"domain\":\"ad.example.org\"},\"bitlocker\":{\"available\":true,\"error\":\"\",\"volumes\":[]}}"
+}

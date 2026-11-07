@@ -1,0 +1,33 @@
+{
+  "errors": [
+    {
+      "message": "The backup of Sales from the repository is not the file that was backed up: SHA-256 d094aec8 and 28 bytes instead of 43a2fd67 and 20 bytes.",
+      "code": "sql_backup_mismatch"
+    }
+  ],
+  "ops": [
+    "inventory"
+  ],
+  "sqlVerify": {
+    "instance": "SQLEXPRESS",
+    "databases": [
+      {
+        "databaseId": "c1d2e3f4-0a1b-4c2d-8e3f-5a6b7c8d9e01",
+        "backupId": "a9e8d7c6-b5a4-4392-8170-6f5e4d3c2b1a",
+        "name": "Sales",
+        "method": "restore+checkdb",
+        "fetched": true,
+        "sha256Match": false,
+        "restore": null,
+        "checkdb": null,
+        "dropped": false,
+        "backupLsn": "",
+        "logsApplied": 0,
+        "durationMs": 1000,
+        "code": "sql_backup_mismatch",
+        "message": "The backup of Sales from the repository is not the file that was backed up: SHA-256 d094aec8 and 28 bytes instead of 43a2fd67 and 20 bytes."
+      }
+    ]
+  },
+  "status": "failed"
+}

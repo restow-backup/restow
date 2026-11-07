@@ -1,0 +1,48 @@
+{
+  "description": "Windows Server 2022 Standard in VMware, domain member, a default instance (2022 Standard, strict encryption) and SQLEXPRESS (2019 Express)",
+  "registry": {
+    "SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion": {
+      "ProductName": "Windows Server 2022 Standard",
+      "EditionID": "ServerStandard",
+      "CurrentBuildNumber": "20348",
+      "UBR": 2340,
+      "DisplayVersion": "21H2",
+      "InstallationType": "Server"
+    },
+    "SYSTEM\\CurrentControlSet\\Control\\ProductOptions": {
+      "ProductType": "ServerNT"
+    },
+    "SYSTEM\\CurrentControlSet\\Services\\Tcpip\\Parameters": {
+      "Domain": "corp.example"
+    },
+    "HARDWARE\\DESCRIPTION\\System\\BIOS": {
+      "SystemManufacturer": "VMware, Inc.",
+      "SystemProductName": "VMware7,1",
+      "BaseBoardManufacturer": "Intel Corporation"
+    },
+    "SOFTWARE\\Microsoft\\Microsoft SQL Server\\Instance Names\\SQL": {
+      "MSSQLSERVER": "MSSQL16.MSSQLSERVER",
+      "SQLEXPRESS": "MSSQL15.SQLEXPRESS"
+    },
+    "SOFTWARE\\Microsoft\\Microsoft SQL Server\\MSSQL16.MSSQLSERVER\\Setup": {
+      "Version": "16.0.1000.6",
+      "Edition": "Standard Edition"
+    },
+    "SOFTWARE\\Microsoft\\Microsoft SQL Server\\MSSQL16.MSSQLSERVER\\MSSQLServer\\SuperSocketNetLib": {
+      "ForceStrictEncryption": 1,
+      "ForceEncryption": 0
+    },
+    "SOFTWARE\\Microsoft\\Microsoft SQL Server\\MSSQL15.SQLEXPRESS\\Setup": {
+      "Version": "15.0.2000.5",
+      "Edition": "Express Edition"
+    },
+    "SOFTWARE\\Microsoft\\Microsoft SQL Server\\MSSQL15.SQLEXPRESS\\MSSQLServer\\SuperSocketNetLib": {
+      "ForceStrictEncryption": 0
+    }
+  },
+  "services": {
+    "MSSQLSERVER": "NT Service\\MSSQLSERVER",
+    "MSSQL$SQLEXPRESS": "NT Service\\MSSQL$SQLEXPRESS"
+  },
+  "wmi": "{\"computer\":{\"partOfDomain\":true,\"domain\":\"corp.example\"},\"bitlocker\":{\"available\":true,\"error\":\"\",\"volumes\":{\"driveLetter\":\"C:\",\"protectionStatus\":0,\"conversionStatus\":0}}}"
+}

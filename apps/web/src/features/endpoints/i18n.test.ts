@@ -94,6 +94,11 @@ const VALUES = {
   os: "windows",
   method: "vss",
   live: "D:\\",
+  subjects: "SQL Server, Active Directory",
+  account: "NT SERVICE\\RestowAgent",
+  instance: "SQLEXPRESS",
+  day: "Sunday",
+  model: "FULL",
 };
 
 describe("endpoints translations", () => {

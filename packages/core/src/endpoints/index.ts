@@ -19,6 +19,7 @@ export * from "./retention-policy.js";
 export * from "./run-errors.js";
 export * from "./run-failures.js";
 export * from "./run-redact.js";
+export * from "./sql/index.js";
 export * from "./staleness.js";
 export * from "./tar.js";
 export * from "./tokens.js";
