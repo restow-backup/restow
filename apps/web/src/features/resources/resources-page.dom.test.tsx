@@ -195,6 +195,39 @@ describe("the monthly price per tenant", () => {
     ).toBe("7");
   });
 
+  it("names the units a tenant is billed for per unit under its amount", async () => {
+    estimate = priced();
+    estimate.tenants[0] = estimateTenant({
+      tenantId: "alpha",
+      name: "Alpha AG",
+      servers: 2,
+      clients: 4,
+      vms: 1,
+      fileShares: 3,
+      serverPrice: 30,
+      clientPrice: null,
+      vmPrice: 12,
+      fileSharePrice: 8,
+      amount: {
+        mailboxes: 30,
+        storage: 6.8,
+        servers: 60,
+        clients: null,
+        vms: 12,
+        fileShares: 24,
+        total: 132.8,
+      },
+    });
+    await render();
+    expect(text(cell("alpha", "price"))).toContain("€132.80");
+    expect(text(cell("alpha", "price")?.querySelector('[data-slot="price-units"]'))).toBe(
+      "2 servers · 1 VM · 3 file shares",
+    );
+    // A tenant without a unit line shows its amount alone.
+    expect(text(cell("beta", "price"))).toBe("€90.00");
+    expect(cell("beta", "price")?.querySelector('[data-slot="price-units"]')).toBeNull();
+  });
+
   it("shows no amount for the operator's own organisation, whatever the estimate computes", async () => {
     estimate = priced();
     estimate.tenants.push(

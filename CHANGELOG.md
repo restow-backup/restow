@@ -12,6 +12,17 @@ private repository.
 
 ### Added
 
+- Optional prices per protected unit and month next to the mailbox and storage prices
+  (Installation › Prices, and per tenant with Service Provider like the other tenant prices): per
+  server, per client (the agent machines by their profile), per Proxmox VE VM, per container and
+  per file share. A unit counts while it is protected: a machine that is active, not removed and
+  in a backup job; a guest in an active PVE job (not retired, excluded, a template or a restored
+  copy outside a job); a file share that is not retired and is in an active share job. An empty
+  price bills nothing. `GET /api/v1/settings/pricing/estimate` adds the counts, the prices and an
+  amount per line (existing fields unchanged); the price cards list a line per priced type and the
+  capacity table names the units under each tenant's amount. The audit log redacts the new prices
+  for tenant readers like the existing ones.
+
 - The setup wizard and `install.sh` ask first, after the language, what to set up: a new
   installation, a restore of an installation from a database dump, or a worker for an existing
   installation on another host (with the note that real replication, a second server that takes

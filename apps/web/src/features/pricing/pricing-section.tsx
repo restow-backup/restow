@@ -22,13 +22,16 @@ import {
   STORAGE_BILLING,
   type StorageBilling,
   savePricing,
+  UNIT_LINES,
+  type UnitPriceKey,
 } from "./api.js";
 import { formatMoney, parsePrice, priceText, tenantsWithOwnPrices } from "./presenters.js";
 import { usePricingEstimate } from "./use-estimate.js";
 
 /**
  * The provider's prices (installation section, 0.4.7): per month, per gigabyte or terabyte of
- * stored backups and per protected mailbox. The tenant overview shows what a tenant comes to at
+ * stored backups and per protected mailbox, and (0.5.0) optionally per protected server, client,
+ * VM, container and file share. The tenant overview shows what a tenant comes to at
  * these prices, in a small card for the provider; nothing bills or limits anything. Every
  * provider admin reads them, the owner changes them.
  */
@@ -139,6 +142,12 @@ function OwnPriceList({ estimate, language }: { estimate: PricingEstimate; langu
                     unit: estimate.storageUnit,
                   })
                 : null,
+              ...UNIT_LINES.map((def) => {
+                const price = tenant[def.price] ?? null;
+                return tenant.overridden[def.flag] && price !== null
+                  ? t(`pricing.overrides.${def.flag}`, { price: money(price) })
+                  : null;
+              }),
             ]
               .filter(Boolean)
               .join(" · ")}
@@ -161,15 +170,25 @@ function PricingForm({ pricing }: { pricing: Pricing }) {
   const [billing, setBilling] = React.useState<StorageBilling>(pricing.storageBilling ?? "exact");
   const [storage, setStorage] = React.useState(priceText(pricing.storagePrice, language));
   const [mailbox, setMailbox] = React.useState(priceText(pricing.mailboxPrice, language));
+  const [unitTexts, setUnitTexts] = React.useState<Record<UnitPriceKey, string>>(() =>
+    unitTextsOf(pricing, language),
+  );
   const storagePrice = parsePrice(storage);
   const mailboxPrice = parsePrice(mailbox);
-  const valid = storagePrice !== undefined && mailboxPrice !== undefined;
+  const unitPrices = UNIT_LINES.map(
+    (def) => [def.price, parsePrice(unitTexts[def.price])] as const,
+  );
+  const valid =
+    storagePrice !== undefined &&
+    mailboxPrice !== undefined &&
+    unitPrices.every(([, price]) => price !== undefined);
   const changed =
     currency !== pricing.currency ||
     unit !== pricing.storageUnit ||
     billing !== (pricing.storageBilling ?? "exact") ||
     storagePrice !== pricing.storagePrice ||
-    mailboxPrice !== pricing.mailboxPrice;
+    mailboxPrice !== pricing.mailboxPrice ||
+    unitPrices.some(([key, price]) => price !== (pricing[key] ?? null));
   const save = useMutation({
     mutationFn: () =>
       savePricing({
@@ -178,6 +197,7 @@ function PricingForm({ pricing }: { pricing: Pricing }) {
         storageBilling: billing,
         storagePrice: storagePrice ?? null,
         mailboxPrice: mailboxPrice ?? null,
+        ...Object.fromEntries(unitPrices.map(([key, price]) => [key, price ?? null])),
       }),
     onSuccess: (data) => {
       queryClient.setQueryData(pricingKey, data);
@@ -262,6 +282,47 @@ function PricingForm({ pricing }: { pricing: Pricing }) {
           <p className="text-xs text-muted-foreground">{t("pricing.billing.hint")}</p>
         </div>
       </div>
+      <section
+        className="space-y-3 border-t pt-4"
+        aria-labelledby={`${id}-units`}
+        data-slot="unit-prices"
+      >
+        <div className="space-y-1">
+          <h3 id={`${id}-units`} className="text-sm font-medium">
+            {t("pricing.units.title")}
+          </h3>
+          <p className="text-xs text-muted-foreground">{t("pricing.units.description")}</p>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          {UNIT_LINES.map((def) => {
+            const price = unitPrices.find(([key]) => key === def.price)?.[1];
+            const fieldId = `${id}-${def.flag}`;
+            return (
+              <div key={def.price} className="space-y-1.5">
+                <label htmlFor={fieldId} className="text-sm font-medium">
+                  {t(`pricing.units.${def.flag}`)}
+                </label>
+                <Input
+                  id={fieldId}
+                  inputMode="decimal"
+                  placeholder={t("pricing.none")}
+                  value={unitTexts[def.price]}
+                  disabled={disabled}
+                  aria-invalid={price === undefined}
+                  aria-describedby={`${fieldId}-hint`}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setUnitTexts((current) => ({ ...current, [def.price]: value }));
+                  }}
+                />
+                <p id={`${fieldId}-hint`} className="text-xs text-muted-foreground">
+                  {t(`pricing.units.${def.flag}Hint`)}
+                </p>
+              </div>
+            );
+          })}
+        </div>
+      </section>
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="space-y-1.5">
           <label htmlFor={`${id}-currency`} className="block text-sm font-medium">
@@ -296,4 +357,13 @@ function PricingForm({ pricing }: { pricing: Pricing }) {
       ) : null}
     </form>
   );
+}
+
+/** The unit prices as the fields show them; empty for none. */
+function unitTextsOf(pricing: Pricing, language: string): Record<UnitPriceKey, string> {
+  const texts = {} as Record<UnitPriceKey, string>;
+  for (const def of UNIT_LINES) {
+    texts[def.price] = priceText(pricing[def.price] ?? null, language);
+  }
+  return texts;
 }

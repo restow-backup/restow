@@ -16,12 +16,26 @@ import { loadPhysicalBytes } from "../../routes/v1/storage.js";
 import { TenantFiguresCache } from "../tenant-jobs/figures-cache.js";
 import { TENANT_READS_AT_ONCE } from "../tenant-jobs/service.js";
 import { countTenantMailboxes } from "../usage/service.js";
-import { billedBytes, getPricing, type PricingDto, type StorageBilling } from "./pricing.js";
+import { countProtectedUnits, type ProtectedUnits } from "../usage/units.js";
+import {
+  billedBytes,
+  getPricing,
+  PRICE_KEYS,
+  type PricingDto,
+  type StorageBilling,
+  UNIT_LINES,
+  type UnitFlag,
+  type UnitLine,
+  type UnitPrices,
+} from "./pricing.js";
 import {
   effectivePrice,
+  globalPriceSet,
+  NO_OVERRIDES,
   resolveTenantOverrides,
   TENANT_PRICING_FEATURE,
   type TenantPriceOverridesDto,
+  type TenantPriceSet,
 } from "./tenant-pricing.js";
 
 /**
@@ -32,10 +46,13 @@ import {
  *                 (@restow/core `countProtectedMailboxes`; usage/service.ts)
  *   stored bytes  the dashboard storage widget's physical bytes: the sealed packs of the chunk
  *                 store plus the restic repositories (storage `loadPhysicalBytes`)
+ *   units         (0.5.0) the protected servers, clients, Proxmox VE VMs and containers and file
+ *                 shares, each under the counting rule of usage/units.ts `countProtectedUnits`
  *   prices        the tenant's own price where it has one and the gate `tenants.additional` is
  *                 open (tenant-pricing.ts), else the installation's (pricing.ts)
  *
- * The amount of a line is the quantity times its price, in the decimal unit of the storage price
+ * The amount of a line is the quantity times its price (a unit line: the units times the price per
+ * unit, unrounded like the mailbox line), in the decimal unit of the storage price
  * (1 GB = 10^9 bytes, 1 TB = 10^12 bytes). The stored bytes are counted as the installation says
  * (pricing.ts `storageBilling`, 0.4.9): exactly, or rounded up to the next full 100 GB or TB; the
  * entry carries both, the stored and the billed bytes. Nothing bills any of it.
@@ -64,18 +81,30 @@ const UNIT_BYTES = { GB: 1e9, TB: 1e12 } as const;
 export interface TenantFigures {
   mailboxes: number;
   storedBytes: number;
+  /** The protected units (0.5.0); left out: not read, so no unit line has an amount. */
+  units?: ProtectedUnits;
 }
 
-export interface EstimateAmountDto {
+/** The amount of each unit line; null when there is no price or no figure. */
+export type UnitAmounts = Record<UnitLine, number | null>;
+
+const NO_UNIT_AMOUNTS = Object.fromEntries(
+  UNIT_LINES.map((line) => [line.key, null]),
+) as UnitAmounts;
+
+export interface EstimateAmountDto extends UnitAmounts {
   /** Mailboxes times the mailbox price; null when there is no price or no figure. */
   mailboxes: number | null;
   /** Stored bytes in the price's unit times the storage price; null when there is none of either. */
   storage: number | null;
-  /** The two added up; null when no line has an amount, or a figure is missing for a price. */
+  /** The lines added up; null when no price applies or the figures are missing. */
   total: number | null;
 }
 
-export interface EstimateTenantDto {
+/** The protected units of each line; null when not available (or no price needed them). */
+export type UnitCountsDto = Record<UnitLine, number | null>;
+
+export interface EstimateTenantDto extends UnitCountsDto, UnitPrices {
   tenantId: string;
   name: string;
   /** `internal`: the operator's own organisation, no customer. */
@@ -94,7 +123,7 @@ export interface EstimateTenantDto {
   /** The price per `storageUnit` that applies to this tenant; null = none set. */
   storagePrice: number | null;
   /** Whether the tenant's own price applies instead of the installation's. */
-  overridden: { mailbox: boolean; storage: boolean };
+  overridden: { mailbox: boolean; storage: boolean } & Record<UnitFlag, boolean>;
   amount: EstimateAmountDto;
 }
 
@@ -105,7 +134,7 @@ export interface PricingEstimateDto {
   /** How the stored bytes are counted: exactly, or rounded up to full 100 GB or TB. */
   storageBilling: StorageBilling;
   /** The installation's prices. */
-  global: { mailboxPrice: number | null; storagePrice: number | null };
+  global: TenantPriceSet;
   /** Whether tenants may have prices of their own (the gate `tenants.additional` is open). */
   perTenantOverrides: boolean;
   /** At least one tenant of the list has a price, the installation's or its own. */
@@ -122,19 +151,37 @@ export function estimateAmount(input: {
   figures: TenantFigures | null;
   mailboxPrice: number | null;
   storagePrice: number | null;
+  /** The prices per unit (0.5.0); a price left out is none. */
+  unitPrices?: Partial<UnitPrices>;
   storageUnit: "GB" | "TB";
   /** Exact when left out. */
   storageBilling?: StorageBilling;
 }): EstimateAmountDto {
   const { figures, mailboxPrice, storagePrice, storageUnit } = input;
-  const priced = mailboxPrice !== null || storagePrice !== null;
+  const unitPrice = (line: (typeof UNIT_LINES)[number]) => input.unitPrices?.[line.price] ?? null;
+  const priced =
+    mailboxPrice !== null ||
+    storagePrice !== null ||
+    UNIT_LINES.some((line) => unitPrice(line) !== null);
   if (!figures || !priced) {
-    return { mailboxes: null, storage: null, total: null };
+    return { mailboxes: null, storage: null, ...NO_UNIT_AMOUNTS, total: null };
   }
   const mailboxes = mailboxPrice !== null ? figures.mailboxes * mailboxPrice : null;
   const billed = billedBytes(figures.storedBytes, input.storageBilling ?? "exact");
   const storage = storagePrice !== null ? (billed / UNIT_BYTES[storageUnit]) * storagePrice : null;
-  return { mailboxes, storage, total: (mailboxes ?? 0) + (storage ?? 0) };
+  const units = { ...NO_UNIT_AMOUNTS };
+  for (const line of UNIT_LINES) {
+    const price = unitPrice(line);
+    const count = figures.units?.[line.key];
+    units[line.key] = price !== null && count !== undefined ? count * price : null;
+  }
+  const amounts = [mailboxes, storage, ...UNIT_LINES.map((line) => units[line.key])];
+  return {
+    mailboxes,
+    storage,
+    ...units,
+    total: amounts.reduce<number>((sum, amount) => sum + (amount ?? 0), 0),
+  };
 }
 
 interface TenantRow {
@@ -147,14 +194,26 @@ interface TenantRow {
 /** One tenant's entry, from its row, the installation's prices and the figures read for it. */
 export function estimateTenant(input: {
   row: Pick<TenantRow, "id" | "name" | "kind">;
-  overrides: TenantPriceOverridesDto;
+  /** The unit prices (0.5.0) may be left out: none of its own. */
+  overrides: Pick<TenantPriceOverridesDto, "mailboxPrice" | "storagePrice"> & Partial<UnitPrices>;
+  /** The unit prices (0.5.0) may be left out: none. */
   pricing: Pick<PricingDto, "mailboxPrice" | "storagePrice" | "storageUnit"> &
-    Partial<Pick<PricingDto, "storageBilling">>;
+    Partial<Pick<PricingDto, "storageBilling">> &
+    Partial<UnitPrices>;
   figures: TenantFigures | null;
 }): EstimateTenantDto {
   const { row, overrides, pricing, figures } = input;
   const mailboxPrice = effectivePrice(overrides.mailboxPrice, pricing.mailboxPrice);
   const storagePrice = effectivePrice(overrides.storagePrice, pricing.storagePrice);
+  const unitPrices = {} as UnitPrices;
+  const unitCounts = {} as UnitCountsDto;
+  const unitFlags = {} as Record<UnitFlag, boolean>;
+  for (const line of UNIT_LINES) {
+    const own = overrides[line.price] ?? null;
+    unitPrices[line.price] = effectivePrice(own, pricing[line.price] ?? null);
+    unitCounts[line.key] = figures?.units?.[line.key] ?? null;
+    unitFlags[line.flag] = own !== null;
+  }
   return {
     tenantId: row.id,
     name: row.name,
@@ -164,16 +223,20 @@ export function estimateTenant(input: {
     billedBytes: figures
       ? billedBytes(figures.storedBytes, pricing.storageBilling ?? "exact")
       : null,
+    ...unitCounts,
     mailboxPrice,
     storagePrice,
+    ...unitPrices,
     overridden: {
       mailbox: overrides.mailboxPrice !== null,
       storage: overrides.storagePrice !== null,
+      ...unitFlags,
     },
     amount: estimateAmount({
       figures,
       mailboxPrice,
       storagePrice,
+      unitPrices,
       storageUnit: pricing.storageUnit,
       storageBilling: pricing.storageBilling ?? "exact",
     }),
@@ -185,6 +248,7 @@ async function readFigures(db: Database, tenantId: string): Promise<TenantFigure
   return withTenantTx(db, tenantId, async (tx) => ({
     mailboxes: await countTenantMailboxes(tx, tenantId),
     storedBytes: await loadPhysicalBytes(tx, tenantId),
+    units: await countProtectedUnits(tx, tenantId),
   }));
 }
 
@@ -233,12 +297,8 @@ export async function loadPricingEstimate(
 
   const answers = await mapBounded(rows, TENANT_READS_AT_ONCE, async (row) => {
     // Overrides that are stored but not offered (the gate is closed) are ignored.
-    const overrides = overridesEnabled
-      ? resolveTenantOverrides(row.pricing)
-      : { mailboxPrice: null, storagePrice: null };
-    const priced =
-      effectivePrice(overrides.mailboxPrice, pricing.mailboxPrice) !== null ||
-      effectivePrice(overrides.storagePrice, pricing.storagePrice) !== null;
+    const overrides = overridesEnabled ? resolveTenantOverrides(row.pricing) : NO_OVERRIDES;
+    const priced = PRICE_KEYS.some((key) => effectivePrice(overrides[key], pricing[key]) !== null);
     if (!priced) {
       return { row, overrides, figures: null, priced };
     }
@@ -277,12 +337,9 @@ export async function loadPricingEstimate(
     currency: pricing.currency,
     storageUnit: pricing.storageUnit,
     storageBilling: pricing.storageBilling,
-    global: { mailboxPrice: pricing.mailboxPrice, storagePrice: pricing.storagePrice },
+    global: globalPriceSet(pricing),
     perTenantOverrides: overridesEnabled,
-    hasPrices:
-      pricing.mailboxPrice !== null ||
-      pricing.storagePrice !== null ||
-      items.some((item) => item.priced),
+    hasPrices: PRICE_KEYS.some((key) => pricing[key] !== null) || items.some((item) => item.priced),
     tenants: items.map((item) => item.entry),
     total: totals.length > 0 ? totals.reduce((sum, amount) => sum + amount, 0) : null,
     missing: counted.filter((item) => item.priced && item.figures === null).length,

@@ -279,6 +279,16 @@ export interface PricingSettings {
    */
   storageBilling?: "exact" | "block_100gb" | "block_1tb";
   mailboxPrice?: number | null;
+  /**
+   * Per protected unit and month (0.5.0), besides the mailboxes: a server or a client (agent
+   * machines by their profile), a Proxmox VE VM or container, a file share. The counting rule of
+   * each is apps/api usage/units.ts. Left out or null: the line is not billed.
+   */
+  serverPrice?: number | null;
+  clientPrice?: number | null;
+  vmPrice?: number | null;
+  containerPrice?: number | null;
+  fileSharePrice?: number | null;
 }
 
 /** The installation default's write-once finding (@restow/core storage/write-once.ts). */

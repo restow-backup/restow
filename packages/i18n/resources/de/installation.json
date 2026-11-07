@@ -43,7 +43,7 @@
     "ransomware": "Wie Sicherungsstände auf Anzeichen von Ransomware geprüft werden, und die Schwellenwerte jedes Signals, für {scope, select, organisation {Ihre Organisation} other {alle Mandanten}}.",
     "agentPolicy": "Sicherungsfenster, verpasste Sicherungen, Bandbreite, Netzteil und Wiederholungen der Server und Clients, und was Mandanten ändern dürfen.",
     "proxmox": "Wie die Sicherungsstände von VMs und Containern geprüft werden, für {scope, select, organisation {Ihre Organisation} other {alle Mandanten}}.",
-    "pricing": "Was Sie Ihren Kunden je Monat berechnen: je Postfach und je GB oder TB gesicherter Daten. Das Dashboard und die Übersicht jedes Mandanten zeigen, was er zu diesen Preisen ausmacht. Abgerechnet wird damit nichts.",
+    "pricing": "Was Sie Ihren Kunden je Monat berechnen: je Postfach, je GB oder TB gesicherter Daten und auf Wunsch je Server, Client, VM, Container oder Dateifreigabe. Das Dashboard und die Übersicht jedes Mandanten zeigen, was er zu diesen Preisen ausmacht. Abgerechnet wird damit nichts.",
     "notifications": "Wer auf Ihrer Seite was über {scope, select, organisation {Ihre Organisation} other {jeden Mandanten}} und die Installation erfährt: die Empfänger, die verpflichtenden, Sammelmails und die Zusammenfassungen.",
     "branding": "Ihr Logo, Absender, Akzentfarbe und Fußzeile in den Mails und Chat-Nachrichten {scope, select, organisation {Ihrer Organisation} other {aller Mandanten}}.",
     "restoreMode": "Nach dem Zurückspielen eines Datenbank-Dumps: Nichts wird gelöscht, bis ein Provider-Inhaber die zurückgespielte Datenbank geprüft hat.",
@@ -634,7 +634,26 @@
       "hint": "Die Preise eines einzelnen Mandanten legen Sie auf der Preiskachel in dessen Übersicht fest. Das kann nur der Eigentümer; jeder andere Mandant nutzt die Preise oben.",
       "mailbox": "{price} je Postfach",
       "storage": "{price} je {unit}",
-      "loadError": "Die Liste der Mandanten mit eigenen Preisen konnte nicht geladen werden."
+      "loadError": "Die Liste der Mandanten mit eigenen Preisen konnte nicht geladen werden.",
+      "server": "{price} je Server",
+      "client": "{price} je Client",
+      "vm": "{price} je VM",
+      "container": "{price} je Container",
+      "fileShare": "{price} je Dateifreigabe"
+    },
+    "units": {
+      "title": "Preise je geschützter Einheit",
+      "description": "Optional, je Monat und Einheit, zusätzlich zu Postfächern und Speicher. Eine Einheit zählt, solange sie geschützt ist: in einem Backup-Job und weder gesperrt, entfernt noch stillgelegt. Lassen Sie einen Preis leer, wenn Sie die Art nicht berechnen.",
+      "server": "Preis je Server",
+      "serverHint": "Je Server mit Agent in einem Backup-Job. Gesperrte und entfernte Rechner zählen nicht.",
+      "client": "Preis je Client",
+      "clientHint": "Je Client (Desktop oder Notebook) mit Agent in einem Backup-Job. Gesperrte und entfernte Rechner zählen nicht.",
+      "vm": "Preis je VM",
+      "vmHint": "Je Proxmox-VE-VM in einem aktiven Job. Ausgeschlossene Gäste und Vorlagen zählen nicht.",
+      "container": "Preis je Container",
+      "containerHint": "Je Proxmox-VE-Container in einem aktiven Job. Ausgeschlossene Gäste zählen nicht.",
+      "fileShare": "Preis je Dateifreigabe",
+      "fileShareHint": "Je Dateifreigabe in einem aktiven Backup-Job. Stillgelegte Freigaben zählen nicht."
     }
   },
   "featureLocked": "Nicht Teil dieses Builds",

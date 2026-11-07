@@ -92,8 +92,9 @@ import {
  * A tenant's own prices (0.4.8, settings/tenant-pricing.ts):
  *
  *   GET    /:id/pricing    the installation's prices, the tenant's own and what applies
- *   PUT    /:id/pricing    body `{ mailboxPrice?, storagePrice? }`, a number sets and null removes
- *                          the tenant's own price; the owner only, audited, refused (403
+ *   PUT    /:id/pricing    body `{ mailboxPrice?, storagePrice?, serverPrice?, clientPrice?,
+ *                          vmPrice?, containerPrice?, fileSharePrice? }`, a number sets and null
+ *                          removes the tenant's own price; the owner only, audited, refused (403
  *                          feature-unavailable) while `tenants.additional` is closed
  */
 
