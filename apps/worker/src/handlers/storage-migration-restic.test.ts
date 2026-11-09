@@ -2,7 +2,11 @@ import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { LocalStorageBackend, type StorageBackend } from "@restow/core";
+import {
+  LocalStorageBackend,
+  REPOSITORY_COPY_MARKER_FILE,
+  type StorageBackend,
+} from "@restow/core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   blocksSwitch,
@@ -113,6 +117,50 @@ describe("planRepositories", () => {
     expect(plan?.class).toBe("conflict");
     expect(plan?.items).toEqual([]);
     expect(blocksSwitch(plan as never)).toBe(true);
+  });
+
+  it("leaves a repository copy on a copy target out: it is another repository, never moved or merged", async () => {
+    // What apps/worker repository-copies keeps under the same prefix: its own config, keys,
+    // data and snapshots (other ids than the primary's), and the marker.
+    const copy: RepositorySource = {
+      id: "offsite",
+      name: "Offsite",
+      role: "copy",
+      backend: new LocalStorageBackend(join(root, "offsite")),
+    };
+    await copy.backend.put(`${PREFIX}config`, Buffer.from("copy config"));
+    await copy.backend.put(`${PREFIX}${REPOSITORY_COPY_MARKER_FILE}`, Buffer.from("{}"));
+    await file(copy.backend, "keys", "copy key");
+    await file(copy.backend, "data", "copy data");
+    await file(copy.backend, "snapshots", "copy snapshot");
+
+    // Beside a whole repository on the primary: the plan holds the primary's files only.
+    await primary.backend.put(`${PREFIX}config`, Buffer.from("config"));
+    const key = await file(primary.backend, "keys", "key");
+    const data = await file(primary.backend, "data", "data");
+    const [whole] = await planRepositories([owner], [primary, copy]);
+    expect(whole?.class).toBe("ok");
+    expect(whole?.holdings.map((holding) => holding.target)).toEqual(["nfw"]);
+    expect(whole?.items.map((item) => item.key).sort()).toEqual(
+      [`${PREFIX}config`, key, data].sort(),
+    );
+
+    // With nothing on the primary it is not taken for the repository either (as before 0.5.0's
+    // copies: `missing`), and two of them are no conflict that would stop a move.
+    await rm(join(root, "nfw"), { recursive: true, force: true });
+    const second: RepositorySource = {
+      id: "second",
+      name: "Second",
+      role: "copy",
+      backend: new LocalStorageBackend(join(root, "second")),
+    };
+    await second.backend.put(`${PREFIX}config`, Buffer.from("second config"));
+    await second.backend.put(`${PREFIX}${REPOSITORY_COPY_MARKER_FILE}`, Buffer.from("{}"));
+    await file(second.backend, "keys", "second key");
+    const [gone] = await planRepositories([owner], [primary, copy, second]);
+    expect(gone?.class).toBe("missing");
+    expect(gone?.items).toEqual([]);
+    expect(blocksSwitch(gone as never)).toBe(false);
   });
 
   it("calls data without config or key `data_only` (it stops a switch) and a lone password file `password_only`", async () => {

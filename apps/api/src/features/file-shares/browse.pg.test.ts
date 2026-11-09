@@ -3,23 +3,31 @@
  * the restore points with their restore-check rating, one folder of one (the share root shown as
  * `/`, the runner's `/.restow` folder hidden), the catalog's search and version history, and the
  * ZIP download (checked first, started once by the admin who prepared it, without `/.restow`).
- * Every read is audited.
+ * Every read is audited. And the read fallback of 0.5.0 (docs/STORAGE.md, "restic repositories
+ * on copies"): once the primary lost the repository, the restore point is browsed and downloaded
+ * from the repository copy on a copy target, whose snapshots have ids of their own.
  *
  * Needs Postgres (RESTOW_TEST_DATABASE_URL) and restic (RESTIC_BINARY, else the PATH).
  */
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import {
   fileShareRepositoryKey,
   fileShareRepositoryPrefix,
+  LocalStorageBackend,
+  type RepositoryAccess,
   resticBinary,
   resticCacheBase,
+  resticCopy,
   resticInit,
+  resticInitCopy,
   resticSnapshots,
   runRestic,
+  type StorageBackend,
   withRepository,
+  withRepositoryPair,
 } from "@restow/core";
 import {
   auditLog,
@@ -27,6 +35,8 @@ import {
   fileShareReports,
   fileShareSnapshots,
   fileShares,
+  repositoryCopies,
+  storageTargets,
 } from "@restow/db";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -59,6 +69,9 @@ describe.skipIf(!canRun)("reading file share backups with restic", () => {
   let work: string;
   let shareId: string;
   let snapshotId: string;
+  /** The restore point's restic snapshot id in the primary's repository. */
+  let primaryResticId: string;
+  const password = "browse-repository-password";
   const actor = () => ({
     label: "admin@contoso.example",
     userId: fixture.adminId,
@@ -81,7 +94,6 @@ describe.skipIf(!canRun)("reading file share backups with restic", () => {
     await mkdir(join(work, ".restow"), { recursive: true });
     await writeFile(join(work, ".restow", "manifest.json"), "{}");
 
-    const password = "browse-repository-password";
     const ref = await secrets.storeSecret(shared.db, {
       tenantId: fixture.tenantId,
       kind: "file_share_repository",
@@ -117,6 +129,7 @@ describe.skipIf(!canRun)("reading file share backups with restic", () => {
         return (await resticSnapshots(session))[0]?.id as string;
       },
     );
+    primaryResticId = resticId;
     const [snapshot] = await fixture.db
       .insert(fileShareSnapshots)
       .values({
@@ -305,4 +318,154 @@ describe.skipIf(!canRun)("reading file share backups with restic", () => {
       ),
     ).rejects.toMatchObject({ status: 404 });
   });
+
+  it("reads the restore point from the repository copy on a copy target once the primary lost the repository", async () => {
+    const { forgetTenantStorage } = await import("../endpoints/repository.js");
+    const copyDir = join(work, "copy-target");
+    const [target] = await fixture.db
+      .insert(storageTargets)
+      .values({
+        tenantId: fixture.tenantId,
+        name: "Offsite",
+        kind: "local",
+        role: "copy",
+        config: { basePath: copyDir },
+      })
+      .returning();
+    const prefix = fileShareRepositoryPrefix(shareId);
+    const access = (storage: StorageBackend, key: string): RepositoryAccess => ({
+      storage,
+      prefix,
+      repositoryPassword: password,
+      repositoryKey: key,
+      binary: resticBinary(),
+      cacheBase: resticCacheBase(),
+    });
+    // What the worker's copy pass does: the same prefix and password, `restic copy`.
+    await withRepositoryPair(
+      access(new LocalStorageBackend(fixture.storageDir), fileShareRepositoryKey(shareId)),
+      access(new LocalStorageBackend(copyDir), `${fileShareRepositoryKey(shareId)}.copy`),
+      async (session) => {
+        await resticInitCopy(session);
+        await resticCopy(session, [primaryResticId]);
+      },
+    );
+    const onCopy = await withRepository(
+      access(new LocalStorageBackend(copyDir), `${fileShareRepositoryKey(shareId)}.copy`),
+      (session) => resticSnapshots(session, { noLock: true }),
+    );
+    // The copy holds the restore point under another id; the database records the primary's.
+    expect(onCopy).toHaveLength(1);
+    expect(onCopy[0]?.id).not.toBe(primaryResticId);
+    expect(onCopy[0]?.original).toBe(primaryResticId);
+
+    // The primary loses the repository.
+    await rename(join(fixture.storageDir, "file-shares", shareId), join(work, "lost-repository"));
+    forgetTenantStorage(fixture.tenantId);
+    try {
+      const root = await browse.browseSnapshot(
+        shared.db,
+        fixture.tenantId,
+        shareId,
+        { snapshot: snapshotId, path: "/", limit: 100 },
+        actor(),
+      );
+      expect(root.entries.map((entry) => [entry.path, entry.type])).toEqual([
+        ["/Finance", "dir"],
+        ["/readme.txt", "file"],
+      ]);
+      const prepared = await browse.prepareDownload(
+        shared.db,
+        fixture.tenantId,
+        shareId,
+        { snapshotId, paths: ["/Finance/budget.txt", "/readme.txt"] },
+        actor(),
+      );
+      const download = await browse.openDownload(
+        shared.db,
+        fixture.tenantId,
+        shareId,
+        prepared.id,
+        actor(),
+      );
+      const files = Object.fromEntries(
+        readZip(await readAll(download.stream))
+          .filter((entry) => !entry.isDirectory)
+          .map((entry) => [entry.name, entry.data.toString()]),
+      );
+      expect(files).toEqual({ "budget.txt": "budget", "readme.txt": "hello" });
+    } finally {
+      await rename(join(work, "lost-repository"), join(fixture.storageDir, "file-shares", shareId));
+      forgetTenantStorage(fixture.tenantId);
+    }
+
+    // The status the storage page and the share's page show (GET /storage/repository-copies).
+    const { objectCopyStatus, repositoryCopyStatus } = await import(
+      "../storage/repository-copies.js"
+    );
+    const copiedAt = new Date("2026-11-07T10:00:00.000Z");
+    await fixture.db.insert(repositoryCopies).values([
+      {
+        tenantId: fixture.tenantId,
+        prefix,
+        kind: "file_share",
+        ownerId: shareId,
+        targetId: target?.id as string,
+        state: "behind",
+        primarySnapshots: 3,
+        missingSnapshots: 2,
+        lastSnapshotId: primaryResticId,
+        lastCopiedAt: copiedAt,
+        lastAttemptAt: copiedAt,
+        lastCheckAt: copiedAt,
+        lastCheckOk: true,
+        troubleSince: copiedAt,
+      },
+      // A row of a target that is no copy target any more waits for the worker: not shown.
+      {
+        tenantId: fixture.tenantId,
+        prefix,
+        kind: "file_share",
+        ownerId: shareId,
+        targetId: "00000000-0000-4000-8000-000000000009",
+        state: "current",
+      },
+    ]);
+    const forShare = await objectCopyStatus(shared.db, fixture.tenantId, shareId);
+    expect(forShare.copies).toEqual([
+      expect.objectContaining({
+        targetId: target?.id,
+        targetName: "Offsite",
+        kind: "file_share",
+        state: "behind",
+        primarySnapshots: 3,
+        missingSnapshots: 2,
+        lastSnapshotId: primaryResticId.slice(0, 8),
+        lastCopiedAt: copiedAt.toISOString(),
+        lastCheckOk: true,
+        troubleSince: copiedAt.toISOString(),
+      }),
+    ]);
+    const all = await repositoryCopyStatus(shared.db, fixture.tenantId);
+    expect(all.targets).toEqual([
+      {
+        targetId: target?.id,
+        targetName: "Offsite",
+        total: 1,
+        current: 0,
+        behind: 1,
+        failed: 0,
+        pending: 0,
+      },
+    ]);
+    expect(all.repositories).toHaveLength(1);
+    // Another tenant sees none of it.
+    expect(await objectCopyStatus(shared.db, fixture.otherTenantId, shareId)).toEqual({
+      copies: [],
+    });
+    expect(await repositoryCopyStatus(shared.db, fixture.otherTenantId)).toEqual({
+      targets: [],
+      repositories: [],
+    });
+  }, 120_000);
 });

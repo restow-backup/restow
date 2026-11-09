@@ -20,7 +20,7 @@
     "copy": "Kopie",
     "previous": "Vorherig",
     "primaryHint": "Backups werden zuerst hierhin geschrieben; Wiederherstellungen lesen von hier.",
-    "copyHint": "Jedes neue Backup wird auch hierhin geschrieben. Daten aus der Zeit vor der Kopie spiegelt und prüft der Kopierlauf.",
+    "copyHint": "Jedes neue Backup wird auch hierhin geschrieben. Daten aus der Zeit vor der Kopie spiegelt und prüft der Kopierlauf; die Repositorys von Geräten, Containern und Freigaben werden nach jedem Backup hierhin kopiert.",
     "previousHint": "Abgelöst: Wird nicht mehr beschrieben. Bleibt bis zur Entfernung erhalten; Wiederherstellung, Prüfung, Downloads und spätere Backups von vor der Umstellung geschützten Objekten lesen weiterhin von hier, sobald ein Sicherungsstand nur noch hier liegt.",
     "attachPrevious": "Alten Speicherort schreibgeschützt einbinden",
     "attachPreviousHint": "Hierhin wird nichts geschrieben. Wiederherstellungen lesen daraus, und die Reparatur der Repositorys (unten) nimmt die Teile von Repositorys, die er enthält, etwa eine wiederhergestellte Kopie eines früheren primären Repositorys.",
@@ -580,5 +580,26 @@
       "failed": "Nicht repariert. Kopierte Schlüssel und config wurden wieder beiseitegelegt; Sicherungen eines Containers bleiben abgelehnt, bis eine Reparatur gelingt oder das Repository zurückgesetzt wird."
     },
     "unreachable": "Diese Prüfung konnte {names} nicht lesen (keine Antwort, oder der Ordner ist leer oder fehlt: eine nicht eingehängte Freigabe?). Auf dieser Grundlage wird nicht repariert. Prüfen Sie erneut, sobald jedes Speicherziel antwortet."
+  },
+  "repositoryCopies": {
+    "summary": "{current} von {total} Repositorys aktuell",
+    "behindCount": "{count} im Rückstand",
+    "failedCount": "{count} fehlgeschlagen",
+    "pendingCount": "{count} noch nicht kopiert",
+    "copyOn": "Kopie auf {target}:",
+    "unnamedTarget": "der Kopie des Installationsstandards",
+    "unknownReason": "Ursache unbekannt",
+    "state": {
+      "current": "aktuell",
+      "behind": "{count} im Rückstand",
+      "failed": "fehlgeschlagen ({reason})",
+      "pending": "noch nicht kopiert"
+    },
+    "deferred": {
+      "write_once": "Auf dieser Kopie wird keine Aufbewahrung angewendet: Das Kopieziel ist nur einmal beschreibbar.",
+      "restore_mode": "Die Aufbewahrung auf dieser Kopie wartet: Das Löschen ist pausiert (Wiederherstellungsmodus). Das Kopieren läuft weiter.",
+      "locked": "Einige Sicherungsstände auf dieser Kopie sind noch gesperrt und werden entfernt, sobald ihre Sperre abgelaufen ist.",
+      "other": "Die Aufbewahrung auf dieser Kopie wartet."
+    }
   }
 }

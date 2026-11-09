@@ -145,6 +145,7 @@ import { startPveMaintenance } from "./pve/maintenance.js";
 import { pgBossQueueOptions, QUEUE_NAMES, queuePriority } from "./queues.js";
 import { startJobReconciler } from "./reconcile.js";
 import { configureReportTimeZone, raiseJobFinished } from "./reporting.js";
+import { startRepositoryCopies } from "./repository-copies/copies.js";
 import {
   checkAtStart,
   configureRestoreModeRuntime,
@@ -619,6 +620,11 @@ async function main(): Promise<void> {
   // Repository scans and repairs an administrator queued (docs/STORAGE.md, "Repository
   // repair"): one pass every 15 seconds in one worker at a time.
   startRepositoryRepairs({ db, providerDb, runtime });
+
+  // Repository copies (docs/STORAGE.md, "restic repositories on copies"): the restic
+  // repositories of containers, machines and file shares on every copy target, after each
+  // backup and once a day; one pass every five minutes in one worker at a time.
+  startRepositoryCopies({ db, providerDb, runtime, startsPaused: () => jobPause.paused() });
 
   // Ransomware detection (docs/RANSOMWARE.md): every new restore point of every kind is judged
   // against its object's baseline and the signatures, one pass every two minutes. Retention of an

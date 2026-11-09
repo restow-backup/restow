@@ -27,7 +27,11 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { BackupDestinationNote, WriteOnceRetentionNotice } from "@/features/storage";
+import {
+  BackupDestinationNote,
+  ObjectCopyStatus,
+  WriteOnceRetentionNotice,
+} from "@/features/storage";
 import { ObjectSuspicionBadge, RetentionHoldNotice } from "@/features/suspicion";
 import { ApiError, errorMessageKey } from "@/lib/api";
 
@@ -376,6 +380,8 @@ export function EndpointDetailPage({
         objectName={endpointName(detail)}
       />
       <WriteOnceRetentionNotice context="machine" />
+      {/* Its repository on each copy target (docs/STORAGE.md, "restic repositories on copies"). */}
+      <ObjectCopyStatus ownerId={detail.id} />
 
       <AttentionArea detail={detail} />
       {/* The repository this machine's backups land in. */}

@@ -1,9 +1,11 @@
 /**
  * The restic repositories of a tenant across its storage targets (docs/STORAGE.md, "Replace the
  * primary" and "Repository repair"): every container's (`pve-guests/<guest id>/`), machine's
- * (`endpoints/<endpoint id>/`) and file share's (`file-shares/<share id>/`). They lie on the
- * primary only (the chunk store's copies never receive them), so a `move` copies them along
- * with the chunk store, and the repository repair rebuilds them on the primary.
+ * (`endpoints/<endpoint id>/`) and file share's (`file-shares/<share id>/`). The repositories
+ * the restore points name lie on the primary only (a copy target holds repository copies made
+ * with `restic copy`, with a `config`, keys and snapshot ids of their own:
+ * ../repository-copies/copies.ts), so a `move` copies them along with the chunk store, and the
+ * repository repair rebuilds them on the primary.
  *
  * A repository may be split across targets: a run that went on while the primary changed
  * wrote its first files to the old primary and the rest to the new one (the 2026-10-16 field
@@ -14,14 +16,15 @@
  * copied and verified against that hash. `config` must be the same on every target that has
  * one of this chain; a target with another `config` holds another chain (a new chain on the
  * primary, the old one on a retired target) and is left out. `locks/` is skipped: a lock is
- * transient and restic writes its own.
+ * transient and restic writes its own. A repository copy on a copy target (marked with
+ * `restow-repository-copy.json`) is left out altogether.
  *
  * A repository that is not complete from all targets together (no `config` or no key
  * anywhere) or ambiguous (two different `config` files and none on the primary) cannot be
  * copied: a `move` refuses to switch while one exists and names it.
  */
 import type { MirrorItem, StorageBackend } from "@restow/core";
-import { repositoryFolderOf, repositoryPrefixOf } from "@restow/core";
+import { REPOSITORY_COPY_MARKER_FILE, repositoryFolderOf, repositoryPrefixOf } from "@restow/core";
 import {
   endpoints,
   fileShareSnapshots,
@@ -401,6 +404,9 @@ export async function planRepositoriesOf(
         source,
         keys: (byPrefix.get(prefix) ?? []).filter((key) => !key.startsWith(`${prefix}locks/`)),
       }))
+      // A repository copy (../repository-copies/copies.ts) is another repository, made with
+      // `restic copy`: never a part of this one, never merged or moved.
+      .filter((entry) => !entry.keys.includes(`${prefix}${REPOSITORY_COPY_MARKER_FILE}`))
       .filter((entry) => entry.keys.length > 0);
     const holdings = present.map((entry) => holding(entry.source, prefix, entry.keys));
     const configKey = `${prefix}config`;

@@ -6,7 +6,11 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { BackupDestinationNote, WriteOnceRetentionNotice } from "@/features/storage";
+import {
+  BackupDestinationNote,
+  ObjectCopyStatus,
+  WriteOnceRetentionNotice,
+} from "@/features/storage";
 import { ObjectSuspicionBadge, RetentionHoldNotice } from "@/features/suspicion";
 import { ApiError } from "@/lib/api";
 
@@ -140,6 +144,8 @@ export function ShareDetailPage({ shareId, tab, onTabChange }: ShareDetailPagePr
         objectName={share.name}
       />
       <WriteOnceRetentionNotice context="share" />
+      {/* Its repository on each copy target (docs/STORAGE.md, "restic repositories on copies"). */}
+      <ObjectCopyStatus ownerId={share.id} />
       {/* The repository this share's backups land in. */}
       <BackupDestinationNote />
 

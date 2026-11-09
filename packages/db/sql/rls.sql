@@ -98,6 +98,8 @@ DECLARE
     'immutability_deferred_deletions',
     'storage_migrations',
     'storage_repository_repairs',
+    -- restic repositories on copy targets (0.5.0, docs/STORAGE.md).
+    'repository_copies',
     'audit_log',
     'audit_anchor',
     'archive_items',

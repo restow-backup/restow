@@ -12,6 +12,33 @@ private repository.
 
 ### Added
 
+- Repository copies: the restic repositories of machines (`endpoints/<id>/`), Proxmox VE
+  containers (`pve-guests/<id>/`) and file shares (`file-shares/<id>/`) are now kept on every
+  copy target of the tenant, not only on the primary. Until now a copy received only the chunk
+  store (mail, Microsoft 365, the archive, VM disks), so servers, containers and file shares had
+  no second copy inside Restow. The worker creates a repository at the same prefix on each copy
+  target (`restic init --copy-chunker-params`, the same repository password) and fills it with
+  `restic copy`: after each backup run (several runs between two passes are one copy) and at
+  least once a day, so a copy target that was down or was added later catches up. Only restore
+  points the server recorded are copied. Retention on the copy follows the primary's (a
+  machine's grouped retention, the pruned restore points of containers and file shares, holds on
+  suspicion) under the new deletion pass `repository_copy_retention`: restore mode stops
+  deletions on a copy while copying goes on, a write-once copy target keeps everything, and the
+  prune is the one for a full target. After every copy `restic check` reads the copy's structure,
+  once a week a sample of its data. New table `repository_copies` (migration 0093, tenant
+  isolated); `GET /api/v1/storage/repository-copies` (per copy target: "x of y repositories
+  current") and `GET /api/v1/storage/repository-copies/objects/:id` (per machine, container or
+  file share: "Copy on <target>: current / n behind / failed (reason)"), both shown in the web
+  interface. New catalog event `storage.copy_behind` (warning) when a copy is not current for
+  more than two days. When the primary lost a repository, the snapshot list, browsing and file
+  downloads read it from the copy (a container's and a file share's restore points are found by
+  the id `restic copy` keeps as `original`). Not yet: a restore onto a Proxmox VE node or back
+  into a file share straight from a copy; promoting a copy stays refused while the tenant has
+  restic repositories, and a `move` and the repository repair leave repository copies out
+  (docs/STORAGE.md, "restic repositories on copies" and "Known limitations"). The first pass
+  after the update copies every repository once, 25 repositories per pass, and needs their size
+  on each copy target. Purging a file share now also deletes its repository copies.
+
 - Machines: a scheduled deletion of a revoked machine's backups can be cancelled until the worker
   starts (Cancel deletion on the machine's page and in File restore, `POST
   /api/v1/endpoints/:id/remove/cancel`, provider owners, audited as `endpoint.removal.cancelled`).

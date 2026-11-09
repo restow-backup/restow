@@ -491,6 +491,9 @@
     },
     "notification": {
       "delivery_failed": "Benachrichtigung nicht zustellbar"
+    },
+    "storage": {
+      "copy_behind": "Repository-Kopie im Rückstand"
     }
   },
   "eventHints": {
@@ -559,6 +562,9 @@
     },
     "notification": {
       "delivery_failed": "Eine Benachrichtigung konnte nicht zugestellt werden: Der Mailserver hat eine Adresse abgewiesen, der Mailversand ist gestört oder ein Webhook schlägt wiederholt fehl. Wird einmal je Störung ausgelöst, nie über den gestörten Kanal, immer in der Glocke und an die Pflichtempfänger des Providers."
+    },
+    "storage": {
+      "copy_behind": "Die Kopie eines restic-Repositorys auf einem Kopieziel liegt mehr als zwei Tage zurück, oder das Kopieren schlägt wiederholt fehl."
     }
   },
   "sections": {
@@ -793,6 +799,9 @@
       "delivery_failed_transport": "Benachrichtigungsmail kann nicht gesendet werden",
       "delivery_failed_recipient": "Mail an {recipient} kann nicht zugestellt werden",
       "delivery_failed_webhook": "Webhook scheitert weiter: {webhook}"
+    },
+    "storage": {
+      "copy_behind": "Kopie im Rückstand: {object}"
     }
   },
   "toasts": {

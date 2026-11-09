@@ -50,6 +50,16 @@ export interface ResticSession {
    * a run that fails after one more is a `storage_full` failure, whatever restic printed.
    */
   readonly storageFullRefusals?: () => number;
+  /**
+   * A second repository restic reads from (`restic copy`, `init --copy-chunker-params`): its
+   * listener and password go to the child as `RESTIC_FROM_REPOSITORY` (the listener's credential
+   * in the URL: restic reads no `RESTIC_FROM_REST_*` variables) and `RESTIC_FROM_PASSWORD`,
+   * never through the command line.
+   */
+  readonly from?: Pick<
+    ResticSession,
+    "repositoryUrl" | "username" | "password" | "repositoryPassword"
+  >;
 }
 
 export type ResticFailure =
@@ -107,10 +117,15 @@ const NO_SPACE_TEXT =
 /** Strip anything credential-shaped from text that may reach a log or a response. */
 export function redactSecrets(
   text: string,
-  session?: Pick<ResticSession, "password" | "repositoryPassword">,
+  session?: Pick<ResticSession, "password" | "repositoryPassword" | "from">,
 ): string {
   let result = text;
-  for (const secret of [session?.password, session?.repositoryPassword]) {
+  for (const secret of [
+    session?.password,
+    session?.repositoryPassword,
+    session?.from?.password,
+    session?.from?.repositoryPassword,
+  ]) {
     if (secret && secret.length >= 6) {
       result = result.split(secret).join("***");
     }
@@ -129,7 +144,26 @@ function childEnvironment(session: ResticSession): NodeJS.ProcessEnv {
     RESTIC_CACHE_DIR: session.cacheDir,
     // Deterministic, machine-readable behaviour.
     RESTIC_PROGRESS_FPS: "0.1",
+    ...(session.from
+      ? {
+          RESTIC_FROM_REPOSITORY: withUrlCredentials(
+            session.from.repositoryUrl,
+            session.from.username,
+            session.from.password,
+          ),
+          RESTIC_FROM_PASSWORD: session.from.repositoryPassword,
+        }
+      : {}),
   };
+}
+
+/** `rest:http://127.0.0.1:<port>/` with the listener's credential in it. */
+function withUrlCredentials(repositoryUrl: string, username: string, password: string): string {
+  const scheme = "rest:http://";
+  if (!repositoryUrl.startsWith(scheme)) {
+    return repositoryUrl;
+  }
+  return `${scheme}${encodeURIComponent(username)}:${encodeURIComponent(password)}@${repositoryUrl.slice(scheme.length)}`;
 }
 
 /** How a restic process ended: its exit code, or (with a null exit code) the signal that stopped it. */
@@ -369,6 +403,31 @@ export async function withRepository<T>(
   }
 }
 
+/**
+ * Open two repositories at once (`destination` the one restic writes, `source` the one it reads
+ * from: `session.from`), run `run` with the destination's session (and the source's own, for
+ * reads of the source alone) and close both listeners whatever its outcome. What
+ * `restic copy` between two storage targets needs (docs/STORAGE.md, "restic repositories on
+ * copies").
+ */
+export async function withRepositoryPair<T>(
+  source: RepositoryAccess,
+  destination: RepositoryAccess,
+  run: (session: ResticSession, source: ResticSession) => Promise<T>,
+): Promise<T> {
+  const from = await openRepository(source);
+  try {
+    const to = await openRepository(destination);
+    try {
+      return await run({ ...to.session, from: from.session }, from.session);
+    } finally {
+      await to.close();
+    }
+  } finally {
+    await from.close();
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Operations
 // ---------------------------------------------------------------------------
@@ -376,6 +435,88 @@ export async function withRepository<T>(
 /** `restic init`: creates the repository with `session.repositoryPassword`. */
 export async function resticInit(session: ResticSession): Promise<void> {
   await runRestic(session, ["init"]);
+}
+
+/**
+ * `restic init --copy-chunker-params`: creates the repository with `session.repositoryPassword`
+ * and the chunker parameters of `session.from`, so `restic copy` keeps deduplicating the way the
+ * source does (the copy of a repository, docs/STORAGE.md "restic repositories on copies").
+ */
+export async function resticInitCopy(session: ResticSession): Promise<void> {
+  if (!session.from) {
+    throw new TypeError("a copy is initialised from a source repository (session.from)");
+  }
+  await runRestic(session, ["init", "--copy-chunker-params"]);
+}
+
+/** Snapshots one `restic copy` call names at most (the command line stays short). */
+const COPY_BATCH = 50;
+
+/**
+ * `restic copy <ids>`: copy the named snapshots of `session.from` into the session's repository.
+ * restic skips a snapshot the destination already holds (by its `original`), and writes each
+ * copied snapshot under a new id whose `original` is the source's id. Ids must be restic ids
+ * (hex), so nothing can pass for an option.
+ */
+export async function resticCopy(
+  session: ResticSession,
+  snapshotIds: readonly string[],
+  options: { signal?: AbortSignal; retryLock?: string; timeoutMs?: number } = {},
+): Promise<number> {
+  if (!session.from) {
+    throw new TypeError("restic copy reads from a source repository (session.from)");
+  }
+  for (const id of snapshotIds) {
+    if (!/^[0-9a-f]{8,64}$/.test(id)) {
+      throw new TypeError("a snapshot id to copy must be 8 to 64 lower-case hex digits");
+    }
+  }
+  const retry = retryLockArgs(options.retryLock);
+  for (let start = 0; start < snapshotIds.length; start += COPY_BATCH) {
+    const batch = snapshotIds.slice(start, start + COPY_BATCH);
+    await runRestic(session, ["copy", ...retry, "--", ...batch], {
+      signal: options.signal,
+      timeoutMs: options.timeoutMs,
+    });
+  }
+  return snapshotIds.length;
+}
+
+/**
+ * The id under which `snapshots` hold the snapshot `id` names: the snapshot itself, else the one
+ * copied from it (`original`). A repository on a copy target holds copies with ids of their own,
+ * while the database records the primary's ids; a read that falls back to the copy finds the
+ * restore point this way. Null when neither is there.
+ */
+export function snapshotIdIn(
+  snapshots: readonly Pick<ResticSnapshot, "id" | "original">[],
+  id: string,
+): string | null {
+  if (!id) {
+    return null;
+  }
+  const own = snapshots.find((snapshot) => snapshot.id === id || snapshot.id.startsWith(id));
+  if (own) {
+    return own.id;
+  }
+  const copied = snapshots.find(
+    (snapshot) => typeof snapshot.original === "string" && snapshot.original.startsWith(id),
+  );
+  return copied?.id ?? null;
+}
+
+/**
+ * {@link snapshotIdIn} against the repository `session` opens (one `restic snapshots`): `id`
+ * itself when the repository holds it, else the id of its copy. Returns `id` unchanged when
+ * neither is found, so restic reports the missing snapshot itself.
+ */
+export async function resticSnapshotRef(
+  session: ResticSession,
+  id: string,
+  options: { signal?: AbortSignal; timeoutMs?: number } = {},
+): Promise<string> {
+  const listed = await resticSnapshots(session, { noLock: true, ...options });
+  return snapshotIdIn(listed, id) ?? id;
 }
 
 export interface ResticSnapshot {
@@ -390,6 +531,11 @@ export interface ResticSnapshot {
   totalFilesProcessed: number | null;
   /** What the backup added to the repository after deduplication (restic 0.17+ summary). */
   dataAdded: number | null;
+  /**
+   * The id of the snapshot this one was copied from (`restic copy` keeps it as `original`), or
+   * null for a snapshot a backup wrote. A copy's snapshots have ids of their own.
+   */
+  original?: string | null;
 }
 
 interface SnapshotJson {
@@ -399,6 +545,7 @@ interface SnapshotJson {
   hostname?: unknown;
   paths?: unknown;
   tags?: unknown;
+  original?: unknown;
   summary?: {
     files_new?: unknown;
     total_bytes_processed?: unknown;
@@ -460,6 +607,7 @@ export async function resticSnapshots(
       totalBytesProcessed: asNumber(row.summary?.total_bytes_processed),
       totalFilesProcessed: asNumber(row.summary?.total_files_processed),
       dataAdded: asNumber(row.summary?.data_added),
+      original: typeof row.original === "string" ? row.original : null,
     }))
     .sort((a, b) => (a.time < b.time ? 1 : a.time > b.time ? -1 : 0));
 }

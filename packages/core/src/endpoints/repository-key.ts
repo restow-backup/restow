@@ -56,6 +56,17 @@ export interface RepositoryPasswordKind {
 
 export const ENDPOINT_PASSWORD_FORMAT = "restow-endpoint-repository-password-v1";
 export const ENDPOINT_PASSWORD_FILE = "restow-repository-password.json";
+
+/**
+ * The marker next to a repository copy (docs/STORAGE.md, "restic repositories on copies"): the
+ * repository under this prefix on a copy target was created by the server with `restic init
+ * --copy-chunker-params` and is filled with `restic copy`. It is another repository than the
+ * primary's (its own `config`, keys and snapshot ids), so a storage migration and the repository
+ * repair leave a prefix with the marker out, and the copy pass never writes into, forgets or
+ * prunes a repository on a copy target that has none (a retired primary's own repository, the
+ * half of a split one, what a cancelled move left).
+ */
+export const REPOSITORY_COPY_MARKER_FILE = "restow-repository-copy.json";
 export const FILE_SHARE_PASSWORD_FORMAT = "restow-file-share-repository-password-v1";
 
 export const ENDPOINT_PASSWORD_KIND: RepositoryPasswordKind = {

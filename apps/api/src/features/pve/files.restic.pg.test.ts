@@ -20,13 +20,23 @@ import { spawn } from "node:child_process";
  * (RESTIC_BINARY, else the PATH).
  */
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import { serve } from "@hono/node-server";
-import { measureRepositoryBytes, resticBinary } from "@restow/core";
+import {
+  LocalStorageBackend,
+  measureRepositoryBytes,
+  type RepositoryAccess,
+  resticBinary,
+  resticCacheBase,
+  resticCopy,
+  resticInitCopy,
+  type StorageBackend,
+  withRepositoryPair,
+} from "@restow/core";
 import {
   acquireEndpointRepositoryLock,
   auditLog,
@@ -34,6 +44,7 @@ import {
   pveGuestRepositoryLockKey,
   pveGuests,
   pveSnapshots,
+  storageTargets,
 } from "@restow/db";
 import { and, eq } from "drizzle-orm";
 import { Hono } from "hono";
@@ -81,6 +92,9 @@ describe.skipIf(!canRun)("file restore of a container restore point (#62)", () =
   let node: Node;
   let guestId: string;
   let pointId: string;
+  let repositoryPassword: string;
+  /** The restore point's restic snapshot id in the primary's repository. */
+  let primaryResticId: string;
   const actor = () => ({
     label: "admin@contoso.example",
     userId: fixture.adminId,
@@ -238,6 +252,8 @@ describe.skipIf(!canRun)("file restore of a container restore point (#62)", () =
       }),
     );
     pointId = committed.snapshotId;
+    repositoryPassword = credential.repositoryPassword;
+    primaryResticId = summary?.snapshot_id as string;
     await ok(await call(`/runs/${run.runId}/finish`, { status: "succeeded" }), 204);
   }, 180_000);
 
@@ -541,4 +557,69 @@ describe.skipIf(!canRun)("file restore of a container restore point (#62)", () =
     expect(taken).not.toBeNull();
     await taken?.();
   }, 60_000);
+
+  it("browses and downloads the restore point from the repository copy on a copy target once the primary lost the repository", async () => {
+    // docs/STORAGE.md, "restic repositories on copies": the same prefix and password on the
+    // copy target, filled with `restic copy`, which writes the snapshot under another id.
+    const { forgetTenantStorage } = await import("../endpoints/repository.js");
+    const copyDir = join(work, "copy-target");
+    await fixture.db.insert(storageTargets).values({
+      tenantId: fixture.tenantId,
+      name: "Offsite",
+      kind: "local",
+      role: "copy",
+      config: { basePath: copyDir },
+    });
+    const prefix = `pve-guests/${guestId}/`;
+    const access = (storage: StorageBackend, key: string): RepositoryAccess => ({
+      storage,
+      prefix,
+      repositoryPassword,
+      repositoryKey: key,
+      binary: resticBinary(),
+      cacheBase: resticCacheBase(),
+    });
+    await withRepositoryPair(
+      access(new LocalStorageBackend(fixture.storageDir), guestId),
+      access(new LocalStorageBackend(copyDir), `${guestId}.copy`),
+      async (session) => {
+        await resticInitCopy(session);
+        await resticCopy(session, [primaryResticId]);
+      },
+    );
+    await rename(join(fixture.storageDir, "pve-guests", guestId), join(work, "lost-repository"));
+    forgetTenantStorage(fixture.tenantId);
+    try {
+      const root = await files.browseContainerFiles(
+        shared.db,
+        fixture.tenantId,
+        pointId,
+        { path: "/", limit: 1000 },
+        actor(),
+      );
+      expect(root.entries.map((entry) => entry.path)).toEqual(["/etc", "/mnt", "/opt"]);
+      const prepared = await files.prepareContainerDownload(
+        shared.db,
+        fixture.tenantId,
+        pointId,
+        { paths: ["/etc"] },
+        actor(),
+      );
+      const download = await files.openContainerDownload(
+        shared.db,
+        fixture.tenantId,
+        pointId,
+        prepared.id,
+        actor(),
+      );
+      const names = readZip(await readAll(download.stream))
+        .filter((entry) => !entry.isDirectory)
+        .map((entry) => entry.name);
+      expect(names.length).toBeGreaterThan(0);
+      expect(names.every((name) => name.startsWith("etc/"))).toBe(true);
+    } finally {
+      await rename(join(work, "lost-repository"), join(fixture.storageDir, "pve-guests", guestId));
+      forgetTenantStorage(fixture.tenantId);
+    }
+  }, 120_000);
 });

@@ -32,12 +32,18 @@ the storage form"). Every target has a role:
   Installation → Default repository & network shares, otherwise the environment's `STORAGE_TARGET` /
   `STORAGE_LOCAL_PATH` / `S3_*` settings), so a fresh install works out of the box
   with a single container plus Postgres.
-- **copy** — receives every new backup too, in addition to the primary. Data written
-  before the copy existed is mirrored onto it, verified by hash, during the weekly
-  scrub. Any number of copies is allowed; a copy can later be promoted to primary
+- **copy** — receives every new backup too, in addition to the primary. For the chunk
+  store (mail, Microsoft 365, the archive, VM disks) that happens with the write itself;
+  data written before the copy existed is mirrored onto it, verified by hash, during the
+  weekly scrub. The restic repositories of machines, containers and file shares are copied
+  to every copy as well, after each backup run and once a day (since 0.5.0, "restic
+  repositories on copies" below; before, a copy never received them, and servers,
+  containers and file shares had no second copy inside Restow). Any number of copies is
+  allowed; a copy can later be promoted to primary
   (`POST /storage/targets/:id/promote`) once it is proven complete. A promotion copies
   nothing: it is refused while the tenant has any restic repository (a container's, a
-  machine's, revoked ones included, or a file share's; a copy never receives them) or a
+  machine's, revoked ones included, or a file share's: a copy holds repository *copies*,
+  whose restore points have other ids than the ones the database records, see below) or a
   backup run is running (`storage-switch-blocked-by-runs`). The old primary becomes a
   copy; when it is the installation default, a placeholder row keeps it attached
   read-only (`previous`). Before 0.5.0 nothing did, and the installation default dropped
@@ -285,7 +291,8 @@ While it is on, for the whole installation:
   retention, the clean-up of staging areas, archive retention (no item row, no
   chunk reference and no sealed record goes; records queued for deletion stay queued), restic forget
   and prune of machines, file shares and Proxmox VE containers (including the comparison
-  that forgets restic snapshots no restore point names), the removal of a machine's
+  that forgets restic snapshots no restore point names, and retention on their repository
+  copies on copy targets, while the copying itself goes on), the removal of a machine's
   backups, the purge of a file share, repository repairs, a container's repository reset,
   the pruning of old progress markers, the removal of a storage target and the replacement
   of the primary (also pointing a local or S3 primary at another location with `PATCH
@@ -757,6 +764,101 @@ Machines (the Restow agent) never begin a new chain under the same id: a machine
 is damaged is enrolled again and gets a new id, and with it a new prefix. Their retention is not
 applied on a write-once repository either, and their page says so.
 
+## restic repositories on copies
+
+Machines (`endpoints/<endpoint id>/`), Proxmox VE containers (`pve-guests/<guest id>/`) and
+file shares (`file-shares/<share id>/`) keep one restic repository each. Until 0.5.0 it lay on
+the primary only: a copy target received the chunk store and nothing else, so servers,
+containers and file shares had no second copy inside Restow. Since 0.5.0 the worker keeps a
+**repository copy** of each of them on every copy target of the tenant
+(`apps/worker/src/repository-copies/copies.ts`). VM disks are not restic repositories: they
+are in the chunk store and have always reached a copy with the write itself.
+
+**What lies on the copy target.** A restic repository of its own at the *same prefix*, created
+with `restic init --copy-chunker-params` from the primary's repository (so deduplication works
+as on the primary) and with the *same repository password* (the secret the tenant key seals;
+nothing new to keep). It is filled with `restic copy`: every restore point the server keeps
+that the copy does not hold yet. restic reads the source through one loopback listener and
+writes the destination through another, both for this one operation
+(`withRepositoryPair`, `packages/core/src/endpoints/restic-cli.ts`). `restic copy` verifies
+what it reads and writes each snapshot under a new id, keeping the primary's id as the
+snapshot's `original`; a copy therefore has its own `config`, keys and snapshot ids. The file
+`restow-repository-copy.json` next to it marks it as a copy.
+
+**Which restore points.** The ones the server's records name: the restore points of a
+container and of a file share that are not pruned, and the snapshots a machine's runs
+reported and its retention keeps (of several backups of one day the daily rule keeps the
+newest: the copy holds that one, also while the primary still has the others until its
+next retention run). A snapshot no record names (a run that never committed, a
+snapshot a compromised machine wrote by itself) is neither copied nor ever deleted on a copy.
+
+**When.** A pass every five minutes, in one worker at a time, copies every repository that
+got a restore point since its last copy (several runs in between are one copy), and every
+repository at least once a day, which catches up what a copy target that was down missed. A
+copy target added later receives every repository on the next pass. A failed copy is tried
+again after an hour; one that stopped half way (the copy target ran full, the connection
+dropped) keeps the restore points it finished, counts the rest as missing and forgets nothing
+in that pass. A pass copies at most 25 repositories; the rest follow in the next one.
+Copying waits while a storage migration of the tenant runs and while new job starts are
+paused for an update. It reads the primary's repository beside the API's reads and never
+beside retention or the check of the same repository (the repository lock, shared).
+
+**Retention on the copy** follows the primary's, by the same records:
+
+- a container's and a file share's restore points that retention pruned are forgotten on
+  the copy, the others stay;
+- a machine's copy gets the same grouped retention as its primary (the machine's keep rules
+  per group, `files` and `sql:<instance>`), dated by the end of the reporting run as the
+  server recorded it, never by the time in the snapshot;
+- while retention of the object is held on suspicion (`docs/RANSOMWARE.md`), nothing is
+  forgotten on the copy either.
+
+`restic forget` and `restic prune` on a copy run under the deletion pass
+`repository_copy_retention`: restore mode refuses them while copying goes on, and the prune is
+the one for a target short of space ("A full target": delete-only when the repack does not
+fit). On a **write-once** copy target nothing is deleted: copying works, every restore point
+stays, and the copy says that retention waits. A snapshot an Object Lock or the deletion
+delay still protects stays until a later pass. A copy pass never deletes anything on the
+primary.
+
+**Proof.** After every copy `restic check` reads the structure of the copy (config and keys
+open with the password, index and snapshots readable, every pack the index names present);
+once a week it also reads a sample of the pack data back (`check --read-data-subset=2%`). Per
+repository and copy target Restow records the newest copied restore point, the time of the
+last copy, how many restore points are missing (the lag) and the result of the last check
+(`repository_copies`, `GET /api/v1/storage/repository-copies`, per object
+`GET /api/v1/storage/repository-copies/objects/<id>`). The card of a copy target shows "x of y
+repositories current"; the page of a machine, container or file share shows "Copy on
+<target>: current", "n behind" or "failed" with the reason. A copy that is not current for
+more than two days (behind, failing, or not made at all) raises the notification
+`storage.copy_behind` (a warning, once per episode; not critical, since the primary still
+holds every backup).
+
+**Reading from a copy.** When the primary no longer holds a repository's `config`, the API's
+reads use the first copy target that does (`backendHolding`,
+`apps/api/src/features/endpoints/repository.ts`); the same password opens it. A machine's
+restore points are listed from the repository itself, so its snapshot list, browsing and
+downloads work from the copy as they are. A container's and a file share's restore points are
+recorded with the primary's snapshot ids: browsing and file downloads look the restore point
+up by `original` and work from the copy too. See "Known limitations" for what does not.
+
+**What a copy is not.** A repository copy is another repository, not a mirror of the
+primary's files:
+
+- promoting a copy and "keep" stay refused while the tenant has restic repositories; only a
+  `move` brings the repositories themselves to a new primary;
+- a `move` and the repository repair leave repository copies out (the marker): they never
+  merge one into a repository or take one for it;
+- the copy pass writes only into a repository it made. When the copy target already holds
+  other files under the prefix (a retired primary that became a copy, the half of a split
+  repository, what a cancelled `move` left), nothing is copied there and nothing is touched:
+  the copy is shown as failed with that reason. Move those files away by hand (or remove the
+  target) once they are no longer needed;
+- removing a copy target, or removing the tenant's last copy, deletes nothing on it. Deleting
+  a machine's backups (`endpoint-removal`) and purging a file share delete their repository
+  copies together with the repository; a container's repository copy stays, like the
+  container's repository.
+
 ## Replacing the primary
 
 Moving a tenant off the installation default, or off one primary target onto
@@ -786,11 +888,12 @@ data already on it), the add-target dialog offers a role choice:
   - **Keep existing backups where they are**: refused (`409`,
     `storage-switch-blocked-by-repositories`, and offered disabled in the dialog) while
     the tenant has containers or file shares with a restic repository: those
-    repositories are written to and read from the primary only, so after such a switch
+    repositories are written to the primary only, so after such a switch
     every container and share would find an empty repository on the new primary (the
     0.4.1 field incident: every container with an existing repository then failed with
-    `repository does not exist`). Choose "move" for such a tenant; promoting a copy is
-    refused for the same reason (a copy never receives the restic repositories).
+    `repository does not exist`). Choose "move" for such a tenant; promoting a copy stays
+    refused as well: a copy holds repository copies made with `restic copy` ("restic
+    repositories on copies"), not the repositories the restore points name.
     Since 0.5.0 a file share counts as soon as its repository password is stored (its
     creation stores it before `restic init`), a container once its repository is created
     (its password is recorded together with its ready time, after `restic init`; while its
@@ -935,9 +1038,13 @@ migration at all: it is simply left out, since there is nothing left to move.
 
 Containers (`pve-guests/<guest id>/`), machines (`endpoints/<endpoint id>/`, revoked ones
 included) and file shares (`file-shares/<share id>/`) keep one restic repository each on
-the primary. The chunk store's copies never receive them, so a switch without them would
-leave every one of them with an empty repository. A `move` therefore copies them too
-(`apps/worker/src/handlers/storage-migration-restic.ts`):
+the primary. A target that was never a copy holds none of them, and a copy holds repository
+copies with snapshot ids of their own ("restic repositories on copies"), so a switch without
+the repositories themselves would leave every restore point pointing at nothing. A `move`
+therefore copies them too, file by file
+(`apps/worker/src/handlers/storage-migration-restic.ts`); a repository copy on a copy target
+(marked with `restow-repository-copy.json`) is no part of a repository and is left out of a
+move and of the repository repair:
 
 - Each repository is collected from every place it may lie: the current primary, the
   copies (the destination aside), every `previous` target and the installation default
@@ -1145,6 +1252,22 @@ not papered over:
   different repositories under one prefix, are listed by the scan and left as they are;
   such a repository also stops a `move`. A machine's page does not show the scan's finding
   yet: read it on the Repositories page.
+
+- **A repository copy is read from, not restored from, by Proxmox VE and file share
+  restores.** When the primary lost the repository of a container or file share, its restore
+  points can be browsed and their files downloaded from the copy ("restic repositories on
+  copies"). A restore onto the Proxmox VE node or back into the share asks restic on the node
+  or in the runner for the snapshot id the database records, which the copy holds under
+  another id: such a restore fails with "no matching ID found". Until that is built, download
+  the files, or restore the copy's repository by hand with `restic` and the repository
+  password. A machine restores from a copy as usual (its restore points are listed from the
+  repository). Neither a `move` nor the repository repair rebuilds a primary's repository
+  from a repository copy, and a copy cannot be promoted while the tenant has restic
+  repositories.
+- **Repository copies cost the copy target's space once more** (deduplicated per repository,
+  like on the primary), and the first pass after the update copies every repository in full,
+  25 repositories per pass. A copy target that already holds other files under a repository's
+  prefix gets no copy there (see above).
 
 - **There is no migration back to the installation default.** A tenant whose own
   primary already holds backups cannot replace it with the installation default: a

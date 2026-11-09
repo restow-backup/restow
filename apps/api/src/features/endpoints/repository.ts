@@ -1,9 +1,12 @@
 import {
   endpointPrefix,
+  type OpenRepository,
   type RepositoryAccess,
   resticBinary,
   resticCacheBase,
+  resticSnapshots,
   type StorageBackend,
+  snapshotIdIn,
   withRepository,
 } from "@restow/core";
 import {
@@ -124,6 +127,45 @@ export async function backendHolding(
     return defaults.primary;
   }
   return targets.storage;
+}
+
+/**
+ * {@link backendHolding}, and whether the target found is another than the primary: a copy
+ * target (whose repository copy holds the restore points under ids of its own), a retired
+ * target or the installation default.
+ */
+export async function holdingFor(
+  targets: { storage: StorageBackend; copies: readonly StorageBackend[] },
+  prefix: string,
+): Promise<{ storage: StorageBackend; fallback: boolean }> {
+  const storage = await backendHolding(targets, prefix);
+  return { storage, fallback: storage !== targets.storage };
+}
+
+/** A repository opened for a read, and how it names a restore point the database records. */
+export interface ReadRepository extends OpenRepository {
+  /**
+   * The id under which this repository holds the restic snapshot `id` (the primary's id, as the
+   * database records it): `id` itself on the primary; on a repository copy, which `restic copy`
+   * wrote under ids of its own, the snapshot copied from it (docs/STORAGE.md, "restic
+   * repositories on copies").
+   */
+  snapshotRef(id: string): Promise<string>;
+}
+
+/** {@link ReadRepository.snapshotRef} for a repository read from the primary or a fallback. */
+export function snapshotRefOf(
+  session: OpenRepository["session"],
+  fallback: boolean,
+): (id: string) => Promise<string> {
+  if (!fallback) {
+    return async (id) => id;
+  }
+  let listed: Promise<Awaited<ReturnType<typeof resticSnapshots>>> | null = null;
+  return async (id) => {
+    listed ??= resticSnapshots(session, { noLock: true });
+    return snapshotIdIn(await listed, id) ?? id;
+  };
 }
 
 function passwordMissing(): ProblemError {

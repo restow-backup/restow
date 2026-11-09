@@ -39,6 +39,7 @@ export const REPORT_EVENTS = [
   "endpoint.backups_deleted",
   "file_share.storage_quota",
   "file_share.repository_locked",
+  "storage.copy_behind",
   "source.app_secret_expiring",
   "update.available",
   "installation.disk_low",
@@ -154,6 +155,11 @@ export const REPORT_EVENT_INFO: Readonly<Record<ReportEvent, ReportEventInfo>> =
   "file_share.storage_quota": { group: "storage", level: "warning" },
   // Retention and checks of a file share's repository kept finding it locked.
   "file_share.repository_locked": { group: "jobs", level: "warning" },
+  // The copy of a restic repository (a container's, a machine's or a file share's) on a copy
+  // target is more than two days behind, or its copying keeps failing (0.5.0, apps/worker
+  // repository-copies): once per repository, copy target and episode. Not critical: the primary
+  // still holds every backup.
+  "storage.copy_behind": { group: "storage", level: "warning" },
   // The client secret (or certificate) of a Microsoft 365 source's own app registration ends
   // within 30 days, within 7, or has ended (entra/expiry.ts; apps/worker source-app-expiry.ts):
   // once per stage and date, `details.stage` names it. A tenant event in `jobs`, so the tenant's

@@ -11,6 +11,12 @@ export {
   ServerDiskWarning,
   useBackupDestination,
 } from "./destination";
+export {
+  ObjectCopyList,
+  ObjectCopyStatus,
+  type RepositoryCopy,
+  useObjectCopies,
+} from "./repository-copies";
 export { useStorageScope } from "./use-storage";
 export {
   usePrimaryWriteOnce,

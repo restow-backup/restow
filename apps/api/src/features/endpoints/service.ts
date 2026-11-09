@@ -1455,6 +1455,10 @@ export async function listSnapshots(
     }
     return bySnapshot;
   });
+  // Read from a repository copy (the primary lost the repository, docs/STORAGE.md "restic
+  // repositories on copies"), a snapshot has an id of its own; what the server recorded about
+  // it is filed under the primary's id, which `restic copy` keeps as `original`.
+  const recordedId = (snapshot: (typeof snapshots)[number]) => snapshot.original ?? snapshot.id;
   return {
     items: snapshots.map((snapshot) => ({
       id: snapshot.id,
@@ -1465,9 +1469,9 @@ export async function listSnapshots(
       filesNew: snapshot.filesNew,
       totalFilesProcessed: snapshot.totalFilesProcessed,
       totalBytesProcessed: snapshot.totalBytesProcessed,
-      dataAdded: added.get(snapshot.id) ?? snapshot.dataAdded,
-      verification: ratings.get(snapshot.id) ?? { state: "unverified", checkedAt: null },
-      flags: flags.get(snapshot.id) ?? [],
+      dataAdded: added.get(recordedId(snapshot)) ?? snapshot.dataAdded,
+      verification: ratings.get(recordedId(snapshot)) ?? { state: "unverified", checkedAt: null },
+      flags: flags.get(recordedId(snapshot)) ?? [],
     })),
   };
 }

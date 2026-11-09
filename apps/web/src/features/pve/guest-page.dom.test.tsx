@@ -32,6 +32,7 @@ vi.mock("@tanstack/react-router", () => ({
 }));
 vi.mock("@/features/storage", () => ({
   BackupDestinationNote: () => null,
+  ObjectCopyStatus: () => null,
   ServerDiskWarning: () => null,
   useStorageScope: () => ({ canManage: false }),
   WriteOnceRetentionNotice: () => null,
