@@ -15,31 +15,57 @@ func newTestUI(input string) (*UI, *bytes.Buffer) {
 }
 
 func TestUIConfirmDisk(t *testing.T) {
-	ui, _ := newTestUI("c3d4\nERASE\n")
-	ok, err := ui.TypeToConfirm("Samsung", "1.0 TB", "wwn.5000c500a1b2c3d4")
+	disks := []string{"/dev/sda  Samsung  1.0 TB  wwn.5000c500a1b2c3d4  will be erased"}
+	ui, out := newTestUI("c3d4\nERASE\n")
+	ok, err := ui.TypeToConfirm("/dev/sda", "Samsung", "1.0 TB", "wwn.5000c500a1b2c3d4")
 	if err != nil || !ok {
 		t.Fatalf("tail: %v %v", ok, err)
 	}
-	if ok, err := ui.ConfirmErase(); err != nil || !ok {
+	// The prompt for one disk names it by path, model, size and identity
+	// and says that it is erased.
+	for _, want := range []string{"/dev/sda", "Samsung", "1.0 TB", "wwn.5000c500a1b2c3d4", "ERASED"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("the prompt for a disk lacks %q:\n%s", want, out.String())
+		}
+	}
+	out.Reset()
+	if ok, err := ui.ConfirmErase(disks); err != nil || !ok {
 		t.Fatalf("erase word: %v %v", ok, err)
+	}
+	// The disks stand right above the erase word.
+	if got := out.String(); !strings.Contains(got, disks[0]) || strings.Index(got, disks[0]) > strings.Index(got, "Type ERASE") ||
+		!strings.Contains(got, T(LangEN, "confirm.title")) {
+		t.Errorf("the erase prompt does not list the disks above the word:\n%s", got)
 	}
 	// A wrong tail three times aborts.
 	ui, _ = newTestUI("0000\n1111\n2222\n")
-	if ok, _ := ui.TypeToConfirm("m", "1 GB", "wwn.5000c500a1b2c3d4"); ok {
+	if ok, _ := ui.TypeToConfirm("/dev/sda", "m", "1 GB", "wwn.5000c500a1b2c3d4"); ok {
 		t.Error("a wrong tail was accepted")
 	}
-	// German: LÖSCHEN; a wrong word refuses.
-	ui, _ = newTestUI("LÖSCHEN\nloeschen\n")
+	// German: LÖSCHEN, and ERASE for a keyboard without Ö (the prompt
+	// says so); a wrong word refuses.
+	ui, out = newTestUI("LÖSCHEN\nERASE\nloeschen\n")
 	ui.Lang = LangDE
-	if ok, _ := ui.ConfirmErase(); !ok {
+	if ok, _ := ui.ConfirmErase(disks); !ok {
 		t.Error("LÖSCHEN refused")
 	}
-	if ok, _ := ui.ConfirmErase(); ok {
+	if !strings.Contains(out.String(), "LÖSCHEN (oder ERASE)") || !strings.Contains(out.String(), "GELÖSCHT") {
+		t.Errorf("the German erase prompt:\n%s", out.String())
+	}
+	if ok, _ := ui.ConfirmErase(disks); !ok {
+		t.Error("ERASE refused in German")
+	}
+	if ok, _ := ui.ConfirmErase(disks); ok {
 		t.Error("a wrong erase word was accepted")
+	}
+	// Without a disk to name, nothing is confirmed (and nothing is asked).
+	ui, out = newTestUI("ERASE\n")
+	if ok, _ := ui.ConfirmErase(nil); ok || out.Len() != 0 {
+		t.Errorf("an erase without disks was confirmed:\n%s", out.String())
 	}
 	// End of input aborts.
 	ui, _ = newTestUI("")
-	if _, err := ui.TypeToConfirm("m", "1 GB", "serial.X1"); !errors.Is(err, ErrAborted) {
+	if _, err := ui.TypeToConfirm("/dev/sda", "m", "1 GB", "serial.X1"); !errors.Is(err, ErrAborted) {
 		t.Errorf("end of input: %v", err)
 	}
 }

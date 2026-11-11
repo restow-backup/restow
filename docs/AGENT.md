@@ -203,13 +203,13 @@ er wird beim Mandanten auditiert und alarmiert. Je Sitzung 600 Aufrufe in 10 Min
 | --- | --- |
 | `POST /sessions` | `{ codeProof, sessionSecretSha256, recoveryVersion, hardware }` ergibt 202 `{ sessionId, status: pending_approval/active, matchCode, expiresAt, endpoint, minRecoveryVersion }`. Derselbe Beweis mit demselben Hash innerhalb von 15 Minuten und vor `release` liefert dieselbe Sitzung. |
 | `GET /sessions/current` | `{ sessionId, status, expiresAt, cancelRequested, approved }`. |
-| `GET /sessions/current/credentials` | nur `active`: Repository-URL (`/agent/recovery/restic/<sessionId>/` an der Adresse des Codes) und Passwort, gewählter Snapshot, `layoutSha256`, Bare-Metal-Snapshots mit Prüfstand, `indexBytes`, `restoreSizes`; einmal und ein zweites Mal innerhalb von 5 Minuten, je auditiert. |
+| `GET /sessions/current/credentials` | nur `active`: Repository-URL (`/agent/recovery/restic/<sessionId>/` an der Adresse des Codes) und Passwort, gewählter Snapshot, `layoutSha256`, Bare-Metal-Snapshots mit Prüfstand, `indexBytes`, `restoreSizes`; einmal und ein zweites Mal innerhalb von 5 Minuten, je auditiert. `layoutSha256` gehört immer zum Snapshot des Codes, auch wenn er nicht mehr unter den 50 neuesten Sicherungen liegt (er steht dann zusätzlich am Ende von `snapshots`). Gibt es zu ihm keine Ganz-Rechner-Sicherung mit Layout mehr: 409 `baremetal-not-available` mit `reason: "snapshot_unknown"` und `snapshotId`, ohne Passwort, und die Abholung zählt nicht. |
 | `GET /sessions/current/ssh-keys` | öffentliche Schlüssel, die der Admin hinterlegt hat. |
 | `POST /sessions/current/progress` | Phase und Zähler, optional SSH-Hostschlüssel (204). |
 | `POST /sessions/current/log` | bis zu 200 Zeilen; ohne ANSI- und Steuerzeichen, geschwärzt, höchstens 2 MiB je Sitzung (202 `{ accepted, dropped }`). |
 | `POST /sessions/current/event` | `remote_access_enabled` oder `keyfile_regenerated` für das Audit (204). |
 | `POST /sessions/current/release` | Ende des Repository-Zugangs: `finishing`, danach antworten Zugangsdaten und restic-Route 401. |
-| `POST /sessions/current/finish` | `{ status: succeeded/failed/cancelled, verification, warnings, durationSeconds }`, endgültig. |
+| `POST /sessions/current/finish` | `{ status: succeeded/failed/cancelled, verification, warnings, durationSeconds }`, endgültig. Antwort `{ status }` mit dem gespeicherten Zustand. `succeeded` ist eine Behauptung des ISO: Der Server speichert sie nur, wenn der mitgeschickte Bericht sie trägt (lesbar als `restow-verify-v1`, keine fehlgeschlagene Prüfung, alle zehn Prüfungen, Snapshot eine Ganz-Rechner-Sicherung dieses Rechners); sonst endet die Sitzung als `failed`, und die Antwort lautet `{ status: "failed", reported: "succeeded", reason }` mit `reason` `success_report_missing`, `success_checks_failed`, `success_checks_missing` oder `success_snapshot_unknown`. `recover` richtet sich nach dieser Antwort (Konsole, `RESTOW-RECOVER-RESULT`, kein Wiederanbinden). |
 | `POST /sessions/current/rebind` | ein Wiederanbindungs-Token desselben Rechners, nur nach `succeeded` und höchstens 15 Minuten danach; Antwort wie `POST /enroll` mit `rebound: true`. |
 
 Die restic-Route der Sitzung, `/agent/recovery/restic/:sessionId/...`, liest als Prinzipal `reader`
@@ -217,6 +217,14 @@ Die restic-Route der Sitzung, `/agent/recovery/restic/:sessionId/...`, liest als
 `principal: "recovery"`), nur während die Sitzung `active` ist; der Zustand ist höchstens 5 Sekunden
 zwischengespeichert, Abbruch und `release` wirken also nach höchstens 5 Sekunden. 120.000 Anfragen je
 Sitzung und 10 Minuten.
+
+Eine beendete Sitzung (`succeeded`, `failed`, `cancelled`) nimmt nichts mehr an: `progress`, `log`,
+`event`, `release` und `finish` antworten 409 `recovery-state-conflict` mit dem Zustand in `status`;
+der erste abgewiesene Aufruf einer Sitzung wird auditiert (`endpoint.recovery.report_refused`).
+`GET /sessions/current` antwortet weiter bis `expiresAt`, `rebind` 15 Minuten nach einem Erfolg.
+`recover` sendet nach der Antwort auf `finish` (oder nach dem ersten solchen 409) keine Meldung
+mehr und zeigt dazu nichts an; für das ISO ist das der erwartete Schluss, kein Fehler
+(docs/BAREMETAL.md 9.8).
 
 ### Rechner und Datenordner
 
@@ -569,7 +577,9 @@ Firmwareliste) und der Quellcode jedes Pakets (`…_sources.tar`, ab 2 GiB in Te
   Wahrheitswerten, Hinweise für danach mit Parametern, angepasste Dateien, nicht angepasste
   Kernel; höchstens 64 KiB) und `warnings[]` mit Codes aus
   `agent/internal/baremetal/testdata/plan-codes.json` und
-  `agent/internal/recovery/testdata/recover-codes.json`. Der Server speichert den Bericht
+  `agent/internal/recovery/testdata/recover-codes.json`. Der Server hält ein gemeldetes
+  `succeeded` gegen diesen Bericht und speichert ohne tragenden Bericht `failed` mit einem eigenen
+  Code (`success_*`, siehe die Tabelle der Aufrufe oben). Der Server speichert den Bericht
   geschwärzt; `GET .../recoveries/:id` gibt ihn nur aus, wenn er dem Format entspricht, sonst
   `null` (nie den Rohwert). Die Oberfläche übersetzt Warnungen und Hinweise je Code und zeigt die
   Meldung des ISO darunter als "vom ISO gemeldet".
@@ -1365,7 +1375,7 @@ hier.
 | `endpoint-removal-never-expires` | 409 | Bis zum Ablauf behalten, aber die Aufbewahrung des Rechners behält alles. |
 | `endpoint-restore-path-locked` | 422 / 403 | Ein ausgewählter Pfad wird nicht herausgegeben (seit 0.5.0): 422 mit `reason: "agent_state"` für die Zustandsdatei des Agenten (für alle), 403 mit `reason: "key_file"` für eine LUKS-Schlüsseldatei des Layouts und die Rolle `tenant_restore`; `path` nennt ihn. |
 | `baremetal-preview-off` | 409 | `wholeMachine` an einem Job einschalten, während `RESTOW_BAREMETAL_PREVIEW` aus ist. |
-| `baremetal-not-available` | 409 | Kein Wiederherstellungscode für diesen Rechner; `reason`: `not_linux`, `removed`, `no_layout`, `unsupported`, `iso_unverified`, `preview_off`, `snapshot_unknown`. |
+| `baremetal-not-available` | 409 | Kein Wiederherstellungscode für diesen Rechner; `reason`: `not_linux`, `removed`, `no_layout`, `unsupported`, `iso_unverified`, `preview_off`, `snapshot_unknown`. Auch (ISO) die Zugangsdaten einer Sitzung, wenn die Sicherung, für die der Code ausgestellt wurde, keine Ganz-Rechner-Sicherung mit Layout mehr ist (`snapshot_unknown`, mit `snapshotId`); es braucht dann einen neuen Code. |
 | `recovery-limit-reached` | 409 | Drei Codes des Rechners sind schon offen. |
 | `recovery-code-invalid` | 401 | (ISO) Kein Code passt zum Beweis: falscher Code oder eine andere Adresse. |
 | `recovery-code-expired` | 410 | (ISO) Der Code ist abgelaufen. |
@@ -1375,7 +1385,7 @@ hier.
 | `recovery-session-ended` | 401 | Die Sitzung ist beendet, freigegeben (`release`), abgebrochen oder abgelaufen; auch die Antwort auf eine Freigabe nach den 30 Minuten. |
 | `recovery-not-approved` | 409 | (ISO) Die Sitzung wartet auf die Freigabe. |
 | `recovery-credentials-collected` | 409 | (ISO) Die Zugangsdaten wurden schon zweimal oder vor mehr als 5 Minuten abgeholt. |
-| `recovery-state-conflict` | 409 | Freigeben, ablehnen, verlängern, abschließen oder wiederanbinden in einem Zustand, der das nicht erlaubt (`status`). |
+| `recovery-state-conflict` | 409 | Freigeben, ablehnen, verlängern, abschließen oder wiederanbinden in einem Zustand, der das nicht erlaubt (`status`). Auch (ISO) jede Meldung an eine beendete Sitzung: `progress`, `log`, `event`, `release`, `finish`. |
 | `endpoint-recovery-active` | 409 | Entfernen, während eine Recovery-Sitzung die Sicherungen liest. |
 | `endpoint-rebind-os-mismatch` | 422 | Ein Wiederanbindungs-Token wurde von einem anderen Betriebssystem eingelöst; das Token bleibt gültig. |
 | `unsupported-os` | 422 | Betriebssystem nicht unterstützt: ein unbekanntes System oder Windows on ARM (Windows nur amd64). |

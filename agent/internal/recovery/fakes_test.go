@@ -390,6 +390,17 @@ type fakeSessionAPI struct {
 	logs     []string
 }
 
+// messages are the messages of the progress reports, in order.
+func (s *fakeSessionAPI) messages() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []string
+	for _, p := range s.progress {
+		out = append(out, p.Message)
+	}
+	return out
+}
+
 func (s *fakeSessionAPI) note(x string) {
 	s.mu.Lock()
 	s.order = append(s.order, x)
@@ -436,7 +447,9 @@ type fakeRestic struct {
 	files map[string]string
 	block chan struct{}
 	items []restic.ItemError
-	calls [][]string
+	// unlisted counts item errors beyond the ones restic lists.
+	unlisted int
+	calls    [][]string
 }
 
 func (r *fakeRestic) Restore(ctx context.Context, args []string, onProgress func(restic.Progress)) (*RestoreOutcome, error) {
@@ -455,10 +468,10 @@ func (r *fakeRestic) Restore(ctx context.Context, args []string, onProgress func
 	if onProgress != nil {
 		onProgress(restic.Progress{FilesDone: uint64(len(r.files)), TotalFiles: uint64(len(r.files))})
 	}
-	out := &RestoreOutcome{Items: r.items, ItemCount: len(r.items)}
-	if len(r.items) > 0 {
+	out := &RestoreOutcome{Items: r.items, ItemCount: len(r.items) + r.unlisted}
+	if out.ItemCount > 0 {
 		out.ExitCode = 1
-		out.FatalError = fmt.Sprintf("There were %d errors", len(r.items))
+		out.FatalError = fmt.Sprintf("There were %d errors", out.ItemCount)
 	}
 	return out, nil
 }

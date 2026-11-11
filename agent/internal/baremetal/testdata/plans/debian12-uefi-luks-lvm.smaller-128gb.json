@@ -158,9 +158,9 @@
   "problems": [
     {
       "code": "shrink_needs_confirmation",
-      "message": "Disk vg srv01-vg does not fit on srv01-vg without shrinking more than the grow volume; confirm the proposal.",
+      "message": "Disk d0 fits on t0 only if more volumes shrink than the one that may grow; the proposal is not confirmed.",
       "params": {
-        "disk": "vg srv01-vg",
+        "disk": "d0",
         "proposal": [
           {
             "fromBytes": 53687091200,
@@ -168,7 +168,8 @@
             "toBytes": 16114515968
           }
         ],
-        "target": "srv01-vg"
+        "target": "t0",
+        "vg": "srv01-vg"
       },
       "ref": "srv01-vg",
       "severity": "problem"

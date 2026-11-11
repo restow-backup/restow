@@ -39,7 +39,8 @@ func discoverTree(t *testing.T) baremetal.Host {
 		"sys/fs/btrfs/f5/devices/sdb1":      "",
 	}
 	for p, c := range files {
-		full := filepath.Join(root, filepath.FromSlash(p))
+		// Names as a fixture tree stores them (sysfs has names with a colon).
+		full := baremetal.FixturePath(root, p)
 		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 			t.Fatal(err)
 		}

@@ -33,7 +33,13 @@ type fsBackend interface {
 	Watch(ctx context.Context, created []fssnap.Created, cancel context.CancelCauseFunc) *fssnap.Pressure
 	WriteSpec(spec fssnap.Spec) (string, func(), error)
 	Measure(ctx context.Context, spec fssnap.Spec, req fssnap.MeasureRequest) (fssnap.MeasureResponse, error)
-	AgentBin() string
+	// HelperCommand is how restic starts through the snapshot helper: the
+	// helper's command line for the spec file, and whether the helper must
+	// start in a mount namespace of its own. The real helper always must
+	// (it mounts the snapshot tree, and nothing of that may reach the
+	// machine); a new mount namespace needs CAP_SYS_ADMIN, which is why
+	// Probe refuses the helper unless the agent runs as root.
+	HelperCommand(specFile string) (argv []string, mountNS bool)
 	CleanupStale(ctx context.Context, activeRun string) fssnap.StaleReport
 }
 
@@ -305,8 +311,7 @@ func (fr *fsRun) useSpec(spec fssnap.Spec, opts *restic.BackupOptions, rc *runCo
 		return err
 	}
 	fr.spec, fr.cleanup = &spec, cleanup
-	opts.Exec = fssnap.HelperArgv(fr.b.AgentBin(), file, []string{})
-	opts.ExecNewMountNS = true
+	opts.Exec, opts.ExecNewMountNS = fr.b.HelperCommand(file)
 	rc.measure = func(ctx context.Context, req fssnap.MeasureRequest) (fssnap.MeasureResponse, error) {
 		return fr.b.Measure(ctx, spec, req)
 	}

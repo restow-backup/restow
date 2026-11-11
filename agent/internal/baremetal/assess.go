@@ -107,7 +107,7 @@ var assessMessages = map[string]string{
 	CodeSecureBootOwnKeys:       "Secure Boot with a boot chain or kernel signed by own keys",
 	CodeDKMSMok:                 "DKMS modules signed with a machine owner key",
 	CodeBIOSNeedsCSM:            "BIOS boot: replacement hardware needs CSM or legacy boot",
-	CodeDualBootWindows:         "Windows in dual boot is not restored",
+	CodeDualBootWindows:         "another operating system in dual boot is not restored",
 	CodeLVMDeviceIDs:            "LVM devices file or filter with device names is adjusted on restore",
 	CodeDeviceNameRefs:          "kernel device names in configuration files",
 	CodeMDDegraded:              "md array %s was degraded when the layout was captured",

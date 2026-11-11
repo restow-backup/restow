@@ -379,12 +379,13 @@ func IdentityTail(identity string) string {
 	return string(r[len(r)-4:])
 }
 
-// TypeToConfirm asks for the last four characters of a disk's identity;
-// three wrong entries abort.
-func (u *UI) TypeToConfirm(model, size, identity string) (bool, error) {
+// TypeToConfirm asks for the last four characters of the identity of a
+// disk that will be erased (the prompt names the disk by path, model, size
+// and identity and says that it is erased); three wrong entries abort.
+func (u *UI) TypeToConfirm(path, model, size, identity string) (bool, error) {
 	want := strings.ToLower(IdentityTail(identity))
 	for try := 0; try < 3; try++ {
-		in, err := u.Input(u.Text("ui.confirm_tail", "model", model, "size", size, "identity", identity), "")
+		in, err := u.Input(u.Text("ui.confirm_tail", "path", path, "model", model, "size", size, "identity", identity), "")
 		if err != nil {
 			return false, err
 		}
@@ -396,9 +397,18 @@ func (u *UI) TypeToConfirm(model, size, identity string) (bool, error) {
 	return false, nil
 }
 
-// ConfirmErase asks for the erase word (LÖSCHEN or ERASE; both are
-// accepted in either language, case matters).
-func (u *UI) ConfirmErase() (bool, error) {
+// ConfirmErase lists the disks that will be erased (one line each, in the
+// console's language) and asks for the erase word right below them
+// (LÖSCHEN or ERASE; both are accepted in either language, case matters).
+// Without a disk to name it confirms nothing.
+func (u *UI) ConfirmErase(disks []string) (bool, error) {
+	if len(disks) == 0 {
+		return false, nil
+	}
+	u.Say("confirm.title")
+	for _, d := range disks {
+		u.Line("  " + d)
+	}
 	word := u.Text("ui.erase_word")
 	in, err := u.Input(u.Text("ui.confirm_erase", "word", word), "")
 	if err != nil {

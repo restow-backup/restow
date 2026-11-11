@@ -31,6 +31,15 @@ func refuse(code string, err error) *planError { return &planError{code: code, e
 
 var reSnapshotID = regexp.MustCompile(`^[0-9a-f]{8,64}$`)
 
+// plannerLimits limits the process before the planner reads its input
+// (baremetal.SetPlannerLimits: data segment, CPU time, heap goal). The
+// limits hold for the rest of the process and cannot be raised again, so
+// only the command's own process may get them: the tests of this package
+// run the command inside the test binary and replace this (a test binary
+// limited to 512 MiB of data and 30 s of CPU dies later in tests that
+// have nothing to do with the planner, first under the race detector).
+var plannerLimits = baremetal.SetPlannerLimits
+
 // cmdBaremetalPlan is `restow-agent baremetal plan` (contract C-M2-1): the
 // pure restore planner. It reads only its arguments (and stdin), starts no
 // process and, on Linux, limits itself (data segment 512 MiB, CPU 30 s).
@@ -62,7 +71,7 @@ func cmdBaremetalPlan(args []string, stdin io.Reader, stdout, stderr io.Writer) 
 		fmt.Fprintln(stderr, "restow-agent baremetal plan: only --manifest and --facts can read standard input")
 		return exitUsage
 	}
-	if err := baremetal.SetPlannerLimits(); err != nil {
+	if err := plannerLimits(); err != nil {
 		fmt.Fprintf(stderr, "restow-agent baremetal plan: limits: %v\n", err)
 	}
 	plan, perr := runPlan(*manifestArg, *factsArg, *targetArg, *choicesArg, *snapshot, stdin)

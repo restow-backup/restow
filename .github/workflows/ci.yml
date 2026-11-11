@@ -679,6 +679,14 @@ jobs:
             cd recovery
             sudo -E env RESTOW_AGENT_ROOT=1 "PATH=$PATH" "$RUNNER_TEMP/recovery.test" -test.v -test.count=1 -test.timeout=20m
           fi
+          # The backup through the snapshot helper in its own mount namespace: only root
+          # may make one, so the unit tests of internal/core do not rely on it.
+          if grep -rqs --include='*_test.go' 'agentroot' ../core; then
+            cd ..
+            go test -c -tags agentroot -o "$RUNNER_TEMP/core.test" ./core
+            cd core
+            sudo -E env RESTOW_AGENT_ROOT=1 "PATH=$PATH" "$RUNNER_TEMP/core.test" -test.v -test.count=1 -test.timeout=10m -test.run '^TestRoot'
+          fi
 
   agent-windows:
     name: Go agent on Windows (vet, unit tests)

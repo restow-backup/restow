@@ -87,7 +87,7 @@ func newAttended(t *testing.T) *attended {
 	f.snapshotID, f.layoutSHA = snap, sha256Hex(string(raw))
 	exe := newFakeExec()
 	env := &testEnv{t: t, hw: hardwareFor(m), repo: repo, resticB: bin, target: t.TempDir(), exec: exe, realTLS: true,
-		iso: &fakeIsolator{exec: exe, reply: func(IsolateSpec) string { return "kernel/drivers/nvme/host/nvme.ko\n" }}, ops: &fakeOps{exec: exe, mounted: map[string]bool{}}}
+		iso: &fakeIsolator{exec: exe, reply: initramfsListing}, ops: &fakeOps{exec: exe, mounted: map[string]bool{}}}
 	return &attended{t: t, f: f, env: env, exe: exe, raw: raw, approve: true}
 }
 
@@ -197,7 +197,9 @@ var passLines = []string{"", "", testPassphrase, testPassphrase}
 func TestRecoverFullFlowAttended(t *testing.T) {
 	a := newAttended(t)
 	script := append(a.upToCode(spkiOf(t, a.f)), passLines...)
-	script = append(script, "ERASE")
+	// The disk to erase is confirmed by itself (the last four characters
+	// of its identity), then the erase word.
+	script = append(script, "get0", "ERASE")
 	a.run(script, "", "2")
 	if a.err != nil {
 		t.Fatalf("run: %v\n%s\n%s", a.err, a.out.String(), a.exe.lines())
@@ -233,6 +235,60 @@ func TestRecoverFullFlowAttended(t *testing.T) {
 	if !strings.Contains(a.out.String(), "RESTOW-RECOVER-RESULT succeeded") {
 		t.Error("no result line")
 	}
+	// What overwrites the disks and which disks: the snapshot with its
+	// point in time and check state before the plan and again at the
+	// erase, every disk by path, model, size and identity above the word.
+	console := a.out.String()
+	id := shortID(a.f.snapshotID)
+	chosen := T(LangEN, "snapshot.chosen", "id", id, "time", "2026-11-04 22:00", "check", "passed")
+	again := T(LangEN, "confirm.snapshot", "id", id, "time", "2026-11-04 22:00", "check", "passed")
+	disk := T(LangEN, "confirm.disk", "path", "/dev/nvme0n1", "model", "", "size", FormatBytes(a.env.hw.Blocks[0].SizeBytes), "identity", "serial.restow-e2e-target0")
+	word := T(LangEN, "ui.confirm_erase", "word", "ERASE")
+	at := func(s string) int { return strings.Index(console, s) }
+	if at(chosen) < 0 || at(again) < 0 || at(disk) < 0 || at(word) < 0 ||
+		!(at(chosen) < at(T(LangEN, "plan.title")) && at(T(LangEN, "plan.title")) < at(again) && at(again) < at(disk) && at(disk) < at(word)) {
+		t.Errorf("the snapshot and the disks are not shown before the erase (%d %d %d %d):\n%s", at(chosen), at(again), at(disk), at(word), console)
+	}
+	if strings.Contains(console, T(LangEN, "snapshot.not_passed", "check", "passed")) {
+		t.Error("a warning about the check of a snapshot that passed")
+	}
+	// The session has ended with the finish: nothing was sent after it
+	// (the instance would refuse and audit it), and nothing about it is
+	// on the console.
+	a.f.mu.Lock()
+	refused := append([]string(nil), a.f.refused...)
+	a.f.mu.Unlock()
+	if len(refused) != 0 {
+		t.Errorf("reports after the end of the session: %v", refused)
+	}
+	for _, noise := range []string{"log:", "finish:", T(LangEN, "report.log", "reason", ""), T(LangEN, "report.finish", "reason", ""), "recovery-state-conflict", "HTTP 409"} {
+		if strings.Contains(console, noise) {
+			t.Errorf("the console shows %q after the end:\n%s", noise, console)
+		}
+	}
+}
+
+// TestRecoverAttendedEraseNeedsEveryDisk: the erase word alone erases
+// nothing: the disk, which carries no signature, is asked by itself first.
+func TestRecoverAttendedEraseNeedsEveryDisk(t *testing.T) {
+	a := newAttended(t)
+	a.f.check = "failed"
+	script := append(a.upToCode(spkiOf(t, a.f)), passLines...)
+	script = append(script, "ERASE", "ERASE", "ERASE", "ERASE")
+	a.run(script)
+	if a.res == nil || a.res.Status != api.RecoveryCancelled {
+		t.Fatalf("status %+v %v\n%s", a.res, a.err, a.out.String())
+	}
+	for _, never := range []string{"probe-write", "wipefs", "sfdisk", "luksFormat", "mkfs.", "restic restore"} {
+		if strings.Contains(a.exe.lines(), never) {
+			t.Errorf("%s ran although the disk was not confirmed", never)
+		}
+	}
+	// The snapshot's check did not pass: said before the plan and at the
+	// erase.
+	if n := strings.Count(a.out.String(), T(LangEN, "snapshot.not_passed", "check", "failed")); n != 2 {
+		t.Errorf("the warning about the failed check is shown %d times, want 2:\n%s", n, a.out.String())
+	}
 }
 
 // TestRecoverAttendedWrongEraseWord: another word than the erase word
@@ -240,7 +296,7 @@ func TestRecoverFullFlowAttended(t *testing.T) {
 func TestRecoverAttendedWrongEraseWord(t *testing.T) {
 	a := newAttended(t)
 	script := append(a.upToCode(spkiOf(t, a.f)), passLines...)
-	script = append(script, "erase")
+	script = append(script, "get0", "erase")
 	a.run(script)
 	if a.res == nil || a.res.Status != api.RecoveryCancelled {
 		t.Fatalf("status %+v %v\n%s", a.res, a.err, a.out.String())

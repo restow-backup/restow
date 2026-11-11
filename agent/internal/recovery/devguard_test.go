@@ -222,8 +222,8 @@ func TestDiskGuardCheck(t *testing.T) {
 		hw := twoDisks()
 		edit(&hw)
 		now = hw
-		if err := g.Check(context.Background()); !errors.Is(err, ErrDisksChanged) || !strings.Contains(err.Error()+"; ", want) || ProblemCode(err) != ProblemStepFailed {
-			t.Errorf("want %q: %v", want, err)
+		if err := g.Check(context.Background()); !errors.Is(err, ErrDisksChanged) || !strings.Contains(err.Error()+"; ", want) || ProblemCode(err) != ProblemDisksChanged {
+			t.Errorf("want %q with the code %s: %v (%s)", want, ProblemDisksChanged, err, ProblemCode(err))
 		}
 	}
 	// The held descriptor reports another device behind the path.

@@ -1466,6 +1466,19 @@ es bis 5 Minuten nach der ersten Abholung eine zweite (auditiert), nie nach `rel
 `restoreSizes` sind die in Stufe 1 berechneten Restore-Größen je Einhängepunkt des gewählten
 Snapshots, falls vorhanden (Abschnitt 10.9).
 
+`layoutSha256` und `restoreSizes` gehören immer zum Snapshot des Codes. Der Server sucht ihn
+gezielt über seine Snapshot-ID und nicht nur unter den 50 neuesten Sicherungen: Ein Code bindet
+seinen Snapshot bis zu 48 Stunden, und ein Rechner mit halbstündlichem Zeitplan macht in dieser
+Zeit 96 Sicherungen. Liegt der Snapshot nicht unter den 50 neuesten, steht er zusätzlich am Ende
+von `snapshots` (dann 51 Einträge). Hat der Rechner zu diesem Snapshot keine
+Ganz-Rechner-Sicherung mit Layout mehr, antwortet der Aufruf 409 `baremetal-not-available` mit
+`reason: "snapshot_unknown"` und `snapshotId`; das Repository-Passwort wird nicht herausgegeben,
+und die Abholung zählt nicht. Der Admin stellt dann einen neuen Code aus. `recover` liest
+`reason` aus der Antwort und sagt das an der Konsole mit einem eigenen Text ("Die Sicherung, für
+die dieser Wiederherstellungscode ausgestellt wurde, gibt es nicht mehr ..."), statt die
+englische Fehlermeldung des Servers zu zeigen; es stellt keinen anderen Snapshot wieder her und
+ändert nichts.
+
 Beim Freigeben (bzw. beim Tausch, wenn keine Freigabe verlangt ist) nimmt der Server kurz
 die geteilte Wartungssperre des Repositorys (`repository-lock.ts`), damit kein Prune gerade
 läuft; siehe 9.7.
@@ -1522,7 +1535,7 @@ Mit Basic `<sessionId>:<sessionSecret>`:
 | `POST /agent/v1/recovery/sessions/current/log` | bis zu 200 Zeilen je Aufruf, gesamt höchstens 2 MiB, ANSI- und Steuerzeichen vor dem Speichern entfernt, geschwärzt gespeichert (`run-redact.ts`) |
 | `POST /agent/v1/recovery/sessions/current/event` | `{ kind: "remote_access_enabled" \| "keyfile_regenerated", detail }` für die Audit-Ereignisse aus dem ISO |
 | `POST /agent/v1/recovery/sessions/current/release` | Ende des Repository-Zugangs (Abschnitt 10.13): Zustand `finishing`, restic-Route und `credentials` antworten ab jetzt 401, nur `progress`, `log`, `event`, `finish` bleiben |
-| `POST /agent/v1/recovery/sessions/current/finish` | `{ status: succeeded/failed/cancelled, verification, warnings, durationSeconds }`, Zustand endgültig, Audit `endpoint.recovery.finished` |
+| `POST /agent/v1/recovery/sessions/current/finish` | `{ status: succeeded/failed/cancelled, verification, warnings, durationSeconds }`, Zustand endgültig, Audit `endpoint.recovery.finished`. `succeeded` ist eine Behauptung des ISO: Der Server speichert sie nur, wenn der mitgeschickte Bericht sie trägt (siehe unten); sonst endet die Sitzung als `failed`, und die Antwort lautet `{ status: "failed", reported: "succeeded", reason }` |
 | `POST /agent/v1/recovery/sessions/current/rebind` | Wiederanbinden im ISO (Abschnitt 10.19), nur nach `finish` mit `succeeded`, höchstens 15 Minuten danach |
 
 Phasen: `connected`, `waiting_approval`, `planning`, `confirmed`, `partitioning`,
@@ -1541,6 +1554,40 @@ der BEGIN- bis zur END-Zeile geschwärzt, auch über zwei Log-Aufrufe
 (`POST .../recoveries/:id/cancel`): Die restic-Route antwortet nach höchstens 5 Sekunden 401,
 `recover` sieht `cancelRequested` beim nächsten Abruf.
 
+**Erfolg nur mit Beleg.** Ein Abschluss mit `succeeded` gilt nur, wenn der Prüfbericht, so wie
+der Server ihn speichert (geschwärzt), (1) als `restow-verify-v1` lesbar ist, (2) weder das
+Ergebnis `failed` noch eine fehlgeschlagene Prüfung enthält, (3) alle zehn Prüfungen aus 10.17
+enthält und (4) einen Snapshot nennt, der eine Ganz-Rechner-Sicherung dieses Rechners ist.
+Andernfalls speichert der Server `failed`, stellt den Warnungen eine eigene voran
+(`success_report_missing`, `success_checks_failed`, `success_checks_missing` oder
+`success_snapshot_unknown`; die Nachricht nennt die betroffenen Prüfungen), schreibt `reported`,
+`reason` und `checks` in den Audit-Eintrag und löst `endpoint.recovery.failed` mit
+`reason: "not_verified"` aus. Das Wiederanbinden aus dem ISO (10.19) bleibt gesperrt. Diese vier
+Codes vergibt nur der Server; eine Warnung des ISO mit einem dieser Codes wird verworfen. Die
+Seite zeigt sie als Aussage des Servers, nicht unter "Das ISO meldet". Eine Prüfung, die das ISO
+als nicht gelaufen meldet (Warnung), gilt als vorhanden. `recover` wertet `status`, `reported`
+und `reason` der Antwort aus: Lautet sie `failed` zu einem gemeldeten `succeeded`, sagen die
+Konsole und `RESTOW-RECOVER-RESULT` `failed` mit dem Grund in der Sprache des Bedieners (ein
+Text je Code, für einen unbekannten Code der Code selbst), und das Wiederanbinden wird nicht
+angeboten (10.19).
+
+**Nach dem Ende.** Eine beendete Sitzung (`succeeded`, `failed`, `cancelled`) nimmt nichts mehr
+an: `progress`, `log`, `event`, `release` und `finish` antworten 409 `recovery-state-conflict`
+mit dem Zustand (Erweiterung `status` der Antwort). Maßgeblich ist der Zustand der Zeile im
+Moment des Schreibens, nicht der bei der Anmeldung. Der erste abgewiesene Aufruf einer Sitzung
+wird auditiert (`endpoint.recovery.report_refused`, mit `status` und `call`), jeder weitere
+nicht mehr; das entscheidet die Datenbank unter der Zeilensperre und gilt damit auch über
+mehrere Prozesse. `GET .../current` antwortet weiter bis `expiresAt`, damit das ISO einen Abbruch
+erfährt; `rebind` bleibt 15 Minuten nach einem Erfolg möglich. `release` auf einer beendeten
+Sitzung antwortet 409 statt 401. Für `recover` ist das der erwartete Schluss jeder
+Wiederherstellung und kein Fehler: Nach der Antwort auf `finish`, oder nach dem ersten 409, der
+einen Endzustand nennt, sendet es keine Meldung mehr (`Session.report`, `ErrSessionClosed`),
+wiederholt nichts und zeigt dazu nichts an; was danach noch protokolliert wird, bleibt im
+lokalen Protokoll. Hat die Instanz die Sitzung beendet, bevor `recover` fertig war (Abbruch in
+der Oberfläche), nennt die Konsole am Schluss den Zustand der Instanz, und das Wiederanbinden
+entfällt. Ein 409 mit einem Zustand, der kein Ende ist (etwa `release` vor der Freigabe), bleibt
+ein gewöhnlicher Fehler.
+
 ### 9.9 Zustände
 
 | Von | Nach | Auslöser | Audit |
@@ -1554,13 +1601,14 @@ der BEGIN- bis zur END-Zeile geschwärzt, auch über zwei Log-Aufrufe
 | `pending_approval` | `failed` | 30 Minuten ohne Freigabe, oder der Code lief vorher ab | `endpoint.recovery.expired` |
 | `pending_approval` | `cancelled` | Entfernen des Rechners | `endpoint.recovery.cancelled` |
 | `active` | `finishing` | `release` | `endpoint.recovery.released` |
-| `active`, `finishing` | `succeeded`, `failed`, `cancelled` | `finish` | `endpoint.recovery.finished` |
+| `active`, `finishing` | `succeeded`, `failed`, `cancelled` | `finish`; ein gemeldetes `succeeded` ohne tragenden Prüfbericht wird `failed` | `endpoint.recovery.finished` |
 | `active`, `finishing` | `cancelled` | Abbrechen in der Oberfläche | `endpoint.recovery.cancelled` |
 | `active`, `finishing` | `failed` | Monitor (keine Meldung) | `endpoint.recovery.expired` |
+| `succeeded`, `failed`, `cancelled` | unverändert | Schreibaufruf des ISO nach dem Ende | `endpoint.recovery.report_refused` (höchstens einmal je Sitzung) |
 
 Ein Postgres-Test (`recovery.pg.test.ts`) geht jeden Übergang durch und verlangt genau einen
-Audit-Eintrag je Übergang und keinen ohne Übergang. `extend` ändert den Zustand nicht und
-schreibt `endpoint.recovery_code.extended`.
+Audit-Eintrag je Übergang und keinen ohne Übergang, mit der einen Ausnahme der letzten Zeile.
+`extend` ändert den Zustand nicht und schreibt `endpoint.recovery_code.extended`.
 
 ## 10. `restow-agent recover`
 
@@ -1602,7 +1650,14 @@ Konsolen alle 5 s eine neue Zeile).
 ### 10.2 Start, Tastatur, Konsole, Fernzugang
 
 1. Tastaturbelegung (Vorgabe aus `restow.keymap`), Sprache der Texte `de`/`en` (aus der
-   Belegung abgeleitet, änderbar).
+   Belegung abgeleitet, änderbar). Alles, was der Bediener liest, kommt aus dem Katalog
+   (`text_en.go`, `text_de.go`): Dialoge, die Befunde des Plans, die Schritte der Ausführung
+   (`step.<art>` mit dem Ziel des Schritts; die englische Begründung des Plans geht ins
+   Protokoll und an den Server), die Ergebnisse und Befunde der Prüfung (`find.<id>`, 10.17).
+   Deutsch spricht den Bediener mit "Sie" an; kein Text nennt ein Produkt eines anderen
+   Herstellers, wo es der Bediener nicht zum Handeln braucht (ein zweites Betriebssystem im
+   Dual-Boot heißt so, nicht nach seinem Hersteller). Tests halten das fest
+   (`TestTextCatalogues`, `TestTextRules`, `TestFindingTextsExist`, `TestStepTextsExist`).
 2. Menü jederzeit über `?`: Netzwerk, Uhrzeit, Shell (startet `/bin/bash` auf der Konsole;
    `exit` kehrt zurück), Fernzugang, Protokoll anzeigen, Neustart, Ausschalten.
 3. **Fernzugang (SSH)**, für Rechenzentren, in denen nur eine langsame BMC-Konsole
@@ -1675,7 +1730,12 @@ Konsolen alle 5 s eine neue Zeile).
 1. **Code** eingeben, `codeProof` bilden, eintauschen (9.3). Anzeige: Rechner (Anzeigename,
    Hostname, über `sanitizeForConsole`), Prüfzahl, "Warte auf Freigabe". Nach der Freigabe
    Zugangsdaten holen (9.5); Anzeige: Gültigkeit, Snapshot (Vorauswahl aus dem Code, Liste
-   der Bare-Metal-Snapshots mit Datum und Prüfstand, Abschnitt 12).
+   der Bare-Metal-Snapshots mit Datum und Prüfstand, Abschnitt 12). Der Snapshot, der
+   zurückgeholt wird, steht immer auf der Konsole, auch wenn es nichts zu wählen gab (ein
+   einziger Snapshot, unbeaufsichtigt): Kennung, Zeitpunkt (UTC) und Prüfstand in der Sprache
+   des Bedieners ("bestanden", "gescheitert", "unvollständig", "nicht geprüft"). Ist der
+   Prüfstand nicht "bestanden", folgt eine Warnung ("keine bestandene Prüfung; das System ist
+   womöglich unvollständig oder startet nicht"). Beides wiederholt die Bestätigung (Punkt 8).
 2. **Manifest** lesen: `restic dump --no-lock --no-cache <snapshot>
    /var/lib/restow-agent/baremetal/layout.json`, SHA-256 gegen `layoutSha256` des Servers
    (Abweichung: Abbruch mit "Manifest im Snapshot und auf dem Server verschieden", Audit
@@ -1689,23 +1749,43 @@ Konsolen alle 5 s eine neue Zeile).
 4. **Zielhardware** erfassen (10.6), Secure-Boot-Stand der Ziel-Firmware lesen (10.5).
 5. **Zuordnung** (10.7) mit Identitätskonflikten und Übernahme, **Treiber** (10.8),
    **Größen** (10.9), Optionen (Passphrase, Schlüsseldateien, Umbenennung der
-   Netzwerkschnittstellen, Rückfallpfad der ESP, `raw`-LVs).
+   Netzwerkschnittstellen, Rückfallpfad der ESP, `raw`-LVs). Zwei Fragen stellt `recover` an
+   der Konsole, bevor der Plan steht, beide mit der Vorgabe Nein und je einmal für alle
+   Befunde ihrer Art:
+   - **Schrumpfen** (`shrink_needs_confirmation`, 10.9): `recover` zeigt den Vorschlag, bevor
+     es fragt: die Volume-Gruppe bzw. die Platte der Sicherung, die Zielplatte mit Pfad, Modell
+     und Größe, und je Volume "LV vg/root: 50,0 GiB wird zu 15,0 GiB". Der Befund des Planers
+     nennt dafür bei einer Volume-Gruppe `vg`, die Platten der Sicherung, auf denen sie liegt
+     (`disk`), und die Zielplatten (`target`), nicht mehr die Volume-Gruppe an Stelle beider.
+   - **Secure Boot** (`secure_boot_ca_missing`, `_revoked`, `_sbat_revoked`, 10.5): Nach den
+     Befunden fragt `recover`, ob sie nur Warnungen sein sollen, und sagt dabei, dass es
+     Secure Boot nicht ausschalten kann und der Bediener es im Firmware-Setup selbst ausschalten
+     muss, sonst startet das System nicht. Kein Text behauptet, Secure Boot sei aus: weder die
+     Frage noch die Warnung im Plan noch der Hinweis nach der Wiederherstellung.
 6. **Plan** (`baremetal.Plan(m, target, facts, choices) (*RestorePlan, []Problem)`): Liste
    von Schritten mit Art, Ziel, Argumentliste und Begründung. Probleme (kein Ziel groß genug,
    Firmwaremodus passt nicht, Speichertreiber fehlt im gesicherten Kernel, Startkette von der
    Ziel-Firmware gesperrt, Identitätskonflikt, Format eines Dateisystems mit dem ISO nicht
    erzeugbar, Sektorgröße unvereinbar, Multipath, SED-gesperrte Platte) verhindern die
    Ausführung und werden mit Abhilfe genannt. Warnungen (NIC-Treiber fehlt, `raw`-LVs,
-   Windows im Dual-Boot, degradierter Erststart) stehen im Plan und im Bericht.
+   ein zweites Betriebssystem im Dual-Boot, degradierter Erststart) stehen im Plan und im
+   Bericht.
 7. Anzeige des Plans als Zusammenfassung ("Platte nvme0n1 (Samsung …, 1,0 TB, WWN …4f2a)
    erhält: GPT, 1 ESP 512 MiB, 2 /boot 1 GiB, 3 LUKS2 -> LVM vg0: root 50 GiB, swap 8 GiB,
    home 875 GiB (gewachsen)"; "Platten sdb, sdc, sdd (RAID5 md1, vg data): übernommen, nichts
    wird gelöscht") und auf Wunsch jeder Befehl (`p`). Alle Namen aus dem Manifest gehen durch
    `sanitizeForConsole`.
-8. **Bestätigung:** Für jede Zielplatte, die gelöscht wird und Daten trägt (Signaturen
-   gefunden), muss der Bediener die letzten vier Zeichen ihrer **Kennung** eintippen
-   (10.6: WWN/EUI-64/NGUID, sonst Seriennummer + Namensraum, sonst `by-path`), angezeigt mit
-   Modell und Größe; danach `LÖSCHEN` (bzw. `ERASE`). Unbeaufsichtigt nur mit
+8. **Bestätigung:** Zuerst steht noch einmal da, womit die Platten überschrieben werden
+   (Snapshot, Zeitpunkt, Prüfstand, Punkt 1). Dann muss der Bediener für **jede** Zielplatte,
+   die gelöscht wird, die letzten vier Zeichen ihrer **Kennung** eintippen (10.6:
+   WWN/EUI-64/NGUID, sonst Seriennummer + Namensraum, sonst `by-path`); die Frage nennt die
+   Platte mit Pfad, Modell, Größe und Kennung und sagt, dass sie gelöscht wird. Das gilt auch
+   für eine Platte ohne erkannte Signatur: Rohdaten und Formate, die `blkid` nicht kennt,
+   sehen leer aus und sind es nicht. Danach listet `recover` alle Platten, die gelöscht werden,
+   direkt über der letzten Frage noch einmal auf (Pfad, Modell, Größe, Kennung, "wird
+   gelöscht"; der Plan, der sie nannte, ist hinter den Dialogen zu Passphrase und Optionen
+   aus dem Bild gelaufen) und verlangt `LÖSCHEN` bzw. `ERASE`; der deutsche Text nennt beide
+   Wörter, weil sich Ö mit der US-Belegung schlecht tippen lässt. Unbeaufsichtigt nur mit
    `answers.confirmErase` und genau passenden Kennungen. Eine Kennung bestätigt eine Platte
    nur, wenn sie genau diese eine Platte bezeichnet (10.6); eine Platte ohne Kennung lässt
    sich nicht zum Löschen bestätigen.
@@ -2199,7 +2279,13 @@ schaltet `recover` sie erst **nach** dem Restore ein (`btrfs quota enable`, dann
   `progress`.
 - Fehler einzelner Dateien: gesammelt (wie `itemErrors`). Mehr als null Fehler bei
   Dateien unter `/boot`, `/usr`, `/etc`, `/lib*`, `/bin`, `/sbin` oder der ESP ist ein
-  Abbruch vor den Fixups ("System unvollständig"); sonst eine Warnung mit Liste.
+  Abbruch vor den Fixups ("System unvollständig"); sonst eine Warnung mit Liste. restic nennt
+  höchstens die ersten 100 Fehler mit Pfad und zählt den Rest nur. Ein Fehler ohne bekannten
+  Pfad lässt sich als Systemdatei nicht ausschließen und zählt darum als eine: Gibt es mehr
+  Fehler als genannte Pfade, bricht `recover` ebenso ab (`system_files_incomplete`), auch wenn
+  alle genannten außerhalb der Systempfade liegen. restic geht `/boot`, `/etc`, `/home`, `/usr`
+  in dieser Reihenfolge durch; eine volle Platte in `/home` füllt die Liste, bevor `/usr`
+  erreicht ist.
 
 ### 10.13 Ende des Repository-Zugangs, Schlüsseldateien, Fixups
 
@@ -2520,19 +2606,35 @@ Gleiche MAC (gleiche Hardware): nichts zu tun. Testfall in E2: netplan mit `maca
 3. `findmnt --verify --tab-file /mnt/restow-target/etc/fstab` ohne Fehler; jeder Eintrag
    ohne `noauto`/`nofail` zeigt auf ein Gerät, das es gibt.
 4. Jeder `crypttab`-Eintrag zeigt auf ein LUKS-Volume des Plans; jeder Plain-Eintrag
-   (`swap`, `tmp`, `plain`) löst sich auf **genau** die geplante Partition auf, sonst
-   `failed`.
+   löst sich auf **genau** die geplante Partition auf, sonst `failed`. Plain ist ein Eintrag
+   mit der Option `swap`, `tmp` oder `plain`, mit einem Zufallsschlüssel (`/dev/urandom`,
+   `/dev/random`, `/dev/hw_random`) ohne die Option `luks`, oder mit einem Namen, den das
+   Manifest als Plain-dm-crypt führt: Ein solches Volume wird bei jedem Start ohne Header
+   geöffnet und neu formatiert, ein Gerätename als Quelle träfe auf neuer Hardware eine
+   andere Platte.
 5. Für den Standard-Kernel (und jeden weiteren, der neu gebaut wurde) gibt es ein
    initramfs bzw. eine UKI, neuer als der Start der Wiederherstellung, **vollständig
    lesbar** (Exitcode von `lsinitramfs`/`lsinitrd`/`lsinitcpio`), und es enthält jeden
    Treiber der Speicherkette der Zielplatten (10.8, die ganze Kette, nicht nur
    `device/driver`; eingebaute Treiber aus `modules.builtin` zählen als vorhanden) sowie
-   `cryptsetup`, `mdadm`, `lvm` bzw. `btrfs`, wenn der Stapel sie braucht, und die
-   LVM-Gerätedatei, wenn das System sie nutzt. Freier Platz auf `/boot` mindestens
-   10 Prozent.
+   `cryptsetup` (oder `systemd-cryptsetup`), `mdadm` und `lvm`, wenn der Stapel unter `/`
+   sie braucht. Freier Platz auf `/boot` mindestens 10 Prozent. Ein Abbild, das fehlt oder
+   **nicht neu gebaut** wurde (älter als der Start), ist `failed`, nicht nur eine Warnung: Es
+   kennt nur die alte Hardware. Startet das System eine UKI, gilt dasselbe für sie, wenn der
+   Plan sie neu baut; kann der Plan sie nicht neu bauen, ist eine alte UKI eine Warnung. Was
+   sich nicht ansehen ließ, ist eine Warnung und nie ein stilles `ok`: kein Standard-Kernel
+   oder kein initramfs im Manifest, kein Auflister. Zwei Belege sind keine Bedingung: ein
+   fehlendes `btrfs`-Programm bei einem Wurzeldateisystem auf mehreren Geräten ist eine
+   Warnung (udev kann die Geräte auch ohne es melden), und die LVM-Gerätedatei im Abbild steht
+   nur als Beleg im Bericht (ohne sie durchsucht LVM alle Geräte und findet die Gruppe auch).
 6. UEFI: Der neue `Boot####`-Eintrag steht in `BootOrder` und sein Loader liegt auf der ESP
    (Datei vorhanden, Authenticode-Hash gleich dem gesicherten); der Rückfallpfad ist
    vollständig (Loader, Nachbarn, `grub.cfg`-Stub bzw. `fbx64.efi` und `BOOTX64.CSV`).
+   Geprüft wird gegen den Plan, nicht nur gegen das Geschriebene: weniger Einträge als
+   `nvram`-Schritte ist `failed`; ein Loader, den das Manifest nicht führt, muss auf der ESP
+   liegen (sonst `failed`) und ist dann eine Warnung, weil nichts seinen Inhalt belegt; ein
+   geplanter und nicht abgewählter Rückfallpfad, der fehlt, ist `failed`. Ohne jeden Eintrag
+   startet das System nur über den Rückfallpfad (Warnung), ohne beides gar nicht (`failed`).
    BIOS: GRUB-Bootcode im MBR jeder Zielplatte (Kennung wie in `captureBootCode`),
    `core.img` in der BIOS-Boot-Partition bzw. hinter dem MBR, PMBR-Flag wie gesichert.
 7. GRUB-Konfiguration bzw. Loader-Einträge nennen nur UUIDs, die es gibt.
@@ -2543,7 +2645,14 @@ Gleiche MAC (gleiche Hardware): nichts zu tun. Testfall in E2: netplan mit `maca
     aktuellen Stand der Firmware; eine bereitgestellte MOK steht in `MokNew`.
 
 Jede Prüfung ist `ok`, `warning` oder `failed` mit Beleg. Ein `failed` heißt: kein Neustart
-angeboten, sondern die Shell und das Protokoll; der Bericht an den Server ist `failed`.
+angeboten, sondern die Shell und das Protokoll; der Bericht an den Server ist `failed`. Der
+Server verlässt sich darauf nicht: Meldet das ISO trotz einer fehlgeschlagenen oder fehlenden
+Prüfung `succeeded`, speichert er `failed` (9.8). Der Bericht trägt die Befunde auf Englisch
+(der Server und die Oberfläche zeigen sie so); die Konsole zeigt Ergebnis ("OK", "WARNUNG",
+"GESCHEITERT") und jeden Befund in der Sprache des Bedieners (`Check.Text`, Katalog
+`find.<id>`). Die Kennungen der zehn Prüfungen und das Format `restow-verify-v1` sind
+unverändert; neu sind nur Befunde und Belege (`rebuilt`, `uki`, `plannedEntries`, `plain`,
+`systemErrors`, `lvmDevicesFile`).
 Vor dem angebotenen Neustart: `sync` und `blockdev --flushbufs` je Zielplatte, alles
 aushängen, LUKS schließen.
 
@@ -2613,7 +2722,10 @@ Nach der Prüfung bietet `recover` an, den wiederhergestellten Rechner gleich wi
 Restow zu verbinden, mit einem **Wiederanbindungs-Token** (Abschnitt 11), das der Admin in
 einem eigenen Dialog ausgestellt hat. `recover` ruft `POST
 /agent/v1/recovery/sessions/current/rebind` (nur nach `finish` mit `succeeded`, höchstens
-15 Minuten danach) mit dem Token und den Daten des Zielsystems (Hostname aus `/etc/hostname`
+15 Minuten danach; das heißt: nach einem Erfolg, den der Server übernommen hat, darum wertet
+`recover` den `status` der Antwort auf `finish` aus und bietet das Wiederanbinden nach einem
+`failed` oder einer von der Instanz beendeten Sitzung nicht an, 9.8) mit dem Token und den
+Daten des Zielsystems (Hostname aus `/etc/hostname`
 im Ziel, `os`, `arch`, Agent-Version des Ziels, Hook-Regel aus dem Manifest `agent.hooks`)
 und schreibt die Antwort als `/mnt/restow-target/etc/restow-agent/state.json` (0600, root)
 über `state.Save` mit umgelenktem Pfad. Ohne Token startet der Agent im wiederhergestellten
@@ -3813,6 +3925,20 @@ Go, ohne Build-Tag, Tabellentests:
   Aufzeichnungen nimmt `restow-agent baremetal capture --raw-dir` in der CI auf den
   Loop-Geräte-Stapeln (21.2) und auf echten Maschinen und VMs auf (Abschnitt 21.4
   Punkt 1); die Maintainer-Aufzeichnungen ergänzen die aus der CI, ersetzen sie nicht.
+  **Ablage der Bäume (`root/`):** Ein Baum muss sich auf jedem System auschecken lassen, auch
+  unter Windows, das `:` und einige andere Zeichen in Dateinamen nicht kennt (sysfs hat
+  `pci0000:00`). Jeder Name liegt darum so auf der Platte, wie `baremetal.FixtureName` ihn
+  schreibt: `\ : < > " | ? *`, Steuerzeichen und `%` als `%XX`, ebenso ein Punkt oder
+  Leerzeichen am Ende und das erste Zeichen eines unter Windows reservierten Namens (`NUL`,
+  `COM1`); `pci0000:00` liegt als `pci0000%3A00` im Repository, alle anderen Namen bleiben
+  lesbar wie auf dem Rechner. `DirHost` liest diese Form und zeigt die Namen des Rechners
+  (`ReadDir`, `Glob`), so wie es Links schon als `<name>.link` liest. Ein Ordner, der sonst
+  leer wäre (ein Einhängepunkt), trägt die Datei `.restow-keep`, die `DirHost` nicht zeigt:
+  git führt keine leeren Ordner, und ohne den Einhängepunkt riefe die Erfassung ein Werkzeug
+  auf, das die Aufzeichnung nicht kennt. Wer einen Baum schreibt, nimmt
+  `baremetal.FixturePath`. Tests: `TestFixtureName`, `TestDirHostReadsFixtureNames`,
+  `TestCaptureFixturesAreSelfContained`; `TestEveryPathChecksOutOnWindows` (Paket `agent`)
+  scheitert, sobald unter `agent/` ein Name liegt, den Windows ablehnt.
 - Je neuem Manifest-Feld aus 4.1 ein Sammler-Test mit aufgezeichneter Ausgabe.
 - `tools.go`: Die `Runner`-Attrappe scheitert bei `--dump-volume-key`, `--dump-master-key`,
   `luksHeaderBackup`, `--showkeys`; ein Test ruft jeden Sammler auf und verlangt, dass das
@@ -3867,7 +3993,11 @@ Code-Erzeugung (Gleichverteilung grob, Alphabet), `canonicalOrigin`, Pfadabbildu
   Snapshots, Thin-Pool-Schwelle (Pool absichtlich füllen); dazu der Planer und die
   Ausführungsschritte bis einschließlich Restore auf Loop-Geräte (ohne Bootloader), die
   Halter-Freigabe (aktivierte md, VG, Swap auf der Zielplatte) und der Isolations-Test aus
-  10.14.
+  10.14; aus `internal/core` der Lauf von restic durch den Helfer in einem eigenen
+  Mount-Namensraum (`TestRootHelperGetsItsOwnMountNamespace`). Einen Mount-Namensraum darf nur
+  root anlegen (`CAP_SYS_ADMIN`); die Tests der Snapshot-Politik in `internal/core` ohne
+  Build-Tag verlangen ihn darum nur dort, wo der Testprozess ihn bekommt, und laufen als
+  gewöhnlicher Benutzer ohne ihn.
 - **Job `test`** (TS) lädt das Artefakt `agent-linux-amd64` aus dem Job `agent`
   (`needs: agent`); `RESTOW_PLANNER_BIN` zeigt darauf. Fehlt es, scheitert die Suite (kein
   Überspringen).
@@ -4614,6 +4744,14 @@ Karte und i18n im Web.
   auch bei 256 MiB). Verwendet wird `RLIMIT_DATA` 512 MiB (`prlimit --data=536870912`) und im
   Binary zusätzlich `debug.SetMemoryLimit(384 MiB)`; CPU 30 s und `nofile` 16 bleiben. Das
   begrenzt den Speicher trotzdem (1 GiB anzufordern endet mit einem Speicherfehler).
+  Die Grenzen gelten für das Leben eines Prozesses und lassen sich nicht wieder anheben. Die
+  Tests von `cmd/restow-agent` rufen `baremetal plan` im Testprozess auf und ersetzen darum den
+  Aufruf (`plannerLimits`); sonst trägt das Testbinary für alle weiteren Tests 512 MiB
+  Datensegment und 30 s CPU, und der Race-Detektor scheitert später an ganz anderer Stelle
+  ("ThreadSanitizer: failed to allocate", "pthread_create failed: Resource temporarily
+  unavailable"; so stand der Job `agent` seit M2 rot). `TestSetPlannerLimits` prüft die Grenzen
+  in einem Kindprozess, `TestPlanCommandLimitsItsOwnProcessOnly`, dass das Kommando sie
+  anfordert und der Testprozess seine behält.
 - **Fakten über stdin:** 12.2 sagt "stdin als einzige Eingabe (Manifest und Fakten)", 10.1 nennt
   `--facts <datei>`. Beide Schalter dürfen `-` sein; stdin trägt dann zwei JSON-Werte
   hintereinander (erst das Manifest, höchstens 512 KiB, dann die Fakten, höchstens 32 MiB).
@@ -5348,8 +5486,8 @@ Prüfung, jeder Hinweis mit genau seinen Platzhaltern); `check-separate-works.te
   `TestRecoverInterruptBeforeExecution`.
 - **Snapshot aus den Antworten (nach dem Review ergänzt):** Passte `answers.snapshotId` auf
   keinen Snapshot, nahm `recover` still den des Codes und löschte. Jetzt genau ein Treffer
-  oder Abbruch vor dem Plan (`failed`, Code `step_failed` mit dem Grund im Text; ein eigener
-  Code braucht die Listen des Servers und ist für Phase 2 notiert). Endet der Dialog der
+  oder Abbruch vor dem Plan (`failed`, mit dem eigenen Code `snapshot_id_unmatched`, siehe
+  "Eigene Codes" unten). Endet der Dialog der
   Snapshot-Wahl an der Konsole, wählt `recover` nichts an Stelle des Bedieners.
   Tests: `TestChooseSnapshotFromAnswers`, `TestRecoverAnswersSnapshotMustExist`.
 - **Neustart nach Abbruch vor dem Marker, Fortsetzen nach einer Plattenwahl (nach dem Review
@@ -5390,6 +5528,59 @@ Prüfung, jeder Hinweis mit genau seinen Platzhaltern); `check-separate-works.te
   `agent-root` zeigt `TestRootWipePartitions` auf einem Loop-Gerät mit Partitionen, dass ein
   ext4 bei 40 MiB `wipefs` auf der Platte und das Nullen der Enden übersteht und mit dem
   neuen Schritt verschwindet.
+- **Abschluss und Meldungen serverseitig gehärtet (nach dem Review ergänzt):** Erfolg nur mit
+  tragendem Bericht (`successContradiction` in
+  `packages/core/src/endpoints/baremetal/verification.ts`, Snapshot-Abgleich in
+  `recovery-service.ts`), keine Schreibaufrufe nach dem Ende (409, ein Audit-Eintrag je
+  Sitzung), Layout des Code-Snapshots ohne 50er-Fenster (`baremetalSnapshot` in
+  `recovery-codes.ts`); 9.5, 9.8, 9.9. Offen: keine Obergrenze für `event`-Aufrufe einer
+  laufenden Sitzung; das Ausstellen wählt weiter nur unter den 50 neuesten Sicherungen. Die
+  Erweiterung `status` der 409-Antwort trägt den Zustand der Sitzung und steht damit an der
+  Stelle, an der RFC 9457 den HTTP-Status führt; `recover` liest dort nur einen Zustand.
+- **`recover` folgt der Antwort des Servers (nach dem Review ergänzt):** `Session.Finish` gibt
+  `status`, `reported` und `reason` zurück, die Erweiterungen `reason` und `status` einer
+  Problemantwort werden gelesen (nur als schlichte Codes, sonst verworfen), und nach dem Ende
+  sendet die Sitzung nichts mehr (9.8, "Nach dem Ende"). Vorher sagte die Konsole "abgeschlossen"
+  und bot das Wiederanbinden an, auch wenn der Server `failed` gespeichert hatte, und der letzte
+  Protokollversand nach `finish` endete als "log: HTTP 409" auf der Konsole. Tests:
+  `TestSessionFinishAnswerIsTheStoredState`, `TestSessionReportsNothingAfterTheEnd`,
+  `TestSessionProblemExtensions`, `TestRecoverServerRefusesTheSuccess`,
+  `TestRecoverIsQuietAfterTheEnd`, `TestRecoverSessionEndedOnTheInstance`,
+  `TestRecoverSnapshotOfTheCodeIsGone`.
+- **Eigene Codes (nach dem Review ergänzt):** `disks_changed` (die Platten sind nach der
+  Bestätigung nicht mehr die bestätigten, 10.6) und `snapshot_id_unmatched` (`snapshotId` der
+  Antworten passt auf keinen einzelnen Snapshot, 10.20) statt `step_failed`. Beide stehen in
+  `recover-codes.json`, in `RECOVER_PROBLEM_CODES` (`verification.ts`) und mit Texten in
+  `packages/i18n` (`recovery.reported`); die vorhandenen Tests beider Seiten halten die Listen
+  gleich.
+- **Ehrliches Ergebnis (nach dem Review ergänzt):** (a) Mehr Restore-Fehler, als restic mit
+  Pfad nennt, sind ein Abbruch vor den Fixups (10.12); vorher blieb es bei einer Warnung, wenn
+  die ersten 100 Fehler außerhalb der Systempfade lagen. (b) Prüfung 5: ein nicht neu gebautes
+  initramfs ist `failed` statt Warnung, eine UKI als Standard-Kernel wird geprüft statt
+  übergangen, die Werkzeuge des Stapels unter `/` müssen im Abbild sein (10.17). Anders als der
+  Entwurf: `btrfs` nur als Warnung, die LVM-Gerätedatei nur als Beleg (Gründe in 10.17).
+  (c) Prüfung 6: kein Eintrag und kein Rückfallpfad ist `failed`; ein Loader, den das Manifest
+  nicht führt, wird auf der ESP gesucht (vorher bestand jeder solche Eintrag ohne Blick auf
+  die Datei). (d) Prüfung 4: ein Eintrag mit Zufallsschlüssel ist Plain, auch ohne die Option
+  `swap`, `tmp` oder `plain` (vorher genügte es, dass der Gerätename im ISO existierte).
+  Tests: `TestExecuteUnlistedRestoreErrors`, `TestVerifyInitramfsNotRebuilt`,
+  `TestVerifyBootEntriesHonest`, `TestVerifyCrypttabRandomKey`.
+- **Texte und Fragen an der Konsole (nach dem Review ergänzt):** Schrumpf-Frage mit Vorschlag
+  und Vorgabe Nein, Secure-Boot-Frage ohne Behauptung, Snapshot mit Zeitpunkt und Prüfstand
+  vor dem Plan und vor dem Löschen, Liste der Platten über dem Löschwort und die Frage je
+  Platte auch ohne Signatur (10.4); Schritte, Ergebnisse und Befunde in der Sprache des
+  Bedieners (10.2, 10.17); "Sie" statt Infinitiv, kein fremder Produktname für das zweite
+  Betriebssystem im Dual-Boot (auch in der Meldung des Planers, in `Assess` und in den Texten
+  der Oberfläche). Der Code `dual_boot_windows_not_restored` behält seinen Namen: Er ist
+  Vertrag zwischen Agent und Server und kein Text. Namen von Bausteinen, mit denen der Bediener
+  arbeitet (GRUB, systemd-boot, LUKS, LVM, MokManager, SELinux), bleiben. Golden Files: der
+  Plan `smaller-128gb` (Parameter und Meldung des Schrumpf-Befunds), `sb-off` (Meldung der
+  Warnung), die drei Pläne und das Manifest von `dual-boot-windows` (Meldung; damit auch die
+  SHA-256 des Manifests). Tests: `TestShrinkPromptShowsTheProposalAndDefaultsToNo`,
+  `TestShrinkFindingNamesDisksAndProposal`, `TestSecureBootQuestionClaimsNothing`,
+  `TestSnapshotIsShownWithTimeAndCheck`, `TestConfirmListsAndAsksEveryDisk`,
+  `TestRecoverAttendedEraseNeedsEveryDisk`, `TestVerificationIsShownInTheOperatorsLanguage`,
+  `TestExecuteShowsStepsInTheOperatorsLanguage`, `TestTextRules`.
 
 ### 26.12 Zurückgestellt (M4)
 

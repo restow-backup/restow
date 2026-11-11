@@ -229,9 +229,15 @@ type RecoveryFinish struct {
 	DurationSeconds int64             `json:"durationSeconds"`
 }
 
-// RecoveryStatus is the answer of release and finish.
+// RecoveryStatus is the answer of release and finish. A finish that
+// reported succeeded without a verification report that bears it out is
+// stored as failed: Status is then failed, Reported what the ISO claimed
+// and Reason the server's code for why (success_report_missing,
+// success_checks_failed, success_checks_missing, success_snapshot_unknown).
 type RecoveryStatus struct {
-	Status string `json:"status"`
+	Status   string `json:"status"`
+	Reported string `json:"reported,omitempty"`
+	Reason   string `json:"reason,omitempty"`
 }
 
 // RecoveryRebindRequest is the body of POST .../current/rebind: a reconnect

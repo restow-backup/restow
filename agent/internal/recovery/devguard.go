@@ -136,7 +136,7 @@ func targetChanges(confirmed, now *baremetal.Target) []string {
 }
 
 func changed(what []string) error {
-	return &problemError{code: ProblemStepFailed, err: fmt.Errorf("%w: %s", ErrDisksChanged, strings.Join(what, "; "))}
+	return &problemError{code: ProblemDisksChanged, err: fmt.Errorf("%w: %s", ErrDisksChanged, strings.Join(what, "; "))}
 }
 
 // Arm runs after the last dialog and before the first step. rescan reads

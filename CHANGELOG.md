@@ -432,6 +432,55 @@ private repository.
   cannot exist (overlapping partitions, one behind the end of the disk, a logical partition
   without an extended one and the like) is refused by the plan with the reason instead of
   failing at `sfdisk` after the erase.
+  The result is honest: the server no longer takes the recovery ISO's word for a successful
+  bare metal recovery. A finish that reports `succeeded` is stored as such only when the
+  `restow-verify-v1` report it carries bears that out: it parses, none of its checks failed, all
+  ten checks are there, and it names a whole machine backup of the machine. Otherwise the
+  recovery is stored as failed with the reason (`success_report_missing`,
+  `success_checks_failed`, `success_checks_missing` or `success_snapshot_unknown`, shown on the
+  recovery page and kept in the audit entry), the alert "recovery failed" is raised, the answer
+  to the ISO says `status: failed` with `reported` and `reason`, and rebinding from the ISO stays
+  locked. The ISO follows that answer: its console and its result line say failed with the
+  reason in the operator's language, and it does not offer to connect the machine again. A
+  recovery session that has ended (succeeded, failed or cancelled) takes nothing more from the
+  ISO: progress, log, event, release and finish answer 409 `recovery-state-conflict`. Before, the
+  session secret could rewrite the progress of a finished session and write audit entries until
+  the code expired. The first refused call of a session is audited once
+  (`endpoint.recovery.report_refused`), later ones are not; the ISO sends nothing after the end
+  and shows no error about it. The credentials of a recovery session now carry the layout of the
+  code's snapshot also when the machine has made more than 50 newer backups since the code was
+  issued; before, `layoutSha256` was empty and the restore stopped with a manifest mismatch.
+  When the backup a code was issued for no longer exists with a layout, the credentials request
+  answers 409 `baremetal-not-available` (`snapshot_unknown`) instead of handing out the
+  repository password, and counts no fetch; the ISO says so in its own words and asks for a new
+  code. The checks after the restore prove more: restore errors beyond the hundred that restic
+  lists by path stop the run like missing system files, because a file without a known path may
+  be one (before, a full disk in `/home` could hide errors in `/usr` behind a warning); an
+  initramfs of the default kernel that was not rebuilt fails the check (it was a warning), a
+  unified kernel image is checked instead of passed over, and the image must hold `cryptsetup`,
+  `mdadm` and `lvm` when the storage under `/` needs them; a UEFI machine without any boot
+  entry and without the fallback path fails, as does a boot entry whose loader is not on the EFI
+  system partition (a loader the backup has no check value for is a warning); a crypttab entry
+  with a random key counts as plain dm-crypt whatever its options say and must name exactly the
+  planned partition. What a check could not look at is a warning, never a silent pass. Two
+  reported problems have codes of their own instead of "a step failed": `disks_changed` (the
+  disks are not the confirmed ones any more) and `snapshot_id_unmatched` (the `snapshotId` of
+  the answers matches no single snapshot).
+  The console says what it is about to do: the snapshot that will overwrite the disks is shown
+  with its time and the state of its check before the plan and again before the erase, with a
+  warning when the check did not pass (before, a single snapshot was taken without a word).
+  The erase confirmation lists every disk with path, model, size and identity right above the
+  erase word, and every disk is confirmed by the last four characters of its identity, also one
+  without a recognised signature; the German prompt names `ERASE` beside `LÖSCHEN`. The question
+  about shrinking shows the proposal (which volume, from which size to which) with the volume
+  group and the target disk, and Enter means no (it meant yes, and the proposal was not shown).
+  The Secure Boot question no longer reads as if the ISO switched Secure Boot off: it asks
+  whether the findings of the boot chain shall be warnings only and says that the operator must
+  switch Secure Boot off in the firmware setup, as do the warning in the plan and the hint
+  afterwards. Steps, check results and findings appear in the language of the console (the plan's
+  reasons and the report for the server stay English), German texts address the operator
+  formally throughout, and a second operating system in dual boot is no longer called by its
+  vendor's name.
   Firmware packages: `firmware-bnx2`, `firmware-bnx2x`, `firmware-qlogic`, `firmware-realtek`,
   `firmware-misc-nonfree` and `firmware-intel-misc` (wired network cards and storage controllers
   only; their licences are in `restow-recovery_<v>_FIRMWARE-LICENSES.txt`, the reasons in
@@ -732,8 +781,9 @@ to keep it from doing so.
   bindings must be enrolled again; raw logical volumes (the VM disks of a Proxmox VE host) are
   not backed up; amd64 only. The recovery ISO never restores onto SAN LUNs (Fibre Channel,
   iSCSI) or removable disks yet, an unattended run (`--answers`) cannot keep an encrypted volume
-  (the old passphrase is asked on the console only), and the reasons of the plan steps are shown
-  in English on a German console. The first `packages.lock` of the recovery ISO is written by the CI
+  (the old passphrase is asked on the console only), and the details of an error (the message
+  of a failed command or request) are shown in English on a German console. The first
+  `packages.lock` of the recovery ISO is written by the CI
   job `recovery-iso` (input `update-lock`) and committed by hand; until then the ISO is not
   built, and it counts as reproducible only once two CI builds were equal. The ISO download of the
   instance does not support a proxy that is itself reached over https (`HTTPS_PROXY=https://…`),

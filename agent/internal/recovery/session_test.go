@@ -44,6 +44,42 @@ type fakeRecovery struct {
 	failNoRA   bool   // the next call gets 503 without Retry-After
 	credsCalls int    // credential fetches
 	cacheCtl   string // Cache-Control of the last request
+	// refuseSuccess: a finish that reports succeeded is stored as failed
+	// with this reason (the server's own code, 9.8).
+	refuseSuccess string
+	// snapshotGone: the credentials answer 409 baremetal-not-available
+	// with the reason snapshot_unknown.
+	snapshotGone bool
+	// check overrides the check state of the snapshot (passed).
+	check string
+	// refused are the reports a closed session refused with 409
+	// recovery-state-conflict (the real instance audits the first).
+	refused []string
+}
+
+// snapshotCheck is the stage-1 check state of the snapshot (passed unless
+// the test sets check).
+func (f *fakeRecovery) snapshotCheck() string {
+	if f.check != "" {
+		return f.check
+	}
+	return "passed"
+}
+
+// closed reports a session that has ended: it takes no more reports.
+func (f *fakeRecovery) closed() bool {
+	return f.status == api.RecoverySucceeded || f.status == api.RecoveryFailed || f.status == api.RecoveryCancelled
+}
+
+// refuseClosed answers a report to a closed session as the instance does:
+// 409 recovery-state-conflict, the state in the extension "status" (which
+// takes the place of the HTTP status in the body).
+func (f *fakeRecovery) refuseClosed(w http.ResponseWriter, call string) {
+	f.refused = append(f.refused, call)
+	w.Header().Set("Content-Type", "application/problem+json; charset=utf-8")
+	w.WriteHeader(http.StatusConflict)
+	_ = json.NewEncoder(w).Encode(map[string]any{"type": ProblemPrefix + ProblemStateConflict, "title": "Not possible in this state",
+		"status": f.status, "detail": "The session has ended; it takes no more reports."})
 }
 
 func newFakeRecovery(t *testing.T, origin, code string) *fakeRecovery {
@@ -139,6 +175,14 @@ func (f *fakeRecovery) serve(w http.ResponseWriter, r *http.Request) {
 			problem(w, 409, ProblemNotApproved, "Not approved yet")
 			return
 		}
+		if f.snapshotGone {
+			w.Header().Set("Content-Type", "application/problem+json; charset=utf-8")
+			w.WriteHeader(http.StatusConflict)
+			_ = json.NewEncoder(w).Encode(map[string]any{"type": ProblemPrefix + ProblemNotAvailable, "title": "Not available", "status": 409,
+				"detail": "The backup this code was issued for (snapshot abababab) is no whole machine backup with a layout of this machine any more. Ask an administrator for a new code.",
+				"reason": "snapshot_unknown", "snapshotId": strings.Repeat("ab", 32)})
+			return
+		}
 		f.credsCalls++
 		if f.credsCalls > 2 {
 			problem(w, 409, ProblemCredentialsCollected, "The credentials were collected")
@@ -157,7 +201,7 @@ func (f *fakeRecovery) serve(w http.ResponseWriter, r *http.Request) {
 			"snapshotId":   snap,
 			"layoutSha256": layout,
 			"snapshots": []map[string]any{{"id": snap, "time": "2026-11-04T22:00:00.000Z",
-				"layoutSha256": layout, "check": "passed"}},
+				"layoutSha256": layout, "check": f.snapshotCheck()}},
 			"indexBytes":         12345678,
 			"restoreSizes":       map[string]any{"/": map[string]int64{"bytes": 1, "files": 2, "inodes": 3}},
 			"minRecoveryVersion": "0.5.0",
@@ -165,6 +209,10 @@ func (f *fakeRecovery) serve(w http.ResponseWriter, r *http.Request) {
 	case "GET /ssh-keys":
 		writeJSON(w, 200, map[string]any{"keys": []string{"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExample admin"}})
 	case "POST /progress":
+		if f.closed() {
+			f.refuseClosed(w, "progress")
+			return
+		}
 		var p api.RecoveryProgress
 		if json.Unmarshal(body, &p) != nil {
 			problem(w, 400, "validation", "bad body")
@@ -181,6 +229,10 @@ func (f *fakeRecovery) serve(w http.ResponseWriter, r *http.Request) {
 		f.progress = append(f.progress, p)
 		w.WriteHeader(http.StatusNoContent)
 	case "POST /log":
+		if f.closed() {
+			f.refuseClosed(w, "log")
+			return
+		}
 		var l api.RecoveryLog
 		if json.Unmarshal(body, &l) != nil || len(l.Lines) > api.RecoveryMaxLogLines {
 			problem(w, 400, "validation", "bad body")
@@ -195,6 +247,10 @@ func (f *fakeRecovery) serve(w http.ResponseWriter, r *http.Request) {
 		f.logLines = append(f.logLines, l.Lines...)
 		writeJSON(w, http.StatusAccepted, api.RecoveryLogResult{Accepted: len(l.Lines)})
 	case "POST /event":
+		if f.closed() {
+			f.refuseClosed(w, "event")
+			return
+		}
 		var e api.RecoveryEvent
 		if json.Unmarshal(body, &e) != nil {
 			problem(w, 400, "validation", "bad body")
@@ -209,6 +265,10 @@ func (f *fakeRecovery) serve(w http.ResponseWriter, r *http.Request) {
 		f.events = append(f.events, e)
 		w.WriteHeader(http.StatusNoContent)
 	case "POST /release":
+		if f.closed() {
+			f.refuseClosed(w, "release")
+			return
+		}
 		if f.status != api.RecoveryActive && f.status != api.RecoveryFinishing {
 			problem(w, 409, ProblemStateConflict, "Not active")
 			return
@@ -216,6 +276,10 @@ func (f *fakeRecovery) serve(w http.ResponseWriter, r *http.Request) {
 		f.status = api.RecoveryFinishing
 		writeJSON(w, 200, api.RecoveryStatus{Status: f.status})
 	case "POST /finish":
+		if f.closed() {
+			f.refuseClosed(w, "finish")
+			return
+		}
 		var fin api.RecoveryFinish
 		if json.Unmarshal(body, &fin) != nil || len(fin.Warnings) > api.RecoveryMaxFinishWarning {
 			problem(w, 400, "validation", "bad body")
@@ -233,6 +297,12 @@ func (f *fakeRecovery) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		f.finish = &fin
 		f.status = fin.Status
+		if fin.Status == api.RecoverySucceeded && f.refuseSuccess != "" {
+			// 9.8: a success the verification report does not bear out.
+			f.status = api.RecoveryFailed
+			writeJSON(w, 200, api.RecoveryStatus{Status: f.status, Reported: fin.Status, Reason: f.refuseSuccess})
+			return
+		}
 		writeJSON(w, 200, api.RecoveryStatus{Status: f.status})
 	case "POST /rebind":
 		var rb api.RecoveryRebindRequest
@@ -422,9 +492,9 @@ func TestSessionFullFlow(t *testing.T) {
 	if _, err := s.Rebind(ctx, api.RecoveryRebindRequest{Token: "rset_rebind_token_0123456789"}); !IsProblem(err, ProblemStateConflict) {
 		t.Fatalf("rebind before finish: %v", err)
 	}
-	status, err := s.Finish(ctx, api.RecoveryFinish{Status: api.RecoverySucceeded, DurationSeconds: 1234})
-	if err != nil || status != api.RecoverySucceeded {
-		t.Fatalf("finish %q %v", status, err)
+	fin, err := s.Finish(ctx, api.RecoveryFinish{Status: api.RecoverySucceeded, DurationSeconds: 1234})
+	if err != nil || fin.Status != api.RecoverySucceeded || fin.Reported != "" || fin.Reason != "" {
+		t.Fatalf("finish %+v %v", fin, err)
 	}
 	if string(f.finish.Verification) != "{}" || f.finish.Warnings == nil || f.finish.DurationSeconds != 1234 {
 		t.Fatalf("finish body %+v", f.finish)
@@ -671,9 +741,9 @@ func TestSessionBodyLimits(t *testing.T) {
 		warnings[i] = api.RecoveryWarning{Code: strings.Repeat("c", 100), Message: strings.Repeat("<", 2000)}
 	}
 	verification := json.RawMessage(`{"report":"` + strings.Repeat("v", api.RecoveryMaxVerification-len(`{"report":""}`)) + `"}`)
-	status, err := s.Finish(ctx, api.RecoveryFinish{Status: api.RecoverySucceeded, Verification: verification, Warnings: warnings})
-	if err != nil || status != api.RecoverySucceeded {
-		t.Fatalf("finish %q %v", status, err)
+	fin, err := s.Finish(ctx, api.RecoveryFinish{Status: api.RecoverySucceeded, Verification: verification, Warnings: warnings})
+	if err != nil || fin.Status != api.RecoverySucceeded {
+		t.Fatalf("finish %+v %v", fin, err)
 	}
 	if body := f.bodies[len(f.bodies)-1]; len(body) > api.RecoveryMaxFinishBody {
 		t.Fatalf("finish body of %d bytes", len(body))
@@ -689,8 +759,11 @@ func TestSessionBodyLimits(t *testing.T) {
 		t.Fatal("Finish changed the caller's warnings")
 	}
 
-	// Plain warnings within the bounds all go (about 280 KiB).
+	// Plain warnings within the bounds all go (about 280 KiB). A second
+	// session in the test's place: the first one has ended and reports
+	// nothing more.
 	f.status = api.RecoveryActive
+	s.closed.Store(false)
 	for i := range warnings {
 		warnings[i] = api.RecoveryWarning{Code: strings.Repeat("c", 64), Message: strings.Repeat("m", 1000)}
 	}
@@ -747,7 +820,7 @@ func TestSessionCleansAndRedactsReports(t *testing.T) {
 	if err := s.Event(ctx, api.RecoveryEventKeyfileRegenerated, map[string]string{"note": "cryptsetup passphrase=sup3rs3cr3t\n"}); err != nil {
 		t.Fatalf("event: %v", err)
 	}
-	status, err := s.Finish(ctx, api.RecoveryFinish{
+	fin, err := s.Finish(ctx, api.RecoveryFinish{
 		Status:       api.RecoverySucceeded,
 		Verification: json.RawMessage(`{"steps":[{"output":"PGPASSWORD=hunter2hunter2 psql","exit":0}],"note":"a<b"}`),
 		Warnings: []api.RecoveryWarning{
@@ -755,8 +828,8 @@ func TestSessionCleansAndRedactsReports(t *testing.T) {
 			{Code: "hook", Message: "export TOKEN=abcdefgh12345678 and " + s.Secret},
 		},
 	})
-	if err != nil || status != api.RecoverySucceeded {
-		t.Fatalf("finish with multi-line warnings: %q %v", status, err)
+	if err != nil || fin.Status != api.RecoverySucceeded {
+		t.Fatalf("finish with multi-line warnings: %+v %v", fin, err)
 	}
 	sent := strings.Join(f.bodies, "\n")
 	for _, secret := range []string{"hunter2hunter2", "sup3rs3cr3t", "abcdefgh12345678", s.Secret} {

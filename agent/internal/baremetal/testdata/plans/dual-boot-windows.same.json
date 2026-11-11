@@ -478,7 +478,7 @@
     },
     {
       "code": "dual_boot_windows_not_restored",
-      "message": "Windows is not restored; its boot entries are not created.",
+      "message": "Another operating system on the disks (dual boot) is not restored; its boot entries are not created.",
       "params": {},
       "ref": null,
       "severity": "warning"

@@ -95,7 +95,11 @@ func (l *linuxFS) Measure(ctx context.Context, spec fssnap.Spec, req fssnap.Meas
 	return l.helper.Measure(ctx, spec, req)
 }
 
-func (l *linuxFS) AgentBin() string { return l.helper.AgentBin }
+// HelperCommand: restic runs through `restow-agent snapshot-exec`, always
+// in a mount namespace of its own.
+func (l *linuxFS) HelperCommand(specFile string) ([]string, bool) {
+	return fssnap.HelperArgv(l.helper.AgentBin, specFile, []string{}), true
+}
 
 // CleanupStale runs only as root: it needs the tools and the namespace.
 func (l *linuxFS) CleanupStale(ctx context.Context, activeRun string) fssnap.StaleReport {

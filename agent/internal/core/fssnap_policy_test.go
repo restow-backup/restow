@@ -24,6 +24,7 @@ import (
 // from snapshots is slow (so the monitor can stop it), live reading fast.
 const fakeHelperScript = `#!/bin/sh
 printf '%s\n' "$@" >> "$FAKE_DIR/helper-args.txt"
+readlink /proc/self/ns/mnt > "$FAKE_DIR/helper-mntns.txt" 2>/dev/null
 spec="$3"
 if grep -q restowsnap "$spec" 2>/dev/null && [ -n "$FAKE_SNAP_SLOW" ]; then export FAKE_BACKUP_SLEEP=30; fi
 shift 4
@@ -46,6 +47,9 @@ type fakeFS struct {
 	specs    []fssnap.Spec
 	measured int
 	stale    int
+	// mountNS overrides whether the helper starts in its own mount
+	// namespace (nil: where the test process may make one).
+	mountNS *bool
 }
 
 func (f *fakeFS) TriggerAutomounts(context.Context) []string { return nil }
@@ -107,7 +111,21 @@ func (f *fakeFS) Measure(context.Context, fssnap.Spec, fssnap.MeasureRequest) (f
 	f.mu.Unlock()
 	return fssnap.MeasureResponse{Sample: []fssnap.SampleFile{{Path: "/etc/hostname", Size: 6, SHA256: strings.Repeat("a", 64)}}}, nil
 }
-func (f *fakeFS) AgentBin() string { return f.bin }
+
+// HelperCommand: the stand-in helper mounts nothing, so these tests of the
+// snapshot policy need no privilege. It gets a mount namespace of its own
+// where the test process may make one (as root, as the real helper always
+// does: Probe lets it run only then); a normal user cannot, and the
+// policy is the same without it. The namespace itself is tested as root
+// (TestRootHelperGetsItsOwnMountNamespace here, the real helper in
+// internal/fssnap).
+func (f *fakeFS) HelperCommand(specFile string) ([]string, bool) {
+	ns := mayUnshareMounts()
+	if f.mountNS != nil {
+		ns = *f.mountNS
+	}
+	return fssnap.HelperArgv(f.bin, specFile, []string{}), ns
+}
 func (f *fakeFS) CleanupStale(context.Context, string) fssnap.StaleReport {
 	f.mu.Lock()
 	f.stale++

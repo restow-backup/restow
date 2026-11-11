@@ -101,7 +101,7 @@ func TestUIAbort(t *testing.T) {
 	if _, err := ui.YesNo("Go on?", true); !errors.Is(err, ErrAborted) {
 		t.Errorf("a dialog after the abort: %v", err)
 	}
-	if _, err := ui.ConfirmErase(); !errors.Is(err, ErrAborted) {
+	if _, err := ui.ConfirmErase([]string{"/dev/sda"}); !errors.Is(err, ErrAborted) {
 		t.Errorf("the erase word after the abort: %v", err)
 	}
 	ui.Abort()

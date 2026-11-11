@@ -50,7 +50,7 @@ func newUnattended(t *testing.T) *unattendedRun {
 	f.snapshotID, f.layoutSHA = snap, sha256Hex(string(raw))
 	exe := newFakeExec()
 	env := &testEnv{t: t, hw: hardwareFor(m), repo: repo, resticB: bin, target: t.TempDir(), exec: exe,
-		iso: &fakeIsolator{exec: exe, reply: func(IsolateSpec) string { return "kernel/drivers/nvme/host/nvme.ko\n" }}, ops: &fakeOps{exec: exe, mounted: map[string]bool{}}}
+		iso: &fakeIsolator{exec: exe, reply: initramfsListing}, ops: &fakeOps{exec: exe, mounted: map[string]bool{}}}
 	return &unattendedRun{t: t, f: f, env: env, exe: exe, m: m}
 }
 
@@ -148,6 +148,10 @@ func TestRecoverDisksChangedAfterConfirmation(t *testing.T) {
 	if !strings.Contains(fmt.Sprint(fin.Warnings), ErrDisksChanged.Error()) {
 		t.Errorf("finish warnings %+v", fin.Warnings)
 	}
+	// The instance learns it by its own code, not as a failed step.
+	if len(fin.Warnings) == 0 || fin.Warnings[len(fin.Warnings)-1].Code != ProblemDisksChanged {
+		t.Errorf("finish warnings %+v, want the code %s", fin.Warnings, ProblemDisksChanged)
+	}
 	assertKnownCodes(t, fin.Warnings)
 
 	// The same during the run: after the table was written (the scan
@@ -187,7 +191,7 @@ func TestRecoverDisksChangedAfterConfirmation(t *testing.T) {
 		a.env.mu.Unlock()
 	}
 	script := append(a.upToCode(spkiOf(t, a.f)), passLines...)
-	script = append(script, "ERASE", "")
+	script = append(script, "get0", "ERASE", "")
 	a.run(script)
 	if a.res == nil || a.res.Status != api.RecoveryFailed || !strings.Contains(a.out.String(), "swapped-in-the-shell") {
 		t.Fatalf("a disk swapped in the shell: %+v %v\n%s", a.res, a.err, a.out.String())
@@ -232,11 +236,14 @@ func TestRecoverAnswersSnapshotMustExist(t *testing.T) {
 		t.Fatalf("result %+v %v, finish %+v\n%s", res, err, fin, u.out.String())
 	}
 	u.nothingWritten("a snapshot the answers named and the instance does not offer")
-	if !strings.Contains(u.out.String(), T(LangEN, "snapshot.no_match", "id", "deadbeefdeadbeef", "count", 0)) {
+	if !strings.Contains(u.out.String(), T(LangEN, "code."+ProblemSnapshotIDUnmatched, "id", "deadbeefdeadbeef", "count", 0)) {
 		t.Errorf("console:\n%s", u.out.String())
 	}
 	if strings.Contains(u.out.String(), T(LangEN, "manifest.reading", "id", shortID(u.f.snapshotID))) {
 		t.Error("the manifest of the snapshot of the code was read")
+	}
+	if len(fin.Warnings) != 1 || fin.Warnings[0].Code != ProblemSnapshotIDUnmatched {
+		t.Errorf("finish warnings %+v, want the code %s", fin.Warnings, ProblemSnapshotIDUnmatched)
 	}
 	assertKnownCodes(t, fin.Warnings)
 }

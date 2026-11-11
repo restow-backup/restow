@@ -261,6 +261,18 @@ type ExecReport struct {
 var ErrCancelled = errors.New("the recovery was cancelled")
 
 // StepError is a failed step.
+// StepText describes a step of the plan in lang: the text step.<kind> of
+// the catalogue with the step's target. The plan's own reason is English
+// (it goes to the log and to the server); it is shown only for a kind this
+// ISO has no text for.
+func StepText(lang string, s *baremetal.Step) string {
+	id := "step." + s.Kind
+	if !HasText(LangEN, id) {
+		return SanitizeForConsole(s.Reason)
+	}
+	return T(lang, id, "target", deref(s.Target))
+}
+
 type StepError struct {
 	N       int64
 	Kind    string
@@ -382,7 +394,7 @@ func (x *Executor) Run(ctx context.Context) (*ExecReport, error) {
 			x.Secrets.Zero()
 		}
 		if x.UI != nil {
-			x.UI.Say("exec.step", "n", s.N, "total", total, "reason", s.Reason)
+			x.UI.Say("exec.step", "n", s.N, "total", total, "reason", StepText(x.UI.Lang, &s))
 		}
 		x.progress(ctx, apiPhase(s.Phase, s.Kind), int(s.N), total, 0, 0, 0, 0, s.Reason)
 		// The step names its devices by kernel path: before it runs, the
@@ -1224,18 +1236,26 @@ func (x *Executor) restore(ctx context.Context, s *baremetal.Step, args []string
 			sys = append(sys, it.Path)
 		}
 	}
-	// Items beyond the first hundred are counted, not listed: treat them
-	// as system files when any listed one was.
-	if len(sys) > 0 {
-		x.report.SystemErrors += int64(len(sys))
-		return stepProblem(ProblemSystemFilesIncomplete, "%d files below the system paths could not be restored, first: %s", len(sys), sys[0])
+	// restic lists the first hundred item errors and only counts the rest
+	// (it walks /boot, /etc, /home, /usr in this order, so a full disk in
+	// /home fills the list before /usr is reached). An error whose path is
+	// not known cannot be ruled out as a system file: it counts as one.
+	unlisted := out.ItemCount - len(out.Items)
+	if unlisted < 0 {
+		unlisted = 0
+	}
+	if len(sys) > 0 || unlisted > 0 {
+		if s.Kind == "restore" {
+			x.report.SystemErrors += int64(len(sys) + unlisted)
+		}
+		if len(sys) == 0 {
+			return stepProblem(ProblemSystemFilesIncomplete, "%d files could not be restored and only the first %d are known by path: files below the system paths cannot be ruled out",
+				out.ItemCount, len(out.Items))
+		}
+		return stepProblem(ProblemSystemFilesIncomplete, "%d files below the system paths could not be restored (%d more without a known path), first: %s", len(sys), unlisted, sys[0])
 	}
 	if out.ItemCount > 0 {
-		first := ""
-		if len(out.Items) > 0 {
-			first = out.Items[0].Path
-		}
-		x.warn(WarnRestoreFileErrors, fmt.Sprintf("%d files could not be restored, first: %s", out.ItemCount, first))
+		x.warn(WarnRestoreFileErrors, fmt.Sprintf("%d files could not be restored, first: %s", out.ItemCount, out.Items[0].Path))
 	}
 	return nil
 }

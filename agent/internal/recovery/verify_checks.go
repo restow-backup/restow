@@ -57,9 +57,10 @@ func (v StandardVerifier) resticVerify(x *Executor) *Check {
 	rep := x.Report()
 	c.Set("errors", rep.RestoreErrors)
 	if rep.SystemErrors > 0 {
-		c.Fail(ProblemSystemFilesIncomplete, "", fmt.Sprintf("%d files below the system paths are missing", rep.SystemErrors), nil)
+		c.Set("systemErrors", rep.SystemErrors)
+		c.FailT(ProblemSystemFilesIncomplete, "", nil, "sys_missing", "count", rep.SystemErrors)
 	} else if rep.RestoreErrors > 0 {
-		c.Warn(WarnRestoreFileErrors, "", fmt.Sprintf("%d files could not be restored", rep.RestoreErrors), nil)
+		c.WarnT(WarnRestoreFileErrors, "", nil, "files_missing", "count", rep.RestoreErrors)
 	}
 	return c
 }
@@ -79,12 +80,12 @@ func (v StandardVerifier) storageStack(ctx context.Context, x *Executor) *Check 
 			fsCount++
 			out, err := x.Exec.Run(ctx, RunSpec{Argv: []string{"blkid", "-p", "-o", "export", want.dev}, Timeout: time.Minute})
 			if err != nil {
-				c.Fail(ProblemVerifyFailed, want.dev, "blkid: "+err.Error(), nil)
+				c.FailT(ProblemVerifyFailed, want.dev, nil, "blkid", "device", want.dev, "reason", err.Error())
 				continue
 			}
 			kv := parseExport(string(out.Output))
 			if (want.uuid != "" && !strings.EqualFold(kv["UUID"], want.uuid)) || (want.typ != "" && kv["TYPE"] != want.typ) {
-				c.Fail(ProblemMkfsReadbackMismatch, want.dev, fmt.Sprintf("UUID %s type %s, want %s %s", kv["UUID"], kv["TYPE"], want.uuid, want.typ), nil)
+				c.FailT(ProblemMkfsReadbackMismatch, want.dev, nil, "fs_mismatch", "device", want.dev, "uuid", kv["UUID"], "type", kv["TYPE"], "wantUuid", want.uuid, "wantType", want.typ)
 			}
 		case "md_create", "md_assemble", "luks_open", "lv_create":
 			dev := ""
@@ -98,7 +99,7 @@ func (v StandardVerifier) storageStack(ctx context.Context, x *Executor) *Check 
 			}
 			devCount++
 			if !v.Env.Exists(dev) {
-				c.Fail(ProblemVerifyFailed, dev, dev+" is missing", nil)
+				c.FailT(ProblemVerifyFailed, dev, nil, "missing", "what", dev)
 			}
 		}
 	}
@@ -164,11 +165,11 @@ func sourceDevice(src string) string {
 func (v StandardVerifier) fstab(r Rootfs) *Check {
 	c := NewCheck(CheckFstab)
 	if r == nil {
-		return c.Fail(ProblemVerifyFailed, "/etc/fstab", "the target is not mounted", nil)
+		return c.FailT(ProblemVerifyFailed, "/etc/fstab", nil, "not_mounted")
 	}
 	b, err := r.ReadFile("/etc/fstab", 1<<20)
 	if err != nil {
-		return c.Warn(ProblemVerifyFailed, "/etc/fstab", "no fstab: "+err.Error(), nil)
+		return c.WarnT(ProblemVerifyFailed, "/etc/fstab", nil, "no_fstab", "reason", err.Error())
 	}
 	n := 0
 	for _, e := range parseTab(b, 2) {
@@ -181,11 +182,11 @@ func (v StandardVerifier) fstab(r Rootfs) *Check {
 		}
 		dev := sourceDevice(e.source)
 		if strings.HasPrefix(dev, "/dev/") && !strings.HasPrefix(dev, "/dev/mapper/") && !v.Env.Exists(dev) {
-			c.Fail(ProblemVerifyFailed, e.source, fmt.Sprintf("line %d: %s does not exist", e.line, e.source), map[string]string{"line": strconv.Itoa(e.line)})
+			c.FailT(ProblemVerifyFailed, e.source, map[string]string{"line": strconv.Itoa(e.line)}, "tab_no_dev", "line", e.line, "source", e.source)
 		}
 		if strings.HasPrefix(e.mount, "/") && e.fstype != "swap" {
 			if st, err := r.Lstat(e.mount); err != nil || !st.IsDir() {
-				c.Fail(ProblemVerifyFailed, e.mount, fmt.Sprintf("line %d: mount point %s is missing", e.line, e.mount), map[string]string{"line": strconv.Itoa(e.line)})
+				c.FailT(ProblemVerifyFailed, e.mount, map[string]string{"line": strconv.Itoa(e.line)}, "tab_no_dir", "line", e.line, "path", e.mount)
 			}
 		}
 	}
@@ -193,12 +194,22 @@ func (v StandardVerifier) fstab(r Rootfs) *Check {
 	return c
 }
 
+// randomKey reports a key field of crypttab that makes a new key at every
+// start: the volume has no header and is formatted each time.
+func randomKey(key string) bool {
+	return key == "/dev/urandom" || key == "/dev/random" || key == "/dev/hw_random"
+}
+
 // crypttab: every entry names a LUKS volume of the plan; a plain entry
-// (swap, tmp, plain) resolves to exactly the planned partition.
+// resolves to exactly the planned partition. An entry is plain by its
+// options (swap, tmp, plain), by a random key without the option luks, or
+// because the backup recorded its name as plain dm-crypt: at the start
+// such a volume is opened without a header and written, so a source that
+// is a device name could be another disk on new hardware.
 func (v StandardVerifier) crypttab(x *Executor, r Rootfs) *Check {
 	c := NewCheck(CheckCrypttab)
 	if r == nil {
-		return c.Fail(ProblemVerifyFailed, "/etc/crypttab", "the target is not mounted", nil)
+		return c.FailT(ProblemVerifyFailed, "/etc/crypttab", nil, "not_mounted")
 	}
 	b, err := r.ReadFile("/etc/crypttab", 1<<20)
 	if err != nil {
@@ -206,95 +217,230 @@ func (v StandardVerifier) crypttab(x *Executor, r Rootfs) *Check {
 		return c
 	}
 	luks := map[string]bool{}
-	plain := map[string]bool{}
+	luksName := map[string]bool{}
+	plainName := map[string]bool{}
 	if x.Manifest != nil && x.Manifest.Linux != nil {
 		for _, l := range x.Manifest.Linux.LUKS {
 			luks[strings.ToLower(l.UUID)] = true
+			for _, n := range []*string{l.CrypttabName, l.MappedName} {
+				if n != nil && *n != "" {
+					luksName[*n] = true
+				}
+			}
+		}
+		for _, pc := range x.Manifest.Linux.PlainCrypt {
+			plainName[pc.MappedName] = true
+			if pc.CrypttabName != nil {
+				plainName[*pc.CrypttabName] = true
+			}
 		}
 	}
-	for _, src := range x.Fixups.PlainSources {
-		plain[src] = true
-	}
-	n := 0
+	planned := x.Fixups.PlainSources
+	n, plains := 0, 0
 	for _, e := range parseTab(b, 2) {
 		n++
 		// crypttab: name, source, key file, options.
-		name, src := e.source, e.mount
-		isPlain := hasOpt(e.opts, "swap") || hasOpt(e.opts, "tmp") || hasOpt(e.opts, "plain") || strings.Contains(e.opts, "tmp=")
+		name, src, key := e.source, e.mount, e.fstype
+		isLUKS := hasOpt(e.opts, "luks") || luksName[name]
+		isPlain := hasOpt(e.opts, "swap") || hasOpt(e.opts, "tmp") || hasOpt(e.opts, "plain") || strings.Contains(e.opts, "tmp=") ||
+			(!isLUKS && (randomKey(key) || plainName[name]))
 		line := map[string]string{"line": strconv.Itoa(e.line)}
 		if isPlain {
-			if !plain[src] {
-				c.Fail(ProblemVerifyFailed, name, fmt.Sprintf("line %d: the plain volume %s does not name the planned partition", e.line, name), line)
+			plains++
+			if want, ok := planned[name]; !ok || want != src {
+				c.FailT(ProblemVerifyFailed, name, line, "plain_wrong", "line", e.line, "name", name, "source", src)
 				continue
 			}
 			if !v.Env.Exists(sourceDevice(src)) {
-				c.Fail(ProblemVerifyFailed, name, fmt.Sprintf("line %d: %s does not exist", e.line, src), line)
+				c.FailT(ProblemVerifyFailed, name, line, "tab_no_dev", "line", e.line, "source", src)
 			}
 			continue
 		}
 		if u, ok := strings.CutPrefix(src, "UUID="); ok {
 			if !luks[strings.ToLower(u)] {
-				c.Fail(ProblemVerifyFailed, name, fmt.Sprintf("line %d: %s is no LUKS volume of the plan", e.line, src), line)
+				c.FailT(ProblemVerifyFailed, name, line, "luks_unknown", "line", e.line, "source", src)
 			}
 		} else if !v.Env.Exists(sourceDevice(src)) {
-			c.Warn(ProblemVerifyFailed, name, fmt.Sprintf("line %d: %s does not exist", e.line, src), line)
+			c.WarnT(ProblemVerifyFailed, name, line, "tab_no_dev", "line", e.line, "source", src)
 		}
 	}
-	c.Set("entries", n)
+	c.Set("entries", n).Set("plain", plains)
 	return c
 }
 
-// initramfs: the image of the default kernel is newer than the start of
-// the recovery, readable by the generator's lister, holds the storage
-// drivers, and /boot has at least 10 percent free.
+// rootNeeds names what the storage under / is built of (luks, md, lvm)
+// and whether its file system spans several devices: the initramfs must
+// bring the tools that assemble it.
+func rootNeeds(l *baremetal.LinuxLayout) (needs map[string]bool, multiDevice bool) {
+	needs = map[string]bool{}
+	var root *baremetal.Filesystem
+	for _, m := range l.Mounts {
+		if m.Target != "/" || m.FS == nil {
+			continue
+		}
+		for i := range l.Filesystems {
+			if l.Filesystems[i].ID == *m.FS {
+				root = &l.Filesystems[i]
+			}
+		}
+	}
+	if root == nil {
+		return needs, false
+	}
+	var walk func(r baremetal.BlockRef, depth int)
+	walk = func(r baremetal.BlockRef, depth int) {
+		if depth > 64 {
+			return
+		}
+		switch r.Kind {
+		case baremetal.RefMD:
+			needs["md"] = true
+			for _, md := range l.MD {
+				if md.ID == r.ID {
+					for _, mem := range md.Members {
+						walk(mem.Device, depth+1)
+					}
+				}
+			}
+		case baremetal.RefLUKS:
+			needs["luks"] = true
+			for _, c := range l.LUKS {
+				if c.ID == r.ID {
+					walk(c.Device, depth+1)
+				}
+			}
+		case baremetal.RefLV:
+			needs["lvm"] = true
+			for _, pv := range l.LVM.PVs {
+				if pv.VG != nil && *pv.VG == r.VG {
+					walk(pv.Device, depth+1)
+				}
+			}
+		}
+	}
+	for _, d := range root.Devices {
+		walk(d, 0)
+	}
+	return needs, root.Type == "btrfs" && len(root.Devices) > 1
+}
+
+// listed reports whether a listing of an initramfs (one path per line, or
+// lines of ls -l) names a file with one of the base names.
+func listed(listing string, names ...string) bool {
+	for _, l := range strings.Split(listing, "\n") {
+		for _, f := range strings.Fields(l) {
+			base := path.Base(f)
+			for _, n := range names {
+				if base == n {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+// initramfs: the image the system starts with (the default kernel's, or
+// its unified kernel image) exists and is newer than the start of the
+// recovery; the generator's lister can read it; it holds the storage
+// drivers and the tools the storage under / needs; /boot has at least 10
+// percent free. An image that was not rebuilt fails the check: it knows
+// only the old hardware. What could not be looked at is a warning, never
+// a silent ok.
 func (v StandardVerifier) initramfs(ctx context.Context, x *Executor, r Rootfs) *Check {
 	c := NewCheck(CheckInitramfs)
 	if x.Manifest == nil || x.Manifest.Linux == nil || r == nil {
-		return c
+		return c.FailT(ProblemVerifyFailed, "/boot", nil, "not_mounted")
 	}
 	l := x.Manifest.Linux
-	var def *baremetal.Kernel
+	// The kernel whose initramfs the plan rebuilds is the one that starts.
+	planned, ukiPlanned := "", false
+	for _, s := range x.Plan.Steps {
+		switch {
+		case s.Kind == "initramfs" && s.Target != nil:
+			planned = *s.Target
+		case s.Kind == "uki":
+			ukiPlanned = true
+		}
+	}
+	gen := deref(l.Initramfs.Generator)
+	ukiPlanned = ukiPlanned || (planned != "" && gen == "mkinitcpio" && l.Initramfs.UKIPresets)
+	var def, uki *baremetal.Kernel
 	for i := range l.Kernels {
-		if l.Kernels[i].Default && !l.Kernels[i].UKI {
-			def = &l.Kernels[i]
+		k := &l.Kernels[i]
+		switch {
+		case k.UKI:
+			if k.Default || uki == nil {
+				uki = k
+			}
+		case k.Version == planned || (planned == "" && k.Default):
+			def = k
 		}
 	}
 	if free, total, err := v.Env.Statfs(x.TargetRoot + "/boot"); err == nil && total > 0 {
 		pct := free * 100 / total
 		c.Set("bootFreePercent", pct)
 		if pct < 10 {
-			c.Warn(WarnBootSpaceLow, "/boot", fmt.Sprintf("/boot has %d percent free", pct), map[string]string{"percent": strconv.FormatInt(pct, 10)})
+			c.WarnT(WarnBootSpaceLow, "/boot", map[string]string{"percent": strconv.FormatInt(pct, 10)}, "boot_low", "percent", pct)
 		}
 	}
 	for _, k := range x.Report().NotAdaptedKernels {
-		c.Warn(WarnInitramfsNotRebuilt, k, "not enough space on /boot", nil)
+		c.WarnT(WarnInitramfsNotRebuilt, k, nil, "kernel_skipped", "kernel", k)
 	}
-	if def == nil || def.Initramfs == nil {
-		return c
+	stale := func(img string) (missing, old bool) {
+		st, err := r.Lstat(img)
+		if err != nil {
+			return true, false
+		}
+		return false, st.ModTime().Before(x.Report().StartedAt.Add(-time.Minute))
+	}
+	if def == nil {
+		if uki == nil {
+			return c.WarnT(WarnInitramfsNotRebuilt, "", nil, "no_kernel")
+		}
+		// The system starts a unified kernel image: kernel, initramfs and
+		// command line in one file.
+		c.Set("kernel", uki.Version).Set("image", uki.Image).Set("uki", true)
+		missing, old := stale(uki.Image)
+		switch {
+		case missing:
+			return c.FailT(WarnInitramfsNotRebuilt, uki.Version, nil, "img_missing", "image", uki.Image, "kernel", uki.Version)
+		case old && ukiPlanned:
+			return c.FailT(WarnInitramfsNotRebuilt, uki.Version, nil, "img_stale", "image", uki.Image, "kernel", uki.Version)
+		case old:
+			// The plan has no way to rebuild it (10.16): said, not hidden.
+			c.WarnT(WarnInitramfsNotRebuilt, uki.Version, nil, "uki_stale", "image", uki.Image)
+		}
+		return c.Set("rebuilt", !old)
+	}
+	c.Set("kernel", def.Version)
+	if def.Initramfs == nil {
+		return c.WarnT(WarnInitramfsNotRebuilt, def.Version, nil, "img_unknown", "kernel", def.Version)
 	}
 	img := *def.Initramfs
-	c.Set("kernel", def.Version).Set("image", img)
-	st, err := r.Lstat(img)
-	if err != nil {
-		return c.Fail(WarnInitramfsNotRebuilt, def.Version, img+" is missing", nil)
+	c.Set("image", img)
+	missing, old := stale(img)
+	if missing {
+		return c.FailT(WarnInitramfsNotRebuilt, def.Version, nil, "img_missing", "image", img, "kernel", def.Version)
 	}
-	if st.ModTime().Before(x.Report().StartedAt.Add(-time.Minute)) {
-		c.Warn(WarnInitramfsNotRebuilt, def.Version, img+" was not rebuilt", nil)
+	c.Set("rebuilt", !old)
+	if old {
+		c.FailT(WarnInitramfsNotRebuilt, def.Version, nil, "img_stale", "image", img, "kernel", def.Version)
 	}
-	lister := map[string][]string{"initramfs-tools": {"lsinitramfs", img}, "dracut": {"lsinitrd", img}, "mkinitcpio": {"lsinitcpio", img}}[deref(l.Initramfs.Generator)]
+	lister := map[string][]string{"initramfs-tools": {"lsinitramfs", img}, "dracut": {"lsinitrd", img}, "mkinitcpio": {"lsinitcpio", img}}[gen]
 	if lister == nil || x.Isolator == nil {
-		return c
+		return c.WarnT(ProblemVerifyFailed, img, nil, "img_unlisted", "image", img)
 	}
 	disks, extra := x.isolatedDevices("verify")
 	spec := IsolateSpec{Root: x.TargetRoot, Argv: lister, TimeoutSeconds: 600}
 	spec.Devices, spec.DevLinks = x.Ops.DeviceSet(disks, extra)
 	res, err := x.Isolator.Run(ctx, spec)
 	if ferr := x.thawAfter(lister[0]); ferr != nil {
-		return c.Fail(ProblemVerifyFailed, img, ferr.Error(), nil)
+		return c.FailT(ProblemVerifyFailed, img, nil, "detail", "detail", ferr.Error())
 	}
 	if err != nil || res == nil || res.ExitCode != 0 {
 		c.Set("readable", false)
-		return c.Fail(ProblemVerifyFailed, img, img+" is not completely readable", nil)
+		return c.FailT(ProblemVerifyFailed, img, nil, "img_unreadable", "image", img)
 	}
 	c.Set("readable", true)
 	listing := string(res.Output)
@@ -304,15 +450,38 @@ func (v StandardVerifier) initramfs(ctx context.Context, x *Executor, r Rootfs) 
 		}
 		mod := strings.ReplaceAll(*d.Module, "-", "_")
 		if !strings.Contains(strings.ReplaceAll(listing, "-", "_"), "/"+mod+".ko") {
-			c.Fail(ProblemVerifyFailed, *d.Module, "the initramfs lacks the storage driver "+*d.Module, nil)
+			c.FailT(ProblemVerifyFailed, *d.Module, nil, "drv_missing", "module", *d.Module)
 		}
+	}
+	// The tools that assemble the storage under /: without them the
+	// initramfs finds no root file system.
+	needs, multi := rootNeeds(l)
+	for _, t := range []struct {
+		need  string
+		names []string
+	}{{"luks", []string{"cryptsetup", "systemd-cryptsetup"}}, {"md", []string{"mdadm"}}, {"lvm", []string{"lvm"}}} {
+		if needs[t.need] && !listed(listing, t.names...) {
+			c.FailT(ProblemVerifyFailed, t.names[0], nil, "tool_missing", "tool", t.names[0])
+		}
+	}
+	if multi && !listed(listing, "btrfs") {
+		c.WarnT(ProblemVerifyFailed, "btrfs", nil, "btrfs_tool")
+	}
+	if needs["lvm"] && l.LVM.UseDevicesFile {
+		// Evidence only: without the file in the image LVM scans every
+		// device, which finds the volume group as well.
+		c.Set("lvmDevicesFile", strings.Contains(listing, "etc/lvm/devices/system.devices"))
 	}
 	return c
 }
 
-// bootEntries: UEFI: the new entries are in BootOrder and their loaders
-// are on the ESP with the backed-up Authenticode hash; the fallback path
-// is complete. BIOS: GRUB boot code in the MBR of every boot disk.
+// bootEntries: UEFI: every boot entry the plan wanted was written, is in
+// BootOrder, and its loader is on the ESP (with the backed-up Authenticode
+// hash when the backup has one; a loader the backup does not list is a
+// warning, because nothing proves its content); the fallback path the plan
+// set up exists. With no entry at all the system starts only over the
+// fallback path (a warning), and without that it does not start (failed).
+// BIOS: GRUB boot code in the MBR of every boot disk.
 func (v StandardVerifier) bootEntries(x *Executor, r Rootfs) *Check {
 	c := NewCheck(CheckBootEntries)
 	if v.Target != nil && v.Target.Firmware.Mode == "bios" {
@@ -324,44 +493,126 @@ func (v StandardVerifier) bootEntries(x *Executor, r Rootfs) *Check {
 			n++
 			head, err := v.Env.ReadHead(*s.Target, 512)
 			if err != nil || !bytes.Contains(head, []byte("GRUB")) {
-				c.Fail(ProblemVerifyFailed, *s.Target, "no GRUB boot code in the MBR of "+*s.Target, nil)
+				c.FailT(ProblemVerifyFailed, *s.Target, nil, "no_mbr_code", "device", *s.Target)
 			}
 		}
+		if n == 0 {
+			c.WarnT(ProblemVerifyFailed, "", nil, "no_boot_disk")
+		}
 		return c.Set("bootDisks", n)
+	}
+	planned, fallbackPlanned := 0, false
+	for _, s := range x.Plan.Steps {
+		switch s.Kind {
+		case "nvram":
+			planned++
+		case "fallback_path":
+			fallbackPlanned = true
+		}
 	}
 	order := map[int64]bool{}
 	for _, n := range v.Env.BootOrder() {
 		order[n] = true
 	}
 	entries := v.Env.BootEntries()
-	for _, n := range x.Report().BootEntries {
+	written := x.Report().BootEntries
+	c.Set("entries", len(written)).Set("plannedEntries", planned)
+	if len(written) < planned {
+		c.FailT(ProblemVerifyFailed, "", nil, "entry_count", "written", len(written), "planned", planned)
+	}
+	for _, n := range written {
+		name := fmt.Sprintf("Boot%04X", n)
 		if !order[int64(n)] {
-			c.Fail(ProblemVerifyFailed, fmt.Sprintf("Boot%04X", n), "the entry is not in BootOrder", nil)
+			c.FailT(ProblemVerifyFailed, name, nil, "entry_order", "entry", name)
 		}
 		e, ok := entries[n]
 		if !ok {
-			c.Fail(ProblemVerifyFailed, fmt.Sprintf("Boot%04X", n), "the entry is missing", nil)
+			c.FailT(ProblemVerifyFailed, name, nil, "entry_missing", "entry", name)
 			continue
 		}
-		if msg := v.loaderOK(x, r, e.Path); msg != "" {
-			c.Fail(ProblemVerifyFailed, e.Path, msg, nil)
+		switch state, where := v.loaderState(x, r, e.Path); state {
+		case loaderMissing:
+			c.FailT(ProblemVerifyFailed, e.Path, nil, "ldr_missing", "path", where)
+		case loaderDiffers:
+			c.FailT(ProblemVerifyFailed, e.Path, nil, "ldr_differs", "path", where)
+		case loaderUnlisted:
+			c.WarnT(ProblemVerifyFailed, e.Path, nil, "ldr_unlisted", "path", where)
 		}
 	}
-	c.Set("entries", len(x.Report().BootEntries))
+	fallback := false
 	if r != nil {
 		for _, esp := range x.espRoots() {
-			if _, err := r.Lstat(path.Join(esp, "EFI/BOOT/BOOTX64.EFI")); err == nil {
-				c.Set("fallbackPath", true)
+			for _, name := range []string{"EFI/BOOT/BOOTX64.EFI", "EFI/BOOT/BOOTAA64.EFI"} {
+				if p := findNoCase(r, esp, name); p != "" {
+					fallback = true
+					if state, where := v.loaderState(x, r, p); state == loaderDiffers {
+						c.FailT(ProblemVerifyFailed, p, nil, "ldr_differs", "path", where)
+					}
+				}
 			}
 		}
+	}
+	c.Set("fallbackPath", fallback)
+	switch {
+	case fallbackPlanned && x.Fallback && !fallback:
+		c.FailT(ProblemVerifyFailed, `\EFI\BOOT`, nil, "no_fallback")
+	case len(written) == 0 && !fallback:
+		c.FailT(ProblemVerifyFailed, "", nil, "no_entry")
+	case len(written) == 0:
+		c.WarnT(ProblemVerifyFailed, `\EFI\BOOT`, nil, "only_fallback")
 	}
 	return c
 }
 
-// loaderOK checks a loader on the ESP against the backed-up hash.
-func (v StandardVerifier) loaderOK(x *Executor, r Rootfs, efiPath string) string {
-	if r == nil || x.Manifest == nil || x.Manifest.Linux == nil {
+// findNoCase finds rel below dir whatever the case of its parts (the
+// firmware and FAT do not tell cases apart): the path as it is stored, or
+// "".
+func findNoCase(r Rootfs, dir, rel string) string {
+	cur := dir
+	for _, part := range strings.Split(strings.Trim(rel, "/"), "/") {
+		if part == "" {
+			continue
+		}
+		names, err := r.ReadDir(cur)
+		if err != nil {
+			return ""
+		}
+		found := ""
+		for _, n := range names {
+			if n == part {
+				found = n
+				break
+			}
+			if found == "" && strings.EqualFold(n, part) {
+				found = n
+			}
+		}
+		if found == "" {
+			return ""
+		}
+		cur = path.Join(cur, found)
+	}
+	if _, err := r.Lstat(cur); err != nil {
 		return ""
+	}
+	return cur
+}
+
+// What loaderState found.
+const (
+	loaderOK       = ""
+	loaderMissing  = "missing"
+	loaderDiffers  = "differs"
+	loaderUnlisted = "unlisted"
+)
+
+// loaderState checks a loader (a path of the firmware, \EFI\..., or a path
+// of the root file system) against the ESP and the backup: it must be
+// there, and when the backup lists it, with the backed-up hash. The
+// second value is the path it was looked for.
+func (v StandardVerifier) loaderState(x *Executor, r Rootfs, efiPath string) (string, string) {
+	if r == nil || x.Manifest == nil || x.Manifest.Linux == nil {
+		return loaderUnlisted, efiPath
 	}
 	p := strings.ReplaceAll(efiPath, `\`, "/")
 	for _, ld := range x.Manifest.Linux.Loaders {
@@ -370,15 +621,24 @@ func (v StandardVerifier) loaderOK(x *Executor, r Rootfs, efiPath string) string
 		}
 		b, err := r.ReadFile(ld.Path, 256<<20)
 		if err != nil {
-			return ld.Path + " is missing on the ESP"
+			return loaderMissing, ld.Path
 		}
 		info, err := baremetal.InspectLoader(bytes.NewReader(b), int64(len(b)))
 		if err != nil || info.AuthenticodeSha256 != ld.AuthenticodeSha256 {
-			return ld.Path + " differs from the backup"
+			return loaderDiffers, ld.Path
 		}
-		return ""
+		return loaderOK, ld.Path
 	}
-	return ""
+	// Not in the backup's list: it must at least be on an ESP.
+	if _, err := r.Lstat(p); err == nil && strings.HasPrefix(p, "/") {
+		return loaderUnlisted, p
+	}
+	for _, esp := range x.espRoots() {
+		if found := findNoCase(r, esp, p); found != "" {
+			return loaderUnlisted, found
+		}
+	}
+	return loaderMissing, efiPath
 }
 
 var reUUIDRef = regexp.MustCompile(`(?:UUID=|--fs-uuid(?:\s+--set=\S+)?\s+|root=UUID=)([0-9A-Fa-f-]{8,36})`)
@@ -407,7 +667,7 @@ func (v StandardVerifier) bootConfig(x *Executor, r Rootfs) *Check {
 		b, err := r.ReadFile(f, 8<<20)
 		if err != nil {
 			if f == deref(x.Manifest.Linux.Bootloader.GrubCfg) {
-				c.Fail(ProblemVerifyFailed, f, f+" is missing", nil)
+				c.FailT(ProblemVerifyFailed, f, nil, "missing", "what", f)
 			}
 			continue
 		}
@@ -420,7 +680,7 @@ func (v StandardVerifier) bootConfig(x *Executor, r Rootfs) *Check {
 			}
 			seen[u] = true
 			if !v.Env.Exists("/dev/disk/by-uuid/"+u) && !v.Env.Exists("/dev/disk/by-uuid/"+strings.ToUpper(u)) && !x.knownUUID(u) {
-				c.Fail(ProblemVerifyFailed, f, fmt.Sprintf("%s names UUID %s, which does not exist", f, u), nil)
+				c.FailT(ProblemVerifyFailed, f, nil, "cfg_uuid", "path", f, "uuid", u)
 			}
 		}
 	}
@@ -498,8 +758,8 @@ func (v StandardVerifier) identityConflicts(ctx context.Context, x *Executor) *C
 	for _, o := range v.Target.Others {
 		for _, s := range v.Env.Signatures(ctx, o.Path) {
 			if ids[normIdent(s.UUID)] {
-				c.Fail(WarnOldDiskPresent, o.Path, fmt.Sprintf("%s carries %s %s of this system", o.Path, s.Kind, s.UUID),
-					map[string]string{"model": deref(o.Model), "identity": deref(o.Identity)})
+				c.FailT(WarnOldDiskPresent, o.Path, map[string]string{"model": deref(o.Model), "identity": deref(o.Identity)},
+					"old_identity", "device", o.Path, "kind", s.Kind, "uuid", s.UUID)
 				x.hint(HintOldDiskPresent, map[string]string{"model": deref(o.Model), "identity": deref(o.Identity)})
 				break
 			}
@@ -514,7 +774,7 @@ func (v StandardVerifier) identityConflicts(ctx context.Context, x *Executor) *C
 func (v StandardVerifier) mountPoints(x *Executor, r Rootfs) *Check {
 	c := NewCheck(CheckMountPoints)
 	if r == nil {
-		return c.Fail(ProblemVerifyFailed, "/", "the target is not mounted", nil)
+		return c.FailT(ProblemVerifyFailed, "/", nil, "not_mounted")
 	}
 	n := 0
 	for _, s := range x.Plan.Steps {
@@ -528,13 +788,13 @@ func (v StandardVerifier) mountPoints(x *Executor, r Rootfs) *Check {
 			st, err := r.Lstat(p)
 			switch {
 			case err != nil:
-				c.Fail(ProblemVerifyFailed, p, p+" is missing", nil)
+				c.FailT(ProblemVerifyFailed, p, nil, "missing", "what", p)
 			case !st.IsDir():
-				c.Fail(ProblemVerifyFailed, p, p+" is not a folder", nil)
+				c.FailT(ProblemVerifyFailed, p, nil, "not_dir", "path", p)
 			case p == "/proc" || p == "/sys" || p == "/dev" || p == "/run" || p == "/tmp":
 				want := fs.FileMode(mode & 0o777)
 				if st.Mode().Perm() != want {
-					c.Warn(ProblemVerifyFailed, p, fmt.Sprintf("%s has mode %o, want %o", p, st.Mode().Perm(), want), nil)
+					c.WarnT(ProblemVerifyFailed, p, nil, "mode", "path", p, "mode", fmt.Sprintf("%o", st.Mode().Perm()), "want", fmt.Sprintf("%o", want))
 				}
 			}
 		}
@@ -554,14 +814,17 @@ func (v StandardVerifier) secureBoot(x *Executor, r Rootfs) *Check {
 	}
 	for _, lc := range x.Plan.SecureBoot.Loaders {
 		if lc.Verdict != "ok" {
-			c.Warn(ProblemVerifyFailed, lc.Path, lc.Path+": "+lc.Verdict, nil)
+			c.WarnT(ProblemVerifyFailed, lc.Path, nil, "sb_verdict", "path", lc.Path, "verdict", lc.Verdict)
 		}
-		if msg := v.loaderOK(x, r, lc.Path); msg != "" {
-			c.Fail(ProblemVerifyFailed, lc.Path, msg, nil)
+		switch state, where := v.loaderState(x, r, lc.Path); state {
+		case loaderMissing:
+			c.FailT(ProblemVerifyFailed, lc.Path, nil, "ldr_missing", "path", where)
+		case loaderDiffers:
+			c.FailT(ProblemVerifyFailed, lc.Path, nil, "ldr_differs", "path", where)
 		}
 	}
 	if x.Report().MokPassword != "" {
-		c.Warn(WarnMokEnrollPending, "", "a machine owner key waits for enrolment", nil)
+		c.WarnT(WarnMokEnrollPending, "", nil, "mok_pending")
 	}
 	return c
 }

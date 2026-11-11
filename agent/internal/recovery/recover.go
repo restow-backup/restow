@@ -93,6 +93,16 @@ type Recover struct {
 	ownLayout     string
 	started       time.Time
 	remoteOn      bool
+	// snap is the snapshot that will be restored, as the operator is shown
+	// it before the plan and again before the erase.
+	snap snapshotNote
+}
+
+// snapshotNote is what the instance says about the chosen snapshot.
+type snapshotNote struct {
+	ID    string
+	Time  time.Time
+	Check string
 }
 
 // Result is how the flow ended.
@@ -157,8 +167,11 @@ func (r *Recover) flushLog(ctx context.Context) {
 		return
 	}
 	if lines := r.Log.Take(); len(lines) > 0 {
-		if _, err := r.session.Log(ctx, lines); err != nil {
-			r.UI.Raw("log: " + err.Error())
+		// A session that has ended takes no more log lines (9.8): that is
+		// the expected end, not something to show. The lines stay in the
+		// local log.
+		if _, err := r.session.Log(ctx, lines); err != nil && !errors.Is(err, ErrSessionClosed) {
+			r.UI.Say("report.log", "reason", redact.Redact(err.Error()))
 		}
 	}
 }
@@ -232,6 +245,14 @@ func (r *Recover) run(ctx context.Context) (*Result, error) {
 	}
 	creds, err := r.session.Credentials(ctx)
 	if err != nil {
+		if IsProblem(err, ProblemNotAvailable) && ProblemReason(err) == "snapshot_unknown" {
+			// The backup the code was issued for is gone (deleted, or no
+			// whole-machine backup any more): no other one is restored in
+			// its place, and this code restores nothing.
+			r.logf("credentials: %v", err)
+			r.UI.Say("creds.snapshot_gone")
+			return &Result{Status: api.RecoveryFailed}, nil
+		}
 		return r.fail(ctx, nil, nil, ProblemAccessExpired, err)
 	}
 	if mv := creds.MinRecoveryVersion; mv != "" && tooOld(r.Version, mv) {
@@ -245,8 +266,10 @@ func (r *Recover) run(ctx context.Context) (*Result, error) {
 		}
 		// The answers name a snapshot the instance does not offer: no
 		// other one is restored in its place.
-		return r.fail(ctx, nil, nil, ProblemStepFailed, err)
+		return r.fail(ctx, nil, nil, ProblemSnapshotIDUnmatched, err)
 	}
+	r.noteSnapshot(creds, snapshot)
+	r.showSnapshot("snapshot.chosen")
 	pw := []byte(creds.Repository.Password)
 	rr, restorer, zeroRepo, err := r.Env.Restic(creds.Repository.URL, pw, r.session.ID, r.session.Secret, r.trust)
 	if err != nil {
@@ -398,7 +421,7 @@ func (r *Recover) run(ctx context.Context) (*Result, error) {
 		var pe *problemError
 		switch {
 		case errors.Is(err, ErrDisksChanged):
-			r.UI.Say("disks.changed", "detail", strings.TrimPrefix(err.Error(), ErrDisksChanged.Error()+": "))
+			r.UI.Say("code."+ProblemDisksChanged, "detail", strings.TrimPrefix(err.Error(), ErrDisksChanged.Error()+": "))
 		case code == baremetal.ProblemSEDLocked && errors.As(err, &pe):
 			r.UI.Line(TParams(r.UI.Lang, "code."+code, pe.params))
 		}
@@ -446,7 +469,7 @@ func (r *Recover) run(ctx context.Context) (*Result, error) {
 		case errors.Is(execErr, ErrNoStartedRecovery):
 			r.UI.Say("resume.no_marker")
 		case errors.Is(execErr, ErrDisksChanged):
-			r.UI.Say("disks.changed", "detail", strings.TrimPrefix(errors.Unwrap(execErr).Error(), ErrDisksChanged.Error()+": "))
+			r.UI.Say("code."+ProblemDisksChanged, "detail", strings.TrimPrefix(errors.Unwrap(execErr).Error(), ErrDisksChanged.Error()+": "))
 		}
 		if rep.FailedStep > 0 {
 			r.UI.Say("exec.failed", "n", rep.FailedStep)
@@ -456,13 +479,27 @@ func (r *Recover) run(ctx context.Context) (*Result, error) {
 		warnings = append(warnings, api.RecoveryWarning{Code: ProblemVerifyFailed, Message: FailedChecks(verification)})
 	}
 	r.showVerification(verification, rep)
+	refused := false
 	if status != api.RecoveryCancelled || rep.Completed > 0 {
-		r.finish(ctx, status, verification, warnings)
+		// The instance decides what the recovery is stored as: a success
+		// it does not take (9.8) is none here either, and the rebind,
+		// which it would refuse, is not offered.
+		if stored, reason := r.finish(ctx, status, verification, warnings); status == api.RecoverySucceeded && stored != status {
+			status, refused = stored, true
+			r.logf("the instance stored the recovery as %s (%s), not as the reported success", stored, reason)
+			if stored == api.RecoveryFailed {
+				r.UI.Say("finish.refused", "reason", r.serverReason(reason))
+			} else {
+				r.UI.Say("finish.ended", "state", r.UI.Text("state."+stored))
+			}
+		}
 	}
 	res := &Result{Status: status, Verification: &verification, Plan: plan}
 	if status != api.RecoverySucceeded {
 		if status == api.RecoveryFailed {
-			r.UI.Say("verify.failed")
+			if !refused {
+				r.UI.Say("verify.failed")
+			}
 			r.UI.Say("done.failed")
 		}
 		if !r.unattended() {
@@ -940,7 +977,7 @@ func (r *Recover) chooseSnapshot(c *api.RecoveryCredentials) (string, string, er
 			}
 		}
 		if len(found) != 1 {
-			r.UI.Say("snapshot.no_match", "id", want, "count", len(found))
+			r.UI.Say("code."+ProblemSnapshotIDUnmatched, "id", want, "count", len(found))
 			return "", "", fmt.Errorf("answers: snapshotId %s names %d of the snapshots this recovery code may restore; exactly one is needed, nothing was changed", want, len(found))
 		}
 		for fid, fsha := range found {
@@ -956,7 +993,7 @@ func (r *Recover) chooseSnapshot(c *api.RecoveryCredentials) (string, string, er
 	opts := make([]string, len(list))
 	def := 0
 	for i, s := range list {
-		opts[i] = r.UI.Text("snapshot.item", "time", s.Time.UTC().Format("2006-01-02 15:04"), "id", shortID(s.ID), "check", s.Check)
+		opts[i] = r.UI.Text("snapshot.item", "time", s.Time.UTC().Format("2006-01-02 15:04"), "id", shortID(s.ID), "check", r.checkState(s.Check))
 		if s.ID == id {
 			def = i
 		}
@@ -968,6 +1005,41 @@ func (r *Recover) chooseSnapshot(c *api.RecoveryCredentials) (string, string, er
 		return "", "", ErrAborted
 	}
 	return list[i].ID, list[i].LayoutSHA256, nil
+}
+
+// checkState is the stage-1 check state of a snapshot in the console's
+// language (passed, failed, incomplete, none; anything else is unknown).
+func (r *Recover) checkState(check string) string {
+	switch check {
+	case "passed", "failed", "incomplete", "none":
+		return r.UI.Text("snapcheck." + check)
+	}
+	return r.UI.Text("snapcheck.unknown")
+}
+
+// noteSnapshot keeps what the instance says about the snapshot that will
+// be restored.
+func (r *Recover) noteSnapshot(c *api.RecoveryCredentials, id string) {
+	r.snap = snapshotNote{ID: id}
+	for _, s := range c.Snapshots {
+		if s.ID == id {
+			r.snap.Time, r.snap.Check = s.Time, s.Check
+		}
+	}
+}
+
+// showSnapshot names the snapshot that will be restored (id, point in
+// time, check state) with the text id, and says so when its check did not
+// pass: the operator decides with that in view (10.4 point 3).
+func (r *Recover) showSnapshot(id string) {
+	when := r.UI.Text("snapshot.no_time")
+	if !r.snap.Time.IsZero() {
+		when = r.snap.Time.UTC().Format("2006-01-02 15:04")
+	}
+	r.UI.Say(id, "id", shortID(r.snap.ID), "time", when, "check", r.checkState(r.snap.Check))
+	if r.snap.Check != "passed" {
+		r.UI.Say("snapshot.not_passed", "check", r.checkState(r.snap.Check))
+	}
 }
 
 // choices from the answers (mapping by identity, adoption, shrink, raw
@@ -1075,18 +1147,41 @@ func (r *Recover) refinePlan(ctx context.Context, m *baremetal.Manifest, t *bare
 		return p, c
 	}
 	changed := false
+	shrinkAsked, secureBootAsked := false, false
 	for _, pr := range p.Problems {
 		switch pr.Code {
 		case baremetal.ProblemShrinkNeedsConfirmation:
-			if ok, err := r.UI.YesNo(TParams(r.lang, "code."+pr.Code, pr.Params), true); err == nil && ok {
+			// One answer covers every proposal (the choice is one for the
+			// plan), so all of them are shown before it is asked, and the
+			// default is no: nothing shrinks because Enter was pressed.
+			if shrinkAsked {
+				continue
+			}
+			shrinkAsked = true
+			r.UI.Say("shrink.title")
+			for _, q := range p.Problems {
+				if q.Code == baremetal.ProblemShrinkNeedsConfirmation {
+					r.showShrink(q, t)
+				}
+			}
+			if ok, err := r.UI.YesNo(r.UI.Text("shrink.ask"), false); err == nil && ok {
 				c.Shrink, changed = "auto", true
 			}
 		case baremetal.ProblemSecureBootCAMissing, baremetal.ProblemSecureBootRevoked, baremetal.ProblemSecureBootSbatRevoked:
-			if c.SecureBootOff {
+			// recover cannot switch Secure Boot off; a yes only makes the
+			// findings warnings. The question says what is left to do, and
+			// it is asked once for all findings of the boot chain.
+			if c.SecureBootOff || secureBootAsked {
 				continue
 			}
-			r.UI.Line(TParams(r.lang, "code."+pr.Code, pr.Params))
-			if ok, err := r.UI.YesNo(r.UI.Text("code.secure_boot_disabled_by_choice", "codes", pr.Code), false); err == nil && ok {
+			secureBootAsked = true
+			for _, q := range p.Problems {
+				switch q.Code {
+				case baremetal.ProblemSecureBootCAMissing, baremetal.ProblemSecureBootRevoked, baremetal.ProblemSecureBootSbatRevoked:
+					r.UI.Line("  - " + TParams(r.lang, "code."+q.Code, q.Params))
+				}
+			}
+			if ok, err := r.UI.YesNo(r.UI.Text("secureboot.ask"), false); err == nil && ok {
 				c.SecureBootOff, changed = true, true
 			}
 		case baremetal.ProblemTargetMissing, baremetal.ProblemMappingInvalid:
@@ -1114,6 +1209,61 @@ func (r *Recover) refinePlan(ctx context.Context, m *baremetal.Manifest, t *bare
 	}
 	np, _ := baremetal.PlanWith(m, t, f, c, o)
 	return np, c
+}
+
+// showShrink prints one shrink proposal of the plan: what does not fit
+// where, and every volume that would shrink with its size before and
+// after.
+func (r *Recover) showShrink(pr baremetal.Finding, t *baremetal.Target) {
+	byID := map[string]baremetal.TargetDisk{}
+	for _, d := range t.Disks {
+		byID[d.ID] = d
+	}
+	var targets []string
+	for _, id := range strings.Split(paramString(pr.Params["target"]), ", ") {
+		if d, ok := byID[id]; ok {
+			targets = append(targets, fmt.Sprintf("%s (%s, %s)", d.Path, deref(d.Model), FormatBytes(d.SizeBytes)))
+		} else {
+			targets = append(targets, id)
+		}
+	}
+	vg, _ := pr.Params["vg"].(string)
+	if vg != "" {
+		r.UI.Say("shrink.vg", "vg", vg, "target", strings.Join(targets, ", "))
+	} else {
+		r.UI.Say("shrink.disk", "disk", paramString(pr.Params["disk"]), "target", strings.Join(targets, ", "))
+	}
+	items, _ := pr.Params["proposal"].([]any)
+	for _, it := range items {
+		m, ok := it.(map[string]any)
+		if !ok {
+			continue
+		}
+		from, to := FormatBytes(paramInt(m["fromBytes"])), FormatBytes(paramInt(m["toBytes"]))
+		if lv, ok := m["lv"]; ok {
+			name := paramString(lv)
+			if vg != "" {
+				name = vg + "/" + name
+			}
+			r.UI.Say("shrink.lv", "lv", name, "from", from, "to", to)
+		} else {
+			r.UI.Say("shrink.part", "partition", paramString(m["partition"]), "from", from, "to", to)
+		}
+	}
+}
+
+// paramInt reads a number of a finding's parameters (the planner's int64,
+// or the float64 JSON makes of it).
+func paramInt(v any) int64 {
+	switch t := v.(type) {
+	case int64:
+		return t
+	case int:
+		return int64(t)
+	case float64:
+		return int64(t)
+	}
+	return 0
 }
 
 func (r *Recover) askMapping(m *baremetal.Manifest, t *baremetal.Target, p *baremetal.RestorePlan) map[string]string {
@@ -1468,9 +1618,10 @@ func (r *Recover) confirm(ctx context.Context, p *baremetal.RestorePlan, t *bare
 			}
 		}
 		if r.Answers.Source == SourceMedia {
+			r.showSnapshot("confirm.snapshot")
 			r.UI.Say("unattended.countdown", "instance", r.origin)
 			for _, d := range disks {
-				r.UI.Say("hw.disk", "path", d.Path, "model", deref(d.Model), "size", FormatBytes(d.SizeBytes), "identity", deref(d.Identity))
+				r.UI.Line(r.eraseLine(d))
 			}
 			wait := r.Countdown
 			if wait == 0 {
@@ -1494,16 +1645,35 @@ func (r *Recover) confirm(ctx context.Context, p *baremetal.RestorePlan, t *bare
 		}
 		return true, nil
 	}
+	// What will be written, then every disk by itself, then all of them
+	// once more right above the erase word: the plan screen that named
+	// them has scrolled away behind the passphrase and option dialogs.
+	r.showSnapshot("confirm.snapshot")
+	var lines []string
 	for _, d := range disks {
-		if len(d.Signatures) == 0 {
+		lines = append(lines, r.eraseLine(d))
+		if deref(d.Identity) == "" {
+			// No identity to type (an empty disk without one, see above):
+			// the list and the erase word are its confirmation.
 			continue
 		}
-		ok, err := r.UI.TypeToConfirm(deref(d.Model), FormatBytes(d.SizeBytes), deref(d.Identity))
+		// Every disk, also one without a signature: raw data and formats
+		// blkid does not know look empty and are not.
+		ok, err := r.UI.TypeToConfirm(d.Path, deref(d.Model), FormatBytes(d.SizeBytes), deref(d.Identity))
 		if err != nil || !ok {
 			return false, err
 		}
 	}
-	return r.UI.ConfirmErase()
+	return r.UI.ConfirmErase(lines)
+}
+
+// eraseLine names a disk that will be erased: path, model, size, identity.
+func (r *Recover) eraseLine(d baremetal.TargetDisk) string {
+	id := deref(d.Identity)
+	if id == "" {
+		id = r.UI.Text("confirm.no_id")
+	}
+	return r.UI.Text("confirm.disk", "path", d.Path, "model", deref(d.Model), "size", FormatBytes(d.SizeBytes), "identity", id)
 }
 
 // planWarnings are the plan's findings as finish warnings (problems too
@@ -1579,9 +1749,15 @@ func (r *Recover) fail(ctx context.Context, p *baremetal.RestorePlan, _ *ExecRep
 	return &Result{Status: api.RecoveryFailed, Plan: p}, err
 }
 
-func (r *Recover) finish(ctx context.Context, status string, v api.RecoveryVerification, w []api.RecoveryWarning) {
+// finish reports the end and returns what the instance stored it as, with
+// the instance's reason when that is not what was reported: a success
+// without a verification report that bears it out is stored as failed
+// (9.8), and a session that had ended before (cancelled in the web
+// interface) keeps its state. A session that has ended takes nothing
+// more: that answer is expected and not shown.
+func (r *Recover) finish(ctx context.Context, status string, v api.RecoveryVerification, w []api.RecoveryWarning) (stored, reason string) {
 	if r.session == nil || r.session.ID == "" {
-		return
+		return status, ""
 	}
 	r.finished = true
 	r.flushLog(ctx)
@@ -1589,11 +1765,33 @@ func (r *Recover) finish(ctx context.Context, status string, v api.RecoveryVerif
 	if v.Format != "" {
 		raw = VerificationJSON(v)
 	}
-	_, err := r.session.Finish(ctx, api.RecoveryFinish{Status: status, Verification: raw, Warnings: w,
+	res, err := r.session.Finish(ctx, api.RecoveryFinish{Status: status, Verification: raw, Warnings: w,
 		DurationSeconds: int64(r.Env.Now().Sub(r.started) / time.Second)})
-	if err != nil {
-		r.UI.Raw("finish: " + redact.Redact(err.Error()))
+	switch {
+	case errors.Is(err, ErrSessionClosed):
+		r.logf("finish: %v", err)
+		if res.Status != "" {
+			return res.Status, ""
+		}
+		return status, ""
+	case err != nil:
+		r.UI.Say("report.finish", "reason", redact.Redact(err.Error()))
+		return status, ""
 	}
+	return res.Status, res.Reason
+}
+
+// serverReason is the instance's reason for not taking a reported success,
+// in the console's language (the code itself when this ISO does not know
+// it).
+func (r *Recover) serverReason(code string) string {
+	if id := "server." + code; code != "" && HasText(LangEN, id) {
+		return r.UI.Text(id)
+	}
+	if code == "" {
+		code = "?"
+	}
+	return r.UI.Text("server.unknown", "code", code)
 }
 
 func (r *Recover) showVerification(v api.RecoveryVerification, rep *ExecReport) {
@@ -1601,10 +1799,26 @@ func (r *Recover) showVerification(v api.RecoveryVerification, rep *ExecReport) 
 		return
 	}
 	r.UI.Say("verify.title")
+	// The report carries English texts for the server; the console shows
+	// each finding in the operator's language (Check.Text).
+	local := map[string]*Check{}
+	if rep != nil {
+		for _, c := range rep.Checks {
+			local[c.ID] = c
+		}
+	}
 	for _, c := range v.Checks {
-		r.UI.Say("verify.line", "result", strings.ToUpper(c.Result), "check", r.UI.Text("check."+c.ID))
-		for _, f := range c.Findings {
-			r.UI.Raw("    " + f.Message)
+		result := "result." + c.Result
+		if !HasText(LangEN, result) {
+			result = "result.failed"
+		}
+		r.UI.Say("verify.line", "result", r.UI.Text(result), "check", r.UI.Text("check."+c.ID))
+		for i := range c.Findings {
+			text := r.UI.Text("find.not_run")
+			if lc := local[c.ID]; lc != nil {
+				text = lc.Text(i, r.lang)
+			}
+			r.UI.Line("    " + text)
 		}
 	}
 	for _, h := range v.Hints {
@@ -1631,7 +1845,7 @@ func (r *Recover) rebind(ctx context.Context, x *Executor, m *baremetal.Manifest
 		return
 	}
 	if _, err := Rebind(ctx, r.session, strings.TrimSpace(token), r.origin, x.Rootfs(), m, r.Version); err != nil {
-		r.UI.Raw("rebind: " + redact.Redact(err.Error()))
+		r.UI.Say("report.rebind", "reason", redact.Redact(err.Error()))
 		return
 	}
 	r.UI.Say("rebind.done")

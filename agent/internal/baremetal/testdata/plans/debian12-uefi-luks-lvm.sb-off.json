@@ -784,7 +784,7 @@
   "warnings": [
     {
       "code": "secure_boot_disabled_by_choice",
-      "message": "Secure Boot is to be turned off on the target; the boot chain checks are warnings only (secure_boot_ca_missing).",
+      "message": "By choice the boot chain checks are warnings only (secure_boot_ca_missing); the restored system starts only with Secure Boot switched off in the firmware setup of the target.",
       "params": {
         "codes": [
           "secure_boot_ca_missing"

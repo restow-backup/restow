@@ -541,7 +541,7 @@ func TestCleanupOwnership(t *testing.T) {
 func TestCleanupStale(t *testing.T) {
 	dir := t.TempDir()
 	write := func(p, s string) {
-		full := filepath.Join(dir, "root", p)
+		full := baremetal.FixturePath(filepath.Join(dir, "root"), p)
 		_ = os.MkdirAll(filepath.Dir(full), 0o755)
 		if err := os.WriteFile(full, []byte(s), 0o644); err != nil {
 			t.Fatal(err)

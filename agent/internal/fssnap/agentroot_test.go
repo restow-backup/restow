@@ -281,8 +281,12 @@ func TestRootFullVG(t *testing.T) {
 func TestRootThinPool(t *testing.T) {
 	e := newRootEnv(t)
 	vg := e.vg(2048)
-	// errorwhenfull: a full pool fails writes instead of queueing them.
-	e.sh("lvcreate", "-y", "--type", "thin-pool", "-L", "1G", "--errorwhenfull", "y", "-n", "pool", vg)
+	// errorwhenfull: a full pool fails writes instead of queueing them. Set
+	// with lvchange once the pool exists: lvcreate of LVM 2.03.16 (Ubuntu
+	// 24.04, the CI runner) refuses the option together with --type
+	// thin-pool ("Option --errorwhenfull is unsupported with thin pools").
+	e.sh("lvcreate", "-y", "--type", "thin-pool", "-L", "1G", "-n", "pool", vg)
+	e.sh("lvchange", "-y", "--errorwhenfull", "y", vg+"/pool")
 	e.sh("lvcreate", "-y", "-V", "2G", "--thinpool", vg+"/pool", "-n", "thin", vg)
 	e.sh("mkfs.ext4", "-q", "-E", "nodiscard", "/dev/"+vg+"/thin")
 	mnt := e.mount("/dev/"+vg+"/thin", "thin")

@@ -566,3 +566,54 @@ func TestResumeMappingFollowsTheSignatures(t *testing.T) {
 		t.Error("fixture: the resume plan without the mapping already excludes")
 	}
 }
+
+// TestShrinkFindingNamesDisksAndProposal: a volume group that fits its
+// smaller target only when more LVs shrink than the one that may grow. The
+// finding names the volume group, the disk of the backup it lies on and
+// the target disk (not the volume group in the place of both), and carries
+// the proposal; its message reads as a sentence about disks.
+func TestShrinkFindingNamesDisksAndProposal(t *testing.T) {
+	m := loadManifest(t, "debian12-uefi-luks-lvm")
+	f := readFacts(t, "debian12-uefi-luks-lvm")
+	raw, err := os.ReadFile(filepath.Join("testdata", "targets", "debian12-uefi-luks-lvm.smaller-128gb.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tg, err := ParseTarget(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, _ := Plan(m, tg, f, Choices{})
+	var got *Finding
+	for i := range p.Problems {
+		if p.Problems[i].Code == ProblemShrinkNeedsConfirmation {
+			got = &p.Problems[i]
+		}
+	}
+	if got == nil {
+		t.Fatalf("no %s: %+v", ProblemShrinkNeedsConfirmation, p.Problems)
+	}
+	if got.Params["vg"] != "srv01-vg" || got.Params["disk"] != "d0" || got.Params["target"] != tg.Disks[0].ID {
+		t.Errorf("params %v, want the volume group srv01-vg, the disk d0 and the target %s", got.Params, tg.Disks[0].ID)
+	}
+	items, _ := got.Params["proposal"].([]any)
+	if len(items) == 0 {
+		t.Fatalf("no proposal: %v", got.Params)
+	}
+	first, _ := items[0].(map[string]any)
+	from, _ := first["fromBytes"].(int64)
+	to, _ := first["toBytes"].(int64)
+	if first["lv"] != "root" || to <= 0 || to >= from {
+		t.Errorf("proposal %v", items)
+	}
+	if strings.Contains(got.Message, "vg srv01-vg") || !strings.Contains(got.Message, "Disk d0 fits on "+tg.Disks[0].ID) {
+		t.Errorf("message %q", got.Message)
+	}
+	for _, text := range planMessages {
+		for _, never := range []string{"Windows", "Microsoft", "—", "–"} {
+			if strings.Contains(text, never) {
+				t.Errorf("a planner message names %q: %s", never, text)
+			}
+		}
+	}
+}

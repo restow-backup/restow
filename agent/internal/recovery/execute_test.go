@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -431,6 +432,41 @@ func TestExecuteSystemFilesIncomplete(t *testing.T) {
 	rep, err := h.x.Run(context.Background())
 	if err != nil || rep.RestoreErrors != 1 || rep.Warnings[0].Code != WarnRestoreFileErrors {
 		t.Errorf("a file outside the system paths: %v %+v", err, rep)
+	}
+}
+
+// restic lists the first hundred item errors and counts the rest. When the
+// listed ones are all outside the system paths, the others may be system
+// files: the run stops before the fixups and is not a mere warning.
+func TestExecuteUnlistedRestoreErrors(t *testing.T) {
+	h := newHarness(t, "debian12-uefi-luks-lvm.same", "debian12-uefi-luks-lvm")
+	for i := 0; i < 100; i++ {
+		h.restic.items = append(h.restic.items, restic.ItemError{Path: fmt.Sprintf("/home/alice/f%03d", i), Message: "no space left on device"})
+	}
+	h.restic.unlisted = 2400
+	rep, err := h.x.Run(context.Background())
+	if ProblemCode(err) != ProblemSystemFilesIncomplete {
+		t.Fatalf("2500 errors, 100 of them known and all below /home: err %v, want %s", err, ProblemSystemFilesIncomplete)
+	}
+	if rep.RestoreErrors != 2500 || rep.SystemErrors != 2400 {
+		t.Errorf("restore errors %d, system errors %d, want 2500 and 2400", rep.RestoreErrors, rep.SystemErrors)
+	}
+	for _, w := range rep.Warnings {
+		if w.Code == WarnRestoreFileErrors {
+			t.Error("the unknown errors ended as the warning for files outside the system paths")
+		}
+	}
+	if strings.Contains(h.exec.lines(), "fixup") || strings.Contains(h.exec.lines(), "chroot-exec") {
+		t.Error("the run went on although system files cannot be ruled out")
+	}
+	// All errors are known and none is a system file: still a warning.
+	h = newHarness(t, "debian12-uefi-luks-lvm.same", "debian12-uefi-luks-lvm")
+	for i := 0; i < 100; i++ {
+		h.restic.items = append(h.restic.items, restic.ItemError{Path: fmt.Sprintf("/home/alice/f%03d", i), Message: "read error"})
+	}
+	rep, err = h.x.Run(context.Background())
+	if err != nil || rep.RestoreErrors != 100 || rep.SystemErrors != 0 {
+		t.Errorf("100 known errors outside the system paths: %v %+v", err, rep)
 	}
 }
 

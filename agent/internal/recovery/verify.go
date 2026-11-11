@@ -15,12 +15,25 @@ import (
 // result, findings and evidence. verify_linux.go collects the facts; this
 // file judges and bounds the report.
 
-// Check is a check being built.
-type Check struct{ api.RecoveryCheck }
+// Check is a check being built. texts holds, per finding, the text of the
+// catalogue it was made from: the report carries the English text (the
+// server and the web show it as it is), the console shows the operator's
+// language (Text).
+type Check struct {
+	api.RecoveryCheck
+	texts []findingText
+}
+
+// findingText is find.<id> of the catalogue with its parameters; an empty
+// id is a finding with a free message.
+type findingText struct {
+	id string
+	kv []any
+}
 
 // NewCheck starts a check that is ok until a finding says otherwise.
 func NewCheck(id string) *Check {
-	return &Check{api.RecoveryCheck{ID: id, Result: api.VerifyOK, Findings: []api.RecoveryFinding{}, Evidence: map[string]any{}}}
+	return &Check{RecoveryCheck: api.RecoveryCheck{ID: id, Result: api.VerifyOK, Findings: []api.RecoveryFinding{}, Evidence: map[string]any{}}}
 }
 
 // Warn adds a finding that makes the check at least a warning.
@@ -28,23 +41,51 @@ func (c *Check) Warn(code, ref, message string, params map[string]string) *Check
 	if c.Result == api.VerifyOK {
 		c.Result = api.VerifyWarning
 	}
-	return c.add(code, ref, message, params)
+	return c.add(code, ref, message, params, findingText{})
 }
 
 // Fail adds a finding that fails the check.
 func (c *Check) Fail(code, ref, message string, params map[string]string) *Check {
 	c.Result = api.VerifyFailed
-	return c.add(code, ref, message, params)
+	return c.add(code, ref, message, params, findingText{})
 }
 
-func (c *Check) add(code, ref, message string, params map[string]string) *Check {
+// WarnT is Warn with the text find.<id> of the catalogue (kv are its
+// parameters as name, value pairs).
+func (c *Check) WarnT(code, ref string, params map[string]string, id string, kv ...any) *Check {
+	if c.Result == api.VerifyOK {
+		c.Result = api.VerifyWarning
+	}
+	return c.add(code, ref, T(LangEN, "find."+id, kv...), params, findingText{id: id, kv: kv})
+}
+
+// FailT is Fail with the text find.<id> of the catalogue.
+func (c *Check) FailT(code, ref string, params map[string]string, id string, kv ...any) *Check {
+	c.Result = api.VerifyFailed
+	return c.add(code, ref, T(LangEN, "find."+id, kv...), params, findingText{id: id, kv: kv})
+}
+
+func (c *Check) add(code, ref, message string, params map[string]string, text findingText) *Check {
 	if params == nil {
 		params = map[string]string{}
 	}
 	if len(c.Findings) < api.RecoveryMaxFindingsPerCheck {
 		c.Findings = append(c.Findings, api.RecoveryFinding{Code: code, Ref: ref, Message: message, Params: params})
+		c.texts = append(c.texts, text)
 	}
 	return c
+}
+
+// Text is finding i in lang: the catalogue text it was made from, or its
+// message when it has none.
+func (c *Check) Text(i int, lang string) string {
+	if c == nil || i < 0 || i >= len(c.Findings) {
+		return ""
+	}
+	if i < len(c.texts) && c.texts[i].id != "" {
+		return T(lang, "find."+c.texts[i].id, c.texts[i].kv...)
+	}
+	return SanitizeForConsole(c.Findings[i].Message)
 }
 
 // Set records evidence: a string (cut to 300 characters), an integer or a
@@ -101,7 +142,7 @@ func BuildVerification(snapshotID, planSHA string, started, finished time.Time, 
 	for _, id := range CheckIDs {
 		c := byID[id]
 		if c == nil {
-			c = NewCheck(id).Warn(ProblemVerifyFailed, id, "check not run", nil)
+			c = NewCheck(id).WarnT(ProblemVerifyFailed, id, nil, "not_run")
 		}
 		for i := range c.Findings {
 			f := &c.Findings[i]

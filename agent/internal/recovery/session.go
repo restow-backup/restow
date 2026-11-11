@@ -10,9 +10,11 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf16"
 	"unicode/utf8"
@@ -103,6 +105,83 @@ type Session struct {
 	client     *http.Client
 	logMu      sync.Mutex
 	logBlocks  redact.KeyBlocks
+	// closed: the session has ended on the instance (it took the finish,
+	// or answered a report with 409 recovery-state-conflict). Nothing more
+	// is reported: the result is final there, and every further report
+	// would be refused and audited.
+	closed atomic.Bool
+	// endState is the state the instance named when the session closed
+	// (succeeded, failed, cancelled), or nil when it named none.
+	endState atomic.Pointer[string]
+}
+
+// ErrSessionClosed is what Progress, Log, Event, Release and Finish return
+// once the session has ended on the instance (9.8, 9.9: a closed session
+// takes no more reports). It is the expected end of every recovery, not a
+// failure: callers neither retry nor show it.
+var ErrSessionClosed = errors.New("the recovery session has ended on the instance; nothing more is reported")
+
+// Closed reports whether the session has ended on the instance.
+func (s *Session) Closed() bool { return s.closed.Load() }
+
+// EndState is the state the session ended in, as the instance named it
+// (succeeded, failed, cancelled), or "" while it runs or when the
+// instance named none.
+func (s *Session) EndState() string {
+	if st := s.endState.Load(); st != nil {
+		return *st
+	}
+	return ""
+}
+
+// close remembers that the session has ended, and as what.
+func (s *Session) close(state string) {
+	if closedState(state) {
+		s.endState.CompareAndSwap(nil, &state)
+	}
+	s.closed.Store(true)
+}
+
+// closedState reports a state a session ends in.
+func closedState(st string) bool {
+	return st == api.RecoverySucceeded || st == api.RecoveryFailed || st == api.RecoveryCancelled
+}
+
+// report sends a report of the running recovery (progress, log, event,
+// release). After the end it sends nothing; the 409 that says the session
+// has ended is remembered and returned as ErrSessionClosed.
+func (s *Session) report(ctx context.Context, path string, body, out any) error {
+	if s.closed.Load() {
+		return ErrSessionClosed
+	}
+	err := s.do(ctx, http.MethodPost, path, body, out, true)
+	// The 409 names the state: only a state a session ends in closes it
+	// (a release before the approval is refused with the same type).
+	if st := ProblemState(err); IsProblem(err, ProblemStateConflict) && closedState(st) {
+		s.close(st)
+		return fmt.Errorf("%w: %w", ErrSessionClosed, err)
+	}
+	return err
+}
+
+// ProblemState is the state a 409 recovery-state-conflict names (the state
+// the session is in), or "".
+func ProblemState(err error) string {
+	var ae *api.APIError
+	if !errors.As(err, &ae) {
+		return ""
+	}
+	return ae.State
+}
+
+// ProblemReason is the reason code of a problem answer (for example
+// snapshot_unknown of baremetal-not-available), or "".
+func ProblemReason(err error) string {
+	var ae *api.APIError
+	if !errors.As(err, &ae) {
+		return ""
+	}
+	return ae.Reason
 }
 
 // NewSession checks the instance address and makes a new session secret.
@@ -248,7 +327,7 @@ func (s *Session) Progress(ctx context.Context, p api.RecoveryProgress) error {
 		}
 		p.SSHHostKeys = keys
 	}
-	return s.do(ctx, http.MethodPost, CurrentPath+"/progress", p, nil, true)
+	return s.report(ctx, CurrentPath+"/progress", p, nil)
 }
 
 // logBodyOverhead is the encoded size of api.RecoveryLog without lines:
@@ -288,7 +367,7 @@ func (s *Session) Log(ctx context.Context, lines []string) (api.RecoveryLogResul
 		}
 		lines = lines[n:]
 		var out api.RecoveryLogResult
-		if err := s.do(ctx, http.MethodPost, CurrentPath+"/log", api.RecoveryLog{Lines: batch}, &out, true); err != nil {
+		if err := s.report(ctx, CurrentPath+"/log", api.RecoveryLog{Lines: batch}, &out); err != nil {
 			return total, err
 		}
 		total.Accepted += out.Accepted
@@ -305,14 +384,14 @@ func (s *Session) Event(ctx context.Context, kind string, detail map[string]stri
 	for k, v := range detail {
 		cleaned[truncateUTF16(k, 64)] = isoField(v, 1024)
 	}
-	return s.do(ctx, http.MethodPost, CurrentPath+"/event", api.RecoveryEvent{Kind: kind, Detail: cleaned}, nil, true)
+	return s.report(ctx, CurrentPath+"/event", api.RecoveryEvent{Kind: kind, Detail: cleaned}, nil)
 }
 
 // Release ends read access before the machine restarts (active to
 // finishing; repeating it is harmless).
 func (s *Session) Release(ctx context.Context) (string, error) {
 	var out api.RecoveryStatus
-	if err := s.do(ctx, http.MethodPost, CurrentPath+"/release", struct{}{}, &out, true); err != nil {
+	if err := s.report(ctx, CurrentPath+"/release", struct{}{}, &out); err != nil {
 		return "", err
 	}
 	return out.Status, nil
@@ -324,7 +403,19 @@ func (s *Session) Release(ctx context.Context) (string, error) {
 // dropped from the end while the encoded body would exceed the instance's
 // limit for the route (api.RecoveryMaxFinishBody). Every string of the
 // verification report is redacted; keeping it within 64 KiB is the caller's.
-func (s *Session) Finish(ctx context.Context, f api.RecoveryFinish) (string, error) {
+//
+// The answer is what the instance stored, which is not always what was
+// reported: a succeeded without a verification report that bears it out
+// ends as failed, with Reported and Reason set (9.8). A session that had
+// ended before (cancelled in the web interface, or finished already)
+// answers 409 recovery-state-conflict: Finish then returns
+// ErrSessionClosed and, in Status, the state the instance named (also when
+// an earlier report learned of the end: no second request is sent). After
+// either answer the session takes nothing more.
+func (s *Session) Finish(ctx context.Context, f api.RecoveryFinish) (api.RecoveryStatus, error) {
+	if s.closed.Load() {
+		return api.RecoveryStatus{Status: s.EndState()}, ErrSessionClosed
+	}
 	if len(f.Verification) == 0 {
 		f.Verification = json.RawMessage("{}")
 	}
@@ -353,10 +444,28 @@ func (s *Session) Finish(ctx context.Context, f api.RecoveryFinish) (string, err
 	}
 	var out api.RecoveryStatus
 	if err := s.do(ctx, http.MethodPost, CurrentPath+"/finish", f, &out, true); err != nil {
-		return "", err
+		if st := ProblemState(err); IsProblem(err, ProblemStateConflict) && closedState(st) {
+			s.close(st)
+			return api.RecoveryStatus{Status: st}, fmt.Errorf("%w: %w", ErrSessionClosed, err)
+		}
+		return api.RecoveryStatus{}, err
 	}
-	return out.Status, nil
+	s.close(out.Status)
+	if !closedState(out.Status) {
+		return out, fmt.Errorf("the instance answered the finish with the state %q", isoField(out.Status, 64))
+	}
+	if !reCode.MatchString(out.Reason) {
+		out.Reason = ""
+	}
+	if out.Reported != "" && !closedState(out.Reported) {
+		out.Reported = ""
+	}
+	return out, nil
 }
+
+// reCode is the form of a code of the instance (a problem's reason, a
+// state): nothing else is taken from an answer into a text.
+var reCode = regexp.MustCompile(`^[a-z][a-z0-9_]{0,63}$`)
 
 // Rebind redeems a reconnect token of the same machine after a successful
 // finish (201, the answer of an enrollment with Rebound set). The token is
@@ -501,9 +610,18 @@ func (s *Session) once(ctx context.Context, method, base, path string, payload [
 		Type   string `json:"type"`
 		Title  string `json:"title"`
 		Detail string `json:"detail"`
+		// Extensions of the recovery routes: plain codes, or nothing.
+		Reason any `json:"reason"`
+		Status any `json:"status"`
 	}
 	if len(data) > 0 && json.Unmarshal(data, &p) == nil {
 		ae.Type, ae.Title, ae.Detail = p.Type, p.Title, redact.Redact(p.Detail)
+		if r, ok := p.Reason.(string); ok && reCode.MatchString(r) {
+			ae.Reason = r
+		}
+		if st, ok := p.Status.(string); ok && reCode.MatchString(st) {
+			ae.State = st
+		}
 	}
 	if ae.Title == "" {
 		ae.Title = http.StatusText(resp.StatusCode)

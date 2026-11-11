@@ -22,6 +22,12 @@ type APIError struct {
 	Title      string
 	Detail     string
 	RetryAfter time.Duration
+	// Reason and State are the extensions "reason" and "status" of the
+	// problem, when it carries them and they are plain codes (the recovery
+	// routes: why a backup is not available, the state a closed session
+	// ended in). Only the recovery client fills them.
+	Reason string
+	State  string
 }
 
 func (e *APIError) Error() string {

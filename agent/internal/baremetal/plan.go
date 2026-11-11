@@ -616,7 +616,24 @@ func (pl *planner) placeLVs(shrinkAuto bool) {
 					}
 					pl.add(newFinding(ProblemTargetTooSmall, vg.Name, "disk", "vg "+vg.Name, "target", vg.Name, "needBytes", need, "haveBytes", capacity))
 				} else if !shrinkAuto && len(proposal) > 0 {
-					pl.add(newFinding(ProblemShrinkNeedsConfirmation, vg.Name, "disk", "vg "+vg.Name, "target", vg.Name, "proposal", proposal))
+					// The disks of the backup the volume group lies on and
+					// the target disks they go to: what does not fit where.
+					var from, to []string
+					seen := map[string]bool{}
+					for _, pv := range pvs {
+						for _, d := range x.disksUnder(pv.Device) {
+							if seen[d] {
+								continue
+							}
+							seen[d] = true
+							from = append(from, d)
+							if a := pl.mp.assign[d]; a != nil && a.Target != nil {
+								to = append(to, *a.Target)
+							}
+						}
+					}
+					pl.add(newFinding(ProblemShrinkNeedsConfirmation, vg.Name, "disk", strings.Join(from, ", "), "target", strings.Join(to, ", "),
+						"vg", vg.Name, "proposal", proposal))
 				}
 			}
 		}

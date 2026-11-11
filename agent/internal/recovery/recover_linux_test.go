@@ -166,6 +166,12 @@ func (c chownless) WriteFileAtomic(p string, data []byte, mode fs.FileMode, uid,
 	return c.DirRootfs.WriteFileAtomic(p, data, mode, uid, gid, backup)
 }
 
+// initramfsListing is what the lister of the fake target prints: the
+// storage driver and the tools the stack under / needs (LUKS, LVM).
+func initramfsListing(IsolateSpec) string {
+	return "usr/lib/modules/6.1.0-27-amd64/kernel/drivers/nvme/host/nvme.ko\nusr/sbin/cryptsetup\nusr/sbin/lvm\n"
+}
+
 type allExists struct {
 	order   []int64
 	entries map[int]baremetal.LoadOption
@@ -187,13 +193,16 @@ func snapshotOf(t *testing.T, bin string, manifest []byte) (repo, snapshot strin
 	repo = filepath.Join(dir, "repo")
 	files := map[string]string{
 		"var/lib/restow-agent/baremetal/layout.json": string(manifest),
-		"etc/fstab":                                  "/dev/mapper/srv01--vg-root / ext4 errors=remount-ro 0 1\n/dev/nvme0n1p2 /boot ext4 defaults 0 2\n/dev/nvme0n1p1 /boot/efi vfat umask=0077 0 1\n/dev/mapper/srv01--vg-home /home ext4 defaults 0 2\n",
-		"etc/crypttab":                               "nvme0n1p3_crypt UUID=2b1f0c3e-6d7a-4e8b-9c0d-1e2f3a4b5c6d none luks,discard\n",
-		"etc/default/grub":                           "GRUB_CMDLINE_LINUX_DEFAULT=\"quiet\"\nGRUB_CMDLINE_LINUX=\"\"\n",
-		"etc/hostname":                               "srv01\n",
-		"etc/initramfs-tools/conf.d/resume":          "RESUME=/dev/mapper/srv01--vg-swap_1\n",
-		"boot/initrd.img-6.1.0-27-amd64":             "initrd",
-		"boot/grub/grub.cfg":                         "linux /vmlinuz root=/dev/mapper/srv01--vg-root ro\n",
+		"etc/fstab":                         "/dev/mapper/srv01--vg-root / ext4 errors=remount-ro 0 1\n/dev/nvme0n1p2 /boot ext4 defaults 0 2\n/dev/nvme0n1p1 /boot/efi vfat umask=0077 0 1\n/dev/mapper/srv01--vg-home /home ext4 defaults 0 2\n",
+		"etc/crypttab":                      "nvme0n1p3_crypt UUID=2b1f0c3e-6d7a-4e8b-9c0d-1e2f3a4b5c6d none luks,discard\n",
+		"etc/default/grub":                  "GRUB_CMDLINE_LINUX_DEFAULT=\"quiet\"\nGRUB_CMDLINE_LINUX=\"\"\n",
+		"etc/hostname":                      "srv01\n",
+		"etc/initramfs-tools/conf.d/resume": "RESUME=/dev/mapper/srv01--vg-swap_1\n",
+		"boot/initrd.img-6.1.0-27-amd64":    "initrd",
+		"boot/grub/grub.cfg":                "linux /vmlinuz root=/dev/mapper/srv01--vg-root ro\n",
+		// The loader the boot entries of the fake firmware name (allExists):
+		// on the ESP, not in the manifest's list.
+		"boot/efi/EFI/test/none.efi":                 "loader",
 		"lib/modules/6.1.0-27-amd64/modules.alias":   "alias pci:v*d*sv*sd*bc01sc08i02* nvme\n",
 		"lib/modules/6.1.0-27-amd64/modules.builtin": "",
 		"home/alice/notes.txt":                       "hello\n",
@@ -284,7 +293,7 @@ func TestRecoverFullFlowUnattended(t *testing.T) {
 	}
 	exe := newFakeExec()
 	env := &testEnv{t: t, hw: hardwareFor(m), repo: repo, resticB: bin, target: t.TempDir(), exec: exe,
-		iso: &fakeIsolator{exec: exe, reply: func(IsolateSpec) string { return "kernel/drivers/nvme/host/nvme.ko\n" }}, ops: &fakeOps{exec: exe, mounted: map[string]bool{}}}
+		iso: &fakeIsolator{exec: exe, reply: initramfsListing}, ops: &fakeOps{exec: exe, mounted: map[string]bool{}}}
 	var out bytes.Buffer
 	ui := &UI{In: strings.NewReader(""), Out: &out, Lang: LangEN}
 	r := &Recover{UI: ui, Env: env, Answers: a, Version: "0.5.0", Log: &LogBuffer{}, Poll: 20 * time.Millisecond}

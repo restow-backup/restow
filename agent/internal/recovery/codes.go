@@ -10,6 +10,7 @@ const (
 	ProblemAccessExpired             = "access_expired"
 	ProblemArchUnsupported           = "arch_unsupported"
 	ProblemClockWrong                = "clock_wrong"
+	ProblemDisksChanged              = "disks_changed"
 	ProblemForeignMappingOpen        = "foreign_mapping_open"
 	ProblemHoldersBusy               = "holders_busy"
 	ProblemLVMFilterMultiline        = "lvm_filter_multiline"
@@ -21,6 +22,7 @@ const (
 	ProblemPartitionReadbackMismatch = "partition_readback_mismatch"
 	ProblemRecoveryTooOld            = "recovery_too_old"
 	ProblemRestoreFailed             = "restore_failed"
+	ProblemSnapshotIDUnmatched       = "snapshot_id_unmatched"
 	ProblemSPKIMismatch              = "spki_mismatch"
 	ProblemStepFailed                = "step_failed"
 	ProblemSystemFilesIncomplete     = "system_files_incomplete"
@@ -73,11 +75,11 @@ const (
 // RecoverProblemCodes, RecoverWarningCodes, CheckIDs and HintCodes are the
 // lists of testdata/recover-codes.json (in its order).
 var (
-	RecoverProblemCodes = []string{ProblemAccessExpired, ProblemArchUnsupported, ProblemClockWrong, ProblemForeignMappingOpen, ProblemHoldersBusy,
-		ProblemLVMFilterMultiline, ProblemManifestFormatUnknown, ProblemManifestInvalid, ProblemManifestMismatch,
-		ProblemMkfsReadbackMismatch, ProblemNoDisksFound, ProblemPartitionReadbackMismatch, ProblemRecoveryTooOld,
-		ProblemRestoreFailed, ProblemSPKIMismatch, ProblemStepFailed, ProblemSystemFilesIncomplete, ProblemTLSUntrusted,
-		ProblemVerifyFailed}
+	RecoverProblemCodes = []string{ProblemAccessExpired, ProblemArchUnsupported, ProblemClockWrong, ProblemDisksChanged,
+		ProblemForeignMappingOpen, ProblemHoldersBusy, ProblemLVMFilterMultiline, ProblemManifestFormatUnknown,
+		ProblemManifestInvalid, ProblemManifestMismatch, ProblemMkfsReadbackMismatch, ProblemNoDisksFound,
+		ProblemPartitionReadbackMismatch, ProblemRecoveryTooOld, ProblemRestoreFailed, ProblemSnapshotIDUnmatched,
+		ProblemSPKIMismatch, ProblemStepFailed, ProblemSystemFilesIncomplete, ProblemTLSUntrusted, ProblemVerifyFailed}
 	RecoverWarningCodes = []string{WarnBootSpaceLow, WarnCancelRequested, WarnDeviceNameRefsFound, WarnInitramfsNotRebuilt,
 		WarnLowMemory, WarnMokEnrollPending, WarnNICRenameSkipped, WarnOldDiskPresent, WarnQuotaRescanFailed,
 		WarnRestoreFileErrors, WarnSELinuxAutorelabel}

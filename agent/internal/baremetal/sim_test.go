@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -1038,8 +1039,10 @@ func (s *simMachine) writeTree(dir string) error {
 		files[ev+"PlatformLang-"+EFIGlobalGUID] = efiVar([]byte("en-US\x00"))
 		files[ev+"MokPWStore-"+ShimLockGUID] = efiVar([]byte("never-read-secret"))
 	}
+	// Every name is written as FixtureName does, so the tree checks out on
+	// every system (sysfs has names with a colon).
 	for p, b := range files {
-		full := filepath.Join(root, filepath.FromSlash(strings.TrimPrefix(p, "/")))
+		full := FixturePath(root, p)
 		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 			return err
 		}
@@ -1054,7 +1057,7 @@ func (s *simMachine) writeTree(dir string) error {
 		}
 	}
 	for p, t := range links {
-		full := filepath.Join(root, filepath.FromSlash(strings.TrimPrefix(p, "/"))) + ".link"
+		full := FixturePath(root, p) + ".link"
 		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 			return err
 		}
@@ -1065,8 +1068,13 @@ func (s *simMachine) writeTree(dir string) error {
 	// Mount points exist as directories.
 	for _, n := range s.all() {
 		for _, m := range n.Mounts {
-			_ = os.MkdirAll(filepath.Join(root, filepath.FromSlash(strings.TrimPrefix(m.Target, "/"))), 0o755)
+			_ = os.MkdirAll(FixturePath(root, m.Target), 0o755)
 		}
+	}
+	// git keeps no empty directory: one that holds nothing (a mount point)
+	// gets the file DirHost does not show.
+	if err := keepEmptyDirs(root); err != nil {
+		return err
 	}
 	st := s.Statfs
 	if st == nil {
@@ -1081,6 +1089,21 @@ func (s *simMachine) writeTree(dir string) error {
 	}
 	b, _ := json.MarshalIndent(st, "", "  ")
 	return os.WriteFile(filepath.Join(dir, "statfs.json"), append(b, '\n'), 0o644)
+}
+
+// keepEmptyDirs writes FixtureKeep into every directory below root that
+// holds nothing.
+func keepEmptyDirs(root string) error {
+	return filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || !d.IsDir() {
+			return err
+		}
+		ents, err := os.ReadDir(p)
+		if err != nil || len(ents) > 0 {
+			return err
+		}
+		return os.WriteFile(filepath.Join(p, FixtureKeep), nil, 0o644)
+	})
 }
 
 func (n *simNode) LogSecOr512() int64 {
@@ -1167,6 +1190,11 @@ func (r *recorder) write(dir string) error {
 				return err
 			}
 		}
+	}
+	if len(r.order) == 0 {
+		// No call, no folder: git would not keep the empty one, and the
+		// replay reads a missing folder as no recordings.
+		return os.Remove(cmdDir)
 	}
 	return nil
 }
