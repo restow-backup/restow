@@ -5,6 +5,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 import { i18n } from "@/i18n";
 
+import { RECOVERY_SERVER_WARNING_CODES } from "./api.js";
 import "./i18n.js";
 
 type Tree = { [key: string]: string | Tree };
@@ -158,6 +159,7 @@ const VALUES = {
   recommended: "4 GB",
   layout: "de",
   kernels: "6.1.0-25-amd64",
+  checks: "fstab, crypttab",
   model: "Samsung SSD 980",
   identity: "serial.S64",
   line: 3,
@@ -252,6 +254,39 @@ describe("endpoints translations", () => {
       const planCodes = ((tree.baremetal as Tree).plan as Tree).codes as Record<string, string>;
       for (const code of [...PLAN_CODES.problems, ...PLAN_CODES.warnings]) {
         expect(planCodes[code], code).toBeTruthy();
+      }
+    }
+  });
+
+  it("words every reason the server gives for not taking a reported success, in both languages", () => {
+    // The list of @restow/core (the web app does not depend on it): both must name the same.
+    const core = readFileSync(
+      new URL(
+        "../../../../../packages/core/src/endpoints/baremetal/verification.ts",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+    const list = /SERVER_FINISH_WARNING_CODES = \[([^\]]+)\]/.exec(core)?.[1] ?? "";
+    const serverCodes = [...list.matchAll(/"([a-z_]+)"/g)].map((match) => match[1] as string);
+    expect(serverCodes.length).toBeGreaterThan(0);
+    expect([...RECOVERY_SERVER_WARNING_CODES]).toEqual(serverCodes);
+    const reported = [
+      ...PLAN_CODES.problems,
+      ...PLAN_CODES.warnings,
+      ...RECOVER_CODES.problems,
+      ...RECOVER_CODES.warnings,
+    ];
+    for (const tree of [en, de] as Tree[]) {
+      const texts = ((tree.recovery as Tree).serverReported as Tree).codes as Record<
+        string,
+        string
+      >;
+      expect(Object.keys(texts).sort()).toEqual([...serverCodes].sort());
+      for (const code of serverCodes) {
+        // The ISO cannot report one of them: no code of its own has the name.
+        expect(reported).not.toContain(code);
+        expect(texts[code], code).not.toMatch(/\{[a-zA-Z]+\}/);
       }
     }
   });

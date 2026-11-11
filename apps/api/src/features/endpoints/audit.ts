@@ -43,6 +43,8 @@ export const ENDPOINT_AUDIT_ACTIONS = {
   recoveryKeyfileRegenerated: "endpoint.recovery.keyfile_regenerated",
   recoveryReleased: "endpoint.recovery.released",
   recoveryFinished: "endpoint.recovery.finished",
+  /** The ISO wrote to a session that had ended (9.8): the first refused call, once per session. */
+  recoveryReportRefused: "endpoint.recovery.report_refused",
   /** The monitor (or a late release) ended a code or a session that ran out of time. */
   recoveryExpired: "endpoint.recovery.expired",
   recoveryCancelled: "endpoint.recovery.cancelled",

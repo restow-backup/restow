@@ -3,7 +3,9 @@
  * verification report `restow-verify-v1` in `POST /agent/v1/recovery/sessions/current/finish` and
  * the codes of its warnings. `restow-agent recover` writes it (agent/internal/recovery/verify.go,
  * the types in agent/internal/api/recovery.go); the server stores it as the ISO sent it (redacted,
- * at most 64 KiB) and hands the web app only what parses here, never the raw value.
+ * at most 64 KiB) and hands the web app only what parses here, never the raw value. A finish that
+ * reports `succeeded` is held against it ({@link successContradiction}): without a report that
+ * bears the success out, the server stores the recovery as failed.
  *
  * The codes are shared with the agent: agent/internal/recovery/testdata/recover-codes.json holds
  * the problems and warnings `recover` adds to the planner's (agent/internal/baremetal/testdata/
@@ -209,4 +211,67 @@ export function parseRecoveryVerification(raw: unknown): RecoveryVerification | 
   }
   const parsed = recoveryVerificationSchema.safeParse(raw);
   return parsed.success ? parsed.data : null;
+}
+
+// ---------------------------------------------------------------------------
+// A reported success against its report
+// ---------------------------------------------------------------------------
+
+/**
+ * Codes the server itself adds to the warnings of a finish (9.8): a finish that reports
+ * `succeeded` without a report that bears it out is stored as `failed` with one of them, and the
+ * rebind from the ISO stays locked. The ISO never sends them (the server drops a reported warning
+ * with such a code), and they are no finish warning codes of recover-codes.json. Sorted.
+ *
+ *   - `success_checks_failed`: the report's result is `failed`, or one of its checks is;
+ *   - `success_checks_missing`: one of the ten checks of 10.17 is not in the report;
+ *   - `success_report_missing`: no report, or one that does not parse as `restow-verify-v1`;
+ *   - `success_snapshot_unknown`: the report names a snapshot that is no whole machine backup of
+ *     the session's machine (the server looks that up, not this module).
+ */
+export const SERVER_FINISH_WARNING_CODES = [
+  "success_checks_failed",
+  "success_checks_missing",
+  "success_report_missing",
+  "success_snapshot_unknown",
+] as const;
+export type ServerFinishWarningCode = (typeof SERVER_FINISH_WARNING_CODES)[number];
+
+const SERVER_FINISH_CODE_SET: ReadonlySet<string> = new Set(SERVER_FINISH_WARNING_CODES);
+
+/** Whether a warning code is one only the server may put on a finish. */
+export function isServerFinishWarningCode(code: string): boolean {
+  return SERVER_FINISH_CODE_SET.has(code);
+}
+
+/** Why a reported success does not hold, and the checks it is about (in the order of 10.17). */
+export interface SuccessContradiction {
+  code: ServerFinishWarningCode;
+  checks: string[];
+}
+
+/**
+ * Whether the report a finish carries bears out the `succeeded` it claims (10.17: a failed check
+ * means the report to the server is `failed`): null when it does, otherwise the first reason in
+ * the order no report, a failed result or check, a missing check. A check counts as present by its
+ * id, whatever it found; one the ISO did not run and reports as a warning is still there. The
+ * caller passes the report as it stores it, so the state and what the page shows cannot disagree.
+ */
+export function successContradiction(raw: unknown): SuccessContradiction | null {
+  const report = parseRecoveryVerification(raw);
+  if (!report) {
+    return { code: "success_report_missing", checks: [] };
+  }
+  const failed = [
+    ...new Set(report.checks.filter((check) => check.result === "failed").map((check) => check.id)),
+  ];
+  if (report.result === "failed" || failed.length > 0) {
+    return { code: "success_checks_failed", checks: failed };
+  }
+  const present = new Set(report.checks.map((check) => check.id));
+  const missing = VERIFICATION_CHECK_IDS.filter((id) => !present.has(id));
+  if (missing.length > 0) {
+    return { code: "success_checks_missing", checks: missing };
+  }
+  return null;
 }

@@ -11,8 +11,14 @@
  *     the code;
  *   - the release: no credentials before it, a release after 30 minutes fails the session;
  *   - the credentials: once and once more within five minutes, `no-store`, never after `release`;
+ *     the layout of the code's snapshot also when more than 50 newer backups exist, and nothing
+ *     (409, no fetch counted) when that backup is gone;
  *   - the states (9.9): every transition writes exactly one audit entry, a request that changes
- *     nothing writes none; a cancelled session still reports but reads nothing;
+ *     nothing writes none; a session that has ended (finished, cancelled) takes no progress, log,
+ *     event, release or finish (409), and the first refused one is audited, once per session;
+ *   - the end: a reported success is stored as one only when its verification report bears it
+ *     out (all ten checks, none failed, a backup of the machine); otherwise the session is failed,
+ *     says why, alerts, and the rebind from the ISO stays locked;
  *   - the log (redacted, without escape sequences, capped), the SSH keys, extending;
  *   - hardening: a dead code is audited and alerted once per window and limited per address, a
  *     waiting session of a removed machine is neither released nor extended, a claim waits for a
@@ -25,6 +31,7 @@
  * machines are inserted, not enrolled (recovery-restic.pg.test.ts reads through the route).
  */
 import { randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import {
   hashRecoveryCodeProof,
@@ -34,9 +41,11 @@ import {
 } from "@restow/core";
 import {
   auditLog,
+  endpointLayouts,
   endpointRecoveries,
   endpointRecoveryLog,
   endpointReports,
+  endpointRuns,
   endpoints,
   notifications,
   reportDeliveries,
@@ -52,6 +61,7 @@ import {
   insertMachine,
   isoSide,
   sessionBasic,
+  verificationReport,
 } from "./testing/recovery.js";
 
 const storageFault = vi.hoisted(() => ({ fail: false }));
@@ -69,6 +79,21 @@ vi.mock("./repository.js", async (importOriginal) => {
     },
   };
 });
+
+/** The examples of `restow-agent recover` (agent/internal/recovery/testdata, C-M4-6). */
+const AGENT_TESTDATA = new URL("../../../../../agent/internal/recovery/testdata/", import.meta.url);
+
+/** A progress report of an ISO that restores files. */
+const PROGRESS = {
+  phase: "restoring",
+  step: 3,
+  stepsTotal: 40,
+  bytesDone: 1,
+  totalBytes: 2,
+  filesDone: 1,
+  totalFiles: 2,
+  message: "restoring files",
+};
 
 const DATABASE = "restow_api_recovery_test";
 const ORIGIN = "https://restow.firma.de";
@@ -177,8 +202,12 @@ describe.skipIf(!testDatabaseAdminUrl)("recovery codes and sessions", () => {
     });
 
   /** Issue a code and exchange it; answers what the ISO holds. */
-  async function session(options: { requireApproval?: boolean; endpointId?: string } = {}) {
-    const target = options.endpointId ? { id: options.endpointId } : await machine();
+  async function session(
+    options: { requireApproval?: boolean; endpointId?: string; snapshotId?: string } = {},
+  ) {
+    const target = options.endpointId
+      ? { id: options.endpointId, snapshotId: options.snapshotId ?? "" }
+      : await machine();
     const issued = await issue(target.id, { requireApproval: options.requireApproval ?? true });
     const iso = isoSide(issued.code, ORIGIN);
     const response = await post("/sessions", exchangeBody(iso));
@@ -188,6 +217,8 @@ describe.skipIf(!testDatabaseAdminUrl)("recovery codes and sessions", () => {
       ...iso,
       ...body,
       endpointId: target.id,
+      /** The machine's whole machine backup, which the code was issued for. */
+      snapshotId: target.snapshotId,
       auth: sessionBasic(body.sessionId, iso.sessionSecret),
     };
   }
@@ -601,6 +632,118 @@ describe.skipIf(!testDatabaseAdminUrl)("recovery codes and sessions", () => {
       ).rejects.toMatchObject({ type: "urn:restow:problem:recovery-credentials-collected" });
     });
 
+    it("hands out the layout of the code's snapshot when more than 50 newer backups exist", async () => {
+      const target = await machine();
+      await fixture.db.insert(endpointReports).values({
+        tenantId: fixture.tenantId,
+        endpointId: target.id,
+        kind: "baremetal_check",
+        snapshotId: target.snapshotId,
+        readiness: "green",
+        summary: { restoreSizes: { "/": { bytes: 10, files: 2, inodes: 3 } } },
+      });
+      const issued = await issue(target.id, { validityHours: 48, requireApproval: false });
+      expect(issued.snapshotId).toBe(target.snapshotId);
+      // Half-hourly backups for the life of the code: 60 newer ones, with a layout of their own.
+      const newerLayoutSha256 = randomBytes(32).toString("hex");
+      const [newerLayout] = await fixture.db
+        .insert(endpointLayouts)
+        .values({
+          tenantId: fixture.tenantId,
+          endpointId: target.id,
+          sha256: newerLayoutSha256,
+          format: "restow-layout-v1",
+          schemaVersion: 1,
+          platform: "linux",
+          manifest: {},
+          summary: {},
+          verdict: "supported",
+          layoutFingerprint: "f2",
+        })
+        .returning();
+      const newest = Date.now() - 60_000;
+      await fixture.db.insert(endpointRuns).values(
+        Array.from({ length: 60 }, (_, n) => ({
+          tenantId: fixture.tenantId,
+          endpointId: target.id,
+          kind: "backup" as const,
+          status: "succeeded" as const,
+          startedAt: new Date(newest - n * 60_000),
+          finishedAt: new Date(newest - n * 60_000),
+          snapshotId: randomBytes(32).toString("hex"),
+          layoutId: newerLayout?.id ?? null,
+        })),
+      );
+      const iso = isoSide(issued.code, ORIGIN);
+      const exchanged = await post("/sessions", exchangeBody(iso));
+      expect(exchanged.status, await exchanged.clone().text()).toBe(202);
+      const { sessionId } = (await exchanged.json()) as { sessionId: string };
+      const auth = sessionBasic(sessionId, iso.sessionSecret);
+      const response = await get("/sessions/current/credentials", auth);
+      expect(response.status, await response.clone().text()).toBe(200);
+      const body = (await response.json()) as {
+        snapshotId: string;
+        layoutSha256: string | null;
+        restoreSizes: unknown;
+        snapshots: { id: string; layoutSha256: string; check: string }[];
+      };
+      expect(body.snapshotId).toBe(target.snapshotId);
+      expect(body.layoutSha256).toBe(target.layoutSha256);
+      expect(body.restoreSizes).toEqual({ "/": { bytes: 10, files: 2, inodes: 3 } });
+      // The 50 newest, and after them the one the code is for.
+      expect(body.snapshots).toHaveLength(51);
+      expect(body.snapshots.slice(0, 50).every((s) => s.layoutSha256 === newerLayoutSha256)).toBe(
+        true,
+      );
+      expect(body.snapshots.at(-1)).toMatchObject({
+        id: target.snapshotId,
+        layoutSha256: target.layoutSha256,
+        check: "passed",
+      });
+      // The ISO restores that snapshot, and the server takes its success.
+      const finish = await post(
+        "/sessions/current/finish",
+        {
+          status: "succeeded",
+          verification: verificationReport(target.snapshotId),
+          warnings: [],
+          durationSeconds: 60,
+        },
+        auth,
+      );
+      expect(await finish.json()).toEqual({ status: "succeeded" });
+    });
+
+    it("refuses the credentials, and counts no fetch, when the backup of the code is gone", async () => {
+      const target = await machine();
+      const s = await session({
+        requireApproval: false,
+        endpointId: target.id,
+        snapshotId: target.snapshotId,
+      });
+      // The backup the code was issued for lost its layout (or its run is gone).
+      await fixture.db
+        .update(endpointRuns)
+        .set({ layoutId: null })
+        .where(eq(endpointRuns.endpointId, target.id));
+      for (let n = 0; n < 3; n++) {
+        const refused = await get("/sessions/current/credentials", s.auth);
+        expect(refused.status).toBe(409);
+        const text = await refused.text();
+        expect(text).not.toContain(target.repositoryPassword);
+        expect(JSON.parse(text)).toMatchObject({
+          type: "urn:restow:problem:baremetal-not-available",
+          reason: "snapshot_unknown",
+          snapshotId: target.snapshotId,
+        });
+        expect((JSON.parse(text) as { detail: string }).detail).toContain(
+          target.snapshotId.slice(0, 8),
+        );
+      }
+      expect(await audits("endpoint.recovery.credentials_issued", s.sessionId)).toHaveLength(0);
+      expect((await stored(s.sessionId))?.credentialsIssuedAt).toBeNull();
+    });
+
     it("fails a session nobody released within 30 minutes, once, through a late release", async () => {
       const s = await session();
       await fixture.db
@@ -738,21 +881,13 @@ describe.skipIf(!testDatabaseAdminUrl)("recovery codes and sessions", () => {
       );
       expect((await stored(good.sessionId))?.status).toBe("active");
       expect((await post("/sessions/current/release", {}, good.auth)).status).toBe(200);
+      const report = verificationReport(good.snapshotId);
       const finish = await post(
         "/sessions/current/finish",
-        { status: "succeeded", verification: { fstab: "ok" }, warnings: [], durationSeconds: 600 },
+        { status: "succeeded", verification: report, warnings: [], durationSeconds: 600 },
         good.auth,
       );
       expect(await finish.json()).toEqual({ status: "succeeded" });
-      expect(
-        (
-          await post(
-            "/sessions/current/finish",
-            { status: "failed", verification: {}, warnings: [], durationSeconds: 1 },
-            good.auth,
-          )
-        ).status,
-      ).toBe(409);
       expect(await recoveryAudits(good.sessionId)).toEqual([
         "endpoint.recovery_code.created",
         "endpoint.recovery.started",
@@ -760,7 +895,32 @@ describe.skipIf(!testDatabaseAdminUrl)("recovery codes and sessions", () => {
         "endpoint.recovery.released",
         "endpoint.recovery.finished",
       ]);
-      expect((await stored(good.sessionId))?.verification).toEqual({ fstab: "ok" });
+      // The end is final: a second finish changes nothing. That the ISO still wrote is audited,
+      // once for the session however often it tries.
+      for (let n = 0; n < 2; n++) {
+        expect(
+          (
+            await post(
+              "/sessions/current/finish",
+              { status: "failed", verification: {}, warnings: [], durationSeconds: 1 },
+              good.auth,
+            )
+          ).status,
+        ).toBe(409);
+      }
+      expect(await recoveryAudits(good.sessionId)).toEqual([
+        "endpoint.recovery_code.created",
+        "endpoint.recovery.started",
+        "endpoint.recovery_code.extended",
+        "endpoint.recovery.released",
+        "endpoint.recovery.finished",
+        "endpoint.recovery.report_refused",
+      ]);
+      expect(await stored(good.sessionId)).toMatchObject({
+        status: "succeeded",
+        verification: { format: "restow-verify-v1", snapshotId: good.snapshotId },
+        warnings: [],
+      });
 
       // active -> failed (reported) raises the alert
       const bad = await session({ requireApproval: false });
@@ -798,35 +958,23 @@ describe.skipIf(!testDatabaseAdminUrl)("recovery codes and sessions", () => {
         (await listEndpoints(shared.db, fixture.tenantId)).items.find(
           (item) => item.id === endpointId,
         )?.recovery;
+      const good = await session({ requireApproval: false });
       const verification = {
-        format: "restow-verify-v1",
-        result: "warning",
-        snapshotId: "4f2a9c1d",
-        planSha256: "9b1e".padEnd(64, "0"),
-        startedAt: "2026-11-05T09:12:00Z",
-        finishedAt: "2026-11-05T10:40:13Z",
-        restoreErrors: 0,
-        checks: [
-          { id: "restic_verify", result: "ok", findings: [], evidence: { files: 412233 } },
-          {
-            id: "initramfs",
-            result: "warning",
-            findings: [
-              {
-                code: "initramfs_not_rebuilt",
-                ref: "6.1.0-25-amd64",
-                message: "not enough space on /boot",
-                params: {},
-              },
-            ],
-            evidence: { kernel: "6.1.0-27-amd64", readable: true, bootFreePercent: 23 },
-          },
-        ],
+        ...verificationReport(good.snapshotId, { initramfs: "warning" }),
         hints: [{ code: "mok_enroll", params: {} }],
-        fixups: [],
         notAdaptedKernels: ["6.1.0-25-amd64"],
       };
-      const good = await session({ requireApproval: false });
+      const initramfs = verification.checks.find((check) => check.id === "initramfs");
+      if (!initramfs) throw new Error("no initramfs check");
+      initramfs.findings = [
+        {
+          code: "initramfs_not_rebuilt",
+          ref: "6.1.0-25-amd64",
+          message: "not enough space on /boot",
+          params: {},
+        },
+      ];
+      initramfs.evidence = { kernel: "6.1.0-27-amd64", readable: true, bootFreePercent: 23 };
       // While it runs, the machine list says so.
       expect(await listed(good.endpointId)).toEqual({ status: "active", phase: null });
       const finish = await post(
@@ -840,6 +988,7 @@ describe.skipIf(!testDatabaseAdminUrl)("recovery codes and sessions", () => {
         good.auth,
       );
       expect(finish.status, await finish.clone().text()).toBe(200);
+      expect(await finish.json()).toEqual({ status: "succeeded" });
       expect(await listed(good.endpointId)).toBeNull();
       const detail = await codes.getRecovery(
         shared.db,
@@ -847,14 +996,20 @@ describe.skipIf(!testDatabaseAdminUrl)("recovery codes and sessions", () => {
         good.endpointId,
         good.sessionId,
       );
+      expect(detail.status).toBe("succeeded");
       expect(detail.verification).toMatchObject({
         format: "restow-verify-v1",
         result: "warning",
-        checks: [
-          { id: "restic_verify" },
-          { id: "initramfs", findings: [{ ref: "6.1.0-25-amd64" }] },
-        ],
+        snapshotId: good.snapshotId,
+        planSha256: verification.planSha256,
         hints: [{ code: "mok_enroll", params: {} }],
+      });
+      expect(detail.verification?.checks.map((check) => check.id)).toEqual(
+        verification.checks.map((check) => check.id),
+      );
+      expect(detail.verification?.checks.find((check) => check.id === "initramfs")).toMatchObject({
+        result: "warning",
+        findings: [{ ref: "6.1.0-25-amd64" }],
       });
       expect(detail.warnings).toEqual([
         { code: "initramfs_not_rebuilt", message: "kernel 6.1.0-25-amd64" },
@@ -901,46 +1056,309 @@ describe.skipIf(!testDatabaseAdminUrl)("recovery codes and sessions", () => {
       expect(await listed(large.endpointId)).toEqual({ status: "active", phase: null });
     });
 
-    it("lets a cancelled session report on, but read and finish nothing", async () => {
+    it("takes nothing more from a cancelled session, answers 409 and audits that once", async () => {
       const s = await session({ requireApproval: false });
+      expect((await post("/sessions/current/progress", PROGRESS, s.auth)).status).toBe(204);
       await codes.cancelRecovery(shared.db, fixture.tenantId, s.endpointId, s.sessionId, actor());
+      // The ISO still learns of the cancel.
       const current = await get("/sessions/current", s.auth);
       expect(await current.json()).toMatchObject({ status: "cancelled", cancelRequested: true });
       expect((await get("/sessions/current/credentials", s.auth)).status).toBe(401);
-      expect((await post("/sessions/current/release", {}, s.auth)).status).toBe(401);
+      const writes: [string, unknown][] = [
+        ["progress", { ...PROGRESS, phase: "done", message: "all fine, restored OK" }],
+        ["log", { lines: ["written after the end"] }],
+        ["event", { kind: "remote_access_enabled", detail: { address: "192.0.2.7" } }],
+        ["release", {}],
+        ["finish", { status: "cancelled", verification: {}, warnings: [], durationSeconds: 1 }],
+      ];
+      for (const [call, body] of writes) {
+        const refused = await post(`/sessions/current/${call}`, body, s.auth);
+        expect(refused.status, call).toBe(409);
+        expect(await refused.json(), call).toMatchObject({
+          type: "urn:restow:problem:recovery-state-conflict",
+          status: "cancelled",
+        });
+      }
+      const row = await stored(s.sessionId);
+      expect(row).toMatchObject({ status: "cancelled", progress: { phase: "restoring" } });
+      expect(row?.progress?.message).toBe("restoring files");
+      expect(row?.logBytes).toBe(0);
       expect(
-        (
-          await post(
-            "/sessions/current/finish",
-            { status: "cancelled", verification: {}, warnings: [], durationSeconds: 1 },
-            s.auth,
-          )
-        ).status,
-      ).toBe(409);
-      const progress = await post(
-        "/sessions/current/progress",
-        {
-          phase: "restoring",
-          step: 3,
-          stepsTotal: 40,
-          bytesDone: 1,
-          totalBytes: 2,
-          filesDone: 1,
-          totalFiles: 2,
-          message: "stopping",
-        },
-        s.auth,
-      );
-      expect(progress.status).toBe(204);
+        await fixture.db
+          .select()
+          .from(endpointRecoveryLog)
+          .where(eq(endpointRecoveryLog.recoveryId, s.sessionId)),
+      ).toHaveLength(0);
+      // One entry for the first refused call, none for the four after it and no event.
       expect(await recoveryAudits(s.sessionId)).toEqual([
         "endpoint.recovery_code.created",
         "endpoint.recovery.started",
         "endpoint.recovery.cancelled",
+        "endpoint.recovery.report_refused",
       ]);
+      const [refusal] = await audits("endpoint.recovery.report_refused", s.sessionId);
+      expect(refusal?.details).toMatchObject({ status: "cancelled", call: "progress" });
+      expect(refusal?.actor).toBe(`recovery:${s.sessionId}`);
       // A wrong secret is not the session.
       expect(
         (await get("/sessions/current", sessionBasic(s.sessionId, "0".repeat(64)))).status,
       ).toBe(401);
+    });
+
+    it("keeps a finished session as it ended: no new progress, no audit entries for 48 hours", async () => {
+      const s = await session({ requireApproval: false });
+      expect((await post("/sessions/current/progress", PROGRESS, s.auth)).status).toBe(204);
+      // What the session knew of itself a moment before its end (two requests at the same time).
+      const stale = await cache.loadRecoverySession(s.sessionId);
+      if (!stale) throw new Error("no session");
+      const finish = await post(
+        "/sessions/current/finish",
+        {
+          status: "failed",
+          verification: {},
+          warnings: [{ code: "restore_failed", message: "restic exited with 1" }],
+          durationSeconds: 5,
+        },
+        s.auth,
+      );
+      expect(await finish.json()).toEqual({ status: "failed" });
+      const done = { ...PROGRESS, phase: "done", message: "all fine, restored OK" };
+      expect((await post("/sessions/current/progress", done, s.auth)).status).toBe(409);
+      for (let n = 0; n < 30; n++) {
+        const event = await post(
+          "/sessions/current/event",
+          { kind: "remote_access_enabled", detail: { address: "192.0.2.7" } },
+          s.auth,
+        );
+        expect(event.status).toBe(409);
+      }
+      expect((await post("/sessions/current/log", { lines: ["late"] }, s.auth)).status).toBe(409);
+      // A write that passed the sign-in before the end is decided on the row, not on what it knew.
+      expect(stale.status).toBe("active");
+      await expect(service.recordProgress(stale, done as never, null)).rejects.toMatchObject({
+        status: 409,
+        type: "urn:restow:problem:recovery-state-conflict",
+      });
+      await expect(service.appendLog(stale, ["late"], null)).rejects.toMatchObject({ status: 409 });
+      await expect(
+        service.recordEvent(stale, { kind: "keyfile_regenerated", detail: {} }, null),
+      ).rejects.toMatchObject({ status: 409 });
+      await expect(service.releaseSession(stale, null)).rejects.toMatchObject({ status: 409 });
+      // Another process has not seen the refusal yet: the database still keeps it at one entry.
+      service.refusedWriteNotices.clear();
+      expect((await post("/sessions/current/progress", done, s.auth)).status).toBe(409);
+      const detail = await codes.getRecovery(
+        shared.db,
+        fixture.tenantId,
+        s.endpointId,
+        s.sessionId,
+      );
+      expect(detail).toMatchObject({
+        status: "failed",
+        phase: "restoring",
+        progress: { message: "restoring files" },
+      });
+      expect(detail.log.items).toHaveLength(0);
+      expect(await audits("endpoint.recovery.remote_access_enabled", s.sessionId)).toHaveLength(0);
+      expect(await audits("endpoint.recovery.keyfile_regenerated", s.sessionId)).toHaveLength(0);
+      expect(await recoveryAudits(s.sessionId)).toEqual([
+        "endpoint.recovery_code.created",
+        "endpoint.recovery.started",
+        "endpoint.recovery.finished",
+        "endpoint.recovery.report_refused",
+      ]);
+    });
+
+    it("stores a reported success as failed when its report does not bear it out, and keeps the rebind locked", async () => {
+      const failedAlerts = (recoveryId: string) =>
+        fixture.db
+          .select()
+          .from(notifications)
+          .where(
+            and(
+              eq(notifications.event, "endpoint.recovery.failed"),
+              sql`${notifications.details}->>'recoveryId' = ${recoveryId}`,
+            ),
+          );
+      const rebind = (auth: Record<string, string>) =>
+        post("/sessions/current/rebind", { token: "not-a-token" }, auth);
+      const cases: {
+        name: string;
+        verification: (snapshotId: string) => Record<string, unknown>;
+        reason: string;
+        checks: string[];
+      }[] = [
+        {
+          name: "no report",
+          verification: () => ({}),
+          reason: "success_report_missing",
+          checks: [],
+        },
+        {
+          name: "another format",
+          verification: (id) => ({ ...verificationReport(id), format: "restow-verify-v9" }),
+          reason: "success_report_missing",
+          checks: [],
+        },
+        {
+          name: "a failed check",
+          verification: (id) => verificationReport(id, { identity_conflicts: "failed" }),
+          reason: "success_checks_failed",
+          checks: ["identity_conflicts"],
+        },
+        {
+          name: "a failed check under a result that says ok",
+          verification: (id) => ({
+            ...verificationReport(id, { fstab: "failed", boot_entries: "failed" }),
+            result: "ok",
+          }),
+          reason: "success_checks_failed",
+          checks: ["fstab", "boot_entries"],
+        },
+        {
+          name: "a failed result",
+          verification: (id) => ({ ...verificationReport(id), result: "failed" }),
+          reason: "success_checks_failed",
+          checks: [],
+        },
+        {
+          name: "checks left out",
+          verification: (id) => {
+            const report = verificationReport(id);
+            return {
+              ...report,
+              checks: report.checks.filter(
+                (check) => check.id !== "initramfs" && check.id !== "secure_boot",
+              ),
+            };
+          },
+          reason: "success_checks_missing",
+          checks: ["initramfs", "secure_boot"],
+        },
+        {
+          name: "a snapshot that is no backup of the machine",
+          verification: () => verificationReport(randomBytes(32).toString("hex")),
+          reason: "success_snapshot_unknown",
+          checks: [],
+        },
+      ];
+      for (const item of cases) {
+        const s = await session({ requireApproval: false });
+        const finish = await post(
+          "/sessions/current/finish",
+          {
+            status: "succeeded",
+            verification: item.verification(s.snapshotId),
+            // A code of the server's own is not the ISO's to report.
+            warnings: [
+              { code: "success_report_missing", message: "forged" },
+              { code: "low_memory", message: "1 GiB" },
+            ],
+            durationSeconds: 600,
+          },
+          s.auth,
+        );
+        expect(finish.status, item.name).toBe(200);
+        expect(await finish.json(), item.name).toEqual({
+          status: "failed",
+          reported: "succeeded",
+          reason: item.reason,
+        });
+        const row = await stored(s.sessionId);
+        expect(row?.status, item.name).toBe("failed");
+        expect(row?.finishedAt, item.name).not.toBeNull();
+        expect(row?.warnings, item.name).toEqual([
+          { code: item.reason, message: item.checks.join(", ") },
+          { code: "low_memory", message: "1 GiB" },
+        ]);
+        const [finished] = await audits("endpoint.recovery.finished", s.sessionId);
+        expect(finished?.details, item.name).toMatchObject({
+          status: "failed",
+          reported: "succeeded",
+          reason: item.reason,
+          checks: item.checks,
+        });
+        const alerts = await failedAlerts(s.sessionId);
+        expect(alerts, item.name).toHaveLength(1);
+        expect(alerts[0]?.details, item.name).toMatchObject({
+          reason: "not_verified",
+          code: item.reason,
+        });
+        // The rebind from the ISO needs a success the server took.
+        const locked = await rebind(s.auth);
+        expect(locked.status, item.name).toBe(409);
+        expect(await locked.json(), item.name).toMatchObject({
+          type: "urn:restow:problem:recovery-state-conflict",
+          status: "failed",
+        });
+        const access = await cache.loadRecoverySession(s.sessionId);
+        if (!access) throw new Error("no session");
+        expect(() => service.assertRebindAllowed(access, Date.now()), item.name).toThrow();
+      }
+
+      // A report that bears the success out, warnings included, is one: the rebind opens (the
+      // token is what fails here, not the state).
+      const good = await session({ requireApproval: false });
+      const finish = await post(
+        "/sessions/current/finish",
+        {
+          status: "succeeded",
+          verification: verificationReport(good.snapshotId, { initramfs: "warning" }),
+          warnings: [],
+          durationSeconds: 600,
+        },
+        good.auth,
+      );
+      expect(await finish.json()).toEqual({ status: "succeeded" });
+      expect(await failedAlerts(good.sessionId)).toHaveLength(0);
+      const open = await rebind(good.auth);
+      expect(open.status, await open.clone().text()).toBe(422);
+      const access = await cache.loadRecoverySession(good.sessionId);
+      if (!access) throw new Error("no session");
+      expect(() => service.assertRebindAllowed(access, Date.now())).not.toThrow();
+
+      // A reported failure or cancel is taken as it comes, whatever the report says.
+      const cancelled = await session({ requireApproval: false });
+      const end = await post(
+        "/sessions/current/finish",
+        { status: "cancelled", verification: {}, warnings: [], durationSeconds: 1 },
+        cancelled.auth,
+      );
+      expect(await end.json()).toEqual({ status: "cancelled" });
+      expect((await stored(cancelled.sessionId))?.warnings).toEqual([]);
+    });
+
+    it("takes the reports the recovery ISO writes as they are stored (the agent's examples)", async () => {
+      for (const [name, status] of [
+        ["ok.json", "succeeded"],
+        ["warning.json", "succeeded"],
+        ["failed.json", "failed"],
+      ] as const) {
+        const report = JSON.parse(
+          readFileSync(new URL(`verification/${name}`, AGENT_TESTDATA), "utf8"),
+        ) as { snapshotId: string };
+        // The example's snapshot is this machine's backup.
+        const target = await machine();
+        report.snapshotId = target.snapshotId;
+        const s = await session({
+          requireApproval: false,
+          endpointId: target.id,
+          snapshotId: target.snapshotId,
+        });
+        const finish = await post(
+          "/sessions/current/finish",
+          { status: "succeeded", verification: report, warnings: [], durationSeconds: 60 },
+          s.auth,
+        );
+        expect(((await finish.json()) as { status: string }).status, name).toBe(status);
+        const detail = await codes.getRecovery(
+          shared.db,
+          fixture.tenantId,
+          s.endpointId,
+          s.sessionId,
+        );
+        expect(detail.verification?.snapshotId, name).toBe(target.snapshotId);
+      }
     });
 
     it("reaches the recovery API ahead of the agent API's sign-in", async () => {
@@ -1033,11 +1451,11 @@ describe.skipIf(!testDatabaseAdminUrl)("recovery codes and sessions", () => {
       }));
       const finish = await post(
         "/sessions/current/finish",
-        { status: "succeeded", verification, warnings, durationSeconds: 60 },
+        { status: "failed", verification, warnings, durationSeconds: 60 },
         s.auth,
       );
       expect(finish.status, await finish.clone().text()).toBe(200);
-      expect(await finish.json()).toEqual({ status: "succeeded" });
+      expect(await finish.json()).toEqual({ status: "failed" });
     });
 
     it("hands the ISO the SSH keys the admin put in, and keeps its progress and host keys", async () => {
@@ -1297,7 +1715,12 @@ describe.skipIf(!testDatabaseAdminUrl)("recovery codes and sessions", () => {
       expect((await post("/sessions/current/progress", progress, s.auth)).status).toBe(204);
       const finish = await post(
         "/sessions/current/finish",
-        { status: "succeeded", verification: {}, warnings: [], durationSeconds: 60 },
+        {
+          status: "succeeded",
+          verification: verificationReport(s.snapshotId),
+          warnings: [],
+          durationSeconds: 60,
+        },
         s.auth,
       );
       expect(finish.status, await finish.clone().text()).toBe(200);

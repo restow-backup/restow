@@ -121,7 +121,9 @@ export const ENDPOINT_PROBLEMS = {
   recoveryStateConflict: "urn:restow:problem:recovery-state-conflict",
   /**
    * 409: no recovery code for this machine (`extensions.reason`: `not_linux`, `removed`,
-   * `no_layout`, `unsupported`, `iso_unverified`, `preview_off`, `snapshot_unknown`).
+   * `no_layout`, `unsupported`, `iso_unverified`, `preview_off`, `snapshot_unknown`). Also the
+   * answer to the ISO's credentials request when the backup its code was issued for is no whole
+   * machine backup with a layout any more (`snapshot_unknown`, with `extensions.snapshotId`).
    */
   baremetalNotAvailable: "urn:restow:problem:baremetal-not-available",
   /** 409: three codes of this machine are open already. */

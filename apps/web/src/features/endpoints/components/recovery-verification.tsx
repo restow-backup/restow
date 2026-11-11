@@ -5,6 +5,7 @@ import { StatusBadge } from "@/components/kit";
 
 import {
   RECOVERY_CHECK_IDS,
+  RECOVERY_SERVER_WARNING_CODES,
   type RecoveryCheckResult,
   type RecoveryDetail,
   type RecoveryVerification,
@@ -135,7 +136,10 @@ export function RecoveryVerificationBlock({
   );
 }
 
-/** The warnings of the finish: a text of our own per code, the ISO's message below it. */
+/**
+ * The warnings of the finish: a text of our own per code, the ISO's message below it. A warning the
+ * server set itself (a reported success it did not take) says so, and names the checks concerned.
+ */
 export function RecoveryWarnings({ warnings }: { warnings: RecoveryDetail["warnings"] }) {
   const { t } = useTranslation("endpoints");
   if (warnings.length === 0) {
@@ -143,20 +147,35 @@ export function RecoveryWarnings({ warnings }: { warnings: RecoveryDetail["warni
   }
   return (
     <ul className="grid gap-1 text-sm" data-slot="recovery-warnings">
-      {warnings.map((warning) => (
-        <li
-          key={`${warning.code}:${warning.message}`}
-          className="rounded-md border border-warning/40 bg-warning/5 px-2 py-1"
-          data-code={warning.code}
-        >
-          {t(`recovery.reported.${warning.code}`, { defaultValue: warning.code })}
-          {warning.message ? (
-            <span className="block text-xs text-muted-foreground">
-              {t("recovery.verification.isoMessage", { message: warning.message })}
-            </span>
-          ) : null}
-        </li>
-      ))}
+      {warnings.map((warning) => {
+        const byServer = (RECOVERY_SERVER_WARNING_CODES as readonly string[]).includes(
+          warning.code,
+        );
+        return (
+          <li
+            key={`${warning.code}:${warning.message}`}
+            className="rounded-md border border-warning/40 bg-warning/5 px-2 py-1"
+            data-code={warning.code}
+            data-reported-by={byServer ? "server" : "iso"}
+          >
+            {byServer
+              ? t(`recovery.serverReported.codes.${warning.code}`, { defaultValue: warning.code })
+              : t(`recovery.reported.${warning.code}`, { defaultValue: warning.code })}
+            {warning.message ? (
+              <span className="block text-xs text-muted-foreground">
+                {byServer
+                  ? t("recovery.serverReported.checks", {
+                      checks: warning.message
+                        .split(", ")
+                        .map((id) => t(`recovery.verification.checks.${id}`, { defaultValue: id }))
+                        .join(", "),
+                    })
+                  : t("recovery.verification.isoMessage", { message: warning.message })}
+              </span>
+            ) : null}
+          </li>
+        );
+      })}
     </ul>
   );
 }

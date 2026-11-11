@@ -2015,6 +2015,15 @@
       "verify_failed": "The check after the restore failed.",
       "vfat_sector_size_changed": "A FAT file system was created with another sector size."
     },
+    "serverReported": {
+      "codes": {
+        "success_checks_failed": "The recovery ISO reported a success, but its verification report holds failed checks. The recovery is stored as failed.",
+        "success_checks_missing": "The recovery ISO reported a success, but its verification report lacks checks. The recovery is stored as failed.",
+        "success_report_missing": "The recovery ISO reported a success without a verification report the server can read. The recovery is stored as failed.",
+        "success_snapshot_unknown": "The recovery ISO reported a success, but its verification report names a snapshot that is no backup of the whole machine. The recovery is stored as failed."
+      },
+      "checks": "Checks concerned: {checks}"
+    },
     "verification": {
       "title": "Check after the restore",
       "isoReported": "Reported by the recovery ISO.",

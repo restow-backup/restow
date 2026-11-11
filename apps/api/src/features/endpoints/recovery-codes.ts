@@ -287,9 +287,33 @@ export interface BaremetalSnapshot {
 }
 
 /** The endpoint's good backups with a layout, newest first (at most 50). */
-export async function baremetalSnapshots(
+export function baremetalSnapshots(
   tx: Transaction,
   endpointId: string,
+): Promise<BaremetalSnapshot[]> {
+  return loadBaremetalSnapshots(tx, endpointId, null);
+}
+
+/**
+ * One good backup of the endpoint with its layout, looked up by its snapshot id and not among the
+ * 50 newest: a code binds its snapshot for up to 48 hours, in which a machine with a tight
+ * schedule makes more than 50 newer backups (docs/BAREMETAL.md 9.5). Null when the machine has no
+ * such backup (any more).
+ */
+export async function baremetalSnapshot(
+  tx: Transaction,
+  endpointId: string,
+  snapshotId: string,
+): Promise<BaremetalSnapshot | null> {
+  const [found] = await loadBaremetalSnapshots(tx, endpointId, snapshotId);
+  return found ?? null;
+}
+
+/** The newest 50 good backups with a layout, or (with `snapshotId`) the newest run of that one. */
+async function loadBaremetalSnapshots(
+  tx: Transaction,
+  endpointId: string,
+  snapshotId: string | null,
 ): Promise<BaremetalSnapshot[]> {
   const runs = await tx
     .select({
@@ -307,11 +331,13 @@ export async function baremetalSnapshots(
         eq(endpointRuns.endpointId, endpointId),
         eq(endpointRuns.kind, "backup"),
         inArray(endpointRuns.status, ["succeeded", "partial"]),
-        isNotNull(endpointRuns.snapshotId),
+        snapshotId === null
+          ? isNotNull(endpointRuns.snapshotId)
+          : eq(endpointRuns.snapshotId, snapshotId),
       ),
     )
     .orderBy(desc(endpointRuns.startedAt))
-    .limit(50);
+    .limit(snapshotId === null ? 50 : 1);
   const ids = runs.map((run) => run.snapshotId as string);
   const reports =
     ids.length === 0

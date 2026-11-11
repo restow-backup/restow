@@ -2015,6 +2015,15 @@
       "verify_failed": "Die Prüfung nach der Wiederherstellung ist fehlgeschlagen.",
       "vfat_sector_size_changed": "Ein FAT-Dateisystem wurde mit einer anderen Sektorgröße angelegt."
     },
+    "serverReported": {
+      "codes": {
+        "success_checks_failed": "Das Recovery-ISO hat einen Erfolg gemeldet, sein Prüfbericht enthält aber fehlgeschlagene Prüfungen. Die Wiederherstellung ist als fehlgeschlagen gespeichert.",
+        "success_checks_missing": "Das Recovery-ISO hat einen Erfolg gemeldet, in seinem Prüfbericht fehlen aber Prüfungen. Die Wiederherstellung ist als fehlgeschlagen gespeichert.",
+        "success_report_missing": "Das Recovery-ISO hat einen Erfolg gemeldet, aber keinen Prüfbericht mitgeschickt, den der Server lesen kann. Die Wiederherstellung ist als fehlgeschlagen gespeichert.",
+        "success_snapshot_unknown": "Das Recovery-ISO hat einen Erfolg gemeldet, sein Prüfbericht nennt aber einen Snapshot, der keine Sicherung des ganzen Rechners ist. Die Wiederherstellung ist als fehlgeschlagen gespeichert."
+      },
+      "checks": "Betroffene Prüfungen: {checks}"
+    },
     "verification": {
       "title": "Prüfung nach der Wiederherstellung",
       "isoReported": "Vom Recovery-ISO gemeldet.",

@@ -2,9 +2,11 @@ import { timingSafeEqual } from "node:crypto";
 import {
   endpointPrefix,
   hashRecoveryCodeProof,
+  isServerFinishWarningCode,
   listWithSizes,
   MIN_RECOVERY_VERSION,
   parseBasicAuthorization,
+  parseRecoveryVerification,
   RECOVERY_CREDENTIALS_RETRY_MS,
   RECOVERY_IDEMPOTENCY_MS,
   RECOVERY_LOG_MAX_BYTES,
@@ -14,17 +16,20 @@ import {
   redactAgentLog,
   redactAgentMessage,
   redactRecoveryLogBatch,
+  type SuccessContradiction,
   secretMatchesHash,
+  successContradiction,
 } from "@restow/core";
 import {
   auditLog,
   type EndpointRecovery,
+  type EndpointRecoveryStatus,
   endpointRecoveries,
   endpointRecoveryLog,
   endpoints,
   tenants,
 } from "@restow/db";
-import { and, eq, gt, isNull, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 import type { Context } from "hono";
 import { db, providerDb } from "../../db.js";
 import { DeniedThrottle } from "../../lib/denied-audit.js";
@@ -37,8 +42,11 @@ import { auditEndpoint, ENDPOINT_AUDIT_ACTIONS, recoveryActor } from "./audit.js
 import { compareAgentVersions, isAgentVersion } from "./distribution.js";
 import { ENDPOINT_PROBLEMS } from "./problems.js";
 import {
+  type BaremetalSnapshot,
+  baremetalSnapshot,
   baremetalSnapshots,
   hardwareSummaryOf,
+  RUNNING_RECOVERY_STATES,
   sessionEnded,
   stateConflict,
 } from "./recovery-codes.js";
@@ -74,6 +82,12 @@ import type {
  *
  * What the ISO reports as free text (progress message, warnings, verification, event detail) is
  * redacted here before it is stored or audited: the ISO's own redaction is not relied on.
+ *
+ * The ISO's word is not taken for the end either. A finish that reports `succeeded` is stored as
+ * such only when the verification report it carries bears that out ({@link finishSession});
+ * otherwise the session is `failed` and the rebind stays locked. And a session that has ended
+ * (`succeeded`, `failed`, `cancelled`) takes nothing more: progress, log, event, release and
+ * finish answer 409, and the first of them is audited, once per session ({@link refuseClosedWrite}).
  */
 
 /** Failed exchanges and session logins per address: 20 in 10 minutes. */
@@ -531,6 +545,15 @@ function notApproved(): ProblemError {
   });
 }
 
+/** The backup a code was issued for is no whole machine backup with a layout (any more). */
+function snapshotGone(snapshotId: string): ProblemError {
+  return new ProblemError(409, "Backup of the code not available", {
+    type: ENDPOINT_PROBLEMS.baremetalNotAvailable,
+    detail: `The backup this code was issued for (snapshot ${snapshotId.slice(0, 8)}) is no whole machine backup with a layout of this machine any more. Ask an administrator for a new code.`,
+    extensions: { reason: "snapshot_unknown", snapshotId },
+  });
+}
+
 /** The restic route the ISO reads through, built from the origin the code was issued for. */
 export function recoveryRepositoryUrl(origin: string, sessionId: string): string {
   return `rest:${origin.replace(/\/+$/, "")}/agent/recovery/restic/${sessionId}/`;
@@ -538,7 +561,9 @@ export function recoveryRepositoryUrl(origin: string, sessionId: string): string
 
 /**
  * The repository credentials (9.5): only while the session is active and not released, once, and
- * once more within five minutes of the first time (a lost answer), each time audited.
+ * once more within five minutes of the first time (a lost answer), each time audited. The layout
+ * of the code's snapshot comes with them, whatever its age; when the machine has no such backup
+ * with a layout any more, the answer is 409 `baremetal-not-available` (`snapshot_unknown`).
  */
 export async function issueCredentials(
   access: RecoverySessionAccess,
@@ -588,6 +613,22 @@ export async function issueCredentials(
         detail: "The credentials of this session were collected already.",
       });
     }
+    // The code's snapshot is looked up by its id and not among the 50 newest: more than 50 newer
+    // backups may exist by now, and without its layout the ISO could not check the manifest it
+    // reads. Without that backup nothing is handed out, and no fetch is counted.
+    const snapshots = await baremetalSnapshots(tx, access.endpointId);
+    let chosen: BaremetalSnapshot | null = null;
+    if (row.snapshotId !== null) {
+      chosen =
+        snapshots.find((snapshot) => snapshot.id === row.snapshotId) ??
+        (await baremetalSnapshot(tx, access.endpointId, row.snapshotId));
+      if (!chosen) {
+        throw snapshotGone(row.snapshotId);
+      }
+      if (!snapshots.includes(chosen)) {
+        snapshots.push(chosen);
+      }
+    }
     const [endpoint] = await tx
       .select({ repositorySecretId: endpoints.repositorySecretId })
       .from(endpoints)
@@ -602,8 +643,6 @@ export async function issueCredentials(
         detail: "The repository password of this machine is not available.",
       });
     }
-    const snapshots = await baremetalSnapshots(tx, access.endpointId);
-    const chosen = snapshots.find((snapshot) => snapshot.id === row.snapshotId) ?? null;
     if (times === 0) {
       await tx
         .update(endpointRecoveries)
@@ -650,22 +689,99 @@ export async function sshKeysOf(access: RecoverySessionAccess): Promise<{ keys: 
   return { keys: row?.keys ?? [] };
 }
 
-function assertReporting(access: RecoverySessionAccess): void {
-  if (access.status === "expired") {
-    throw sessionEnded();
+/** What the ISO writes to its session: the calls a closed session refuses. */
+export type RecoveryWrite = "progress" | "log" | "event" | "release" | "finish";
+
+/** The states a session ends in for good (9.9): nothing is written to it after. */
+const CLOSED_STATES: readonly EndpointRecoveryStatus[] = ["succeeded", "failed", "cancelled"];
+
+function isClosed(status: EndpointRecoveryStatus): boolean {
+  return CLOSED_STATES.includes(status);
+}
+
+/** A write found its session closed (decided on the locked row; refused after the transaction). */
+interface ClosedSession {
+  closed: EndpointRecoveryStatus;
+}
+
+/**
+ * Sessions whose refused write this process has audited or found audited: they need no look at
+ * the database for the next one. Whether an entry is written is decided there, under the session's
+ * row lock, so two processes write one entry between them.
+ */
+export const refusedWriteNotices = new Set<string>();
+
+/**
+ * A closed session takes nothing more from the ISO (9.8, 9.9): its result is final, and neither
+ * its progress nor the audit trail may be written by whoever still holds the session secret. The
+ * answer is 409 `recovery-state-conflict` with the state; the first refused write of a session is
+ * audited (`endpoint.recovery.report_refused`, with the call), every later one is not.
+ */
+async function refuseClosedWrite(
+  access: RecoverySessionAccess,
+  status: EndpointRecoveryStatus,
+  call: RecoveryWrite,
+  ip: string | null,
+): Promise<never> {
+  if (!refusedWriteNotices.has(access.id)) {
+    await withTenantTx(db, access.tenantId, async (tx) => {
+      await lockSession(tx, access.id);
+      const [known] = await tx
+        .select({ count: sql<number>`count(*)::int` })
+        .from(auditLog)
+        .where(
+          and(
+            eq(auditLog.tenantId, access.tenantId),
+            eq(auditLog.action, ENDPOINT_AUDIT_ACTIONS.recoveryReportRefused),
+            eq(auditLog.target, access.endpointId),
+            sql`${auditLog.details}->>'recoveryId' = ${access.id}`,
+          ),
+        );
+      if ((known?.count ?? 0) === 0) {
+        await auditEndpoint(tx, {
+          tenantId: access.tenantId,
+          actor: recoveryActor(access.id, ip),
+          action: ENDPOINT_AUDIT_ACTIONS.recoveryReportRefused,
+          endpointId: access.endpointId,
+          details: { recoveryId: access.id, status, call, ip },
+        });
+      }
+    });
+    if (refusedWriteNotices.size >= 10_000) refusedWriteNotices.clear();
+    refusedWriteNotices.add(access.id);
   }
+  throw stateConflict(status, "The session has ended; it takes no more reports.");
+}
+
+/**
+ * The state a write found on the row it holds: null while the session takes reports
+ * (`pending_approval`, `active`, `finishing`), the state when it is closed, and 401 for a session
+ * that is none (any more).
+ */
+function closedOn(status: EndpointRecoveryStatus): ClosedSession | null {
+  if (RUNNING_RECOVERY_STATES.includes(status)) {
+    return null;
+  }
+  if (isClosed(status)) {
+    return { closed: status };
+  }
+  throw sessionEnded();
 }
 
 /** The ISO's progress (every 5 s): kept as the session's last one, with its SSH host keys. */
 export async function recordProgress(
   access: RecoverySessionAccess,
   input: RecoveryProgressInput,
+  ip: string | null,
   now: Date = new Date(),
 ): Promise<void> {
-  assertReporting(access);
+  if (isClosed(access.status)) {
+    return refuseClosedWrite(access, access.status, "progress", ip);
+  }
   const { sshHostKeys, ...progress } = input;
-  await withTenantTx(db, access.tenantId, (tx) =>
-    tx
+  // The state is asked again by the UPDATE itself: a finish or cancel a moment ago wins.
+  const found = await withTenantTx(db, access.tenantId, async (tx) => {
+    const [written] = await tx
       .update(endpointRecoveries)
       .set({
         progress: {
@@ -676,8 +792,29 @@ export async function recordProgress(
         ...(sshHostKeys ? { sshHostKeys } : {}),
         updatedAt: now,
       })
-      .where(eq(endpointRecoveries.id, access.id)),
-  );
+      .where(
+        and(
+          eq(endpointRecoveries.id, access.id),
+          inArray(endpointRecoveries.status, [...RUNNING_RECOVERY_STATES]),
+        ),
+      )
+      .returning({ id: endpointRecoveries.id });
+    if (written) {
+      return null;
+    }
+    const [row] = await tx
+      .select({ status: endpointRecoveries.status })
+      .from(endpointRecoveries)
+      .where(eq(endpointRecoveries.id, access.id))
+      .limit(1);
+    if (!row) {
+      throw sessionEnded();
+    }
+    return closedOn(row.status);
+  });
+  if (found) {
+    return refuseClosedWrite(access, found.closed, "progress", ip);
+  }
 }
 
 /**
@@ -688,11 +825,18 @@ export async function recordProgress(
 export async function appendLog(
   access: RecoverySessionAccess,
   lines: readonly string[],
+  ip: string | null,
   now: Date = new Date(),
 ): Promise<{ accepted: number; dropped: number }> {
-  assertReporting(access);
-  return withTenantTx(db, access.tenantId, async (tx) => {
+  if (isClosed(access.status)) {
+    return refuseClosedWrite(access, access.status, "log", ip);
+  }
+  const result = await withTenantTx(db, access.tenantId, async (tx) => {
     const row = await lockSession(tx, access.id);
+    const closed = closedOn(row.status);
+    if (closed) {
+      return closed;
+    }
     let room = RECOVERY_LOG_MAX_BYTES - row.logBytes;
     let inKeyBlock = row.logInKeyBlock;
     const kept: string[] = [];
@@ -720,6 +864,10 @@ export async function appendLog(
     }
     return { accepted: kept.length, dropped: lines.length - kept.length };
   });
+  if ("closed" in result) {
+    return refuseClosedWrite(access, result.closed, "log", ip);
+  }
+  return result;
 }
 
 /** An event of the ISO for the audit trail (remote access switched on, a key file made anew). */
@@ -728,9 +876,15 @@ export async function recordEvent(
   input: RecoveryEventInput,
   ip: string | null,
 ): Promise<void> {
-  assertReporting(access);
-  await withTenantTx(db, access.tenantId, (tx) =>
-    auditEndpoint(tx, {
+  if (isClosed(access.status)) {
+    return refuseClosedWrite(access, access.status, "event", ip);
+  }
+  const found = await withTenantTx(db, access.tenantId, async (tx) => {
+    const closed = closedOn((await lockSession(tx, access.id)).status);
+    if (closed) {
+      return closed;
+    }
+    await auditEndpoint(tx, {
       tenantId: access.tenantId,
       actor: recoveryActor(access.id, ip),
       action:
@@ -740,8 +894,12 @@ export async function recordEvent(
       endpointId: access.endpointId,
       // The server's own keys come last: the ISO's detail cannot name another session.
       details: { ...redactIsoDetail(input.detail), recoveryId: access.id, reportedBy: "iso" },
-    }),
-  );
+    });
+    return null;
+  });
+  if (found) {
+    return refuseClosedWrite(access, found.closed, "event", ip);
+  }
 }
 
 /** The ISO's event detail, each value redacted. */
@@ -776,26 +934,24 @@ export function redactIsoValue(value: unknown, depth = 0): unknown {
 /**
  * The end of the repository access (9.8, 10.13): `active` -> `finishing`. From now on the restic
  * route and the credentials answer 401; progress, log, events and finish stay. Asking again while
- * finishing changes nothing.
+ * finishing changes nothing; a closed session answers 409.
  */
 export async function releaseSession(
   access: RecoverySessionAccess,
   ip: string | null,
   now: Date = new Date(),
 ): Promise<{ status: "finishing" }> {
-  await withTenantTx(db, access.tenantId, async (tx) => {
+  const found = await withTenantTx(db, access.tenantId, async (tx) => {
     const row = await lockSession(tx, access.id);
     if (row.status === "finishing") {
-      return;
+      return null;
     }
     if (row.status === "pending_approval") {
-      throw new ProblemError(409, "Not released yet", {
-        type: ENDPOINT_PROBLEMS.recoveryNotApproved,
-        detail: "An administrator has not released this session yet.",
-      });
+      throw notApproved();
     }
-    if (row.status !== "active") {
-      throw sessionEnded();
+    const closed = closedOn(row.status);
+    if (closed) {
+      return closed;
     }
     await tx
       .update(endpointRecoveries)
@@ -808,70 +964,146 @@ export async function releaseSession(
       endpointId: access.endpointId,
       details: { recoveryId: access.id },
     });
+    return null;
   });
+  if (found) {
+    return refuseClosedWrite(access, found.closed, "release", ip);
+  }
   forgetRecoverySession(access.id);
   return { status: "finishing" };
 }
 
-/** The ISO's result (9.8): final, audited; a failed one is alerted. */
+/** What a finish answers: the state the session ended in, and why it is not the reported one. */
+export interface RecoveryFinishResult {
+  status: "succeeded" | "failed" | "cancelled";
+  /** Only when the server did not take the ISO's word: what it reported, and the reason's code. */
+  reported?: "succeeded";
+  reason?: SuccessContradiction["code"];
+}
+
+/**
+ * Why a finish that reports `succeeded` is not stored as one (10.17), or null: the report it
+ * carries must parse as `restow-verify-v1`, hold all ten checks, none of them failed, and name a
+ * whole machine backup of this machine (the code's or another one the credentials offered). The
+ * report is judged as it is stored (redacted), so the state and what the page shows agree.
+ */
+async function reportedSuccessContradiction(
+  tx: Transaction,
+  endpointId: string,
+  verification: Record<string, unknown>,
+): Promise<SuccessContradiction | null> {
+  const contradiction = successContradiction(verification);
+  if (contradiction) {
+    return contradiction;
+  }
+  const snapshotId = parseRecoveryVerification(verification)?.snapshotId ?? "";
+  if (!(await baremetalSnapshot(tx, endpointId, snapshotId))) {
+    return { code: "success_snapshot_unknown", checks: [] };
+  }
+  return null;
+}
+
+/**
+ * The ISO's result (9.8): final, audited; a failed one is alerted. `succeeded` is the ISO's claim,
+ * and it unlocks the rebind (10.19): it is stored only when the verification report bears it out
+ * ({@link reportedSuccessContradiction}). Otherwise the session ends as `failed`, with the reason
+ * as a warning of the server's own (`SERVER_FINISH_WARNING_CODES`), in the audit entry and in the
+ * alert, and the answer says so. A session that has ended already answers 409.
+ */
 export async function finishSession(
   access: RecoverySessionAccess,
   input: RecoveryFinishInput,
   ip: string | null,
   now: Date = new Date(),
-): Promise<{ status: string }> {
-  await withTenantTx(db, access.tenantId, async (tx) => {
-    const row = await lockSession(tx, access.id);
-    if (row.status !== "active" && row.status !== "finishing") {
-      throw stateConflict(row.status, "Only an active session can finish.");
-    }
-    await tx
-      .update(endpointRecoveries)
-      .set({
-        status: input.status,
-        verification: redactIsoValue(input.verification) as Record<string, unknown>,
-        warnings: input.warnings.map((warning) => ({
+): Promise<RecoveryFinishResult> {
+  const outcome = await withTenantTx(
+    db,
+    access.tenantId,
+    async (tx): Promise<RecoveryFinishResult | ClosedSession> => {
+      const row = await lockSession(tx, access.id);
+      if (isClosed(row.status)) {
+        return { closed: row.status };
+      }
+      if (row.status !== "active" && row.status !== "finishing") {
+        throw stateConflict(row.status, "Only an active session can finish.");
+      }
+      const verification = redactIsoValue(input.verification) as Record<string, unknown>;
+      // A code of the server's own is the server's to give: the ISO cannot report it.
+      const warnings = input.warnings
+        .map((warning) => ({
           code: redactAgentMessage(warning.code, 64),
           message: redactAgentMessage(warning.message, 1000),
-        })),
-        finishedAt: now,
-        releasedAt: row.releasedAt ?? now,
-        updatedAt: now,
-      })
-      .where(eq(endpointRecoveries.id, access.id));
-    await auditEndpoint(tx, {
-      tenantId: access.tenantId,
-      actor: recoveryActor(access.id, ip),
-      action: ENDPOINT_AUDIT_ACTIONS.recoveryFinished,
-      endpointId: access.endpointId,
-      details: {
-        recoveryId: access.id,
-        from: row.status,
-        status: input.status,
-        durationSeconds: input.durationSeconds,
-        warnings: input.warnings.length,
-        reportedBy: "iso",
-      },
-    });
-    if (input.status === "failed") {
-      const name = await endpointNameOf(tx, access.endpointId);
-      await raiseTenantEvent(tx, {
+        }))
+        .filter((warning) => !isServerFinishWarningCode(warning.code));
+      const contradiction =
+        input.status === "succeeded"
+          ? await reportedSuccessContradiction(tx, access.endpointId, verification)
+          : null;
+      const status = contradiction ? "failed" : input.status;
+      if (contradiction) {
+        warnings.unshift({ code: contradiction.code, message: contradiction.checks.join(", ") });
+      }
+      await tx
+        .update(endpointRecoveries)
+        .set({
+          status,
+          verification,
+          warnings,
+          finishedAt: now,
+          releasedAt: row.releasedAt ?? now,
+          updatedAt: now,
+        })
+        .where(eq(endpointRecoveries.id, access.id));
+      await auditEndpoint(tx, {
         tenantId: access.tenantId,
-        event: "endpoint.recovery.failed",
-        level: "error",
-        message: `The recovery of ${name} failed, as the recovery ISO reports.`,
+        actor: recoveryActor(access.id, ip),
+        action: ENDPOINT_AUDIT_ACTIONS.recoveryFinished,
+        endpointId: access.endpointId,
         details: {
-          endpointId: access.endpointId,
-          objectName: name,
           recoveryId: access.id,
-          reason: "reported",
+          from: row.status,
+          status,
+          ...(contradiction
+            ? {
+                reported: input.status,
+                reason: contradiction.code,
+                checks: contradiction.checks,
+              }
+            : {}),
+          durationSeconds: input.durationSeconds,
+          warnings: input.warnings.length,
+          reportedBy: "iso",
         },
-        now,
       });
-    }
-  });
+      if (status === "failed") {
+        const name = await endpointNameOf(tx, access.endpointId);
+        await raiseTenantEvent(tx, {
+          tenantId: access.tenantId,
+          event: "endpoint.recovery.failed",
+          level: "error",
+          message: contradiction
+            ? `The recovery of ${name} is stored as failed: the recovery ISO reported a success that its verification report does not bear out.`
+            : `The recovery of ${name} failed, as the recovery ISO reports.`,
+          details: {
+            endpointId: access.endpointId,
+            objectName: name,
+            recoveryId: access.id,
+            reason: contradiction ? "not_verified" : "reported",
+            ...(contradiction ? { code: contradiction.code, checks: contradiction.checks } : {}),
+          },
+          now,
+        });
+      }
+      return contradiction
+        ? { status: "failed", reported: "succeeded", reason: contradiction.code }
+        : { status };
+    },
+  );
   forgetRecoverySession(access.id);
-  return { status: input.status };
+  if ("closed" in outcome) {
+    return refuseClosedWrite(access, outcome.closed, "finish", ip);
+  }
+  return outcome;
 }
 
 /** `rebind` is for a session that finished well, at most 15 minutes ago (10.19). */

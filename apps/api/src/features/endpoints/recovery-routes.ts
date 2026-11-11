@@ -52,6 +52,12 @@ import {
  *   POST /sessions/current/finish         succeeded, failed or cancelled, with the verification
  *   POST /sessions/current/rebind         a rebind token of the machine -> the agent's state (201)
  *
+ * A session that has ended (`succeeded`, `failed`, `cancelled`) still answers `current`, so the ISO
+ * learns of a cancel, and `rebind` for 15 minutes after a success; progress, log, event, release
+ * and finish answer 409 `recovery-state-conflict`, audited once per session. A finish that reports
+ * `succeeded` without a verification report that bears it out ends as `failed`; the answer then
+ * carries `reported` and `reason` beside the `status`.
+ *
  * Body limits (middleware/body-limit.ts): 64 KiB (RECOVERY_BODY_LIMIT), the log 1 MiB
  * (RECOVERY_LOG_BODY_LIMIT), the finish 320 KiB (RECOVERY_FINISH_BODY_LIMIT).
  */
@@ -144,13 +150,13 @@ recoveryRoutes.get("/sessions/current/ssh-keys", async (c) => {
 
 recoveryRoutes.post("/sessions/current/progress", async (c) => {
   const input = await parseJsonBody(c.req, recoveryProgressSchema);
-  await recordProgress(c.get("session"), input);
+  await recordProgress(c.get("session"), input, clientIp(c));
   return c.body(null, 204);
 });
 
 recoveryRoutes.post("/sessions/current/log", async (c) => {
   const input = await parseJsonBody(c.req, recoveryLogSchema);
-  return c.json(await appendLog(c.get("session"), input.lines), 202);
+  return c.json(await appendLog(c.get("session"), input.lines, clientIp(c)), 202);
 });
 
 recoveryRoutes.post("/sessions/current/event", async (c) => {

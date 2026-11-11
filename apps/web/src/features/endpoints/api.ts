@@ -1032,6 +1032,19 @@ export const RECOVERY_CHECK_IDS = [
   "secure_boot",
 ] as const;
 
+/**
+ * Warning codes of a finish that the server itself sets (@restow/core
+ * `SERVER_FINISH_WARNING_CODES`): the ISO reported a success its verification report does not bear
+ * out, so the recovery is stored as failed. Their message is no text of the ISO: it lists the
+ * checks concerned, by id.
+ */
+export const RECOVERY_SERVER_WARNING_CODES = [
+  "success_checks_failed",
+  "success_checks_missing",
+  "success_report_missing",
+  "success_snapshot_unknown",
+] as const;
+
 /** The verification report of the ISO (@restow/core `RecoveryVerification`). */
 export interface RecoveryVerification {
   format: "restow-verify-v1";

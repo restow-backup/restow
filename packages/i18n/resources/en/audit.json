@@ -594,6 +594,7 @@
         "keyfile_regenerated": "Key file of an encrypted volume made anew during the recovery",
         "released": "Recovery ISO gave up its repository access",
         "finished": "Recovery finished",
+        "report_refused": "Report of the recovery ISO to an ended session refused",
         "expired": "Recovery code or session ran out of time",
         "cancelled": "Recovery session rejected or ended"
       },

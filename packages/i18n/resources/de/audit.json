@@ -594,6 +594,7 @@
         "keyfile_regenerated": "Schlüsseldatei eines verschlüsselten Volumes bei der Wiederherstellung neu erzeugt",
         "released": "Recovery-ISO hat seinen Repository-Zugang beendet",
         "finished": "Wiederherstellung beendet",
+        "report_refused": "Meldung des Recovery-ISO an eine beendete Sitzung abgewiesen",
         "expired": "Wiederherstellungscode oder Sitzung abgelaufen",
         "cancelled": "Recovery-Sitzung abgelehnt oder beendet"
       },

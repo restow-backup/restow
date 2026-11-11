@@ -6,11 +6,14 @@ import { PLAN_PROBLEM_CODES, PLAN_WARNING_CODES } from "./plan.js";
 import {
   FINISH_WARNING_CODES,
   isFinishWarningCode,
+  isServerFinishWarningCode,
   parseRecoveryVerification,
   RECOVER_PROBLEM_CODES,
   RECOVER_WARNING_CODES,
   RECOVERY_HINT_CODES,
   RECOVERY_HINT_PARAMS,
+  SERVER_FINISH_WARNING_CODES,
+  successContradiction,
   VERIFICATION_CHECK_IDS,
 } from "./verification.js";
 
@@ -171,5 +174,106 @@ describe("parseRecoveryVerification", () => {
         })),
       }),
     ).toBeNull();
+  });
+});
+
+describe("successContradiction", () => {
+  const read = (name: string) =>
+    JSON.parse(readFileSync(join(TESTDATA, "verification", name), "utf8")) as {
+      result: string;
+      checks: { id: string; result: string }[];
+    };
+  /** All ten checks, `ok` unless named. */
+  const full = (results: Record<string, string> = {}) => ({
+    ...example,
+    result: "ok",
+    checks: VERIFICATION_CHECK_IDS.map((id) => ({
+      id,
+      result: results[id] ?? "ok",
+      findings: [],
+      evidence: {},
+    })),
+  });
+
+  it("takes the agent's ok and warning examples and refuses its failed one", () => {
+    expect(successContradiction(read("ok.json"))).toBeNull();
+    expect(successContradiction(read("warning.json"))).toBeNull();
+    const failed = read("failed.json");
+    expect(successContradiction(failed)).toEqual({
+      code: "success_checks_failed",
+      checks: failed.checks.filter((check) => check.result === "failed").map((check) => check.id),
+    });
+  });
+
+  it("needs a report that parses as restow-verify-v1", () => {
+    for (const raw of [
+      undefined,
+      null,
+      {},
+      [],
+      "ok",
+      { fstab: "ok" },
+      { ...full(), format: "restow-verify-v9" },
+      { ...full(), planSha256: "not a hash" },
+      { ...full(), checks: "none" },
+    ]) {
+      expect(successContradiction(raw), JSON.stringify(raw)).toEqual({
+        code: "success_report_missing",
+        checks: [],
+      });
+    }
+  });
+
+  it("refuses a failed check or result, whatever the other says", () => {
+    expect(successContradiction(full({ identity_conflicts: "failed" }))).toEqual({
+      code: "success_checks_failed",
+      checks: ["identity_conflicts"],
+    });
+    expect(
+      successContradiction({ ...full({ fstab: "failed", crypttab: "failed" }), result: "warning" }),
+    ).toEqual({ code: "success_checks_failed", checks: ["fstab", "crypttab"] });
+    expect(successContradiction({ ...full(), result: "failed" })).toEqual({
+      code: "success_checks_failed",
+      checks: [],
+    });
+    // A check a newer ISO adds counts when it failed.
+    const more = full();
+    more.checks.push({ id: "future_check" as never, result: "failed", findings: [], evidence: {} });
+    expect(successContradiction(more)).toEqual({
+      code: "success_checks_failed",
+      checks: ["future_check"],
+    });
+  });
+
+  it("needs every one of the ten checks, and takes warnings and added checks", () => {
+    // The contract example holds two checks only.
+    expect(successContradiction(example)).toEqual({
+      code: "success_checks_missing",
+      checks: VERIFICATION_CHECK_IDS.filter((id) => id !== "restic_verify" && id !== "initramfs"),
+    });
+    const short = full();
+    short.checks = short.checks.filter((check) => check.id !== "secure_boot");
+    expect(successContradiction(short)).toEqual({
+      code: "success_checks_missing",
+      checks: ["secure_boot"],
+    });
+    expect(
+      successContradiction({ ...full({ initramfs: "warning" }), result: "warning" }),
+    ).toBeNull();
+    const more = full();
+    more.checks.push({ id: "future_check" as never, result: "ok", findings: [], evidence: {} });
+    expect(successContradiction(more)).toBeNull();
+  });
+
+  it("keeps the server's own warning codes apart from the ISO's", () => {
+    expect([...SERVER_FINISH_WARNING_CODES]).toEqual([...SERVER_FINISH_WARNING_CODES].sort());
+    for (const code of SERVER_FINISH_WARNING_CODES) {
+      expect(isServerFinishWarningCode(code), code).toBe(true);
+      expect(isFinishWarningCode(code), code).toBe(false);
+      expect(code).toMatch(/^[a-z][a-z0-9_]{0,63}$/);
+    }
+    for (const code of FINISH_WARNING_CODES) {
+      expect(isServerFinishWarningCode(code), code).toBe(false);
+    }
   });
 });

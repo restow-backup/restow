@@ -222,4 +222,53 @@ describe("the live view of a recovery (docs/BAREMETAL.md 9.4, 9.8)", () => {
     }
     await i18n.changeLanguage("en");
   });
+
+  it("says in the server's name why a reported success is stored as failed", async () => {
+    for (const language of ["en", "de"] as const) {
+      await i18n.changeLanguage(language);
+      page = mount();
+      await page.render(
+        <RecoveryLiveView
+          recovery={recovery({
+            status: "failed",
+            phase: "done",
+            warnings: [
+              { code: "success_checks_failed", message: "identity_conflicts, future_check" },
+              { code: "success_report_missing", message: "" },
+              { code: "low_memory", message: "1 GiB" },
+            ],
+          })}
+          endpointId="11111111-1111-4111-8111-111111111111"
+          pending={false}
+          onApprove={() => undefined}
+          onCancel={() => undefined}
+          onRevoke={() => undefined}
+          onExtend={() => undefined}
+        />,
+      );
+      const failed = document.querySelector('[data-code="success_checks_failed"]');
+      expect(failed?.getAttribute("data-reported-by")).toBe("server");
+      const missing = document.querySelector('[data-code="success_report_missing"]');
+      expect(missing?.querySelector("span")).toBeNull();
+      const iso = document.querySelector('[data-code="low_memory"]');
+      expect(iso?.getAttribute("data-reported-by")).toBe("iso");
+      // The checks by their names (an unknown one by its id), and never as a word of the ISO.
+      expect(failed?.textContent).toContain("future_check");
+      expect(failed?.textContent).not.toContain("identity_conflicts");
+      if (language === "en") {
+        expect(failed?.textContent).toContain("stored as failed");
+        expect(failed?.textContent).toContain("Checks concerned: ");
+        expect(failed?.textContent).not.toContain("The ISO reports");
+        expect(missing?.textContent).toContain("without a verification report");
+        expect(iso?.textContent).toContain("The ISO reports: 1 GiB");
+        page.unmount();
+      } else {
+        expect(failed?.textContent).toContain("als fehlgeschlagen gespeichert");
+        expect(failed?.textContent).toContain("Betroffene Prüfungen: ");
+        expect(failed?.textContent).not.toContain("Das ISO meldet");
+        expect(iso?.textContent).toContain("Das ISO meldet: 1 GiB");
+      }
+    }
+    await i18n.changeLanguage("en");
+  });
 });

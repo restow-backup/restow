@@ -15,6 +15,7 @@ import {
   recoveryCodeProof,
   releaseKeyLineForTests,
   signReleaseForTests,
+  VERIFICATION_CHECK_IDS,
 } from "@restow/core";
 import {
   type Database,
@@ -183,5 +184,39 @@ export async function insertMachine(
     repositoryPassword,
     snapshotId,
     layoutSha256,
+  };
+}
+
+/**
+ * A verification report as the ISO sends it after a good restore of `snapshotId` (`restow-verify-v1`,
+ * docs/BAREMETAL.md 10.17): all ten checks, each `ok` unless `results` says otherwise, and the
+ * result that follows from them.
+ */
+export function verificationReport(
+  snapshotId: string,
+  results: Record<string, "ok" | "warning" | "failed"> = {},
+) {
+  const checks = VERIFICATION_CHECK_IDS.map((id) => ({
+    id: id as string,
+    result: results[id] ?? ("ok" as const),
+    findings:
+      (results[id] ?? "ok") === "ok"
+        ? []
+        : [{ code: "verify_failed", ref: id as string, message: "reported", params: {} }],
+    evidence: {} as Record<string, string | number | boolean>,
+  }));
+  const of = (result: string) => checks.some((check) => check.result === result);
+  return {
+    format: "restow-verify-v1",
+    result: of("failed") ? "failed" : of("warning") ? "warning" : "ok",
+    snapshotId,
+    planSha256: randomBytes(32).toString("hex"),
+    startedAt: "2026-11-05T09:12:00Z",
+    finishedAt: "2026-11-05T10:40:13Z",
+    restoreErrors: 0,
+    checks,
+    hints: [] as { code: string; params: Record<string, string> }[],
+    fixups: [] as { path: string; rule: string; backup: string | null }[],
+    notAdaptedKernels: [] as string[],
   };
 }
