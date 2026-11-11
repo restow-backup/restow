@@ -5474,7 +5474,11 @@ Prüfung, jeder Hinweis mit genau seinen Platzhaltern); `check-separate-works.te
   anderer Schreiber). Jetzt liest der Scan nur; geschrieben wird die Probe nach der
   Bestätigung und dem Wächter, nur auf den Platten, die gelöscht werden.
   `TestRootScanDoesNotWrite` (Job `agent-root`) zählt die geschriebenen Sektoren eines
-  Loop-Geräts in sysfs über den Scan und scheitert ohne die Änderung.
+  Loop-Geräts in sysfs über den Scan und scheitert ohne die Änderung. Für den leichten Scan
+  zählt er gelesene und geschriebene Sektoren, beide müssen null bleiben. udev liest eine
+  Platte selbst, sobald ein Schreiber sie schließt (Regel `watch`, danach `blkid`; nach der
+  Schreibprobe 672 Sektoren auf 16 MiB); deshalb hält der Test währenddessen die BSD-Sperre
+  der Platte, vor der udev seine Prüfung zurückstellt. Der Scan selbst öffnet keine Platte.
 - **Eine Kennung, eine Platte (nach dem Review ergänzt):** Zwei Platten mit derselben
   Seriennummer bekamen dieselbe Kennung; `answers.diskMapping` nahm still die letzte,
   `confirmErase` und die getippten vier Zeichen bestätigten mit derselben Zeichenkette jede

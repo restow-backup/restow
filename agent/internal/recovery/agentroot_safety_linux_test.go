@@ -103,14 +103,49 @@ func TestRootScanDoesNotWrite(t *testing.T) {
 		t.Errorf("the write probe wrote %d sectors", w2-w1)
 	}
 	// The scan before every step reads identities only: no probe at all.
+	// udev reads the disk on its own now: the write probe closed it after
+	// writing, and the "watch" of 60-block.rules answers that with a
+	// change event and blkid (on a 16 MiB disk without signatures 672
+	// sectors, a few milliseconds later). The lock holds udev off, so the
+	// counters show what the scan does and nothing else.
+	release := holdOffUdev(t, dev)
 	r2, w2 := ioSectors(t, dev)
 	light := &HardwareCollector{Exec: exe, SysRoot: sys, DevRoot: devRoot, ProcRoot: filepath.Join(work, "proc"), Probe: true, IdentityOnly: true}
 	if in, err = light.Collect(context.Background()); err != nil || len(in.Blocks) != 1 || in.Blocks[0].SizeBytes != size {
 		t.Fatalf("identity scan: %v %+v", err, in.Blocks)
 	}
-	if r3, w3 := ioSectors(t, dev); r3 != r2 || w3 != w2 {
+	r3, w3 := ioSectors(t, dev)
+	release()
+	if r3 != r2 || w3 != w2 {
 		t.Errorf("the identity scan did I/O on the disk: read %d, written %d sectors", r3-r2, w3-w2)
 	}
+}
+
+// holdOffUdev takes the BSD lock on the whole disk dev that udev honours
+// (systemd, "Locking Block Device Access"): udev probes a disk only under
+// a shared lock and puts its events back while someone else holds it
+// exclusively. Taking the lock waits for a probe that is running; the
+// probes that come after it wait until release. The lock is advisory and
+// keeps nobody else from the disk, the scan included.
+func holdOffUdev(t *testing.T, dev string) (release func()) {
+	t.Helper()
+	f, err := os.Open(dev) // read-only: closing it makes no change event
+	if err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, syscall.EWOULDBLOCK) || time.Now().After(deadline) {
+			f.Close()
+			t.Fatalf("lock %s: %v", dev, err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return func() { _ = f.Close() }
 }
 
 // devNode makes a block device node /dev/<name> for the device behind
