@@ -142,6 +142,15 @@ func (e *rootEnv) blkid(dev, tag string) string {
 // valid, canonical, byte-identical after decode and encode.
 func (e *rootEnv) capture() (*Manifest, RawSet, []byte) {
 	e.t.Helper()
+	// The stacks were made a moment ago: udev may not have recorded the
+	// last of them yet (lsblk reads its types from udev). A machine whose
+	// layout the agent captures before a backup has long settled; the
+	// capture copes without udev for mounted file systems
+	// (TestCaptureMountedWithoutUdevType), the test waits like the
+	// machine would have.
+	if have("udevadm") {
+		_, _ = exec.Command("udevadm", "settle", "--timeout=30").CombinedOutput()
+	}
 	m, raw, err := CaptureLocal(e.ctx, Options{Hostname: "agentroot", AgentVersion: "0.5.0-agentroot", Hooks: "off"})
 	if err != nil {
 		e.t.Fatalf("capture: %v", err)

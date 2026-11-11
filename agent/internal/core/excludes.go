@@ -18,12 +18,18 @@ var pveStateFiles = []string{"/etc/restow-pve/state.json", "/etc/restow-pve/.sta
 // (expandDarwinExcludes). An old agent secret in a snapshot helps nobody
 // after a restore and harms a copy of the machine (two machines, one
 // secret).
+//
+// Every path is written with the separator of goos, the system whose files
+// the backup reads: paths.Layout joins with the separator of the system the
+// agent runs on, and restic matches an exclude with a foreign separator
+// against nothing.
 func agentExcludes(l paths.Layout, goos string, fl Firmlinks) []string {
-	sep := "/"
+	sep, other := "/", `\`
 	if goos == "windows" {
-		sep = `\`
+		sep, other = other, sep
 	}
-	ex := []string{l.CacheDir(), l.TmpDir(), l.StateFile(), strings.TrimRight(l.StateDir, `/\`) + sep + ".state-*.tmp", "Restow-Restore-*"}
+	native := func(p string) string { return strings.ReplaceAll(p, other, sep) }
+	ex := []string{native(l.CacheDir()), native(l.TmpDir()), native(l.StateFile()), native(strings.TrimRight(l.StateDir, `/\`) + sep + ".state-*.tmp"), "Restow-Restore-*"}
 	switch goos {
 	case "linux":
 		ex = append(ex, pveStateFiles...)

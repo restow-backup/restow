@@ -271,4 +271,46 @@ describe("the live view of a recovery (docs/BAREMETAL.md 9.4, 9.8)", () => {
     }
     await i18n.changeLanguage("en");
   });
+
+  it("draws an ok check green only for a recovery the server stored as succeeded", async () => {
+    const verification: NonNullable<RecoveryDetail["verification"]> = {
+      format: "restow-verify-v1",
+      result: "ok",
+      snapshotId: "4f2a9c1d",
+      planSha256: "9".repeat(64),
+      startedAt: "2026-11-05T09:12:00Z",
+      finishedAt: "2026-11-05T10:40:13Z",
+      restoreErrors: 0,
+      checks: [{ id: "restic_verify", result: "ok", findings: [], evidence: {} }],
+      hints: [],
+      fixups: [],
+      notAdaptedKernels: [],
+    };
+    for (const [status, proven] of [
+      ["succeeded", true],
+      ["failed", false],
+      ["finishing", false],
+      ["cancelled", false],
+    ] as const) {
+      page = mount();
+      await page.render(
+        <RecoveryLiveView
+          recovery={recovery({ status, phase: "done", verification })}
+          endpointId="11111111-1111-4111-8111-111111111111"
+          pending={false}
+          onApprove={() => undefined}
+          onCancel={() => undefined}
+          onRevoke={() => undefined}
+          onExtend={() => undefined}
+        />,
+      );
+      const badge = document.querySelector('[data-slot="verification-result"]');
+      const icon = document.querySelector('[data-check="restic_verify"] svg');
+      // Green is proof: the server took the report as proof only for a recovery it stored as
+      // succeeded (a failed one may carry a report whose checks all say ok, 9.8).
+      expect(badge?.getAttribute("data-tone"), status).toBe(proven ? "success" : "neutral");
+      expect(icon?.getAttribute("class")?.includes("text-success"), status).toBe(proven);
+      page.unmount();
+    }
+  });
 });

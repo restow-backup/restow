@@ -15,6 +15,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -121,8 +122,14 @@ func TestTLSModes(t *testing.T) {
 	if err != nil || filepath.Base(p) != "pinned.pem" {
 		t.Fatalf("pinned leaf: %s %v", p, err)
 	}
-	st, _ := os.Stat(p)
-	if st.Mode().Perm() != 0o600 {
+	// Only root may read it, on the ISO (Linux; recover is built for Linux
+	// only). Windows has no such mode bits: Go reports 0666 for every file
+	// there, and the file is protected by the ACL of its folder.
+	st, err := os.Stat(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" && st.Mode().Perm() != 0o600 {
 		t.Errorf("mode %o", st.Mode().Perm())
 	}
 	b, _ := os.ReadFile(p)

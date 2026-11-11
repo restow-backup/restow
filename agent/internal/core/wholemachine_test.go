@@ -137,10 +137,20 @@ func TestAgentExcludes(t *testing.T) {
 	}
 	win := paths.Layout{StateDir: `C:\ProgramData\Restow\state`, DataDir: `C:\ProgramData\Restow\data`, LogDir: `C:\ProgramData\Restow\logs`}
 	ex = strings.Join(agentExcludes(win, "windows", nil), "\n")
-	// (filepath joins with the separator of the system the test runs on)
-	for _, want := range []string{`C:\ProgramData\Restow\state`, "state.json", `C:\ProgramData\Restow\state\.state-*.tmp`} {
-		if !strings.Contains(ex, want) {
+	// Each list has the separators of its target, whatever system the test
+	// runs on (the Windows CI job runs the Linux and macOS lists as well).
+	for _, want := range []string{`C:\ProgramData\Restow\state\state.json`, `C:\ProgramData\Restow\state\.state-*.tmp`,
+		`C:\ProgramData\Restow\data\cache`, `C:\ProgramData\Restow\data\tmp`} {
+		if !strings.Contains(ex+"\n", want+"\n") {
 			t.Errorf("windows: %s missing:\n%s", want, ex)
+		}
+	}
+	if strings.Contains(ex, "/") {
+		t.Errorf("windows: a forward slash in the excludes:\n%s", ex)
+	}
+	for _, goos := range []string{"linux", "darwin"} {
+		if ex := strings.Join(agentExcludes(linux, goos, fl), "\n"); strings.Contains(ex, `\`) {
+			t.Errorf("%s: a backslash in the excludes:\n%s", goos, ex)
 		}
 	}
 }

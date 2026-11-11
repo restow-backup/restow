@@ -1,7 +1,7 @@
 import { AlertTriangle, CheckCircle2, ChevronDown, XCircle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { StatusBadge } from "@/components/kit";
+import { StatusBadge, type StatusTone } from "@/components/kit";
 
 import {
   RECOVERY_CHECK_IDS,
@@ -17,15 +17,25 @@ import {
  * restore. Everything is shown as text and marked as reported by the ISO; nothing of it is HTML.
  */
 
-const RESULT_TONE: Record<RecoveryCheckResult, "success" | "warning" | "destructive"> = {
-  ok: "success",
-  warning: "warning",
-  failed: "destructive",
-};
+/**
+ * The tone of a result. `ok` is green only for a recovery the server stored as `succeeded`: it
+ * took the report as proof (all ten checks there, none failed, the snapshot a whole machine
+ * backup of the machine; 9.8), and the machine is restored. While the session runs, and for a
+ * recovery that failed or was cancelled, an `ok` is what the ISO says and stays neutral.
+ */
+function resultTone(result: RecoveryCheckResult, proven: boolean): StatusTone {
+  if (result === "ok") return proven ? "success" : "neutral";
+  return result === "warning" ? "warning" : "destructive";
+}
 
-function ResultIcon({ result }: { result: RecoveryCheckResult }) {
+function ResultIcon({ result, proven }: { result: RecoveryCheckResult; proven: boolean }) {
   if (result === "ok") {
-    return <CheckCircle2 aria-hidden="true" className="size-4 shrink-0 text-success-text" />;
+    return (
+      <CheckCircle2
+        aria-hidden="true"
+        className={`size-4 shrink-0 ${proven ? "text-success-text" : "text-foreground"}`}
+      />
+    );
   }
   if (result === "warning") {
     return <AlertTriangle aria-hidden="true" className="size-4 shrink-0 text-warning-text" />;
@@ -46,15 +56,18 @@ function orderedChecks(verification: RecoveryVerification) {
 /** The verification report (`restow-verify-v1`). */
 export function RecoveryVerificationBlock({
   verification,
+  proven,
 }: {
   verification: RecoveryVerification;
+  /** The server stored the recovery as succeeded (green is proof). */
+  proven: boolean;
 }) {
   const { t } = useTranslation("endpoints");
   return (
     <section className="grid gap-2" data-slot="recovery-verification">
       <div className="flex flex-wrap items-center gap-2">
         <h3 className="text-sm font-medium">{t("recovery.verification.title")}</h3>
-        <StatusBadge tone={RESULT_TONE[verification.result]} data-slot="verification-result">
+        <StatusBadge tone={resultTone(verification.result, proven)} data-slot="verification-result">
           {t(`recovery.verification.result.${verification.result}`)}
         </StatusBadge>
       </div>
@@ -69,7 +82,7 @@ export function RecoveryVerificationBlock({
               data-result={check.result}
             >
               <span className="flex items-center gap-2">
-                <ResultIcon result={check.result} />
+                <ResultIcon result={check.result} proven={proven} />
                 <span>
                   {t(`recovery.verification.checks.${check.id}`, { defaultValue: check.id })}
                 </span>

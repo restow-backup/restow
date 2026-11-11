@@ -36,6 +36,29 @@ func (c *capture) blkidProbe(dev string) (map[string]string, error) {
 	return kv, nil
 }
 
+// typeFromBlkid fills the file system type, UUID and label of a mounted
+// node that lsblk reported without a type, from `blkid -p`; when blkid
+// does not know it either, the capture says so.
+func (c *capture) typeFromBlkid(n *blkNode) error {
+	bid, err := c.blkidProbe(n.path())
+	if err != nil {
+		return err
+	}
+	t := bid["TYPE"]
+	if t == "" {
+		c.note(CodeCaptureFailed, n.path(), fmt.Sprintf("%s is mounted at %s, but neither lsblk nor blkid knows its file system; it is not recorded",
+			n.path(), strings.Join(n.mountpoints(), ", ")), SeverityWarning)
+		return nil
+	}
+	n.f["fstype"] = t
+	for key, tag := range map[string]string{"uuid": "UUID", "label": "LABEL"} {
+		if n.str(key) == "" && bid[tag] != "" {
+			n.f[key] = bid[tag]
+		}
+	}
+	return nil
+}
+
 // captureFilesystems records each file system (btrfs across all its
 // devices): blkid, then the mkfs parameters per type (dumpe2fs -h,
 // xfs_info, btrfs inspect-internal dump-super, the FAT boot sector).
@@ -45,6 +68,17 @@ func captureFilesystems(c *capture) error {
 	byUUID := map[string]int{}
 	for _, n := range c.nodes {
 		t := n.fstype()
+		if t == "" && !skippedTypes[n.typ()] && len(n.mountpoints()) > 0 {
+			// lsblk takes the type from the udev database, which lags behind
+			// a file system made a moment ago and is empty without udev. A
+			// mounted device has a file system: blkid reads it from the
+			// device. Without this the mount stays in the manifest and its
+			// file system is missing, without a word.
+			if err := c.typeFromBlkid(n); err != nil {
+				return err
+			}
+			t = n.fstype()
+		}
 		if stackTypes[t] || skippedTypes[n.typ()] {
 			continue
 		}

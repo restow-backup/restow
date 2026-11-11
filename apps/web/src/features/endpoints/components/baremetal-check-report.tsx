@@ -20,8 +20,10 @@ const RESULT_TONE: Record<BaremetalCheck["readiness"], StatusTone> = {
   yellow: "warning",
 };
 
+// A check of stage 1 that passed shows that the layout can be restored, not that it was: the
+// plain foreground, never green.
 const STATUS_ICON: Record<BaremetalCheckStatus, { icon: LucideIcon; className: string }> = {
-  ok: { icon: CircleCheck, className: "text-success" },
+  ok: { icon: CircleCheck, className: "text-foreground" },
   warning: { icon: TriangleAlert, className: "text-warning" },
   failed: { icon: CircleX, className: "text-destructive" },
   skipped: { icon: CircleMinus, className: "text-muted-foreground" },

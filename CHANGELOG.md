@@ -480,7 +480,11 @@ private repository.
   afterwards. Steps, check results and findings appear in the language of the console (the plan's
   reasons and the report for the server stay English), German texts address the operator
   formally throughout, and a second operating system in dual boot is no longer called by its
-  vendor's name.
+  vendor's name. The layout capture no longer leaves out a mounted file system whose type udev
+  has not recorded (a file system made a moment ago, or a system without udev): it reads the
+  type from the device, and says so when it cannot. On the recovery page the checks of a
+  recovery are green only when the server stored it as succeeded, and the check of a snapshot's
+  layout (stage 1) is never green: it shows that a restore can work, not that one did.
   Firmware packages: `firmware-bnx2`, `firmware-bnx2x`, `firmware-qlogic`, `firmware-realtek`,
   `firmware-misc-nonfree` and `firmware-intel-misc` (wired network cards and storage controllers
   only; their licences are in `restow-recovery_<v>_FIRMWARE-LICENSES.txt`, the reasons in

@@ -264,14 +264,17 @@ function IsoStep({ iso }: { iso: RecoveryIso }) {
   );
 }
 
+// The stage-1 check of a snapshot says whether its layout can be restored, not that a restore
+// worked: a check that passed is the neutral outline, never green (docs/BAREMETAL.md 12); one that
+// never ran is muted.
 const CHECK_TONE: Record<
   BaremetalSnapshot["check"],
-  "success" | "destructive" | "warning" | "neutral"
+  "destructive" | "warning" | "neutral" | "muted"
 > = {
-  passed: "success",
+  passed: "neutral",
   failed: "destructive",
   incomplete: "warning",
-  none: "neutral",
+  none: "muted",
 };
 
 /**

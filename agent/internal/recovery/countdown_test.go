@@ -78,6 +78,31 @@ func TestUIAnyKey(t *testing.T) {
 		t.Error("a key after a line typed ahead")
 	}
 	cancel()
+	// A key the reader took just before the wait began (pressed the moment
+	// the countdown appeared) ends no line: it counts as a key press.
+	// Before, it waited in the reader for an Enter, and the wait ran its
+	// full time (the run went on to erase).
+	if _, err := pw.Write([]byte("k")); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	ctx, cancel = context.WithTimeout(context.Background(), 3*time.Second)
+	start = time.Now()
+	pressed = ui.AnyKey(ctx)
+	cancel()
+	if !pressed || time.Since(start) > time.Second {
+		t.Errorf("a key read before the wait began: pressed %v after %s", pressed, time.Since(start))
+	}
+	// It is used up: the next wait needs a key of its own.
+	ctx, cancel = context.WithTimeout(context.Background(), 100*time.Millisecond)
+	if ui.AnyKey(ctx) {
+		t.Error("the key before the earlier wait counted twice")
+	}
+	cancel()
+	go func() { _, _ = pw.Write([]byte("next\n")) }()
+	if l, err := ui.ReadLine(); err != nil || l != "next" {
+		t.Errorf("a line after the waits: %q %v", l, err)
+	}
 }
 
 // TestUIAbort: Abort ends the dialog that waits and every later one.

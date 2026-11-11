@@ -301,7 +301,10 @@ export function RecoveryLiveView(props: RecoveryLiveViewProps) {
       ) : null}
       <ProgressBlock recovery={recovery} />
       {recovery.verification ? (
-        <RecoveryVerificationBlock verification={recovery.verification} />
+        <RecoveryVerificationBlock
+          verification={recovery.verification}
+          proven={recovery.status === "succeeded"}
+        />
       ) : null}
       <RecoveryWarnings warnings={recovery.warnings} />
       {open ? (

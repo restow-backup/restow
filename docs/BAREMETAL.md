@@ -457,6 +457,11 @@ die es auf dem Rechner gibt, sind fast immer installiert (wer LVM nutzt, hat `lv
 Werkzeug fehlt nur bei Schichten, die das System nicht benutzt, und dann wird es nicht
 aufgerufen. `lsblk`, `blkid`, `sfdisk` (util-linux bzw. `fdisk`) sind Voraussetzung; fehlen
 sie, ist der Rechner nicht Bare-Metal-fähig (Hinweis in der Oberfläche).
+`lsblk` nimmt Typ, UUID und Label eines Dateisystems aus der Datenbank von udev. Die hinkt einem
+eben angelegten Dateisystem hinterher und ist ohne udev leer; ein eingehängtes Gerät ohne Typ
+liest die Erfassung darum mit `blkid -p` vom Gerät. Kennt auch `blkid` keinen Typ, steht ein
+`capture_failed` im Manifest. Vorher fehlte das Dateisystem dann still, während seine Einhängung
+im Manifest stand (aufgefallen im Job `agent-root`, `TestCaptureMountedWithoutUdevType`).
 
 ### 4.2 Schema (Auszug, Linux)
 
@@ -2766,7 +2771,8 @@ Für CI, Startprobe und Massenwiederherstellungen. Inhalt (JSON): `instanceUrl`,
   ein Tastendruck ohne Eingabetaste. Für die Dauer des Countdowns nimmt `recover` das
   Terminal aus dem Zeilenmodus (`ICANON`, `ECHO` und `ISIG` aus, `VMIN` 1) und stellt die
   Einstellungen danach wieder her; Strg+C kommt in dieser Zeit als Taste an und bricht ebenso
-  ab, ebenso eine Zeile, die vorher getippt und von keinem Dialog gelesen wurde. Nur die volle
+  ab, ebenso eine Zeile, die vorher getippt und von keinem Dialog gelesen wurde, und Tasten, die
+  der Leser kurz vor dem Countdown schon gelesen hat (ohne Eingabetaste). Nur die volle
   Zeit ohne Taste, ohne Strg+C und ohne Ende des Laufs führt zum Löschen.
 - **Strg+C vor der Ausführung** bricht den Lauf ab (Ergebnis `cancelled`): Der Countdown und
   jeder Dialog enden, kein Schritt beginnt mehr, und erst dann steht "Abgebrochen. Es wurde

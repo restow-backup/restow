@@ -1,3 +1,7 @@
+import { readdirSync } from "node:fs";
+import { sep } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
 
 /**
@@ -68,6 +72,8 @@ const ALLOWED: Readonly<Record<string, string>> = {
     "a restore point whose COMPLIANCE lock the storage itself confirmed (HeadObject retention): nobody can delete it before then",
   "./features/archive/chain-check.tsx":
     "an archive check that passed: links, daily anchors and the content sample it read",
+  "./features/endpoints/components/recovery-verification.tsx":
+    "the checks of a bare-metal recovery the server stored as succeeded (all ten there, none failed): the machine is restored; while it runs or when it failed, ok stays neutral",
   // -- a restore that completed: the data is back
   "./features/restore/lib/jobs.ts": "a restore that completed",
   "./features/restore/jobs/job-page.tsx": "items that were restored",
@@ -83,6 +89,19 @@ const using = files.filter(([, source]) => GREEN.test(source)).map(([path]) => p
 describe("green is proof", () => {
   it("scans the app's sources", () => {
     expect(files.length, "the glob no longer reaches the sources").toBeGreaterThan(300);
+  });
+
+  it("sees every source file as it is on disk", () => {
+    // A transform cache that keeps this module as it was transformed hides every file added
+    // since (vite.config.ts: fsModuleCache off); the guard then passes on files it never read.
+    const root = fileURLToPath(new URL(".", import.meta.url));
+    const onDisk = readdirSync(root, { recursive: true, encoding: "utf8" })
+      .map((path) => `./${path.split(sep).join("/")}`)
+      .filter(
+        (path) => /\.tsx?$/.test(path) && !/\.test\./.test(path) && path !== "./vite-env.d.ts",
+      )
+      .sort();
+    expect(Object.keys(sources).sort()).toEqual(onDisk);
   });
 
   it("is named only by files that show a restore check, a restore or an integrity check", () => {

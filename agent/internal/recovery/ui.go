@@ -37,10 +37,14 @@ type UI struct {
 	// Now replaces time.Now (tests).
 	Now func() time.Time
 
-	once     sync.Once
-	ch       chan lineMsg
-	keys     chan struct{}
-	anyKey   atomic.Bool
+	once   sync.Once
+	ch     chan lineMsg
+	keys   chan struct{}
+	anyKey atomic.Bool
+	// part is what the reader holds of a line not ended yet; AnyKey takes
+	// it as a key press (pmu guards it between the reader and AnyKey).
+	pmu      sync.Mutex
+	part     []byte
 	stopOnce sync.Once
 	stop     chan struct{}
 	mu       sync.Mutex
@@ -64,25 +68,33 @@ func (u *UI) lines() chan lineMsg {
 		u.keys = make(chan struct{}, 1)
 		go func() {
 			buf := make([]byte, 4096)
-			var line []byte
 			for {
 				n, err := u.In.Read(buf)
+				u.pmu.Lock()
 				for _, c := range buf[:n] {
 					if u.anyKey.Load() {
-						zero(line)
-						line = nil
+						zero(u.part)
+						u.part = nil
 						select {
 						case u.keys <- struct{}{}:
 						default:
 						}
 						continue
 					}
-					line = append(line, c)
+					u.part = append(u.part, c)
 					if c == '\n' {
+						line := u.part
+						u.part = nil
+						u.pmu.Unlock()
 						u.ch <- lineMsg{b: line}
-						line = nil
+						u.pmu.Lock()
 					}
 				}
+				line := u.part
+				if err != nil {
+					u.part = nil
+				}
+				u.pmu.Unlock()
 				zero(buf[:n])
 				if err == nil {
 					continue
@@ -166,8 +178,9 @@ func (u *UI) TryLine(ctx context.Context) (string, bool) {
 // like any other; the settings are restored before it returns. Input
 // that is no terminal (a pipe) counts with its first byte. A line that
 // was typed ahead and that no dialog has taken counts as a key press too
-// (the reader holds it and would read no key behind it). The end of the
-// input is no key press.
+// (the reader holds it and would read no key behind it), and so do keys
+// typed before the wait that end no line. The end of the input is no key
+// press.
 func (u *UI) AnyKey(ctx context.Context) bool {
 	lines := u.lines()
 	// A key that ended an earlier wait does not count for this one.
@@ -176,6 +189,19 @@ func (u *UI) AnyKey(ctx context.Context) bool {
 	default:
 	}
 	u.anyKey.Store(true)
+	// Bytes the reader took before the wait began and that end no line yet
+	// (a key pressed the moment the countdown appeared) are a key press as
+	// well: without this they waited in the reader for an Enter that never
+	// came, and the countdown ran on.
+	u.pmu.Lock()
+	typed := len(u.part) > 0
+	zero(u.part)
+	u.part = nil
+	u.pmu.Unlock()
+	if typed {
+		u.anyKey.Store(false)
+		return true
+	}
 	restore := rawKeys(u.In)
 	defer func() {
 		restore()

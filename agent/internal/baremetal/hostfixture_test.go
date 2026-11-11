@@ -1,11 +1,16 @@
 package baremetal
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/restow-backup/restow/agent/internal/cmdrun"
 )
 
 // A fixture tree must check out on every system: sysfs has names with a
@@ -167,5 +172,108 @@ func TestCaptureFixturesAreSelfContained(t *testing.T) {
 	}
 	if dirs < 100 || files < 1000 {
 		t.Fatalf("%d directories and %d files below %s", dirs, files, captureDir)
+	}
+}
+
+// withoutUdevType is the lsblk recording of a fixture as lsblk prints it
+// for devices udev has not seen yet (a file system made a moment ago) or on
+// a system without udev: no type, UUID or label.
+func withoutUdevType(t *testing.T, f *cmdrun.FakeRunner, dir string, knames ...string) {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(dir, "cmd", "001.out"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var tree map[string]any
+	if err := json.Unmarshal(b, &tree); err != nil {
+		t.Fatal(err)
+	}
+	strip := map[string]bool{}
+	for _, k := range knames {
+		strip[k] = true
+	}
+	var walk func(nodes []any)
+	walk = func(nodes []any) {
+		for _, x := range nodes {
+			n := x.(map[string]any)
+			if strip[n["kname"].(string)] {
+				n["fstype"], n["uuid"], n["label"] = nil, nil, nil
+			}
+			if kids, ok := n["children"].([]any); ok {
+				walk(kids)
+			}
+		}
+	}
+	walk(tree["blockdevices"].([]any))
+	out, _ := json.Marshal(tree)
+	f.Add([]string{"lsblk", "-J", "-b", "-O"}, string(out), 0)
+}
+
+// TestCaptureMountedWithoutUdevType: lsblk takes the type of a file system
+// from the udev database, which lags behind mkfs and is empty without
+// udev. A mounted device is then probed with blkid; before, its file system
+// was missing from the manifest while its mount stayed, and nothing said
+// so (the CI job agent-root: "btrfs subvolume @data/nested missing").
+func TestCaptureMountedWithoutUdevType(t *testing.T) {
+	const name = "fedora-btrfs-nested-zstd"
+	dir := filepath.Join(captureDir, name)
+	f, err := cmdrun.LoadDir(t, filepath.Join(dir, "cmd"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	withoutUdevType(t, f, dir, "nvme0n1p2", "nvme0n1p3")
+	host := ""
+	for _, s := range simSystems() {
+		if s.Name == name {
+			host = s.Hostname
+		}
+	}
+	m, _, err := Capture(context.Background(), captureOptions(f, filepath.Join(dir, "root"), host))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The same manifest as with the udev types; only the raw lsblk output
+	// (and so its checksum) differs.
+	b, err := os.ReadFile(filepath.Join(dir, "expected.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := Decode(bytes.TrimRight(b, "\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mm := range []*Manifest{m, want} {
+		for i := range mm.Linux.Raw {
+			if mm.Linux.Raw[i].Name == "lsblk.json" {
+				mm.Linux.Raw[i].SHA256 = ""
+			}
+		}
+	}
+	got, _ := m.Encode()
+	exp, _ := want.Encode()
+	if !bytes.Equal(got, exp) {
+		t.Fatalf("the capture without the udev types differs from expected.json:\n%s", got)
+	}
+
+	// blkid does not know it either: the capture says so instead of
+	// dropping the file system without a word.
+	f, err = cmdrun.LoadDir(t, filepath.Join(dir, "cmd"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	withoutUdevType(t, f, dir, "nvme0n1p2")
+	f.Add([]string{"blkid", "-p", "-o", "export", "/dev/nvme0n1p2"}, "", 2)
+	m, _, err = Capture(context.Background(), captureOptions(f, filepath.Join(dir, "root"), host))
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, u := range m.Linux.Unsupported {
+		if u.Code == CodeCaptureFailed && deref(u.Ref) == "/dev/nvme0n1p2" && strings.Contains(u.Message, "/boot") {
+			found = true
+		}
+	}
+	if !found || m.Linux.Verdict == VerdictSupported {
+		t.Errorf("a mounted device without a known file system: verdict %s, findings %+v", m.Linux.Verdict, m.Linux.Unsupported)
 	}
 }
