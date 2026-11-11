@@ -34,6 +34,7 @@ import {
   saveSizeGuardSettings,
   suggestedLimitGib,
 } from "./api";
+import { type SpaceInput, SpaceRuleFields, spaceChanges, useSpaceRuleText } from "./space-rule";
 
 /**
  * The backups the size and space guard held (#99, docs/STORAGE.md "Unusually large runs"), at
@@ -217,7 +218,12 @@ function HeldRow({
       </p>
       {hold.status === "pending" ? (
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" disabled={!canContinue || busy} onClick={onContinue}>
+          {/* Continue once lifts the size check only: a hold for space waits for room. */}
+          <Button
+            size="sm"
+            disabled={!canContinue || busy || hold.reason === "space"}
+            onClick={onContinue}
+          >
             {t("held.actions.continue")}
           </Button>
           {/* A size limit makes no room on the target: a hold for space ends by itself. */}
@@ -327,6 +333,7 @@ function SettingsDialog({
 }) {
   const { t, i18n } = useTranslation("warnings");
   const language = i18n.resolvedLanguage ?? i18n.language;
+  const spaceText = useSpaceRuleText();
   const settings = useQuery({
     queryKey: heldBackupKeys.settings(tenantId),
     queryFn: fetchSizeGuardSettings,
@@ -337,14 +344,13 @@ function SettingsDialog({
     factor: "",
     minGib: "",
     firstRunGib: "",
-    minFreePercent: "",
   });
+  const [space, setSpace] = React.useState<SpaceInput | null>(null);
   const ids = {
     on: React.useId(),
     factor: React.useId(),
     minGib: React.useId(),
     firstRunGib: React.useId(),
-    minFreePercent: React.useId(),
   };
   const effective = settings.data?.effective;
   React.useEffect(() => {
@@ -354,7 +360,6 @@ function SettingsDialog({
         factor: String(effective.factor),
         minGib: String(effective.minBytes / GIB),
         firstRunGib: effective.firstRunBytes === null ? "" : String(effective.firstRunBytes / GIB),
-        minFreePercent: String(effective.minFreePercent),
       });
     }
   }, [effective]);
@@ -363,6 +368,7 @@ function SettingsDialog({
       kind?: never;
       objectId?: never;
       override: SizeGuardOverrideInput | null;
+      space?: SpaceInput | null;
     }) => saveSizeGuardSettings(input),
     onSuccess: () => {
       toast.success(t("held.toast.saved"));
@@ -379,7 +385,7 @@ function SettingsDialog({
   const factor = Number(form.factor.replace(",", "."));
   const minGib = numberOrNull(form.minGib);
   const firstRunGib = numberOrNull(form.firstRunGib);
-  const minFreePercent = Number(form.minFreePercent.replace(",", "."));
+  const sharedTarget = settings.data?.space.sharedTarget === true;
   const valid =
     Number.isFinite(factor) &&
     factor >= 2 &&
@@ -387,9 +393,7 @@ function SettingsDialog({
     minGib !== null &&
     Number.isFinite(minGib) &&
     !Number.isNaN(firstRunGib) &&
-    Number.isFinite(minFreePercent) &&
-    minFreePercent >= 0 &&
-    minFreePercent <= 50;
+    (sharedTarget || space !== null);
   const field = (key: keyof typeof form) => ({
     id: ids[key],
     value: String(form[key]),
@@ -429,10 +433,22 @@ function SettingsDialog({
             <Label htmlFor={ids.firstRunGib}>{t("held.settings.firstRunGib")}</Label>
             <Input {...field("firstRunGib")} placeholder={t("held.settings.firstRunExempt")} />
           </div>
-          <div className="grid gap-1">
-            <Label htmlFor={ids.minFreePercent}>{t("held.settings.minFreePercent")}</Label>
-            <Input {...field("minFreePercent")} />
-          </div>
+          {settings.data ? (
+            <div className="space-y-2 border-t pt-3" data-slot="held-settings-space">
+              <p className="text-sm font-medium">{t("held.space.tenantTitle")}</p>
+              {sharedTarget ? (
+                <p className="text-xs text-muted-foreground" data-slot="held-space-shared">
+                  {t("held.space.shared", { rule: spaceText(settings.data.space.effective) })}
+                </p>
+              ) : (
+                <SpaceRuleFields
+                  rule={settings.data.space.effective}
+                  disabled={!canConfigure}
+                  onChange={setSpace}
+                />
+              )}
+            </div>
+          ) : null}
           {settings.data && settings.data.objects.length > 0 ? (
             <div className="space-y-1" data-slot="held-settings-objects">
               <p className="text-sm font-medium">{t("held.settings.objects")}</p>
@@ -482,8 +498,16 @@ function SettingsDialog({
                   factor,
                   minGib: minGib ?? 0,
                   firstRunGib,
-                  minFreePercent,
                 },
+                // Only what was changed becomes the tenant's own: the rest keeps following the
+                // installation's (and saving the size settings alone leaves it as it is).
+                ...(() => {
+                  const changes =
+                    sharedTarget || space === null
+                      ? null
+                      : spaceChanges(space, settings.data?.space.effective);
+                  return changes ? { space: changes } : {};
+                })(),
               })
             }
           >

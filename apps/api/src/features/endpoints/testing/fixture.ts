@@ -14,7 +14,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resticBinary } from "@restow/core";
-import { createDb, type Database, providers, tenants, user } from "@restow/db";
+import { createDb, type Database, providers, settings, tenants, user } from "@restow/db";
 import { provisionTestRoles, type TestDatabaseRoles } from "../../../testing/database-roles.js";
 import {
   dropDatabase,
@@ -100,6 +100,19 @@ export async function startFixture(databaseName: string): Promise<EndpointFixtur
       await rm(cacheDir, { recursive: true, force: true });
     },
   };
+}
+
+/**
+ * Lets backups through the api keep only 64 MiB free on the storage target instead of the 20 GiB
+ * minimum of the space rule (#99): the free space of the machine the tests run on is no part of
+ * them. The rule itself is tested in run-size/run-size.pg.test.ts; the guard still runs.
+ */
+export async function keepLittleFree(db: Database): Promise<void> {
+  const runSpaceRule = { percent: 0, minBytes: 64 * 1024 ** 2, maxBytes: 64 * 1024 ** 2 };
+  await db
+    .insert(settings)
+    .values({ singleton: true, runSpaceRule })
+    .onConflictDoUpdate({ target: settings.singleton, set: { runSpaceRule } });
 }
 
 /** The Basic credentials an agent presents. */

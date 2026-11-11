@@ -1,7 +1,7 @@
-import type { RunSizeGuardOverride } from "@restow/core";
-import type { Database } from "@restow/db";
+import type { RunSizeGuardOverride, RunSpaceOverride } from "@restow/core";
+import { type Database, loadInstallationSpaceRule } from "@restow/db";
 import { type Context, Hono, type MiddlewareHandler } from "hono";
-import { db } from "../../db.js";
+import { db, providerDb } from "../../db.js";
 import { clientIp } from "../../lib/request.js";
 import { requireTenant, type TenantEnv } from "../../middleware/session.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
@@ -12,14 +12,20 @@ import {
   overrideFromRequest,
   raiseSchema,
   settingsSchema,
+  spaceFromRequest,
+  spaceRuleSchema,
+  targetParamSchema,
 } from "./schemas.js";
 import {
   continueRunSizeHold,
+  type InstallationSpaceRule,
   listRunSizeHolds,
   type RunSizeActor,
   raiseRunSizeLimit,
   runSizeSettingsView,
+  targetSpaceRules,
   updateRunSizeSettings,
+  updateTargetSpaceRule,
 } from "./service.js";
 
 /**
@@ -32,6 +38,8 @@ import {
 export interface RunSizeRoutesDeps {
   db: Database;
   requireAdmin: MiddlewareHandler<TenantEnv>;
+  /** The installation's space rule, read on the installation pool (the tenant role cannot). */
+  installationSpace?: InstallationSpaceRule;
 }
 
 function actorOf(c: Context<TenantEnv>): RunSizeActor {
@@ -70,7 +78,7 @@ export function buildRunSizeRoutes(deps: RunSizeRoutesDeps): Hono<TenantEnv> {
   });
 
   routes.get("/settings", admin, async (c) =>
-    c.json(await runSizeSettingsView(deps.db, c.get("tenantId"))),
+    c.json(await runSizeSettingsView(deps.db, c.get("tenantId"), deps.installationSpace)),
   );
 
   routes.put("/settings", admin, async (c) => {
@@ -82,10 +90,46 @@ export function buildRunSizeRoutes(deps: RunSizeRoutesDeps): Hono<TenantEnv> {
         deps.db,
         c.get("tenantId"),
         scope,
-        input.override === null
-          ? null
-          : (overrideFromRequest(input.override) as RunSizeGuardOverride),
+        {
+          ...(input.override === undefined
+            ? {}
+            : {
+                override:
+                  input.override === null
+                    ? null
+                    : (overrideFromRequest(input.override) as RunSizeGuardOverride),
+              }),
+          ...(input.space === undefined
+            ? {}
+            : {
+                space:
+                  input.space === null ? null : (spaceFromRequest(input.space) as RunSpaceOverride),
+              }),
+        },
         actorOf(c),
+        new Date(),
+        deps.installationSpace,
+      ),
+    );
+  });
+
+  // The space rule of each of the tenant's own storage targets (the storage page shows it).
+  routes.get("/targets", admin, async (c) =>
+    c.json(await targetSpaceRules(deps.db, c.get("tenantId"), deps.installationSpace)),
+  );
+
+  routes.put("/targets/:id", admin, async (c) => {
+    const { id } = parseOrProblem(targetParamSchema, c.req.param());
+    const input = await parseJsonBody(c.req, spaceRuleSchema);
+    return c.json(
+      await updateTargetSpaceRule(
+        deps.db,
+        c.get("tenantId"),
+        id,
+        input.space === null ? null : (spaceFromRequest(input.space) as RunSpaceOverride),
+        actorOf(c),
+        new Date(),
+        deps.installationSpace,
       ),
     );
   });
@@ -96,4 +140,5 @@ export function buildRunSizeRoutes(deps: RunSizeRoutesDeps): Hono<TenantEnv> {
 export const runSizeRoutes = buildRunSizeRoutes({
   db,
   requireAdmin: requireTenant("tenant_admin"),
+  installationSpace: () => loadInstallationSpaceRule(providerDb),
 });

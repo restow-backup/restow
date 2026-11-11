@@ -13,14 +13,18 @@ import type { StorageSpace } from "../storage/backend.js";
  *          small objects never trip it) and the object's own `limitBytes`. With fewer than
  *          `minHistory` (3) runs behind it a run counts as a first run: exempt, unless
  *          `firstRunBytes` sets a limit for it.
- *   space  would the upload leave the storage target less than `minFreePercent` (2) of its size
- *          free? Only where the target reports its space (a directory, an NFS or SMB mount);
- *          an S3 bucket reports none, there the size rule alone applies.
+ *   space  would the upload leave the storage target less free than it keeps? What it keeps is
+ *          `percent` (5) of its size, at least `minBytes` (20 GiB), at most `maxBytes`
+ *          (500 GiB), and never more than a quarter of a small target ({@link keepFreeBytes}).
+ *          Only where the target reports its space (a directory, an NFS or SMB mount); an S3
+ *          bucket reports none, there the size rule alone applies. The space rule belongs to the
+ *          target: installation default, then the tenant's (on its own targets), then the
+ *          target's own ({@link resolveRunSpaceRule}).
  *
  * Either one holds the run: the upload is refused, the run ends, an administrator is alerted
  * (`backup.unusually_large`) and decides: continue once, raise the object's limit, or switch the
  * guard off for it. Until then every further run of the object is held at its first upload.
- * Settings layer: these defaults, then the tenant's, then the object's.
+ * Size settings layer: these defaults, then the tenant's, then the object's.
  */
 
 export const RUN_SIZE_OBJECT_KINDS = ["endpoint", "file_share", "pve_guest", "m365"] as const;
@@ -43,8 +47,6 @@ export interface RunSizeGuardSettings {
   readonly limitBytes: number | null;
   /** A first run's limit (null: first runs are exempt from the size rule). */
   readonly firstRunBytes: number | null;
-  /** A run is held when it would leave the target less than this share free (0: off). */
-  readonly minFreePercent: number;
 }
 
 export const DEFAULT_RUN_SIZE_GUARD: RunSizeGuardSettings = {
@@ -55,7 +57,6 @@ export const DEFAULT_RUN_SIZE_GUARD: RunSizeGuardSettings = {
   minBytes: 10 * GIB,
   limitBytes: null,
   firstRunBytes: null,
-  minFreePercent: 2,
 };
 
 /** What a tenant or an object sets; anything left out comes from the layer below. */
@@ -65,7 +66,6 @@ export interface RunSizeGuardOverride {
   minBytes?: number;
   limitBytes?: number | null;
   firstRunBytes?: number | null;
-  minFreePercent?: number;
 }
 
 export const RUN_SIZE_FACTOR_RANGE = { min: 2, max: 1000 } as const;
@@ -113,13 +113,6 @@ export function parseRunSizeOverride(value: unknown): RunSizeGuardOverride {
   const firstRunBytes = bytesOrNull(v.firstRunBytes);
   if (firstRunBytes !== undefined) {
     out.firstRunBytes = firstRunBytes;
-  }
-  if (
-    finiteNumber(v.minFreePercent) &&
-    v.minFreePercent >= 0 &&
-    v.minFreePercent <= RUN_SIZE_FREE_PERCENT_MAX
-  ) {
-    out.minFreePercent = v.minFreePercent;
   }
   return out;
 }
@@ -217,7 +210,8 @@ export type RunSizeVerdict =
 
 /**
  * Whether the next upload of a run may go: `writtenBytes` it has stored so far, `nextBytes` the
- * upload (its declared length, or a pack's size), `space` the target's as it reports it.
+ * upload (its declared length, or a pack's new bytes), `space` the target's as it reports it, and
+ * `keepBytes` what the target keeps free (null: the space rule does not apply).
  */
 export function judgeRunSize(input: {
   settings: RunSizeGuardSettings;
@@ -225,17 +219,14 @@ export function judgeRunSize(input: {
   writtenBytes: number;
   nextBytes: number;
   space: StorageSpace | null;
+  keepBytes: number | null;
 }): RunSizeVerdict {
-  const { settings, limit, space } = input;
+  const { settings, limit, space, keepBytes } = input;
   const bytes = Math.max(0, input.writtenBytes) + Math.max(0, input.nextBytes);
-  if (!settings.enabled) {
-    return { hold: false };
-  }
-  if (limit.limitBytes !== null && bytes > limit.limitBytes) {
+  if (settings.enabled && limit.limitBytes !== null && bytes > limit.limitBytes) {
     return { hold: true, reason: "size", bytes, limitBytes: limit.limitBytes };
   }
-  if (space && settings.minFreePercent > 0 && space.totalBytes > 0) {
-    const keepBytes = Math.ceil((space.totalBytes * settings.minFreePercent) / 100);
+  if (space && keepBytes !== null && keepBytes > 0) {
     if (space.freeBytes - Math.max(0, input.nextBytes) < keepBytes) {
       return {
         hold: true,
@@ -248,6 +239,99 @@ export function judgeRunSize(input: {
     }
   }
   return { hold: false };
+}
+
+/**
+ * The space rule of a storage target (#99): how much it keeps free for everything else on it
+ * (other tenants, the database on the same disk, retention's own prune). A percentage alone does
+ * not fit small and large targets alike (2 % of 2 TB is 40 GB, of 200 TB 4 TB): the share is held
+ * between a minimum and a maximum.
+ */
+export interface RunSpaceRule {
+  /** False switches the space rule off for the target. */
+  readonly enabled: boolean;
+  /** The share of the target's size it keeps free. */
+  readonly percent: number;
+  /** It keeps at least this much free (also where the target reports no size). */
+  readonly minBytes: number;
+  /** It keeps at most this much free. */
+  readonly maxBytes: number;
+}
+
+export const DEFAULT_RUN_SPACE_RULE: RunSpaceRule = {
+  enabled: true,
+  percent: 5,
+  minBytes: 20 * GIB,
+  maxBytes: 500 * GIB,
+};
+
+export type RunSpaceOverride = Partial<{
+  enabled: boolean;
+  percent: number;
+  minBytes: number;
+  maxBytes: number;
+}>;
+
+export const RUN_SPACE_PERCENT_MAX = RUN_SIZE_FREE_PERCENT_MAX;
+
+/** A stored space override as far as it is valid; what is not is left out. */
+export function parseRunSpaceOverride(value: unknown): RunSpaceOverride {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  const v = value as Record<string, unknown>;
+  const out: RunSpaceOverride = {};
+  if (typeof v.enabled === "boolean") {
+    out.enabled = v.enabled;
+  }
+  if (finiteNumber(v.percent) && v.percent >= 0 && v.percent <= RUN_SPACE_PERCENT_MAX) {
+    out.percent = v.percent;
+  }
+  for (const key of ["minBytes", "maxBytes"] as const) {
+    const bytes = bytesOrNull(v[key]);
+    if (typeof bytes === "number") {
+      out[key] = bytes;
+    }
+  }
+  return out;
+}
+
+/**
+ * The space rule of the target a run writes to: the defaults, then the installation's, then
+ * the tenant's (only on the tenant's own target: a target the installation provides for every
+ * tenant is the installation's to decide), then the target's own.
+ */
+export function resolveRunSpaceRule(input: {
+  installation?: RunSpaceOverride | null;
+  tenant?: RunSpaceOverride | null;
+  target?: RunSpaceOverride | null;
+  /** The run writes to the installation's default target (shared by the tenants). */
+  sharedTarget: boolean;
+}): RunSpaceRule {
+  return {
+    ...DEFAULT_RUN_SPACE_RULE,
+    ...parseRunSpaceOverride(input.installation),
+    ...(input.sharedTarget ? {} : parseRunSpaceOverride(input.tenant)),
+    ...(input.sharedTarget ? {} : parseRunSpaceOverride(input.target)),
+  };
+}
+
+/**
+ * What a target keeps free: `percent` of its size, at least `minBytes`, at most `maxBytes`, and
+ * never more than a quarter of the target (a 20 GiB minimum must not hold every run of a 30 GiB
+ * disk). A target that reports no size keeps the minimum. Null when the rule is off.
+ */
+export function keepFreeBytes(rule: RunSpaceRule, space: StorageSpace | null): number | null {
+  if (!rule.enabled || (rule.percent <= 0 && rule.minBytes <= 0)) {
+    return null;
+  }
+  const total = space && Number.isFinite(space.totalBytes) ? space.totalBytes : 0;
+  if (total <= 0) {
+    return rule.minBytes;
+  }
+  const share = Math.ceil((total * rule.percent) / 100);
+  const kept = Math.min(Math.max(share, rule.minBytes), Math.max(rule.maxBytes, rule.minBytes));
+  return Math.min(kept, Math.ceil(total / 4));
 }
 
 /** Bytes in the unit an operator reads (GB/MB with one decimal, binary). */

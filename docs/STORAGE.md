@@ -553,9 +553,8 @@ before it fills the storage (`packages/core/src/run-size`, `packages/db/src/run-
   begins a new repository (it uploads restic's `config`: after a reset, a new chain, a repository
   that was gone) is a first run itself, and so are the next two; a file share counts from its
   `repository_ready_at`, a Proxmox VE container from its newest backup chain.
-- **Space.** Would the upload leave the target less than 2 % of its size free? (Below a tenth the low disk space warning has
-  spoken already for the local default repository.) Only where the
-  target reports its space (a directory, an NFS or SMB mount: `StorageBackend.freeSpace`). An S3
+- **Space.** Would the upload leave the target less free space than it keeps for everything else
+  on it? See "The space rule" below. Only where the target reports its space (a directory, an NFS or SMB mount: `StorageBackend.freeSpace`). An S3
   bucket reports none: there the size rule alone applies, and the storage budgets of machines
   and file shares (above) still refuse what does not fit. The space is read at most every 30
   seconds; what the run was let upload since counts as used. The small uploads that finish a run
@@ -572,8 +571,9 @@ what the run had added, the limit, the median and the target's space, and raises
 `backup.unusually_large` once (critical: the bell, the provider's mandatory recipients, every rule
 that lists it, never held for a digest). Until an administrator decides, every further run of the
 object is held at its first upload (counted on the hold, no second alert). A hold for space ends
-by itself: the next run checks again and goes ahead once the target has half again the free share
-it keeps (`space_freed`). A hold of an object that is gone (a removed machine, a deleted share,
+by itself: the next run checks again and goes ahead once the target has half again what it keeps
+free (`space_freed`), or once the space rule is switched off for the target, the tenant or the
+installation (`settings_changed`). A hold of an object that is gone (a removed machine, a deleted share,
 guest or account) ends when the list is read (`object_removed`). The run's failure says "held"
 (`storage.run_held`) for a failed run; a run that made a restore point keeps its own.
 
@@ -589,23 +589,53 @@ only for a backup run.
 
 **Deciding** (Warnings, at the top: "Held backups"; `/api/v1/run-size`):
 
-- **Continue once** (technicians and up): the next run of the object goes through without the
-  check, whatever it adds; that run closes the hold. Audited (`backup.size_hold_continued`).
+- **Continue once** (technicians and up, a hold for size only): the next run of the object goes
+  through without the size check, whatever it adds; that run closes the hold. The space rule still
+  applies to it: a run let through for its size is held when the target runs short. Audited
+  (`backup.size_hold_continued`).
 - **Raise the limit** (administrators and up, a hold for size only): the object's own limit
-  becomes the given size; the hold ends. Audited (`backup.size_limit_raised`). A hold for space
-  ends with room on the target, or with continue once.
+  becomes the given size; the hold ends. Audited (`backup.size_limit_raised`).
+- A hold for space offers neither: letting a run fill its target is what the rule is there to
+  prevent. The card says so and shows "Continue once" disabled; the api refuses it with 422
+  (`urn:restow:problem:run-size-continue-not-for-space`). The hold ends with room on the target
+  (free space up, or retention removed data), or with the space rule switched off.
 - **Switch the check off for this object** (administrators and up). Audited
   (`backup.size_guard_changed`).
 - **Exclude** the folder that does not belong in the backup in the object's settings, then
   continue once or let the next run be measured again.
 
-**Settings.** Defaults, then the tenant's, then an object's own (Warnings, "Size check";
-`PUT /api/v1/run-size/settings`): on or off, the factor (2 to 1000), the size below which a run is
-never held, a limit for first backups (empty: not checked), the free share to keep (0 switches the
-space rule off). What is saved is merged into what was set; the object must be the tenant's.
-An open hold the new settings would not make ends (`settings_changed`, or `guard_off`). Each
-change is audited. "Continue once" lifts both rules for that one run (`CONTINUE_ONCE_LIFTS` in
-packages/db run-size.ts).
+**Settings of the size rule.** Defaults, then the tenant's, then an object's own (Warnings, "Size
+check"; `PUT /api/v1/run-size/settings`): on or off, the factor (2 to 1000), the size below which a
+run is never held, a limit for first backups (empty: not checked). What is saved is merged into
+what was set; the object must be the tenant's. An open hold the new settings would not make ends
+(`settings_changed`, or `guard_off`). Each change is audited (`backup.size_guard_changed`).
+Switching the size check off for an object leaves the space rule of its target on.
+
+**The space rule.** A storage target keeps free a share of its size, at least a minimum and at
+most a maximum: `keep = min(max(percent × size, minimum), maximum)`. The defaults are **5 %, at
+least 20 GiB, at most 500 GiB**: a 100 GiB disk keeps 20 GiB, a 1 TiB disk about 51 GiB, a 20 TiB
+disk 500 GiB. A target that reports free space but no size keeps the minimum. A small target never
+keeps more than a quarter of its size (a 40 GiB disk keeps 10 GiB, not the 20 GiB minimum: the
+minimum must not hold every run of it). All three values are adjustable on three levels, each over
+the one before:
+
+| Level | Where | Who | API |
+| ----- | ----- | --- | --- |
+| Installation (the default) | Installation › Database, next to the disks | the owner | `GET/PUT /api/v1/updates/space-rule` |
+| Tenant | Warnings › "Size check" | tenant administrators | `PUT /api/v1/run-size/settings` with `space` |
+| Storage target | the target's card on the storage page (the tenant's own primary) | who may manage the target | `GET /api/v1/run-size/targets`, `PUT /api/v1/run-size/targets/:id` |
+
+A level sets only what it changes (on or off, the percent from 0 to 50, the minimum and the maximum
+in GiB); the rest follows the level below, and `null` goes back to it. A maximum below the minimum
+is refused (422). On the installation's default target, which the tenants share, only the
+installation's rule applies: a tenant's own rule counts on its own targets. Objects have no space
+rule of their own: the space is the target's, not the object's. Each change is audited
+(`backup.space_rule_changed`, with the level, before and after); switching the rule off ends the
+open holds for space it covers. Below a tenth free, the low disk space warning (docs/DATABASE.md)
+has spoken already for the local default repository.
+
+"Continue once" lifts the size rule only (`CONTINUE_ONCE_LIFTS` in packages/db run-size.ts); a run
+that begins a new repository is no unusual run either, and the target still needs room for it.
 
 Known limits:
 

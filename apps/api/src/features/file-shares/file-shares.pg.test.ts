@@ -31,6 +31,7 @@ import { Hono } from "hono";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   type EndpointFixture,
+  keepLittleFree,
   startFixture,
   testDatabaseAdminUrl,
 } from "../endpoints/testing/fixture.js";
@@ -61,6 +62,7 @@ describe.skipIf(!testDatabaseAdminUrl)("file share runner routes against Postgre
     app.route(FILE_SHARE_RESTIC_PATH, fileShareResticRoutes);
     app.route(FILE_SHARE_RUNNER_PATH, fileShareRunnerRoutes);
     await fixture.db.insert(settings).values({}).onConflictDoNothing();
+    await keepLittleFree(fixture.db);
 
     repositoryPassword = `repo-${randomBytes(12).toString("hex")}`;
     const ref = await secretStore.storeSecret(shared.db, {

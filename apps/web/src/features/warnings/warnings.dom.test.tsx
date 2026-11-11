@@ -502,10 +502,95 @@ describe("held backups (#99)", { timeout: 20_000 }, () => {
       client.setQueryData(heldBackupKeys.holds("t-1"), space);
     });
     await waitForText("Held backups");
-    expect(button("Continue once")).toBeDefined();
+    // Continue once lifts the size check only: a hold for space waits for room (#99).
+    expect(button("Continue once")?.disabled).toBe(true);
     expect(button("Raise the limit")).toBeUndefined();
-    expect(document.querySelector('[data-slot="held-space-note"]')?.textContent).toContain(
-      "ends by itself",
-    );
+    const note = document.querySelector('[data-slot="held-space-note"]')?.textContent;
+    expect(note).toContain("ends by itself");
+    expect(note).toContain("cannot be continued once");
+  });
+
+  describe("the space rule of the tenant (#99)", () => {
+    const GIB = 1024 ** 3;
+    const RULE = { enabled: true, percent: 5, minBytes: 20 * GIB, maxBytes: 500 * GIB };
+    const settings = (sharedTarget: boolean) => ({
+      defaults: {
+        enabled: true,
+        factor: 10,
+        minHistory: 3,
+        historyRuns: 10,
+        minBytes: 10 * GIB,
+        limitBytes: null,
+        firstRunBytes: null,
+      },
+      tenant: null,
+      effective: {
+        enabled: true,
+        factor: 10,
+        minHistory: 3,
+        historyRuns: 10,
+        minBytes: 10 * GIB,
+        limitBytes: null,
+        firstRunBytes: null,
+      },
+      space: { defaults: RULE, installation: {}, override: null, effective: RULE, sharedTarget },
+      objects: [],
+    });
+    const inputFor = (label: string) => {
+      const element = [...document.querySelectorAll("label")].find((candidate) =>
+        candidate.textContent?.includes(label),
+      );
+      return document.getElementById(element?.getAttribute("for") ?? "") as HTMLInputElement | null;
+    };
+    function setValue(element: HTMLInputElement, value: string) {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set?.call(
+        element,
+        value,
+      );
+      element.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    async function openSettings(sharedTarget: boolean) {
+      await mount(<WarningsPage state="open" />, (client) => {
+        client.setQueryData(warningKeys.list("t-1", "open"), EMPTY_LIST);
+        client.setQueryData(heldBackupKeys.holds("t-1"), { open: [], recent: [] });
+        client.setQueryData(heldBackupKeys.settings("t-1"), settings(sharedTarget));
+      });
+      await waitForText("Held backups");
+      await act(async () => {
+        button("Size check")?.click();
+      });
+      await waitForText("Free space on the storage targets of this tenant");
+    }
+    const saved = () =>
+      requests.filter(
+        (request) => request.url.endsWith("/run-size/settings") && request.method === "PUT",
+      );
+
+    it("sends the rule only once it was changed", async () => {
+      await openSettings(false);
+      expect(inputFor("Share of the target's size (%)")?.value).toBe("5");
+      expect(inputFor("At least (GiB)")?.value).toBe("20");
+      expect(inputFor("At most (GiB)")?.value).toBe("500");
+      // Saving the size settings alone leaves the space rule following the installation.
+      await act(async () => {
+        button("Save")?.click();
+      });
+      expect(saved()[0]?.body).not.toHaveProperty("space");
+      await act(async () => {
+        setValue(inputFor("Share of the target's size (%)") as HTMLInputElement, "10");
+      });
+      await act(async () => {
+        button("Save")?.click();
+      });
+      // Only what was changed becomes the tenant's own.
+      expect(saved()[1]?.body).toEqual(expect.objectContaining({ space: { percent: 10 } }));
+    });
+
+    it("on the installation's shared target: says the installation's rule applies, no fields", async () => {
+      await openSettings(true);
+      expect(text()).toContain("shared default target");
+      expect(text()).toContain("Keeps 5 % of the target free");
+      expect(inputFor("Share of the target's size (%)")).toBeNull();
+    });
   });
 });

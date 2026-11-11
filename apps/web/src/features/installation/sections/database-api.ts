@@ -147,6 +147,8 @@ export interface DiskStatus {
   low: boolean;
   /** The database's disk: read by the updater, or without it next to the database's volume. */
   via?: "updater" | "volume";
+  /** Which device the disk is: the same value is the same disk (one line). */
+  device?: string | null;
 }
 
 /** The emergency disk reserve (#98, docs/DATABASE.md "Disk full"). */

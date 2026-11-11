@@ -62,8 +62,20 @@ updater. From 0.4.5 the api also watches the server's system disk (`/` as the ap
 container sees it: the disk under Docker's data directory) with the same rule, and keeps
 its free space once an hour for two weeks: the trend the dashboard shows when a
 repository lies on that disk ([docs/STORAGE.md, Where backups land](STORAGE.md#where-backups-land)).
-In a standard installation the three are one disk, so a low disk can raise up to three
-warnings, one per place.
+In a standard installation the three are one disk. From 0.5.0 a low disk raises **one**
+warning however many of the three lie on it: the api compares their devices (the system disk
+as `/` and the files Docker mounts into the container show it, else the device number of the
+path), and the warning, its mail and its bell line name every place on the disk (`details.disks`,
+the system disk first), with the emergency reserve once. Places on different disks warn each on
+their own. While one place on a disk is still low from an earlier warning, another place on the
+same disk running low raises no second one. The page shows the database's and the repository's
+disk as one line when they are one disk. A database moved to a directory of the host, read by the
+updater, cannot be told apart from here and keeps a warning of its own.
+
+The same card holds what every storage target keeps free for everything else on it, the
+installation's space rule of the size and space guard: by default 5 % of the target's size, at
+least 20 GiB, at most 500 GiB ([docs/STORAGE.md, Unusually large runs](STORAGE.md#unusually-large-runs)).
+Only the owner changes it.
 
 ## Disk full
 

@@ -32,6 +32,7 @@ function row(overrides: Partial<StorageTarget>): StorageTarget {
     bytesUsed: 0,
     immutability: null,
     immutabilityState: null,
+    spaceRule: null,
     createdAt: CREATED,
     updatedAt: CREATED,
     ...overrides,

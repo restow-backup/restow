@@ -1,15 +1,21 @@
 import {
   DEFAULT_RUN_SIZE_GUARD,
+  DEFAULT_RUN_SPACE_RULE,
   parseRunSizeOverride,
+  parseRunSpaceOverride,
   type RunSizeGuardOverride,
   type RunSizeGuardSettings,
   type RunSizeObjectKind,
+  type RunSpaceOverride,
+  type RunSpaceRule,
   resolveRunSizeGuard,
+  resolveRunSpaceRule,
   runSizeLimit,
 } from "@restow/core";
 import {
   type Database,
   describeRunSizeObject,
+  settings as installationSettings,
   type RunSizeHold,
   type RunSizeHoldResolution,
   type RunSizeTx,
@@ -18,6 +24,8 @@ import {
   runSizeHolds,
   runSizeObjectExists,
   runSizeSettings,
+  runSpaceOverrides,
+  storageTargets,
 } from "@restow/db";
 import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { audit } from "../../lib/audit.js";
@@ -33,14 +41,20 @@ import { ProblemError } from "../../problem.js";
  *                   `backup.size_hold_continued`); the run that uses it closes the hold
  *   raise the limit the object's own limit becomes the given size, the hold ends (audited
  *                   `backup.size_limit_raised`)
- *   settings        the tenant's or an object's override of the defaults; switching the guard
- *                   off for an object ends its hold (audited `backup.size_guard_changed`)
+ *   settings        the tenant's or an object's override of the size defaults; switching the
+ *                   guard off for an object ends its hold (audited `backup.size_guard_changed`)
+ *   space rule      what a storage target keeps free: the installation's default, the tenant's
+ *                   (on its own targets), a target's own (audited `backup.space_rule_changed`)
+ *
+ * "Continue once" lifts only the size rule: a hold for space ends when the target has room
+ * again, or when its space rule is switched off.
  */
 
 export const RUN_SIZE_AUDIT_ACTIONS = {
   continued: "backup.size_hold_continued",
   limitRaised: "backup.size_limit_raised",
   settingsChanged: "backup.size_guard_changed",
+  spaceRuleChanged: "backup.space_rule_changed",
 } as const;
 
 export const RUN_SIZE_PROBLEMS = {
@@ -48,6 +62,9 @@ export const RUN_SIZE_PROBLEMS = {
   limitTooSmall: "urn:restow:problem:run-size-limit-too-small",
   notForSpace: "urn:restow:problem:run-size-raise-not-for-space",
   objectNotFound: "urn:restow:problem:run-size-object-not-found",
+  continueNotForSpace: "urn:restow:problem:run-size-continue-not-for-space",
+  spaceRuleInvalid: "urn:restow:problem:run-size-space-rule-invalid",
+  targetNotFound: "urn:restow:problem:run-size-target-not-found",
 } as const;
 
 export interface RunSizeActor {
@@ -207,6 +224,13 @@ export async function continueRunSizeHold(
     if (hold.status !== "pending") {
       throw notOpen();
     }
+    if (hold.reason === "space") {
+      throw new ProblemError(422, "Not for a hold for space", {
+        type: RUN_SIZE_PROBLEMS.continueNotForSpace,
+        detail:
+          "Continue once lifts the size check only. A backup held for space goes ahead once its storage target has room again, or once the target's space rule is switched off.",
+      });
+    }
     const [updated] = await tx
       .update(runSizeHolds)
       .set({
@@ -256,9 +280,17 @@ async function writeOverride(
         eq(runSizeSettings.objectId, scope.objectId),
       )
     : and(eq(runSizeSettings.tenantId, tenantId), isNull(runSizeSettings.objectKind));
-  const [existing] = await tx.select({ id: runSizeSettings.id }).from(runSizeSettings).where(where);
+  const [existing] = await tx
+    .select({ id: runSizeSettings.id, settings: runSizeSettings.settings })
+    .from(runSizeSettings)
+    .where(where);
+  // The tenant's row also holds its space rule (`space`), which a size change keeps.
+  const space = (existing?.settings as { space?: unknown } | undefined)?.space;
   const values = {
-    settings: override as Record<string, unknown>,
+    settings: {
+      ...(override as Record<string, unknown>),
+      ...(!scope && space !== undefined ? { space } : {}),
+    },
     updatedByUserId: actor.userId,
     updatedBy: actor.label,
     updatedAt: now,
@@ -350,12 +382,27 @@ export async function raiseRunSizeLimit(
   });
 }
 
+/** A space rule as an admin sees it: the override set at this level and what applies. */
+export interface SpaceRuleView {
+  override: RunSpaceOverride | null;
+  effective: RunSpaceRule;
+}
+
 export interface RunSizeSettingsView {
   defaults: RunSizeGuardSettings;
   /** The tenant's override; null when it has none. */
   tenant: RunSizeGuardOverride | null;
   /** What applies to the tenant's objects without an override of their own. */
   effective: RunSizeGuardSettings;
+  /**
+   * The tenant's space rule: its override (on its own targets) over the installation's; whether
+   * its current primary is the installation's shared default (where only the installation decides).
+   */
+  space: SpaceRuleView & {
+    defaults: RunSpaceRule;
+    installation: RunSpaceOverride;
+    sharedTarget: boolean;
+  };
   /** Objects with their own override, with the name they read with. */
   objects: {
     kind: RunSizeObjectKind;
@@ -366,10 +413,20 @@ export interface RunSizeSettingsView {
   }[];
 }
 
+/** The installation's space rule as a loader the tenant's transactions cannot read themselves. */
+export type InstallationSpaceRule = () => Promise<RunSpaceOverride | null>;
+
+function tenantSpaceOf(row: { settings: unknown } | undefined): RunSpaceOverride | null {
+  const space = (row?.settings as { space?: unknown } | undefined)?.space;
+  return space === undefined ? null : parseRunSpaceOverride(space);
+}
+
 export async function runSizeSettingsView(
   db: Database,
   tenantId: string,
+  installationSpace?: InstallationSpaceRule,
 ): Promise<RunSizeSettingsView> {
+  const installation = parseRunSpaceOverride(installationSpace ? await installationSpace() : null);
   return withTenantTx(db, tenantId, async (tx) => {
     const rows = await tx
       .select()
@@ -378,6 +435,8 @@ export async function runSizeSettingsView(
       .orderBy(runSizeSettings.createdAt);
     const tenantRow = rows.find((row) => row.objectKind === null);
     const tenant = tenantRow ? parseRunSizeOverride(tenantRow.settings) : null;
+    const tenantSpace = tenantSpaceOf(tenantRow);
+    const target = await runSpaceOverrides(tx, tenantId);
     const objects: RunSizeSettingsView["objects"] = [];
     for (const row of rows) {
       if (row.objectKind === null || row.objectId === null) {
@@ -396,21 +455,43 @@ export async function runSizeSettingsView(
       defaults: DEFAULT_RUN_SIZE_GUARD,
       tenant,
       effective: resolveRunSizeGuard(tenant),
+      space: {
+        defaults: DEFAULT_RUN_SPACE_RULE,
+        installation,
+        override: tenantSpace,
+        effective: resolveRunSpaceRule({
+          installation,
+          tenant: tenantSpace,
+          sharedTarget: target.sharedTarget,
+        }),
+        sharedTarget: target.sharedTarget,
+      },
       objects,
     };
   });
 }
 
+/** A merged space rule whose maximum is below its minimum is refused. */
+function checkSpaceRule(rule: RunSpaceRule): void {
+  if (rule.maxBytes < rule.minBytes) {
+    throw new ProblemError(422, "Invalid space rule", {
+      type: RUN_SIZE_PROBLEMS.spaceRuleInvalid,
+      detail: "The most a target keeps free must not be less than the least it keeps free.",
+    });
+  }
+}
+
 /**
- * The open holds of `scope` (one object, or every object of the tenant) that its settings no
- * longer hold, ended: the guard switched off (`guard_off`), a size hold whose run now fits its
- * limit, or a space hold whose free share was switched off (`settings_changed`). A space hold
- * otherwise ends by itself once the target has room (the next run checks). Returns how many.
+ * The open holds of `scope` (one object, or every object of the tenant) that the settings no
+ * longer hold, ended: the size guard switched off (`guard_off`), a size hold whose run now fits
+ * its limit, or a hold for space whose target's space rule is off (`settings_changed`). A hold for
+ * space otherwise ends by itself once the target has room (the next run checks). Returns how many.
  */
 async function reconsiderHolds(
-  tx: Transaction,
+  tx: RunSizeTx,
   tenantId: string,
   scope: { kind: RunSizeObjectKind; objectId: string } | null,
+  installation: RunSpaceOverride | null,
   now: Date,
 ): Promise<number> {
   const open = await tx
@@ -424,28 +505,40 @@ async function reconsiderHolds(
         scope ? eq(runSizeHolds.objectId, scope.objectId) : undefined,
       ),
     );
+  if (open.length === 0) {
+    return 0;
+  }
   const tenant = await storedOverride(tx, tenantId, null);
+  const space = await runSpaceOverrides(tx, tenantId);
+  const spaceRule = resolveRunSpaceRule({
+    installation,
+    tenant: space.tenant,
+    target: space.target,
+    sharedTarget: space.sharedTarget,
+  });
   let ended = 0;
   for (const hold of open) {
-    const own = await storedOverride(tx, tenantId, {
-      kind: hold.objectKind,
-      objectId: hold.objectId,
-    });
-    const settings = resolveRunSizeGuard(tenant, own);
     let resolution: "guard_off" | "settings_changed" | null = null;
-    if (!settings.enabled) {
-      resolution = "guard_off";
-    } else if (hold.reason === "size") {
-      const history = await runSizeHistory(
-        tx,
-        hold.objectKind,
-        hold.objectId,
-        settings.historyRuns,
-      );
-      const limit = runSizeLimit(settings, history).limitBytes;
-      resolution = limit === null || hold.bytes <= limit ? "settings_changed" : null;
-    } else if (settings.minFreePercent === 0) {
-      resolution = "settings_changed";
+    if (hold.reason === "space") {
+      resolution = spaceRule.enabled ? null : "settings_changed";
+    } else {
+      const own = await storedOverride(tx, tenantId, {
+        kind: hold.objectKind,
+        objectId: hold.objectId,
+      });
+      const settings = resolveRunSizeGuard(tenant, own);
+      if (!settings.enabled) {
+        resolution = "guard_off";
+      } else {
+        const history = await runSizeHistory(
+          tx,
+          hold.objectKind,
+          hold.objectId,
+          settings.historyRuns,
+        );
+        const limit = runSizeLimit(settings, history).limitBytes;
+        resolution = limit === null || hold.bytes <= limit ? "settings_changed" : null;
+      }
     }
     if (resolution) {
       await tx
@@ -459,18 +552,21 @@ async function reconsiderHolds(
 }
 
 /**
- * Change the tenant's override (`scope` null) or an object's: what is given is merged into the
- * stored one (a size given as null clears it); `override` null clears the whole override. The
- * object must be the tenant's. Every open hold the new settings no longer hold ends.
+ * Change the tenant's settings (`scope` null) or an object's. `override` (the size settings) is
+ * merged into the stored one (a size given as null clears it; null clears them all); `space`
+ * (the tenant's space rule, never an object's) likewise. The object must be the tenant's. Every
+ * open hold the new settings no longer make ends.
  */
 export async function updateRunSizeSettings(
   db: Database,
   tenantId: string,
   scope: { kind: RunSizeObjectKind; objectId: string } | null,
-  override: RunSizeGuardOverride | null,
+  input: { override?: RunSizeGuardOverride | null; space?: RunSpaceOverride | null },
   actor: RunSizeActor,
   now: Date = new Date(),
+  installationSpace?: InstallationSpaceRule,
 ): Promise<RunSizeSettingsView> {
+  const installation = parseRunSpaceOverride(installationSpace ? await installationSpace() : null);
   await withTenantTx(db, tenantId, async (tx) => {
     // Row Level Security pins the transaction to the tenant: another tenant's object is not found.
     if (scope && !(await runSizeObjectExists(tx, scope.kind, scope.objectId))) {
@@ -479,45 +575,263 @@ export async function updateRunSizeSettings(
         detail: "No such machine, file share, guest or account in this tenant.",
       });
     }
-    const before = await storedOverride(tx, tenantId, scope);
+    const where = scope
+      ? and(
+          eq(runSizeSettings.tenantId, tenantId),
+          eq(runSizeSettings.objectKind, scope.kind),
+          eq(runSizeSettings.objectId, scope.objectId),
+        )
+      : and(eq(runSizeSettings.tenantId, tenantId), isNull(runSizeSettings.objectKind));
+    const [row] = await tx.select().from(runSizeSettings).where(where);
+    const before = row ? parseRunSizeOverride(row.settings) : null;
+    const spaceBefore = scope ? null : tenantSpaceOf(row);
     const objectName = scope
       ? (await describeRunSizeObject(tx, scope.kind, scope.objectId)).name
       : null;
     const after =
-      override === null ? null : { ...(before ?? {}), ...parseRunSizeOverride(override) };
-    if (after === null) {
-      await tx
-        .delete(runSizeSettings)
-        .where(
-          scope
-            ? and(
-                eq(runSizeSettings.tenantId, tenantId),
-                eq(runSizeSettings.objectKind, scope.kind),
-                eq(runSizeSettings.objectId, scope.objectId),
-              )
-            : and(eq(runSizeSettings.tenantId, tenantId), isNull(runSizeSettings.objectKind)),
-        );
-    } else {
-      await writeOverride(tx, tenantId, scope, after, actor, now);
+      input.override === undefined
+        ? before
+        : input.override === null
+          ? null
+          : { ...(before ?? {}), ...parseRunSizeOverride(input.override) };
+    const spaceAfter =
+      scope || input.space === undefined
+        ? spaceBefore
+        : input.space === null
+          ? null
+          : { ...(spaceBefore ?? {}), ...parseRunSpaceOverride(input.space) };
+    if (spaceAfter) {
+      checkSpaceRule(
+        resolveRunSpaceRule({ installation, tenant: spaceAfter, sharedTarget: false }),
+      );
     }
-    const resolved = await reconsiderHolds(tx, tenantId, scope, now);
+    const stored = {
+      ...(after ?? {}),
+      ...(spaceAfter ? { space: spaceAfter } : {}),
+    };
+    if (after === null && spaceAfter === null) {
+      await tx.delete(runSizeSettings).where(where);
+    } else if (row) {
+      await tx
+        .update(runSizeSettings)
+        .set({
+          settings: stored,
+          updatedByUserId: actor.userId,
+          updatedBy: actor.label,
+          updatedAt: now,
+        })
+        .where(eq(runSizeSettings.id, row.id));
+    } else {
+      await tx.insert(runSizeSettings).values({
+        tenantId,
+        objectKind: scope?.kind ?? null,
+        objectId: scope?.objectId ?? null,
+        settings: stored,
+        updatedByUserId: actor.userId,
+        updatedBy: actor.label,
+      });
+    }
+    const resolved = await reconsiderHolds(tx, tenantId, scope, installation, now);
+    if (input.override !== undefined) {
+      await audit(tx, {
+        tenantId,
+        actorUserId: actor.userId,
+        actor: actor.label,
+        action: RUN_SIZE_AUDIT_ACTIONS.settingsChanged,
+        target: scope?.objectId ?? tenantId,
+        targetType: scope ? targetTypeOf(scope.kind) : "tenant",
+        ip: actor.ip,
+        details: {
+          scope: scope ? "object" : "tenant",
+          objectKind: scope?.kind ?? null,
+          objectName,
+          before,
+          after,
+          holdsEnded: resolved,
+        },
+      });
+    }
+    if (!scope && input.space !== undefined) {
+      await audit(tx, {
+        tenantId,
+        actorUserId: actor.userId,
+        actor: actor.label,
+        action: RUN_SIZE_AUDIT_ACTIONS.spaceRuleChanged,
+        target: tenantId,
+        targetType: "tenant",
+        ip: actor.ip,
+        details: { scope: "tenant", before: spaceBefore, after: spaceAfter, holdsEnded: resolved },
+      });
+    }
+  });
+  return runSizeSettingsView(db, tenantId, installationSpace);
+}
+
+export interface TargetSpaceRuleDto extends SpaceRuleView {
+  targetId: string;
+  name: string | null;
+  role: string;
+}
+
+/** The space rule of each of the tenant's own storage targets (where a target is set up). */
+export async function targetSpaceRules(
+  db: Database,
+  tenantId: string,
+  installationSpace?: InstallationSpaceRule,
+): Promise<TargetSpaceRuleDto[]> {
+  const installation = parseRunSpaceOverride(installationSpace ? await installationSpace() : null);
+  return withTenantTx(db, tenantId, async (tx) => {
+    const space = await runSpaceOverrides(tx, tenantId);
+    const rows = await tx
+      .select({
+        id: storageTargets.id,
+        name: storageTargets.name,
+        role: storageTargets.role,
+        spaceRule: storageTargets.spaceRule,
+      })
+      .from(storageTargets)
+      .where(eq(storageTargets.tenantId, tenantId))
+      .orderBy(storageTargets.createdAt);
+    return rows.map((row) => {
+      const override = row.spaceRule ? parseRunSpaceOverride(row.spaceRule) : null;
+      return {
+        targetId: row.id,
+        name: row.name,
+        role: row.role,
+        override,
+        effective: resolveRunSpaceRule({
+          installation,
+          tenant: space.tenant,
+          target: override,
+          sharedTarget: false,
+        }),
+      };
+    });
+  });
+}
+
+/** Set (merged) or clear a storage target's own space rule; audited. */
+export async function updateTargetSpaceRule(
+  db: Database,
+  tenantId: string,
+  targetId: string,
+  space: RunSpaceOverride | null,
+  actor: RunSizeActor,
+  now: Date = new Date(),
+  installationSpace?: InstallationSpaceRule,
+): Promise<TargetSpaceRuleDto[]> {
+  const installation = parseRunSpaceOverride(installationSpace ? await installationSpace() : null);
+  await withTenantTx(db, tenantId, async (tx) => {
+    const [row] = await tx
+      .select({
+        id: storageTargets.id,
+        name: storageTargets.name,
+        spaceRule: storageTargets.spaceRule,
+      })
+      .from(storageTargets)
+      .where(and(eq(storageTargets.tenantId, tenantId), eq(storageTargets.id, targetId)))
+      .for("update");
+    if (!row) {
+      throw new ProblemError(404, "Not found", {
+        type: RUN_SIZE_PROBLEMS.targetNotFound,
+        detail: "No such storage target in this tenant.",
+      });
+    }
+    const before = row.spaceRule ? parseRunSpaceOverride(row.spaceRule) : null;
+    const after = space === null ? null : { ...(before ?? {}), ...parseRunSpaceOverride(space) };
+    if (after) {
+      const tenantSpace = (await runSpaceOverrides(tx, tenantId)).tenant;
+      checkSpaceRule(
+        resolveRunSpaceRule({
+          installation,
+          tenant: tenantSpace,
+          target: after,
+          sharedTarget: false,
+        }),
+      );
+    }
+    await tx.update(storageTargets).set({ spaceRule: after }).where(eq(storageTargets.id, row.id));
+    const resolved = await reconsiderHolds(tx, tenantId, null, installation, now);
     await audit(tx, {
       tenantId,
       actorUserId: actor.userId,
       actor: actor.label,
-      action: RUN_SIZE_AUDIT_ACTIONS.settingsChanged,
-      target: scope?.objectId ?? tenantId,
-      targetType: scope ? targetTypeOf(scope.kind) : "tenant",
+      action: RUN_SIZE_AUDIT_ACTIONS.spaceRuleChanged,
+      target: row.id,
+      targetType: "storage_target",
       ip: actor.ip,
-      details: {
-        scope: scope ? "object" : "tenant",
-        objectKind: scope?.kind ?? null,
-        objectName,
-        before,
-        after,
-        holdsEnded: resolved,
-      },
+      details: { scope: "target", targetName: row.name, before, after, holdsEnded: resolved },
     });
   });
-  return runSizeSettingsView(db, tenantId);
+  return targetSpaceRules(db, tenantId, installationSpace);
+}
+
+export interface InstallationSpaceRuleView extends SpaceRuleView {
+  defaults: RunSpaceRule;
+}
+
+/** The installation's space rule (Installation › Database), on the installation pool. */
+export async function installationSpaceRuleView(
+  providerDb: Database,
+): Promise<InstallationSpaceRuleView> {
+  const [row] = await providerDb
+    .select({ rule: installationSettings.runSpaceRule })
+    .from(installationSettings)
+    .limit(1);
+  const override =
+    row && Object.keys(row.rule ?? {}).length > 0 ? parseRunSpaceOverride(row.rule) : null;
+  return {
+    defaults: DEFAULT_RUN_SPACE_RULE,
+    override,
+    effective: resolveRunSpaceRule({ installation: override, sharedTarget: true }),
+  };
+}
+
+/**
+ * Set (merged) or clear the installation's space rule; audited in the installation's chain. A hold
+ * for space whose rule is now off ends at once, in every tenant.
+ */
+export async function updateInstallationSpaceRule(
+  providerDb: Database,
+  space: RunSpaceOverride | null,
+  actor: RunSizeActor,
+  now: Date = new Date(),
+): Promise<InstallationSpaceRuleView> {
+  await providerDb.transaction(async (tx) => {
+    const [row] = await tx
+      .select({ id: installationSettings.id, rule: installationSettings.runSpaceRule })
+      .from(installationSettings)
+      .limit(1)
+      .for("update");
+    if (!row) {
+      throw new ProblemError(409, "Not set up", { detail: "The installation is not set up yet." });
+    }
+    const before = parseRunSpaceOverride(row.rule);
+    const after = space === null ? {} : { ...before, ...parseRunSpaceOverride(space) };
+    checkSpaceRule(resolveRunSpaceRule({ installation: after, sharedTarget: true }));
+    await tx
+      .update(installationSettings)
+      .set({ runSpaceRule: after })
+      .where(eq(installationSettings.id, row.id));
+    // The installation pool sees every tenant: holds whose rule is off now end.
+    const open = await tx
+      .select({ tenantId: runSizeHolds.tenantId })
+      .from(runSizeHolds)
+      .where(and(eq(runSizeHolds.status, "pending"), eq(runSizeHolds.reason, "space")));
+    let resolved = 0;
+    for (const tenantId of new Set(open.map((hold) => hold.tenantId))) {
+      resolved += await reconsiderHolds(tx, tenantId, null, after, now);
+    }
+    await audit(tx, {
+      tenantId: null,
+      actorUserId: actor.userId,
+      actor: actor.label,
+      action: RUN_SIZE_AUDIT_ACTIONS.spaceRuleChanged,
+      target: "installation",
+      targetType: "installation",
+      ip: actor.ip,
+      details: { scope: "installation", before, after, holdsEnded: resolved },
+    });
+  });
+  return installationSpaceRuleView(providerDb);
 }

@@ -380,16 +380,21 @@ export function renderAlert(input: AlertInput): RenderedMessage {
     const location = text(details.location);
     const free = typeof details.freeBytes === "number" ? details.freeBytes : null;
     const total = typeof details.totalBytes === "number" ? details.totalBytes : null;
-    if (disk === "database" || disk === "repository" || disk === "system") {
+    const placeKey: Record<string, string> = {
+      database: "reports:mail.diskDatabase",
+      repository: "reports:mail.diskRepository",
+      system: "reports:mail.diskSystem",
+    };
+    // One disk that holds several places (0.5.0) names them all in one row.
+    const places = (Array.isArray(details.disks) ? details.disks : [disk]).filter(
+      (place): place is string => typeof place === "string" && place in placeKey,
+    );
+    if (places.length > 0) {
       rows.push([
         t("reports:mail.disk"),
-        t(
-          disk === "database"
-            ? "reports:mail.diskDatabase"
-            : disk === "repository"
-              ? "reports:mail.diskRepository"
-              : "reports:mail.diskSystem",
-        ),
+        new Intl.ListFormat(input.language === "de" ? "de-DE" : "en-GB", {
+          type: "conjunction",
+        }).format(places.map((place) => t(placeKey[place] as string))),
       ]);
     }
     if (location) rows.push([t("reports:mail.location"), location]);

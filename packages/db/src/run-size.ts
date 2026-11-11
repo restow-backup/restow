@@ -14,13 +14,18 @@
 import {
   describeRunSizeHold,
   judgeRunSize,
+  keepFreeBytes,
   parseRunSizeOverride,
+  parseRunSpaceOverride,
   type RunSizeGuardOverride,
   type RunSizeGuardSettings,
   type RunSizeLimit,
   type RunSizeObjectKind,
   type RunSizeVerdict,
+  type RunSpaceOverride,
+  type RunSpaceRule,
   resolveRunSizeGuard,
+  resolveRunSpaceRule,
   runSizeLimit,
   type StorageSpace,
 } from "@restow/core";
@@ -39,6 +44,8 @@ import {
   runSizeSettings,
 } from "./schema/run-size.js";
 import { protectedObjects } from "./schema/sources.js";
+import { storageTargets } from "./schema/storage.js";
+import { settings as installationSettings } from "./schema/system.js";
 
 // biome-ignore lint/suspicious/noExplicitAny: any schema, a transaction or the pool itself
 export type RunSizeTx = Pick<NodePgDatabase<any>, "select" | "insert" | "update" | "execute">;
@@ -135,6 +142,48 @@ export async function runSizeObjectExists(
     }
   })();
   return (await tx.execute(query)).rows.length > 0;
+}
+
+/**
+ * The space rule of the tenant's current primary target (#99): its own override, the tenant's
+ * (stored as `space` in the tenant's settings row) and whether the target is the installation's
+ * default, which the tenants share (then the installation alone decides).
+ */
+export async function runSpaceOverrides(
+  tx: Pick<RunSizeTx, "select">,
+  tenantId: string,
+): Promise<{
+  tenant: RunSpaceOverride;
+  target: RunSpaceOverride;
+  targetId: string | null;
+  sharedTarget: boolean;
+}> {
+  const [tenantRow] = await tx
+    .select({ settings: runSizeSettings.settings })
+    .from(runSizeSettings)
+    .where(and(eq(runSizeSettings.tenantId, tenantId), isNull(runSizeSettings.objectKind)));
+  const [primary] = await tx
+    .select({ id: storageTargets.id, spaceRule: storageTargets.spaceRule })
+    .from(storageTargets)
+    .where(and(eq(storageTargets.tenantId, tenantId), eq(storageTargets.role, "primary")))
+    .limit(1);
+  return {
+    tenant: parseRunSpaceOverride((tenantRow?.settings as { space?: unknown } | undefined)?.space),
+    target: parseRunSpaceOverride(primary?.spaceRule),
+    targetId: primary?.id ?? null,
+    sharedTarget: !primary,
+  };
+}
+
+/** The installation's space rule (`settings.run_space_rule`), on the installation pool. */
+export async function loadInstallationSpaceRule(
+  db: Pick<RunSizeTx, "select">,
+): Promise<RunSpaceOverride> {
+  const [row] = await db
+    .select({ rule: installationSettings.runSpaceRule })
+    .from(installationSettings)
+    .limit(1);
+  return parseRunSpaceOverride(row?.rule);
 }
 
 /** The tenant's and the object's overrides (empty when none is stored). */
@@ -239,6 +288,11 @@ export interface RunSizeGuardDeps {
   readonly space?: () => Promise<StorageSpace | null>;
   /** For the digest hour of the alert (raiseReportEvents). */
   readonly installationTimeZone?: InstallationZoneInput;
+  /**
+   * The installation's space rule (`settings.run_space_rule`, which the tenant role cannot read):
+   * the caller reads it on the installation pool ({@link loadInstallationSpaceRule}).
+   */
+  readonly installationSpaceRule?: () => Promise<RunSpaceOverride | null>;
   readonly now?: () => Date;
   readonly log?: (level: "info" | "warn", message: string, fields: Record<string, unknown>) => void;
 }
@@ -268,15 +322,15 @@ export type RunSizeAdmission =
     };
 
 /**
- * What "continue once" lifts. Both rules for now (maintainer decision pending): lifting only
- * the size rule is `{ size: true, space: false }`.
+ * What "continue once" lifts: the size rule only (maintainer decision, #99). A run held for space
+ * goes ahead only once the target has room again, or the target's space rule is switched off.
  */
-export const CONTINUE_ONCE_LIFTS = { size: true, space: true } as const;
+export const CONTINUE_ONCE_LIFTS = { size: true, space: false } as const;
 /** A run that begins a new repository is no unusual run; the target still needs room for it. */
 const NEW_REPOSITORY_LIFTS = { size: true, space: false } as const;
 
 /**
- * A hold for space ends by itself once the target has this much of the free share it keeps (half
+ * A hold for space ends by itself once the target has this much of what it keeps free (half
  * again): just above the line, the next run would be held again at once, with another alert.
  */
 const SPACE_RECOVERED_FACTOR = 1.5;
@@ -300,6 +354,7 @@ export class RunSizeGuard {
         phase: "watching";
         settings: RunSizeGuardSettings;
         limit: RunSizeLimit;
+        spaceRule: RunSpaceRule;
         lifts: Lifts;
       }
     | { phase: "held"; holdId: string; message: string } = { phase: "new" };
@@ -350,13 +405,15 @@ export class RunSizeGuard {
     }
     await this.flush(false);
     const sizeOn = !state.lifts.size;
-    const spaceOn = state.settings.minFreePercent > 0 && !state.lifts.space && !upload.metadata;
+    const spaceOn = state.spaceRule.enabled && !state.lifts.space && !upload.metadata;
+    const space = spaceOn ? await this.readSpace() : null;
     const verdict = judgeRunSize({
-      settings: spaceOn ? state.settings : { ...state.settings, minFreePercent: 0 },
+      settings: state.settings,
       limit: sizeOn ? state.limit : { ...state.limit, limitBytes: null },
       writtenBytes: this.written,
       nextBytes,
-      space: spaceOn ? await this.readSpace() : null,
+      space,
+      keepBytes: spaceOn ? keepFreeBytes(state.spaceRule, space) : null,
     });
     if (verdict.hold) {
       return this.hold(verdict, state.limit);
@@ -456,6 +513,15 @@ export class RunSizeGuard {
       this.written = run?.writtenBytes ?? 0;
       const overrides = await runSizeOverrides(tx, tenantId, kind, objectId);
       const settings = resolveRunSizeGuard(overrides.tenant, overrides.object);
+      const space = await runSpaceOverrides(tx, tenantId);
+      const spaceRule = resolveRunSpaceRule({
+        installation: this.deps.installationSpaceRule
+          ? await this.deps.installationSpaceRule()
+          : null,
+        tenant: space.tenant,
+        target: space.target,
+        sharedTarget: space.sharedTarget,
+      });
       let lifts: Lifts =
         run?.exemption === "continued"
           ? { ...CONTINUE_ONCE_LIFTS }
@@ -483,7 +549,7 @@ export class RunSizeGuard {
         }
         this.deps.log?.("info", "a held backup continues once", { kind, objectId, runId });
         lifts = { ...CONTINUE_ONCE_LIFTS };
-      } else if (open && !(await this.spaceFreed(tx, open, settings))) {
+      } else if (open && !(await this.spaceFreed(tx, open, spaceRule))) {
         await tx
           .update(runSizeHolds)
           .set({
@@ -498,13 +564,15 @@ export class RunSizeGuard {
         };
       }
       if (!settings.enabled) {
-        lifts = { size: true, space: true };
+        // The object's (or tenant's) size check is off; the target's space rule still applies.
+        lifts = { ...lifts, size: true };
       }
       const history = await runSizeHistory(tx, kind, objectId, settings.historyRuns);
       return {
         phase: "watching" as const,
         settings,
         limit: runSizeLimit(settings, history),
+        spaceRule,
         lifts,
       };
     });
@@ -513,27 +581,24 @@ export class RunSizeGuard {
   }
 
   /**
-   * A hold for space whose target has room again (half again the free share it keeps), or whose
-   * object's settings no longer keep that much free: it ends (`space_freed`) and the run is
-   * measured as any other.
+   * A hold for space whose target has room again (half again what it keeps free), or whose
+   * target's space rule was switched off: it ends (`space_freed`, `settings_changed`) and the run
+   * is measured as any other.
    */
-  private async spaceFreed(
-    tx: RunSizeTx,
-    open: RunSizeHold,
-    settings: RunSizeGuardSettings,
-  ): Promise<boolean> {
+  private async spaceFreed(tx: RunSizeTx, open: RunSizeHold, rule: RunSpaceRule): Promise<boolean> {
     if (open.reason !== "space" || open.status !== "pending") {
       return false;
     }
-    const space = settings.enabled && settings.minFreePercent > 0 ? await this.readSpace() : null;
-    const roomy =
-      !settings.enabled ||
-      settings.minFreePercent === 0 ||
-      (space !== null &&
-        space.totalBytes > 0 &&
-        space.freeBytes >=
-          SPACE_RECOVERED_FACTOR * Math.ceil((space.totalBytes * settings.minFreePercent) / 100));
-    if (!roomy) {
+    const space = rule.enabled ? await this.readSpace() : null;
+    const keep = rule.enabled ? keepFreeBytes(rule, space) : null;
+    if (keep === null) {
+      await tx
+        .update(runSizeHolds)
+        .set({ status: "resolved", resolution: "settings_changed", resolvedAt: this.now() })
+        .where(and(eq(runSizeHolds.id, open.id), eq(runSizeHolds.status, "pending")));
+      return true;
+    }
+    if (space === null || space.freeBytes < SPACE_RECOVERED_FACTOR * keep) {
       return false;
     }
     await tx

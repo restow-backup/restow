@@ -18,6 +18,7 @@ import {
   type Database,
   endpointRuns,
   endpoints,
+  loadInstallationSpaceRule,
   notifications,
   providers,
   RunSizeGuard,
@@ -28,6 +29,8 @@ import {
   runSizeHolds,
   runSizeRuns,
   runSizeSettings,
+  settings,
+  storageTargets,
   tenants,
   user,
 } from "@restow/db";
@@ -44,7 +47,12 @@ import {
   testDatabaseAdminUrl,
 } from "../snapshots/testing/explorer-fixture.js";
 import { buildRunSizeRoutes } from "./routes.js";
-import { RUN_SIZE_AUDIT_ACTIONS } from "./service.js";
+import {
+  installationSpaceRuleView,
+  RUN_SIZE_AUDIT_ACTIONS,
+  RUN_SIZE_PROBLEMS,
+  updateInstallationSpaceRule,
+} from "./service.js";
 
 const DATABASE = "restow_api_run_size_test";
 const GIB = 1024 ** 3;
@@ -53,6 +61,7 @@ const MIB = 1024 ** 2;
 describe.skipIf(!testDatabaseAdminUrl)("the run size guard against Postgres (#99)", () => {
   let owner: Database;
   let appDb: Database;
+  let providerPool: Database;
   let roles: TestDatabaseRoles | undefined;
   let app: Hono;
   let contoso: string;
@@ -108,6 +117,7 @@ describe.skipIf(!testDatabaseAdminUrl)("the run size guard against Postgres (#99
           withTenantTx(appDb, tenantId, (tx) => fn(tx as RunSizeTx)))) as never,
       space: space ? async () => (typeof space === "function" ? space() : space) : undefined,
       installationTimeZone: "Europe/Berlin",
+      installationSpaceRule: () => loadInstallationSpaceRule(providerPool),
     });
   }
 
@@ -133,6 +143,8 @@ describe.skipIf(!testDatabaseAdminUrl)("the run size guard against Postgres (#99
     process.env.RESTOW_MASTER_KEY = randomBytes(32).toString("base64");
     owner = createDb(url);
     appDb = createDb(roles.appUrl);
+    providerPool = createDb(roles.providerUrl);
+    await owner.insert(settings).values({}).onConflictDoNothing();
     const { errorHandler } = await import("../../problem.js");
     await owner
       .insert(user)
@@ -173,7 +185,14 @@ describe.skipIf(!testDatabaseAdminUrl)("the run size guard against Postgres (#99
     });
     app = new Hono();
     app.onError(errorHandler);
-    app.route("/run-size", buildRunSizeRoutes({ db: appDb, requireAdmin: stand() }));
+    app.route(
+      "/run-size",
+      buildRunSizeRoutes({
+        db: appDb,
+        requireAdmin: stand(),
+        installationSpace: () => loadInstallationSpaceRule(providerPool),
+      }),
+    );
   }, 60_000);
 
   afterAll(async () => {
@@ -183,7 +202,7 @@ describe.skipIf(!testDatabaseAdminUrl)("the run size guard against Postgres (#99
       shared.providerDb.$client.end(),
       shared.authDb.$client.end(),
     ]);
-    await Promise.all([owner?.$client.end(), appDb?.$client.end()]);
+    await Promise.all([owner?.$client.end(), appDb?.$client.end(), providerPool?.$client.end()]);
     await dropDatabase(testDatabaseAdminUrl as string, DATABASE);
     await roles?.drop(testDatabaseAdminUrl as string);
   });
@@ -194,6 +213,8 @@ describe.skipIf(!testDatabaseAdminUrl)("the run size guard against Postgres (#99
     await owner.delete(runSizeRuns);
     await owner.delete(notifications);
     await owner.delete(reportDeliveries);
+    await owner.delete(storageTargets);
+    await owner.update(settings).set({ runSpaceRule: {} });
   });
 
   const holds = () => owner.select().from(runSizeHolds);
@@ -260,19 +281,31 @@ describe.skipIf(!testDatabaseAdminUrl)("the run size guard against Postgres (#99
     ).toHaveLength(1);
   });
 
-  it("holds a run that would leave the target less than 2 % free", async () => {
-    const run = guard(randomUUID(), { freeBytes: 2.5 * GIB, totalBytes: 100 * GIB });
-    expect((await run.admit(256 * MIB)).ok).toBe(true);
-    run.record(256 * MIB);
-    expect(await run.admit(GIB)).toMatchObject({ ok: false });
+  it("holds a run that would leave the target less than it keeps: 5 %, at least 20 GiB, at most 500 GiB", async () => {
+    /** Where a run on a target of `totalGib` with `freeGib` free is held: after how many MiB. */
+    async function heldAfter(freeGib: number, totalGib: number) {
+      await owner.delete(runSizeHolds);
+      const run = guard(randomUUID(), { freeBytes: freeGib * GIB, totalBytes: totalGib * GIB });
+      return (await upload(run, 256 * MIB, 4000)).stored / MIB;
+    }
+    // 1000 GiB: 5 % is 50 GiB, kept free; 1 GiB above it, four uploads of 256 MiB go through.
+    expect(await heldAfter(51, 1000)).toBe(1024);
     const [hold] = await holds();
     expect(hold).toMatchObject({
       reason: "space",
       // What was read, less what the run was let upload since.
-      freeBytes: 2.25 * GIB,
-      totalBytes: 100 * GIB,
+      freeBytes: 50 * GIB,
+      totalBytes: 1000 * GIB,
       limitBytes: null,
     });
+    // 100 GiB: 5 % would be 5 GiB, the minimum keeps 20 GiB free.
+    expect(await heldAfter(21, 100)).toBe(1024);
+    // 20 TiB: 5 % would be 1 TiB, the maximum keeps 500 GiB free.
+    expect(await heldAfter(501, 20 * 1024)).toBe(1024);
+    // A 40 GiB disk keeps at most a quarter free (10 GiB), not the 20 GiB minimum.
+    expect(await heldAfter(11, 40)).toBe(1024);
+    // A target that reports free space but no size keeps the minimum.
+    expect(await heldAfter(21, 0)).toBe(1024);
   });
 
   it("continue once: the next run goes through whatever it adds and closes the hold; audited", async () => {
@@ -352,7 +385,7 @@ describe.skipIf(!testDatabaseAdminUrl)("the run size guard against Postgres (#99
     expect(tenant.status).toBe(200);
     expect(await tenant.json()).toMatchObject({
       tenant: { factor: 5, minBytes: GIB },
-      effective: { factor: 5, minBytes: GIB, minFreePercent: 2 },
+      effective: { factor: 5, minBytes: GIB },
     });
     expect((await upload(guard(randomUUID()), GIB, 30)).stored).toBe(10 * GIB);
     expect(await holds()).toHaveLength(1);
@@ -443,7 +476,7 @@ describe.skipIf(!testDatabaseAdminUrl)("the run size guard against Postgres (#99
   });
 
   it("ends a hold for space by itself once the target has room, and never refuses metadata (review 2)", async () => {
-    let space = { freeBytes: 2.5 * GIB, totalBytes: 100 * GIB };
+    let space = { freeBytes: 20.5 * GIB, totalBytes: 100 * GIB };
     const first = guard(randomUUID(), () => space);
     // The index and the snapshot of a run whose data went in are small: never held for space.
     expect(await first.admit(GIB, { metadata: true })).toEqual({ ok: true });
@@ -453,7 +486,8 @@ describe.skipIf(!testDatabaseAdminUrl)("the run size guard against Postgres (#99
     // "Raise the limit" makes no room: refused for a hold for space.
     const raise = await call("POST", `/run-size/holds/${hold?.id}/raise`, { limitGib: 100 });
     expect(raise.status).toBe(422);
-    // Still short (not half again the 2 GiB it keeps): the next run is held as well.
+    // Still short (not half again the 20 GiB it keeps): the next run is held as well.
+    space = { freeBytes: 29 * GIB, totalBytes: 100 * GIB };
     expect(await guard(randomUUID(), () => space).admit(MIB)).toMatchObject({ ok: false });
     // Retention made room: the next run goes ahead, the hold ends by itself.
     space = { freeBytes: 30 * GIB, totalBytes: 100 * GIB };
@@ -463,10 +497,10 @@ describe.skipIf(!testDatabaseAdminUrl)("the run size guard against Postgres (#99
   });
 
   it("counts what parallel uploads took since the last reading of the space (review)", async () => {
-    const run = guard(randomUUID(), { freeBytes: 3 * GIB, totalBytes: 100 * GIB });
+    const run = guard(randomUUID(), { freeBytes: 21 * GIB, totalBytes: 100 * GIB });
     expect((await run.admit(GIB / 2)).ok).toBe(true);
     expect((await run.admit(GIB / 2)).ok).toBe(true);
-    // 3 GiB read once, 1 GiB admitted since: this one would leave less than 2 GiB.
+    // 21 GiB read once, 1 GiB admitted since: this one would leave less than 20 GiB.
     expect(await run.admit(GIB / 2)).toMatchObject({ ok: false });
   });
 
@@ -524,5 +558,149 @@ describe.skipIf(!testDatabaseAdminUrl)("the run size guard against Postgres (#99
       override: { enabled: false },
     });
     expect(unknown.status).toBe(404);
+  });
+
+  it("continue once lifts the size check only; a hold for space cannot be continued (#99)", async () => {
+    await upload(guard(randomUUID()), GIB, 30);
+    const [sizeHold] = await holds();
+    expect((await call("POST", `/run-size/holds/${sizeHold?.id}/continue`, {})).status).toBe(200);
+    // The allowed run passes the size limit (20 GiB), but the target keeps 500 GiB free.
+    const allowed = guard(randomUUID(), { freeBytes: 525 * GIB, totalBytes: 10_240 * GIB });
+    expect((await upload(allowed, GIB, 40)).stored).toBe(25 * GIB);
+    const open = (await holds()).filter((hold) => hold.status === "pending");
+    expect(open).toMatchObject([{ reason: "space" }]);
+    const refused = await call("POST", `/run-size/holds/${open[0]?.id}/continue`, {});
+    expect(refused.status).toBe(422);
+    expect(await refused.json()).toMatchObject({ type: RUN_SIZE_PROBLEMS.continueNotForSpace });
+    expect((await holds()).find((hold) => hold.id === open[0]?.id)?.status).toBe("pending");
+  });
+
+  it("the space rule: the installation's, the tenant's on its own targets, a target's own (#99)", async () => {
+    const actor = { userId: adminId, label: "admin@contoso.example", ip: null };
+    // 30 GiB free of 200 GiB (a quarter, 50 GiB, is the most any rule keeps free here).
+    const roomy = { freeBytes: 30 * GIB, totalBytes: 200 * GIB };
+    // The installation keeps 40 GiB free on every target: 30 GiB free is too little.
+    const installation = await updateInstallationSpaceRule(
+      providerPool,
+      { minBytes: 40 * GIB },
+      actor,
+    );
+    expect(installation).toMatchObject({
+      override: { minBytes: 40 * GIB },
+      effective: { enabled: true, percent: 5, minBytes: 40 * GIB, maxBytes: 500 * GIB },
+    });
+    expect(await guard(randomUUID(), roomy).admit(MIB)).toMatchObject({ ok: false });
+    await owner.delete(runSizeHolds);
+
+    // On the installation's shared default target, the tenant's own rule does not count.
+    const shared = await call("PUT", "/run-size/settings", { space: { minGib: 10 } });
+    expect(shared.status).toBe(200);
+    expect(await shared.json()).toMatchObject({
+      space: {
+        sharedTarget: true,
+        override: { minBytes: 10 * GIB },
+        effective: { minBytes: 40 * GIB },
+      },
+    });
+    expect(await guard(randomUUID(), roomy).admit(MIB)).toMatchObject({ ok: false });
+    await owner.delete(runSizeHolds);
+
+    // On its own target the tenant's applies (10 GiB kept, 30 GiB free: room).
+    const [target] = await owner
+      .insert(storageTargets)
+      .values({
+        tenantId: contoso,
+        name: "NAS",
+        kind: "local",
+        role: "primary",
+        config: { basePath: "/srv/nas" },
+      })
+      .returning();
+    const view = (await (await call("GET", "/run-size/settings")).json()) as {
+      space: { sharedTarget: boolean; effective: { minBytes: number } };
+    };
+    expect(view.space).toMatchObject({ sharedTarget: false, effective: { minBytes: 10 * GIB } });
+    expect(await guard(randomUUID(), roomy).admit(MIB)).toEqual({ ok: true });
+
+    // The target's own rule comes first: 35 % of 200 GiB, at most a quarter (50 GiB), kept.
+    const own = await call("PUT", `/run-size/targets/${target?.id}`, {
+      space: { percent: 35, maxGib: 100 },
+    });
+    expect(own.status).toBe(200);
+    expect(await own.json()).toMatchObject([
+      {
+        targetId: target?.id,
+        override: { percent: 35, maxBytes: 100 * GIB },
+        effective: { percent: 35, minBytes: 10 * GIB },
+      },
+    ]);
+    expect(await guard(randomUUID(), roomy).admit(MIB)).toMatchObject({ ok: false });
+    expect((await holds())[0]).toMatchObject({ reason: "space", status: "pending" });
+    // Nonsense is refused: at most less than at least; a target of another tenant.
+    expect(
+      (await call("PUT", `/run-size/targets/${target?.id}`, { space: { maxGib: 5 } })).status,
+    ).toBe(422);
+    expect(
+      (
+        await call(
+          "PUT",
+          `/run-size/targets/${target?.id}`,
+          { space: { enabled: false } },
+          fabrikam,
+        )
+      ).status,
+    ).toBe(404);
+    expect(
+      (await call("PUT", `/run-size/targets/${target?.id}`, { space: { percent: 80 } })).status,
+    ).toBe(422);
+
+    // Switched off for the target: its hold for space ends, the next run goes ahead.
+    const off = await call("PUT", `/run-size/targets/${target?.id}`, { space: { enabled: false } });
+    expect(off.status).toBe(200);
+    expect((await holds())[0]).toMatchObject({
+      status: "resolved",
+      resolution: "settings_changed",
+    });
+    expect(await guard(randomUUID(), { freeBytes: GIB, totalBytes: 100 * GIB }).admit(MIB)).toEqual(
+      { ok: true },
+    );
+
+    const audited = await owner
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, RUN_SIZE_AUDIT_ACTIONS.spaceRuleChanged));
+    expect(audited.map((row) => [row.targetType, row.tenantId])).toEqual([
+      ["installation", null],
+      ["tenant", contoso],
+      ["storage_target", contoso],
+      ["storage_target", contoso],
+    ]);
+    expect(audited[3]?.details).toMatchObject({
+      scope: "target",
+      holdsEnded: 1,
+      after: { enabled: false },
+    });
+  });
+
+  it("the installation's rule switched off ends the holds for space of every tenant; at most below at least is refused (#99)", async () => {
+    const actor = { userId: adminId, label: "admin@contoso.example", ip: null };
+    expect(
+      await guard(randomUUID(), { freeBytes: GIB, totalBytes: 100 * GIB }).admit(MIB),
+    ).toMatchObject({ ok: false });
+    await expect(
+      updateInstallationSpaceRule(providerPool, { minBytes: 600 * GIB }, actor),
+    ).rejects.toMatchObject({ status: 422 });
+    const off = await updateInstallationSpaceRule(providerPool, { enabled: false }, actor);
+    expect(off.effective.enabled).toBe(false);
+    expect((await holds())[0]).toMatchObject({
+      status: "resolved",
+      resolution: "settings_changed",
+    });
+    // Back to the defaults.
+    await updateInstallationSpaceRule(providerPool, null, actor);
+    expect(await installationSpaceRuleView(providerPool)).toMatchObject({
+      override: null,
+      effective: { enabled: true, percent: 5, minBytes: 20 * GIB, maxBytes: 500 * GIB },
+    });
   });
 });

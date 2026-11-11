@@ -2,6 +2,7 @@ import {
   type ResticResource,
   RUN_SIZE_HELD_PROBLEM,
   type RunSizeObjectKind,
+  type RunSpaceOverride,
   type StorageBackend,
 } from "@restow/core";
 import {
@@ -31,6 +32,8 @@ export class RunSizeGuards {
       /** The application pool (Row Level Security; every transaction is pinned to the tenant). */
       db: Database;
       installationTimeZone?: InstallationZoneInput;
+      /** The installation's space rule, read on the installation pool. */
+      installationSpaceRule?: () => Promise<RunSpaceOverride | null>;
       /** How many runs are remembered at most (the oldest is forgotten first). */
       limit?: number;
       log?: (level: "info" | "warn", message: string, fields: Record<string, unknown>) => void;
@@ -60,6 +63,7 @@ export class RunSizeGuards {
         ? async () => (await input.storage.freeSpace?.()) ?? null
         : undefined,
       installationTimeZone: this.deps.installationTimeZone,
+      installationSpaceRule: this.deps.installationSpaceRule,
       log: this.deps.log,
     });
     this.guards.set(key, guard);

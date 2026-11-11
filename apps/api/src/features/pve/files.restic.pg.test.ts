@@ -54,6 +54,7 @@ import { readZip } from "../../../../../packages/core/src/restore/testing/zip-re
 import {
   basic,
   type EndpointFixture,
+  keepLittleFree,
   resticAvailable,
   startFixture,
   testDatabaseAdminUrl,
@@ -143,6 +144,7 @@ describe.skipIf(!canRun)("file restore of a container restore point (#62)", () =
 
   beforeAll(async () => {
     fixture = await startFixture(DATABASE);
+    await keepLittleFree(fixture.db);
     shared = await import("../../db.js");
     files = await import("./files.js");
     service = await import("./service.js");

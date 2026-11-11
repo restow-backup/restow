@@ -1,5 +1,7 @@
 import { apiFetch } from "@/lib/api";
 
+import type { SpaceInput, SpaceOverride, SpaceRule } from "./space-rule";
+
 /**
  * Contract of `/api/v1/run-size` (apps/api/src/features/run-size/service.ts), kept in sync by
  * hand: the backups the size and space guard held (#99, docs/STORAGE.md "Unusually large runs")
@@ -52,7 +54,6 @@ export interface SizeGuardSettings {
   minBytes: number;
   limitBytes: number | null;
   firstRunBytes: number | null;
-  minFreePercent: number;
 }
 
 export interface SizeGuardOverride {
@@ -61,13 +62,20 @@ export interface SizeGuardOverride {
   minBytes?: number;
   limitBytes?: number | null;
   firstRunBytes?: number | null;
-  minFreePercent?: number;
 }
 
 export interface SizeGuardSettingsView {
   defaults: SizeGuardSettings;
   tenant: SizeGuardOverride | null;
   effective: SizeGuardSettings;
+  /** The tenant's space rule (on its own targets); the shared default target is the installation's. */
+  space: {
+    defaults: SpaceRule;
+    installation: SpaceOverride;
+    override: SpaceOverride | null;
+    effective: SpaceRule;
+    sharedTarget: boolean;
+  };
   objects: {
     kind: HeldObjectKind;
     objectId: string;
@@ -84,7 +92,6 @@ export interface SizeGuardOverrideInput {
   minGib?: number;
   limitGib?: number | null;
   firstRunGib?: number | null;
-  minFreePercent?: number;
 }
 
 export const heldBackupKeys = {
@@ -117,7 +124,8 @@ export function fetchSizeGuardSettings(): Promise<SizeGuardSettingsView> {
 export function saveSizeGuardSettings(input: {
   kind?: HeldObjectKind;
   objectId?: string;
-  override: SizeGuardOverrideInput | null;
+  override?: SizeGuardOverrideInput | null;
+  space?: SpaceInput | null;
 }): Promise<SizeGuardSettingsView> {
   return apiFetch<SizeGuardSettingsView>("/run-size/settings", { method: "PUT", body: input });
 }

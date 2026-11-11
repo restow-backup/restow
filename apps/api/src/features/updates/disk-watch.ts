@@ -97,7 +97,9 @@ export class DiskWatch {
     ]);
     const disks: Record<DiskKind, DiskStatus | null> = {
       ...watched,
-      system: system ? diskStatus("system", "/", system.freeBytes, system.totalBytes) : null,
+      system: system
+        ? { ...diskStatus("system", "/", system.freeBytes, system.totalBytes), device: "system" }
+        : null,
     };
     const now = this.now();
     return this.deps.db.transaction(async (tx) => {
@@ -127,7 +129,8 @@ export class DiskWatch {
           });
         }
       }
-      for (const kind of ["database", "repository", "system"] as const) {
+      const decidedKinds: { kind: DiskKind; status: DiskStatus; outcome: string }[] = [];
+      for (const kind of DISK_ORDER) {
         const status = disks[kind];
         if (!status) {
           continue;
@@ -139,29 +142,44 @@ export class DiskWatch {
             ? { ...decided.entry, samples: withSample(previous?.samples, status, now) }
             : decided.entry;
         outcome[kind] = decided.outcome;
-        if (decided.outcome === "raised") {
-          await raiseInstallationEvent(tx, {
-            event: DISK_LOW_EVENT,
-            level: "warning",
-            message: `Low disk space ${DISK_PLACES[kind]}: ${formatGib(status.freeBytes)} of ${formatGib(status.totalBytes)} free.${reserveSentence(reserve)}`,
-            details: {
-              disk: kind,
-              location: status.location,
-              freeBytes: status.freeBytes,
-              totalBytes: status.totalBytes,
-              thresholdBytes: status.thresholdBytes,
-              // The subject line of the alert mail names the disk's place.
-              objectName: status.location ?? kind,
-              ...reserveDetails(reserve),
-            },
-            now,
-          });
-          this.deps.log?.("warn", "disk space is low", {
-            disk: kind,
+        decidedKinds.push({ kind, status, outcome: decided.outcome });
+      }
+      // One disk, one warning: the places that lie on the same device are announced together,
+      // and not again while one of them is still low from before.
+      for (const group of groupByDevice(decidedKinds)) {
+        const raised = group.filter((member) => member.outcome === "raised");
+        if (raised.length === 0 || group.some((member) => member.outcome === "low")) {
+          continue;
+        }
+        const lead = group[0] as (typeof group)[number];
+        const places = group.map((member) => member.kind);
+        const status = lead.status;
+        await raiseInstallationEvent(tx, {
+          event: DISK_LOW_EVENT,
+          level: "warning",
+          message: `Low disk space ${placesText(places)}: ${formatGib(status.freeBytes)} of ${formatGib(status.totalBytes)} free.${reserveSentence(reserve)}`,
+          details: {
+            disk: lead.kind,
+            // Every place on this disk (0.5.0): the database's, the repository's, the system's.
+            disks: places,
+            locations: Object.fromEntries(
+              group.map((member) => [member.kind, member.status.location]),
+            ),
+            location: status.location,
             freeBytes: status.freeBytes,
             totalBytes: status.totalBytes,
-          });
-        }
+            thresholdBytes: status.thresholdBytes,
+            // The subject line of the alert mail names the disk's place.
+            objectName: status.location ?? lead.kind,
+            ...reserveDetails(reserve),
+          },
+          now,
+        });
+        this.deps.log?.("warn", "disk space is low", {
+          disks: places,
+          freeBytes: status.freeBytes,
+          totalBytes: status.totalBytes,
+        });
       }
       await tx
         .update(settings)
@@ -367,6 +385,40 @@ function reserveDetails(reserve: ReserveStatus | null): Record<string, unknown> 
     reserveFloorBytes: reserve.floorBytes,
     reserveCommand: "docker compose exec api restow disk-reserve release",
   };
+}
+
+/** The order places are named in: the system disk first, it holds everything else in the default setup. */
+const DISK_ORDER: readonly DiskKind[] = ["system", "database", "repository"];
+
+/**
+ * The checked disks grouped by device ({@link DiskStatus.device}), in {@link DISK_ORDER}: one group
+ * per device, a disk whose device cannot be told a group of its own.
+ */
+export function groupByDevice<T extends { kind: DiskKind; status: Pick<DiskStatus, "device"> }>(
+  disks: readonly T[],
+): T[][] {
+  const groups = new Map<string, T[]>();
+  const sorted = [...disks].sort((a, b) => DISK_ORDER.indexOf(a.kind) - DISK_ORDER.indexOf(b.kind));
+  for (const disk of sorted) {
+    const key = disk.status.device ?? `own:${disk.kind}`;
+    groups.set(key, [...(groups.get(key) ?? []), disk]);
+  }
+  return [...groups.values()];
+}
+
+/** "under the database" or "on the system disk of the server, under the database and ...". */
+function placesText(places: readonly DiskKind[]): string {
+  const [first, ...rest] = places;
+  if (!first) {
+    return "";
+  }
+  if (rest.length === 0) {
+    return DISK_PLACES[first];
+  }
+  const others = rest.map((kind) => DISK_PLACES[kind]);
+  const tail =
+    others.length === 1 ? others[0] : `${others.slice(0, -1).join(", ")} and ${others.at(-1)}`;
+  return `${DISK_PLACES[first]}, which is also the disk ${tail}`;
 }
 
 const DISK_PLACES: Record<DiskKind, string> = {

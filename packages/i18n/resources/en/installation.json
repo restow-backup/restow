@@ -481,6 +481,7 @@
     "disks": {
       "database": "Disk under the database",
       "repository": "Disk under the local default repository",
+      "shared": "One disk for the database and the local default repository",
       "free": "{free} of {total} free",
       "low": "Low",
       "lowTitle": "Little free space",

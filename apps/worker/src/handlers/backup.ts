@@ -109,7 +109,7 @@ import {
 } from "../imap-login-state.js";
 import { raiseInactiveNotices } from "../inactive-notices.js";
 import type { TenantTxRunner } from "../progress.js";
-import { reportInstallationTimeZone } from "../reporting.js";
+import { reportInstallationSpaceRule, reportInstallationTimeZone } from "../reporting.js";
 import {
   InvalidPayloadError,
   type JobHandler,
@@ -1480,6 +1480,7 @@ export function defaultBackupSizeGuard(
     transaction: (fn) => tenantRunner(ctx.db, ctx.tenantId)((tx) => fn(tx as RunSizeTx)),
     space: primary.freeSpace ? () => primary.freeSpace?.() ?? Promise.resolve(null) : undefined,
     installationTimeZone: reportInstallationTimeZone,
+    installationSpaceRule: reportInstallationSpaceRule,
     now: ctx.now,
     log: (level, message, fields) => ctx.logger[level](message, fields),
   });

@@ -61,6 +61,33 @@ describe("renderAlert", () => {
     expect(german.text).toContain("Frei: 4,0 GiB");
   });
 
+  it("names every place on one disk in one row (#98)", () => {
+    const shared = (language: "en" | "de") =>
+      renderAlert({
+        language,
+        tenantName: "Contoso",
+        ruleName: "Disks",
+        payload: {
+          event: "installation.disk_low",
+          occurredAt: "2026-11-11T10:00:00.000Z",
+          details: {
+            disk: "system",
+            disks: ["system", "database", "repository"],
+            location: "/",
+            freeBytes: 4 * 1024 ** 3,
+            totalBytes: 100 * 1024 ** 3,
+            objectName: "/",
+          },
+        },
+      });
+    expect(shared("en").text).toContain(
+      "Disk: System disk of the server, Under the database and Under the local default repository",
+    );
+    expect(shared("de").text).toContain(
+      "Datenträger: Systemdatenträger des Servers, Unter der Datenbank und ",
+    );
+  });
+
   it("names the emergency disk reserve in a disk warning, and what to do once it was freed (#98)", () => {
     const render = (
       event: "installation.disk_low" | "installation.disk_reserve_released",

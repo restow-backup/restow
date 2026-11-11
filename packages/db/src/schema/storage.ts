@@ -164,6 +164,9 @@ export const storageTargets = pgTable(
     // Immutable backups (docs/STORAGE.md); null = never set.
     immutability: jsonb("immutability").$type<StorageTargetImmutability>(),
     immutabilityState: jsonb("immutability_state").$type<StorageTargetImmutabilityState>(),
+    // The space backups keep free on this target (#99, @restow/core `RunSpaceOverride`), over the
+    // tenant's and the installation's; null takes theirs.
+    spaceRule: jsonb("space_rule").$type<Record<string, unknown>>(),
     ...timestamps(),
   },
   (t) => [

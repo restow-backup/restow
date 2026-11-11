@@ -102,6 +102,13 @@ export interface DiskStatus {
    * without it on the volume restow-data, next to PostgreSQL's named volume on the same disk.
    */
   via?: "updater" | "volume";
+  /**
+   * Which device the disk is (0.5.0, #98): `system` for the disk under the operating system and
+   * Docker (also a named volume of Docker's data directory), `dev:<n>` for another file system
+   * the api sees; null when it cannot be told (a database moved to a host directory, read by the
+   * updater). Disks with the same device are one disk: one warning, one line on the page.
+   */
+  device?: string | null;
 }
 
 export function diskStatus(
@@ -149,6 +156,8 @@ export type RepositoryDisk = () => Promise<{
   path: string;
   freeBytes: number;
   totalBytes: number;
+  /** Where it was measured, when that is not `path` (the database's disk: the data volume). */
+  measure?: string;
 } | null>;
 
 export interface DatabaseServiceDeps {
@@ -163,6 +172,11 @@ export interface DatabaseServiceDeps {
   databaseDisk?: RepositoryDisk;
   /** The emergency disk reserve (disk-reserve.ts), shown on the page. */
   reserve?: () => Promise<ReserveStatus | null>;
+  /**
+   * Which device a disk the api measures lies on (instance.ts, storage/system-disk.ts): `system`
+   * or `dev:<n>`; null when it cannot be told. Omitted: every disk is its own.
+   */
+  deviceOf?: (path: string) => Promise<string | null>;
   demo?: boolean;
   now?: () => number;
 }
@@ -231,7 +245,26 @@ export class DatabaseService {
           repositoryDisk.totalBytes,
         )
       : null;
-    return { database, repository };
+    const device = (path: string | undefined) =>
+      path && this.deps.deviceOf
+        ? this.deps.deviceOf(path).catch(() => null)
+        : Promise.resolve(null);
+    return {
+      database: database
+        ? {
+            ...database,
+            // The updater reads the database's disk on the host: a named volume lies in Docker's
+            // data directory, the system disk; a host directory cannot be told from here.
+            device:
+              database.via === "updater"
+                ? current?.database?.location?.kind === "volume" && this.deps.deviceOf
+                  ? "system"
+                  : null
+                : await device(fallback?.measure),
+          }
+        : null,
+      repository: repository ? { ...repository, device: await device(repositoryDisk?.path) } : null,
+    };
   }
 
   async view(options: { fresh?: boolean } = {}): Promise<DatabaseView> {

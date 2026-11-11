@@ -395,6 +395,10 @@ export const settings = pgTable(
     defaultStorageWriteOnce: jsonb("default_storage_write_once").$type<DefaultStorageWriteOnce>(),
     // Proxmox VE backups (docs/PVE.md): `{}` takes every default (PveInstallationSettings).
     pveSettings: jsonb("pve_settings").$type<PveInstallationSettings>().notNull().default({}),
+    // The space backups keep free on a storage target (#99, @restow/core `RunSpaceOverride`):
+    // the installation's default over the built-in one (5 %, at least 20 GiB, at most 500 GiB),
+    // and the whole rule on the installation's default target. `{}` takes the built-in default.
+    runSpaceRule: jsonb("run_space_rule").$type<Record<string, unknown>>().notNull().default({}),
     // What the provider charges its customers (0.4.7, PricingSettings): only a figure on the
     // tenant overview to keep an eye on; nothing bills or enforces it. `{}` sets no price.
     pricing: jsonb("pricing").$type<PricingSettings>().notNull().default({}),

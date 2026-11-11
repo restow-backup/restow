@@ -641,6 +641,78 @@ describe.skipIf(!testDatabaseAdminUrl)("Installation > Database against Postgres
       expect((await bell())[0]?.details).toMatchObject({ disk: "database", location: "pgdata" });
     });
 
+    describe("one warning per disk (#98)", () => {
+      /** The database, the repository and the system disk, each low, on the given devices. */
+      function onDevices(devices: Record<"database" | "repository", string>, free = 3) {
+        updater.view = null;
+        repository = { path: "/data/chunks", freeBytes: free * GIB, totalBytes: 40 * GIB };
+        const service = new databaseModule.DatabaseService({
+          db: providerDb,
+          updater,
+          repositoryDisk: async () => repository,
+          databaseDisk: async () => ({
+            path: "pgdata",
+            measure: "/var/lib/restow/pgdata",
+            freeBytes: free * GIB,
+            totalBytes: 40 * GIB,
+          }),
+          deviceOf: async (path) =>
+            path === "/data/chunks" ? devices.repository : devices.database,
+        });
+        return new diskWatchModule.DiskWatch({
+          db: providerDb,
+          service,
+          // The system disk is the device `system` (the others are compared with it).
+          systemDisk: async () => ({ freeBytes: free * GIB, totalBytes: 40 * GIB }),
+        });
+      }
+
+      it("names every place on one disk in one warning, the reserve once", async () => {
+        await rule();
+        expect(await onDevices({ database: "system", repository: "system" }).checkOnce()).toEqual({
+          database: "raised",
+          repository: "raised",
+          system: "raised",
+        });
+        const rows = await bell();
+        expect(rows).toHaveLength(1);
+        expect(rows[0]?.details).toMatchObject({
+          disk: "system",
+          disks: ["system", "database", "repository"],
+          locations: { database: "pgdata", repository: "/data/chunks" },
+        });
+        expect(rows[0]?.message).toContain(
+          "on the system disk of the server, which is also the disk under the database and under the local repository",
+        );
+        expect(await owner.select().from(reportDeliveries)).toHaveLength(1);
+        // Still low: nothing new.
+        await onDevices({ database: "system", repository: "system" }).checkOnce();
+        expect(await bell()).toHaveLength(1);
+      });
+
+      it("warns for each disk of its own", async () => {
+        await onDevices({ database: "dev:7", repository: "dev:8" }).checkOnce();
+        const rows = await bell();
+        expect(rows.map((row) => (row.details as { disks?: string[] }).disks)).toEqual(
+          expect.arrayContaining([["system"], ["database"], ["repository"]]),
+        );
+        expect(rows).toHaveLength(3);
+      });
+
+      it("does not warn again for a disk already announced when another place on it runs low", async () => {
+        const devices = { database: "dev:7", repository: "dev:7" };
+        // Only the database's disk was low (the repository's reading was fine before).
+        const watchOf = onDevices(devices);
+        repository = { path: "/data/chunks", freeBytes: 30 * GIB, totalBytes: 40 * GIB };
+        expect((await watchOf.checkOnce()).database).toBe("raised");
+        expect(await bell()).toHaveLength(2);
+        repository = { path: "/data/chunks", freeBytes: 3 * GIB, totalBytes: 40 * GIB };
+        expect((await watchOf.checkOnce()).repository).toBe("raised");
+        // The database's disk is the repository's: announced already.
+        expect(await bell()).toHaveLength(2);
+      });
+    });
+
     describe("the emergency disk reserve (#98)", () => {
       let dir: string;
       let free: number;

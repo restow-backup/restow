@@ -481,6 +481,7 @@
     "disks": {
       "database": "Datenträger unter der Datenbank",
       "repository": "Datenträger unter dem lokalen Standard-Repository",
+      "shared": "Ein Datenträger für die Datenbank und das lokale Standard-Repository",
       "free": "{free} von {total} frei",
       "low": "Knapp",
       "lowTitle": "Wenig freier Speicherplatz",

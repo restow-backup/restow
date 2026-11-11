@@ -2,6 +2,7 @@ import { config } from "../../config.js";
 import { providerDb } from "../../db.js";
 import { currentInstallationDefault } from "../../lib/installation-default.js";
 import { resolveEntraApp } from "../sources/entra.js";
+import { deviceKeyOf } from "../storage/system-disk.js";
 import { DatabaseService, filesystemOf } from "./database.js";
 import { DiskReserve, databaseDiskPath, diskReserveConfig } from "./disk-reserve.js";
 import { DiskWatch, startReserveGuard } from "./disk-watch.js";
@@ -50,8 +51,10 @@ export const databaseService = new DatabaseService({
   databaseDisk: async () => {
     const at = await databaseDiskPath(process.env);
     const disk = at ? await filesystemOf(at.measure) : null;
-    return disk && at ? { ...disk, path: at.location } : null;
+    return disk && at ? { ...disk, path: at.location, measure: at.measure } : null;
   },
+  // One disk, one warning: the database's, the repository's and the system disk compared.
+  deviceOf: (path) => deviceKeyOf(path),
   reserve: () => diskReserve.status(),
 });
 

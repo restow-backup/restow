@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { locationOnSystemDisk } from "./destination.js";
-import { mountOf, onSystemDisk } from "./system-disk.js";
+import { deviceKeyOf, mountOf, onSystemDisk } from "./system-disk.js";
 
 /**
  * A repository on the server's system disk (incident of 16 October 2026), seen from inside the
@@ -96,5 +96,19 @@ describe("a repository on the system disk", () => {
     expect(mountOf(MOUNTINFO, "/data/chunks")?.source).toBe("/dev/sda1");
     expect(mountOf(MOUNTINFO, "/srv")?.source).toBe("overlay");
     expect(mountOf(MOUNTINFO, "/etc/hostname")?.source).toBe("/dev/sda1");
+  });
+});
+
+describe("the device of a disk (#98, one low disk space warning per disk)", () => {
+  it("is the system disk, another disk by its device number, or unknown", async () => {
+    expect(await deviceKeyOf("/data/chunks", deps())).toBe("system");
+    expect(await deviceKeyOf("/btrfs/repo", deps())).toBe("system");
+    expect(await deviceKeyOf("/backup/repo", deps())).toBe("dev:2065");
+    // Two paths on the same second disk are one disk.
+    expect(await deviceKeyOf("/backup/new/repo", deps(["/backup/new"]))).toBe("dev:2065");
+    expect(await deviceKeyOf("/mnt/restow/nas/repo", deps())).toBe("dev:50");
+    expect(
+      await deviceKeyOf("/x", { deviceOf: async () => null, mountinfo: async () => null }),
+    ).toBe(null);
   });
 });

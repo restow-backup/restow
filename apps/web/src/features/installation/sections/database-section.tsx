@@ -21,6 +21,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { InstallationSpaceRuleCard } from "@/features/held-backups/space-rule";
 import { ProgressBar } from "@/features/updates/progress-bar";
 import { ApiError, errorMessageKey } from "@/lib/api";
 import { formatBytes, formatRelative } from "@/lib/format";
@@ -193,6 +194,7 @@ function ReserveLine({ reserve }: { reserve: DiskReserveStatus }) {
 
 function DisksCard({ view }: { view: DatabaseView }) {
   const { t, i18n } = useTranslation("installation");
+  const access = useInstallationAccess();
   const language = i18n.resolvedLanguage ?? i18n.language;
   const low = [view.disks.database, view.disks.repository].filter((disk) => disk?.low);
   const space = view.updateSpace;
@@ -224,14 +226,26 @@ function DisksCard({ view }: { view: DatabaseView }) {
           <p className="text-sm text-muted-foreground">{t(`database.updater.${view.updater}`)}</p>
         )}
         <div className="grid gap-4 sm:grid-cols-2">
-          {view.disks.database ? (
-            <DiskLine disk={view.disks.database} label={t("database.disks.database")} />
-          ) : null}
-          {view.disks.repository ? (
-            <DiskLine disk={view.disks.repository} label={t("database.disks.repository")} />
-          ) : null}
+          {/* One disk, one line: the database and the repository on the same device (#98). */}
+          {view.disks.database &&
+          view.disks.repository &&
+          view.disks.database.device &&
+          view.disks.database.device === view.disks.repository.device ? (
+            <DiskLine disk={view.disks.database} label={t("database.disks.shared")} />
+          ) : (
+            <>
+              {view.disks.database ? (
+                <DiskLine disk={view.disks.database} label={t("database.disks.database")} />
+              ) : null}
+              {view.disks.repository ? (
+                <DiskLine disk={view.disks.repository} label={t("database.disks.repository")} />
+              ) : null}
+            </>
+          )}
         </div>
         {view.reserve ? <ReserveLine reserve={view.reserve} /> : null}
+        {/* What every backup target keeps free (#99), next to the disks it protects. */}
+        <InstallationSpaceRuleCard canEdit={access.change === null} />
         {low.length > 0 ? (
           <Alert variant="warning" data-slot="disk-low">
             <TriangleAlert />
