@@ -827,7 +827,7 @@ describe.skipIf(!testDatabaseAdminUrl)("updates against Postgres", () => {
       expect(feed.requests).toHaveLength(requests + 1);
     });
 
-    it("never contacts anything when the check is off or in demo mode", async () => {
+    it("never contacts anything when the check is off or in demo mode [UPDATE-015]", async () => {
       const off = build();
       await off.service.runScheduledCheckIfDue();
       const demo = build({}, true);
@@ -1173,7 +1173,7 @@ describe.skipIf(!testDatabaseAdminUrl)("updates against Postgres", () => {
       expect(updater.scheduled).toEqual([]);
     });
 
-    it("offers and installs only releases the installed licence key covers (0.4.5)", async () => {
+    it("offers and installs only releases the installed licence key covers (0.4.5) [LICENSE-008]", async () => {
       const { registerApiExtension, resetExtensionsForTesting } = await import(
         "../../extensions.js"
       );

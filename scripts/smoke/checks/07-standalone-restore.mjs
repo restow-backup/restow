@@ -4,6 +4,7 @@
  * the storage format, the key encryption key and the tool are all it needs.
  * A copy of the storage with one damaged byte must be refused.
  */
+// claim: RESTORE-014 (docs/CLAIMS.md: restore without the server, and a damaged copy refused)
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { run } from "../lib/exec.mjs";

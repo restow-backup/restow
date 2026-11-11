@@ -385,7 +385,7 @@ describe.skipIf(!canRun)("file share backup end to end with restow-share and res
     expect(retention?.summary).toMatchObject({ removedSnapshots: 1, unrecordedSnapshots: 0 });
   }, 240_000);
 
-  it("restores the newest restore point into a new folder, byte for byte", async () => {
+  it("restores the newest restore point into a new folder, byte for byte [RESTORE-012]", async () => {
     const expected = await treeHashes(shareDir, (rel) => rel === "Thumbs.db");
     await fixture.owner
       .update(fileShares)

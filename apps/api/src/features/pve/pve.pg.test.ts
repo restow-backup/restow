@@ -616,7 +616,7 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
     ]);
   });
 
-  it("restores a VM's disk from a copy target once the primary lost its packs", async () => {
+  it("restores a VM's disk from a copy target once the primary lost its packs [COPY-002]", async () => {
     // A VM's disks are in the chunk store, whose packs every copy target holds (written with
     // the backup, mirrored by the scrub): the restore stream falls back to the copy
     // (docs/STORAGE.md, "Restoring from a copy").
@@ -700,7 +700,7 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
     ).toBe(409);
   });
 
-  it("restores as a new guest into the restore pool, never a privileged container", async () => {
+  it("restores as a new guest into the restore pool, never a privileged container [RESTORE-013]", async () => {
     const queued = await service.restoreSnapshot(
       shared.db,
       fixture.tenantId,

@@ -388,7 +388,7 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
     expect(await storage.primary.head(manifestKey(tenantId, a)).catch(() => null)).toBeNull();
   });
 
-  it('prunes nothing while the primary is write-once (docs/STORAGE.md, "Write-once storage")', async () => {
+  it('prunes nothing while the primary is write-once (docs/STORAGE.md, "Write-once storage") [RETAIN-010]', async () => {
     // The last test of the primary found that it refuses to overwrite and delete.
     const worm = {
       ...storage,
@@ -2024,7 +2024,7 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
     }
   }, 60_000);
 
-  it("keeps every restore point of a guest held on suspicion, and garbage collection keeps their chunks", async () => {
+  it("keeps every restore point of a guest held on suspicion, and garbage collection keeps their chunks [RETAIN-011]", async () => {
     const [job] = await owner.select().from(pveJobs);
     const [held] = await owner
       .insert(pveGuests)

@@ -200,7 +200,7 @@ describe.skipIf(!adminUrl)("a confirmation as empty in the worker", () => {
     }
   }, 60_000);
 
-  it("survives a check that still finds the object empty and ends with one that finds content", async () => {
+  it("survives a check that still finds the object empty and ends with one that finds content [READY-008]", async () => {
     const db = createDb(await recreate(adminUrl as string));
     try {
       const [provider] = await db.insert(providers).values({ name: "Provider" }).returning();

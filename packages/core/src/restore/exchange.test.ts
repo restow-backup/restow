@@ -255,7 +255,7 @@ describe("ExchangeRestoreEngine", () => {
     await fixture?.cleanup();
   });
 
-  it("restores a whole mailbox below a dated folder in rename mode, empty folders included", async () => {
+  it("restores a whole mailbox below a dated folder in rename mode, empty folders included [RESTORE-004]", async () => {
     fixture = await createSnapshotFixture({
       kind: "mailbox",
       externalId: USER,
@@ -370,7 +370,7 @@ describe("ExchangeRestoreEngine", () => {
     expect(mailbox.calendars.size).toBe(1);
   });
 
-  it("refuses to delete: a job queued with the discontinued mode 'replace' runs as 'rename' instead", async () => {
+  it("refuses to delete: a job queued with the discontinued mode 'replace' runs as 'rename' instead [RESTORE-001]", async () => {
     fixture = await createSnapshotFixture({
       kind: "mailbox",
       externalId: USER,
@@ -464,7 +464,7 @@ describe("ExchangeRestoreEngine", () => {
     expect(mailbox.graph.callsTo("DELETE", "/messages/")).toEqual([]);
   });
 
-  it("never deletes an existing event or contact, in rename mode or for a legacy 'replace' job", async () => {
+  it("never deletes an existing event or contact, in rename mode or for a legacy 'replace' job [RESTORE-001]", async () => {
     fixture = await createSnapshotFixture({
       kind: "mailbox",
       externalId: USER,

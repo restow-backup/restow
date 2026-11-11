@@ -185,7 +185,7 @@ describe.skipIf(!resticAvailable())("prune on a target short of space", () => {
     return sizes.reduce((sum, entry) => sum + entry.size, 0);
   }
 
-  it("falls back to deleting only when the normal prune runs out of space", async () => {
+  it("falls back to deleting only when the normal prune runs out of space [RETAIN-015]", async () => {
     await prepare();
     const before = await repositoryBytes();
     backend.full = true;
@@ -224,7 +224,7 @@ describe.skipIf(!resticAvailable())("prune on a target short of space", () => {
     await withRepository(access, (session) => runRestic(session, ["check", "--read-data"]));
   }, 180_000);
 
-  it("says storage_full when not even the delete-only prune fits", async () => {
+  it("says storage_full when not even the delete-only prune fits [RETAIN-015]", async () => {
     await prepare();
     // Nothing fits, not even an index file or a lock.
     const refuseAll = Object.create(backend) as FullPacksBackend;

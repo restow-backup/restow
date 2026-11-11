@@ -18,6 +18,7 @@
  * of an unreleased commit) is pinned as served and says so. The installer's own
  * signature checks are covered by agent/scripts/test-install.sh.
  */
+// claim: RESTORE-011 (docs/CLAIMS.md: a restore task puts the folder into a new directory, every file by SHA-256)
 import { createHash, createPublicKey, verify } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";

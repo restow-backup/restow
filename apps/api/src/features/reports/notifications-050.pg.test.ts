@@ -257,7 +257,7 @@ describe.skipIf(!testDatabaseAdminUrl)(
         ).rejects.toMatchObject({ status: 422 });
       });
 
-      it("keeps an administrator from dropping or redirecting a mandatory recipient", async () => {
+      it("keeps an administrator from dropping or redirecting a mandatory recipient [ALERT-005]", async () => {
         const admin = { id: adminId, email: "adam@msp.example", ip: null, owner: false };
         const view = await mod.recipients.getProviderRecipients(providerDb, false);
         const ownerRow = view.recipients.find((row: { kind: string }) => row.kind === "owner");
@@ -312,7 +312,7 @@ describe.skipIf(!testDatabaseAdminUrl)(
     });
 
     describe("the fan-out", () => {
-      it("reaches the floor with a critical event whatever its column, the column otherwise", async () => {
+      it("reaches the floor with a critical event whatever its column, the column otherwise [ALERT-001]", async () => {
         await raise("verify.red", { protectedObjectId: randomUUID(), objectName: "Alice" });
         await mod.fanout.fanOutOnce(providerDb, clock);
         const provider = (await rows()).filter((row: ReportDelivery) => row.tenantId === null);

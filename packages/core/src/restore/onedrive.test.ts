@@ -78,7 +78,7 @@ describe("OneDriveRestoreEngine", () => {
     await fixture?.cleanup();
   });
 
-  it("restores files and folders byte for byte, through simple uploads and upload sessions", async () => {
+  it("restores files and folders byte for byte, through simple uploads and upload sessions [RESTORE-005]", async () => {
     fixture = await createSnapshotFixture({
       kind: "onedrive",
       externalId: DRIVE,
@@ -224,6 +224,42 @@ describe("OneDriveRestoreEngine", () => {
     expect(replaced.restored).toBe(1);
     expect(replaced.items[0]?.targetRef).toBe(current.id);
     expect(current.content.equals(report)).toBe(true);
+  });
+
+  it("leaves the file that is there byte for byte as it was, in both modes a OneDrive restore can be asked for [RESTORE-002]", async () => {
+    fixture = await createSnapshotFixture({
+      kind: "onedrive",
+      externalId: DRIVE,
+      objects: [reportFile],
+    });
+    const edited = Buffer.from("newer edit the person is still working on");
+    for (const mode of ["rename", "skip"] as const) {
+      const drive = new FakeDrive(DRIVE);
+      const folder = drive.addFolder("root", "Documents");
+      const current = drive.addFile(folder.id, "report.docx", edited);
+
+      const result = await engineFor(drive).run(fixture.ctx, restoreRequestFor(fixture, { mode }));
+
+      expect(result.failures).toEqual([]);
+      // The file in OneDrive is the same item with the same content: nothing was replaced.
+      expect(drive.child(folder.id, "report.docx")?.id).toBe(current.id);
+      expect(current.content.equals(edited)).toBe(true);
+      // Restow asked Graph never to replace: a conflict renames or fails, it does not overwrite.
+      const behaviours = drive.graph.calls
+        .map((call) => new URL(call.url).searchParams.get("@microsoft.graph.conflictBehavior"))
+        .filter((value): value is string => value !== null);
+      expect(behaviours).not.toContain("replace");
+      for (const call of drive.graph.calls) {
+        expect(JSON.stringify(call.json ?? {})).not.toContain('"replace"');
+      }
+      if (mode === "rename") {
+        // "Keep both": the backed-up file lands next to it under a new name.
+        expect(drive.child(folder.id, "report 1.docx")?.content.equals(report)).toBe(true);
+      } else {
+        expect(result.skipped).toBe(1);
+        expect(drive.files().map((file) => file.name)).toEqual(["report.docx"]);
+      }
+    }
   });
 
   it("restores a OneNote section into the notebook that is still in the target (a package item)", async () => {
@@ -397,7 +433,7 @@ describe("OneDriveRestoreEngine", () => {
     });
   });
 
-  it("uploads a renamed copy in rename mode only where the file there differs", async () => {
+  it("uploads a renamed copy in rename mode only where the file there differs [RESTORE-002]", async () => {
     const older = Buffer.from("quarterly report, draft");
     const sameSizeOther = pseudoRandomBytes(odd.length, 9);
     fixture = await createSnapshotFixture({
@@ -526,7 +562,7 @@ describe("OneDriveRestoreEngine", () => {
     expect(byId.get("M1")).toMatchObject({ status: "failed", code: "wrong_target" });
   });
 
-  it("fails an item whose stored bytes do not authenticate, and uploads nothing for it", async () => {
+  it("fails an item whose stored bytes do not authenticate, and uploads nothing for it [RESTORE-005]", async () => {
     fixture = await createSnapshotFixture({
       kind: "onedrive",
       externalId: DRIVE,
@@ -547,7 +583,7 @@ describe("OneDriveRestoreEngine", () => {
     expect(drive.files()).toEqual([]);
   });
 
-  it("fails a file whose uploaded bytes differ from the snapshot and names what OneDrive now holds", async () => {
+  it("fails a file whose uploaded bytes differ from the snapshot and names what OneDrive now holds [RESTORE-005]", async () => {
     fixture = await createSnapshotFixture({
       kind: "onedrive",
       externalId: DRIVE,

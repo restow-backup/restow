@@ -174,7 +174,7 @@ describe("channel columns", () => {
 });
 
 describe("critical events (0.5.0)", () => {
-  it("are the security and data-loss events", () => {
+  it("are the security and data-loss events [ALERT-001]", () => {
     expect(CRITICAL_REPORT_EVENTS).toEqual([
       "backup.suspicious",
       "verify.red",
@@ -190,7 +190,7 @@ describe("critical events (0.5.0)", () => {
     expect(isCriticalReportEvent("notification.delivery_failed")).toBe(false);
   });
 
-  it("put the failed delivery on the floor and lock both in the bell", () => {
+  it("put the failed delivery on the floor and lock both in the bell [ALERT-001]", () => {
     expect(FLOOR_REPORT_EVENTS).toEqual([
       ...CRITICAL_REPORT_EVENTS,
       "notification.delivery_failed",

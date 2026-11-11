@@ -18,7 +18,7 @@ describe("what a retention report says about its prune", () => {
     ).toEqual({ pruneMode: "delete_only", pruneReason: "low_space", prunePending: true });
   });
 
-  it("says target full only for restic giving up for lack of space", () => {
+  it("says target full only for restic giving up for lack of space [RETAIN-015]", () => {
     const full = new ResticError("restic prune failed", 1, "storage_full", "");
     const other = new ResticError("restic prune failed", 1, "other", "");
     expect(targetFull(full)).toBe(true);

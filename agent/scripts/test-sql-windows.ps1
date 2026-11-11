@@ -32,6 +32,8 @@
 #        hand), and once with -StagingDir naming a folder with a file of
 #        someone else in it, which must stay;
 #     5. the flows once more as the runner (go test -tags sqlintegration).
+# claim: RESTORE-016 (docs/CLAIMS.md: the check from the repository green, a damaged copy
+# red, a restore under a new name with CHECKDB; step 3 above)
 # A failed download of Microsoft's installer makes the run incomplete, not
 # red (exit 0 with a note in the step summary), unless -Strict. Nothing from
 # Microsoft is uploaded as an artifact or kept in a cache.

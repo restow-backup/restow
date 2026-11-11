@@ -208,7 +208,7 @@ describe.skipIf(!adminUrl)("restore mode stops a running job of the restored dum
     } as AnyJobHandler;
   }
 
-  it("stops a running job of the dump when restore mode comes on and ends it held, without a retry", async () => {
+  it("stops a running job of the dump when restore mode comes on and ends it held, without a retry [RETAIN-009]", async () => {
     const createdOn = new Date(Date.now() - 60 * 60_000);
     const { bossId, jobId, job } = await deliveredRestore(createdOn);
     const seen = { aborted: null as boolean | null };
@@ -235,7 +235,7 @@ describe.skipIf(!adminUrl)("restore mode stops a running job of the restored dum
     expect(await bossState(bossId)).toBe("cancelled");
   });
 
-  it("lets a job created after the hold point run on in restore mode", async () => {
+  it("lets a job created after the hold point run on in restore mode [RETAIN-009]", async () => {
     const activatedAt = new Date(Date.now() - 60_000);
     state = {
       active: true,

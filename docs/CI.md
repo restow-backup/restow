@@ -10,7 +10,7 @@ key, stays on the maintainer's machine: the release waits until it is used there
 
 | Workflow | Runs on | What it does |
 | --- | --- | --- |
-| `ci.yml` | every push to a branch, every pull request, and as part of the release | lint (biome), the `ee/` import guard, the former-name guard (no tracked file or path may name the product before its rename) and the package file guard (`check-package-files.mjs`: no test file or test data folder in what a workspace package ships into the images), all in `scripts/ci`, typecheck, unit and Postgres tests (with the pinned restic installed, the endpoint suites run it) and the guard that no Postgres suite was skipped, i18n completeness (every key of `en` in `de` and the other way round), full build, Docker build of all four images, full and Community (no push, see "Two build targets"), with a look inside (the self-test of `scripts/docker`, restic, `restow-restore`, the agent checksums, the license texts, no `@tutao/oxmsg` in the production trees, the OCI labels with each build's license, the variant marker, no `ee/` code in the Community images and no license signing code in any image), `pnpm audit` for high and critical advisories, dependency licenses (see "Dependency licenses and Dependabot"), gitleaks over the history (over the commits of a pull request), the Go agent in `agent/` (its own scripts: `agent/scripts/test.sh` with gofmt, go vet for the five targets, `go test -race` and ShellCheck; `integration.sh` against the real restic and an append-only REST server; `test-install.sh` for the install script; then `agent/build.sh` for linux and darwin on amd64 and arm64 and windows on amd64, the license check of all five restic binaries and the byte guard on the snapshot error texts in `restic.exe`; passes with a notice on a commit that has no `agent/`), the Go agent on a Windows runner (job `agent-windows`, `windows-2022`: gofmt, native `go vet` and the unit tests without the `unix` build tag, see docs/WINDOWS-AGENT.md section 3.5), shellcheck for every `*.sh`, the tests of the server install script (`deploy/install/test.sh`, see "Server install script") and of the demo reset (`deploy/demo/test.sh`: the default mode and the follow mode of `deploy/demo/reset.sh` against a stub docker), actionlint for the workflows. The job **CI passed** is the one to require in branch protection. |
+| `ci.yml` | every push to a branch, every pull request, and as part of the release | lint (biome), the `ee/` import guard, the former-name guard (no tracked file or path may name the product before its rename), the package file guard (`check-package-files.mjs`: no test file or test data folder in what a workspace package ships into the images) and the claims guard (`check-claims.mjs`: every claim of `docs/CLAIMS.md` names a test that carries its ID, see "Claims register"), all in `scripts/ci`, typecheck, unit and Postgres tests (with the pinned restic installed, the endpoint suites run it) and the guard that no Postgres suite was skipped, i18n completeness (every key of `en` in `de` and the other way round), full build, Docker build of all four images, full and Community (no push, see "Two build targets"), with a look inside (the self-test of `scripts/docker`, restic, `restow-restore`, the agent checksums, the license texts, no `@tutao/oxmsg` in the production trees, the OCI labels with each build's license, the variant marker, no `ee/` code in the Community images and no license signing code in any image), `pnpm audit` for high and critical advisories, dependency licenses (see "Dependency licenses and Dependabot"), gitleaks over the history (over the commits of a pull request), the Go agent in `agent/` (its own scripts: `agent/scripts/test.sh` with gofmt, go vet for the five targets, `go test -race` and ShellCheck; `integration.sh` against the real restic and an append-only REST server; `test-install.sh` for the install script; then `agent/build.sh` for linux and darwin on amd64 and arm64 and windows on amd64, the license check of all five restic binaries and the byte guard on the snapshot error texts in `restic.exe`; passes with a notice on a commit that has no `agent/`), the Go agent on a Windows runner (job `agent-windows`, `windows-2022`: gofmt, native `go vet` and the unit tests without the `unix` build tag, see docs/WINDOWS-AGENT.md section 3.5), shellcheck for every `*.sh`, the tests of the server install script (`deploy/install/test.sh`, see "Server install script") and of the demo reset (`deploy/demo/test.sh`: the default mode and the follow mode of `deploy/demo/reset.sh` against a stub docker), actionlint for the workflows. The job **CI passed** is the one to require in branch protection. |
 | `release.yml` | a tag `v*` | see "Releasing" |
 | `smoke.yml` | nightly on `main`, and on demand | builds the images of both builds from the checkout and runs every smoke check, once per build; nothing is published |
 | `contributor-checks.yml` | pull requests | CLA and DCO sign-off; the DCO job skips Dependabot's pull requests (its commits carry no sign-off; the CLA job allowlists it for the same reason) |
@@ -19,6 +19,32 @@ Every third-party action is pinned to a full commit SHA with its version in a
 comment; every container image a step runs is pinned by digest. To update a pin,
 look the SHA of the new tag up (`gh api repos/<owner>/<action>/git/ref/tags/<tag>`)
 and change both the SHA and the comment.
+
+## Claims register
+
+`docs/CLAIMS.md` (in German) lists what Restow says about its own behaviour: one entry per
+claim with a stable ID, the place where it is stated, the tests that prove it, what those
+tests run against (a simulator or the real system, and in which job) and its state.
+`scripts/ci/check-claims.mjs` runs with `pnpm lint` and fails when
+
+- a claim names no test, a named test file does not exist or does not carry the claim's ID;
+- a test carries an ID the register does not know, or carries one and is not named there;
+- an ID sits on a skipped test (`it.skip`, `it.todo`): a test that does not run proves nothing;
+- an entry is malformed (a field missing, an unknown state, an ID used twice).
+
+A test carries an ID in its title for vitest and `node:test` (`[READY-001]`), in a comment
+`// claim: READY-001` directly above the test function for Go, and in a comment
+`# claim: READY-001` for shell and PowerShell scripts, the smoke checks and the workflows.
+
+Two states pass with a warning, printed with their count on every run (and as a warning
+annotation on GitHub): `Abweichung`, a claim the product does not keep, whose failing
+expectation stays in the suite parked with `it.fails` (the suite turns red the day the
+product keeps the claim and the entry still says otherwise), and `nur behauptet`, a claim
+no test can be written for, with the reason. Do not change a claim to fit the code, and do
+not weaken a test: park it and report the deviation.
+
+The self-test is `scripts/ci/check-claims.test.mjs` (the job **Unit and Postgres tests** runs
+it with the other `scripts/ci/*.test.mjs`, also against the real register).
 
 ## Dependency licenses and Dependabot
 

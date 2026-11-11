@@ -280,7 +280,7 @@ describe("digests (0.5.0)", () => {
     ).toEqual({ channel: "email", recipient: "ops@x.de", digest: "daily" });
   });
 
-  it("sends critical events at once", () => {
+  it("sends critical events at once [ALERT-001]", () => {
     const r = rule({ emailRecipients: ["ops@x.de"] });
     expect(plannedDeliveries(r, "event", { event: "verify.red", columns })).toEqual([
       { channel: "email", recipient: "ops@x.de" },
@@ -337,14 +337,14 @@ describe("delivery failure exclusion (0.5.0)", () => {
       { exclude: deliveryFailureExclusion("notification.delivery_failed", details) },
     );
 
-  it("never sends the alert through the webhook that failed", () => {
+  it("never sends the alert through the webhook that failed [ALERT-004]", () => {
     expect(plan({ channel: "webhook", webhookId: "hook" })).toEqual([
       { channel: "email", recipient: "Ops@x.de" },
       { channel: "email", recipient: "b@x.de" },
     ]);
   });
 
-  it("never mails the address that failed, and no mail while the transport is down", () => {
+  it("never mails the address that failed, and no mail while the transport is down [ALERT-004]", () => {
     expect(plan({ channel: "email", scope: "recipient", recipient: "ops@X.de" })).toEqual([
       { channel: "email", recipient: "b@x.de" },
       { channel: "webhook", recipient: "hook" },

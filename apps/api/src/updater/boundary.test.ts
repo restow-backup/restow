@@ -67,7 +67,7 @@ describe("updater boundary", () => {
     }
   });
 
-  it("imports none of the forbidden modules", async () => {
+  it("imports none of the forbidden modules [UPDATE-012]", async () => {
     for (const file of await sources()) {
       for (const specifier of specifiers(file.text)) {
         for (const pattern of FORBIDDEN) {
@@ -88,7 +88,7 @@ describe("updater boundary", () => {
     }
   });
 
-  it("does not read application credentials from the environment", async () => {
+  it("does not read application credentials from the environment [UPDATE-012]", async () => {
     const credentialNames =
       /\b(DATABASE_URL|DATABASE_MIGRATION_URL|RESTOW_MASTER_KEY|BETTER_AUTH_SECRET|POSTGRES_PASSWORD)\b/;
     // The test helpers carry a fake `.env` as fixture; they ship nothing that reads one.

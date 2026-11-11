@@ -30,7 +30,7 @@ describe("the write-once probe", () => {
     expect(await local.list(storageProbePrefix(TENANT))).toEqual([]);
   });
 
-  it("finds a share that refuses overwrite and delete (EPERM) write-once, and the probe passes", async () => {
+  it("finds a share that refuses overwrite and delete (EPERM) write-once, and the probe passes [RETAIN-010]", async () => {
     const worm = new WriteOnceBackend(local);
     const probe = await probeStorageBackend(worm, { keyPrefix: storageProbePrefix(TENANT) });
     expect(probe.ok).toBe(true);
@@ -52,7 +52,7 @@ describe("the write-once probe", () => {
     expect(await local.list(storageProbePrefix(TENANT))).toHaveLength(1);
   });
 
-  it("counts an overwrite the storage accepts but ignores, and an Object Lock refusal", async () => {
+  it("counts an overwrite the storage accepts but ignores, and an Object Lock refusal [RETAIN-010]", async () => {
     const ignoring: StorageBackend = {
       ...bind(local),
       async put(key, data, options) {

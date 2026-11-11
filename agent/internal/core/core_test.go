@@ -590,6 +590,7 @@ func TestManualBackupIgnoresACRestriction(t *testing.T) {
 	}
 }
 
+// claim: RESTORE-011
 func TestRestoreTaskGoesIntoANewFolder(t *testing.T) {
 	h := newHarness(t)
 	target := filepath.Join(h.dir, "Restow-Restore-test")
@@ -623,6 +624,7 @@ func TestRestoreTaskGoesIntoANewFolder(t *testing.T) {
 	}
 }
 
+// claim: RESTORE-011
 func TestRestoreRefusesExistingContent(t *testing.T) {
 	h := newHarness(t)
 	target := filepath.Join(h.dir, "existing")
@@ -649,6 +651,7 @@ func TestRestoreRefusesExistingContent(t *testing.T) {
 	}
 }
 
+// claim: RESTORE-011
 func TestRestoreDefaultTargetIsNewFolderInBackedUpRoot(t *testing.T) {
 	h := newHarness(t)
 	h.srv.QueueTask(task("t-1", api.TaskRestore, api.RestoreParams{SnapshotID: "abcdef0123456789"}))
@@ -741,6 +744,7 @@ func TestVerifySampleTask(t *testing.T) {
 	}
 }
 
+// claim: VERIFY-008
 func TestVerifySampleDetectsMismatchAndMissing(t *testing.T) {
 	h := newHarness(t)
 	restoreSrc := filepath.Join(h.dir, "snapshot-tree")

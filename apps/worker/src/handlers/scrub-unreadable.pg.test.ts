@@ -235,7 +235,7 @@ describe.skipIf(!adminUrl)("temporarily unreadable packs against Postgres", () =
     return row ?? null;
   }
 
-  it("counts failed checks, rates attention, then not restorable, and clears once read", async () => {
+  it("counts failed checks, rates attention, then not restorable, and clears once read [SCRUB-004]", async () => {
     const f = await fixture();
     const victim = f.packKeys[0] as string;
     f.primary.denied.add(victim);

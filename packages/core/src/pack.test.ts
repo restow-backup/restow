@@ -42,7 +42,7 @@ describe("pack format", () => {
     expect(reader.get(missing)).toBeUndefined();
   });
 
-  it("detects a corrupted pack", () => {
+  it("detects a corrupted pack [CRYPT-001]", () => {
     const writer = new PackWriter("t");
     const id = storedId(tenantKey, Buffer.from("x"));
     writer.append(id, encryptChunk(dek, Buffer.from("x"), id));

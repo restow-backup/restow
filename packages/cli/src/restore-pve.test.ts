@@ -96,7 +96,7 @@ async function storeRestorePoint(tamper: boolean) {
 }
 
 describe("standalone restore of a Proxmox VE VM", () => {
-  it("writes the disk as a raw image, bit for bit", async () => {
+  it("writes the disk as a raw image, bit for bit [RESTORE-014]", async () => {
     const manifest = await storeRestorePoint(false);
     const store = await ChunkStore.build(backend, TENANT);
     const outDir = join(root, "out");

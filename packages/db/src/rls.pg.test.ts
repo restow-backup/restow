@@ -111,7 +111,7 @@ async function inTransaction<T>(
   }
 }
 
-describe.skipIf(!adminUrl)("Row Level Security on the application role", () => {
+describe.skipIf(!adminUrl)("Row Level Security on the application role [CRYPT-005]", () => {
   let owner: pg.Pool;
   let app: pg.Pool;
   let provider: pg.Pool;
@@ -181,7 +181,7 @@ describe.skipIf(!adminUrl)("Row Level Security on the application role", () => {
     }
   });
 
-  it("provisions an application role that cannot get around the policies", async () => {
+  it("provisions an application role that cannot get around the policies [CRYPT-005]", async () => {
     const roles = await assertDatabaseRoles({ tenant: app, installation: provider });
     expect(roleProblems("tenant", roles.tenant)).toEqual([]);
     expect(roles.tenant).toMatchObject({ superuser: false, bypassRls: false, ownsTables: false });

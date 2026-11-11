@@ -537,6 +537,7 @@ func TestParsers(t *testing.T) {
 
 // A container restore asks PVE for new MAC addresses and no start with the node, as a VM restore
 // gets new MAC addresses: the copy must not come up beside the original with its identity.
+// claim: RESTORE-013
 func TestRestoreGuestGivesAContainerNewMACsAndNoOnboot(t *testing.T) {
 	var mu sync.Mutex
 	forms := map[string]url.Values{}

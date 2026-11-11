@@ -504,7 +504,7 @@ describe.skipIf(!adminUrl)("migrations on a fresh and on a 0.300.x database", ()
       await owner?.end();
     });
 
-    it("applies the new migrations", async () => {
+    it("applies the new migrations [UPDATE-017]", async () => {
       expect(await appliedMigrations(owner)).toBe(journal.entries.length);
     });
 

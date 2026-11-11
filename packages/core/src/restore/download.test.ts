@@ -48,7 +48,7 @@ describe("download restore", () => {
     await fixture?.cleanup();
   });
 
-  it("streams a ZIP with EML files, folders and a MANIFEST.csv of SHA-256 hashes", async () => {
+  it("streams a ZIP with EML files, folders and a MANIFEST.csv of SHA-256 hashes [RESTORE-015]", async () => {
     fixture = await createSnapshotFixture({
       kind: "mailbox",
       externalId: "anna@example.org",
@@ -216,7 +216,7 @@ describe("download restore", () => {
     ]);
   });
 
-  it("aborts the archive and removes the partial file when an object fails integrity", async () => {
+  it("aborts the archive and removes the partial file when an object fails integrity [RESTORE-015]", async () => {
     fixture = await createSnapshotFixture({
       kind: "onedrive",
       externalId: "drive-1",

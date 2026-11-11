@@ -521,7 +521,7 @@ describe.skipIf(!testDatabaseAdminUrl)("Installation > Database against Postgres
     const bell = () =>
       owner.select().from(notifications).where(eq(notifications.event, "installation.disk_low"));
 
-    it("is raised once per episode, in the bell and in the rules that list it", async () => {
+    it("is raised once per episode, in the bell and in the rules that list it [ALERT-006]", async () => {
       await rule();
       // The database's disk is low (4 of 38 GiB); the repository is fine.
       expect(await watch().checkOnce()).toEqual({
@@ -565,7 +565,7 @@ describe.skipIf(!testDatabaseAdminUrl)("Installation > Database against Postgres
       expect(row?.alerts.database).toMatchObject({ low: true, freeBytes: 4 * GIB });
     });
 
-    it("watches the repository's disk without an updater", async () => {
+    it("watches the repository's disk without an updater [ALERT-006]", async () => {
       updater.view = null;
       repository = { path: "/data/chunks", freeBytes: 2 * GIB, totalBytes: 100 * GIB };
       expect(await watch().checkOnce()).toEqual({

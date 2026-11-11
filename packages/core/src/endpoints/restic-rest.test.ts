@@ -121,7 +121,7 @@ describe("restic REST protocol on the storage abstraction", () => {
     expect(storage.files.size).toBe(0);
   });
 
-  it("never overwrites an object for an agent (403), while maintenance may", async () => {
+  it("never overwrites an object for an agent (403), while maintenance may [RETAIN-013]", async () => {
     const storage = new MemoryStorage();
     const bytes = Buffer.from("original");
     const name = sha256(bytes);
@@ -135,7 +135,7 @@ describe("restic REST protocol on the storage abstraction", () => {
     expect(maintenance.response.status).toBe(200);
   });
 
-  it("lets an agent delete the locks it wrote and nothing else", async () => {
+  it("lets an agent delete the locks it wrote and nothing else [RETAIN-013]", async () => {
     const storage = new MemoryStorage();
     const locks = lockRegistry();
     const lock = Buffer.from("lock");
@@ -253,7 +253,7 @@ describe("restic REST protocol on the storage abstraction", () => {
     expect(missing.response.status).toBe(404);
   });
 
-  it("answers 403 when the storage refuses deletes (write-once share), so restic stops at once", async () => {
+  it("answers 403 when the storage refuses deletes (write-once share), so restic stops at once [RETAIN-010]", async () => {
     // A 500 restic would try again for a quarter of an hour per file (restic unlock on a
     // write-once share: the PVE pass held up for an hour); a 403 it takes as final.
     class WriteOnceStorage extends MemoryStorage {

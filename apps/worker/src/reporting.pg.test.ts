@@ -91,7 +91,7 @@ describe.skipIf(!adminUrl)("raising events against Postgres", () => {
       )
     ).rows;
 
-  it("writes the bell and queues one mail per recipient of the matching rule", async () => {
+  it("writes the bell and queues one mail per recipient of the matching rule [ALERT-002]", async () => {
     await withTenantTx(db, contoso, (tx) =>
       raiseJobFinished(tx, contoso, {
         id: "00000000-0000-4000-8000-000000000001",
@@ -267,7 +267,7 @@ describe.skipIf(!adminUrl)("raising events against Postgres", () => {
     expect(bell.rows).toEqual([{ event: "backup.succeeded", level: "info" }]);
   });
 
-  it("reads a completed restore's stored counters: nothing restored, items failed is restore.failed", async () => {
+  it("reads a completed restore's stored counters: nothing restored, items failed is restore.failed [ALERT-009]", async () => {
     const jobId = "00000000-0000-4000-8000-000000000301";
     await db.$client.query(
       `INSERT INTO jobs (id, tenant_id, queue, status, protected_object_id, payload, completed_at)

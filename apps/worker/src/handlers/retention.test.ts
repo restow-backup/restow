@@ -365,7 +365,7 @@ describe("retention handler", () => {
     expect(pruned).toEqual([]);
   });
 
-  it("prunes what the policy expires, honours legal holds and reports progress", async () => {
+  it("prunes what the policy expires, honours legal holds and reports progress [RETAIN-001]", async () => {
     const primary = new MemoryStorage();
     const ctx = workerContext(primary);
     const { store, pruned } = fakeStore({
@@ -397,7 +397,7 @@ describe("retention handler", () => {
     expect(ctx.progress.snapshot()).toMatchObject({ total: 2, done: 2, failed: 0, phase: "prune" });
   });
 
-  it("leaves an expired restore point alone while a target still locks its manifest", async () => {
+  it("leaves an expired restore point alone while a target still locks its manifest [RETAIN-005]", async () => {
     // The file times of this storage are "now": a deletion delay of 30 days locks them all.
     class DatedStorage extends MemoryStorage {
       override async head(key: string): Promise<HeadResult | null> {
@@ -436,7 +436,7 @@ describe("retention handler", () => {
     expect(raw.objects.has(store.manifestPathOf("a1"))).toBe(true);
   });
 
-  it("never removes the only verified restore point of an object, even under an aggressive custom policy", async () => {
+  it("never removes the only verified restore point of an object, even under an aggressive custom policy [RETAIN-003]", async () => {
     const aggressive: RetentionPolicyRow = {
       id: "p2",
       name: "Aggressive",
@@ -495,7 +495,7 @@ describe("retention handler", () => {
     expect(pruned.sort()).toEqual(["a1", "a3"]);
   });
 
-  it("sets aside a legal hold's overdue restore points even under an aggressive custom policy", async () => {
+  it("sets aside a legal hold's overdue restore points even under an aggressive custom policy [RETAIN-001]", async () => {
     const aggressive: RetentionPolicyRow = {
       id: "p-hold",
       name: "Aggressive",
@@ -555,7 +555,7 @@ describe("retention handler", () => {
     expect(pruned).toEqual(["l1"]);
   });
 
-  it("never removes the newest verified restore point, even with several verified points under an aggressive custom policy", async () => {
+  it("never removes the newest verified restore point, even with several verified points under an aggressive custom policy [RETAIN-003]", async () => {
     const aggressive: RetentionPolicyRow = {
       id: "p3",
       name: "Aggressive",
@@ -632,7 +632,7 @@ describe("retention handler", () => {
     expect(ctx.progress.snapshot()).toMatchObject({ done: 2, failed: 1 });
   });
 
-  it("stops at the first restore point refused when restore mode comes on mid-run", async () => {
+  it("stops at the first restore point refused when restore mode comes on mid-run [RETAIN-008]", async () => {
     const primary = new MemoryStorage();
     const ctx = workerContext(primary);
     await ctx.chunkIndex.recordPack({ id: "pack", path: "packs/pack", sha256: "00", size: 3 }, [

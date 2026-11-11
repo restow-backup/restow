@@ -57,7 +57,7 @@ describe("verifyChain", () => {
     expect(verifyChain([])).toEqual({ ok: true, brokenAt: null, deleted: 0 });
   });
 
-  it("detects a tampered item at the position it was tampered", () => {
+  it("detects a tampered item at the position it was tampered [ARCHIVE-001]", () => {
     const chain = buildValidChain(5);
     const tampered = chain.map((entry, index) =>
       index === 2 ? { ...entry, itemHash: itemHashOf("tampered-content") } : entry,

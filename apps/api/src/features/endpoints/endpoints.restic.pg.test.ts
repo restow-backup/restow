@@ -295,7 +295,7 @@ describe.skipIf(!canRun)("endpoint backup with the real restic binary", () => {
     expect(snapshots).toHaveLength(2);
   }, 120_000);
 
-  it("refuses everything that would delete a backup", async () => {
+  it("refuses everything that would delete a backup [RETAIN-013]", async () => {
     const before = await resticSnapshotIds();
     expect(before).toHaveLength(2);
     const packsBefore = await treeHashes(join(fixture.storageDir, "endpoints", agent.endpointId));
@@ -320,7 +320,7 @@ describe.skipIf(!canRun)("endpoint backup with the real restic binary", () => {
     expect(lockless(packsAfter)).toEqual(lockless(packsBefore));
   }, 120_000);
 
-  it("refuses a raw delete, an overwrite, a new config and a new repository", async () => {
+  it("refuses a raw delete, an overwrite, a new config and a new repository [RETAIN-013]", async () => {
     const tree = await treeHashes(join(fixture.storageDir, "endpoints", agent.endpointId));
     const snapshotFile = Object.keys(tree).find((name) => name.startsWith("snapshots/")) as string;
     const dataFile = Object.keys(tree).find((name) => name.startsWith("data/")) as string;
@@ -375,7 +375,7 @@ describe.skipIf(!canRun)("endpoint backup with the real restic binary", () => {
     expect(result.code).not.toBe(0);
   }, 60_000);
 
-  it("restores into a new folder byte for byte", async () => {
+  it("restores into a new folder byte for byte [RESTORE-011]", async () => {
     const target = join(work, "restored");
     const result = await restic(["restore", "latest", "--target", target]);
     expect(result.code, result.out).toBe(0);
@@ -1022,7 +1022,7 @@ describe.skipIf(!canRun)("endpoint backup with the real restic binary", () => {
   });
 
   describe("restoring from a copy target once the primary lost the repository", () => {
-    it("restores through the agent's own credential from the repository copy, says so on the run and in the audit log, and takes no backup into the copy", async () => {
+    it("restores through the agent's own credential from the repository copy, says so on the run and in the audit log, and takes no backup into the copy [COPY-002]", async () => {
       const { forgetTenantChunkStore } = await import("../pve/store.js");
       const forget = () => {
         repository.forgetTenantStorage(fixture.tenantId);

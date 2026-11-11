@@ -381,7 +381,7 @@ describe.skipIf(!adminUrl || !resticAvailable())(
         expect((await endpointOf(made.id))?.lastRetentionAt).toBeInstanceOf(Date);
       }, 120_000);
 
-      it("forgets nothing while the endpoint is held on suspicion, and resumes after the release", async () => {
+      it("forgets nothing while the endpoint is held on suspicion, and resumes after the release [RETAIN-011]", async () => {
         const made = await makeEndpoint({
           snapshots: 4,
           settings: { retention: { keepDaily: 2, keepWeekly: 0, keepMonthly: 0 } },
@@ -483,7 +483,7 @@ describe.skipIf(!adminUrl || !resticAvailable())(
         expect(await reportsOf(made.id, "retention")).toEqual([]);
       }, 120_000);
 
-      it("decides by the server's records, not by the times the agent wrote: forged snapshots dated in the future delete nothing", async () => {
+      it("decides by the server's records, not by the times the agent wrote: forged snapshots dated in the future delete nothing [RETAIN-014]", async () => {
         const made = await makeEndpoint({ snapshots: 3 });
         const genuine = await snapshotFiles(made.id);
         // A compromised machine adds snapshots dated years ahead; no run reported them.
@@ -556,7 +556,7 @@ describe.skipIf(!adminUrl || !resticAvailable())(
         expect(await marks()).toEqual([]);
       }, 120_000);
 
-      it("forgets old recorded snapshots by id and never one no run reported", async () => {
+      it("forgets old recorded snapshots by id and never one no run reported [RETAIN-014]", async () => {
         const made = await makeEndpoint({
           snapshots: 3,
           settings: { retention: { keepDaily: 1, keepWeekly: 0, keepMonthly: 0 } },
@@ -735,7 +735,7 @@ describe.skipIf(!adminUrl || !resticAvailable())(
         expect(records.map((record) => record.name)).toEqual([lock(5)]);
       }, 60_000);
 
-      it("finds a damaged pack and rates the repository red", async () => {
+      it("finds a damaged pack and rates the repository red [FAULT-007]", async () => {
         const made = await makeEndpoint({ snapshots: 1 });
         const dataDir = join(storageDir, "endpoints", made.id, "data");
         const [folder] = await readdir(dataDir);
@@ -754,6 +754,121 @@ describe.skipIf(!adminUrl || !resticAvailable())(
         const [report] = await reportsOf(made.id, "repository_check");
         expect(report).toMatchObject({ readiness: "red", origin: "server" });
         expect(report?.summary.errorMessage).toBeTruthy();
+      }, 120_000);
+    });
+
+    /**
+     * Fault injection (docs/CLAIMS.md, FAULT): the repository of a machine is damaged
+     * behind Restow's back. Each test asserts the state (the report that rates the
+     * machine) and the alert the monitor raises from it.
+     */
+    describe("fault injection into a machine's repository", () => {
+      const WEEK = 7 * DAY;
+
+      async function packFiles(made: Made): Promise<string[]> {
+        const dataDir = join(storageDir, "endpoints", made.id, "data");
+        const files: string[] = [];
+        for (const folder of await readdir(dataDir)) {
+          for (const pack of await readdir(join(dataDir, folder))) {
+            files.push(join(dataDir, folder, pack));
+          }
+        }
+        return files.sort();
+      }
+
+      const corruptAlerts = async (made: Made) =>
+        (await eventsOf(made.tenantId, "scrub.corrupt")).filter(
+          (row) => row.details?.endpointId === made.id,
+        );
+
+      it("finds a pack file deleted behind Restow's back in the next weekly check, whatever slice it reads: red, and scrub.corrupt [FAULT-006]", async () => {
+        clock = new Date();
+        const made = await makeEndpoint({ snapshots: 1 });
+        // Healthy first: the weekly check with its default slice (one twentieth) is green.
+        await endpointCheck(deps, { tenantId: made.tenantId, endpointId: made.id });
+        expect((await reportsOf(made.id, "repository_check")).map((r) => r.readiness)).toEqual([
+          "green",
+        ]);
+
+        // The lifecycle rule: one pack file goes.
+        const [victim] = await packFiles(made);
+        await rm(victim as string);
+
+        // The next weekly check, again one twentieth of the data: restic compares the index
+        // with the files that exist before it reads any data, so the slice does not matter.
+        clock = new Date(clock.getTime() + WEEK);
+        await endpointCheck(deps, { tenantId: made.tenantId, endpointId: made.id });
+        const reports = (await reportsOf(made.id, "repository_check")).sort(
+          (a, b) => a.checkedAt.getTime() - b.checkedAt.getTime(),
+        );
+        expect(reports.map((r) => r.readiness)).toEqual(["green", "red"]);
+        expect(reports[1]?.summary.subset).toMatch(/^\d+\/20$/);
+        expect(reports[1]?.summary.errorMessage).toBeTruthy();
+
+        // The alert, once.
+        await endpointMonitor(deps);
+        const raised = await corruptAlerts(made);
+        expect(raised).toHaveLength(1);
+        expect(raised[0]).toMatchObject({ level: "error" });
+        await endpointMonitor(deps);
+        expect(await corruptAlerts(made)).toHaveLength(1);
+      }, 180_000);
+
+      it("finds a damaged pack file within the twenty weekly checks that read every slice once: red, and scrub.corrupt [FAULT-007]", async () => {
+        clock = new Date();
+        const made = await makeEndpoint({ snapshots: 1 });
+        // One byte in the middle of every pack: whichever slice a check reads holds damage.
+        const victims = await packFiles(made);
+        expect(victims.length).toBeGreaterThan(0);
+        const [victim] = victims;
+        const bytes = await readFile(victim as string);
+        const middle = Math.floor(bytes.length / 2);
+        bytes[middle] = (bytes[middle] ?? 0) ^ 0xff;
+        await writeFile(victim as string, bytes);
+
+        // One check a week with the default slice, until the slice that holds the pack is read.
+        let weeks = 0;
+        let readiness: string | null | undefined;
+        while (weeks < 20 && readiness !== "red") {
+          weeks += 1;
+          clock = new Date(clock.getTime() + WEEK);
+          await endpointCheck(deps, { tenantId: made.tenantId, endpointId: made.id });
+          readiness = (await reportsOf(made.id, "repository_check"))
+            .sort((a, b) => a.checkedAt.getTime() - b.checkedAt.getTime())
+            .at(-1)?.readiness;
+        }
+        expect(readiness).toBe("red");
+        expect(weeks).toBeLessThanOrEqual(20);
+
+        await endpointMonitor(deps);
+        expect(await corruptAlerts(made)).toHaveLength(1);
+      }, 300_000);
+
+      it("rates the repository red and raises scrub.corrupt when the repository refuses the stored password [FAULT-008]", async () => {
+        clock = new Date();
+        const made = await makeEndpoint({ snapshots: 1 });
+        // The password the database holds no longer opens the repository (a key file replaced
+        // on the storage, or a database restored to a state before the repository was made).
+        const dek = (globalThis as { __dek?: ReturnType<typeof generateDek> }).__dek as ReturnType<
+          typeof generateDek
+        >;
+        const [row] = await owner
+          .select({ secretId: endpoints.repositorySecretId })
+          .from(endpoints)
+          .where(eq(endpoints.id, made.id));
+        const secretId = row?.secretId as string;
+        await owner.$client.query("UPDATE secrets SET ciphertext = $2 WHERE id = $1", [
+          secretId,
+          sealSecret(dek, secretId, randomBytes(24).toString("base64url")),
+        ]);
+
+        await endpointCheck(deps, { tenantId: made.tenantId, endpointId: made.id });
+        const [report] = await reportsOf(made.id, "repository_check");
+        expect(report).toMatchObject({ readiness: "red", origin: "server" });
+        expect(report?.summary.errorMessage).toMatch(/wrong password|no key found/i);
+
+        await endpointMonitor(deps);
+        expect(await corruptAlerts(made)).toHaveLength(1);
       }, 120_000);
     });
 
@@ -797,7 +912,7 @@ describe.skipIf(!adminUrl || !resticAvailable())(
         return latest as string;
       }
 
-      it("rates the snapshot green only when every hash matches, and asks the endpoint to restore the same files", async () => {
+      it("rates the snapshot green only when every hash matches, and asks the endpoint to restore the same files [VERIFY-008]", async () => {
         const made = await makeEndpoint({ snapshots: 1 });
         const snapshot = await sample(made);
         await endpointVerify(deps, { tenantId: made.tenantId, endpointId: made.id });
@@ -828,7 +943,7 @@ describe.skipIf(!adminUrl || !resticAvailable())(
         ).toHaveLength(1);
       }, 120_000);
 
-      it("rates the snapshot red when one hash differs", async () => {
+      it("rates the snapshot red when one hash differs [VERIFY-008]", async () => {
         const made = await makeEndpoint({ snapshots: 1 });
         await sample(made, true);
         await endpointVerify(deps, { tenantId: made.tenantId, endpointId: made.id });
@@ -980,7 +1095,7 @@ describe.skipIf(!adminUrl || !resticAvailable())(
         120_000,
       );
 
-      it("rates the snapshot red when restic finds the sampled data damaged", async () => {
+      it("rates the snapshot red when restic finds the sampled data damaged [VERIFY-008]", async () => {
         const made = await makeEndpoint({ snapshots: 1 });
         await sample(made);
         // Every 16th byte of every pack: no blob (32 bytes and more, encrypted) stays whole,

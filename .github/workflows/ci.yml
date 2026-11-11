@@ -49,11 +49,15 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Lint (biome), ee/ import direction, the former product name and shipped test files
+      - name: Lint (biome), ee/ import direction, the former product name, shipped test files and the claims register
         # biome check over the whole repository, then scripts/ci/check-ee-boundary.mjs
         # (the core never imports from ee/), the former-name guard (no tracked file
-        # or path names the product before its rename) and check-package-files.mjs
-        # (no test file or test data in the packages `pnpm deploy` copies into the image).
+        # or path names the product before its rename), check-package-files.mjs
+        # (no test file or test data in the packages `pnpm deploy` copies into the image),
+        # check-separate-works.mjs and check-claims.mjs: every claim of docs/CLAIMS.md
+        # names a test that carries its ID, and no test carries an ID the register does
+        # not know. Claims the product does not keep (parked with it.fails) and claims
+        # without a test are printed as warnings with their count.
         run: pnpm lint
 
   typecheck:
@@ -133,7 +137,8 @@ jobs:
 
       - name: Self-test the CI and release tooling
         # The Postgres suite guard, the edge header checker, the ee/ import guard,
-        # the former-name guard, the license check, the release gate (every
+        # the former-name guard, the claims guard (which also runs against the real
+        # register here), the license check, the release gate (every
         # scripts/ci/*.test.mjs) and the smoke's own helpers.
         run: >-
           node --test
@@ -215,10 +220,12 @@ jobs:
         with:
           node-version-file: .nvmrc
 
-      - name: Self-test the build scripts (strip-ee, the image tree check)
+      - name: Self-test the build scripts (strip-ee, the image tree check, the entrypoint)
         # scripts/docker/strip-ee.mjs turns the workspace into the Community build (it
         # fails when a loader is missing), check-image-tree.mjs is the check the
-        # Dockerfile and the release smoke run on the images (docs/CI.md).
+        # Dockerfile and the release smoke run on the images (docs/CI.md), and
+        # entrypoint.test.mjs runs the entrypoint the Dockerfile writes: the licence
+        # start check comes before the migrations (docs/CLAIMS.md, LICENSE-004).
         run: node --test scripts/docker/*.test.mjs
 
       - name: Set up Docker Buildx

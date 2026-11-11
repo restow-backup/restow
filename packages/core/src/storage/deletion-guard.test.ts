@@ -65,7 +65,7 @@ describe("the deletion guard", () => {
     uninstall();
   });
 
-  it("lets a pass delete with its permit and refuses it in restore mode", async () => {
+  it("lets a pass delete with its permit and refuses it in restore mode [RETAIN-008]", async () => {
     const storage = new MemoryStorage();
     await storage.put(`tenants/${T}/packs/ab/one`, Buffer.from("x"));
     await withDeletionPermit({ pass: "orphan_sweep", tenantId: T }, () =>
@@ -96,7 +96,7 @@ describe("the deletion guard", () => {
     expect(await storage.head(`tenants/${T}/manifests/a.json.zst`)).not.toBeNull();
   });
 
-  it("throws for a delete outside every permit in strict mode, and holds it in restore mode", async () => {
+  it("throws for a delete outside every permit in strict mode, and holds it in restore mode [RETAIN-008]", async () => {
     const storage = new MemoryStorage();
     await storage.put(`tenants/${T}/packs/ab/three`, Buffer.from("x"));
     await expect(storage.delete(`tenants/${T}/packs/ab/three`)).rejects.toBeInstanceOf(
@@ -166,7 +166,7 @@ describe("the deletion guard", () => {
     expect(await storage.head(`tenants/${T}/exports/x/0`)).toBeNull();
   });
 
-  it("checks a local directory and refuses to replace a stored wrapped key", async () => {
+  it("checks a local directory and refuses to replace a stored wrapped key [CRYPT-004]", async () => {
     const root = await mkdtemp(join(tmpdir(), "restow-guard-"));
     try {
       const local = new LocalStorageBackend(root);

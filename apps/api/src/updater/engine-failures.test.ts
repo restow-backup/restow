@@ -86,7 +86,7 @@ describe("failures before anything is replaced: outcome unchanged", () => {
     });
   });
 
-  it("a digest mismatch ends unchanged and records that verification failed", async () => {
+  it("a digest mismatch ends unchanged and records that verification failed [UPDATE-003]", async () => {
     h.ops.pulledDigests.set(NEW_APP, [digestOf("something-else")]);
     const result = await run("0.2.0", { digests: { app: digestOf("published") } });
     expect(result.outcome).toBe("unchanged");
@@ -96,7 +96,7 @@ describe("failures before anything is replaced: outcome unchanged", () => {
     expect(await h.readEnv()).toBe(DEFAULT_ENV);
   });
 
-  it("a digest of the web image is checked too", async () => {
+  it("a digest of the web image is checked too [UPDATE-003]", async () => {
     h.ops.pulledDigests.set(NEW_WEB, [digestOf("wrong")]);
     const result = await run("0.2.0", {
       digests: { app: digestOf(NEW_APP), web: digestOf("published-web") },
@@ -105,7 +105,7 @@ describe("failures before anything is replaced: outcome unchanged", () => {
     expect(result.failure?.detail).toContain("web image");
   });
 
-  it("a failing dump ends unchanged and leaves no dump file behind", async () => {
+  it("a failing dump ends unchanged and leaves no dump file behind [UPDATE-004]", async () => {
     h.ops.failOn(
       "dumpDatabase",
       new OpsError(
@@ -121,7 +121,7 @@ describe("failures before anything is replaced: outcome unchanged", () => {
     expect(await h.readEnv()).toBe(DEFAULT_ENV);
   });
 
-  it("an unverifiable dump is discarded", async () => {
+  it("an unverifiable dump is discarded [UPDATE-004]", async () => {
     h.ops.failOn("verifyDump", new OpsError("The dump has no content."));
     const result = await run();
     expect(result.outcome).toBe("unchanged");
@@ -247,7 +247,7 @@ describe("failures after the workers were stopped, before migrations ran: rollba
     expect(h.ops.callsTo("migrationCount")).toHaveLength(1);
   });
 
-  it("a failing compose up of the api rolls back byte-exact", async () => {
+  it("a failing compose up of the api rolls back byte-exact [UPDATE-006]", async () => {
     h.ops.failOn(
       "composeUp",
       new OpsError("Starting services failed (exit code 1).", "no such image"),
@@ -272,7 +272,7 @@ describe("failures after the workers were stopped, before migrations ran: rollba
     expect(counted).toBeGreaterThan(frozen);
   });
 
-  it("a health timeout rolls back: .env restored byte for byte, old images up, log tail in the detail", async () => {
+  it("a health timeout rolls back: .env restored byte for byte, old images up, log tail in the detail [UPDATE-006]", async () => {
     apiAt(h, NEW_APP, { kind: "never" });
     const started = h.clock.now().getTime();
     const result = await run();
@@ -329,7 +329,7 @@ describe("failures after the workers were stopped, before migrations ran: rollba
     expect(result.recovery).toBeNull();
   });
 
-  it("an api crash loop fails fast, without waiting for the health timeout", async () => {
+  it("an api crash loop fails fast, without waiting for the health timeout [UPDATE-006]", async () => {
     apiAt(h, NEW_APP, { kind: "crash" });
     const started = h.clock.now().getTime();
     const result = await run();
@@ -408,7 +408,7 @@ describe("failures after the workers were stopped, before migrations ran: rollba
 });
 
 describe("failures after migrations ran or with an unknown migration state: needs_attention", () => {
-  it("stops api, worker and scheduler, leaves the edge, keeps the dump and hands over recovery data", async () => {
+  it("stops api, worker and scheduler, leaves the edge, keeps the dump and hands over recovery data [UPDATE-007]", async () => {
     apiAt(h, NEW_APP, { kind: "never", migrates: 3 });
     const result = await run();
 
@@ -450,7 +450,20 @@ describe("failures after migrations ran or with an unknown migration state: need
     expect(failed?.details).toMatchObject({ outcome: "needs_attention", dumpFile: dumps[0]?.file });
   });
 
-  it("keeps the dump a needs_attention run needs until a later run has been made", async () => {
+  // The install dialog says so without a condition ("If the new version does not start, the
+  // previous version is restored automatically.", packages/i18n updates.json,
+  // install.effects.rollback); docs/UPDATING.md limits the rollback to an update whose
+  // migrations had not run, and so does the updater (the test above). Parked as the failing
+  // expectation of docs/CLAIMS.md, UPDATE-008.
+  it.fails("restores the previous version automatically when the new version does not start, also after its migrations ran [UPDATE-008]", async () => {
+    apiAt(h, NEW_APP, { kind: "never", migrates: 3 });
+    const result = await run();
+
+    expect(result.outcome).toBe("rolled_back");
+    expect(h.ops.containers.get("api")).toMatchObject({ state: "running", image: OLD_APP });
+  });
+
+  it("keeps the dump a needs_attention run needs until a later run has been made [UPDATE-005]", async () => {
     apiAt(h, NEW_APP, { kind: "never", migrates: 1 });
     const attention = await run();
     const needed = attention.recovery?.dumpFile as string;
@@ -479,7 +492,7 @@ describe("failures after migrations ran or with an unknown migration state: need
     expect(await h.dumps.list()).toHaveLength(3);
   });
 
-  it("a crash after migrations is not rolled back either", async () => {
+  it("a crash after migrations is not rolled back either [UPDATE-007]", async () => {
     apiAt(h, NEW_APP, { kind: "crash", migrates: 1 });
     const result = await run();
     expect(result.outcome).toBe("needs_attention");
@@ -500,7 +513,7 @@ describe("failures after migrations ran or with an unknown migration state: need
     expect(await h.readEnv()).toContain("restow:0.2.0");
   });
 
-  it("does not guess when the migration count cannot be read", async () => {
+  it("does not guess when the migration count cannot be read [UPDATE-007]", async () => {
     apiAt(h, NEW_APP, { kind: "never" });
     h.ops.failOn(
       "migrationCount",

@@ -18,6 +18,7 @@
  * its one tenant is the own organisation, the browser creates none, and a
  * second tenant is refused.
  */
+// claim: LICENSE-010 (docs/CLAIMS.md: the Community build has no license API and refuses a second tenant)
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { run } from "../lib/exec.mjs";

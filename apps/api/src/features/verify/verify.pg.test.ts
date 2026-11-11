@@ -140,7 +140,7 @@ describe.skipIf(!testDatabaseAdminUrl)("the backup's age in the readiness views"
     expect((await item("current"))?.report?.reasons).toEqual([]);
   });
 
-  it("turns a green check yellow once its backup is three days old, and the tenant with it", async () => {
+  it("turns a green check yellow once its backup is three days old, and the tenant with it [READY-004]", async () => {
     await mailbox("stale", 72);
     expect(await item("stale")).toMatchObject({ state: "yellow", readiness: "yellow" });
     expect((await item("stale"))?.report?.reasons).toEqual([
@@ -151,7 +151,7 @@ describe.skipIf(!testDatabaseAdminUrl)("the backup's age in the readiness views"
     expect((await loadTenantSummary(db, tenantId, NOW)).recoveryReadiness).toBe("yellow");
   });
 
-  it("turns it red once the backup is older than seven days", async () => {
+  it("turns it red once the backup is older than seven days [READY-004]", async () => {
     await mailbox("outdated", 8 * 24);
     expect(await item("outdated")).toMatchObject({ state: "red", readiness: "red" });
     expect((await item("outdated"))?.report?.reasons.map((reason) => reason.code)).toEqual([
@@ -160,7 +160,7 @@ describe.skipIf(!testDatabaseAdminUrl)("the backup's age in the readiness views"
     expect((await loadTenantSummary(db, tenantId, NOW)).recoveryReadiness).toBe("red");
   });
 
-  it("rates the age now in the integration API, the directory and the job view too", async () => {
+  it("rates the age now in the integration API, the directory and the job view too [READY-004]", async () => {
     await mailbox("api-stale", 72);
     await mailbox("api-outdated", 8 * 24);
     const objects = await listProtectedObjects(db, tenantId, { limit: 100 }, NOW);
@@ -191,7 +191,7 @@ describe.skipIf(!testDatabaseAdminUrl)("the backup's age in the readiness views"
     expect(member("api-outdated")).toBe("red");
   });
 
-  it("still rates a mailbox removed from its source without the age of its last backup", async () => {
+  it("still rates a mailbox removed from its source without the age of its last backup [READY-010]", async () => {
     await mailbox("removed", 30 * 24, "orphaned");
     expect(await item("removed")).toMatchObject({ state: "green", readiness: "green" });
   });
