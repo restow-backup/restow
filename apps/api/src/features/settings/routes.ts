@@ -26,6 +26,7 @@ import {
   saveMicrosoftApp,
   testMicrosoftApp,
 } from "./microsoft-app/service.js";
+import { getModules, modulesSchema, updateModules } from "./modules.js";
 import { browserOrigin } from "./origin.js";
 import { getPasskeyImpact } from "./passkey-impact.js";
 import { getPricing, pricingSchema, updatePricing } from "./pricing.js";
@@ -92,6 +93,10 @@ import {
  *   GET    /pricing/estimate      the monthly estimate per tenant at those prices (and the
  *                                  tenants' own, tenants/:id/pricing), ?tenant=<id> for one tenant;
  *                                  a member limited to some tenants gets those
+ *   GET    /modules               the installation's modules (what it protects): which are on
+ *                                  and what each still holds across every tenant
+ *   PUT    /modules               replace the modules that are on ({ enabled: [...] }, at least
+ *                                  one); a module that is off is hidden in the web interface only
  *   GET    /agent-policy          the installation's agent policy, its locks, the defaults
  *   PUT    /agent-policy          replace it; every machine whose effective policy changes gets
  *                                  a new configuration version (all tenants)
@@ -264,6 +269,17 @@ settingsRoutes.get("/pricing/estimate", async (c) => {
       },
     ),
   );
+});
+
+// The installation's modules (settings/modules.ts): what the web interface shows. Switching one
+// off hides it and nothing else; owners and administrators change it (lib/provider-access.ts).
+settingsRoutes.get("/modules", async (c) => {
+  return c.json(await getModules(providerDb));
+});
+
+settingsRoutes.put("/modules", async (c) => {
+  const input = await parseJsonBody(c.req, modulesSchema);
+  return c.json(await updateModules(providerDb, input, actorOf(c)));
 });
 
 // Agent policies (docs/AGENT.md, "Richtlinien"): every provider admin reads the installation's

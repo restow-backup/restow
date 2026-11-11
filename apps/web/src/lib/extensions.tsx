@@ -8,6 +8,7 @@ import type { ProviderView } from "@/features/dashboard/api";
 import type { WidgetView } from "@/features/dashboard/presenters";
 import type { ReadinessState } from "@/features/verify/search";
 import type { GatedFeature } from "@/lib/api";
+import type { ModuleId } from "@/lib/modules";
 import type { NavItem, NavLock } from "@/lib/navigation";
 import type { SessionTenant } from "@/lib/session";
 
@@ -156,6 +157,11 @@ export interface InstallationSectionSpec {
   readonly component: React.ComponentType<InstallationSectionProps>;
   readonly lock?: NavLock;
   /**
+   * The modules of the installation the section belongs to (lib/modules.ts): left out of the
+   * sub-navigation while none of them is on, still opened by its address.
+   */
+  readonly modules?: readonly ModuleId[];
+  /**
    * The section of the old settings page (`/settings?section=<name>`, before
    * 0.2.0) whose address now leads here; for content an extension took out of
    * a core section. The core's own mapping applies where no section claims it.
@@ -204,6 +210,11 @@ export interface TenantSectionSpec {
   readonly lock?: NavLock;
   /** Only provider administrators see the section (the tenant's own administrators never). */
   readonly providerOnly?: boolean;
+  /**
+   * The modules of the installation the section belongs to (lib/modules.ts): left out of the
+   * sub-navigation while none of them is on, still opened by its address.
+   */
+  readonly modules?: readonly ModuleId[];
 }
 
 type SlotComponents = { [K in SlotName]?: React.ComponentType<SlotProps[K]> };

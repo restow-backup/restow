@@ -51,6 +51,7 @@ import { KindStep } from "@/routes/setup/steps/kind-step";
 import { LanguageStep } from "@/routes/setup/steps/language-step";
 import { MailStep } from "@/routes/setup/steps/mail-step";
 import { ModeStep } from "@/routes/setup/steps/mode-step";
+import { ModulesStep } from "@/routes/setup/steps/modules-step";
 import { RestoreDoneStep } from "@/routes/setup/steps/restore-done-step";
 import { RestoreRunStep } from "@/routes/setup/steps/restore-run-step";
 import { RestoreSourceStep } from "@/routes/setup/steps/restore-source-step";
@@ -95,12 +96,13 @@ function restoreWasActivated(): boolean {
 /**
  * First-run setup wizard (docs/ARCHITECTURE.md, setup and operating modes): the
  * language, then what to set up. A new installation: the setup token, the
- * operator notice, operating mode, first admin account, mail transport (which
- * can be skipped) and a review step; on success the new admin is signed in
- * right away and lands on the dashboard. A restore from a database dump: the
- * setup token, the dump, its run and report, the activation; no admin is
- * created, the dump brings its users. A worker node for another installation:
- * what to run on that host (install.sh --join).
+ * operator notice, what it is to protect (its modules), operating mode, first
+ * admin account, mail transport (which can be skipped) and a review step; on
+ * success the new admin is signed in right away and lands on the dashboard. A
+ * restore from a database dump: the setup token, the dump, its run and report,
+ * the activation; no admin is created and no modules are asked, the dump brings
+ * its users and settings. A worker node for another installation: what to run
+ * on that host (install.sh --join).
  */
 export function SetupPage() {
   const { t } = useTranslation("setup");
@@ -312,7 +314,12 @@ export function SetupPage() {
       // Next on this step means "set it up now", also after an earlier "Skip for now".
       form.setValue("mail.skipped", false);
     }
-    if (currentKey === "mode" || currentKey === "admin" || currentKey === "mail") {
+    if (
+      currentKey === "modules" ||
+      currentKey === "mode" ||
+      currentKey === "admin" ||
+      currentKey === "mail"
+    ) {
       const valid = await form.trigger(STEP_FIELDS[currentKey], { shouldFocus: true });
       if (!valid) {
         return;
@@ -450,6 +457,7 @@ export function SetupPage() {
               ) : null}
               {currentKey === "restoreDone" ? <RestoreDoneStep /> : null}
               {currentKey === "workerInfo" ? <WorkerStep /> : null}
+              {currentKey === "modules" ? <ModulesStep form={form} /> : null}
               {currentKey === "mode" ? <ModeStep form={form} /> : null}
               {currentKey === "admin" ? <AdminStep form={form} /> : null}
               {currentKey === "mail" ? (

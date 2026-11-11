@@ -21,6 +21,7 @@ import {
 } from "../lib/disclaimer.js";
 import { claimFirstAdmin } from "../lib/first-admin.js";
 import { requestLanguage } from "../lib/language.js";
+import { MODULE_IDS, storedModules } from "../lib/modules.js";
 import { effectivePublicUrl, passwordResetAvailable } from "../lib/password-reset.js";
 import { clientIp, observedOrigin } from "../lib/request.js";
 import { upsertProviderSecret } from "../lib/secrets.js";
@@ -567,6 +568,8 @@ setup.post("/", async (c) => {
     { observedOrigin: observedOrigin(c), allowLocalhost: config.nodeEnv !== "production" },
   );
 
+  const enabledSetupModules = input.modules ?? [...MODULE_IDS];
+
   const values: NewSettings = {
     singleton: true,
     operatingMode: input.operatingMode,
@@ -577,6 +580,8 @@ setup.post("/", async (c) => {
     mailConfig: input.mail ? toMailConfig(input.mail) : null,
     // The zone the wizard chose (the browser's, preselected); without one the environment applies.
     timeZone: input.timeZone ?? null,
+    // What the wizard ticked under "What do you want to protect with Restow?"; every module without.
+    modules: storedModules(enabledSetupModules),
     setupCompletedAt: new Date(),
   };
 
@@ -619,6 +624,7 @@ setup.post("/", async (c) => {
           mailTransport: values.mailTransport,
           mailConfig: values.mailConfig,
           timeZone: values.timeZone,
+          modules: values.modules,
           setupCompletedAt: values.setupCompletedAt,
         },
       });
@@ -638,6 +644,7 @@ setup.post("/", async (c) => {
         publicUrl,
         mailTransport: input.mail?.transport ?? null,
         timeZone: input.timeZone ?? null,
+        modules: enabledSetupModules,
         passkeyReady: passkeyReady.ready,
         adminCreated: claimed.created,
       },

@@ -1,5 +1,6 @@
 import { canonicalTimeZone, normalizeTenantReference } from "@restow/core";
 import { z } from "zod";
+import { enabledModulesSchema } from "./lib/modules.js";
 import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "./lib/password-policy.js";
 import { safeParseLegacy } from "./lib/zod-issues.js";
 import { ProblemError } from "./problem.js";
@@ -134,6 +135,12 @@ export const setupRequestSchema = z
      * environment applies (`RESTOW_TIME_ZONE`, `TZ`, Europe/Berlin), as before.
      */
     timeZone: ianaTimeZoneSchema.optional(),
+    /**
+     * The installation's modules that are on (0.5.0, lib/modules.ts): what the wizard's step
+     * "What do you want to protect with Restow?" ticked, at least one. Absent: every module, as
+     * before. It only decides what the web interface shows; Installation > Modules changes it.
+     */
+    modules: enabledModulesSchema.optional(),
     firstAdmin: firstAdminSchema,
     /**
      * The notification mail transport. Optional: the wizard lets the operator set

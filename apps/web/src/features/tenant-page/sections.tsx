@@ -50,6 +50,7 @@ export const CORE_TENANT_SECTIONS: readonly TenantSectionSpec[] = TENANT_SECTION
     order: meta.order,
     component: COMPONENTS[meta.id] as TenantSectionSpec["component"],
     ...(meta.providerOnly ? { providerOnly: true } : {}),
+    ...(meta.modules ? { modules: meta.modules } : {}),
   }),
 );
 

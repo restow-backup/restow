@@ -7,6 +7,7 @@
 
 import { queryOptions } from "@tanstack/react-query";
 
+import type { ModuleId } from "@/lib/modules";
 import { getActiveTenantId } from "@/lib/tenant";
 
 const rawBaseUrl = import.meta.env.VITE_API_URL as string | undefined;
@@ -406,6 +407,11 @@ export interface SetupSubmission {
    * (`RESTOW_TIME_ZONE`, `TZ`, Europe/Berlin).
    */
   timeZone?: string;
+  /**
+   * The modules ticked in the step "What do you want to protect with Restow?" (lib/modules.ts),
+   * at least one. Absent: every module.
+   */
+  modules?: ModuleId[];
   firstAdmin: { name: string; email: string; password: string };
   /** Absent when the operator skips the mail step: it is set up later in the settings. */
   mail?: { transport: "smtp"; smtp: SmtpSetup } | { transport: "graph"; graph: GraphMailSetup };
@@ -496,6 +502,11 @@ export interface Me {
   activeTenantId: string | null;
   /** The gated core features this installation enables. */
   features: GatedFeature[];
+  /**
+   * The installation's modules that are on (lib/modules.ts); absent on servers from before
+   * modules existed, which reads as every module.
+   */
+  modules?: ModuleId[];
   /**
    * Fields contributed by server extensions, keyed by the extension's field
    * name. Opaque to the core: only the web extension that pairs with the

@@ -1,4 +1,5 @@
 import type { TenantSectionSpec } from "@/lib/extensions";
+import { isModuleShown } from "@/lib/modules";
 import type { NavLockContext } from "@/lib/navigation";
 import { CONNECTION_TABS, type ConnectionTab, TENANT_SECTION_IDS } from "@/lib/tenant-paths";
 
@@ -13,16 +14,28 @@ export interface TenantSectionState {
   spec: TenantSectionSpec;
   /** The section's lock holds it closed (an edition below the one that unlocks it). */
   locked: boolean;
+  /**
+   * The section belongs to modules of the installation that are all off (lib/modules.ts): it is
+   * left out of the sub-navigation, and says so when it is opened by its address.
+   */
+  hidden: boolean;
 }
 
-/** The sections in order, each marked locked or not; the same decision the menu makes for its entries. */
+/**
+ * The sections in order, each marked locked or not (the same decision the menu makes for its
+ * entries) and hidden or not (its module is off).
+ */
 export function tenantSectionStates(
   specs: readonly TenantSectionSpec[],
   context: NavLockContext,
 ): TenantSectionState[] {
   return [...specs]
     .sort((a, b) => a.order - b.order)
-    .map((spec) => ({ spec, locked: spec.lock ? spec.lock.isLocked(context) : false }));
+    .map((spec) => ({
+      spec,
+      locked: spec.lock ? spec.lock.isLocked(context) : false,
+      hidden: !isModuleShown(spec.modules, context.modules),
+    }));
 }
 
 /** Whether `id` names a section the core itself offers. */

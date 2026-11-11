@@ -7,6 +7,7 @@
     "label": "Installation sections",
     "select": "Section",
     "server": "Server",
+    "modules": "Modules",
     "mail": "Notification mail",
     "microsoftApp": "Microsoft multi-tenant app",
     "journal": "Journal receiving",
@@ -29,6 +30,7 @@
   },
   "descriptions": {
     "server": "How browsers reach this server, whether passkeys are offered and the installation's time zone. Applies to {scope, select, organisation {your organisation} other {all tenants}}.",
+    "modules": "What this installation protects. A module that is switched off is hidden in the menu, on the overview and where something new is created.",
     "mail": "The transport for reports, alerts and invitations. Used for {scope, select, organisation {your organisation} other {all tenants}}.",
     "microsoftApp": "The app registration this installation uses to reach Microsoft 365.",
     "journal": "The SMTP receiver for Exchange journal reports. One receiver serves {scope, select, organisation {your organisation} other {all tenants}}.",
@@ -53,6 +55,28 @@
     "owner": "You can look at these settings. Changing them needs the Owner role in the provider team.",
     "administrator": "You can look at this page. Running the test needs the Administrator role in the provider team or higher.",
     "demo": "This is a public demo. These settings are read-only here."
+  },
+  "modules": {
+    "title": "What {appName} protects here",
+    "description": "Switch off what this installation does not use, and its menu entries, its cards on the overview and its entries where something new is created are hidden for everyone. Nothing is deleted and no job stops: switch a module on again and everything is back where it was.",
+    "saved": "Modules saved.",
+    "loadError": "The modules could not be loaded",
+    "lastOne": "One module always stays on.",
+    "access": "You can look at the modules. Switching them on and off needs the Administrator role in the provider team or higher.",
+    "hidden": "Hidden. It holds no data.",
+    "hiddenWithData": "Hidden, but it still holds data across {scope, select, organisation {your organisation} other {all tenants}}: {held}. Nothing was deleted, its jobs keep running, and its pages still open by their address.",
+    "open": "Open",
+    "kinds": {
+      "connections": "{count, plural, one {# connection} other {# connections}}",
+      "objects": "{count, plural, one {# protected object} other {# protected objects}}",
+      "archivingJobs": "{count, plural, one {# job that archives} other {# jobs that archive}}",
+      "archives": "{count, plural, one {# archive with mail} other {# archives with mail}}",
+      "machines": "{count, plural, one {# machine} other {# machines}}",
+      "fileShares": "{count, plural, one {# file share} other {# file shares}}",
+      "jobs": "{count, plural, one {# job} other {# jobs}}",
+      "nodes": "{count, plural, one {# node} other {# nodes}}",
+      "guests": "{count, plural, one {# VM or container} other {# VMs and containers}}"
+    }
   },
   "locked": {
     "title": "{section} is not unlocked yet",

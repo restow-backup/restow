@@ -12,6 +12,20 @@ private repository.
 
 ### Added
 
+- Modules of the installation: the setup wizard of a new installation asks "What do you want to
+  protect?" with a box per module (Microsoft 365, IMAP mailboxes, Mail archive, Servers & clients,
+  Proxmox VE; all ticked to begin with, at least one), and Installation › Server & operation ›
+  Modules switches them on and off later (`GET`/`PUT /api/v1/settings/modules`, owners and
+  administrators, audited as `settings.modules.updated`). A module that is off is only hidden: its
+  menu entries and command palette commands, its cards on the overview, its sections of the tenant
+  and the installation page, and its entries where something new is created (the tabs of
+  Connections, the job type under "New job"). Nothing is deleted, no job stops and no API route
+  refuses anything. The Modules page says what a hidden module still holds across all tenants,
+  with counts, and its pages stay reachable by their address, with a discreet line that the module
+  is hidden in the navigation. An installation that updates keeps every module on (migration 0093
+  stores only the modules switched off); a restore from a dump and a worker node are not asked.
+  `GET /api/v1/me` carries the enabled modules as `modules`.
+
 - Machines: a scheduled deletion of a revoked machine's backups can be cancelled until the worker
   starts (Cancel deletion on the machine's page and in File restore, `POST
   /api/v1/endpoints/:id/remove/cancel`, provider owners, audited as `endpoint.removal.cancelled`).

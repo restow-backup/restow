@@ -263,6 +263,18 @@ export interface AppSecretAlertState {
  * encrypted secret store. `singleton` is a unique flag keeping this table to one row.
  */
 /**
+ * The modules of the installation (0.5.0): what it protects, as the setup wizard asks and
+ * Installation > Modules changes later (apps/api features/settings/modules.ts has the list).
+ * Only the ids of the modules switched off are stored, so an installation from an earlier release
+ * (`{}`) shows every module, and so does a module a later release adds. Switching a module off
+ * only hides its place in the web interface; nothing is deleted, stopped or refused.
+ */
+export type InstallationModules = {
+  /** Ids of the modules switched off; an id this release does not know is ignored. */
+  hidden?: string[];
+};
+
+/**
  * The provider's own prices, per month (0.4.7): per gigabyte or terabyte of stored backups (the
  * deduplicated, compressed bytes on the repositories) and per protected mailbox (the counting
  * rule of the usage figures). A price left out is not shown.
@@ -378,6 +390,9 @@ export const settings = pgTable(
     appSecretAlerts: jsonb("app_secret_alerts").$type<AppSecretAlertState>().notNull().default({}),
     // The mail transport's failure episode (0.5.0, MailFailureState); null while it works.
     mailFailure: jsonb("mail_failure").$type<MailFailureState>(),
+    // The modules of the installation the web interface hides (0.5.0, InstallationModules); `{}`
+    // hides none, which is what every installation showed before modules existed.
+    modules: jsonb("modules").$type<InstallationModules>().notNull().default({}),
     ...timestamps(),
   },
   (t) => [uniqueIndex("settings_singleton_uq").on(t.singleton)],

@@ -20,5 +20,7 @@ export const journalInstallationSections: InstallationSectionSpec[] = [
     order: 40,
     component: JournalReceivingSection,
     lock: editionLock("business"),
+    // Journaling feeds the mail archive: hidden with that module of the installation.
+    modules: ["archive"],
   },
 ];

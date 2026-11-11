@@ -7,6 +7,7 @@
     "label": "Bereiche der Installation",
     "select": "Bereich",
     "server": "Server",
+    "modules": "Module",
     "mail": "Benachrichtigungs-Mail",
     "microsoftApp": "Microsoft-Multi-Tenant-App",
     "journal": "Journal-Empfang",
@@ -29,6 +30,7 @@
   },
   "descriptions": {
     "server": "Wie Browser diesen Server erreichen, ob Passkeys angeboten werden und die Zeitzone der Installation. Gilt für {scope, select, organisation {Ihre Organisation} other {alle Mandanten}}.",
+    "modules": "Was diese Installation schützt. Ein ausgeschaltetes Modul ist im Menü, in der Übersicht und beim Anlegen neuer Einträge ausgeblendet.",
     "mail": "Der Transport für Berichte, Warnungen und Einladungen. Gilt für {scope, select, organisation {Ihre Organisation} other {alle Mandanten}}.",
     "microsoftApp": "Die App-Registrierung, über die diese Installation Microsoft 365 erreicht.",
     "journal": "Der SMTP-Empfänger für Exchange-Journalberichte. Ein Empfänger bedient {scope, select, organisation {Ihre Organisation} other {alle Mandanten}}.",
@@ -53,6 +55,28 @@
     "owner": "Sie können diese Einstellungen ansehen. Zum Ändern brauchen Sie die Rolle Inhaber im Provider-Team.",
     "administrator": "Sie können diese Seite ansehen. Den Test auszuführen erfordert im Provider-Team mindestens die Rolle Administrator.",
     "demo": "Dies ist eine öffentliche Demo. Diese Einstellungen sind hier schreibgeschützt."
+  },
+  "modules": {
+    "title": "Was {appName} hier schützt",
+    "description": "Schalten Sie aus, was diese Installation nicht nutzt: Die Menüeinträge, die Karten in der Übersicht und die Einträge beim Anlegen sind dann für alle ausgeblendet. Es wird nichts gelöscht und kein Job angehalten. Schalten Sie ein Modul wieder ein, ist alles wieder da, wo es war.",
+    "saved": "Module gespeichert.",
+    "loadError": "Die Module konnten nicht geladen werden",
+    "lastOne": "Ein Modul bleibt immer eingeschaltet.",
+    "access": "Sie können die Module ansehen. Zum Ein- und Ausschalten brauchen Sie im Provider-Team mindestens die Rolle Administrator.",
+    "hidden": "Ausgeblendet. Es enthält keine Daten.",
+    "hiddenWithData": "Ausgeblendet, enthält aber noch Daten in {scope, select, organisation {Ihrer Organisation} other {allen Mandanten}}: {held}. Es wurde nichts gelöscht, die Jobs laufen weiter, und die Seiten lassen sich über ihre Adresse weiterhin öffnen.",
+    "open": "Öffnen",
+    "kinds": {
+      "connections": "{count, plural, one {# Verbindung} other {# Verbindungen}}",
+      "objects": "{count, plural, one {# geschütztes Objekt} other {# geschützte Objekte}}",
+      "archivingJobs": "{count, plural, one {# archivierender Job} other {# archivierende Jobs}}",
+      "archives": "{count, plural, one {# Archiv mit Mails} other {# Archive mit Mails}}",
+      "machines": "{count, plural, one {# Rechner} other {# Rechner}}",
+      "fileShares": "{count, plural, one {# Freigabe} other {# Freigaben}}",
+      "jobs": "{count, plural, one {# Job} other {# Jobs}}",
+      "nodes": "{count, plural, one {# Knoten} other {# Knoten}}",
+      "guests": "{count, plural, one {# VM oder Container} other {# VMs und Container}}"
+    }
   },
   "locked": {
     "title": "{section} ist noch nicht freigeschaltet",

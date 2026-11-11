@@ -482,7 +482,11 @@ step 2.
    docker compose logs api | grep 'SETUP TOKEN'
    ```
 
-   Then it shows the operator notice, chooses the operating mode and the
+   Then it shows the operator notice, asks what you want to protect (Microsoft
+   365, IMAP mailboxes, the mail archive, servers & clients, Proxmox VE: all
+   ticked to begin with; what you leave out is only hidden in the menu, and you
+   switch it on again under Installation, Server & operation, Modules), chooses
+   the operating mode and the
    installation's time zone (the browser's is preselected; planned updates are
    read in it and new tenants start with it), asks for the
    name of your organisation (it becomes your own organisation, the place for

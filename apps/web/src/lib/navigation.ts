@@ -1,6 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 
 import type { GatedFeature } from "@/lib/api";
+import type { ModuleId } from "@/lib/modules";
 
 /**
  * Sidebar navigation model. Feature modules export `navItems` in this shape
@@ -52,6 +53,12 @@ export interface NavLockContext {
    * Entries that look across every tenant hide while it is false.
    */
   providerAllTenants?: boolean;
+  /**
+   * The installation's modules that are on (lib/modules.ts); absent or null hides nothing. A lock
+   * never reads it: the sections of the tenant page and of the installation page do, to leave
+   * the ones of a module that is off out of their sub-navigation.
+   */
+  modules?: readonly ModuleId[] | null;
 }
 
 /**
@@ -116,6 +123,13 @@ export interface NavItem {
    * what a lock should grey out.
    */
   visible?: (context: NavLockContext) => boolean;
+  /**
+   * The modules of the installation the entry belongs to (lib/modules.ts): it is left out of the
+   * sidebar and the command palette while none of them is on (lib/use-nav-items.ts). The page
+   * itself stays reachable by its address and says that its module is hidden. Without the field
+   * the entry belongs to every installation. Independent of a lock, which is an edition's.
+   */
+  modules?: readonly ModuleId[];
   /**
    * The entry depends on the active tenant's own state (lib/tenant-nav-offers.ts, GET
    * /api/v1/navigation): offered only while the tenant offers it, hidden while that is

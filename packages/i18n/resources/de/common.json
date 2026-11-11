@@ -98,6 +98,34 @@
       "openTenantPage": "Mandantenseite öffnen"
     }
   },
+  "modules": {
+    "items": {
+      "microsoft365": {
+        "title": "Microsoft 365",
+        "description": "Postfächer, OneDrive, SharePoint-Websites, Gruppen und Teams."
+      },
+      "imap": {
+        "title": "IMAP-Postfächer",
+        "description": "Postfächer jedes Mailservers, der IMAP anbietet."
+      },
+      "archive": {
+        "title": "Mail-Archiv",
+        "description": "Archivierte Mails, aufbewahrt nach Ihren Aufbewahrungsregeln, mit Legal Holds."
+      },
+      "endpoints": {
+        "title": "Server & Clients",
+        "description": "Server und Arbeitsplätze mit dem Backup-Agent sowie Freigaben."
+      },
+      "pve": {
+        "title": "Proxmox VE",
+        "description": "VMs und Container Ihrer Proxmox-VE-Knoten."
+      }
+    },
+    "hidden": {
+      "hint": "{count, plural, one {Dieses Modul ist in der Navigation ausgeblendet: {names}.} other {Diese Module sind in der Navigation ausgeblendet: {names}.}}",
+      "manage": "Wieder einblenden unter Installation › Server & Betrieb › Module"
+    }
+  },
   "tenant": {
     "label": "Mandant",
     "placeholder": "Mandant wählen",

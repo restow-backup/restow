@@ -164,6 +164,15 @@ async function passLanguageStep(): Promise<void> {
   await click(button("Next"));
 }
 
+/**
+ * The step after the notice, "What do you want to protect?": every module is ticked to begin
+ * with, so continuing is all it takes.
+ */
+async function passModulesStep(): Promise<void> {
+  expect(container.textContent).toContain("What do you want to protect with Restow?");
+  await click(button("Next"));
+}
+
 /** The radio of one of the two language cards. */
 function languageRadio(language: "en" | "de"): HTMLInputElement {
   const radio = container.querySelector<HTMLInputElement>(
@@ -235,7 +244,7 @@ describe("setup wizard, language step", () => {
   it("is the first step, with two choices that each name themselves in their own language", async () => {
     await mount(freshState);
 
-    expect(container.textContent).toContain("Step 1 of 8");
+    expect(container.textContent).toContain("Step 1 of 9");
     expect(container.textContent).toContain("Choose your language");
     // Each card is in its own language, whatever the page speaks right now.
     expect(container.textContent).toContain("English");
@@ -268,17 +277,17 @@ describe("setup wizard, language step", () => {
     expect(languageRadio("de").checked).toBe(true);
     expect(languageRadio("en").checked).toBe(false);
     // The texts of the step itself are German at once, not only after a click.
-    expect(container.textContent).toContain("Schritt 1 von 8");
+    expect(container.textContent).toContain("Schritt 1 von 9");
     expect(container.textContent).toContain("Wählen Sie Ihre Sprache");
     expect(container.textContent).not.toContain("Choose your language");
     expect(document.documentElement.lang).toBe("de");
 
     await click(button("Weiter"));
     // What to set up: asked in the chosen language, a new installation preselected.
-    expect(container.textContent).toContain("Schritt 2 von 8");
+    expect(container.textContent).toContain("Schritt 2 von 9");
     expect(container.textContent).toContain("Was möchten Sie einrichten?");
     await click(button("Weiter"));
-    expect(container.textContent).toContain("Schritt 3 von 8");
+    expect(container.textContent).toContain("Schritt 3 von 9");
     expect(container.textContent).toContain("Bestätigen Sie, dass Sie diesen Server betreiben");
     expect(container.textContent).toContain("Einmal-Code");
   });
@@ -299,7 +308,7 @@ describe("setup wizard, language step", () => {
 
     expect(languageRadio("de").checked).toBe(true);
     expect(container.textContent).toContain("Wählen Sie Ihre Sprache");
-    expect(container.textContent).toContain("Schritt 1 von 8");
+    expect(container.textContent).toContain("Schritt 1 von 9");
     expect(container.textContent).not.toContain("Choose your language");
     expect(localStorage.getItem("restow.language")).toBe("de");
 
@@ -325,13 +334,15 @@ describe("setup wizard, language step", () => {
     await click(button("Weiter"));
     await click(button("Weiter"));
 
-    expect(container.textContent).toContain("Schritt 3 von 8");
+    expect(container.textContent).toContain("Schritt 3 von 9");
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
     await type("setup-token", TOKEN);
     await click(button("Weiter"));
     await click(checkbox());
     await click(button("Weiter"));
-    // Operating mode, then the organisation and the first admin.
+    // What to protect (every module ticked), operating mode, then the organisation and the first admin.
+    expect(container.textContent).toContain("Was möchten Sie mit Restow schützen?");
+    await click(button("Weiter"));
     await click(button("Weiter"));
     await type("organisation-name", "Beispiel IT-Service GmbH");
     await type("admin-name", "Betreiber");
@@ -342,7 +353,7 @@ describe("setup wizard, language step", () => {
     await type("smtp-host", "mail.example.com");
     await type("smtp-from", "restow@example.com");
     await click(button("Weiter"));
-    expect(container.textContent).toContain("Schritt 8 von 8");
+    expect(container.textContent).toContain("Schritt 9 von 9");
     // The review names the language the operator picked.
     expect(container.textContent).toContain("Sprache");
     expect(container.textContent).toContain("Deutsch");
@@ -367,7 +378,7 @@ describe("setup wizard, setup token step", () => {
     await mount(freshState);
     await passLanguageStep();
 
-    expect(container.textContent).toContain("Step 3 of 8");
+    expect(container.textContent).toContain("Step 3 of 9");
     expect(container.textContent).toContain("Confirm that you run this server");
     // What it is: a one-time code that proves the operator runs the server.
     expect(container.textContent).toContain("one-time code that proves you operate this server");
@@ -397,7 +408,7 @@ describe("setup wizard, setup token step", () => {
     await click(button("Next"));
     expect(fetchMock).not.toHaveBeenCalled();
     expect(container.textContent).toContain("Enter the setup token.");
-    expect(container.textContent).toContain("Step 3 of 8");
+    expect(container.textContent).toContain("Step 3 of 9");
   });
 
   it("stays on the step when the server refuses the token", async () => {
@@ -418,7 +429,7 @@ describe("setup wizard, setup token step", () => {
     const headers = new Headers((fetchMock.mock.calls[0][1] as RequestInit).headers);
     expect(headers.get("x-restow-setup-token")).toBe("WRONG-TOKEN");
     expect(container.textContent).toContain("This is not the setup token of this server.");
-    expect(container.textContent).toContain("Step 3 of 8");
+    expect(container.textContent).toContain("Step 3 of 9");
   });
 
   it("moves on to the notice once the server accepts the token", async () => {
@@ -428,7 +439,7 @@ describe("setup wizard, setup token step", () => {
     await passTokenStep();
 
     expect(requests()).toEqual(["POST /setup/token"]);
-    expect(container.textContent).toContain("Step 4 of 8");
+    expect(container.textContent).toContain("Step 4 of 9");
     expect(container.textContent).toContain("Your responsibility as operator");
   });
 
@@ -436,19 +447,23 @@ describe("setup wizard, setup token step", () => {
     await mount(demoState);
 
     // The language is the first step everywhere; the steps that do not apply are passed
-    // over, and neither shown nor counted: five steps, not eight, and no jump from 1 to 5.
-    expect(container.textContent).toContain("Step 1 of 5");
+    // over, and neither shown nor counted: six steps, not nine, and no jump from 1 to 5.
+    expect(container.textContent).toContain("Step 1 of 6");
     expect(container.textContent).toContain("Choose your language");
-    expect(container.querySelectorAll("ol[aria-label] > li")).toHaveLength(5);
+    expect(container.querySelectorAll("ol[aria-label] > li")).toHaveLength(6);
     // The demo installs its one account: no question what to set up either.
     await click(button("Next"));
 
-    expect(container.textContent).toContain("Step 2 of 5");
+    expect(container.textContent).toContain("Step 2 of 6");
+    expect(container.textContent).toContain("What do you want to protect with Restow?");
+    await click(button("Next"));
+    expect(container.textContent).toContain("Step 3 of 6");
     expect(container.textContent).toContain("How do you run Restow?");
 
     // Back goes the same way: past the token and the notice, to the language.
     await click(button("Back"));
-    expect(container.textContent).toContain("Step 1 of 5");
+    await click(button("Back"));
+    expect(container.textContent).toContain("Step 1 of 6");
   });
 });
 
@@ -505,8 +520,8 @@ describe("setup wizard, operator notice step", () => {
     await click(button("Continue"));
 
     expect(requests()).toEqual(["POST /setup/token"]);
-    expect(container.textContent).toContain("Step 5 of 8");
-    expect(container.textContent).toContain("How do you run Restow?");
+    expect(container.textContent).toContain("Step 5 of 9");
+    expect(container.textContent).toContain("What do you want to protect with Restow?");
   });
 });
 
@@ -517,8 +532,9 @@ describe("setup wizard, organisation and first admin", () => {
     await passTokenStep();
     await click(checkbox());
     await click(button("Continue"));
+    await passModulesStep();
     await click(button("Next"));
-    expect(container.textContent).toContain("Step 6 of 8");
+    expect(container.textContent).toContain("Step 7 of 9");
   }
 
   it("asks for the name of the organisation next to the first admin", async () => {
@@ -537,17 +553,17 @@ describe("setup wizard, organisation and first admin", () => {
     await type("admin-confirm", "correct-horse-battery-1");
 
     await click(button("Next"));
-    expect(container.textContent).toContain("Step 6 of 8");
+    expect(container.textContent).toContain("Step 7 of 9");
     expect(container.textContent).toContain("This field is required.");
 
     // Only blanks do not count as a name.
     await type("organisation-name", "   ");
     await click(button("Next"));
-    expect(container.textContent).toContain("Step 6 of 8");
+    expect(container.textContent).toContain("Step 7 of 9");
 
     await type("organisation-name", "Example IT Services GmbH");
     await click(button("Next"));
-    expect(container.textContent).toContain("Step 7 of 8");
+    expect(container.textContent).toContain("Step 8 of 9");
   });
 });
 
@@ -558,6 +574,7 @@ describe("setup wizard, skipping the mail transport", () => {
     await passTokenStep();
     await click(checkbox());
     await click(button("Continue"));
+    await passModulesStep();
     await click(button("Next"));
     await type("organisation-name", "Example IT Services GmbH");
     await type("admin-name", "Operator");
@@ -565,7 +582,7 @@ describe("setup wizard, skipping the mail transport", () => {
     await type("admin-password", "correct-horse-battery-1");
     await type("admin-confirm", "correct-horse-battery-1");
     await click(button("Next"));
-    expect(container.textContent).toContain("Step 7 of 8");
+    expect(container.textContent).toContain("Step 8 of 9");
   }
 
   it("offers 'Skip for now' and says what does not work without mail and where to set it up", async () => {
@@ -592,6 +609,8 @@ describe("setup wizard, skipping the mail transport", () => {
     await click(button("Weiter"));
     await click(checkbox());
     await click(button("Weiter"));
+    // What to protect, then the operating mode.
+    await click(button("Weiter"));
     await click(button("Weiter"));
     await type("organisation-name", "Beispiel IT-Service GmbH");
     await type("admin-name", "Betreiber");
@@ -600,7 +619,7 @@ describe("setup wizard, skipping the mail transport", () => {
     await type("admin-confirm", "correct-horse-battery-1");
     await click(button("Weiter"));
 
-    expect(container.textContent).toContain("Schritt 7 von 8");
+    expect(container.textContent).toContain("Schritt 8 von 9");
     expect(button("Später einrichten")).toBeTruthy();
     expect(container.textContent).toContain("Mail ist optional.");
     expect(container.textContent).toContain(
@@ -608,7 +627,7 @@ describe("setup wizard, skipping the mail transport", () => {
     );
 
     await click(button("Später einrichten"));
-    expect(container.textContent).toContain("Schritt 8 von 8");
+    expect(container.textContent).toContain("Schritt 9 von 9");
     expect(container.textContent).toContain("Nicht eingerichtet");
   });
 
@@ -618,7 +637,7 @@ describe("setup wizard, skipping the mail transport", () => {
     // Nothing was typed: the transport form is empty and would not validate.
     await click(button("Skip for now"));
 
-    expect(container.textContent).toContain("Step 8 of 8");
+    expect(container.textContent).toContain("Step 9 of 9");
     expect(container.textContent).toContain("Mail transport");
     expect(container.textContent).toContain("Not set up");
     // No test message without a transport.
@@ -673,18 +692,18 @@ describe("setup wizard, skipping the mail transport", () => {
     await click(button("Skip for now"));
     await click(button("Back"));
 
-    expect(container.textContent).toContain("Step 7 of 8");
+    expect(container.textContent).toContain("Step 8 of 9");
     expect(container.textContent).toContain("You skipped this step.");
 
     // Next means "set it up now": the empty form is refused in place.
     await click(button("Next"));
-    expect(container.textContent).toContain("Step 7 of 8");
+    expect(container.textContent).toContain("Step 8 of 9");
     expect(container.textContent).toContain("This field is required.");
 
     await type("smtp-host", "mail.example.com");
     await type("smtp-from", "restow@example.com");
     await click(button("Next"));
-    expect(container.textContent).toContain("Step 8 of 8");
+    expect(container.textContent).toContain("Step 9 of 9");
     expect(container.textContent).toContain("SMTP server");
     expect(container.textContent).not.toContain("Not set up");
   });
@@ -697,6 +716,7 @@ describe("setup wizard, finishing", () => {
     await passTokenStep();
     await click(checkbox());
     await click(button("Continue"));
+    await passModulesStep();
     // Operating mode: local, the default.
     await click(button("Next"));
     await type("organisation-name", "Example IT Services GmbH");
@@ -708,7 +728,7 @@ describe("setup wizard, finishing", () => {
     await type("smtp-host", "mail.example.com");
     await type("smtp-from", "restow@example.com");
     await click(button("Next"));
-    expect(container.textContent).toContain("Step 8 of 8");
+    expect(container.textContent).toContain("Step 9 of 9");
   }
 
   it("sends the token as a header and the accepted notice in the body", async () => {
@@ -766,12 +786,13 @@ describe("setup wizard, finishing", () => {
 
     await click(button("Finish setup"));
 
-    expect(container.textContent).toContain("Step 3 of 8");
+    expect(container.textContent).toContain("Step 3 of 9");
     expect(container.textContent).toContain("The setup token has changed");
     // Everything entered so far is still there.
     expect(container.querySelector<HTMLInputElement>("#setup-token")?.value).toBe(TOKEN);
     await passTokenStep();
     await click(button("Continue"));
+    await passModulesStep();
     await click(button("Next"));
     expect(container.querySelector<HTMLInputElement>("#admin-email")?.value).toBe(
       "ops@example.com",
@@ -779,7 +800,7 @@ describe("setup wizard, finishing", () => {
     // Back on the review, the token problem is not shown again as a failed setup.
     await click(button("Next"));
     await click(button("Next"));
-    expect(container.textContent).toContain("Step 8 of 8");
+    expect(container.textContent).toContain("Step 9 of 9");
     expect(container.textContent).not.toContain("The setup could not be saved.");
   });
 
@@ -795,7 +816,7 @@ describe("setup wizard, finishing", () => {
 
     await click(button("Finish setup"));
 
-    expect(container.textContent).toContain("Step 4 of 8");
+    expect(container.textContent).toContain("Step 4 of 9");
     expect(container.textContent).toContain("The notice was updated. Reload the page");
     expect(button("Reload")).toBeTruthy();
     expect(checkbox().getAttribute("aria-checked")).toBe("false");
@@ -809,6 +830,7 @@ describe("setup wizard, mail transports", () => {
     await passTokenStep();
     await click(checkbox());
     await click(button("Continue"));
+    await passModulesStep();
     await click(button("Next"));
     await type("organisation-name", "Example IT Services GmbH");
     await type("admin-name", "Operator");
@@ -816,7 +838,7 @@ describe("setup wizard, mail transports", () => {
     await type("admin-password", "correct-horse-battery-1");
     await type("admin-confirm", "correct-horse-battery-1");
     await click(button("Next"));
-    expect(container.textContent).toContain("Step 7 of 8");
+    expect(container.textContent).toContain("Step 8 of 9");
   }
 
   it("offers SMTP only while no backup app registration exists, and says where the others are", async () => {
@@ -923,7 +945,7 @@ describe("setup wizard, what to set up", () => {
     await mount({ ...freshState, restore: { available: true, status: null, phase: null } });
     await click(button("Next"));
 
-    expect(container.textContent).toContain("Step 2 of 8");
+    expect(container.textContent).toContain("Step 2 of 9");
     expect(container.textContent).toContain("What do you want to set up?");
     expect(container.textContent).toContain("A new installation");
     expect(container.textContent).toContain("Restore an installation");
@@ -1090,5 +1112,193 @@ describe("setup wizard, what to set up", () => {
     expect(container.textContent).toContain("is in development");
     expect(container.textContent).not.toContain("Confirm that you run this server");
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("setup wizard, what to protect", () => {
+  const MODULES = ["microsoft365", "imap", "archive", "endpoints", "pve"] as const;
+
+  async function toModulesStep(): Promise<void> {
+    await mount(freshState);
+    await passLanguageStep();
+    await passTokenStep();
+    await click(checkbox());
+    await click(button("Continue"));
+    expect(container.textContent).toContain("Step 5 of 9");
+  }
+
+  /** The box of one module on the step. */
+  function moduleBox(module: (typeof MODULES)[number]): HTMLButtonElement {
+    const box = container.querySelector<HTMLButtonElement>(
+      `[data-module="${module}"] [role="checkbox"]`,
+    );
+    if (!box) {
+      throw new Error(`expected the box of the module ${module}`);
+    }
+    return box;
+  }
+
+  const ticked = () =>
+    MODULES.filter((module) => moduleBox(module).getAttribute("aria-checked") === "true");
+
+  it("follows the notice: one box per module, each named and described, all ticked to begin with", async () => {
+    await toModulesStep();
+
+    expect(container.textContent).toContain("What do you want to protect with Restow?");
+    expect(container.querySelectorAll('[data-module] [role="checkbox"]')).toHaveLength(5);
+    expect(ticked()).toEqual([...MODULES]);
+    for (const text of [
+      "Microsoft 365",
+      "Mailboxes, OneDrive, SharePoint sites, groups and teams.",
+      "IMAP mailboxes",
+      "Mail archive",
+      "Servers & clients",
+      "Servers and workstations with the backup agent, and file shares.",
+      "Proxmox VE",
+      "VMs and containers of your Proxmox VE nodes.",
+    ]) {
+      expect(container.textContent).toContain(text);
+    }
+    // Leaving one out is no loss: the step says where to change it later.
+    expect(container.textContent).toContain("Installation › Server & operation › Modules");
+    // Nothing is sent by the step itself.
+    expect(requests()).toEqual(["POST /setup/token"]);
+  });
+
+  it("does not go on without a module: at least one box stays ticked", async () => {
+    await toModulesStep();
+    for (const module of MODULES) {
+      await click(moduleBox(module));
+    }
+    expect(ticked()).toEqual([]);
+    expect(container.querySelector('[role="alert"]')?.textContent).toBe("Tick at least one.");
+
+    await click(button("Next"));
+    expect(container.textContent).toContain("Step 5 of 9");
+    expect(container.textContent).toContain("Tick at least one.");
+
+    await click(moduleBox("pve"));
+    expect(container.textContent).not.toContain("Tick at least one.");
+    await click(button("Next"));
+    expect(container.textContent).toContain("Step 6 of 9");
+    expect(container.textContent).toContain("How do you run Restow?");
+  });
+
+  it("keeps the choice when the operator comes back to the step", async () => {
+    await toModulesStep();
+    await click(moduleBox("archive"));
+    await click(button("Next"));
+    await click(button("Back"));
+
+    expect(ticked()).toEqual(["microsoft365", "imap", "endpoints", "pve"]);
+  });
+
+  it("names the ticked modules in the review and sends exactly them with the setup", async () => {
+    await toModulesStep();
+    await click(moduleBox("imap"));
+    await click(moduleBox("archive"));
+    await click(moduleBox("endpoints"));
+    await click(button("Next"));
+    // Operating mode: local, the default.
+    await click(button("Next"));
+    await type("organisation-name", "Example IT Services GmbH");
+    await type("admin-name", "Operator");
+    await type("admin-email", "ops@example.com");
+    await type("admin-password", "correct-horse-battery-1");
+    await type("admin-confirm", "correct-horse-battery-1");
+    await click(button("Next"));
+    await click(button("Skip for now"));
+
+    expect(container.textContent).toContain("Step 9 of 9");
+    expect(container.textContent).toContain("Protects");
+    expect(container.textContent).toContain("Microsoft 365 · Proxmox VE");
+
+    fetchMock.mockClear();
+    fetchMock.mockResolvedValueOnce(
+      json(403, {
+        type: "urn:restow:problem:setup-token-invalid",
+        title: "Setup token required",
+        status: 403,
+      }),
+    );
+    await click(button("Finish setup"));
+
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect(body.modules).toEqual(["microsoft365", "pve"]);
+  });
+
+  it("sends every module when the operator just continues", async () => {
+    await toModulesStep();
+    await click(button("Next"));
+    await click(button("Next"));
+    await type("organisation-name", "Example IT Services GmbH");
+    await type("admin-name", "Operator");
+    await type("admin-email", "ops@example.com");
+    await type("admin-password", "correct-horse-battery-1");
+    await type("admin-confirm", "correct-horse-battery-1");
+    await click(button("Next"));
+    await click(button("Skip for now"));
+    fetchMock.mockClear();
+    fetchMock.mockResolvedValueOnce(
+      json(403, {
+        type: "urn:restow:problem:setup-token-invalid",
+        title: "Setup token required",
+        status: 403,
+      }),
+    );
+    await click(button("Finish setup"));
+
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect(body.modules).toEqual([...MODULES]);
+  });
+
+  it("asks in German with the formal address", async () => {
+    await mount(freshState);
+    await click(languageRadio("de"));
+    await click(button("Weiter"));
+    await click(button("Weiter"));
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+    await type("setup-token", TOKEN);
+    await click(button("Weiter"));
+    await click(checkbox());
+    await click(button("Weiter"));
+
+    expect(container.textContent).toContain("Schritt 5 von 9");
+    expect(container.textContent).toContain("Was möchten Sie mit Restow schützen?");
+    expect(container.textContent).toContain("IMAP-Postfächer");
+    expect(container.textContent).toContain("Server & Clients");
+    expect(container.textContent).toContain("Installation › Server & Betrieb › Module");
+  });
+
+  it("is not part of a restore from a dump, which brings its modules, nor of a worker node", async () => {
+    fetchMock.mockImplementation(async () => json(200, { operation: null, uploads: [] }));
+    await mount({ ...freshState, restore: { available: true, status: null, phase: null } });
+    await click(button("Next"));
+    const restore = container.querySelector<HTMLInputElement>(
+      'input[name="setup-kind"][value="restore"]',
+    );
+    await click(restore as HTMLInputElement);
+    // Six steps, none of them the modules: language, what to set up, token, dump, run, done.
+    expect(container.textContent).toContain("Step 2 of 6");
+    expect(container.querySelectorAll("ol[aria-label] > li")).toHaveLength(6);
+    expect(container.textContent).not.toContain("What to protect");
+
+    const worker = container.querySelector<HTMLInputElement>(
+      'input[name="setup-kind"][value="worker"]',
+    );
+    await click(worker as HTMLInputElement);
+    expect(container.textContent).toContain("Step 2 of 3");
+    await click(button("Next"));
+    expect(container.textContent).toContain("Step 3 of 3");
+    expect(container.textContent).not.toContain("What do you want to protect");
+
+    // A new installation has it: nine steps, the fifth is the question.
+    await click(button("Back"));
+    const fresh = container.querySelector<HTMLInputElement>(
+      'input[name="setup-kind"][value="new"]',
+    );
+    await click(fresh as HTMLInputElement);
+    expect(container.textContent).toContain("Step 2 of 9");
+    expect(container.querySelectorAll("ol[aria-label] > li")).toHaveLength(9);
   });
 });

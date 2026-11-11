@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { isValidTenantId } from "@/features/settings/forms";
 import type { SetupSubmission, SmtpSecurity } from "@/lib/api";
+import { MODULE_IDS } from "@/lib/modules";
 import { PASSWORD_MIN_LENGTH } from "@/lib/password";
 
 /**
@@ -26,14 +27,15 @@ export type SetupKind = (typeof SETUP_KINDS)[number];
  * sets up has access to the server (apps/api lib/setup-token.ts); a restore needs it as well,
  * or anyone who reaches a fresh installation could restore a dump of their own into it. A new
  * installation continues with the operator responsibility notice (apps/api lib/disclaimer.ts),
- * the mode, the first admin, the mail and the review; a restore with the dump, its run and
- * report, and the end (no notice, mode, admin or mail: the dump brings its users and
- * settings). Neither the token nor the notice is part of the form: the token travels as a
+ * what it is to protect (its modules, lib/modules.ts), the mode, the first admin, the mail and
+ * the review; a restore with the dump, its run and
+ * report, and the end (no notice, modules, mode, admin or mail: the dump brings its users and
+ * settings, the modules among them). A worker has nothing to choose either. Neither the token nor the notice is part of the form: the token travels as a
  * header, the acceptance with the setup request, and the server refuses the setup without
  * either.
  */
 export const STEPS_BY_KIND = {
-  new: ["language", "kind", "token", "disclaimer", "mode", "admin", "mail", "review"],
+  new: ["language", "kind", "token", "disclaimer", "modules", "mode", "admin", "mail", "review"],
   restore: ["language", "kind", "token", "restoreSource", "restoreRun", "restoreDone"],
   worker: ["language", "kind", "workerInfo"],
 } as const satisfies Record<SetupKind, readonly string[]>;
@@ -60,6 +62,11 @@ export const DEFAULT_SMTP_PORT: Record<SmtpSecurity, string> = {
 
 export const setupFormSchema = z
   .object({
+    /**
+     * What the installation is to protect: its modules that are on (lib/modules.ts), at least
+     * one. Every module is ticked to begin with; Installation > Modules changes it later.
+     */
+    modules: z.array(z.enum(MODULE_IDS)).min(1, "required"),
     operatingMode: z.enum(["local", "public"]),
     publicUrl: z.string().trim(),
     /**
@@ -166,7 +173,8 @@ export const setupFormSchema = z
 export type SetupFormValues = z.infer<typeof setupFormSchema>;
 
 /** Which form fields each step validates before it lets the user continue. */
-export const STEP_FIELDS: Record<"mode" | "admin" | "mail", readonly FieldPath[]> = {
+export const STEP_FIELDS: Record<"modules" | "mode" | "admin" | "mail", readonly FieldPath[]> = {
+  modules: ["modules"],
   mode: ["operatingMode", "publicUrl", "timeZone"],
   admin: ["organisationName", "admin.name", "admin.email", "admin.password", "admin.confirm"],
   mail: [
@@ -183,6 +191,7 @@ export const STEP_FIELDS: Record<"mode" | "admin" | "mail", readonly FieldPath[]
 };
 
 type FieldPath =
+  | "modules"
   | "operatingMode"
   | "publicUrl"
   | "timeZone"
@@ -203,6 +212,7 @@ type FieldPath =
   | "sendTest";
 
 export const defaultSetupValues: SetupFormValues = {
+  modules: [...MODULE_IDS],
   operatingMode: "local",
   publicUrl: "",
   timeZone: "",
@@ -275,7 +285,7 @@ export function publicUrlReason(value: string): "required" | "url" | "httpsRequi
 /**
  * Only what the API contract needs; empty optionals are dropped, not sent.
  * `disclaimerVersion` is the version of the notice the operator accepted and
- * `language` the one chosen in the first step. A skipped mail step sends no
+ * `language` the one chosen in the first step. The modules travel in the order of the list. A skipped mail step sends no
  * `mail` and no test message.
  */
 export function buildSubmission(
@@ -289,6 +299,7 @@ export function buildSubmission(
     operatingMode: values.operatingMode,
     providerName: values.organisationName.trim(),
     language,
+    modules: MODULE_IDS.filter((module) => values.modules.includes(module)),
     firstAdmin: {
       name: values.admin.name.trim(),
       email: values.admin.email.trim(),

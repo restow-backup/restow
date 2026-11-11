@@ -98,6 +98,34 @@
       "openTenantPage": "Open tenant page"
     }
   },
+  "modules": {
+    "items": {
+      "microsoft365": {
+        "title": "Microsoft 365",
+        "description": "Mailboxes, OneDrive, SharePoint sites, groups and teams."
+      },
+      "imap": {
+        "title": "IMAP mailboxes",
+        "description": "Mailboxes of any mail server that offers IMAP."
+      },
+      "archive": {
+        "title": "Mail archive",
+        "description": "Mail archived for as long as your retention rules say, with legal holds."
+      },
+      "endpoints": {
+        "title": "Servers & clients",
+        "description": "Servers and workstations with the backup agent, and file shares."
+      },
+      "pve": {
+        "title": "Proxmox VE",
+        "description": "VMs and containers of your Proxmox VE nodes."
+      }
+    },
+    "hidden": {
+      "hint": "{count, plural, one {This module is hidden in the navigation: {names}.} other {These modules are hidden in the navigation: {names}.}}",
+      "manage": "Show it again under Installation › Server & operation › Modules"
+    }
+  },
   "tenant": {
     "label": "Tenant",
     "placeholder": "Select tenant",

@@ -7,6 +7,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { newQueryClient, sessionAs } from "@/features/updates/testing";
 import { i18n } from "@/i18n";
+import type { ModuleId } from "@/lib/modules";
 import { StaticSessionProvider } from "@/lib/session";
 
 import type { StorageCapacity, TenantWidgets, WidgetData, WidgetResult } from "./api.js";
@@ -1374,6 +1375,54 @@ describe("widget registry", () => {
     expect(html).not.toContain("Setup complete");
     // Three figures for a member: no gap where the mailbox tile would be.
     expect(html).toContain("xl:grid-cols-3");
+  });
+
+  it("leaves the cards of a module of the installation that is off out of the page, and only those", () => {
+    const adminWidgets: TenantWidgets = {
+      readiness: ok("readiness"),
+      lastBackup: ok("lastBackup"),
+      protectedObjects: ok("protectedObjects"),
+      storage: ok("storage"),
+      mailboxUsage: ok("mailboxUsage"),
+      endpoints: ok("endpoints"),
+      backupTrend: ok("backupTrend"),
+    };
+    const page = (modules: readonly ModuleId[] | undefined) =>
+      renderToStaticMarkup(
+        <I18nextProvider i18n={i18n}>
+          <QueryClientProvider client={newQueryClient()}>
+            <StaticSessionProvider value={sessionAs({ isProviderAdmin: false, modules })}>
+              <DashboardWidgets widgets={adminWidgets} loading={false} canAdminister {...context} />
+            </StaticSessionProvider>
+          </QueryClientProvider>
+        </I18nextProvider>,
+      );
+
+    // Every module on, and a session from before modules: both cards are there.
+    for (const html of [
+      page(["microsoft365", "imap", "archive", "endpoints", "pve"]),
+      page(undefined),
+    ]) {
+      expect(html).toContain('data-widget="mailboxUsage"');
+      expect(html).toContain('data-section="endpoints"');
+    }
+
+    // Servers & clients off: no machines card; the mailbox tile stays.
+    const mailOnly = page(["microsoft365"]);
+    expect(mailOnly).not.toContain('data-section="endpoints"');
+    expect(mailOnly).toContain('data-widget="mailboxUsage"');
+
+    // No mail module on: no mailbox tile, and the row has three figures without a gap.
+    const machinesOnly = page(["endpoints", "pve"]);
+    expect(machinesOnly).not.toContain('data-widget="mailboxUsage"');
+    expect(machinesOnly).toContain('data-section="endpoints"');
+    expect(machinesOnly).toContain("xl:grid-cols-3");
+    // What belongs to no module is never touched.
+    for (const html of [mailOnly, machinesOnly]) {
+      expect(html).toContain('data-widget="readiness"');
+      expect(html).toContain('data-widget="storage"');
+      expect(html).toContain('data-widget="backupSuccess"');
+    }
   });
 
   it("shows one failed widget without taking the others down", () => {
