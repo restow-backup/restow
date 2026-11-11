@@ -97,7 +97,9 @@ func TestRestoreInitReapsTheServerOfAGoneWorker(t *testing.T) {
 // The restore server stops after a time without requests, and every request resets it.
 func TestRestoreServerIdleTimeout(t *testing.T) {
 	a := &activity{}
-	ctx := watchIdle(context.Background(), a, 80*time.Millisecond, 5*time.Millisecond, func(string, ...any) {})
+	// Wide apart: the idle time is 100 times the gap between requests. On a busy CI runner a
+	// 20 ms sleep took longer than an idle time of 80 ms, and the watcher stopped rightly.
+	ctx := watchIdle(context.Background(), a, 2*time.Second, 5*time.Millisecond, func(string, ...any) {})
 	for i := 0; i < 10; i++ {
 		time.Sleep(20 * time.Millisecond)
 		a.touch()
@@ -107,7 +109,7 @@ func TestRestoreServerIdleTimeout(t *testing.T) {
 	}
 	select {
 	case <-ctx.Done():
-	case <-time.After(2 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("did not stop without requests")
 	}
 	// A read through the export counts as a request.
