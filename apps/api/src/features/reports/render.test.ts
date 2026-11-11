@@ -61,6 +61,82 @@ describe("renderAlert", () => {
     expect(german.text).toContain("Frei: 4,0 GiB");
   });
 
+  it("names every place on one disk in one row (#98)", () => {
+    const shared = (language: "en" | "de") =>
+      renderAlert({
+        language,
+        tenantName: "Contoso",
+        ruleName: "Disks",
+        payload: {
+          event: "installation.disk_low",
+          occurredAt: "2026-11-11T10:00:00.000Z",
+          details: {
+            disk: "system",
+            disks: ["system", "database", "repository"],
+            location: "/",
+            freeBytes: 4 * 1024 ** 3,
+            totalBytes: 100 * 1024 ** 3,
+            objectName: "/",
+          },
+        },
+      });
+    expect(shared("en").text).toContain(
+      "Disk: System disk of the server, Under the database and Under the local default repository",
+    );
+    expect(shared("de").text).toContain(
+      "Datenträger: Systemdatenträger des Servers, Unter der Datenbank und ",
+    );
+  });
+
+  it("names the emergency disk reserve in a disk warning, and what to do once it was freed (#98)", () => {
+    const render = (
+      event: "installation.disk_low" | "installation.disk_reserve_released",
+      details: Record<string, unknown>,
+      language: "en" | "de",
+    ) =>
+      renderAlert({
+        language,
+        tenantName: "Contoso",
+        ruleName: "Disks",
+        payload: { event, occurredAt: "2026-11-11T10:00:00.000Z", details },
+      });
+    const low = render(
+      "installation.disk_low",
+      {
+        disk: "system",
+        location: "/",
+        freeBytes: 4 * 1024 ** 3,
+        totalBytes: 100 * 1024 ** 3,
+        objectName: "/",
+        reservePath: "/data/restow-disk-reserve",
+        reserveBytes: 2 * 1024 ** 3,
+        reserveState: "present",
+        reserveFloorBytes: 1024 ** 3,
+        reserveCommand: "docker compose exec api restow disk-reserve release",
+      },
+      "en",
+    );
+    expect(low.text).toContain("Disk: System disk of the server");
+    expect(low.text).toContain(
+      "Emergency reserve: 2.0 GiB at /data/restow-disk-reserve. Freed by itself below 1.0 GiB free, by hand with: docker compose exec api restow disk-reserve release",
+    );
+    const released = render(
+      "installation.disk_reserve_released",
+      {
+        path: "/data/restow-disk-reserve",
+        freeBytes: 2.5 * 1024 ** 3,
+        totalBytes: 100 * 1024 ** 3,
+        objectName: "/data/restow-disk-reserve",
+      },
+      "de",
+    );
+    expect(released.subject).toBe(
+      "[Contoso] Notreserve auf dem Datenträger freigegeben: /data/restow-disk-reserve",
+    );
+    expect(released.text).toContain("Frei: 2,5 GiB");
+    expect(released.text).toContain("docker image prune -a");
+  });
+
   it("says when an app credential expires, how long is left and how to renew it", () => {
     const expiring = (
       event: "installation.app_secret_expiring" | "source.app_secret_expiring",

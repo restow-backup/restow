@@ -102,6 +102,10 @@ function text(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
 }
 
+function numberOr(value: unknown, fallback = 0): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
 /**
  * The object with its service (0.5.0), "OneDrive · msp@contoso.example": a person's mailbox and
  * OneDrive share the person's name. The bare name for a kind without a label.
@@ -376,15 +380,72 @@ export function renderAlert(input: AlertInput): RenderedMessage {
     const location = text(details.location);
     const free = typeof details.freeBytes === "number" ? details.freeBytes : null;
     const total = typeof details.totalBytes === "number" ? details.totalBytes : null;
-    if (disk === "database" || disk === "repository") {
+    const placeKey: Record<string, string> = {
+      database: "reports:mail.diskDatabase",
+      repository: "reports:mail.diskRepository",
+      system: "reports:mail.diskSystem",
+    };
+    // One disk that holds several places (0.5.0) names them all in one row.
+    const places = (Array.isArray(details.disks) ? details.disks : [disk]).filter(
+      (place): place is string => typeof place === "string" && place in placeKey,
+    );
+    if (places.length > 0) {
       rows.push([
         t("reports:mail.disk"),
-        t(disk === "database" ? "reports:mail.diskDatabase" : "reports:mail.diskRepository"),
+        new Intl.ListFormat(input.language === "de" ? "de-DE" : "en-GB", {
+          type: "conjunction",
+        }).format(places.map((place) => t(placeKey[place] as string))),
       ]);
     }
     if (location) rows.push([t("reports:mail.location"), location]);
     if (free !== null) rows.push([t("reports:mail.free"), formatGib(free, input.language)]);
     if (total !== null) rows.push([t("reports:mail.total"), formatGib(total, input.language)]);
+    // The emergency disk reserve (#98): where it is and how it is freed by hand.
+    const reservePath = text(details.reservePath);
+    if (reservePath && details.reserveState === "present") {
+      rows.push([
+        t("reports:mail.reserve"),
+        t("reports:mail.reserveLine", {
+          size: formatGib(numberOr(details.reserveBytes), input.language),
+          path: reservePath,
+          floor: formatGib(numberOr(details.reserveFloorBytes), input.language),
+          command: text(details.reserveCommand),
+        }),
+      ]);
+    }
+  }
+  if (
+    event === "installation.disk_reserve_released" ||
+    event === "installation.disk_reserve_restored"
+  ) {
+    // The emergency disk reserve (#98): where it is, how much the disk has now, what to do.
+    const path = text(details.path);
+    if (path) rows.push([t("reports:mail.location"), path]);
+    if (typeof details.freeBytes === "number") {
+      rows.push([t("reports:mail.free"), formatGib(details.freeBytes, input.language)]);
+    }
+    if (typeof details.totalBytes === "number") {
+      rows.push([t("reports:mail.total"), formatGib(details.totalBytes, input.language)]);
+    }
+    if (event === "installation.disk_reserve_released") {
+      rows.push([t("reports:mail.todo"), t("reports:mail.reserveTodo")]);
+    }
+  }
+  if (event === "backup.unusually_large") {
+    // A run the size and space guard held (#99): how large it got, what is usual, what to do.
+    if (typeof details.bytes === "number") {
+      rows.push([t("reports:mail.runSize"), formatGib(details.bytes, input.language)]);
+    }
+    if (typeof details.medianBytes === "number") {
+      rows.push([t("reports:mail.usualSize"), formatGib(details.medianBytes, input.language)]);
+    }
+    if (typeof details.limitBytes === "number") {
+      rows.push([t("reports:mail.sizeLimit"), formatGib(details.limitBytes, input.language)]);
+    }
+    if (typeof details.freeBytes === "number") {
+      rows.push([t("reports:mail.free"), formatGib(details.freeBytes, input.language)]);
+    }
+    rows.push([t("reports:mail.todo"), t("reports:mail.runHeldTodo")]);
   }
   if (event === "installation.restore_mode") {
     // Restore mode came on by itself (a database dump was restored): what to do now.

@@ -119,3 +119,28 @@ describe("the object a notification names (0.5.0)", () => {
     await i18n.changeLanguage("en");
   });
 });
+
+describe("the bell line of a low disk that holds several places (#98)", () => {
+  it("is one line naming them all; a disk of its own keeps its line", async () => {
+    const shared = {
+      event: "installation.disk_low",
+      details: { disk: "system", disks: ["system", "database", "repository"] },
+    };
+    expect(bellEventKey(shared)).toBe("bellEvents.installation.disk_low_shared");
+    expect(
+      bellEventKey({
+        event: "installation.disk_low",
+        details: { disk: "system", disks: ["system"] },
+      }),
+    ).toBe("bellEvents.installation.disk_low_system");
+    const previous = i18n.language;
+    for (const language of ["en", "de"]) {
+      await i18n.changeLanguage(language);
+      expect(i18n.exists("reports:bellEvents.installation.disk_low_shared"), language).toBe(true);
+      for (const place of ["database", "repository", "system"]) {
+        expect(i18n.exists(`reports:bellEvents.installation.diskPlace.${place}`), place).toBe(true);
+      }
+    }
+    await i18n.changeLanguage(previous);
+  });
+});

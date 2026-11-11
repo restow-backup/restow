@@ -250,7 +250,11 @@
     },
     "backup": {
       "requested": "Backup manuell gestartet",
-      "first_queued": "Erste Sicherung eingeplant"
+      "first_queued": "Erste Sicherung eingeplant",
+      "size_hold_continued": "Angehaltene, ungewöhnlich große Sicherung darf einmal weiterlaufen",
+      "size_limit_raised": "Größengrenze einer angehaltenen Sicherung erhöht",
+      "size_guard_changed": "Größen- und Platzprüfung der Sicherungen geändert",
+      "space_rule_changed": "Auf Speicherzielen frei gehaltener Platz geändert"
     },
     "directory": {
       "account": {

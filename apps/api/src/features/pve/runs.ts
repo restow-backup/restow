@@ -4,6 +4,7 @@ import {
   blockCount,
   blockLength,
   buildBlockMap,
+  buildCause,
   buildPveManifest,
   type ChunkWriterStats,
   decodeFrame,
@@ -24,6 +25,7 @@ import {
   type StagedBlock,
   sealManifest,
   sha256Hex,
+  toFailureRecord,
   writeToAllTargets,
 } from "@restow/core";
 import {
@@ -42,6 +44,7 @@ import {
   pveSnapshots,
   pveTasks,
   repositoryRepairActive,
+  runSizeHoldOfRun,
   storageGeneration,
 } from "@restow/db";
 import { and, desc, eq, gt, inArray, isNotNull, type SQL, sql } from "drizzle-orm";
@@ -1014,6 +1017,11 @@ export async function finishRun(
     await releaseStaging(node.tenantId, run.id);
   }
   await withTenantTx(db, node.tenantId, async (tx) => {
+    // A container backup the size and space guard held (#99) says so, not restic's refusal.
+    const held =
+      status === "failed"
+        ? await runSizeHoldOfRun(tx, "pve_guest", run.guestId, run.id, run.createdAt)
+        : null;
     await tx
       .update(pveRuns)
       .set({
@@ -1021,6 +1029,13 @@ export async function finishRun(
         finishedAt: now,
         errorMessage: message,
         stats,
+        ...(held
+          ? {
+              failure: toFailureRecord(buildCause("storage.run_held", {}, { holdId: held.id }), {
+                now,
+              }),
+            }
+          : {}),
       })
       .where(eq(pveRuns.id, run.id));
     if (status !== "cancelled") {

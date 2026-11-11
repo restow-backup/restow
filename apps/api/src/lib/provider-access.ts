@@ -354,6 +354,9 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   // directory, moving the database, removing an old copy and the pre-update dumps (a dump is
   // the whole database: the most sensitive export there is) for the owner.
   "GET /api/v1/updates/database": view(PROVIDER),
+  // The installation's space rule for backups (#99): the owner, like the update settings.
+  "GET /api/v1/updates/space-rule": view(PROVIDER),
+  "PUT /api/v1/updates/space-rule": own(),
   "POST /api/v1/updates/database/check": own(),
   "POST /api/v1/updates/database/move": own(),
   "DELETE /api/v1/updates/database/old-copies/:id": own(),
@@ -440,6 +443,16 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   // object: administrators and up (and a recent sign-in, features/suspicion/routes.ts).
   "POST /api/v1/suspicions/hold/release": configure(),
   "POST /api/v1/suspicions/hold/false-alarm": operate(),
+  // The backups the size and space guard held (#99): reading for every role, continuing once
+  // for technicians and up, the object's limit and the settings for administrators and up.
+  "GET /api/v1/run-size/holds": view(),
+  "POST /api/v1/run-size/holds/:id/continue": operate(),
+  "POST /api/v1/run-size/holds/:id/raise": configure(),
+  "GET /api/v1/run-size/settings": view(),
+  "PUT /api/v1/run-size/settings": configure(),
+  // The space rule of the tenant's own storage targets: administrators and up, like the targets.
+  "GET /api/v1/run-size/targets": view(),
+  "PUT /api/v1/run-size/targets/:id": configure(),
 
   // --- Jobs, schedules, verification --------------------------------------------
   "GET /api/v1/jobs": view(),

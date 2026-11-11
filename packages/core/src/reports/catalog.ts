@@ -39,10 +39,13 @@ export const REPORT_EVENTS = [
   "endpoint.backups_deleted",
   "file_share.storage_quota",
   "file_share.repository_locked",
+  "backup.unusually_large",
   "storage.copy_behind",
   "source.app_secret_expiring",
   "update.available",
   "installation.disk_low",
+  "installation.disk_reserve_released",
+  "installation.disk_reserve_restored",
   "installation.app_secret_expiring",
   "installation.restore_mode",
   "installation.key_mirror_conflict",
@@ -155,6 +158,11 @@ export const REPORT_EVENT_INFO: Readonly<Record<ReportEvent, ReportEventInfo>> =
   "file_share.storage_quota": { group: "storage", level: "warning" },
   // Retention and checks of a file share's repository kept finding it locked.
   "file_share.repository_locked": { group: "jobs", level: "warning" },
+  // A backup run would have added far more than its object usually does, or left its storage
+  // target too little free space: the size and space guard held it before it filled the storage
+  // (0.5.0, #99; @restow/db run-size.ts). Once per hold; every later run of the object waits for
+  // an administrator. Critical: backups of the object stop until someone decides.
+  "backup.unusually_large": { group: "storage", level: "warning", critical: true },
   // The copy of a restic repository (a container's, a machine's or a file share's) on a copy
   // target is more than two days behind, or its copying keeps failing (0.5.0, apps/worker
   // repository-copies): once per repository, copy target and episode. Not critical: the primary
@@ -169,6 +177,12 @@ export const REPORT_EVENT_INFO: Readonly<Record<ReportEvent, ReportEventInfo>> =
   // The disk under the database or under the installation's local default repository runs low
   // (apps/api features/updates/disk-watch.ts, docs/DATABASE.md "Disk space"): once per episode.
   "installation.disk_low": { group: "system", level: "warning", critical: true },
+  // The emergency disk reserve was freed because the disk under the data volume was almost full
+  // (0.5.0, #98; apps/api features/updates/disk-reserve.ts): once per release, also one the
+  // container's start made while the database was down. Critical: the next step is the operator's.
+  "installation.disk_reserve_released": { group: "system", level: "error", critical: true },
+  // ... and written again once the disk had room (once per recreation).
+  "installation.disk_reserve_restored": { group: "system", level: "info" },
   // The same for the central backup app registration (Settings, Microsoft 365, or the
   // environment): apps/api features/updates/secret-watch.ts, once per stage and date.
   "installation.app_secret_expiring": { group: "system", level: "warning" },
@@ -220,6 +234,8 @@ export function isFloorReportEvent(event: string): boolean {
 export const INSTALLATION_REPORT_EVENTS: readonly ReportEvent[] = [
   "update.available",
   "installation.disk_low",
+  "installation.disk_reserve_released",
+  "installation.disk_reserve_restored",
   "installation.app_secret_expiring",
   "installation.restore_mode",
   "installation.key_mirror_conflict",

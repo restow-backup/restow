@@ -17,6 +17,7 @@ import {
   isNotBackedUpFailure,
   isServiceLimitedFailure,
   type ReportEvent,
+  type RunSpaceOverride,
   resolveInstallationTimeZone,
 } from "@restow/core";
 import {
@@ -24,6 +25,7 @@ import {
   type Database,
   type Job,
   lastRuleAlertAt,
+  loadInstallationSpaceRule,
   type NewNotification,
   protectedObjects,
   queueRuleDeliveries as queueDeliveries,
@@ -50,8 +52,20 @@ let zoneSource: (() => Promise<string>) | null = null;
 let zoneCache: { at: number; zone: string } | null = null;
 const ZONE_CACHE_MS = 60_000;
 
+/** The installation pool, for the installation's space rule of the run size guard (#99). */
+let spaceRuleDb: Database | null = null;
+
+/**
+ * The installation's space rule (`settings.run_space_rule`, @restow/db loadInstallationSpaceRule),
+ * which the tenant transaction of a backup cannot read; null where no installation pool is set.
+ */
+export async function reportInstallationSpaceRule(): Promise<RunSpaceOverride | null> {
+  return spaceRuleDb ? loadInstallationSpaceRule(spaceRuleDb) : null;
+}
+
 export function configureReportTimeZone(deps: { providerDb: Database } | null): void {
   zoneCache = null;
+  spaceRuleDb = deps?.providerDb ?? null;
   zoneSource = deps
     ? async () => {
         const [row] = await deps.providerDb

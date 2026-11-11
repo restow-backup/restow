@@ -145,6 +145,23 @@ export interface DiskStatus {
   totalBytes: number;
   thresholdBytes: number;
   low: boolean;
+  /** The database's disk: read by the updater, or without it next to the database's volume. */
+  via?: "updater" | "volume";
+  /** Which device the disk is: the same value is the same disk (one line). */
+  device?: string | null;
+}
+
+/** The emergency disk reserve (#98, docs/DATABASE.md "Disk full"). */
+export interface DiskReserveStatus {
+  state: "off" | "unavailable" | "present" | "released" | "missing" | "foreign";
+  path: string;
+  bytes: number;
+  floorBytes: number;
+  presentBytes: number;
+  freeBytes: number | null;
+  totalBytes: number | null;
+  createAtBytes: number | null;
+  marker: { releasedAt: string; reason: string; restoredAt?: string | null } | null;
 }
 
 export type DatabaseUpdaterAvailability = "ready" | "unsupported" | "unavailable" | "demo";
@@ -160,6 +177,7 @@ export interface DatabaseView {
   removal: OldCopyRemoval | null;
   updateSpace: UpdateSpace | null;
   disks: { database: DiskStatus | null; repository: DiskStatus | null };
+  reserve: DiskReserveStatus | null;
   projectDir: string | null;
 }
 

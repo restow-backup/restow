@@ -287,6 +287,10 @@
         "title": "Das Repository ist voll",
         "why": "Im Repository ist kein Platz mehr frei oder sein Kontingent ist aufgebraucht. {appName} kann keine neuen Backup-Daten schreiben, bis wieder Platz da ist."
       },
+      "run_held": {
+        "title": "Angehalten: diese Sicherung ist ungewöhnlich groß",
+        "why": "Dieser Lauf hätte weit mehr hinzugefügt, als dieses Objekt sonst hinzufügt, oder seinem Speicherziel zu wenig freien Platz gelassen. {appName} hat ihn deshalb angehalten, bevor er den Speicher füllt. Bisher Geschriebenes geht nicht verloren. Jeder weitere Lauf dieses Objekts wartet, bis ein Administrator entscheidet."
+      },
       "access_denied": {
         "title": "Der Speicherdienst hat den Zugriff verweigert",
         "why": "Der Speicherdienst hat die Zugangsdaten akzeptiert, erlaubt diese Aktion aber nicht. Dem Konto fehlt vielleicht die Berechtigung zum Lesen, Schreiben, Auflisten oder Löschen im Bucket, oder eine Bucket-Richtlinie blockiert es."
@@ -875,6 +879,8 @@
     "check_copy_target": "Prüfen Sie den Kopierjob: Quell- und Ziel-Freigabe, Zielordner und Modus. Wählen Sie Trotzdem kopieren nur, wenn die Quelle absichtlich geleert wurde.",
     "wait_share_restore_check": "Warten Sie auf die Restore-Prüfung des neuesten Sicherungsstands der Quelle oder starten Sie sie jetzt bei der Quell-Freigabe.",
     "raise_share_budget": "Erhöhen Sie das Speicherbudget der Freigabe oder aller Freigaben des Mandanten, oder verkürzen Sie die Aufbewahrung, damit ältere Sicherungsstände entfernt werden.",
+    "decide_held_backup": "Sehen Sie sich die angehaltene Sicherung an: Lassen Sie sie einmal weiterlaufen, erhöhen Sie die Grenze dieses Objekts oder schalten Sie die Prüfung dafür aus.",
+    "exclude_large_folder": "Wurde ein Ordner versehentlich hinzugefügt (ein Papierkorb, ein Download-Ordner), schließen Sie ihn in den Sicherungseinstellungen des Objekts aus.",
     "raise_runner_memory": "Erhöhen Sie den Speicher der Runner unter Installation > Standard-Repository & Netzlaufwerke > Runner für Freigaben.",
     "raise_run_hours": "Erhöhen Sie die längste Laufzeit unter Installation > Standard-Repository & Netzlaufwerke > Runner für Freigaben oder sichern Sie die Freigabe in kleineren Teilen.",
     "start_mounter": "Stellen Sie sicher, dass der Mounter läuft: Starten Sie ihn mit docker compose --profile mounts up -d mounter im Ordner mit docker-compose.yml oder schalten Sie ihn unter Installation > Standard-Repository & Netzlaufwerke ein.",

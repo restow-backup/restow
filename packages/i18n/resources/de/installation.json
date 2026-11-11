@@ -481,10 +481,22 @@
     "disks": {
       "database": "Datenträger unter der Datenbank",
       "repository": "Datenträger unter dem lokalen Standard-Repository",
+      "shared": "Ein Datenträger für die Datenbank und das lokale Standard-Repository",
       "free": "{free} von {total} frei",
       "low": "Knapp",
       "lowTitle": "Wenig freier Speicherplatz",
-      "lowBody": "Weniger als ein Zehntel des Datenträgers ist frei (und weniger als 5 GiB). Ein voller Datenträger hält die Datenbank oder die Sicherungen an. Geben Sie Platz frei, vergrößern Sie den Datenträger oder verschieben Sie die Datenbank unten auf einen anderen Datenträger. Provider-Administratoren werden einmal in der Glocke und über Benachrichtigungsregeln mit „Wenig Speicherplatz“ benachrichtigt."
+      "lowBody": "Weniger als ein Zehntel des Datenträgers ist frei (und weniger als 5 GiB). Ein voller Datenträger hält die Datenbank oder die Sicherungen an. Geben Sie Platz frei, vergrößern Sie den Datenträger oder verschieben Sie die Datenbank unten auf einen anderen Datenträger. Provider-Administratoren werden einmal in der Glocke und über Benachrichtigungsregeln mit „Wenig Speicherplatz“ benachrichtigt.",
+      "viaVolume": "Ohne Updater auf dem Datenvolume neben dem Volume der Datenbank gelesen (derselbe Datenträger)."
+    },
+    "reserve": {
+      "title": "Notreserve auf dem Datenträger",
+      "releasedBadge": "Freigegeben",
+      "present": "{size} unter {path}. {appName} gibt sie von selbst frei, wenn weniger als {floor} auf dem Datenträger frei sind, damit die Datenbank weiterläuft, und benachrichtigt Sie.",
+      "released": "Freigegeben, weil der Datenträger fast voll war. Schaffen Sie jetzt Platz: Die Reserve wird von selbst wieder angelegt, sobald {createAt} frei sind.",
+      "missing": "Noch nicht angelegt: Sie wird angelegt, sobald {createAt} auf dem Datenträger frei sind.",
+      "off": "Ausgeschaltet (RESTOW_DISK_RESERVE_MB=0). Ein voller Datenträger hält die Datenbank an.",
+      "foreign": "Unter {path} liegt etwas anderes (nicht die Reserve, oder ein Link). Es bleibt unberührt, und es gibt keine Reserve: Verschieben Sie es oder setzen Sie RESTOW_DISK_RESERVE_PATH auf einen anderen Namen.",
+      "byHand": "So geben Sie sie von Hand frei:"
     },
     "updateSpace": {
       "title": "Platz für das nächste Update",

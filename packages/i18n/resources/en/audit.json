@@ -250,7 +250,11 @@
     },
     "backup": {
       "requested": "Backup started manually",
-      "first_queued": "First backup queued"
+      "first_queued": "First backup queued",
+      "size_hold_continued": "Held unusually large backup allowed to continue once",
+      "size_limit_raised": "Size limit of a held backup raised",
+      "size_guard_changed": "Size and space check of backups changed",
+      "space_rule_changed": "Free space kept on storage targets changed"
     },
     "directory": {
       "account": {

@@ -129,5 +129,84 @@
     "failedAt": "Fehlgeschlagen {when}"
   },
   "toConfirmHint": "{count, plural, one {# Objekt wird nicht mehr gesichert (entfernt, deaktiviert, ohne Lizenz oder gesperrt) und wartet auf eine Bestätigung.} other {# Objekte werden nicht mehr gesichert (entfernt, deaktiviert, ohne Lizenz oder gesperrt) und warten auf eine Bestätigung.}} Das ist kein Fehler, bis zur Bestätigung bleibt die Bereitschaft aber gelb.",
-  "openToConfirm": "Prüfen und bestätigen"
+  "openToConfirm": "Prüfen und bestätigen",
+  "held": {
+    "title": "Angehaltene Sicherungen",
+    "description": "Sicherungen, die weit mehr als üblich hinzugefügt oder ihrem Speicherziel zu wenig freien Platz gelassen hätten, werden angehalten, bevor sie den Speicher füllen. Jede weitere Sicherung eines solchen Objekts wartet auf Ihre Entscheidung.",
+    "none": "Keine Sicherung ist angehalten. Läufe werden gegen das Zehnfache dessen geprüft, was ihr Objekt üblicherweise hinzufügt, mindestens 10 GiB, und gegen den freien Platz, den ihr Speicherziel frei hält (standardmäßig 5 % seiner Größe, mindestens 20 GiB, höchstens 500 GiB), auf Zielen, die ihn melden.",
+    "kind": {
+      "endpoint": "Server oder Client",
+      "file_share": "Dateifreigabe",
+      "pve_guest": "Proxmox-VE-Container",
+      "m365": "Postfach, OneDrive, Website oder IMAP-Konto"
+    },
+    "status": {
+      "pending": "Wartet auf eine Entscheidung",
+      "approved": "Läuft einmal weiter"
+    },
+    "why": {
+      "size": "Würde mehr als {limit} hinzufügen: bisher {bytes}, üblich {usual}.",
+      "sizeNoHistory": "Würde mehr als {limit} hinzufügen: bisher {bytes}.",
+      "space": "Würde dem Speicherziel zu wenig freien Platz lassen: {free} von {total} frei."
+    },
+    "spaceNote": "Dieser Halt endet von selbst, sobald das Ziel wieder Platz hat: Der nächste Lauf prüft erneut und läuft weiter. Er kann nicht einmal weiterlaufen, da das Ziel sonst voll liefe. Schaffen Sie Platz auf dem Ziel oder schalten Sie die Platzregel für das Ziel oder den Mandanten aus.",
+    "heldAt": "Angehalten",
+    "refused": "{count, plural, one {# weiterer Lauf angehalten} other {# weitere Läufe angehalten}}",
+    "approvedBy": "erlaubt von {name}",
+    "continuesNext": "Der nächste Lauf dieses Objekts geht einmal ohne Prüfung durch.",
+    "excludeHint": "Wurde ein Ordner versehentlich hinzugefügt (ein Papierkorb, ein Download-Ordner), schließen Sie ihn zuerst in den Sicherungseinstellungen des Objekts aus.",
+    "space": {
+      "summary": "Hält {percent} % des Ziels frei, mindestens {min}, höchstens {max}",
+      "off": "Aus: Es wird kein Platz frei gehalten",
+      "enabled": "Platz auf dem Speicherziel frei halten",
+      "percent": "Anteil an der Größe des Ziels (%)",
+      "minGib": "Mindestens (GiB)",
+      "maxGib": "Höchstens (GiB)",
+      "reset": "Allgemeine Regel verwenden",
+      "targetLine": "Für andere Daten frei gehalten:",
+      "own": "eigene Regel",
+      "change": "Ändern",
+      "targetTitle": "Freier Platz auf diesem Speicherziel",
+      "targetDescription": "Ein Sicherungslauf wird angehalten, wenn er diesem Ziel weniger freien Platz lassen würde. Gilt nur für dieses Ziel, vor der Regel des Mandanten und der Installation. Kleine Ziele halten höchstens ein Viertel ihrer Größe frei.",
+      "installationTitle": "Freier Platz auf Speicherzielen",
+      "installationHint": "Gilt für jedes Speicherziel, das seine Größe und seinen freien Platz meldet, sofern ein Mandant oder ein Ziel keine eigene Regel hat. Auf dem gemeinsamen Standardziel gilt nur diese Regel.",
+      "installationDescription": "Ein Sicherungslauf wird angehalten, wenn er seinem Speicherziel weniger freien Platz lassen würde: den Anteil an der Größe des Ziels, aber mindestens das Minimum und höchstens das Maximum. Ein Ziel, das freien Platz, aber keine Größe meldet, hält das Minimum frei. Kleine Ziele halten höchstens ein Viertel ihrer Größe frei.",
+      "tenantTitle": "Freier Platz auf den Speicherzielen dieses Mandanten",
+      "shared": "Dieser Mandant schreibt auf das gemeinsame Standardziel der Installation, dort gilt die Regel der Installation: {rule}."
+    },
+    "actions": {
+      "continue": "Einmal weiterlaufen lassen",
+      "raise": "Grenze erhöhen",
+      "switchOff": "Prüfung für dieses Objekt ausschalten"
+    },
+    "cancel": "Abbrechen",
+    "raise": {
+      "title": "Grenze von {name} erhöhen",
+      "description": "Der angehaltene Lauf hatte {bytes} hinzugefügt. Jeder Lauf dieses Objekts darf danach mindestens die neue Grenze hinzufügen; das Zehnfache des Üblichen gilt weiter darüber.",
+      "label": "Neue Grenze in GiB",
+      "submit": "Grenze erhöhen"
+    },
+    "settings": {
+      "open": "Größenprüfung",
+      "title": "Größen- und Platzprüfung der Sicherungen",
+      "description": "Für jedes Objekt dieses Mandanten ohne eigene Einstellungen. Ein Lauf wird angehalten, wenn er mehr als das Vielfache des Medians der letzten Läufe seines Objekts (und mindestens das Minimum) hinzufügen oder seinem Speicherziel weniger freien Platz lassen würde, als die Regel unten frei hält.",
+      "enabled": "Größe der Sicherungsläufe prüfen",
+      "factor": "Vielfaches der üblichen Größe",
+      "minGib": "Nie anhalten unter (GiB)",
+      "firstRunGib": "Grenze erster Sicherungen (GiB)",
+      "firstRunExempt": "leer: erste Sicherungen werden nicht geprüft",
+      "objects": "Objekte mit eigenen Einstellungen",
+      "objectLimit": "eigene Grenze {limit}",
+      "objectOwn": "eigene Einstellungen",
+      "objectOff": "Prüfung aus",
+      "reset": "Zurücksetzen",
+      "save": "Speichern"
+    },
+    "toast": {
+      "continued": "Der nächste Lauf läuft einmal weiter.",
+      "raised": "Grenze erhöht. Der nächste Lauf geht bis zu ihr durch.",
+      "switchedOff": "Die Prüfung ist für dieses Objekt aus.",
+      "saved": "Einstellungen gespeichert."
+    }
+  }
 }

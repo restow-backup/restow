@@ -182,8 +182,13 @@ describe("critical events (0.5.0)", () => {
       "endpoint.suspicious_snapshot",
       // Deleting a revoked machine's backups was asked for (0.5.0): the floor can still stop it.
       "endpoint.backups_deletion_scheduled",
+      // A backup held as unusually large (#99): the object's backups stop until someone decides.
+      "backup.unusually_large",
       "installation.disk_low",
+      // The emergency disk reserve was freed (#98): the disk is almost full.
+      "installation.disk_reserve_released",
     ]);
+    expect(isCriticalReportEvent("installation.disk_reserve_restored")).toBe(false);
     expect(isCriticalReportEvent("backup.suspicious")).toBe(true);
     expect(isCriticalReportEvent("endpoint.backups_deleted")).toBe(false);
     expect(isCriticalReportEvent("backup.failed")).toBe(false);

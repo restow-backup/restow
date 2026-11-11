@@ -53,11 +53,129 @@ both disks; when one becomes low it raises the installation event
 administrators, and e-mails and webhooks of every alert rule that lists “Low disk
 space” (only provider administrators can choose it). It is raised again only
 after the disk recovered to a fifth above the line in between. The database's disk
-is read through the opt-in updater; without it only the repository's disk is
-watched. From 0.4.5 the api also watches the server's system disk (`/` as the api
+is read through the opt-in updater. Without the updater (0.5.0), the api reads it on
+the volume `restow-data`, which it mounts at `/data`, while the database is in its
+named volume (both lines of `.env` empty, or `RESTOW_POSTGRES_DATA_TYPE=volume`): both
+volumes lie in Docker's volume directory, on the same disk; the page says "read without
+the updater". A database moved to a directory of the host is watched only through the
+updater. From 0.4.5 the api also watches the server's system disk (`/` as the api
 container sees it: the disk under Docker's data directory) with the same rule, and keeps
 its free space once an hour for two weeks: the trend the dashboard shows when a
 repository lies on that disk ([docs/STORAGE.md, Where backups land](STORAGE.md#where-backups-land)).
+In a standard installation the three are one disk. From 0.5.0 a low disk raises **one**
+warning however many of the three lie on it: the api compares their devices (the system disk
+as `/` and the files Docker mounts into the container show it, else the device number of the
+path), and the warning, its mail and its bell line name every place on the disk (`details.disks`,
+the system disk first), with the emergency reserve once. Places on different disks warn each on
+their own. While one place on a disk is still low from an earlier warning, another place on the
+same disk running low raises no second one. The page shows the database's and the repository's
+disk as one line when they are one disk. A database moved to a directory of the host, read by the
+updater, cannot be told apart from here and keeps a warning of its own.
+
+The same card holds what every storage target keeps free for everything else on it, the
+installation's space rule of the size and space guard: by default 5 % of the target's size, at
+least 20 GiB, at most 500 GiB ([docs/STORAGE.md, Unusually large runs](STORAGE.md#unusually-large-runs)).
+Only the owner changes it.
+
+## Disk full
+
+When the disk under PostgreSQL fills up to the last byte, PostgreSQL stops (it cannot
+even write `postmaster.pid`), the api cannot start, and the web edge shows its
+maintenance page. Getting it back used to need a shell or a hoster's rescue console.
+Since 0.5.0 Restow keeps an **emergency reserve** for that case.
+
+### The emergency reserve
+
+The api keeps a file of real blocks, `restow-disk-reserve` on the volume `restow-data`
+(`/data/restow-disk-reserve` in the api container), 2 GiB by default. It is written with
+random bytes, so a file system that compresses or deduplicates still keeps its blocks; it
+is never sparse. In a standard installation that volume, PostgreSQL's volume `pgdata` and
+Docker's data directory are on one disk, so freeing the reserve gives that disk room.
+
+- **Freed by itself.** Every 30 seconds the api compares the free space of that disk with a
+  floor (1 GiB by default). Below it, the api deletes the reserve and raises
+  `installation.disk_reserve_released` (critical: the bell of the provider administrators,
+  the provider's mandatory recipients, and every alert rule that lists "Emergency disk
+  reserve freed"). Whenever the api container starts, it does the same check before the
+  migrations, without the database: when PostgreSQL stopped on a full disk, the reserve is
+  freed before anything else, PostgreSQL (which Docker restarts by itself) gets room to
+  start, and the alert goes out once the database answers.
+- **Written again.** Once the disk has room for the low-space threshold plus the reserve
+  (on a 100 GiB disk: 10 GiB + 2 GiB), the api writes the reserve again and raises
+  `installation.disk_reserve_restored`.
+- **Installer.** On a new server (and a restore onto one) `install.sh` writes it right after the
+  first start, whenever the disk keeps the floor besides it
+  (`docker compose exec api restow disk-reserve create --initial`). On an existing installation
+  it uses the api's own rule (the low-space threshold plus the reserve), so the api does not
+  free it again at once with a critical alert.
+- **Settings** (`.env`, read by the api): `RESTOW_DISK_RESERVE_MB` (size, default 2048;
+  `0` switches it off), `RESTOW_DISK_RESERVE_FLOOR_MB` (floor, default 1024),
+  `RESTOW_DISK_RESERVE_PATH` (default `/data/restow-disk-reserve`; its name must begin with
+  `restow-disk-reserve`, any other value takes the default).
+- **Only its own file.** The reserve begins with a mark (`RESTOW-DISK-RESERVE v1`). Only a
+  regular file with that mark is ever replaced or deleted; anything else at the path (another
+  file, a symbolic link) is left alone, and the page says "something else is at the path". One
+  writer at a time: `restow-disk-reserve.lock` names the writing process; the lock of a process
+  that is gone is taken over and its half-written files (`restow-disk-reserve.writing-*`) are
+  removed. The check at the container's start gives up after 30 seconds (a data volume that
+  hangs), and the api starts anyway.
+
+Installation › Database shows the reserve: there, freed, or waiting for room. The low disk
+space warning names it and the command that frees it.
+
+Known limits:
+
+- The reserve helps the disk it is on. A database moved to another disk (Installation ›
+  Database) is not protected by it; keep room on that disk yourself.
+- On a copy-on-write file system with snapshots of the volume (btrfs, ZFS), deleting the
+  file frees nothing while a snapshot still holds its blocks.
+- Freeing the reserve buys room, not time: a backup into a local repository on the same
+  disk keeps writing. Stop it, or let the size and space guard hold it
+  ([docs/STORAGE.md, Unusually large runs](STORAGE.md#unusually-large-runs)).
+- The check runs every 30 seconds: a disk that fills faster than that can still reach
+  0 bytes. The reserve is then freed at the next check, or at the api's next start.
+
+### Freeing the reserve by hand
+
+```sh
+# while the api runs
+docker compose exec api restow disk-reserve release
+# while the api does not start (needs no database)
+docker compose run --rm --no-deps --entrypoint restow api disk-reserve release
+# without Docker's help: delete the file on the host
+sudo rm /var/lib/docker/volumes/restow_restow-data/_data/restow-disk-reserve
+# what the reserve is now
+docker compose exec api restow disk-reserve status
+```
+
+Then start what stopped (`docker compose up -d`) and clean up from the interface.
+
+### Safe cleanup
+
+What can go, in this order:
+
+```sh
+# images no container uses (old releases; the updater removes most after an update)
+docker image prune -a
+# the build cache (an installation built from source)
+docker builder prune
+# the database dumps the updater kept before updates, oldest first
+docker compose --profile updater exec updater ls -ltr /state/dumps
+```
+
+Delete the oldest dumps in the Updates tab (it refuses the one a rollback may still need).
+When the api does not run, remove the oldest file by hand
+(`docker compose --profile updater exec updater rm /state/dumps/<file>`), never the newest.
+
+Then look at what grows: the backups in a local repository on this disk (retention, or a
+repository on another disk or on S3: docs/STORAGE.md), the container logs
+(`docker system df -v`).
+
+**Never delete** PostgreSQL's data (`pgdata`, the directory `RESTOW_POSTGRES_DATA` names,
+and in particular `pg_wal` inside it: those files are the database, not logs), and never
+a Docker volume (`docker volume rm`, `docker system prune --volumes`,
+`docker compose down -v`): the volumes hold the database, the local repository and the
+keys of the updater and the mounter.
 
 ## Moving the database (Installation › Database)
 

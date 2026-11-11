@@ -204,6 +204,24 @@ describe("subjectKeyOf", () => {
   });
 });
 
+describe("subjectKeyOf for the emergency disk reserve (#98)", () => {
+  it("makes every release and every recreation its own subject", () => {
+    const released = (releasedAt: string) =>
+      subjectKeyOf("installation.disk_reserve_released", { releasedAt });
+    expect(released("2026-11-11T10:00:00.000Z")).toBe(
+      "disk_reserve:released:2026-11-11T10:00:00.000Z",
+    );
+    expect(released("2026-11-12T10:00:00.000Z")).not.toBe(released("2026-11-11T10:00:00.000Z"));
+    // The recreation never falls into the throttle of its release.
+    expect(
+      subjectKeyOf("installation.disk_reserve_restored", {
+        releasedAt: "2026-11-11T10:00:00.000Z",
+        restoredAt: "2026-11-11T12:00:00.000Z",
+      }),
+    ).toBe("disk_reserve:restored:2026-11-11T12:00:00.000Z");
+  });
+});
+
 describe("subjectKeyOf for objects no longer backed up", () => {
   it("keys the notice by its object and the mass warning by tenant and day", () => {
     expect(subjectKeyOf("object.inactive", { protectedObjectId: "po-1" })).toBe("inactive:po-1");
@@ -228,6 +246,8 @@ describe("installation events", () => {
     expect(INSTALLATION_REPORT_EVENTS).toEqual([
       "update.available",
       "installation.disk_low",
+      "installation.disk_reserve_released",
+      "installation.disk_reserve_restored",
       "installation.app_secret_expiring",
       "installation.restore_mode",
       "installation.key_mirror_conflict",

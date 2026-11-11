@@ -1025,7 +1025,7 @@ Repository-Secrets eines Entwickler-Mandanten und wurde bisher in jedem Release 
 ## Alarme und Benachrichtigungen (ALERT)
 
 ### ALERT-001
-- Aussage: Kritische Ereignisse (`backup.suspicious`, `endpoint.suspicious_snapshot`, `scrub.corrupt`, `verify.red`, `installation.disk_low`, `endpoint.backups_deletion_scheduled`) werden sofort gesendet, nie für eine Sammelmail zurückgehalten, erreichen immer die Inhaber und Pflichtempfänger und stehen immer in der Glocke.
+- Aussage: Kritische Ereignisse (`backup.suspicious`, `endpoint.suspicious_snapshot`, `scrub.corrupt`, `verify.red`, `installation.disk_low`, `endpoint.backups_deletion_scheduled`, `backup.unusually_large`, `installation.disk_reserve_released`) werden sofort gesendet, nie für eine Sammelmail zurückgehalten, erreichen immer die Inhaber und Pflichtempfänger und stehen immer in der Glocke.
 - Fundstelle: docs/NOTIFICATIONS.md (Abschnitte „Critical events“ und „Recipients and the floor“)
 - Öffentliche Seite: nicht abgeglichen
 - Tests: packages/core/src/reports/catalog.test.ts, packages/core/src/reports/rules.test.ts, apps/api/src/features/reports/notifications-050.pg.test.ts

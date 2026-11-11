@@ -55,6 +55,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   basic,
   type EndpointFixture,
+  keepLittleFree,
   resticAvailable,
   startFixture,
   testDatabaseAdminUrl,
@@ -295,6 +296,7 @@ describe.skipIf(!canRun)("a storage change in the middle of a container backup",
 
   beforeAll(async () => {
     fixture = await startFixture(DATABASE);
+    await keepLittleFree(fixture.db);
     shared = await import("../../db.js");
     service = await import("./service.js");
     store = await import("./store.js");

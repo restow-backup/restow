@@ -418,6 +418,12 @@ export interface JobContext<Db = unknown> {
   readonly signal: AbortSignal;
   /** Injectable clock (tests pin it). */
   readonly now: () => Date;
+  /**
+   * Asked before every pack the run writes, with its size and the plaintext bytes of its new
+   * chunks (the size and space guard of backup runs, #99, core run-size): throws to hold the run before the pack is stored. The pack and
+   * the chunks in it are then lost to the run, like a pack the storage refused; the run ends.
+   */
+  readonly admitPack?: (packBytes: number, newBytes: number) => Promise<void>;
 }
 
 // ---------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-import type { ResticLockRegistry, StorageBackend } from "@restow/core";
+import type { ResticLockRegistry, ResticResource, StorageBackend } from "@restow/core";
 import {
   fileShareRepositoryPrefix,
   hashSecret,
@@ -21,6 +21,8 @@ import { authFailures } from "../endpoints/agent-auth.js";
 import { tenantStorage } from "../endpoints/repository.js";
 import { storageSwitchedDuringRun } from "../pve/repository.js";
 import { searchedTargets, storeTarget, tenantChunkStore } from "../pve/store.js";
+import { admitUpload } from "../run-size/guards.js";
+import { runSizeGuards } from "../run-size/instance.js";
 import { FILE_SHARE_RUNNER_AUDIT_ACTIONS } from "./constants.js";
 import {
   addShareUsage,
@@ -187,6 +189,7 @@ export async function resolveFileShareCredential(
     access: {
       tenantId: run.tenantId,
       runId: run.runId,
+      runKind: run.kind,
       principal: run.kind === "backup" ? (resolved.refuseWrites ? "closing" : "agent") : "reader",
       prefix: repositoryPrefixOf("file_share", shareId, run.repositoryPrefix),
       storage: resolved.storage,
@@ -245,6 +248,13 @@ export interface FileShareResticRouteDeps {
   ) => void | Promise<void>;
   /** An upload the budget refused. */
   onQuotaExceeded?: (access: RunResticAccess, shareId: string) => void | Promise<void>;
+  /** The size and space guard of backup runs (#99); none without it. */
+  admitUpload?: (
+    access: RunResticAccess,
+    shareId: string,
+    declaredBytes: number | null,
+    resource: ResticResource,
+  ) => Promise<{ type: string; detail: string } | null>;
   /** Refusals of the authorization matrix (throttled per run and reason). */
   onDenied: (access: RunResticAccess, shareId: string, details: Record<string, unknown>) => void;
 }
@@ -269,6 +279,7 @@ export function buildFileShareResticRoutes(deps: FileShareResticRouteDeps) {
     locks: (access, shareId) => (deps.locks ? deps.locks(access, shareId) : runLocks(access.runId)),
     remainingBytes: deps.remainingBytes,
     quotaProblem: FILE_SHARE_QUOTA_PROBLEM,
+    admitUpload: deps.admitUpload,
     onAllowed: deps.onAllowed,
     onQuotaExceeded: deps.onQuotaExceeded,
     failures: authFailures,
@@ -277,6 +288,17 @@ export function buildFileShareResticRoutes(deps: FileShareResticRouteDeps) {
         deps.onDenied(access, shareId, { ...denial });
       }
     },
+  });
+}
+
+/** The size guard of a share's backup run (features/run-size/guards.ts). */
+function shareRunGuard(access: RunResticAccess, shareId: string) {
+  return runSizeGuards.forRun({
+    tenantId: access.tenantId,
+    kind: "file_share",
+    objectId: shareId,
+    runId: access.runId,
+    storage: access.storage,
   });
 }
 
@@ -291,9 +313,13 @@ export const fileShareResticRoutes = buildFileShareResticRoutes({
     access.principal === "agent"
       ? shareRemaining({ tenantId: access.tenantId, fileShareId: shareId }, access.storage)
       : null,
+  admitUpload: (access, shareId, declared) => admitUpload(shareRunGuard(access, shareId), declared),
   onAllowed: async (access, shareId, bytes, action) => {
     const share = { tenantId: access.tenantId, fileShareId: shareId };
     if (action === "write") {
+      if (access.principal === "agent" && access.runKind === "backup") {
+        shareRunGuard(access, shareId).record(bytes);
+      }
       await addShareUsage(share, bytes);
     } else if (action === "delete") {
       await addShareUsage(share, -bytes);

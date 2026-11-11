@@ -20,10 +20,18 @@ export function bellEventKey(item: Pick<BellNotification, "event" | "details">):
   if (item.event === "verify.red" && item.details?.redReason === "outdated") {
     return "bellEvents.verify.redOutdated";
   }
-  // The disk warning names which disk: the database's or the local repository's.
+  // The disk warning names which disk: the database's, the local repository's or the system disk;
+  // one disk that holds several of them is one warning that names them all (0.5.0).
+  if (
+    item.event === "installation.disk_low" &&
+    Array.isArray(item.details?.disks) &&
+    item.details.disks.length > 1
+  ) {
+    return "bellEvents.installation.disk_low_shared";
+  }
   if (item.event === "installation.disk_low") {
-    return item.details?.disk === "repository"
-      ? "bellEvents.installation.disk_low_repository"
+    return item.details?.disk === "repository" || item.details?.disk === "system"
+      ? `bellEvents.installation.disk_low_${item.details.disk}`
       : "bellEvents.installation.disk_low_database";
   }
   // An app credential's expiry names its stage (30 days, 7 days, expired; core entra/expiry.ts).
@@ -114,6 +122,15 @@ export function useNotificationText() {
           ? `${(item.details.freeBytes / 1024 ** 3).toFixed(1)} GiB`
           : "",
       recipient: typeof item.details?.recipient === "string" ? item.details.recipient : "",
+      places: Array.isArray(item.details?.disks)
+        ? new Intl.ListFormat(language, { type: "conjunction" }).format(
+            item.details.disks
+              .filter((kind): kind is string => typeof kind === "string")
+              .map((kind) =>
+                t(`bellEvents.installation.diskPlace.${kind}`, { defaultValue: kind }),
+              ),
+          )
+        : "",
       webhook:
         typeof item.details?.webhookName === "string" && item.details.webhookName
           ? item.details.webhookName

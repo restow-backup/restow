@@ -132,6 +132,8 @@ export const EVENT_GROUPS: Record<
     "endpoint.backups_deletion_scheduled",
     "endpoint.backups_deleted",
     "file_share.storage_quota",
+    // A backup run held as unusually large (0.5.0, #99).
+    "backup.unusually_large",
     // A repository's copy on a copy target is more than two days behind or failing (0.5.0).
     "storage.copy_behind",
   ],
@@ -140,6 +142,8 @@ export const EVENT_GROUPS: Record<
   system: [
     "update.available",
     "installation.disk_low",
+    "installation.disk_reserve_released",
+    "installation.disk_reserve_restored",
     "installation.app_secret_expiring",
     "installation.restore_mode",
     "installation.key_mirror_conflict",
@@ -151,6 +155,8 @@ export const EVENT_GROUPS: Record<
 export const INSTALLATION_EVENTS: readonly ReportEvent[] = [
   "update.available",
   "installation.disk_low",
+  "installation.disk_reserve_released",
+  "installation.disk_reserve_restored",
   "installation.app_secret_expiring",
   "installation.restore_mode",
   "installation.key_mirror_conflict",

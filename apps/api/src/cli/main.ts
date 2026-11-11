@@ -1,6 +1,12 @@
 import { createInterface } from "node:readline/promises";
 import type { AdminSummary, RecoveryResult } from "./admin-recovery.js";
 import {
+  DISK_RESERVE_KINDS,
+  type DiskReserveCommand,
+  DiskReserveUsageError,
+  parseDiskReserveCommand,
+} from "./disk-reserve.js";
+import {
   parseClusterCommand,
   parseNodeCommand,
   parseRestoreCommand,
@@ -105,11 +111,32 @@ Commands:
       Used by install.sh --allow-worker: publish PostgreSQL with TLS for
       worker nodes in docker-compose.override.yml, or take that out again.
 
+  disk-reserve status [--json]
+      The emergency disk reserve: where it is, whether it is there, and
+      how much the disk has free. Needs no database.
+
+  disk-reserve release
+      Free the emergency disk reserve now, so a full disk has room again
+      (for example for the database to start). It is written again once
+      the disk has room; the alert follows once the database runs.
+
+  disk-reserve create [--initial]
+      Write the reserve now if the disk keeps its low-space threshold
+      besides it; with --initial (the installer on a new server) if it
+      keeps the floor besides it.
+
+  disk-reserve guard
+      Free the reserve if the disk is below its floor (the container's
+      start does this before the migrations).
+
   help
       Show this text.
 
 Run it in the api container, for example:
   docker compose exec api restow admin recover --email owner@example.com
+
+On a full disk, while the api does not start:
+  docker compose run --rm --no-deps --entrypoint restow api disk-reserve release
 
 After restoring a database dump, while only postgres runs:
   docker compose run --rm --no-deps --entrypoint restow api restore-mode on --reason "rollback to 0.5.0"
@@ -125,7 +152,8 @@ export type Command =
       yes: boolean;
     }
   | RestoreModeCommand
-  | RestoreCommand;
+  | RestoreCommand
+  | DiskReserveCommand;
 
 /** A command line that cannot be run; printed with the usage, exit code 64. */
 export class UsageError extends Error {
@@ -146,6 +174,16 @@ export function parseCommand(args: readonly string[]): Command {
       return parseRestoreModeCommand(action, rest);
     } catch (error) {
       if (error instanceof RestoreModeUsageError) {
+        throw new UsageError(error.message);
+      }
+      throw error;
+    }
+  }
+  if (group === "disk-reserve") {
+    try {
+      return parseDiskReserveCommand(action, rest);
+    } catch (error) {
+      if (error instanceof DiskReserveUsageError) {
         throw new UsageError(error.message);
       }
       throw error;
@@ -332,6 +370,14 @@ async function run(command: Command): Promise<number> {
   if (command.kind === "help") {
     process.stdout.write(USAGE);
     return 0;
+  }
+  // The disk reserve needs no configuration and no database: the disk may be full.
+  if (DISK_RESERVE_KINDS.has(command.kind)) {
+    const { runDiskReserveCommand } = await import("./disk-reserve.js");
+    return runDiskReserveCommand(command as DiskReserveCommand, {
+      out: (text) => process.stdout.write(text),
+      err: (text) => process.stderr.write(text),
+    });
   }
   // A restore and the node check bring their own connections (the scratch database, the node's).
   if (RESTORE_KINDS.has(command.kind)) {

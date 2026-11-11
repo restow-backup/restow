@@ -10,10 +10,13 @@ import { db, providerDb } from "../../db.js";
 import {
   buildRunResticRoute,
   processLocalLocks,
+  type RunResticAccess,
   type RunResticResolution,
 } from "../../lib/restic-run-route.js";
 import { withTenantTx } from "../../lib/tenant-context.js";
 import { authFailures } from "../endpoints/agent-auth.js";
+import { admitUpload } from "../run-size/guards.js";
+import { runSizeGuards } from "../run-size/instance.js";
 import { auditPve, PVE_AUDIT_ACTIONS } from "./audit.js";
 import { PVE_RESTIC_PATH } from "./meta.js";
 import { guestRepositoryPrefix, storageSwitchedDuringRun } from "./repository.js";
@@ -112,6 +115,7 @@ export async function resolvePveRunCredential(
     access: {
       tenantId: run.tenantId,
       runId: run.id,
+      runKind: run.kind,
       principal: closing ? "closing" : "agent",
       prefix,
       storage,
@@ -208,13 +212,30 @@ export async function addGuestUsage(
 /** Lock files a run wrote (process-local; restic removes its own lock at the end). */
 const runLocks = processLocalLocks();
 
+/** The size guard of a container's backup run (features/run-size/guards.ts). */
+function guestRunGuard(access: RunResticAccess, guestId: string) {
+  return runSizeGuards.forRun({
+    tenantId: access.tenantId,
+    kind: "pve_guest",
+    objectId: guestId,
+    runId: access.runId,
+    storage: access.storage,
+  });
+}
+
 export const pveResticRoutes = buildRunResticRoute({
   basePath: PVE_RESTIC_PATH,
   param: "guestId",
   realm: "restow-pve",
   resolve: resolvePveRunCredential,
   locks: (access) => runLocks(access.runId),
+  // The size and space guard of backup runs (#99): a container's backup run.
+  admitUpload: (access, guestId, declared, resource) =>
+    admitUpload(guestRunGuard(access, guestId), declared, resource),
   onAllowed: async (access, guestId, bytes, action) => {
+    if (action === "write" && access.principal === "agent" && access.runKind === "backup") {
+      guestRunGuard(access, guestId).record(bytes);
+    }
     // The accounting never fails the upload itself.
     await addGuestUsage(
       { tenantId: access.tenantId, guestId, prefix: access.prefix },

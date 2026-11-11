@@ -112,6 +112,8 @@ export const FAILURE_CODES = [
   "storage.path_missing",
   "storage.not_writable",
   "storage.full",
+  // The size and space guard held the run (#99): far larger than usual, or the target too full.
+  "storage.run_held",
   "storage.access_denied",
   "storage.credentials_invalid",
   "storage.bucket_missing",
@@ -315,7 +317,9 @@ export type FailureTarget =
   /** The file share the failure concerns (its page), else the file share list. */
   | "file_share"
   /** The file share runners of the installation (Installation > Default repository & network shares). */
-  | "file_share_runners";
+  | "file_share_runners"
+  /** The backups the size and space guard held (#99): the page where they are decided. */
+  | "held_backups";
 
 /** One thing to do, with an optional place in the UI to do it. */
 export interface FailureStep {
@@ -415,6 +419,9 @@ export const FAILURE_STEP_IDS = [
   "check_copy_target",
   "wait_share_restore_check",
   "raise_share_budget",
+  // The size and space guard held a backup (#99).
+  "decide_held_backup",
+  "exclude_large_folder",
   "raise_runner_memory",
   "raise_run_hours",
   "start_mounter",
