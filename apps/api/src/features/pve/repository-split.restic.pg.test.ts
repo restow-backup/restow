@@ -121,6 +121,12 @@ describe.skipIf(!canRun)("a storage change in the middle of a container backup",
   let dataUploads = 0;
   /** At the flip, also take the old code path: drop the run's target and the cached store. */
   let flipTheOldWay = false;
+  /**
+   * The flip while it runs. restic uploads packs in parallel: a data upload that arrives during
+   * the flip waits for it, so every pack restic starts after the first one finished lands on the
+   * new primary, however long the flip takes on a slow runner.
+   */
+  let flipping: Promise<void> | null = null;
   const refusedWrites: { status: number; type: string | null }[] = [];
   const actor = () => ({
     label: "admin@contoso.example",
@@ -301,6 +307,9 @@ describe.skipIf(!canRun)("a storage change in the middle of a container backup",
     app.onError(errorHandler);
     app.route("/agent/pve/v1", pveNodeRoutes);
     app.use("/agent/pve/restic/*", async (c, next) => {
+      if (flipping && c.req.method === "POST" && c.req.path.includes("/data/")) {
+        await flipping;
+      }
       await next();
       if (c.req.method === "POST" && c.res.status === 403) {
         const body = (await c.res
@@ -313,20 +322,29 @@ describe.skipIf(!canRun)("a storage change in the middle of a container backup",
         dataUploads += 1;
         if (flipAfterDataUploads !== null && dataUploads === flipAfterDataUploads) {
           flipAfterDataUploads = null;
-          if (flipTheOldWay) {
-            // A run as before 0.5.0 (no target recorded: the route writes to whatever is the
-            // primary now). Dropped before the flip: restic uploads packs in parallel, and a
-            // request read between the flip and this update would still see the pinned target
-            // and get the 0.5.0 refusal (403) the old path never gave.
-            await fixture.db
-              .update(pveRuns)
-              .set({ storageTarget: null, storageGeneration: null })
-              .where(and(eq(pveRuns.tenantId, fixture.tenantId), eq(pveRuns.status, "running")));
-          }
-          await flipLikeV041();
-          if (flipTheOldWay) {
-            // The store cache gone as after its minute.
-            store.forgetTenantChunkStore(fixture.tenantId);
+          let flipped: () => void = () => undefined;
+          flipping = new Promise<void>((resolve) => {
+            flipped = resolve;
+          });
+          try {
+            if (flipTheOldWay) {
+              // A run as before 0.5.0 (no target recorded: the route writes to whatever is the
+              // primary now). Dropped before the flip: restic uploads packs in parallel, and a
+              // request read between the flip and this update would still see the pinned target
+              // and get the 0.5.0 refusal (403) the old path never gave.
+              await fixture.db
+                .update(pveRuns)
+                .set({ storageTarget: null, storageGeneration: null })
+                .where(and(eq(pveRuns.tenantId, fixture.tenantId), eq(pveRuns.status, "running")));
+            }
+            await flipLikeV041();
+            if (flipTheOldWay) {
+              // The store cache gone as after its minute.
+              store.forgetTenantChunkStore(fixture.tenantId);
+            }
+          } finally {
+            flipping = null;
+            flipped();
           }
         }
       }
@@ -634,7 +652,9 @@ describe.skipIf(!canRun)("a storage change in the middle of a container backup",
       .set({ role: "copy" })
       .where(eq(storageTargets.id, copyId));
     store.forgetTenantChunkStore(fixture.tenantId);
-    const dir104 = await data("ct104", 24);
+    // 12 packs of 4 MiB, more than restic uploads at once (5 connections), so packs are left
+    // for the new primary after the flip.
+    const dir104 = await data("ct104", 48);
     dataUploads = 0;
     flipTheOldWay = true;
     flipAfterDataUploads = 1;
