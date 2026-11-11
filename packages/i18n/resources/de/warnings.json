@@ -129,5 +129,65 @@
     "failedAt": "Fehlgeschlagen {when}"
   },
   "toConfirmHint": "{count, plural, one {# Objekt wird nicht mehr gesichert (entfernt, deaktiviert, ohne Lizenz oder gesperrt) und wartet auf eine Bestätigung.} other {# Objekte werden nicht mehr gesichert (entfernt, deaktiviert, ohne Lizenz oder gesperrt) und warten auf eine Bestätigung.}} Das ist kein Fehler, bis zur Bestätigung bleibt die Bereitschaft aber gelb.",
-  "openToConfirm": "Prüfen und bestätigen"
+  "openToConfirm": "Prüfen und bestätigen",
+  "held": {
+    "title": "Angehaltene Sicherungen",
+    "description": "Sicherungen, die weit mehr als üblich hinzugefügt oder ihrem Speicherziel zu wenig freien Platz gelassen hätten, werden angehalten, bevor sie den Speicher füllen. Jede weitere Sicherung eines solchen Objekts wartet auf Ihre Entscheidung.",
+    "none": "Keine Sicherung ist angehalten. Läufe werden gegen das Zehnfache dessen geprüft, was ihr Objekt üblicherweise hinzufügt, mindestens 10 GiB, und gegen 2 % freien Platz auf Zielen, die ihn melden.",
+    "kind": {
+      "endpoint": "Server oder Client",
+      "file_share": "Dateifreigabe",
+      "pve_guest": "Proxmox-VE-Container",
+      "m365": "Postfach, OneDrive, Website oder IMAP-Konto"
+    },
+    "status": {
+      "pending": "Wartet auf eine Entscheidung",
+      "approved": "Läuft einmal weiter"
+    },
+    "why": {
+      "size": "Würde mehr als {limit} hinzufügen: bisher {bytes}, üblich {usual}.",
+      "sizeNoHistory": "Würde mehr als {limit} hinzufügen: bisher {bytes}.",
+      "space": "Würde dem Speicherziel zu wenig freien Platz lassen: {free} von {total} frei."
+    },
+    "heldAt": "Angehalten",
+    "refused": "{count, plural, one {# weiterer Lauf angehalten} other {# weitere Läufe angehalten}}",
+    "approvedBy": "erlaubt von {name}",
+    "continuesNext": "Der nächste Lauf dieses Objekts geht einmal ohne Prüfung durch.",
+    "excludeHint": "Wurde ein Ordner versehentlich hinzugefügt (ein Papierkorb, ein Download-Ordner), schließen Sie ihn zuerst in den Sicherungseinstellungen des Objekts aus.",
+    "actions": {
+      "continue": "Einmal weiterlaufen lassen",
+      "raise": "Grenze erhöhen",
+      "switchOff": "Prüfung für dieses Objekt ausschalten"
+    },
+    "cancel": "Abbrechen",
+    "raise": {
+      "title": "Grenze von {name} erhöhen",
+      "description": "Der angehaltene Lauf hatte {bytes} hinzugefügt. Jeder Lauf dieses Objekts darf danach mindestens die neue Grenze hinzufügen; das Zehnfache des Üblichen gilt weiter darüber.",
+      "label": "Neue Grenze in GiB",
+      "submit": "Grenze erhöhen"
+    },
+    "settings": {
+      "open": "Größenprüfung",
+      "title": "Größen- und Platzprüfung der Sicherungen",
+      "description": "Für jedes Objekt dieses Mandanten ohne eigene Einstellungen. Ein Lauf wird angehalten, wenn er mehr als das Vielfache des Medians der letzten Läufe seines Objekts (und mindestens das Minimum) hinzufügen oder seinem Speicherziel weniger als den freien Anteil lassen würde.",
+      "enabled": "Größe der Sicherungsläufe prüfen",
+      "factor": "Vielfaches der üblichen Größe",
+      "minGib": "Nie anhalten unter (GiB)",
+      "firstRunGib": "Grenze erster Sicherungen (GiB)",
+      "firstRunExempt": "leer: erste Sicherungen werden nicht geprüft",
+      "minFreePercent": "Auf dem Speicherziel frei halten (%, 0 = aus)",
+      "objects": "Objekte mit eigenen Einstellungen",
+      "objectLimit": "eigene Grenze {limit}",
+      "objectOwn": "eigene Einstellungen",
+      "objectOff": "Prüfung aus",
+      "reset": "Zurücksetzen",
+      "save": "Speichern"
+    },
+    "toast": {
+      "continued": "Der nächste Lauf läuft einmal weiter.",
+      "raised": "Grenze erhöht. Der nächste Lauf geht bis zu ihr durch.",
+      "switchedOff": "Die Prüfung ist für dieses Objekt aus.",
+      "saved": "Einstellungen gespeichert."
+    }
+  }
 }

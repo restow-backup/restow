@@ -298,6 +298,14 @@ export function subjectKeyOf(event: ReportEvent, details: Record<string, unknown
   if (event === "installation.disk_low" && typeof details.disk === "string") {
     return `disk:${details.disk}`;
   }
+  // A release of the emergency disk reserve is about that one release, its recreation about
+  // that one recreation: neither may fall into the throttle of the other.
+  if (event === "installation.disk_reserve_released") {
+    return `disk_reserve:released:${String(details.releasedAt ?? "")}`;
+  }
+  if (event === "installation.disk_reserve_restored") {
+    return `disk_reserve:restored:${String(details.restoredAt ?? "")}`;
+  }
   // An expiry reminder is about one credential's date and stage: the 7-day reminder must not
   // fall into the throttle of the 30-day one, and a new date is a new subject.
   if (event === "source.app_secret_expiring" && typeof details.sourceId === "string") {
@@ -331,6 +339,11 @@ export function subjectKeyOf(event: ReportEvent, details: Record<string, unknown
         ? details.objectKey
         : String(details.keyVersion ?? "");
     return `key_mirror:${String(details.tenantId ?? "")}:${String(details.targetId ?? "")}:${key}`;
+  }
+  // A held backup run is about that one hold: an alert about the object's failed run shortly
+  // before must not swallow it.
+  if (event === "backup.unusually_large" && typeof details.holdId === "string") {
+    return `size_hold:${details.holdId}`;
   }
   // An alert about a VM or container of Proxmox VE is about that guest.
   const guest = details.pveGuestId;

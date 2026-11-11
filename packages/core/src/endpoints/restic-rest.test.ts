@@ -10,6 +10,7 @@ import {
   parseRange,
   QUOTA_EXCEEDED_PROBLEM,
   type ResticLockRegistry,
+  RUN_SIZE_HELD_PROBLEM,
 } from "./restic-rest.js";
 
 /** The lock registry of the API, in memory. */
@@ -44,6 +45,7 @@ async function call(
     locks?: ResticLockRegistry;
     remainingBytes?: number | null;
     quotaProblem?: { type: string; detail: string };
+    admitUpload?: (declared: number | null) => Promise<{ type: string; detail: string } | null>;
   } = {},
 ) {
   const request = new Request(`http://localhost${path}${init.query ?? ""}`, {
@@ -69,6 +71,7 @@ async function call(
     remainingBytes:
       init.remainingBytes === undefined ? undefined : async () => init.remainingBytes ?? null,
     quotaProblem: init.quotaProblem,
+    admitUpload: init.admitUpload,
     onQuotaExceeded: ({ declaredBytes }) => {
       overBudget.push(declaredBytes);
     },
@@ -293,6 +296,50 @@ describe("restic REST protocol on the storage abstraction", () => {
     expect(isDeleteRefused(Object.assign(new Error("ro"), { code: "EROFS" }))).toBe(true);
     expect(isDeleteRefused(Object.assign(new Error("x"), { code: "ETIMEDOUT" }))).toBe(false);
     expect(isDeleteRefused(new Error("plain"))).toBe(false);
+  });
+
+  describe("the run size guard (#99)", () => {
+    const pack = Buffer.alloc(2048, 9);
+    const name = sha256(pack);
+    const held = { type: RUN_SIZE_HELD_PROBLEM, detail: "The backup of fs1 was held." };
+
+    it("refuses an upload of a held run with its problem and writes nothing", async () => {
+      const storage = new MemoryStorage();
+      const asked: (number | null)[] = [];
+      const refused = await call(storage, "agent", "POST", `/data/${name}`, {
+        body: pack,
+        headers: { "content-length": String(pack.length) },
+        admitUpload: async (declared) => {
+          asked.push(declared);
+          return held;
+        },
+      });
+      expect(refused.response.status).toBe(403);
+      expect(JSON.parse((await refused.text()).toString())).toMatchObject({
+        type: RUN_SIZE_HELD_PROBLEM,
+        title: "Backup held as unusually large",
+        detail: held.detail,
+      });
+      expect(asked).toEqual([pack.length]);
+      expect(storage.files.size).toBe(0);
+      expect(refused.allowed).toEqual([]);
+    });
+
+    it("never asks for a lock file, so a held run can still release its lock", async () => {
+      const storage = new MemoryStorage();
+      const lock = Buffer.from("lock");
+      let asked = 0;
+      const written = await call(storage, "agent", "POST", `/locks/${sha256(lock)}`, {
+        body: lock,
+        locks: lockRegistry(),
+        admitUpload: async () => {
+          asked++;
+          return held;
+        },
+      });
+      expect(written.response.status).toBe(200);
+      expect(asked).toBe(0);
+    });
   });
 
   describe("storage budget", () => {

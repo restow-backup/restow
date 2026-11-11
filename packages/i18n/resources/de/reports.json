@@ -431,7 +431,8 @@
       "overdue": "Sicherung überfällig",
       "succeeded": "Sicherung erfolgreich",
       "suspicious": "Verdächtige Sicherung (Anzeichen von Ransomware)",
-      "suspicious_hold": "Aufbewahrung nach verdächtiger Sicherung weiter angehalten"
+      "suspicious_hold": "Aufbewahrung nach verdächtiger Sicherung weiter angehalten",
+      "unusually_large": "Sicherung als ungewöhnlich groß angehalten"
     },
     "restore": {
       "failed": "Wiederherstellung fehlgeschlagen",
@@ -478,6 +479,8 @@
     },
     "installation": {
       "disk_low": "Wenig Speicherplatz",
+      "disk_reserve_released": "Notreserve auf dem Datenträger freigegeben",
+      "disk_reserve_restored": "Notreserve auf dem Datenträger wieder angelegt",
       "app_secret_expiring": "Zugangsdaten der Microsoft-365-App laufen ab",
       "restore_mode": "Wiederherstellungsmodus von selbst eingeschaltet",
       "key_mirror_conflict": "Gespeicherter Schlüssel weicht ab"
@@ -502,7 +505,8 @@
       "overdue": "Ein Postfach, OneDrive, IMAP-Konto, Rechner oder Gast (VM oder Container) hatte länger keine erfolgreiche Sicherung, als seine Backup-Jobs vorsehen (doppelter längster Abstand der Zeitpläne, ohne Zeitplan zwei Tage), oder länger als die eigene Frist der Regel. Einmal je Objekt, bis wieder eine Sicherung gelingt.",
       "succeeded": "Ein Sicherungslauf eines Postfachs, OneDrives, IMAP-Kontos oder einer Dateifreigabe ist abgeschlossen. Jeder Lauf, also eher für einen Kanal, der jeden sehen soll.",
       "suspicious": "Was eine Sicherung eines Rechners, einer Freigabe, eines Proxmox-VE-Gasts, Postfachs oder OneDrives gesehen hat, sieht nach Ransomware aus: weit mehr Änderungen als üblich, massenhafte Löschungen oder umbenannte Endungen, bekannte Ransomware-Namen oder verschlüsselt wirkende Dateien. Je Objekt einmal, bis ein Sicherungsstand ohne Befund folgt oder der Befund als Fehlalarm markiert wird. Die Aufbewahrung des Objekts ist angehalten, bis ein Administrator den Befund klärt.",
-      "suspicious_hold": "Die Aufbewahrung eines Rechners, einer Freigabe, eines Proxmox-VE-Gasts, Postfachs oder OneDrives ist seit einiger Zeit (standardmäßig 14 Tage) wegen eines verdächtigen Sicherungsstands angehalten, den niemand geklärt hat. Kein Sicherungsstand davon wird gelöscht, der Speicherbedarf wächst also weiter. Wiederholt sich im selben Abstand, bis ein Administrator den Befund als Fehlalarm markiert oder die Aufbewahrung wieder freigibt."
+      "suspicious_hold": "Die Aufbewahrung eines Rechners, einer Freigabe, eines Proxmox-VE-Gasts, Postfachs oder OneDrives ist seit einiger Zeit (standardmäßig 14 Tage) wegen eines verdächtigen Sicherungsstands angehalten, den niemand geklärt hat. Kein Sicherungsstand davon wird gelöscht, der Speicherbedarf wächst also weiter. Wiederholt sich im selben Abstand, bis ein Administrator den Befund als Fehlalarm markiert oder die Aufbewahrung wieder freigibt.",
+      "unusually_large": "Eine Sicherung eines Rechners, einer Dateifreigabe, eines Proxmox-VE-Containers, eines Postfachs oder eines OneDrive hätte weit mehr als üblich hinzugefügt (standardmäßig das Zehnfache des Medians) oder ihrem Speicherziel weniger als 2 % freien Platz gelassen. Sie wurde deshalb angehalten, bevor sie den Speicher füllt. Ihre Sicherungen warten, bis ein Administrator sie einmal weiterlaufen lässt, die Grenze erhöht oder die Prüfung ausschaltet."
     },
     "restore": {
       "failed": "Eine Wiederherstellung oder ein Download, auch eines Servers oder Clients, konnte nicht abgeschlossen werden.",
@@ -549,6 +553,8 @@
     },
     "installation": {
       "disk_low": "Auf dem Datenträger unter der Datenbank oder unter dem lokalen Standard-Repository ist weniger als ein Zehntel frei (und weniger als 5 GiB). Wird für die gesamte Installation einmal ausgelöst, bis wieder genug Platz frei ist, und kann daher nur von Provider-Administratoren gewählt werden.",
+      "disk_reserve_released": "Der Datenträger unter dem Datenvolume (in einer Standardinstallation auch der der Datenbank) war fast voll. {appName} hat deshalb seine Notreserve (standardmäßig 2 GiB) freigegeben, damit die Datenbank weiterläuft. Schaffen Sie sofort Platz. Wird einmal je Freigabe für die gesamte Installation ausgelöst und kann daher nur von Provider-Administratoren gewählt werden.",
+      "disk_reserve_restored": "Die Notreserve wurde wieder angelegt, nachdem der Datenträger wieder Platz hatte. Wird einmal je Neuanlage für die gesamte Installation ausgelöst.",
       "app_secret_expiring": "Warnt, bevor der geheime Clientschlüssel oder das Zertifikat der zentralen Microsoft-365-App-Registrierung abläuft: 30 Tage vorher, erneut 7 Tage vorher und nach dem Ablauf. Nur wenn der Ablauf bekannt ist. Wird für die gesamte Installation ausgelöst und kann daher nur von Provider-Administratoren gewählt werden.",
       "restore_mode": "Ein Speicherziel zeigt einen Stand, den die Datenbank nicht kennt (ein Datenbank-Dump wurde zurückgespielt). Nichts wird gelöscht, bis ein Provider-Inhaber den Wiederherstellungsmodus beendet.",
       "key_mirror_conflict": "Ein verpackter Mandantenschlüssel im Speicher weicht unter derselben Version von dem der Datenbank ab. Er wird nie überschrieben."
@@ -615,6 +621,14 @@
     "disk": "Datenträger",
     "diskDatabase": "Unter der Datenbank",
     "diskRepository": "Unter dem lokalen Standard-Repository",
+    "diskSystem": "Systemdatenträger des Servers",
+    "reserve": "Notreserve",
+    "reserveLine": "{size} unter {path}. Wird unter {floor} freiem Platz von selbst freigegeben, von Hand mit: {command}",
+    "reserveTodo": "Schaffen Sie jetzt Platz, zum Beispiel durch ungenutzte Images (docker image prune -a) und alte Update-Sicherungen der Datenbank. Löschen Sie nie die Daten der Datenbank oder ein Volume (docs/DATABASE.md, „Disk full“). Die Reserve wird von selbst wieder angelegt, sobald der Datenträger Platz hat.",
+    "runSize": "Von diesem Lauf hinzugefügt",
+    "usualSize": "Üblicherweise hinzugefügt",
+    "sizeLimit": "Grenze",
+    "runHeldTodo": "Öffnen Sie Angehaltene Sicherungen: Lassen Sie den Lauf einmal weiterlaufen, erhöhen Sie die Grenze dieses Objekts oder schalten Sie die Prüfung dafür aus. Wurde ein Ordner versehentlich hinzugefügt (ein Papierkorb), schließen Sie ihn zuerst aus. Bis dahin wartet jede Sicherung dieses Objekts.",
     "location": "Ort",
     "free": "Frei",
     "total": "Größe",
@@ -711,7 +725,8 @@
       "overdue": "Keine erfolgreiche Sicherung {days, plural, one {seit über # Tag} other {seit über # Tagen}}: {object}",
       "succeeded": "Sicherung erfolgreich: {object}",
       "suspicious": "Verdächtige Sicherung: {object}",
-      "suspicious_hold": "Aufbewahrung weiter angehalten: {object}"
+      "suspicious_hold": "Aufbewahrung weiter angehalten: {object}",
+      "unusually_large": "Sicherung als ungewöhnlich groß angehalten: {object}"
     },
     "restore": {
       "failed": "Wiederherstellung fehlgeschlagen: {object}",
@@ -770,6 +785,9 @@
     "installation": {
       "disk_low_database": "Wenig Speicherplatz unter der Datenbank: {free} frei",
       "disk_low_repository": "Wenig Speicherplatz unter dem lokalen Repository: {free} frei",
+      "disk_low_system": "Wenig Speicherplatz auf dem Systemdatenträger: {free} frei",
+      "disk_reserve_released": "Datenträger fast voll: Notreserve freigegeben (jetzt {free} frei)",
+      "disk_reserve_restored": "Notreserve wieder angelegt ({free} frei)",
       "app_secret_expiring": "Zugangsdaten der Microsoft-365-App laufen am {date} ab",
       "app_secret_expiring_soon30": "Zugangsdaten der Microsoft-365-App laufen {days, plural, =0 {heute} one {in # Tag} other {in # Tagen}} ab ({date})",
       "app_secret_expiring_soon7": "Zugangsdaten der Microsoft-365-App laufen {days, plural, =0 {heute} one {in # Tag} other {in # Tagen}} ab ({date}). Bitte jetzt erneuern",

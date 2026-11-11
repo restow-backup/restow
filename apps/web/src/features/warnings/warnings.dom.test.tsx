@@ -8,6 +8,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { Failure } from "@/features/failures";
+import { type HeldBackups, heldBackupKeys } from "@/features/held-backups/api";
 import { i18n } from "@/i18n";
 
 import type { WarningDetail, WarningList } from "./api";
@@ -140,6 +141,12 @@ beforeEach(() => {
       method: init?.method ?? "GET",
       body: init?.body ? JSON.parse(String(init.body)) : null,
     });
+    if (url.includes("/run-size/holds/") && url.endsWith("/continue")) {
+      return new Response(JSON.stringify({ id: "h-1", status: "approved" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
     if (url.endsWith("/warnings/acknowledge")) {
       return new Response(JSON.stringify({ acknowledged: [{}], skipped: [] }), {
         status: 200,
@@ -401,5 +408,79 @@ describe("the list of warnings", { timeout: 20_000 }, () => {
     await waitForText("admin@contoso.example");
     expect(text()).toContain("Too large, accepted.");
     expect(document.querySelector('tbody [role="checkbox"]')).toBeNull();
+  });
+});
+
+describe("held backups (#99)", { timeout: 20_000 }, () => {
+  const HELD: HeldBackups = {
+    open: [
+      {
+        id: "h-1",
+        objectKind: "endpoint",
+        objectId: "m-1",
+        objectName: "Fileserver",
+        runId: "r-9",
+        reason: "size",
+        status: "pending",
+        bytes: 879 * 1024 ** 3,
+        limitBytes: 20 * 1024 ** 3,
+        medianBytes: 2 * 1024 ** 3,
+        historyRuns: 10,
+        freeBytes: null,
+        totalBytes: null,
+        refusedRuns: 2,
+        heldAt: "2026-11-10T22:00:00.000Z",
+        lastRefusedAt: "2026-11-11T22:00:00.000Z",
+        approvedAt: null,
+        approvedBy: null,
+        note: null,
+        resolution: null,
+        resolvedAt: null,
+      },
+    ],
+    recent: [],
+  };
+  const EMPTY_LIST: WarningList = {
+    items: [],
+    counts: { open: 0, acknowledged: 0, failed: 0 },
+    truncated: false,
+  };
+
+  it("shows what the held run added and what is usual, and lets it continue once", async () => {
+    await mount(<WarningsPage state="open" />, (client) => {
+      client.setQueryData(warningKeys.list("t-1", "open"), EMPTY_LIST);
+      client.setQueryData(heldBackupKeys.holds("t-1"), HELD);
+    });
+    await waitForText("Held backups");
+    const row = document.querySelector('[data-slot="held-backup"]');
+    expect(row?.getAttribute("data-status")).toBe("pending");
+    expect(row?.textContent).toContain("Fileserver");
+    expect(row?.textContent).toContain("Would add more than 20 GB");
+    expect(row?.textContent).toContain("879 GB so far, usually 2 GB");
+    expect(row?.textContent).toContain("2 later runs held");
+    await act(async () => {
+      button("Continue once")?.click();
+    });
+    const sent = requests.find((request) => request.url.endsWith("/run-size/holds/h-1/continue"));
+    expect(sent?.method).toBe("POST");
+  });
+
+  it("offers nothing to decide to an end user, and says when nothing is held", async () => {
+    session.role = "end_user";
+    await mount(<WarningsPage state="open" />, (client) => {
+      client.setQueryData(warningKeys.list("t-1", "open"), EMPTY_LIST);
+      client.setQueryData(heldBackupKeys.holds("t-1"), HELD);
+    });
+    await waitForText("Held backups");
+    expect(button("Continue once")?.disabled).toBe(true);
+    expect(button("Raise the limit")?.disabled).toBe(true);
+    act(() => root?.unmount());
+    root = null;
+    session.role = "tenant_admin";
+    await mount(<WarningsPage state="open" />, (client) => {
+      client.setQueryData(warningKeys.list("t-1", "open"), EMPTY_LIST);
+      client.setQueryData(heldBackupKeys.holds("t-1"), { open: [], recent: [] });
+    });
+    await waitForText("No backup is held");
   });
 });

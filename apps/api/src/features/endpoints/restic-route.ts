@@ -16,6 +16,8 @@ import { db, providerDb } from "../../db.js";
 import { DeniedThrottle } from "../../lib/denied-audit.js";
 import { withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
+import { admitUpload } from "../run-size/guards.js";
+import { runSizeGuards } from "../run-size/instance.js";
 import { type RepositorySource, readFromIn, sourceOfTarget } from "../storage/repository-source.js";
 import {
   type AgentContext,
@@ -191,11 +193,27 @@ async function noteRefusal(agent: AgentKey, now: number): Promise<void> {
  * starts restic, so a backup never opens the copy (whose `config` and keys are not the
  * primary's) and then writes with them to the primary, however the primary comes and goes.
  */
-async function restoreSourceOf(agent: AgentKey): Promise<RepositorySource | null> {
+async function restoreSourceOf(
+  agent: AgentKey,
+  run: Awaited<ReturnType<typeof runningRunOf>>,
+): Promise<RepositorySource | null> {
+  const readFrom = run?.kind === "restore" ? readFromIn(run.params?.readFrom) : null;
+  if (!readFrom) {
+    return null;
+  }
+  const source = await sourceOfTarget(agent.tenantId, readFrom.targetId);
+  return source?.fallback ? source : null;
+}
+
+/**
+ * The machine's newest running run: what it restores from ({@link restoreSourceOf}), and the
+ * backup run the size guard counts the uploads of (#99).
+ */
+async function runningRunOf(agent: AgentKey) {
   // One statement on the installation pool (the agent is authenticated, the tenant is its
   // own); the running runs of a tenant are few (`endpoint_runs_tenant_status_idx`).
   const [run] = await providerDb
-    .select({ kind: endpointRuns.kind, params: endpointTasks.params })
+    .select({ id: endpointRuns.id, kind: endpointRuns.kind, params: endpointTasks.params })
     .from(endpointRuns)
     .leftJoin(endpointTasks, eq(endpointTasks.id, endpointRuns.taskId))
     .where(
@@ -207,12 +225,7 @@ async function restoreSourceOf(agent: AgentKey): Promise<RepositorySource | null
     )
     .orderBy(desc(endpointRuns.createdAt))
     .limit(1);
-  const readFrom = run?.kind === "restore" ? readFromIn(run.params?.readFrom) : null;
-  if (!readFrom) {
-    return null;
-  }
-  const source = await sourceOfTarget(agent.tenantId, readFrom.targetId);
-  return source?.fallback ? source : null;
+  return run ?? null;
 }
 
 /**
@@ -243,13 +256,25 @@ resticRoutes.all("/:endpointId/*", async (c) => {
   // The primary, as ever. Only a restore whose task was created to read a copy target's
   // repository copy reads that copy, and writes and releases its lock there; nothing else is
   // written meanwhile: a backup must never land in a repository copy.
-  const source = await restoreSourceOf(agent);
+  const running = await runningRunOf(agent);
+  const source = await restoreSourceOf(agent, running);
   if (source && c.req.method === "POST" && !path.startsWith("/locks/")) {
     throw repositoryNotOnPrimary(source);
   }
   const storage = source
     ? source.target.backend
     : (await tenantStorage(db, agent.tenantId)).storage;
+  // The size and space guard of backup runs (#99): the uploads of the running backup run.
+  const guard =
+    running?.kind === "backup" && !source
+      ? runSizeGuards.forRun({
+          tenantId: agent.tenantId,
+          kind: "endpoint",
+          objectId: endpointId,
+          runId: running.id,
+          storage,
+        })
+      : null;
   return handleResticRequest(c.req.raw, {
     storage,
     prefix: endpointPrefix(endpointId),
@@ -258,8 +283,10 @@ resticRoutes.all("/:endpointId/*", async (c) => {
     query: url.searchParams,
     locks: agentLockRegistry(agent),
     remainingBytes: async () => remainingQuotaBytes(await quotaUsageOf(agent, storage)),
+    admitUpload: guard ? (declared) => admitUpload(guard, declared) : undefined,
     onAllowed: async ({ action, bytes }) => {
       if (action === "write") {
+        guard?.record(bytes);
         await addUsage(agent, bytes);
       } else if (action === "delete") {
         await addUsage(agent, -bytes);

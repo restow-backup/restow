@@ -4,6 +4,7 @@ import {
   agentFacingConfig,
   agentPolicyWire,
   bandwidthTimeZone,
+  buildCause,
   cleanDataFolderReport,
   DEFAULT_SCHEDULE_TIMEZONE,
   effectiveBandwidthKbps,
@@ -52,6 +53,7 @@ import {
   lockTenantStorage,
   NOT_PAUSED,
   readJobStartPause,
+  runSizeHoldOfRun,
   tenants,
 } from "@restow/db";
 import { and, asc, eq, gt, inArray, isNull, lt, notInArray, or, type SQL, sql } from "drizzle-orm";
@@ -988,7 +990,16 @@ export async function finishRun(
     // A run that failed after a stop was asked for in the UI was stopped as asked.
     const cancelled = input.status === "failed" && run.cancelRequestedAt !== null;
     const status: EndpointRun["status"] = cancelled ? "cancelled" : input.status;
-    const failure = cancelled ? null : failureRecordOf(input.status, errors, now);
+    // A backup the size and space guard held (#99) says so, not the refusal restic reported.
+    const held =
+      !cancelled && input.status !== "succeeded" && run.kind === "backup"
+        ? await runSizeHoldOfRun(tx, "endpoint", agent.endpointId, run.id, run.startedAt)
+        : null;
+    const failure = held
+      ? toFailureRecord(buildCause("storage.run_held", {}, { holdId: held.id }), { now })
+      : cancelled
+        ? null
+        : failureRecordOf(input.status, errors, now);
     // The native SQL Server backup (W2a): its databases, backups and check reports.
     const sqlStats =
       run.kind === "sql"

@@ -56,6 +56,9 @@ export function stepLink(step: FailureStep, context: StepContext = {}): StepLink
         : { to: "/file-shares" as LinkProps["to"] };
     case "file_share_runners":
       return { to: "/installation/default-storage" as LinkProps["to"] };
+    case "held_backups":
+      // The backups the size and space guard held are decided at the top of Warnings.
+      return { to: "/warnings" as LinkProps["to"] };
     default:
       return null;
   }

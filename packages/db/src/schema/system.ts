@@ -224,7 +224,20 @@ export type DiskAlertEntry = {
    */
   samples?: { at: string; freeBytes: number }[];
 };
-export type DiskAlertState = Partial<Record<"database" | "repository" | "system", DiskAlertEntry>>;
+/**
+ * The emergency disk reserve (#98, apps/api features/updates/disk-reserve.ts): the release and
+ * the recreation that were announced, by the time the reserve's marker gives for them (a release
+ * while the database was down is announced once it is back).
+ */
+export type DiskReserveAlertEntry = {
+  /** `releasedAt` of the release that went out as `installation.disk_reserve_released`. */
+  releasedAt: string | null;
+  /** `restoredAt` of the recreation that went out as `installation.disk_reserve_restored`. */
+  restoredAt: string | null;
+};
+export type DiskAlertState = Partial<
+  Record<"database" | "repository" | "system", DiskAlertEntry>
+> & { reserve?: DiskReserveAlertEntry };
 
 /**
  * The last expiry reminder of a Microsoft 365 app credential (0.4.7, @restow/core

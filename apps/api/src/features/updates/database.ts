@@ -17,6 +17,8 @@ import {
 } from "../../updater/database-protocol.js";
 import { isDumpFileName } from "../../updater/dumps.js";
 import type { StateView } from "../../updater/protocol.js";
+import type { ReserveStatus } from "./disk-reserve.js";
+import { diskThreshold } from "./disk-threshold.js";
 import { type Actor, mapUpdaterError } from "./service.js";
 import {
   type UpdaterClient,
@@ -80,17 +82,9 @@ export const DATABASE_PROBLEMS = {
 /** How long a download link of a dump is good for. */
 export const DUMP_TICKET_TTL_MS = 60_000;
 
-const GIB = 1024 ** 3;
-/** A disk is low below a tenth of its size, and never with less than 5 GiB (a quarter on a small one). */
-export const DISK_LOW_SHARE = 0.1;
-export const DISK_LOW_MIN_BYTES = 5 * GIB;
-
-/** The free space below which a disk of `totalBytes` counts as low. */
-export function diskThreshold(totalBytes: number): number {
-  return Math.ceil(
-    Math.max(totalBytes * DISK_LOW_SHARE, Math.min(DISK_LOW_MIN_BYTES, totalBytes * 0.25)),
-  );
-}
+// The low-space rule lives in ./disk-threshold.ts, which the `restow` command reads without the
+// rest of this module.
+export { DISK_LOW_MIN_BYTES, DISK_LOW_SHARE, diskThreshold } from "./disk-threshold.js";
 
 /** `system` (0.4.5): the disk under the operating system and Docker, read as `/` in the api. */
 export type DiskKind = "database" | "repository" | "system";
@@ -103,6 +97,11 @@ export interface DiskStatus {
   totalBytes: number;
   thresholdBytes: number;
   low: boolean;
+  /**
+   * The database's disk only: `updater` read by the opt-in updater; `volume` (0.5.0) read
+   * without it on the volume restow-data, next to PostgreSQL's named volume on the same disk.
+   */
+  via?: "updater" | "volume";
 }
 
 export function diskStatus(
@@ -139,6 +138,8 @@ export interface DatabaseView {
   /** What the next update needs on disk (the updater's preflight); null when unknown. */
   updateSpace: UpdateSpace | null;
   disks: { database: DiskStatus | null; repository: DiskStatus | null };
+  /** The emergency disk reserve (#98); null when the api has none. */
+  reserve: ReserveStatus | null;
   /** The project directory on the host, for the commands of the manual way. */
   projectDir: string | null;
 }
@@ -155,6 +156,13 @@ export interface DatabaseServiceDeps {
   db: Database;
   updater: UpdaterClient;
   repositoryDisk: RepositoryDisk;
+  /**
+   * The database's disk when the updater cannot tell (0.5.0, #98): the volume next to
+   * PostgreSQL's named volume; null when the database is elsewhere (instance.ts).
+   */
+  databaseDisk?: RepositoryDisk;
+  /** The emergency disk reserve (disk-reserve.ts), shown on the page. */
+  reserve?: () => Promise<ReserveStatus | null>;
   demo?: boolean;
   now?: () => number;
 }
@@ -196,14 +204,24 @@ export class DatabaseService {
   async disks(state?: StateView | null): Promise<DatabaseView["disks"]> {
     const current = state === undefined ? await this.updaterState(false) : state;
     const usage = current?.database?.usage ?? null;
+    const fallback =
+      usage || !this.deps.databaseDisk ? null : await this.deps.databaseDisk().catch(() => null);
     const database = usage
-      ? diskStatus(
-          "database",
-          describeLocation(current?.database?.location ?? null),
-          usage.filesystemFreeBytes,
-          usage.filesystemTotalBytes,
-        )
-      : null;
+      ? {
+          ...diskStatus(
+            "database",
+            describeLocation(current?.database?.location ?? null),
+            usage.filesystemFreeBytes,
+            usage.filesystemTotalBytes,
+          ),
+          via: "updater" as const,
+        }
+      : fallback
+        ? {
+            ...diskStatus("database", fallback.path, fallback.freeBytes, fallback.totalBytes),
+            via: "volume" as const,
+          }
+        : null;
     const repositoryDisk = await this.deps.repositoryDisk().catch(() => null);
     const repository = repositoryDisk
       ? diskStatus(
@@ -237,6 +255,7 @@ export class DatabaseService {
       removal: database?.removal ?? null,
       updateSpace: state?.capabilities.updateSpace ?? null,
       disks: await this.disks(state),
+      reserve: this.deps.reserve ? await this.deps.reserve().catch(() => null) : null,
       projectDir: state?.projectDir ?? state?.capabilities.projectDir ?? null,
     };
   }

@@ -287,6 +287,10 @@
         "title": "The repository is full",
         "why": "There is no space left in the repository, or its quota is used up. {appName} cannot write new backup data until space is available."
       },
+      "run_held": {
+        "title": "Held: this backup is unusually large",
+        "why": "This run would have added far more than this object usually does, or left its storage target too little free space, so {appName} stopped it before it could fill the storage. Nothing written so far is lost. Every further run of this object waits until an administrator decides."
+      },
       "access_denied": {
         "title": "The storage service denied access",
         "why": "The storage service accepted the credentials but does not allow this operation. The account may lack permission to read, write, list or delete in the bucket, or a bucket policy blocks it."
@@ -875,6 +879,8 @@
     "check_copy_target": "Check the copy job: its source and target share, the target folder and the mode. Use Copy anyway only when the source was emptied on purpose.",
     "wait_share_restore_check": "Wait for the restore check of the source's newest restore point, or start it now on the source share.",
     "raise_share_budget": "Raise the storage budget of the share or of the tenant's shares, or tighten the retention so older restore points are removed.",
+    "decide_held_backup": "Look at the held backup: let it continue once, raise the limit of this object, or switch the check off for it.",
+    "exclude_large_folder": "If a folder was added by mistake (a recycle bin, a download folder), exclude it in the object's backup settings.",
     "raise_runner_memory": "Raise the memory of the runners under Installation > Default repository & network shares > File share runners.",
     "raise_run_hours": "Raise the longest run time under Installation > Default repository & network shares > File share runners, or back up the share in smaller parts.",
     "start_mounter": "Make sure the mounter runs: start it with docker compose --profile mounts up -d mounter in the folder with docker-compose.yml, or enable it under Installation > Default repository & network shares.",

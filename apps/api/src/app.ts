@@ -91,6 +91,8 @@ import { mountPath as restoreModeMountPath } from "./features/restore-mode/meta.
 import { restoreModeRoutes } from "./features/restore-mode/routes.js";
 import { mountPath as retentionMountPath } from "./features/retention/meta.js";
 import { retentionRoutes } from "./features/retention/routes.js";
+import { mountPath as runSizeMountPath } from "./features/run-size/meta.js";
+import { runSizeRoutes } from "./features/run-size/routes.js";
 import { mountPath as runningMountPath } from "./features/running/meta.js";
 import { runningRoutes } from "./features/running/routes.js";
 import { mountPath as schedulesMountPath } from "./features/schedules/meta.js";
@@ -287,6 +289,7 @@ export function buildApp() {
   app.route(`${API_V1}${historyMountPath}`, historyRoutes);
   app.route(`${API_V1}${warningsMountPath}`, warningsRoutes);
   app.route(`${API_V1}${suspicionMountPath}`, suspicionRoutes);
+  app.route(`${API_V1}${runSizeMountPath}`, runSizeRoutes);
   app.route(`${API_V1}${liveMountPath}`, liveRoutes);
   app.route(`${API_V1}${snapshotsMountPath}`, snapshotsRoutes);
   app.route(`${API_V1}${restoreMountPath}`, restoreRoutes);

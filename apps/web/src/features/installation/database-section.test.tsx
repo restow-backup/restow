@@ -379,6 +379,50 @@ describe("Installation > Database", () => {
     await open();
     expect(text(slot("database-unavailable"))).toContain("The optional updater does not answer");
   });
+
+  it("shows the database's disk read without the updater and the emergency reserve (#98)", async () => {
+    const reserve = {
+      path: "/data/restow-disk-reserve",
+      bytes: 2 * GIB,
+      floorBytes: GIB,
+      presentBytes: 2 * GIB,
+      freeBytes: 30 * GIB,
+      totalBytes: 100 * GIB,
+      createAtBytes: 12 * GIB,
+      marker: null,
+    };
+    let current: Record<string, unknown> = view({
+      updater: "unavailable",
+      location: null,
+      usage: null,
+      disks: {
+        database: {
+          kind: "database",
+          location: "pgdata",
+          freeBytes: 30 * GIB,
+          totalBytes: 100 * GIB,
+          thresholdBytes: 10 * GIB,
+          low: false,
+          via: "volume",
+        },
+        repository: null,
+      },
+      reserve: { ...reserve, state: "present" },
+    });
+    vi.stubGlobal("fetch", routes({ "GET /updates/database": () => json(current) }).mock);
+    await open();
+    expect(text(slot("disk-via-volume"))).toContain("Read without the updater");
+    expect(slot("disk-reserve")?.getAttribute("data-state")).toBe("present");
+    expect(text(slot("disk-reserve"))).toContain("/data/restow-disk-reserve");
+    expect(text(slot("disk-reserve"))).toContain(
+      "docker compose exec api restow disk-reserve release",
+    );
+    await mounted?.unmount();
+    current = { ...current, reserve: { ...reserve, presentBytes: 0, state: "released" } };
+    await open();
+    expect(slot("disk-reserve")?.getAttribute("data-state")).toBe("released");
+    expect(text(slot("disk-reserve"))).toContain("Freed because the disk was almost full");
+  });
 });
 
 describe("text keys", () => {

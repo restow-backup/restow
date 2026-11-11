@@ -431,7 +431,8 @@
       "overdue": "Backup overdue",
       "succeeded": "Backup succeeded",
       "suspicious": "Suspicious backup (signs of ransomware)",
-      "suspicious_hold": "Retention still paused after a suspicious backup"
+      "suspicious_hold": "Retention still paused after a suspicious backup",
+      "unusually_large": "Backup held as unusually large"
     },
     "restore": {
       "failed": "Restore failed",
@@ -478,6 +479,8 @@
     },
     "installation": {
       "disk_low": "Low disk space",
+      "disk_reserve_released": "Emergency disk reserve freed",
+      "disk_reserve_restored": "Emergency disk reserve written again",
       "app_secret_expiring": "Microsoft 365 app credential expires",
       "restore_mode": "Restore mode switched on by itself",
       "key_mirror_conflict": "Wrapped key in storage differs"
@@ -502,7 +505,8 @@
       "overdue": "A mailbox, OneDrive, IMAP account, machine or guest (VM or container) had no successful backup for longer than its backup jobs plan (twice the longest gap of the schedules, two days without one), or for longer than the rule's own deadline. Once per object, until a backup succeeds again.",
       "succeeded": "A backup run of a mailbox, OneDrive, IMAP account or file share finished. Every run, so best for a channel that wants to see each one.",
       "suspicious": "What a backup of a machine, file share, Proxmox VE guest, mailbox or OneDrive saw looks like ransomware at work: far more changes than usual, mass deletions or renamed extensions, known ransomware names or files that look encrypted. Once per object until a restore point without findings follows or the finding is marked as a false alarm. Retention of the object pauses until an administrator resolves the finding.",
-      "suspicious_hold": "Retention of a machine, file share, Proxmox VE guest, mailbox or OneDrive has been paused for a while (14 days by default) because of a suspicious restore point nobody resolved. No restore point of it is deleted, so its storage keeps growing. Repeated at the same interval until an administrator marks the finding as a false alarm or releases the hold."
+      "suspicious_hold": "Retention of a machine, file share, Proxmox VE guest, mailbox or OneDrive has been paused for a while (14 days by default) because of a suspicious restore point nobody resolved. No restore point of it is deleted, so its storage keeps growing. Repeated at the same interval until an administrator marks the finding as a false alarm or releases the hold.",
+      "unusually_large": "A backup of a machine, file share, Proxmox VE container, mailbox or OneDrive would have added far more than usual (ten times the median by default), or left its storage target less than 2 % free, so it was held before it filled the storage. Its backups wait until an administrator lets it continue once, raises the limit or switches the check off."
     },
     "restore": {
       "failed": "A restore or a download, of a server or client too, could not be finished.",
@@ -549,6 +553,8 @@
     },
     "installation": {
       "disk_low": "The disk under the database or under the local default repository has less than a tenth of its size free (and less than 5 GiB). Raised once until the disk recovers, for the whole installation, so only provider administrators can choose it.",
+      "disk_reserve_released": "The disk under the data volume (in a standard installation also the database's) was almost full, so {appName} freed its emergency reserve (2 GiB by default) to keep the database running. Free up space at once. Raised once per release, for the whole installation, so only provider administrators can choose it.",
+      "disk_reserve_restored": "The emergency disk reserve was written again after the disk had room. Raised once per recreation, for the whole installation.",
       "app_secret_expiring": "Warns before the client secret or certificate of the central Microsoft 365 app registration expires: 30 days before, again 7 days before, and once it has expired. Only when its expiry is known. Raised for the whole installation, so only provider administrators can choose it.",
       "restore_mode": "A storage target shows progress the database does not have (a database dump was restored). Nothing is deleted until a provider owner ends restore mode.",
       "key_mirror_conflict": "A wrapped tenant key in storage differs from the database's under the same version. It is never overwritten."
@@ -615,6 +621,14 @@
     "disk": "Disk",
     "diskDatabase": "Under the database",
     "diskRepository": "Under the local default repository",
+    "diskSystem": "System disk of the server",
+    "reserve": "Emergency reserve",
+    "reserveLine": "{size} at {path}. Freed by itself below {floor} free, by hand with: {command}",
+    "reserveTodo": "Free up space now, for example unused images (docker image prune -a) and old update dumps of the database. Never delete the database's data or a volume (docs/DATABASE.md, \"Disk full\"). The reserve is written again by itself once the disk has room.",
+    "runSize": "Added by this run",
+    "usualSize": "Usually added",
+    "sizeLimit": "Limit",
+    "runHeldTodo": "Open Held backups: let the run continue once, raise the limit of this object, or switch the check off for it. If a folder was added by mistake (a recycle bin), exclude it first. Until then every backup of this object waits.",
     "location": "Location",
     "free": "Free",
     "total": "Size",
@@ -711,7 +725,8 @@
       "overdue": "No successful backup {days, plural, one {for over # day} other {for over # days}}: {object}",
       "succeeded": "Backup succeeded: {object}",
       "suspicious": "Suspicious backup: {object}",
-      "suspicious_hold": "Retention still paused: {object}"
+      "suspicious_hold": "Retention still paused: {object}",
+      "unusually_large": "Backup held as unusually large: {object}"
     },
     "restore": {
       "failed": "Restore failed: {object}",
@@ -770,6 +785,9 @@
     "installation": {
       "disk_low_database": "Low disk space under the database: {free} free",
       "disk_low_repository": "Low disk space under the local repository: {free} free",
+      "disk_low_system": "Low disk space on the system disk: {free} free",
+      "disk_reserve_released": "Disk almost full: the emergency reserve was freed ({free} free now)",
+      "disk_reserve_restored": "Emergency disk reserve written again ({free} free)",
       "app_secret_expiring": "Microsoft 365 app credential expires on {date}",
       "app_secret_expiring_soon30": "Microsoft 365 app credential expires {days, plural, =0 {today} one {in # day} other {in # days}} ({date})",
       "app_secret_expiring_soon7": "Microsoft 365 app credential expires {days, plural, =0 {today} one {in # day} other {in # days}} ({date}). Renew it now",

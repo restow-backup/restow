@@ -16,7 +16,8 @@
 #   - writes .env (mode 0600) with secrets from the kernel's random generator,
 #   - pulls the two images of the chosen build, checks their cosign signatures (the
 #     release workflow of exactly this version) and starts the stack,
-#   - waits until the api is healthy, reads the one-time setup token from its log and
+#   - waits until the api is healthy, writes the emergency disk reserve (0.5.0 and newer;
+#     docs/DATABASE.md, "Disk full"), reads the one-time setup token from its log and
 #     prints it with the address to open, on the terminal only (never in the log).
 #
 # Run without options on a terminal it first asks what to set up: a new installation, a restore
@@ -92,6 +93,9 @@ MOUNTER_MIN_VERSION="0.3.0"
 # The first release that restores an installation from a dump and takes worker nodes (--restore,
 # --join, --allow-worker; docs/SIZING.md, "Several hosts: worker nodes").
 CLUSTER_MIN_VERSION="0.5.0"
+# The first release with the emergency disk reserve (docs/DATABASE.md, "Disk full"): the
+# installer writes it once the api answers (ensure_disk_reserve).
+DISK_RESERVE_MIN_VERSION="0.5.0"
 # The postgres user of the postgres:16-alpine image: it must own the TLS key and pg_hba.conf.
 POSTGRES_UID=70
 DOCS_URL="https://docs.restowbackup.com"
@@ -2603,6 +2607,29 @@ wait_healthy() {
   fi
 }
 
+# ensure_disk_reserve: the emergency disk reserve (docs/DATABASE.md, "Disk full"), a file of
+# real blocks (2 GiB unless RESTOW_DISK_RESERVE_MB in .env says otherwise) on the disk of the data
+# volume. When that disk is almost full the api frees it by itself, so the database can still
+# start and the cleanup can be done from the interface. The api writes it itself once the disk
+# has room; the installer writes it at once, so a new server has it before the first backup.
+# A warning when it cannot, never a stop. Releases before DISK_RESERVE_MIN_VERSION have none.
+ensure_disk_reserve() {
+  local out
+  if ! version_ge "${VERSION:-0}" "$DISK_RESERVE_MIN_VERSION"; then
+    return 0
+  fi
+  if is_dry; then
+    dry "run: docker compose exec -T api restow disk-reserve create (the emergency disk reserve)"
+    return 0
+  fi
+  log_line "run: docker compose exec -T api restow disk-reserve create"
+  if out=$(compose exec -T api restow disk-reserve create </dev/null 2>&1); then
+    ok "${out:-the emergency disk reserve is in place}"
+  else
+    warn "the emergency disk reserve was not written (${out:-no answer}); the api writes it once the disk has room (docs/DATABASE.md, \"Disk full\")"
+  fi
+}
+
 # check_edge: the web edge answers (warning only). In the modes with a certificate of the
 # edge's own authority (--local, --behind-proxy) it is not checked against the system's roots.
 check_edge() {
@@ -3181,6 +3208,7 @@ install_restore() {
   restore_database
   start_stack "$OPT_UPDATER" 0 "$OPT_MOUNTER"
   wait_healthy
+  ensure_disk_reserve
   check_edge "$DOMAIN"
   if is_dry; then
     say ""
@@ -3865,6 +3893,7 @@ install_fresh() {
   pull_images
   start_stack "$OPT_UPDATER" 1 "$OPT_MOUNTER"
   wait_healthy
+  ensure_disk_reserve
   check_edge "$DOMAIN"
   if [ "$MODE" = proxy ] && [ "$PROXY_HOP" = https ]; then
     export_edge_root_ca
@@ -3963,6 +3992,7 @@ resume_existing() {
   pull_and_verify "$WEB_IMAGE"
   start_stack 0 0
   wait_healthy
+  ensure_disk_reserve
   if [ -n "$DOMAIN" ]; then
     check_edge "$DOMAIN"
   fi

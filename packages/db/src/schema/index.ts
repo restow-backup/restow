@@ -49,6 +49,7 @@ export * from "./pve.js";
 export * from "./reports.js";
 export * from "./restore-mode.js";
 export * from "./run-samples.js";
+export * from "./run-size.js";
 export * from "./schedules.js";
 export * from "./secrets.js";
 export * from "./sources.js";

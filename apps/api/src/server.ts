@@ -188,7 +188,9 @@ const { reportDispatcherService } = await import("./features/reports/dispatcher.
 const { createInstallationNotifier } = await import("./features/settings/service.js");
 const { NoopNotifier } = await import("./notify.js");
 const { providerDb: reportsProviderDb, db: reportsDb } = await import("./db.js");
-const { updateService, diskWatch, secretWatch } = await import("./features/updates/instance.js");
+const { updateService, diskWatch, secretWatch, startDiskReserveGuard } = await import(
+  "./features/updates/instance.js"
+);
 const { mountsService } = await import("./features/mounts/instance.js");
 const { pendingMountService } = await import("./features/mounts/pending.js");
 const services: { close(): void }[] = [];
@@ -211,6 +213,11 @@ const coreServices = [
   {
     name: "disk-watch",
     start: async () => (config.demo.enabled ? null : diskWatch.start()),
+  },
+  // The emergency disk reserve (#98): freed below its floor, written again once there is room.
+  {
+    name: "disk-reserve",
+    start: async () => (config.demo.enabled ? null : startDiskReserveGuard()),
   },
   // The expiry reminder of the central Microsoft 365 app's secret or certificate.
   {

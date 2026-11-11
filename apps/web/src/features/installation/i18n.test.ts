@@ -248,6 +248,9 @@ describe("installation translations", () => {
       minutes: 60,
       storage: 120,
       database: 80,
+      // Installation > Database, the emergency disk reserve (#98); size and path are above.
+      floor: "1 GB",
+      createAt: "12 GB",
     };
     for (const language of ["en", "de"]) {
       await i18n.changeLanguage(language);

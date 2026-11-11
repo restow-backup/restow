@@ -38,10 +38,13 @@ export const REPORT_EVENTS = [
   "endpoint.backups_deleted",
   "file_share.storage_quota",
   "file_share.repository_locked",
+  "backup.unusually_large",
   "storage.copy_behind",
   "source.app_secret_expiring",
   "update.available",
   "installation.disk_low",
+  "installation.disk_reserve_released",
+  "installation.disk_reserve_restored",
   "installation.app_secret_expiring",
   "installation.restore_mode",
   "installation.key_mirror_conflict",
@@ -64,7 +67,9 @@ export const CRITICAL_REPORT_EVENTS: readonly ReportEvent[] = [
   "scrub.corrupt",
   "endpoint.suspicious_snapshot",
   "endpoint.backups_deletion_scheduled",
+  "backup.unusually_large",
   "installation.disk_low",
+  "installation.disk_reserve_released",
 ];
 
 /** How a recipient gets the notifications of one severity (0.5.0). */

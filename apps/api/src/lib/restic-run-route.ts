@@ -87,6 +87,15 @@ export interface RunResticRouteOptions {
   remainingBytes?(access: RunResticAccess, repoId: string): Promise<number | null>;
   /** Problem type and text of a refused upload. */
   quotaProblem?: { type: string; detail: string };
+  /**
+   * The size and space guard of backup runs (#99): asked before every upload of the append-only
+   * principal but a lock file; a problem holds the run (403, final for restic).
+   */
+  admitUpload?(
+    access: RunResticAccess,
+    repoId: string,
+    declaredBytes: number | null,
+  ): Promise<{ type: string; detail: string } | null>;
   /** Accounting of allowed requests (bytes written or freed). */
   onAllowed?(
     access: RunResticAccess,
@@ -185,6 +194,15 @@ export function buildRunResticRoute(options: RunResticRouteOptions): Hono {
             (options.remainingBytes as NonNullable<typeof options.remainingBytes>)(access, repoId)
         : undefined,
       quotaProblem: options.quotaProblem,
+      admitUpload:
+        options.admitUpload && access.principal === "agent"
+          ? (declared) =>
+              (options.admitUpload as NonNullable<typeof options.admitUpload>)(
+                access,
+                repoId,
+                declared,
+              )
+          : undefined,
       onAllowed: options.onAllowed
         ? ({ action, bytes }) => options.onAllowed?.(access, repoId, bytes, action)
         : undefined,

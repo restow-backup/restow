@@ -37,6 +37,13 @@ describe("where a notification leads", () => {
     expect(notificationTarget({ event: "report.ready", tenantId, details: {} }, admin)?.to).toBe(
       "/alerts",
     );
+    // A backup held as unusually large (#99) is decided on Warnings, also for a machine.
+    expect(
+      notificationTarget(
+        { event: "backup.unusually_large", tenantId, details: { endpointId: "ep-1", holdId: "h" } },
+        admin,
+      ),
+    ).toEqual({ to: "/warnings", tenantId });
   });
 
   it("opens the restore points of a suspicious backup", () => {

@@ -11,6 +11,7 @@ import { guestTo } from "@/features/pve/paths";
 import { RESTORE_PATHS } from "@/features/restore/navigation";
 import { sourceDetailTo } from "@/features/sources/paths";
 import { verifyReportTo } from "@/features/verify/paths";
+import { WARNINGS_PATH } from "@/features/warnings/paths";
 import { tenantPagePath } from "@/lib/tenant-paths";
 
 import { type BellNotification, DELIVERY_FAILED_EVENT } from "./api";
@@ -50,8 +51,13 @@ export function notificationTarget(
       ? { to: installationSectionPath("updates"), tenantId: null }
       : null;
   }
-  // A move of the database and a disk running low: Installation > Database.
-  if (item.event.startsWith("database.") || item.event === "installation.disk_low") {
+  // A move of the database, a disk running low and the emergency disk reserve: Installation >
+  // Database.
+  if (
+    item.event.startsWith("database.") ||
+    item.event === "installation.disk_low" ||
+    item.event.startsWith("installation.disk_reserve_")
+  ) {
     return viewer.isProviderAdmin
       ? { to: installationSectionPath("database"), tenantId: null }
       : null;
@@ -95,6 +101,10 @@ export function notificationTarget(
         ? tenantPagePath(tenantId, "connections", "sources", sourceId)
         : String(sourceDetailTo(sourceId)),
     );
+  }
+  // A backup held as unusually large (#99): Warnings, where it is decided.
+  if (item.event === "backup.unusually_large") {
+    return at(WARNINGS_PATH);
   }
   // A server or client: its own page says what happened and what to do.
   const endpointId = text(details.endpointId);

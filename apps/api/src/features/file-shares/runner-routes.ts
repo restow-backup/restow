@@ -1,6 +1,7 @@
 import {
   backupSession,
   bandwidthTimeZone,
+  buildCause,
   FILE_SHARE_QUEUES,
   type FileShareFinishPayload,
   fileShareRepositoryKey,
@@ -27,6 +28,7 @@ import {
   fileShareSnapshots,
   fileShares,
   recordRunSample,
+  runSizeHoldOfRun,
   samplePoint,
   tenants,
 } from "@restow/db";
@@ -551,10 +553,23 @@ fileShareRunnerRoutes.post("/finish", async (c) => {
       ? await readSecret(tx, { id: share.repositorySecretId, tenantId: run.tenantId })
       : null;
     const secrets = repositoryPassword ? [repositoryPassword] : [];
-    const cause = shareRunCause(
-      { status: input.status, code: input.code, message: input.message, items },
-      secrets,
-    );
+    // A backup the size and space guard held (#99) says so, not the refusal restic reported.
+    const held =
+      input.status === "failed" && run.kind === "backup"
+        ? await runSizeHoldOfRun(
+            tx,
+            "file_share",
+            run.fileShareId,
+            run.id,
+            run.startedAt ?? run.createdAt,
+          )
+        : null;
+    const cause = held
+      ? buildCause("storage.run_held", {}, { holdId: held.id })
+      : shareRunCause(
+          { status: input.status, code: input.code, message: input.message, items },
+          secrets,
+        );
     const [updated] = await tx
       .update(fileShareRuns)
       .set({

@@ -65,6 +65,8 @@ export * from "./restore-mode.js";
 export * from "./roles.js";
 // The throughput history of runs (sparklines and the run drawer's charts).
 export * from "./run-samples.js";
+// The size and space guard of backup runs (#99): history, settings, holds, the alert.
+export * from "./run-size.js";
 // Re-export the full schema (tables, enums, and inferred row types).
 export * from "./schema/index.js";
 // Membership in a long id list as one bind parameter (never one per element).

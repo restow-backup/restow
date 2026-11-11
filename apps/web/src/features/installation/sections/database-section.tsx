@@ -34,6 +34,7 @@ import {
   DATABASE_DIRECTORY_INVALID_PROBLEM,
   DATABASE_UNSUPPORTED_PROBLEM,
   type DatabaseView,
+  type DiskReserveStatus,
   type DiskStatus,
   failureKey,
   isAwayDuringMove,
@@ -147,6 +148,45 @@ function DiskLine({ disk, label }: { disk: DiskStatus; label: string }) {
           {disk.location}
         </p>
       ) : null}
+      {disk.via === "volume" ? (
+        <p className="text-xs text-muted-foreground" data-slot="disk-via-volume">
+          {t("database.disks.viaVolume")}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** The emergency disk reserve (#98): there, freed, or waiting for room. */
+function ReserveLine({ reserve }: { reserve: DiskReserveStatus }) {
+  const { t, i18n } = useTranslation("installation");
+  const language = i18n.resolvedLanguage ?? i18n.language;
+  if (reserve.state === "unavailable") {
+    return null;
+  }
+  const values = {
+    size: formatBytes(reserve.state === "present" ? reserve.presentBytes : reserve.bytes, language),
+    path: reserve.path,
+    floor: formatBytes(reserve.floorBytes, language),
+    createAt: formatBytes(reserve.createAtBytes ?? 0, language),
+  };
+  return (
+    <div className="space-y-1 text-sm" data-slot="disk-reserve" data-state={reserve.state}>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-medium">{t("database.reserve.title")}</span>
+        {reserve.state === "released" ? (
+          <Badge variant="destructive">{t("database.reserve.releasedBadge")}</Badge>
+        ) : null}
+      </div>
+      <p className="text-muted-foreground">{t(`database.reserve.${reserve.state}`, values)}</p>
+      {reserve.state === "present" || reserve.state === "released" ? (
+        <p className="text-xs text-muted-foreground">
+          {t("database.reserve.byHand")}{" "}
+          <code className="font-mono [overflow-wrap:anywhere]">
+            docker compose exec api restow disk-reserve release
+          </code>
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -191,6 +231,7 @@ function DisksCard({ view }: { view: DatabaseView }) {
             <DiskLine disk={view.disks.repository} label={t("database.disks.repository")} />
           ) : null}
         </div>
+        {view.reserve ? <ReserveLine reserve={view.reserve} /> : null}
         {low.length > 0 ? (
           <Alert variant="warning" data-slot="disk-low">
             <TriangleAlert />

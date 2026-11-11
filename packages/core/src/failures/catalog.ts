@@ -445,6 +445,14 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     retryable: true,
     steps: () => [step("free_storage_space", "storage")],
   },
+  // A run the size and space guard held (#99, core run-size): the same run fails the same way
+  // until an administrator lets it continue once, raises the limit or frees space.
+  "storage.run_held": {
+    category: "storage",
+    transient: false,
+    retryable: false,
+    steps: () => [step("decide_held_backup", "held_backups"), step("exclude_large_folder")],
+  },
   "storage.access_denied": {
     category: "storage",
     transient: false,

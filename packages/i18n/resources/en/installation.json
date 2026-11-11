@@ -484,7 +484,17 @@
       "free": "{free} of {total} free",
       "low": "Low",
       "lowTitle": "Little free space",
-      "lowBody": "Less than a tenth of the disk is free (and less than 5 GiB). A full disk stops the database or the backups. Free up space, enlarge the disk, or move the database to another disk below. Provider administrators are notified once in the bell and through alert rules with “Low disk space”."
+      "lowBody": "Less than a tenth of the disk is free (and less than 5 GiB). A full disk stops the database or the backups. Free up space, enlarge the disk, or move the database to another disk below. Provider administrators are notified once in the bell and through alert rules with “Low disk space”.",
+      "viaVolume": "Read without the updater on the data volume next to the database's volume (the same disk)."
+    },
+    "reserve": {
+      "title": "Emergency disk reserve",
+      "releasedBadge": "Freed",
+      "present": "{size} at {path}. {appName} frees it by itself when less than {floor} is left on the disk, so the database keeps running, and alerts you.",
+      "released": "Freed because the disk was almost full. Free up space now: it is written again by itself once {createAt} are free.",
+      "missing": "Not there yet: it is written once {createAt} are free on the disk.",
+      "off": "Switched off (RESTOW_DISK_RESERVE_MB=0). A full disk stops the database.",
+      "byHand": "To free it by hand:"
     },
     "updateSpace": {
       "title": "Space for the next update",

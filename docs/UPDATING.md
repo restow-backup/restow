@@ -972,6 +972,10 @@ carefully as the master key.
 The images of earlier releases would fill the disk over time as well; the updater
 removes them after every successful update (next section).
 
+When the disk did fill up, the emergency disk reserve gives PostgreSQL room to start again
+without a shell; what can be cleaned up safely, and what never, is in
+[docs/DATABASE.md, Disk full](DATABASE.md#disk-full).
+
 ### Old images
 
 Every update pulls (or builds) two new images, and the old ones stay in Docker's

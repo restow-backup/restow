@@ -100,6 +100,8 @@ export interface InstallationEventInput {
   event:
     | "update.available"
     | "installation.disk_low"
+    | "installation.disk_reserve_released"
+    | "installation.disk_reserve_restored"
     | "installation.app_secret_expiring"
     | "installation.restore_mode"
     | "installation.key_mirror_conflict"

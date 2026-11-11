@@ -1885,6 +1885,48 @@ else
   pass
 fi
 assert_eq 1 "$([ -f "$cut_dir/.restore-in-progress" ] && [ -f "$cut_dir/.env" ] && echo 1)" "interrupted restore: a dry run removes nothing"
+assert_contains "would run: docker compose exec -T api restow disk-reserve create" "$out" "restore of 0.5.0 (dry run): the emergency disk reserve is written after the start"
+
+# ---- The emergency disk reserve (docs/DATABASE.md, "Disk full") ----------------------------------
+# reserve_with <version> <exit code of the command> [output] [dry]: ensure_disk_reserve against a
+# compose stub; prints what it says, then every compose call.
+reserve_with() {
+  (
+    LOG_READY=0
+    WARNINGS=0
+    VERSION=$1
+    OPT_DRY_RUN=0
+    if [ "${4:-}" = dry ]; then
+      OPT_DRY_RUN=1
+    fi
+    RESERVE_CALLS="$TMP_ROOT/reserve-calls"
+    : >"$RESERVE_CALLS"
+    RESERVE_CODE=$2
+    RESERVE_OUT=${3:-}
+    # The installer runs it in a command substitution: the calls go to a file.
+    compose() {
+      printf '[%s]' "$*" >>"$RESERVE_CALLS"
+      if [ -n "$RESERVE_OUT" ]; then
+        printf '%s\n' "$RESERVE_OUT"
+      fi
+      return "$RESERVE_CODE"
+    }
+    set -Eeuo pipefail
+    ensure_disk_reserve 2>&1
+    printf 'calls=%s warnings=%s\n' "$(cat "$RESERVE_CALLS")" "$WARNINGS"
+  )
+}
+out=$(reserve_with 0.5.0 0 "Disk reserve: 2.0 GiB at /data/restow-disk-reserve.")
+assert_contains "ok: Disk reserve: 2.0 GiB at /data/restow-disk-reserve." "$out" "disk reserve: written, the api's line is shown"
+assert_contains "calls=[exec -T api restow disk-reserve create]" "$out" "disk reserve: written in the api container"
+out=$(reserve_with 0.5.1 2 "Not enough room for a disk reserve of 2.0 GiB: 1.5 GiB free.")
+assert_contains "warning: the emergency disk reserve was not written (Not enough room" "$out" "disk reserve: no room is a warning"
+assert_contains "warnings=1" "$out" "disk reserve: no room counts as a warning, not a failure"
+out=$(reserve_with 0.4.12 0 "")
+assert_eq "calls= warnings=0" "$out" "disk reserve: a release before 0.5.0 has none, nothing is run"
+out=$(reserve_with 0.5.0 0 "" dry)
+assert_contains "[dry-run] would run: docker compose exec -T api restow disk-reserve create" "$out" "disk reserve: a dry run only says it"
+assert_contains "calls= warnings=0" "$out" "disk reserve: a dry run runs nothing"
 
 printf '\n%s passed, %s failed\n' "$PASSED" "$FAILED"
 [ "$FAILED" -eq 0 ]

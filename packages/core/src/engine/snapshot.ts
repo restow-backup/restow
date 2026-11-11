@@ -152,6 +152,8 @@ export class SnapshotWriter {
       packIdGenerator: options.packIdGenerator,
       // What the run uploads is part of its progress (the run drawer's "transferred" curve).
       onPackStored: (packBytes) => ctx.progress.transfer?.(packBytes),
+      // The size and space guard of backup runs (#99): asked before every pack.
+      beforePack: ctx.admitPack,
     });
   }
 

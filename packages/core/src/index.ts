@@ -58,6 +58,8 @@ export * from "./reports/index.js";
 export * from "./restore/index.js";
 // Backup snapshot retention (tiered keep rule, presets, run planning)
 export * from "./retention/index.js";
+// The size and space guard of backup runs (#99, docs/STORAGE.md "Unusually large runs")
+export * from "./run-size/index.js";
 // Schedules
 export * from "./schedule/index.js";
 // Sealing of the encrypted secret store (installation key, row binding)

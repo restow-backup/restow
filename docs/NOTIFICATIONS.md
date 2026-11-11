@@ -48,7 +48,10 @@ mode per severity too, and can choose the daily, weekly and monthly report.
 ## Critical events
 
 These events are security or data-loss events: `backup.suspicious` (ransomware signs),
-`endpoint.suspicious_snapshot`, `scrub.corrupt`, `verify.red` and `installation.disk_low`.
+`endpoint.suspicious_snapshot`, `endpoint.backups_deletion_scheduled`, `scrub.corrupt`,
+`verify.red`, `backup.unusually_large` (a run held before it filled the storage, docs/STORAGE.md
+"Unusually large runs"), `installation.disk_low` and `installation.disk_reserve_released` (the
+emergency disk reserve was freed, docs/DATABASE.md "Disk full").
 They are always sent at once (never held for a digest), always reach the floor, and always appear
 in the bell: the bell's column can no longer switch them off.
 

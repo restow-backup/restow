@@ -31,6 +31,8 @@ let failures: CountingFailures;
 let resolution: RunResticResolution | null;
 let seen: { runId: string; token: string; repoId: string }[];
 let audits: unknown[];
+let admitted: { principal: string; repoId: string; declared: number | null }[];
+let held: { type: string; detail: string } | null;
 let app: Hono;
 
 beforeEach(async () => {
@@ -38,6 +40,8 @@ beforeEach(async () => {
   failures = new CountingFailures();
   seen = [];
   audits = [];
+  admitted = [];
+  held = null;
   resolution = {
     ok: true,
     access: {
@@ -62,6 +66,10 @@ beforeEach(async () => {
         return resolution as RunResticResolution;
       },
       locks: (access) => locks(access.runId),
+      admitUpload: async (access, repoId, declared) => {
+        admitted.push({ principal: access.principal, repoId, declared });
+        return held;
+      },
       failures,
       audit: (_access, repoId, denial) => audits.push({ repoId, ...denial }),
     }),
@@ -87,6 +95,32 @@ describe("run-scoped restic route builder", () => {
     expect(seen).toEqual([{ runId: RUN, token: "token", repoId: REPO }]);
     // The run's own lock may be released again (process-local registry).
     expect((await call("DELETE", `/${REPO}/locks/${sha256(lock)}`)).status).toBe(200);
+  });
+
+  it("asks the run size guard before a backup's upload and refuses one it holds (#99)", async () => {
+    const pack = "pack bytes";
+    const ok = await call(
+      "POST",
+      `/${REPO}/data/${sha256(pack)}`,
+      { "content-length": "10" },
+      pack,
+    );
+    expect(ok.status).toBe(200);
+    expect(admitted).toEqual([{ principal: "agent", repoId: REPO, declared: 10 }]);
+    held = { type: "urn:restow:problem:run-size-held", detail: "held" };
+    const other = "other pack";
+    const refused = await call("POST", `/${REPO}/data/${sha256(other)}`, {}, other);
+    expect(refused.status).toBe(403);
+    expect(((await refused.json()) as { type: string }).type).toBe(
+      "urn:restow:problem:run-size-held",
+    );
+    // A restore reads only: never asked.
+    if (resolution?.ok) {
+      resolution = { ok: true, access: { ...resolution.access, principal: "reader" } };
+    }
+    admitted = [];
+    await call("GET", `/${REPO}/config`);
+    expect(admitted).toEqual([]);
   });
 
   it("answers 401 with the realm and counts an invalid credential, but not an expired one", async () => {

@@ -525,6 +525,75 @@ repository. The test `packages/core/src/endpoints/restic-prune-space.test.ts` fi
 file system in a loop device with backups until the next pack does not fit (over 99 % used) and
 checks that retention brings it back below the limit (it runs only as root where `losetup` works).
 
+## Unusually large runs
+
+One backup run can fill a target that retention keeps nicely below its size: someone adds a folder
+by mistake (an operator saw an 879 GB recycle bin go into a backup of a server with 2000 GB in
+total). The usual recycle bins are left out already (`**/.Trash`, `$Recycle.Bin`, `#recycle`,
+snapshot folders); anything else, and a recycle bin under another name, went through unchecked.
+From 0.5.0 a **size and space guard** measures every backup run while it writes and holds it
+before it fills the storage (`packages/core/src/run-size`, `packages/db/src/run-size.ts`).
+
+**Where a run is measured.** A run's size is known only while it writes; restic's own summary
+(`data_added`) comes at the end, when the data is stored already.
+
+| Kind | Measured | Where |
+| ---- | -------- | ----- |
+| Servers and clients, file shares, Proxmox VE containers (restic) | the bytes of every upload through the server's restic REST endpoint | the api (`/agent/restic`, `/internal/file-shares/restic`, `/agent/pve/restic`), before every upload but a lock file |
+| Mailboxes, OneDrive, SharePoint sites, IMAP accounts (chunk store) | every pack the run writes (64 MiB at most) | the worker, before the pack is stored |
+| Proxmox VE VMs (block backups into the chunk store, uploaded through the api) | not yet | |
+
+**The rule.** Before an upload the guard asks two questions:
+
+- **Size.** Does the run pass its limit? The limit is the largest of: 10 times the median of what
+  the object's last 10 successful runs added (restic: `data_added_packed`, else `data_added`; the
+  chunk store: the new chunk bytes), 10 GiB (small objects never trip it), and the object's own
+  limit. With fewer than 3 earlier runs a run is a first backup: not checked, unless a limit for
+  first backups is set. A Proxmox VE container counts from its newest backup chain on.
+- **Space.** Would the upload leave the target less than 2 % of its size free? (Below a tenth the low disk space warning has
+  spoken already for the local default repository.) Only where the
+  target reports its space (a directory, an NFS or SMB mount: `StorageBackend.freeSpace`). An S3
+  bucket reports none: there the size rule alone applies, and the storage budgets of machines
+  and file shares (above) still refuse what does not fit.
+
+**Held.** A run that answers either with yes is held: the upload is refused (restic gets 403 with
+`urn:restow:problem:run-size-held`, which it takes as final; the chunk store stores no further
+pack), the run ends without a restore point, a mailbox or OneDrive run with the failure "Held:
+this backup is unusually large" (`storage.run_held`). Earlier restore points are untouched; the
+packs a chunk store run stored before the hold stay in its index, so the run that continues does
+not upload them again. The hold (`run_size_holds`) records
+what the run had added, the limit, the median and the target's space, and raises
+`backup.unusually_large` once (critical: the bell, the provider's mandatory recipients, every rule
+that lists it, never held for a digest). Until an administrator decides, every further run of the
+object is held at its first upload (counted on the hold, no second alert).
+
+**Deciding** (Warnings, at the top: "Held backups"; `/api/v1/run-size`):
+
+- **Continue once** (technicians and up): the next run of the object goes through without the
+  check, whatever it adds; that run closes the hold. Audited (`backup.size_hold_continued`).
+- **Raise the limit** (administrators and up): the object's own limit becomes the given size;
+  the hold ends. Audited (`backup.size_limit_raised`).
+- **Switch the check off for this object** (administrators and up). Audited
+  (`backup.size_guard_changed`).
+- **Exclude** the folder that does not belong in the backup in the object's settings, then
+  continue once or let the next run be measured again.
+
+**Settings.** Defaults, then the tenant's, then an object's own (Warnings, "Size check";
+`PUT /api/v1/run-size/settings`): on or off, the factor (2 to 1000), the size below which a run is
+never held, a limit for first backups (empty: not checked), the free share to keep (0 switches the
+space rule off). Each change is audited.
+
+Known limits:
+
+- A held restic run ends; restic writes no index for the packs it stored, so they are unused
+  data until the next prune, and a run that continues once uploads them again.
+- The api counts a run from the first upload it sees: after an api restart in the middle of a run
+  the run looks smaller than it is (never larger).
+- Where the size comes from (the largest new folders of a run) is not shown yet: the server sees
+  packs, not files. The agent and the runners would have to report it.
+- Proxmox VE VM backups (changed blocks into the chunk store) are not measured yet, and the
+  per-job setting is per object: a backup job of several mailboxes has one setting per mailbox.
+
 ## Immutable backups
 
 Backup data that someone who controls Restow cannot delete or alter before a date: an

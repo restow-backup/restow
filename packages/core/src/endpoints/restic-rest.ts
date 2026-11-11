@@ -135,6 +135,12 @@ export interface ResticRestOptions {
    * {@link QUOTA_EXCEEDED_PROBLEM}); file shares use their own (docs/FILESHARES.md 5.3).
    */
   quotaProblem?: { type: string; detail: string };
+  /**
+   * The size and space guard of backup runs (#99, core run-size): asked before every upload
+   * except a lock file, with its declared length. A problem holds the run: the upload is
+   * answered with 403 and that problem (final for restic), and nothing is written.
+   */
+  admitUpload?: (declaredBytes: number | null) => Promise<{ type: string; detail: string } | null>;
   /** Called when an upload was refused because it does not fit the storage budget. */
   onQuotaExceeded?: (event: {
     resource: ResticResource;
@@ -171,6 +177,9 @@ function quotaExceededError(problem?: { type: string; detail: string }): ResticH
   );
 }
 
+/** The problem type of an upload the run size guard refused (#99, core run-size). */
+export const RUN_SIZE_HELD_PROBLEM = "urn:restow:problem:run-size-held";
+
 function errorResponse(error: ResticHttpError): Response {
   if (!error.problemType) {
     return text(error.status, error.message);
@@ -178,7 +187,10 @@ function errorResponse(error: ResticHttpError): Response {
   return new Response(
     JSON.stringify({
       type: error.problemType,
-      title: "Storage quota exceeded",
+      title:
+        error.problemType === RUN_SIZE_HELD_PROBLEM
+          ? "Backup held as unusually large"
+          : "Storage quota exceeded",
       status: error.status,
       detail: error.message,
     }),
@@ -538,6 +550,14 @@ export async function handleResticRequest(
       return response;
     }
     case "write": {
+      // A run the size and space guard holds writes nothing more (lock files excepted, so the
+      // run can still release its lock).
+      if (agentLock === null && options.admitUpload) {
+        const held = await options.admitUpload(declaredLength(request));
+        if (held) {
+          return errorResponse(new ResticHttpError(403, held.detail, held.type));
+        }
+      }
       // Lock files do not count against the budget: a restore must work when it is used up.
       const budget =
         agentLock === null && options.remainingBytes ? await options.remainingBytes() : null;

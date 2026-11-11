@@ -138,6 +138,11 @@ export interface ChunkWriterOptions {
   readonly packIdGenerator?: () => string;
   /** Called with the size of each pack once it is stored on every target and recorded. */
   readonly onPackStored?: (packBytes: number) => void;
+  /**
+   * Asked with the size of each pack before it is stored (the run size guard, #99); a throw
+   * holds the run: the pack is not written and the writer is failed like after a refused pack.
+   */
+  readonly beforePack?: (packBytes: number) => Promise<void>;
 }
 
 function toHex(id: Buffer): string {
@@ -434,6 +439,7 @@ export class ChunkWriter {
       length: entry.length,
     }));
     try {
+      await this.options.beforePack?.(bytes.length);
       await writeToAllTargets(this.options.storage, path, bytes);
       await this.options.index.recordPack(record, chunkRecords);
     } catch (error) {

@@ -12,6 +12,41 @@ private repository.
 
 ### Added
 
+- Emergency disk reserve and "Disk full" recovery without a shell (#98). When the disk under the
+  database filled up to the last byte, PostgreSQL could not start and getting it back needed a
+  shell or a rescue console. The api now keeps a file of real (random, never sparse) blocks on
+  the volume `restow-data`, `restow-disk-reserve`, 2 GiB by default (`RESTOW_DISK_RESERVE_MB`,
+  `0` = off). Below 1 GiB free on its disk (`RESTOW_DISK_RESERVE_FLOOR_MB`) the api frees it by
+  itself, checked every 30 seconds and, without the database, every time the api container
+  starts (before the migrations), so PostgreSQL has room to start again. Once the disk has room
+  for the low-space threshold plus the reserve, it is written again. New installation events
+  `installation.disk_reserve_released` (critical) and `installation.disk_reserve_restored`; a
+  release while the database was down is announced once it is back. The low disk space warning
+  names the reserve and the command that frees it; Installation › Database shows its state.
+  New `restow disk-reserve status|release|create|guard` (needs no database); `install.sh`
+  writes the reserve right after the first start (0.5.0 and newer). Without the opt-in updater
+  the database's disk is now watched too, read on `restow-data` next to the named volume
+  `pgdata` (not for a database moved to a host directory). The bell names the system disk in its
+  low-space line. Known limits: the reserve protects only its own disk (not a database moved
+  elsewhere), a snapshot of a copy-on-write file system keeps its blocks, and a disk that fills
+  within 30 seconds can still reach 0 bytes until the next check. docs/DATABASE.md, "Disk full"
+  (safe cleanup, what never to delete, freeing the reserve by hand).
+- Size and space guard of backup runs (#99). One run that adds far more than usual (an 879 GB
+  recycle bin) no longer fills the storage: every run is measured while it writes, restic runs of
+  machines, file shares and Proxmox VE containers at the server's restic endpoint before every
+  upload, mailbox, OneDrive, SharePoint and IMAP runs before every pack. A run is held when it
+  passes 10 times the median of its object's last 10 runs (at least 10 GiB, or the object's own
+  limit; first backups are not checked unless a limit for them is set), or when it would leave a
+  target that reports its space less than 2 % free. A held run ends without a restore point
+  (restic: 403 `run-size-held`; mail: failure `storage.run_held`), the new critical event
+  `backup.unusually_large` goes out once, and every further run of the object waits. Under
+  Warnings, "Held backups", an administrator lets it continue once, raises the object's limit or
+  switches the check off for it; the tenant's settings (factor, minimum, first backups, free
+  share) are there too. New tables `run_size_holds` and `run_size_settings` (migration 0095,
+  tenant isolated), `/api/v1/run-size` (holds, continue, raise, settings), audit events
+  `backup.size_hold_continued`, `backup.size_limit_raised`, `backup.size_guard_changed`. Not yet:
+  Proxmox VE VM block backups, the largest new folders of a held run, and per-job settings for a
+  job of several objects (the setting is per object). docs/STORAGE.md, "Unusually large runs".
 - Repository copies: the restic repositories of machines (`endpoints/<id>/`), Proxmox VE
   containers (`pve-guests/<id>/`) and file shares (`file-shares/<id>/`) are now kept on every
   copy target of the tenant, not only on the primary. Until now a copy received only the chunk
