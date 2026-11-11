@@ -794,6 +794,43 @@ bietet an, die eigene Organisation anzulegen. Einstellungen ändert der Provider
 danach in der Oberfläche. Der Admin mit Passwort muss vor allem anderen eine
 Authenticator-App (TOTP) einrichten.
 
+Nach dem Betreiberhinweis fragt der Wizard einer neuen Installation „Was möchten Sie mit Restow
+schützen?": je Modul ein Kästchen, alle vorbelegt, mindestens eines (`modules` im Setup-Request,
+sonst 422; ohne das Feld sind alle Module an). Die Wiederherstellung aus einem Dump und der
+Worker-Knoten überspringen den Schritt: Der Dump bringt seine Module mit. Die Module der
+Installation (`apps/api/src/lib/modules.ts`, dieselbe Liste in `apps/web/src/lib/modules.ts`)
+sind die Bereiche des Produkts:
+
+| Modul | Umfang |
+| --- | --- |
+| `microsoft365` | Microsoft 365: Postfächer, OneDrive, SharePoint-Websites, Gruppen und Teams (Quellen `m365`) |
+| `imap` | IMAP-Postfächer (Quellen `imap`); Google Workspace läuft bis zu einer eigenen Quelle darüber |
+| `archive` | Mail-Archiv (docs/ARCHIVE.md) |
+| `endpoints` | Server & Clients: Rechner mit Agent und Freigaben |
+| `pve` | Proxmox VE: VMs und Container (docs/PVE.md) |
+
+Gespeichert werden in `settings.modules` (Migration 0094, JSON `{ hidden: [...] }`) nur die
+**ausgeschalteten** Module: Eine Installation aus einem früheren Release hat `{}` und zeigt nach
+dem Update alles wie zuvor, und ein Modul, das ein späteres Release ergänzt, ist an, bis es jemand
+ausschaltet. Geändert wird unter **Installation › Server & Betrieb › Module** (`GET`/`PUT
+/api/v1/settings/modules`, `{ enabled: [...] }` mit mindestens einem Modul; lesen darf jeder
+Provider-Admin mit allen Mandanten, ändern Administratoren und Owner; Audit
+`settings.modules.updated` mit vorher, nachher und was umgeschaltet wurde). `GET /api/v1/me` trägt
+die eingeschalteten Module als `modules`, damit das Menü ohne eigene Anfrage steht; sie gelten für
+alle Angemeldeten der Installation, eine Übersteuerung je Mandant gibt es nicht.
+
+Ein ausgeschaltetes Modul wird **nur ausgeblendet**: seine Menüeinträge und die Befehle der
+Befehlspalette (`NavItem.modules`, gefiltert in `lib/use-nav-items.ts`), seine Karten in der
+Übersicht (`widget-registry.tsx`), seine Bereiche der Mandanten- und der Installationsseite
+(Unternavigation) und seine Einträge beim Anlegen (Reiter unter Verbindungen, Job-Typ unter „Neuer
+Job"). Was zu mehreren Modulen gehört (die Jobs, der Datei-Restore), bleibt, solange eines davon an
+ist. Es wird nichts gelöscht, kein Job angehalten und keine API-Route verweigert: Die Module sind
+nie eine Zugriffsregel und unabhängig von den Editionen (`lib/features.ts`). Die Seite Module nennt
+für jedes ausgeschaltete Modul, was es über alle Mandanten noch enthält (Verbindungen, geschützte
+Objekte, archivierende Jobs, Archive mit Mails, Rechner, Freigaben, Jobs, Knoten, VMs und
+Container), und führt zu seiner Seite. Die bleibt über ihre Adresse erreichbar und zeigt oben
+einen dezenten Hinweis, dass das Modul in der Navigation ausgeblendet ist.
+
 Erster Schritt des Wizards ist die Sprache (Deutsch oder Englisch, vorbelegt aus der
 Browsersprache, sofort angewendet): Sie läuft als `language` im Setup-Request mit und wird die
 Sprache der eigenen Organisation (`tenants.language`, auch die Namen ihrer Alarmregeln) und der

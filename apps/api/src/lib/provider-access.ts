@@ -285,6 +285,11 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   // figures of the provider, read by its admins, changed by the owner.
   "GET /api/v1/settings/pricing": view(PROVIDER),
   "PUT /api/v1/settings/pricing": own(),
+  // The installation's modules (settings/modules.ts): what the web interface shows, with what each
+  // module holds across every tenant. Switching one off only hides it (no data, job or route is
+  // touched), so it is configuration work: administrators and owners with every tenant.
+  "GET /api/v1/settings/modules": view(PROVIDER),
+  "PUT /api/v1/settings/modules": configure(PROVIDER),
   // The estimate of the price cards, per tenant: a member limited to some tenants gets those
   // (the handler narrows it, like the tenant list).
   "GET /api/v1/settings/pricing/estimate": view(LIST),

@@ -60,7 +60,7 @@ export function Stepper({ activeIndex, steps, onSelect }: StepperProps) {
               )}
               <span className="sr-only">{t(`step.${key}`)}</span>
             </button>
-            {/* Eight steps do not fit with every name written out: the active one is named. */}
+            {/* The steps do not fit with every name written out: the active one is named. */}
             <span
               aria-hidden="true"
               className={cn("hidden text-xs", state === "active" && "text-foreground sm:inline")}

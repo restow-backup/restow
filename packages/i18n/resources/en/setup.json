@@ -6,6 +6,7 @@
     "language": "Language",
     "token": "Setup token",
     "disclaimer": "Operator notice",
+    "modules": "What to protect",
     "mode": "Operating mode",
     "admin": "Organisation and admin",
     "mail": "Mail transport",
@@ -96,6 +97,12 @@
       "accept": "Accept and continue",
       "signOut": "Sign out"
     }
+  },
+  "modules": {
+    "title": "What do you want to protect with {appName}?",
+    "description": "Tick what this installation backs up or archives. The menu and the overview then show only that.",
+    "required": "Tick at least one.",
+    "hint": "You can switch each of these on and off later under Installation › Server & operation › Modules. Leaving one out only hides it."
   },
   "mode": {
     "title": "How do you run {appName}?",
@@ -210,6 +217,7 @@
     "title": "Review",
     "description": "Check your entries and finish the setup.",
     "language": "Language",
+    "modules": "Protects",
     "mode": "Operating mode",
     "publicUrl": "Public URL",
     "timeZone": "Time zone",

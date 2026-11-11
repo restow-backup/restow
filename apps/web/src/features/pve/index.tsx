@@ -75,6 +75,7 @@ export const routes = [pveRoute, pveGuestRoute];
 export const navItems: NavItem[] = [
   {
     id: "virtualization",
+    modules: ["pve"],
     path: PVE_PATH,
     labelKey: "pve:nav.label",
     icon: Container,

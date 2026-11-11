@@ -29,6 +29,7 @@ export const routes = [archiveRoute];
 export const navItems: NavItem[] = [
   {
     id: "archive",
+    modules: ["archive"],
     path: ARCHIVE_PATH,
     labelKey: "archive:nav",
     icon: ArchiveIcon,

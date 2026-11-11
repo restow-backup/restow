@@ -121,6 +121,7 @@ describe("who opens the installation page", () => {
     await open("/installation/mail");
     expect(subnavEntries()).toEqual([
       "Server",
+      "Modules",
       "Notification mail",
       "Notifications",
       "Branding",

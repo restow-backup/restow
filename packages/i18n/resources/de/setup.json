@@ -6,6 +6,7 @@
     "language": "Sprache",
     "token": "Setup-Token",
     "disclaimer": "Hinweis",
+    "modules": "Was schützen",
     "mode": "Betriebsmodus",
     "admin": "Organisation und Admin",
     "mail": "Mail-Transport",
@@ -96,6 +97,12 @@
       "accept": "Akzeptieren und fortfahren",
       "signOut": "Abmelden"
     }
+  },
+  "modules": {
+    "title": "Was möchten Sie mit {appName} schützen?",
+    "description": "Wählen Sie aus, was diese Installation sichert oder archiviert. Menü und Übersicht zeigen dann nur das.",
+    "required": "Wählen Sie mindestens einen Eintrag aus.",
+    "hint": "Sie können jeden dieser Bereiche später unter Installation › Server & Betrieb › Module ein- und ausschalten. Was Sie hier weglassen, wird nur ausgeblendet."
   },
   "mode": {
     "title": "Wie betreiben Sie {appName}?",
@@ -210,6 +217,7 @@
     "title": "Überprüfung",
     "description": "Prüfen Sie Ihre Angaben und schließen Sie die Einrichtung ab.",
     "language": "Sprache",
+    "modules": "Schützt",
     "mode": "Betriebsmodus",
     "publicUrl": "Öffentliche URL",
     "timeZone": "Zeitzone",

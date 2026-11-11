@@ -48,6 +48,19 @@ private repository.
   limitations"). The first pass
   after the update copies every repository once, 25 repositories per pass, and needs their size
   on each copy target. Purging a file share now also deletes its repository copies.
+- Modules of the installation: the setup wizard of a new installation asks "What do you want to
+  protect?" with a box per module (Microsoft 365, IMAP mailboxes, Mail archive, Servers & clients,
+  Proxmox VE; all ticked to begin with, at least one), and Installation › Server & operation ›
+  Modules switches them on and off later (`GET`/`PUT /api/v1/settings/modules`, owners and
+  administrators, audited as `settings.modules.updated`). A module that is off is only hidden: its
+  menu entries and command palette commands, its cards on the overview, its sections of the tenant
+  and the installation page, and its entries where something new is created (the tabs of
+  Connections, the job type under "New job"). Nothing is deleted, no job stops and no API route
+  refuses anything. The Modules page says what a hidden module still holds across all tenants,
+  with counts, and its pages stay reachable by their address, with a discreet line that the module
+  is hidden in the navigation. An installation that updates keeps every module on (migration 0094
+  stores only the modules switched off); a restore from a dump and a worker node are not asked.
+  `GET /api/v1/me` carries the enabled modules as `modules`.
 
 - Machines: a scheduled deletion of a revoked machine's backups can be cancelled until the worker
   starts (Cancel deletion on the machine's page and in File restore, `POST
@@ -2226,7 +2239,7 @@ private repository.
 
 ### Upgrade Notes
 
-Twenty database migrations run on start: 0073 creates the new table `storage_samples` and 0074
+Twenty-two database migrations run on start: 0073 creates the new table `storage_samples` and 0074
 the new table `directory_memberships`; neither rewrites anything. 0075 serves the restore
 explorer's "From the archive": an index on `archive_items` (tenant, mailbox, capture time), the
 index on `archive_item_mailboxes` (tenant, mailbox) replaced by one that adds the time of the
@@ -2271,7 +2284,9 @@ the check on `installation_restore_mode.source` by `setup`; both are new and emp
 the notifications and branding of 0.5.0 (see below). 0092 creates the new tables
 `endpoint_sql_databases` and `endpoint_sql_backups` (Row Level Security) for SQL Server backups of
 Windows machines and adds values to the enums of endpoint run, task and report kinds; both tables
-are new and empty. The first directory sync after the
+are new and empty. 0093 creates the new table `repository_copies` (Row Level Security), which is
+empty until the first copy pass, and 0094 adds the defaulted column `settings.modules`; neither
+rewrites a table. The first directory sync after the
 update reads the owners and members of every Microsoft 365 group once (three Graph reads per group, through
 `$batch`); until it has run, a person's "Teams & sites" is empty and says that it may be
 incomplete. Agents before 0.5.0 ignore `snapshotOnFailure`, and the release key keeps the

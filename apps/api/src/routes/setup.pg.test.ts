@@ -289,10 +289,27 @@ describe.skipIf(!testDatabaseAdminUrl)(
       expect(response.status).toBe(428);
     });
 
+    it("refuses a setup without a module, or with one it does not know, and writes nothing", async () => {
+      for (const modules of [[], ["tape"], "pve"]) {
+        const response = await submitSetup({
+          ...SETUP_FIELDS,
+          disclaimer: { version, accepted: true },
+          modules,
+        });
+        expect(response.status).toBe(422);
+      }
+      await nothingWritten();
+    });
+
     it("sets up with the token and the acceptance, recorded with the new administrator", async () => {
       const before = Date.now();
       const response = await submitSetup(
-        { ...SETUP_FIELDS, disclaimer: { version, accepted: true } },
+        // The wizard's step "What do you want to protect with Restow?": two of the modules.
+        {
+          ...SETUP_FIELDS,
+          disclaimer: { version, accepted: true },
+          modules: ["pve", "microsoft365"],
+        },
         {
           "x-restow-setup-token": SETUP_TOKEN,
           // The client wrote the first hop; the edge appended the address it saw.
@@ -340,6 +357,14 @@ describe.skipIf(!testDatabaseAdminUrl)(
         disclaimer: { version, accepted: true },
         setupToken: { required: false, source: null },
       });
+    });
+
+    it("stores the modules the wizard ticked as the ones that are off, and audits them with the setup", async () => {
+      expect((await settingsRow())?.modules).toEqual({ hidden: ["imap", "archive", "endpoints"] });
+      const completed = (await installationChain()).find(
+        (entry) => entry.action === "setup.completed",
+      );
+      expect(completed?.details).toMatchObject({ modules: ["microsoft365", "pve"] });
     });
 
     it("creates the operator's own organisation with the setup: one internal tenant, named as given, with its key, its alert rules and its audit entry", async () => {
@@ -476,8 +501,8 @@ describe.skipIf(!testDatabaseAdminUrl)(
       async function signInAsTeamMember(
         role: ProviderRole,
         clientIp: string,
+        email = `${role}@example.com`,
       ): Promise<{ cookie: string; userId: string; email: string }> {
-        const email = `${role}@example.com`;
         const context = await authModule.auth.$context;
         const userId = randomUUID();
         await owner
@@ -616,6 +641,97 @@ describe.skipIf(!testDatabaseAdminUrl)(
         const last = (await acceptedEntries()).at(-1);
         expect(last?.details).toEqual({ version, previousVersion: "2020-01-01", via: "sign_in" });
         expect(await state()).toMatchObject({ disclaimer: { version, accepted: true } });
+      });
+
+      // --- The installation's modules (features/settings/modules.ts) --------------------
+
+      const modulesCall = (method: "GET" | "PUT", cookie: string, body?: unknown) =>
+        call(method, "/api/v1/settings/modules", {
+          ...(body !== undefined ? { body } : {}),
+          headers: { origin: PUBLIC_URL, cookie },
+        });
+
+      const enabledOf = async (response: Response) =>
+        ((await response.json()) as { modules: { id: string; enabled: boolean }[] }).modules
+          .filter((entry) => entry.enabled)
+          .map((entry) => entry.id);
+
+      const modulesOfMe = async (cookie: string) =>
+        (
+          (await (await call("GET", "/api/v1/me", { headers: { cookie } })).json()) as {
+            modules: string[];
+          }
+        ).modules;
+
+      const moduleEntries = async () =>
+        (await installationChain()).filter((entry) => entry.action === "settings.modules.updated");
+
+      it("reports the modules the setup stored, in the list and in the profile", async () => {
+        const response = await modulesCall("GET", admin.cookie);
+        expect(response.status).toBe(200);
+        expect(await enabledOf(response)).toEqual(["microsoft365", "pve"]);
+        expect(await modulesOfMe(admin.cookie)).toEqual(["microsoft365", "pve"]);
+      });
+
+      it("lets a technician read the modules, not change them", async () => {
+        const member = await signInAsTeamMember(
+          "technician",
+          "198.51.100.81",
+          "modules-technician@example.com",
+        );
+        expect((await modulesCall("GET", member.cookie)).status).toBe(200);
+        const response = await modulesCall("PUT", member.cookie, { enabled: ["imap"] });
+        expect(response.status).toBe(403);
+        expect(((await response.json()) as Problem).type).toBe(
+          "urn:restow:problem:provider-role-required",
+        );
+        expect((await settingsRow())?.modules).toEqual({
+          hidden: ["imap", "archive", "endpoints"],
+        });
+        expect(await moduleEntries()).toEqual([]);
+      });
+
+      it("refuses to switch every module off, and a module it does not know", async () => {
+        for (const body of [{ enabled: [] }, { enabled: ["tape"] }, {}]) {
+          const response = await modulesCall("PUT", admin.cookie, body);
+          expect(response.status).toBe(422);
+        }
+        expect((await settingsRow())?.modules).toEqual({
+          hidden: ["imap", "archive", "endpoints"],
+        });
+        expect(await moduleEntries()).toEqual([]);
+      });
+
+      it("lets a team administrator switch modules on and off, audited with their identity", async () => {
+        const member = await signInAsTeamMember(
+          "administrator",
+          "198.51.100.82",
+          "modules-administrator@example.com",
+        );
+        const response = await modulesCall("PUT", member.cookie, {
+          enabled: ["microsoft365", "imap", "endpoints"],
+        });
+        expect(response.status).toBe(200);
+        expect(await enabledOf(response)).toEqual(["microsoft365", "imap", "endpoints"]);
+        expect((await settingsRow())?.modules).toEqual({ hidden: ["archive", "pve"] });
+        // The profile every signed-in person loads follows, so the menu does.
+        expect(await modulesOfMe(admin.cookie)).toEqual(["microsoft365", "imap", "endpoints"]);
+
+        const entries = await moduleEntries();
+        expect(entries).toHaveLength(1);
+        expect(entries[0]).toMatchObject({
+          actor: member.email,
+          actorUserId: member.userId,
+          tenantId: null,
+          targetType: "settings",
+        });
+        expect(entries[0]?.details).toEqual({
+          before: ["microsoft365", "pve"],
+          after: ["microsoft365", "imap", "endpoints"],
+          switchedOn: ["imap", "endpoints"],
+          switchedOff: ["pve"],
+        });
+        expect(verifyAuditChain(await installationChain())).toMatchObject({ ok: true });
       });
     });
   },

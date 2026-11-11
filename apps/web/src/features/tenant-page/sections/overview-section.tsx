@@ -473,11 +473,13 @@ function Stat({
 /** One card per other section: what it holds, and the way in. */
 function SectionLinks({ scope }: { scope: "organisation" | "tenants" }) {
   const { t } = useTranslation();
-  const { activeTenant, isProviderAdmin } = useSession();
+  const { activeTenant, isProviderAdmin, modules } = useSession();
   if (!activeTenant) {
     return null;
   }
-  const sections = visibleSectionMeta(isProviderAdmin).filter((meta) => meta.id !== "overview");
+  const sections = visibleSectionMeta(isProviderAdmin, modules).filter(
+    (meta) => meta.id !== "overview",
+  );
   return (
     <section aria-labelledby="overview-sections" className="space-y-3">
       <h3 id="overview-sections" className="text-sm font-medium">

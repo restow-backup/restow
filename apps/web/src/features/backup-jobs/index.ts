@@ -57,6 +57,8 @@ export const routes: AnyRoute[] = createBackupJobRoutes(() => appLayoutRoute);
 export const navItems: NavItem[] = [
   {
     id: "mail-jobs",
+    // Mail jobs back up Microsoft 365 and IMAP, and archive.
+    modules: ["microsoft365", "imap", "archive"],
     path: JOBS_PATH,
     search: { type: "mail" },
     labelKey: "nav.items.jobs",
@@ -68,6 +70,8 @@ export const navItems: NavItem[] = [
   },
   {
     id: "endpoint-jobs",
+    // Machines, file shares and the guests of Proxmox VE.
+    modules: ["endpoints", "pve"],
     path: JOBS_PATH,
     search: { type: "endpoint" },
     labelKey: "nav.items.jobs",

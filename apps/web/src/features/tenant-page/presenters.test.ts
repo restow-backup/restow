@@ -76,6 +76,80 @@ describe("the sections for provider administrators only (0.5.0)", () => {
   });
 });
 
+describe("the sections and the modules of the installation (0.5.0)", () => {
+  it("name the modules they belong to: connections and protection the mail modules, agents the machines, the archive its own", () => {
+    const modules = Object.fromEntries(
+      TENANT_SECTION_META.filter((meta) => meta.modules).map((meta) => [meta.id, meta.modules]),
+    );
+    expect(modules).toEqual({
+      connections: ["microsoft365", "imap", "archive"],
+      protection: ["microsoft365", "imap"],
+      agents: ["endpoints"],
+      archive: ["archive"],
+    });
+    // The sections carry them into the page.
+    expect(tenantSections().find((section) => section.id === "agents")?.modules).toEqual([
+      "endpoints",
+    ]);
+  });
+
+  it("leave the sections of a module that is off out of what the overview and the palette offer", () => {
+    const ids = (modules: Parameters<typeof visibleSectionMeta>[1]) =>
+      visibleSectionMeta(true, modules).map((meta) => meta.id);
+    // Only Proxmox VE: nothing of mail, the archive or the agents.
+    expect(ids(["pve"])).toEqual([
+      "overview",
+      "jobs",
+      "retention",
+      "storage",
+      "notifications",
+      "branding",
+      "integrations",
+      "members",
+      "master-data",
+    ]);
+    // The archive alone keeps Connections (the mail file imports) and its own section.
+    expect(ids(["archive"])).toContain("connections");
+    expect(ids(["archive"])).toContain("archive");
+    expect(ids(["archive"])).not.toContain("protection");
+    expect(ids(["archive"])).not.toContain("agents");
+    // Every module on, or none known: every section.
+    expect(ids(["microsoft365", "imap", "archive", "endpoints", "pve"])).toHaveLength(
+      TENANT_SECTION_META.length,
+    );
+    expect(ids(null)).toHaveLength(TENANT_SECTION_META.length);
+    expect(ids(undefined)).toHaveLength(TENANT_SECTION_META.length);
+  });
+
+  it("mark a section hidden for the sub-navigation while its modules are off, and never without modules", () => {
+    const specs = [
+      { ...spec("agents", 10), modules: ["endpoints"] as const },
+      { ...spec("connections", 20), modules: ["microsoft365", "imap"] as const },
+      spec("members", 30),
+    ];
+    const hidden = (modules: readonly ("microsoft365" | "imap" | "endpoints" | "pve")[] | null) =>
+      tenantSectionStates(specs, { features: [], extensions: {}, modules }).map((state) => [
+        state.spec.id,
+        state.hidden,
+      ]);
+    expect(hidden(["imap", "pve"])).toEqual([
+      ["agents", true],
+      ["connections", false],
+      ["members", false],
+    ]);
+    expect(hidden(["pve"])).toEqual([
+      ["agents", true],
+      ["connections", true],
+      ["members", false],
+    ]);
+    expect(hidden(null)).toEqual([
+      ["agents", false],
+      ["connections", false],
+      ["members", false],
+    ]);
+  });
+});
+
 describe("the tabs of Connections", () => {
   it("open Microsoft 365 unless the address names another one", () => {
     expect(parseConnectionsSearch({})).toEqual({ tab: "microsoft365" });

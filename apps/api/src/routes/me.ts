@@ -4,8 +4,10 @@ import { Hono } from "hono";
 import { config } from "../config.js";
 import { providerDb } from "../db.js";
 import { sessionFieldContributions } from "../extensions.js";
+import { loadEnabledModules } from "../features/settings/modules.js";
 import { internalFirstByName } from "../features/tenants/order.js";
 import { enabledFeatures, type GatedFeature } from "../lib/features.js";
+import type { ModuleId } from "../lib/modules.js";
 import {
   type ProviderAccess,
   type ProviderRole,
@@ -37,7 +39,8 @@ import { versionSource } from "./v1.js";
  * shows it in the sidebar footer. `features` lists the gated core functions
  * that are on (lib/features.ts) and `extensions` carries what registered
  * extensions add to the session (extensions.ts `sessionFields`), passed
- * through unread.
+ * through unread. `modules` lists the installation's modules that are on
+ * (lib/modules.ts), so the menu renders without a request of its own.
  */
 
 export const me = new Hono<SessionEnv>();
@@ -64,6 +67,11 @@ export interface MeResponse {
   activeTenantId: string | null;
   /** The gated core functions that are on right now; empty without an extension enabling them. */
   features: GatedFeature[];
+  /**
+   * The installation's modules that are on (lib/modules.ts): the web interface hides the menu
+   * entries, cards and offers of the others. The same for everyone signed in; never an access rule.
+   */
+  modules: ModuleId[];
   /** Fields contributed by extensions, by key. */
   extensions: Record<string, unknown>;
   version: VersionInfo;
@@ -201,6 +209,7 @@ me.get("/", requireSession, async (c) => {
     })),
     activeTenantId: activeTenantHint(rows, activeOrganizationId, config.demo.enabled),
     features: await enabledFeatures(providerDb),
+    modules: await loadEnabledModules(providerDb),
     extensions: await extensionFields(user.id, isProviderAdmin),
     version: versionSource.current(),
     provider:
