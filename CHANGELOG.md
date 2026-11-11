@@ -484,7 +484,10 @@ private repository.
   has not recorded (a file system made a moment ago, or a system without udev): it reads the
   type from the device, and says so when it cannot. On the recovery page the checks of a
   recovery are green only when the server stored it as succeeded, and the check of a snapshot's
-  layout (stage 1) is never green: it shows that a restore can work, not that one did.
+  layout (stage 1) is never green: it shows that a restore can work, not that one did. The
+  planner no longer asks more of a target disk than a small btrfs had: its metadata reserve is
+  1 GiB per device but at most a fifth of the device, so a btrfs of 1 GiB plans onto a disk of
+  the same size again.
   Firmware packages: `firmware-bnx2`, `firmware-bnx2x`, `firmware-qlogic`, `firmware-realtek`,
   `firmware-misc-nonfree` and `firmware-intel-misc` (wired network cards and storage controllers
   only; their licences are in `restow-recovery_<v>_FIRMWARE-LICENSES.txt`, the reasons in

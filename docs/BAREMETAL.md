@@ -2032,8 +2032,12 @@ und erst beim Schreiben des sfdisk-Skripts in LBA der **Zielplatte** umgerechnet
   Dateigrößen aus `restic ls --json --recursive <snap> <einhängepunkt>`, ohne die Bäume
   darunterliegender anderer Einhängepunkte, Hardlinks einmal je Inode) · 1,10 plus feste
   Reserve je Typ (ext4: Journal + 2 Prozent Metadaten + reservierte Blöcke; XFS: Log +
-  1 Prozent; btrfs: 1 GiB Metadaten je Gerät; vfat: unverändert), mindestens die Größe, die
-  `mkfs` des Typs verlangt. Grund: Die belegten Bytes laut `statfs` sind bei btrfs mit
+  1 Prozent; btrfs: 1 GiB Metadaten je Gerät, höchstens ein Fünftel dessen, was das Gerät
+  hatte; vfat: unverändert), mindestens die Größe, die `mkfs` des Typs verlangt. btrfs macht
+  einen Chunk höchstens ein Zehntel des Dateisystems groß und hält Metadaten doppelt (DUP); ein
+  kleines btrfs hat nie ein ganzes Gigabyte Metadaten, und mit der festen Reserve "brauchte" ein
+  btrfs von 1 GiB mehr als die Platte, auf der es lag (`TestSmallBtrfsFitsWhereItLived`).
+  Grund für die Restore-Größe: Die belegten Bytes laut `statfs` sind bei btrfs mit
   Kompression (Fedora-Standard `compress=zstd:1`), Reflinks und Deduplizierung (XFS
   `reflink=1`, Podman, `cp --reflink`) und geteilten Extents deutlich kleiner als das, was
   `restic restore` schreibt; ENOSPC mitten im Restore, Stunden nach dem Löschen, wäre der

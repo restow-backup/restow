@@ -19,7 +19,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -72,6 +72,36 @@ const TESTDATA = fileURLToPath(
   new URL("../../../../agent/internal/baremetal/testdata/", import.meta.url),
 );
 const FIXTURE_ROOT = join(TESTDATA, "capture/debian12-uefi-luks-lvm/root");
+
+/** The file that keeps an otherwise empty folder of a fixture tree in git (baremetal.FixtureKeep). */
+const FIXTURE_KEEP = ".restow-keep";
+
+/**
+ * Copies a capture fixture tree as the machine it records. The tree is stored so that it checks
+ * out on every system (agent/internal/baremetal/host.go, `DirHost`): a name with a character
+ * Windows refuses is written as %XX (`pci0000%3A00`), and an empty folder holds `.restow-keep`.
+ * Neither is a file of the machine: the copy has the machine's names and the empty folders,
+ * never the placeholder, so the snapshot holds what the machine would.
+ */
+async function copyFixtureTree(from: string, to: string): Promise<void> {
+  await mkdir(to, { recursive: true });
+  for (const entry of await readdir(from, { withFileTypes: true })) {
+    if (entry.isFile() && entry.name === FIXTURE_KEEP) continue;
+    const name = entry.name.replace(/%([0-9A-Fa-f]{2})/g, (_, hex: string) =>
+      String.fromCharCode(Number.parseInt(hex, 16)),
+    );
+    if (entry.isDirectory()) {
+      await copyFixtureTree(join(from, entry.name), join(to, name));
+    } else {
+      await cp(join(from, entry.name), join(to, name));
+    }
+  }
+}
+
+/** Every path below `root`, relative to it. */
+async function treeOf(root: string): Promise<string[]> {
+  return (await readdir(root, { recursive: true })).map(String);
+}
 
 function resticAvailable(): boolean {
   const result = spawnSync(resticBinary(), ["version"], { encoding: "utf8" });
@@ -228,6 +258,8 @@ describe.skipIf(!adminUrl || !resticAvailable())(
       snapshotId: string;
       layoutSha256: string;
       password: string;
+      /** The machine's root as it was backed up. */
+      root: string;
     }
 
     /**
@@ -265,7 +297,7 @@ describe.skipIf(!adminUrl || !resticAvailable())(
 
       const layout = await debianLayout();
       const root = join(work, `root-${id}`);
-      await cp(FIXTURE_ROOT, root, { recursive: true });
+      await copyFixtureTree(FIXTURE_ROOT, root);
       await mkdir(join(root, "lib/modules/6.1.0-27-amd64"), { recursive: true });
       await writeFile(join(root, "lib/modules/6.1.0-27-amd64/modules.alias"), MODULES_ALIAS);
       await writeFile(
@@ -352,6 +384,7 @@ describe.skipIf(!adminUrl || !resticAvailable())(
         snapshotId,
         layoutSha256: layoutSha256(layout),
         password,
+        root,
       };
     }
 
@@ -423,7 +456,12 @@ describe.skipIf(!adminUrl || !resticAvailable())(
       expect(statusOf(summary, "L6")).toBe("ok");
       // The restore sizes count what the snapshot holds per mount target.
       expect(summary.restoreSizes["/boot"]?.bytes).toBeGreaterThanOrEqual(5616 + 384);
+      // Only alice's notes: the placeholder that keeps the fixture's empty /home in git is no
+      // file of the machine and never reaches the snapshot.
       expect(summary.restoreSizes["/home"]).toMatchObject({ bytes: 6, files: 1 });
+      const tree = await treeOf(made.root);
+      expect(tree.filter((path) => path.endsWith(FIXTURE_KEEP) || path.includes("%"))).toEqual([]);
+      expect(tree).toContain(join("sys/devices/pci0000:00/0000:00:1d.0", "modalias"));
       expect(summary.restoreSizes["/boot/efi"]?.files).toBeGreaterThanOrEqual(5);
       expect(summary.minimumSizes?.disks.map((disk) => disk.disk)).toEqual(["d0"]);
       expect(

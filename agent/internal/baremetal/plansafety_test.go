@@ -617,3 +617,55 @@ func TestShrinkFindingNamesDisksAndProposal(t *testing.T) {
 		}
 	}
 }
+
+// TestSmallBtrfsFitsWhereItLived: the metadata reserve of a btrfs is 1 GiB
+// per device, but at most a fifth of the device: a btrfs of 1 GiB per disk
+// with a few MiB in use plans onto disks of the same size (the CI job
+// agent-root: "Target disk t4 has 1073741824 bytes, d4 needs at least
+// 1080482202 bytes" for a 1 GiB btrfs holding 6 MiB). Large ones keep the
+// whole gigabyte.
+func TestSmallBtrfsFitsWhereItLived(t *testing.T) {
+	m := loadManifest(t, "btrfs-raid1-multi")
+	var fs *Filesystem
+	for i := range m.Linux.Filesystems {
+		if m.Linux.Filesystems[i].Type == "btrfs" {
+			fs = &m.Linux.Filesystems[i]
+		}
+	}
+	if fs == nil || len(fs.Devices) != 2 {
+		t.Fatalf("fixture: %+v", fs)
+	}
+	large := minimumSizesOf(t, m)[fs.ID]
+	if want := mulDivUp(mulDivUp(fs.UsedBytes, 110, 100), 2, 2) + gib; large != 2*want {
+		t.Errorf("large btrfs: minimum %d, want 2 x %d (1 GiB metadata per device)", large, want)
+	}
+	for i := range m.Linux.Disks {
+		if d := &m.Linux.Disks[i]; d.Table == nil {
+			d.SizeBytes = gib
+		}
+	}
+	fs.SizeBytes, fs.UsedBytes = 2*gib, 6127616
+	small := minimumSizesOf(t, m)[fs.ID]
+	if small > 2*gib {
+		t.Errorf("a btrfs of 1 GiB per device needs %d bytes, more than it had", small)
+	}
+	tg, choices, err := SyntheticTarget(m, TargetSame, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, _ := Plan(m, tg, nil, choices)
+	for _, pr := range p.Problems {
+		t.Errorf("plan problem %s: %s", pr.Code, pr.Message)
+	}
+}
+
+// minimumSizesOf are the minimum sizes of the file systems by id.
+func minimumSizesOf(t *testing.T, m *Manifest) map[string]int64 {
+	t.Helper()
+	ms, _ := MinimumDiskSizes(m, nil)
+	out := map[string]int64{}
+	for _, f := range ms.Filesystems {
+		out[f.FS] = f.MinBytes
+	}
+	return out
+}

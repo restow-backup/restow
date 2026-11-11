@@ -436,7 +436,16 @@ func (x *layoutModel) fsMinimum(fs *Filesystem) int64 {
 		if fs.Btrfs != nil {
 			num, den = btrfsCopies(fs.Btrfs.DataProfile, n)
 		}
-		per := mulDivUp(base, num, den*n) + btrfsMetaPerDev
+		// Metadata: 1 GiB per device, but never more than a fifth of what
+		// the device held. btrfs makes a chunk at most a tenth of the file
+		// system and keeps metadata twice (DUP), so a small file system has
+		// no more metadata than that; the whole gigabyte made a 1 GiB btrfs
+		// "need" more than the disk it lives on.
+		reserve := btrfsMetaPerDev
+		if fs.SizeBytes > 0 {
+			reserve = min(reserve, fs.SizeBytes/n/5)
+		}
+		per := mulDivUp(base, num, den*n) + reserve
 		return max(per, btrfsFloorPerDv)
 	}
 	return fs.SizeBytes
