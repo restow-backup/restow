@@ -576,7 +576,10 @@ func sysBIOSMBRRaid1() *simMachine {
 			Members: []simMDMember{{Dev: "/dev/sda2", Role: "0", State: "in_sync"}, {Dev: "/dev/sdb2", Role: "1", State: "in_sync,write_mostly"}}},
 	}
 	s.Swaps = "Filename\t\t\t\tType\t\tSize\t\tUsed\t\tPriority\n/dev/sda3                               partition\t8388604\t\t0\t\t-2\n/dev/sdb3                               partition\t8388604\t\t0\t\t-3\n"
-	s.Files["/etc/fstab"] = "UUID=a7000000-0000-4000-8000-000000000001 / ext4 errors=remount-ro 0 1\nUUID=a7000000-0000-4000-8000-0000000000b0 /boot ext4 defaults 0 2\nUUID=c7000000-0000-4000-8000-000000000000 none swap sw 0 0\nUUID=c7000000-0000-4000-8000-000000000001 none swap sw 0 0\n"
+	s.Files["/etc/fstab"] = "UUID=a7000000-0000-4000-8000-000000000001 / ext4 errors=remount-ro 0 1\nUUID=a7000000-0000-4000-8000-0000000000b0 /boot ext4 defaults 0 2\nUUID=c7000000-0000-4000-8000-000000000000 none swap sw 0 0\nUUID=c7000000-0000-4000-8000-000000000001 none swap sw 0 0\n/srv/data /var/www/data none bind 0 0\n"
+	// A bind mount of a folder of the root file system: no second mount of
+	// /dev/md1 in the plan (Mount.Root).
+	s.Files["/proc/self/mountinfo.extra"] = "27 25 9:1 /srv/data /var/www/data rw,relatime - ext4 /dev/md1 rw\n"
 	s.Files["/etc/mdadm/mdadm.conf"] = "ARRAY /dev/md/0 metadata=1.2 UUID=b7000000:00004000:80000000:00000000 name=srv03:0\nARRAY /dev/md/1 metadata=1.2 UUID=b7000000:00004000:80000000:00000001 name=srv03:1\n"
 	s.Files["/etc/default/grub"] = "GRUB_DEFAULT=0\nGRUB_CMDLINE_LINUX=\"\"\n"
 	s.Files["/etc/smartd.conf"] = "/dev/sda -a -o on -S on\n/dev/sdb -a -o on -S on\n"

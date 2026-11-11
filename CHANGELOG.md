@@ -385,8 +385,53 @@ private repository.
   machine's disk GUID (its own disks, for example) was restored over in place without the erase
   confirmation, keeping files that are not in the snapshot and reporting success. Without a
   marker of a started recovery of the chosen snapshot the run now stops at the mount of the root
-  before restoring anything and explains that a new start that declines the offer erases the
-  disks after the confirmation; the offer names the chosen snapshot and says the marker decides.
+  before restoring anything and explains that after a new start that declines the offer the ISO
+  asks what to do with each disk, and that a disk chosen as a target is erased after the
+  confirmation; the offer names the chosen snapshot and says the marker decides.
+  The disks that are erased are the disks that were confirmed: the ISO reads the hardware a
+  second time after the last dialog (and after the shell it may offer) and stops when any device
+  differs from what was shown (another identity or size behind a name, a disk that came or went,
+  new content on a disk); it then keeps every mapped disk open, so that its name is not given
+  to another disk meanwhile, and before every step checks again that each name still leads to
+  the confirmed disk. Before, the disks were read once and addressed by their kernel name from
+  then on, so a disk that was pulled, plugged or enumerated again between the confirmation and
+  the erase could have been erased in place of the confirmed one. The scan of the disks no longer
+  writes to any of them (it wrote the first and last MiB back to every disk without a known
+  signature, before any confirmation and also to disks the plan never uses); the write probe now
+  runs after the confirmation, on the disks to erase only. A disk identity confirms a disk only
+  when it names that disk alone: when two disks report the same serial number (USB bridges,
+  clones), each is known by its bus path instead, answers that name the shared identity in
+  `diskMapping` or `confirmErase` are refused with the identities that name each disk, a disk
+  without any identity cannot be confirmed for erasing, and the automatic mapping no longer
+  picks one of two disks by an identity both report. The 30 second countdown of an unattended
+  run from a medium now ends with any single key (it needed a whole line before) and with
+  Ctrl+C; Ctrl+C before the first step now really ends the run, and "Nothing was erased" is
+  printed only when that is true (before, Ctrl+C during the countdown printed it and the erase
+  went on). A `snapshotId` in the answers must match exactly one snapshot the code may restore;
+  otherwise the run fails before anything is planned (before, the snapshot of the code was
+  restored in its place without a word). A recovery that was interrupted after partitioning and
+  before the first file can be started again: the ISO asks what becomes of the half-written disk
+  and erases it after the usual confirmation (before, the plan tried to keep the disk, could not
+  run, and no dialog led to the erase). A resumed recovery continues on the disks that carry the
+  identities of the backup, whichever disk was chosen in the first run and however many free
+  disks are attached (before, it mapped the disks anew and failed, or could pick another disk),
+  and it keeps data disks that the first run kept out of the restore: the marker records what
+  was done with each disk. Resuming with a kept LUKS volume is not possible yet; the run then
+  stops when opening it and writes nothing.
+  The plan: before the partition table of a disk is removed, the signatures on every partition
+  the disk has now are wiped, and `sfdisk` wipes the areas of the new partitions
+  (`--wipe-partitions always`); before, a file system, LUKS header or md superblock that began
+  beyond the first 16 MiB of the old disk survived and could show again in a new partition at
+  the same place. A bind mount of a folder (`mount --bind /srv/data /var/www/data`) is no longer
+  planned as a second mount of the whole file system at the bind target (the manifest records
+  the mounted root of each mount in `mounts[].root`; for older manifests the `bind` option in
+  fstab decides). A swap file now counts for the minimum size of its file system, so a smaller
+  or minimal target no longer fails at the swap file after the whole restore. The disk signature
+  of an MBR disk is compared without its `0x`, so an old MBR disk that is still attached is
+  found as an identity conflict before anything is erased. A manifest whose partition table
+  cannot exist (overlapping partitions, one behind the end of the disk, a logical partition
+  without an extended one and the like) is refused by the plan with the reason instead of
+  failing at `sfdisk` after the erase.
   Firmware packages: `firmware-bnx2`, `firmware-bnx2x`, `firmware-qlogic`, `firmware-realtek`,
   `firmware-misc-nonfree` and `firmware-intel-misc` (wired network cards and storage controllers
   only; their licences are in `restow-recovery_<v>_FIRMWARE-LICENSES.txt`, the reasons in

@@ -4,3 +4,4 @@
 24 1 0:22 / /run rw,nosuid,nodev,noexec,relatime shared:5 - tmpfs tmpfs rw,size=1600000k,mode=755
 25 1 9:1 / / rw,relatime - ext4 /dev/md1 rw
 26 1 9:0 / /boot rw,relatime - ext4 /dev/md0 rw
+27 25 9:1 /srv/data /var/www/data rw,relatime - ext4 /dev/md1 rw

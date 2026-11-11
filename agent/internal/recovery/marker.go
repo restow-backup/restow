@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io/fs"
 	"time"
+
+	"github.com/restow-backup/restow/agent/internal/baremetal"
 )
 
 // Marker of a recovery in progress (docs/BAREMETAL.md 10.18): written to
@@ -28,6 +30,27 @@ type Marker struct {
 	LastStep     int64     `json:"lastStep"`
 	Phase        string    `json:"phase"`
 	CleanStop    bool      `json:"cleanStop"`
+	// Disks is what the run that started the recovery did with each
+	// source disk. A resumed run cannot tell an adopted disk from one it
+	// wrote (both carry the identities of the manifest), and the mount
+	// points of an adopted file system must stay out of the restore.
+	Disks []MarkerDisk `json:"disks,omitempty"`
+}
+
+// MarkerDisk is the assignment of one source disk: erase (recover wrote
+// it), adopt (it was kept, nothing on it is restored) or missing.
+type MarkerDisk struct {
+	Source string `json:"source"`
+	Action string `json:"action"`
+}
+
+// MarkerDisksOf is the mapping of a plan for the marker.
+func MarkerDisksOf(p *baremetal.RestorePlan) []MarkerDisk {
+	out := make([]MarkerDisk, 0, len(p.Mapping))
+	for _, a := range p.Mapping {
+		out = append(out, MarkerDisk{Source: a.Source, Action: a.Action})
+	}
+	return out
 }
 
 // WriteMarker writes the marker (0600, root).
@@ -83,7 +106,7 @@ func FindResumable(r Rootfs, snapshotID, layoutSHA256 string) (*Marker, error) {
 
 // ErrNoStartedRecovery: a resumed run found no marker of a started
 // recovery of this snapshot on the mounted root.
-var ErrNoStartedRecovery = errors.New("no recovery of this snapshot was started on these disks; nothing was restored. Start again and decline the offer to continue: the plan then erases the disks after the confirmation")
+var ErrNoStartedRecovery = errors.New("no recovery of this snapshot was started on these disks; nothing was restored. Start again and decline the offer to continue: recover then asks what to do with each disk, and a disk chosen as a target is erased after the confirmation")
 
 // ResumeMarker is the check of a resumed run (10.18): the root of the
 // target is mounted and recover has written nothing there yet; the marker

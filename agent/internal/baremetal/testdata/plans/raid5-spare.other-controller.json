@@ -251,14 +251,27 @@
     },
     {
       "args": [
+        "wipe-partitions",
+        "/dev/sda"
+      ],
+      "kind": "wipe_partitions",
+      "n": 2,
+      "phase": "prepare",
+      "reason": "remove the signatures on every partition /dev/sda has now",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/sda"
+    },
+    {
+      "args": [
         "wipefs",
         "-a",
         "/dev/sda"
       ],
       "kind": "wipe",
-      "n": 2,
+      "n": 3,
       "phase": "prepare",
-      "reason": "remove the signatures of the old content of /dev/sda (its partitions first)",
+      "reason": "remove the partition table and the signatures of /dev/sda",
       "stdin": null,
       "stdinSecret": null,
       "target": "/dev/sda"
@@ -271,7 +284,7 @@
         "/dev/sda"
       ],
       "kind": "zero_range",
-      "n": 3,
+      "n": 4,
       "phase": "prepare",
       "reason": "zero the first and last 16 MiB of /dev/sda",
       "stdin": null,
@@ -284,9 +297,22 @@
         "/dev/nvme0n1"
       ],
       "kind": "release_holders",
-      "n": 4,
+      "n": 5,
       "phase": "prepare",
       "reason": "stop everything that holds /dev/nvme0n1 (mounts, swap, LVM, md, dm)",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/nvme0n1"
+    },
+    {
+      "args": [
+        "wipe-partitions",
+        "/dev/nvme0n1"
+      ],
+      "kind": "wipe_partitions",
+      "n": 6,
+      "phase": "prepare",
+      "reason": "remove the signatures on every partition /dev/nvme0n1 has now",
       "stdin": null,
       "stdinSecret": null,
       "target": "/dev/nvme0n1"
@@ -298,9 +324,9 @@
         "/dev/nvme0n1"
       ],
       "kind": "wipe",
-      "n": 5,
+      "n": 7,
       "phase": "prepare",
-      "reason": "remove the signatures of the old content of /dev/nvme0n1 (its partitions first)",
+      "reason": "remove the partition table and the signatures of /dev/nvme0n1",
       "stdin": null,
       "stdinSecret": null,
       "target": "/dev/nvme0n1"
@@ -313,7 +339,7 @@
         "/dev/nvme0n1"
       ],
       "kind": "zero_range",
-      "n": 6,
+      "n": 8,
       "phase": "prepare",
       "reason": "zero the first and last 16 MiB of /dev/nvme0n1",
       "stdin": null,
@@ -326,9 +352,22 @@
         "/dev/nvme1n1"
       ],
       "kind": "release_holders",
-      "n": 7,
+      "n": 9,
       "phase": "prepare",
       "reason": "stop everything that holds /dev/nvme1n1 (mounts, swap, LVM, md, dm)",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/nvme1n1"
+    },
+    {
+      "args": [
+        "wipe-partitions",
+        "/dev/nvme1n1"
+      ],
+      "kind": "wipe_partitions",
+      "n": 10,
+      "phase": "prepare",
+      "reason": "remove the signatures on every partition /dev/nvme1n1 has now",
       "stdin": null,
       "stdinSecret": null,
       "target": "/dev/nvme1n1"
@@ -340,9 +379,9 @@
         "/dev/nvme1n1"
       ],
       "kind": "wipe",
-      "n": 8,
+      "n": 11,
       "phase": "prepare",
-      "reason": "remove the signatures of the old content of /dev/nvme1n1 (its partitions first)",
+      "reason": "remove the partition table and the signatures of /dev/nvme1n1",
       "stdin": null,
       "stdinSecret": null,
       "target": "/dev/nvme1n1"
@@ -355,7 +394,7 @@
         "/dev/nvme1n1"
       ],
       "kind": "zero_range",
-      "n": 9,
+      "n": 12,
       "phase": "prepare",
       "reason": "zero the first and last 16 MiB of /dev/nvme1n1",
       "stdin": null,
@@ -368,9 +407,22 @@
         "/dev/nvme2n1"
       ],
       "kind": "release_holders",
-      "n": 10,
+      "n": 13,
       "phase": "prepare",
       "reason": "stop everything that holds /dev/nvme2n1 (mounts, swap, LVM, md, dm)",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/nvme2n1"
+    },
+    {
+      "args": [
+        "wipe-partitions",
+        "/dev/nvme2n1"
+      ],
+      "kind": "wipe_partitions",
+      "n": 14,
+      "phase": "prepare",
+      "reason": "remove the signatures on every partition /dev/nvme2n1 has now",
       "stdin": null,
       "stdinSecret": null,
       "target": "/dev/nvme2n1"
@@ -382,9 +434,9 @@
         "/dev/nvme2n1"
       ],
       "kind": "wipe",
-      "n": 11,
+      "n": 15,
       "phase": "prepare",
-      "reason": "remove the signatures of the old content of /dev/nvme2n1 (its partitions first)",
+      "reason": "remove the partition table and the signatures of /dev/nvme2n1",
       "stdin": null,
       "stdinSecret": null,
       "target": "/dev/nvme2n1"
@@ -397,7 +449,7 @@
         "/dev/nvme2n1"
       ],
       "kind": "zero_range",
-      "n": 12,
+      "n": 16,
       "phase": "prepare",
       "reason": "zero the first and last 16 MiB of /dev/nvme2n1",
       "stdin": null,
@@ -410,9 +462,22 @@
         "/dev/nvme3n1"
       ],
       "kind": "release_holders",
-      "n": 13,
+      "n": 17,
       "phase": "prepare",
       "reason": "stop everything that holds /dev/nvme3n1 (mounts, swap, LVM, md, dm)",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/nvme3n1"
+    },
+    {
+      "args": [
+        "wipe-partitions",
+        "/dev/nvme3n1"
+      ],
+      "kind": "wipe_partitions",
+      "n": 18,
+      "phase": "prepare",
+      "reason": "remove the signatures on every partition /dev/nvme3n1 has now",
       "stdin": null,
       "stdinSecret": null,
       "target": "/dev/nvme3n1"
@@ -424,9 +489,9 @@
         "/dev/nvme3n1"
       ],
       "kind": "wipe",
-      "n": 14,
+      "n": 19,
       "phase": "prepare",
-      "reason": "remove the signatures of the old content of /dev/nvme3n1 (its partitions first)",
+      "reason": "remove the partition table and the signatures of /dev/nvme3n1",
       "stdin": null,
       "stdinSecret": null,
       "target": "/dev/nvme3n1"
@@ -439,7 +504,7 @@
         "/dev/nvme3n1"
       ],
       "kind": "zero_range",
-      "n": 15,
+      "n": 20,
       "phase": "prepare",
       "reason": "zero the first and last 16 MiB of /dev/nvme3n1",
       "stdin": null,
@@ -452,10 +517,12 @@
         "--no-reread",
         "--wipe",
         "always",
+        "--wipe-partitions",
+        "always",
         "/dev/sda"
       ],
       "kind": "partition",
-      "n": 16,
+      "n": 21,
       "phase": "partition",
       "reason": "recreate the GPT of d0 with its identifiers (PARTUUIDs stay)",
       "stdin": "label: gpt\nlabel-id: 8394A5B6-C7D8-49EA-FB0C-1D2E3F405162\nunit: sectors\nsector-size: 512\n\n/dev/sda1 : start=2048, size=1048576, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B, uuid=a8100000-0000-4000-8000-000000000001\n/dev/sda2 : start=1050624, size=497664000, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, uuid=a8100000-0000-4000-8000-000000000002\n",
@@ -468,10 +535,12 @@
         "--no-reread",
         "--wipe",
         "always",
+        "--wipe-partitions",
+        "always",
         "/dev/nvme0n1"
       ],
       "kind": "partition",
-      "n": 17,
+      "n": 22,
       "phase": "partition",
       "reason": "recreate the GPT of d1 with its identifiers (PARTUUIDs stay)",
       "stdin": "label: gpt\nlabel-id: 9394A5B6-C7D8-49EA-FB0C-1D2E3F405160\nunit: sectors\nsector-size: 512\n\n/dev/nvme0n1p1 : start=2048, size=7813120000, type=A19D880F-05FC-4D3B-A006-743F0F84911E, uuid=a8200000-0000-4000-8000-000000000000\n",
@@ -484,10 +553,12 @@
         "--no-reread",
         "--wipe",
         "always",
+        "--wipe-partitions",
+        "always",
         "/dev/nvme1n1"
       ],
       "kind": "partition",
-      "n": 18,
+      "n": 23,
       "phase": "partition",
       "reason": "recreate the GPT of d2 with its identifiers (PARTUUIDs stay)",
       "stdin": "label: gpt\nlabel-id: 9394A5B6-C7D8-49EA-FB0C-1D2E3F405161\nunit: sectors\nsector-size: 512\n\n/dev/nvme1n1p1 : start=2048, size=7813120000, type=A19D880F-05FC-4D3B-A006-743F0F84911E, uuid=a8200000-0000-4000-8000-000000000001\n",
@@ -500,10 +571,12 @@
         "--no-reread",
         "--wipe",
         "always",
+        "--wipe-partitions",
+        "always",
         "/dev/nvme2n1"
       ],
       "kind": "partition",
-      "n": 19,
+      "n": 24,
       "phase": "partition",
       "reason": "recreate the GPT of d3 with its identifiers (PARTUUIDs stay)",
       "stdin": "label: gpt\nlabel-id: 9394A5B6-C7D8-49EA-FB0C-1D2E3F405162\nunit: sectors\nsector-size: 512\n\n/dev/nvme2n1p1 : start=2048, size=7813120000, type=A19D880F-05FC-4D3B-A006-743F0F84911E, uuid=a8200000-0000-4000-8000-000000000002\n",
@@ -516,10 +589,12 @@
         "--no-reread",
         "--wipe",
         "always",
+        "--wipe-partitions",
+        "always",
         "/dev/nvme3n1"
       ],
       "kind": "partition",
-      "n": 20,
+      "n": 25,
       "phase": "partition",
       "reason": "recreate the GPT of d4 with its identifiers (PARTUUIDs stay)",
       "stdin": "label: gpt\nlabel-id: 9394A5B6-C7D8-49EA-FB0C-1D2E3F405163\nunit: sectors\nsector-size: 512\n\n/dev/nvme3n1p1 : start=2048, size=7813120000, type=A19D880F-05FC-4D3B-A006-743F0F84911E, uuid=a8200000-0000-4000-8000-000000000003\n",
@@ -546,7 +621,7 @@
         "/dev/nvme2n1p1"
       ],
       "kind": "md_create",
-      "n": 21,
+      "n": 26,
       "phase": "md",
       "reason": "create the md array md127 with its UUID (no --assume-clean: it resyncs)",
       "stdin": null,
@@ -565,7 +640,7 @@
         "/dev/md/data"
       ],
       "kind": "pv_create",
-      "n": 22,
+      "n": 27,
       "phase": "lvm",
       "reason": "create the physical volume with its UUID",
       "stdin": null,
@@ -583,7 +658,7 @@
         "/dev/md/data"
       ],
       "kind": "vg_create",
-      "n": 23,
+      "n": 28,
       "phase": "lvm",
       "reason": "create the volume group data",
       "stdin": null,
@@ -603,7 +678,7 @@
         "data"
       ],
       "kind": "lv_create",
-      "n": 24,
+      "n": 29,
       "phase": "lvm",
       "reason": "create LV data/share",
       "stdin": null,
@@ -624,7 +699,7 @@
         "/dev/sda1"
       ],
       "kind": "mkfs",
-      "n": 25,
+      "n": 30,
       "phase": "mkfs",
       "reason": "create vfat f0 with its UUID and recorded features",
       "stdin": null,
@@ -656,7 +731,7 @@
         "/dev/sda2"
       ],
       "kind": "mkfs",
-      "n": 26,
+      "n": 31,
       "phase": "mkfs",
       "reason": "create ext4 f1 with its UUID and recorded features",
       "stdin": null,
@@ -682,7 +757,7 @@
         "/dev/data/share"
       ],
       "kind": "mkfs",
-      "n": 27,
+      "n": 32,
       "phase": "mkfs",
       "reason": "create xfs f2 with its UUID and recorded features",
       "stdin": null,
@@ -698,7 +773,7 @@
         "{target_root}"
       ],
       "kind": "mount",
-      "n": 28,
+      "n": 33,
       "phase": "mount",
       "reason": "mount f1 at /",
       "stdin": null,
@@ -716,7 +791,7 @@
         "{target_root}/boot/efi"
       ],
       "kind": "mount",
-      "n": 29,
+      "n": 34,
       "phase": "mount",
       "reason": "mount f0 at /boot/efi",
       "stdin": null,
@@ -732,7 +807,7 @@
         "{target_root}/srv/share"
       ],
       "kind": "mount",
-      "n": 30,
+      "n": 35,
       "phase": "mount",
       "reason": "mount f2 at /srv/share",
       "stdin": null,
@@ -755,7 +830,7 @@
         "{snapshot}"
       ],
       "kind": "restore",
-      "n": 31,
+      "n": 36,
       "phase": "restore",
       "reason": "restore the files of the snapshot",
       "stdin": null,
@@ -774,7 +849,7 @@
         "/srv/share:0755"
       ],
       "kind": "mkdirs",
-      "n": 32,
+      "n": 37,
       "phase": "post",
       "reason": "create mount points and API folders that the snapshot may lack",
       "stdin": null,
@@ -788,7 +863,7 @@
         "cmdline"
       ],
       "kind": "fixup",
-      "n": 33,
+      "n": 38,
       "phase": "post",
       "reason": "rewrite device references in /etc/default/grub",
       "stdin": null,
@@ -802,7 +877,7 @@
         "fstab"
       ],
       "kind": "fixup",
-      "n": 34,
+      "n": 39,
       "phase": "post",
       "reason": "rewrite device references in /etc/fstab",
       "stdin": null,
@@ -816,7 +891,7 @@
         "mdadm"
       ],
       "kind": "fixup",
-      "n": 35,
+      "n": 40,
       "phase": "post",
       "reason": "rewrite device references in /etc/mdadm.conf",
       "stdin": null,
@@ -830,7 +905,7 @@
         "mdadm"
       ],
       "kind": "fixup",
-      "n": 36,
+      "n": 41,
       "phase": "post",
       "reason": "rewrite device references in /etc/mdadm/mdadm.conf",
       "stdin": null,
@@ -846,7 +921,7 @@
         "6.1.0-27-amd64"
       ],
       "kind": "initramfs",
-      "n": 37,
+      "n": 42,
       "phase": "post",
       "reason": "rebuild the initramfs of 6.1.0-27-amd64 with MODULES=most",
       "stdin": null,
@@ -861,7 +936,7 @@
         "/boot/grub/grub.cfg"
       ],
       "kind": "grub_config",
-      "n": 38,
+      "n": 43,
       "phase": "post",
       "reason": "write the GRUB configuration",
       "stdin": null,
@@ -879,7 +954,7 @@
         "\\EFI\\debian\\shimx64.efi"
       ],
       "kind": "nvram",
-      "n": 39,
+      "n": 44,
       "phase": "post",
       "reason": "create the boot entry debian",
       "stdin": null,
@@ -891,7 +966,7 @@
         "verify"
       ],
       "kind": "verify",
-      "n": 40,
+      "n": 45,
       "phase": "post",
       "reason": "check the restored system (identities, fstab, boot files)",
       "stdin": null,

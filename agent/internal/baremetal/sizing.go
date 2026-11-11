@@ -150,7 +150,9 @@ type layoutModel struct {
 	luksOn  map[string]*LUKSVolume
 	plainOn map[string]*PlainCrypt
 	esps    map[string]bool
-	mounts  map[string][]string // fs id -> mount targets (mounts, then fstab)
+	mounts  map[string][]string // fs id -> mount targets (mounts, then fstab), without bind mounts
+	binds   map[string][]string // fs id -> bind mount targets whose folder the file system holds
+	swapIn  map[string]int64    // fs id -> bytes of the swap files recover creates on it
 	restore map[string]int64    // fs id -> restore bytes
 	inodes  map[string]int64    // fs id -> inodes from the facts
 	est     map[string]bool     // fs id -> restore size estimated
@@ -167,7 +169,8 @@ func newLayoutModel(m *Manifest, f *Facts, rawLVs string) *layoutModel {
 		vgs: map[string]*VolumeGroup{}, lvs: map[string]*LogicalVolume{}, pvs: map[string]*PV{}, vgPVs: map[string][]*PV{},
 		fs: map[string]*Filesystem{}, fsOn: map[string]*Filesystem{}, swapOn: map[string]*Swap{},
 		mdOn: map[string]*MDArray{}, luksOn: map[string]*LUKSVolume{}, plainOn: map[string]*PlainCrypt{},
-		esps: map[string]bool{}, mounts: map[string][]string{}, restore: map[string]int64{}, inodes: map[string]int64{},
+		esps: map[string]bool{}, mounts: map[string][]string{}, binds: map[string][]string{}, swapIn: map[string]int64{},
+		restore: map[string]int64{}, inodes: map[string]int64{},
 		est: map[string]bool{}, minMemo: map[string]int64{}}
 	for i := range l.Disks {
 		d := &l.Disks[i]
@@ -231,12 +234,31 @@ func newLayoutModel(m *Manifest, f *Facts, rawLVs string) *layoutModel {
 	for _, e := range l.Bootloader.ESPs {
 		x.esps[e] = true
 	}
-	seen := map[string]bool{}
-	for _, mo := range l.Mounts {
-		if mo.FS != nil && !mo.Autofs && mo.Type != "autofs" && !seen[mo.Target] {
-			seen[mo.Target] = true
-			x.mounts[*mo.FS] = append(x.mounts[*mo.FS], mo.Target)
+	// A bind mount shows a folder of a file system a second time (mount
+	// --bind /srv/data /var/www/data). It is no mount of the file system:
+	// mounted there, the whole file system would lie at the target and the
+	// restore would write the files of that path into its root. The mount
+	// says so itself (Mount.Root); for a manifest without it the bind
+	// option of the fstab line decides.
+	fstabBind := map[string]bool{}
+	for _, e := range l.Fstab {
+		if hasOption(e.Options, "bind") || hasOption(e.Options, "rbind") {
+			fstabBind[e.Target] = true
 		}
+	}
+	seen := map[string]bool{}
+	var bindTargets []string
+	for i := range l.Mounts {
+		mo := &l.Mounts[i]
+		if mo.FS == nil || mo.Autofs || mo.Type == "autofs" || seen[mo.Target] {
+			continue
+		}
+		if mo.IsBind() || fstabBind[mo.Target] {
+			bindTargets = append(bindTargets, mo.Target)
+			continue
+		}
+		seen[mo.Target] = true
+		x.mounts[*mo.FS] = append(x.mounts[*mo.FS], mo.Target)
 	}
 	for _, e := range l.Fstab {
 		if e.Resolved != nil && e.Resolved.FS != nil && strings.HasPrefix(e.Target, "/") && !seen[e.Target] {
@@ -244,8 +266,48 @@ func newLayoutModel(m *Manifest, f *Facts, rawLVs string) *layoutModel {
 			x.mounts[*e.Resolved.FS] = append(x.mounts[*e.Resolved.FS], e.Target)
 		}
 	}
+	// What the snapshot holds below a bind target is restored into the
+	// file system that holds the folder there.
+	for _, t := range uniqueSorted(bindTargets) {
+		if seen[t] {
+			continue
+		}
+		if id := x.fsHolding(t); id != "" {
+			x.binds[id] = append(x.binds[id], t)
+		}
+	}
+	// Swap files are not in the backup; recover creates them after the
+	// restore (the swapfile step), so their file system needs the room.
+	for i := range l.Swap {
+		s := &l.Swap[i]
+		if s.Kind != "file" || s.Path == nil || s.SizeBytes <= 0 {
+			continue
+		}
+		id := x.fsHolding(*s.Path)
+		if id == "" && s.FS != nil {
+			id = *s.FS
+		}
+		if id != "" {
+			// One MiB for the header page and the rounding of the extents.
+			x.swapIn[id] += s.SizeBytes + mib
+		}
+	}
 	x.restoreSizes()
 	return x
+}
+
+// fsHolding is the file system whose mount holds path p after the restore
+// (the longest mount target that is p or above it), or "".
+func (x *layoutModel) fsHolding(p string) string {
+	best, bestLen := "", -1
+	for id, targets := range x.mounts {
+		for _, t := range targets {
+			if under(p, t) && (len(t) > bestLen || len(t) == bestLen && id < best) {
+				best, bestLen = id, len(t)
+			}
+		}
+	}
+	return best
 }
 
 // restoreSizes fills restore and inodes per file system: the sum over its
@@ -256,7 +318,9 @@ func (x *layoutModel) restoreSizes() {
 		x.findings = append(x.findings, newFinding(WarnRestoreSizeEstimated, "", "object", "all file systems"))
 	}
 	for _, fs := range x.l.Filesystems {
-		used := fs.UsedBytes
+		// The space in use counts the swap files, which the restore does
+		// not write (fsMinimum adds them).
+		used := max(fs.UsedBytes-x.swapIn[fs.ID], 0)
 		if x.f == nil {
 			x.restore[fs.ID] = used
 			x.est[fs.ID] = true
@@ -264,7 +328,7 @@ func (x *layoutModel) restoreSizes() {
 		}
 		var sum, inodes int64
 		found := false
-		for _, t := range x.mounts[fs.ID] {
+		for _, t := range append(append([]string{}, x.mounts[fs.ID]...), x.binds[fs.ID]...) {
 			if s, ok := x.f.RestoreSizes[t]; ok {
 				found = true
 				sum += s.Bytes
@@ -343,7 +407,7 @@ func (x *layoutModel) fsMinimum(fs *Filesystem) int64 {
 		}
 		return size
 	}
-	base := mulDivUp(x.restore[fs.ID], 110, 100)
+	base := mulDivUp(x.restore[fs.ID], 110, 100) + x.swapIn[fs.ID]
 	switch fs.Type {
 	case "ext2", "ext3", "ext4":
 		var journal, reserved int64
@@ -675,6 +739,107 @@ func (x *layoutModel) nodeMinimum(key string, r BlockRef) int64 {
 	}
 	x.minMemo[k] = n
 	return n
+}
+
+// tableFindings checks that every partition table of the manifest can
+// exist (10.10 point 3): the planner copies starts, sizes and numbers into
+// an sfdisk script, and a table sfdisk refuses would fail only after the
+// disks were wiped. Capture never records such a table; a damaged or
+// altered manifest can. Each is a layout_unsupported problem.
+func (x *layoutModel) tableFindings() []Finding {
+	var out []Finding
+	for i := range x.l.Disks {
+		d := &x.l.Disks[i]
+		if d.Table == nil {
+			continue
+		}
+		if why := tableProblem(d); why != "" {
+			out = append(out, newFinding(ProblemLayoutUnsupported, d.ID, "reason", "the partition table of "+d.ID+" cannot exist: "+why))
+		}
+	}
+	return out
+}
+
+// tableProblem says why the partition table of d cannot be written, or "".
+func tableProblem(d *Disk) string {
+	t := d.Table
+	sector := t.SectorSize
+	if sector <= 0 {
+		sector = d.LogicalSectorSize
+	}
+	if sector <= 0 {
+		sector = 512
+	}
+	dos := t.Type == "dos"
+	type span struct {
+		n          int64
+		start, end int64
+	}
+	var primary, logical []span
+	var ext *span
+	for i := range t.Partitions {
+		p := &t.Partitions[i]
+		name := "partition " + itoa(p.Number)
+		switch {
+		case p.SizeBytes <= 0:
+			return name + " has no size"
+		case p.StartBytes < sector:
+			return name + " starts in the first sector"
+		case p.StartBytes%sector != 0 || p.SizeBytes%sector != 0:
+			return name + " is not on a sector boundary (" + itoa(sector) + " bytes)"
+		case d.SizeBytes > 0 && p.StartBytes+p.SizeBytes > d.SizeBytes:
+			return name + " ends behind the end of the disk"
+		case !dos && p.Number > 128:
+			return name + " is beyond the 128 entries of a GPT"
+		case dos && (p.StartBytes/sector >= 1<<32 || p.SizeBytes/sector >= 1<<32):
+			return name + " is beyond the 2^32 sectors an MBR can address"
+		}
+		sp := span{n: p.Number, start: p.StartBytes, end: p.StartBytes + p.SizeBytes}
+		if dos && p.Number >= 5 {
+			logical = append(logical, sp)
+			continue
+		}
+		primary = append(primary, sp)
+		if isExtended(t, p) {
+			if ext != nil {
+				return "it has more than one extended partition"
+			}
+			e := sp
+			ext = &e
+		}
+	}
+	overlap := func(list []span) string {
+		sort.SliceStable(list, func(i, j int) bool { return list[i].start < list[j].start })
+		for i := 1; i < len(list); i++ {
+			if list[i].start < list[i-1].end {
+				return "partitions " + itoa(list[i-1].n) + " and " + itoa(list[i].n) + " overlap"
+			}
+		}
+		return ""
+	}
+	if why := overlap(primary); why != "" {
+		return why
+	}
+	if len(logical) == 0 {
+		return ""
+	}
+	if ext == nil {
+		return "partition " + itoa(logical[0].n) + " is a logical partition, but the table has no extended partition"
+	}
+	// The kernel numbers logical partitions 5, 6, ... without gaps.
+	nums := map[int64]bool{}
+	for _, l := range logical {
+		nums[l.n] = true
+		if l.start <= ext.start || l.end > ext.end {
+			return "the logical partition " + itoa(l.n) + " is not inside the extended partition " + itoa(ext.n)
+		}
+	}
+	for n := int64(5); n < 5+int64(len(logical)); n++ {
+		if !nums[n] {
+			return "the logical partitions are not numbered from 5 without a gap"
+		}
+	}
+	return overlap(logical)
 }
 
 // isExtended: a DOS extended partition.

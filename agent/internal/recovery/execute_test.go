@@ -38,7 +38,8 @@ type harness struct {
 func newHarness(t *testing.T, plan, manifest string) *harness {
 	t.Helper()
 	h := &harness{exec: newFakeExec(), root: newMemRootfs()}
-	h.ops = &fakeOps{exec: h.exec, mounted: map[string]bool{}}
+	// The disk carries an old system: two partitions the kernel knows.
+	h.ops = &fakeOps{exec: h.exec, mounted: map[string]bool{}, parts: map[string][]string{"/dev/nvme0n1": {"/dev/nvme0n1p1", "/dev/nvme0n1p2"}}}
 	h.iso = &fakeIsolator{exec: h.exec}
 	h.sess = &fakeSessionAPI{exec: h.exec}
 	h.restic = &fakeRestic{exec: h.exec, root: h.root, files: map[string]string{

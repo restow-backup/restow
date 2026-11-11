@@ -262,6 +262,14 @@ type fakeOps struct {
 	dm []DMMapping
 	// frozen are the mount points ThawFrozen thaws once.
 	frozen []string
+	// parts are the partitions a disk has before it is erased.
+	parts map[string][]string
+}
+
+func (o *fakeOps) Partitions(dev string) ([]string, error) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return append([]string(nil), o.parts[dev]...), nil
 }
 
 func (f *fakeExec) note(s string) {

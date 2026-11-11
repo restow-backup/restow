@@ -1,0 +1,105 @@
+{
+  "disks": [
+    {
+      "driverChain": [
+        "nvme",
+        "pcieport"
+      ],
+      "driverModaliases": [
+        "pci:v0000144Dd0000A80Asv0000144Dsd0000A801bc01sc08i02",
+        "pci:v00008086d0000A33Csv00008086sd00007270bc06sc04i00"
+      ],
+      "eui64": "002538b111b2c3d4",
+      "id": "t0",
+      "identity": "eui.002538b111b2c3d4",
+      "ioError": false,
+      "logicalSectorSize": 512,
+      "model": "Samsung SSD 980 PRO 1TB",
+      "nguid": null,
+      "nsid": 1,
+      "path": "/dev/nvme0n1",
+      "physicalSectorSize": 512,
+      "readOnly": false,
+      "removable": false,
+      "serial": "S5GXNX0T0N1",
+      "signatures": [
+        {
+          "kind": "disk_guid",
+          "uuid": "0f6c5e2a-1b3d-4c5e-9f70-8192a3b4c5d6"
+        },
+        {
+          "kind": "part_uuid",
+          "partNumber": 1,
+          "uuid": "5e1c4d0a-1b2c-4d3e-8f90-a1b2c3d4e5f6"
+        },
+        {
+          "kind": "fs",
+          "partNumber": 1,
+          "type": "vfat",
+          "uuid": "1A2B-3C4D"
+        },
+        {
+          "kind": "part_uuid",
+          "partNumber": 2,
+          "uuid": "6f2d5e1b-2c3d-4e4f-9a01-b2c3d4e5f607"
+        },
+        {
+          "kind": "fs",
+          "partNumber": 2,
+          "type": "ext4",
+          "uuid": "8b9c0d1e-2f3a-4b5c-6d7e-8f9a0b1c2d3e"
+        },
+        {
+          "kind": "part_uuid",
+          "partNumber": 3,
+          "uuid": "7a3e6f2c-3d4e-4f50-8b12-c3d4e5f60718"
+        },
+        {
+          "kind": "luks",
+          "partNumber": 3,
+          "type": "crypto_LUKS",
+          "uuid": "2b1f0c3e-6d7a-4e8b-9c0d-1e2f3a4b5c6d"
+        }
+      ],
+      "sizeBytes": 512110190592,
+      "transport": "nvme",
+      "wwn": null,
+      "zoned": "none"
+    }
+  ],
+  "firmware": {
+    "db": [
+      {
+        "sha256": "aba475c8f0db845aedd55a8060b42f6a1d9997c9a40bebbfc00812e46b58a573",
+        "subject": "CN=Microsoft Corporation UEFI CA 2011,O=Restow Test"
+      },
+      {
+        "sha256": "dbb14a8ee716836045327b288efe274d7c24f9d24964ac6041db36973cd4115c",
+        "subject": "CN=Microsoft Windows Production PCA 2011,O=Restow Test"
+      }
+    ],
+    "dbx": null,
+    "mode": "uefi",
+    "mokList": [],
+    "sbatLevel": [
+      "sbat,1,2024010900",
+      "shim,4",
+      "grub,3",
+      "grub.debian,4"
+    ],
+    "secureBoot": true,
+    "setupMode": false
+  },
+  "format": "restow-plan-target-v1",
+  "kind": "hardware",
+  "nics": [
+    {
+      "driver": "igb",
+      "mac": "3c:ec:ef:12:34:56",
+      "modalias": "pci:v00008086d00001533sv000015D9sd00001533bc02sc00i00",
+      "name": "enp3s0"
+    }
+  ],
+  "others": [],
+  "ramBytes": 0
+}

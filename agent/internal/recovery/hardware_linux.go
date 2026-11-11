@@ -30,8 +30,15 @@ type HardwareCollector struct {
 	DevRoot  string
 	ProcRoot string
 	EFI      EFIVars
-	// Probe runs the read and write probe of the first and last MiB.
+	// Probe reads the first and last MiB of every disk. The scan never
+	// writes: it runs before the operator has seen or confirmed anything
+	// and covers disks the plan never maps (the write probe of the disks
+	// to erase follows the confirmation, DiskGuard.Arm).
 	Probe bool
+	// IdentityOnly leaves out what the check of the confirmed disks does
+	// not compare (signatures, driver chains, the probe): it runs before
+	// every step.
+	IdentityOnly bool
 }
 
 func (h *HardwareCollector) path(root, def, rel string) string {
@@ -60,7 +67,10 @@ func readInt64(p string) int64 {
 
 // Collect gathers the hardware input.
 func (h *HardwareCollector) Collect(ctx context.Context) (HardwareInput, error) {
-	in := HardwareInput{Firmware: h.EFI.Firmware(), RAMBytes: h.ram(), LiveMedium: h.liveMedium(ctx), NICs: h.nics()}
+	in := HardwareInput{LiveMedium: h.liveMedium(ctx)}
+	if !h.IdentityOnly {
+		in.Firmware, in.RAMBytes, in.NICs = h.EFI.Firmware(), h.ram(), h.nics()
+	}
 	entries, err := os.ReadDir(h.sys("block"))
 	if err != nil {
 		return in, err
@@ -99,10 +109,12 @@ func (h *HardwareCollector) Collect(ctx context.Context) (HardwareInput, error) 
 		}
 		b.Transport = firstNonEmpty(lsblk[k].Tran, h.transport(k))
 		b.ByPath = byPath[k]
-		b.DriverChain, b.Modaliases = h.driverChain(k)
-		b.Signatures = h.signatures(ctx, k)
-		if h.Probe && b.SizeBytes > 0 && !b.ReadOnly {
-			b.IOError = ProbeIO(h.dev(k), b.SizeBytes, len(b.Signatures) == 0) != nil
+		if !h.IdentityOnly {
+			b.DriverChain, b.Modaliases = h.driverChain(k)
+			b.Signatures = h.signatures(ctx, k)
+			if h.Probe && b.SizeBytes > 0 && !b.ReadOnly {
+				b.IOError = ProbeIO(h.dev(k), b.SizeBytes, false) != nil
+			}
 		}
 		in.Blocks = append(in.Blocks, b)
 	}
@@ -324,7 +336,9 @@ func (h *HardwareCollector) nics() []baremetal.TargetNIC {
 
 // ProbeIO reads the first and last MiB of a disk with O_DIRECT and, when
 // write is set, writes the same bytes back (10.6); a locked
-// self-encrypting drive fails here, before anything is erased.
+// self-encrypting drive fails here, before anything is erased. The scan
+// only reads; recover writes only to the disks of the confirmed erase
+// set, after the confirmation and the check of their identity.
 func ProbeIO(dev string, size int64, write bool) error {
 	flags := os.O_RDONLY
 	if write {

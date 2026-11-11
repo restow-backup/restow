@@ -203,14 +203,27 @@
     },
     {
       "args": [
+        "wipe-partitions",
+        "/dev/nvme0n1"
+      ],
+      "kind": "wipe_partitions",
+      "n": 2,
+      "phase": "prepare",
+      "reason": "remove the signatures on every partition /dev/nvme0n1 has now",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/nvme0n1"
+    },
+    {
+      "args": [
         "wipefs",
         "-a",
         "/dev/nvme0n1"
       ],
       "kind": "wipe",
-      "n": 2,
+      "n": 3,
       "phase": "prepare",
-      "reason": "remove the signatures of the old content of /dev/nvme0n1 (its partitions first)",
+      "reason": "remove the partition table and the signatures of /dev/nvme0n1",
       "stdin": null,
       "stdinSecret": null,
       "target": "/dev/nvme0n1"
@@ -223,7 +236,7 @@
         "/dev/nvme0n1"
       ],
       "kind": "zero_range",
-      "n": 3,
+      "n": 4,
       "phase": "prepare",
       "reason": "zero the first and last 16 MiB of /dev/nvme0n1",
       "stdin": null,
@@ -236,10 +249,12 @@
         "--no-reread",
         "--wipe",
         "always",
+        "--wipe-partitions",
+        "always",
         "/dev/nvme0n1"
       ],
       "kind": "partition",
-      "n": 4,
+      "n": 5,
       "phase": "partition",
       "reason": "recreate the GPT of d0 with its identifiers (PARTUUIDs stay)",
       "stdin": "label: gpt\nlabel-id: 8394A5B6-C7D8-49EA-FB0C-1D2E3F405162\nunit: sectors\nsector-size: 512\n\n/dev/nvme0n1p1 : start=2048, size=1048576, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B, uuid=a8100000-0000-4000-8000-000000000001\n/dev/nvme0n1p2 : start=1050624, size=497664000, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, uuid=a8100000-0000-4000-8000-000000000002\n",
@@ -258,7 +273,7 @@
         "/dev/sdd1"
       ],
       "kind": "md_assemble",
-      "n": 5,
+      "n": 6,
       "phase": "md",
       "reason": "assemble the adopted array md127; nothing on it is erased",
       "stdin": null,
@@ -274,7 +289,7 @@
         "data"
       ],
       "kind": "vg_activate",
-      "n": 6,
+      "n": 7,
       "phase": "lvm",
       "reason": "activate the adopted volume group data; nothing on it is erased",
       "stdin": null,
@@ -295,7 +310,7 @@
         "/dev/nvme0n1p1"
       ],
       "kind": "mkfs",
-      "n": 7,
+      "n": 8,
       "phase": "mkfs",
       "reason": "create vfat f0 with its UUID and recorded features",
       "stdin": null,
@@ -327,7 +342,7 @@
         "/dev/nvme0n1p2"
       ],
       "kind": "mkfs",
-      "n": 8,
+      "n": 9,
       "phase": "mkfs",
       "reason": "create ext4 f1 with its UUID and recorded features",
       "stdin": null,
@@ -343,7 +358,7 @@
         "{target_root}"
       ],
       "kind": "mount",
-      "n": 9,
+      "n": 10,
       "phase": "mount",
       "reason": "mount f1 at /",
       "stdin": null,
@@ -361,7 +376,7 @@
         "{target_root}/boot/efi"
       ],
       "kind": "mount",
-      "n": 10,
+      "n": 11,
       "phase": "mount",
       "reason": "mount f0 at /boot/efi",
       "stdin": null,
@@ -377,7 +392,7 @@
         "{target_root}/srv/share"
       ],
       "kind": "mount",
-      "n": 11,
+      "n": 12,
       "phase": "mount",
       "reason": "mount f2 at /srv/share (adopted: left out of the restore)",
       "stdin": null,
@@ -402,7 +417,7 @@
         "{snapshot}"
       ],
       "kind": "restore",
-      "n": 12,
+      "n": 13,
       "phase": "restore",
       "reason": "restore the files of the snapshot",
       "stdin": null,
@@ -421,7 +436,7 @@
         "/srv/share:0755"
       ],
       "kind": "mkdirs",
-      "n": 13,
+      "n": 14,
       "phase": "post",
       "reason": "create mount points and API folders that the snapshot may lack",
       "stdin": null,
@@ -435,7 +450,7 @@
         "cmdline"
       ],
       "kind": "fixup",
-      "n": 14,
+      "n": 15,
       "phase": "post",
       "reason": "rewrite device references in /etc/default/grub",
       "stdin": null,
@@ -449,7 +464,7 @@
         "fstab"
       ],
       "kind": "fixup",
-      "n": 15,
+      "n": 16,
       "phase": "post",
       "reason": "rewrite device references in /etc/fstab",
       "stdin": null,
@@ -463,7 +478,7 @@
         "mdadm"
       ],
       "kind": "fixup",
-      "n": 16,
+      "n": 17,
       "phase": "post",
       "reason": "rewrite device references in /etc/mdadm.conf",
       "stdin": null,
@@ -477,7 +492,7 @@
         "mdadm"
       ],
       "kind": "fixup",
-      "n": 17,
+      "n": 18,
       "phase": "post",
       "reason": "rewrite device references in /etc/mdadm/mdadm.conf",
       "stdin": null,
@@ -493,7 +508,7 @@
         "6.1.0-27-amd64"
       ],
       "kind": "initramfs",
-      "n": 18,
+      "n": 19,
       "phase": "post",
       "reason": "rebuild the initramfs of 6.1.0-27-amd64 with MODULES=most",
       "stdin": null,
@@ -508,7 +523,7 @@
         "/boot/grub/grub.cfg"
       ],
       "kind": "grub_config",
-      "n": 19,
+      "n": 20,
       "phase": "post",
       "reason": "write the GRUB configuration",
       "stdin": null,
@@ -526,7 +541,7 @@
         "\\EFI\\debian\\shimx64.efi"
       ],
       "kind": "nvram",
-      "n": 20,
+      "n": 21,
       "phase": "post",
       "reason": "create the boot entry debian",
       "stdin": null,
@@ -538,7 +553,7 @@
         "verify"
       ],
       "kind": "verify",
-      "n": 21,
+      "n": 22,
       "phase": "post",
       "reason": "check the restored system (identities, fstab, boot files)",
       "stdin": null,

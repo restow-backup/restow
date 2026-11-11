@@ -107,13 +107,13 @@
   "mapping": [
     {
       "action": "erase",
-      "reason": "identity",
+      "reason": "resume",
       "source": "d0",
       "target": "t0"
     },
     {
       "action": "erase",
-      "reason": "identity",
+      "reason": "resume",
       "source": "d1",
       "target": "t1"
     }
@@ -257,7 +257,8 @@
         "/dev:0755",
         "/run:0755",
         "/tmp:1777",
-        "/boot:0755"
+        "/boot:0755",
+        "/var/www/data:0755"
       ],
       "kind": "mkdirs",
       "n": 6,
@@ -427,7 +428,7 @@
       "target": null
     }
   ],
-  "target": "same",
+  "target": "hardware",
   "warnings": [
     {
       "code": "bios_boot_disk",

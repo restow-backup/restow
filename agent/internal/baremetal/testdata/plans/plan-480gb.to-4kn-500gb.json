@@ -69,7 +69,7 @@
       {
         "disk": "d0",
         "kname": "sda",
-        "minBytes": 236603834368,
+        "minBytes": 241222811648,
         "sizeBytes": 480103981056
       }
     ],
@@ -83,7 +83,7 @@
       },
       {
         "fs": "f1",
-        "minBytes": 236496011440,
+        "minBytes": 241115378941,
         "mount": "/",
         "restoreBytes": 199824611737,
         "type": "ext4"
@@ -136,14 +136,27 @@
     },
     {
       "args": [
+        "wipe-partitions",
+        "/dev/sda"
+      ],
+      "kind": "wipe_partitions",
+      "n": 2,
+      "phase": "prepare",
+      "reason": "remove the signatures on every partition /dev/sda has now",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/sda"
+    },
+    {
+      "args": [
         "wipefs",
         "-a",
         "/dev/sda"
       ],
       "kind": "wipe",
-      "n": 2,
+      "n": 3,
       "phase": "prepare",
-      "reason": "remove the signatures of the old content of /dev/sda (its partitions first)",
+      "reason": "remove the partition table and the signatures of /dev/sda",
       "stdin": null,
       "stdinSecret": null,
       "target": "/dev/sda"
@@ -156,7 +169,7 @@
         "/dev/sda"
       ],
       "kind": "zero_range",
-      "n": 3,
+      "n": 4,
       "phase": "prepare",
       "reason": "zero the first and last 16 MiB of /dev/sda",
       "stdin": null,
@@ -169,10 +182,12 @@
         "--no-reread",
         "--wipe",
         "always",
+        "--wipe-partitions",
+        "always",
         "/dev/sda"
       ],
       "kind": "partition",
-      "n": 4,
+      "n": 5,
       "phase": "partition",
       "reason": "recreate the GPT of d0 with its identifiers (PARTUUIDs stay)",
       "stdin": "label: gpt\nlabel-id: 2D3E4F50-6172-4384-95A6-B7C8D9EAFB0C\nunit: sectors\nsector-size: 4096\n\n/dev/sda1 : start=256, size=66560, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B, uuid=a1000000-0000-4000-8000-000000000001, name=\"EFI System Partition\"\n/dev/sda2 : start=66816, size=122029568, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, uuid=a1000000-0000-4000-8000-000000000002\n",
@@ -193,7 +208,7 @@
         "/dev/sda1"
       ],
       "kind": "mkfs",
-      "n": 5,
+      "n": 6,
       "phase": "mkfs",
       "reason": "create vfat f0 with its UUID and recorded features",
       "stdin": null,
@@ -225,7 +240,7 @@
         "/dev/sda2"
       ],
       "kind": "mkfs",
-      "n": 6,
+      "n": 7,
       "phase": "mkfs",
       "reason": "create ext4 f1 with its UUID and recorded features",
       "stdin": null,
@@ -241,7 +256,7 @@
         "{target_root}"
       ],
       "kind": "mount",
-      "n": 7,
+      "n": 8,
       "phase": "mount",
       "reason": "mount f1 at /",
       "stdin": null,
@@ -259,7 +274,7 @@
         "{target_root}/boot/efi"
       ],
       "kind": "mount",
-      "n": 8,
+      "n": 9,
       "phase": "mount",
       "reason": "mount f0 at /boot/efi",
       "stdin": null,
@@ -282,7 +297,7 @@
         "{snapshot}"
       ],
       "kind": "restore",
-      "n": 9,
+      "n": 10,
       "phase": "restore",
       "reason": "restore the files of the snapshot",
       "stdin": null,
@@ -300,7 +315,7 @@
         "/boot/efi:0755"
       ],
       "kind": "mkdirs",
-      "n": 10,
+      "n": 11,
       "phase": "post",
       "reason": "create mount points and API folders that the snapshot may lack",
       "stdin": null,
@@ -314,7 +329,7 @@
         "cmdline"
       ],
       "kind": "fixup",
-      "n": 11,
+      "n": 12,
       "phase": "post",
       "reason": "rewrite device references in /etc/default/grub",
       "stdin": null,
@@ -328,7 +343,7 @@
         "fstab"
       ],
       "kind": "fixup",
-      "n": 12,
+      "n": 13,
       "phase": "post",
       "reason": "rewrite device references in /etc/fstab",
       "stdin": null,
@@ -342,7 +357,7 @@
         "resume"
       ],
       "kind": "fixup",
-      "n": 13,
+      "n": 14,
       "phase": "post",
       "reason": "rewrite device references in /etc/initramfs-tools/conf.d/resume",
       "stdin": null,
@@ -356,7 +371,7 @@
         "4294963200"
       ],
       "kind": "swapfile",
-      "n": 14,
+      "n": 15,
       "phase": "post",
       "reason": "recreate the swap file (and its resume offset)",
       "stdin": null,
@@ -372,7 +387,7 @@
         "6.8.0-48-generic"
       ],
       "kind": "initramfs",
-      "n": 15,
+      "n": 16,
       "phase": "post",
       "reason": "rebuild the initramfs of 6.8.0-48-generic with MODULES=most",
       "stdin": null,
@@ -387,7 +402,7 @@
         "/boot/grub/grub.cfg"
       ],
       "kind": "grub_config",
-      "n": 16,
+      "n": 17,
       "phase": "post",
       "reason": "write the GRUB configuration",
       "stdin": null,
@@ -405,7 +420,7 @@
         "\\EFI\\ubuntu\\shimx64.efi"
       ],
       "kind": "nvram",
-      "n": 17,
+      "n": 18,
       "phase": "post",
       "reason": "create the boot entry ubuntu",
       "stdin": null,
@@ -417,7 +432,7 @@
         "verify"
       ],
       "kind": "verify",
-      "n": 18,
+      "n": 19,
       "phase": "post",
       "reason": "check the restored system (identities, fstab, boot files)",
       "stdin": null,

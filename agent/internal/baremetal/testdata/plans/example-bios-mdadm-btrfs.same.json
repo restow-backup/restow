@@ -131,14 +131,27 @@
     },
     {
       "args": [
+        "wipe-partitions",
+        "/dev/sda"
+      ],
+      "kind": "wipe_partitions",
+      "n": 2,
+      "phase": "prepare",
+      "reason": "remove the signatures on every partition /dev/sda has now",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/sda"
+    },
+    {
+      "args": [
         "wipefs",
         "-a",
         "/dev/sda"
       ],
       "kind": "wipe",
-      "n": 2,
+      "n": 3,
       "phase": "prepare",
-      "reason": "remove the signatures of the old content of /dev/sda (its partitions first)",
+      "reason": "remove the partition table and the signatures of /dev/sda",
       "stdin": null,
       "stdinSecret": null,
       "target": "/dev/sda"
@@ -151,7 +164,7 @@
         "/dev/sda"
       ],
       "kind": "zero_range",
-      "n": 3,
+      "n": 4,
       "phase": "prepare",
       "reason": "zero the first and last 16 MiB of /dev/sda",
       "stdin": null,
@@ -164,9 +177,22 @@
         "/dev/sdb"
       ],
       "kind": "release_holders",
-      "n": 4,
+      "n": 5,
       "phase": "prepare",
       "reason": "stop everything that holds /dev/sdb (mounts, swap, LVM, md, dm)",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/sdb"
+    },
+    {
+      "args": [
+        "wipe-partitions",
+        "/dev/sdb"
+      ],
+      "kind": "wipe_partitions",
+      "n": 6,
+      "phase": "prepare",
+      "reason": "remove the signatures on every partition /dev/sdb has now",
       "stdin": null,
       "stdinSecret": null,
       "target": "/dev/sdb"
@@ -178,9 +204,9 @@
         "/dev/sdb"
       ],
       "kind": "wipe",
-      "n": 5,
+      "n": 7,
       "phase": "prepare",
-      "reason": "remove the signatures of the old content of /dev/sdb (its partitions first)",
+      "reason": "remove the partition table and the signatures of /dev/sdb",
       "stdin": null,
       "stdinSecret": null,
       "target": "/dev/sdb"
@@ -193,7 +219,7 @@
         "/dev/sdb"
       ],
       "kind": "zero_range",
-      "n": 6,
+      "n": 8,
       "phase": "prepare",
       "reason": "zero the first and last 16 MiB of /dev/sdb",
       "stdin": null,
@@ -206,10 +232,12 @@
         "--no-reread",
         "--wipe",
         "always",
+        "--wipe-partitions",
+        "always",
         "/dev/sda"
       ],
       "kind": "partition",
-      "n": 7,
+      "n": 9,
       "phase": "partition",
       "reason": "recreate the DOS of d0 with its identifiers (PARTUUIDs stay)",
       "stdin": "label: dos\nlabel-id: 0xa1b2c3d4\nunit: sectors\nsector-size: 512\n\n/dev/sda1 : start=2048, size=3902342286, type=fd, bootable\n/dev/sda2 : start=3902345216, size=4683368, type=82\n",
@@ -222,10 +250,12 @@
         "--no-reread",
         "--wipe",
         "always",
+        "--wipe-partitions",
+        "always",
         "/dev/sdb"
       ],
       "kind": "partition",
-      "n": 8,
+      "n": 10,
       "phase": "partition",
       "reason": "recreate the DOS of d1 with its identifiers (PARTUUIDs stay)",
       "stdin": "label: dos\nlabel-id: 0xb2c3d4e5\nunit: sectors\nsector-size: 512\n\n/dev/sdb1 : start=2048, size=3902342286, type=fd, bootable\n/dev/sdb2 : start=3902345216, size=4683368, type=82\n",
@@ -250,7 +280,7 @@
         "/dev/sdb1"
       ],
       "kind": "md_create",
-      "n": 9,
+      "n": 11,
       "phase": "md",
       "reason": "create the md array md0 with its UUID (no --assume-clean: it resyncs)",
       "stdin": null,
@@ -278,7 +308,7 @@
         "/dev/md/0"
       ],
       "kind": "mkfs",
-      "n": 10,
+      "n": 12,
       "phase": "mkfs",
       "reason": "create btrfs f0 with its UUID and recorded features",
       "stdin": null,
@@ -296,7 +326,7 @@
         "{target_root}/.restow-btrfs-f0"
       ],
       "kind": "mount",
-      "n": 11,
+      "n": 13,
       "phase": "mkfs",
       "reason": "mount the top level of f0 to create its subvolumes",
       "stdin": null,
@@ -311,7 +341,7 @@
         "{target_root}/.restow-btrfs-f0/@"
       ],
       "kind": "btrfs_subvolume",
-      "n": 12,
+      "n": 14,
       "phase": "mkfs",
       "reason": "create subvolume @",
       "stdin": null,
@@ -326,7 +356,7 @@
         "{target_root}/.restow-btrfs-f0/@home"
       ],
       "kind": "btrfs_subvolume",
-      "n": 13,
+      "n": 15,
       "phase": "mkfs",
       "reason": "create subvolume @home",
       "stdin": null,
@@ -341,7 +371,7 @@
         "{target_root}/.restow-btrfs-f0/@/var/lib/machines"
       ],
       "kind": "btrfs_subvolume",
-      "n": 14,
+      "n": 16,
       "phase": "mkfs",
       "reason": "create subvolume @/var/lib/machines",
       "stdin": null,
@@ -354,7 +384,7 @@
         "{target_root}/.restow-btrfs-f0"
       ],
       "kind": "umount",
-      "n": 15,
+      "n": 17,
       "phase": "mkfs",
       "reason": "unmount the top level of f0",
       "stdin": null,
@@ -372,7 +402,7 @@
         "{target_root}"
       ],
       "kind": "mount",
-      "n": 16,
+      "n": 18,
       "phase": "mount",
       "reason": "mount f0 at /",
       "stdin": null,
@@ -390,7 +420,7 @@
         "{target_root}/home"
       ],
       "kind": "mount",
-      "n": 17,
+      "n": 19,
       "phase": "mount",
       "reason": "mount f0 at /home",
       "stdin": null,
@@ -404,7 +434,7 @@
         "{target_root}/var/lib/libvirt/images"
       ],
       "kind": "nocow",
-      "n": 18,
+      "n": 20,
       "phase": "mount",
       "reason": "set nodatacow on /var/lib/libvirt/images before the restore",
       "stdin": null,
@@ -427,7 +457,7 @@
         "{snapshot}"
       ],
       "kind": "restore",
-      "n": 19,
+      "n": 21,
       "phase": "restore",
       "reason": "restore the files of the snapshot",
       "stdin": null,
@@ -445,7 +475,7 @@
         "/home:0755"
       ],
       "kind": "mkdirs",
-      "n": 20,
+      "n": 22,
       "phase": "post",
       "reason": "create mount points and API folders that the snapshot may lack",
       "stdin": null,
@@ -459,7 +489,7 @@
         "delete"
       ],
       "kind": "fixup",
-      "n": 21,
+      "n": 23,
       "phase": "post",
       "reason": "rewrite device references in /boot/grub/device.map",
       "stdin": null,
@@ -473,7 +503,7 @@
         "crypttab"
       ],
       "kind": "fixup",
-      "n": 22,
+      "n": 24,
       "phase": "post",
       "reason": "rewrite device references in /etc/crypttab",
       "stdin": null,
@@ -487,7 +517,7 @@
         "cmdline"
       ],
       "kind": "fixup",
-      "n": 23,
+      "n": 25,
       "phase": "post",
       "reason": "rewrite device references in /etc/default/grub",
       "stdin": null,
@@ -501,7 +531,7 @@
         "fstab"
       ],
       "kind": "fixup",
-      "n": 24,
+      "n": 26,
       "phase": "post",
       "reason": "rewrite device references in /etc/fstab",
       "stdin": null,
@@ -515,7 +545,7 @@
         "resume"
       ],
       "kind": "fixup",
-      "n": 25,
+      "n": 27,
       "phase": "post",
       "reason": "rewrite device references in /etc/initramfs-tools/conf.d/resume",
       "stdin": null,
@@ -529,7 +559,7 @@
         "mdadm"
       ],
       "kind": "fixup",
-      "n": 26,
+      "n": 28,
       "phase": "post",
       "reason": "rewrite device references in /etc/mdadm.conf",
       "stdin": null,
@@ -543,7 +573,7 @@
         "mdadm"
       ],
       "kind": "fixup",
-      "n": 27,
+      "n": 29,
       "phase": "post",
       "reason": "rewrite device references in /etc/mdadm/mdadm.conf",
       "stdin": null,
@@ -557,7 +587,7 @@
         "mount_unit"
       ],
       "kind": "fixup",
-      "n": 28,
+      "n": 30,
       "phase": "post",
       "reason": "rewrite device references in /etc/systemd/system/srv-backup.mount",
       "stdin": null,
@@ -571,7 +601,7 @@
         "grub_install_devices"
       ],
       "kind": "fixup",
-      "n": 29,
+      "n": 31,
       "phase": "post",
       "reason": "rewrite device references in /var/cache/debconf/config.dat",
       "stdin": null,
@@ -587,7 +617,7 @@
         "5.15.0-125-generic"
       ],
       "kind": "initramfs",
-      "n": 30,
+      "n": 32,
       "phase": "post",
       "reason": "rebuild the initramfs of 5.15.0-125-generic with MODULES=most",
       "stdin": null,
@@ -603,7 +633,7 @@
         "5.15.0-124-generic"
       ],
       "kind": "initramfs_extra",
-      "n": 31,
+      "n": 33,
       "phase": "post",
       "reason": "rebuild the initramfs of 5.15.0-124-generic with MODULES=most",
       "stdin": null,
@@ -618,7 +648,7 @@
         "/boot/grub/grub.cfg"
       ],
       "kind": "grub_config",
-      "n": 32,
+      "n": 34,
       "phase": "post",
       "reason": "write the GRUB configuration",
       "stdin": null,
@@ -634,7 +664,7 @@
         "/dev/sda"
       ],
       "kind": "bootloader_bios",
-      "n": 33,
+      "n": 35,
       "phase": "post",
       "reason": "install the BIOS boot code of GRUB",
       "stdin": null,
@@ -650,7 +680,7 @@
         "/dev/sdb"
       ],
       "kind": "bootloader_bios",
-      "n": 34,
+      "n": 36,
       "phase": "post",
       "reason": "install the BIOS boot code of GRUB",
       "stdin": null,
@@ -662,7 +692,7 @@
         "verify"
       ],
       "kind": "verify",
-      "n": 35,
+      "n": 37,
       "phase": "post",
       "reason": "check the restored system (identities, fstab, boot files)",
       "stdin": null,

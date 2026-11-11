@@ -117,14 +117,27 @@
     },
     {
       "args": [
+        "wipe-partitions",
+        "/dev/vda"
+      ],
+      "kind": "wipe_partitions",
+      "n": 2,
+      "phase": "prepare",
+      "reason": "remove the signatures on every partition /dev/vda has now",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/vda"
+    },
+    {
+      "args": [
         "wipefs",
         "-a",
         "/dev/vda"
       ],
       "kind": "wipe",
-      "n": 2,
+      "n": 3,
       "phase": "prepare",
-      "reason": "remove the signatures of the old content of /dev/vda (its partitions first)",
+      "reason": "remove the partition table and the signatures of /dev/vda",
       "stdin": null,
       "stdinSecret": null,
       "target": "/dev/vda"
@@ -137,7 +150,7 @@
         "/dev/vda"
       ],
       "kind": "zero_range",
-      "n": 3,
+      "n": 4,
       "phase": "prepare",
       "reason": "zero the first and last 16 MiB of /dev/vda",
       "stdin": null,
@@ -150,10 +163,12 @@
         "--no-reread",
         "--wipe",
         "always",
+        "--wipe-partitions",
+        "always",
         "/dev/vda"
       ],
       "kind": "partition",
-      "n": 4,
+      "n": 5,
       "phase": "partition",
       "reason": "recreate the GPT of d0 with its identifiers (PARTUUIDs stay)",
       "stdin": "label: gpt\nlabel-id: 61728394-A5B6-47C8-D9EA-FB0C1D2E3F40\nunit: sectors\nsector-size: 512\n\n/dev/vda1 : start=2048, size=16384, type=21686148-6449-6E6F-744E-656564454649, uuid=e1000000-0000-4000-8000-000000000001\n/dev/vda2 : start=18432, size=120832000, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, uuid=e1000000-0000-4000-8000-000000000002\n/dev/vda3 : start=120850432, size=4194304, type=0657FD6D-A4AB-43C4-84E5-0933C84B4F4F, uuid=e1000000-0000-4000-8000-000000000003\n",
@@ -181,7 +196,7 @@
         "/dev/vda2"
       ],
       "kind": "mkfs",
-      "n": 5,
+      "n": 6,
       "phase": "mkfs",
       "reason": "create btrfs f0 with its UUID and recorded features",
       "stdin": null,
@@ -199,7 +214,7 @@
         "{target_root}/.restow-btrfs-f0"
       ],
       "kind": "mount",
-      "n": 6,
+      "n": 7,
       "phase": "mkfs",
       "reason": "mount the top level of f0 to create its subvolumes",
       "stdin": null,
@@ -214,7 +229,7 @@
         "{target_root}/.restow-btrfs-f0/@"
       ],
       "kind": "btrfs_subvolume",
-      "n": 7,
+      "n": 8,
       "phase": "mkfs",
       "reason": "create subvolume @",
       "stdin": null,
@@ -229,7 +244,7 @@
         "{target_root}/.restow-btrfs-f0/@/.snapshots"
       ],
       "kind": "btrfs_subvolume",
-      "n": 8,
+      "n": 9,
       "phase": "mkfs",
       "reason": "create subvolume @/.snapshots",
       "stdin": null,
@@ -244,7 +259,7 @@
         "{target_root}/.restow-btrfs-f0/@/home"
       ],
       "kind": "btrfs_subvolume",
-      "n": 9,
+      "n": 10,
       "phase": "mkfs",
       "reason": "create subvolume @/home",
       "stdin": null,
@@ -259,7 +274,7 @@
         "{target_root}/.restow-btrfs-f0/@/opt"
       ],
       "kind": "btrfs_subvolume",
-      "n": 10,
+      "n": 11,
       "phase": "mkfs",
       "reason": "create subvolume @/opt",
       "stdin": null,
@@ -274,7 +289,7 @@
         "{target_root}/.restow-btrfs-f0/@/root"
       ],
       "kind": "btrfs_subvolume",
-      "n": 11,
+      "n": 12,
       "phase": "mkfs",
       "reason": "create subvolume @/root",
       "stdin": null,
@@ -289,7 +304,7 @@
         "{target_root}/.restow-btrfs-f0/@/var"
       ],
       "kind": "btrfs_subvolume",
-      "n": 12,
+      "n": 13,
       "phase": "mkfs",
       "reason": "create subvolume @/var",
       "stdin": null,
@@ -304,7 +319,7 @@
         "{target_root}/.restow-btrfs-f0/@/.snapshots/2/snapshot"
       ],
       "kind": "btrfs_subvolume",
-      "n": 13,
+      "n": 14,
       "phase": "mkfs",
       "reason": "create subvolume @/.snapshots/2/snapshot",
       "stdin": null,
@@ -319,7 +334,7 @@
         "{target_root}/.restow-btrfs-f0/@/.snapshots/2/snapshot"
       ],
       "kind": "btrfs_default",
-      "n": 14,
+      "n": 15,
       "phase": "mkfs",
       "reason": "make @/.snapshots/2/snapshot the default subvolume",
       "stdin": null,
@@ -332,7 +347,7 @@
         "{target_root}/.restow-btrfs-f0"
       ],
       "kind": "umount",
-      "n": 15,
+      "n": 16,
       "phase": "mkfs",
       "reason": "unmount the top level of f0",
       "stdin": null,
@@ -347,7 +362,7 @@
         "/dev/vda3"
       ],
       "kind": "mkswap",
-      "n": 16,
+      "n": 17,
       "phase": "mkfs",
       "reason": "create the swap area with its UUID",
       "stdin": null,
@@ -365,7 +380,7 @@
         "{target_root}"
       ],
       "kind": "mount",
-      "n": 17,
+      "n": 18,
       "phase": "mount",
       "reason": "mount f0 at /",
       "stdin": null,
@@ -383,7 +398,7 @@
         "{target_root}/.snapshots"
       ],
       "kind": "mount",
-      "n": 18,
+      "n": 19,
       "phase": "mount",
       "reason": "mount f0 at /.snapshots",
       "stdin": null,
@@ -401,7 +416,7 @@
         "{target_root}/home"
       ],
       "kind": "mount",
-      "n": 19,
+      "n": 20,
       "phase": "mount",
       "reason": "mount f0 at /home",
       "stdin": null,
@@ -419,7 +434,7 @@
         "{target_root}/opt"
       ],
       "kind": "mount",
-      "n": 20,
+      "n": 21,
       "phase": "mount",
       "reason": "mount f0 at /opt",
       "stdin": null,
@@ -437,7 +452,7 @@
         "{target_root}/root"
       ],
       "kind": "mount",
-      "n": 21,
+      "n": 22,
       "phase": "mount",
       "reason": "mount f0 at /root",
       "stdin": null,
@@ -455,7 +470,7 @@
         "{target_root}/var"
       ],
       "kind": "mount",
-      "n": 22,
+      "n": 23,
       "phase": "mount",
       "reason": "mount f0 at /var",
       "stdin": null,
@@ -478,7 +493,7 @@
         "{snapshot}"
       ],
       "kind": "restore",
-      "n": 23,
+      "n": 24,
       "phase": "restore",
       "reason": "restore the files of the snapshot",
       "stdin": null,
@@ -493,7 +508,7 @@
         "{target_root}"
       ],
       "kind": "btrfs_quota",
-      "n": 24,
+      "n": 25,
       "phase": "post",
       "reason": "turn the quota of f0 on again",
       "stdin": null,
@@ -509,7 +524,7 @@
         "{target_root}"
       ],
       "kind": "btrfs_quota",
-      "n": 25,
+      "n": 26,
       "phase": "post",
       "reason": "count the qgroups of f0 after the restore",
       "stdin": null,
@@ -531,7 +546,7 @@
         "/var:0755"
       ],
       "kind": "mkdirs",
-      "n": 26,
+      "n": 27,
       "phase": "post",
       "reason": "create mount points and API folders that the snapshot may lack",
       "stdin": null,
@@ -545,7 +560,7 @@
         "cmdline"
       ],
       "kind": "fixup",
-      "n": 27,
+      "n": 28,
       "phase": "post",
       "reason": "rewrite device references in /etc/default/grub",
       "stdin": null,
@@ -559,7 +574,7 @@
         "grub_install_devices"
       ],
       "kind": "fixup",
-      "n": 28,
+      "n": 29,
       "phase": "post",
       "reason": "rewrite device references in /etc/default/grub_installdevice",
       "stdin": null,
@@ -573,7 +588,7 @@
         "fstab"
       ],
       "kind": "fixup",
-      "n": 29,
+      "n": 30,
       "phase": "post",
       "reason": "rewrite device references in /etc/fstab",
       "stdin": null,
@@ -596,7 +611,7 @@
         "6.4.0-150600.23.25-default"
       ],
       "kind": "initramfs",
-      "n": 30,
+      "n": 31,
       "phase": "post",
       "reason": "rebuild the initramfs of 6.4.0-150600.23.25-default without hostonly",
       "stdin": null,
@@ -611,7 +626,7 @@
         "/boot/grub2/grub.cfg"
       ],
       "kind": "grub_config",
-      "n": 31,
+      "n": 32,
       "phase": "post",
       "reason": "write the GRUB configuration",
       "stdin": null,
@@ -627,7 +642,7 @@
         "/dev/vda"
       ],
       "kind": "bootloader_bios",
-      "n": 32,
+      "n": 33,
       "phase": "post",
       "reason": "install the BIOS boot code of GRUB",
       "stdin": null,
@@ -639,7 +654,7 @@
         "verify"
       ],
       "kind": "verify",
-      "n": 33,
+      "n": 34,
       "phase": "post",
       "reason": "check the restored system (identities, fstab, boot files)",
       "stdin": null,

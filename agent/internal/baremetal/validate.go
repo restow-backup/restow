@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
 )
 
@@ -496,6 +497,9 @@ func (v *validator) linux(l *LinuxLayout) {
 			v.failf("mounts[%d].fs: %q does not resolve", i, *mnt.FS)
 		}
 		v.nonNegPtr(fmt.Sprintf("mounts[%d].subvolId", i), mnt.SubvolID)
+		if mnt.Root != "" && !strings.HasPrefix(mnt.Root, "/") {
+			v.failf("mounts[%d].root: %q is not an absolute path", i, mnt.Root)
+		}
 	}
 	v.limit("fstab", len(l.Fstab), maxFstab)
 	for i, e := range l.Fstab {

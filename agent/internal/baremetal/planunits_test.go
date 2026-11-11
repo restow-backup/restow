@@ -200,8 +200,14 @@ func TestPlacement(t *testing.T) {
 	if p := s63.Disks[0].Partitions[0]; !p.Realigned || p.StartBytes != mib {
 		t.Errorf("start 63: %+v", p)
 	}
-	if !strings.Contains(*s63.Steps[6].Stdin, "label-id: 0xa1b2c3d0") {
-		t.Errorf("sfdisk script: %q", *s63.Steps[6].Stdin)
+	script := ""
+	for _, st := range s63.Steps {
+		if st.Kind == "partition" && script == "" {
+			script = deref(st.Stdin)
+		}
+	}
+	if !strings.Contains(script, "label-id: 0xa1b2c3d0") {
+		t.Errorf("sfdisk script: %q", script)
 	}
 	// MBR limit.
 	mbr := samePlan(t, "bios-mbr-mdadm-raid1", func(m *Manifest, tg *Target, f *Facts, c *Choices) {
@@ -574,7 +580,7 @@ func TestPlanSteps(t *testing.T) {
 			t.Error("luks_format without passphrase on stdin")
 		}
 	}
-	want := "release_holders wipe zero_range partition luks_format luks_open luks_refresh pv_create vg_create lv_create lv_create lv_create mkfs mkfs mkfs mkfs mkswap mount mount mount mount restore mkdirs"
+	want := "release_holders wipe_partitions wipe zero_range partition luks_format luks_open luks_refresh pv_create vg_create lv_create lv_create lv_create mkfs mkfs mkfs mkfs mkswap mount mount mount mount restore mkdirs"
 	if !strings.HasPrefix(strings.Join(kinds, " "), want) {
 		t.Errorf("steps %v", kinds)
 	}

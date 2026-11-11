@@ -112,20 +112,20 @@
       {
         "disk": "d0",
         "kname": "sda",
-        "minBytes": 472895193088,
+        "minBytes": 477515218944,
         "sizeBytes": 2000398934016
       },
       {
         "disk": "d1",
         "kname": "sdb",
-        "minBytes": 472895193088,
+        "minBytes": 477515218944,
         "sizeBytes": 2000398934016
       }
     ],
     "filesystems": [
       {
         "fs": "f0",
-        "minBytes": 472757542296,
+        "minBytes": 477376909797,
         "mount": "/",
         "restoreBytes": 399572996915,
         "type": "ext4"
@@ -168,14 +168,27 @@
     },
     {
       "args": [
+        "wipe-partitions",
+        "/dev/sda"
+      ],
+      "kind": "wipe_partitions",
+      "n": 2,
+      "phase": "prepare",
+      "reason": "remove the signatures on every partition /dev/sda has now",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/sda"
+    },
+    {
+      "args": [
         "wipefs",
         "-a",
         "/dev/sda"
       ],
       "kind": "wipe",
-      "n": 2,
+      "n": 3,
       "phase": "prepare",
-      "reason": "remove the signatures of the old content of /dev/sda (its partitions first)",
+      "reason": "remove the partition table and the signatures of /dev/sda",
       "stdin": null,
       "stdinSecret": null,
       "target": "/dev/sda"
@@ -188,7 +201,7 @@
         "/dev/sda"
       ],
       "kind": "zero_range",
-      "n": 3,
+      "n": 4,
       "phase": "prepare",
       "reason": "zero the first and last 16 MiB of /dev/sda",
       "stdin": null,
@@ -201,9 +214,22 @@
         "/dev/sdb"
       ],
       "kind": "release_holders",
-      "n": 4,
+      "n": 5,
       "phase": "prepare",
       "reason": "stop everything that holds /dev/sdb (mounts, swap, LVM, md, dm)",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/sdb"
+    },
+    {
+      "args": [
+        "wipe-partitions",
+        "/dev/sdb"
+      ],
+      "kind": "wipe_partitions",
+      "n": 6,
+      "phase": "prepare",
+      "reason": "remove the signatures on every partition /dev/sdb has now",
       "stdin": null,
       "stdinSecret": null,
       "target": "/dev/sdb"
@@ -215,9 +241,9 @@
         "/dev/sdb"
       ],
       "kind": "wipe",
-      "n": 5,
+      "n": 7,
       "phase": "prepare",
-      "reason": "remove the signatures of the old content of /dev/sdb (its partitions first)",
+      "reason": "remove the partition table and the signatures of /dev/sdb",
       "stdin": null,
       "stdinSecret": null,
       "target": "/dev/sdb"
@@ -230,7 +256,7 @@
         "/dev/sdb"
       ],
       "kind": "zero_range",
-      "n": 6,
+      "n": 8,
       "phase": "prepare",
       "reason": "zero the first and last 16 MiB of /dev/sdb",
       "stdin": null,
@@ -243,10 +269,12 @@
         "--no-reread",
         "--wipe",
         "always",
+        "--wipe-partitions",
+        "always",
         "/dev/sda"
       ],
       "kind": "partition",
-      "n": 7,
+      "n": 9,
       "phase": "partition",
       "reason": "recreate the GPT of d0 with its identifiers (PARTUUIDs stay)",
       "stdin": "label: gpt\nlabel-id: 11111110-2222-3333-4444-555555555555\nunit: sectors\nsector-size: 512\n\n/dev/sda1 : start=2048, size=2048, type=21686148-6449-6E6F-744E-656564454649, uuid=aaaaaaa0-0000-0000-0000-000000000001\n/dev/sda2 : start=4096, size=3901440000, type=A19D880F-05FC-4D3B-A006-743F0F84911E, uuid=aaaaaaa0-0000-0000-0000-000000000002\n",
@@ -259,10 +287,12 @@
         "--no-reread",
         "--wipe",
         "always",
+        "--wipe-partitions",
+        "always",
         "/dev/sdb"
       ],
       "kind": "partition",
-      "n": 8,
+      "n": 10,
       "phase": "partition",
       "reason": "recreate the GPT of d1 with its identifiers (PARTUUIDs stay)",
       "stdin": "label: gpt\nlabel-id: 11111111-2222-3333-4444-555555555555\nunit: sectors\nsector-size: 512\n\n/dev/sdb1 : start=2048, size=2048, type=21686148-6449-6E6F-744E-656564454649, uuid=aaaaaaa1-0000-0000-0000-000000000001\n/dev/sdb2 : start=4096, size=3901440000, type=A19D880F-05FC-4D3B-A006-743F0F84911E, uuid=aaaaaaa1-0000-0000-0000-000000000002\n",
@@ -286,7 +316,7 @@
         "/dev/sdb2"
       ],
       "kind": "md_create",
-      "n": 9,
+      "n": 11,
       "phase": "md",
       "reason": "create the md array md0 with its UUID (no --assume-clean: it resyncs)",
       "stdin": null,
@@ -318,7 +348,7 @@
         "/dev/md/0"
       ],
       "kind": "mkfs",
-      "n": 10,
+      "n": 12,
       "phase": "mkfs",
       "reason": "create ext4 f0 with its UUID and recorded features",
       "stdin": null,
@@ -334,7 +364,7 @@
         "{target_root}"
       ],
       "kind": "mount",
-      "n": 11,
+      "n": 13,
       "phase": "mount",
       "reason": "mount f0 at /",
       "stdin": null,
@@ -357,7 +387,7 @@
         "{snapshot}"
       ],
       "kind": "restore",
-      "n": 12,
+      "n": 14,
       "phase": "restore",
       "reason": "restore the files of the snapshot",
       "stdin": null,
@@ -374,7 +404,7 @@
         "/tmp:1777"
       ],
       "kind": "mkdirs",
-      "n": 13,
+      "n": 15,
       "phase": "post",
       "reason": "create mount points and API folders that the snapshot may lack",
       "stdin": null,
@@ -388,7 +418,7 @@
         "cmdline"
       ],
       "kind": "fixup",
-      "n": 14,
+      "n": 16,
       "phase": "post",
       "reason": "rewrite device references in /etc/default/grub",
       "stdin": null,
@@ -402,7 +432,7 @@
         "fstab"
       ],
       "kind": "fixup",
-      "n": 15,
+      "n": 17,
       "phase": "post",
       "reason": "rewrite device references in /etc/fstab",
       "stdin": null,
@@ -416,7 +446,7 @@
         "resume"
       ],
       "kind": "fixup",
-      "n": 16,
+      "n": 18,
       "phase": "post",
       "reason": "rewrite device references in /etc/initramfs-tools/conf.d/resume",
       "stdin": null,
@@ -430,7 +460,7 @@
         "mdadm"
       ],
       "kind": "fixup",
-      "n": 17,
+      "n": 19,
       "phase": "post",
       "reason": "rewrite device references in /etc/mdadm.conf",
       "stdin": null,
@@ -444,7 +474,7 @@
         "mdadm"
       ],
       "kind": "fixup",
-      "n": 18,
+      "n": 20,
       "phase": "post",
       "reason": "rewrite device references in /etc/mdadm/mdadm.conf",
       "stdin": null,
@@ -458,7 +488,7 @@
         "grub_install_devices"
       ],
       "kind": "fixup",
-      "n": 19,
+      "n": 21,
       "phase": "post",
       "reason": "rewrite device references in /var/cache/debconf/config.dat",
       "stdin": null,
@@ -472,7 +502,7 @@
         "4294963200"
       ],
       "kind": "swapfile",
-      "n": 20,
+      "n": 22,
       "phase": "post",
       "reason": "recreate the swap file (and its resume offset)",
       "stdin": null,
@@ -488,7 +518,7 @@
         "5.15.0-125-generic"
       ],
       "kind": "initramfs",
-      "n": 21,
+      "n": 23,
       "phase": "post",
       "reason": "rebuild the initramfs of 5.15.0-125-generic with MODULES=most",
       "stdin": null,
@@ -503,7 +533,7 @@
         "/boot/grub/grub.cfg"
       ],
       "kind": "grub_config",
-      "n": 22,
+      "n": 24,
       "phase": "post",
       "reason": "write the GRUB configuration",
       "stdin": null,
@@ -515,7 +545,7 @@
         "verify"
       ],
       "kind": "verify",
-      "n": 23,
+      "n": 25,
       "phase": "post",
       "reason": "check the restored system (identities, fstab, boot files)",
       "stdin": null,

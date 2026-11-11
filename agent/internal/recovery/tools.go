@@ -74,7 +74,7 @@ var Tools = []Tool{
 // Operations are the names in args[0] of a plan step that recover carries
 // out itself (baremetal.Step).
 var Operations = map[string]bool{
-	"release-holders": true, "blkzero": true, "pmbr-boot": true, "fixup": true, "mkdirs": true, "swapfile": true,
+	"release-holders": true, "wipe-partitions": true, "blkzero": true, "pmbr-boot": true, "fixup": true, "mkdirs": true, "swapfile": true,
 	"keyfile": true, "nvram": true, "fallback-path": true, "mok-import": true, "selinux": true, "verify": true,
 	"chroot-exec": true,
 }

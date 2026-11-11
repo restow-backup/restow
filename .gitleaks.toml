@@ -19,6 +19,10 @@ paths = [
   '''(^|/)deploy/install/test\.sh$''',
   # The PVE node installer's shell test feeds made-up enrollment and PVE API tokens to pve.sh
   '''(^|/)agent/scripts/test-pve-install\.sh$''',
+  # Bare metal fixtures: captured layouts and manifests carry the public Authenticode
+  # hashes of boot loaders, the recovery code vectors carry made-up session secrets
+  '''(^|/)agent/internal/baremetal/testdata/''',
+  '''(^|/)agent/internal/recovery/testdata/''',
 ]
 regexes = [
   # i18n keys such as "m365.consentResult.granted" in presenters

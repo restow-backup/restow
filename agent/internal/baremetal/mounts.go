@@ -49,6 +49,11 @@ func captureMounts(c *capture) error {
 			break
 		}
 		mo := Mount{Target: clean(e.Target), Source: clean(e.Source), Type: clean(e.FSType), Options: clean(e.Options), Autofs: e.FSType == "autofs"}
+		if e.Root != "" && e.Root != "/" {
+			// A subvolume or a bind mount of a folder: the planner must not
+			// take it for a mount of the whole file system.
+			mo.Root = clean(e.Root)
+		}
 		if me.fs != "" {
 			mo.FS = strPtr(me.fs)
 		}

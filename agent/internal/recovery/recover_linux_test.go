@@ -39,12 +39,48 @@ type testEnv struct {
 	// realTLS probes the instance for real (the attended flow with a TLS
 	// test server).
 	realTLS bool
+	// scans counts the hardware scans; rescan, when set, gives the
+	// hardware of scan n (from 1) in place of hw: a disk that was swapped,
+	// pulled or plugged after the first scan.
+	scans  int
+	rescan func(n int) (HardwareInput, bool)
+	// probeErr fails the write probe of the confirmed disks.
+	probeErr error
+	// shell replaces the shell of the menu (a test acts as the operator).
+	shell func()
+	// onExecutor runs when the flow hands over the executor: after the
+	// confirmation, before the first step.
+	onExecutor func()
 }
 
 func (e *testEnv) note(s string) { e.mu.Lock(); e.actions = append(e.actions, s); e.mu.Unlock() }
 
-func (e *testEnv) Now() time.Time                                      { return time.Now() }
-func (e *testEnv) Hardware(ctx context.Context) (HardwareInput, error) { return e.hw, nil }
+func (e *testEnv) Now() time.Time { return time.Now() }
+func (e *testEnv) Hardware(ctx context.Context) (HardwareInput, error) {
+	e.mu.Lock()
+	e.scans++
+	n, rescan := e.scans, e.rescan
+	e.mu.Unlock()
+	if rescan != nil {
+		if hw, ok := rescan(n); ok {
+			return hw, nil
+		}
+	}
+	return e.hw, nil
+}
+
+// Guard implements FlowEnv: the scan is the hardware of the test, the
+// write probe is noted among the commands (so its place before the first
+// step shows).
+func (e *testEnv) Guard(g *DiskGuard) {
+	g.Scan = e.Hardware
+	g.ProbeWrite = func(path string, size int64) error {
+		if e.exec != nil {
+			e.exec.note("probe-write " + path)
+		}
+		return e.probeErr
+	}
+}
 func (e *testEnv) Interfaces() []NetIface {
 	return []NetIface{{Name: "enp1s0", MAC: "52:54:00:12:34:56", Link: true, Physical: true, Addresses: []string{"192.0.2.10/24"}}}
 }
@@ -94,11 +130,20 @@ func (e *testEnv) Executor(x *Executor, t *baremetal.Target) {
 	}
 	x.Verifier = StandardVerifier{Env: &allExists{order: order, entries: entries}, Target: t}
 	e.executor = x
+	if e.onExecutor != nil {
+		e.onExecutor()
+	}
 }
 func (e *testEnv) Finalize(ctx context.Context, x *Executor) { e.note("finalize") }
-func (e *testEnv) Shell(ctx context.Context) error           { e.note("shell"); return nil }
-func (e *testEnv) Reboot(ctx context.Context) error          { e.note("reboot"); return nil }
-func (e *testEnv) PowerOff(ctx context.Context) error        { e.note("poweroff"); return nil }
+func (e *testEnv) Shell(ctx context.Context) error {
+	e.note("shell")
+	if e.shell != nil {
+		e.shell()
+	}
+	return nil
+}
+func (e *testEnv) Reboot(ctx context.Context) error   { e.note("reboot"); return nil }
+func (e *testEnv) PowerOff(ctx context.Context) error { e.note("poweroff"); return nil }
 func (e *testEnv) EnableRemote(ctx context.Context) (string, []api.RecoverySSHHostKey, error) {
 	return "", nil, fmt.Errorf("no remote access in this test")
 }
@@ -363,5 +408,10 @@ func TestRecoverConfirmMismatchErasesNothing(t *testing.T) {
 	}
 	if strings.Contains(exe.lines(), "wipefs") || strings.Contains(exe.lines(), "sfdisk") {
 		t.Error("a disk was erased without a matching confirmErase")
+	}
+	// Nothing at all was written to a disk: the write probe comes only
+	// after the confirmation, and the hardware was read once.
+	if strings.TrimSpace(exe.lines()) != "" || env.scans != 1 {
+		t.Errorf("without the confirmation: %d scans, calls:\n%s", env.scans, exe.lines())
 	}
 }

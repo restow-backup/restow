@@ -116,14 +116,27 @@
     },
     {
       "args": [
+        "wipe-partitions",
+        "/dev/sda"
+      ],
+      "kind": "wipe_partitions",
+      "n": 2,
+      "phase": "prepare",
+      "reason": "remove the signatures on every partition /dev/sda has now",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/sda"
+    },
+    {
+      "args": [
         "wipefs",
         "-a",
         "/dev/sda"
       ],
       "kind": "wipe",
-      "n": 2,
+      "n": 3,
       "phase": "prepare",
-      "reason": "remove the signatures of the old content of /dev/sda (its partitions first)",
+      "reason": "remove the partition table and the signatures of /dev/sda",
       "stdin": null,
       "stdinSecret": null,
       "target": "/dev/sda"
@@ -136,7 +149,7 @@
         "/dev/sda"
       ],
       "kind": "zero_range",
-      "n": 3,
+      "n": 4,
       "phase": "prepare",
       "reason": "zero the first and last 16 MiB of /dev/sda",
       "stdin": null,
@@ -149,10 +162,12 @@
         "--no-reread",
         "--wipe",
         "always",
+        "--wipe-partitions",
+        "always",
         "/dev/sda"
       ],
       "kind": "partition",
-      "n": 4,
+      "n": 5,
       "phase": "partition",
       "reason": "recreate the DOS of d0 with its identifiers (PARTUUIDs stay)",
       "stdin": "label: dos\nlabel-id: 0xa1b2c3d0\nunit: sectors\nsector-size: 512\n\n/dev/sda1 : start=2048, size=2097152, type=fd, bootable\n/dev/sda2 : start=2099200, size=447035392, type=fd\n/dev/sda3 : start=449134592, size=16777216, type=82\n",
@@ -176,7 +191,7 @@
         "missing"
       ],
       "kind": "md_create",
-      "n": 5,
+      "n": 6,
       "phase": "md",
       "reason": "create the md array md0 with its UUID (no --assume-clean: it resyncs)",
       "stdin": null,
@@ -200,7 +215,7 @@
         "missing"
       ],
       "kind": "md_create",
-      "n": 6,
+      "n": 7,
       "phase": "md",
       "reason": "create the md array md1 with its UUID (no --assume-clean: it resyncs)",
       "stdin": null,
@@ -232,7 +247,7 @@
         "/dev/md/0"
       ],
       "kind": "mkfs",
-      "n": 7,
+      "n": 8,
       "phase": "mkfs",
       "reason": "create ext4 f0 with its UUID and recorded features",
       "stdin": null,
@@ -264,7 +279,7 @@
         "/dev/md/1"
       ],
       "kind": "mkfs",
-      "n": 8,
+      "n": 9,
       "phase": "mkfs",
       "reason": "create ext4 f1 with its UUID and recorded features",
       "stdin": null,
@@ -279,7 +294,7 @@
         "/dev/sda3"
       ],
       "kind": "mkswap",
-      "n": 9,
+      "n": 10,
       "phase": "mkfs",
       "reason": "create the swap area with its UUID",
       "stdin": null,
@@ -295,7 +310,7 @@
         "{target_root}"
       ],
       "kind": "mount",
-      "n": 10,
+      "n": 11,
       "phase": "mount",
       "reason": "mount f1 at /",
       "stdin": null,
@@ -311,7 +326,7 @@
         "{target_root}/boot"
       ],
       "kind": "mount",
-      "n": 11,
+      "n": 12,
       "phase": "mount",
       "reason": "mount f0 at /boot",
       "stdin": null,
@@ -334,7 +349,7 @@
         "{snapshot}"
       ],
       "kind": "restore",
-      "n": 12,
+      "n": 13,
       "phase": "restore",
       "reason": "restore the files of the snapshot",
       "stdin": null,
@@ -349,10 +364,11 @@
         "/dev:0755",
         "/run:0755",
         "/tmp:1777",
-        "/boot:0755"
+        "/boot:0755",
+        "/var/www/data:0755"
       ],
       "kind": "mkdirs",
-      "n": 13,
+      "n": 14,
       "phase": "post",
       "reason": "create mount points and API folders that the snapshot may lack",
       "stdin": null,
@@ -366,7 +382,7 @@
         "cmdline"
       ],
       "kind": "fixup",
-      "n": 14,
+      "n": 15,
       "phase": "post",
       "reason": "rewrite device references in /etc/default/grub",
       "stdin": null,
@@ -380,7 +396,7 @@
         "fstab"
       ],
       "kind": "fixup",
-      "n": 15,
+      "n": 16,
       "phase": "post",
       "reason": "rewrite device references in /etc/fstab",
       "stdin": null,
@@ -394,7 +410,7 @@
         "resume"
       ],
       "kind": "fixup",
-      "n": 16,
+      "n": 17,
       "phase": "post",
       "reason": "rewrite device references in /etc/initramfs-tools/conf.d/resume",
       "stdin": null,
@@ -408,7 +424,7 @@
         "mdadm"
       ],
       "kind": "fixup",
-      "n": 17,
+      "n": 18,
       "phase": "post",
       "reason": "rewrite device references in /etc/mdadm.conf",
       "stdin": null,
@@ -422,7 +438,7 @@
         "mdadm"
       ],
       "kind": "fixup",
-      "n": 18,
+      "n": 19,
       "phase": "post",
       "reason": "rewrite device references in /etc/mdadm/mdadm.conf",
       "stdin": null,
@@ -436,7 +452,7 @@
         "grub_install_devices"
       ],
       "kind": "fixup",
-      "n": 19,
+      "n": 20,
       "phase": "post",
       "reason": "rewrite device references in /var/cache/debconf/config.dat",
       "stdin": null,
@@ -452,7 +468,7 @@
         "6.1.0-27-amd64"
       ],
       "kind": "initramfs",
-      "n": 20,
+      "n": 21,
       "phase": "post",
       "reason": "rebuild the initramfs of 6.1.0-27-amd64 with MODULES=most",
       "stdin": null,
@@ -467,7 +483,7 @@
         "/boot/grub/grub.cfg"
       ],
       "kind": "grub_config",
-      "n": 21,
+      "n": 22,
       "phase": "post",
       "reason": "write the GRUB configuration",
       "stdin": null,
@@ -483,7 +499,7 @@
         "/dev/sda"
       ],
       "kind": "bootloader_bios",
-      "n": 22,
+      "n": 23,
       "phase": "post",
       "reason": "install the BIOS boot code of GRUB",
       "stdin": null,
@@ -495,7 +511,7 @@
         "verify"
       ],
       "kind": "verify",
-      "n": 23,
+      "n": 24,
       "phase": "post",
       "reason": "check the restored system (identities, fstab, boot files)",
       "stdin": null,

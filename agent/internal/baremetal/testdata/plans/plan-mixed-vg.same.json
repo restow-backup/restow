@@ -237,14 +237,27 @@
     },
     {
       "args": [
+        "wipe-partitions",
+        "/dev/sda"
+      ],
+      "kind": "wipe_partitions",
+      "n": 2,
+      "phase": "prepare",
+      "reason": "remove the signatures on every partition /dev/sda has now",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/sda"
+    },
+    {
+      "args": [
         "wipefs",
         "-a",
         "/dev/sda"
       ],
       "kind": "wipe",
-      "n": 2,
+      "n": 3,
       "phase": "prepare",
-      "reason": "remove the signatures of the old content of /dev/sda (its partitions first)",
+      "reason": "remove the partition table and the signatures of /dev/sda",
       "stdin": null,
       "stdinSecret": null,
       "target": "/dev/sda"
@@ -257,7 +270,7 @@
         "/dev/sda"
       ],
       "kind": "zero_range",
-      "n": 3,
+      "n": 4,
       "phase": "prepare",
       "reason": "zero the first and last 16 MiB of /dev/sda",
       "stdin": null,
@@ -270,9 +283,22 @@
         "/dev/sdb"
       ],
       "kind": "release_holders",
-      "n": 4,
+      "n": 5,
       "phase": "prepare",
       "reason": "stop everything that holds /dev/sdb (mounts, swap, LVM, md, dm)",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/sdb"
+    },
+    {
+      "args": [
+        "wipe-partitions",
+        "/dev/sdb"
+      ],
+      "kind": "wipe_partitions",
+      "n": 6,
+      "phase": "prepare",
+      "reason": "remove the signatures on every partition /dev/sdb has now",
       "stdin": null,
       "stdinSecret": null,
       "target": "/dev/sdb"
@@ -284,9 +310,9 @@
         "/dev/sdb"
       ],
       "kind": "wipe",
-      "n": 5,
+      "n": 7,
       "phase": "prepare",
-      "reason": "remove the signatures of the old content of /dev/sdb (its partitions first)",
+      "reason": "remove the partition table and the signatures of /dev/sdb",
       "stdin": null,
       "stdinSecret": null,
       "target": "/dev/sdb"
@@ -299,7 +325,7 @@
         "/dev/sdb"
       ],
       "kind": "zero_range",
-      "n": 6,
+      "n": 8,
       "phase": "prepare",
       "reason": "zero the first and last 16 MiB of /dev/sdb",
       "stdin": null,
@@ -312,10 +338,12 @@
         "--no-reread",
         "--wipe",
         "always",
+        "--wipe-partitions",
+        "always",
         "/dev/sda"
       ],
       "kind": "partition",
-      "n": 7,
+      "n": 9,
       "phase": "partition",
       "reason": "recreate the GPT of d0 with its identifiers (PARTUUIDs stay)",
       "stdin": "label: gpt\nlabel-id: 4F506172-8394-45A6-B7C8-D9EAFB0C1D2E\nunit: sectors\nsector-size: 512\n\n/dev/sda1 : start=2048, size=1228800, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B, uuid=c1000000-0000-4000-8000-000000000001, name=\"EFI System Partition\"\n/dev/sda2 : start=1230848, size=2097152, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, uuid=c1000000-0000-4000-8000-000000000002\n/dev/sda3 : start=3328000, size=496640000, type=E6D6D379-F507-44C2-A23C-238F2A3DF928, uuid=c1000000-0000-4000-8000-000000000003\n",
@@ -328,10 +356,12 @@
         "--no-reread",
         "--wipe",
         "always",
+        "--wipe-partitions",
+        "always",
         "/dev/sdb"
       ],
       "kind": "partition",
-      "n": 8,
+      "n": 10,
       "phase": "partition",
       "reason": "recreate the GPT of d1 with its identifiers (PARTUUIDs stay)",
       "stdin": "label: gpt\nlabel-id: D1D1D1D1-0000-4000-8000-000000000001\nunit: sectors\nsector-size: 512\n\n/dev/sdb1 : start=2048, size=500000000, type=E6D6D379-F507-44C2-A23C-238F2A3DF928, uuid=d1d1d1d1-0000-4000-8000-000000000011\n",
@@ -350,7 +380,7 @@
         "/dev/sda3"
       ],
       "kind": "pv_create",
-      "n": 9,
+      "n": 11,
       "phase": "lvm",
       "reason": "create the physical volume with its UUID",
       "stdin": null,
@@ -369,7 +399,7 @@
         "/dev/sdb1"
       ],
       "kind": "pv_create",
-      "n": 10,
+      "n": 12,
       "phase": "lvm",
       "reason": "create the physical volume with its UUID",
       "stdin": null,
@@ -388,7 +418,7 @@
         "/dev/sdb1"
       ],
       "kind": "vg_create",
-      "n": 11,
+      "n": 13,
       "phase": "lvm",
       "reason": "create the volume group almalinux",
       "stdin": null,
@@ -408,7 +438,7 @@
         "almalinux"
       ],
       "kind": "lv_create",
-      "n": 12,
+      "n": 14,
       "phase": "lvm",
       "reason": "create LV almalinux/root",
       "stdin": null,
@@ -428,7 +458,7 @@
         "almalinux"
       ],
       "kind": "lv_create",
-      "n": 13,
+      "n": 15,
       "phase": "lvm",
       "reason": "create LV almalinux/swap",
       "stdin": null,
@@ -448,7 +478,7 @@
         "almalinux"
       ],
       "kind": "lv_create",
-      "n": 14,
+      "n": 16,
       "phase": "lvm",
       "reason": "create LV almalinux/home",
       "stdin": null,
@@ -469,7 +499,7 @@
         "/dev/sda1"
       ],
       "kind": "mkfs",
-      "n": 15,
+      "n": 17,
       "phase": "mkfs",
       "reason": "create vfat f0 with its UUID and recorded features",
       "stdin": null,
@@ -495,7 +525,7 @@
         "/dev/sda2"
       ],
       "kind": "mkfs",
-      "n": 16,
+      "n": 18,
       "phase": "mkfs",
       "reason": "create xfs f1 with its UUID and recorded features",
       "stdin": null,
@@ -521,7 +551,7 @@
         "/dev/almalinux/root"
       ],
       "kind": "mkfs",
-      "n": 17,
+      "n": 19,
       "phase": "mkfs",
       "reason": "create xfs f2 with its UUID and recorded features",
       "stdin": null,
@@ -547,7 +577,7 @@
         "/dev/almalinux/home"
       ],
       "kind": "mkfs",
-      "n": 18,
+      "n": 20,
       "phase": "mkfs",
       "reason": "create xfs f3 with its UUID and recorded features",
       "stdin": null,
@@ -562,7 +592,7 @@
         "/dev/almalinux/swap"
       ],
       "kind": "mkswap",
-      "n": 19,
+      "n": 21,
       "phase": "mkfs",
       "reason": "create the swap area with its UUID",
       "stdin": null,
@@ -578,7 +608,7 @@
         "{target_root}"
       ],
       "kind": "mount",
-      "n": 20,
+      "n": 22,
       "phase": "mount",
       "reason": "mount f2 at /",
       "stdin": null,
@@ -594,7 +624,7 @@
         "{target_root}/boot"
       ],
       "kind": "mount",
-      "n": 21,
+      "n": 23,
       "phase": "mount",
       "reason": "mount f1 at /boot",
       "stdin": null,
@@ -610,7 +640,7 @@
         "{target_root}/home"
       ],
       "kind": "mount",
-      "n": 22,
+      "n": 24,
       "phase": "mount",
       "reason": "mount f3 at /home",
       "stdin": null,
@@ -628,7 +658,7 @@
         "{target_root}/boot/efi"
       ],
       "kind": "mount",
-      "n": 23,
+      "n": 25,
       "phase": "mount",
       "reason": "mount f0 at /boot/efi",
       "stdin": null,
@@ -651,7 +681,7 @@
         "{snapshot}"
       ],
       "kind": "restore",
-      "n": 24,
+      "n": 26,
       "phase": "restore",
       "reason": "restore the files of the snapshot",
       "stdin": null,
@@ -671,7 +701,7 @@
         "/home:0755"
       ],
       "kind": "mkdirs",
-      "n": 25,
+      "n": 27,
       "phase": "post",
       "reason": "create mount points and API folders that the snapshot may lack",
       "stdin": null,
@@ -685,7 +715,7 @@
         "cmdline"
       ],
       "kind": "fixup",
-      "n": 26,
+      "n": 28,
       "phase": "post",
       "reason": "rewrite device references in /boot/loader/entries/*.conf",
       "stdin": null,
@@ -699,7 +729,7 @@
         "cmdline"
       ],
       "kind": "fixup",
-      "n": 27,
+      "n": 29,
       "phase": "post",
       "reason": "rewrite device references in /etc/default/grub",
       "stdin": null,
@@ -713,7 +743,7 @@
         "fstab"
       ],
       "kind": "fixup",
-      "n": 28,
+      "n": 30,
       "phase": "post",
       "reason": "rewrite device references in /etc/fstab",
       "stdin": null,
@@ -727,7 +757,7 @@
         "set_aside"
       ],
       "kind": "fixup",
-      "n": 29,
+      "n": 31,
       "phase": "post",
       "reason": "rewrite device references in /etc/lvm/devices/system.devices",
       "stdin": null,
@@ -743,7 +773,7 @@
         "devices/obtain_device_list_from_udev=0"
       ],
       "kind": "lvm_devices",
-      "n": 30,
+      "n": 32,
       "phase": "post",
       "reason": "write the LVM devices file for the new disks",
       "stdin": null,
@@ -766,7 +796,7 @@
         "5.14.0-503.11.1.el9_5.x86_64"
       ],
       "kind": "initramfs",
-      "n": 31,
+      "n": 33,
       "phase": "post",
       "reason": "rebuild the initramfs of 5.14.0-503.11.1.el9_5.x86_64 without hostonly",
       "stdin": null,
@@ -781,7 +811,7 @@
         "/boot/grub2/grub.cfg"
       ],
       "kind": "grub_config",
-      "n": 32,
+      "n": 34,
       "phase": "post",
       "reason": "write the GRUB configuration",
       "stdin": null,
@@ -799,7 +829,7 @@
         "\\EFI\\almalinux\\shimx64.efi"
       ],
       "kind": "nvram",
-      "n": 33,
+      "n": 35,
       "phase": "post",
       "reason": "create the boot entry almalinux",
       "stdin": null,
@@ -811,7 +841,7 @@
         "selinux"
       ],
       "kind": "selinux",
-      "n": 34,
+      "n": 36,
       "phase": "post",
       "reason": "check the SELinux labels of the restore; relabel only what recover created or changed",
       "stdin": null,
@@ -823,7 +853,7 @@
         "verify"
       ],
       "kind": "verify",
-      "n": 35,
+      "n": 37,
       "phase": "post",
       "reason": "check the restored system (identities, fstab, boot files)",
       "stdin": null,

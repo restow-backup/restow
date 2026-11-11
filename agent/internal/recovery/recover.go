@@ -46,6 +46,9 @@ type FlowEnv interface {
 	// Executor fills the machine parts of an executor (Exec, Ops,
 	// Isolator, OpenRootfs, TargetRoot) and the verifier for a target.
 	Executor(x *Executor, t *baremetal.Target)
+	// Guard fills the machine parts of the guard of the confirmed disks
+	// (Scan, Hold, ProbeWrite; devguard.go).
+	Guard(g *DiskGuard)
 	// Finalize prepares the restart (flush, unmount, close).
 	Finalize(ctx context.Context, x *Executor)
 	Shell(ctx context.Context) error
@@ -75,15 +78,21 @@ type Recover struct {
 	// Poll replaces the 5 seconds of the approval poll (tests).
 	Poll time.Duration
 
-	session   *Session
-	curMu     sync.Mutex
-	current   *Executor
-	origin    string
-	trust     TrustConfig
-	lang      string
-	ownLayout string
-	started   time.Time
-	remoteOn  bool
+	session *Session
+	curMu   sync.Mutex
+	current *Executor
+	// aborted: Ctrl+C came before the execution; no step may start after
+	// it (the console said "nothing was erased").
+	aborted bool
+	// stopCountdown ends the countdown of confirm when Ctrl+C comes.
+	stopCountdown context.CancelFunc
+	finished      bool
+	origin        string
+	trust         TrustConfig
+	lang          string
+	ownLayout     string
+	started       time.Time
+	remoteOn      bool
 }
 
 // Result is how the flow ended.
@@ -160,6 +169,14 @@ func (r *Recover) unattended() bool { return r.Answers != nil }
 func (r *Recover) Run(ctx context.Context) (*Result, error) {
 	r.started = r.Env.Now()
 	res, err := r.run(ctx)
+	if r.wasAborted() && (res == nil || res.Status == "") {
+		// Ctrl+C before the execution ended a dialog: cancelled, and the
+		// session hears it when there is one.
+		res, err = &Result{Status: api.RecoveryCancelled}, nil
+		if !r.finished {
+			r.finish(context.WithoutCancel(ctx), api.RecoveryCancelled, api.RecoveryVerification{}, []api.RecoveryWarning{})
+		}
+	}
 	status := api.RecoveryFailed
 	if res != nil && res.Status != "" {
 		status = res.Status
@@ -221,7 +238,15 @@ func (r *Recover) run(ctx context.Context) (*Result, error) {
 		r.UI.Say("code."+ProblemRecoveryTooOld, "version", mv)
 		return r.fail(ctx, nil, nil, ProblemRecoveryTooOld, fmt.Errorf("the instance requires recovery %s", mv))
 	}
-	snapshot, layoutSHA := r.chooseSnapshot(creds)
+	snapshot, layoutSHA, err := r.chooseSnapshot(creds)
+	if err != nil {
+		if errors.Is(err, ErrAborted) {
+			return r.finishEarly(ctx, nil, api.RecoveryCancelled, "")
+		}
+		// The answers name a snapshot the instance does not offer: no
+		// other one is restored in its place.
+		return r.fail(ctx, nil, nil, ProblemStepFailed, err)
+	}
 	pw := []byte(creds.Repository.Password)
 	rr, restorer, zeroRepo, err := r.Env.Restic(creds.Repository.URL, pw, r.session.ID, r.session.Secret, r.trust)
 	if err != nil {
@@ -247,20 +272,37 @@ func (r *Recover) run(ctx context.Context) (*Result, error) {
 	if hw.RAMBytes > 0 && hw.RAMBytes < 2<<30 {
 		r.logf("low memory: %d bytes", hw.RAMBytes)
 	}
-	choices, nicMap := r.choices(m, target)
-	plan, _ := baremetal.PlanWith(m, target, facts, choices, baremetal.PlanOptions{Snapshot: snapshot})
-	plan, choices = r.refinePlan(ctx, m, target, facts, choices, plan, snapshot)
-	resume := r.offerResume(m, target, plan, snapshot)
-	if resume {
-		t2 := clearManifestSignatures(target, m)
-		plan, _ = baremetal.PlanWith(m, t2, facts, choices, baremetal.PlanOptions{Snapshot: snapshot, Resume: baremetal.ResumeClean})
+	shared := SharedIdentities(hw)
+	choices, nicMap, err := r.choices(m, target, shared)
+	if err != nil {
+		zeroRepo()
+		r.UI.Line(TParams(r.UI.Lang, "code."+baremetal.ProblemMappingInvalid, map[string]any{"reason": err.Error()}))
+		return r.fail(ctx, nil, nil, baremetal.ProblemMappingInvalid, err)
 	}
+	popts := baremetal.PlanOptions{Snapshot: snapshot}
+	plan, _ := baremetal.PlanWith(m, target, facts, choices, popts)
+	// The offer to continue comes before any question about the mapping:
+	// a resumed plan maps by the identities on the disks (the disks the
+	// first run wrote, whatever was chosen then) and erases nothing.
+	resume := r.offerResume(m, target, snapshot)
+	if resume {
+		popts.Resume = baremetal.ResumeClean
+		// The first run decided the sizes; this plan creates nothing.
+		choices.Shrink = "auto"
+		plan, _ = baremetal.PlanWith(m, target, facts, choices, popts)
+	}
+	plan, choices = r.refinePlan(ctx, m, target, facts, choices, plan, popts)
 	if lvmMultiline {
 		plan.OK = false
 		plan.Problems = append(plan.Problems, baremetal.Finding{Code: ProblemLVMFilterMultiline, Severity: baremetal.FindingProblem,
 			Message: T(LangEN, "code."+ProblemLVMFilterMultiline), Params: map[string]any{}})
 	}
 	r.showPlan(ctx, plan, target)
+	if r.wasAborted() {
+		// Ctrl+C ended the dialogs: cancelled, whatever the plan says.
+		zeroRepo()
+		return r.finishEarly(ctx, plan, api.RecoveryCancelled, "")
+	}
 	planBytes, _ := baremetal.EncodePlan(plan)
 	planSum := sha256.Sum256(planBytes)
 	planSHA := hex.EncodeToString(planSum[:])
@@ -273,6 +315,15 @@ func (r *Recover) run(ctx context.Context) (*Result, error) {
 	}
 	if !plan.OK {
 		r.UI.Say("plan.problems")
+		for _, f := range plan.Problems {
+			if f.Code == baremetal.ProblemAdoptIncomplete && !resume {
+				// A disk with a part of the identities of the backup (an
+				// interrupted recovery, an old disk): it is never erased by
+				// the automatic mapping.
+				r.UI.Say("plan.partial")
+				break
+			}
+		}
 		zeroRepo()
 		return r.finishEarly(ctx, plan, api.RecoveryFailed, "")
 	}
@@ -283,14 +334,22 @@ func (r *Recover) run(ctx context.Context) (*Result, error) {
 		secrets.Zero()
 		return r.finishEarly(ctx, plan, api.RecoveryCancelled, "")
 	}
-	if !resume {
-		ok, err := r.confirm(ctx, plan, target)
-		if err != nil || !ok {
+	stop := func() (*Result, error) {
+		if !r.wasAborted() {
 			r.UI.Say("ui.aborted")
-			zeroRepo()
-			secrets.Zero()
-			return r.finishEarly(ctx, plan, api.RecoveryCancelled, "")
 		}
+		zeroRepo()
+		secrets.Zero()
+		return r.finishEarly(ctx, plan, api.RecoveryCancelled, "")
+	}
+	if !resume {
+		ok, err := r.confirm(ctx, plan, target, shared)
+		if err != nil || !ok {
+			return stop()
+		}
+	}
+	if r.wasAborted() {
+		return stop()
 	}
 	_ = r.session.Progress(ctx, api.RecoveryProgress{Phase: api.RecoveryPhaseConfirmed, StepsTotal: len(plan.Steps)})
 	fx := baremetal.NewFixupContext(m)
@@ -301,7 +360,13 @@ func (r *Recover) run(ctx context.Context) (*Result, error) {
 		Session: r.session, UI: r.UI, Secrets: secrets, Fixups: fx, ZeroRepoSecrets: zeroRepo, Fallback: fallback, KeepKeyFiles: keepKeys,
 		Log: r.Log.Add, Now: r.Env.Now, TargetDevices: mappedDevices(plan, target)}
 	r.Env.Executor(x, target)
+	// From here Ctrl+C asks whether to cancel the execution; one that came
+	// before said "nothing was erased" and holds: no step starts.
 	r.curMu.Lock()
+	if r.aborted {
+		r.curMu.Unlock()
+		return stop()
+	}
 	r.current = x
 	r.curMu.Unlock()
 	if resume {
@@ -311,11 +376,8 @@ func (r *Recover) run(ctx context.Context) (*Result, error) {
 				return nil, err
 			}
 			x.OriginalPlanSHA256 = mk.PlanSHA256
-			if mk.CleanStop {
-				return nil, nil
-			}
-			unclean, _ := baremetal.PlanWith(m, clearManifestSignatures(target, m), facts, choices, baremetal.PlanOptions{Snapshot: snapshot, Resume: baremetal.ResumeUnclean})
-			return unclean, nil
+			x.MarkerDisks = mk.Disks
+			return resumedPlan(m, target, facts, choices, plan, mk, snapshot)
 		}
 	}
 	if err := r.awaitForeignMappings(ctx, x); err != nil {
@@ -323,7 +385,31 @@ func (r *Recover) run(ctx context.Context) (*Result, error) {
 		secrets.Zero()
 		return r.fail(ctx, plan, nil, ProblemForeignMappingOpen, err)
 	}
+	// The last dialog is over (the shell of awaitForeignMappings too): the
+	// disks must still be the ones that were shown and confirmed. Only
+	// then recover writes to a disk for the first time (10.6).
+	guard := &DiskGuard{AnswersMedium: answersDisk}
+	r.Env.Guard(guard)
+	defer guard.Close()
+	if err := guard.Arm(ctx, r.Env.Hardware, target, plan, !resume); err != nil {
+		zeroRepo()
+		secrets.Zero()
+		code := ProblemCode(err)
+		var pe *problemError
+		switch {
+		case errors.Is(err, ErrDisksChanged):
+			r.UI.Say("disks.changed", "detail", strings.TrimPrefix(err.Error(), ErrDisksChanged.Error()+": "))
+		case code == baremetal.ProblemSEDLocked && errors.As(err, &pe):
+			r.UI.Line(TParams(r.UI.Lang, "code."+code, pe.params))
+		}
+		r.UI.Say("ui.aborted")
+		return r.fail(ctx, plan, nil, code, err)
+	}
+	x.Guard = guard
 	rep, execErr := x.Run(ctx)
+	// No step follows: the disks are let go before the shell, the restart
+	// or the power-off.
+	guard.Close()
 	r.flushLog(ctx)
 	if rep == nil {
 		rep = x.Report()
@@ -359,6 +445,8 @@ func (r *Recover) run(ctx context.Context) (*Result, error) {
 			r.UI.Say("dm.foreign.resume")
 		case errors.Is(execErr, ErrNoStartedRecovery):
 			r.UI.Say("resume.no_marker")
+		case errors.Is(execErr, ErrDisksChanged):
+			r.UI.Say("disks.changed", "detail", strings.TrimPrefix(errors.Unwrap(execErr).Error(), ErrDisksChanged.Error()+": "))
 		}
 		if rep.FailedStep > 0 {
 			r.UI.Say("exec.failed", "n", rep.FailedStep)
@@ -414,17 +502,37 @@ func (r *Recover) awaitForeignMappings(ctx context.Context, x *Executor) error {
 	}
 }
 
-// Interrupt is Ctrl+C on the console: during the execution recover asks
-// whether to cancel; otherwise it says how to leave.
+// Interrupt is Ctrl+C on the console. During the execution recover asks
+// whether to cancel. Before it, Ctrl+C aborts the run: the countdown and
+// every dialog end, no step starts, and only then the console says that
+// nothing was erased (run checks aborted under the same lock before it
+// hands the executor to Interrupt).
 func (r *Recover) Interrupt() {
 	r.curMu.Lock()
 	x := r.current
+	first := x == nil && !r.aborted
+	if x == nil {
+		r.aborted = true
+	}
+	stop := r.stopCountdown
 	r.curMu.Unlock()
 	if x != nil {
 		x.PromptCancel()
 		return
 	}
-	r.UI.Say("ui.aborted")
+	if stop != nil {
+		stop()
+	}
+	r.UI.Abort()
+	if first {
+		r.UI.Say("ui.aborted")
+	}
+}
+
+func (r *Recover) wasAborted() bool {
+	r.curMu.Lock()
+	defer r.curMu.Unlock()
+	return r.aborted
 }
 
 // tooOld compares the ISO's version with the instance's minimum; a
@@ -811,23 +919,37 @@ func (r *Recover) waitApproval(ctx context.Context) error {
 }
 
 // chooseSnapshot: the snapshot of the code, the answers' or the
-// operator's choice among the whole-machine snapshots.
-func (r *Recover) chooseSnapshot(c *api.RecoveryCredentials) (string, string) {
+// operator's choice among the whole-machine snapshots. A snapshot named
+// in the answers must be exactly one of those the instance offers; with
+// none or several the run fails before anything is planned or erased
+// (never the snapshot of the code instead: who names an older snapshot
+// wants that one, for example the last one before a break-in).
+func (r *Recover) chooseSnapshot(c *api.RecoveryCredentials) (string, string, error) {
 	id, sha := c.SnapshotID, c.LayoutSHA256
-	byID := map[string]api.RecoverySnapshot{}
-	for _, s := range c.Snapshots {
-		byID[s.ID] = s
-	}
 	if r.Answers != nil && r.Answers.SnapshotID != "" {
+		want := r.Answers.SnapshotID
+		found := map[string]string{}
 		for _, s := range c.Snapshots {
-			if strings.HasPrefix(s.ID, r.Answers.SnapshotID) {
-				return s.ID, s.LayoutSHA256
+			if strings.HasPrefix(s.ID, want) {
+				found[s.ID] = s.LayoutSHA256
 			}
 		}
-		return id, sha
+		if id != "" && strings.HasPrefix(id, want) {
+			if _, ok := found[id]; !ok {
+				found[id] = sha
+			}
+		}
+		if len(found) != 1 {
+			r.UI.Say("snapshot.no_match", "id", want, "count", len(found))
+			return "", "", fmt.Errorf("answers: snapshotId %s names %d of the snapshots this recovery code may restore; exactly one is needed, nothing was changed", want, len(found))
+		}
+		for fid, fsha := range found {
+			id, sha = fid, fsha
+		}
+		return id, sha, nil
 	}
 	if r.unattended() || len(c.Snapshots) < 2 {
-		return id, sha
+		return id, sha, nil
 	}
 	list := append([]api.RecoverySnapshot(nil), c.Snapshots...)
 	sort.Slice(list, func(i, j int) bool { return list[i].Time.After(list[j].Time) })
@@ -841,26 +963,54 @@ func (r *Recover) chooseSnapshot(c *api.RecoveryCredentials) (string, string) {
 	}
 	i, err := r.UI.Choose(r.UI.Text("snapshot.title"), opts, def)
 	if err != nil {
-		return id, sha
+		// The dialog ended (Ctrl+C, end of the input): no snapshot is
+		// taken in the operator's place.
+		return "", "", ErrAborted
 	}
-	return list[i].ID, list[i].LayoutSHA256
+	return list[i].ID, list[i].LayoutSHA256, nil
 }
 
 // choices from the answers (mapping by identity, adoption, shrink, raw
 // LVs, Secure Boot); the NIC map when one card is replaced by one.
-func (r *Recover) choices(m *baremetal.Manifest, t *baremetal.Target) (baremetal.Choices, map[string]string) {
+//
+// An identity of the answers must name exactly one device of the machine.
+// One that several devices report (shared) is refused with the devices
+// and the identities that name each alone; an empty identity matches
+// nothing.
+func (r *Recover) choices(m *baremetal.Manifest, t *baremetal.Target, shared map[string][]string) (baremetal.Choices, map[string]string, error) {
 	var c baremetal.Choices
 	nicMap := map[string]string{}
 	if a := r.Answers; a != nil {
 		if !a.DiskMapping.Auto && a.DiskMapping.Map != nil {
 			c.DiskMapping = map[string]string{}
-			for src, ident := range a.DiskMapping.Map {
+			srcs := make([]string, 0, len(a.DiskMapping.Map))
+			for src := range a.DiskMapping.Map {
+				srcs = append(srcs, src)
+			}
+			sort.Strings(srcs)
+			for _, src := range srcs {
+				ident := a.DiskMapping.Map[src]
+				if err := sharedIdentityError("diskMapping "+src, ident, shared, t); err != nil {
+					return c, nil, err
+				}
+				var ids []string
+				others := 0
 				for _, d := range t.Disks {
-					if deref(d.Identity) == ident {
-						c.DiskMapping[src] = d.ID
+					if ident != "" && deref(d.Identity) == ident {
+						ids = append(ids, d.ID)
 					}
 				}
-				if _, ok := c.DiskMapping[src]; !ok {
+				for _, d := range t.Others {
+					if ident != "" && deref(d.Identity) == ident {
+						others++
+					}
+				}
+				switch {
+				case len(ids) == 1 && others == 0:
+					c.DiskMapping[src] = ids[0]
+				case len(ids)+others > 1:
+					return c, nil, fmt.Errorf("answers: diskMapping %s: %d devices have the identity %s", src, len(ids)+others, ident)
+				default:
 					c.DiskMapping[src] = "missing"
 				}
 			}
@@ -880,7 +1030,31 @@ func (r *Recover) choices(m *baremetal.Manifest, t *baremetal.Target) (baremetal
 	if rename && len(oldNICs) == 1 && len(t.NICs) == 1 && t.NICs[0].MAC != nil && !strings.EqualFold(*oldNICs[0].MAC, *t.NICs[0].MAC) {
 		nicMap[strings.ToLower(*oldNICs[0].MAC)] = strings.ToLower(*t.NICs[0].MAC)
 	}
-	return c, nicMap
+	return c, nicMap, nil
+}
+
+// sharedIdentityError refuses an identity of the answers that several
+// devices of the machine report, and says how each is named alone.
+func sharedIdentityError(what, ident string, shared map[string][]string, t *baremetal.Target) error {
+	devs := shared[ident]
+	if len(devs) == 0 {
+		return nil
+	}
+	own := map[string]string{}
+	for _, list := range [][]baremetal.TargetDisk{t.Disks, t.Others} {
+		for _, d := range list {
+			own[d.Path] = deref(d.Identity)
+		}
+	}
+	var named []string
+	for _, dev := range devs {
+		if id := own[dev]; id != "" {
+			named = append(named, dev+" is "+id)
+		} else {
+			named = append(named, dev+" has no identity of its own")
+		}
+	}
+	return fmt.Errorf("answers: %s: %d devices report the identity %s (%s); it names no single disk", what, len(devs), ident, strings.Join(named, ", "))
 }
 
 func nicName(m *baremetal.Manifest, mac string) string {
@@ -893,8 +1067,10 @@ func nicName(m *baremetal.Manifest, mac string) string {
 }
 
 // refinePlan asks the operator where the plan needs a decision (a disk
-// without a target, shrinking, Secure Boot), then plans again.
-func (r *Recover) refinePlan(ctx context.Context, m *baremetal.Manifest, t *baremetal.Target, f *baremetal.Facts, c baremetal.Choices, p *baremetal.RestorePlan, snap string) (*baremetal.RestorePlan, baremetal.Choices) {
+// without a target, a disk that carries only a part of the identities of
+// the backup, shrinking, Secure Boot), then plans again. A resumed plan
+// maps by the identities on the disks; it asks nothing about the mapping.
+func (r *Recover) refinePlan(ctx context.Context, m *baremetal.Manifest, t *baremetal.Target, f *baremetal.Facts, c baremetal.Choices, p *baremetal.RestorePlan, o baremetal.PlanOptions) (*baremetal.RestorePlan, baremetal.Choices) {
 	if r.unattended() {
 		return p, c
 	}
@@ -914,7 +1090,20 @@ func (r *Recover) refinePlan(ctx context.Context, m *baremetal.Manifest, t *bare
 				c.SecureBootOff, changed = true, true
 			}
 		case baremetal.ProblemTargetMissing, baremetal.ProblemMappingInvalid:
-			if c.DiskMapping == nil {
+			if c.DiskMapping == nil && o.Resume == "" {
+				c.DiskMapping = r.askMapping(m, t, p)
+				changed = true
+			}
+		case baremetal.ProblemAdoptIncomplete:
+			// A target disk carries identities of the backup, so the plan
+			// keeps it, but not everything the backup had on it: a recovery
+			// that stopped between partitioning and the first file, or an
+			// old disk of this machine. The plan cannot run as it is; the
+			// operator says what becomes of each disk (a disk chosen as a
+			// target is erased after the confirmation, 10.18).
+			if c.DiskMapping == nil && o.Resume == "" {
+				r.UI.Line(TParams(r.lang, "code."+pr.Code, pr.Params))
+				r.UI.Say("map.partial")
 				c.DiskMapping = r.askMapping(m, t, p)
 				changed = true
 			}
@@ -923,7 +1112,7 @@ func (r *Recover) refinePlan(ctx context.Context, m *baremetal.Manifest, t *bare
 	if !changed {
 		return p, c
 	}
-	np, _ := baremetal.PlanWith(m, t, f, c, baremetal.PlanOptions{Snapshot: snap})
+	np, _ := baremetal.PlanWith(m, t, f, c, o)
 	return np, c
 }
 
@@ -968,7 +1157,7 @@ func (r *Recover) askMapping(m *baremetal.Manifest, t *baremetal.Target, p *bare
 // been started on them (10.18). The GUID alone proves nothing (the source
 // machine's own disks carry it): the marker decides once the root is
 // mounted (ResumeMarker), before anything is written there.
-func (r *Recover) offerResume(m *baremetal.Manifest, t *baremetal.Target, p *baremetal.RestorePlan, snapshot string) bool {
+func (r *Recover) offerResume(m *baremetal.Manifest, t *baremetal.Target, snapshot string) bool {
 	guids := map[string]bool{}
 	for _, d := range m.Linux.Disks {
 		if d.Table != nil && d.Table.ID != "" {
@@ -993,24 +1182,69 @@ func (r *Recover) offerResume(m *baremetal.Manifest, t *baremetal.Target, p *bar
 	return err == nil && ok
 }
 
-// clearManifestSignatures is the target without the signatures of the
-// manifest's own disks (a resumed plan erases nothing, so the planner
-// must not adopt them).
-func clearManifestSignatures(t *baremetal.Target, m *baremetal.Manifest) *baremetal.Target {
-	ids := ManifestIdentities(m)
-	c := *t
-	c.Disks = make([]baremetal.TargetDisk, len(t.Disks))
-	for i, d := range t.Disks {
-		var keep []baremetal.TargetSignature
-		for _, s := range d.Signatures {
-			if !ids[normIdent(s.UUID)] {
-				keep = append(keep, s)
+// resumedPlan is the plan a resumed run continues with from the first
+// restore step, once the marker of the started run is read (10.18). The
+// first plan of the resume mapped every disk by the identities on it; the
+// marker says what the started run did with each source disk. A disk it
+// adopted is adopted again, so its mount points stay out of the restore
+// (it carries the same identities as a disk recover wrote, and nothing on
+// it was ever confirmed for overwriting); a disk that was missing stays
+// missing. The devices opened and mounted so far must be the ones of
+// this plan. After an unclean end the plan restores with --overwrite
+// always.
+func resumedPlan(m *baremetal.Manifest, t *baremetal.Target, f *baremetal.Facts, c baremetal.Choices, first *baremetal.RestorePlan, mk *Marker, snapshot string) (*baremetal.RestorePlan, error) {
+	mode := baremetal.ResumeUnclean
+	if mk.CleanStop {
+		mode = baremetal.ResumeClean
+	}
+	if len(mk.Disks) > 0 {
+		mapped := map[string]string{}
+		for _, a := range first.Mapping {
+			if a.Target != nil && a.Action != baremetal.ActionMissing {
+				mapped[a.Source] = *a.Target
 			}
 		}
-		d.Signatures = append([]baremetal.TargetSignature{}, keep...)
-		c.Disks[i] = d
+		c.DiskMapping = map[string]string{}
+		for _, d := range mk.Disks {
+			switch d.Action {
+			case baremetal.ActionAdopt, baremetal.ActionMissing:
+				c.DiskMapping[d.Source] = d.Action
+			default:
+				tg, ok := mapped[d.Source]
+				if !ok {
+					return nil, fmt.Errorf("the started recovery wrote disk %s of the backup, but no disk of this machine carries its identities now; nothing was restored", d.Source)
+				}
+				c.DiskMapping[d.Source] = tg
+			}
+		}
+	} else if mk.CleanStop {
+		return nil, nil
 	}
-	return &c
+	next, _ := baremetal.PlanWith(m, t, f, c, baremetal.PlanOptions{Snapshot: snapshot, Resume: mode})
+	if !next.OK {
+		var why []string
+		for _, p := range next.Problems {
+			why = append(why, p.Message)
+		}
+		return nil, fmt.Errorf("the started recovery cannot be continued on these disks; nothing was restored: %s", strings.Join(why, " "))
+	}
+	if a, b := stackSteps(first), stackSteps(next); a != b {
+		return nil, errors.New("the disks opened for the resume are not the ones the started recovery used (its marker names another mapping); nothing was restored")
+	}
+	return next, nil
+}
+
+// stackSteps are the steps of a plan before the restore (what is
+// assembled, opened, activated and mounted), as one string.
+func stackSteps(p *baremetal.RestorePlan) string {
+	var b strings.Builder
+	for _, s := range p.Steps {
+		if s.Phase == "restore" {
+			break
+		}
+		b.WriteString(s.Kind + " " + strings.Join(s.Args, " ") + "\n")
+	}
+	return b.String()
 }
 
 func (r *Recover) showPlan(ctx context.Context, p *baremetal.RestorePlan, t *baremetal.Target) {
@@ -1189,14 +1423,43 @@ func mappedDevices(p *baremetal.RestorePlan, t *baremetal.Target) []string {
 // characters of its identity, then the erase word (10.4 point 8).
 // Unattended: confirmErase must name exactly the identities erased; from
 // a medium the disks are shown for 30 seconds first, any key aborts.
-func (r *Recover) confirm(ctx context.Context, p *baremetal.RestorePlan, t *baremetal.Target) (bool, error) {
+//
+// An identity confirms a disk only when it names that disk alone: one
+// that several devices report is refused (the answers must use the
+// identity recover shows for the disk), and a disk without an identity
+// cannot be confirmed for erasing at all.
+func (r *Recover) confirm(ctx context.Context, p *baremetal.RestorePlan, t *baremetal.Target, shared map[string][]string) (bool, error) {
 	disks := erasedDisks(p, t)
+	count := map[string]int{}
+	for _, list := range [][]baremetal.TargetDisk{t.Disks, t.Others} {
+		for _, d := range list {
+			if id := deref(d.Identity); id != "" {
+				count[id]++
+			}
+		}
+	}
+	for _, d := range disks {
+		id := deref(d.Identity)
+		if id == "" && (r.Answers != nil || len(d.Signatures) > 0) {
+			r.UI.Say("confirm.no_identity", "path", d.Path, "model", deref(d.Model), "size", FormatBytes(d.SizeBytes))
+			return false, nil
+		}
+		if id != "" && (count[id] != 1 || len(shared[id]) > 0) {
+			r.UI.Say("confirm.shared", "path", d.Path, "identity", id)
+			return false, nil
+		}
+	}
 	if r.Answers != nil {
 		want := map[string]bool{}
 		for _, id := range r.Answers.ConfirmErase {
+			if err := sharedIdentityError("confirmErase", id, shared, t); err != nil {
+				r.logf("%v", err)
+				r.UI.Raw(err.Error())
+				return false, nil
+			}
 			want[id] = true
 		}
-		if len(want) != len(disks) {
+		if len(want) != len(disks) || len(want) != len(r.Answers.ConfirmErase) {
 			return false, nil
 		}
 		for _, d := range disks {
@@ -1214,9 +1477,18 @@ func (r *Recover) confirm(ctx context.Context, p *baremetal.RestorePlan, t *bare
 				wait = 30 * time.Second
 			}
 			cctx, cancel := context.WithTimeout(ctx, wait)
-			_, pressed := r.UI.TryLine(cctx)
+			r.curMu.Lock()
+			r.stopCountdown = cancel
+			gone := r.aborted
+			r.curMu.Unlock()
+			pressed := gone || r.UI.AnyKey(cctx)
+			r.curMu.Lock()
+			r.stopCountdown = nil
+			r.curMu.Unlock()
 			cancel()
-			if pressed {
+			// A key, Ctrl+C or the end of the run: nothing is erased. Only
+			// the full time without any of them goes on.
+			if pressed || r.wasAborted() || ctx.Err() != nil {
 				return false, nil
 			}
 		}
@@ -1311,6 +1583,7 @@ func (r *Recover) finish(ctx context.Context, status string, v api.RecoveryVerif
 	if r.session == nil || r.session.ID == "" {
 		return
 	}
+	r.finished = true
 	r.flushLog(ctx)
 	var raw []byte
 	if v.Format != "" {

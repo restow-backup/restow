@@ -322,6 +322,52 @@ func sameTarget(t testing.TB, m *Manifest) *Target {
 	return tg
 }
 
+// firstRunSignatures are the identities the scan of recover finds on the
+// target of source disk d after a first run created everything (blkid -p
+// on the disk and its partitions): the disk identifier as blkid prints it
+// (an MBR signature without 0x), the PARTUUIDs and what lies directly on
+// the partitions.
+func firstRunSignatures(m *Manifest, d *Disk) []TargetSignature {
+	x := newLayoutModel(m, nil, "skip")
+	sigs := []TargetSignature{}
+	content := func(key string, num *int64) {
+		switch kind, v := x.contentOf(key); kind {
+		case contentMD:
+			sigs = append(sigs, TargetSignature{Kind: "md", UUID: v.(*MDArray).UUID, Type: strPtr("linux_raid_member"), PartNumber: num})
+		case contentLUKS:
+			sigs = append(sigs, TargetSignature{Kind: "luks", UUID: v.(*LUKSVolume).UUID, Type: strPtr("crypto_LUKS"), PartNumber: num})
+		case contentPV:
+			sigs = append(sigs, TargetSignature{Kind: "pv", UUID: v.(*PV).UUID, Type: strPtr("LVM2_member"), PartNumber: num})
+		case contentFS, contentBtrfs:
+			fs := v.(*Filesystem)
+			sigs = append(sigs, TargetSignature{Kind: "fs", UUID: deref(fs.UUID), Type: strPtr(fs.Type), PartNumber: num})
+		}
+	}
+	if d.Table == nil {
+		content(DiskRef(d.ID).key(), nil)
+		return sigs
+	}
+	sigs = append(sigs, TargetSignature{Kind: "disk_guid", UUID: strings.TrimPrefix(strings.ToLower(d.Table.ID), "0x")})
+	for _, p := range d.Table.Partitions {
+		n := p.Number
+		if p.UUID != nil {
+			sigs = append(sigs, TargetSignature{Kind: "part_uuid", UUID: *p.UUID, PartNumber: &n})
+		}
+		content(PartRef(d.ID, p.Number).key(), &n)
+	}
+	return sigs
+}
+
+// startedTarget is the same hardware after a first run of the recovery:
+// every disk carries the identities of its source disk (10.18).
+func startedTarget(t testing.TB, m *Manifest) *Target {
+	tg := sameTarget(t, m)
+	for i := range tg.Disks {
+		tg.Disks[i].Signatures = firstRunSignatures(m, &m.Linux.Disks[i])
+	}
+	return tg
+}
+
 func resized(size int64) func(testing.TB, *Manifest) *Target {
 	return func(t testing.TB, m *Manifest) *Target {
 		tg := sameTarget(t, m)
@@ -378,10 +424,10 @@ func secureBoot(edit func(fw *TargetFirmware, m *Manifest)) func(testing.TB, *Ma
 func planScenarios() []planScenario {
 	auto := &Choices{Shrink: "auto"}
 	return []planScenario{
-		{manifest: "debian12-uefi-luks-lvm", name: "resume-clean", keyword: TargetSame, resume: ResumeClean},
-		{manifest: "debian12-uefi-luks-lvm", name: "resume-unclean", keyword: TargetSame, resume: ResumeUnclean},
-		{manifest: "bios-mbr-mdadm-raid1", name: "resume-clean", keyword: TargetSame, resume: ResumeClean},
-		{manifest: "bios-mbr-mdadm-raid1", name: "resume-unclean", keyword: TargetSame, resume: ResumeUnclean},
+		{manifest: "debian12-uefi-luks-lvm", name: "resume-clean", target: startedTarget, resume: ResumeClean},
+		{manifest: "debian12-uefi-luks-lvm", name: "resume-unclean", target: startedTarget, resume: ResumeUnclean},
+		{manifest: "bios-mbr-mdadm-raid1", name: "resume-clean", target: startedTarget, resume: ResumeClean},
+		{manifest: "bios-mbr-mdadm-raid1", name: "resume-unclean", target: startedTarget, resume: ResumeUnclean},
 		{manifest: "debian12-uefi-luks-lvm", name: "larger-1tb", target: resized(1000204886016)},
 		{manifest: "debian12-uefi-luks-lvm", name: "smaller-256gb", target: resized(256060514304)},
 		{manifest: "debian12-uefi-luks-lvm", name: "smaller-128gb", target: resized(128035676160)},

@@ -31,6 +31,9 @@ import (
 // use a fake).
 type Ops interface {
 	ReleaseHolders(ctx context.Context, dev string) error
+	// Partitions lists the device nodes of the partitions the kernel
+	// knows on a disk now.
+	Partitions(dev string) ([]string, error)
 	BlkZero(ctx context.Context, dev string, head, tail int64) error
 	PMBRBoot(ctx context.Context, dev string) error
 	WaitPartUUIDs(ctx context.Context, uuids []string, timeout time.Duration) error
@@ -202,6 +205,16 @@ type Executor struct {
 	// the plan to continue with from the first restore step (the unclean
 	// one after a power loss). An error fails the mount step.
 	ResumeCheck func(r Rootfs) (*baremetal.RestorePlan, error)
+	// Guard is asked before every step whether the mapped disks are still
+	// the confirmed ones (DiskGuard.Check); an error fails the step before
+	// it runs.
+	Guard interface {
+		Check(ctx context.Context) error
+	}
+	// MarkerDisks is what became of each source disk in the run that
+	// started the recovery (the marker of a resumed run keeps it); empty:
+	// the mapping of the plan.
+	MarkerDisks []MarkerDisk
 
 	askCancel atomic.Bool
 
@@ -372,7 +385,15 @@ func (x *Executor) Run(ctx context.Context) (*ExecReport, error) {
 			x.UI.Say("exec.step", "n", s.N, "total", total, "reason", s.Reason)
 		}
 		x.progress(ctx, apiPhase(s.Phase, s.Kind), int(s.N), total, 0, 0, 0, 0, s.Reason)
-		err := x.step(rctx, &s)
+		// The step names its devices by kernel path: before it runs, the
+		// mapped disks must still be the confirmed ones (10.10).
+		var err error
+		if x.Guard != nil {
+			err = x.Guard.Check(rctx)
+		}
+		if err == nil {
+			err = x.step(rctx, &s)
+		}
 		if err != nil && rctx.Err() != nil && ctx.Err() == nil && x.cancelled.Load() {
 			return x.stopCleanly(ctx)
 		}
@@ -551,7 +572,10 @@ func (x *Executor) writeMarker(last int64, phase string, clean bool) {
 		sha = x.OriginalPlanSHA256
 	}
 	m := Marker{SnapshotID: x.Snapshot, LayoutSHA256: x.LayoutSHA256, PlanSHA256: sha, StartedAt: x.report.StartedAt.UTC(),
-		UpdatedAt: x.now().UTC(), LastStep: last, Phase: phase, CleanStop: clean}
+		UpdatedAt: x.now().UTC(), LastStep: last, Phase: phase, CleanStop: clean, Disks: x.MarkerDisks}
+	if len(m.Disks) == 0 && x.Plan != nil {
+		m.Disks = MarkerDisksOf(x.Plan)
+	}
 	if err := WriteMarker(x.rootfs, m); err != nil {
 		x.log("marker: %v", err)
 	}
@@ -607,6 +631,8 @@ func (x *Executor) step(ctx context.Context, s *baremetal.Step) error {
 		return x.isolated(ctx, s, args[1:])
 	case "release-holders":
 		return x.Ops.ReleaseHolders(ctx, args[1])
+	case "wipe-partitions":
+		return x.wipePartitions(ctx, args[1:])
 	case "blkzero":
 		head, tail, dev, err := blkzeroArgs(args[1:])
 		if err != nil {
@@ -638,6 +664,29 @@ func (x *Executor) step(ctx context.Context, s *baremetal.Step) error {
 		return nil
 	}
 	return x.program(ctx, s, args)
+}
+
+// wipePartitions removes the signatures on every partition a disk has
+// now, before its table goes (10.10 point 2): wipefs on the disk sees
+// only the table, and a file system, an md superblock or a LUKS header
+// that starts beyond the zeroed ends of the disk would show again in a
+// new partition at the same place. The plan cannot list these partitions
+// (it does not know the old content of the target); the kernel does.
+func (x *Executor) wipePartitions(ctx context.Context, a []string) error {
+	if len(a) != 1 || !strings.HasPrefix(a[0], "/dev/") {
+		return fmt.Errorf("wipe-partitions: %q", a)
+	}
+	parts, err := x.Ops.Partitions(a[0])
+	if err != nil {
+		return fmt.Errorf("list the partitions of %s: %w", a[0], err)
+	}
+	for _, p := range parts {
+		if _, err := x.Exec.Run(ctx, RunSpec{Argv: []string{"wipefs", "-a", p}, NoKill: true, Timeout: DefaultStepTimeout}); err != nil {
+			return err
+		}
+	}
+	x.log("wiped the signatures of %d partitions of %s", len(parts), a[0])
+	return nil
 }
 
 // program runs a program of the ISO (mkfs, sfdisk, mdadm, cryptsetup,

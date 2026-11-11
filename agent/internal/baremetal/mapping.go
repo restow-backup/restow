@@ -34,9 +34,11 @@ type AdoptedPart struct {
 }
 
 // normUUID makes UUIDs of different notations comparable (mdadm writes
-// a:b:c:d, blkid 8-4-4-4-12).
+// a:b:c:d, blkid 8-4-4-4-12; sfdisk writes the disk signature of an MBR as
+// 0xa1b2c3d0, blkid reports it as PTUUID a1b2c3d0).
 func normUUID(s string) string {
-	return strings.ToLower(strings.NewReplacer("-", "", ":", "", " ", "").Replace(s))
+	s = strings.ToLower(strings.NewReplacer("-", "", ":", "", " ", "").Replace(s))
+	return strings.TrimPrefix(s, "0x")
 }
 
 // identityRef is an identity of the manifest and the source disks it lives on.
@@ -58,6 +60,8 @@ type mapper struct {
 	adopted  map[string]bool // node keys of adopted devices
 	units    []AdoptedPart
 	findings []Finding
+	// resume: the plan continues a started recovery (PlanOptions.Resume).
+	resume bool
 }
 
 func (mp *mapper) add(f Finding) { mp.findings = append(mp.findings, f) }
@@ -337,6 +341,11 @@ func (mp *mapper) mapDisks(minimum map[string]int64) {
 		}
 	}
 
+	if mp.resume {
+		mp.mapResume()
+		return
+	}
+
 	// Automatic: a target with signatures of a source disk is adopted,
 	// never erased.
 	for i := range mp.t.Disks {
@@ -375,19 +384,21 @@ func (mp *mapper) mapDisks(minimum map[string]int64) {
 		}
 		free = append(free, td)
 	}
-	// Same identity first (same hardware).
+	// Same identity first (same hardware). An identity that two free
+	// targets share (bridges and clones report the same serial) names no
+	// disk: it decides nothing, the later rules or the operator do.
 	rest := srcs[:0:0]
 	for _, s := range srcs {
 		d := x.disks[s]
-		matched := false
+		var same []*TargetDisk
 		for _, td := range free {
 			if _, taken := mp.used[td.ID]; !taken && sameIdentity(d, td) {
-				mp.set(s, ActionErase, td.ID, "identity")
-				matched = true
-				break
+				same = append(same, td)
 			}
 		}
-		if !matched {
+		if len(same) == 1 {
+			mp.set(s, ActionErase, same[0].ID, "identity")
+		} else {
 			rest = append(rest, s)
 		}
 	}
@@ -456,6 +467,46 @@ func (mp *mapper) mapDisks(minimum map[string]int64) {
 	sort.SliceStable(left, func(i, j int) bool { return left[i].SizeBytes > left[j].SizeBytes })
 	for i, s := range rest2 {
 		mp.set(s, ActionErase, left[i].ID, "size")
+	}
+}
+
+// mapResume maps the disks the choices left open in a resumed plan
+// (10.18). Nothing is erased, so identity and size decide nothing: the
+// target that carries the identities of a source disk is the one the
+// first run wrote, whichever disk the operator chose then. Disks whose
+// identities are shared (members of one array or of one btrfs without a
+// partition table) take the carriers in order; a source disk that no
+// target carries was missing in the first run. A second carrier of the
+// same identities (the old disk next to the new one) stays unused and is
+// an identity conflict.
+func (mp *mapper) mapResume() {
+	owners := map[string][]string{}
+	for i := range mp.t.Disks {
+		td := &mp.t.Disks[i]
+		if _, taken := mp.used[td.ID]; !taken {
+			owners[td.ID] = mp.ownerDisks(td)
+		}
+	}
+	for i := range mp.t.Disks {
+		td := &mp.t.Disks[i]
+		if o := owners[td.ID]; len(o) == 1 && mp.assign[o[0]] == nil {
+			mp.set(o[0], ActionErase, td.ID, "resume")
+		}
+	}
+	for _, d := range mp.x.l.Disks {
+		if mp.assign[d.ID] != nil {
+			continue
+		}
+		for i := range mp.t.Disks {
+			td := &mp.t.Disks[i]
+			if _, taken := mp.used[td.ID]; !taken && hasString(owners[td.ID], d.ID) {
+				mp.set(d.ID, ActionErase, td.ID, "resume")
+				break
+			}
+		}
+		if mp.assign[d.ID] == nil {
+			mp.set(d.ID, ActionMissing, "", "resume")
+		}
 	}
 }
 

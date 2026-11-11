@@ -58,6 +58,32 @@ func (o *LinuxOps) ReleaseHolders(ctx context.Context, dev string) error {
 	return h.Release(ctx, dev)
 }
 
+// Partitions implements Ops: the partitions of the disk in sysfs
+// (/sys/class/block/<disk>/<part>/partition), as device nodes.
+func (o *LinuxOps) Partitions(dev string) ([]string, error) {
+	real := dev
+	if r, err := filepath.EvalSymlinks(dev); err == nil {
+		real = r
+	}
+	k := filepath.Base(real)
+	if !reKName.MatchString(k) || strings.Contains(k, "..") {
+		return nil, fmt.Errorf("%s is no disk", dev)
+	}
+	base := filepath.Join(o.sys(), "class/block", k)
+	ents, err := os.ReadDir(base)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, e := range ents {
+		if _, err := os.Stat(filepath.Join(base, e.Name(), "partition")); err == nil && reKName.MatchString(e.Name()) {
+			out = append(out, filepath.Join(o.dev(), e.Name()))
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return naturalLess(out[i], out[j]) })
+	return out, nil
+}
+
 const blkGetSize64 = 0x80081272
 
 func deviceSize(f *os.File) (int64, error) {

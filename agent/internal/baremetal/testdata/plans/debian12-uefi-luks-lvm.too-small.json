@@ -149,14 +149,27 @@
     },
     {
       "args": [
+        "wipe-partitions",
+        "/dev/nvme0n1"
+      ],
+      "kind": "wipe_partitions",
+      "n": 2,
+      "phase": "prepare",
+      "reason": "remove the signatures on every partition /dev/nvme0n1 has now",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/nvme0n1"
+    },
+    {
+      "args": [
         "wipefs",
         "-a",
         "/dev/nvme0n1"
       ],
       "kind": "wipe",
-      "n": 2,
+      "n": 3,
       "phase": "prepare",
-      "reason": "remove the signatures of the old content of /dev/nvme0n1 (its partitions first)",
+      "reason": "remove the partition table and the signatures of /dev/nvme0n1",
       "stdin": null,
       "stdinSecret": null,
       "target": "/dev/nvme0n1"
@@ -169,7 +182,7 @@
         "/dev/nvme0n1"
       ],
       "kind": "zero_range",
-      "n": 3,
+      "n": 4,
       "phase": "prepare",
       "reason": "zero the first and last 16 MiB of /dev/nvme0n1",
       "stdin": null,
@@ -202,7 +215,7 @@
         "/dev/nvme0n1p3"
       ],
       "kind": "luks_format",
-      "n": 4,
+      "n": 5,
       "phase": "luks",
       "reason": "create LUKS volume c0 with a new master key and its UUID",
       "stdin": null,
@@ -219,7 +232,7 @@
         "nvme0n1p3_crypt"
       ],
       "kind": "luks_open",
-      "n": 5,
+      "n": 6,
       "phase": "luks",
       "reason": "open c0 under its crypttab name",
       "stdin": null,
@@ -237,7 +250,7 @@
         "nvme0n1p3_crypt"
       ],
       "kind": "luks_refresh",
-      "n": 6,
+      "n": 7,
       "phase": "luks",
       "reason": "store the activation flags of c0",
       "stdin": null,
@@ -256,7 +269,7 @@
         "/dev/mapper/nvme0n1p3_crypt"
       ],
       "kind": "pv_create",
-      "n": 7,
+      "n": 8,
       "phase": "lvm",
       "reason": "create the physical volume with its UUID",
       "stdin": null,
@@ -274,7 +287,7 @@
         "/dev/mapper/nvme0n1p3_crypt"
       ],
       "kind": "vg_create",
-      "n": 8,
+      "n": 9,
       "phase": "lvm",
       "reason": "create the volume group srv01-vg",
       "stdin": null,
@@ -294,7 +307,7 @@
         "srv01-vg"
       ],
       "kind": "lv_create",
-      "n": 9,
+      "n": 10,
       "phase": "lvm",
       "reason": "create LV srv01-vg/root",
       "stdin": null,
@@ -314,7 +327,7 @@
         "srv01-vg"
       ],
       "kind": "lv_create",
-      "n": 10,
+      "n": 11,
       "phase": "lvm",
       "reason": "create LV srv01-vg/swap_1",
       "stdin": null,
@@ -334,7 +347,7 @@
         "srv01-vg"
       ],
       "kind": "lv_create",
-      "n": 11,
+      "n": 12,
       "phase": "lvm",
       "reason": "create LV srv01-vg/home",
       "stdin": null,
@@ -355,7 +368,7 @@
         "/dev/nvme0n1p1"
       ],
       "kind": "mkfs",
-      "n": 12,
+      "n": 13,
       "phase": "mkfs",
       "reason": "create vfat f0 with its UUID and recorded features",
       "stdin": null,
@@ -387,7 +400,7 @@
         "/dev/nvme0n1p2"
       ],
       "kind": "mkfs",
-      "n": 13,
+      "n": 14,
       "phase": "mkfs",
       "reason": "create ext4 f1 with its UUID and recorded features",
       "stdin": null,
@@ -419,7 +432,7 @@
         "/dev/srv01-vg/root"
       ],
       "kind": "mkfs",
-      "n": 14,
+      "n": 15,
       "phase": "mkfs",
       "reason": "create ext4 f2 with its UUID and recorded features",
       "stdin": null,
@@ -451,7 +464,7 @@
         "/dev/srv01-vg/home"
       ],
       "kind": "mkfs",
-      "n": 15,
+      "n": 16,
       "phase": "mkfs",
       "reason": "create ext4 f3 with its UUID and recorded features",
       "stdin": null,
@@ -466,7 +479,7 @@
         "/dev/srv01-vg/swap_1"
       ],
       "kind": "mkswap",
-      "n": 16,
+      "n": 17,
       "phase": "mkfs",
       "reason": "create the swap area with its UUID",
       "stdin": null,
@@ -482,7 +495,7 @@
         "{target_root}"
       ],
       "kind": "mount",
-      "n": 17,
+      "n": 18,
       "phase": "mount",
       "reason": "mount f2 at /",
       "stdin": null,
@@ -498,7 +511,7 @@
         "{target_root}/boot"
       ],
       "kind": "mount",
-      "n": 18,
+      "n": 19,
       "phase": "mount",
       "reason": "mount f1 at /boot",
       "stdin": null,
@@ -514,7 +527,7 @@
         "{target_root}/home"
       ],
       "kind": "mount",
-      "n": 19,
+      "n": 20,
       "phase": "mount",
       "reason": "mount f3 at /home",
       "stdin": null,
@@ -532,7 +545,7 @@
         "{target_root}/boot/efi"
       ],
       "kind": "mount",
-      "n": 20,
+      "n": 21,
       "phase": "mount",
       "reason": "mount f0 at /boot/efi",
       "stdin": null,
@@ -555,7 +568,7 @@
         "{snapshot}"
       ],
       "kind": "restore",
-      "n": 21,
+      "n": 22,
       "phase": "restore",
       "reason": "restore the files of the snapshot",
       "stdin": null,
@@ -575,7 +588,7 @@
         "/home:0755"
       ],
       "kind": "mkdirs",
-      "n": 22,
+      "n": 23,
       "phase": "post",
       "reason": "create mount points and API folders that the snapshot may lack",
       "stdin": null,
@@ -589,7 +602,7 @@
         "crypttab"
       ],
       "kind": "fixup",
-      "n": 23,
+      "n": 24,
       "phase": "post",
       "reason": "rewrite device references in /etc/crypttab",
       "stdin": null,
@@ -603,7 +616,7 @@
         "cmdline"
       ],
       "kind": "fixup",
-      "n": 24,
+      "n": 25,
       "phase": "post",
       "reason": "rewrite device references in /etc/default/grub",
       "stdin": null,
@@ -617,7 +630,7 @@
         "fstab"
       ],
       "kind": "fixup",
-      "n": 25,
+      "n": 26,
       "phase": "post",
       "reason": "rewrite device references in /etc/fstab",
       "stdin": null,
@@ -631,7 +644,7 @@
         "resume"
       ],
       "kind": "fixup",
-      "n": 26,
+      "n": 27,
       "phase": "post",
       "reason": "rewrite device references in /etc/initramfs-tools/conf.d/resume",
       "stdin": null,
@@ -647,7 +660,7 @@
         "6.1.0-27-amd64"
       ],
       "kind": "initramfs",
-      "n": 27,
+      "n": 28,
       "phase": "post",
       "reason": "rebuild the initramfs of 6.1.0-27-amd64 with MODULES=most",
       "stdin": null,
@@ -662,7 +675,7 @@
         "/boot/grub/grub.cfg"
       ],
       "kind": "grub_config",
-      "n": 28,
+      "n": 29,
       "phase": "post",
       "reason": "write the GRUB configuration",
       "stdin": null,
@@ -680,7 +693,7 @@
         "\\EFI\\debian\\shimx64.efi"
       ],
       "kind": "nvram",
-      "n": 29,
+      "n": 30,
       "phase": "post",
       "reason": "create the boot entry debian",
       "stdin": null,
@@ -692,7 +705,7 @@
         "verify"
       ],
       "kind": "verify",
-      "n": 30,
+      "n": 31,
       "phase": "post",
       "reason": "check the restored system (identities, fstab, boot files)",
       "stdin": null,

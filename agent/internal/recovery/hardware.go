@@ -67,6 +67,10 @@ const (
 	NoteVirtual       = "virtual"
 	NoteInvalidName   = "invalid_name"
 	NoteTooManyDisks  = "too_many_disks"
+	// NoteIdentityShared is no exclusion: the device reports an identity
+	// that another device reports too, so it is known by its by-path name
+	// (or by none).
+	NoteIdentityShared = "identity_shared"
 )
 
 var (
@@ -108,6 +112,57 @@ func Identity(b BlockInfo) string {
 	return ""
 }
 
+// SharedIdentities are the identities that more than one block device of
+// the scan reports, with the devices (cheap USB and SATA bridges, clones
+// and some virtual disks report the same serial; a WWN twice is a second
+// path to one disk). Such an identity names no disk: neither the answers
+// nor the operator can confirm one disk with it. Virtual devices, devices
+// without a valid name, hidden NVMe paths and eMMC boot areas are left
+// out; the medium of the ISO and of the answers count (a target must not
+// be taken for them either).
+func SharedIdentities(in HardwareInput) map[string][]string {
+	by := map[string][]string{}
+	for _, b := range in.Blocks {
+		if !reKName.MatchString(b.KName) || strings.Contains(b.KName, "..") || reVirtual.MatchString(b.KName) {
+			continue
+		}
+		// Not disks of their own: the hidden path of an NVMe namespace and
+		// the boot areas of an eMMC report the identity of their device.
+		if reHiddenNVMe.MatchString(b.KName) || reMMCBoot.MatchString(b.KName) {
+			continue
+		}
+		if id := Identity(b); id != "" {
+			by[id] = append(by[id], "/dev/"+b.KName)
+		}
+	}
+	for id, devs := range by {
+		if len(devs) < 2 {
+			delete(by, id)
+			continue
+		}
+		sort.Slice(devs, func(i, j int) bool { return naturalLess(devs[i], devs[j]) })
+	}
+	return by
+}
+
+// uniqueIdentity is the identity BuildTarget gives a device: its own when
+// no other device reports it, else its by-path name when that names only
+// this device, else none. A device without an identity can be mapped at
+// the console, but nothing on it can be confirmed for erasing by typing
+// or by the answers.
+func uniqueIdentity(b BlockInfo, shared map[string][]string, paths map[string]int) string {
+	id := Identity(b)
+	if id == "" || len(shared[id]) == 0 {
+		return id
+	}
+	if b.ByPath != "" && paths[b.ByPath] == 1 {
+		if p := "path." + b.ByPath; len(shared[p]) == 0 {
+			return p
+		}
+	}
+	return ""
+}
+
 func strp(s string) *string {
 	if s == "" {
 		return nil
@@ -116,6 +171,7 @@ func strp(s string) *string {
 }
 
 // BuildTarget builds the planner's target from the collected hardware.
+// The identity of every disk in it names that disk alone (uniqueIdentity).
 // Excluded devices (the ISO medium, the answers medium, hidden NVMe paths, mmc boot areas,
 // zoned, read-only and empty devices) are noted; those with signatures
 // become Others, so identity conflicts are still found. Removable disks
@@ -138,6 +194,13 @@ func BuildTarget(in HardwareInput) (*baremetal.Target, []TargetNote) {
 	}
 	blocks := append([]BlockInfo(nil), in.Blocks...)
 	sort.Slice(blocks, func(i, j int) bool { return naturalLess(blocks[i].KName, blocks[j].KName) })
+	shared := SharedIdentities(in)
+	paths := map[string]int{}
+	for _, b := range blocks {
+		if b.ByPath != "" {
+			paths[b.ByPath]++
+		}
+	}
 	var notes []TargetNote
 	n, o := 0, 0
 	for _, b := range blocks {
@@ -166,6 +229,12 @@ func BuildTarget(in HardwareInput) (*baremetal.Target, []TargetNote) {
 			continue
 		}
 		td := targetDisk(b)
+		if raw := Identity(b); len(shared[raw]) > 0 && reason != NoteInvalidName {
+			// The identity names several devices: this one is known by its
+			// path (or by nothing), never by the shared identity.
+			td.Identity = strp(uniqueIdentity(b, shared, paths))
+			notes = append(notes, TargetNote{Device: "/dev/" + b.KName, Reason: NoteIdentityShared})
+		}
 		if reason != "" {
 			if reason != NoteInvalidName {
 				notes = append(notes, TargetNote{Device: "/dev/" + b.KName, Reason: reason})

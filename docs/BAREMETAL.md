@@ -570,6 +570,10 @@ Regeln:
   Grundlage der Fixups (Abschnitt 10.13).
 - Größen und Starts stehen in **Bytes** (`startBytes`, `sizeBytes`), dazu die Sektorgröße
   der Quellplatte; der Planer rechnet in LBA der Zielplatte um (Abschnitt 10.9).
+- `mounts[].root` ist das vierte Feld von `mountinfo` (der Pfad im Dateisystem, der eingehängt
+  ist), wenn es nicht `/` ist: bei btrfs das Subvolume, sonst der Ordner eines Bind-Mounts
+  (`mount --bind /srv/data /var/www/data`). Ein Bind-Mount ist keine Einhängung des
+  Dateisystems (10.12). Das Feld fehlt bei `/`; ältere Manifeste haben es nie.
 - `grow` markiert je Platte höchstens eine Partition und je VG höchstens ein LV, das auf einer
   größeren Zielplatte wächst. Vorgabe beim Erfassen: die letzte Partition einer Platte, wenn
   sie ein PV, ein md-Mitglied, ein LUKS-Container oder ein Dateisystem trägt, das wachsen
@@ -1702,7 +1706,12 @@ Konsolen alle 5 s eine neue Zeile).
    gefunden), muss der Bediener die letzten vier Zeichen ihrer **Kennung** eintippen
    (10.6: WWN/EUI-64/NGUID, sonst Seriennummer + Namensraum, sonst `by-path`), angezeigt mit
    Modell und Größe; danach `LÖSCHEN` (bzw. `ERASE`). Unbeaufsichtigt nur mit
-   `answers.confirmErase` und genau passenden Kennungen.
+   `answers.confirmErase` und genau passenden Kennungen. Eine Kennung bestätigt eine Platte
+   nur, wenn sie genau diese eine Platte bezeichnet (10.6); eine Platte ohne Kennung lässt
+   sich nicht zum Löschen bestätigen.
+9. **Zwischen Bestätigung und erstem Schritt** liest `recover` die Hardware noch einmal und
+   bricht ab, wenn sie nicht mehr die gezeigte ist; erst danach schreibt es zum ersten Mal auf
+   eine Platte (10.6, "Wächter").
 
 ### 10.5 Firmwaremodus und Startkette
 
@@ -1778,12 +1787,55 @@ Namensräume `nvme0n1`, `nvme0n2` teilen die Seriennummer des Controllers), sons
 | Hardware-RAID-VD (PERC, Smart Array) | Kennung aus WWN bzw. `by-path`; der Assistent hat dafür den Schritt "VD im Controller anlegen, Mindestgröße X GiB" |
 | virtio ohne Seriennummer | Kennung `by-path` |
 
-Vor dem Plan liest und schreibt `recover` je möglicher Zielplatte das erste und letzte MiB
-(Lesen, dann denselben Inhalt mit `O_DIRECT` zurückschreiben; bei Platten mit Daten nur
-lesen und erst nach der Bestätigung schreiben). Ein I/O-Fehler ergibt das Problem "Platte
-liefert I/O-Fehler; evtl. ist eine selbstverschlüsselnde SSD (TCG Opal) gesperrt: entsperren
-oder mit PSID-Revert zurücksetzen". Findet `recover` gar keine Platte, sagt es: "Keine Platte
+**Eine Kennung bezeichnet genau eine Platte.** Billige USB- und SATA-Brücken, Klone und
+manche virtuellen Platten melden dieselbe Seriennummer; dieselbe WWN zweimal ist ein zweiter
+Pfad zur selben LUN. Meldet mehr als ein Gerät des Scans dieselbe Kennung
+(`SharedIdentities`; mitgezählt werden auch das Startmedium und das Medium der Antworten,
+nicht die versteckten NVMe-Knoten und die eMMC-Bootbereiche, die keine eigenen Platten sind),
+bekommt jedes dieser Geräte im Ziel stattdessen seinen `by-path`-Namen als Kennung, falls der
+nur dieses Gerät bezeichnet, sonst keine (`BuildTarget`, Notiz `identity_shared`). Die
+geteilte Kennung selbst nimmt `recover` nirgends an: `answers.diskMapping` und
+`answers.confirmErase` mit ihr werden abgelehnt, mit den Geräten und den Kennungen, die jedes
+allein bezeichnen. Eine leere Kennung passt auf nichts, auch nicht auf eine andere leere.
+Der Planer ordnet über eine Kennung nur zu, wenn genau eine freie Zielplatte sie trägt;
+tragen sie zwei, entscheiden die übrigen Regeln oder der Bediener (10.7).
+
+**Der Scan schreibt nicht.** Er läuft, bevor der Bediener etwas gesehen oder bestätigt hat,
+über jede Platte des Rechners, auch über die, die der Plan nie zuordnet (Wechseldatenträger,
+SAN-LUNs, Platten mit Inhalt, den `blkid` nicht kennt). Darum liest er je Platte nur das
+erste und letzte MiB (`O_DIRECT`). Ein I/O-Fehler ergibt das Problem "Platte liefert
+I/O-Fehler; evtl. ist eine selbstverschlüsselnde SSD (TCG Opal) gesperrt: entsperren oder mit
+PSID-Revert zurücksetzen". Findet `recover` gar keine Platte, sagt es: "Keine Platte
 gefunden. Steht der SATA-Modus im Firmware-Setup auf RAID/Intel RST/VMD, auf AHCI stellen."
+
+**Wächter der bestätigten Platten** (`devguard.go`, `DiskGuard`). Plan und Schritte nennen
+eine Platte über ihren Kernelnamen (`/dev/sdb`). Den vergibt der Kernel neu, wenn eine Platte
+gezogen, gesteckt oder neu aufgezählt wird; bestätigt hat der Bediener aber Platten, keine
+Namen. Zwischen Scan und erstem Schritt liegen die Dialoge, der Countdown und, bei einem
+fremden offenen Device-Mapper-Gerät, eine Shell.
+
+1. **Nach dem letzten Dialog** (auch nach der Shell aus 10.14) liest `recover` die Hardware
+   so wie beim ersten Scan und vergleicht Gerät für Gerät mit dem gezeigten Ziel: Pfad,
+   Kennung, Größe, Sektorgröße, Signaturen, und ob ein Gerät dazukam oder fehlt. Jede
+   Abweichung beendet den Lauf, bevor irgendetwas geschrieben wurde (`failed`, die Konsole
+   nennt die Abweichung).
+2. Dann hält `recover` jede zugeordnete Platte (gelöscht oder übernommen) mit einem offenen
+   Deskriptor fest (`HoldDevice`). Solange er offen ist, behält der Kernel das Objekt der
+   Platte, und die üblichen Treiber (`sd`, `nvme`, `loop`) geben Namen und Gerätenummer erst
+   danach wieder aus; verschwindet die Platte, meldet der Deskriptor keine Größe mehr. Allein
+   darauf verlässt sich `recover` nicht (Punkt 4).
+3. Erst jetzt schreibt `recover` zum ersten Mal: auf den Platten, die gelöscht werden, das
+   erste und letzte MiB lesen und denselben Inhalt zurückschreiben. Scheitert das (gesperrte
+   SED, die Lesen erlaubt), endet der Lauf mit `sed_locked`, bevor eine andere Platte
+   gelöscht ist. Ein fortgesetzter Lauf löscht nichts und schreibt hier nicht.
+4. **Vor jedem Schritt** prüft der Ausführer (`Executor.Guard`): Der Pfad jeder zugeordneten
+   Platte zeigt noch auf das festgehaltene Gerät (Gerätenummer), es hat noch seine Größe, und
+   ein neuer, leichter Scan (sysfs und `lsblk`, kein `blkid`, kein Lesen der Platte) ergibt
+   für den Pfad dieselbe Kennung und Größe. Sonst scheitert der Schritt, bevor er läuft.
+   Zeigt nur der leichte Scan eine Abweichung, liest `recover` nach zwei Sekunden noch einmal,
+   und nur eine Abweichung, die bleibt, hält den Lauf an (udev schreibt nach jeder Änderung
+   einer Partitionstabelle neu, was `lsblk` liest); für das festgehaltene Gerät gibt es keinen
+   zweiten Blick. Andere Geräte dürfen während der Stunden eines Restores kommen und gehen.
 
 ### 10.7 Zuordnung, Übernahme vorhandener Teile, Identitätskonflikte
 
@@ -1808,10 +1860,20 @@ trägt, die zum Manifest passen; die Vorgabe ist dann "übernehmen".
 
 **Automatische Zuordnung** nur, wenn die Zahl der Zielplatten gleich der Zahl der
 Quellplatten ist, jede Zuordnung passt und keine Zielplatte Signaturen des Manifests trägt:
-zuerst gleiche Kennung (gleiche Hardware), dann gleiche Größe und Transport, dann nach Größe
+zuerst gleiche Kennung (gleiche Hardware; nur wenn genau eine freie Zielplatte sie trägt,
+10.6), dann gleiche Größe und Transport, dann nach Größe
 absteigend gegen den Mindestbedarf absteigend; nie SAN-LUNs (10.6). Sonst fragt `recover` je
 Quellplatte ("d0 war nvme0n1, 512 GB, trug /, /boot, ESP; Mindestgröße 61 GiB"), Auswahl aus
 den freien Zielplatten, "vorhanden übernehmen" oder "fehlt".
+
+**Zielplatte mit einem Teil der Signaturen.** Trägt eine Zielplatte Signaturen des Manifests,
+aber nicht alles, was darauf lag (eine Wiederherstellung, die zwischen dem Partitionieren und
+dem ersten Marker abbrach, 10.18; oder eine alte Platte dieses Rechners), dann übernimmt die
+automatische Zuordnung sie, und die Übernahme ist unvollständig (`adopt_incomplete`): Der
+Plan läuft so nicht. An der Konsole fragt `recover` dann je Quellplatte wie oben; eine als
+Ziel gewählte Platte wird nach der üblichen Bestätigung gelöscht (sie trägt Daten, also mit
+Kennung und `LÖSCHEN`). Unbeaufsichtigt löscht die automatische Zuordnung sie nie; die
+Konsole nennt den Weg (`diskMapping` mit der Kennung der Platte und `confirmErase`).
 
 **Weniger Zielplatten als Quellplatten** nur, wenn jede fehlende Platte
 
@@ -1893,6 +1955,24 @@ und erst beim Schreiben des sfdisk-Skripts in LBA der **Zielplatte** umgerechnet
   schlimmste Fall. Stufe 1 berechnet die Restore-Größen auf dem Server und speichert sie im
   Bericht (12.1), `recover` bekommt sie mit den Zugangsdaten (9.5) und berechnet sie selbst,
   wenn sie fehlen. `-N` (Inodes) ist mindestens `inodesUsed` · 1,2.
+- **Swap-Dateien** sind nicht in der Sicherung (5.3) und werden nach dem Restore neu angelegt
+  (10.13). Ihre Größe (plus 1 MiB) zählt zur Mindestgröße des Dateisystems, in dem sie nach
+  dem Restore liegen, und damit zu der des LV, der Partition und der Platte darunter; sonst
+  scheiterte auf einer kleineren oder minimalen Zielplatte der Schritt `swapfile` mit ENOSPC,
+  nach dem ganzen Restore. Ohne Fakten (Schätzung aus dem belegten Platz) wird die Swap-Datei
+  vorher abgezogen, denn der belegte Platz enthält sie schon.
+- **Bind-Mounts** zählen nicht als Einhängung ihres Dateisystems (10.12). Was der Snapshot
+  unter dem Ziel eines Bind-Mounts enthält, schreibt der Restore in das Dateisystem, das den
+  Ordner dort hält (längster Einhängepunkt darüber); dessen Restore-Größe bekommt den Anteil.
+- **Partitionstabellen, die es nicht geben kann,** sind ein Problem des Plans
+  (`layout_unsupported` mit Grund), ohne einen einzigen Schritt: Partitionen, die sich
+  überlappen, hinter dem Plattenende liegen, im ersten Sektor beginnen, keine Größe haben oder
+  nicht auf Sektorgrenzen liegen; GPT-Nummern über 128; bei MBR Start oder Größe ab 2^32
+  Sektoren, mehr als eine erweiterte Partition, logische Partitionen (Nummer ab 5) ohne
+  erweiterte, außerhalb von ihr, mit Lücke in der Zählung ab 5 oder einander überlappend. Die
+  Erfassung zeichnet so etwas nie auf, ein beschädigtes oder verändertes Manifest kann es
+  enthalten; `sfdisk` lehnte das Skript erst ab, nachdem die Platte gelöscht ist, oder legte
+  weniger Partitionen an, als der Plan danach formatiert.
 - **Thin-Pools:** mindestens die Summe der Restore-Größen seiner LVs · 1,15 plus Metadaten
   (`--poolmetadatasize` aus dem Manifest, mindestens 1 Prozent). Ein voller Pool beim Restore
   legte alle Thin-LVs still. `raw`-LVs zählen nur mit, wenn der Bediener sie leer anlegen
@@ -1934,7 +2014,8 @@ und erst beim Schreiben des sfdisk-Skripts in LBA der **Zielplatte** umgerechnet
 
 ### 10.10 Halter freigeben, Partitionieren, RAID, LUKS, LVM
 
-Reihenfolge je Platte und Schicht:
+Vor jedem Schritt prüft der Wächter, dass die zugeordneten Platten noch die bestätigten sind
+(10.6). Reihenfolge je Platte und Schicht:
 
 1. **Halter freigeben** (`holders_linux.go`): Für jede Zielplatte, die gelöscht wird, rekursiv
    alle Halter aus `/sys/block/*/holders` und alle Einhängungen und Swaps darauf: `swapoff`,
@@ -1944,13 +2025,22 @@ Reihenfolge je Platte und Schicht:
    der Kernel behielte die alte Partitionstabelle).
 2. **Signaturen entfernen:** `wipefs -a` zuerst auf jeder **vorhandenen** Partition, dann auf
    der Platte, dazu die ersten und letzten 16 MiB nullen (alte md-1.0-Superblöcke am Ende
-   alter Partitionen, LVM-Label, GPT-Kopie). `blkdiscard` auf Wunsch (Standard aus, auf SSDs
-   angeboten).
+   alter Partitionen, LVM-Label, GPT-Kopie). Die vorhandenen Partitionen kennt nur der
+   Kernel der Zielmaschine, nicht der Planer; der Plan nennt darum vor `wipefs -a <platte>`
+   die Operation `wipe-partitions <platte>` (Schritt `wipe_partitions`), und `recover` führt
+   `wipefs -a` für jede Partition aus, die sysfs für die Platte zeigt. Ohne das bliebe alles
+   stehen, was hinter den ersten 16 MiB beginnt (das alte Wurzel-Dateisystem, ein LUKS-Kopf,
+   ein md-Superblock), und erschiene in einer neuen Partition an derselben Stelle wieder; die
+   neue Tabelle legt die Partitionen meist genau dorthin. `blkdiscard` auf Wunsch (Standard
+   aus, auf SSDs angeboten).
 3. **Partitionstabelle** mit `sfdisk` aus einem erzeugten Skript (`sfdisk --dump`-Format):
    `label: gpt|dos`, `label-id:` (Disk-GUID bzw. MBR-Kennung, damit PARTUUIDs gleich
    bleiben; bei MBR ist die PARTUUID `<kennung>-<nummer>`), `unit: sectors`,
    `sector-size: <logische Sektorgröße der Zielplatte>`, je Partition `start=`, `size=`,
-   `type=`, `uuid=`, `name=`, `attrs=`, `bootable`. **Nie** `first-lba`, `last-lba` oder
+   `type=`, `uuid=`, `name=`, `attrs=`, `bootable`. Aufruf mit `--wipe always
+   --wipe-partitions always`: `sfdisk` entfernt so auch alte Signaturen am Anfang und Ende
+   jeder **neuen** Partition (die Vorgabe `auto` tut das nur auf Nachfrage am Terminal), etwa
+   in Partitionen, die der Plan nicht formatiert (BIOS-Boot). **Nie** `first-lba`, `last-lba` oder
    `table-length` aus der Quelle (sonst wächst nichts, und auf einer wenige Sektoren
    kleineren Platte läge `last-lba` hinter dem Ende); `sfdisk` berechnet sie. Danach wartet
    `recover`, bis jede `/dev/disk/by-partuuid/<uuid>` existiert (Zeitlimit 30 s, nicht nur
@@ -2087,6 +2177,12 @@ schaltet `recover` sie erst **nach** dem Restore ein (`btrfs quota enable`, dann
   Snapshot unverändert an (`mknod` geht auf `nodev`), öffnen lässt sich keiner, weder von
   `recover` noch von einem Programm des Ziels. Die `fstab` des Ziels behält ihre Optionen.
   Übernommene Dateisysteme werden eingehängt, aber vom Restore ausgenommen (10.7).
+- **Bind-Mounts** sind keine Einhängung: Ein Eintrag aus `mounts`, dessen `root` ein Ordner
+  des Dateisystems ist (4.2; bei btrfs: nicht das eingehängte Subvolume), oder dessen
+  `fstab`-Zeile `bind` bzw. `rbind` trägt (für Manifeste ohne `root`), wird nicht eingehängt.
+  Sonst läge das ganze Dateisystem ein zweites Mal am Ziel des Bind-Mounts, und der Restore
+  schriebe die Dateien dieses Pfads in dessen Wurzel. Der Einhängepunkt wird angelegt; den
+  Bind-Mount selbst stellt die `fstab` des Ziels beim Start wieder her.
 - `restic restore --json --no-lock --no-cache --target /mnt/restow-target --sparse --verify
   --overwrite never [--exclude <übernommene Einhängepunkte>] <snapshot>` (neue Felder in
   `restic.RestoreOptions`: `Sparse`, `NoLock`, `NoCache`, `Overwrite`, `Subfolder`,
@@ -2458,8 +2554,16 @@ aushängen, LUKS schließen.
   laufender Resync schadet nicht), schreibt in den Marker "sauber angehalten" und sagt: "Die
   Zielplatten sind unvollständig."
 - Marker `/.restow-recovery.json` im Ziel-Wurzeldateisystem (Snapshot, Planprüfsumme, Zeit,
-  zuletzt erreichter Schritt, `cleanStop: true|false`; geschrieben nach dem Anlegen der
-  Dateisysteme, nach jedem Schritt erneuert, gelöscht ganz am Ende).
+  zuletzt erreichter Schritt, `cleanStop: true|false`, und in `disks`, was der Lauf mit jeder
+  Quellplatte getan hat: `erase`, `adopt` oder `missing`; geschrieben nach dem Anlegen der
+  Dateisysteme, nach jedem Schritt erneuert, gelöscht ganz am Ende). `disks` braucht das
+  Fortsetzen: Eine übernommene Platte trägt dieselben Kennungen wie eine, die `recover`
+  geschrieben hat, und ihre Einhängepunkte müssen auch beim zweiten Lauf aus dem Restore
+  bleiben (10.7); nichts darauf wurde je zum Überschreiben bestätigt. Sobald der Marker
+  gelesen ist, plant `recover` darum mit der Zuordnung des ersten Laufs neu (`resumedPlan`)
+  und setzt ab dem ersten Restore-Schritt mit diesem Plan fort; was bis dahin geöffnet und
+  eingehängt wurde, muss dasselbe sein, sonst endet der Lauf vor dem Restore. Ein
+  fortgesetzter Lauf behält `disks` des ersten.
 - **Fortsetzen in derselben Sitzung** nach sauberem Anhalten: Menüpunkt "Fortsetzen": öffnet
   und hängt wieder ein (ohne Partitionieren) und ruft `restic restore --overwrite if-changed`
   (vorhandene, richtige Dateien werden nur gelesen, nicht neu geladen).
@@ -2467,7 +2571,17 @@ aushängen, LUKS schließen.
   Sitzungsgeheimnis war nur im Speicher. Der Admin stellt einen neuen Code aus. `recover`
   erkennt die angefangene Wiederherstellung am Marker und bietet an, mit demselben Snapshot
   ohne Partitionieren fortzusetzen (LUKS mit der Passphrase öffnen, Arrays zusammensetzen,
-  `vgchange -ay --devices …`, einhängen). Das Angebot selbst stützt sich nur auf die
+  `vgchange -ay --devices …`, einhängen). Die **Zuordnung** eines fortgesetzten Plans folgt
+  den Signaturen auf den Platten, nicht Kennung und Größe der Hardware
+  (`PlanOptions.Resume`, `mapResume`): Quellplatte d0 gehört zu der Zielplatte, die ihre
+  Kennungen trägt, gleich welche Platte der Bediener im ersten Lauf gewählt hat und wie viele
+  freie Platten daneben stecken. Platten ohne eigene Tabelle, die sich Kennungen teilen
+  (Mitglieder eines Arrays oder eines btrfs), nehmen die Träger der Reihe nach. Eine
+  Quellplatte, die keine Zielplatte trägt, gilt als "fehlt" (so war sie auch im ersten Lauf
+  zugeordnet, oder der Plan ist nicht lauffähig). Tragen zwei Zielplatten dieselben Kennungen
+  (die alte Platte neben der neuen), bleibt die zweite unbenutzt und ist ein
+  Identitätskonflikt. Die Frage nach der Zuordnung entfällt beim Fortsetzen; das Angebot
+  kommt darum **vor** jeder Frage zur Zuordnung. Das Angebot selbst stützt sich nur auf die
   Plattenkennung (GUID) des Manifests auf einer Zielplatte; die tragen auch die eigenen Platten
   des gesicherten Rechners und jede Platte, die eine frühere Wiederherstellung partitioniert hat.
   Es nennt darum nur den gewählten Snapshot und sagt, dass erst der Marker entscheidet. Den
@@ -2475,8 +2589,12 @@ aushängen, LUKS schließen.
   schreibt, den eigenen Marker eingeschlossen (`ResumeMarker` in `rootMounted`). Fehlt er oder
   gehört er zu einem anderen Snapshot oder Layout, scheitert das Einhängen der Wurzel: kein
   Restore, kein Programm des Ziels, kein Boot-Eintrag, kein Marker, Ergebnis `failed`, und die
-  Konsole sagt, dass ein neuer Start mit "Nein" auf das Angebot den Plan mit Löschen und
-  Bestätigung ergibt. Ohne den Marker würde sonst ein fremdes Dateisystem (etwa das des
+  Konsole sagt, dass ein neuer Start mit "Nein" auf das Angebot zur Frage führt, was mit jeder
+  Platte geschehen soll, und dass eine als Ziel gewählte Platte nach der Bestätigung gelöscht
+  wird (10.7, "Zielplatte mit einem Teil der Signaturen"). Das ist auch der Weg nach einem
+  Abbruch **zwischen dem Partitionieren und dem ersten Marker** (der Marker entsteht erst mit
+  der eingehängten Wurzel): Die Platte trägt dann die Tabelle der Sicherung und keinen Marker.
+  Ohne den Marker würde sonst ein fremdes Dateisystem (etwa das des
   kompromittierten Rechners) ohne Löschbestätigung überschrieben, und was nicht im Snapshot
   ist, bliebe stehen (`restic restore` ohne `--delete`). Nach einem **unsauberen** Ende (`cleanStop` nicht
   gesetzt) gilt immer `--overwrite always`: Nach einem Stromausfall gibt es auf XFS und bei
@@ -2532,8 +2650,23 @@ Für CI, Startprobe und Massenwiederherstellungen. Inhalt (JSON): `instanceUrl`,
 - `code` und `passphrase` im Klartext lehnt `--answers` ab, außer bei `fw_cfg`; vom Medium
   gelesen fragt `recover` beides interaktiv.
 - Vom Medium gelesen zeigt `recover` vor dem ersten Löschen 30 Sekunden lang Zielplatten
-  (Modell, Größe, Kennung) und Instanz an, abbrechbar mit jeder Taste.
+  (Modell, Größe, Kennung) und Instanz an, abbrechbar mit jeder Taste. "Jede Taste" heißt:
+  ein Tastendruck ohne Eingabetaste. Für die Dauer des Countdowns nimmt `recover` das
+  Terminal aus dem Zeilenmodus (`ICANON`, `ECHO` und `ISIG` aus, `VMIN` 1) und stellt die
+  Einstellungen danach wieder her; Strg+C kommt in dieser Zeit als Taste an und bricht ebenso
+  ab, ebenso eine Zeile, die vorher getippt und von keinem Dialog gelesen wurde. Nur die volle
+  Zeit ohne Taste, ohne Strg+C und ohne Ende des Laufs führt zum Löschen.
+- **Strg+C vor der Ausführung** bricht den Lauf ab (Ergebnis `cancelled`): Der Countdown und
+  jeder Dialog enden, kein Schritt beginnt mehr, und erst dann steht "Abgebrochen. Es wurde
+  nichts gelöscht." auf der Konsole. Ab der Übergabe an den Ausführer fragt Strg+C wie bisher,
+  ob abgebrochen werden soll (10.18).
+- `snapshotId` muss auf **genau einen** Snapshot passen, den der Code zurückholen darf (als
+  Präfix). Passt keiner oder mehr als einer, scheitert der Lauf, bevor etwas geplant oder
+  gelöscht ist; `recover` nimmt nie stattdessen den Snapshot des Codes (wer einen älteren
+  nennt, will genau den, etwa den letzten vor einem Einbruch).
 - Ohne `confirmErase` mit genau den Kennungen löscht auch der unbeaufsichtigte Modus nichts.
+  Kennungen in `diskMapping` und `confirmErase` müssen je genau eine Platte bezeichnen
+  (10.6); doppelte Einträge in `confirmErase` zählen nicht als Bestätigung.
   Ein Code mit `requireApproval: true` braucht auch unbeaufsichtigt die Freigabe (der
   CI-Treiber gibt sie über die API).
 
@@ -4580,7 +4713,8 @@ Karte und i18n im Web.
   - `adopted[]` sind Einträge `{kind, ref, targets, mounts}` (übernommene Einheit, ihre Quelle,
     die Zielplatten, die Einhängepunkte).
   - Schritte `{n, phase, kind, target, args, stdin, stdinSecret, reason}`. Phasen und Arten:
-    `prepare` (`release_holders`, `wipe`, `zero_range`), `partition` (`partition`, `part_label`,
+    `prepare` (`release_holders`, `wipe_partitions`, `wipe`, `zero_range`), `partition`
+    (`partition`, `part_label`,
     `pmbr_boot`), `md` (`md_create`, `md_assemble`), `luks` (`luks_format`, `luks_open`,
     `luks_refresh`), `lvm` (`pv_create`, `vg_create`, `lv_create`, `vg_activate` für ein
     übernommenes VG), `mkfs` (`mkfs`, `mkswap`, `btrfs_subvolume`, `btrfs_default`, `mount` und
@@ -4589,7 +4723,8 @@ Karte und i18n im Web.
     `lvm_devices`, `initramfs`, `grub_config`, `bootloader_bios`, `nvram`, `fallback_path`,
     `verify`).
   - `args[0]` ist ein Programm oder eine Operation, die `recover` selbst ausführt:
-    `release-holders`, `blkzero`, `fixup`, `mkdirs`, `swapfile`, `nvram`, `fallback-path`,
+    `release-holders`, `wipe-partitions`, `blkzero`, `fixup`, `mkdirs`, `swapfile`, `nvram`,
+    `fallback-path`,
     `verify` und `chroot-exec` (der Rest der Zeile läuft im wiederhergestellten System). Die
     Platzhalter `{snapshot}` und `{target_root}` füllt `recover`.
   - `secure_boot_disabled_by_choice` trägt `params.codes` (die Befunde, die mit Secure Boot
@@ -5166,6 +5301,95 @@ Prüfung, jeder Hinweis mit genau seinen Platzhaltern); `check-separate-works.te
   "?" und sagt, dass der Marker entscheidet. Die Tests (`TestExecuteResumeCheckBeforeMarker`,
   `TestRecoverAttendedResumeWithoutMarker`, im Job `agent-root` `TestRootResumeNeedsMarker` auf
   einem echten ext4) scheitern ohne die Änderung.
+
+- **Bestätigte Platten bleiben die bestätigten (nach dem Review ergänzt):** `recover` las die
+  Hardware genau einmal; Plan, Bestätigung und jeder Schritt nannten die Platten danach nur
+  über `/dev/<kname>`. Zwischen Bestätigung und erstem Schritt lagen der Countdown und die
+  Shell bei einem fremden Device-Mapper-Gerät, und kein Schritt (`wipefs`, `blkzero`,
+  `sfdisk`, `mkfs`, `mdadm --create`, `luksFormat`, `pvcreate`) verglich je eine Kennung. Kam
+  nach einem Ziehen, Stecken oder einer neuen Aufzählung eine andere Platte unter demselben
+  Namen hoch, schrieb `recover` auf eine Platte, die niemand bestätigt hatte. Jetzt gibt es
+  den Wächter (10.6): zweiter Scan nach dem letzten Dialog mit Vergleich jedes Geräts,
+  Festhalten der zugeordneten Platten mit offenem Deskriptor, Prüfung vor **jedem** Schritt
+  (Gerätenummer hinter dem Pfad, Größe, Kennung aus einem leichten Scan). Tests: `DiskGuard`
+  mit sieben Arten von Änderung, der Ausführer mit einem Wächter, der vor Schritt 4 ablehnt
+  (kein `blkzero`, kein `sfdisk`), der ganze Ablauf mit einer anderen Platte unter dem
+  bestätigten Namen (vor dem ersten Schritt, mitten im Lauf, in der Shell getauscht), und im
+  Job `agent-root` `TestRootGuardKeepsTheConfirmedDisk` auf Loop-Geräten: Der Name zeigt nach
+  der Bestätigung auf ein Abbild mit einem ext4, der Lauf endet vor Schritt 1 und das ext4
+  bleibt; ein festgehaltenes Loop-Gerät lässt sich nicht an eine andere Datei binden. Alle
+  scheitern ohne die Änderung.
+- **Der Scan schreibt nicht mehr (nach dem Review ergänzt, weicht von 10.6 alt ab):** Der Scan
+  schrieb auf jeder Platte ohne erkannte Signatur das erste und letzte MiB zurück, vor jeder
+  Bestätigung und auch auf Platten, die der Plan nie zuordnet (Wechseldatenträger, SAN-LUNs,
+  Platten mit Inhalt, den `blkid` nicht kennt; Lesen und Zurückschreiben ohne Ausschluss
+  anderer Schreiber). Jetzt liest der Scan nur; geschrieben wird die Probe nach der
+  Bestätigung und dem Wächter, nur auf den Platten, die gelöscht werden.
+  `TestRootScanDoesNotWrite` (Job `agent-root`) zählt die geschriebenen Sektoren eines
+  Loop-Geräts in sysfs über den Scan und scheitert ohne die Änderung.
+- **Eine Kennung, eine Platte (nach dem Review ergänzt):** Zwei Platten mit derselben
+  Seriennummer bekamen dieselbe Kennung; `answers.diskMapping` nahm still die letzte,
+  `confirmErase` und die getippten vier Zeichen bestätigten mit derselben Zeichenkette jede
+  der beiden. Jetzt wie in 10.6 beschrieben: `by-path` oder keine Kennung für die
+  betroffenen Geräte, Ablehnung der geteilten Kennung in den Antworten (Code
+  `mapping_invalid`, bzw. keine Bestätigung), keine Bestätigung für eine Platte ohne Kennung,
+  und der Planer ordnet über eine Kennung nur zu, wenn genau eine freie Zielplatte sie trägt.
+  Tests: `TestBuildTargetSharedIdentity`, `TestConfirmIdentityNamesOneDisk`,
+  `TestRecoverSharedIdentityIsRefused`, `TestSharedIdentityIsNotMappedAutomatically`.
+- **Countdown und Strg+C (nach dem Review ergänzt):** Der Countdown wartete auf eine ganze
+  Zeile; eine Taste ohne Eingabetaste erreichte ihn nie. Strg+C druckte "Abgebrochen. Es wurde
+  nichts gelöscht." und beendete den Countdown nicht: Danach wurde gelöscht. Jetzt wie in
+  10.20: Terminal für die Wartezeit ohne Zeilenmodus, eine Taste genügt, Einstellungen danach
+  wieder wie zuvor; Strg+C vor der Ausführung bricht den Lauf wirklich ab, und die Übergabe an
+  den Ausführer prüft unter derselben Sperre, dass kein Abbruch gemeldet wurde. Der Leser der
+  Konsole liest dafür selbst (kein `bufio`), damit Dialoge und Countdown denselben Leser
+  teilen. Tests: `TestUIAnyKey`, `TestUIAnyKeyOnTerminal` (Pseudoterminal: eine Taste, Strg+C,
+  Escape; `termios` davor und danach gleich), `TestConfirmCountdown`,
+  `TestRecoverInterruptBeforeExecution`.
+- **Snapshot aus den Antworten (nach dem Review ergänzt):** Passte `answers.snapshotId` auf
+  keinen Snapshot, nahm `recover` still den des Codes und löschte. Jetzt genau ein Treffer
+  oder Abbruch vor dem Plan (`failed`, Code `step_failed` mit dem Grund im Text; ein eigener
+  Code braucht die Listen des Servers und ist für Phase 2 notiert). Endet der Dialog der
+  Snapshot-Wahl an der Konsole, wählt `recover` nichts an Stelle des Bedieners.
+  Tests: `TestChooseSnapshotFromAnswers`, `TestRecoverAnswersSnapshotMustExist`.
+- **Neustart nach Abbruch vor dem Marker, Fortsetzen nach einer Plattenwahl (nach dem Review
+  ergänzt):** (a) Brach der erste Lauf zwischen `sfdisk` und dem ersten Marker ab, übernahm der
+  nächste Plan die Platte wegen ihrer Disk-GUID, jede Einheit war `adopt_incomplete`, und kein
+  Weg an der Konsole führte zum Löschen; der Text nach einem Fortsetzen ohne Marker versprach
+  es trotzdem. Jetzt fragt `recover` bei `adopt_incomplete` die Zuordnung ab (10.7), das
+  Angebot zum Fortsetzen kommt davor, und die Texte sagen, was wirklich folgt. (b) Der Plan
+  des Fortsetzens entfernte die Signaturen des Manifests aus dem Ziel und ordnete mit leeren
+  Entscheidungen neu zu: Mit einer freien Platte mehr als Quellplatten war er nicht lauffähig
+  (`choice_required`), bei gleich großen Platten konnte er eine andere wählen als der
+  Bediener im ersten Lauf. Jetzt folgt die Zuordnung den Signaturen (`mapResume`, 10.18).
+  (c) Dabei fiel auf: Eine im ersten Lauf **übernommene** Platte war beim Fortsetzen von einer
+  geschriebenen nicht zu unterscheiden, ihre Einhängepunkte fehlten in `--exclude`, und der
+  zweite Lauf hätte die Dateien eines Dateisystems überschrieben, das nie bestätigt wurde. Der
+  Marker trägt darum `disks`, und der Restore läuft mit dem Plan aus dieser Zuordnung
+  (`resumedPlan`). Grenze: Ein übernommenes LUKS-Volume lässt sich beim Fortsetzen nicht
+  öffnen (der erste Plan des Fortsetzens kennt die Übernahme noch nicht und versucht die neue
+  Passphrase); der Lauf scheitert dann beim Öffnen, geschrieben wird nichts. Tests:
+  `TestResumeMappingFollowsTheSignatures`, `TestRecoverAfterInterruptionBeforeTheMarker`,
+  `TestRecoverResumeOnTheChosenDisk`, `TestResumedPlanKeepsTheAdoption`, `TestMarkerDisks`.
+- **Planer (nach dem Review ergänzt):** Bind-Mounts (`mounts[].root`, 4.2 und 10.12; vorher
+  hängte der Plan das ganze Dateisystem ein zweites Mal am Ziel des Bind-Mounts ein),
+  Swap-Dateien in der Mindestgröße (10.9), die Disk-Signatur eines MBR (`normUUID` entfernt
+  das `0x`, mit dem `sfdisk` sie schreibt und `blkid` nicht; vorher entging dem Planer jeder
+  Identitätskonflikt und jede Übernahme über die Kennung einer MBR-Platte), unmögliche
+  Partitionstabellen als `layout_unsupported` im Planer (10.9; nicht in `Validate`, denn das
+  Zod-Schema des Servers prüft dasselbe Manifest und bleibt unverändert, und ein Befund des
+  Plans erreicht Stufe 1 und die Konsole mit Grund), `wipe-partitions` und
+  `sfdisk --wipe-partitions always` (10.10). Golden Files: Jeder Plan mit Löschschritten
+  bekommt je Platte den Schritt `wipe_partitions` und die zwei Argumente von `sfdisk`; Pläne
+  von Systemen mit Swap-Datei bekommen größere Mindestgrößen (und auf dem minimalen Ziel
+  entsprechend größere Partitionen und `-N`); die vier Pläne des Fortsetzens haben als Ziel
+  jetzt Platten mit den Signaturen des ersten Laufs und die Zuordnung `resume`;
+  `bios-mbr-mdadm-raid1` (und die davon abgeleiteten `raid1-degraded`, `plan-mbr-start63`)
+  hat einen Bind-Mount `/srv/data` nach `/var/www/data`, der im Plan nur als Einhängepunkt in
+  `mkdirs` erscheint; vier Erfassungen mit btrfs tragen `root` je Subvolume. Im Job
+  `agent-root` zeigt `TestRootWipePartitions` auf einem Loop-Gerät mit Partitionen, dass ein
+  ext4 bei 40 MiB `wipefs` auf der Platte und das Nullen der Enden übersteht und mit dem
+  neuen Schritt verschwindet.
 
 ### 26.12 Zurückgestellt (M4)
 

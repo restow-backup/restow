@@ -39,7 +39,8 @@ func TestBuildTarget(t *testing.T) {
 		{"nvme-sata", "/dev/nvme0n1=eui.0025385b71b0e1a2 /dev/sda=wwn.5000c500a1b2c3d4", "", []string{"/dev/sdb:live_medium"}},
 		{"nvme-two-ns", "/dev/nvme0n1=serial.S1-1 /dev/nvme0n2=serial.S1-2", "", nil},
 		{"hidden-nvme", "/dev/nvme0n1=serial.S1-1", "", []string{"/dev/nvme0c0n1:hidden_nvme_path"}},
-		{"multipath", "/dev/sdc=wwn.600a0b8000112233 /dev/sdk=wwn.600a0b8000112233", "", nil},
+		// Two paths to one LUN report one WWN: it names neither node.
+		{"multipath", "/dev/sdc= /dev/sdk=", "", []string{"/dev/sdc:identity_shared", "/dev/sdk:identity_shared"}},
 		{"mmc", "/dev/mmcblk0=serial.0x1234", "", []string{"/dev/mmcblk0boot0:mmc_boot_or_rpmb", "/dev/mmcblk0boot1:mmc_boot_or_rpmb", "/dev/mmcblk0rpmb:mmc_boot_or_rpmb"}},
 		{"zoned-ro", "/dev/sdd=wwn.5000000000000004", "", []string{"/dev/sda:zoned", "/dev/sdb:read_only", "/dev/sdc:zero_size"}},
 		{"san", "/dev/sda=wwn.5000000000000011 /dev/sdb=wwn.5000000000000012 /dev/sdc=wwn.5000000000000013", "", nil},

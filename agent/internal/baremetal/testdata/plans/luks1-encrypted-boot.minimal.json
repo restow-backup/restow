@@ -125,14 +125,27 @@
     },
     {
       "args": [
+        "wipe-partitions",
+        "/dev/sda"
+      ],
+      "kind": "wipe_partitions",
+      "n": 2,
+      "phase": "prepare",
+      "reason": "remove the signatures on every partition /dev/sda has now",
+      "stdin": null,
+      "stdinSecret": null,
+      "target": "/dev/sda"
+    },
+    {
+      "args": [
         "wipefs",
         "-a",
         "/dev/sda"
       ],
       "kind": "wipe",
-      "n": 2,
+      "n": 3,
       "phase": "prepare",
-      "reason": "remove the signatures of the old content of /dev/sda (its partitions first)",
+      "reason": "remove the partition table and the signatures of /dev/sda",
       "stdin": null,
       "stdinSecret": null,
       "target": "/dev/sda"
@@ -145,7 +158,7 @@
         "/dev/sda"
       ],
       "kind": "zero_range",
-      "n": 3,
+      "n": 4,
       "phase": "prepare",
       "reason": "zero the first and last 16 MiB of /dev/sda",
       "stdin": null,
@@ -158,10 +171,12 @@
         "--no-reread",
         "--wipe",
         "always",
+        "--wipe-partitions",
+        "always",
         "/dev/sda"
       ],
       "kind": "partition",
-      "n": 4,
+      "n": 5,
       "phase": "partition",
       "reason": "recreate the GPT of d0 with its identifiers (PARTUUIDs stay)",
       "stdin": "label: gpt\nlabel-id: E8F90A1B-2C3D-4E4F-5061-72839405A6B7\nunit: sectors\nsector-size: 512\n\n/dev/sda1 : start=2048, size=2048, type=21686148-6449-6E6F-744E-656564454649, uuid=ad000000-0000-4000-8000-000000000001\n/dev/sda2 : start=4096, size=268382208, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4, uuid=ad000000-0000-4000-8000-000000000002\n",
@@ -192,7 +207,7 @@
         "/dev/sda2"
       ],
       "kind": "luks_format",
-      "n": 5,
+      "n": 6,
       "phase": "luks",
       "reason": "create LUKS volume c0 with a new master key and its UUID",
       "stdin": null,
@@ -209,7 +224,7 @@
         "sda2_crypt"
       ],
       "kind": "luks_open",
-      "n": 6,
+      "n": 7,
       "phase": "luks",
       "reason": "open c0 under its crypttab name",
       "stdin": null,
@@ -228,7 +243,7 @@
         "/dev/mapper/sda2_crypt"
       ],
       "kind": "pv_create",
-      "n": 7,
+      "n": 8,
       "phase": "lvm",
       "reason": "create the physical volume with its UUID",
       "stdin": null,
@@ -246,7 +261,7 @@
         "/dev/mapper/sda2_crypt"
       ],
       "kind": "vg_create",
-      "n": 8,
+      "n": 9,
       "phase": "lvm",
       "reason": "create the volume group vg",
       "stdin": null,
@@ -266,7 +281,7 @@
         "vg"
       ],
       "kind": "lv_create",
-      "n": 9,
+      "n": 10,
       "phase": "lvm",
       "reason": "create LV vg/root",
       "stdin": null,
@@ -286,7 +301,7 @@
         "vg"
       ],
       "kind": "lv_create",
-      "n": 10,
+      "n": 11,
       "phase": "lvm",
       "reason": "create LV vg/swap",
       "stdin": null,
@@ -318,7 +333,7 @@
         "/dev/vg/root"
       ],
       "kind": "mkfs",
-      "n": 11,
+      "n": 12,
       "phase": "mkfs",
       "reason": "create ext4 f0 with its UUID and recorded features",
       "stdin": null,
@@ -333,7 +348,7 @@
         "/dev/vg/swap"
       ],
       "kind": "mkswap",
-      "n": 12,
+      "n": 13,
       "phase": "mkfs",
       "reason": "create the swap area with its UUID",
       "stdin": null,
@@ -349,7 +364,7 @@
         "{target_root}"
       ],
       "kind": "mount",
-      "n": 13,
+      "n": 14,
       "phase": "mount",
       "reason": "mount f0 at /",
       "stdin": null,
@@ -372,7 +387,7 @@
         "{snapshot}"
       ],
       "kind": "restore",
-      "n": 14,
+      "n": 15,
       "phase": "restore",
       "reason": "restore the files of the snapshot",
       "stdin": null,
@@ -389,7 +404,7 @@
         "/tmp:1777"
       ],
       "kind": "mkdirs",
-      "n": 15,
+      "n": 16,
       "phase": "post",
       "reason": "create mount points and API folders that the snapshot may lack",
       "stdin": null,
@@ -403,7 +418,7 @@
         "crypttab"
       ],
       "kind": "fixup",
-      "n": 16,
+      "n": 17,
       "phase": "post",
       "reason": "rewrite device references in /etc/crypttab",
       "stdin": null,
@@ -417,7 +432,7 @@
         "cmdline"
       ],
       "kind": "fixup",
-      "n": 17,
+      "n": 18,
       "phase": "post",
       "reason": "rewrite device references in /etc/default/grub",
       "stdin": null,
@@ -431,7 +446,7 @@
         "fstab"
       ],
       "kind": "fixup",
-      "n": 18,
+      "n": 19,
       "phase": "post",
       "reason": "rewrite device references in /etc/fstab",
       "stdin": null,
@@ -445,7 +460,7 @@
         "resume"
       ],
       "kind": "fixup",
-      "n": 19,
+      "n": 20,
       "phase": "post",
       "reason": "rewrite device references in /etc/initramfs-tools/conf.d/resume",
       "stdin": null,
@@ -459,7 +474,7 @@
         "grub_install_devices"
       ],
       "kind": "fixup",
-      "n": 20,
+      "n": 21,
       "phase": "post",
       "reason": "rewrite device references in /var/cache/debconf/config.dat",
       "stdin": null,
@@ -473,7 +488,7 @@
         "/dev/sda2"
       ],
       "kind": "keyfile",
-      "n": 21,
+      "n": 22,
       "phase": "post",
       "reason": "create a new key file and add it as a second key slot",
       "stdin": null,
@@ -489,7 +504,7 @@
         "6.1.0-27-amd64"
       ],
       "kind": "initramfs",
-      "n": 22,
+      "n": 23,
       "phase": "post",
       "reason": "rebuild the initramfs of 6.1.0-27-amd64 with MODULES=most",
       "stdin": null,
@@ -504,7 +519,7 @@
         "/boot/grub/grub.cfg"
       ],
       "kind": "grub_config",
-      "n": 23,
+      "n": 24,
       "phase": "post",
       "reason": "write the GRUB configuration",
       "stdin": null,
@@ -520,7 +535,7 @@
         "/dev/sda"
       ],
       "kind": "bootloader_bios",
-      "n": 24,
+      "n": 25,
       "phase": "post",
       "reason": "install the BIOS boot code of GRUB",
       "stdin": null,
@@ -532,7 +547,7 @@
         "verify"
       ],
       "kind": "verify",
-      "n": 25,
+      "n": 26,
       "phase": "post",
       "reason": "check the restored system (identities, fstab, boot files)",
       "stdin": null,

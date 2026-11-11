@@ -39,7 +39,7 @@ type RestorePlan struct {
 // names what recover feeds on stdin (passphrase, old_passphrase, keyfile).
 // The tokens {snapshot} and {target_root} in Args are filled in by
 // recover. Args starting with a name that is not a program (release-holders,
-// blkzero, pmbr-boot, fixup, mkdirs, swapfile, keyfile, nvram,
+// wipe-partitions, blkzero, pmbr-boot, fixup, mkdirs, swapfile, keyfile, nvram,
 // fallback-path, mok-import, selinux, verify, chroot-exec) are operations
 // recover carries out itself (agent/internal/recovery, ops_linux.go); the
 // token {kernelopts} is the kernel command line after the fixups.
@@ -88,7 +88,10 @@ type PlanOptions struct {
 	// new recovery. A resumed plan erases, partitions and formats nothing;
 	// it assembles, opens, activates and mounts what the first run created
 	// and restores again (if-changed after a clean stop, always after an
-	// unclean one, plus a second pass over the system paths).
+	// unclean one, plus a second pass over the system paths). Its mapping
+	// follows the identities on the target disks (the disks the first run
+	// wrote), not identity and size of the hardware: the target must carry
+	// its signatures (mapper.mapResume).
 	Resume string
 }
 
@@ -215,6 +218,11 @@ func (pl *planner) run() {
 		pl.add(newFinding(ProblemLayoutUnsupported, "", "reason", strings.Join(uniqueSorted(codes), ", "), "codes", uniqueSorted(codes)))
 		return
 	}
+	// A partition table that cannot exist: no steps, nothing to map.
+	if tf := pl.x.tableFindings(); len(tf) > 0 {
+		pl.add(tf...)
+		return
+	}
 	pl.add(pl.x.raidGeometryFindings()...)
 	pl.checkReservedLabels()
 	pl.checkFirmwareMode()
@@ -223,7 +231,7 @@ func (pl *planner) run() {
 		minimum[d.Disk] = d.MinBytes
 	}
 	mp := &mapper{x: pl.x, t: pl.t, c: pl.c, assign: map[string]*DiskAssignment{}, targets: map[string]*TargetDisk{},
-		used: map[string]string{}, adopted: map[string]bool{}}
+		used: map[string]string{}, adopted: map[string]bool{}, resume: pl.resume != ""}
 	for i := range pl.t.Disks {
 		mp.targets[pl.t.Disks[i].ID] = &pl.t.Disks[i]
 	}
@@ -985,7 +993,12 @@ func (pl *planner) steps() {
 	for _, d := range erased {
 		dev := pl.devPath(DiskRef(d.ID))
 		pl.step("prepare", "release_holders", dev, []string{"release-holders", dev}, nil, "", "stop everything that holds "+dev+" (mounts, swap, LVM, md, dm)")
-		pl.step("prepare", "wipe", dev, []string{"wipefs", "-a", dev}, nil, "", "remove the signatures of the old content of "+dev+" (its partitions first)")
+		// The signatures on the partitions the disk has now go first: wipefs
+		// on the disk sees only the table, and what lies beyond the zeroed
+		// 16 MiB would show again in a new partition at the same place.
+		// Only recover knows these partitions (the operation lists them).
+		pl.step("prepare", "wipe_partitions", dev, []string{"wipe-partitions", dev}, nil, "", "remove the signatures on every partition "+dev+" has now")
+		pl.step("prepare", "wipe", dev, []string{"wipefs", "-a", dev}, nil, "", "remove the partition table and the signatures of "+dev)
 		pl.step("prepare", "zero_range", dev, []string{"blkzero", "--head=16777216", "--tail=16777216", dev}, nil, "", "zero the first and last 16 MiB of "+dev)
 	}
 	// partition
@@ -1083,7 +1096,10 @@ func (pl *planner) partitionSteps(d *Disk, pd PlannedDisk) {
 		fmt.Fprintf(&b, "%s : %s\n", partPath(dev, pp.Number), strings.Join(fields, ", "))
 	}
 	script := b.String()
-	pl.step("partition", "partition", dev, []string{"sfdisk", "--no-reread", "--wipe", "always", dev}, &script, "",
+	// --wipe-partitions always: sfdisk clears old signatures at the start
+	// and end of every new partition (the default, auto, does so only when
+	// asked at a terminal).
+	pl.step("partition", "partition", dev, []string{"sfdisk", "--no-reread", "--wipe", "always", "--wipe-partitions", "always", dev}, &script, "",
 		"recreate the "+strings.ToUpper(d.Table.Type)+" of "+d.ID+" with its identifiers (PARTUUIDs stay)")
 	for _, l := range labels {
 		pl.step("partition", "part_label", dev, []string{"sfdisk", "--part-label", dev, itoa(l.n), l.name}, nil, "", "set the name of partition "+itoa(l.n))
@@ -1578,6 +1594,10 @@ func (pl *planner) postSteps() {
 	dirs := []string{"mkdirs", "/proc:0555", "/sys:0555", "/dev:0755", "/run:0755", "/tmp:1777"}
 	var targets []string
 	for _, ts := range x.mounts {
+		targets = append(targets, ts...)
+	}
+	// The targets of bind mounts too: fstab mounts them at the first start.
+	for _, ts := range x.binds {
 		targets = append(targets, ts...)
 	}
 	for _, t := range uniqueSorted(targets) {

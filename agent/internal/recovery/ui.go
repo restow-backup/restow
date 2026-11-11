@@ -1,7 +1,6 @@
 package recovery
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -9,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 )
@@ -39,6 +39,10 @@ type UI struct {
 
 	once     sync.Once
 	ch       chan lineMsg
+	keys     chan struct{}
+	anyKey   atomic.Bool
+	stopOnce sync.Once
+	stop     chan struct{}
 	mu       sync.Mutex
 	lastProg time.Time
 	inProg   bool
@@ -49,43 +53,97 @@ type lineMsg struct {
 	err error
 }
 
-// lines is fed by one goroutine that reads the input line by line, so a
-// watcher (the cancel key during the restore) and the dialogs share it
-// without losing a line.
+// lines is fed by one goroutine that reads the input, so a watcher (the
+// cancel key during the restore, the key that stops the countdown) and
+// the dialogs share it without losing input. It hands out whole lines;
+// while AnyKey waits, every byte that arrives counts as a key press and
+// is dropped.
 func (u *UI) lines() chan lineMsg {
 	u.once.Do(func() {
 		u.ch = make(chan lineMsg)
-		rd := bufio.NewReader(u.In)
+		u.keys = make(chan struct{}, 1)
 		go func() {
+			buf := make([]byte, 4096)
+			var line []byte
 			for {
-				b, err := rd.ReadBytes('\n')
-				if err != nil && (len(b) == 0 || !errors.Is(err, io.EOF)) {
-					zero(b)
-					u.ch <- lineMsg{err: err}
-					if errors.Is(err, io.EOF) {
-						for {
-							u.ch <- lineMsg{err: err}
+				n, err := u.In.Read(buf)
+				for _, c := range buf[:n] {
+					if u.anyKey.Load() {
+						zero(line)
+						line = nil
+						select {
+						case u.keys <- struct{}{}:
+						default:
 						}
+						continue
 					}
-					return
+					line = append(line, c)
+					if c == '\n' {
+						u.ch <- lineMsg{b: line}
+						line = nil
+					}
 				}
-				u.ch <- lineMsg{b: b}
+				zero(buf[:n])
+				if err == nil {
+					continue
+				}
+				// The end of the input closes a last line without a line
+				// end; any other error drops what was typed so far.
+				if errors.Is(err, io.EOF) && len(line) > 0 {
+					u.ch <- lineMsg{b: line}
+				} else {
+					zero(line)
+				}
+				u.ch <- lineMsg{err: err}
+				if errors.Is(err, io.EOF) {
+					for {
+						u.ch <- lineMsg{err: err}
+					}
+				}
+				return
 			}
 		}()
 	})
 	return u.ch
 }
 
+func (u *UI) stopped() chan struct{} {
+	u.stopOnce.Do(func() { u.stop = make(chan struct{}) })
+	return u.stop
+}
+
+// Abort ends every dialog, the waiting one and those that follow, with
+// ErrAborted (Ctrl+C before the execution).
+func (u *UI) Abort() {
+	ch := u.stopped()
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	select {
+	case <-ch:
+	default:
+		close(ch)
+	}
+}
+
 // readBytes takes the next line (with its line end).
 func (u *UI) readBytes() ([]byte, error) {
-	m := <-u.lines()
-	if m.err != nil {
-		if errors.Is(m.err, io.EOF) {
-			return nil, ErrAborted
-		}
-		return nil, m.err
+	select {
+	case <-u.stopped():
+		return nil, ErrAborted
+	default:
 	}
-	return m.b, nil
+	select {
+	case m := <-u.lines():
+		if m.err != nil {
+			if errors.Is(m.err, io.EOF) {
+				return nil, ErrAborted
+			}
+			return nil, m.err
+		}
+		return m.b, nil
+	case <-u.stopped():
+		return nil, ErrAborted
+	}
 }
 
 // TryLine waits for a line until ctx ends; ok is false then.
@@ -99,6 +157,45 @@ func (u *UI) TryLine(ctx context.Context) (string, bool) {
 		return strings.TrimRight(string(m.b), "\r\n"), true
 	case <-ctx.Done():
 		return "", false
+	}
+}
+
+// AnyKey waits until ctx ends for a key press and reports whether one
+// came. On a terminal it turns line input, echo and the signal keys off
+// for the wait, so one key is enough, without Enter, and Ctrl+C is a key
+// like any other; the settings are restored before it returns. Input
+// that is no terminal (a pipe) counts with its first byte. A line that
+// was typed ahead and that no dialog has taken counts as a key press too
+// (the reader holds it and would read no key behind it). The end of the
+// input is no key press.
+func (u *UI) AnyKey(ctx context.Context) bool {
+	lines := u.lines()
+	// A key that ended an earlier wait does not count for this one.
+	select {
+	case <-u.keys:
+	default:
+	}
+	u.anyKey.Store(true)
+	restore := rawKeys(u.In)
+	defer func() {
+		restore()
+		u.anyKey.Store(false)
+	}()
+	for {
+		select {
+		case <-u.keys:
+			return true
+		case m := <-lines:
+			if m.err == nil {
+				zero(m.b)
+				return true
+			}
+			// The input ended: nothing more can be typed.
+			<-ctx.Done()
+			return false
+		case <-ctx.Done():
+			return false
+		}
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // Format and SchemaVersion of the manifest (contract C1).
@@ -501,16 +502,37 @@ type Swap struct {
 	ResumeOffset *int64    `json:"resumeOffset"`
 }
 
-// Mount is an entry of /proc/self/mountinfo.
+// Mount is an entry of /proc/self/mountinfo. Root is the path inside the
+// file system that is mounted (the fourth field) when it is not the root
+// of the file system: the subvolume of a btrfs mount, or the folder of a
+// bind mount. A bind mount shows a part of a file system a second time;
+// the planner does not mount the file system there (IsBind).
 type Mount struct {
 	Target   string  `json:"target"`
 	FS       *string `json:"fs"`
 	Source   string  `json:"source"`
 	Type     string  `json:"type"`
 	Options  string  `json:"options"`
+	Root     string  `json:"root,omitempty"`
 	Subvol   *string `json:"subvol"`
 	SubvolID *int64  `json:"subvolId"`
 	Autofs   bool    `json:"autofs"`
+}
+
+// IsBind reports whether the mount shows only a folder of its file system
+// (mount --bind of a sub-directory): its root is neither the root of the
+// file system nor, on btrfs, the mounted subvolume. A btrfs mount whose
+// subvolume is not recorded is taken as a mount (its root may be the
+// subvolume).
+func (mo *Mount) IsBind() bool {
+	root := strings.TrimSuffix(mo.Root, "/")
+	if root == "" {
+		return false
+	}
+	if mo.Subvol != nil {
+		return root != strings.TrimSuffix("/"+strings.TrimPrefix(*mo.Subvol, "/"), "/")
+	}
+	return mo.Type != "btrfs"
 }
 
 // FstabEntry is a line of /etc/fstab or a systemd mount/swap unit.
