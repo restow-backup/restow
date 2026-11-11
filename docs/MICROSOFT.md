@@ -389,8 +389,10 @@ Zustand und lässt ihn nachträglich bestätigen, bei IMAP setzt ihn die Antwort
 - Versionen: `/items/{id}/versions` optional (Kosten!), v1 sichert die aktuelle
   Version je Snapshot; Snapshots liefern die Historie.
 - Restore: Upload-Session `createUploadSession` für alles über 4 MB, Chunks 5 bis
-  60 MiB, Vielfache von 320 KiB. Konflikte: `@microsoft.graph.conflictBehavior`
-  rename/replace wählbar. mtime setzen über `fileSystemInfo`. Ein Fragment, das scheitert
+  60 MiB, Vielfache von 320 KiB. Konflikte: „Beide behalten“
+  (`@microsoft.graph.conflictBehavior` rename) oder „Vorhandene überspringen“ (fail); ersetzt
+  wird nie: Die API lehnt „replace“ für ein OneDrive ab, und die Engine führt einen gespeicherten
+  Auftrag mit „replace“ als „rename“ aus (`oneDriveRestoreMode`). mtime setzen über `fileSystemInfo`. Ein Fragment, das scheitert
   (5xx, abgebrochene Verbindung, keine Antwort, 416 nach einem erneut gesendeten Fragment),
   beendet die Datei nicht: Restow fragt die Session (`GET` auf die `uploadUrl`) nach
   `nextExpectedRanges` und sendet nur, was ihr fehlt, bis zu sechs Versuche je Fragment mit
@@ -608,7 +610,10 @@ Elemente.
   Auftrag (kein Grund nötig), Websites sehen nur Wiederherstellungsoperatoren und Administratoren.
 
 **Restore-Prüfung.** Die Stichprobe liest Dateien der Bibliotheken eines Sicherungsstands zurück
-wie bei OneDrive (bis zu 20, Hash gegen Manifest); Listenelemente sind nicht Teil der Stichprobe.
+wie bei OneDrive (bis zu 20, Hash gegen Manifest). Dazu zieht sie die eigenen JSON-Objekte der
+Website (`site.json`, die Schemata der Listen und die Listenelemente) als Kategorie `site` mit einem
+Viertel der Hauptmenge, also bis zu 5, und liest sie gegen ihr Manifest zurück
+(`packages/core/src/verify/sampling.ts`). In ein Prüfziel wiederhergestellt werden sie nie.
 
 **Benachrichtigungen.** Keine neuen Ereignisse: `backup.failed`, `backup.succeeded` und
 `backup.overdue` gelten für Websites wie für Postfächer, mit der Website als Objekt.

@@ -450,17 +450,37 @@ describe("failures after migrations ran or with an unknown migration state: need
     expect(failed?.details).toMatchObject({ outcome: "needs_attention", dumpFile: dumps[0]?.file });
   });
 
-  // The install dialog says so without a condition ("If the new version does not start, the
-  // previous version is restored automatically.", packages/i18n updates.json,
-  // install.effects.rollback); docs/UPDATING.md limits the rollback to an update whose
-  // migrations had not run, and so does the updater (the test above). Parked as the failing
-  // expectation of docs/CLAIMS.md, UPDATE-008.
-  it.fails("restores the previous version automatically when the new version does not start, also after its migrations ran [UPDATE-008]", async () => {
-    apiAt(h, NEW_APP, { kind: "never", migrates: 3 });
-    const result = await run();
-
-    expect(result.outcome).toBe("rolled_back");
+  // What the install dialog promises (packages/i18n updates.json, install.effects.rollback):
+  // an automatic rollback only while no database migration has run; after that the
+  // application stops and the dump stays for a restore by hand.
+  it("rolls back by itself before any migration, and after migrations stops the application and keeps the dump [UPDATE-008]", async () => {
+    // Before any migration: the previous version runs again, with nothing left to do by hand.
+    apiAt(h, NEW_APP, { kind: "never" });
+    const early = await run();
+    expect(early.outcome).toBe("rolled_back");
+    expect(early.failure).toMatchObject({ migrationsRan: false });
+    expect(early.recovery).toBeNull();
     expect(h.ops.containers.get("api")).toMatchObject({ state: "running", image: OLD_APP });
+    expect(h.ops.containers.get("worker")).toMatchObject({ state: "running", image: OLD_APP });
+    expect(await h.readEnv()).toBe(DEFAULT_ENV);
+
+    // After its migrations: no rollback onto the migrated database. The api, the worker and
+    // the scheduler stop, and the backup taken before the update is kept for the restore.
+    await h.cleanup();
+    h = await createHarness();
+    apiAt(h, NEW_APP, { kind: "never", migrates: 2 });
+    const late = await run();
+    expect(late.outcome).toBe("needs_attention");
+    expect(late.failure).toMatchObject({ migrationsRan: true });
+    for (const service of ["api", "worker", "scheduler"]) {
+      expect(h.ops.containers.get(service)?.state).toBe("exited");
+    }
+    const dumps = await h.dumps.list();
+    expect(dumps).toHaveLength(1);
+    expect(late.recovery).toMatchObject({
+      dumpFile: dumps[0]?.file,
+      previousImages: { app: OLD_APP, web: OLD_WEB },
+    });
   });
 
   it("keeps the dump a needs_attention run needs until a later run has been made [UPDATE-005]", async () => {

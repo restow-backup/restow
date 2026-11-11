@@ -417,7 +417,7 @@
       "title": "What will happen",
       "downtime": "The application is unavailable for a short time while the services restart.",
       "backup": "A database backup is taken first. The last three backups are kept.",
-      "rollback": "If the new version does not start, the previous version is restored automatically.",
+      "rollback": "If the new version does not start before its database migrations have run, the previous version is restored automatically. If it fails after them, the api, the worker and the scheduler are stopped and the database backup is kept, so you can restore it by hand.",
       "countdown": "Everyone who is signed in sees a countdown, and a notice while the update runs.",
       "modeImage": "The release image is downloaded from the registry.",
       "modeSource": "The release is built on this server from the repository at tag {tag}. This takes longer than a download.",
@@ -737,7 +737,7 @@
     "switch": {
       "title": "Switch to the full build",
       "description": "Moves this installation to the full images of the version it runs now.",
-      "updater": "The updater installs the full images of version {version}, checked against the release signature, after a database backup, and rolls back if they do not start.",
+      "updater": "The updater installs the full images of version {version}, checked against the release signature, after a database backup. If they do not start before the database migrations have run, it rolls back; if they fail after them, it stops the api, the worker and the scheduler and keeps the backup, so you can restore it by hand.",
       "button": "Switch to the full build",
       "busy": "An update is announced or running. Switch when it has finished.",
       "manual": "Switch by hand on the server, in the folder that holds docker-compose.yml: set these two lines in the .env file, then pull the images and recreate the services.",

@@ -417,7 +417,7 @@
       "title": "Das passiert",
       "downtime": "Die Anwendung ist kurz nicht erreichbar, während die Dienste neu starten.",
       "backup": "Zuerst wird die Datenbank gesichert. Die letzten drei Sicherungen bleiben erhalten.",
-      "rollback": "Startet die neue Version nicht, wird automatisch die vorherige Version wiederhergestellt.",
+      "rollback": "Startet die neue Version nicht, bevor ihre Datenbankmigrationen gelaufen sind, wird automatisch die vorherige Version wiederhergestellt. Scheitert sie danach, werden api, worker und scheduler angehalten, und die Datenbanksicherung bleibt erhalten, damit Sie sie von Hand einspielen können.",
       "countdown": "Alle angemeldeten Personen sehen einen Countdown und, solange das Update läuft, einen Hinweis.",
       "modeImage": "Das Release-Image wird aus der Registry heruntergeladen.",
       "modeSource": "Das Release wird auf diesem Server aus dem Repository am Tag {tag} gebaut. Das dauert länger als ein Download.",
@@ -737,7 +737,7 @@
     "switch": {
       "title": "Auf den vollen Build wechseln",
       "description": "Stellt diese Installation auf die vollen Images der Version um, die sie gerade ausführt.",
-      "updater": "Der Updater installiert die vollen Images der Version {version}, geprüft gegen die Release-Signatur, nach einer Datenbanksicherung, und setzt zurück, wenn sie nicht starten.",
+      "updater": "Der Updater installiert die vollen Images der Version {version}, geprüft gegen die Release-Signatur, nach einer Datenbanksicherung. Starten sie nicht, bevor die Datenbankmigrationen gelaufen sind, setzt er zurück; scheitern sie danach, hält er api, worker und scheduler an und behält die Sicherung, damit Sie sie von Hand einspielen können.",
       "button": "Auf den vollen Build wechseln",
       "busy": "Ein Update ist angekündigt oder läuft. Wechseln Sie, wenn es abgeschlossen ist.",
       "manual": "Wechseln Sie von Hand auf dem Server, im Ordner mit der docker-compose.yml: Setzen Sie diese zwei Zeilen in der .env-Datei, laden Sie dann die Images und erstellen Sie die Dienste neu.",

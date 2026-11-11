@@ -89,6 +89,19 @@ describe("switching a Community installation to the full build", () => {
     expect(await h.readEnv()).toBe(COMMUNITY_ENV);
   });
 
+  it("stops the application and keeps the dump when the full build fails after its migrations [UPDATE-008]", async () => {
+    h = await createHarness({ imageVariant: "community" });
+    apiAt(h, FULL_APP, { kind: "never", migrates: 1 });
+    await h.engine.schedule(switchRequest());
+    await settle(h.engine);
+    const run = h.engine.view().run;
+    expect(run?.outcome).toBe("needs_attention");
+    for (const service of ["api", "worker", "scheduler"]) {
+      expect(h.ops.containers.get(service)?.state).toBe("exited");
+    }
+    expect(run?.recovery?.dumpFile).toBe((await h.dumps.list())[0]?.file);
+  });
+
   it("refuses to switch a full installation (no way back to Community)", async () => {
     h = await createHarness();
     await expect(h.engine.schedule(switchRequest())).rejects.toMatchObject({

@@ -24,8 +24,10 @@ Known Issues.
 
 ## What it does
 
-- **Backup** of Exchange Online (mail, calendar, contacts) and OneDrive through
-  Microsoft Graph, incremental via delta queries, and of any IMAP mailbox.
+- **Backup** of Exchange Online (mail, calendar, contacts), OneDrive, SharePoint
+  sites (with the files of Teams channels) and the calendars and conversations of
+  Microsoft 365 groups through Microsoft Graph, incremental via delta queries, and
+  of any IMAP mailbox, Gmail and Google Workspace included.
   Graph is the only Microsoft interface Restow uses; Exchange Web Services, which
   Microsoft switched off for Exchange Online on 1 October 2026, are not.
 - **Endpoint backup** of servers and clients with the Restow agent and restic:
@@ -58,7 +60,9 @@ Known Issues.
   machines shows the request as queued until the agent picks it up at its next
   check-in.
 - **Restore** of a single mail, a folder, a file, a file version or a whole
-  account, next to the original, never over it; or as a ZIP download. People
+  account, next to the original, never over it (a SharePoint site is the one
+  exception: there "Overwrite" is an explicit choice, and the library keeps the
+  overwritten file as an earlier version); or as a ZIP download. People
   with the role "user" restore only their own mailbox and OneDrive. File restore
   lists the machines with their restore points on one timeline by day and a
   jump to any date; mailboxes and OneDrive are restored in the restore explorer.
@@ -70,8 +74,9 @@ Known Issues.
   imported mail files go into an append-only store with a SHA-256 hash chain,
   chain verification and search over subject, extracted text and addresses (not
   attachments). Business adds enforced retention (fixed at 8 years in 0.3.0) and
-  legal hold, designed for GoBD-compliant use (not certified). Continuous
-  IMAP and Graph archive sync are not part of 0.3.0. On local and NFS
+  legal hold, designed for GoBD-compliant use (not certified), and captures mail
+  into the archive continuously from IMAP mailboxes and through Microsoft Graph
+  ([docs/IMAP.md](docs/IMAP.md), [docs/ARCHIVE.md](docs/ARCHIVE.md)). On local and NFS
   targets the archive's immutability is enforced by the application only, and on
   S3 with Object Lock 0.3.0 locks the archive item records but not the packs
   that hold the message content; see Known Issues in the changelog.
@@ -117,9 +122,11 @@ Known Issues.
   multi-selection to put several machines or mailboxes into a new job, full-width
   tables, German and English.
 
-Not included in 0.3.0: PST and OST import, PST and MSG export, a Windows agent,
-continuous IMAP and Graph archive sync, SharePoint, Teams, Google Workspace and
-public folders. The first backup of a large tenant can take days because
+Not included: PST and OST import, PST and MSG export, Teams channel and chat
+messages (Microsoft offers them only through metered Protected APIs), a backup of
+Google Workspace through its own APIs (its mailboxes are backed up over IMAP),
+public folders, and a macOS agent tested on a real Mac (it is built, but no test
+runs on macOS). The first backup of a large tenant can take days because
 Microsoft throttles Graph; Restow shows that wait instead of hiding it.
 
 ## Screenshots

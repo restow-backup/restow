@@ -208,7 +208,7 @@ Repository-Secrets eines Entwickler-Mandanten und wurde bisher in jedem Release 
 
 ### VERIFY-001
 - Aussage: Jede Wiederherstellungsprüfung zieht zufällig 20 Mails und 20 Dateien aus dem letzten Sicherungsstand, dazu je bis zu 5 Kalenderelemente, Kontakte und Website-Objekte (ein Viertel der Hauptmenge).
-- Fundstelle: docs/TESTING.md (Abschnitt „Restore-Beweis in Produktion“: „zufällig 20 Mails und 20 Dateien (dazu wenige Kalender- und Kontaktelemente)“), packages/core/src/verify/sampling.ts (`DEFAULT_SAMPLE_SIZE`)
+- Fundstelle: docs/TESTING.md (Abschnitt „Restore-Beweis in Produktion“: „zufällig 20 Mails und 20 Dateien (dazu wenige Kalender- und Kontaktelemente)“), docs/MICROSOFT.md (Abschnitt „SharePoint Online“, „Restore-Prüfung“), packages/core/src/verify/sampling.ts (`DEFAULT_SAMPLE_SIZE`)
 - Öffentliche Seite: nicht abgeglichen
 - Tests: packages/core/src/verify/sampling.test.ts, packages/core/src/verify/engine.test.ts, apps/worker/src/handlers/verify.test.ts
 - Belegt gegen: Logik (Einheitentest ohne Fremdsystem, Job test in ci.yml)
@@ -450,13 +450,12 @@ Repository-Secrets eines Entwickler-Mandanten und wurde bisher in jedem Release 
 - Stand: belegt
 
 ### RESTORE-002
-- Aussage: Eine Wiederherstellung überschreibt in OneDrive nie: Die API lehnt den Modus „replace“ für ein OneDrive ab und legt keinen Auftrag an. „Beide behalten“ legt die gesicherte Datei unter neuem Namen daneben, „Vorhandene überspringen“ lässt die Datei stehen.
-- Fundstelle: docs/MICROSOFT.md (Abschnitt „SharePoint Online“: „Postfächer und OneDrives ersetzen weiterhin nie“), docs/ARCHITECTURE.md (Abschnitt „Restore“), packages/i18n/resources/en/restore.json (`dialog.mode.renameDescriptionFiles`, `dialog.mode.skipDescription`)
+- Aussage: Eine Wiederherstellung überschreibt in OneDrive nie: Die API lehnt den Modus „replace“ für ein OneDrive ab und legt keinen Auftrag an, und die OneDrive-Engine führt einen gespeicherten Auftrag mit „replace“ als „rename“ aus und sagt das an jedem Element. „Beide behalten“ legt die gesicherte Datei unter neuem Namen daneben, „Vorhandene überspringen“ lässt die Datei stehen.
+- Fundstelle: docs/MICROSOFT.md (Abschnitte „OneDrive: Sichern und Wiederherstellen“ und „SharePoint Online“: „Postfächer und OneDrives ersetzen weiterhin nie“), docs/ARCHITECTURE.md (Abschnitt „Restore“), README.md (Abschnitt „What it does“, „Restore“), packages/i18n/resources/en/restore.json (`dialog.mode.renameDescriptionFiles`, `dialog.mode.skipDescription`)
 - Öffentliche Seite: nicht abgeglichen
 - Tests: apps/api/src/features/restore/restore.pg.test.ts, apps/api/src/routes/v1/restore.test.ts, packages/core/src/restore/onedrive.test.ts
 - Belegt gegen: Simulator (simulierte Graph-API, Job test in ci.yml; nie gegen einen echten Microsoft-365-Mandanten)
 - Stand: belegt
-- Hinweis: Die Sperre sitzt allein in der API. Die OneDrive-Engine selbst führt „replace“ aus (packages/core/src/restore/onedrive.ts, `conflictBehaviorFor`), anders als die Postfach- und die IMAP-Engine, die den Modus auf „rename“ umsetzen. Ein Auftrag, der an der API vorbei mit „replace“ in der Datenbank steht, würde überschreiben; docs/ARCHITECTURE.md nennt den Code „nicht erreichbar“. docs/MICROSOFT.md (Abschnitt „OneDrive: Sichern und Wiederherstellen“) nennt „rename/replace wählbar“ und widerspricht damit der Aussage.
 
 ### RESTORE-003
 - Aussage: Eine Wiederherstellung in ein IMAP-Konto ersetzt und löscht nichts: Die API lehnt „replace“ ab, vorhandene Nachrichten werden an ihrer Message-ID erkannt und in keinem Modus gelöscht.
@@ -484,7 +483,7 @@ Repository-Secrets eines Entwickler-Mandanten und wurde bisher in jedem Release 
 
 ### RESTORE-006
 - Aussage: „Überschreiben“ gibt es nur für SharePoint-Websites und nur als ausdrückliche Wahl; „Beide behalten“ legt die Datei unter neuem Namen daneben.
-- Fundstelle: docs/MICROSOFT.md (Abschnitt „SharePoint Online“, „Wiederherstellung“), packages/i18n/resources/en/restore.json (`dialog.mode.replaceDescriptionSite`, `dialog.mode.renameDescriptionSite`)
+- Fundstelle: docs/MICROSOFT.md (Abschnitt „SharePoint Online“, „Wiederherstellung“), README.md (Abschnitt „What it does“, „Restore“), packages/i18n/resources/en/restore.json (`dialog.mode.replaceDescriptionSite`, `dialog.mode.renameDescriptionSite`)
 - Öffentliche Seite: nicht abgeglichen
 - Tests: packages/core/src/restore/sharepoint.test.ts, apps/api/src/features/restore/schemas.test.ts
 - Belegt gegen: Simulator (simulierte Graph-API, Job test in ci.yml; nie gegen einen echten Microsoft-365-Mandanten)
@@ -833,14 +832,13 @@ Repository-Secrets eines Entwickler-Mandanten und wurde bisher in jedem Release 
 - Stand: belegt
 
 ### UPDATE-008
-- Aussage: Startet die neue Version nicht, wird automatisch die vorherige Version wiederhergestellt.
-- Fundstelle: packages/i18n/resources/en/updates.json (`install.effects.rollback`, Zeile 420; deutsch: packages/i18n/resources/de/updates.json, Zeile 420), derselbe Sinn in `install.switch.updater` („rolls back if they do not start“)
+- Aussage: Startet die neue Version nicht, bevor ihre Datenbankmigrationen gelaufen sind, wird automatisch die vorherige Version wiederhergestellt. Scheitert sie danach, werden api, worker und scheduler angehalten, und die Datenbanksicherung bleibt für eine Wiederherstellung von Hand erhalten. Dasselbe gilt für den Wechsel auf den vollen Build.
+- Fundstelle: packages/i18n/resources/en/updates.json (`install.effects.rollback`, `edition.switch.updater`), packages/i18n/resources/de/updates.json (dieselben Schlüssel), docs/UPDATING.md (Abschnitt „When something goes wrong“)
 - Öffentliche Seite: nicht abgeglichen
-- Tests: apps/api/src/updater/engine-failures.test.ts
+- Tests: apps/api/src/updater/engine-failures.test.ts, apps/api/src/updater/engine-switch.test.ts
 - Belegt gegen: Simulator (simulierte Docker-Engine und simulierte Signaturprüfung, Job test in ci.yml; der Nachweis gegen einen echten Docker-Daemon, scripts/updater-e2e/run.mjs, läuft in keinem Workflow)
-- Stand: Abweichung
-- Erwartung: Auch wenn die neue Version nach ihren Migrationen nicht startet, endet der Lauf als „rolled_back“, und die api läuft wieder mit dem vorherigen Image.
-- Abweichung: Der Dialog „What will happen“ verspricht das ohne Bedingung. Der Updater stellt die vorherige Version nur wieder her, solange keine Migration gelaufen ist (UPDATE-006). Danach endet der Lauf als „needs_attention“: api, worker und scheduler bleiben gestoppt, der Administrator spielt den Dump von Hand ein (apps/api/src/updater/engine.ts, Zeilen 1376 bis 1379: nur bei `migrationsRan === false` wird zurückgerollt, sonst `stopForAttention`; belegt durch UPDATE-007). docs/UPDATING.md beschreibt die Bedingung richtig, der Text des Dialogs nicht. Zu ändern wäre der Text, nicht das Verhalten.
+- Stand: belegt
+- Hinweis: Bis zum Commit bffb8ffb versprach der Dialog „What will happen“ das Zurücksetzen ohne Bedingung („If the new version does not start, the previous version is restored automatically.“), und der Eintrag stand auf „Abweichung“. Geändert wurde der Text, nicht das Verhalten.
 
 ### UPDATE-009
 - Aussage: Ein Update, dessen Dump, Images und Migrationen nicht auf die Platte passen, wird vor dem Start abgelehnt (Sperrgrund `disk_space`).
@@ -1027,13 +1025,12 @@ Repository-Secrets eines Entwickler-Mandanten und wurde bisher in jedem Release 
 ## Alarme und Benachrichtigungen (ALERT)
 
 ### ALERT-001
-- Aussage: Kritische Ereignisse (`backup.suspicious`, `endpoint.suspicious_snapshot`, `scrub.corrupt`, `verify.red`, `installation.disk_low`) werden sofort gesendet, nie für eine Sammelmail zurückgehalten, erreichen immer die Inhaber und Pflichtempfänger und stehen immer in der Glocke.
+- Aussage: Kritische Ereignisse (`backup.suspicious`, `endpoint.suspicious_snapshot`, `scrub.corrupt`, `verify.red`, `installation.disk_low`, `endpoint.backups_deletion_scheduled`) werden sofort gesendet, nie für eine Sammelmail zurückgehalten, erreichen immer die Inhaber und Pflichtempfänger und stehen immer in der Glocke.
 - Fundstelle: docs/NOTIFICATIONS.md (Abschnitte „Critical events“ und „Recipients and the floor“)
 - Öffentliche Seite: nicht abgeglichen
 - Tests: packages/core/src/reports/catalog.test.ts, packages/core/src/reports/rules.test.ts, apps/api/src/features/reports/notifications-050.pg.test.ts
 - Belegt gegen: echtes System (PostgreSQL 16, Job test in ci.yml; die Bewertungsregel zusätzlich als Einheitentest)
 - Stand: belegt
-- Hinweis: Der Code führt ein sechstes kritisches Ereignis, das docs/NOTIFICATIONS.md nicht nennt: `endpoint.backups_deletion_scheduled` (packages/core/src/reports/catalog.ts). Die Aussage hält für die fünf genannten; die Liste in der Dokumentation ist unvollständig.
 
 ### ALERT-002
 - Aussage: Eine fehlgeschlagene Sicherung löst `backup.failed` aus, mit der Ursache und den Schritten zur Abhilfe; technische Einzelheiten und Geheimnisse verlassen das System nicht. Eine Sicherung, die nur gedrosselt oder aufgehalten wurde, löst nichts aus.

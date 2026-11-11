@@ -440,9 +440,14 @@ wohin und wie lange, für viele Objekte oder Rechner zugleich. Ein **Lauf** ist,
   wirkungslos und wird als "rename" gespeichert. Ausnahme: SharePoint-Websites, bei denen
   "Überschreiben" eine ausdrückliche Wahl ist (Datei wird in SharePoint zur Vorversion,
   Listenelement erhält die gesicherten Werte). Der `restore_mode`-Enum behält den Wert
-  für die Historie. Geplant für später: "replace" für OneDrive-Dateien, bei dem die
-  aktuelle Datei zur Vorversion wird statt gelöscht zu werden (Engine-Code dafür liegt
-  in packages/core/src/restore/onedrive.ts, ist aber nicht erreichbar).
+  für die Historie und für SharePoint. Hinter der API sichern die Engines dasselbe noch
+  einmal ab: Postfach, IMAP und OneDrive führen einen gespeicherten Auftrag mit "replace"
+  als "rename" aus und sagen das an jedem Element (`mailboxRestoreMode` in
+  packages/core/src/restore/common.ts, `oneDriveRestoreMode` in
+  packages/core/src/restore/onedrive.ts). Das Überschreiben im Code der gemeinsamen
+  Upload-Sitzung (`OneDriveRestoreSession`) erreicht nur die SharePoint-Engine. Geplant für
+  später: "replace" für OneDrive-Dateien, bei dem die aktuelle Datei zur Vorversion wird
+  statt gelöscht zu werden.
 - Datei-Explorer für den Restore: Browsen durch Snapshots, Ordnerbaum und Datei-Versionen
   (Zeitpunkt wählbar), Auswahl einzelner Dateien oder ganzer Ordner. Gilt für OneDrive und
   die Infrastruktur-Dateibackups. Wiederherstellen an Ort, in ein anderes Ziel oder als
