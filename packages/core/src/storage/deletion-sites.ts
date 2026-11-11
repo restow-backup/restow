@@ -46,6 +46,10 @@ export const DELETION_SITES: Readonly<
   "apps/worker/src/pve/maintenance.ts#reconcileGuestRepository#resticForget":
     "pve_reconcile_forget",
   "apps/worker/src/pve/maintenance.ts#reconcileGuestRepository#resticPrune": "pve_reconcile_forget",
+  "apps/worker/src/repository-copies/copies.ts#retainOnCopy#resticForget":
+    "repository_copy_retention",
+  "apps/worker/src/repository-copies/copies.ts#retainOnCopy#resticPrune":
+    "repository_copy_retention",
   // --- ee/worker ---------------------------------------------------------------------------
   // The item rows (with their tombstones and chunk references), deleted in one statement per batch.
   "ee/worker/src/archive-retention/archive-retention.ts#runArchiveRetention#delete(archiveItems)":

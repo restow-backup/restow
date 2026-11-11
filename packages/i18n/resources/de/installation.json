@@ -733,6 +733,7 @@
       "repository_repair_apply": "Reparatur eines Repositorys",
       "enrollment_cleanup": "Bereinigung nach der Registrierung",
       "progress_marker_prune": "Aufräumen der Fortschrittsmarkierungen",
+      "repository_copy_retention": "Aufbewahrung der Repository-Kopien",
       "storage_target_removal": "Entfernen eines Speicherziels",
       "primary_replacement": "Ersetzen des primären Speicherziels",
       "other": "Andere Löschung"

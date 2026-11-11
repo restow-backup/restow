@@ -390,6 +390,11 @@ export interface PveRun {
         consistency?: string | null;
         /** The outcome of a boot test run. */
         bootTest?: PveBootTest;
+        /**
+         * A container restore that read the repository from another storage target than the
+         * primary (a copy target's repository copy): which one (servers from 0.5.0).
+         */
+        readFrom?: { targetId: string; targetName: string | null; role: string };
       } & PveRestoreResult)
     | null;
   /** How far the run is while it runs; missing on servers before 0.4.0. */

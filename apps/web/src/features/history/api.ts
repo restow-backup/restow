@@ -220,6 +220,11 @@ export interface RunDetail extends Run {
   errors: RunError[];
   errorCount: number;
   logTail: string | null;
+  /**
+   * A restore that read the repository from another storage target than the primary (a copy
+   * target's repository copy): which one. Absent from an older server.
+   */
+  readFrom?: { targetId: string; targetName: string | null; role: string } | null;
   docsUrl: string;
 }
 

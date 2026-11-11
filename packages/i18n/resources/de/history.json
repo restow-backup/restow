@@ -198,7 +198,9 @@
       "restoreCheck": "Restore-Prüfung",
       "checksPassed": "{passed} von {total} bestanden",
       "failedItems": "Fehlgeschlagene Elemente",
-      "items": "Elemente"
+      "items": "Elemente",
+      "readFrom": "Gelesen aus der Kopie auf",
+      "readFromUnnamed": "einem anderen Repository"
     },
     "charts": {
       "label": "Durchsatz",

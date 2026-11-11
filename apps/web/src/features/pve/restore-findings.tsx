@@ -41,6 +41,14 @@ export function RestoreFindings({
   if (run.status === "succeeded" && stats.onbootCleared) {
     notes.push(t("guest.restoreFinding.onbootCleared"));
   }
+  if (stats.readFrom) {
+    // The primary no longer held the container's repository: the restore read its copy.
+    notes.push(
+      t("guest.restoreFinding.readFromCopy", {
+        target: stats.readFrom.targetName ?? t("guest.restoreFinding.readFromUnnamed"),
+      }),
+    );
+  }
   if (findings.length === 0 && notes.length === 0) {
     return null;
   }

@@ -10,12 +10,15 @@ import {
   ResticError,
   type ResticNode,
   type ResticSession,
+  redactSecrets,
   resticBinary,
   resticCheck,
+  resticCopy,
   resticDump,
   resticErrorDetail,
   resticForget,
   resticInit,
+  resticInitCopy,
   resticListDirectory,
   resticLockTime,
   resticPrune,
@@ -23,6 +26,7 @@ import {
   resticStat,
   resticStatMany,
   runRestic,
+  snapshotIdIn,
 } from "./restic-cli.js";
 import { restoreTestSamples } from "./restore-test.js";
 import { resolveSelection, SelectionError } from "./zip.js";
@@ -261,6 +265,112 @@ describe("forgetting snapshots by id", () => {
         await resticPrune(local);
         const after = (await resticSnapshots(local)).map((snapshot) => snapshot.id);
         expect(after.sort()).toEqual(before.filter((id) => id !== middle).sort());
+      } finally {
+        await rm(work, { recursive: true, force: true });
+      }
+    },
+    120_000,
+  );
+});
+
+describe("copying snapshots into a second repository (repository copies)", () => {
+  const session: ResticSession = {
+    repositoryUrl: "/nonexistent",
+    username: "",
+    password: "",
+    repositoryPassword: "x",
+    cacheDir: "/nonexistent",
+  };
+
+  it("needs a source repository and takes only hex ids", async () => {
+    await expect(resticCopy(session, ["a".repeat(64)])).rejects.toBeInstanceOf(TypeError);
+    await expect(resticInitCopy(session)).rejects.toBeInstanceOf(TypeError);
+    const paired = { ...session, from: session };
+    for (const bad of ["--from-repo=/x", "latest", "ABCDEF12", "abc"]) {
+      await expect(resticCopy(paired, [bad])).rejects.toBeInstanceOf(TypeError);
+    }
+    expect(await resticCopy(paired, [])).toBe(0);
+  });
+
+  it("finds a snapshot by its own id, else the copy made from it", () => {
+    const original = "a".repeat(64);
+    const listed = [
+      { id: "b".repeat(64), original },
+      { id: "c".repeat(64), original: null },
+    ];
+    expect(snapshotIdIn(listed, "c".repeat(64))).toBe("c".repeat(64));
+    expect(snapshotIdIn(listed, "cccccccc")).toBe("c".repeat(64));
+    // The primary's id names the copy; the copy's own id names itself.
+    expect(snapshotIdIn(listed, original)).toBe("b".repeat(64));
+    expect(snapshotIdIn(listed, "b".repeat(64))).toBe("b".repeat(64));
+    expect(snapshotIdIn(listed, "d".repeat(64))).toBeNull();
+    expect(snapshotIdIn(listed, "")).toBeNull();
+  });
+
+  it("keeps the source's listener credential and password out of error text", () => {
+    const from = {
+      repositoryUrl: "rest:http://127.0.0.1:1/",
+      username: "restow-maintenance",
+      password: "listener-secret-of-the-source",
+      repositoryPassword: "repository-password-of-the-source",
+    };
+    const text = redactSecrets(
+      "Fatal: rest:http://restow-maintenance:listener-secret-of-the-source@127.0.0.1:1/ repository-password-of-the-source",
+      { password: "p", repositoryPassword: "q", from },
+    );
+    expect(text).not.toContain("listener-secret-of-the-source");
+    expect(text).not.toContain("repository-password-of-the-source");
+  });
+
+  it.skipIf(!resticAvailable())(
+    "copies the named snapshots with the source's chunker parameters, each under a new id that keeps the original",
+    async () => {
+      const work = await mkdtemp(join(tmpdir(), "restow-restic-copy-"));
+      try {
+        const source = join(work, "source");
+        await mkdir(source, { recursive: true });
+        const primary: ResticSession = {
+          repositoryUrl: join(work, "primary"),
+          username: "",
+          password: "",
+          repositoryPassword: "repository-password-for-tests",
+          cacheDir: join(work, "cache"),
+        };
+        await resticInit(primary);
+        for (const content of ["one", "two", "three"]) {
+          await writeFile(join(source, "file.txt"), content);
+          await runRestic(primary, ["backup", "--host", "test-host", source]);
+        }
+        const ids = (await resticSnapshots(primary, { noLock: true })).map((s) => s.id);
+        const copy: ResticSession = {
+          ...primary,
+          repositoryUrl: join(work, "copy"),
+          cacheDir: join(work, "cache-copy"),
+          from: primary,
+        };
+        await resticInitCopy(copy);
+        const chunker = async (session: ResticSession) =>
+          JSON.parse((await runRestic(session, ["cat", "config", "--no-lock"])).stdout) as {
+            chunker_polynomial: string;
+            id: string;
+          };
+        const [primaryConfig, copyConfig] = [await chunker(primary), await chunker(copy)];
+        expect(copyConfig.chunker_polynomial).toBe(primaryConfig.chunker_polynomial);
+        expect(copyConfig.id).not.toBe(primaryConfig.id);
+
+        expect(await resticCopy(copy, [ids[0] as string, ids[1] as string])).toBe(2);
+        const first = await resticSnapshots(copy, { noLock: true });
+        expect(first.map((s) => s.original).sort()).toEqual([ids[0], ids[1]].sort());
+        expect(first.every((s) => !ids.includes(s.id))).toBe(true);
+        // Again, with the third: what the copy holds is not copied twice.
+        await resticCopy(copy, ids);
+        const second = await resticSnapshots(copy, { noLock: true });
+        expect(second.map((s) => s.original).sort()).toEqual([...ids].sort());
+        expect(snapshotIdIn(second, ids[2] as string)).toMatch(/^[0-9a-f]{64}$/);
+        // A snapshot a backup wrote has no original.
+        expect((await resticSnapshots(primary, { noLock: true })).every((s) => !s.original)).toBe(
+          true,
+        );
       } finally {
         await rm(work, { recursive: true, force: true });
       }

@@ -2,7 +2,6 @@ import type { Readable } from "node:stream";
 import {
   type DirectoryPosition,
   fileShareRepositoryKey,
-  type OpenRepository,
   openRepository,
   type RepositoryAccess,
   repositoryPrefixOf,
@@ -32,7 +31,12 @@ import { readSecret } from "../../lib/secrets.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
 import { decodeCursor, encodeCursor } from "../../routes/v1/cursor.js";
-import { tenantStorage } from "../endpoints/repository.js";
+import {
+  holdingFor,
+  type ReadRepository,
+  snapshotRefOf,
+  tenantStorage,
+} from "../endpoints/repository.js";
 import { resticGate } from "../endpoints/restic-gate.js";
 import { resticProblem } from "../endpoints/restic-problem.js";
 import { FILE_SHARE_TENANT_AUDIT_ACTIONS as A, auditShare, type FileShareActor } from "./audit.js";
@@ -100,7 +104,10 @@ function noRepository(): ProblemError {
   });
 }
 
-async function accessOf(database: Database, share: FileShare): Promise<RepositoryAccess> {
+async function accessOf(
+  database: Database,
+  share: FileShare,
+): Promise<RepositoryAccess & { fallback: boolean }> {
   if (!share.repositorySecretId) {
     throw noRepository();
   }
@@ -111,10 +118,17 @@ async function accessOf(database: Database, share: FileShare): Promise<Repositor
   if (password === null) {
     throw noRepository();
   }
-  const targets = await tenantStorage(database, share.tenantId);
+  const prefix = repositoryPrefixOf("file_share", share.id, share.repositoryPrefix);
+  // The primary, else a copy target's repository copy (docs/STORAGE.md, "restic repositories
+  // on copies"), a retired target or the installation default that holds the repository.
+  const { storage, fallback } = await holdingFor(
+    await tenantStorage(database, share.tenantId),
+    prefix,
+  );
   return {
-    storage: targets.storage,
-    prefix: repositoryPrefixOf("file_share", share.id, share.repositoryPrefix),
+    fallback,
+    storage,
+    prefix,
     repositoryPassword: password,
     repositoryKey: fileShareRepositoryKey(share.id),
     binary: resticBinary(),
@@ -125,7 +139,7 @@ async function accessOf(database: Database, share: FileShare): Promise<Repositor
 async function openFor(
   database: Database,
   share: FileShare,
-): Promise<() => Promise<OpenRepository>> {
+): Promise<() => Promise<ReadRepository>> {
   const access = await accessOf(database, share);
   return async () => {
     const release = await holdForRead(database, share.id);
@@ -133,6 +147,7 @@ async function openFor(
       const repository = await openRepository(access);
       return {
         session: repository.session,
+        snapshotRef: snapshotRefOf(repository.session, access.fallback),
         close: async () => {
           try {
             await repository.close();
@@ -282,7 +297,7 @@ export async function browseSnapshot(
     try {
       return await resticListDirectory(
         repository.session,
-        snapshot.resticSnapshotId,
+        await repository.snapshotRef(snapshot.resticSnapshotId),
         toSnapshotPath(query.path),
         { limit: query.limit, after, signal },
       );
@@ -541,12 +556,12 @@ export async function prepareDownload(
   }));
   const open = await openFor(database, share);
   const release = resticGate.acquire(tenantId);
-  let repository: OpenRepository | null = null;
+  let repository: ReadRepository | null = null;
   try {
     repository = await open();
     const selection = await resolveSelection(
       repository.session,
-      snapshot.resticSnapshotId,
+      await repository.snapshotRef(snapshot.resticSnapshotId),
       input.paths.map(toSnapshotPath),
       { signal },
     ).catch((error) => {
@@ -620,7 +635,7 @@ export async function openDownload(
   const share = await withTenantTx(database, tenantId, (tx) => loadShare(tx, tenantId, id));
   const open = await openFor(database, share);
   const release = resticGate.acquire(tenantId);
-  let repository: OpenRepository | null = null;
+  let repository: ReadRepository | null = null;
   try {
     repository = await open();
     const claimed = await withTenantTx(database, tenantId, async (tx) => {
@@ -667,7 +682,7 @@ export async function openDownload(
     }
     const zip = streamSnapshotZip({
       session: repository.session,
-      snapshotId: claimed.snapshot.resticSnapshotId,
+      snapshotId: await repository.snapshotRef(claimed.snapshot.resticSnapshotId),
       paths: claimed.row.selection.map((item) => item.path),
       selection: claimed.row.selection,
       signal,

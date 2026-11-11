@@ -588,6 +588,9 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   // Where backups land now (shown wherever a backup is started or configured).
   "GET /api/v1/storage/write-once": view(),
   "GET /api/v1/storage/destination": view(),
+  // How far the copies of the restic repositories are (per copy target, per object).
+  "GET /api/v1/storage/repository-copies": view(),
+  "GET /api/v1/storage/repository-copies/objects/:id": view(),
   "GET /api/v1/storage/targets": view(),
   "GET /api/v1/storage/targets/:id": view(),
   "POST /api/v1/storage/targets": configure(),

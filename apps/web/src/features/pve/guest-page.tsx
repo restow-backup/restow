@@ -40,6 +40,7 @@ import { useTenantScope } from "@/features/endpoints/hooks";
 import { fileRestoreContainerTo } from "@/features/endpoints/paths";
 import {
   BackupDestinationNote,
+  ObjectCopyStatus,
   ServerDiskWarning,
   useStorageScope,
   WriteOnceRetentionNotice,
@@ -1015,6 +1016,8 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
       <ObjectSuspicionBadge target={suspicionTarget} />
       <RetentionHoldNotice target={suspicionTarget} objectName={title} />
       <WriteOnceRetentionNotice context="guest" />
+      {/* A container's repository on each copy target (docs/STORAGE.md). */}
+      <ObjectCopyStatus ownerId={guestId} />
       <LastCleanHint
         points={timeline}
         judgements={judgements}

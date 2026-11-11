@@ -132,6 +132,8 @@ export const EVENT_GROUPS: Record<
     "endpoint.backups_deletion_scheduled",
     "endpoint.backups_deleted",
     "file_share.storage_quota",
+    // A repository's copy on a copy target is more than two days behind or failing (0.5.0).
+    "storage.copy_behind",
   ],
   // About the installation, not a tenant's data: only provider administrators may pick these,
   // except a failed delivery (0.5.0), which is about the tenant's own channels.

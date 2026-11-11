@@ -38,6 +38,7 @@ export const REPORT_EVENTS = [
   "endpoint.backups_deleted",
   "file_share.storage_quota",
   "file_share.repository_locked",
+  "storage.copy_behind",
   "source.app_secret_expiring",
   "update.available",
   "installation.disk_low",

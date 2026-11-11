@@ -659,7 +659,8 @@
         "cancelled": "Sicherung des Gasts abgebrochen"
       },
       "restore": {
-        "requested": "Wiederherstellung als neuer Gast angefordert"
+        "requested": "Wiederherstellung als neuer Gast angefordert",
+        "read_from_copy": "Container-Wiederherstellung hat die Sicherungen aus einem anderen Repository als dem primären gelesen"
       },
       "verify": {
         "requested": "Restore-Prüfung des Sicherungsstands angefordert"
@@ -718,7 +719,8 @@
       "repository_password_shown": "Repository-Passwort der Freigabe angezeigt",
       "private_network_approved": "Freigabe in einem privaten Netz genehmigt",
       "private_network_withdrawn": "Genehmigung für ein privates Netz zurückgezogen",
-      "settings_changed": "Freigabe-Einstellungen der Installation geändert"
+      "settings_changed": "Freigabe-Einstellungen der Installation geändert",
+      "restore_read_from_copy": "Wiederherstellung der Dateifreigabe hat die Sicherungen aus einem anderen Repository als dem primären gelesen"
     },
     "warning": {
       "acknowledged": "Warnung bestätigt",

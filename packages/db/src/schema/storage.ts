@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   bigint,
+  boolean,
   index,
   integer,
   jsonb,
@@ -411,6 +412,72 @@ export const storageRepositoryRepairs = pgTable(
 );
 
 export type StorageRepositoryRepair = typeof storageRepositoryRepairs.$inferSelect;
+
+/** The state of one repository copy (docs/STORAGE.md, "restic repositories on copies"). */
+export type RepositoryCopyState =
+  /** Not copied yet (a new repository, a copy target added later). */
+  | "pending"
+  /** Every restore point the server keeps is on the copy, and its check passed. */
+  | "current"
+  /** Restore points are missing on the copy (`missing_snapshots`); the next pass copies them. */
+  | "behind"
+  /** The last attempt failed (`last_error`); the next pass tries again. */
+  | "failed";
+
+/**
+ * One restic repository of the tenant (a container's `pve-guests/<id>/`, a machine's
+ * `endpoints/<id>/`, a file share's `file-shares/<id>/`) on one copy target: a repository at the
+ * same prefix with the same password, filled with `restic copy` (apps/worker
+ * repository-copies). One row per repository and copy target; the worker's pass keeps it.
+ */
+export const repositoryCopies = pgTable(
+  "repository_copies",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    /** The repository's storage prefix on the primary and on the copy (trailing slash). */
+    prefix: text("prefix").notNull(),
+    kind: text("kind").$type<"container" | "machine" | "file_share">().notNull(),
+    /** The guest, machine or file share. */
+    ownerId: uuid("owner_id").notNull(),
+    /** The copy target: a `storage_targets` id, or `installation_default:copy:<n>`. */
+    targetId: text("target_id").notNull(),
+    state: text("state").$type<RepositoryCopyState>().notNull().default("pending"),
+    /** Restore points the server keeps that are on the primary (the last pass). */
+    primarySnapshots: integer("primary_snapshots").notNull().default(0),
+    /** Of these, how many the copy does not hold yet (the lag). */
+    missingSnapshots: integer("missing_snapshots").notNull().default(0),
+    /** The newest restore point on the copy (its id on the primary, restic's `original`). */
+    lastSnapshotId: text("last_snapshot_id"),
+    /** When the last pass that got through copied (or found nothing to copy). */
+    lastCopiedAt: timestamp("last_copied_at", { withTimezone: true }),
+    lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    /** Snapshots forgotten on the copy by the last pass (retention on the copy). */
+    lastForgotten: integer("last_forgotten").notNull().default(0),
+    /** Retention on the copy was due but deleting is not possible there (write-once, restore mode). */
+    deletionsDeferred: text("deletions_deferred"),
+    /** `restic check` (structure) after the last copy: passed, or what it found. */
+    lastCheckAt: timestamp("last_check_at", { withTimezone: true }),
+    lastCheckOk: boolean("last_check_ok"),
+    lastCheckMessage: text("last_check_message"),
+    /** The last `check --read-data-subset` of a sample (weekly). */
+    lastDataCheckAt: timestamp("last_data_check_at", { withTimezone: true }),
+    /** Since when the copy is behind or failing (null while current): the alert after 2 days. */
+    troubleSince: timestamp("trouble_since", { withTimezone: true }),
+    /** When the alert of the current episode was raised (once per episode). */
+    alertedAt: timestamp("alerted_at", { withTimezone: true }),
+    ...timestamps(),
+  },
+  (t) => [
+    uniqueIndex("repository_copies_uq").on(t.tenantId, t.prefix, t.targetId),
+    index("repository_copies_owner_idx").on(t.tenantId, t.ownerId),
+  ],
+);
+
+export type RepositoryCopy = typeof repositoryCopies.$inferSelect;
 
 export type ImmutabilityDeferredDeletion = typeof immutabilityDeferredDeletions.$inferSelect;
 export type StorageTarget = typeof storageTargets.$inferSelect;

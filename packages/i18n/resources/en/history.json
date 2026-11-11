@@ -198,7 +198,9 @@
       "restoreCheck": "Restore check",
       "checksPassed": "{passed} of {total} passed",
       "failedItems": "Failed items",
-      "items": "Items"
+      "items": "Items",
+      "readFrom": "Read from the copy on",
+      "readFromUnnamed": "another repository"
     },
     "charts": {
       "label": "Throughput",

@@ -401,9 +401,12 @@ export interface ResticRepositoryKinds {
 
 /**
  * A switch that copies nothing ("keep existing backups where they are", promoting a copy)
- * while the tenant has restic repositories: they lie on the current primary only, and every
- * container, machine and file share would find an empty repository on the new one (the PVE
- * field incident, docs/STORAGE.md). "Move" copies them across before it switches.
+ * while the tenant has restic repositories: the repositories the restore points name lie on the
+ * current primary only. A target that was never a copy holds none (the PVE field incident,
+ * docs/STORAGE.md); a copy holds repository copies written by `restic copy`, whose snapshots
+ * have other ids than the restore points record ("restic repositories on copies"), so a
+ * promotion would leave every restore point of a container or file share pointing at nothing.
+ * "Move" copies the repositories across file by file before it switches.
  */
 function switchBlockedByRepositories(
   kinds: ResticRepositoryKinds,
@@ -2573,7 +2576,10 @@ export async function checkCompleteness(
  * becomes a copy in the same transaction, so writes keep reaching it. When the
  * current primary is the installation default, a placeholder row keeps it
  * attached read-only (`previous`). Refused while the tenant has restic
- * repositories (a copy never receives them) or a backup run is running.
+ * repositories or a backup run is running: a copy holds repository copies
+ * (`restic copy`, docs/STORAGE.md "restic repositories on copies") whose
+ * snapshots have ids of their own, while the restore points in the database
+ * name the primary's; only a "move" brings the repositories over as they are.
  */
 export async function promoteTarget(
   db: Database,
@@ -2595,7 +2601,8 @@ export async function promoteTarget(
     throw ruleProblem(violation);
   }
   await assertNoActiveEndpoints(db, tenantId);
-  // A copy never receives the restic repositories (only the chunk store is mirrored).
+  // A copy holds repository copies under snapshot ids of their own, not the repositories the
+  // restore points name (docs/STORAGE.md, "restic repositories on copies"): still refused.
   await assertNoResticRepositories(db, tenantId, "promote");
   const completeness = await completenessOf(db, tenantId, rows, target, deps);
   if (!completeness.complete) {

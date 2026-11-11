@@ -491,6 +491,9 @@
     },
     "notification": {
       "delivery_failed": "Notification could not be delivered"
+    },
+    "storage": {
+      "copy_behind": "Repository copy behind"
     }
   },
   "eventHints": {
@@ -559,6 +562,9 @@
     },
     "notification": {
       "delivery_failed": "A notification could not be delivered: the mail server refused an address, the mail transport is down, or a webhook keeps failing. Raised once per episode, never through the channel that failed, always in the bell and to the provider's mandatory recipients."
+    },
+    "storage": {
+      "copy_behind": "A restic repository's copy on a copy target is more than two days behind, or copying it keeps failing."
     }
   },
   "sections": {
@@ -793,6 +799,9 @@
       "delivery_failed_transport": "Notification mail cannot be sent",
       "delivery_failed_recipient": "Mail to {recipient} cannot be delivered",
       "delivery_failed_webhook": "Webhook keeps failing: {webhook}"
+    },
+    "storage": {
+      "copy_behind": "Copy behind: {object}"
     }
   },
   "toasts": {

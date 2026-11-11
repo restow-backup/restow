@@ -23,23 +23,27 @@ import { spawn } from "node:child_process";
  * restic talks HTTP to it, exactly as an agent does.
  */
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { Readable } from "node:stream";
 import { serve } from "@hono/node-server";
 import {
+  LocalStorageBackend,
   openEndpointPassword,
   ResticError,
   resticBinary,
   resticCheck,
+  resticCopy,
   resticForget,
+  resticInitCopy,
   resticPrune,
   resticSnapshots,
   restoreTestSamples,
   singleKeyring,
   withRepository,
+  withRepositoryPair,
 } from "@restow/core";
 import {
   acquireEndpointRepositoryLock,
@@ -49,7 +53,9 @@ import {
   endpointRepositoryLocks,
   endpointRuns,
   endpoints,
+  endpointTasks,
   storageLockKey,
+  storageTargets,
 } from "@restow/db";
 import { and, eq } from "drizzle-orm";
 import { Hono } from "hono";
@@ -1013,6 +1019,208 @@ describe.skipIf(!canRun)("endpoint backup with the real restic binary", () => {
       const snapshots = await service.listSnapshots(shared.db, fixture.tenantId, agent.endpointId);
       expect(snapshots.items.every((snapshot) => snapshot.flags.length === 0)).toBe(true);
     }, 120_000);
+  });
+
+  describe("restoring from a copy target once the primary lost the repository", () => {
+    it("restores through the agent's own credential from the repository copy, says so on the run and in the audit log, and takes no backup into the copy", async () => {
+      const { forgetTenantChunkStore } = await import("../pve/store.js");
+      const forget = () => {
+        repository.forgetTenantStorage(fixture.tenantId);
+        forgetTenantChunkStore(fixture.tenantId);
+      };
+      const backup = await restic(["backup", source]);
+      expect(backup.code, backup.out).toBe(0);
+      const ids = await resticSnapshotIds();
+      const access = await maintenanceAccess();
+      // The newest snapshot's id on the primary, as the runs recorded it.
+      const recorded = (await withRepository(access, (session) => resticSnapshots(session)))[0]
+        ?.id as string;
+
+      // What the worker's copy pass keeps on a copy target (docs/STORAGE.md, "restic
+      // repositories on copies"): the same prefix and password, filled with `restic copy`.
+      const copyDir = join(work, "copy-target");
+      await fixture.db.insert(storageTargets).values({
+        tenantId: fixture.tenantId,
+        name: "Offsite",
+        kind: "local",
+        role: "copy",
+        config: { basePath: copyDir },
+      });
+      const copyAccess = {
+        ...access,
+        storage: new LocalStorageBackend(copyDir),
+        repositoryKey: `${agent.endpointId}.copy`,
+      };
+      await withRepositoryPair(
+        { ...access, storage: new LocalStorageBackend(fixture.storageDir) },
+        copyAccess,
+        async (session) => {
+          await resticInitCopy(session);
+          await resticCopy(session, ids);
+        },
+      );
+      const onCopy = await withRepository(copyAccess, (session) =>
+        resticSnapshots(session, { noLock: true }),
+      );
+      const copyId = onCopy.find((snapshot) => snapshot.original === recorded)?.id as string;
+      expect(copyId).toMatch(/^[0-9a-f]{64}$/);
+      expect(copyId).not.toBe(recorded);
+
+      // The primary loses the repository.
+      const lost = join(work, "lost-repository");
+      await rename(join(fixture.storageDir, "endpoints", agent.endpointId), lost);
+      forget();
+      try {
+        // The restore names the snapshot by the id the runs recorded on the primary.
+        const { task } = await service.createTask(
+          shared.db,
+          fixture.tenantId,
+          agent.endpointId,
+          { kind: "restore", snapshotId: recorded, paths: ["/"] },
+          actor(),
+        );
+        const [taskRow] = await fixture.db
+          .select()
+          .from(endpointTasks)
+          .where(eq(endpointTasks.id, task.id));
+        // The machine is told the id under which the copy holds it, and which target it reads.
+        expect(taskRow?.params).toMatchObject({
+          snapshotId: copyId,
+          readFrom: { targetName: "Offsite", role: "copy" },
+        });
+
+        const call = (path: string, body: unknown) =>
+          fetch(`http://127.0.0.1:${port}/agent/v1${path}`, {
+            method: "POST",
+            headers: {
+              ...basic(agent.endpointId, agent.agentSecret),
+              "content-type": "application/json",
+            },
+            body: JSON.stringify(body),
+          });
+        const start = await call("/runs", {
+          kind: "restore",
+          taskId: task.id,
+          startedAt: new Date().toISOString(),
+        });
+        expect(start.status).toBe(201);
+        const { runId } = (await start.json()) as { runId: string };
+
+        // The agent's own restore command, with its own credential, against its own URL.
+        const target = join(work, "restored-from-copy");
+        const restored = await restic([
+          "restore",
+          "--json",
+          "--target",
+          target,
+          "--overwrite",
+          "never",
+          "--verify",
+          "--retry-lock",
+          "1m",
+          String(taskRow?.params.snapshotId),
+        ]);
+        expect(restored.code, restored.out).toBe(0);
+        expect(await treeHashes(join(target, source))).toEqual(await treeHashes(source));
+        // Its lock went into the copy and was released there; the primary got nothing.
+        expect(await readdir(join(copyDir, "endpoints", agent.endpointId, "locks"))).toEqual([]);
+        expect(
+          await readdir(join(fixture.storageDir, "endpoints", agent.endpointId)).catch(() => []),
+        ).toEqual([]);
+
+        // While it restores from the copy nothing but its lock is written there: an upload is
+        // refused at once (restic takes 403 as final), the copy stays as it was.
+        const upload = await rest(`/data/${"a".repeat(64)}`, {
+          method: "POST",
+          body: Buffer.from("no backup lands in a repository copy"),
+        });
+        expect(upload.status).toBe(403);
+
+        const finish = await call(`/runs/${runId}/finish`, {
+          status: "succeeded",
+          finishedAt: new Date().toISOString(),
+          errors: [],
+          logTail: "ok",
+        });
+        expect(finish.status).toBe(200);
+        const [run] = await fixture.db
+          .select()
+          .from(endpointRuns)
+          .where(eq(endpointRuns.id, runId));
+        expect(run).toMatchObject({ kind: "restore", status: "succeeded" });
+        expect(run?.stats?.readFrom).toMatchObject({ targetName: "Offsite", role: "copy" });
+        const audited = await fixture.db
+          .select()
+          .from(auditLog)
+          .where(eq(auditLog.target, agent.endpointId));
+        const requested = audited.filter(
+          (entry) =>
+            entry.action === "endpoint.restore.requested" &&
+            (entry.details as { taskId?: string } | null)?.taskId === task.id,
+        );
+        expect(requested).toHaveLength(1);
+        expect(requested[0]?.details).toMatchObject({
+          snapshotId: copyId,
+          readFrom: { targetName: "Offsite" },
+        });
+        const finished = audited.filter(
+          (entry) =>
+            entry.action === "endpoint.restore.finished" &&
+            (entry.details as { runId?: string } | null)?.runId === runId,
+        );
+        expect(finished[0]?.details).toMatchObject({ readFrom: { targetName: "Offsite" } });
+
+        // The copy's own id is taken as it is (the snapshot list shows it while the copy is read).
+        const listed = await service.listSnapshots(shared.db, fixture.tenantId, agent.endpointId);
+        expect(listed.items.map((item) => item.id)).toContain(copyId);
+        const again = await service.createTask(
+          shared.db,
+          fixture.tenantId,
+          agent.endpointId,
+          { kind: "restore", snapshotId: copyId, paths: ["/"] },
+          actor(),
+        );
+        const [againRow] = await fixture.db
+          .select()
+          .from(endpointTasks)
+          .where(eq(endpointTasks.id, again.task.id));
+        expect(againRow?.params.snapshotId).toBe(copyId);
+        // A snapshot the copy does not hold is refused with the reason, not handed to the machine.
+        await expect(
+          service.createTask(
+            shared.db,
+            fixture.tenantId,
+            agent.endpointId,
+            { kind: "restore", snapshotId: "f".repeat(64), paths: ["/"] },
+            actor(),
+          ),
+        ).rejects.toMatchObject({
+          status: 409,
+          type: "urn:restow:problem:storage-restore-point-not-on-copy",
+        });
+
+        // The restore has ended: the machine is on the primary again, as for every run that
+        // is no restore from a copy. A backup finds no repository there and fails; it never
+        // opens the copy, and the copy is unchanged.
+        expect((await rest("/config", { method: "HEAD" })).status).toBe(404);
+        await writeFile(join(source, "hello.txt"), "hello once more\n");
+        const refused = await restic(["backup", source]);
+        expect(refused.code).not.toBe(0);
+        expect(
+          await withRepository(copyAccess, (session) => resticSnapshots(session, { noLock: true })),
+        ).toHaveLength(onCopy.length);
+      } finally {
+        await rm(join(fixture.storageDir, "endpoints", agent.endpointId), {
+          recursive: true,
+          force: true,
+        });
+        await rename(lost, join(fixture.storageDir, "endpoints", agent.endpointId));
+        forget();
+      }
+      // The repository is on the primary again: backups go there as before.
+      const after = await restic(["backup", source]);
+      expect(after.code, after.out).toBe(0);
+    }, 180_000);
   });
 
   async function resticSnapshotIds(): Promise<string[]> {

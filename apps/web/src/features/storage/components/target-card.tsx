@@ -32,6 +32,7 @@ import {
   storageErrorKey,
   targetDisplayName,
 } from "../presenters";
+import { TargetCopyLine } from "../repository-copies";
 import type { StorageTargetDto } from "../types";
 import { useIsTestingTarget, useTestTarget } from "../use-storage";
 import { ImmutabilitySection } from "./immutability-section";
@@ -125,6 +126,7 @@ export function TargetCard({
         ) : null}
         <ObjectLockLine kind={target.kind} capability={target.objectLock} />
         <WriteOnceLine finding={target.writeOnce} />
+        {isCopy ? <TargetCopyLine targetId={target.id} /> : null}
         <ImmutabilitySection target={target} />
         {!target.canManage ? (
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">

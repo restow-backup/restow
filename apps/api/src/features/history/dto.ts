@@ -277,6 +277,12 @@ export interface RunDetailDto extends RunDto {
   errorCount: number;
   /** The tail of the agent's log (machine runs), redacted by the server. */
   logTail: string | null;
+  /**
+   * A restore of a machine or file share that read the repository from another storage target
+   * than the primary (a copy target's repository copy, docs/STORAGE.md "Restoring from a
+   * copy"): which one. Null for every other run.
+   */
+  readFrom: { targetId: string; targetName: string | null; role: string } | null;
   docsUrl: string;
 }
 

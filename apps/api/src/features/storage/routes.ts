@@ -12,6 +12,7 @@ import { assertNotInRestoreMode } from "../restore-mode/service.js";
 import { backupDestination } from "./destination.js";
 import { locationOf } from "./dto.js";
 import { setImmutability, verifyImmutabilityNow } from "./immutability.js";
+import { objectCopyStatus, repositoryCopyStatus } from "./repository-copies.js";
 import {
   repositoryRepairs,
   requestRepairSchema,
@@ -158,6 +159,18 @@ export function buildStorageRoutes(deps: StorageRoutesDeps): Hono<TenantEnv> {
 
   routes.get("/write-once", deps.requireMember ?? requireTenant(), async (c) => {
     return c.json(await primaryWriteOnce(deps.db, c.get("tenantId")));
+  });
+
+  // The copies of the tenant's restic repositories (docs/STORAGE.md, "restic repositories on
+  // copies"): per copy target for administrators, per object for every member (the pages of a
+  // container, machine or file share).
+  routes.get("/repository-copies", deps.requireAdmin, async (c) => {
+    return c.json(await repositoryCopyStatus(deps.db, c.get("tenantId")));
+  });
+
+  routes.get("/repository-copies/objects/:id", deps.requireMember ?? requireTenant(), async (c) => {
+    const { id } = parseOrProblem(targetIdParamSchema, c.req.param());
+    return c.json(await objectCopyStatus(deps.db, c.get("tenantId"), id));
   });
 
   routes.get("/usage", deps.requireAdmin, async (c) => {

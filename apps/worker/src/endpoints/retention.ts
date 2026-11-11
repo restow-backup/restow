@@ -100,7 +100,10 @@ import { pruneFailureSummary, pruneSummary, targetFull } from "./prune-summary.j
 /** Snapshot ids an alert names at most (the count says how many there are). */
 const ALERT_SNAPSHOT_IDS = 10;
 
-async function tenantTimeZone(deps: EndpointJobDeps, tenantId: string): Promise<string> {
+export async function tenantTimeZone(
+  deps: Pick<EndpointJobDeps, "db">,
+  tenantId: string,
+): Promise<string> {
   const [row] = await withTenantTx(deps.db, tenantId, (tx) =>
     tx.select({ timeZone: tenants.timeZone }).from(tenants).where(eq(tenants.id, tenantId)),
   );
@@ -113,7 +116,11 @@ async function tenantTimeZone(deps: EndpointJobDeps, tenantId: string): Promise<
  * each belongs to: backup runs are `files`; `sql` runs and the active rows of
  * `endpoint_sql_backups` (whose run may be gone) are `sql:<instance>`.
  */
-async function recordedSnapshots(deps: EndpointJobDeps, tenantId: string, endpointId: string) {
+export async function recordedSnapshots(
+  deps: Pick<EndpointJobDeps, "db">,
+  tenantId: string,
+  endpointId: string,
+) {
   return withTenantTx(deps.db, tenantId, async (tx) => {
     const runs = await tx
       .select({

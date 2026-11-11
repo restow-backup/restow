@@ -3,9 +3,11 @@ import {
   bandwidthTimeZone,
   FILE_SHARE_QUEUES,
   type FileShareFinishPayload,
+  fileShareRepositoryKey,
   fileShareSingletonKey,
   parseBasicAuthorization,
   redactSensitiveText,
+  repositoryPrefixOf,
   type ShareSession,
   secretMatchesHash,
   shareRepositoryUrl,
@@ -39,6 +41,14 @@ import { ProblemError } from "../../problem.js";
 import { parseJsonBody } from "../../schemas.js";
 import { authFailures } from "../endpoints/agent-auth.js";
 import { jobQueue } from "../jobs/queue.js";
+import {
+  type ReadFrom,
+  readFromOf,
+  repositorySource,
+  snapshotOnSource,
+  sourceOfTarget,
+} from "../storage/repository-source.js";
+import { auditShare, FILE_SHARE_TENANT_AUDIT_ACTIONS } from "./audit.js";
 import { FILE_SHARE_PROBLEMS } from "./constants.js";
 import { fileShareSettings } from "./settings.js";
 
@@ -151,7 +161,57 @@ function apiBaseUrl(c: Context): string {
   return /^[A-Za-z0-9.:[\]-]{1,255}$/.test(host) ? `http://${host}` : "http://api:3000";
 }
 
-async function buildSession(tx: Transaction, run: RunRow, baseUrl: string): Promise<ShareSession> {
+/**
+ * Where a restore run reads the source share's repository, when that is another target than the
+ * primary (the dispatcher pinned the run to the target that holds it, docs/STORAGE.md
+ * "Restoring from a copy"), and the id under which that target holds the restore point: a
+ * repository copy keeps the recorded id as the `original` of a snapshot with an id of its own.
+ * Null on the primary. Throws 409 when the copy does not hold the restore point.
+ */
+async function restoreFromCopy(
+  run: RunRow,
+): Promise<{ readFrom: ReadFrom; snapshotId: string } | null> {
+  if (run.kind === "backup" || !run.sourceSnapshotId) {
+    return null;
+  }
+  const { share, recorded } = await withTenantTx(db, run.tenantId, async (tx) => {
+    const share = await loadShare(tx, run.fileShareId);
+    const [snap] = await tx
+      .select({ resticSnapshotId: fileShareSnapshots.resticSnapshotId })
+      .from(fileShareSnapshots)
+      .where(eq(fileShareSnapshots.id, run.sourceSnapshotId as string))
+      .limit(1);
+    return { share, recorded: snap?.resticSnapshotId ?? "" };
+  });
+  const prefix = repositoryPrefixOf("file_share", share.id, share.repositoryPrefix);
+  const source = run.storageTarget
+    ? await sourceOfTarget(run.tenantId, run.storageTarget)
+    : await repositorySource(run.tenantId, prefix);
+  const readFrom = source ? readFromOf(source) : null;
+  if (!source || !readFrom || !recorded || !share.repositorySecretId) {
+    return null;
+  }
+  const password = await readSecret(db, {
+    id: share.repositorySecretId,
+    tenantId: run.tenantId,
+  });
+  if (password === null) {
+    return null;
+  }
+  const snapshotId = await snapshotOnSource(
+    source,
+    { prefix, password, repositoryKey: fileShareRepositoryKey(share.id) },
+    recorded,
+  );
+  return { readFrom, snapshotId };
+}
+
+async function buildSession(
+  tx: Transaction,
+  run: RunRow,
+  baseUrl: string,
+  fromCopy: Awaited<ReturnType<typeof restoreFromCopy>> = null,
+): Promise<ShareSession> {
   const source = await loadShare(tx, run.fileShareId);
   const mounted = run.lockShareId === source.id ? source : await loadShare(tx, run.lockShareId);
   if (!source.repositorySecretId) {
@@ -239,7 +299,7 @@ async function buildSession(tx: Transaction, run: RunRow, baseUrl: string): Prom
   }
   const copy = run.trigger === "copy";
   session.restore = {
-    snapshotId,
+    snapshotId: fromCopy?.snapshotId ?? snapshotId,
     paths: params.paths ?? [],
     destination: copy ? "folder" : (params.destination ?? "new_folder"),
     folder: (copy ? params.targetFolder : params.folder) ?? "",
@@ -267,9 +327,21 @@ async function buildSession(tx: Transaction, run: RunRow, baseUrl: string): Prom
 fileShareRunnerRoutes.get("/session", async (c) => {
   const run = await authenticateRun(c);
   const baseUrl = apiBaseUrl(c);
+  // restic lists the copy's snapshots here, outside the transaction below.
+  const fromCopy = await restoreFromCopy(run);
   const session = await withTenantTx(db, run.tenantId, async (tx) => {
-    const built = await buildSession(tx, run, baseUrl);
+    const built = await buildSession(tx, run, baseUrl, fromCopy);
     const now = new Date();
+    if (fromCopy && !run.params.readFrom) {
+      // Said once, however often the runner asks: on the run and in the audit log.
+      await auditShare(tx, {
+        tenantId: run.tenantId,
+        actor: { label: "system", userId: null, ip: null },
+        action: FILE_SHARE_TENANT_AUDIT_ACTIONS.restoreReadFromCopy,
+        shareId: run.fileShareId,
+        details: { runId: run.id, trigger: run.trigger, ...fromCopy.readFrom },
+      });
+    }
     await tx
       .update(fileShareRuns)
       .set({
@@ -277,6 +349,7 @@ fileShareRunnerRoutes.get("/session", async (c) => {
         lastProgressAt: now,
         // What the restore point will cover, for its row (file_share_snapshots.includes).
         ...(built.backup ? { params: { ...run.params, includes: built.backup.includes } } : {}),
+        ...(fromCopy ? { params: { ...run.params, readFrom: fromCopy.readFrom } } : {}),
       })
       .where(
         and(eq(fileShareRuns.id, run.id), inArray(fileShareRuns.status, ["starting", "running"])),
@@ -493,6 +566,8 @@ fileShareRunnerRoutes.post("/finish", async (c) => {
           ...(input.snapshotId ? { resticSnapshotId: input.snapshotId } : {}),
           ...(input.restore ? { restore: input.restore } : {}),
           ...(input.code ? { finishCode: input.code } : {}),
+          // A restore that read the repository from a copy target says so on its run.
+          ...(run.params.readFrom ? { readFrom: run.params.readFrom } : {}),
         },
         failure: cause ? toFailureRecord(cause, { now, step: "runner" }) : null,
         errorMessage:

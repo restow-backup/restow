@@ -20,7 +20,7 @@
     "copy": "Copy",
     "previous": "Previous",
     "primaryHint": "Backups are written here first; restores read from here.",
-    "copyHint": "Every new backup is also written here. Data from before the copy existed is mirrored and verified by the copy run.",
+    "copyHint": "Every new backup is also written here. Data from before the copy existed is mirrored and verified by the copy run; the repositories of machines, containers and file shares are copied here after each backup.",
     "previousHint": "Retired: no longer written to. Kept until removed; restore, checks, downloads and later backups of objects protected before the switch still read from it whenever a restore point lives only here.",
     "attachPrevious": "Attach an old location read-only",
     "attachPreviousHint": "Nothing is written here. Restores read from it, and the repository repair (below) takes the parts of repositories it holds, for example a restored copy of an earlier primary.",
@@ -580,5 +580,26 @@
       "failed": "Not repaired. Keys and config it copied were moved aside again; backups of a container stay refused until a repair succeeds or the repository is reset."
     },
     "unreachable": "This scan could not read {names} (no answer, or its folder is empty or missing: a share that is not mounted?). No repair is made on it. Scan again once every storage target answers."
+  },
+  "repositoryCopies": {
+    "summary": "{current} of {total} repositories current",
+    "behindCount": "{count} behind",
+    "failedCount": "{count} failed",
+    "pendingCount": "{count} not copied yet",
+    "copyOn": "Copy on {target}:",
+    "unnamedTarget": "the copy of the installation default",
+    "unknownReason": "reason unknown",
+    "state": {
+      "current": "current",
+      "behind": "{count} behind",
+      "failed": "failed ({reason})",
+      "pending": "not copied yet"
+    },
+    "deferred": {
+      "write_once": "Retention is not applied on this copy: the copy target is write-once.",
+      "restore_mode": "Retention on this copy waits: deleting is paused (restore mode). Copying goes on.",
+      "locked": "Some restore points on this copy are still locked and are removed once their lock has run out.",
+      "other": "Retention on this copy waits."
+    }
   }
 }

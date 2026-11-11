@@ -19,6 +19,9 @@ export const PVE_AUDIT_ACTIONS = {
   queueResumed: "pve.queue.resumed",
   updateRequested: "pve.node.update_requested",
   restoreRequested: "pve.restore.requested",
+  // A container restore, restore check or boot test read the repository from another target
+  // than the primary (docs/STORAGE.md, "Restoring from a copy").
+  restoreReadFromCopy: "pve.restore.read_from_copy",
   verifyRequested: "pve.verify.requested",
   bootTestRequested: "pve.boot_test.requested",
   jobChanged: "pve.job.changed",

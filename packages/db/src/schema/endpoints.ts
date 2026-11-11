@@ -559,6 +559,11 @@ export type EndpointRunStats = {
   sql?: EndpointRunSqlStats;
   /** Fixed warnings of the run (W1, W2a): `app_files_not_app_backup`, `sql_log_growing`, ... */
   notices?: EndpointRunNotice[];
+  /**
+   * A restore that read the repository from another target than the primary (a copy target's
+   * repository copy, docs/STORAGE.md "Restoring from a copy"): which one.
+   */
+  readFrom?: { targetId: string; targetName: string | null; role: string };
 };
 
 export type EndpointRunNotice = { code: string; subjects?: string[]; message?: string };

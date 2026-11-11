@@ -86,11 +86,11 @@ export function repositoryTargets(
   return all.filter((backend, index) => all.indexOf(backend) === index);
 }
 
-/** The worker's restic cache of the repository; a missing one is fine. */
+/** The worker's restic caches of the repository and of its copies; a missing one is fine. */
 async function removeCache(endpointId: string): Promise<void> {
-  await rm(join(resticCacheBase(), endpointId), { recursive: true, force: true }).catch(
-    () => undefined,
-  );
+  for (const key of [endpointId, `${endpointId}.copy`]) {
+    await rm(join(resticCacheBase(), key), { recursive: true, force: true }).catch(() => undefined);
+  }
 }
 
 async function tenantLegalHold(deps: EndpointJobDeps, tenantId: string): Promise<boolean> {

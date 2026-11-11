@@ -46,8 +46,15 @@ import {
 } from "@restow/db";
 import { and, desc, eq, gt, inArray, isNotNull, type SQL, sql } from "drizzle-orm";
 import { db, providerDb } from "../../db.js";
+import { readSecret } from "../../lib/secrets.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
+import {
+  type RepositorySource,
+  readFromOf,
+  repositorySource,
+  snapshotOnSource,
+} from "../storage/repository-source.js";
 import { auditPve, nodeActor, PVE_AUDIT_ACTIONS } from "./audit.js";
 import { recordBootTestResult } from "./boot-tests.js";
 import type { NodeContext } from "./node-auth.js";
@@ -64,7 +71,6 @@ import {
   newChunkReader,
   newChunkWriter,
   readBlockMap,
-  searchedTargets,
   type TenantChunkStore,
   tenantChunkStore,
 } from "./store.js";
@@ -1343,16 +1349,53 @@ async function pinRunTarget(
   });
 }
 
-/** The target a restore reads the container's repository from: the first that holds its config. */
-async function holdingTarget(tenantId: string, guestId: string): Promise<string> {
-  const store = await tenantChunkStore(tenantId);
-  const prefix = await guestRepositoryPrefixOf(db, tenantId, guestId);
-  for (const target of await searchedTargets(store)) {
-    if (await target.backend.head(`${prefix}config`).catch(() => null)) {
-      return target.id;
-    }
+/**
+ * The target a restore reads the container's repository from: the primary while it holds its
+ * config, else the first other target that does (a copy target's repository copy, a retired
+ * target, the installation default; storage/repository-source.ts).
+ */
+async function holdingSource(tenantId: string, guestId: string): Promise<RepositorySource> {
+  return repositorySource(tenantId, await guestRepositoryPrefixOf(db, tenantId, guestId));
+}
+
+/**
+ * A restore, restore check or boot test that reads the repository from another target than the
+ * primary says so: on its run (`stats.readFrom`, with the target's name) and in the audit log,
+ * once per run however often the node asks for its credential.
+ */
+async function recordReadFrom(
+  tenantId: string,
+  runId: string,
+  guestId: string,
+  source: RepositorySource,
+): Promise<void> {
+  const readFrom = readFromOf(source);
+  if (!readFrom) {
+    return;
   }
-  return store.primaryTarget;
+  await withTenantTx(db, tenantId, async (tx) => {
+    const [run] = await tx
+      .select({ stats: pveRuns.stats, kind: pveRuns.kind, archiveName: pveRuns.archiveName })
+      .from(pveRuns)
+      .where(eq(pveRuns.id, runId))
+      .for("update")
+      .limit(1);
+    if (!run || run.stats.readFrom) {
+      return;
+    }
+    await tx
+      .update(pveRuns)
+      .set({ stats: { ...run.stats, readFrom } })
+      .where(eq(pveRuns.id, runId));
+    await auditPve(tx, {
+      tenantId,
+      actor: { label: "system", userId: null, ip: null },
+      action: PVE_AUDIT_ACTIONS.restoreReadFromCopy,
+      target: guestId,
+      targetType: "pve_guest",
+      details: { runId, kind: run.kind, archiveName: run.archiveName, ...readFrom },
+    });
+  });
 }
 
 async function issueResticCredential(
@@ -1363,11 +1406,12 @@ async function issueResticCredential(
   now: Date,
   backup = false,
 ) {
-  const pinned = await pinRunTarget(
-    tenantId,
-    runId,
-    backup ? null : await holdingTarget(tenantId, guestId),
-  );
+  const source = backup ? null : await holdingSource(tenantId, guestId);
+  const pinned = await pinRunTarget(tenantId, runId, source ? source.target.id : null);
+  // The run keeps the target it got first; it says so when that is the one found now.
+  if (source && pinned.target === source.target.id) {
+    await recordReadFrom(tenantId, runId, guestId, source);
+  }
   if (backup) {
     const store = await tenantChunkStore(tenantId, Date.now(), pinned.generation);
     if (store.primaryTarget !== pinned.target) {
@@ -1434,6 +1478,65 @@ async function snapshotInCluster(node: NodeContext, snapshotId: string): Promise
   return snap;
 }
 
+/** How long the answer of {@link restoreSnapshotId} is kept: PVE asks for a volume many times. */
+const RESTORE_SNAPSHOT_ID_TTL_MS = 60_000;
+const restoreSnapshotIds = new Map<string, { id: string; expiresAt: number }>();
+
+/** Forget the cached snapshot ids (tests, after the storage changed). */
+export function forgetRestoreSnapshotIds(): void {
+  restoreSnapshotIds.clear();
+}
+
+/**
+ * The restic snapshot id a node restores a container's restore point by: `recorded` while the
+ * primary holds the repository; when a copy target's repository copy is read instead, the id of
+ * the snapshot `restic copy` made from it (storage/repository-source.ts). A copy that does not
+ * hold the restore point leaves the id as it is: the lookup is also what PVE lists volumes
+ * with, and the restore then fails with restic's own "no matching ID".
+ */
+async function restoreSnapshotId(
+  tenantId: string,
+  guestId: string,
+  recorded: string,
+): Promise<string> {
+  const key = `${guestId}:${recorded}`;
+  const cached = restoreSnapshotIds.get(key);
+  const now = Date.now();
+  if (cached && cached.expiresAt > now) {
+    return cached.id;
+  }
+  let id = recorded;
+  const source = await holdingSource(tenantId, guestId);
+  if (source.fallback) {
+    const [guest] = await withTenantTx(db, tenantId, (tx) =>
+      tx
+        .select({
+          id: pveGuests.id,
+          repositorySecretId: pveGuests.repositorySecretId,
+          repositoryPrefix: pveGuests.repositoryPrefix,
+        })
+        .from(pveGuests)
+        .where(eq(pveGuests.id, guestId))
+        .limit(1),
+    );
+    const password = guest?.repositorySecretId
+      ? await readSecret(db, { id: guest.repositorySecretId, tenantId })
+      : null;
+    if (guest && password) {
+      id = await snapshotOnSource(
+        source,
+        { prefix: guestRepositoryPrefix(guest), password, repositoryKey: guest.id },
+        recorded,
+      ).catch(() => recorded);
+    }
+  }
+  if (restoreSnapshotIds.size > 2000) {
+    restoreSnapshotIds.clear();
+  }
+  restoreSnapshotIds.set(key, { id, expiresAt: now + RESTORE_SNAPSHOT_ID_TTL_MS });
+  return id;
+}
+
 /** Look a PVE volume name of this cluster up. */
 export async function resolveVolname(node: NodeContext, volname: string) {
   const parsed = parseArchiveName(volname);
@@ -1467,7 +1570,12 @@ export async function resolveVolname(node: NodeContext, volname: string) {
     guestConfig: snap.guestConfig,
     firewallConfig: snap.firewallConfig,
     devices: snap.disks.map((d) => ({ device: d.device, size: d.size })),
-    resticSnapshotId: snap.resticSnapshotId ?? "",
+    // The id restic on the node restores: the recorded one on the primary, the id of its copy
+    // when the repository is read from a copy target (docs/STORAGE.md, "Restoring from a copy").
+    resticSnapshotId:
+      snap.kind === "ct" && snap.resticSnapshotId
+        ? await restoreSnapshotId(node.tenantId, snap.guestId, snap.resticSnapshotId)
+        : (snap.resticSnapshotId ?? ""),
     resticRoot: snap.resticRoot ?? "",
     // What the node checks free space against: a VM's disk sizes summed, a container's file
     // bytes (restic's total); 0 when unknown (a container restore point of an older node).

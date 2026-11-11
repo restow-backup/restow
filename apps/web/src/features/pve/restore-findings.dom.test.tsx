@@ -41,6 +41,18 @@ function render(run: Pick<PveRun, "kind" | "status" | "stats" | "warnings">): HT
 }
 
 describe("RestoreFindings", () => {
+  it("says that a restore read the copy on a copy target, and names it", () => {
+    const el = render({
+      kind: "restore",
+      status: "succeeded",
+      stats: { readFrom: { targetId: "t-2", targetName: "Offsite", role: "copy" } },
+    });
+    expect(el.textContent).toContain(
+      "The primary repository no longer held this container's backups; the restore read their copy on Offsite.",
+    );
+    expect(render({ kind: "restore", status: "succeeded", stats: {} }).textContent).toBe("");
+  });
+
   it("names the mount points a restore left out, how to put them back and the shared-data risk", () => {
     const el = render({
       kind: "restore",
