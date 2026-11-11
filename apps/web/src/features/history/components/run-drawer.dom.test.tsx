@@ -184,6 +184,25 @@ describe("the run drawer opened by an address", () => {
     expect(document.title).not.toContain("40 %");
   });
 
+  it("says that a restore read the copy on a copy target, and names it", async () => {
+    await open(RUN_IDS.mailDone, {
+      [`GET /history/${RUN_IDS.mailDone}`]: () =>
+        json(
+          detail(finished("succeeded"), {
+            readFrom: { targetId: "t-2", targetName: "Offsite", role: "copy" },
+          }),
+        ),
+    });
+    const row = section("stats")?.querySelector('[data-term="read-from"]');
+    expect(row?.textContent).toBe("Offsite");
+    expect(section("stats")?.textContent).toContain("Read from the copy on");
+    // Nothing of it for a run that read the primary.
+    await opened?.mounted.unmount();
+    document.body.innerHTML = "";
+    await open(RUN_IDS.mailDone);
+    expect(section("stats")?.querySelector('[data-term="read-from"]')).toBeNull();
+  });
+
   it("leaves the tab's title alone for a run that is over", async () => {
     document.title = "History · Contoso · Restow";
     await open(RUN_IDS.mailDone);

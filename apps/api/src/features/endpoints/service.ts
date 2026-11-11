@@ -5,6 +5,7 @@ import {
   type DirectoryPosition,
   ENDPOINT_QUEUES,
   type EndpointJobPayload,
+  endpointPrefix,
   endpointQuotaLimits,
   endpointSingletonKey,
   enrollmentTokenExpiry,
@@ -48,6 +49,7 @@ import {
 import { and, desc, eq, gt, inArray, isNotNull, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { audit } from "../../lib/audit.js";
+import { readSecret } from "../../lib/secrets.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
 import { decodeCursor, encodeCursor } from "../../routes/v1/cursor.js";
@@ -55,6 +57,12 @@ import { sameJson } from "../backup-jobs/json.js";
 import { jobRetentionOf, jobsOfEndpoints, jobWithOverridesOf } from "../backup-jobs/membership.js";
 import { pgBossExecutor } from "../jobs/pg-boss-tx.js";
 import { isMissingQueueSchema, jobQueue } from "../jobs/queue.js";
+import {
+  type ReadFrom,
+  readFromOf,
+  repositorySource,
+  snapshotOnSource,
+} from "../storage/repository-source.js";
 import { auditEndpoint, ENDPOINT_AUDIT_ACTIONS, type EndpointActor } from "./audit.js";
 import { bandwidthWindowsProblem } from "./bandwidth.js";
 import { installCommands, releaseKeyFingerprint } from "./commands.js";
@@ -1101,6 +1109,41 @@ export async function revokeEndpoint(
 
 const FULL_SNAPSHOT_ID = /^[0-9a-f]{64}$/i;
 
+/**
+ * Where a machine's restore reads when the primary no longer holds its repository, and the id
+ * under which that target holds the snapshot (`snapshotId` may be the id the runs recorded on
+ * the primary, or the copy's own, as the snapshot list shows it then). Null on the primary.
+ */
+async function restoreFromCopy(
+  database: Database,
+  tenantId: string,
+  endpointId: string,
+  snapshotId: string,
+): Promise<{ readFrom: ReadFrom; snapshotId: string } | null> {
+  const source = await repositorySource(tenantId, endpointPrefix(endpointId));
+  const readFrom = readFromOf(source);
+  if (!readFrom) {
+    return null;
+  }
+  const endpoint = await withTenantTx(database, tenantId, (tx) =>
+    loadEndpoint(tx, tenantId, endpointId),
+  );
+  const password = endpoint.repositorySecretId
+    ? await readSecret(database, { id: endpoint.repositorySecretId, tenantId })
+    : null;
+  if (password === null) {
+    return null;
+  }
+  return {
+    readFrom,
+    snapshotId: await snapshotOnSource(
+      source,
+      { prefix: endpointPrefix(endpointId), password, repositoryKey: endpointId },
+      snapshotId,
+    ),
+  };
+}
+
 export async function createTask(
   database: Database,
   tenantId: string,
@@ -1109,6 +1152,13 @@ export async function createTask(
   actor: EndpointActor,
   now: Date = new Date(),
 ): Promise<{ task: TaskDto; alreadyQueued: boolean }> {
+  // A restore while the primary no longer holds the repository reads its copy on a copy target
+  // (docs/STORAGE.md, "Restoring from a copy"): the task names the snapshot by the id that
+  // repository holds it under, and says which target it reads.
+  const fromCopy =
+    input.kind === "restore" && FULL_SNAPSHOT_ID.test(input.snapshotId)
+      ? await restoreFromCopy(database, tenantId, id, input.snapshotId)
+      : null;
   return withTenantTx(database, tenantId, async (tx) => {
     const endpoint = await loadEndpoint(tx, tenantId, id);
     if (endpoint.status !== "active") {
@@ -1160,9 +1210,10 @@ export async function createTask(
     const params: Record<string, unknown> =
       input.kind === "restore"
         ? {
-            snapshotId: input.snapshotId,
+            snapshotId: fromCopy?.snapshotId ?? input.snapshotId,
             paths: input.paths,
             ...(input.targetDir ? { targetDir: input.targetDir } : {}),
+            ...(fromCopy ? { readFrom: fromCopy.readFrom } : {}),
           }
         : {};
     const [task] = await tx
@@ -1194,10 +1245,11 @@ export async function createTask(
         taskId: task.id,
         ...(input.kind === "restore"
           ? {
-              snapshotId: input.snapshotId,
+              snapshotId: fromCopy?.snapshotId ?? input.snapshotId,
               paths: input.paths.slice(0, 50),
               pathCount: input.paths.length,
               targetDir: input.targetDir ?? null,
+              ...(fromCopy ? { readFrom: fromCopy.readFrom } : {}),
             }
           : {}),
       },

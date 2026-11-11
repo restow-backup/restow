@@ -471,7 +471,9 @@
       "customIdmap": "Among them is a custom lxc.idmap: the copy uses the default map, so its files belong to the IDs of that map.",
       "keptDevicesDetail": "The copy uses the same host devices as the original. Check them before you start it while the original runs:",
       "madeUnprivileged": "The original is a privileged container; the copy was restored unprivileged.",
-      "onbootCleared": "Unlike the original, the copy does not start with its node (onboot=0)."
+      "onbootCleared": "Unlike the original, the copy does not start with its node (onboot=0).",
+      "readFromCopy": "The primary repository no longer held this container's backups; the restore read their copy on {target}.",
+      "readFromUnnamed": "another repository"
     },
     "restoreCheckSkipped": "Not checked: {reason, select, no_storage {target storage missing} storage_inactive {target storage inactive} storage_content {target storage takes no guests of this kind} storage_space {not enough space} restores_off {restores are off} other {not possible}}",
     "restoreCheckBlocked": {

@@ -17,7 +17,7 @@
  * (RESTIC_BINARY, else the PATH).
  */
 import { spawnSync } from "node:child_process";
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { cp, mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -52,7 +52,9 @@ import {
   createDb,
   type Database,
   deriveAuthLogin,
+  endpointReports,
   endpointRuns,
+  endpointSamples,
   endpoints,
   fileShareSnapshots,
   fileShares,
@@ -67,6 +69,8 @@ import {
 import { runMigrations } from "@restow/db/migrate";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { endpointCheck } from "../endpoints/check.js";
+import { endpointVerify, RestoreTestIncompleteError } from "../endpoints/verify.js";
 import type { FileShareDeps } from "../file-shares/common.js";
 import { purgeShare } from "../file-shares/purge.js";
 import { loadTenantKeyring, TenantCache, withTenantTx } from "../handlers/framework.js";
@@ -604,6 +608,39 @@ describe.skipIf(!adminUrl || !resticAvailable())(
           return stdout;
         });
         expect(content).toBe("bravo\n");
+
+        // The server's own repository check and restore test stay on the primary. With its
+        // repository gone they say so: the check is red with the reason, the restore test is
+        // incomplete (it rates nothing); neither is ever green.
+        await owner
+          .update(endpoints)
+          .set({ lastSnapshotId: wanted })
+          .where(eq(endpoints.id, machine.id));
+        const [reportingRun] = await owner
+          .select({ id: endpointRuns.id })
+          .from(endpointRuns)
+          .where(eq(endpointRuns.snapshotId, wanted));
+        await owner.insert(endpointSamples).values({
+          tenantId: contoso,
+          endpointId: machine.id,
+          runId: reportingRun?.id as string,
+          snapshotId: wanted,
+          path: join(machine.source, "docs", "b.txt"),
+          sha256: createHash("sha256").update("bravo\n").digest("hex"),
+          size: 6,
+        });
+        await endpointCheck(deps, { tenantId: contoso, endpointId: machine.id });
+        await expect(
+          endpointVerify(deps, { tenantId: contoso, endpointId: machine.id }),
+        ).rejects.toBeInstanceOf(RestoreTestIncompleteError);
+        const reports = await owner
+          .select()
+          .from(endpointReports)
+          .where(eq(endpointReports.endpointId, machine.id));
+        expect(reports.map((report) => [report.kind, report.readiness])).toEqual([
+          ["repository_check", "red"],
+        ]);
+        expect(String(reports[0]?.summary.errorMessage)).toMatch(/config|repository/i);
 
         // The pass says what is wrong, and deletes nothing on the copy.
         clock = new Date(clock.getTime() + COPY_CATCH_UP_MS);

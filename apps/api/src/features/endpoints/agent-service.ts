@@ -61,6 +61,7 @@ import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { emitWebhookEvent } from "../../lib/webhooks.js";
 import { ProblemError } from "../../problem.js";
 import { RESTORE_MODE_TASK_HOLD_MESSAGE, restoreModeTaskHoldBefore } from "../restore-mode/hold.js";
+import { readFromIn } from "../storage/repository-source.js";
 import { type AgentContext, FailureTracker } from "./agent-auth.js";
 import { agentActor, auditEndpoint, ENDPOINT_AUDIT_ACTIONS } from "./audit.js";
 import { type AgentCancelOrders, agentCancelOrders } from "./cancel.js";
@@ -998,16 +999,33 @@ export async function finishRun(
           : run.kind === "sql_restore"
             ? await recordSqlRestoreRun(tx, agent, run, input, errors)
             : undefined;
+    // A restore whose task read the repository from another target than the primary (a copy
+    // target's repository copy, docs/STORAGE.md "Restoring from a copy") says so on its run.
+    const readFrom =
+      run.kind === "restore" && run.taskId
+        ? readFromIn(
+            (
+              await tx
+                .select({ params: endpointTasks.params })
+                .from(endpointTasks)
+                .where(eq(endpointTasks.id, run.taskId))
+                .limit(1)
+            )[0]?.params.readFrom,
+          )
+        : null;
     await tx
       .update(endpointRuns)
       .set({
         status,
         finishedAt: finishedAt.getTime() < run.startedAt.getTime() ? now : finishedAt,
         snapshotId: input.snapshotId ?? null,
-        stats: withSqlStats(statsWithActivity(input.stats, input.activity, input.consistency), {
-          sql: sqlStats,
-          notices: runNoticesOf(input),
-        }),
+        stats: {
+          ...withSqlStats(statsWithActivity(input.stats, input.activity, input.consistency), {
+            sql: sqlStats,
+            notices: runNoticesOf(input),
+          }),
+          ...(readFrom ? { readFrom } : {}),
+        },
         errors,
         // What went wrong, explained: the headline, the reason and what to do, in the viewer's language.
         failure,
@@ -1098,7 +1116,13 @@ export async function finishRun(
         actor: agentActor(agent.hostname, agent.ip),
         action: ENDPOINT_AUDIT_ACTIONS.restoreFinished,
         endpointId: agent.endpointId,
-        details: { runId, status: input.status, taskId: run.taskId, errors: errors.length },
+        details: {
+          runId,
+          status: input.status,
+          taskId: run.taskId,
+          errors: errors.length,
+          ...(readFrom ? { readFrom } : {}),
+        },
       });
     }
 

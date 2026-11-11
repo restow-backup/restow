@@ -834,13 +834,9 @@ more than two days (behind, failing, or not made at all) raises the notification
 `storage.copy_behind` (a warning, once per episode; not critical, since the primary still
 holds every backup).
 
-**Reading from a copy.** When the primary no longer holds a repository's `config`, the API's
-reads use the first copy target that does (`backendHolding`,
-`apps/api/src/features/endpoints/repository.ts`); the same password opens it. A machine's
-restore points are listed from the repository itself, so its snapshot list, browsing and
-downloads work from the copy as they are. A container's and a file share's restore points are
-recorded with the primary's snapshot ids: browsing and file downloads look the restore point
-up by `original` and work from the copy too. See "Known limitations" for what does not.
+**Reading and restoring from a copy.** When the primary no longer holds a repository, the
+snapshot list, browsing, file downloads and full restores read its copy on a copy target; see
+"Restoring from a copy" below.
 
 **What a copy is not.** A repository copy is another repository, not a mirror of the
 primary's files:
@@ -858,6 +854,63 @@ primary's files:
   a machine's backups (`endpoint-removal`) and purging a file share delete their repository
   copies together with the repository; a container's repository copy stays, like the
   container's repository.
+
+### Restoring from a copy
+
+The primary is always read first. Only when it no longer holds a repository's `config` (the
+target was lost or emptied, the folder is gone) is the repository read from the first other
+target that holds one: a copy target's repository copy, else a retired target or the
+installation default (`repositorySource`, `apps/api/src/features/storage/repository-source.ts`;
+the same search the credentials of container and file share restores have always used). The
+same repository password opens it. A repository copy holds each restore point under an id of
+its own and keeps the recorded one as `original`; wherever restic is handed a snapshot id, the
+server hands it the copy's (`snapshotOnSource`), so nothing on a node, in a runner or in an
+agent has to change:
+
+- **Machines.** The snapshot list, browsing and downloads read the copy and show its
+  snapshots with what the server recorded about each (rating, flags, data added). A restore
+  task takes the id the runs recorded or the copy's own, is delivered with the copy's, and
+  records the target it reads. The agent keeps its repository URL and credential: while its
+  running run is the restore of such a task, the restic endpoint serves its requests from
+  that copy target, and it writes and releases its lock there; any other upload is refused
+  (`403`), a backup never lands in a repository copy. Every other run of the machine uses the
+  primary as ever. The rule follows the run the agent registered, not the state of the
+  storage: an agent runs one run at a time and registers it before it starts restic, so a
+  backup never opens the copy (whose keys are not the primary's) and then writes to the
+  primary, however the primary comes and goes.
+- **Proxmox VE containers.** The node's volume lookup (`GET /restore-points`) answers with the
+  copy's snapshot id, and the restore's credential is issued for the target that holds the
+  repository (`pve_runs.storage_target`), as before. This covers a restore from Restow, a
+  restore started in the PVE interface, a restore check and a boot test, which all restore
+  through the node: a check that ran against the copy is a real restore of the copy.
+- **Proxmox VE VMs.** Their disks are in the chunk store, which every copy target holds
+  (written with the backup, mirrored by the scrub); the restore stream has always fallen back
+  to a copy pack by pack.
+- **File shares.** The dispatcher pins the restore run (and a copy job's run) to the target
+  that holds the source share's repository; the runner's session names the copy's snapshot id.
+
+A restore that read another target than the primary says so: the run records it
+(`stats.readFrom` with the target's id, name and role; shown in the run's details for machines
+and file shares and on the guest's page for containers), and so does the audit log (the
+`readFrom` of `endpoint.restore.requested` and `endpoint.restore.finished`,
+`pve.restore.read_from_copy`, `file_share.restore_read_from_copy`). A VM restore names no
+target: its packs are read one by one from whichever target has each.
+
+When the copy does not hold the restore point (it was not copied yet, or retention on the copy
+removed it), a machine's restore task and a file share's restore are refused with
+`storage-restore-point-not-on-copy` (`409`) instead of failing later in restic; a container
+restore fails on the node with restic's "no matching ID".
+
+The server's own checks stay on the primary and are never green for a repository it does not
+hold: the weekly repository check of a machine or file share is red with restic's reason, a
+machine's restore test from stored samples is incomplete (it rates nothing and is tried
+again), and a container's check is not run, with the repository problem as the reason
+(`docs/PVE.md`, "Repository problems").
+
+A copy is for restoring, not for carrying on: backups of the object resume once the primary
+holds a repository again (for a container see `docs/PVE.md`, "Repository problems"). The
+restore points on the copy stay restorable throughout; the copy pass shows the copy as failed
+("the repository is not on the primary storage target") and forgets nothing on it meanwhile.
 
 ## Replacing the primary
 
@@ -1253,17 +1306,14 @@ not papered over:
   such a repository also stops a `move`. A machine's page does not show the scan's finding
   yet: read it on the Repositories page.
 
-- **A repository copy is read from, not restored from, by Proxmox VE and file share
-  restores.** When the primary lost the repository of a container or file share, its restore
-  points can be browsed and their files downloaded from the copy ("restic repositories on
-  copies"). A restore onto the Proxmox VE node or back into the share asks restic on the node
-  or in the runner for the snapshot id the database records, which the copy holds under
-  another id: such a restore fails with "no matching ID found". Until that is built, download
-  the files, or restore the copy's repository by hand with `restic` and the repository
-  password. A machine restores from a copy as usual (its restore points are listed from the
-  repository). Neither a `move` nor the repository repair rebuilds a primary's repository
-  from a repository copy, and a copy cannot be promoted while the tenant has restic
-  repositories.
+- **A repository copy does not replace the primary's repository.** When the primary lost a
+  repository, every restore reads its copy ("Restoring from a copy"), but backups of that
+  object are refused until the primary holds a repository again; neither a `move` nor the
+  repository repair rebuilds a primary's repository from a repository copy, and a copy cannot
+  be promoted while the tenant has restic repositories. A machine's restore test that the
+  agent runs itself (hash samples restored on the machine) is not served from a copy: it runs
+  against the primary and cannot rate a repository that is not there. A boot test that read
+  a copy says so on its run and in the audit log only, and a VM restore names no target.
 - **Repository copies cost the copy target's space once more** (deduplicated per repository,
   like on the primary), and the first pass after the update copies every repository in full,
   25 repositories per pass. A copy target that already holds other files under a repository's

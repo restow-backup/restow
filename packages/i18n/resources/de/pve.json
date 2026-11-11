@@ -471,7 +471,9 @@
       "customIdmap": "Darunter ist eine eigene lxc.idmap: Die Kopie verwendet die Standardzuordnung, ihre Dateien gehören also den IDs dieser Zuordnung.",
       "keptDevicesDetail": "Die Kopie verwendet dieselben Geräte des Hosts wie das Original. Prüfen Sie sie, bevor Sie die Kopie starten, während das Original läuft:",
       "madeUnprivileged": "Das Original ist ein privilegierter Container; die Kopie wurde unprivilegiert wiederhergestellt.",
-      "onbootCleared": "Anders als das Original startet die Kopie nicht mit ihrem Knoten (onboot=0)."
+      "onbootCleared": "Anders als das Original startet die Kopie nicht mit ihrem Knoten (onboot=0).",
+      "readFromCopy": "Das primäre Repository enthielt die Sicherungen dieses Containers nicht mehr; die Wiederherstellung hat ihre Kopie auf {target} gelesen.",
+      "readFromUnnamed": "einem anderen Repository"
     },
     "restoreCheckSkipped": "Nicht geprüft: {reason, select, no_storage {Zielspeicher fehlt} storage_inactive {Zielspeicher nicht aktiv} storage_content {Zielspeicher nimmt diese Art Gast nicht auf} storage_space {zu wenig Platz} restores_off {Wiederherstellungen sind aus} other {nicht möglich}}",
     "restoreCheckBlocked": {

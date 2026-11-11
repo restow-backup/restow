@@ -43,6 +43,7 @@ import {
   pveClusters,
   pveGuestRepositoryLockKey,
   pveGuests,
+  pveRuns,
   pveSnapshots,
   storageTargets,
 } from "@restow/db";
@@ -558,18 +559,23 @@ describe.skipIf(!canRun)("file restore of a container restore point (#62)", () =
     await taken?.();
   }, 60_000);
 
-  it("browses and downloads the restore point from the repository copy on a copy target once the primary lost the repository", async () => {
+  it("browses, downloads and fully restores the restore point from the repository copy on a copy target once the primary lost the repository", async () => {
+    const { forgetRestoreSnapshotIds } = await import("./runs.js");
     // docs/STORAGE.md, "restic repositories on copies": the same prefix and password on the
     // copy target, filled with `restic copy`, which writes the snapshot under another id.
     const { forgetTenantStorage } = await import("../endpoints/repository.js");
     const copyDir = join(work, "copy-target");
-    await fixture.db.insert(storageTargets).values({
-      tenantId: fixture.tenantId,
-      name: "Offsite",
-      kind: "local",
-      role: "copy",
-      config: { basePath: copyDir },
-    });
+    const [copyTarget] = await fixture.db
+      .insert(storageTargets)
+      .values({
+        tenantId: fixture.tenantId,
+        name: "Offsite",
+        kind: "local",
+        role: "copy",
+        config: { basePath: copyDir },
+      })
+      .returning();
+    const copyTargetId = copyTarget?.id as string;
     const prefix = `pve-guests/${guestId}/`;
     const access = (storage: StorageBackend, key: string): RepositoryAccess => ({
       storage,
@@ -617,9 +623,92 @@ describe.skipIf(!canRun)("file restore of a container restore point (#62)", () =
         .map((entry) => entry.name);
       expect(names.length).toBeGreaterThan(0);
       expect(names.every((name) => name.startsWith("etc/"))).toBe(true);
+
+      // A full restore on the node (docs/STORAGE.md, "Restoring from a copy"), as restow-pve
+      // does it: look the volume up, ask for the credential, run restic with what it was told.
+      forgetRestoreSnapshotIds();
+      const [point] = await fixture.db
+        .select()
+        .from(pveSnapshots)
+        .where(eq(pveSnapshots.id, pointId));
+      const looked = await ok<{ snapshotId: string; resticSnapshotId: string }>(
+        await call(`/restore-points?volname=${encodeURIComponent(point?.archiveName ?? "")}`),
+      );
+      // The id under which the copy holds the restore point, not the one the database records.
+      expect(looked.snapshotId).toBe(pointId);
+      expect(looked.resticSnapshotId).toMatch(/^[0-9a-f]{64}$/);
+      expect(looked.resticSnapshotId).not.toBe(primaryResticId);
+      const credential = await ok<{
+        runId: string;
+        username: string;
+        password: string;
+        repositoryPassword: string;
+      }>(await call(`/snapshots/${pointId}/restic`, {}));
+      const target = join(work, "restored-from-copy");
+      const restored = await restic(
+        [
+          "restore",
+          looked.resticSnapshotId,
+          "--target",
+          target,
+          "--no-cache",
+          "--sparse",
+          "--retry-lock",
+          "1m",
+        ],
+        work,
+        {
+          RESTIC_REPOSITORY: `rest:http://127.0.0.1:${port}/agent/pve/restic/${guestId}/`,
+          RESTIC_REST_USERNAME: credential.username,
+          RESTIC_REST_PASSWORD: credential.password,
+          RESTIC_PASSWORD: credential.repositoryPassword,
+        },
+      );
+      expect(restored.code, restored.out).toBe(0);
+      // The node backed the container up from inside its root: the tree starts at `/`.
+      const restoredRoot = target;
+      for (const file of [
+        join("etc", "hostname"),
+        join("opt", "paperless", "paperless.conf"),
+        join("opt", "paperless", "media", "scan.pdf"),
+        join("mnt", "data", "archive.txt"),
+        join("opt", "file-4.txt"),
+      ]) {
+        expect(sha256(await readFile(join(restoredRoot, file))), file).toBe(
+          sha256(await readFile(join(backupDir, file))),
+        );
+      }
+      await ok(
+        await call(`/runs/${credential.runId}/restore-end`, {
+          status: "succeeded",
+          exitStatus: "OK",
+        }),
+        204,
+      );
+      // The run and the audit log say that the restore read the copy, and which.
+      const [run] = await fixture.db.select().from(pveRuns).where(eq(pveRuns.id, credential.runId));
+      expect(run).toMatchObject({ kind: "restore", status: "succeeded" });
+      expect(run?.storageTarget).toBe(copyTargetId);
+      expect(run?.stats.readFrom).toMatchObject({
+        targetId: copyTargetId,
+        targetName: "Offsite",
+        role: "copy",
+      });
+      const audited = await fixture.db
+        .select()
+        .from(auditLog)
+        .where(
+          and(eq(auditLog.action, "pve.restore.read_from_copy"), eq(auditLog.target, guestId)),
+        );
+      expect(audited).toHaveLength(1);
+      expect(audited[0]?.details).toMatchObject({
+        runId: credential.runId,
+        targetName: "Offsite",
+        role: "copy",
+      });
     } finally {
       await rename(join(work, "lost-repository"), join(fixture.storageDir, "pve-guests", guestId));
       forgetTenantStorage(fixture.tenantId);
     }
-  }, 120_000);
+  }, 180_000);
 });

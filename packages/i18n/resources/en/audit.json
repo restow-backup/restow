@@ -659,7 +659,8 @@
         "cancelled": "Guest backup cancelled"
       },
       "restore": {
-        "requested": "Restore as a new guest requested"
+        "requested": "Restore as a new guest requested",
+        "read_from_copy": "Container restore read the backups from another repository than the primary"
       },
       "verify": {
         "requested": "Restore check of the restore point requested"
@@ -718,7 +719,8 @@
       "repository_password_shown": "Repository password of the file share shown",
       "private_network_approved": "File share on a private network approved",
       "private_network_withdrawn": "Approval for a private network withdrawn",
-      "settings_changed": "File share settings of the installation changed"
+      "settings_changed": "File share settings of the installation changed",
+      "restore_read_from_copy": "File share restore read the backups from another repository than the primary"
     },
     "warning": {
       "acknowledged": "Warning acknowledged",

@@ -30,12 +30,22 @@ private repository.
   current") and `GET /api/v1/storage/repository-copies/objects/:id` (per machine, container or
   file share: "Copy on <target>: current / n behind / failed (reason)"), both shown in the web
   interface. New catalog event `storage.copy_behind` (warning) when a copy is not current for
-  more than two days. When the primary lost a repository, the snapshot list, browsing and file
-  downloads read it from the copy (a container's and a file share's restore points are found by
-  the id `restic copy` keeps as `original`). Not yet: a restore onto a Proxmox VE node or back
-  into a file share straight from a copy; promoting a copy stays refused while the tenant has
-  restic repositories, and a `move` and the repository repair leave repository copies out
-  (docs/STORAGE.md, "restic repositories on copies" and "Known limitations"). The first pass
+  more than two days. When the primary lost a repository, the snapshot list, browsing, file
+  downloads and full restores read it from the copy: a machine's restore through its agent
+  (for the run of such a restore task the restic endpoint serves the machine from the copy
+  and takes its lock there; every other upload is refused, a backup never lands in a copy), a container's restore, restore check and boot
+  test on the Proxmox VE node, and a file share's restore back into the share. The server hands
+  restic the id under which the copy holds the restore point (`restic copy` keeps the recorded
+  one as `original`), so nodes, runners and agents need no update; a restore point the copy
+  does not hold is refused with `storage-restore-point-not-on-copy`. The run says which target
+  it read (`stats.readFrom`, shown in the run's details and on the guest's page), and the audit
+  log too (`readFrom` on `endpoint.restore.requested`/`.finished`, new actions
+  `pve.restore.read_from_copy` and `file_share.restore_read_from_copy`). The server's own
+  repository checks stay on the primary and are red or incomplete, never green, while it does
+  not hold the repository. Promoting a copy stays refused while the tenant has restic
+  repositories, and a `move` and the repository repair leave repository copies out
+  (docs/STORAGE.md, "restic repositories on copies", "Restoring from a copy" and "Known
+  limitations"). The first pass
   after the update copies every repository once, 25 repositories per pass, and needs their size
   on each copy target. Purging a file share now also deletes its repository copies.
 

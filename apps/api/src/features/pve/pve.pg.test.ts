@@ -16,6 +16,9 @@
  *     run credential, and what a container restore point could not read.
  */
 import { createHash, randomUUID } from "node:crypto";
+import { cp, mkdtemp, readdir, rename, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   decodeBlockMap,
   encodeFrame,
@@ -37,6 +40,7 @@ import {
   pveSnapshots,
   pveTasks,
   secrets,
+  storageTargets,
 } from "@restow/db";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
@@ -611,6 +615,58 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
       ["first", data1.length],
     ]);
   });
+
+  it("restores a VM's disk from a copy target once the primary lost its packs", async () => {
+    // A VM's disks are in the chunk store, whose packs every copy target holds (written with
+    // the backup, mirrored by the scrub): the restore stream falls back to the copy
+    // (docs/STORAGE.md, "Restoring from a copy").
+    const { forgetTenantChunkStore } = await import("./store.js");
+    const copyDir = await mkdtemp(join(tmpdir(), "restow-pve-vm-copy-"));
+    const lostDir = await mkdtemp(join(tmpdir(), "restow-pve-vm-lost-"));
+    await cp(fixture.storageDir, copyDir, { recursive: true });
+    const [target] = await fixture.db
+      .insert(storageTargets)
+      .values({
+        tenantId: fixture.tenantId,
+        name: "Offsite",
+        kind: "local",
+        role: "copy",
+        config: { basePath: copyDir },
+      })
+      .returning();
+    const names = await readdir(fixture.storageDir);
+    for (const name of names) {
+      await rename(join(fixture.storageDir, name), join(lostDir, name));
+    }
+    forgetTenantChunkStore(fixture.tenantId);
+    try {
+      const out: Buffer[] = [];
+      for (let from = 0; from < 3; from += 2) {
+        const r = await call(
+          node,
+          `/snapshots/${first.snapshotId}/disks/drive-scsi0/blocks?from=${from}&count=2`,
+        );
+        expect(r.status).toBe(200);
+        let buf = Buffer.from(await r.arrayBuffer());
+        while (buf.length > 0) {
+          const len = buf.readUInt32BE(5);
+          const zero = (buf[4] as number) & 1;
+          out.push(zero ? Buffer.alloc(len) : buf.subarray(9, 9 + len));
+          buf = buf.subarray(9 + (zero ? 0 : len));
+        }
+      }
+      expect(Buffer.concat(out).equals(data1)).toBe(true);
+    } finally {
+      for (const name of names) {
+        await rm(join(fixture.storageDir, name), { recursive: true, force: true });
+        await rename(join(lostDir, name), join(fixture.storageDir, name));
+      }
+      await fixture.db.delete(storageTargets).where(eq(storageTargets.id, target?.id as string));
+      forgetTenantChunkStore(fixture.tenantId);
+      await rm(copyDir, { recursive: true, force: true });
+      await rm(lostDir, { recursive: true, force: true });
+    }
+  }, 60_000);
 
   it("refuses another cluster's node and another tenant", async () => {
     const other = await json<Node>(await enroll(fixture.otherTenantId, "b".repeat(64)), 201);
