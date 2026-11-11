@@ -725,6 +725,17 @@ private repository.
   reaches a route, and a response without a body no longer carries `Content-Type: text/plain`;
   the advisory GHSA-rmxm-3fg6-px4f (its static file middleware, which Restow does not use) is
   closed with it.
+- Dependencies, second round: better-auth and its passkey plugin 1.7.18, `@aws-sdk/client-s3`
+  3.1163.0, mailparser 3.14.2, i18next 26.7.2, i18next-icu 2.7.0, react-i18next 17.1.13,
+  `@tanstack/react-query` 5.106.1, react-resizable-panels 4.18.1, lucide-react 1.69.0 and cn
+  0.5.2 (Dependabot #104), unpdf 2.1.0 (tests only, Dependabot #103), and for development vite
+  8.3.6, `@vitejs/plugin-react` 6.2.1, tailwindcss and `@tailwindcss/vite` 4.3.4, vitest 5.1.0
+  and Biome 2.6.5 (Dependabot #102). The workflows use docker/login-action 4.8.0,
+  pnpm/action-setup 6.1.1 and sigstore/cosign-installer 4.1.3 (Dependabot #101). Since the
+  passkey plugin 1.7.16 the `userVerification: "required"` Restow has always set applies to
+  signing in as well: the browser asks for the passkey's PIN or biometrics there too, and a
+  registration or sign-in without that check is refused. The origin a passkey ceremony is
+  checked against comes from `RESTOW_PUBLIC_URL`, no longer from the request's `Origin` header.
 
 ### Fixed
 
