@@ -13,6 +13,7 @@
  * by the run's throwaway test signer); the api was restarted after that,
  * because the receiver reads its capability when the api starts.
  */
+// claim: ARCHIVE-001 (docs/CLAIMS.md: the hash chain verifies and links the items)
 import { X509Certificate } from "node:crypto";
 import { buildMessage, sha256 } from "../lib/corpus.mjs";
 import { checkChecksummedZip, exportToEntries } from "../lib/exports.mjs";

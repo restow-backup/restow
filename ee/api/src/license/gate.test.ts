@@ -35,7 +35,7 @@ afterEach(() => {
 });
 
 describe("currentEdition", () => {
-  it("is Community without a key", async () => {
+  it("is Community without a key [LICENSE-009]", async () => {
     expect(await currentEdition(fakeDb())).toBe("community");
   });
 

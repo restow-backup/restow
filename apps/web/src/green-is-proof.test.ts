@@ -85,7 +85,7 @@ describe("green is proof", () => {
     expect(files.length, "the glob no longer reaches the sources").toBeGreaterThan(300);
   });
 
-  it("is named only by files that show a restore check, a restore or an integrity check", () => {
+  it("is named only by files that show a restore check, a restore or an integrity check [READY-001]", () => {
     const unexpected = using.filter((path) => !(path in ALLOWED));
     expect(
       unexpected,
@@ -98,7 +98,7 @@ describe("green is proof", () => {
     expect(stale, "These files no longer use green; remove them from ALLOWED.").toEqual([]);
   });
 
-  it("draws a backup run that merely completed in Lapis (info) in every chart, never green", () => {
+  it("draws a backup run that merely completed in Lapis (info) in every chart, never green [READY-001]", () => {
     // The two charts that plot backup outcomes. They may name green for the series next to it
     // (restores, readiness), so the file-level list above cannot tell; this reads the series.
     const BACKUP_CHARTS = [

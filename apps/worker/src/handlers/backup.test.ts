@@ -627,7 +627,7 @@ describe("toStoredBackupResult", () => {
 });
 
 describe("ensureManifestOnCopies", () => {
-  it("writes the manifest to copies that miss it and leaves complete copies alone", async () => {
+  it("writes the manifest to copies that miss it and leaves complete copies alone [COPY-001]", async () => {
     const primary = new MemoryStorage();
     const complete = new MemoryStorage();
     const incomplete = new MemoryStorage();
@@ -956,7 +956,7 @@ describe("Graph client per source", () => {
 });
 
 describe("enqueueVerifyAfterBackup", () => {
-  it("skips without a verify schedule", async () => {
+  it("skips without a verify schedule [VERIFY-006]", async () => {
     const { store, queued } = fakeStore({ verifyScheduled: false });
     const sent: string[] = [];
     const result = await enqueueVerifyAfterBackup({
@@ -974,7 +974,7 @@ describe("enqueueVerifyAfterBackup", () => {
     expect(queued).toEqual([]);
   });
 
-  it("sends a verify with priority and singleton key and records the queued row", async () => {
+  it("sends a verify with priority and singleton key and records the queued row [VERIFY-006]", async () => {
     const { store, queued } = fakeStore({ verifyScheduled: true });
     const sent: unknown[] = [];
     const jobId = await enqueueVerifyAfterBackup({

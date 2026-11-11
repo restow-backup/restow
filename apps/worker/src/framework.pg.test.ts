@@ -256,7 +256,7 @@ describe.skipIf(!adminUrl)("framework against Postgres", () => {
     ).rejects.toThrow(/no data-encryption key/);
   });
 
-  it("skips a stored key it cannot read this time and resolves findings once storage matches", async () => {
+  it("skips a stored key it cannot read this time and resolves findings once storage matches [CRYPT-004]", async () => {
     const { EnvKeyProvider } = await import("@restow/core");
     const run = tenantRunner(db, fixture.tenantId);
     await mirrorTenantKeys({ run, tenantId: fixture.tenantId, storage, logger: noopLogger });
@@ -372,7 +372,7 @@ describe.skipIf(!adminUrl)("framework against Postgres", () => {
     ).toBe(true);
   });
 
-  it("stops deduplicating against a damaged pack, moves its chunks to the intact copy and retires it", async () => {
+  it("stops deduplicating against a damaged pack, moves its chunks to the intact copy and retires it [SCRUB-005]", async () => {
     const run = tenantRunner(db, fixture.tenantId);
     const index = new PgChunkIndex(run, fixture.tenantId);
     const catalog = new PgPackCatalog(run, fixture.tenantId);
@@ -1409,7 +1409,7 @@ describe.skipIf(!adminUrl)("framework against Postgres", () => {
       };
     }
 
-    it("lets restore read an object that lives only on the previous target, and never writes there", async () => {
+    it("lets restore read an object that lives only on the previous target, and never writes there [COPY-003]", async () => {
       const { primary, previous, targets } = await setUp();
       let read: Buffer | undefined;
       const handler: AnyJobHandler = {

@@ -82,12 +82,12 @@ describe("createRestoreSchema", () => {
 });
 
 describe("isReplaceModeAllowedFor", () => {
-  it("refuses 'replace' into any account, original or another one", () => {
+  it("refuses 'replace' into any account, original or another one [RESTORE-001]", () => {
     expect(isReplaceModeAllowedFor("replace", "original")).toBe(false);
     expect(isReplaceModeAllowedFor("replace", "other")).toBe(false);
   });
 
-  it("lets 'replace' (overwrite) into a SharePoint site, an explicit choice there", () => {
+  it("lets 'replace' (overwrite) into a SharePoint site, an explicit choice there [RESTORE-006]", () => {
     expect(isReplaceModeAllowedFor("replace", "original", "site")).toBe(true);
     expect(isReplaceModeAllowedFor("replace", "other", "site")).toBe(true);
     expect(isReplaceModeAllowedFor("replace", "original", "onedrive")).toBe(false);

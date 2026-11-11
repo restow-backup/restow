@@ -215,7 +215,7 @@ describe.skipIf(!testDatabaseAdminUrl)("confirm as empty against Postgres", () =
     return found;
   };
 
-  it("rates an empty object yellow with its content figures until someone confirms it", async () => {
+  it("rates an empty object yellow with its content figures until someone confirms it [READY-008]", async () => {
     const item = await entry(empty.id);
     expect(item.state).toBe("yellow");
     expect(item.emptyConfirmation).toBeNull();
@@ -258,7 +258,7 @@ describe.skipIf(!testDatabaseAdminUrl)("confirm as empty against Postgres", () =
     });
   });
 
-  it("shows a confirmed object as neutral empty: not yellow, not overdue, not keeping the tenant from green", async () => {
+  it("shows a confirmed object as neutral empty: not yellow, not overdue, not keeping the tenant from green [READY-008]", async () => {
     const item = await entry(empty.id);
     expect(item.state).toBe("empty");
     expect(item.overdue).toBe(false);
@@ -337,7 +337,7 @@ describe.skipIf(!testDatabaseAdminUrl)("confirm as empty against Postgres", () =
     ).toEqual([]);
   });
 
-  it("stops counting as soon as a newer check says anything else", async () => {
+  it("stops counting as soon as a newer check says anything else [READY-008]", async () => {
     await report(
       db,
       contoso,
@@ -566,7 +566,7 @@ describe.skipIf(!testDatabaseAdminUrl)("confirm as empty against Postgres", () =
       expect(msp?.objects.find((row) => row.id === mailbox.id)?.readiness.state).toBe("green");
     });
 
-    it("turns red when Microsoft 365 reports content, and an admin confirmation no longer counts", async () => {
+    it("turns red when Microsoft 365 reports content, and an admin confirmation no longer counts [READY-009]", async () => {
       contradicted = await object(db, northwind, "full@northwind.example");
       await report(
         db,

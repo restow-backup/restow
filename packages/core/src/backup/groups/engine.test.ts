@@ -545,7 +545,7 @@ describe("GroupMailboxBackupEngine", () => {
       expect(kickoff.code).toBe("exists");
     });
 
-    it("reports Graph's refusal per event when the group calendar does not take app writes", async () => {
+    it("reports Graph's refusal per event when the group calendar does not take app writes [RESTORE-007]", async () => {
       const backup = await engine().run(fixture.ctx, fixture.protectedObject);
       group.refuseEventCreate = true;
       const report = await new GroupRestoreEngine({ graph: () => graph.client() }).run(
@@ -559,7 +559,7 @@ describe("GroupMailboxBackupEngine", () => {
       expect(events.every((item) => item.status === "failed")).toBe(true);
     });
 
-    it("restores the calendar and the conversations into a user's mailbox", async () => {
+    it("restores the calendar and the conversations into a user's mailbox [RESTORE-007]", async () => {
       const backup = await engine().run(fixture.ctx, fixture.protectedObject);
       const target = new TargetMailbox();
       const report = await new GroupRestoreEngine({ graph: () => target.graph.client() }).run(

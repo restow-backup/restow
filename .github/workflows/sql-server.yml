@@ -175,6 +175,8 @@ jobs:
           powershell.exe @psArgs
           exit $LASTEXITCODE
 
+  # claim: RESTORE-016 (docs/CLAIMS.md): this job is the only run of the SQL Server check
+  # and restore against a real SQL Server (agent/scripts/test-sql-windows.ps1).
   windows-sql:
     name: SQL Server ${{ matrix.sql }} Express (W2a)
     runs-on: windows-2022

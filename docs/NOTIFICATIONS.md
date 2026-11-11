@@ -48,7 +48,9 @@ mode per severity too, and can choose the daily, weekly and monthly report.
 ## Critical events
 
 These events are security or data-loss events: `backup.suspicious` (ransomware signs),
-`endpoint.suspicious_snapshot`, `scrub.corrupt`, `verify.red` and `installation.disk_low`.
+`endpoint.suspicious_snapshot`, `scrub.corrupt`, `verify.red`, `installation.disk_low` and
+`endpoint.backups_deletion_scheduled` (the backups of a removed machine are due for deletion in
+seven days, so the floor learns of it while it can still be stopped).
 They are always sent at once (never held for a digest), always reach the floor, and always appear
 in the bell: the bell's column can no longer switch them off.
 

@@ -175,7 +175,7 @@ describe("upcomingRuns", () => {
 });
 
 describe("scrubModeForCadence", () => {
-  it("scrubs everything when the cadence is monthly or rarer, a sample otherwise", () => {
+  it("scrubs everything when the cadence is monthly or rarer, a sample otherwise [SCRUB-001]", () => {
     expect(scrubModeForCadence({ intervalMinutes: 7 * 24 * 60, cron: null })).toBe("sample");
     expect(scrubModeForCadence({ intervalMinutes: FULL_SCRUB_INTERVAL_MINUTES, cron: null })).toBe(
       "full",

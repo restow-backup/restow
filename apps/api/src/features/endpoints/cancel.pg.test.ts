@@ -247,7 +247,7 @@ describe.skipIf(!testDatabaseAdminUrl)("stopping machine backups against Postgre
     expect(audits.some((a) => a.target === who.id)).toBe(true);
   });
 
-  it("never hands out a task from before restore mode's hold point, also not again", async () => {
+  it("never hands out a task from before restore mode's hold point, also not again [RETAIN-009]", async () => {
     const who = await machine();
     const hour = 3_600_000;
     // Restored from a dump: a restore still pending there, and an uninstall delivered (and done,

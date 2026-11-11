@@ -6,7 +6,11 @@
  * folders). Files up to 4 MiB go up in one PUT, larger ones through an upload
  * session in 320 KiB-aligned fragments, both straight from the chunk reader
  * without touching the disk. The original timestamps are put back through
- * `fileSystemInfo`. The mode maps onto Graph's conflict behaviour:
+ * `fileSystemInfo`. A OneDrive restore never replaces a file (docs/ARCHITECTURE.md,
+ * Restore): the API refuses "replace" for a OneDrive, and the engine runs a job that
+ * still carries it as "rename" ({@link oneDriveRestoreMode}). The session below also
+ * serves the SharePoint engine, where "replace" is an explicit choice, so the mode maps
+ * onto Graph's conflict behaviour there:
  *
  *   rename   an existing file keeps its place, the restored copy is renamed;
  *            a file already there with the same content (the unchanged
@@ -16,12 +20,13 @@
  *            hash the library reported at backup time, and what an earlier
  *            attempt uploaded by the job's own record (./progress.ts), since
  *            no hash of the backup matches what SharePoint stores
- *   replace  the existing file is overwritten (OneDrive keeps it as a version)
+ *   replace  the existing file is overwritten (the library keeps it as a version);
+ *            only a SharePoint site's restore reaches this
  *   skip     an existing file with that name is left alone
  *
  * A selected historical version is written back under its file's name, so
- * "replace" makes it the current version again and "rename" puts it next to
- * the current one.
+ * "replace" (a SharePoint library) makes it the current version again and
+ * "rename" puts it next to the current one.
  *
  * Every upload is verified: the bytes sent must match the snapshot's size and
  * SHA-256, the size OneDrive reports must match, and the QuickXorHash OneDrive
@@ -51,7 +56,12 @@ import {
   uploadFile,
 } from "../graph/resources/drive.js";
 import type { ManifestObject } from "../manifest.js";
-import { chunkReaderFor, type RestoreGraphClientFactory, throwIfAborted } from "./common.js";
+import {
+  chunkReaderFor,
+  mailboxRestoreMode,
+  type RestoreGraphClientFactory,
+  throwIfAborted,
+} from "./common.js";
 import {
   baseName,
   fileTimestampsOf,
@@ -152,6 +162,36 @@ export function renamedCopyName(name: string, copy: number): string {
   return dot > 0 ? `${name.slice(0, dot)} ${copy}${name.slice(dot)}` : `${name} ${copy}`;
 }
 
+/**
+ * What a OneDrive restore queued with "replace" says on every item: it ran as "rename".
+ * The `restore_mode` enum keeps "replace" for history (and for SharePoint sites), so a
+ * job row may still carry it for a OneDrive, though the API refuses it there.
+ */
+export const ONEDRIVE_LEGACY_REPLACE_NOTE =
+  'this restore was queued with the mode "replace", which OneDrive restores do not support; it ran as "rename" instead: a file that already existed kept its place and content, and the backed-up file was added next to it under a new name';
+
+/**
+ * The mode a OneDrive restore runs with: "replace" becomes "rename" (defence in depth
+ * behind the API's refusal, so this engine never overwrites a file), the rest passes.
+ */
+export function oneDriveRestoreMode(mode: RestoreMode): {
+  readonly mode: "rename" | "skip";
+  readonly legacyReplace: boolean;
+} {
+  return mailboxRestoreMode(mode);
+}
+
+/** Put {@link ONEDRIVE_LEGACY_REPLACE_NOTE} in front of the reason of every item and failure. */
+function withLegacyReplaceNote(report: RestoreReport): RestoreReport {
+  const noted = (reason: string | undefined) =>
+    reason ? `${ONEDRIVE_LEGACY_REPLACE_NOTE}; ${reason}` : ONEDRIVE_LEGACY_REPLACE_NOTE;
+  return {
+    ...report,
+    failures: report.failures.map((failure) => ({ ...failure, reason: noted(failure.reason) })),
+    items: report.items.map((item) => ({ ...item, reason: noted(item.reason) })),
+  };
+}
+
 export class OneDriveRestoreEngine implements RestoreEngine {
   readonly kind = "onedrive" as const;
 
@@ -165,6 +205,15 @@ export class OneDriveRestoreEngine implements RestoreEngine {
       snapshotId: request.snapshotId,
     });
     const ledger = new RestoreLedger(ctx.progress);
+    const { mode, legacyReplace } = oneDriveRestoreMode(request.mode);
+    if (legacyReplace) {
+      logger.warn(
+        "restore job carries the mode 'replace', which OneDrive does not support; running it as 'rename'",
+        {
+          restoreJobId: request.restoreJobId,
+        },
+      );
+    }
 
     ctx.progress.phase("resolve");
     const { manifest } = await resolveRestoreSource(ctx, request);
@@ -177,7 +226,7 @@ export class OneDriveRestoreEngine implements RestoreEngine {
       versions: plan.versions.length,
       folders: plan.folders.length,
       target: request.target.type,
-      mode: request.mode,
+      mode,
     });
 
     const progress = await RestoreProgress.open(ctx.cursor, {
@@ -189,7 +238,7 @@ export class OneDriveRestoreEngine implements RestoreEngine {
       client,
       driveId,
       basePath: target.basePath,
-      mode: request.mode,
+      mode,
       fragmentSize: this.options.fragmentSize,
       fragmentRetryDelayMs: this.options.fragmentRetryDelayMs,
       reader: chunkReaderFor(ctx),
@@ -210,7 +259,7 @@ export class OneDriveRestoreEngine implements RestoreEngine {
 
     ledger.settle(plan.objects);
     await ctx.progress.flush();
-    const report = ledger.report();
+    const report = legacyReplace ? withLegacyReplaceNote(ledger.report()) : ledger.report();
     logger.info("restore finished", {
       restored: report.restored,
       skipped: report.skipped,

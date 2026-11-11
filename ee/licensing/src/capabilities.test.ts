@@ -7,7 +7,7 @@ import {
 } from "./capabilities.js";
 
 describe("hasCapability", () => {
-  it("community has no Business or Service Provider capability", () => {
+  it("community has no Business or Service Provider capability [LICENSE-009]", () => {
     for (const capability of CAPABILITIES) {
       expect(hasCapability("community", capability)).toBe(false);
     }

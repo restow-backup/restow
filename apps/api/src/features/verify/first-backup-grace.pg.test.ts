@@ -155,7 +155,7 @@ describe.skipIf(!testDatabaseAdminUrl)("first-backup grace period against Postgr
     });
   });
 
-  it("is not overdue when protection restarted recently, whatever created_at says", async () => {
+  it("is not overdue when protection restarted recently, whatever created_at says [READY-012]", async () => {
     const overview = await readinessOverview(db, f.tenantId, NOW);
     expect(byObject(overview.objects, f.reincluded)).toMatchObject({
       state: "no_backup",

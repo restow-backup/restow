@@ -34,7 +34,7 @@ describe("isOverdue", () => {
 });
 
 describe("isFirstBackupOverdue", () => {
-  it("gives a freshly protected object 24 hours before it counts as a problem", () => {
+  it("gives a freshly protected object 24 hours before it counts as a problem [READY-012]", () => {
     expect(isFirstBackupOverdue(new Date(NOW.getTime() - 23 * 60 * 60 * 1000), NOW)).toBe(false);
     expect(isFirstBackupOverdue(new Date(NOW.getTime() - 25 * 60 * 60 * 1000), NOW)).toBe(true);
     expect(isFirstBackupOverdue(NOW, NOW)).toBe(false);
@@ -42,7 +42,7 @@ describe("isFirstBackupOverdue", () => {
 });
 
 describe("overallReadiness", () => {
-  it("is red as soon as anything is unproven, a backup without verified restore included", () => {
+  it("is red as soon as anything is unproven, a backup without verified restore included [READY-002]", () => {
     expect(overallReadiness([rated("green"), rated("unverified")])).toBe("red");
     expect(overallReadiness([rated("green"), rated("no_backup")])).toBe("red");
     expect(overallReadiness([rated("yellow"), rated("red")])).toBe("red");
@@ -65,7 +65,7 @@ describe("overallReadiness", () => {
     });
   });
 
-  it("is green only when everything is green and current, and null for nothing", () => {
+  it("is green only when everything is green and current, and null for nothing [READY-002]", () => {
     expect(overallReadiness([rated("green"), rated("green")])).toBe("green");
     expect(overallReadiness([])).toBeNull();
   });

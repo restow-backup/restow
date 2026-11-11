@@ -228,6 +228,7 @@ func verifyTaskParams(content []byte) api.SQLVerifyParams {
 	}}}
 }
 
+// claim: RESTORE-016
 func TestSQLVerifyTask(t *testing.T) {
 	h, runner := sqlHarness(t)
 	content := []byte("TAPE backup of Sales")

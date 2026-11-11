@@ -59,7 +59,7 @@ describe("sampleCategoryOf", () => {
 });
 
 describe("quotaFor", () => {
-  it("draws 20 mails and 20 files by default and a quarter of that for calendar, contacts and sites", () => {
+  it("draws 20 mails and 20 files by default and a quarter of that for calendar, contacts and sites [VERIFY-001]", () => {
     expect(quotaFor()).toEqual({ mail: 20, file: 20, event: 5, contact: 5, site: 5 });
     expect(quotaFor(DEFAULT_SAMPLE_SIZE)).toEqual(quotaFor());
     expect(quotaFor(1)).toEqual({ mail: 1, file: 1, event: 1, contact: 1, site: 1 });
@@ -68,7 +68,7 @@ describe("quotaFor", () => {
 });
 
 describe("planSample", () => {
-  it("draws up to the quota per category and counts what was eligible", () => {
+  it("draws up to the quota per category and counts what was eligible [VERIFY-001]", () => {
     const plan = planSample(snapshot(120, 45, 30, 2), quotaFor(), seededRandom(7));
     const byCategory = (category: string) =>
       plan.items.filter((item) => item.category === category).length;
@@ -180,7 +180,7 @@ describe("parts of messages and files", () => {
     expect(plan.eligible).toMatchObject({ mail: 1, file: 1 });
   });
 
-  it("reads every part in a health check, an attachment without its message on its own", () => {
+  it("reads every part in a health check, an attachment without its message on its own [VERIFY-004]", () => {
     const plan = planFull(objects);
     const read = plan.items.flatMap((item) => [item.object, ...(item.parts ?? [])]);
     expect(read.map((entry) => entry.path).sort()).toEqual(
@@ -190,7 +190,7 @@ describe("parts of messages and files", () => {
     expect(plan.eligible).toMatchObject({ mail: 2, file: 1 });
   });
 
-  it("reads a bounded share of a sampled file's many versions, all of them in a health check", () => {
+  it("reads a bounded share of a sampled file's many versions, all of them in a health check [VERIFY-003]", () => {
     const big = object("Documents/Budget.xlsx", "file", 1024);
     const versions = Array.from({ length: 100 }, (_, n) => ({
       ...object(`Documents/Budget.xlsx:versions/${n + 1}.0`, "file-version", 1024),
@@ -210,7 +210,7 @@ describe("parts of messages and files", () => {
     expect(full.items.find((item) => item.object.path === big.path)?.parts).toHaveLength(100);
   });
 
-  it("reads in a health check the versions of a file emptied to 0 bytes", () => {
+  it("reads in a health check the versions of a file emptied to 0 bytes [VERIFY-004]", () => {
     const emptied = object("Documents/Notes.txt", "file", 0);
     const earlier = object("Documents/Notes.txt:versions/3.0", "file-version", 4096);
     const plan = planFull([emptied, earlier]);

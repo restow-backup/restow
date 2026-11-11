@@ -85,7 +85,7 @@ describe("ImapRestoreEngine", () => {
     await fixture?.cleanup();
   });
 
-  it("restores messages byte for byte into their mailboxes with date and flags, and recreates empty ones", async () => {
+  it("restores messages byte for byte into their mailboxes with date and flags, and recreates empty ones [RESTORE-008]", async () => {
     fixture = await createSnapshotFixture({
       kind: "imap",
       externalId: "anna",
@@ -252,7 +252,7 @@ describe("ImapRestoreEngine", () => {
     expect(target.messages(`${RESTORE_FOLDER}.INBOX`)).toHaveLength(1);
   });
 
-  it("skips what already exists by Message-ID, and never deletes it in any mode", async () => {
+  it("skips what already exists by Message-ID, and never deletes it in any mode [RESTORE-003]", async () => {
     fixture = await createSnapshotFixture({
       kind: "imap",
       externalId: "anna",
@@ -627,7 +627,7 @@ describe("ImapRestoreEngine with two backed-up messages sharing a Message-ID", (
     },
   );
 
-  it("never deletes the copy the mailbox had for a legacy 'replace' job, with or without UIDPLUS", async () => {
+  it("never deletes the copy the mailbox had for a legacy 'replace' job, with or without UIDPLUS [RESTORE-003]", async () => {
     for (const noUidPlus of [false, true]) {
       const target = new FakeImapAccount({ delimiter: ".", noUidPlus });
       const had = target.seed("INBOX", old);

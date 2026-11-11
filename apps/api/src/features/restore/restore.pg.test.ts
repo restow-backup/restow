@@ -218,7 +218,7 @@ describe.skipIf(!testDatabaseAdminUrl)("restore requests against Postgres", () =
     expect(implicit.selection).toEqual({ all: false, folders: 1, items: 0 });
   });
 
-  it("requires a reason when an admin restores another person's data, and audits on whose behalf", async () => {
+  it("requires a reason when an admin restores another person's data, and audits on whose behalf [RESTORE-010]", async () => {
     const input = {
       snapshotId: f.mailbox.second,
       selection: [{ path: "mail/Inbox" }],
@@ -240,7 +240,7 @@ describe.skipIf(!testDatabaseAdminUrl)("restore requests against Postgres", () =
     expect(entry?.details).toMatchObject({ reason: "Ticket 4711: Inbox emptied by accident" });
   });
 
-  it("keeps end users to their own data and their own account", async () => {
+  it("keeps end users to their own data and their own account [RESTORE-009]", async () => {
     await expect(
       service.createRestore(
         db,
@@ -540,7 +540,7 @@ describe.skipIf(!testDatabaseAdminUrl)("restore requests against Postgres", () =
     expect(detail.items?.items[0]?.verified).toBe(true);
   });
 
-  it("shows end users their own restores and the ones of their objects only", async () => {
+  it("shows end users their own restores and the ones of their objects only [RESTORE-009]", async () => {
     const annas = await service.listRestores(db, f.tenantId, f.anna, { limit: 200 });
     expect(annas.length).toBeGreaterThan(0);
     expect(annas.every((restore) => restore.object?.id === f.annaMailbox)).toBe(true);
@@ -630,7 +630,7 @@ describe.skipIf(!testDatabaseAdminUrl)("restore requests against Postgres", () =
       reason: "Ticket 9001: restore-replace-not-allowed HTTP regression",
     });
 
-    it("refuses mode 'replace' for an Exchange mailbox target with 422 and the problem type", async () => {
+    it("refuses mode 'replace' for an Exchange mailbox target with 422 and the problem type [RESTORE-001]", async () => {
       signInAsProviderAdmin();
       const res = await post(REPLACE_ORIGINAL(f.mailbox.second, "mail/Inbox"));
       expect(res.status).toBe(422);
@@ -641,7 +641,7 @@ describe.skipIf(!testDatabaseAdminUrl)("restore requests against Postgres", () =
       });
     });
 
-    it("refuses mode 'replace' for an IMAP target with the same 422 and problem type", async () => {
+    it("refuses mode 'replace' for an IMAP target with the same 422 and problem type [RESTORE-003]", async () => {
       signInAsProviderAdmin();
       const res = await post(REPLACE_ORIGINAL(f.imap, "mail/INBOX"));
       expect(res.status).toBe(422);
@@ -651,7 +651,7 @@ describe.skipIf(!testDatabaseAdminUrl)("restore requests against Postgres", () =
       });
     });
 
-    it("refuses mode 'replace' for a OneDrive target too, and stores or queues nothing", async () => {
+    it("refuses mode 'replace' for a OneDrive target too, and stores or queues nothing [RESTORE-002]", async () => {
       signInAsProviderAdmin();
       const before = await db.select().from(restoreJobs);
       const res = await post(REPLACE_ORIGINAL(f.drive, "Documents"));

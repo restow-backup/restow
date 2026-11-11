@@ -190,7 +190,7 @@ async function seedItem(
 }
 
 describe.skipIf(!adminUrl)("runArchiveRetention against Postgres", () => {
-  it("deletes only expired, unheld items and audits every deletion; a mailbox-scoped hold blocks only its own mailbox", async () => {
+  it("deletes only expired, unheld items and audits every deletion; a mailbox-scoped hold blocks only its own mailbox [RETAIN-002]", async () => {
     const url = await recreateTestDatabase(adminUrl as string);
     const db = createDb(url);
     try {
@@ -322,7 +322,7 @@ describe.skipIf(!adminUrl)("runArchiveRetention against Postgres", () => {
     }
   }, 60_000);
 
-  it("a tenant-wide hold blocks every item, however far past its retention date", async () => {
+  it("a tenant-wide hold blocks every item, however far past its retention date [RETAIN-002]", async () => {
     const url = await recreateTestDatabase(adminUrl as string);
     const db = createDb(url);
     try {
@@ -391,7 +391,7 @@ describe.skipIf(!adminUrl)("runArchiveRetention against Postgres", () => {
       await db.$client.end();
     }
   }, 60_000);
-  it("a hold placed between two batches protects every item the run has not reached yet", async () => {
+  it("a hold placed between two batches protects every item the run has not reached yet [RETAIN-002]", async () => {
     const url = await recreateTestDatabase(adminUrl as string);
     const db = createDb(url);
     try {
@@ -508,7 +508,7 @@ describe.skipIf(!adminUrl)("runArchiveRetention against Postgres", () => {
       await db.$client.end();
     }
   }, 300_000);
-  it("keeps the chain check green after legitimate deletions (prefix, mid-chain, tip) and red for a row removed by hand", async () => {
+  it("keeps the chain check green after legitimate deletions (prefix, mid-chain, tip) and red for a row removed by hand [ARCHIVE-001]", async () => {
     const url = await recreateTestDatabase(adminUrl as string);
     const db = createDb(url);
     try {
@@ -810,7 +810,7 @@ describe.skipIf(!adminUrl)("runArchiveRetention against Postgres", () => {
     }
   }, 60_000);
 
-  it("deletes nothing in restore mode: rows, chunk references and sealed records (queued ones too) stay", async () => {
+  it("deletes nothing in restore mode: rows, chunk references and sealed records (queued ones too) stay [RETAIN-008]", async () => {
     const url = await recreateTestDatabase(adminUrl as string);
     const db = createDb(url);
     const state = { refuse: true, holding: true };

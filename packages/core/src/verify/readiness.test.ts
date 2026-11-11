@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   assessReadiness,
+  DEFAULT_READINESS_POLICY,
+  freshnessReason,
   isEmptyFinding,
   isSourceEmptyFinding,
   type ReadinessFacts,
@@ -66,7 +68,7 @@ describe("assessReadiness: empty objects", () => {
 });
 
 describe("assessReadiness: the source's own size signal (0.5.0)", () => {
-  it("rates an object empty by the source and by the backup as empty, without confirmation", () => {
+  it("rates an object empty by the source and by the backup as empty, without confirmation [READY-009]", () => {
     const rated = assessReadiness(
       facts({ source: { service: "onedrive", verdict: "empty", bytes: 0 } }),
     );
@@ -78,7 +80,7 @@ describe("assessReadiness: the source's own size signal (0.5.0)", () => {
     expect(isEmptyFinding(rated.reasons)).toBe(false);
   });
 
-  it("turns red when the source reports content and the backup holds none", () => {
+  it("turns red when the source reports content and the backup holds none [READY-009]", () => {
     const drive = assessReadiness(
       facts({ source: { service: "onedrive", verdict: "content", bytes: 20_480 } }),
     );
@@ -150,7 +152,7 @@ describe("assessReadiness: items the backup run left out", () => {
     outcomes: { verified: 20, mismatch: 0, missing: 0, unreadable: 0 },
   };
 
-  it("is not green when the run that made the backup failed items, however well it reads back", () => {
+  it("is not green when the run that made the backup failed items, however well it reads back [READY-003]", () => {
     expect(
       assessReadiness(facts({ ...readBack, backupFailures: { failed: 300, persistent: 0 } })),
     ).toEqual({
@@ -159,7 +161,7 @@ describe("assessReadiness: items the backup run left out", () => {
     });
   });
 
-  it("turns red for items that failed in each of the last runs", () => {
+  it("turns red for items that failed in each of the last runs [READY-003]", () => {
     expect(
       assessReadiness(facts({ ...readBack, backupFailures: { failed: 4, persistent: 4 } })),
     ).toEqual({
@@ -174,5 +176,46 @@ describe("assessReadiness: items the backup run left out", () => {
       assessReadiness(facts({ ...readBack, backupFailures: { failed: 0, persistent: 0 } }))
         .readiness,
     ).toBe("green");
+  });
+});
+
+describe("the age of the latest backup", () => {
+  const HOUR = 3_600_000;
+  const completed = new Date("2026-10-01T00:00:00Z");
+  const readBack = {
+    snapshotCompletedAt: completed,
+    checked: 20,
+    contentBytes: 9000,
+    contentObjects: 20,
+    outcomes: { verified: 20, mismatch: 0, missing: 0, unreadable: 0 },
+  };
+  const ratedAfter = (hours: number) =>
+    assessReadiness(facts({ ...readBack, now: new Date(completed.getTime() + hours * HOUR) }));
+
+  it("is green up to 48 hours, yellow from 48 hours on and red from seven days on, to the hour [READY-004]", () => {
+    expect(DEFAULT_READINESS_POLICY).toEqual({ staleAfterHours: 48, outdatedAfterHours: 168 });
+    expect(ratedAfter(47)).toEqual({ readiness: "green", reasons: [] });
+    expect(ratedAfter(48)).toEqual({
+      readiness: "yellow",
+      reasons: [{ code: "snapshot_stale", severity: "yellow", ageHours: 48 }],
+    });
+    expect(ratedAfter(167).readiness).toBe("yellow");
+    expect(ratedAfter(168)).toEqual({
+      readiness: "red",
+      reasons: [{ code: "snapshot_outdated", severity: "red", ageHours: 168 }],
+    });
+  });
+
+  it("is judged the same way when a view asks later than the check [READY-004]", () => {
+    const at = (hours: number) => new Date(completed.getTime() + hours * HOUR);
+    expect(freshnessReason(completed, at(47), DEFAULT_READINESS_POLICY)).toBeNull();
+    expect(freshnessReason(completed, at(48), DEFAULT_READINESS_POLICY)?.code).toBe(
+      "snapshot_stale",
+    );
+    expect(freshnessReason(completed, at(168), DEFAULT_READINESS_POLICY)?.code).toBe(
+      "snapshot_outdated",
+    );
+    // No backup at all is its own reason (no_snapshot), not an age.
+    expect(freshnessReason(null, at(999), DEFAULT_READINESS_POLICY)).toBeNull();
   });
 });

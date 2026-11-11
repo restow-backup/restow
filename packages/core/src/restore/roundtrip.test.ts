@@ -31,7 +31,7 @@ describe("backup and restore round trip", () => {
     await fixture?.cleanup();
   });
 
-  it("puts an Exchange mailbox back into another mailbox, by meaning and byte for byte", async () => {
+  it("puts an Exchange mailbox back into another mailbox, by meaning and byte for byte [RESTORE-004]", async () => {
     const user = "alice@contoso.example";
     fixture = await createJobContextFixture({ kind: "mailbox", externalId: user, now: () => NOW });
 
@@ -221,7 +221,7 @@ describe("backup and restore round trip", () => {
     expect(target.contactFolderPath(carol.folderId)).toEqual(["Lieferanten"]);
   });
 
-  it("puts a OneDrive back byte for byte with its timestamps, notebook sections included", async () => {
+  it("puts a OneDrive back byte for byte with its timestamps, notebook sections included [RESTORE-005]", async () => {
     fixture = await createJobContextFixture({
       kind: "onedrive",
       externalId: DRIVE,

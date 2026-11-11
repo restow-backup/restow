@@ -280,7 +280,7 @@ describe.skipIf(!adminUrl)("restore mode after restoring a database dump", () =>
     });
   }
 
-  it("deletes nothing, switches restore mode on and raises the alert; new backups still write", async () => {
+  it("deletes nothing, switches restore mode on and raises the alert; new backups still write [RETAIN-008]", async () => {
     root = await mkdtemp(join(tmpdir(), "restow-restore-mode-"));
     const raw = resolvedStorage(root);
     const tenantId = await newTenant(live);

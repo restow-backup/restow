@@ -325,7 +325,7 @@ describe.skipIf(!testDatabaseAdminUrl)("archive against Postgres", () => {
     );
   });
 
-  it("verifies an intact chain as ok, and reports the first break in a tampered one", async () => {
+  it("verifies an intact chain as ok, and reports the first break in a tampered one [ARCHIVE-001]", async () => {
     const okRes = await app.request("/archive/chain/verify", {
       headers: { "x-restow-tenant": fabrikam },
     });

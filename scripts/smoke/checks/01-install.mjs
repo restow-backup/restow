@@ -9,6 +9,7 @@
  * in the Community images and the ee/ modules in the full one
  * (scripts/docker/check-image-tree.mjs, the check the Dockerfile runs as well).
  */
+// claim: UPDATE-017 (docs/CLAIMS.md: the upgrade from the previous release, with its migrations)
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { buildCorpus } from "../lib/corpus.mjs";

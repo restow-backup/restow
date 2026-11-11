@@ -872,7 +872,7 @@ describe("storage deletion sites", () => {
     expect(found).toContain("packages/core/src/verify/gc.ts#sweepWithPermit#.delete");
   });
 
-  it("registers every site with the deletion guard", () => {
+  it("registers every site with the deletion guard [RETAIN-008]", () => {
     const unregistered = [...counts.keys()].filter((site) => !(site in DELETION_SITES));
     expect(
       unregistered,

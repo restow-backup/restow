@@ -9,7 +9,7 @@ import {
 } from "./source-policy.js";
 
 describe("parseSourceAllowlist", () => {
-  it("is empty when the variable is unset or blank: source mode is off", () => {
+  it("is empty when the variable is unset or blank: source mode is off [UPDATE-013]", () => {
     expect(parseSourceAllowlist(undefined)).toEqual({ entries: [], problems: [] });
     expect(parseSourceAllowlist("")).toEqual({ entries: [], problems: [] });
     expect(parseSourceAllowlist(" , ,")).toEqual({ entries: [], problems: [] });

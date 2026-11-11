@@ -7,6 +7,8 @@
 # install folder others can write to, moves an earlier pre-release installation
 # (below /usr/local) without running it, and uninstalls.
 #
+# claim: UPDATE-016 (docs/CLAIMS.md: only a release the maintainer signed is installed)
+#
 # The release is built as 0.1.1 from a copy of this checkout whose
 # release-signing.pub holds a throwaway key made for this run, and signed with
 # it the way the maintainer signs (ssh-keygen -Y sign). systemd is replaced by

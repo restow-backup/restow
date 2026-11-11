@@ -122,7 +122,7 @@ describe("the deletion delay follows the history", () => {
   const start = Date.now();
   const at = (days: number) => new Date(start + days * DAY);
 
-  it("never shortens what was written before a lowering, and lengthens it after a raise", () => {
+  it("never shortens what was written before a lowering, and lengthens it after a raise [RETAIN-007]", () => {
     let history = settings("delayed_deletion", 30, at(0));
     history = changeImmutability(history, { mode: "delayed_deletion", days: 7 }, at(10));
     history = changeImmutability(history, { mode: null, days: 0 }, at(20));
@@ -139,7 +139,7 @@ describe("the deletion delay follows the history", () => {
 });
 
 describe("renewal timing", () => {
-  it("is due once the last pass is a day short of the buffer, and overdue beyond the buffer", () => {
+  it("is due once the last pass is a day short of the buffer, and overdue beyond the buffer [RETAIN-006]", () => {
     const now = new Date();
     expect(renewalDue(null, now)).toBe(true);
     expect(renewalDue(new Date(now.getTime() - (RENEWAL_BUFFER_DAYS - 2) * DAY), now)).toBe(false);
@@ -176,7 +176,7 @@ describe("Object Lock on S3 (strict in-memory bucket)", () => {
     });
   }
 
-  it("writes backup objects with the retention of the period plus the buffer, transient ones without", async () => {
+  it("writes backup objects with the retention of the period plus the buffer, transient ones without [RETAIN-004]", async () => {
     const backend = locked();
     const pack = `tenants/${T}/packs/ab/p1`;
     await backend.put(pack, Buffer.from("pack"));
@@ -205,7 +205,7 @@ describe("Object Lock on S3 (strict in-memory bucket)", () => {
     ).toBe(true);
   });
 
-  it("refuses to delete a locked object and deletes nothing, then removes every version once it ran out", async () => {
+  it("refuses to delete a locked object and deletes nothing, then removes every version once it ran out [RETAIN-004]", async () => {
     const backend = locked("compliance", 1);
     const key = `tenants/${T}/packs/ab/p1`;
     await backend.put(key, Buffer.from("one"));
@@ -228,7 +228,7 @@ describe("Object Lock on S3 (strict in-memory bucket)", () => {
     expect(bucket.objects.has(key)).toBe(false);
   });
 
-  it("keeps the locked data when someone with Restow's access key deletes or overwrites it", async () => {
+  it("keeps the locked data when someone with Restow's access key deletes or overwrites it [RETAIN-004]", async () => {
     const backend = locked("compliance", 30);
     const key = `tenants/${T}/manifests/s1.json.zst`;
     await backend.put(key, Buffer.from("manifest"));
@@ -273,7 +273,7 @@ describe("Object Lock on S3 (strict in-memory bucket)", () => {
     await expect(backend.delete(key)).rejects.toBeInstanceOf(ObjectLockedError);
   });
 
-  it("lets a GOVERNANCE lock be lifted only with the bypass permission Restow never uses", async () => {
+  it("lets a GOVERNANCE lock be lifted only with the bypass permission Restow never uses [RETAIN-004]", async () => {
     const backend = locked("governance", 30);
     const key = `tenants/${T}/keys/1`;
     await backend.put(key, Buffer.from("key"));
@@ -290,7 +290,7 @@ describe("Object Lock on S3 (strict in-memory bucket)", () => {
     expect(bucket.objects.has(key)).toBe(false);
   });
 
-  it("refuses Object Lock parameters on a bucket without Object Lock", async () => {
+  it("refuses Object Lock parameters on a bucket without Object Lock [RETAIN-004]", async () => {
     const plain = new FakeObjectLockS3({ objectLock: false, now: time.now });
     const backend = new ImmutableStorageBackend(
       new S3StorageBackend({ bucket: "b", client: plain.asClient() }),
@@ -404,7 +404,7 @@ describe("Object Lock on S3 (strict in-memory bucket)", () => {
     expect(report).toMatchObject({ extended: 3, failedTotal: 1, resumeAfter: keys[0] });
   });
 
-  it("finds objects written without lock, and a weaker mode than asked", async () => {
+  it("finds objects written without lock, and a weaker mode than asked [RETAIN-006]", async () => {
     const backend = locked("compliance", 30);
     await backend.put(`tenants/${T}/packs/ab/good`, Buffer.from("g"));
     bucket.ignoreLockHeaders = true;
@@ -491,7 +491,7 @@ describe("the deletion delay of a directory", () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  it("refuses to delete or overwrite a backup file inside its delay and allows it after", async () => {
+  it("refuses to delete or overwrite a backup file inside its delay and allows it after [RETAIN-007]", async () => {
     const backend = new ImmutableStorageBackend(new LocalStorageBackend(root), {
       settings: settings("delayed_deletion", 7, time.now()),
       now: time.now,

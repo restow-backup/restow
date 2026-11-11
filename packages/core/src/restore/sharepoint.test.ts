@@ -111,7 +111,7 @@ describe("SharePointRestoreEngine", () => {
     ).toMatchObject({ status: "restored", verified: true });
   });
 
-  it("keeps both copies in rename mode and overwrites in replace mode", async () => {
+  it("keeps both copies in rename mode and overwrites in replace mode [RESTORE-006]", async () => {
     const world = await backedUp(harness);
     const root = world.drive.items.get("root");
     if (!root) throw new Error("fixture");
@@ -312,7 +312,7 @@ describe("SharePointRestoreEngine", () => {
     ]);
   });
 
-  it("leaves existing items alone in skip mode", async () => {
+  it("leaves existing items alone in skip mode [RESTORE-006]", async () => {
     const world = await backedUp(harness);
     const report = await restoreEngine(world).run(
       harness.context({ jobId: "restore" }),

@@ -80,14 +80,14 @@ function packCheck(path: string, status: PackCheck["status"]): PackCheck {
 }
 
 describe("scrub helpers", () => {
-  it("runs a sample scrub unless full is asked for", () => {
+  it("runs a sample scrub unless full is asked for [SCRUB-001]", () => {
     expect(scrubModeOf({ mode: "full" })).toBe("full");
     expect(scrubModeOf({ mode: "sample" })).toBe("sample");
     expect(scrubModeOf({ mode: "recheck" })).toBe("recheck");
     expect(scrubModeOf({ mode: "bogus" as never })).toBe("sample");
   });
 
-  it("lets garbage collection take only chunks unreferenced for the grace period", () => {
+  it("lets garbage collection take only chunks unreferenced for the grace period [SCRUB-006]", () => {
     const now = new Date("2026-09-23T12:00:00.000Z");
     expect(gcCutoff(now).toISOString()).toBe("2026-09-20T12:00:00.000Z");
     expect(GC_GRACE_HOURS).toBe(72);
@@ -122,7 +122,7 @@ describe("scrub helpers", () => {
     expect(packFindingsOfReport(null)).toEqual({ damaged: [], unreadable: [] });
   });
 
-  it("raises nothing for a pack that is only temporarily unreadable, an error once it stayed so", () => {
+  it("raises nothing for a pack that is only temporarily unreadable, an error once it stayed so [SCRUB-004]", () => {
     const run = (persistent: boolean) => ({
       since: "2026-10-17T02:00:00.000Z",
       lastAt: "2026-10-18T03:00:00.000Z",
@@ -176,7 +176,7 @@ describe("scrub helpers", () => {
     ]);
   });
 
-  it("yields garbage collection to running backups, restores and verifies", () => {
+  it("yields garbage collection to running backups, restores and verifies [SCRUB-006]", () => {
     expect(gcBlockerOf([])).toBeNull();
     expect(gcBlockerOf(["scrub", "retention", "directory"])).toBeNull();
     expect(gcBlockerOf(["restore"])).toBe("restore_running");
@@ -308,7 +308,7 @@ describe("copy-target mirror", () => {
     expect(await mirrorCopies(context([]), catalog, "sample")).toBeNull();
   });
 
-  it("copies keys, manifests and packs the copy is missing, then finds it complete", async () => {
+  it("copies keys, manifests and packs the copy is missing, then finds it complete [COPY-001]", async () => {
     const pack = Buffer.from("pack bytes of an earlier backup");
     const packId = randomUUID();
     await primary.put(packKey(tenantId, packId), pack);
@@ -503,7 +503,7 @@ describe.skipIf(!adminUrl)("garbage collection against Postgres", SLOW_UNDER_LOA
     return { index, live };
   }
 
-  it("files a red finding for a backup whose manifest is gone from storage that still holds the tenant", async () => {
+  it("files a red finding for a backup whose manifest is gone from storage that still holds the tenant [SCRUB-007]", async () => {
     const tenant = await createTenant();
     const { tenantId } = tenant;
     const [source] = await db
@@ -664,7 +664,7 @@ describe.skipIf(!adminUrl)("garbage collection against Postgres", SLOW_UNDER_LOA
     // Mirrors 1200 records to a copy several times: seconds here, more on a busy CI runner.
   }, 120_000);
 
-  it("deletes no pack a running restore or verify of the tenant reads", async () => {
+  it("deletes no pack a running restore or verify of the tenant reads [SCRUB-006]", async () => {
     const tenant = await createTenant();
     const bystander = await createTenant();
     const { index, live } = await writeObjects(tenant);

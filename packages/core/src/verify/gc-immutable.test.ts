@@ -36,7 +36,7 @@ function fixture() {
 }
 
 describe("garbage collection on an immutable target", () => {
-  it("keeps a superseded pack the target still locks, and deletes it once the lock ran out", async () => {
+  it("keeps a superseded pack the target still locks, and deletes it once the lock ran out [RETAIN-005]", async () => {
     const { env, primary, copy, advance, clock } = fixture();
     const path = `tenants/${TENANT}/packs/ab/old`;
     await env.storage.primary.put(path, Buffer.from("old pack"));

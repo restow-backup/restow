@@ -61,7 +61,7 @@ describe("garbage collection in restore mode", () => {
     uninstall = null;
   });
 
-  it("sweeps no orphan and releases no superseded pack while restore mode is on", async () => {
+  it("sweeps no orphan and releases no superseded pack while restore mode is on [RETAIN-008]", async () => {
     const guard = new SwitchGuard();
     uninstall = installDeletionEnforcement(guard, { strict: true });
     const { env, primary, copy, advance } = fixture();
@@ -108,7 +108,7 @@ describe("garbage collection in restore mode", () => {
 });
 
 describe("the copy mirror and wrapped keys", () => {
-  it("never overwrites a differing key on a copy and reports it", async () => {
+  it("never overwrites a differing key on a copy and reports it [CRYPT-004]", async () => {
     const source = new MemoryStorage();
     const target = new MemoryStorage();
     const key = `tenants/${TENANT}/keys/2`;

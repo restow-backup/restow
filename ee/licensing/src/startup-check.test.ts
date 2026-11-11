@@ -5,7 +5,7 @@ const RELEASE_2028 = { RESTOW_VERSION: "1.8.0", RESTOW_RELEASED_AT: "2028-03-01T
 const EXPIRED = { edition: "business", series: "1", updates_until: "2027-11-30" };
 
 describe("decideStartup", () => {
-  it("starts without a key, with a Community row and in the demo", () => {
+  it("starts without a key, with a Community row and in the demo [LICENSE-006]", () => {
     expect(decideStartup(null, RELEASE_2028).action).toBe("start");
     expect(decideStartup({ edition: "community" }, RELEASE_2028).action).toBe("start");
     expect(
@@ -14,7 +14,7 @@ describe("decideStartup", () => {
     ).toBe("start");
   });
 
-  it("starts with every key installed before 0.4.5 (no update columns yet) on 0.x and 1.x", () => {
+  it("starts with every key installed before 0.4.5 (no update columns yet) on 0.x and 1.x [LICENSE-006]", () => {
     for (const version of ["0.4.5", "0.9.9", "1.0.0", "1.99.0"]) {
       const env = { RESTOW_VERSION: version, RESTOW_RELEASED_AT: "2035-01-01T00:00:00Z" };
       expect(decideStartup({ edition: "business" }, env).action).toBe("start");
@@ -24,7 +24,7 @@ describe("decideStartup", () => {
     }
   });
 
-  it("starts a development build with any key", () => {
+  it("starts a development build with any key [LICENSE-006]", () => {
     expect(decideStartup(EXPIRED, {}).action).toBe("start");
     expect(decideStartup(EXPIRED, { RESTOW_VERSION: "1.8.0" }).action).toBe("start");
   });
@@ -34,7 +34,7 @@ describe("decideStartup", () => {
     expect(decideStartup(EXPIRED, env).action).toBe("start");
   });
 
-  it("refuses a release made after the update period, naming version and dates", () => {
+  it("refuses a release made after the update period, naming version and dates [LICENSE-004]", () => {
     const decision = decideStartup(EXPIRED, RELEASE_2028);
     expect(decision.action).toBe("refuse");
     if (decision.action !== "refuse") return;
@@ -55,7 +55,7 @@ describe("decideStartup", () => {
     expect(decision.action === "refuse" && decision.message).toContain("1.x");
   });
 
-  it("starts as Community instead when RESTOW_RUN_AS_COMMUNITY is set", () => {
+  it("starts as Community instead when RESTOW_RUN_AS_COMMUNITY is set [LICENSE-005]", () => {
     const decision = decideStartup(EXPIRED, { ...RELEASE_2028, RESTOW_RUN_AS_COMMUNITY: "1" });
     expect(decision.action).toBe("community");
   });

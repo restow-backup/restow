@@ -169,6 +169,11 @@ Postgres-Service bereit und setzt die Variable.
 
 ## Regeln
 
+- Jede Aussage über das Verhalten von Restow steht in [CLAIMS.md](CLAIMS.md) mit dem Test,
+  der sie belegt; `scripts/ci/check-claims.mjs` (Teil von `pnpm lint`) schlägt fehl, wenn
+  einer Aussage der Test fehlt. Weicht das Produkt von einer Aussage ab, bleibt die Aussage
+  stehen, die scheiternde Erwartung wird mit `it.fails` geparkt und der Eintrag bekommt den
+  Stand "Abweichung".
 - Kein Merge ohne grüne Stufen 1 bis 3 und 5.
 - Jeder Bug bekommt zuerst einen Test, der ihn reproduziert.
 - Live-Tests dürfen nur gegen den Dev-Tenant laufen; Kundendaten nie in Tests.

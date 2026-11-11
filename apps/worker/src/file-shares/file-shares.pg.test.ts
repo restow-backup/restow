@@ -848,7 +848,7 @@ describe.skipIf(!adminUrl)("file share jobs of the worker against Postgres", () 
       expect((await share(s.id)).lastRetentionAt).not.toBeNull();
     }, 120_000);
 
-    it("removes nothing while the share is held on suspicion, and resumes after the release", async () => {
+    it("removes nothing while the share is held on suspicion, and resumes after the release [RETAIN-011]", async () => {
       const s = await addShare(fixture, tenant);
       await addShareJob(fixture, tenant, [s.id], {
         settings: { retention: { keepDaily: 1, keepWeekly: 0, keepMonthly: 0 } },

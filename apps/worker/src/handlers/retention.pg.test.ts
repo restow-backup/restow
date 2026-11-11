@@ -110,7 +110,7 @@ async function recreateTestDatabase(base: string): Promise<string> {
 }
 
 describe.skipIf(!adminUrl)("pgRetentionStore against Postgres", () => {
-  it("matches the numbers the retention preview API asserts, including a legal hold", async () => {
+  it("matches the numbers the retention preview API asserts, including a legal hold [RETAIN-001]", async () => {
     const url = await recreateTestDatabase(adminUrl as string);
     const db = createDb(url);
     try {
