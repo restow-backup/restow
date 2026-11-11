@@ -1,4 +1,4 @@
-import type { ResticLockRegistry, StorageBackend } from "@restow/core";
+import type { ResticLockRegistry, ResticResource, StorageBackend } from "@restow/core";
 import {
   fileShareRepositoryPrefix,
   hashSecret,
@@ -189,6 +189,7 @@ export async function resolveFileShareCredential(
     access: {
       tenantId: run.tenantId,
       runId: run.runId,
+      runKind: run.kind,
       principal: run.kind === "backup" ? (resolved.refuseWrites ? "closing" : "agent") : "reader",
       prefix: repositoryPrefixOf("file_share", shareId, run.repositoryPrefix),
       storage: resolved.storage,
@@ -252,6 +253,7 @@ export interface FileShareResticRouteDeps {
     access: RunResticAccess,
     shareId: string,
     declaredBytes: number | null,
+    resource: ResticResource,
   ) => Promise<{ type: string; detail: string } | null>;
   /** Refusals of the authorization matrix (throttled per run and reason). */
   onDenied: (access: RunResticAccess, shareId: string, details: Record<string, unknown>) => void;
@@ -315,7 +317,7 @@ export const fileShareResticRoutes = buildFileShareResticRoutes({
   onAllowed: async (access, shareId, bytes, action) => {
     const share = { tenantId: access.tenantId, fileShareId: shareId };
     if (action === "write") {
-      if (access.principal === "agent") {
+      if (access.principal === "agent" && access.runKind === "backup") {
         shareRunGuard(access, shareId).record(bytes);
       }
       await addShareUsage(share, bytes);

@@ -26,6 +26,7 @@ import {
   reportRules,
   runSizeHoldOfRun,
   runSizeHolds,
+  runSizeRuns,
   runSizeSettings,
   tenants,
   user,
@@ -91,16 +92,21 @@ describe.skipIf(!testDatabaseAdminUrl)("the run size guard against Postgres (#99
 
   function guard(
     runId: string,
-    space?: { freeBytes: number; totalBytes: number },
+    space?:
+      | { freeBytes: number; totalBytes: number }
+      | (() => { freeBytes: number; totalBytes: number }),
     tenantId = contoso,
+    transaction?: (fn: (tx: RunSizeTx) => Promise<unknown>) => Promise<unknown>,
   ) {
     return new RunSizeGuard({
       tenantId,
       kind: "endpoint",
       objectId: machine,
       runId,
-      transaction: (fn) => withTenantTx(appDb, tenantId, (tx) => fn(tx as RunSizeTx)),
-      space: space ? async () => space : undefined,
+      transaction: (transaction ??
+        ((fn: (tx: RunSizeTx) => Promise<unknown>) =>
+          withTenantTx(appDb, tenantId, (tx) => fn(tx as RunSizeTx)))) as never,
+      space: space ? async () => (typeof space === "function" ? space() : space) : undefined,
       installationTimeZone: "Europe/Berlin",
     });
   }
@@ -185,6 +191,7 @@ describe.skipIf(!testDatabaseAdminUrl)("the run size guard against Postgres (#99
   beforeEach(async () => {
     await owner.delete(runSizeHolds);
     await owner.delete(runSizeSettings);
+    await owner.delete(runSizeRuns);
     await owner.delete(notifications);
     await owner.delete(reportDeliveries);
   });
@@ -261,7 +268,8 @@ describe.skipIf(!testDatabaseAdminUrl)("the run size guard against Postgres (#99
     const [hold] = await holds();
     expect(hold).toMatchObject({
       reason: "space",
-      freeBytes: 2.5 * GIB,
+      // What was read, less what the run was let upload since.
+      freeBytes: 2.25 * GIB,
       totalBytes: 100 * GIB,
       limitBytes: null,
     });
@@ -379,5 +387,142 @@ describe.skipIf(!testDatabaseAdminUrl)("the run size guard against Postgres (#99
       .where(eq(auditLog.action, RUN_SIZE_AUDIT_ACTIONS.settingsChanged));
     expect(audited.map((row) => row.targetType)).toEqual(["tenant", "endpoint", "endpoint"]);
     expect(audited[1]?.details).toMatchObject({ holdsEnded: 1, after: { enabled: false } });
+  });
+
+  it("does not remember a failed first question: the next upload asks again (review 3)", async () => {
+    let calls = 0;
+    let failOnce = true;
+    const flaky = (fn: (tx: RunSizeTx) => Promise<unknown>) => {
+      calls++;
+      if (failOnce) {
+        failOnce = false;
+        return Promise.reject(new Error("deadlock detected"));
+      }
+      return withTenantTx(appDb, contoso, (tx) => fn(tx as RunSizeTx));
+    };
+    const run = guard(randomUUID(), undefined, contoso, flaky);
+    await expect(run.admit(MIB)).rejects.toThrow("deadlock detected");
+    expect(await run.admit(MIB)).toEqual({ ok: true });
+    expect(calls).toBe(2);
+  });
+
+  it("keeps a run's approval and its bytes across processes: a restart, a retry (review 4)", async () => {
+    // Bytes: a run that stored 15 GiB is counted from there after a restart.
+    const runId = randomUUID();
+    expect((await upload(guard(runId), GIB, 16)).stored).toBe(16 * GIB);
+    const [stored] = await owner.select().from(runSizeRuns).where(eq(runSizeRuns.runId, runId));
+    // The last upload is written with the next one (at most 256 MiB or 30 s are lost).
+    expect(stored?.writtenBytes).toBe(15 * GIB);
+    expect(await guard(runId).admit(6 * GIB)).toMatchObject({ ok: false });
+
+    // The approval: used by a run, kept by the run, whatever process asks next.
+    await owner.delete(runSizeHolds);
+    await upload(guard(randomUUID()), GIB, 30);
+    const [hold] = await holds();
+    await call("POST", `/run-size/holds/${hold?.id}/continue`, {});
+    const allowed = randomUUID();
+    expect((await upload(guard(allowed), GIB, 5)).stored).toBe(5 * GIB);
+    // The api restarts: a new guard for the same run, the approval was used already.
+    expect((await upload(guard(allowed), GIB, 40)).stored).toBe(40 * GIB);
+    const [run] = await owner.select().from(runSizeRuns).where(eq(runSizeRuns.runId, allowed));
+    expect(run?.exemption).toBe("continued");
+  });
+
+  it("takes a run that begins a new repository as its first, and starts the history again (review 1)", async () => {
+    const reset = guard(randomUUID());
+    // restic's config: a new repository.
+    expect(await reset.admit(512, { startsRepository: true, metadata: true })).toEqual({
+      ok: true,
+    });
+    expect((await upload(reset, GIB, 40)).stored).toBe(40 * GIB);
+    expect(await holds()).toEqual([]);
+    // The runs before the reset are no history of the new repository: the next run is a first
+    // run as well (fewer than three runs since), not ten times the old incrementals.
+    expect((await upload(guard(randomUUID()), GIB, 30)).stored).toBe(30 * GIB);
+    expect(await holds()).toEqual([]);
+  });
+
+  it("ends a hold for space by itself once the target has room, and never refuses metadata (review 2)", async () => {
+    let space = { freeBytes: 2.5 * GIB, totalBytes: 100 * GIB };
+    const first = guard(randomUUID(), () => space);
+    // The index and the snapshot of a run whose data went in are small: never held for space.
+    expect(await first.admit(GIB, { metadata: true })).toEqual({ ok: true });
+    expect(await first.admit(GIB)).toMatchObject({ ok: false });
+    const [hold] = await holds();
+    expect(hold?.reason).toBe("space");
+    // "Raise the limit" makes no room: refused for a hold for space.
+    const raise = await call("POST", `/run-size/holds/${hold?.id}/raise`, { limitGib: 100 });
+    expect(raise.status).toBe(422);
+    // Still short (not half again the 2 GiB it keeps): the next run is held as well.
+    expect(await guard(randomUUID(), () => space).admit(MIB)).toMatchObject({ ok: false });
+    // Retention made room: the next run goes ahead, the hold ends by itself.
+    space = { freeBytes: 30 * GIB, totalBytes: 100 * GIB };
+    expect(await guard(randomUUID(), () => space).admit(MIB)).toEqual({ ok: true });
+    const [after] = await holds();
+    expect(after).toMatchObject({ status: "resolved", resolution: "space_freed" });
+  });
+
+  it("counts what parallel uploads took since the last reading of the space (review)", async () => {
+    const run = guard(randomUUID(), { freeBytes: 3 * GIB, totalBytes: 100 * GIB });
+    expect((await run.admit(GIB / 2)).ok).toBe(true);
+    expect((await run.admit(GIB / 2)).ok).toBe(true);
+    // 3 GiB read once, 1 GiB admitted since: this one would leave less than 2 GiB.
+    expect(await run.admit(GIB / 2)).toMatchObject({ ok: false });
+  });
+
+  it("ends the hold of a removed machine (review 6)", async () => {
+    await upload(guard(randomUUID()), GIB, 30);
+    await owner.update(endpoints).set({ removedAt: new Date() }).where(eq(endpoints.id, machine));
+    try {
+      const listed = (await (await call("GET", "/run-size/holds")).json()) as {
+        open: unknown[];
+        recent: { resolution: string }[];
+      };
+      expect(listed.open).toEqual([]);
+      expect(listed.recent[0]?.resolution).toBe("object_removed");
+    } finally {
+      await owner.update(endpoints).set({ removedAt: null }).where(eq(endpoints.id, machine));
+    }
+  });
+
+  it("ends a hold the new settings no longer make; merges an object's settings; only the tenant's objects (review 7)", async () => {
+    await upload(guard(randomUUID()), GIB, 30);
+    // The tenant now lets every run add 30 GiB: 21 GiB is no hold any more.
+    const tenant = await call("PUT", "/run-size/settings", { override: { minGib: 30 } });
+    expect(tenant.status).toBe(200);
+    expect((await holds())[0]).toMatchObject({
+      status: "resolved",
+      resolution: "settings_changed",
+    });
+    // An object's settings are merged: switching it off keeps its own limit.
+    await call("PUT", "/run-size/settings", {
+      kind: "endpoint",
+      objectId: machine,
+      override: { limitGib: 50 },
+    });
+    await call("PUT", "/run-size/settings", {
+      kind: "endpoint",
+      objectId: machine,
+      override: { enabled: false },
+    });
+    const [own] = await owner
+      .select()
+      .from(runSizeSettings)
+      .where(eq(runSizeSettings.objectId, machine));
+    expect(own?.settings).toEqual({ limitBytes: 50 * GIB, enabled: false });
+    // Not this tenant's object (or no object at all): not found.
+    const foreign = await call(
+      "PUT",
+      "/run-size/settings",
+      { kind: "endpoint", objectId: machine, override: { enabled: false } },
+      fabrikam,
+    );
+    expect(foreign.status).toBe(404);
+    const unknown = await call("PUT", "/run-size/settings", {
+      kind: "file_share",
+      objectId: machine,
+      override: { enabled: false },
+    });
+    expect(unknown.status).toBe(404);
   });
 });

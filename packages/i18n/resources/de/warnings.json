@@ -149,6 +149,7 @@
       "sizeNoHistory": "Würde mehr als {limit} hinzufügen: bisher {bytes}.",
       "space": "Würde dem Speicherziel zu wenig freien Platz lassen: {free} von {total} frei."
     },
+    "spaceNote": "Dieser Halt endet von selbst: Der nächste Lauf prüft erneut und läuft weiter, sobald das Ziel Platz hat. Schaffen Sie Platz auf dem Ziel oder lassen Sie ihn einmal weiterlaufen.",
     "heldAt": "Angehalten",
     "refused": "{count, plural, one {# weiterer Lauf angehalten} other {# weitere Läufe angehalten}}",
     "approvedBy": "erlaubt von {name}",

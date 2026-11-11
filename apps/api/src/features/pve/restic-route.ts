@@ -115,6 +115,7 @@ export async function resolvePveRunCredential(
     access: {
       tenantId: run.tenantId,
       runId: run.id,
+      runKind: run.kind,
       principal: closing ? "closing" : "agent",
       prefix,
       storage,
@@ -229,9 +230,10 @@ export const pveResticRoutes = buildRunResticRoute({
   resolve: resolvePveRunCredential,
   locks: (access) => runLocks(access.runId),
   // The size and space guard of backup runs (#99): a container's backup run.
-  admitUpload: (access, guestId, declared) => admitUpload(guestRunGuard(access, guestId), declared),
+  admitUpload: (access, guestId, declared, resource) =>
+    admitUpload(guestRunGuard(access, guestId), declared, resource),
   onAllowed: async (access, guestId, bytes, action) => {
-    if (action === "write" && access.principal === "agent") {
+    if (action === "write" && access.principal === "agent" && access.runKind === "backup") {
       guestRunGuard(access, guestId).record(bytes);
     }
     // The accounting never fails the upload itself.

@@ -539,8 +539,8 @@ before it fills the storage (`packages/core/src/run-size`, `packages/db/src/run-
 
 | Kind | Measured | Where |
 | ---- | -------- | ----- |
-| Servers and clients, file shares, Proxmox VE containers (restic) | the bytes of every upload through the server's restic REST endpoint | the api (`/agent/restic`, `/internal/file-shares/restic`, `/agent/pve/restic`), before every upload but a lock file |
-| Mailboxes, OneDrive, SharePoint sites, IMAP accounts (chunk store) | every pack the run writes (64 MiB at most) | the worker, before the pack is stored |
+| Servers and clients, file shares, Proxmox VE containers (restic) | the bytes of every upload of a backup run through the server's restic REST endpoint | the api (`/agent/restic`, `/internal/file-shares/restic`, `/agent/pve/restic`), before every upload but a lock file |
+| Mailboxes, OneDrive, SharePoint sites, IMAP accounts (chunk store) | the plaintext of the new chunks in every pack the run writes (64 MiB at most), the unit of the history | the worker, before the pack is stored |
 | Proxmox VE VMs (block backups into the chunk store, uploaded through the api) | not yet | |
 
 **The rule.** Before an upload the guard asks two questions:
@@ -549,12 +549,18 @@ before it fills the storage (`packages/core/src/run-size`, `packages/db/src/run-
   the object's last 10 successful runs added (restic: `data_added_packed`, else `data_added`; the
   chunk store: the new chunk bytes), 10 GiB (small objects never trip it), and the object's own
   limit. With fewer than 3 earlier runs a run is a first backup: not checked, unless a limit for
-  first backups is set. A Proxmox VE container counts from its newest backup chain on.
+  first backups is set. The history starts with the object's current repository: a run that
+  begins a new repository (it uploads restic's `config`: after a reset, a new chain, a repository
+  that was gone) is a first run itself, and so are the next two; a file share counts from its
+  `repository_ready_at`, a Proxmox VE container from its newest backup chain.
 - **Space.** Would the upload leave the target less than 2 % of its size free? (Below a tenth the low disk space warning has
   spoken already for the local default repository.) Only where the
   target reports its space (a directory, an NFS or SMB mount: `StorageBackend.freeSpace`). An S3
   bucket reports none: there the size rule alone applies, and the storage budgets of machines
-  and file shares (above) still refuse what does not fit.
+  and file shares (above) still refuse what does not fit. The space is read at most every 30
+  seconds; what the run was let upload since counts as used. The small uploads that finish a run
+  (restic's index, snapshot, keys, config) are never held for space, so a run whose data went in
+  is not refused its restore point.
 
 **Held.** A run that answers either with yes is held: the upload is refused (restic gets 403 with
 `urn:restow:problem:run-size-held`, which it takes as final; the chunk store stores no further
@@ -565,14 +571,29 @@ not upload them again. The hold (`run_size_holds`) records
 what the run had added, the limit, the median and the target's space, and raises
 `backup.unusually_large` once (critical: the bell, the provider's mandatory recipients, every rule
 that lists it, never held for a digest). Until an administrator decides, every further run of the
-object is held at its first upload (counted on the hold, no second alert).
+object is held at its first upload (counted on the hold, no second alert). A hold for space ends
+by itself: the next run checks again and goes ahead once the target has half again the free share
+it keeps (`space_freed`). A hold of an object that is gone (a removed machine, a deleted share,
+guest or account) ends when the list is read (`object_removed`). The run's failure says "held"
+(`storage.run_held`) for a failed run; a run that made a restore point keeps its own.
+
+The guard knows a run beyond the process that measures it (`run_size_runs`): the bytes it stored
+(written at most every 256 MiB or 30 seconds, so a process that dies loses at most that much),
+and why it is exempt (it used "continue once", or it began a new repository). An api restart, a
+second api process or a retry of a mailbox backup under the same job carries on from there. A
+question the database cannot answer is answered with 503, which restic tries again; it never
+refuses a run for good. A machine's agent authenticates as the machine, not per run: its uploads
+count towards its newest running backup run, also those of a native SQL Server backup that runs
+at the same time (more, never less). A Proxmox VE container's or a file share's uploads count
+only for a backup run.
 
 **Deciding** (Warnings, at the top: "Held backups"; `/api/v1/run-size`):
 
 - **Continue once** (technicians and up): the next run of the object goes through without the
   check, whatever it adds; that run closes the hold. Audited (`backup.size_hold_continued`).
-- **Raise the limit** (administrators and up): the object's own limit becomes the given size;
-  the hold ends. Audited (`backup.size_limit_raised`).
+- **Raise the limit** (administrators and up, a hold for size only): the object's own limit
+  becomes the given size; the hold ends. Audited (`backup.size_limit_raised`). A hold for space
+  ends with room on the target, or with continue once.
 - **Switch the check off for this object** (administrators and up). Audited
   (`backup.size_guard_changed`).
 - **Exclude** the folder that does not belong in the backup in the object's settings, then
@@ -581,14 +602,17 @@ object is held at its first upload (counted on the hold, no second alert).
 **Settings.** Defaults, then the tenant's, then an object's own (Warnings, "Size check";
 `PUT /api/v1/run-size/settings`): on or off, the factor (2 to 1000), the size below which a run is
 never held, a limit for first backups (empty: not checked), the free share to keep (0 switches the
-space rule off). Each change is audited.
+space rule off). What is saved is merged into what was set; the object must be the tenant's.
+An open hold the new settings would not make ends (`settings_changed`, or `guard_off`). Each
+change is audited. "Continue once" lifts both rules for that one run (`CONTINUE_ONCE_LIFTS` in
+packages/db run-size.ts).
 
 Known limits:
 
 - A held restic run ends; restic writes no index for the packs it stored, so they are unused
   data until the next prune, and a run that continues once uploads them again.
-- The api counts a run from the first upload it sees: after an api restart in the middle of a run
-  the run looks smaller than it is (never larger).
+- A process that dies loses at most the last 256 MiB (or 30 seconds) of a run's count: the run
+  looks that much smaller (never larger).
 - Where the size comes from (the largest new folders of a run) is not shown yet: the server sees
   packs, not files. The agent and the runners would have to report it.
 - Proxmox VE VM backups (changed blocks into the chunk store) are not measured yet, and the

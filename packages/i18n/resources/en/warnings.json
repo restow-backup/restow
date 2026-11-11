@@ -149,6 +149,7 @@
       "sizeNoHistory": "Would add more than {limit}: {bytes} so far.",
       "space": "Would leave the storage target too little free space: {free} of {total} free."
     },
+    "spaceNote": "This hold ends by itself: the next run checks again and goes ahead once the target has room. Free up space on the target, or let it continue once.",
     "heldAt": "Held",
     "refused": "{count, plural, one {# later run held} other {# later runs held}}",
     "approvedBy": "allowed by {name}",

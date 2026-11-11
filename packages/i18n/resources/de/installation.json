@@ -494,6 +494,7 @@
       "released": "Freigegeben, weil der Datenträger fast voll war. Schaffen Sie jetzt Platz: Die Reserve wird von selbst wieder angelegt, sobald {createAt} frei sind.",
       "missing": "Noch nicht angelegt: Sie wird angelegt, sobald {createAt} auf dem Datenträger frei sind.",
       "off": "Ausgeschaltet (RESTOW_DISK_RESERVE_MB=0). Ein voller Datenträger hält die Datenbank an.",
+      "foreign": "Unter {path} liegt etwas anderes (nicht die Reserve, oder ein Link). Es bleibt unberührt, und es gibt keine Reserve: Verschieben Sie es oder setzen Sie RESTOW_DISK_RESERVE_PATH auf einen anderen Namen.",
       "byHand": "So geben Sie sie von Hand frei:"
     },
     "updateSpace": {

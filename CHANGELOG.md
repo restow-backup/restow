@@ -23,8 +23,11 @@ private repository.
   `installation.disk_reserve_released` (critical) and `installation.disk_reserve_restored`; a
   release while the database was down is announced once it is back. The low disk space warning
   names the reserve and the command that frees it; Installation › Database shows its state.
-  New `restow disk-reserve status|release|create|guard` (needs no database); `install.sh`
-  writes the reserve right after the first start (0.5.0 and newer). Without the opt-in updater
+  New `restow disk-reserve status|release|create [--initial]|guard` (needs no database);
+  `install.sh` writes the reserve right after the first start of a new server (0.5.0 and newer;
+  on an existing one only under the api's own room rule). Only a file that begins with the
+  reserve's mark is ever replaced or deleted (never a link or another file at the path), one
+  writer at a time, and the check at the container's start gives up after 30 seconds. Without the opt-in updater
   the database's disk is now watched too, read on `restow-data` next to the named volume
   `pgdata` (not for a database moved to a host directory). The bell names the system disk in its
   low-space line. Known limits: the reserve protects only its own disk (not a database moved
@@ -37,7 +40,12 @@ private repository.
   upload, mailbox, OneDrive, SharePoint and IMAP runs before every pack. A run is held when it
   passes 10 times the median of its object's last 10 runs (at least 10 GiB, or the object's own
   limit; first backups are not checked unless a limit for them is set), or when it would leave a
-  target that reports its space less than 2 % free. A held run ends without a restore point
+  target that reports its space less than 2 % free (the index and snapshot that finish a run
+  excepted). A run that begins a new repository is a first run, and the history starts with it.
+  What the guard knows of a run (bytes stored, "continue once" used) survives an api restart and
+  a retry (`run_size_runs`, migration 0096); a database error is a 503 restic retries, never a
+  refusal. A hold for space ends by itself once the target has room, a hold of a removed object
+  ends, and a settings change ends the holds it no longer makes. A held run ends without a restore point
   (restic: 403 `run-size-held`; mail: failure `storage.run_held`), the new critical event
   `backup.unusually_large` goes out once, and every further run of the object waits. Under
   Warnings, "Held backups", an administrator lets it continue once, raises the object's limit or

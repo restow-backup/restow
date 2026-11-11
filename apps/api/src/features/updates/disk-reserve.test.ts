@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -10,8 +10,10 @@ import {
   databaseDiskPath,
   diskReserveConfig,
   RELEASE_MARKER_SUFFIX,
+  RESERVE_MAGIC,
   type ReserveStatus,
   reserveCreateAt,
+  validReservePath,
 } from "./disk-reserve.js";
 import { decideReserve, startReserveGuard } from "./disk-watch.js";
 
@@ -55,9 +57,9 @@ describe("the emergency disk reserve (#98)", () => {
       diskReserveConfig({
         RESTOW_DISK_RESERVE_MB: "512",
         RESTOW_DISK_RESERVE_FLOOR_MB: "256",
-        RESTOW_DISK_RESERVE_PATH: "/srv/reserve",
+        RESTOW_DISK_RESERVE_PATH: "/srv/restow-disk-reserve-b",
       }),
-    ).toEqual({ path: "/srv/reserve", bytes: 512 * MIB, floorBytes: 256 * MIB });
+    ).toEqual({ path: "/srv/restow-disk-reserve-b", bytes: 512 * MIB, floorBytes: 256 * MIB });
     // Empty (the release .env lists it empty) or nonsense: the default.
     expect(
       diskReserveConfig({ RESTOW_DISK_RESERVE_MB: "", RESTOW_DISK_RESERVE_PATH: "x" }),
@@ -65,39 +67,95 @@ describe("the emergency disk reserve (#98)", () => {
     expect(diskReserveConfig({ RESTOW_DISK_RESERVE_MB: "0" }).bytes).toBe(0);
   });
 
-  it("writes real, random blocks of the configured size under a temporary name", async () => {
+  it("never lives at a path that names another file", () => {
+    for (const path of [
+      "/var/lib/postgresql/data/PG_VERSION",
+      "/data/chunks",
+      "/data/../etc/restow-disk-reserve",
+      "/data//restow-disk-reserve",
+      "restow-disk-reserve",
+      "/data/restow-disk-reserve/",
+    ]) {
+      expect(validReservePath(path), path).toBe(false);
+      expect(diskReserveConfig({ RESTOW_DISK_RESERVE_PATH: path }).path).toBe(
+        DEFAULT_DISK_RESERVE_PATH,
+      );
+    }
+    expect(validReservePath("/mnt/data/restow-disk-reserve")).toBe(true);
+  });
+
+  it("writes real, random blocks behind its mark, under a name of its own", async () => {
     expect(await reserve().create()).toBe("created");
     const path = join(dir, "restow-disk-reserve");
     const info = await stat(path);
-    expect(info.size).toBe(MIB);
+    expect(info.size).toBe(MIB + RESERVE_MAGIC.length);
     // Not sparse: every block is allocated.
     expect(info.blocks * 512).toBeGreaterThanOrEqual(MIB);
     const content = await readFile(path);
+    expect(content.subarray(0, RESERVE_MAGIC.length).equals(RESERVE_MAGIC)).toBe(true);
     // Random, not zeros: a compressing file system must keep it.
-    expect(content.subarray(0, 4096).some((byte) => byte !== 0)).toBe(true);
-    expect((await stat(`${path}.writing`).catch(() => null)) === null).toBe(true);
+    expect(content.subarray(RESERVE_MAGIC.length, 4096).some((byte) => byte !== 0)).toBe(true);
+    // Nothing half-written and no lock is left behind.
+    expect((await readdir(dir)).sort()).toEqual(["restow-disk-reserve"]);
     expect((await reserve().status()).state).toBe("present");
     // Present already: nothing to do.
     expect(await reserve().create()).toBe("none");
   });
 
-  it("is written only when the disk keeps its low-space threshold besides it", async () => {
+  it("is written only when the disk keeps its threshold besides it, counting what is free now", async () => {
     // 100 GiB: the threshold is 10 GiB, so 10 GiB + 1 MiB must be free.
     expect(reserveCreateAt(total, MIB)).toBe(10 * GIB + MIB);
     free = 10 * GIB;
     expect(await reserve().create()).toBe("no_room");
     expect((await reserve().status()).state).toBe("missing");
-    // The operator's (and the installer's) `create` needs room for the reserve and the floor only.
-    expect(await reserve().create({ force: true })).toBe("created");
+    // A new server (the installer's --initial): room for the reserve and the floor is enough.
+    free = GIB + MIB / 2;
+    expect(await reserve().create({ initial: true })).toBe("no_room");
+    free = GIB + MIB;
+    expect(await reserve().create({ initial: true })).toBe("created");
   });
 
-  it("leaves a write in progress alone, and takes over one that was abandoned", async () => {
-    const writing = join(dir, "restow-disk-reserve.writing");
-    await writeFile(writing, "partial");
-    expect(await reserve().create()).toBe("busy");
-    const old = new Date(Date.parse("2026-11-11T09:00:00.000Z"));
-    await utimes(writing, old, old);
+  it("does not count a reserve that is too small as room: it is still there while the new one is written", async () => {
+    const path = join(dir, "restow-disk-reserve");
+    await writeFile(path, Buffer.concat([RESERVE_MAGIC, Buffer.alloc(16)]));
+    // Free space plus the old file would be enough; what is free now is not.
+    free = 10 * GIB + MIB - 8;
+    expect(await reserve().create()).toBe("no_room");
+    free = 20 * GIB;
     expect(await reserve().create()).toBe("created");
+    expect((await stat(path)).size).toBe(MIB + RESERVE_MAGIC.length);
+  });
+
+  it("never replaces or deletes what is not the reserve: another file, a link", async () => {
+    const path = join(dir, "restow-disk-reserve");
+    await writeFile(path, "an operator's notes");
+    expect((await reserve().status()).state).toBe("foreign");
+    expect(await reserve().create()).toBe("foreign");
+    free = 100 * MIB;
+    expect((await reserve().check({ create: true })).action).toBe("foreign");
+    expect(await reserve().release("manual")).toBe(false);
+    expect(await readFile(path, "utf8")).toBe("an operator's notes");
+    await rm(path);
+    // A link to the reserve of someone else (or to anything) is not the reserve either.
+    const elsewhere = join(dir, "elsewhere");
+    await writeFile(elsewhere, Buffer.concat([RESERVE_MAGIC, Buffer.alloc(16)]));
+    await symlink(elsewhere, path);
+    expect(await reserve().release("manual")).toBe(false);
+    expect((await stat(elsewhere)).isFile()).toBe(true);
+    expect((await reserve().status()).state).toBe("foreign");
+  });
+
+  it("leaves a writer that runs alone, and takes over the lock of one that died", async () => {
+    const lock = join(dir, "restow-disk-reserve.lock");
+    // This process holds it (an api loop writing right now).
+    await writeFile(lock, JSON.stringify({ pid: process.pid, at: "2026-11-11T09:59:00.000Z" }));
+    expect(await reserve().create()).toBe("busy");
+    expect(await readFile(lock, "utf8")).toContain(String(process.pid));
+    // A writer that died left its lock and a half-written file.
+    await writeFile(lock, JSON.stringify({ pid: 2 ** 22 + 7, at: "2026-11-11T09:59:00.000Z" }));
+    await writeFile(join(dir, "restow-disk-reserve.writing-123-abc"), "half");
+    expect(await reserve().create()).toBe("created");
+    expect((await readdir(dir)).sort()).toEqual(["restow-disk-reserve"]);
   });
 
   it("is freed below the floor, leaves a marker, and is written again once there is room", async () => {
@@ -191,19 +249,30 @@ describe("the emergency disk reserve (#98)", () => {
       });
       expect(parseCommand(["disk-reserve", "release"])).toEqual({ kind: "disk-reserve-release" });
       expect(parseDiskReserveCommand("guard", [])).toEqual({ kind: "disk-reserve-guard" });
+      expect(parseCommand(["disk-reserve", "create"])).toEqual({
+        kind: "disk-reserve-create",
+        initial: false,
+      });
+      expect(parseCommand(["disk-reserve", "create", "--initial"])).toEqual({
+        kind: "disk-reserve-create",
+        initial: true,
+      });
+      expect(() => parseCommand(["disk-reserve", "create", "--force"])).toThrow(UsageError);
       expect(() => parseCommand(["disk-reserve", "drop"])).toThrow(UsageError);
       expect(() => parseCommand(["disk-reserve", "release", "--now"])).toThrow(UsageError);
     });
 
     it("creates, shows and frees the reserve by hand", async () => {
       const created = io();
-      expect(await runDiskReserveCommand({ kind: "disk-reserve-create" }, created.io)).toBe(0);
+      expect(
+        await runDiskReserveCommand({ kind: "disk-reserve-create", initial: false }, created.io),
+      ).toBe(0);
       expect(created.out.join("")).toContain("Disk reserve: 0.0 GiB at");
       const shown = io();
       await runDiskReserveCommand({ kind: "disk-reserve-status", json: true }, shown.io);
       expect(JSON.parse(shown.out.join("")) as ReserveStatus).toMatchObject({
         state: "present",
-        presentBytes: MIB,
+        presentBytes: MIB + RESERVE_MAGIC.length,
       });
       const released = io();
       expect(await runDiskReserveCommand({ kind: "disk-reserve-release" }, released.io)).toBe(0);
@@ -218,7 +287,7 @@ describe("the emergency disk reserve (#98)", () => {
     });
 
     it("guard frees it at the start only below the floor, and never fails", async () => {
-      await runDiskReserveCommand({ kind: "disk-reserve-create" }, io().io);
+      await runDiskReserveCommand({ kind: "disk-reserve-create", initial: true }, io().io);
       const calm = io();
       expect(await runDiskReserveCommand({ kind: "disk-reserve-guard" }, calm.io)).toBe(0);
       expect(calm.err).toEqual([]);
@@ -237,7 +306,9 @@ describe("the emergency disk reserve (#98)", () => {
     it("create says when there is no room", async () => {
       free = 100 * MIB;
       const tight = io();
-      expect(await runDiskReserveCommand({ kind: "disk-reserve-create" }, tight.io)).toBe(2);
+      expect(
+        await runDiskReserveCommand({ kind: "disk-reserve-create", initial: true }, tight.io),
+      ).toBe(2);
       expect(tight.err.join("")).toContain("Not enough room");
     });
   });

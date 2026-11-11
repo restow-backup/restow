@@ -91,11 +91,22 @@ Docker's data directory are on one disk, so freeing the reserve gives that disk 
 - **Written again.** Once the disk has room for the low-space threshold plus the reserve
   (on a 100 GiB disk: 10 GiB + 2 GiB), the api writes the reserve again and raises
   `installation.disk_reserve_restored`.
-- **Installer.** `install.sh` writes it right after the first start, so a new server has it
-  before the first backup (`docker compose exec api restow disk-reserve create`).
+- **Installer.** On a new server (and a restore onto one) `install.sh` writes it right after the
+  first start, whenever the disk keeps the floor besides it
+  (`docker compose exec api restow disk-reserve create --initial`). On an existing installation
+  it uses the api's own rule (the low-space threshold plus the reserve), so the api does not
+  free it again at once with a critical alert.
 - **Settings** (`.env`, read by the api): `RESTOW_DISK_RESERVE_MB` (size, default 2048;
   `0` switches it off), `RESTOW_DISK_RESERVE_FLOOR_MB` (floor, default 1024),
-  `RESTOW_DISK_RESERVE_PATH` (default `/data/restow-disk-reserve`).
+  `RESTOW_DISK_RESERVE_PATH` (default `/data/restow-disk-reserve`; its name must begin with
+  `restow-disk-reserve`, any other value takes the default).
+- **Only its own file.** The reserve begins with a mark (`RESTOW-DISK-RESERVE v1`). Only a
+  regular file with that mark is ever replaced or deleted; anything else at the path (another
+  file, a symbolic link) is left alone, and the page says "something else is at the path". One
+  writer at a time: `restow-disk-reserve.lock` names the writing process; the lock of a process
+  that is gone is taken over and its half-written files (`restow-disk-reserve.writing-*`) are
+  removed. The check at the container's start gives up after 30 seconds (a data volume that
+  hangs), and the api starts anyway.
 
 Installation › Database shows the reserve: there, freed, or waiting for room. The low disk
 space warning names it and the command that frees it.

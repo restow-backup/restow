@@ -203,6 +203,11 @@ function HeldRow({
         </StatusBadge>
       </div>
       <p className="text-sm">{why}</p>
+      {hold.reason === "space" && hold.status === "pending" ? (
+        <p className="text-xs text-muted-foreground" data-slot="held-space-note">
+          {t("held.spaceNote")}
+        </p>
+      ) : null}
       <p className="text-xs text-muted-foreground">
         {t("held.heldAt")} <RelativeTime value={hold.heldAt} />
         {hold.refusedRuns > 0 ? ` · ${t("held.refused", { count: hold.refusedRuns })}` : null}
@@ -215,9 +220,12 @@ function HeldRow({
           <Button size="sm" disabled={!canContinue || busy} onClick={onContinue}>
             {t("held.actions.continue")}
           </Button>
-          <Button size="sm" variant="outline" disabled={!canConfigure || busy} onClick={onRaise}>
-            {t("held.actions.raise")}
-          </Button>
+          {/* A size limit makes no room on the target: a hold for space ends by itself. */}
+          {hold.reason === "size" ? (
+            <Button size="sm" variant="outline" disabled={!canConfigure || busy} onClick={onRaise}>
+              {t("held.actions.raise")}
+            </Button>
+          ) : null}
           <Button size="sm" variant="ghost" disabled={!canConfigure || busy} onClick={onSwitchOff}>
             {t("held.actions.switchOff")}
           </Button>

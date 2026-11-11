@@ -494,6 +494,7 @@
       "released": "Freed because the disk was almost full. Free up space now: it is written again by itself once {createAt} are free.",
       "missing": "Not there yet: it is written once {createAt} are free on the disk.",
       "off": "Switched off (RESTOW_DISK_RESERVE_MB=0). A full disk stops the database.",
+      "foreign": "Something else is at {path} (not the reserve, or a link). It is left alone and there is no reserve: move it away, or set RESTOW_DISK_RESERVE_PATH to another name.",
       "byHand": "To free it by hand:"
     },
     "updateSpace": {

@@ -99,7 +99,7 @@ describe("ChunkWriter / ChunkReader through the local pack store", () => {
       maxPackBytes?: number;
       signal?: AbortSignal;
       onPackStored?: (packBytes: number) => void;
-      beforePack?: (packBytes: number) => Promise<void>;
+      beforePack?: (packBytes: number, newBytes: number) => Promise<void>;
     } = {},
   ): ChunkWriter {
     return new ChunkWriter({
@@ -359,6 +359,23 @@ describe("ChunkWriter / ChunkReader through the local pack store", () => {
     // Only the pack before the hold reached the storage; the writer refuses everything after.
     expect(await storage.primary.list(packPrefix(TENANT))).toHaveLength(1);
     expect(w.failed?.cause).toBe(held);
+  });
+
+  it("tells the guard each pack's new plaintext, the unit of bytesNew in the history", async () => {
+    const plain: number[] = [];
+    const sealed: number[] = [];
+    const w = writer({
+      maxPackBytes: MIN_CHUNK_SIZE * 2,
+      beforePack: async (bytes, newBytes) => {
+        sealed.push(bytes);
+        plain.push(newBytes);
+      },
+    });
+    await w.write(pseudoRandom(MAX_CHUNK_SIZE * 2, 11));
+    const stats = await w.close();
+    expect(plain.reduce((sum, value) => sum + value, 0)).toBe(stats.bytesNew);
+    // The packs themselves are larger (headers, the seal of every chunk).
+    expect(sealed.reduce((sum, value) => sum + value, 0)).toBeGreaterThan(stats.bytesNew);
   });
 
   it("does not report a pack that could not be stored", async () => {

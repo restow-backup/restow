@@ -1168,7 +1168,7 @@ describe("backup handler", () => {
       return engine("mailbox", async (engineCtx) => {
         for (let index = 0; index < packs; index++) {
           try {
-            await engineCtx.admitPack?.(64);
+            await engineCtx.admitPack?.(80, 64);
           } catch (error) {
             if (!swallow) {
               throw error;

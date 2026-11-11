@@ -137,10 +137,14 @@ export interface ResticRestOptions {
   quotaProblem?: { type: string; detail: string };
   /**
    * The size and space guard of backup runs (#99, core run-size): asked before every upload
-   * except a lock file, with its declared length. A problem holds the run: the upload is
-   * answered with 403 and that problem (final for restic), and nothing is written.
+   * except a lock file, with its declared length and what it is. A problem holds the run: the
+   * upload is answered with 403 and that problem (final for restic), and nothing is written. A
+   * guard that cannot answer (its database) is a 503, which restic tries again.
    */
-  admitUpload?: (declaredBytes: number | null) => Promise<{ type: string; detail: string } | null>;
+  admitUpload?: (
+    declaredBytes: number | null,
+    resource: ResticResource,
+  ) => Promise<{ type: string; detail: string } | null>;
   /** Called when an upload was refused because it does not fit the storage budget. */
   onQuotaExceeded?: (event: {
     resource: ResticResource;
@@ -553,7 +557,13 @@ export async function handleResticRequest(
       // A run the size and space guard holds writes nothing more (lock files excepted, so the
       // run can still release its lock).
       if (agentLock === null && options.admitUpload) {
-        const held = await options.admitUpload(declaredLength(request));
+        let held: { type: string; detail: string } | null;
+        try {
+          held = await options.admitUpload(declaredLength(request), resource);
+        } catch {
+          // Never a refusal for good: restic sends the upload again.
+          return text(503, "the size check of this backup could not be made; try again");
+        }
         if (held) {
           return errorResponse(new ResticHttpError(403, held.detail, held.type));
         }

@@ -31,7 +31,7 @@ let failures: CountingFailures;
 let resolution: RunResticResolution | null;
 let seen: { runId: string; token: string; repoId: string }[];
 let audits: unknown[];
-let admitted: { principal: string; repoId: string; declared: number | null }[];
+let admitted: { principal: string; repoId: string; declared: number | null; type: string }[];
 let held: { type: string; detail: string } | null;
 let app: Hono;
 
@@ -47,6 +47,7 @@ beforeEach(async () => {
     access: {
       tenantId: "t1",
       runId: RUN,
+      runKind: "backup",
       principal: "agent",
       prefix: `repos/${REPO}/`,
       storage: new LocalStorageBackend(root),
@@ -66,8 +67,13 @@ beforeEach(async () => {
         return resolution as RunResticResolution;
       },
       locks: (access) => locks(access.runId),
-      admitUpload: async (access, repoId, declared) => {
-        admitted.push({ principal: access.principal, repoId, declared });
+      admitUpload: async (access, repoId, declared, resource) => {
+        admitted.push({
+          principal: access.principal,
+          repoId,
+          declared,
+          type: resource.kind === "object" ? resource.type : resource.kind,
+        });
         return held;
       },
       failures,
@@ -106,7 +112,7 @@ describe("run-scoped restic route builder", () => {
       pack,
     );
     expect(ok.status).toBe(200);
-    expect(admitted).toEqual([{ principal: "agent", repoId: REPO, declared: 10 }]);
+    expect(admitted).toEqual([{ principal: "agent", repoId: REPO, declared: 10, type: "data" }]);
     held = { type: "urn:restow:problem:run-size-held", detail: "held" };
     const other = "other pack";
     const refused = await call("POST", `/${REPO}/data/${sha256(other)}`, {}, other);
@@ -119,7 +125,19 @@ describe("run-scoped restic route builder", () => {
       resolution = { ok: true, access: { ...resolution.access, principal: "reader" } };
     }
     admitted = [];
+    held = null;
     await call("GET", `/${REPO}/config`);
+    expect(admitted).toEqual([]);
+    // A run that is no backup is not measured, whatever its principal (a container's restore
+    // run is append-only too): review item 5.
+    if (resolution?.ok) {
+      resolution = {
+        ok: true,
+        access: { ...resolution.access, principal: "agent", runKind: "restore" },
+      };
+    }
+    const third = "third pack";
+    expect((await call("POST", `/${REPO}/data/${sha256(third)}`, {}, third)).status).toBe(200);
     expect(admitted).toEqual([]);
   });
 

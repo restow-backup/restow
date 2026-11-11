@@ -2,6 +2,7 @@ import {
   handleResticRequest,
   parseBasicAuthorization,
   type ResticLockRegistry,
+  type ResticResource,
   type StorageBackend,
 } from "@restow/core";
 import { type Context, Hono } from "hono";
@@ -31,6 +32,11 @@ export interface RunResticAccess {
    * stopped or has ended; it may only open the repository and release its own lock files.
    */
   principal: "agent" | "reader" | "closing";
+  /**
+   * The run's kind: the size and space guard (#99) measures backup runs only, whatever their
+   * principal (a container's restore run is append-only too). Unknown: not measured.
+   */
+  runKind?: string;
   /** Storage prefix of the repository, with a trailing slash. */
   prefix: string;
   storage: StorageBackend;
@@ -95,6 +101,7 @@ export interface RunResticRouteOptions {
     access: RunResticAccess,
     repoId: string,
     declaredBytes: number | null,
+    resource: ResticResource,
   ): Promise<{ type: string; detail: string } | null>;
   /** Accounting of allowed requests (bytes written or freed). */
   onAllowed?(
@@ -195,12 +202,13 @@ export function buildRunResticRoute(options: RunResticRouteOptions): Hono {
         : undefined,
       quotaProblem: options.quotaProblem,
       admitUpload:
-        options.admitUpload && access.principal === "agent"
-          ? (declared) =>
+        options.admitUpload && access.principal === "agent" && access.runKind === "backup"
+          ? (declared, resource) =>
               (options.admitUpload as NonNullable<typeof options.admitUpload>)(
                 access,
                 repoId,
                 declared,
+                resource,
               )
           : undefined,
       onAllowed: options.onAllowed

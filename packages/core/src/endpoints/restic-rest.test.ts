@@ -45,7 +45,10 @@ async function call(
     locks?: ResticLockRegistry;
     remainingBytes?: number | null;
     quotaProblem?: { type: string; detail: string };
-    admitUpload?: (declared: number | null) => Promise<{ type: string; detail: string } | null>;
+    admitUpload?: (
+      declared: number | null,
+      resource: { kind: string; type?: string },
+    ) => Promise<{ type: string; detail: string } | null>;
   } = {},
 ) {
   const request = new Request(`http://localhost${path}${init.query ?? ""}`, {
@@ -323,6 +326,29 @@ describe("restic REST protocol on the storage abstraction", () => {
       expect(asked).toEqual([pack.length]);
       expect(storage.files.size).toBe(0);
       expect(refused.allowed).toEqual([]);
+    });
+
+    it("answers 503 when the guard cannot answer, so restic tries again, and says what an upload is", async () => {
+      const storage = new MemoryStorage();
+      const seen: string[] = [];
+      const failing = await call(storage, "agent", "POST", `/data/${name}`, {
+        body: pack,
+        admitUpload: async (_declared, resource) => {
+          seen.push(resource.type ?? resource.kind);
+          throw new Error("deadlock detected");
+        },
+      });
+      expect(failing.response.status).toBe(503);
+      expect(storage.files.size).toBe(0);
+      const index = Buffer.from("{}");
+      await call(storage, "agent", "POST", `/index/${sha256(index)}`, {
+        body: index,
+        admitUpload: async (_declared, resource) => {
+          seen.push(resource.type ?? resource.kind);
+          return null;
+        },
+      });
+      expect(seen).toEqual(["data", "index"]);
     });
 
     it("never asks for a lock file, so a held run can still release its lock", async () => {

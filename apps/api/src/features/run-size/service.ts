@@ -5,17 +5,21 @@ import {
   type RunSizeGuardSettings,
   type RunSizeObjectKind,
   resolveRunSizeGuard,
+  runSizeLimit,
 } from "@restow/core";
 import {
   type Database,
   describeRunSizeObject,
   type RunSizeHold,
+  type RunSizeHoldResolution,
   type RunSizeTx,
   resolveRunSizeHolds,
+  runSizeHistory,
   runSizeHolds,
+  runSizeObjectExists,
   runSizeSettings,
 } from "@restow/db";
-import { and, desc, eq, inArray, isNull, notInArray } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { audit } from "../../lib/audit.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
@@ -42,6 +46,8 @@ export const RUN_SIZE_AUDIT_ACTIONS = {
 export const RUN_SIZE_PROBLEMS = {
   holdNotOpen: "urn:restow:problem:run-size-hold-not-open",
   limitTooSmall: "urn:restow:problem:run-size-limit-too-small",
+  notForSpace: "urn:restow:problem:run-size-raise-not-for-space",
+  objectNotFound: "urn:restow:problem:run-size-object-not-found",
 } as const;
 
 export interface RunSizeActor {
@@ -70,7 +76,7 @@ export interface RunSizeHoldDto {
   approvedAt: string | null;
   approvedBy: string | null;
   note: string | null;
-  resolution: "continued" | "limit_raised" | "guard_off" | null;
+  resolution: RunSizeHoldResolution | null;
   resolvedAt: string | null;
 }
 
@@ -105,12 +111,38 @@ function toDto(row: RunSizeHold): RunSizeHoldDto {
 /** How many decided holds the page shows below the open ones. */
 const RECENT_RESOLVED = 20;
 
-/** The tenant's open holds, oldest first, and the most recent decided ones. */
+/**
+ * The tenant's open holds, oldest first, and the most recent decided ones. An open hold of an
+ * object that is gone (a removed machine, a deleted share, guest or account) holds nothing: it
+ * ends here (`object_removed`).
+ */
 export async function listRunSizeHolds(
   db: Database,
   tenantId: string,
+  now: Date = new Date(),
 ): Promise<{ open: RunSizeHoldDto[]; recent: RunSizeHoldDto[] }> {
   return withTenantTx(db, tenantId, async (tx) => {
+    const candidates = await tx
+      .select({
+        id: runSizeHolds.id,
+        kind: runSizeHolds.objectKind,
+        objectId: runSizeHolds.objectId,
+      })
+      .from(runSizeHolds)
+      .where(
+        and(
+          eq(runSizeHolds.tenantId, tenantId),
+          inArray(runSizeHolds.status, ["pending", "approved"]),
+        ),
+      );
+    for (const candidate of candidates) {
+      if (!(await runSizeObjectExists(tx, candidate.kind, candidate.objectId))) {
+        await tx
+          .update(runSizeHolds)
+          .set({ status: "resolved", resolution: "object_removed", resolvedAt: now })
+          .where(eq(runSizeHolds.id, candidate.id));
+      }
+    }
     const open = await tx
       .select()
       .from(runSizeHolds)
@@ -278,7 +310,15 @@ export async function raiseRunSizeLimit(
     if (hold.status !== "pending" && hold.status !== "approved") {
       throw notOpen();
     }
-    if (hold.reason === "size" && limitBytes <= hold.bytes) {
+    if (hold.reason === "space") {
+      // A size limit does not make room on the target: the hold ends by itself once there is
+      // room (the next run checks), or continue once.
+      throw new ProblemError(422, "Not a size hold", {
+        type: RUN_SIZE_PROBLEMS.notForSpace,
+        detail: "This backup was held for the free space of its storage target, not for its size.",
+      });
+    }
+    if (limitBytes <= hold.bytes) {
       throw new ProblemError(422, "Limit too small", {
         type: RUN_SIZE_PROBLEMS.limitTooSmall,
         detail: "The new limit must be larger than what the held run added.",
@@ -362,8 +402,66 @@ export async function runSizeSettingsView(
 }
 
 /**
- * Set the tenant's override (`scope` null) or an object's; null clears it. Switching the guard
- * off for an object ends its open hold.
+ * The open holds of `scope` (one object, or every object of the tenant) that its settings no
+ * longer hold, ended: the guard switched off (`guard_off`), a size hold whose run now fits its
+ * limit, or a space hold whose free share was switched off (`settings_changed`). A space hold
+ * otherwise ends by itself once the target has room (the next run checks). Returns how many.
+ */
+async function reconsiderHolds(
+  tx: Transaction,
+  tenantId: string,
+  scope: { kind: RunSizeObjectKind; objectId: string } | null,
+  now: Date,
+): Promise<number> {
+  const open = await tx
+    .select()
+    .from(runSizeHolds)
+    .where(
+      and(
+        eq(runSizeHolds.tenantId, tenantId),
+        eq(runSizeHolds.status, "pending"),
+        scope ? eq(runSizeHolds.objectKind, scope.kind) : undefined,
+        scope ? eq(runSizeHolds.objectId, scope.objectId) : undefined,
+      ),
+    );
+  const tenant = await storedOverride(tx, tenantId, null);
+  let ended = 0;
+  for (const hold of open) {
+    const own = await storedOverride(tx, tenantId, {
+      kind: hold.objectKind,
+      objectId: hold.objectId,
+    });
+    const settings = resolveRunSizeGuard(tenant, own);
+    let resolution: "guard_off" | "settings_changed" | null = null;
+    if (!settings.enabled) {
+      resolution = "guard_off";
+    } else if (hold.reason === "size") {
+      const history = await runSizeHistory(
+        tx,
+        hold.objectKind,
+        hold.objectId,
+        settings.historyRuns,
+      );
+      const limit = runSizeLimit(settings, history).limitBytes;
+      resolution = limit === null || hold.bytes <= limit ? "settings_changed" : null;
+    } else if (settings.minFreePercent === 0) {
+      resolution = "settings_changed";
+    }
+    if (resolution) {
+      await tx
+        .update(runSizeHolds)
+        .set({ status: "resolved", resolution, resolvedAt: now })
+        .where(and(eq(runSizeHolds.id, hold.id), eq(runSizeHolds.status, "pending")));
+      ended++;
+    }
+  }
+  return ended;
+}
+
+/**
+ * Change the tenant's override (`scope` null) or an object's: what is given is merged into the
+ * stored one (a size given as null clears it); `override` null clears the whole override. The
+ * object must be the tenant's. Every open hold the new settings no longer hold ends.
  */
 export async function updateRunSizeSettings(
   db: Database,
@@ -374,11 +472,20 @@ export async function updateRunSizeSettings(
   now: Date = new Date(),
 ): Promise<RunSizeSettingsView> {
   await withTenantTx(db, tenantId, async (tx) => {
+    // Row Level Security pins the transaction to the tenant: another tenant's object is not found.
+    if (scope && !(await runSizeObjectExists(tx, scope.kind, scope.objectId))) {
+      throw new ProblemError(404, "Not found", {
+        type: RUN_SIZE_PROBLEMS.objectNotFound,
+        detail: "No such machine, file share, guest or account in this tenant.",
+      });
+    }
     const before = await storedOverride(tx, tenantId, scope);
     const objectName = scope
       ? (await describeRunSizeObject(tx, scope.kind, scope.objectId)).name
       : null;
-    if (override === null) {
+    const after =
+      override === null ? null : { ...(before ?? {}), ...parseRunSizeOverride(override) };
+    if (after === null) {
       await tx
         .delete(runSizeSettings)
         .where(
@@ -391,37 +498,9 @@ export async function updateRunSizeSettings(
             : and(eq(runSizeSettings.tenantId, tenantId), isNull(runSizeSettings.objectKind)),
         );
     } else {
-      await writeOverride(tx, tenantId, scope, parseRunSizeOverride(override), actor, now);
+      await writeOverride(tx, tenantId, scope, after, actor, now);
     }
-    let resolved = 0;
-    if (override?.enabled === false) {
-      if (scope) {
-        resolved = await resolveRunSizeHolds(tx, scope.kind, scope.objectId, "guard_off", now);
-      } else {
-        // Off for the whole tenant: every open hold of an object without its own "on" ends.
-        const own = await tx
-          .select({ objectId: runSizeSettings.objectId, settings: runSizeSettings.settings })
-          .from(runSizeSettings)
-          .where(eq(runSizeSettings.tenantId, tenantId));
-        const keepOn = own
-          .filter(
-            (row) => row.objectId !== null && parseRunSizeOverride(row.settings).enabled === true,
-          )
-          .map((row) => row.objectId as string);
-        const open = await tx
-          .update(runSizeHolds)
-          .set({ status: "resolved", resolution: "guard_off", resolvedAt: now })
-          .where(
-            and(
-              eq(runSizeHolds.tenantId, tenantId),
-              inArray(runSizeHolds.status, ["pending", "approved"]),
-              keepOn.length > 0 ? notInArray(runSizeHolds.objectId, keepOn) : undefined,
-            ),
-          )
-          .returning({ id: runSizeHolds.id });
-        resolved = open.length;
-      }
-    }
+    const resolved = await reconsiderHolds(tx, tenantId, scope, now);
     await audit(tx, {
       tenantId,
       actorUserId: actor.userId,
@@ -435,7 +514,7 @@ export async function updateRunSizeSettings(
         objectKind: scope?.kind ?? null,
         objectName,
         before,
-        after: override === null ? null : parseRunSizeOverride(override),
+        after,
         holdsEnded: resolved,
       },
     });

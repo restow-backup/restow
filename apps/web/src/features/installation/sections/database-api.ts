@@ -151,7 +151,7 @@ export interface DiskStatus {
 
 /** The emergency disk reserve (#98, docs/DATABASE.md "Disk full"). */
 export interface DiskReserveStatus {
-  state: "off" | "unavailable" | "present" | "released" | "missing";
+  state: "off" | "unavailable" | "present" | "released" | "missing" | "foreign";
   path: string;
   bytes: number;
   floorBytes: number;

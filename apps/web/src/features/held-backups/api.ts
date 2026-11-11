@@ -28,7 +28,14 @@ export interface HeldBackup {
   approvedAt: string | null;
   approvedBy: string | null;
   note: string | null;
-  resolution: "continued" | "limit_raised" | "guard_off" | null;
+  resolution:
+    | "continued"
+    | "limit_raised"
+    | "guard_off"
+    | "settings_changed"
+    | "space_freed"
+    | "object_removed"
+    | null;
   resolvedAt: string | null;
 }
 

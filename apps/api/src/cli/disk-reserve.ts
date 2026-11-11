@@ -12,14 +12,15 @@ import {
  *   status [--json]  what the reserve is and how much the disk has free
  *   release          free it now (by hand); the alert follows once the database runs
  *   guard            free it if the disk is below the floor (the entrypoint, before the migrations)
- *   create           write it now if the disk has room (the installer)
+ *   create [--initial]  write it now if the disk keeps its low-space threshold besides it;
+ *                    `--initial` (the installer on a new server): if it keeps the floor
  */
 
 export type DiskReserveCommand =
   | { kind: "disk-reserve-status"; json: boolean }
   | { kind: "disk-reserve-release" }
   | { kind: "disk-reserve-guard" }
-  | { kind: "disk-reserve-create" };
+  | { kind: "disk-reserve-create"; initial: boolean };
 
 export const DISK_RESERVE_KINDS: ReadonlySet<string> = new Set([
   "disk-reserve-status",
@@ -41,7 +42,14 @@ export function parseDiskReserveCommand(
     }
     return { kind: "disk-reserve-status", json: rest.includes("--json") };
   }
-  if (action === "release" || action === "guard" || action === "create") {
+  if (action === "create") {
+    const unknown = rest.filter((argument) => argument !== "--initial");
+    if (unknown.length > 0) {
+      throw new DiskReserveUsageError(`Unknown option for disk-reserve create: ${unknown[0]}`);
+    }
+    return { kind: "disk-reserve-create", initial: rest.includes("--initial") };
+  }
+  if (action === "release" || action === "guard") {
     if (rest.length > 0) {
       throw new DiskReserveUsageError(
         `disk-reserve ${action} takes no arguments: ${rest.join(" ")}`,
@@ -102,11 +110,19 @@ export async function runDiskReserveCommand(
       return 0;
     }
     case "disk-reserve-create": {
-      const action = await reserve.create({ force: true });
+      const action = await reserve.create({ initial: command.initial });
       const status = await reserve.status();
       if (action === "failed") {
         io.err(`The disk reserve could not be written at ${status.path}.\n`);
         return 1;
+      }
+      if (action === "foreign") {
+        io.err(`${describeReserve(status)}\n`);
+        return 3;
+      }
+      if (action === "busy") {
+        io.out("The disk reserve is being written by another process.\n");
+        return 0;
       }
       if (action === "no_room") {
         io.err(

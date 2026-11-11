@@ -1885,11 +1885,11 @@ else
   pass
 fi
 assert_eq 1 "$([ -f "$cut_dir/.restore-in-progress" ] && [ -f "$cut_dir/.env" ] && echo 1)" "interrupted restore: a dry run removes nothing"
-assert_contains "would run: docker compose exec -T api restow disk-reserve create" "$out" "restore of 0.5.0 (dry run): the emergency disk reserve is written after the start"
+assert_contains "would run: docker compose exec -T api restow disk-reserve create --initial" "$out" "restore of 0.5.0 (dry run): the emergency disk reserve is written after the start, as on a new server"
 
 # ---- The emergency disk reserve (docs/DATABASE.md, "Disk full") ----------------------------------
-# reserve_with <version> <exit code of the command> [output] [dry]: ensure_disk_reserve against a
-# compose stub; prints what it says, then every compose call.
+# reserve_with <version> <exit code of the command> [output] [dry] [initial]: ensure_disk_reserve
+# against a compose stub; prints what it says, then every compose call.
 reserve_with() {
   (
     LOG_READY=0
@@ -1912,13 +1912,15 @@ reserve_with() {
       return "$RESERVE_CODE"
     }
     set -Eeuo pipefail
-    ensure_disk_reserve 2>&1
+    ensure_disk_reserve "${5:-}" 2>&1
     printf 'calls=%s warnings=%s\n' "$(cat "$RESERVE_CALLS")" "$WARNINGS"
   )
 }
 out=$(reserve_with 0.5.0 0 "Disk reserve: 2.0 GiB at /data/restow-disk-reserve.")
 assert_contains "ok: Disk reserve: 2.0 GiB at /data/restow-disk-reserve." "$out" "disk reserve: written, the api's line is shown"
-assert_contains "calls=[exec -T api restow disk-reserve create]" "$out" "disk reserve: written in the api container"
+assert_contains "calls=[exec -T api restow disk-reserve create]" "$out" "disk reserve: an existing server keeps the api's room rule (no --initial)"
+out=$(reserve_with 0.5.0 0 "Disk reserve: 2.0 GiB at /data/restow-disk-reserve." "" initial)
+assert_contains "calls=[exec -T api restow disk-reserve create --initial]" "$out" "disk reserve: a new server gets it whenever the floor stays free"
 out=$(reserve_with 0.5.1 2 "Not enough room for a disk reserve of 2.0 GiB: 1.5 GiB free.")
 assert_contains "warning: the emergency disk reserve was not written (Not enough room" "$out" "disk reserve: no room is a warning"
 assert_contains "warnings=1" "$out" "disk reserve: no room counts as a warning, not a failure"

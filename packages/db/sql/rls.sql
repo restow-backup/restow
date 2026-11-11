@@ -173,6 +173,7 @@ DECLARE
     -- Runs the size and space guard held, and its settings per tenant and object (0.5.0, #99).
     'run_size_holds',
     'run_size_settings',
+    'run_size_runs',
     -- The daily size samples of the capacity page (0.5.0, apps/worker storage-samples.ts).
     'storage_samples',
     -- Who belongs to a Microsoft 365 group or a SharePoint site (0.5.0, #89).

@@ -1577,16 +1577,17 @@ export function createBackupHandler(options: BackupHandlerOptions): JobHandler<"
       const guard = options.sizeGuard?.(ctx, object.id) ?? null;
       let held: BackupHeldError | null = null;
       const admitPack = guard
-        ? async (packBytes: number) => {
+        ? async (_packBytes: number, newBytes: number) => {
             if (held) {
               throw held;
             }
-            const admission = await guard.admit(packBytes);
+            // Counted in the new chunks' plaintext, the unit of the object's history.
+            const admission = await guard.admit(newBytes);
             if (!admission.ok) {
               held = new BackupHeldError(admission.message, admission.holdId);
               throw held;
             }
-            guard.record(packBytes);
+            guard.record(newBytes);
           }
         : undefined;
       const heldFailure = (hold: BackupHeldError) =>

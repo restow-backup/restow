@@ -1,6 +1,16 @@
-import { randomFill } from "node:crypto";
-import { open, readFile, rename, rm, stat, statfs, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { randomBytes, randomFill } from "node:crypto";
+import {
+  lstat,
+  open,
+  readdir,
+  readFile,
+  rename,
+  rm,
+  stat,
+  statfs,
+  writeFile,
+} from "node:fs/promises";
+import { basename, dirname, join, normalize } from "node:path";
 import { diskThreshold } from "./disk-threshold.js";
 
 /**
@@ -32,7 +42,14 @@ import { diskThreshold } from "./disk-threshold.js";
  *   RESTOW_DISK_RESERVE_MB          size in MiB, default 2048; 0 switches the reserve off
  *   RESTOW_DISK_RESERVE_FLOOR_MB    free space below which it is freed, default 1024
  *   RESTOW_DISK_RESERVE_PATH        the file, default /data/restow-disk-reserve (the volume
- *                                   restow-data in the api container); its directory must exist
+ *                                   restow-data in the api container); its directory must exist,
+ *                                   its name must begin with `restow-disk-reserve`
+ *
+ * Only a file that is provably the reserve is ever replaced or deleted: a regular file, not a
+ * symbolic link, that begins with {@link RESERVE_MAGIC}. Anything else at the path (an operator's
+ * file, a link) is left alone and reported (`foreign`). One writer at a time: `<path>.lock`, made
+ * exclusively, names its process; a lock of a process that is gone (or older than an hour) is
+ * taken over, and the half-written files it left (`<path>.writing-*`) are removed.
  */
 
 const MIB = 1024 * 1024;
@@ -41,10 +58,18 @@ export const DEFAULT_DISK_RESERVE_FLOOR_MB = 1024;
 export const DEFAULT_DISK_RESERVE_PATH = "/data/restow-disk-reserve";
 /** The marker a release leaves next to the reserve (JSON, see {@link ReserveMarker}). */
 export const RELEASE_MARKER_SUFFIX = ".released";
-/** The name a reserve is written under before it is renamed into place. */
-const WRITING_SUFFIX = ".writing";
-/** A write that has not touched its file for this long is taken as abandoned. */
-const STALE_WRITE_MS = 10 * 60_000;
+/** What every reserve begins with: the proof that a file is the reserve, before it is touched. */
+export const RESERVE_MAGIC = Buffer.from("RESTOW-DISK-RESERVE v1\n", "utf8");
+/** Every reserve's file name begins with this (RESTOW_DISK_RESERVE_PATH included). */
+const RESERVE_NAME = "restow-disk-reserve";
+/** A reserve is written under `<path>.writing-<process>-<random>` before it is renamed into place. */
+const WRITING_INFIX = ".writing-";
+/** The writer's lock next to the reserve. */
+const LOCK_SUFFIX = ".lock";
+/** A lock older than this is taken over even when its process still seems to run (pid reuse). */
+const STALE_LOCK_MS = 60 * 60_000;
+/** How long a statfs may take (a hung network file system). */
+const STATFS_TIMEOUT_MS = 5_000;
 /** How much is written at a time. */
 const WRITE_CHUNK_BYTES = 8 * MIB;
 
@@ -62,13 +87,27 @@ function mib(value: string | undefined, fallback: number): number {
   return /^\d+$/.test(trimmed) ? Number(trimmed) : fallback;
 }
 
+/**
+ * A path the reserve may live at: absolute, already normal (no `..`, no doubled slashes), its
+ * name beginning with `restow-disk-reserve`. A setting that names any other file (a database
+ * file, an operator's) takes the default instead.
+ */
+export function validReservePath(path: string): boolean {
+  return (
+    path.startsWith("/") &&
+    normalize(path) === path &&
+    !path.endsWith("/") &&
+    basename(path).startsWith(RESERVE_NAME)
+  );
+}
+
 /** The reserve from the environment; empty or invalid values take the defaults. */
 export function diskReserveConfig(
   env: Record<string, string | undefined> = process.env,
 ): DiskReserveConfig {
   const path = env.RESTOW_DISK_RESERVE_PATH?.trim();
   return {
-    path: path?.startsWith("/") ? path : DEFAULT_DISK_RESERVE_PATH,
+    path: path && validReservePath(path) ? path : DEFAULT_DISK_RESERVE_PATH,
     bytes: mib(env.RESTOW_DISK_RESERVE_MB, DEFAULT_DISK_RESERVE_MB) * MIB,
     floorBytes: mib(env.RESTOW_DISK_RESERVE_FLOOR_MB, DEFAULT_DISK_RESERVE_FLOOR_MB) * MIB,
   };
@@ -114,8 +153,9 @@ export interface ReserveMarker {
  * `present`      the file is there
  * `released`     it was freed (a marker says when) and is not back yet
  * `missing`      it is not there and no release is known: not created yet, or deleted by hand
+ * `foreign`      something else is at the path (not the reserve, or a link): left alone
  */
-export type ReserveState = "off" | "unavailable" | "present" | "released" | "missing";
+export type ReserveState = "off" | "unavailable" | "present" | "released" | "missing" | "foreign";
 
 export interface ReserveStatus {
   readonly state: ReserveState;
@@ -139,6 +179,7 @@ export type ReserveAction =
   | "no_room"
   | "failed"
   | "busy"
+  | "foreign"
   | "off"
   | "unavailable";
 
@@ -150,19 +191,52 @@ export interface DiskReserveDeps {
 }
 
 async function defaultStatfs(path: string): Promise<{ freeBytes: number; totalBytes: number }> {
-  const stats = await statfs(path);
-  return {
-    freeBytes: Number(stats.bavail) * Number(stats.bsize),
-    totalBytes: Number(stats.blocks) * Number(stats.bsize),
-  };
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      statfs(path).then((stats) => ({
+        freeBytes: Number(stats.bavail) * Number(stats.bsize),
+        totalBytes: Number(stats.blocks) * Number(stats.bsize),
+      })),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("statfs timed out")), STATFS_TIMEOUT_MS);
+        timer.unref();
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
-async function fileSize(path: string): Promise<number | null> {
+/**
+ * What is at the reserve's path: nothing, the reserve (a regular file that begins with
+ * {@link RESERVE_MAGIC}; its size), or something else (`foreign`: never touched).
+ */
+async function inspect(
+  path: string,
+): Promise<{ kind: "none" } | { kind: "reserve"; size: number } | { kind: "foreign" }> {
+  let info: Awaited<ReturnType<typeof lstat>>;
   try {
-    const stats = await stat(path);
-    return stats.isFile() ? stats.size : null;
+    info = await lstat(path);
   } catch {
-    return null;
+    return { kind: "none" };
+  }
+  if (!info.isFile()) {
+    return { kind: "foreign" };
+  }
+  try {
+    const handle = await open(path, "r");
+    try {
+      const head = Buffer.alloc(RESERVE_MAGIC.length);
+      const { bytesRead } = await handle.read(head, 0, head.length, 0);
+      return bytesRead === head.length && head.equals(RESERVE_MAGIC)
+        ? { kind: "reserve", size: info.size }
+        : { kind: "foreign" };
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    return { kind: "foreign" };
   }
 }
 
@@ -171,6 +245,16 @@ async function isDirectory(path: string): Promise<boolean> {
     return (await stat(path)).isDirectory();
   } catch {
     return false;
+  }
+}
+
+/** Whether the process `pid` still runs (EPERM: it runs as another user). */
+function processRuns(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === "EPERM";
   }
 }
 
@@ -188,6 +272,10 @@ export class DiskReserve {
 
   private get markerPath(): string {
     return `${this.config.path}${RELEASE_MARKER_SUFFIX}`;
+  }
+
+  private get lockPath(): string {
+    return `${this.config.path}${LOCK_SUFFIX}`;
   }
 
   private now(): Date {
@@ -240,17 +328,23 @@ export class DiskReserve {
         marker: null,
       };
     }
-    const [size, disk, marker] = await Promise.all([
-      fileSize(path),
+    const [found, disk, marker] = await Promise.all([
+      inspect(path),
       this.disk(),
       this.readMarker(),
     ]);
     const state: ReserveState =
-      size !== null ? "present" : marker && !marker.restoredAt ? "released" : "missing";
+      found.kind === "foreign"
+        ? "foreign"
+        : found.kind === "reserve"
+          ? "present"
+          : marker && !marker.restoredAt
+            ? "released"
+            : "missing";
     return {
       ...base,
       state,
-      presentBytes: size ?? 0,
+      presentBytes: found.kind === "reserve" ? found.size : 0,
       freeBytes: disk?.freeBytes ?? null,
       totalBytes: disk?.totalBytes ?? null,
       createAtBytes: disk ? reserveCreateAt(disk.totalBytes, bytes) : null,
@@ -258,10 +352,13 @@ export class DiskReserve {
     };
   }
 
-  /** Free the reserve now; false when there was none. Leaves the marker for the alert. */
+  /**
+   * Free the reserve now; false when there was none (or something else is at its path, which is
+   * never deleted). Leaves the marker for the alert.
+   */
   async release(reason: ReserveMarker["reason"]): Promise<boolean> {
     const before = await this.disk();
-    if ((await fileSize(this.config.path)) === null) {
+    if ((await inspect(this.config.path)).kind !== "reserve") {
       return false;
     }
     await rm(this.config.path, { force: true });
@@ -278,48 +375,125 @@ export class DiskReserve {
   }
 
   /**
-   * Write the reserve when it is not there and the disk has room for it above the low-space
-   * threshold (`force` writes it whenever it fits at all, for the operator's `create`). The
-   * file is written under a temporary name and renamed, so a half-written reserve is never
-   * taken for one.
+   * The writer's lock, or null when another writer holds it. A lock whose process is gone, or
+   * that is older than an hour, is taken over: renamed aside first and checked to be the one that
+   * was found stale (another writer may have taken it over a moment ago), and the half-written
+   * files the old writer left are removed.
    */
-  async create(options: { force?: boolean } = {}): Promise<ReserveAction> {
+  private async lock(): Promise<(() => Promise<void>) | null> {
+    const lockPath = this.lockPath;
+    const mine = JSON.stringify({
+      pid: process.pid,
+      at: this.now().toISOString(),
+      id: randomBytes(8).toString("hex"),
+    });
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        await writeFile(lockPath, mine, { flag: "wx", mode: 0o600 });
+        await this.removeAbandonedWrites();
+        return async () => {
+          // Only our own lock goes.
+          if ((await readFile(lockPath, "utf8").catch(() => "")) === mine) {
+            await rm(lockPath, { force: true });
+          }
+        };
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
+          throw error;
+        }
+      }
+      const held = await readFile(lockPath, "utf8").catch(() => null);
+      if (held === null) {
+        continue;
+      }
+      let owner: { pid?: number; at?: string } = {};
+      try {
+        owner = JSON.parse(held) as typeof owner;
+      } catch {
+        // An unreadable lock is a stale one.
+      }
+      const age = this.now().getTime() - Date.parse(owner.at ?? "");
+      const alive =
+        typeof owner.pid === "number" &&
+        processRuns(owner.pid) &&
+        Number.isFinite(age) &&
+        age < STALE_LOCK_MS;
+      if (alive) {
+        return null;
+      }
+      const aside = `${lockPath}.stale-${randomBytes(6).toString("hex")}`;
+      try {
+        await rename(lockPath, aside);
+      } catch {
+        continue;
+      }
+      if ((await readFile(aside, "utf8").catch(() => null)) !== held) {
+        // Not the stale lock any more: another writer's fresh one. Put it back.
+        await rename(aside, lockPath).catch(() => undefined);
+        return null;
+      }
+      await rm(aside, { force: true });
+    }
+    return null;
+  }
+
+  /** The half-written files of writers that died (`<path>.writing-*`); called under the lock. */
+  private async removeAbandonedWrites(): Promise<void> {
+    const directory = dirname(this.config.path);
+    const prefix = `${basename(this.config.path)}${WRITING_INFIX}`;
+    for (const name of await readdir(directory).catch(() => [] as string[])) {
+      if (name.startsWith(prefix)) {
+        await rm(join(directory, name), { force: true }).catch(() => undefined);
+      }
+    }
+  }
+
+  /**
+   * Write the reserve when it is not there and the disk has room for it above the low-space
+   * threshold (`initial` writes it whenever the disk keeps the floor besides it: the installer on
+   * a new server). The room counted is what is free now: an old reserve being replaced is still
+   * there while the new one is written. The file is written under a name of its own and renamed,
+   * so a half-written reserve is never taken for one. Something that is not the reserve is never
+   * replaced.
+   */
+  async create(options: { initial?: boolean } = {}): Promise<ReserveAction> {
     const status = await this.status();
-    if (status.state === "off" || status.state === "unavailable") {
+    if (status.state === "off" || status.state === "unavailable" || status.state === "foreign") {
       return status.state;
     }
-    if (status.state === "present" && status.presentBytes >= status.bytes) {
+    if (status.state === "present" && status.presentBytes >= status.bytes + RESERVE_MAGIC.length) {
       return "none";
     }
     if (status.freeBytes === null || status.totalBytes === null) {
       return "failed";
     }
-    // A file that is too small (a write that was cut off before the rename cannot leave one,
-    // but an operator's can) counts as room that comes back when it is replaced.
-    const free = status.freeBytes + status.presentBytes;
-    const needed = options.force
+    const needed = options.initial
       ? status.bytes + status.floorBytes
       : (status.createAtBytes ?? Number.POSITIVE_INFINITY);
-    if (free < needed) {
+    if (status.freeBytes < needed) {
       return "no_room";
     }
-    const temporary = `${status.path}${WRITING_SUFFIX}`;
-    // Another writer (the installer's `create` while the api's loop runs) has it: leave it be,
-    // unless it is left over from a writer that died.
-    const writing = await stat(temporary).catch(() => null);
-    if (writing && this.now().getTime() - writing.mtimeMs < STALE_WRITE_MS) {
+    const unlock = await this.lock();
+    if (!unlock) {
       return "busy";
     }
-    await rm(temporary, { force: true }).catch(() => undefined);
+    const temporary = `${status.path}${WRITING_INFIX}${process.pid}-${randomBytes(6).toString("hex")}`;
     try {
+      // Checked again under the lock: a writer that just finished may have made it.
+      const found = await inspect(status.path);
+      if (found.kind === "foreign") {
+        return "foreign";
+      }
+      if (found.kind === "reserve" && found.size >= status.bytes + RESERVE_MAGIC.length) {
+        return "none";
+      }
       await fillFile(temporary, status.bytes);
       await rename(temporary, status.path);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException)?.code === "EEXIST") {
-        return "busy";
-      }
+    } catch {
       await rm(temporary, { force: true }).catch(() => undefined);
       return "failed";
+    } finally {
+      await unlock().catch(() => undefined);
     }
     if (status.marker && !status.marker.restoredAt) {
       await this.writeMarker({ ...status.marker, restoredAt: this.now().toISOString() }).catch(
@@ -338,7 +512,7 @@ export class DiskReserve {
     reason?: ReserveMarker["reason"];
   }): Promise<{ action: ReserveAction; status: ReserveStatus }> {
     const status = await this.status();
-    if (status.state === "off" || status.state === "unavailable") {
+    if (status.state === "off" || status.state === "unavailable" || status.state === "foreign") {
       return { action: status.state, status };
     }
     if (
@@ -357,11 +531,14 @@ export class DiskReserve {
   }
 }
 
-/** `bytes` of random data in `path` (random, so no file system can store it as a hole). */
+/**
+ * The magic and then `bytes` of random data in `path`, made exclusively (random, so no file
+ * system can store it as a hole).
+ */
 async function fillFile(path: string, bytes: number): Promise<void> {
-  // "wx": never two writers in one file.
   const handle = await open(path, "wx", 0o600);
   try {
+    await handle.write(RESERVE_MAGIC, 0, RESERVE_MAGIC.length);
     const buffer = Buffer.allocUnsafe(Math.min(WRITE_CHUNK_BYTES, Math.max(bytes, 1)));
     let written = 0;
     while (written < bytes) {
@@ -398,6 +575,8 @@ export function describeReserve(status: ReserveStatus): string {
       return `Disk reserve: ${gib(status.presentBytes)} at ${status.path}. It is freed below ${gib(status.floorBytes)} free.${disk}`;
     case "released":
       return `The disk reserve was freed on ${status.marker?.releasedAt ?? "an unknown date"} and is written again once ${status.createAtBytes !== null ? gib(status.createAtBytes) : "enough"} are free.${disk}`;
+    case "foreign":
+      return `Something else is at ${status.path} (not the disk reserve, or a link): it is left alone, and there is no reserve. Move it away or set RESTOW_DISK_RESERVE_PATH to another name.`;
     case "missing":
       return `There is no disk reserve at ${status.path} yet; it is written once ${status.createAtBytes !== null ? gib(status.createAtBytes) : "enough"} are free.${disk}`;
   }

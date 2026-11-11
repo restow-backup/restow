@@ -990,9 +990,11 @@ export async function finishRun(
     // A run that failed after a stop was asked for in the UI was stopped as asked.
     const cancelled = input.status === "failed" && run.cancelRequestedAt !== null;
     const status: EndpointRun["status"] = cancelled ? "cancelled" : input.status;
-    // A backup the size and space guard held (#99) says so, not the refusal restic reported.
+    // A backup the size and space guard held (#99) says so, not the refusal restic reported. A
+    // held run made no restore point, so it failed; a `partial` run made one and keeps its
+    // own explanation.
     const held =
-      !cancelled && input.status !== "succeeded" && run.kind === "backup"
+      !cancelled && input.status === "failed" && run.kind === "backup"
         ? await runSizeHoldOfRun(tx, "endpoint", agent.endpointId, run.id, run.startedAt)
         : null;
     const failure = held

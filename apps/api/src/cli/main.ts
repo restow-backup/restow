@@ -120,8 +120,10 @@ Commands:
       (for example for the database to start). It is written again once
       the disk has room; the alert follows once the database runs.
 
-  disk-reserve create
-      Write the reserve now if the disk has room (the installer does this).
+  disk-reserve create [--initial]
+      Write the reserve now if the disk keeps its low-space threshold
+      besides it; with --initial (the installer on a new server) if it
+      keeps the floor besides it.
 
   disk-reserve guard
       Free the reserve if the disk is below its floor (the container's

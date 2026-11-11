@@ -1,4 +1,9 @@
-import { RUN_SIZE_HELD_PROBLEM, type RunSizeObjectKind, type StorageBackend } from "@restow/core";
+import {
+  type ResticResource,
+  RUN_SIZE_HELD_PROBLEM,
+  type RunSizeObjectKind,
+  type StorageBackend,
+} from "@restow/core";
 import {
   type Database,
   type InstallationZoneInput,
@@ -65,11 +70,33 @@ export class RunSizeGuards {
   }
 }
 
-/** The answer of the restic REST handler's `admitUpload` for a guard. */
+/**
+ * What a restic upload is for the guard: `config` begins a new repository; everything but pack
+ * data (the index, the snapshot, keys, config) is small metadata that finishes what is stored.
+ */
+export function resticUpload(resource: ResticResource | undefined): {
+  startsRepository: boolean;
+  metadata: boolean;
+} {
+  if (!resource) {
+    return { startsRepository: false, metadata: false };
+  }
+  return {
+    startsRepository: resource.kind === "config",
+    metadata:
+      resource.kind === "config" || (resource.kind === "object" && resource.type !== "data"),
+  };
+}
+
+/**
+ * The answer of the restic REST handler's `admitUpload` for a guard. A guard that cannot answer
+ * throws; the handler makes that a 503, which restic tries again.
+ */
 export async function admitUpload(
   guard: RunSizeGuard,
   declaredBytes: number | null,
+  resource?: ResticResource,
 ): Promise<{ type: string; detail: string } | null> {
-  const admission = await guard.admit(declaredBytes ?? 0);
+  const admission = await guard.admit(declaredBytes ?? 0, resticUpload(resource));
   return admission.ok ? null : { type: RUN_SIZE_HELD_PROBLEM, detail: admission.message };
 }

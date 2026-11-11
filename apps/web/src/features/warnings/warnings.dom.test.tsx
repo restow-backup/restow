@@ -483,4 +483,29 @@ describe("held backups (#99)", { timeout: 20_000 }, () => {
     });
     await waitForText("No backup is held");
   });
+
+  it("offers no limit for a hold for space, and says it ends by itself (review 2)", async () => {
+    const space: HeldBackups = {
+      open: [
+        {
+          ...(HELD.open[0] as HeldBackups["open"][number]),
+          reason: "space",
+          limitBytes: null,
+          freeBytes: 2 * 1024 ** 3,
+          totalBytes: 100 * 1024 ** 3,
+        },
+      ],
+      recent: [],
+    };
+    await mount(<WarningsPage state="open" />, (client) => {
+      client.setQueryData(warningKeys.list("t-1", "open"), EMPTY_LIST);
+      client.setQueryData(heldBackupKeys.holds("t-1"), space);
+    });
+    await waitForText("Held backups");
+    expect(button("Continue once")).toBeDefined();
+    expect(button("Raise the limit")).toBeUndefined();
+    expect(document.querySelector('[data-slot="held-space-note"]')?.textContent).toContain(
+      "ends by itself",
+    );
+  });
 });
