@@ -289,7 +289,7 @@
       },
       "run_held": {
         "title": "Held: this backup is unusually large",
-        "why": "This run would have added far more than this object usually does, or left its storage target too little free space, so {appName} stopped it before it could fill the storage. Nothing written so far is lost. Every further run of this object waits until an administrator decides."
+        "why": "This run would have left its storage target too little free space, or added far more than this object usually does while its size check is set to hold, so {appName} stopped it before it could fill the storage. Nothing written so far is lost. A run held for space goes ahead once the target has room again; after a run held for its size, every further run of this object waits until an administrator decides."
       },
       "access_denied": {
         "title": "The storage service denied access",

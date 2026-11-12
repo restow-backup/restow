@@ -137,7 +137,7 @@
     "kind": {
       "endpoint": "Server oder Client",
       "file_share": "Dateifreigabe",
-      "pve_guest": "Proxmox-VE-Container",
+      "pve_guest": "Proxmox-VE-VM oder -Container",
       "m365": "Postfach, OneDrive, Website oder IMAP-Konto"
     },
     "status": {

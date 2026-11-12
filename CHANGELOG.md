@@ -69,9 +69,14 @@ private repository.
   switches the check off for it; the tenant's settings (warn or hold, factor, minimum, first
   backups, the space rule) are there too. New tables `run_size_holds` and `run_size_settings` (migration 0095,
   tenant isolated), `/api/v1/run-size` (holds, continue, raise, settings), audit events
-  `backup.size_hold_continued`, `backup.size_limit_raised`, `backup.size_guard_changed`. Not yet:
-  Proxmox VE VM block backups, the largest new folders of a held run, and per-job settings for a
-  job of several objects (the setting is per object). docs/STORAGE.md, "Unusually large runs".
+  `backup.size_hold_continued`, `backup.size_limit_raised`, `backup.size_guard_changed`. Proxmox VE
+  VM block backups are measured too: before every pack the server stores from a run's blocks, in
+  new chunk bytes after deduplication, against the guest's earlier VM runs; a VM run without a
+  base restore point (the first backup, bases removed, every disk resized) begins a new chain and
+  is never flagged, and a full read after a lost dirty bitmap counts only what changed. A held VM
+  run gets 403 `run-size-held` at its next frame and ends `storage.run_held`. Not yet: the largest
+  new folders of a held run, and per-job settings for a job of several objects (the setting is
+  per object). docs/STORAGE.md, "Unusually large runs".
 - Repository copies: the restic repositories of machines (`endpoints/<id>/`), Proxmox VE
   containers (`pve-guests/<id>/`) and file shares (`file-shares/<id>/`) are now kept on every
   copy target of the tenant, not only on the primary. Until now a copy received only the chunk

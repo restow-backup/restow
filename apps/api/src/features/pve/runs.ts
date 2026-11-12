@@ -22,6 +22,7 @@ import {
   PveFormatError,
   parseActivityReport,
   parseArchiveName,
+  RUN_SIZE_HELD_PROBLEM,
   type StagedBlock,
   sealManifest,
   sha256Hex,
@@ -52,6 +53,7 @@ import { db, providerDb } from "../../db.js";
 import { readSecret } from "../../lib/secrets.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
+import { runSizeGuards } from "../run-size/instance.js";
 import {
   type RepositorySource,
   readFromOf,
@@ -261,6 +263,29 @@ export async function queryIncremental(
 // Block ingest
 // ---------------------------------------------------------------------------
 
+/**
+ * Whether a VM backup run begins a new chain (#99, docs/STORAGE.md "Unusually large runs"): no
+ * disk has a base restore point (the guest's first backup, a base removed meanwhile, every disk
+ * resized). It uploads the whole VM, which is no unusual run: the size guard takes it as a run
+ * that begins a new repository (exempt, and the guest's history starts again with it), as for a
+ * container's new restic repository. A run with a base is measured: what it adds is the new
+ * chunks after deduplication, so a lost dirty bitmap (the node reads the whole disk again and
+ * skips the blocks whose hash the base holds; the chunk store keeps the rest only once) is
+ * compared with the usual incrementals, not counted as a full.
+ */
+export function vmRunBeginsChain(run: Pick<PveRun, "devices">): boolean {
+  const devices = Object.values(run.devices ?? {});
+  return devices.length > 0 && devices.every((device) => !device.baseSnapshotId);
+}
+
+/** A frame refused by the size and space guard (#99): the run is held. */
+class VmRunHeldError extends Error {
+  constructor(readonly detail: string) {
+    super(detail);
+    this.name = "VmRunHeldError";
+  }
+}
+
 /** The largest frame a node may send: 16 blocks of 4 MiB plus headers. */
 export const MAX_FRAME_BYTES = 16 * (4 * 1024 * 1024 + 128) + 16;
 
@@ -313,7 +338,48 @@ export async function putBlocks(
     }
   }
   const store = await tenantChunkStore(node.tenantId);
-  const writer = newChunkWriter(store);
+  // The size and space guard of backup runs (#99): asked before every pack the frame stores,
+  // with the plaintext of its new chunks (the unit of the guest's history, `chunkBytesNew`).
+  const guard = runSizeGuards.forRun({
+    tenantId: node.tenantId,
+    kind: "pve_guest",
+    objectId: run.guestId,
+    runId: run.id,
+    storage: store.write.primary,
+  });
+  const startsRepository = vmRunBeginsChain(run);
+  const admitted: number[] = [];
+  const writer = newChunkWriter(store, {
+    beforePack: async (_packBytes, newBytes) => {
+      const admission = await guard.admit(newBytes, { startsRepository });
+      if (!admission.ok) {
+        throw new VmRunHeldError(admission.message);
+      }
+      admitted.push(newBytes);
+    },
+    onPackStored: () => guard.record(admitted.shift() ?? 0),
+  });
+  try {
+    return await ingestFrame(node, run, store, writer, blocks);
+  } catch (error) {
+    if (error instanceof VmRunHeldError) {
+      // The node takes a 403 as final: vzdump fails, the run ends held (finishRun).
+      throw new ProblemError(403, "Backup held", {
+        type: RUN_SIZE_HELD_PROBLEM,
+        detail: error.detail,
+      });
+    }
+    throw error;
+  }
+}
+
+async function ingestFrame(
+  node: NodeContext,
+  run: PveRun,
+  store: TenantChunkStore,
+  writer: ReturnType<typeof newChunkWriter>,
+  blocks: ReturnType<typeof decodeFrame>,
+): Promise<{ accepted: number }> {
   const staged: {
     device: string;
     index: number;

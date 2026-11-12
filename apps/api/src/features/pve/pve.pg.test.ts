@@ -48,6 +48,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   basic,
   type EndpointFixture,
+  keepLittleFree,
   startFixture,
   testDatabaseAdminUrl,
 } from "../endpoints/testing/fixture.js";
@@ -93,6 +94,8 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
 
   beforeAll(async () => {
     fixture = await startFixture(DATABASE);
+    // The space rule (#99) measures VM blocks too; the host's free disk is no part of this.
+    await keepLittleFree(fixture.db);
     shared = await import("../../db.js");
     service = await import("./service.js");
     const { pveNodeRoutes } = await import("./node-routes.js");
@@ -1624,6 +1627,8 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
     expect(snap?.verifyRequestedAt).not.toBeNull();
     const settings = await import("./settings.js");
     expect(settings.resolvePveSettings({})).toEqual({ verifyAfterBackup: true });
+    // The installation's settings row of this test alone (the one of keepLittleFree comes back).
+    await fixture.db.execute(sql`DELETE FROM settings`);
     await fixture.db.execute(
       sql`INSERT INTO settings (pve_settings) VALUES ('{"verifyAfterBackup": false}'::jsonb)`,
     );
@@ -1642,6 +1647,7 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
       );
     } finally {
       await fixture.db.execute(sql`DELETE FROM settings`);
+      await keepLittleFree(fixture.db);
     }
   });
 
@@ -2338,6 +2344,7 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
 
   it("keeps the installation's Proxmox VE settings and audits a change (D1)", async () => {
     const settings = await import("./settings.js");
+    await fixture.db.execute(sql`DELETE FROM settings`);
     await fixture.db.execute(sql`INSERT INTO settings DEFAULT VALUES`);
     try {
       expect((await settings.getPveSettings(shared.providerDb)).settings).toEqual({
@@ -2358,6 +2365,7 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
       expect(settings.pveSettingsSchema.safeParse({ other: 1 }).success).toBe(false);
     } finally {
       await fixture.db.execute(sql`DELETE FROM settings`);
+      await keepLittleFree(fixture.db);
     }
   });
   it("a guest that moved to a node without restow-pve stays present and needs attention; one gone from the cluster is absent (S15)", async () => {

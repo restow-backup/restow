@@ -116,7 +116,9 @@ export async function runSizeHistory(
             AND r.created_at >= ${restarted}
           ORDER BY r.finished_at DESC LIMIT ${limit}`;
       case "pve_guest":
-        return sql`SELECT COALESCE((r.stats->>'resticBytesAddedPacked')::numeric, (r.stats->>'resticBytesAdded')::numeric, (r.stats->>'uploadedBytes')::numeric) AS bytes
+        // A container: what restic added. A VM: the new chunks' plaintext its blocks added to
+        // the chunk store (`chunkBytesNew`, after deduplication), the unit the guard counts.
+        return sql`SELECT COALESCE((r.stats->>'resticBytesAddedPacked')::numeric, (r.stats->>'resticBytesAdded')::numeric, (r.stats->>'chunkBytesNew')::numeric, (r.stats->>'uploadedBytes')::numeric) AS bytes
           FROM pve_runs r JOIN pve_guests g ON g.id = r.guest_id
           WHERE r.guest_id = ${objectId}::uuid AND r.kind = 'backup' AND r.status = 'succeeded'
             AND r.finished_at IS NOT NULL

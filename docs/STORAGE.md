@@ -547,7 +547,7 @@ to "hold", for the tenant or for one object (also straight from a notice).
 | ---- | -------- | ----- |
 | Servers and clients, file shares, Proxmox VE containers (restic) | the bytes of every upload of a backup run through the server's restic REST endpoint | the api (`/agent/restic`, `/internal/file-shares/restic`, `/agent/pve/restic`), before every upload but a lock file |
 | Mailboxes, OneDrive, SharePoint sites, IMAP accounts (chunk store) | the plaintext of the new chunks in every pack the run writes (64 MiB at most), the unit of the history | the worker, before the pack is stored |
-| Proxmox VE VMs (block backups into the chunk store, uploaded through the api) | not yet | |
+| Proxmox VE VMs (block backups into the chunk store, uploaded through the api) | the plaintext of the new chunks in every pack the server stores from the blocks a run sends (after deduplication), the unit of the history (`chunkBytesNew` of the guest's VM runs) | the api (`PUT /agent/pve/v1/runs/:id/blocks`), before every pack; a held frame is answered with 403 `run-size-held`, which restow-pve takes as final |
 
 **The rule.** Before an upload the guard asks two questions:
 
@@ -558,7 +558,15 @@ to "hold", for the tenant or for one object (also straight from a notice).
   first backups is set. The history starts with the object's current repository: a run that
   begins a new repository (it uploads restic's `config`: after a reset, a new chain, a repository
   that was gone) is a first run itself, and so are the next two; a file share counts from its
-  `repository_ready_at`, a Proxmox VE container from its newest backup chain. A machine that its
+  `repository_ready_at`, a Proxmox VE container from its newest backup chain. A Proxmox VE VM's
+  run begins a new chain when no disk has a base restore point (its first backup, a base removed
+  meanwhile, every disk resized): the whole VM is uploaded, and that is no unusual run. A run with
+  a base is measured by what it adds after deduplication: after a lost dirty bitmap (a VM stop and
+  start, a `stop` mode backup, a powered-off VM) restow-pve reads the whole disk again but skips
+  the blocks whose SHA-256 the base holds, and what it sends of unchanged data is stored only
+  once, so such a run counts like the usual incrementals, not like a full. A disk added to a VM
+  that keeps its other disks counts with what it adds: a large new disk raises a notice (or is
+  held in `hold` mode). A machine that its
   job backs up as a whole (docs/BAREMETAL.md 5) is compared with its earlier whole machine runs
   only (those that recorded a layout), a machine backed up by its paths with its path runs: the
   first whole machine backup after the switch adds the whole system once and is a first run, not
@@ -674,8 +682,8 @@ Known limits:
 - A notice in `warn` mode is shown in the bell, the mails and on Warnings; the run lists of the
   objects do not mark such a run yet. A run that writes more than its limit and is then retried
   under a new run id raises a notice of its own.
-- Proxmox VE VM backups (changed blocks into the chunk store) are not measured yet, and the
-  per-job setting is per object: a backup job of several mailboxes has one setting per mailbox.
+- The setting is per object, not per job: a backup job of several mailboxes has one setting per
+  mailbox.
 
 ## Immutable backups
 

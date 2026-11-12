@@ -289,7 +289,7 @@
       },
       "run_held": {
         "title": "Angehalten: diese Sicherung ist ungewöhnlich groß",
-        "why": "Dieser Lauf hätte weit mehr hinzugefügt, als dieses Objekt sonst hinzufügt, oder seinem Speicherziel zu wenig freien Platz gelassen. {appName} hat ihn deshalb angehalten, bevor er den Speicher füllt. Bisher Geschriebenes geht nicht verloren. Jeder weitere Lauf dieses Objekts wartet, bis ein Administrator entscheidet."
+        "why": "Dieser Lauf hätte seinem Speicherziel zu wenig freien Platz gelassen oder weit mehr hinzugefügt, als dieses Objekt sonst hinzufügt, während seine Größenprüfung auf „Anhalten“ steht. {appName} hat ihn deshalb angehalten, bevor er den Speicher füllt. Bisher Geschriebenes geht nicht verloren. Ein wegen des Platzes angehaltener Lauf geht weiter, sobald das Ziel wieder Platz hat; nach einem wegen der Größe angehaltenen Lauf wartet jeder weitere Lauf dieses Objekts, bis ein Administrator entscheidet."
       },
       "access_denied": {
         "title": "Der Speicherdienst hat den Zugriff verweigert",
