@@ -78,6 +78,11 @@ mkdir -p "$work/config/restow" "$work/config/includes.chroot/usr/lib/restow-reco
   "$work/config/includes.chroot/usr/local/sbin"
 cp "$HERE/lib/functions.sh" "$HERE/packages.lock" "$HERE/config/package-lists/firmware.list.chroot" \
   "$work/config/restow/"
+# The hooks run in live-build's chroot without the build's environment: --update-lock
+# reaches the lock check as a file next to the lock.
+if [ "$RR_UPDATE_LOCK" = yes ]; then
+  : >"$work/config/restow/update-lock"
+fi
 for file in restow-agent restic THIRD_PARTY_NOTICES.txt; do
   cp "$RR_AGENT_DIST/$file" "$work/config/includes.chroot/usr/lib/restow-recovery/$file"
 done

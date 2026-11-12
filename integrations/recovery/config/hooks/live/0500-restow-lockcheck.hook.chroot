@@ -4,7 +4,8 @@
 # The supply chain check (README.md, "Reproducible build"): every installed
 # package, its version and the SHA-256 of its .deb must equal packages.lock.
 # build.sh puts the lock and the helpers under /live-build/config/restow/. With
-# --update-lock the hook writes the new lock there instead of comparing.
+# --update-lock (build.sh leaves the file update-lock there; the hook does not see the
+# build's environment) the hook writes the new lock there instead of comparing.
 set -eu
 
 dir=/live-build/config/restow
@@ -25,7 +26,7 @@ dpkg-query -W -f '${Package} ${Version} ${Architecture}\n' | while read -r packa
   printf '%s %s %s\n' "$package" "$version" "$sum"
 done >"$actual"
 
-if [ "${RESTOW_UPDATE_LOCK:-no}" = yes ]; then
+if [ -f "$dir/update-lock" ]; then
   {
     sed -n '/^#/p' "$dir/packages.lock"
     LC_ALL=C sort "$actual"
