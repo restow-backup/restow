@@ -144,6 +144,22 @@ rr_valid_until_allowed() {
   [ "$(rr_lock_count "$1")" -gt 0 ]
 }
 
+# The apt configuration of the build: for apt in the build container
+# (/etc/apt/apt.conf.d) and, as config/apt/apt.conf, for apt in live-build's
+# chroot in the chroot and the binary stage (lb chroot_apt copies exactly that
+# file to chroot/etc/apt/apt.conf and takes it away again before the image is
+# packed). The snapshot's Release files are old, so apt needs
+# Check-Valid-Until=false, and only under rr_valid_until_allowed; signatures are
+# checked either way.
+#   rr_apt_conf <packages.lock> <update-lock yes|no>
+rr_apt_conf() {
+  if rr_valid_until_allowed "$1" "$2"; then
+    printf 'Acquire::Check-Valid-Until "false";\n'
+  fi
+  printf 'Acquire::Retries "5";\n'
+  printf 'APT::Install-Recommends "false";\n'
+}
+
 # The source bundle is one file below 2 GiB, else parts of 1900 MiB named
 # <name>.part-000, -001, ... (split -b 1900M -d -a 3).
 RR_SPLIT_LIMIT=2147483648

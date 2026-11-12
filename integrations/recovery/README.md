@@ -33,7 +33,11 @@ Every package comes from one time of `snapshot.debian.org` (`SNAPSHOT_TIMESTAMP`
 `main`, `non-free-firmware` and `debian-security` of that time). apt checks the
 signatures of the package lists with the `debian-archive-keyring` of the pinned image;
 the old lists need `Check-Valid-Until=false`, which the build allows only together with
-the lock. `packages.lock` names every installed package with its version and the
+the lock (or while `--update-lock` writes it). The same setting holds for apt in the
+build container and in live-build's chroot, in the chroot and the binary stage: the build
+writes it with `rr_apt_conf` into `config/apt/apt.conf`, the one file live-build copies
+there (`lb chroot_apt`), and live-build removes it before the image is packed.
+`packages.lock` names every installed package with its version and the
 SHA-256 of its `.deb`; a hook compares the image with it and the build fails on any
 difference. `build.sh --update-lock` writes the lock anew (by hand only; review the
 diff). Forbidden anywhere in the configuration, and checked: `trusted=yes`,

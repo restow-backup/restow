@@ -6,24 +6,23 @@
 # checks its version, and runs lb config (auto/config) and lb build. apt checks
 # the signatures of the snapshot with the debian-archive-keyring of the image;
 # the old Release files need Check-Valid-Until=false, which build.sh allows only
-# together with packages.lock.
+# together with packages.lock (or while --update-lock writes it). The same apt
+# options hold inside live-build's chroot (rr_apt_conf).
 set -eu
 umask 022
 cd /build
 
 : "${SNAPSHOT_TIMESTAMP:?}" "${SOURCE_DATE_EPOCH:?}" "${LIVE_BUILD_VERSION:?}" "${RESTOW_VERSION:?}"
 export SNAPSHOT_TIMESTAMP SOURCE_DATE_EPOCH RESTOW_VERSION RESTOW_UPDATE_LOCK
+# shellcheck source=lib/functions.sh
+. /build/config/restow/functions.sh
 
 rm -f /etc/apt/sources.list.d/debian.sources
 cat >/etc/apt/sources.list <<SOURCES
 deb http://snapshot.debian.org/archive/debian/$SNAPSHOT_TIMESTAMP/ trixie main
 deb http://snapshot.debian.org/archive/debian-security/$SNAPSHOT_TIMESTAMP/ trixie-security main
 SOURCES
-cat >/etc/apt/apt.conf.d/80-restow-snapshot <<'CONF'
-Acquire::Check-Valid-Until "false";
-Acquire::Retries "5";
-APT::Install-Recommends "false";
-CONF
+rr_apt_conf config/restow/packages.lock "${RESTOW_UPDATE_LOCK:-no}" >/etc/apt/apt.conf.d/80-restow-snapshot
 apt-get update
 apt-get install -y --no-install-recommends "live-build=$LIVE_BUILD_VERSION" xorriso squashfs-tools
 installed=$(dpkg-query -W -f '${Version}' live-build)
@@ -32,9 +31,11 @@ installed=$(dpkg-query -W -f '${Version}' live-build)
   exit 1
 }
 
-# The same apt options inside the image's chroot (the lock covers what it installs).
+# The same apt options inside live-build's chroot, in the chroot and the binary stage:
+# live-build reads config/apt/apt.conf (lb chroot_apt) and no other name there. The
+# lock covers what the chroot installs.
 mkdir -p config/apt
-cp /etc/apt/apt.conf.d/80-restow-snapshot config/apt/restow-snapshot.conf
+cp /etc/apt/apt.conf.d/80-restow-snapshot config/apt/apt.conf
 
 lb config
 lb build

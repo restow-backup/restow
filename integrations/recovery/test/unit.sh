@@ -91,6 +91,23 @@ refuse "a malformed lock" rr_lock_entries "$FIXTURES/packages-malformed.lock"
 refuse "Check-Valid-Until=false without a lock" rr_valid_until_allowed "$WORK/packages.lock" no
 expect "Check-Valid-Until=false while writing the lock" rr_valid_until_allowed "$WORK/packages.lock" yes
 expect "Check-Valid-Until=false with a lock" rr_valid_until_allowed "$FIXTURES/packages.lock" no
+# The apt configuration of the build container and of live-build's chroot (rr_apt_conf):
+# the option only where it is allowed, retries always, no signature check turned off.
+rr_apt_conf "$FIXTURES/packages.lock" no >"$tmp/apt-locked.conf"
+rr_apt_conf "$WORK/packages.lock" yes >"$tmp/apt-update-lock.conf"
+grep -qx 'Acquire::Check-Valid-Until "false";' "$tmp/apt-locked.conf" && ok || fail "apt.conf with a lock lacks Check-Valid-Until"
+grep -qx 'Acquire::Check-Valid-Until "false";' "$tmp/apt-update-lock.conf" && ok || fail "apt.conf while writing the lock lacks Check-Valid-Until"
+: >"$tmp/empty.lock"
+rr_apt_conf "$tmp/empty.lock" no >"$tmp/apt-nolock.conf"
+grep -q 'Check-Valid-Until' "$tmp/apt-nolock.conf" && fail "apt.conf without a lock turns off Check-Valid-Until" || ok
+grep -qx 'Acquire::Retries "5";' "$tmp/apt-nolock.conf" && ok || fail "apt.conf without a lock lacks the retries"
+expect "the generated apt.conf keeps apt's checks" rr_forbidden_apt "$tmp/apt-locked.conf" "$tmp/apt-update-lock.conf"
+# live-build copies config/apt/apt.conf into its chroot (lb chroot_apt, chroot and binary
+# stage) and reads no other file name there; build-inner.sh writes exactly that file.
+grep -q '^cp /etc/apt/apt.conf.d/80-restow-snapshot config/apt/apt.conf$' "$WORK/build-inner.sh" && ok ||
+  fail "build-inner.sh does not give live-build's chroot its apt.conf"
+grep -q '^rr_apt_conf config/restow/packages.lock ' "$WORK/build-inner.sh" && ok ||
+  fail "build-inner.sh does not generate its apt configuration with rr_apt_conf"
 
 # --- package lists -------------------------------------------------------------------
 

@@ -1170,7 +1170,8 @@ außerhalb in `scripts/recovery-e2e/`.
   SSH-Hostschlüssel werden erst beim Start erzeugt).
 - **Lieferkette:** Die Signaturen der Paketlisten prüft apt mit dem `debian-archive-keyring`
   des gepinnten Basis-Images (`Check-Valid-Until=false` ist wegen des alten Zeitpunkts nötig
-  und nur zusammen mit dem Lockfile erlaubt). `packages.lock` nennt jedes installierte Paket
+  und nur zusammen mit dem Lockfile erlaubt; es gilt im Bau-Container und, über
+  `config/apt/apt.conf`, auch für apt in der Chroot von live-build, nicht im Abbild). `packages.lock` nennt jedes installierte Paket
   mit Version und SHA-256 der `.deb`; ein Hook vergleicht nach dem Installieren
   (`dpkg-query`, `/var/cache/apt/archives/*.deb`) und der Bau scheitert bei jeder
   Abweichung. Änderungen an der Paketmenge sind damit im Diff prüfbar
