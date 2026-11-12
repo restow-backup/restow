@@ -157,6 +157,16 @@ describe("subjectKeyOf", () => {
     expect(subjectKeyOf("update.available", {})).toBe("event:update.available");
   });
 
+  it("makes every run its own subject for the notice of a large run (#99)", () => {
+    expect(
+      subjectKeyOf("backup.unusually_large_notice", {
+        guardObjectKind: "endpoint",
+        runId: "r1",
+        endpointId: "e1",
+      }),
+    ).toBe("size_notice:endpoint:r1");
+  });
+
   it("makes every disk its own subject for the disk warning", () => {
     expect(subjectKeyOf("installation.disk_low", { disk: "database" })).toBe("disk:database");
     expect(subjectKeyOf("installation.disk_low", { disk: "repository" })).toBe("disk:repository");

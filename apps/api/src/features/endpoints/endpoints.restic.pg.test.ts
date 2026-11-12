@@ -64,6 +64,7 @@ import { readZip } from "../../../../../packages/core/src/restore/testing/zip-re
 import {
   basic,
   type EndpointFixture,
+  keepLittleFree,
   resticAvailable,
   startFixture,
   testDatabaseAdminUrl,
@@ -170,6 +171,7 @@ describe.skipIf(!canRun)("endpoint backup with the real restic binary", () => {
 
   beforeAll(async () => {
     fixture = await startFixture(DATABASE);
+    await keepLittleFree(fixture.db);
     shared = await import("../../db.js");
     service = await import("./service.js");
     readiness = await import("./readiness.js");

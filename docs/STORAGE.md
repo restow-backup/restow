@@ -531,8 +531,14 @@ One backup run can fill a target that retention keeps nicely below its size: som
 by mistake (an operator saw an 879 GB recycle bin go into a backup of a server with 2000 GB in
 total). The usual recycle bins are left out already (`**/.Trash`, `$Recycle.Bin`, `#recycle`,
 snapshot folders); anything else, and a recycle bin under another name, went through unchecked.
-From 0.5.0 a **size and space guard** measures every backup run while it writes and holds it
-before it fills the storage (`packages/core/src/run-size`, `packages/db/src/run-size.ts`).
+From 0.5.0 a **size and space guard** measures every backup run while it writes
+(`packages/core/src/run-size`, `packages/db/src/run-size.ts`).
+
+**By default Restow only warns about large runs, and holds a run only for space.** A run that
+adds far more than usual goes on and raises a notice (`backup.unusually_large_notice`, once per
+run, not critical); a run that would leave its storage target too little free space is held
+before it fills the storage. An administrator who wants large runs stopped sets the size check
+to "hold", for the tenant or for one object (also straight from a notice).
 
 **Where a run is measured.** A run's size is known only while it writes; restic's own summary
 (`data_added`) comes at the end, when the data is stored already.
@@ -561,7 +567,19 @@ before it fills the storage (`packages/core/src/run-size`, `packages/db/src/run-
   (restic's index, snapshot, keys, config) are never held for space, so a run whose data went in
   is not refused its restore point.
 
-**Held.** A run that answers either with yes is held: the upload is refused (restic gets 403 with
+**A large run in `warn` mode (the default).** A run that passes its size limit goes on: no
+upload is refused, no hold is made. The guard raises `backup.unusually_large_notice` once for the
+run (a warning, not critical: in the bell and to the rules and recipients that list it, held for
+a digest as configured), naming the object, the run, what it had written and its limit, the usual
+size and the hint to exclude what does not belong. The run is not checked for its size again; the
+space rule still applies to it. The notice is kept on the run (`run_size_runs.noticed_at`,
+`notice`, migration 0098), so an api restart or a retry raises none again. Warnings, "Held
+backups", lists the notices of the last 30 days under "Unusually large backups that went on" (no
+hold card), each with **Hold such runs**, which sets the object's size check to `hold` (audited
+`backup.size_guard_changed`); the bell entry leads there.
+
+**Held.** A run that answers the space question with yes, or the size question while its size
+check is set to `hold`, is held: the upload is refused (restic gets 403 with
 `urn:restow:problem:run-size-held`, which it takes as final; the chunk store stores no further
 pack), the run ends without a restore point, a mailbox or OneDrive run with the failure "Held:
 this backup is unusually large" (`storage.run_held`). Earlier restore points are untouched; the
@@ -587,7 +605,7 @@ count towards its newest running backup run, also those of a native SQL Server b
 at the same time (more, never less). A Proxmox VE container's or a file share's uploads count
 only for a backup run.
 
-**Deciding** (Warnings, at the top: "Held backups"; `/api/v1/run-size`):
+**Deciding a hold** (Warnings, at the top: "Held backups"; `/api/v1/run-size`):
 
 - **Continue once** (technicians and up, a hold for size only): the next run of the object goes
   through without the size check, whatever it adds; that run closes the hold. The space rule still
@@ -605,10 +623,14 @@ only for a backup run.
   continue once or let the next run be measured again.
 
 **Settings of the size rule.** Defaults, then the tenant's, then an object's own (Warnings, "Size
-check"; `PUT /api/v1/run-size/settings`): on or off, the factor (2 to 1000), the size below which a
-run is never held, a limit for first backups (empty: not checked). What is saved is merged into
+check"; `PUT /api/v1/run-size/settings`): on or off, the **mode** (`warn`, the default: a notice
+and the run goes on; `hold`: the run is held until an administrator decides), the factor (2 to
+1000), the size below which a run is never flagged, a limit for first backups (empty: not
+checked). The installation has no size settings of its own: its default is `warn`. What is saved is merged into
 what was set; the object must be the tenant's. An open hold the new settings would not make ends
-(`settings_changed`, or `guard_off`). Each change is audited (`backup.size_guard_changed`).
+(`settings_changed`, or `guard_off`): switching an object (or the tenant) to `warn` ends its
+open hold for size, and a hold for size made before is ended at the next run of an object that
+warns now. Each change is audited (`backup.size_guard_changed`).
 Switching the size check off for an object leaves the space rule of its target on.
 
 **The space rule.** A storage target keeps free a share of its size, at least a minimum and at
@@ -645,6 +667,9 @@ Known limits:
   looks that much smaller (never larger).
 - Where the size comes from (the largest new folders of a run) is not shown yet: the server sees
   packs, not files. The agent and the runners would have to report it.
+- A notice in `warn` mode is shown in the bell, the mails and on Warnings; the run lists of the
+  objects do not mark such a run yet. A run that writes more than its limit and is then retried
+  under a new run id raises a notice of its own.
 - Proxmox VE VM backups (changed blocks into the chunk store) are not measured yet, and the
   per-job setting is per object: a backup job of several mailboxes has one setting per mailbox.
 

@@ -44,6 +44,7 @@ import {
   addShare,
   addShareJob,
   adminUrl,
+  keepLittleFree,
   roleUrl,
   type ShareFixture,
   startShareFixture,
@@ -155,6 +156,8 @@ describe.skipIf(!canRun)("file share backup end to end with restow-share and res
 
   beforeAll(async () => {
     fixture = await startShareFixture("restow_worker_file_shares_e2e_test");
+    // The space rule must not hold restow-share's uploads on a host with little free disk.
+    await keepLittleFree(fixture.owner);
     binary = join(fixture.work, "restow-share-test");
     const build = spawnSync(
       "go",

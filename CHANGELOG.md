@@ -37,10 +37,15 @@ private repository.
   elsewhere), a snapshot of a copy-on-write file system keeps its blocks, and a disk that fills
   within 30 seconds can still reach 0 bytes until the next check. docs/DATABASE.md, "Disk full"
   (safe cleanup, what never to delete, freeing the reserve by hand).
-- Size and space guard of backup runs (#99). One run that adds far more than usual (an 879 GB
-  recycle bin) no longer fills the storage: every run is measured while it writes, restic runs of
+- Size and space guard of backup runs (#99). By default Restow only warns about an unusually
+  large run and holds a run only for space: a run that passes its size limit goes on and raises
+  the notice `backup.unusually_large_notice` once per run (a warning, not critical, no hold; on
+  Warnings with "Hold such runs" for its object), unless the size check of the tenant or the
+  object is set to `hold` (new setting `mode`, `warn` by default; `run_size_runs.noticed_at` and
+  `notice`, migration 0098). One run that adds far more than usual (an 879 GB
+  recycle bin) no longer goes unnoticed, and no run fills the storage: every run is measured while it writes, restic runs of
   machines, file shares and Proxmox VE containers at the server's restic endpoint before every
-  upload, mailbox, OneDrive, SharePoint and IMAP runs before every pack. A run is held when it
+  upload, mailbox, OneDrive, SharePoint and IMAP runs before every pack. A run is flagged when it
   passes 10 times the median of its object's last 10 runs (at least 10 GiB, or the object's own
   limit; first backups are not checked unless a limit for them is set), or when it would leave a
   target that reports its space less free than it keeps (the index and snapshot that finish a run
@@ -54,12 +59,13 @@ private repository.
   a retry (`run_size_runs`, migration 0096); a database error is a 503 restic retries, never a
   refusal. A hold for space ends by itself once the target has room, or when its space rule is
   switched off; "continue once" lifts the size rule only and is refused for a hold for space. A
-  hold of a removed object ends, and a settings change ends the holds it no longer makes. A held run ends without a restore point
+  hold of a removed object ends, and a settings change ends the holds it no longer makes. A held run (for space, or for its
+  size in `hold` mode) ends without a restore point
   (restic: 403 `run-size-held`; mail: failure `storage.run_held`), the new critical event
   `backup.unusually_large` goes out once, and every further run of the object waits. Under
   Warnings, "Held backups", an administrator lets it continue once, raises the object's limit or
-  switches the check off for it; the tenant's settings (factor, minimum, first backups, the
-  space rule) are there too. New tables `run_size_holds` and `run_size_settings` (migration 0095,
+  switches the check off for it; the tenant's settings (warn or hold, factor, minimum, first
+  backups, the space rule) are there too. New tables `run_size_holds` and `run_size_settings` (migration 0095,
   tenant isolated), `/api/v1/run-size` (holds, continue, raise, settings), audit events
   `backup.size_hold_continued`, `backup.size_limit_raised`, `backup.size_guard_changed`. Not yet:
   Proxmox VE VM block backups, the largest new folders of a held run, and per-job settings for a

@@ -40,6 +40,7 @@ export const REPORT_EVENTS = [
   "file_share.storage_quota",
   "file_share.repository_locked",
   "backup.unusually_large",
+  "backup.unusually_large_notice",
   "storage.copy_behind",
   "source.app_secret_expiring",
   "update.available",
@@ -163,6 +164,10 @@ export const REPORT_EVENT_INFO: Readonly<Record<ReportEvent, ReportEventInfo>> =
   // (0.5.0, #99; @restow/db run-size.ts). Once per hold; every later run of the object waits for
   // an administrator. Critical: backups of the object stop until someone decides.
   "backup.unusually_large": { group: "storage", level: "warning", critical: true },
+  // A backup run passed its size limit and went on: the size check of its object is in `warn`
+  // mode, the default (#99, maintainer decision). Once per run. Not critical: nothing stopped,
+  // the administrator decides whether the run's object should hold such runs from now on.
+  "backup.unusually_large_notice": { group: "storage", level: "warning" },
   // The copy of a restic repository (a container's, a machine's or a file share's) on a copy
   // target is more than two days behind, or its copying keeps failing (0.5.0, apps/worker
   // repository-copies): once per repository, copy target and episode. Not critical: the primary

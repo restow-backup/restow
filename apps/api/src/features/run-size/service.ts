@@ -23,11 +23,12 @@ import {
   runSizeHistory,
   runSizeHolds,
   runSizeObjectExists,
+  runSizeRuns,
   runSizeSettings,
   runSpaceOverrides,
   storageTargets,
 } from "@restow/db";
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNotNull, isNull } from "drizzle-orm";
 import { audit } from "../../lib/audit.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
@@ -45,6 +46,9 @@ import { ProblemError } from "../../problem.js";
  *                   guard off for an object ends its hold (audited `backup.size_guard_changed`)
  *   space rule      what a storage target keeps free: the installation's default, the tenant's
  *                   (on its own targets), a target's own (audited `backup.space_rule_changed`)
+ *
+ * The size rule warns by default (`mode: "warn"`): a run past its limit goes on with the notice
+ * `backup.unusually_large_notice`, listed here as `notices`; `hold` holds it as below.
  *
  * "Continue once" lifts only the size rule: a hold for space ends when the target has room
  * again, or when its space rule is switched off.
@@ -129,6 +133,27 @@ function toDto(row: RunSizeHold): RunSizeHoldDto {
 const RECENT_RESOLVED = 20;
 
 /**
+ * A run that passed its size limit and went on (#99, `warn`, the default): no hold, a notice.
+ * `mode` is what its object's size check does now (`hold` once an administrator switched it).
+ */
+export interface RunSizeNoticeDto {
+  objectKind: RunSizeObjectKind;
+  objectId: string;
+  objectName: string;
+  runId: string;
+  bytes: number;
+  limitBytes: number;
+  medianBytes: number | null;
+  noticedAt: string;
+  mode: RunSizeGuardSettings["mode"];
+  enabled: boolean;
+}
+
+/** How far back, and how many, notices Warnings lists. */
+const NOTICE_DAYS = 30;
+const NOTICE_LIMIT = 50;
+
+/**
  * The tenant's open holds, oldest first, and the most recent decided ones. An open hold of an
  * object that is gone (a removed machine, a deleted share, guest or account) holds nothing: it
  * ends here (`object_removed`).
@@ -137,7 +162,7 @@ export async function listRunSizeHolds(
   db: Database,
   tenantId: string,
   now: Date = new Date(),
-): Promise<{ open: RunSizeHoldDto[]; recent: RunSizeHoldDto[] }> {
+): Promise<{ open: RunSizeHoldDto[]; recent: RunSizeHoldDto[]; notices: RunSizeNoticeDto[] }> {
   return withTenantTx(db, tenantId, async (tx) => {
     const candidates = await tx
       .select({
@@ -176,8 +201,65 @@ export async function listRunSizeHolds(
       .where(and(eq(runSizeHolds.tenantId, tenantId), eq(runSizeHolds.status, "resolved")))
       .orderBy(desc(runSizeHolds.resolvedAt))
       .limit(RECENT_RESOLVED);
-    return { open: open.map(toDto), recent: recent.map(toDto) };
+    return {
+      open: open.map(toDto),
+      recent: recent.map(toDto),
+      notices: await recentNotices(tx, tenantId, now),
+    };
   });
+}
+
+/**
+ * The runs of the last {@link NOTICE_DAYS} days that passed their size limit and went on, newest
+ * first, with what their object's size check does now. Objects that are gone are left out.
+ */
+async function recentNotices(
+  tx: RunSizeTx,
+  tenantId: string,
+  now: Date,
+): Promise<RunSizeNoticeDto[]> {
+  const rows = await tx
+    .select({
+      objectKind: runSizeRuns.objectKind,
+      objectId: runSizeRuns.objectId,
+      runId: runSizeRuns.runId,
+      noticedAt: runSizeRuns.noticedAt,
+      notice: runSizeRuns.notice,
+    })
+    .from(runSizeRuns)
+    .where(
+      and(
+        eq(runSizeRuns.tenantId, tenantId),
+        isNotNull(runSizeRuns.noticedAt),
+        gte(runSizeRuns.noticedAt, new Date(now.getTime() - NOTICE_DAYS * 86_400_000)),
+      ),
+    )
+    .orderBy(desc(runSizeRuns.noticedAt))
+    .limit(NOTICE_LIMIT);
+  const tenant = await storedOverride(tx, tenantId, null);
+  const notices: RunSizeNoticeDto[] = [];
+  for (const row of rows) {
+    if (!row.notice || !row.noticedAt) continue;
+    if (!(await runSizeObjectExists(tx, row.objectKind, row.objectId))) continue;
+    const own = await storedOverride(tx, tenantId, {
+      kind: row.objectKind,
+      objectId: row.objectId,
+    });
+    const settings = resolveRunSizeGuard(tenant, own);
+    notices.push({
+      objectKind: row.objectKind,
+      objectId: row.objectId,
+      objectName: row.notice.objectName,
+      runId: row.runId,
+      bytes: row.notice.bytes,
+      limitBytes: row.notice.limitBytes,
+      medianBytes: row.notice.medianBytes,
+      noticedAt: row.noticedAt.toISOString(),
+      mode: settings.mode,
+      enabled: settings.enabled,
+    });
+  }
+  return notices;
 }
 
 /** The number of open holds (the menu badge). */
@@ -529,6 +611,9 @@ async function reconsiderHolds(
       const settings = resolveRunSizeGuard(tenant, own);
       if (!settings.enabled) {
         resolution = "guard_off";
+      } else if (settings.mode === "warn") {
+        // The object warns now instead of holding: a run past its limit goes on.
+        resolution = "settings_changed";
       } else {
         const history = await runSizeHistory(
           tx,

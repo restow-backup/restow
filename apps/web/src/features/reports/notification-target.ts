@@ -103,7 +103,9 @@ export function notificationTarget(
     );
   }
   // A backup held as unusually large (#99): Warnings, where it is decided.
-  if (item.event === "backup.unusually_large") {
+  // A large run that went on (#99, `warn`): Warnings as well, where the notice can switch its
+  // object to holding such runs.
+  if (item.event === "backup.unusually_large" || item.event === "backup.unusually_large_notice") {
     return at(WARNINGS_PATH);
   }
   // A server or client: its own page says what happened and what to do.

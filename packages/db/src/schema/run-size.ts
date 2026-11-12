@@ -162,7 +162,19 @@ export type RunSizeSettingsRow = typeof runSizeSettings.$inferSelect;
  * process that dies loses at most that much), and why the run is exempt: `continued` (it used an
  * administrator's "continue once") or `new_repository` (it began a new repository: its full
  * upload is no unusual run, and the object's history starts again with it).
+ *
+ * `noticed_at` and `notice` (0.5.0, migration 0098): the run passed its size limit while its
+ * object's size check was in `warn` mode (the default) and went on; the notice
+ * `backup.unusually_large_notice` was raised once then, and Warnings lists it with what the run
+ * had written, its limit and the usual size, until the object is switched to `hold`.
  */
+export interface RunSizeNotice {
+  objectName: string;
+  bytes: number;
+  limitBytes: number;
+  medianBytes: number | null;
+}
+
 export const runSizeRuns = pgTable(
   "run_size_runs",
   {
@@ -175,11 +187,16 @@ export const runSizeRuns = pgTable(
     runId: uuid("run_id").notNull(),
     writtenBytes: bigint("written_bytes", { mode: "number" }).notNull().default(0),
     exemption: text("exemption").$type<"continued" | "new_repository">(),
+    noticedAt: timestamp("noticed_at", { withTimezone: true }),
+    notice: jsonb("notice").$type<RunSizeNotice>(),
     ...timestamps(),
   },
   (t) => [
     uniqueIndex("run_size_runs_run_uq").on(t.objectKind, t.runId),
     index("run_size_runs_object_idx").on(t.objectKind, t.objectId, t.createdAt),
+    index("run_size_runs_notice_idx")
+      .on(t.tenantId, t.noticedAt)
+      .where(sql`${t.noticedAt} IS NOT NULL`),
     check(
       "run_size_runs_kind_ck",
       sql`${t.objectKind} IN ('endpoint', 'file_share', 'pve_guest', 'm365')`,

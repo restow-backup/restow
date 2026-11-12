@@ -2,8 +2,9 @@ import type { StorageSpace } from "../storage/backend.js";
 
 /**
  * The size and space guard of backup runs (#99, docs/STORAGE.md "Unusually large runs"): one
- * run that adds far more than usual (an 879 GB recycle bin someone put into a backup) stops
- * before it fills the storage, and waits for an administrator.
+ * run that adds far more than usual (an 879 GB recycle bin someone put into a backup) is noticed
+ * (by default a notice, the run goes on; held where its object's size check says `hold`), and no
+ * run fills its storage target (held for space).
  *
  * Every run is measured while it writes: the bytes it uploads (restic: what the server's REST
  * endpoint stores for it; the chunk store: the packs it writes). Before each upload the guard asks
@@ -21,10 +22,15 @@ import type { StorageSpace } from "../storage/backend.js";
  *          target: installation default, then the tenant's (on its own targets), then the
  *          target's own ({@link resolveRunSpaceRule}).
  *
- * Either one holds the run: the upload is refused, the run ends, an administrator is alerted
- * (`backup.unusually_large`) and decides: continue once, raise the object's limit, or switch the
- * guard off for it. Until then every further run of the object is held at its first upload.
- * Size settings layer: these defaults, then the tenant's, then the object's.
+ * The space rule always holds the run: the upload is refused, the run ends, an administrator is
+ * alerted (`backup.unusually_large`) and the hold ends once the target has room again.
+ *
+ * The size rule depends on its `mode` (maintainer decision, #99): `warn` (the default) lets the
+ * run go on and raises a notice once per run (`backup.unusually_large_notice`, not critical, no
+ * hold); `hold` holds the run like the space rule, and an administrator decides: continue once,
+ * raise the object's limit, or switch the check off for it. Until then every further run of the
+ * object is held at its first upload. Size settings layer: these defaults, then the tenant's,
+ * then the object's.
  */
 
 export const RUN_SIZE_OBJECT_KINDS = ["endpoint", "file_share", "pve_guest", "m365"] as const;
@@ -32,9 +38,18 @@ export type RunSizeObjectKind = (typeof RUN_SIZE_OBJECT_KINDS)[number];
 
 const GIB = 1024 ** 3;
 
+/**
+ * What the size rule does with a run that passes its limit: `warn` lets it go on and raises a
+ * notice once per run, `hold` holds it until an administrator decides.
+ */
+export const RUN_SIZE_MODES = ["warn", "hold"] as const;
+export type RunSizeMode = (typeof RUN_SIZE_MODES)[number];
+
 export interface RunSizeGuardSettings {
-  /** False switches the whole guard off (size and space). */
+  /** False switches the size check off (the space rule of the target stays on). */
   readonly enabled: boolean;
+  /** A run past its limit: a notice (`warn`, the default) or a hold (`hold`). */
+  readonly mode: RunSizeMode;
   /** A run may add this many times the median of the object's earlier runs. */
   readonly factor: number;
   /** Runs needed before the factor applies; with fewer, a run counts as a first run. */
@@ -51,6 +66,7 @@ export interface RunSizeGuardSettings {
 
 export const DEFAULT_RUN_SIZE_GUARD: RunSizeGuardSettings = {
   enabled: true,
+  mode: "warn",
   factor: 10,
   minHistory: 3,
   historyRuns: 10,
@@ -62,6 +78,7 @@ export const DEFAULT_RUN_SIZE_GUARD: RunSizeGuardSettings = {
 /** What a tenant or an object sets; anything left out comes from the layer below. */
 export interface RunSizeGuardOverride {
   enabled?: boolean;
+  mode?: RunSizeMode;
   factor?: number;
   minBytes?: number;
   limitBytes?: number | null;
@@ -94,6 +111,9 @@ export function parseRunSizeOverride(value: unknown): RunSizeGuardOverride {
   const out: RunSizeGuardOverride = {};
   if (typeof v.enabled === "boolean") {
     out.enabled = v.enabled;
+  }
+  if (typeof v.mode === "string" && (RUN_SIZE_MODES as readonly string[]).includes(v.mode)) {
+    out.mode = v.mode as RunSizeMode;
   }
   if (
     finiteNumber(v.factor) &&
@@ -342,6 +362,19 @@ export function formatRunSizeBytes(bytes: number): string {
   return `${(bytes / 1024 ** 2).toFixed(1)} MiB`;
 }
 
+/**
+ * The English line of a run that passed its size limit and went on (`warn`), for the log, the
+ * notification and the delivery log.
+ */
+export function describeRunSizeNotice(
+  objectName: string,
+  input: { bytes: number; limitBytes: number; medianBytes: number | null },
+): string {
+  const usual =
+    input.medianBytes !== null ? `, usually ${formatRunSizeBytes(input.medianBytes)}` : "";
+  return `A backup of ${objectName} is unusually large: it has written ${formatRunSizeBytes(input.bytes)}, more than its limit of ${formatRunSizeBytes(input.limitBytes)}${usual}. It goes on. If a folder does not belong in the backup, exclude it; to hold such runs, set the object's size check to "hold".`;
+}
+
 /** The English line of a held run, for the log, the notification and the delivery log. */
 export function describeRunSizeHold(
   objectName: string,
@@ -352,5 +385,5 @@ export function describeRunSizeHold(
     const usual = medianBytes !== null ? `, usually ${formatRunSizeBytes(medianBytes)}` : "";
     return `The backup of ${objectName} was held: this run would add more than ${formatRunSizeBytes(verdict.limitBytes)} (${formatRunSizeBytes(verdict.bytes)} so far${usual}). An administrator can let it continue once or raise the limit.`;
   }
-  return `The backup of ${objectName} was held: the storage target would keep less than ${formatRunSizeBytes(verdict.keepBytes)} free (${formatRunSizeBytes(verdict.freeBytes)} of ${formatRunSizeBytes(verdict.totalBytes)} free). Free up space, or let it continue once.`;
+  return `The backup of ${objectName} was held: the storage target would keep less than ${formatRunSizeBytes(verdict.keepBytes)} free (${formatRunSizeBytes(verdict.freeBytes)} of ${formatRunSizeBytes(verdict.totalBytes)} free). It goes ahead once the target has room again.`;
 }

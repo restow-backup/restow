@@ -49,6 +49,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { readZip } from "../../../../../packages/core/src/restore/testing/zip-reader.js";
 import {
   type EndpointFixture,
+  keepLittleFree,
   resticAvailable,
   startFixture,
   testDatabaseAdminUrl,
@@ -86,6 +87,7 @@ describe.skipIf(!canRun)("reading file share backups with restic", () => {
 
   beforeAll(async () => {
     fixture = await startFixture(DATABASE);
+    await keepLittleFree(fixture.db);
     shared = await import("../../db.js");
     browse = await import("./browse.js");
     const secrets = await import("../../lib/secrets.js");

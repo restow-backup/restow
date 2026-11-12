@@ -34,7 +34,7 @@ import {
   tenants,
   user,
 } from "@restow/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { Hono, type MiddlewareHandler } from "hono";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { SessionUser } from "../../auth.js";
@@ -215,7 +215,23 @@ describe.skipIf(!testDatabaseAdminUrl)("the run size guard against Postgres (#99
     await owner.delete(reportDeliveries);
     await owner.delete(storageTargets);
     await owner.update(settings).set({ runSpaceRule: {} });
+    // Most tests here are about holding a run for its size: the tenant holds (the default,
+    // `warn`, has its own tests below).
+    await owner
+      .insert(runSizeSettings)
+      .values({ tenantId: contoso, settings: { mode: "hold" }, updatedBy: "test" });
   });
+
+  /** The tenant back to the default: a run past its size limit goes on with a notice. */
+  const warnByDefault = () =>
+    owner
+      .delete(runSizeSettings)
+      .where(and(eq(runSizeSettings.tenantId, contoso), isNull(runSizeSettings.objectKind)));
+  const notices = () =>
+    owner
+      .select()
+      .from(notifications)
+      .where(eq(notifications.event, "backup.unusually_large_notice"));
 
   const holds = () => owner.select().from(runSizeHolds);
 
@@ -317,7 +333,7 @@ describe.skipIf(!testDatabaseAdminUrl)("the run size guard against Postgres (#99
     );
     // Another tenant sees nothing and decides nothing.
     const foreign = await call("GET", "/run-size/holds", undefined, fabrikam);
-    expect(await foreign.json()).toEqual({ open: [], recent: [] });
+    expect(await foreign.json()).toEqual({ open: [], recent: [], notices: [] });
     expect((await call("POST", `/run-size/holds/${hold?.id}/continue`, {}, fabrikam)).status).toBe(
       404,
     );
@@ -363,7 +379,10 @@ describe.skipIf(!testDatabaseAdminUrl)("the run size guard against Postgres (#99
     const raised = await call("POST", `/run-size/holds/${hold?.id}/raise`, { limitGib: 50 });
     expect(raised.status).toBe(200);
     expect(await raised.json()).toMatchObject({ status: "resolved", resolution: "limit_raised" });
-    const [setting] = await owner.select().from(runSizeSettings);
+    const [setting] = await owner
+      .select()
+      .from(runSizeSettings)
+      .where(eq(runSizeSettings.objectId, machine));
     expect(setting).toMatchObject({
       objectKind: "endpoint",
       objectId: machine,
@@ -701,6 +720,132 @@ describe.skipIf(!testDatabaseAdminUrl)("the run size guard against Postgres (#99
     expect(await installationSpaceRuleView(providerPool)).toMatchObject({
       override: null,
       effective: { enabled: true, percent: 5, minBytes: 20 * GIB, maxBytes: 500 * GIB },
+    });
+  });
+
+  describe("the size check warns by default (#99, maintainer decision) [ALERT-010]", () => {
+    it("lets a run past its limit go on, with one notice per run and no hold", async () => {
+      await warnByDefault();
+      await owner.insert(reportRules).values({
+        tenantId: contoso,
+        name: "Large backups",
+        trigger: "event",
+        events: ["backup.unusually_large_notice"],
+        emailRecipients: ["ops@contoso.example"],
+      });
+      try {
+        const runId = randomUUID();
+        // 20 GiB is the limit; the run writes 30 GiB and is not stopped.
+        expect((await upload(guard(runId), GIB, 30)).stored).toBe(30 * GIB);
+        expect(await holds()).toEqual([]);
+        const [notice, ...more] = await notices();
+        expect(more).toEqual([]);
+        expect(notice).toMatchObject({ tenantId: contoso, level: "warning" });
+        expect(notice?.details).toMatchObject({
+          objectName: "fileserver01",
+          endpointId: machine,
+          runId,
+          mode: "warn",
+          bytes: 21 * GIB,
+          limitBytes: 20 * GIB,
+          medianBytes: 2 * GIB,
+        });
+        expect(notice?.message).toContain("goes on");
+        expect(notice?.message).toContain("exclude it");
+        const deliveries = await owner
+          .select()
+          .from(reportDeliveries)
+          .where(eq(reportDeliveries.event, "backup.unusually_large_notice"));
+        expect(deliveries.map((row) => row.subjectKey)).toEqual([`size_notice:endpoint:${runId}`]);
+        // The same run in another process (an api restart): no second notice.
+        expect((await upload(guard(runId), GIB, 10)).stored).toBe(10 * GIB);
+        expect(await notices()).toHaveLength(1);
+        // The next large run: a notice of its own.
+        await upload(guard(randomUUID()), GIB, 30);
+        expect(await notices()).toHaveLength(2);
+        // Warnings lists them with what the object does now, and no hold card.
+        const listed = (await (await call("GET", "/run-size/holds")).json()) as {
+          open: unknown[];
+          notices: { runId: string; objectName: string; bytes: number; mode: string }[];
+        };
+        expect(listed.open).toEqual([]);
+        expect(listed.notices).toHaveLength(2);
+        expect(listed.notices[1]).toMatchObject({
+          runId,
+          objectName: "fileserver01",
+          bytes: 21 * GIB,
+          limitBytes: 20 * GIB,
+          mode: "warn",
+        });
+        // Another tenant sees none of them.
+        const foreign = (await (
+          await call("GET", "/run-size/holds", undefined, fabrikam)
+        ).json()) as {
+          notices: unknown[];
+        };
+        expect(foreign.notices).toEqual([]);
+      } finally {
+        await owner.delete(reportRules).where(eq(reportRules.name, "Large backups"));
+      }
+    });
+
+    it("still holds a run for space", async () => {
+      await warnByDefault();
+      // Past its size limit (a notice), then the target runs short: held for space.
+      const run = guard(randomUUID(), { freeBytes: 72 * GIB, totalBytes: 1000 * GIB });
+      expect((await upload(run, GIB, 40)).stored).toBe(22 * GIB);
+      expect(await notices()).toHaveLength(1);
+      expect(await holds()).toMatchObject([{ reason: "space", status: "pending" }]);
+    });
+
+    it("switches an object to holding from its notice, and back; a hold for size ends with warn", async () => {
+      await warnByDefault();
+      await upload(guard(randomUUID()), GIB, 30);
+      const toHold = await call("PUT", "/run-size/settings", {
+        kind: "endpoint",
+        objectId: machine,
+        override: { mode: "hold" },
+      });
+      expect(toHold.status).toBe(200);
+      expect(await toHold.json()).toMatchObject({
+        effective: { mode: "warn" },
+        objects: [{ objectId: machine, override: { mode: "hold" }, effective: { mode: "hold" } }],
+      });
+      const listed = (await (await call("GET", "/run-size/holds")).json()) as {
+        notices: { mode: string }[];
+      };
+      expect(listed.notices[0]?.mode).toBe("hold");
+      // The next large run of the object is held.
+      expect((await upload(guard(randomUUID()), GIB, 30)).stored).toBe(20 * GIB);
+      expect(await holds()).toMatchObject([{ reason: "size", status: "pending" }]);
+      expect(await notices()).toHaveLength(1);
+      // Back to warn: the hold it would no longer make ends, the next run goes on.
+      await call("PUT", "/run-size/settings", {
+        kind: "endpoint",
+        objectId: machine,
+        override: { mode: "warn" },
+      });
+      expect((await holds())[0]).toMatchObject({
+        status: "resolved",
+        resolution: "settings_changed",
+      });
+      expect((await upload(guard(randomUUID()), GIB, 30)).stored).toBe(30 * GIB);
+      // Nonsense is refused.
+      expect((await call("PUT", "/run-size/settings", { override: { mode: "stop" } })).status).toBe(
+        422,
+      );
+    });
+
+    it("ends a hold for size from before at the next run of an object that warns now", async () => {
+      await upload(guard(randomUUID()), GIB, 30);
+      expect(await holds()).toMatchObject([{ reason: "size", status: "pending" }]);
+      // The tenant's row gone without a decision (an update to the default): the next run goes.
+      await warnByDefault();
+      expect((await upload(guard(randomUUID()), GIB, 30)).stored).toBe(30 * GIB);
+      expect((await holds())[0]).toMatchObject({
+        status: "resolved",
+        resolution: "settings_changed",
+      });
     });
   });
 });

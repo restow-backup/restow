@@ -432,7 +432,8 @@
       "succeeded": "Sicherung erfolgreich",
       "suspicious": "Verdächtige Sicherung (Anzeichen von Ransomware)",
       "suspicious_hold": "Aufbewahrung nach verdächtiger Sicherung weiter angehalten",
-      "unusually_large": "Sicherung als ungewöhnlich groß angehalten"
+      "unusually_large": "Sicherung als ungewöhnlich groß angehalten",
+      "unusually_large_notice": "Ungewöhnlich große Sicherung, nicht angehalten"
     },
     "restore": {
       "failed": "Wiederherstellung fehlgeschlagen",
@@ -506,7 +507,8 @@
       "succeeded": "Ein Sicherungslauf eines Postfachs, OneDrives, IMAP-Kontos oder einer Dateifreigabe ist abgeschlossen. Jeder Lauf, also eher für einen Kanal, der jeden sehen soll.",
       "suspicious": "Was eine Sicherung eines Rechners, einer Freigabe, eines Proxmox-VE-Gasts, Postfachs oder OneDrives gesehen hat, sieht nach Ransomware aus: weit mehr Änderungen als üblich, massenhafte Löschungen oder umbenannte Endungen, bekannte Ransomware-Namen oder verschlüsselt wirkende Dateien. Je Objekt einmal, bis ein Sicherungsstand ohne Befund folgt oder der Befund als Fehlalarm markiert wird. Die Aufbewahrung des Objekts ist angehalten, bis ein Administrator den Befund klärt.",
       "suspicious_hold": "Die Aufbewahrung eines Rechners, einer Freigabe, eines Proxmox-VE-Gasts, Postfachs oder OneDrives ist seit einiger Zeit (standardmäßig 14 Tage) wegen eines verdächtigen Sicherungsstands angehalten, den niemand geklärt hat. Kein Sicherungsstand davon wird gelöscht, der Speicherbedarf wächst also weiter. Wiederholt sich im selben Abstand, bis ein Administrator den Befund als Fehlalarm markiert oder die Aufbewahrung wieder freigibt.",
-      "unusually_large": "Eine Sicherung eines Rechners, einer Dateifreigabe, eines Proxmox-VE-Containers, eines Postfachs oder eines OneDrive hätte weit mehr als üblich hinzugefügt (standardmäßig das Zehnfache des Medians) oder ihrem Speicherziel weniger freien Platz gelassen, als es frei hält (standardmäßig 5 % seiner Größe, mindestens 20 GiB, höchstens 500 GiB). Sie wurde deshalb angehalten, bevor sie den Speicher füllt. Ein wegen der Größe angehaltener Lauf wartet, bis ein Administrator ihn einmal weiterlaufen lässt, die Grenze erhöht oder die Prüfung ausschaltet; ein wegen des Platzes angehaltener Lauf geht weiter, sobald das Ziel wieder Platz hat."
+      "unusually_large": "Eine Sicherung eines Rechners, einer Dateifreigabe, eines Proxmox-VE-Containers, eines Postfachs oder eines OneDrive hätte ihrem Speicherziel weniger freien Platz gelassen, als es frei hält (standardmäßig 5 % seiner Größe, mindestens 20 GiB, höchstens 500 GiB), oder weit mehr als üblich hinzugefügt (standardmäßig das Zehnfache des Medians), während ihre Größenprüfung auf „Anhalten“ steht. Sie wurde angehalten, bevor sie den Speicher füllt. Ein wegen des Platzes angehaltener Lauf geht weiter, sobald das Ziel wieder Platz hat; ein wegen der Größe angehaltener Lauf wartet, bis ein Administrator ihn einmal weiterlaufen lässt, die Grenze erhöht oder die Prüfung ausschaltet.",
+      "unusually_large_notice": "Eine Sicherung eines Rechners, einer Dateifreigabe, eines Proxmox-VE-Containers, eines Postfachs oder eines OneDrive hat weit mehr als üblich geschrieben (standardmäßig das Zehnfache des Medians, mindestens 10 GiB, oder die eigene Grenze des Objekts). Standardmäßig warnt {appName} davor nur: Der Lauf geht weiter, und dieser Hinweis kommt einmal je Lauf. Gehört ein Ordner nicht in die Sicherung (ein Papierkorb, ein Download-Ordner), schließen Sie ihn in den Einstellungen des Objekts aus. Sollen solche Läufe künftig angehalten werden, stellen Sie die Größenprüfung des Objekts auf „Anhalten“ (Warnungen, „Angehaltene Sicherungen“)."
     },
     "restore": {
       "failed": "Eine Wiederherstellung oder ein Download, auch eines Servers oder Clients, konnte nicht abgeschlossen werden.",
@@ -628,7 +630,8 @@
     "runSize": "Von diesem Lauf hinzugefügt",
     "usualSize": "Üblicherweise hinzugefügt",
     "sizeLimit": "Grenze",
-    "runHeldTodo": "Öffnen Sie Angehaltene Sicherungen: Lassen Sie den Lauf einmal weiterlaufen, erhöhen Sie die Grenze dieses Objekts oder schalten Sie die Prüfung dafür aus. Wurde ein Ordner versehentlich hinzugefügt (ein Papierkorb), schließen Sie ihn zuerst aus. Bis dahin wartet jede Sicherung dieses Objekts.",
+    "runHeldTodo": "Öffnen Sie Angehaltene Sicherungen. Ein wegen der Größe angehaltener Lauf: Lassen Sie ihn einmal weiterlaufen, erhöhen Sie die Grenze dieses Objekts oder schalten Sie die Prüfung dafür aus; wurde ein Ordner versehentlich hinzugefügt (ein Papierkorb), schließen Sie ihn zuerst aus. Ein wegen des Platzes angehaltener Lauf geht weiter, sobald das Speicherziel wieder Platz hat. Bis dahin wartet jede Sicherung dieses Objekts.",
+    "runNoticeTodo": "Der Lauf geht weiter: Standardmäßig warnt {appName} vor großen Sicherungen nur. Wurde ein Ordner versehentlich hinzugefügt (ein Papierkorb), schließen Sie ihn in den Einstellungen des Objekts aus. Sollen solche Läufe künftig angehalten werden, öffnen Sie Warnungen und wählen Sie für dieses Objekt „Solche Läufe anhalten“.",
     "location": "Ort",
     "free": "Frei",
     "total": "Größe",
@@ -726,7 +729,8 @@
       "succeeded": "Sicherung erfolgreich: {object}",
       "suspicious": "Verdächtige Sicherung: {object}",
       "suspicious_hold": "Aufbewahrung weiter angehalten: {object}",
-      "unusually_large": "Sicherung als ungewöhnlich groß angehalten: {object}"
+      "unusually_large": "Sicherung als ungewöhnlich groß angehalten: {object}",
+      "unusually_large_notice": "Ungewöhnlich große Sicherung, nicht angehalten: {object}"
     },
     "restore": {
       "failed": "Wiederherstellung fehlgeschlagen: {object}",

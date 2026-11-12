@@ -132,8 +132,8 @@
   "openToConfirm": "Prüfen und bestätigen",
   "held": {
     "title": "Angehaltene Sicherungen",
-    "description": "Sicherungen, die weit mehr als üblich hinzugefügt oder ihrem Speicherziel zu wenig freien Platz gelassen hätten, werden angehalten, bevor sie den Speicher füllen. Jede weitere Sicherung eines solchen Objekts wartet auf Ihre Entscheidung.",
-    "none": "Keine Sicherung ist angehalten. Läufe werden gegen das Zehnfache dessen geprüft, was ihr Objekt üblicherweise hinzufügt, mindestens 10 GiB, und gegen den freien Platz, den ihr Speicherziel frei hält (standardmäßig 5 % seiner Größe, mindestens 20 GiB, höchstens 500 GiB), auf Zielen, die ihn melden.",
+    "description": "Sicherungen, die ihrem Speicherziel zu wenig freien Platz lassen würden, werden angehalten, bevor sie den Speicher füllen. Eine Sicherung, die weit mehr als üblich hinzufügt, löst nur einen Hinweis aus, es sei denn, die Größenprüfung ihres Objekts steht auf „Anhalten“: Dann wird auch sie angehalten. Jede weitere Sicherung eines angehaltenen Objekts wartet.",
+    "none": "Keine Sicherung ist angehalten. Läufe werden gegen den freien Platz geprüft, den ihr Speicherziel frei hält (standardmäßig 5 % seiner Größe, mindestens 20 GiB, höchstens 500 GiB), auf Zielen, die ihn melden, und gegen das Zehnfache dessen, was ihr Objekt üblicherweise hinzufügt, mindestens 10 GiB: Standardmäßig geht ein Lauf darüber mit einem Hinweis weiter.",
     "kind": {
       "endpoint": "Server oder Client",
       "file_share": "Dateifreigabe",
@@ -174,6 +174,16 @@
       "tenantTitle": "Freier Platz auf den Speicherzielen dieses Mandanten",
       "shared": "Dieser Mandant schreibt auf das gemeinsame Standardziel der Installation, dort gilt die Regel der Installation: {rule}."
     },
+    "notices": {
+      "title": "Ungewöhnlich große Sicherungen, die weiterliefen",
+      "description": "Läufe der letzten 30 Tage, die mehr als ihre Grenze geschrieben haben. Sie wurden nicht angehalten: Standardmäßig warnt {appName} vor großen Sicherungen nur.",
+      "row": "{bytes} geschrieben, mehr als die Grenze von {limit}",
+      "usual": "üblich {usual}",
+      "hold": "Solche Läufe anhalten",
+      "holds": "Solche Läufe werden jetzt angehalten",
+      "off": "Größenprüfung aus",
+      "toast": "Große Läufe dieses Objekts werden ab jetzt angehalten."
+    },
     "actions": {
       "continue": "Einmal weiterlaufen lassen",
       "raise": "Grenze erhöhen",
@@ -189,8 +199,11 @@
     "settings": {
       "open": "Größenprüfung",
       "title": "Größen- und Platzprüfung der Sicherungen",
-      "description": "Für jedes Objekt dieses Mandanten ohne eigene Einstellungen. Ein Lauf wird angehalten, wenn er mehr als das Vielfache des Medians der letzten Läufe seines Objekts (und mindestens das Minimum) hinzufügen oder seinem Speicherziel weniger freien Platz lassen würde, als die Regel unten frei hält.",
+      "description": "Für jedes Objekt dieses Mandanten ohne eigene Einstellungen. Ein Lauf, der mehr als das Vielfache des Medians der letzten Läufe seines Objekts (und mindestens das Minimum) hinzufügt, löst einen Hinweis aus und geht weiter, oder er wird angehalten, wenn die Größenprüfung auf „Anhalten“ steht. Angehalten wird ein Lauf immer, wenn er seinem Speicherziel weniger freien Platz lassen würde, als die Regel unten frei hält.",
       "enabled": "Größe der Sicherungsläufe prüfen",
+      "mode": "Wenn ein Lauf mehr hinzufügt",
+      "modeWarn": "Nur benachrichtigen, der Lauf geht weiter (Standard)",
+      "modeHold": "Den Lauf anhalten, bis ein Administrator entscheidet",
       "factor": "Vielfaches der üblichen Größe",
       "minGib": "Nie anhalten unter (GiB)",
       "firstRunGib": "Grenze erster Sicherungen (GiB)",
@@ -199,6 +212,8 @@
       "objectLimit": "eigene Grenze {limit}",
       "objectOwn": "eigene Einstellungen",
       "objectOff": "Prüfung aus",
+      "objectHold": "hält große Läufe an",
+      "objectWarn": "benachrichtigt nur",
       "reset": "Zurücksetzen",
       "save": "Speichern"
     },

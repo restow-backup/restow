@@ -510,12 +510,84 @@ describe("held backups (#99)", { timeout: 20_000 }, () => {
     expect(note).toContain("cannot be continued once");
   });
 
+  describe("notices of large runs that went on (#99)", () => {
+    const NOTICE = {
+      objectKind: "endpoint" as const,
+      objectId: "m-1",
+      objectName: "Fileserver",
+      runId: "r-7",
+      bytes: 21 * 1024 ** 3,
+      limitBytes: 20 * 1024 ** 3,
+      medianBytes: 2 * 1024 ** 3,
+      noticedAt: "2026-11-11T22:00:00.000Z",
+      mode: "warn" as const,
+      enabled: true,
+    };
+
+    it("lists each run without a hold card, and holds such runs of the object from there", async () => {
+      await mount(<WarningsPage state="open" />, (client) => {
+        client.setQueryData(warningKeys.list("t-1", "open"), EMPTY_LIST);
+        client.setQueryData(heldBackupKeys.holds("t-1"), {
+          open: [],
+          recent: [],
+          notices: [NOTICE],
+        });
+      });
+      await waitForText("Unusually large backups that went on");
+      expect(document.querySelector('[data-slot="held-backup"]')).toBeNull();
+      const row = document.querySelector('[data-slot="size-notice"]');
+      expect(row?.textContent).toContain("Fileserver");
+      expect(row?.textContent).toContain("Wrote 21 GB, more than its limit of 20 GB, usually 2 GB");
+      expect(row?.textContent).toContain("exclude it in the object's backup settings");
+      await act(async () => {
+        button("Hold such runs")?.click();
+      });
+      const sent = requests.find(
+        (request) => request.url.endsWith("/run-size/settings") && request.method === "PUT",
+      );
+      expect(sent?.body).toEqual({
+        kind: "endpoint",
+        objectId: "m-1",
+        override: { mode: "hold" },
+      });
+    });
+
+    it("says when the object holds such runs already, and offers nothing to an end user", async () => {
+      await mount(<WarningsPage state="open" />, (client) => {
+        client.setQueryData(warningKeys.list("t-1", "open"), EMPTY_LIST);
+        client.setQueryData(heldBackupKeys.holds("t-1"), {
+          open: [],
+          recent: [],
+          notices: [
+            { ...NOTICE, mode: "hold" },
+            { ...NOTICE, runId: "r-8", objectId: "m-2" },
+          ],
+        });
+      });
+      await waitForText("Such runs are held now");
+      act(() => root?.unmount());
+      root = null;
+      session.role = "end_user";
+      await mount(<WarningsPage state="open" />, (client) => {
+        client.setQueryData(warningKeys.list("t-1", "open"), EMPTY_LIST);
+        client.setQueryData(heldBackupKeys.holds("t-1"), {
+          open: [],
+          recent: [],
+          notices: [NOTICE],
+        });
+      });
+      await waitForText("Unusually large backups that went on");
+      expect(button("Hold such runs")?.disabled).toBe(true);
+    });
+  });
+
   describe("the space rule of the tenant (#99)", () => {
     const GIB = 1024 ** 3;
     const RULE = { enabled: true, percent: 5, minBytes: 20 * GIB, maxBytes: 500 * GIB };
     const settings = (sharedTarget: boolean) => ({
       defaults: {
         enabled: true,
+        mode: "warn",
         factor: 10,
         minHistory: 3,
         historyRuns: 10,
@@ -526,6 +598,7 @@ describe("held backups (#99)", { timeout: 20_000 }, () => {
       tenant: null,
       effective: {
         enabled: true,
+        mode: "warn",
         factor: 10,
         minHistory: 3,
         historyRuns: 10,
@@ -584,6 +657,28 @@ describe("held backups (#99)", { timeout: 20_000 }, () => {
       });
       // Only what was changed becomes the tenant's own.
       expect(saved()[1]?.body).toEqual(expect.objectContaining({ space: { percent: 10 } }));
+    });
+
+    it("notifies only by default, and saves the tenant's choice to hold (#99)", async () => {
+      await openSettings(false);
+      const radio = (label: string) => {
+        const element = [...document.querySelectorAll("label")].find((candidate) =>
+          candidate.textContent?.includes(label),
+        );
+        return document.getElementById(element?.getAttribute("for") ?? "");
+      };
+      expect(radio("Notify only, the run goes on (default)")?.getAttribute("data-state")).toBe(
+        "checked",
+      );
+      await act(async () => {
+        radio("Hold the run until an administrator decides")?.click();
+      });
+      await act(async () => {
+        button("Save")?.click();
+      });
+      expect(saved()[0]?.body).toEqual(
+        expect.objectContaining({ override: expect.objectContaining({ mode: "hold" }) }),
+      );
     });
 
     it("on the installation's shared target: says the installation's rule applies, no fields", async () => {

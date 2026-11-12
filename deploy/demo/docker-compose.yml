@@ -131,6 +131,11 @@ services:
       IMAP_ALLOW_PRIVATE_NETWORKS: "true"
       STORAGE_TARGET: local
       STORAGE_LOCAL_PATH: /data/chunks
+      # No emergency disk reserve (#98): /data is the 4 GB tmpfs below, RAM that a 2 GiB
+      # reserve file would take for nothing (PostgreSQL is on demo-pgdata, not here, and the
+      # tmpfs is reset every night). The space rule of the backups (#99) keeps at most a
+      # quarter of a small target free, 1 GiB of these 4 GB: no setting needed for it.
+      RESTOW_DISK_RESERVE_MB: "0"
     volumes:
       - demo-data:/data
     healthcheck:

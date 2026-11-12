@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { PauseCircle, Settings2 } from "lucide-react";
+import { PauseCircle, Settings2, TrendingUp } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { toast } from "@/components/ui/sonner";
 import { errorMessageKey } from "@/lib/api";
 import { formatBytes } from "@/lib/format";
@@ -30,7 +31,9 @@ import {
   type HeldBackup,
   heldBackupKeys,
   raiseHeldBackupLimit,
+  type SizeGuardMode,
   type SizeGuardOverrideInput,
+  type SizeNotice,
   saveSizeGuardSettings,
   suggestedLimitGib,
 } from "./api";
@@ -81,6 +84,20 @@ export function HeldBackupsSection() {
     mutationFn: (hold: HeldBackup) => continueHeldBackup(hold.id, null),
     onSuccess: () => {
       toast.success(t("held.toast.continued"));
+      void refresh();
+    },
+    onError: fail,
+  });
+  // From a notice (#99): runs of this object past their limit are held from now on.
+  const holdLarge = useMutation({
+    mutationFn: (notice: SizeNotice) =>
+      saveSizeGuardSettings({
+        kind: notice.objectKind,
+        objectId: notice.objectId,
+        override: { mode: "hold" },
+      }),
+    onSuccess: () => {
+      toast.success(t("held.notices.toast"));
       void refresh();
     },
     onError: fail,
@@ -137,6 +154,14 @@ export function HeldBackupsSection() {
             />
           ))
         )}
+        {(holds.data.notices ?? []).length > 0 ? (
+          <NoticeList
+            notices={holds.data.notices ?? []}
+            canConfigure={scope.canConfigure}
+            busy={holdLarge.isPending}
+            onHold={(notice) => holdLarge.mutate(notice)}
+          />
+        ) : null}
       </CardContent>
       <RaiseDialog
         hold={raising}
@@ -155,6 +180,76 @@ export function HeldBackupsSection() {
         onSaved={() => void refresh()}
       />
     </Card>
+  );
+}
+
+/**
+ * The runs that passed their size limit and went on (the size check's default, `warn`): no hold
+ * card, a notice each, and the way to hold such runs of the object from now on.
+ */
+function NoticeList({
+  notices,
+  canConfigure,
+  busy,
+  onHold,
+}: {
+  notices: SizeNotice[];
+  canConfigure: boolean;
+  busy: boolean;
+  onHold: (notice: SizeNotice) => void;
+}) {
+  const { t, i18n } = useTranslation("warnings");
+  const language = i18n.resolvedLanguage ?? i18n.language;
+  return (
+    <div className="space-y-2 border-t pt-3" data-slot="size-notices">
+      <p className="flex items-center gap-2 text-sm font-medium">
+        <TrendingUp className="size-4" aria-hidden="true" />
+        {t("held.notices.title")}
+      </p>
+      <p className="text-xs text-muted-foreground">{t("held.notices.description")}</p>
+      {notices.map((notice) => (
+        <div
+          key={`${notice.objectKind}:${notice.runId}`}
+          className="space-y-1 rounded-md border p-3"
+          data-slot="size-notice"
+          data-mode={notice.mode}
+        >
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="font-medium">{notice.objectName}</span>
+            <span className="text-muted-foreground">{t(`held.kind.${notice.objectKind}`)}</span>
+            <span className="text-xs text-muted-foreground">
+              <RelativeTime value={notice.noticedAt} />
+            </span>
+          </div>
+          <p className="text-sm">
+            {t("held.notices.row", {
+              bytes: formatBytes(notice.bytes, language),
+              limit: formatBytes(notice.limitBytes, language),
+            })}
+            {notice.medianBytes !== null
+              ? `, ${t("held.notices.usual", { usual: formatBytes(notice.medianBytes, language) })}`
+              : null}
+          </p>
+          <p className="text-xs text-muted-foreground">{t("held.excludeHint")}</p>
+          {!notice.enabled ? (
+            <p className="text-xs text-muted-foreground">{t("held.notices.off")}</p>
+          ) : notice.mode === "hold" ? (
+            <p className="text-xs text-muted-foreground" data-slot="size-notice-holds">
+              {t("held.notices.holds")}
+            </p>
+          ) : (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={!canConfigure || busy}
+              onClick={() => onHold(notice)}
+            >
+              {t("held.notices.hold")}
+            </Button>
+          )}
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -341,6 +436,7 @@ function SettingsDialog({
   });
   const [form, setForm] = React.useState({
     on: true,
+    mode: "warn" as SizeGuardMode,
     factor: "",
     minGib: "",
     firstRunGib: "",
@@ -348,6 +444,7 @@ function SettingsDialog({
   const [space, setSpace] = React.useState<SpaceInput | null>(null);
   const ids = {
     on: React.useId(),
+    mode: React.useId(),
     factor: React.useId(),
     minGib: React.useId(),
     firstRunGib: React.useId(),
@@ -357,6 +454,7 @@ function SettingsDialog({
     if (effective) {
       setForm({
         on: effective.enabled,
+        mode: effective.mode ?? "warn",
         factor: String(effective.factor),
         minGib: String(effective.minBytes / GIB),
         firstRunGib: effective.firstRunBytes === null ? "" : String(effective.firstRunBytes / GIB),
@@ -394,7 +492,7 @@ function SettingsDialog({
     Number.isFinite(minGib) &&
     !Number.isNaN(firstRunGib) &&
     (sharedTarget || space !== null);
-  const field = (key: keyof typeof form) => ({
+  const field = (key: "factor" | "minGib" | "firstRunGib") => ({
     id: ids[key],
     value: String(form[key]),
     disabled: !canConfigure,
@@ -420,6 +518,26 @@ function SettingsDialog({
               }
             />
             <Label htmlFor={ids.on}>{t("held.settings.enabled")}</Label>
+          </div>
+          <div className="grid gap-2" data-slot="held-settings-mode">
+            <Label id={ids.mode}>{t("held.settings.mode")}</Label>
+            <RadioGroup
+              aria-labelledby={ids.mode}
+              value={form.mode}
+              disabled={!canConfigure}
+              onValueChange={(value) =>
+                setForm((current) => ({ ...current, mode: value as SizeGuardMode }))
+              }
+            >
+              {(["warn", "hold"] as const).map((mode) => (
+                <div key={mode} className="flex items-center gap-2">
+                  <RadioGroupItem id={`${ids.mode}-${mode}`} value={mode} />
+                  <Label htmlFor={`${ids.mode}-${mode}`} className="font-normal">
+                    {t(mode === "warn" ? "held.settings.modeWarn" : "held.settings.modeHold")}
+                  </Label>
+                </div>
+              ))}
+            </RadioGroup>
           </div>
           <div className="grid gap-1">
             <Label htmlFor={ids.factor}>{t("held.settings.factor")}</Label>
@@ -462,11 +580,24 @@ function SettingsDialog({
                     <span className="text-muted-foreground">
                       {" · "}
                       {object.effective.enabled
-                        ? object.override.limitBytes
-                          ? t("held.settings.objectLimit", {
-                              limit: formatBytes(object.override.limitBytes, language),
-                            })
-                          : t("held.settings.objectOwn")
+                        ? [
+                            object.override.limitBytes
+                              ? t("held.settings.objectLimit", {
+                                  limit: formatBytes(object.override.limitBytes, language),
+                                })
+                              : object.override.mode === undefined
+                                ? t("held.settings.objectOwn")
+                                : null,
+                            object.override.mode === undefined
+                              ? null
+                              : t(
+                                  object.override.mode === "hold"
+                                    ? "held.settings.objectHold"
+                                    : "held.settings.objectWarn",
+                                ),
+                          ]
+                            .filter(Boolean)
+                            .join(", ")
                         : t("held.settings.objectOff")}
                     </span>
                   </span>
@@ -495,6 +626,7 @@ function SettingsDialog({
               save.mutate({
                 override: {
                   enabled: form.on,
+                  mode: form.mode,
                   factor,
                   minGib: minGib ?? 0,
                   firstRunGib,

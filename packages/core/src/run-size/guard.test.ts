@@ -3,6 +3,7 @@ import {
   DEFAULT_RUN_SIZE_GUARD,
   DEFAULT_RUN_SPACE_RULE,
   describeRunSizeHold,
+  describeRunSizeNotice,
   judgeRunSize,
   keepFreeBytes,
   median,
@@ -58,6 +59,21 @@ describe("the run size guard (#99)", () => {
     expect(
       runSizeLimit(resolveRunSizeGuard(null, { enabled: false }), [GIB, GIB, GIB]),
     ).toMatchObject({ limitBytes: null, basis: "off" });
+  });
+
+  it("warns by default; `hold` is set per tenant or object, anything else is ignored (#99)", () => {
+    expect(DEFAULT_RUN_SIZE_GUARD.mode).toBe("warn");
+    expect(resolveRunSizeGuard().mode).toBe("warn");
+    expect(resolveRunSizeGuard({ mode: "hold" }).mode).toBe("hold");
+    expect(resolveRunSizeGuard({ mode: "hold" }, { mode: "warn" }).mode).toBe("warn");
+    expect(parseRunSizeOverride({ mode: "stop" })).toEqual({});
+    expect(
+      describeRunSizeNotice("fileserver", {
+        bytes: 21 * GIB,
+        limitBytes: 20 * GIB,
+        medianBytes: 2 * GIB,
+      }),
+    ).toContain("21.0 GiB, more than its limit of 20.0 GiB, usually 2.0 GiB. It goes on.");
   });
 
   it("layers the tenant's settings over the defaults and the object's over the tenant's", () => {
