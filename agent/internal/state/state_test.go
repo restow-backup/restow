@@ -61,6 +61,40 @@ func TestSaveLoadRoundTripAndModes(t *testing.T) {
 	}
 }
 
+// CheckWritable leaves an existing state as it is and no file behind; a
+// folder that cannot be created is an error (K113).
+func TestCheckWritable(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "state")
+	path := filepath.Join(dir, "state.json")
+	if err := CheckWritable(path); err != nil {
+		t.Fatal(err)
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+		t.Fatalf("left behind: %v", entries)
+	}
+	if err := sample().Save(path); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(path)
+	if err := CheckWritable(path); err != nil {
+		t.Fatal(err)
+	}
+	after, _ := os.ReadFile(path)
+	if string(before) != string(after) {
+		t.Fatal("the existing state was changed")
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 1 {
+		t.Fatalf("left behind: %v", entries)
+	}
+	blocked := filepath.Join(t.TempDir(), "state")
+	if err := os.WriteFile(blocked, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := CheckWritable(filepath.Join(blocked, "state.json")); err == nil {
+		t.Fatal("a state folder that cannot be created was accepted")
+	}
+}
+
 func TestLoadNotEnrolled(t *testing.T) {
 	_, _, err := Load(filepath.Join(t.TempDir(), "state.json"))
 	if !errors.Is(err, ErrNotEnrolled) {

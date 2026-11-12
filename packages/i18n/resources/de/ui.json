@@ -140,7 +140,7 @@
     "yesterday": "Gestern",
     "count": "{count, plural, one {# Sicherungsstand} other {# Sicherungsstände}}",
     "jump": "Zu Datum springen",
-    "jumpHint": "Tage mit Sicherungsständen sind hervorgehoben. Ein Tag ohne Sicherungsstand öffnet den nächstfrüheren Tag.",
+    "jumpHint": "Tage mit Sicherungsständen sind mit einem Punkt markiert. Ein Tag ohne Sicherungsstand öffnet den nächstfrüheren Tag.",
     "jumped": "Angezeigt werden die Sicherungsstände vom {day}.",
     "jumpedEarlier": "Am {date} gibt es keinen Sicherungsstand. Angezeigt wird der nächstfrühere Tag, {day}."
   },

@@ -43,7 +43,7 @@ backup)
   printf '%s\n' "$@" > "$FAKE_DIR/backup-args.txt"
   prev=""
   for a in "$@"; do
-    if [ "$prev" = "--exclude-file" ] || [ "$prev" = "--iexclude-file" ]; then cp "$a" "$FAKE_DIR/excludes.txt"; fi
+    if [ "$prev" = "--exclude-file" ] || [ "$prev" = "--iexclude-file" ]; then cat "$a" >> "$FAKE_DIR/excludes.txt"; fi
     if [ "$prev" = "--files-from-raw" ]; then tr '\000' '\n' < "$a" > "$FAKE_DIR/paths.txt"; fi
     prev="$a"
   done
@@ -62,6 +62,31 @@ backup)
     if [ -n "$vss" ]; then
       printf '%s\n' '{"message_type":"error","error":{"message":"failed to create snapshot for [c:\\]: VSS error: VSS_E_SNAPSHOT_SET_IN_PROGRESS"},"during":"archival","item":"c:\\"}' >&2
     fi ;;
+  vss-disabled)
+    # The Volume Shadow Copy service is disabled: restic 0.19.1 reports every
+    # volume (InitializeForBackup, ERROR_SERVICE_DISABLED) and ends with exit 0.
+    if [ -n "$vss" ]; then
+      printf '%s\n' '{"message_type":"error","error":{"message":"failed to create snapshot for [c:\\]: VSS error: InitializeForBackup() failed: UNKNOWN (0x80070422)"},"during":"archival","item":"c:\\"}' >&2
+      printf '%s\n' '{"message_type":"error","error":{"message":"failed to create snapshot for [d:\\]: VSS error: InitializeForBackup() failed: UNKNOWN (0x80070422)"},"during":"archival","item":"d:\\"}' >&2
+    fi ;;
+  vss-denied-wait|vss-disabled-wait)
+    if [ -n "$vss" ]; then
+      trap 'kill $pid 2>/dev/null; echo interrupted >&2; exit 130' INT
+      if [ "$FAKE_BACKUP" = vss-denied-wait ]; then
+        printf '%s\n' '{"message_type":"error","error":{"message":"failed to create snapshot for [c:\\]: VSS error: InitializeForBackup() failed: E_ACCESSDENIED (0x80070005)"},"during":"archival","item":"c:\\"}' >&2
+      else
+        printf '%s\n' '{"message_type":"error","error":{"message":"failed to create snapshot for [c:\\]: VSS error: InitializeForBackup() failed: UNKNOWN (0x80070422)"},"during":"archival","item":"c:\\"}' >&2
+      fi
+      sleep 30 &
+      pid=$!
+      wait
+    fi ;;
+  vss-mount-props)
+    # restic 0.19.1 made the shadow copy of a volume mounted at c:\data\archive\
+    # but cannot use it (GetSnapshotProperties): it reads that folder live, exit 0.
+    if [ -n "$vss" ]; then
+      printf '%s\n' '{"message_type":"error","error":{"message":"VSS error: GetSnapshotProperties() for mount point c:\\data\\archive\\ returned error: %!(EXTRA *ole.OleError=Exception occurred.)"},"during":"archival","item":"c:\\data\\archive\\"}' >&2
+    fi ;;
   vss-cleanup)
     if [ -n "$vss" ]; then
       printf '%s\n' '{"message_type":"error","error":{"message":"failed to delete VSS snapshot: VSS error: busy"},"during":"archival","item":"c:\\"}' >&2
@@ -74,11 +99,45 @@ backup)
       pid=$!
       wait
     fi ;;
+  vss-failed-finished)
+    # restic had saved its snapshot when the agent's interrupt after the VSS
+    # error line arrived: it writes the summary and exits 0 (K104).
+    if [ -n "$vss" ]; then
+      finish() { kill $pid 2>/dev/null; echo '{"message_type":"summary","files_new":2,"files_changed":1,"files_unmodified":0,"data_added":4096,"total_files_processed":3,"total_bytes_processed":300,"snapshot_id":"dddd000000000000000000000000000000000000000000000000000000000000"}'; exit 0; }
+      trap finish INT
+      printf '%s\n' '{"message_type":"error","error":{"message":"failed to create snapshot for [c:\\]: VSS error: timeout"},"during":"archival","item":"c:\\"}' >&2
+      sleep 30 &
+      pid=$!
+      wait
+    fi ;;
   vss-unusable)
     if [ -n "$vss" ]; then
       printf '%s\n' '{"message_type":"exit_error","code":1,"message":"Fatal: VSS error: CoInitializeSecurity failed: E_ACCESSDENIED"}' >&2
       exit 1
     fi ;;
+  vss-unusable-then-fail)
+    if [ -n "$vss" ]; then
+      printf '%s\n' '{"message_type":"exit_error","code":1,"message":"Fatal: VSS error: CoInitializeSecurity failed: E_ACCESSDENIED"}' >&2
+    else
+      echo 'Fatal: unable to open repository at rest:https://x/: Head "https://x/config": dial tcp 10.0.0.5:443: connect: connection refused' >&2
+    fi
+    exit 1 ;;
+  net-once)
+    # The REST server is briefly unreachable while restic opens the repository.
+    if [ ! -f "$FAKE_DIR/net-once" ]; then
+      : > "$FAKE_DIR/net-once"
+      echo 'Fatal: unable to open config file: Stat: Get "https://x/config": dial tcp 10.0.0.5:443: i/o timeout' >&2
+      exit 1
+    fi ;;
+  net-flaky)
+    # Two different network texts on two calls.
+    if [ ! -f "$FAKE_DIR/net-flaky" ]; then
+      : > "$FAKE_DIR/net-flaky"
+      echo 'Fatal: unable to open repository at rest:https://x/: dial tcp 10.0.0.5:443: connect: connection refused' >&2
+    else
+      echo 'Fatal: unable to open config file: Stat: Get "https://x/config": dial tcp 10.0.0.5:443: i/o timeout' >&2
+    fi
+    exit 1 ;;
   odd-once)
     if [ -n "$vss" ]; then echo 'Fatal: something odd' >&2; exit 1; fi ;;
   odd-always)
@@ -95,6 +154,10 @@ backup)
     echo '{"message_type":"error","error":{"message":"permission denied"},"during":"archival","item":"/root/secret"}'
     echo '{"message_type":"summary","files_new":2,"files_changed":0,"files_unmodified":1,"data_added":100,"total_files_processed":3,"total_bytes_processed":300,"snapshot_id":"bbbb000000000000000000000000000000000000000000000000000000000000"}'
     exit 3 ;;
+  link-only)
+    # The source was a link restic did not follow: a snapshot without a file.
+    echo '{"message_type":"summary","files_new":0,"files_changed":0,"files_unmodified":0,"data_added":120,"total_files_processed":0,"total_bytes_processed":0,"snapshot_id":"cccc000000000000000000000000000000000000000000000000000000000000"}'
+    exit 0 ;;
   partial-many)
     i=0
     while [ $i -lt 130 ]; do
@@ -119,18 +182,21 @@ ls)
   exit 0 ;;
 restore)
   printf '%s\n' "$@" > "$FAKE_DIR/restore-args.txt"
-  target=""; prev=""
+  target=""; prev=""; sub=""
   for a in "$@"; do
     if [ "$prev" = "--target" ]; then target="$a"; fi
+    # snapshotID:/folder restores that folder as the root of the target, and
+    # the includes are relative to it.
+    case "$a" in -*) ;; *:/*) sub="${a#*:}" ;; esac
     prev="$a"
   done
   prev=""
   for a in "$@"; do
     if [ "$prev" = "--include" ] && [ -n "$FAKE_RESTORE_SRC" ]; then
       p=$(printf '%s' "$a" | sed 's/\\\(.\)/\1/g')
-      if [ -f "$FAKE_RESTORE_SRC$p" ]; then
+      if [ -f "$FAKE_RESTORE_SRC$sub$p" ]; then
         mkdir -p "$target$(dirname "$p")"
-        cp "$FAKE_RESTORE_SRC$p" "$target$p"
+        cp "$FAKE_RESTORE_SRC$sub$p" "$target$p"
       fi
     fi
     prev="$a"
@@ -180,6 +246,8 @@ type harness struct {
 	// noHistory leaves the scheduler without a last attempt, so a scheduled
 	// backup is due at once (interval and on_connect kinds).
 	noHistory bool
+	// sql is Deps.SQL (nil: the system's, which is none outside Windows).
+	sql func() (*SQLSupport, error)
 
 	cancel context.CancelFunc
 	done   chan error
@@ -256,7 +324,7 @@ func (h *harness) build() {
 	h.agent = New(Deps{
 		Layout: h.layout, State: st, Server: client, Restic: runner, Status: store, Logger: logging.Discard(),
 		Power: h.powerFn, BinDir: h.binDir, UpdateKey: h.updateKey, Uninstall: h.uninst,
-		Machine: h.machineFn(),
+		Machine: h.machineFn(), SQL: h.sql,
 	}, Options{
 		HeartbeatInterval: 40 * time.Millisecond, HeartbeatRetryBase: 30 * time.Millisecond, HeartbeatJitter: time.Nanosecond, Tick: 15 * time.Millisecond,
 		ConfigRefresh: time.Hour, ProgressInterval: 20 * time.Millisecond, SampleTimeout: 30 * time.Second, PauseRecheck: 20 * time.Millisecond,

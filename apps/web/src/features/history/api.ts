@@ -85,6 +85,11 @@ export interface Run {
   state: RunState;
   checkIncomplete: boolean;
   /**
+   * The rating a finished mail restore check recorded: red reads as failed, yellow as partial
+   * (the state says so too). Missing on servers before 0.5.0.
+   */
+  checkReadiness?: "green" | "yellow" | "red" | null;
+  /**
    * A failed run that Microsoft Graph or the storage held back (throttled, unavailable): no
    * fault of the object, the next run tries again. Missing on servers before 0.4.7.
    */
@@ -215,6 +220,11 @@ export interface RunDetail extends Run {
   errors: RunError[];
   errorCount: number;
   logTail: string | null;
+  /**
+   * A restore that read the repository from another storage target than the primary (a copy
+   * target's repository copy): which one. Absent from an older server.
+   */
+  readFrom?: { targetId: string; targetName: string | null; role: string } | null;
   docsUrl: string;
 }
 

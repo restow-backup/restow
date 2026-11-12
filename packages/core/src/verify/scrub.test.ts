@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { ChunkReader } from "../engine/chunkstore.js";
-import { packPrefix } from "../engine/layout.js";
+import { manifestKey, packPrefix } from "../engine/layout.js";
 import { noopLogger } from "../engine/logger.js";
 import { SnapshotWriter } from "../engine/snapshot.js";
 import type { ChunkIndex, ChunkLocation } from "../engine/types.js";
@@ -14,7 +14,13 @@ import {
 } from "./gc.js";
 import { sampleSizeFor, selectPacks } from "./integrity.js";
 import { seededRandom } from "./random.js";
-import { runScrub, type ScrubOptions, type ScrubReport, scrubFindingDetails } from "./scrub.js";
+import {
+  findMissingManifests,
+  runScrub,
+  type ScrubOptions,
+  type ScrubReport,
+  scrubFindingDetails,
+} from "./scrub.js";
 import {
   createStoreFixture,
   fixtureBytes,
@@ -120,7 +126,7 @@ describe("scrub integrity", () => {
     expect(report.gc).toEqual({ status: "skipped", reason: "disabled" });
   });
 
-  it("detects a corrupted pack and names the cause", async () => {
+  it("detects a corrupted pack and names the cause [SCRUB-002]", async () => {
     const fixture = await scrubFixture();
     const [victim] = await packKeys(fixture);
     fixture.primary.flipByte(victim as string, 200);
@@ -155,7 +161,7 @@ describe("scrub integrity", () => {
     expect(await packKeys(fixture)).toEqual([victim]);
   });
 
-  it("marks proven damage, lets the next backup write the content again and retires the healed pack", async () => {
+  it("marks proven damage, lets the next backup write the content again and retires the healed pack [SCRUB-005]", async () => {
     const fixture = await scrubFixture();
     const [victim] = await packKeys(fixture);
     fixture.primary.flipByte(victim as string, 200);
@@ -207,7 +213,7 @@ describe("scrub integrity", () => {
     expect((await fixture.catalog.listPacks()).every((pack) => !pack.damagedAt)).toBe(true);
   });
 
-  it("repairs a damaged primary from an intact copy", async () => {
+  it("repairs a damaged primary from an intact copy [SCRUB-003]", async () => {
     const fixture = await scrubFixture(1);
     const [victim] = await packKeys(fixture);
     const intact = await fixture.copies[0]?.get(victim as string);
@@ -223,7 +229,7 @@ describe("scrub integrity", () => {
     expect((await fixture.primary.get(victim as string)).equals(intact as Buffer)).toBe(true);
   });
 
-  it("restores a pack that vanished from the copy", async () => {
+  it("restores a pack that vanished from the copy [SCRUB-003]", async () => {
     const fixture = await scrubFixture(1);
     const [victim] = await packKeys(fixture);
     await fixture.copies[0]?.delete(victim as string);
@@ -233,7 +239,7 @@ describe("scrub integrity", () => {
     expect(await fixture.copies[0]?.head(victim as string)).not.toBeNull();
   });
 
-  it("reports a pack missing everywhere as corrupt", async () => {
+  it("reports a pack missing everywhere as corrupt [SCRUB-002]", async () => {
     const fixture = await scrubFixture();
     const [victim] = await packKeys(fixture);
     await fixture.primary.delete(victim as string);
@@ -241,7 +247,7 @@ describe("scrub integrity", () => {
     expect(report.corrupt[0]?.targets[0]).toMatchObject({ status: "missing" });
   });
 
-  it("detects a truncated pack", async () => {
+  it("detects a truncated pack [SCRUB-002]", async () => {
     const fixture = await scrubFixture();
     const [victim] = await packKeys(fixture);
     const bytes = await fixture.primary.get(victim as string);
@@ -250,7 +256,7 @@ describe("scrub integrity", () => {
     expect(report.corrupt[0]?.targets[0]).toMatchObject({ status: "size_mismatch" });
   });
 
-  it("detects drift between the chunk index and the pack", async () => {
+  it("detects drift between the chunk index and the pack [SCRUB-002]", async () => {
     const fixture = await scrubFixture();
     const [id, entry] = [...fixture.index.chunks.entries()][0] ?? [];
     fixture.index.chunks.set(id as string, { ...(entry as NonNullable<typeof entry>), offset: 3 });
@@ -259,7 +265,7 @@ describe("scrub integrity", () => {
     expect(report.corrupt[0]?.targets[0]).toMatchObject({ status: "index_mismatch" });
   });
 
-  it("samples a share of the packs and always re-checks known damage", async () => {
+  it("samples a share of the packs and always re-checks known damage [SCRUB-001]", async () => {
     const packs: CatalogPack[] = Array.from({ length: 400 }, (_, i) => ({
       id: `p${i}`,
       path: `tenants/t/packs/00/p${i}`,
@@ -297,7 +303,7 @@ describe("scrub garbage collection", () => {
     return released;
   }
 
-  it("re-packs unreferenced chunks into new packs and keeps every live object restorable", async () => {
+  it("re-packs unreferenced chunks into new packs and keeps every live object restorable [SCRUB-006]", async () => {
     const fixture = await scrubFixture();
     const released = await releaseEveryOther(fixture);
     const live = fixture.objects.filter(
@@ -722,5 +728,71 @@ describe("scrubFindingDetails", () => {
       reasons: [{ code: "storage_corrupt", severity: "red", count: 1 }],
       packs: [{ path: "tenants/t/packs/ab/p1" }],
     });
+  });
+});
+
+describe("findMissingManifests", () => {
+  async function twoSnapshots() {
+    const fixture = createStoreFixture({ copies: 1 });
+    const first = await writeSnapshot(fixture, mailboxItems(2));
+    const second = await writeSnapshot(fixture, mailboxItems(3));
+    const manifests = [first, second].map((snapshot) => ({
+      snapshotId: snapshot.snapshotId,
+      protectedObjectId: fixture.protectedObject.id,
+      path: manifestKey(fixture.ctx.tenantId, snapshot.snapshotId),
+    }));
+    return { fixture, manifests, targets: [fixture.primary, ...fixture.copies] };
+  }
+
+  it("names a manifest no target has while the targets hold the tenant's other manifests [SCRUB-007]", async () => {
+    const { fixture, manifests, targets } = await twoSnapshots();
+    for (const target of targets) {
+      await target.delete(manifests[1]?.path as string);
+    }
+    const presence = await findMissingManifests(fixture.storage, fixture.ctx.tenantId, manifests);
+    expect(presence).toEqual({ checked: 2, missing: [manifests[1]], unknown: 0 });
+  });
+
+  it("finds nothing missing when one target still has the manifest", async () => {
+    const { fixture, manifests } = await twoSnapshots();
+    await fixture.primary.delete(manifests[1]?.path as string);
+    const presence = await findMissingManifests(fixture.storage, fixture.ctx.tenantId, manifests);
+    expect(presence.missing).toEqual([]);
+  });
+
+  it("proves nothing on an emptied target or one that cannot be asked [READY-007]", async () => {
+    const emptied = await twoSnapshots();
+    for (const target of emptied.targets) {
+      for (const manifest of emptied.manifests) {
+        await target.delete(manifest.path);
+      }
+    }
+    expect(
+      await findMissingManifests(
+        emptied.fixture.storage,
+        emptied.fixture.ctx.tenantId,
+        emptied.manifests,
+      ),
+    ).toEqual({ checked: 2, missing: [], unknown: 2 });
+
+    const unreachable = await twoSnapshots();
+    const copy = unreachable.fixture.copies[0] as MemoryStorage;
+    copy.head = async () => {
+      throw Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" });
+    };
+    await unreachable.fixture.primary.delete(unreachable.manifests[1]?.path as string);
+    const presence = await findMissingManifests(
+      unreachable.fixture.storage,
+      unreachable.fixture.ctx.tenantId,
+      unreachable.manifests,
+    );
+    expect(presence.missing).toEqual([]);
+    expect(presence.unknown).toBeGreaterThan(0);
+  });
+
+  it("rates the object red with the missing manifests named", () => {
+    const details = scrubFindingDetails("job", [], [], [{ snapshotId: "s2", path: "m2" }]);
+    expect(details.reasons).toEqual([{ code: "manifest_missing", severity: "red", count: 1 }]);
+    expect(details.manifests).toEqual([{ snapshotId: "s2", path: "m2" }]);
   });
 });

@@ -13,6 +13,23 @@ import {
 } from "../../middleware/session.js";
 import { ProblemError } from "../../problem.js";
 import { parseJsonBody, parseOrProblem, readJsonBody } from "../../schemas.js";
+import { logoBody } from "../branding/routes.js";
+import {
+  deleteTenantLogo,
+  getTenantBranding,
+  putTenantBranding,
+  putTenantLogo,
+  tenantBrandingInputSchema,
+} from "../branding/service.js";
+import {
+  customerReportPreviewSchema,
+  customerReportUpdateSchema,
+  getCustomerReport,
+  previewCustomerReport,
+  previewCustomerReportPdf,
+  putCustomerReport,
+  sendCustomerReportTest,
+} from "../reports/customer-report.js";
 import {
   getTenantPricing,
   TENANT_PRICING_FEATURE,
@@ -75,8 +92,9 @@ import {
  * A tenant's own prices (0.4.8, settings/tenant-pricing.ts):
  *
  *   GET    /:id/pricing    the installation's prices, the tenant's own and what applies
- *   PUT    /:id/pricing    body `{ mailboxPrice?, storagePrice? }`, a number sets and null removes
- *                          the tenant's own price; the owner only, audited, refused (403
+ *   PUT    /:id/pricing    body `{ mailboxPrice?, storagePrice?, serverPrice?, clientPrice?,
+ *                          vmPrice?, containerPrice?, fileSharePrice? }`, a number sets and null
+ *                          removes the tenant's own price; the owner only, audited, refused (403
  *                          feature-unavailable) while `tenants.additional` is closed
  */
 
@@ -195,6 +213,70 @@ tenantsRoutes.put("/:id/notification-recipients", requireSession, async (c) => {
   const tenant = await tenantForAdmin(c);
   const recipients = await parseJsonBody(c.req, replaceNotificationRecipientsSchema);
   return c.json(await replaceTenantNotificationRecipients(db, tenant.id, recipients, actorOf(c)));
+});
+
+// --- The tenant's own branding (0.5.0, features/branding; Service Provider) ------------------
+// The provider's admins set it up; the tenant's own admins never see it.
+
+tenantsRoutes.get("/:id/branding", requireProviderAdmin, async (c) => {
+  const { id } = parseOrProblem(tenantIdParamSchema, c.req.param());
+  return c.json(await getTenantBranding(providerDb, id));
+});
+
+tenantsRoutes.put("/:id/branding", requireProviderAdmin, async (c) => {
+  const { id } = parseOrProblem(tenantIdParamSchema, c.req.param());
+  await requireFeature("branding.tenant", providerDb);
+  const input = await parseJsonBody(c.req, tenantBrandingInputSchema);
+  return c.json(await putTenantBranding(db, providerDb, id, input, actorOf(c)));
+});
+
+tenantsRoutes.put("/:id/branding/logo", requireProviderAdmin, async (c) => {
+  const { id } = parseOrProblem(tenantIdParamSchema, c.req.param());
+  await requireFeature("branding.tenant", providerDb);
+  const { bytes, type } = await logoBody(c);
+  return c.json(await putTenantLogo(db, providerDb, id, bytes, type, actorOf(c)));
+});
+
+tenantsRoutes.delete("/:id/branding/logo", requireProviderAdmin, async (c) => {
+  const { id } = parseOrProblem(tenantIdParamSchema, c.req.param());
+  await deleteTenantLogo(db, providerDb, id, actorOf(c));
+  return c.body(null, 204);
+});
+
+// --- The customer monthly report (0.5.0, features/reports/customer-report.ts; Service Provider)
+
+tenantsRoutes.get("/:id/customer-report", requireProviderAdmin, async (c) => {
+  const { id } = parseOrProblem(tenantIdParamSchema, c.req.param());
+  return c.json(await getCustomerReport(db, providerDb, id));
+});
+
+tenantsRoutes.put("/:id/customer-report", requireProviderAdmin, async (c) => {
+  const { id } = parseOrProblem(tenantIdParamSchema, c.req.param());
+  await requireFeature("reports.customer", providerDb);
+  const input = await parseJsonBody(c.req, customerReportUpdateSchema);
+  return c.json(await putCustomerReport(db, providerDb, id, input, actorOf(c)));
+});
+
+tenantsRoutes.get("/:id/customer-report/preview", requireProviderAdmin, async (c) => {
+  const { id } = parseOrProblem(tenantIdParamSchema, c.req.param());
+  const query = parseOrProblem(customerReportPreviewSchema, c.req.query());
+  return c.json(await previewCustomerReport(db, providerDb, id, query));
+});
+
+tenantsRoutes.get("/:id/customer-report/preview.pdf", requireProviderAdmin, async (c) => {
+  const { id } = parseOrProblem(tenantIdParamSchema, c.req.param());
+  const query = parseOrProblem(customerReportPreviewSchema, c.req.query());
+  const { fileName, pdf } = await previewCustomerReportPdf(db, providerDb, id, query);
+  return c.body(new Uint8Array(pdf), 200, {
+    "Content-Type": "application/pdf",
+    "Content-Disposition": `inline; filename="${fileName}"`,
+    "Cache-Control": "private, no-store",
+  });
+});
+
+tenantsRoutes.post("/:id/customer-report/test", requireProviderAdmin, async (c) => {
+  const { id } = parseOrProblem(tenantIdParamSchema, c.req.param());
+  return c.json(await sendCustomerReportTest(db, providerDb, id, actorOf(c)), 202);
 });
 
 // --- The tenant's own prices (settings/tenant-pricing.ts) ----------------------

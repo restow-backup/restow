@@ -11,9 +11,10 @@ import { guestTo } from "@/features/pve/paths";
 import { RESTORE_PATHS } from "@/features/restore/navigation";
 import { sourceDetailTo } from "@/features/sources/paths";
 import { verifyReportTo } from "@/features/verify/paths";
+import { WARNINGS_PATH } from "@/features/warnings/paths";
 import { tenantPagePath } from "@/lib/tenant-paths";
 
-import type { BellNotification } from "./api";
+import { type BellNotification, DELIVERY_FAILED_EVENT } from "./api";
 import { REPORTS_PATH } from "./paths";
 
 /**
@@ -42,15 +43,33 @@ export function notificationTarget(
   viewer: TargetViewer,
 ): NotificationTarget | null {
   const details = item.details ?? {};
+  if (item.event === DELIVERY_FAILED_EVENT) {
+    return deliveryFailureTarget(item, details, viewer);
+  }
   if (item.event.startsWith("update.")) {
     return viewer.isProviderAdmin
       ? { to: installationSectionPath("updates"), tenantId: null }
       : null;
   }
-  // A move of the database and a disk running low: Installation > Database.
-  if (item.event.startsWith("database.") || item.event === "installation.disk_low") {
+  // A move of the database, a disk running low and the emergency disk reserve: Installation >
+  // Database.
+  if (
+    item.event.startsWith("database.") ||
+    item.event === "installation.disk_low" ||
+    item.event.startsWith("installation.disk_reserve_")
+  ) {
     return viewer.isProviderAdmin
       ? { to: installationSectionPath("database"), tenantId: null }
+      : null;
+  }
+  // Restore mode after restoring a database dump, and a wrapped key that differs: Installation >
+  // Restore mode.
+  if (
+    item.event === "installation.restore_mode" ||
+    item.event === "installation.key_mirror_conflict"
+  ) {
+    return viewer.isProviderAdmin
+      ? { to: installationSectionPath("restore-mode"), tenantId: null }
       : null;
   }
   // The central Microsoft 365 app's credential runs out: Installation > Microsoft 365 app.
@@ -83,6 +102,12 @@ export function notificationTarget(
         : String(sourceDetailTo(sourceId)),
     );
   }
+  // A backup held as unusually large (#99): Warnings, where it is decided.
+  // A large run that went on (#99, `warn`): Warnings as well, where the notice can switch its
+  // object to holding such runs.
+  if (item.event === "backup.unusually_large" || item.event === "backup.unusually_large_notice") {
+    return at(WARNINGS_PATH);
+  }
   // A server or client: its own page says what happened and what to do.
   const endpointId = text(details.endpointId);
   if (endpointId) {
@@ -106,7 +131,9 @@ export function notificationTarget(
   // An alert of the archive capture: the archive page at the section that shows it.
   if (item.event === "archive.failed") {
     const section =
-      details.reason === "capture_error"
+      details.reason === "capture_error" ||
+      details.reason === "backfill_stalled" ||
+      details.reason === "capture_gap"
         ? CAPTURE_SECTION_ANCHOR
         : details.reason === "forward_stale"
           ? FORWARDING_SECTION_ANCHOR
@@ -135,4 +162,37 @@ export function notificationTarget(
     return at("/verify?state=red");
   }
   return null;
+}
+
+/**
+ * A notification that could not be delivered (0.5.0) leads to the channel that failed: the
+ * webhook's page, the tenant's recipients, the provider's recipients, or the notification mail
+ * itself when the transport as a whole is down. The installation's pages are for provider
+ * administrators only.
+ */
+function deliveryFailureTarget(
+  item: Pick<BellNotification, "tenantId">,
+  details: Record<string, unknown>,
+  viewer: TargetViewer,
+): NotificationTarget | null {
+  const scope = text(details.scope);
+  const audience = text(details.audience) ?? (item.tenantId ? "tenant" : "provider");
+  const tenantId = item.tenantId;
+  if (scope === "transport") {
+    return viewer.isProviderAdmin ? { to: installationSectionPath("mail"), tenantId: null } : null;
+  }
+  const webhookId = text(details.webhookId);
+  if (scope === "webhook" || webhookId) {
+    if (!viewer.canManage || !tenantId || !webhookId) return null;
+    return {
+      to: tenantPagePath(tenantId, "integrations", "webhooks", webhookId),
+      tenantId,
+    };
+  }
+  if (audience === "provider" || !tenantId) {
+    return viewer.isProviderAdmin
+      ? { to: installationSectionPath("notifications"), tenantId: null }
+      : null;
+  }
+  return viewer.canManage ? { to: tenantPagePath(tenantId, "notifications"), tenantId } : null;
 }

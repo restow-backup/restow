@@ -63,7 +63,11 @@ import {
   tenantRunner,
   type WorkerJobContext,
 } from "./framework.js";
-import { hasActiveMigration, storageMigrationHandler } from "./storage-migration.js";
+import {
+  hasActiveMigration,
+  repositoryStructureCheck,
+  storageMigrationHandler,
+} from "./storage-migration.js";
 
 const adminUrl = process.env.RESTOW_TEST_DATABASE_URL;
 const TEST_DB = "restow_worker_storage_migration_test";
@@ -401,7 +405,13 @@ describe.skipIf(!adminUrl)("storageMigrationHandler against Postgres", () => {
         snapshot: () => ({ total: 0, done: 0, failed: 0, bytes: 0, phase: null, etaSeconds: null }),
         flush: async () => {},
       },
-      cursor: { load: async () => null, save: async () => {}, clear: async () => {} },
+      cursor: {
+        load: async () => null,
+        save: async () => {},
+        clear: async () => {},
+        loadEntries: async () => ({}),
+        putEntries: async () => {},
+      },
       logger: noopLogger,
       signal: new AbortController().signal,
       now: () => new Date("2026-09-24T10:00:00.000Z"),
@@ -1501,5 +1511,155 @@ describe.skipIf(!adminUrl)("storageMigrationHandler against Postgres", () => {
       .from(storageTargets)
       .where(eq(storageTargets.tenantId, tenantId));
     expect(rows.find((r) => r.id === source.id)?.role).toBe("primary");
+  });
+  it("collects both halves of a repository a switch split, from the primary and a retired target", async () => {
+    const tenantId = await createTenant();
+    const sourceDir = join(root, `source-${tenantId}`);
+    const retiredDir = join(root, `retired-${tenantId}`);
+    const destDir = join(root, `dest-${tenantId}`);
+    const sourceBackend = new LocalStorageBackend(sourceDir);
+    const retiredBackend = new LocalStorageBackend(retiredDir);
+    const source = await addTarget(tenantId, "primary", sourceDir);
+    await db.insert(storageTargets).values({
+      tenantId,
+      kind: "local",
+      role: "previous",
+      config: { basePath: retiredDir },
+    });
+    const destination = await addTarget(tenantId, "copy", destDir);
+    const repos = await seedRepositories(tenantId);
+    // The run's first files on the primary (config, key, a pack), the rest on the retired target.
+    await sourceBackend.put(`${repos.container}config`, Buffer.from("config split"));
+    const early = [
+      `${repos.container}config`,
+      await resticFile(sourceBackend, repos.container, "keys", "key split"),
+      await resticFile(sourceBackend, repos.container, "data", "early pack"),
+    ];
+    const late = [
+      await resticFile(retiredBackend, repos.container, "data", "late pack"),
+      await resticFile(retiredBackend, repos.container, "index", "index split"),
+      await resticFile(retiredBackend, repos.container, "snapshots", "snapshot split"),
+    ];
+    for (const prefix of [repos.retiredOnly, repos.machine, repos.share]) {
+      await resticRepository(sourceBackend, prefix, prefix);
+    }
+    const migration = await addMigration(tenantId, source.id, destination.id);
+
+    const ctx = await contextFor(tenantId, migration.id);
+    const outcome = await storageMigrationHandler.run(ctx, payloadFor(tenantId, migration.id));
+    expect(outcome?.summary).toMatchObject({ status: "completed" });
+    const destBackend = new LocalStorageBackend(destDir);
+    for (const key of [...early, ...late]) {
+      expect(await destBackend.head(key), key).not.toBeNull();
+    }
+  });
+
+  it("refuses to switch while a created repository cannot be copied whole", async () => {
+    const tenantId = await createTenant();
+    const sourceDir = join(root, `source-${tenantId}`);
+    const destDir = join(root, `dest-${tenantId}`);
+    const sourceBackend = new LocalStorageBackend(sourceDir);
+    const source = await addTarget(tenantId, "primary", sourceDir);
+    const destination = await addTarget(tenantId, "copy", destDir);
+    const repos = await seedRepositories(tenantId);
+    for (const prefix of [repos.retiredOnly, repos.machine, repos.share]) {
+      await resticRepository(sourceBackend, prefix, prefix);
+    }
+    // CT 109 on NFW-01: data, index and a snapshot, its config and keys on no target.
+    await resticFile(sourceBackend, repos.container, "data", "pack without config");
+    await resticFile(sourceBackend, repos.container, "snapshots", "snapshot without config");
+    const migration = await addMigration(tenantId, source.id, destination.id);
+
+    const ctx = await contextFor(tenantId, migration.id);
+    await expect(
+      storageMigrationHandler.run(ctx, payloadFor(tenantId, migration.id)),
+    ).rejects.toThrow();
+    const [failed] = await db
+      .select()
+      .from(storageMigrations)
+      .where(eq(storageMigrations.id, migration.id));
+    expect(failed?.status).toBe("failed");
+    expect(failed?.errorMessage).toContain(`${repos.container} (container`);
+    expect(failed?.errorMessage).toContain("data_only");
+    const rows = await db
+      .select()
+      .from(storageTargets)
+      .where(eq(storageTargets.tenantId, tenantId));
+    expect(rows.find((r) => r.id === source.id)?.role).toBe("primary");
+  });
+
+  it("refuses to switch when restic finds a copied repository incomplete on the destination", async () => {
+    const tenantId = await createTenant();
+    const sourceDir = join(root, `source-${tenantId}`);
+    const destDir = join(root, `dest-${tenantId}`);
+    const sourceBackend = new LocalStorageBackend(sourceDir);
+    const source = await addTarget(tenantId, "primary", sourceDir);
+    const destination = await addTarget(tenantId, "copy", destDir);
+    const repos = await seedRepositories(tenantId);
+    for (const prefix of [repos.container, repos.retiredOnly, repos.machine, repos.share]) {
+      await resticRepository(sourceBackend, prefix, prefix);
+    }
+    const migration = await addMigration(tenantId, source.id, destination.id);
+    const checked: string[] = [];
+    const original = repositoryStructureCheck.run;
+    repositoryStructureCheck.run = async (access) => {
+      checked.push(access.prefix);
+      if (access.prefix === repos.machine) {
+        throw new Error("pack 4711 is referenced by the index but not found");
+      }
+    };
+    try {
+      const ctx = {
+        ...(await contextFor(tenantId, migration.id)),
+        secrets: { get: async () => "repository-password" },
+      };
+      await expect(
+        storageMigrationHandler.run(ctx, payloadFor(tenantId, migration.id)),
+      ).rejects.toThrow();
+    } finally {
+      repositoryStructureCheck.run = original;
+    }
+    // Only the repositories with a password are checked: the machine's and the share's here.
+    expect(checked).toEqual(expect.arrayContaining([repos.machine]));
+    const [failed] = await db
+      .select()
+      .from(storageMigrations)
+      .where(eq(storageMigrations.id, migration.id));
+    expect(failed?.status).toBe("failed");
+    expect(failed?.errorMessage).toContain("restic found copied repositories incomplete");
+    expect(failed?.errorMessage).toContain("pack 4711");
+    const [still] = await db.select().from(storageTargets).where(eq(storageTargets.id, source.id));
+    expect(still?.role).toBe("primary");
+  });
+
+  it("refuses to switch while a machine enrolled during the migration backs up", async () => {
+    const tenantId = await createTenant();
+    const sourceDir = join(root, `source-${tenantId}`);
+    const destDir = join(root, `dest-${tenantId}`);
+    const source = await addTarget(tenantId, "primary", sourceDir);
+    const destination = await addTarget(tenantId, "copy", destDir);
+    await seedSource(tenantId, new LocalStorageBackend(sourceDir));
+    await db.insert(endpoints).values({
+      tenantId,
+      hostname: "late-enrolled",
+      os: "linux",
+      arch: "amd64",
+      profile: "server",
+      status: "active",
+      secretHash: "hash",
+      config: defaultEndpointConfig("linux", "server", { timeZone: "Europe/Berlin" }),
+    });
+    const migration = await addMigration(tenantId, source.id, destination.id);
+    const ctx = await contextFor(tenantId, migration.id);
+    await expect(
+      storageMigrationHandler.run(ctx, payloadFor(tenantId, migration.id)),
+    ).rejects.toThrow();
+    const [failed] = await db
+      .select()
+      .from(storageMigrations)
+      .where(eq(storageMigrations.id, migration.id));
+    expect(failed?.errorMessage).toContain("a machine was enrolled while this migration ran");
+    const [still] = await db.select().from(storageTargets).where(eq(storageTargets.id, source.id));
+    expect(still?.role).toBe("primary");
   });
 });

@@ -23,6 +23,7 @@ import (
 	"github.com/restow-backup/restow/agent/internal/release"
 	"github.com/restow-backup/restow/agent/internal/restic"
 	"github.com/restow-backup/restow/agent/internal/schedule"
+	"github.com/restow-backup/restow/agent/internal/sqlserver"
 	"github.com/restow-backup/restow/agent/internal/state"
 	"github.com/restow-backup/restow/agent/internal/status"
 	"github.com/restow-backup/restow/agent/internal/sysinfo"
@@ -131,6 +132,11 @@ type Deps struct {
 	// Machine looks at the machine (virtualization, desktop, data folders)
 	// for the heartbeat; nil selects sysinfo.DetectMachine.
 	Machine func() sysinfo.Machine
+	// SQL returns the native SQL Server backup of this machine (sql.go);
+	// nil selects the script runner and file system of the system, which
+	// exist on Windows only (sqlserver.ErrUnsupported elsewhere). Tests pass
+	// fakes.
+	SQL func() (*SQLSupport, error)
 }
 
 // machineRefresh is how long the facts of the machine are reused before the
@@ -142,9 +148,11 @@ const (
 	triggerTask     = "task"
 	triggerCLI      = "cli"
 
-	jobBackup  = "backup"
-	jobRestore = "restore"
-	jobVerify  = "verify_sample"
+	jobBackup     = "backup"
+	jobRestore    = "restore"
+	jobVerify     = "verify_sample"
+	jobSQLRestore = "sql_restore"
+	jobSQLVerify  = "sql_verify"
 )
 
 type job struct {
@@ -195,6 +203,26 @@ type Agent struct {
 	uninstall   bool
 	restart     bool
 	logSeen     map[string]time.Time
+	// machineSnap is the latest look at the machine for other goroutines
+	// (machine is the loop's own).
+	machineSnap *machineSnapshot
+
+	// The native SQL Server backup (sql.go): its support (looked up once),
+	// the cached inventory, when it was last collected, whether a fresh one
+	// waits for the heartbeat, and the single-flight state of a collection.
+	sqlOnce       sync.Once
+	sql           *SQLSupport
+	sqlInv        *sqlserver.Inventory
+	sqlInvAt      time.Time
+	sqlInvPending bool
+	// sqlInvGen counts changes of the cache (a heartbeat marks only the
+	// inventory it sent as delivered).
+	sqlInvGen     int
+	sqlInvRunning bool
+	sqlInvAgain   bool
+	sqlInvForce   bool
+	// heartbeatSoon asks the loop for a heartbeat at once (a fresh inventory).
+	heartbeatSoon bool
 
 	// Loop-owned timers (only touched by the loop goroutine).
 	lastHeartbeat     time.Time
@@ -221,6 +249,9 @@ func New(d Deps, o Options) *Agent {
 	}
 	if d.Machine == nil {
 		d.Machine = sysinfo.DetectMachine
+	}
+	if d.SQL == nil {
+		d.SQL = defaultSQLSupport(d.Layout, d.Logger)
 	}
 	return &Agent{
 		d: d, o: o, log: d.Logger,
@@ -313,6 +344,13 @@ func (a *Agent) loop(ctx context.Context) error {
 			a.setAwakeSince(now)
 		}
 		a.lastTick = now
+		a.mu.Lock()
+		soon, forceInventory := a.heartbeatSoon, a.sqlInvForce
+		a.heartbeatSoon, a.sqlInvForce = false, false
+		a.mu.Unlock()
+		if soon {
+			a.nextHeartbeat = now
+		}
 
 		// While a job runs the server is asked more often: a stop in the UI reaches it soon.
 		if !a.idle() && a.hbFailures == 0 {
@@ -329,6 +367,7 @@ func (a *Agent) loop(ctx context.Context) error {
 			}
 		}
 		a.checkSchedule(ctx)
+		a.maybeSQLInventory(ctx, forceInventory)
 
 		if a.uninstallRequested() {
 			return a.performUninstall(ctx)
@@ -492,6 +531,9 @@ func (a *Agent) doHeartbeat(ctx context.Context) {
 		req.HookScripts = hooks.ListScripts(dir)
 	}
 	req.Machine, req.DataFolders = a.machineFacts()
+	req.Capabilities = Capabilities(a.sqlSupport() != nil)
+	var inventorySent func()
+	req.SQLInventory, inventorySent = a.sqlInventoryForHeartbeat()
 	st := a.d.Status.Snapshot()
 	if !st.NextRunAt.IsZero() {
 		t := st.NextRunAt
@@ -525,6 +567,7 @@ func (a *Agent) doHeartbeat(ctx context.Context) {
 		a.log.Info("connection to the Restow instance restored")
 	}
 	a.hbFailures = 0
+	inventorySent()
 	a.setReachable(true)
 	a.lastHeartbeat = now
 	a.nextHeartbeat = now.Add(a.o.HeartbeatInterval + a.jitter())
@@ -551,13 +594,21 @@ func (a *Agent) machineFacts() (*api.MachineFacts, []string) {
 	if now := a.now(); a.machine == nil || now.Sub(a.machineAt) >= machineRefresh {
 		m := a.d.Machine()
 		a.machine, a.machineAt = &m, now
+		a.mu.Lock()
+		a.machineSnap = &machineSnapshot{windows: m.Windows}
+		a.mu.Unlock()
 	}
 	return MachineFactsOf(*a.machine)
 }
 
+// machineSnapshot is what the worker needs of the facts of the machine.
+type machineSnapshot struct {
+	windows *api.WindowsFacts
+}
+
 // MachineFactsOf turns the facts of the machine into their wire form.
 func MachineFactsOf(m sysinfo.Machine) (*api.MachineFacts, []string) {
-	return &api.MachineFacts{Virtualization: m.Virtualization, Technology: m.Technology, Desktop: m.Desktop}, m.DataFolders
+	return &api.MachineFacts{Virtualization: m.Virtualization, Technology: m.Technology, Desktop: m.Desktop, Windows: m.Windows}, m.DataFolders
 }
 
 // hooksPolicy returns the machine's hook mode and hooks folder. The mode is
@@ -760,6 +811,14 @@ func (a *Agent) dispatchTasks(ctx context.Context, tasks []api.Task) {
 			a.enqueue(job{kind: jobRestore, trigger: triggerTask, task: &t})
 		case api.TaskVerifySample:
 			a.enqueue(job{kind: jobVerify, trigger: triggerTask, task: &t})
+		case api.TaskSQLVerify:
+			a.enqueue(job{kind: jobSQLVerify, trigger: triggerTask, task: &t})
+		case api.TaskSQLRestore:
+			a.enqueue(job{kind: jobSQLRestore, trigger: triggerTask, task: &t})
+		case api.TaskSQLInventory:
+			// Ends on delivery (like update_config); the inventory goes out with
+			// the next heartbeat once it is collected.
+			a.maybeSQLInventory(ctx, true)
 		case api.TaskUpdateConfig:
 			a.refreshConfig(ctx, "update_config task")
 		case api.TaskUninstall:
@@ -865,6 +924,10 @@ func (a *Agent) execute(ctx context.Context, j job) {
 		a.runRestore(ctx, j)
 	case jobVerify:
 		a.runVerify(ctx, j)
+	case jobSQLVerify:
+		a.runSQLVerify(ctx, j)
+	case jobSQLRestore:
+		a.runSQLRestore(ctx, j)
 	}
 }
 

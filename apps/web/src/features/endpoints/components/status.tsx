@@ -192,6 +192,18 @@ export function ReadinessBadge({
   return (
     <div className={cn("flex flex-wrap items-center gap-1.5", className)}>
       <StateBadge state={readiness.state} overdue={readiness.overdue} />
+      {readiness.noSamples && readiness.state === "unverified" ? (
+        <HintTooltip content={t("readiness.noSamplesHint")}>
+          <StatusBadge
+            tone="warning"
+            tabIndex={0}
+            className="whitespace-nowrap"
+            data-slot="readiness-no-samples"
+          >
+            {t("readiness.noSamples")}
+          </StatusBadge>
+        </HintTooltip>
+      ) : null}
       {readiness.overdue && readiness.state !== "no_backup" ? (
         <HintTooltip content={t("readiness.overdueHint")}>
           <StatusBadge tone="warning" tabIndex={0} className="whitespace-nowrap">

@@ -34,7 +34,9 @@ import {
   endpoints,
   immutabilityDeferredDeletions,
   legalHolds,
+  notifications,
   type RoleLogin,
+  reportEvents,
   restorePointSuspicions,
   secrets,
   storageTargets,
@@ -169,6 +171,8 @@ describe.skipIf(!adminUrl)("endpoint removal against Postgres", () => {
     tenantId: string,
     removal: Partial<EndpointRemoval> = {},
     dueAt: Date | null = new Date(clock.getTime() - HOUR),
+    /** A "delete" (0.5.0) keeps the machine listed until the worker starts: no `removed_at`. */
+    listed = false,
   ): Promise<{ id: string; secretId: string }> {
     const id = randomUUID();
     const [secret] = await owner
@@ -189,7 +193,7 @@ describe.skipIf(!adminUrl)("endpoint removal against Postgres", () => {
       repositorySecretId: secret?.id ?? null,
       repositoryBytes: 1234,
       lastSnapshotId: "2".repeat(64),
-      removedAt: clock,
+      removedAt: listed ? null : clock,
       removal: {
         mode: "delete",
         state: "scheduled",
@@ -270,7 +274,13 @@ describe.skipIf(!adminUrl)("endpoint removal against Postgres", () => {
     expect(await keysOf(primary, other.id)).toHaveLength(REPOSITORY_FILES.length);
 
     const done = await row(id);
-    expect(done?.removal).toMatchObject({ state: "done", deletedObjects: 18, lastError: null });
+    // The snapshot on three targets is one snapshot.
+    expect(done?.removal).toMatchObject({
+      state: "done",
+      deletedObjects: 18,
+      deletedSnapshots: 1,
+      lastError: null,
+    });
     expect(done?.removalDueAt).toBeNull();
     expect(done?.repositorySecretId).toBeNull();
     expect(done?.repositoryBytes).toBeNull();
@@ -295,6 +305,95 @@ describe.skipIf(!adminUrl)("endpoint removal against Postgres", () => {
     expect(await endpointRemoval(deps, { tenantId: contoso, endpointId: id })).toEqual({
       state: "skipped",
     });
+  });
+
+  it("deletes a still-listed machine's backups only once due, claimed first, and tells (0.5.0)", async () => {
+    clock = new Date("2026-11-01T10:00:00.000Z");
+    const primary = await directory("scheduled");
+    const copy = await directory("scheduled-copy");
+    targetsOf.set(contoso, { primary, copies: [copy] });
+    const due = new Date(clock.getTime() + 7 * DAY);
+    const { id, secretId } = await removedMachine(contoso, { reason: "Machine sold" }, due, true);
+    await fill(primary, id);
+    await fill(copy, id);
+
+    // Six days later: not due, nothing happens, the machine is still listed.
+    clock = new Date(due.getTime() - DAY);
+    expect(await endpointRemoval(deps, { tenantId: contoso, endpointId: id })).toEqual({
+      state: "skipped",
+    });
+    expect(await keysOf(primary, id)).toHaveLength(REPOSITORY_FILES.length);
+    expect((await row(id))?.removedAt).toBeNull();
+
+    // Due: claimed (removed from every list), deleted everywhere, alerted.
+    clock = new Date(due.getTime() + 60_000);
+    expect(await endpointRemoval(deps, { tenantId: contoso, endpointId: id })).toEqual({
+      state: "done",
+      deleted: 12,
+    });
+    expect(await keysOf(primary, id)).toEqual([]);
+    expect(await keysOf(copy, id)).toEqual([]);
+    const done = await row(id);
+    expect(done?.removedAt?.toISOString()).toBe(clock.toISOString());
+    expect(done?.removal).toMatchObject({
+      state: "done",
+      reason: "Machine sold",
+      startedAt: clock.toISOString(),
+      deletedObjects: 12,
+      deletedSnapshots: 1,
+    });
+    expect(await owner.select().from(secrets).where(eq(secrets.id, secretId))).toEqual([]);
+    const [completed] = await owner
+      .select()
+      .from(auditLog)
+      .where(and(eq(auditLog.target, id), eq(auditLog.action, "endpoint.removal.completed")));
+    expect(completed?.details).toMatchObject({
+      deletedObjects: 12,
+      deletedSnapshots: 1,
+      repositoryBytes: 1234,
+    });
+    const event = (
+      await owner
+        .select()
+        .from(reportEvents)
+        .where(
+          and(
+            eq(reportEvents.tenantId, contoso),
+            eq(reportEvents.event, "endpoint.backups_deleted"),
+          ),
+        )
+    ).find((row) => row.details?.endpointId === id);
+    expect(event).toMatchObject({ level: "info" });
+    expect(event?.details).toMatchObject({
+      endpointId: id,
+      deletedSnapshots: 1,
+      deletedObjects: 12,
+      repositoryBytes: 1234,
+    });
+    expect(
+      await owner
+        .select()
+        .from(notifications)
+        .where(eq(notifications.event, "endpoint.backups_deleted")),
+    ).not.toHaveLength(0);
+  });
+
+  it("deletes nothing of a deletion cancelled before it was due", async () => {
+    clock = new Date();
+    const primary = await directory("cancelled");
+    targetsOf.set(contoso, { primary, copies: [] });
+    const { id } = await removedMachine(contoso, {}, new Date(clock.getTime() - HOUR), true);
+    await fill(primary, id);
+    // The api's cancel (apps/api removal.ts cancelRemoval) clears the removal.
+    await owner
+      .update(endpoints)
+      .set({ removal: null, removalDueAt: null })
+      .where(eq(endpoints.id, id));
+    expect(await endpointRemoval(deps, { tenantId: contoso, endpointId: id })).toEqual({
+      state: "skipped",
+    });
+    expect(await keysOf(primary, id)).toHaveLength(REPOSITORY_FILES.length);
+    expect((await row(id))?.removedAt).toBeNull();
   });
 
   it("does nothing before a removal is due, nor for a machine of another tenant", async () => {

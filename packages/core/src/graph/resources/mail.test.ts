@@ -1,11 +1,19 @@
 import { Readable } from "node:stream";
 import { describe, expect, it } from "vitest";
+import { JobAbortedError } from "../../engine/chunkstore.js";
 import { InMemoryDeltaTokenStore } from "../delta.js";
 import { GraphError } from "../errors.js";
-import { batchEnvelope, createFakeGraph, graphError, must } from "../testing/fake-graph.js";
+import {
+  batchEnvelope,
+  createFakeGraph,
+  type FixtureResponse,
+  graphError,
+  must,
+} from "../testing/fake-graph.js";
 import foldersFixture from "../testing/fixtures/mail-folders.json" with { type: "json" };
 import contentFixture from "../testing/fixtures/message-content.json" with { type: "json" };
 import deltaFixture from "../testing/fixtures/messages-delta.json" with { type: "json" };
+import { isWriteOutcomeUnknown } from "./common.js";
 import {
   addFileAttachment,
   attachmentIdFromLocation,
@@ -19,6 +27,7 @@ import {
   type MessageDeltaEntry,
   messagesDelta,
   patchMessage,
+  prepareMessageCreate,
   resolveWellKnownFolders,
   toCreatableMessage,
 } from "./mail.js";
@@ -209,6 +218,29 @@ describe("mail folder tree with a folder deleted while it is listed", () => {
     expect(vanished).toEqual(["AAMkFolderProjects"]);
   });
 
+  it("reports a parent without a usable answer as unlisted, never as one without subfolders", async () => {
+    for (const answer of [
+      { status: 502, body: graphError("MissingBatchResponse") },
+      { status: 503, body: graphError("ServiceUnavailable") },
+      { status: 429, body: graphError("TooManyRequests") },
+    ]) {
+      const graph = treeGraph(answer);
+      const unlisted: Array<[string, number]> = [];
+      const tree = await listMailFolderTree(graph.client({ maxRetries: 0 }), USER, {
+        onVanishedFolder: () => {
+          throw new Error("not a vanished folder");
+        },
+        onUnlistedFolder: (folder, error) => unlisted.push([folder.id, error.status]),
+      });
+      expect(tree.find((f) => f.id === "AAMkFolderRestow")).toBeUndefined();
+      expect(unlisted).toEqual([["AAMkFolderProjects", answer.status]]);
+      // Without the callback the answer is an error, as before.
+      await expect(listMailFolderTree(graph.client({ maxRetries: 0 }), USER)).rejects.toMatchObject(
+        { status: answer.status },
+      );
+    }
+  });
+
   it("still fails on a 404 that says the mailbox itself is unavailable", async () => {
     const graph = treeGraph({ status: 404, body: graphError("MailboxNotEnabledForRESTAPI") });
     await expect(listMailFolderTree(graph.client(), USER)).rejects.toMatchObject({ status: 404 });
@@ -337,7 +369,7 @@ describe("message content", () => {
       },
     ]);
     const content = await fetchMessageContent(graph.client(), USER, "AAMkMsgBig");
-    expect(content.kind).toBe("parts");
+    expect(content).toMatchObject({ kind: "parts", fallbackReason: "too_large" });
     if (content.kind !== "parts") {
       throw new Error("unreachable");
     }
@@ -356,22 +388,9 @@ describe("message content", () => {
     expect(messageGet.searchParams.get("$select")).toContain("body");
   });
 
-  it.each([
-    [
-      "a MIME conversion error",
-      [{ status: 500, json: graphError("ErrorMimeContentConversionFailed") }],
-      1,
-    ],
-    [
-      "a 500 that repeats",
-      [
-        { status: 500, json: graphError("ErrorInternalServerError") },
-        { status: 500, json: graphError("ErrorInternalServerError") },
-      ],
-      2,
-    ],
-  ])("falls back to JSON plus attachments after %s", async (_what, responses, mimeCalls) => {
-    const graph = createFakeGraph([
+  /** Routes for a message whose `$value` answers `responses`, with its JSON and attachments. */
+  function contentGraph(responses: FixtureResponse[]) {
+    return createFakeGraph([
       { url: /messages\/AAMkMsgBig\/\$value/, respond: responses },
       {
         url: (u) => u.pathname === `/v1.0/users/${USER}/messages/AAMkMsgBig`,
@@ -382,23 +401,78 @@ describe("message content", () => {
         respond: { status: 200, json: contentFixture.attachments },
       },
     ]);
+  }
+  const mimeOk: FixtureResponse = {
+    status: 200,
+    headers: { "content-type": "message/rfc822" },
+    text: contentFixture.mime,
+  };
+  /** Exchange's plain 500: no conversion code, often gone a moment later. */
+  const plain500: FixtureResponse = {
+    status: 500,
+    json: graphError("UnknownError", "An internal server error occurred."),
+  };
+
+  it("falls back to JSON plus attachments after a MIME conversion error, with its reason", async () => {
+    const graph = contentGraph([
+      { status: 500, json: graphError("ErrorMimeContentConversionFailed") },
+    ]);
     const content = await fetchMessageContent(graph.client(), USER, "AAMkMsgBig");
-    expect(content.kind).toBe("parts");
-    expect(graph.callsTo("GET", "/messages/AAMkMsgBig/$value")).toHaveLength(mimeCalls);
+    expect(content).toMatchObject({ kind: "parts", fallbackReason: "conversion_refused" });
+    expect(graph.callsTo("GET", "/messages/AAMkMsgBig/$value")).toHaveLength(1);
   });
 
-  it("asks for the MIME once more after a single 500 and keeps the MIME format", async () => {
-    const graph = createFakeGraph([
-      {
-        url: /messages\/AAMkMsg1\/\$value/,
-        respond: [
-          { status: 500, json: graphError("ErrorInternalServerError") },
-          { status: 200, headers: { "content-type": "message/rfc822" }, text: contentFixture.mime },
-        ],
+  it("keeps the MIME format when $value answers two plain 500s and then the MIME", async () => {
+    const graph = contentGraph([plain500, plain500, mimeOk]);
+    const waits: number[] = [];
+    const content = await fetchMessageContent(graph.client(), USER, "AAMkMsgBig", {
+      sleep: async (ms) => {
+        waits.push(ms);
       },
-    ]);
-    const content = await fetchMessageContent(graph.client(), USER, "AAMkMsg1");
+      random: () => 0,
+    });
     expect(content.kind).toBe("mime");
+    expect(graph.callsTo("GET", "/messages/AAMkMsgBig/$value")).toHaveLength(3);
+    // Exponential backoff from one second.
+    expect(waits).toEqual([1000, 2000]);
+  });
+
+  it("throws a plain 500 that stays instead of exporting the message as JSON", async () => {
+    const graph = contentGraph([plain500]);
+    await expect(
+      fetchMessageContent(graph.client(), USER, "AAMkMsgBig", { sleep: async () => {} }),
+    ).rejects.toMatchObject({ status: 500, code: "UnknownError" });
+    expect(graph.callsTo("GET", "/messages/AAMkMsgBig/$value")).toHaveLength(3);
+    expect(graph.callsTo("GET", "/attachments")).toHaveLength(0);
+  });
+
+  it("answers with the JSON after a plain 500 that stays only when asked to", async () => {
+    const graph = contentGraph([plain500]);
+    const content = await fetchMessageContent(graph.client(), USER, "AAMkMsgBig", {
+      sleep: async () => {},
+      jsonAfterServerError: true,
+    });
+    expect(content).toMatchObject({ kind: "parts", fallbackReason: "server_error" });
+  });
+
+  it("waits as long as a 500's Retry-After asks", async () => {
+    const graph = contentGraph([{ ...plain500, headers: { "Retry-After": "7" } }, mimeOk]);
+    const waits: number[] = [];
+    await fetchMessageContent(graph.client(), USER, "AAMkMsgBig", {
+      sleep: async (ms) => {
+        waits.push(ms);
+      },
+    });
+    expect(waits).toEqual([7000]);
+  });
+
+  it("stops waiting between attempts when the job is cancelled", async () => {
+    const graph = contentGraph([plain500, mimeOk]);
+    const job = new AbortController();
+    job.abort();
+    await expect(
+      fetchMessageContent(graph.client(), USER, "AAMkMsgBig", { signal: job.signal }),
+    ).rejects.toBeInstanceOf(JobAbortedError);
   });
 
   it("skips the MIME attempt entirely when the known size exceeds the threshold", async () => {
@@ -545,6 +619,62 @@ describe("restore", () => {
     expect(creatable).toEqual({ subject: "Hi", body: { contentType: "text", content: "hello" } });
   });
 
+  it("knows which failed writes may have gone through", () => {
+    const status = (code: number) => new GraphError({ status: code, method: "POST", url: "/x" });
+    expect(isWriteOutcomeUnknown(status(504))).toBe(true);
+    expect(isWriteOutcomeUnknown(status(502))).toBe(true);
+    expect(isWriteOutcomeUnknown(status(400))).toBe(false);
+    expect(isWriteOutcomeUnknown(status(429))).toBe(false);
+    const named = (name: string) => Object.assign(new Error("x"), { name });
+    expect(isWriteOutcomeUnknown(named("GraphOutcomeUnknownError"))).toBe(true);
+    expect(isWriteOutcomeUnknown(named("GraphResponseTimeoutError"))).toBe(true);
+    expect(
+      isWriteOutcomeUnknown(
+        Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNRESET" } }),
+      ),
+    ).toBe(true);
+    expect(isWriteOutcomeUnknown(named("AbortError"))).toBe(false);
+  });
+
+  it("keeps only the custom x- headers Graph takes on create, within the limit", () => {
+    const headers = [
+      { name: "Received", value: "from a by b" },
+      { name: "Authentication-Results", value: "spf=pass" },
+      { name: "X-MS-Exchange-Organization-SCL", value: "1" },
+      { name: "X-Microsoft-Antispam", value: "BCL:0;" },
+      ...Array.from({ length: 7 }, (_, i) => ({ name: `X-Custom-${i}`, value: `v${i}` })),
+      { name: "X-Huge", value: "x".repeat(3000) },
+    ];
+    const { body, loss } = prepareMessageCreate({ subject: "Hi", internetMessageHeaders: headers });
+    expect(body.internetMessageHeaders).toEqual(
+      Array.from({ length: 5 }, (_, i) => ({ name: `X-Custom-${i}`, value: `v${i}` })),
+    );
+    expect(loss).toEqual({ droppedHeaders: headers.length - 5, draftStateUnknown: true });
+    // Nothing Graph refuses is ever left in the body.
+    expect(toCreatableMessage({ internetMessageHeaders: headers.slice(0, 2) })).toEqual({});
+  });
+
+  it("makes a JSON re-create of a received message a non-draft with its own dates", () => {
+    const body = toCreatableMessage({
+      subject: "Hi",
+      isDraft: false,
+      isRead: false,
+      receivedDateTime: "2026-01-01T10:00:00Z",
+      sentDateTime: "2026-01-01T09:59:58Z",
+    });
+    expect(body.singleValueExtendedProperties).toEqual([
+      { id: "Integer 0x0E07", value: "0" },
+      { id: "SystemTime 0x0E06", value: "2026-01-01T10:00:00.000Z" },
+      { id: "SystemTime 0x0039", value: "2026-01-01T09:59:58.000Z" },
+    ]);
+    // A draft stays a draft, also when only the manifest knows it is none.
+    expect(toCreatableMessage({ subject: "Draft", isDraft: true })).toEqual({ subject: "Draft" });
+    expect(
+      toCreatableMessage({ subject: "Read", isRead: true }, { isDraft: false })
+        .singleValueExtendedProperties,
+    ).toEqual([{ id: "Integer 0x0E07", value: "1" }]);
+  });
+
   it("uploads a large attachment through an Outlook upload session with ≤ 4 MiB fragments", async () => {
     const size = 5 * 1024 * 1024;
     const uploadUrl = "https://outlook.office.example/upload?session=ATT";
@@ -624,5 +754,40 @@ describe("restore", () => {
     );
     expect(error).toBeInstanceOf(GraphError);
     expect((error as GraphError).code).toBe("ErrorAccessDenied");
+  });
+});
+
+describe("messageContentSignature", () => {
+  it("covers the body text and the attachment list, in any order, and nothing else", async () => {
+    const { messageContentSignature, messageContentCheckUrl } = await import("./mail.js");
+    const answer = {
+      id: "AAMk1",
+      body: { contentType: "text", content: "Hello, see both drafts." },
+      attachments: [
+        { id: "a2", name: "v2.docx", size: 5120, isInline: false },
+        { id: "a1", name: "v1.docx", size: 4096, isInline: false },
+      ],
+    };
+    const signature = messageContentSignature(answer);
+    expect(signature).toMatch(/^[0-9a-f]{64}$/);
+    expect(
+      messageContentSignature({ ...answer, attachments: [...answer.attachments].reverse() }),
+    ).toBe(signature);
+    // An attachment removed, or the body edited: another signature.
+    expect(
+      messageContentSignature({ ...answer, attachments: answer.attachments.slice(1) }),
+    ).not.toBe(signature);
+    expect(
+      messageContentSignature({ ...answer, body: { contentType: "text", content: "Hello." } }),
+    ).not.toBe(signature);
+    // Without body or attachment list Graph's answer proves nothing.
+    expect(messageContentSignature({ id: "AAMk1", body: answer.body })).toBeUndefined();
+    expect(messageContentSignature({ id: "AAMk1", attachments: [] })).toBeUndefined();
+    const url = new URL(
+      messageContentCheckUrl("alice@contoso.example", "AAMk/1"),
+      "https://graph.microsoft.com/v1.0/",
+    );
+    expect(url.searchParams.get("$select")).toBe("id,body");
+    expect(url.searchParams.get("$expand")).toBe("attachments($select=id,name,size,isInline)");
   });
 });

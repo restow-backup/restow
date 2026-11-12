@@ -462,6 +462,13 @@ describe("run errors", () => {
     );
     expect(runErrorView({ code: "hash_mismatch" }).headline?.key).toBe("runErrors.hash_mismatch");
     expect(runErrorView({ code: "agent_stopped" }).headline?.key).toBe("runErrors.agent_stopped");
+    // A locked drive or a mount point without a letter (agent 0.5.0): worded, not the raw code.
+    expect(runErrorView({ code: "source_unreadable" }).headline?.key).toBe(
+      "runErrors.source_unreadable",
+    );
+    expect(runErrorView({ code: "source_is_mount_point" }).headline?.key).toBe(
+      "runErrors.source_is_mount_point",
+    );
   });
 
   it("treats an interruption as neutral", () => {
@@ -545,11 +552,47 @@ describe("reports", () => {
       "reports.retention.kept",
       "reports.retention.size",
     ]);
+    const deleteOnly = reportView(
+      report({
+        kind: "retention",
+        readiness: null,
+        summary: { removedSnapshots: 3, keptSnapshots: 40, pruneMode: "delete_only" },
+      }),
+      format,
+    );
+    expect(deleteOnly.details.map((d) => d.key)).toEqual([
+      "reports.retention.deleteOnly",
+      "reports.retention.kept",
+    ]);
     const check = reportView(
       report({ kind: "repository_check", summary: { subsetPercent: 12.4 } }),
       format,
     );
     expect(check.headline).toEqual({ key: "reports.check.subset", values: { percent: 12 } });
+  });
+});
+
+describe("a retention run on a full target", () => {
+  it("says the target is full and what to do, not a generic prune failure", () => {
+    const format = { bytes: (n: number) => `${n} B`, integer: (n: number) => String(n) };
+    const view = reportView(
+      {
+        id: "r1",
+        kind: "retention",
+        origin: "server",
+        snapshotId: null,
+        readiness: null,
+        checkedAt: "2026-11-07T10:00:00Z",
+        summary: { targetFull: true, errorMessage: "restic prune failed (exit code 1)" },
+      },
+      format,
+    );
+    expect(view.tone).toBe("destructive");
+    expect(view.headline).toEqual({ key: "reports.retention.targetFull" });
+    expect(view.details.map((d) => d.key)).toEqual([
+      "reports.retention.targetFullHint",
+      "reports.errorMessage",
+    ]);
   });
 });
 
@@ -681,7 +724,17 @@ describe("problems", () => {
   it("words every problem of the endpoint API by its type, never by its title", () => {
     const keys: Record<string, string> = {
       "urn:restow:problem:endpoint-revoked": "endpoints:errors.revoked",
+      // Each cause of an unreadable repository has a text with its own next step; the type of
+      // releases before 0.5.0 keeps its general one.
+      "urn:restow:problem:endpoint-repository-not-found": "endpoints:errors.repositoryNotFound",
+      "urn:restow:problem:endpoint-repository-password-rejected":
+        "endpoints:errors.repositoryPasswordRejected",
+      "urn:restow:problem:endpoint-repository-password-missing":
+        "endpoints:errors.repositoryPasswordMissing",
+      "urn:restow:problem:endpoint-repository-unavailable":
+        "endpoints:errors.repositoryUnavailable",
       "urn:restow:problem:endpoint-nothing-to-test": "endpoints:errors.nothingToTest",
+      "urn:restow:problem:endpoint-no-samples": "endpoints:errors.noSamples",
       "urn:restow:problem:endpoint-instance-unknown": "endpoints:errors.instanceUnknown",
       "urn:restow:problem:endpoint-queue-not-ready": "endpoints:errors.queueNotReady",
       "urn:restow:problem:endpoint-path-not-found": "endpoints:errors.pathNotFound",

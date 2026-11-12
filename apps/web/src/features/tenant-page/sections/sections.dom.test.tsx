@@ -152,6 +152,40 @@ describe("Connections", () => {
     );
     expect(toImap).toBeDefined();
   });
+
+  const tabs = () =>
+    [...document.querySelectorAll('[data-slot="page-tabs"] a')].map((link) => ({
+      label: (link.textContent ?? "").replace(/Soon.*$/, "").trim(),
+      href: link.getAttribute("href"),
+    }));
+
+  it("offers every kind of connection while every module of the installation is on", async () => {
+    mounted = await openSection(ConnectionsSection, "/tenants/mueller/connections?tab=google", {
+      session: sessionAs({ activeTenant: MUELLER, tenants: [MUELLER] }),
+    });
+    await flush(3);
+    expect(tabs().map((tab) => tab.label)).toEqual([
+      "Microsoft 365",
+      "IMAP",
+      "Google Workspace",
+      "Imports",
+    ]);
+  });
+
+  it("leaves the kinds of a module that is off out of the tabs, but keeps the one the address opened", async () => {
+    // Only the archive is on: no Microsoft 365, no IMAP. Google Workspace belongs to IMAP and is
+    // off too, but the address names it, so it is open and listed.
+    mounted = await openSection(ConnectionsSection, "/tenants/mueller/connections?tab=google", {
+      session: sessionAs({ activeTenant: MUELLER, tenants: [MUELLER], modules: ["archive"] }),
+    });
+    await flush(3);
+    expect(tabs().map((tab) => tab.label)).toEqual(["Google Workspace", "Imports"]);
+    expect(text()).toContain("Google Workspace is not available yet");
+    // The first kind on offer is now the one the bare address opens.
+    expect(tabs().find((tab) => tab.label === "Imports")?.href).toBe(
+      "/tenants/mueller/connections",
+    );
+  });
 });
 
 describe("Master data", () => {
@@ -242,6 +276,8 @@ describe("Notifications", () => {
       "GET /reports/catalog": () =>
         json({ events: [], sections: [], periods: [1, 7], scheduledAvailable: true }),
       "GET /reports/rules": () => json([]),
+      // The customer monthly report's card (0.5.0, Service Provider): closed in this edition.
+      "GET /tenants/mueller/customer-report": () => json({ available: false }),
       "PUT /tenants/mueller/notification-recipients": (request) => {
         saved.push(request.body);
         return json([
@@ -286,6 +322,8 @@ describe("Notifications", () => {
           email: "ops@example.test",
           name: "Ops",
           events: [...JOB_FAILURES, "backup.overdue", "verify.red", "scrub.corrupt"],
+          // At once unless the recipient chose a digest (0.5.0).
+          delivery: { error: "immediate", warning: "immediate", info: "immediate" },
         },
       ],
     ]);

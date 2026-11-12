@@ -284,7 +284,8 @@
     "onePrimaryContact": "Markieren Sie genau einen Ansprechpartner als primär.",
     "atLeastOneContact": "Fügen Sie mindestens einen Ansprechpartner hinzu.",
     "duplicateEmail": "Diese E-Mail-Adresse ist mehrfach vorhanden.",
-    "customerNumberTaken": "Diese Kundennummer ist bereits vergeben. Wählen Sie eine andere."
+    "customerNumberTaken": "Diese Kundennummer ist bereits vergeben. Wählen Sie eine andere.",
+    "monthlyReportNeedsEmail": "Ein Kontakt, der den Monatsbericht erhält, braucht eine E-Mail-Adresse."
   },
   "errors": {
     "featureUnavailable": "Diese Installation verwaltet einen Mandanten. Ein weiterer Mandant kann nicht angelegt werden.",
@@ -509,5 +510,17 @@
       "exists": "Eine andere Organisation ist bereits als Ihre eigene markiert. Laden Sie die Seite neu, um sie zu sehen."
     }
   },
-  "backToList": "Mandanten verwalten"
+  "backToList": "Mandanten verwalten",
+  "contacts": {
+    "monthlyReport": "Erhält den Monatsbericht",
+    "monthlyReportHint": "Der monatliche Kundenbericht geht an die E-Mail-Adresse dieses Kontakts.",
+    "monthlyReportBadge": "Monatsbericht"
+  },
+  "recipients": {
+    "summaryReports": "Zusammenfassungen",
+    "summaryLocked": "Tages-, Wochen- und Monatsberichte:",
+    "delivery": "Wie Mails ankommen",
+    "criticalNote": "Kritische Ereignisse kommen immer sofort.",
+    "failing": "Mail scheitert seit {since}: {reason}"
+  }
 }

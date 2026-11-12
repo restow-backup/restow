@@ -37,7 +37,10 @@
     "backup": "Sicherung läuft",
     "restore": "Wiederherstellung läuft",
     "verify_sample": "Restore-Prüfung läuft",
-    "busy": "Arbeitet"
+    "busy": "Arbeitet",
+    "sql": "SQL-Server-Sicherung läuft",
+    "sql_restore": "SQL-Server-Wiederherstellung läuft",
+    "sql_verify": "SQL-Server-Prüfung läuft"
   },
   "readiness": {
     "state": {
@@ -51,12 +54,17 @@
     "overdueHint": "Die neueste Sicherung wurde seit über einer Woche nicht durch eine Restore-Prüfung geprüft.",
     "frozen": "Geprüft {time}; es kommen keine neuen Sicherungen hinzu",
     "frozenUndated": "Alter Sicherungsstand; es kommen keine neuen Sicherungen hinzu",
+    "noSamples": "Keine Restore-Prüfung möglich",
+    "noSamplesHint": "Mit der neuesten Sicherung wurden keine Stichprobendateien aufgezeichnet, deshalb ist für sie keine Restore-Prüfung möglich, und sie wird nie als geprüft angezeigt. Das Lauf-Log der Sicherung nennt den Grund (unter Windows haben Agents vor 0.5.0 nie welche aufgezeichnet: Aktualisieren Sie den Agent).",
     "frozenHint": "Der Rechner ist in keinem Backup-Job. Die Bewertung gilt für einen älteren Sicherungsstand, den nichts mehr erneuert."
   },
   "runKind": {
     "backup": "Sicherung",
     "restore": "Wiederherstellung auf den Rechner",
-    "verify_sample": "Restore-Prüfung auf dem Rechner"
+    "verify_sample": "Restore-Prüfung auf dem Rechner",
+    "sql": "SQL-Server-Sicherung",
+    "sql_restore": "SQL-Server-Wiederherstellung unter neuem Namen",
+    "sql_verify": "SQL-Server-Prüfung"
   },
   "runStatus": {
     "running": "Läuft",
@@ -431,7 +439,8 @@
     "tabs": {
       "overview": "Übersicht",
       "snapshots": "Sicherungsstände",
-      "settings": "Einstellungen"
+      "settings": "Einstellungen",
+      "sql": "SQL Server"
     },
     "recoveryBanner": "Dieser Rechner wird gerade als Ganzes wiederhergestellt: {phase}.",
     "recoveryBannerLink": "Wiederherstellung verfolgen"
@@ -546,7 +555,10 @@
       "restore": "Wiederherstellung",
       "verify_sample": "Restore-Prüfung",
       "update_config": "Neue Einstellungen anwenden",
-      "uninstall": "Agent deinstallieren"
+      "uninstall": "Agent deinstallieren",
+      "sql_restore": "SQL-Server-Datenbank unter neuem Namen wiederherstellen",
+      "sql_verify": "SQL-Server-Sicherungen prüfen",
+      "sql_inventory": "SQL-Server-Anmeldung prüfen"
     },
     "restore": "{count, plural, one {# Element in einen neuen Ordner wiederherstellen} other {# Elemente in einen neuen Ordner wiederherstellen}}",
     "status": {
@@ -593,6 +605,7 @@
       "notFinished": "Läuft noch",
       "duration": "Dauer",
       "snapshot": "Snapshot",
+      "snapshotOfFailedRun": "Vor dem Abbruch des Laufs gespeichert. Er zählt nicht als erfolgreiche Sicherung; warum, steht in den Fehlern unten.",
       "filesProcessed": "Verarbeitete Dateien",
       "bytesProcessed": "Verarbeitete Daten",
       "filesNew": "Neue Dateien",
@@ -604,9 +617,11 @@
     },
     "consistency": {
       "used": "{method, select, vss {Schattenkopie (dateikonsistent)} lvm {LVM-Snapshot (dateikonsistent)} btrfs {btrfs-Snapshot (dateikonsistent)} mixed {LVM- und btrfs-Snapshots (dateikonsistent)} apfs {APFS-Snapshot (dateikonsistent)} other {Dateisystem-Snapshot (dateikonsistent)}}",
+      "usedWith": "{method, select, vss {Schattenkopie (dateikonsistent); direkt gelesen: {live}} none {Dateisystem-Snapshot (dateikonsistent); direkt gelesen: {live}} other {Dateisystem-Snapshot {method} (dateikonsistent); direkt gelesen: {live}}}",
       "partial": "{method, select, vss {Teilweise ohne Schattenkopie} other {Teilweise ohne Dateisystem-Snapshot}}",
       "partialWith": "{method, select, vss {Teilweise ohne Schattenkopie: {live}} other {Teilweise ohne Dateisystem-Snapshot: {live}}}",
       "unavailable": "{method, select, vss {Ohne Schattenkopie (Schattenkopie nicht verfügbar)} other {Ohne Dateisystem-Snapshot (nicht verfügbar)}}",
+      "unavailableWith": "{method, select, vss {Ohne Schattenkopie: {live}} other {Ohne Dateisystem-Snapshot: {live}}}",
       "off": "{method, select, vss {Ohne Schattenkopie (für diesen Rechner abgeschaltet)} other {Ohne Dateisystem-Snapshot, direkt vom Dateisystem gelesen}}"
     },
     "progress": {
@@ -646,7 +661,8 @@
     "kind": {
       "restore_test": "Restore-Prüfung",
       "repository_check": "Integritätsprüfung",
-      "retention": "Aufbewahrungslauf"
+      "retention": "Aufbewahrungslauf",
+      "sql_verify": "SQL-Server-Prüfung"
     },
     "origin": {
       "server": "Vom Server zurückgelesen",
@@ -668,7 +684,10 @@
       "removed": "{count, plural, one {# Snapshot entfernt} other {# Snapshots entfernt}}",
       "kept": "{kept} Snapshots behalten",
       "size": "Größe der Sicherungsdaten danach: {size}",
-      "unrecorded": "{count, plural, one {# Snapshot, den keine Sicherung gemeldet hat, wurde behalten} other {# Snapshots, die keine Sicherung gemeldet hat, wurden behalten}}"
+      "unrecorded": "{count, plural, one {# Snapshot, den keine Sicherung gemeldet hat, wurde behalten} other {# Snapshots, die keine Sicherung gemeldet hat, wurden behalten}}",
+      "targetFull": "Aufbewahrung konnte keinen Platz freigeben: Speicherziel voll",
+      "targetFullHint": "Auf dem Speicherziel ist kein Platz mehr frei, nicht einmal für die Bereinigung. Geben Sie auf dem Speicherziel Platz frei oder vergrößern Sie es (bei einem S3-Bucket: Kontingent erhöhen). Der nächste Aufbewahrungslauf löscht dann die Daten, die kein Snapshot mehr braucht.",
+      "deleteOnly": "Auf dem Speicherziel war wenig Platz frei: Gelöscht wurden nur Daten, die kein Snapshot mehr nutzt. Teilweise genutzte Daten werden in einem späteren Lauf neu geordnet, sobald Platz frei ist."
     },
     "mismatches": {
       "show": "{count, plural, one {# Abweichung anzeigen} other {# Abweichungen anzeigen}}",
@@ -676,6 +695,12 @@
       "actual": "Gefunden",
       "missing": "Datei ließ sich nicht zurücklesen",
       "reason": "Grund"
+    },
+    "sqlVerify": {
+      "green": "{name}: aus den Sicherungsdaten zurückgeholt und mit DBCC CHECKDB ohne Fehler geprüft",
+      "red": "{name}: Die Prüfung hat Schäden gefunden",
+      "incomplete": "{name}: Die Prüfung ist nicht fertig geworden und bewertet nichts",
+      "evidence": "Fehler {code}: {message}"
     }
   },
   "snapshots": {
@@ -1020,7 +1045,7 @@
   },
   "danger": {
     "title": "Sicherung dieses Rechners beenden",
-    "description": "Deinstallieren und Sperren löschen nichts: Der Rechner bleibt als gesperrt im Inventar (ausgeblendet, bis Sie gesperrte Rechner einblenden), und seine Sicherungen bleiben wiederherstellbar. Erst das Entfernen eines gesperrten Rechners löscht seine Sicherungen, sofort oder wenn sie ablaufen.",
+    "description": "Deinstallieren und Sperren löschen nichts: Der Rechner bleibt als gesperrt im Inventar (ausgeblendet, bis Sie gesperrte Rechner einblenden), und seine Sicherungen bleiben wiederherstellbar. Erst das Entfernen eines gesperrten Rechners löscht seine Sicherungen, wenn sie ablaufen oder sieben Tage nach dem Auftrag.",
     "uninstall": {
       "title": "Agent deinstallieren",
       "description": "Der Rechner entfernt den Agent bei seinem nächsten Kontakt selbst und wird dabei gesperrt. Nutzen Sie das, wenn der Rechner nicht mehr gesichert werden soll.",
@@ -1054,7 +1079,7 @@
     "revokeSuggested": "{days, plural, one {Dieser Rechner hat sich seit mehr als # Tag nicht gemeldet. Wenn es ihn nicht mehr gibt, sperren Sie ihn und entfernen Sie ihn danach.} other {Dieser Rechner hat sich seit mehr als # Tagen nicht gemeldet. Wenn es ihn nicht mehr gibt, sperren Sie ihn und entfernen Sie ihn danach.}}",
     "remove": {
       "title": "Aus {appName} entfernen",
-      "description": "Nimmt den Rechner aus jeder Liste und löscht seine Sicherungen, sofort oder wenn seine Aufbewahrung sie gehen lässt. Seine Läufe und das Audit-Log behalten ihre Einträge.",
+      "description": "Nimmt den Rechner aus jeder Liste und löscht seine Sicherungen, wenn seine Aufbewahrung sie gehen lässt. Ein Inhaber des Provider-Teams kann stattdessen jede Sicherung sieben Tage nach dem Auftrag löschen lassen. Seine Läufe und das Audit-Log behalten ihre Einträge.",
       "revokeFirst": "Sperren Sie den Rechner zuerst. Ein nicht gesperrter Rechner lässt sich nicht entfernen.",
       "action": "Rechner entfernen",
       "mode": {
@@ -1063,35 +1088,52 @@
           "description": "Die Sicherungen bleiben gespeichert, bis die Aufbewahrung des Rechners die neueste von ihnen hätte gehen lassen, dann werden sie gelöscht. Bis dahin bietet die Seite des entfernten Rechners ihre Wiederherstellung weiter an."
         },
         "delete": {
-          "label": "Rechner und seine Sicherungen löschen",
-          "description": "Jede Sicherung des Rechners wird jetzt gelöscht. Nicht möglich, solange eine Legal Hold oder ein ungeklärter verdächtiger Sicherungsstand sie hält."
+          "label": "Jede Sicherung in sieben Tagen löschen",
+          "description": "Der Rechner bleibt noch sieben Tage als gesperrt in der Liste, dann wird jede seiner Sicherungen gelöscht und er verlässt die Listen. Bis dahin lässt sich das Löschen abbrechen. Die Pflichtempfänger des Providers werden sofort benachrichtigt. Nicht möglich, solange eine Legal Hold oder ein ungeklärter verdächtiger Sicherungsstand die Sicherungen hält.",
+          "ownerOnly": "Nur ein Inhaber des Provider-Teams kann Sicherungen löschen."
         }
       },
       "confirm": {
         "title": "{name} entfernen?",
-        "description": "Der Rechner verschwindet aus jeder Liste, Übersicht und Zählung. Das lässt sich nicht rückgängig machen: Gelöschte Sicherungen lassen sich nicht wiederherstellen.",
+        "description": "Ist das Löschen gelaufen, lässt es sich nicht rückgängig machen: Gelöschte Sicherungen lassen sich nicht wiederherstellen.",
         "locks": "Sicherungsdateien, die der Speicher noch sperrt (unveränderliche Sicherungen), werden gelöscht, sobald ihre Sperre abläuft; die Rechner-Seite zeigt, wann.",
         "typeHostname": "Geben Sie zur Bestätigung den Hostnamen {hostname} ein",
         "cancel": "Abbrechen",
         "action": {
           "expire": "Rechner entfernen",
-          "delete": "Rechner und Sicherungen löschen"
-        }
+          "delete": "Sicherungen in sieben Tagen löschen"
+        },
+        "reason": "Grund (wird im Audit-Log festgehalten)"
       },
       "toast": {
-        "delete": "{name} wurde entfernt. Seine Sicherungen werden gelöscht.",
+        "delete": "Die Sicherungen von {name} werden am {date} gelöscht. Bis dahin können Sie das auf der Seite des Rechners abbrechen.",
         "expire": "{name} wurde entfernt. Seine Sicherungen werden am {date} gelöscht."
-      }
+      },
+      "scheduled": "Die Sicherungen dieses Rechners sind zum Löschen vorgemerkt; der Hinweis oben auf der Seite nennt das Datum. Brechen Sie das ab, um anders zu entscheiden."
     }
+  },
+  "backupDeletion": {
+    "title": "Sicherungen werden am {date} gelöscht",
+    "requested": "Beauftragt von {person} am {date}.",
+    "reason": "Grund: {reason}",
+    "heldLegal": "Eine Legal Hold über diesen Mandanten hält das Löschen an: Solange sie besteht, wird nichts gelöscht; geprüft wird täglich erneut.",
+    "heldSuspicion": "Ein ungeklärter verdächtiger Sicherungsstand dieses Rechners hält das Löschen an: Bis er geklärt ist, wird nichts gelöscht; geprüft wird täglich erneut.",
+    "cancel": "Löschen abbrechen",
+    "cancelled": "Das Löschen wurde abgebrochen. Die Sicherungen bleiben erhalten.",
+    "ownerCancels": "Nur ein Inhaber des Provider-Teams kann das Löschen abbrechen."
   },
   "errors": {
     "resticBusy": "Der Server liest gerade andere Sicherungen. Versuchen Sie es gleich noch einmal.",
     "repositoryLocked": "Die Sicherungsdaten sind gerade mit einer Sicherung oder Wartung beschäftigt. Versuchen Sie es in Kürze noch einmal.",
     "repositoryUnavailable": "Die Sicherungsdaten dieses Rechners konnten im Repository nicht geöffnet werden. Prüfen Sie, ob das Repository erreichbar ist.",
+    "repositoryNotFound": "Die Sicherungsdaten dieses Rechners wurden auf keinem Speicherziel gefunden. Prüfen Sie, ob jedes Speicherziel dieses Mandanten erreichbar ist und ob der Ordner des Rechners unter endpoints/ dort verschoben oder gelöscht wurde.",
+    "repositoryPasswordRejected": "Das gespeicherte Passwort öffnet die Sicherungsdaten dieses Rechners nicht: Das Repository wurde vermutlich außerhalb von {appName} neu angelegt oder seine Schlüssel wurden geändert. Wenden Sie sich an Ihren Anbieter; die Einzelheiten stehen im Server-Log.",
+    "repositoryPasswordMissing": "Für diesen Rechner ist kein Repository-Passwort gespeichert, daher lassen sich seine Sicherungsdaten hier nicht öffnen. Wenn Sie das Passwort früher gesichert haben („Repository-Passwort anzeigen“), können Sie mit restic außerhalb von {appName} wiederherstellen.",
     "resticFailed": "Das Lesen der Sicherungsdaten ist fehlgeschlagen. Die Einzelheiten stehen im Server-Log.",
     "resticUnavailable": "Das Programm restic ist auf dem Server nicht verfügbar, daher lassen sich Snapshots nicht lesen.",
     "unsupportedOs": "Dieses Betriebssystem wird nicht unterstützt. {appName} sichert Linux, macOS und Windows auf x64 (amd64); Windows on ARM wird in dieser Version nicht unterstützt.",
     "revoked": "Dieser Rechner ist gesperrt und nimmt keine Änderungen oder Aufgaben an.",
+    "noSamples": "Die neueste Sicherung hat keine Stichprobendateien aufgezeichnet, deshalb ist keine Restore-Prüfung von ihr möglich. Das Lauf-Log der Sicherung nennt den Grund.",
     "nothingToTest": "Es gibt noch keine erfolgreiche Sicherung, die getestet werden könnte.",
     "instanceUnknown": "Die Adresse dieser Installation ist unbekannt. Setzen Sie die öffentliche URL in den Einstellungen und versuchen Sie es erneut.",
     "queueNotReady": "Der Worker ist noch nicht gestartet. Versuchen Sie es gleich noch einmal.",
@@ -1130,7 +1172,15 @@
     "baremetalNotAvailable": "Für diesen Rechner lässt sich kein Wiederherstellungscode ausstellen.",
     "recoveryLimitReached": "Für diesen Rechner sind bereits drei Codes offen. Widerrufen Sie zuerst einen.",
     "endpointRecoveryActive": "Eine Wiederherstellung liest die Sicherungen dieses Rechners. Lassen Sie sie zuerst enden oder beenden Sie sie.",
-    "rebindOsMismatch": "Das Token gilt für einen Rechner mit anderem Betriebssystem."
+    "rebindOsMismatch": "Das Token gilt für einen Rechner mit anderem Betriebssystem.",
+    "sqlUnsupported": "Der Agent auf diesem Rechner kann SQL Server noch nicht nativ sichern. Aktualisieren Sie zuerst den Agenten.",
+    "sqlBackupPruned": "Diese Sicherung wird nicht mehr aufbewahrt, die Aufbewahrung hat sie entfernt. Wählen Sie eine neuere.",
+    "sqlNameTaken": "Auf der Instanz gibt es schon eine Datenbank mit diesem Namen. Wählen Sie einen anderen Namen.",
+    "sqlNothingToVerify": "Noch keine Datenbank dieses Rechners hat eine Sicherung in den Sicherungsdaten.",
+    "removalScheduled": "Die Sicherungen dieses Rechners sind bereits zum Löschen vorgemerkt. Brechen Sie das zuerst ab, um anders zu entscheiden.",
+    "removalReasonRequired": "Geben Sie einen Grund für das Löschen der Sicherungen an.",
+    "removalNotCancellable": "Das Löschen lässt sich nicht mehr abbrechen: Es hat begonnen, oder es ist keines vorgemerkt.",
+    "ownerRequired": "Das kann nur ein Inhaber des Provider-Teams."
   },
   "readinessSection": {
     "overdue": "Überfällig",
@@ -1141,6 +1191,7 @@
       "green": "Die Restore-Prüfung der neuesten Sicherung hat jede geprüfte Datei bestätigt.",
       "yellow": "Die Restore-Prüfung wurde bestanden, aber die neueste Sicherung ist unvollständig: einige Dateien ließen sich nicht lesen.",
       "red": "Die Restore-Prüfung der neuesten Sicherung ist fehlgeschlagen, oder eine Integritätsprüfung hat Schäden gefunden.",
+      "noSamples": "Keine Stichprobendateien aufgezeichnet; für diese Sicherung ist keine Restore-Prüfung möglich.",
       "unverified": "Eine Sicherung ist vorhanden, wurde aber nie geprüft.",
       "noBackup": "Nichts zu prüfen, bis die erste Sicherung abgeschlossen ist.",
       "noBackupOverdue": "Keine Sicherung innerhalb von 24 Stunden nach Beginn des Schutzes."
@@ -1169,6 +1220,8 @@
     "snapshot_failed": "Der Dateisystem-Snapshot (etwa eine Schattenkopie oder ein LVM- oder btrfs-Snapshot) eines Laufwerks oder Dateisystems ist fehlgeschlagen",
     "snapshot_unavailable": "Ohne Dateisystem-Snapshot: Snapshots sind auf dem Rechner nicht nutzbar",
     "snapshot_cleanup_failed": "Ein Dateisystem-Snapshot blieb nach der Sicherung liegen",
+    "source_unreadable": "Ein Sicherungsordner konnte nicht gelesen werden, zum Beispiel ein mit BitLocker gesperrtes, ausgeschaltetes oder nicht zugängliches Laufwerk, und fehlt in dieser Sicherung",
+    "source_is_mount_point": "Ein Sicherungsordner ist ein Volume ohne Laufwerksbuchstaben: Gesichert würde nur der Einhängepunkt, deshalb fehlt er in dieser Sicherung",
     "cancelled": "In der Oberfläche abgebrochen",
     "layout_capture_failed": "Das Plattenlayout ließ sich nicht erfassen; die eingehängten Dateisysteme wurden trotzdem gesichert",
     "layout_too_large": "Das Plattenlayout ist für den Server zu groß; es liegt im Wiederherstellungspunkt, wird hier aber nicht gezeigt",
@@ -1253,6 +1306,8 @@
     "emptyDescription": "Sobald der Container gesichert ist, können Sie hier seine Dateien durchsuchen und herunterladen.",
     "downloadOnly": "Dateien eines Containers laden Sie als ZIP herunter. Um den ganzen Container zurückzuholen, stellen Sie ihn unter VMs & Container wieder her.",
     "downloadOnlyRestorer": "Dateien eines Containers laden Sie als ZIP herunter. Den ganzen Container stellt ein Administrator wieder her.",
+    "restoreWhole": "Ganzen Container wiederherstellen …",
+    "restoreWholeHint": "Stellt den ganzen Container aus diesem Sicherungsstand wieder her (auf der Seite des Containers).",
     "openGuest": "Container öffnen"
   },
   "vmFiles": {
@@ -1262,6 +1317,8 @@
     "emptyDescription": "Sobald die VM gesichert ist, können Sie hier die Dateien auf ihren Festplatten durchsuchen und herunterladen.",
     "downloadOnly": "Die Dateien einer VM liest {appName} auf dem Server aus den Festplatten des Sicherungsstands, in einem abgeschotteten Leseprozess: Nichts wird eingehängt, die VM und ihr Knoten bleiben unberührt. Lesbar sind ext2/3/4, XFS, NTFS und FAT, auch auf LVM. Dateien laden Sie als ZIP herunter; um die ganze VM zurückzuholen, stellen Sie sie unter VMs & Container wieder her.",
     "downloadOnlyRestorer": "Die Dateien einer VM liest {appName} auf dem Server aus den Festplatten des Sicherungsstands, in einem abgeschotteten Leseprozess: Nichts wird eingehängt, die VM und ihr Knoten bleiben unberührt. Lesbar sind ext2/3/4, XFS, NTFS und FAT, auch auf LVM. Dateien laden Sie als ZIP herunter; die ganze VM stellt ein Administrator wieder her.",
+    "restoreWhole": "Ganze VM wiederherstellen …",
+    "restoreWholeHint": "Stellt die ganze VM aus diesem Sicherungsstand wieder her (auf der Seite der VM).",
     "openGuest": "VM öffnen",
     "unreadable": "In diesem Sicherungsstand nicht lesbar:",
     "unreadableItem": "{name}: {reason}",
@@ -1424,6 +1481,7 @@
     "never_seen": "Nie verbunden",
     "revoke_suggested": "Sperren empfohlen",
     "never": "Noch keine Sicherung",
+    "no_samples": "Keine Restore-Prüfung möglich",
     "restore_warning": "Restore-Prüfung: Achtung",
     "check_overdue": "Restore-Prüfung überfällig",
     "interrupted": "Unterbrochen",
@@ -2094,5 +2152,214 @@
     "cancel": "Abbrechen",
     "done": "Fertig",
     "tokenKind": "Wiederanbindungs-Token"
+  },
+  "windowsFacts": {
+    "title": "Windows",
+    "description": "Was der Agent aus dem System liest. Nur Fakten, keine Bewertung.",
+    "version": "Version",
+    "productType": "Art",
+    "productTypes": {
+      "workstation": "Arbeitsplatz",
+      "server": "Server",
+      "domain_controller": "Domänencontroller",
+      "unknown": "Unbekannt"
+    },
+    "core": "ohne Desktop",
+    "domain": "Domäne",
+    "noDomain": "In keiner Domäne",
+    "rolesLabel": "Rollen",
+    "noRoles": "Keine, die mehr als eine Dateisicherung braucht",
+    "roles": {
+      "domainController": "Active-Directory-Domänencontroller",
+      "sqlServer": "SQL Server",
+      "exchange": "Exchange",
+      "hyperV": "Hyper-V-Host",
+      "dfsr": "DFS-Replikation"
+    },
+    "sqlInstances": "SQL-Server-Instanzen",
+    "bitlocker": "Laufwerksverschlüsselung",
+    "bitlockerNone": "Kein verschlüsseltes Laufwerk",
+    "bitlockerVolume": "{name} {status}",
+    "protection": {
+      "on": "geschützt",
+      "off": "nicht geschützt",
+      "unknown": "Zustand unbekannt"
+    },
+    "bitlockerState": {
+      "ok": "Gelesen",
+      "unavailable": "Auf diesem Rechner nicht installiert",
+      "error": "Konnte nicht gelesen werden"
+    }
+  },
+  "notices": {
+    "apps": {
+      "sql_server": "SQL Server",
+      "exchange": "Exchange",
+      "active_directory": "Active Directory",
+      "hyper_v": "Hyper-V"
+    },
+    "app_files_not_app_backup": {
+      "title": "Die Dateisicherung bringt diese Anwendungen nicht zurück",
+      "body": "Auf diesem Rechner läuft {subjects}. Die Dateisicherung enthält die Dateien der geöffneten Datenbanken, aber aus diesen Dateien lassen sich die Anwendungen nicht wiederherstellen. Sichern Sie sie mit einem Werkzeug, das dafür gemacht ist.",
+      "sqlHint": "Für SQL Server schalten Sie im Backup-Job dieses Rechners die native SQL-Server-Sicherung ein (Vorschau)."
+    },
+    "sql_log_growing": {
+      "title": "Ein Transaktionslog wächst weiter",
+      "body": "{subjects}: Das Wiederherstellungsmodell ist FULL, aber in den letzten 24 Stunden hat niemand das Transaktionslog gesichert, darum wächst es weiter. Sichern Sie das Log mit Ihrem bisherigen Werkzeug, oder stellen Sie die Datenbank auf SIMPLE, wenn Sie keine Wiederherstellung auf einen Zeitpunkt brauchen."
+    },
+    "sql_tde_certificate": {
+      "title": "Sichern Sie das TDE-Zertifikat an anderer Stelle",
+      "body": "{subjects}: Die Datenbank ist mit TDE verschlüsselt. Ohne Zertifikat und Schlüssel kann keine andere Instanz sie wiederherstellen. Die Sicherung enthält beides nicht; bewahren Sie es an anderer Stelle auf und bestätigen Sie das im Reiter SQL Server."
+    },
+    "sql_version_untested": {
+      "title": "SQL-Server-Version nicht geprüft",
+      "body": "{subjects}: Diese Version von SQL Server wurde mit der nativen Sicherung nicht geprüft. Sie läuft, aber eine Wiederherstellung wurde damit noch nicht ausprobiert."
+    },
+    "other": {
+      "title": "Hinweis des Agenten"
+    }
+  },
+  "sql": {
+    "title": "SQL Server",
+    "preview": "Vorschau",
+    "intro": "Die native SQL-Server-Sicherung macht neben Ihren eigenen Sicherungen eine Kopie-Vollsicherung jeder Datenbank, Ihre Sicherungskette bleibt also unberührt. Eine wöchentliche Prüfung holt die neueste Sicherung aus den Sicherungsdaten zurück, stellt sie unter einem Prüfnamen wieder her und führt DBCC CHECKDB darauf aus. Grün erst nach dieser bestandenen Prüfung.",
+    "notCapable": "Der Agent auf diesem Rechner kann das noch nicht. Aktualisieren Sie ihn, um die native Sicherung zu sehen und zu nutzen.",
+    "notEnabled": "Die native Sicherung ist aus. Schalten Sie sie im Backup-Job dieses Rechners ein.",
+    "loadError": "Der SQL-Server-Teil dieses Rechners konnte nicht geladen werden.",
+    "instances": {
+      "title": "Instanzen",
+      "inventoryAt": "Zuletzt gelesen",
+      "noInventory": "Der Agent hat die Instanzen noch nicht gelesen.",
+      "none": "Der Agent meldet keine SQL-Server-Instanz.",
+      "clustered": "Failover-Cluster-Instanz: von der nativen Sicherung nicht unterstützt.",
+      "strictEncryption": "Strikte Verschlüsselung ist an: Der Agent kann sich möglicherweise nicht verbinden.",
+      "compressionDefault": "Auf dieser Instanz ist die Sicherungskomprimierung als Vorgabe an; der Agent sichert trotzdem unkomprimiert, damit die Sicherungsdaten dedupliziert bleiben."
+    },
+    "signIn": {
+      "ok": "Angemeldet",
+      "missing": "Keine Anmeldung",
+      "permission": "Rechte fehlen",
+      "error": "Problem",
+      "unknown": "Nicht geprüft",
+      "check": "Anmeldung prüfen",
+      "checkQueued": "Der Rechner prüft die Anmeldung bei seinem nächsten Kontakt.",
+      "howTo": "Der Agent meldet sich als {account} mit Windows-Authentifizierung an; nirgends wird ein Kennwort gespeichert. Lassen Sie einen Datenbankadministrator dies einmal auf der Instanz ausführen:",
+      "variant": "Rechte für den Agenten",
+      "sysadmin": "Einfach",
+      "minimal": "Kleine Rechte",
+      "sysadminHint": "Das Konto wird Mitglied von sysadmin. Einfach, und neue Datenbanken sind sofort abgedeckt.",
+      "minimalHint": "dbcreator, VIEW SERVER STATE und je Datenbank db_backupoperator und db_owner. Für eine später angelegte Datenbank sind diese Zeilen erneut nötig.",
+      "copy": "Kopieren"
+    },
+    "databases": {
+      "title": "Datenbanken",
+      "description": "Wöchentlich geprüft, {day} um {time} in der Zeitzone des Backup-Jobs.",
+      "empty": "Noch keine Datenbank gemeldet",
+      "emptyHint": "Die Datenbanken erscheinen, sobald der Agent die Instanz gelesen hat.",
+      "model": "Wiederherstellungsmodell {model}",
+      "system": "Systemdatenbank",
+      "dropped": "nicht mehr auf der Instanz",
+      "notSelected": "vom Backup-Job nicht erfasst",
+      "lastBackup": "Neueste Sicherung",
+      "noBackup": "Keine in den Sicherungsdaten",
+      "lastCheck": "Neueste Prüfung",
+      "noCheck": "Noch nicht geprüft",
+      "physicalOnly": "nur physisch geprüft",
+      "evidence": "Fehler {code}: {message}",
+      "tde": "Diese Datenbank ist mit TDE verschlüsselt. Sichern Sie Zertifikat und Schlüssel an anderer Stelle und bestätigen Sie das hier.",
+      "tdeConfirm": "Zertifikat ist gesichert"
+    },
+    "rating": {
+      "green": "Geprüft",
+      "red": "Schaden gefunden",
+      "overdue": "Prüfung überfällig",
+      "unverified": "Noch nicht geprüft",
+      "not_protected": "Nicht gesichert"
+    },
+    "outcome": {
+      "green": "Ohne Fehler",
+      "red": "Schaden gefunden",
+      "incomplete": "Nicht abgeschlossen",
+      "restored": "Wiederhergestellt",
+      "backed_up": "Gesichert",
+      "skipped": "Übersprungen",
+      "failed": "Fehlgeschlagen"
+    },
+    "weekday": {
+      "1": "Montag",
+      "2": "Dienstag",
+      "3": "Mittwoch",
+      "4": "Donnerstag",
+      "5": "Freitag",
+      "6": "Samstag",
+      "7": "Sonntag"
+    },
+    "verify": {
+      "all": "Alle jetzt prüfen",
+      "one": "Jetzt prüfen",
+      "queued": "Die Prüfung von {name} wartet auf den Rechner.",
+      "alreadyQueued": "Eine Prüfung dieser Instanz wartet bereits."
+    },
+    "restore": {
+      "open": "Unter neuem Namen wiederherstellen",
+      "title": "{name} unter neuem Namen wiederherstellen",
+      "description": "Der Agent holt die Sicherung aus den Sicherungsdaten, prüft ihre Prüfsumme und stellt sie neben der vorhandenen Datenbank wieder her, die unverändert bleibt.",
+      "backup": "Sicherung",
+      "backupOption": "{at}, {size}",
+      "loading": "Sicherungen werden geladen",
+      "noBackup": "Von dieser Datenbank wird keine Sicherung aufbewahrt.",
+      "newName": "Neuer Name",
+      "newNameHint": "Die Datenbank wird unter diesem Namen angelegt; eine vorhandene wird nie ersetzt.",
+      "nameProblem": {
+        "empty": "Geben Sie einen Namen ein.",
+        "tooLong": "Ein Name darf höchstens 128 Zeichen haben.",
+        "control": "Ein Name darf keine Steuerzeichen enthalten.",
+        "system": "Eine Systemdatenbank kann nicht das Ziel sein.",
+        "reserved": "Dieser Namensteil ist für Prüfdatenbanken reserviert.",
+        "same": "Wählen Sie einen anderen Namen als den der vorhandenen Datenbank."
+      },
+      "target": "Instanz",
+      "checkdb": "Die Kopie mit DBCC CHECKDB prüfen",
+      "checkdbHint": "Empfohlen. Bis zur im Backup-Job eingestellten Größe prüft sie alles, darüber nur die physische Struktur.",
+      "cancel": "Abbrechen",
+      "submit": "Wiederherstellen",
+      "queued": "Die Wiederherstellung als {name} wartet auf den Rechner."
+    },
+    "script": {
+      "download": "Wiederherstellungsskript für einen anderen Rechner"
+    },
+    "run": {
+      "heading": "Datenbanken von {instance}",
+      "restoredAs": "Als {name} auf {instance} wiederhergestellt",
+      "checkdb": {
+        "clean": "DBCC CHECKDB hat in der Kopie keinen Fehler gefunden.",
+        "errors": "DBCC CHECKDB hat in der Kopie Fehler gemeldet.",
+        "skipped": "DBCC CHECKDB lief auf der Kopie nicht."
+      }
+    },
+    "codes": {
+      "sql_instance_unreachable": "Die Instanz war nicht erreichbar. Läuft der SQL-Server-Dienst?",
+      "sql_login_missing": "Der Agent konnte sich nicht anmelden: Die Instanz hat keine Anmeldung für ihn.",
+      "sql_permission_missing": "Der Agent ist angemeldet, ihm fehlen aber Rechte für die Sicherung.",
+      "sql_powershell_constrained": "Die Skriptumgebung von Windows läuft eingeschränkt (Constrained Language Mode), darum kann sich der Agent nicht verbinden.",
+      "sql_strict_encryption": "Die Instanz verlangt strikte Verschlüsselung; die native Sicherung verbindet sich nicht mit ihr.",
+      "sql_fci_unsupported": "Failover-Cluster-Instanzen werden von der nativen Sicherung nicht unterstützt.",
+      "sql_mode_unsupported": "Der Agent kennt die im Job eingestellte Sicherungsart nicht. Aktualisieren Sie den Agenten.",
+      "sql_staging_unusable": "Der Staging-Ordner kann nicht verwendet werden.",
+      "sql_staging_too_small": "Im Staging-Ordner ist nicht genug Platz frei.",
+      "sql_database_unavailable": "Die Datenbank ist nicht online.",
+      "sql_backup_failed": "SQL Server konnte die Sicherung nicht anlegen.",
+      "sql_snapshot_failed": "Die Sicherungsdatei konnte nicht in den Sicherungsdaten abgelegt werden.",
+      "sql_script_failed": "Das SQL-Skript des Agenten endete unerwartet.",
+      "sql_restore_name_taken": "Eine Datenbank dieses Namens gibt es bereits.",
+      "sql_restore_no_space": "Für die Wiederherstellung ist nicht genug Platz frei.",
+      "sql_restore_failed": "Die Wiederherstellung ist fehlgeschlagen.",
+      "sql_backup_mismatch": "Die aus den Sicherungsdaten geholte Sicherung weicht von der angelegten ab.",
+      "sql_verify_no_space": "Für die Prüfung ist nicht genug Platz frei: unvollständig, nicht fehlgeschlagen.",
+      "sql_verify_timeout": "Die Prüfung dauerte zu lange und wurde beendet: unvollständig, nicht fehlgeschlagen.",
+      "sql_verify_system_db": "Diese Systemdatenbank lässt sich nicht unter neuem Namen prüfen.",
+      "sql_verify_incomplete": "Die Prüfung kam zu keinem Ergebnis.",
+      "unknown": "Code {code}"
+    }
   }
 }

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 )
 
 // The task log of a guest's backup (#61). vzdump hands the backup provider a
@@ -129,4 +130,60 @@ func tailBytes(data []byte, n int) []byte {
 		return data[i+1:]
 	}
 	return data
+}
+
+// vzdump takes one lock per node for all its backups (/var/run/vzdump.lock) and waits for it
+// for `lockwait` minutes, 180 by default (PVE::VZDump::getlock). A Restow backup that starts
+// while a Proxmox VE backup job runs on the node waits in silence, for hours, before backup_init
+// ever runs, and then may fail with the lock's timeout.
+const (
+	vzdumpLockWaiting = "trying to get global lock"
+	vzdumpLockGot     = "got global lock"
+	vzdumpLockTimeout = "can't acquire lock '/var/run/vzdump.lock'"
+)
+
+// vzdumpLockState reads a vzdump task log (tail): whether it waits for the node's backup lock now.
+func vzdumpLockState(tail string) (waiting bool) {
+	w := strings.LastIndex(tail, vzdumpLockWaiting)
+	return w >= 0 && strings.LastIndex(tail, vzdumpLockGot) < w
+}
+
+// vzdumpBackupBegun says whether a vzdump task log shows a guest's backup begun, which vzdump
+// starts only with the node's backup lock.
+func vzdumpBackupBegun(tail string) bool {
+	return strings.Contains(tail, vzdumpLockGot) || strings.Contains(tail, "Starting Backup of VM")
+}
+
+// lockTimeoutError is the error of a vzdump task that never got the node's backup lock, or nil.
+func lockTimeoutError(exit, node string) error {
+	if !strings.Contains(exit, vzdumpLockTimeout) || !strings.Contains(exit, "timeout") {
+		return nil
+	}
+	return fmt.Errorf("another Proxmox VE backup job held the backup lock of node %s for all of vzdump's lock wait (3 hours unless lockwait is set); this backup never started. Move the schedule of the Restow job or of the PVE backup job (vzdump said %q)", node, exit)
+}
+
+// lockWaitNote is where the service tells backup_init that its backup waited for the node's
+// backup lock, so that the run's log says so (the run opens only once vzdump has the lock).
+func (l Layout) lockWaitNote(vmid int) string {
+	return filepath.Join(l.RunDir, "jobs", fmt.Sprintf("%d.lockwait", vmid))
+}
+
+// lockWaitNoteAge bounds how old a note may be to count (one lock wait and some).
+const lockWaitNoteAge = 4 * time.Hour
+
+// takeLockWaitNote logs that the backup waited for the node's backup lock, when the service
+// left a note about it, and removes the note.
+func (p *Provider) takeLockWaitNote(vmid int) {
+	path := p.Layout.lockWaitNote(vmid)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	_ = os.Remove(path)
+	since, err := time.Parse(time.RFC3339, strings.TrimSpace(string(data)))
+	if err != nil || p.clock().Sub(since) > lockWaitNoteAge || p.clock().Before(since) {
+		return
+	}
+	p.logf("info", "this backup waited from %s for another backup on this node (a Proxmox VE backup job) to release vzdump's lock",
+		since.Local().Format(taskLogStamp))
 }

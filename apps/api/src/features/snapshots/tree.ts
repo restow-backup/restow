@@ -124,6 +124,12 @@ export interface MailSummary {
   isRead: boolean | null;
   flagged: boolean | null;
   protection: MailProtection | null;
+  /**
+   * True when the backup holds the message without some of its attachments:
+   * a group post whose attachments Microsoft did not hand out to the app
+   * (`missingAttachments`, `attachmentsNotBackedUp`, backup/groups).
+   */
+  attachmentsNotBackedUp: boolean;
 }
 
 /** How a message is protected against being read by anyone but its recipient. */
@@ -211,7 +217,23 @@ export function mailSummaryOf(metadata: Record<string, unknown> | null | undefin
     isRead: pickBoolean(source, ["isRead"]) ?? (flags ? flags.includes("\\seen") : null),
     flagged: flagStatus ? flagStatus === "flagged" : flags ? flags.includes("\\flagged") : null,
     protection: isMailProtection(protection) ? protection : null,
+    attachmentsNotBackedUp:
+      pickBoolean(source, ["attachmentsNotBackedUp"]) === true ||
+      hasEntries(source.missingAttachments),
   };
+}
+
+/** A JSON array (or whitespace list) with at least one entry. */
+function hasEntries(value: unknown): boolean {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    return false;
+  }
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.length > 0 : true;
+  } catch {
+    return true;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -355,6 +377,12 @@ export interface TreeEntryDto {
   event: EventSummary | null;
   /** Content type hint the UI may show; never secrets. */
   contentType: string | null;
+  /**
+   * A SharePoint library the backup could not read: it holds the files of the
+   * last run that did (`carriedForward`, `lastReadAt` on the library's folder
+   * object). Absent for everything else.
+   */
+  carriedForward?: { lastReadAt: string | null };
 }
 
 export type EntryRow = Pick<
@@ -391,6 +419,9 @@ export function toTreeEntry(row: EntryRow): TreeEntryDto {
     mail: row.kind === "mail" ? mailSummaryOf(metadata) : null,
     event: row.kind === "event" ? eventSummaryOf(metadata) : null,
     contentType: metadata ? pickString(metadata, ["contentType", "mimeType"]) : null,
+    ...(row.kind === "folder" && metadata?.carriedForward === "true"
+      ? { carriedForward: { lastReadAt: pickString(metadata, ["lastReadAt"]) } }
+      : {}),
   };
 }
 

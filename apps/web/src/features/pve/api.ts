@@ -86,6 +86,11 @@ export interface PveGuest {
   backups?: PveGuestBackupSizes;
   attention: string[];
   /**
+   * A boot test's temporary guest that could not be removed and is still on the node (memory,
+   * disk); null otherwise. Missing on servers before 0.5.0.
+   */
+  bootTestLeftover?: PveBootTestLeftover | null;
+  /**
    * vzdump's warnings beside the newest backup, which committed its restore point ("Succeeded
    * with warnings"); missing on servers before 0.4.2.
    */
@@ -110,7 +115,7 @@ export interface PveGuest {
 
 /** Why a restore check could not run (servers from 0.4.3). */
 export interface PveVerifyNotChecked {
-  reason: "locked" | "interrupted";
+  reason: "locked" | "interrupted" | "error";
   /** What restic said, e.g. who holds the repository's lock. */
   detail: string;
   attempts: number;
@@ -128,11 +133,13 @@ export interface PveVerifyFact {
   requested: boolean;
   /** The newest check could not run (`gaveUp`: no more tries); servers from 0.4.3. */
   notChecked?: {
-    reason: "locked" | "interrupted";
+    reason: "locked" | "interrupted" | "error";
     detail: string;
     attempts: number;
     gaveUp: boolean;
   } | null;
+  /** The rated boot test of the same restore point (servers from 0.5.0). */
+  bootTest?: { outcome: "green" | "yellow" | "red"; checkedAt: string; message: string } | null;
 }
 
 /** Whether "Back up now" or putting the guest into a job needs the self-backup confirmation. */
@@ -256,9 +263,22 @@ export interface PveBootTest {
   durationMs: number;
   bootSeconds: number | null;
   guestAgent: boolean;
+  /** The temporary guest the node made; null when it made none. */
   tempVmid: number | null;
   storage: string | null;
+  /** False with a `tempVmid`: the temporary guest is still on the node (until `leftoverGoneAt`). */
   cleanedUp: boolean;
+  /** When a later inventory of the node no longer listed the temporary guest (servers from 0.5.0). */
+  leftoverGoneAt?: string | null;
+}
+
+/** A boot test's temporary guest that is still on its node (servers from 0.5.0). */
+export interface PveBootTestLeftover {
+  vmid: number;
+  storage: string | null;
+  node: string | null;
+  runId: string;
+  at: string;
 }
 
 /** Why a guest's restore points cannot be boot-tested; null: they can. */
@@ -277,6 +297,13 @@ export interface PveOverview {
   restorePool: string;
 }
 
+/** The fs-freeze of a VM restore point (docs/PVE.md, "File restore of a VM"). */
+export interface PveVmConsistency {
+  state: "frozen" | "stopped" | "no_agent" | "crash_consistent" | "freeze_failed" | "unknown";
+  /** The node's line about it, in English (the error of a failed freeze). */
+  detail?: string;
+}
+
 export interface PveRestorePoint {
   id: string;
   sequence: number;
@@ -292,6 +319,11 @@ export interface PveRestorePoint {
   /** Items a container backup could not read (0 when complete). */
   unreadable?: number;
   consistency?: string | null;
+  /**
+   * A VM's: whether PVE froze its file systems through the guest agent for the backup, as
+   * vzdump's log says (restow-pve 0.5.0 on); null when it was not recorded.
+   */
+  vmConsistency?: PveVmConsistency | null;
   /** The first unreadable items, when the node named them (0.4.0 on). */
   stats?: { unreadablePaths?: string[] } | null;
   /**
@@ -301,6 +333,11 @@ export interface PveRestorePoint {
   contents?: string[] | null;
   /** Whether its files can be browsed and downloaded (containers, 0.4.0 on). */
   browsable?: boolean;
+  /**
+   * Of a privileged container, by its own configuration: Restow restores containers only as
+   * unprivileged, so it is not restored, checked or boot-tested. Missing before 0.5.0.
+   */
+  privileged?: boolean;
   disks: {
     device: string;
     size: number;
@@ -345,14 +382,21 @@ export interface PveRun {
   error: string | null;
   /** vzdump's warnings beside a backup that committed its restore point (servers from 0.4.2). */
   warnings?: string[];
-  stats?: {
-    resticUnreadable?: number;
-    /** The first items restic could not read (nodes from 0.4.0 on). */
-    unreadablePaths?: string[];
-    consistency?: string | null;
-    /** The outcome of a boot test run. */
-    bootTest?: PveBootTest;
-  } | null;
+  stats?:
+    | ({
+        resticUnreadable?: number;
+        /** The first items restic could not read (nodes from 0.4.0 on). */
+        unreadablePaths?: string[];
+        consistency?: string | null;
+        /** The outcome of a boot test run. */
+        bootTest?: PveBootTest;
+        /**
+         * A container restore that read the repository from another storage target than the
+         * primary (a copy target's repository copy): which one (servers from 0.5.0).
+         */
+        readFrom?: { targetId: string; targetName: string | null; role: string };
+      } & PveRestoreResult)
+    | null;
   /** How far the run is while it runs; missing on servers before 0.4.0. */
   progress?: PveRunProgress | null;
   /** The node a running run runs on and its restow-pve version; missing on servers before 0.4.1. */
@@ -360,6 +404,37 @@ export interface PveRun {
   /** When a stop was asked for (0.4.2) and by whom: "Cancelling" while running, then "Cancelled by". */
   cancelRequestedAt?: string | null;
   cancelledBy?: string | null;
+}
+
+/**
+ * What a restore or restore check reported beside its success (servers from 0.5.0,
+ * docs/PVE-PROTOCOL.md "Task `restore`"); any of it makes the run amber (run-status.ts).
+ */
+export interface PveRestoreResult {
+  /** The new guest's VMID. */
+  vmid?: number;
+  /** The restore task ended "WARNINGS: n": its warning lines. */
+  warnings?: string[];
+  /** Raw lxc.* lines PVE restores only for root@pam. */
+  skippedLxc?: string[];
+  customIdmap?: boolean;
+  /** Bind and device mount points left out, as configuration lines ("mp0: /srv/a,mp=/data"). */
+  omittedMounts?: string[];
+  /** The commands that put them back, as root (a restore into a new guest). */
+  remountCommands?: string[];
+  /** Host devices the copy uses, as the original does. */
+  keptDevices?: string[];
+  madeUnprivileged?: boolean;
+  onbootCleared?: boolean;
+  /** A restore check: whether its temporary guest was removed again. */
+  deleted?: boolean;
+  leftoverVmid?: number;
+  /** "Start after the restore": whether the copy runs, and why not. */
+  started?: boolean;
+  startError?: string;
+  startSkipped?: string;
+  /** A restore check the node did not run, with its reason (servers from 0.5.0). */
+  skipped?: { reason: string; message: string };
 }
 
 /** A task that waits for the guest's node (backup, restore, boot test). */
@@ -374,12 +449,12 @@ export interface PveOpenTask {
 }
 
 /**
- * A new backup chain of a container's repository (docs/PVE.md, "New backup chain"): the
+ * A new backup chain of a container's repository (docs/PVE.md, "Repository problems"): the
  * repository was missing on the primary when a backup began, or an administrator reset it.
  */
 export interface PveRepositoryChain {
   at: string;
-  reason: "missing" | "reset";
+  reason: "missing" | "reset" | "lost" | "points_lost";
   /** Where the repository was looked for; `location` is null for the installation default. */
   target: {
     name: string;
@@ -389,6 +464,26 @@ export interface PveRepositoryChain {
   } | null;
   unavailablePoints: number;
   actor: string | null;
+  /**
+   * The folder the new chain began in when the old one could not be cleared (write-once storage,
+   * docs/STORAGE.md); the old chain stays at `previousPrefix`. Absent otherwise.
+   */
+  prefix?: string;
+  previousPrefix?: string;
+}
+
+/**
+ * Why the last backup of a container was refused for its repository (docs/PVE.md, "Repository
+ * problems"): it lies on another storage target, is split across targets, or is missing while
+ * restore points refer to it.
+ */
+export interface PveRepositoryProblem {
+  at: string;
+  /** `pve-repository-elsewhere`, `pve-repository-split` or `pve-repository-missing`. */
+  type: string;
+  /** The target holding (part of) it: a name, or `installation_default`. */
+  heldBy: string | null;
+  activePoints: number;
 }
 
 export interface PveGuestDetail {
@@ -397,7 +492,12 @@ export interface PveGuestDetail {
   snapshots: PveRestorePoint[];
   runs: PveRun[];
   /** A container's repository and its new backup chains (newest first); null for a VM, missing before 0.4.2. */
-  repository?: { readyAt: string | null; chains: PveRepositoryChain[] } | null;
+  repository?: {
+    readyAt: string | null;
+    chains: PveRepositoryChain[];
+    /** Missing before 0.5.0. */
+    problem?: PveRepositoryProblem | null;
+  } | null;
   /** The guest's open tasks; missing on old servers. */
   tasks?: PveOpenTask[];
   /** What a follow-up backup added on average; missing on servers before 0.3.7. */
@@ -407,6 +507,22 @@ export interface PveGuestDetail {
     blocker: PveBootTestBlocker;
     schedule: PveBootTestSchedule;
     lastBootTestAt: string | null;
+  };
+  /**
+   * The job's monthly restore check of the guest: whether it asks for one, why the guest's node
+   * cannot run it now, the last check (servers from 0.5.0).
+   */
+  restoreCheck?: {
+    enabled: boolean;
+    blocker:
+      | "repository_problem"
+      | "privileged"
+      | "no_node"
+      | "restores_off"
+      | "node_offline"
+      | null;
+    node: string | null;
+    lastRestoreTestAt: string | null;
   };
 }
 
@@ -566,9 +682,19 @@ export const savePveSettings = (input: Partial<PveInstallationSettings>) =>
     "/settings/pve",
     { method: "PUT", body: input },
   );
+/** The problem of a restore to a VMID a deleted guest had whose restore points Restow keeps. */
+export const PVE_VMID_HELD_PROBLEM = "urn:restow:problem:pve-vmid-held";
+
 export const restoreSnapshot = (
   id: string,
-  input: { targetStorage: string; targetNode?: string; targetVmid?: number; start: boolean },
+  input: {
+    targetStorage: string;
+    targetNode?: string;
+    targetVmid?: number;
+    start: boolean;
+    /** Use `targetVmid` although a deleted guest Restow keeps had it (servers from 0.5.0). */
+    confirmVmidReuse?: boolean;
+  },
 ) =>
   apiFetch<{ taskId: string }>(`/pve/snapshots/${encodeURIComponent(id)}/restore`, {
     method: "POST",

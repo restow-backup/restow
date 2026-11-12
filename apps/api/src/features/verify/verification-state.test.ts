@@ -40,7 +40,7 @@ describe("objectVerificationOf", () => {
     ).toEqual({ state: "green", report: green, previous: null });
   });
 
-  it("calls a newer backup unverified, whatever the older one scored", () => {
+  it("calls a newer backup unverified, whatever the older one scored [READY-001]", () => {
     const green = check("r1", "green", 3, SNAPSHOT_N);
     const verification = objectVerificationOf({
       latestSnapshotId: SNAPSHOT_N1,
@@ -51,7 +51,7 @@ describe("objectVerificationOf", () => {
     expect(verification).toEqual({ state: "unverified", report: null, previous: green });
   });
 
-  it("never lets a check of another snapshot rate the newest one", () => {
+  it("never lets a check of another snapshot rate the newest one [READY-001]", () => {
     const green = check("r1", "green", 3, SNAPSHOT_N);
     expect(
       objectVerificationOf({
@@ -63,7 +63,7 @@ describe("objectVerificationOf", () => {
     ).toBe("unverified");
   });
 
-  it("is unverified when no check ever ran, and no_backup without a backup", () => {
+  it("is unverified when no check ever ran, and no_backup without a backup [READY-001]", () => {
     expect(
       objectVerificationOf({
         latestSnapshotId: SNAPSHOT_N,
@@ -82,7 +82,7 @@ describe("objectVerificationOf", () => {
     ).toEqual({ state: "no_backup", report: null, previous: null });
   });
 
-  it("turns red when the storage check found damage after the newest backup's check", () => {
+  it("turns red when the storage check found damage after the newest backup's check [READY-013]", () => {
     const green = check("r1", "green", 3, SNAPSHOT_N);
     const damage = finding("f1", 5);
     expect(
@@ -95,7 +95,7 @@ describe("objectVerificationOf", () => {
     ).toEqual({ state: "red", report: damage, previous: null });
   });
 
-  it("keeps a storage finding on a new, unchecked backup until a check examined it", () => {
+  it("keeps a storage finding on a new, unchecked backup until a check examined it [READY-013]", () => {
     const damage = finding("f1", 5);
     expect(
       objectVerificationOf({

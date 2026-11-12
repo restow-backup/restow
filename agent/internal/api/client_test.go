@@ -99,7 +99,7 @@ func TestEnrollAndAuthenticatedCalls(t *testing.T) {
 	// Token is single use.
 	_, err = api.Enroll(ctx, plain.URL, true, api.EnrollRequest{Token: "rset_test_token_0123456789"})
 	var ae *api.APIError
-	if !errors.As(err, &ae) || ae.Status != 401 || ae.Title != "Invalid enrollment token" {
+	if !errors.As(err, &ae) || ae.Status != 401 || ae.Title != "Enrollment token not valid" || !api.IsTokenRefused(err) {
 		t.Fatalf("second enroll: err = %v", err)
 	}
 

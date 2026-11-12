@@ -86,6 +86,7 @@ func TestUpdateNowWithoutANewerRelease(t *testing.T) {
 }
 
 // A signature that does not match the compiled-in key stops the update before anything moves.
+// claim: UPDATE-016
 func TestUpdateNowRefusesAnUnsignedRelease(t *testing.T) {
 	h := updateHarness(t)
 	other, _, _ := ed25519.GenerateKey(rand.Reader)

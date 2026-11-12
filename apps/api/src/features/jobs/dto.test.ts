@@ -230,6 +230,18 @@ describe("isRetryable", () => {
     expect(isRetryable({ queue: "verify", status: "cancelled" }, mailbox)).toBe(true);
   });
 
+  it("allows a failed archive backfill (it resumes where the stream's takeover stopped)", () => {
+    const backfill = { mode: "backfill", capture: "imap_sync" };
+    expect(isRetryable({ queue: "archive", status: "failed", payload: backfill }, mailbox)).toBe(
+      true,
+    );
+    // An archive job without a mode only marks mailboxes due: nothing to retry.
+    expect(isRetryable({ queue: "archive", status: "failed", payload: {} }, mailbox)).toBe(false);
+    expect(isRetryable({ queue: "archive", status: "completed", payload: backfill }, mailbox)).toBe(
+      false,
+    );
+  });
+
   it("refuses other queues, other states and objects that are gone or excluded", () => {
     expect(isRetryable({ queue: "restore", status: "failed" }, mailbox)).toBe(false);
     expect(isRetryable({ queue: "backup", status: "completed" }, mailbox)).toBe(false);

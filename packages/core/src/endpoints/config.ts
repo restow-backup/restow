@@ -25,6 +25,7 @@
 
 import type { BandwidthWindow } from "../backup-jobs/bandwidth.js";
 import type { AgentPolicyWire, EndpointPolicy } from "./agent-policy.js";
+import { type AgentSqlConfig, agentSqlConfig, type SqlSettings } from "./sql/settings.js";
 
 export const ENDPOINT_PROFILES = ["server", "client"] as const;
 export type EndpointProfileName = (typeof ENDPOINT_PROFILES)[number];
@@ -117,6 +118,11 @@ export interface AgentConfig {
    * resolved value (Linux and macOS, never Windows, which has `useVss`).
    */
   fsSnapshot?: "auto" | "off";
+  /**
+   * The native SQL Server backup (W2a, Windows only); present only when a backup job sets it. The
+   * agent gets it without `verify` ({@link agentFacingConfig}).
+   */
+  sql?: SqlSettings;
 }
 
 /**
@@ -124,8 +130,9 @@ export interface AgentConfig {
  * form (agent 0.4.0; an older agent ignores it) and whether the server pauses new runs for an
  * update right now (`startsPaused`, from 0.4.0; it never changes the version).
  */
-export interface AgentConfigResponse extends Omit<AgentConfig, "policy"> {
+export interface AgentConfigResponse extends Omit<AgentConfig, "policy" | "sql"> {
   configVersion: number;
+  sql?: AgentSqlConfig;
   policy?: AgentPolicyWire;
   startsPaused?: boolean;
 }
@@ -279,12 +286,18 @@ export function enrolledEndpointConfig(
  * runs. An agent of 0.2.1 or later never starts a scheduled backup with `none` anyway. Nor does
  * such a machine back up as a whole.
  */
-export function agentFacingConfig<T extends AgentConfig>(config: T): T {
+export function agentFacingConfig<T extends AgentConfig>(
+  config: T,
+): Omit<T, "sql"> & { sql?: AgentSqlConfig } {
+  // The check settings of the native SQL backup are the server's (it plans `sql_verify`); the
+  // agent gets the maximum size and PHYSICAL_ONLY with each task.
+  const { sql, ...rest } = config;
   if (!isUnscheduled(config.schedule)) {
-    return config;
+    return sql ? { ...rest, sql: agentSqlConfig(sql) } : config;
   }
-  const { wholeMachine: _whole, ...rest } = config;
-  return { ...rest, paths: [], hooks: {} } as unknown as T;
+  // A machine in no job backs up nothing, its databases neither, and not as a whole.
+  const { wholeMachine: _whole, ...unscheduled } = rest;
+  return { ...unscheduled, paths: [], hooks: {} } as unknown as Omit<T, "sql">;
 }
 
 /** Retention every endpoint starts with (docs/AGENT.md): daily 30, weekly 12, monthly 12. */

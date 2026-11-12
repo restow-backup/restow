@@ -1,0 +1,4 @@
+INFO: starting new backup job: vzdump 101 --mode snapshot --storage restow --remove 0 --fleecing enabled=1,storage=local-lvm
+INFO: trying to get global lock - waiting...
+ERROR: can't acquire lock '/var/run/vzdump.lock' - got timeout
+TASK ERROR: can't acquire lock '/var/run/vzdump.lock' - got timeout

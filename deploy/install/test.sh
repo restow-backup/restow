@@ -1431,7 +1431,7 @@ e2e_main() {
       TTY_OUT=$out
     fi
     if [ -n "${E2E_STDOUT_TTY:-}" ]; then
-      # shellcheck disable=SC2317 # called by main below; shellcheck 0.9 loses track of it in a test file this long
+      # shellcheck disable=SC2317,SC2329 # called by main below; shellcheck 0.9 loses track of it in a test file this long
       stdout_is_tty() { return 0; }
     fi
     set -Eeuo pipefail
@@ -1453,7 +1453,7 @@ line_number() {
 # --- Option 2, behind a reverse proxy, the whole dialogue and the installation ---------------
 e2e_dir="$TMP_ROOT/e2e-proxy"
 e2e_out="$TMP_ROOT/e2e-proxy.out"
-e2e_main "$(answers_file proxy 2 backup.example.com 192.168.1.20 "" y yes)" "$e2e_out" \
+e2e_main "$(answers_file proxy 1 2 backup.example.com 192.168.1.20 "" y yes)" "$e2e_out" \
   --version 0.2.0 --skip-signature-check --dir "$e2e_dir"
 assert_eq 0 "$E2E_STATUS" "interactive installation behind a proxy: exit 0"
 out=$(cat "$e2e_out")
@@ -1515,7 +1515,7 @@ assert_contains "docker compose -f $e2e_dir/docker-compose.yml logs" "$(cat "$E2
 
 # --- Option 1, public ------------------------------------------------------------------------
 e2e_out="$TMP_ROOT/e2e-public.out"
-e2e_main "$(answers_file public 1 backup.example.com "" y yes)" "$e2e_out" --skip-signature-check --dir "$TMP_ROOT/e2e-public"
+e2e_main "$(answers_file public 1 1 backup.example.com "" y yes)" "$e2e_out" --skip-signature-check --dir "$TMP_ROOT/e2e-public"
 assert_eq 0 "$E2E_STATUS" "interactive public installation: exit 0"
 out=$(cat "$e2e_out")
 assert_contains "Domain name of this server (for example backup.example.com): " "$out" "public: the domain question as ever"
@@ -1533,7 +1533,7 @@ assert_status 1 "public: no root certificate is exported" test -e "$TMP_ROOT/e2e
 
 # --- Option 3, local ---------------------------------------------------------------------------
 e2e_out="$TMP_ROOT/e2e-local.out"
-e2e_main "$(answers_file local 3 "" y yes)" "$e2e_out" --skip-signature-check --dir "$TMP_ROOT/e2e-local"
+e2e_main "$(answers_file local 1 3 "" y yes)" "$e2e_out" --skip-signature-check --dir "$TMP_ROOT/e2e-local"
 assert_eq 0 "$E2E_STATUS" "interactive local installation: exit 0"
 out=$(cat "$e2e_out")
 assert_not_contains "Domain name of this server" "$out" "local: no domain is asked for"
@@ -1569,7 +1569,7 @@ assert_contains "Address of your reverse proxy: " "$out" "--behind-proxy: the ad
 
 # --- Mistakes in the dialogue are explained and asked again ------------------------------------
 e2e_out="$TMP_ROOT/e2e-mistakes.out"
-e2e_main "$(answers_file mistakes 7 2 192.168.1.9 restow backup.example.com proxy.lan 300.1.1.1 "" 192.168.1.20 "" n)" "$e2e_out" --version 0.2.0 --skip-signature-check --dir "$TMP_ROOT/e2e-mistakes"
+e2e_main "$(answers_file mistakes 1 7 2 192.168.1.9 restow backup.example.com proxy.lan 300.1.1.1 "" 192.168.1.20 "" n)" "$e2e_out" --version 0.2.0 --skip-signature-check --dir "$TMP_ROOT/e2e-mistakes"
 assert_eq 10 "$E2E_STATUS" "answering no at the plan: exit 10, nothing installed"
 out=$(cat "$e2e_out")
 assert_contains "Please answer 1, 2 or 3." "$out" "a wrong menu answer is explained"
@@ -1607,7 +1607,7 @@ assert_not_contains "$E2E_TOKEN" "$(cat "$E2E_INSTALL_LOG")" "standard output on
 
 # --- The token cannot be read ---------------------------------------------------------------------
 e2e_out="$TMP_ROOT/e2e-notoken.out"
-E2E_NO_TOKEN=1 e2e_main "$(answers_file notoken 1 backup.example.com "" y yes)" "$e2e_out" --skip-signature-check --dir "$TMP_ROOT/e2e-notoken"
+E2E_NO_TOKEN=1 e2e_main "$(answers_file notoken 1 1 backup.example.com "" y yes)" "$e2e_out" --skip-signature-check --dir "$TMP_ROOT/e2e-notoken"
 assert_eq 0 "$E2E_STATUS" "no token in the api log: the installation is still complete (exit 0)"
 assert_eq "    Restow is running.
     Open:         https://backup.example.com
@@ -1691,6 +1691,244 @@ out=$( (
 ) )
 assert_contains "Setup token:  the value of RESTOW_SETUP_TOKEN in $dir_env_token/.env" "$out" "RESTOW_SETUP_TOKEN: named, not printed"
 assert_not_contains "0123456789abcdef0123" "$out" "RESTOW_SETUP_TOKEN: never printed"
+
+# ---- Restore from a dump and worker nodes (--restore, --join, --allow-worker) -----------------
+
+key=$(head -c 32 /dev/urandom | base64 | tr -d '\n')
+assert_status 0 "a generated master key is valid" valid_master_key "$key"
+assert_status 1 "a short key is refused" valid_master_key "c2hvcnQ="
+assert_status 1 "a key with a space is refused" valid_master_key "${key% *} x"
+assert_status 1 "a hex key is refused" valid_master_key "$(random_hex 32)"
+assert_eq "new restore worker worker restore" \
+  "$(kind_from_answer 1) $(kind_from_answer 2) $(kind_from_answer 3) $(kind_from_answer Worker) $(kind_from_answer restore)" \
+  "the first question's answers"
+assert_eq "" "$(kind_from_answer 4)" "anything else is no answer"
+
+parsed_kind() {
+  (
+    set -Eeuo pipefail
+    parse_args "$@"
+    printf '%s|%s|%s|%s|%s|%s' "$OPT_KIND" "$OPT_DIR" "$OPT_RESTORE" "$OPT_JOIN_URL" "$OPT_NODE_NAME" "$ACTION"
+  ) 2>/dev/null
+}
+dump_file="$TMP_ROOT/restow-old.dump"
+printf 'PGDMP-test-content' >"$dump_file"
+assert_eq "restore|/opt/restow|$dump_file|||install" "$(parsed_kind --restore "$dump_file")" "--restore is the second answer"
+assert_eq "worker|/opt/restow-node||https://backup.example.com|worker-7|install" \
+  "$(parsed_kind --join https://backup.example.com/ --join-token rsj_x --node-name Worker-7)" \
+  "--join: a worker node in /opt/restow-node"
+assert_eq "worker|/srv/node||https://backup.example.com|worker-7|install" \
+  "$(parsed_kind --join=https://backup.example.com --node-name=worker-7 --dir /srv/node)" "--join with --dir"
+assert_eq "new|/opt/restow||||install" "$(parsed_kind --new)" "--new"
+assert_eq "|/opt/restow||||worker-access" "$(parsed_kind --allow-worker 10.0.0.7 --database-address 10.0.0.5)" "--allow-worker"
+assert_eq "|/opt/restow||||worker-access" "$(parsed_kind --disallow-worker 10.0.0.7)" "--disallow-worker"
+assert_eq "|/opt/restow||||update-worker" "$(parsed_kind --update-worker)" "--update-worker"
+assert_status 2 "--restore and --join exclude each other" parse_args --restore "$dump_file" --join https://a.example.com
+assert_status 2 "--env-from needs --restore" parse_args --env-from /etc/hostname
+assert_status 2 "--join needs https" parse_args --join http://backup.example.com
+assert_status 2 "--join is no main host" parse_args --join https://backup.example.com --domain backup.example.com
+assert_status 2 "--join-token needs --join" parse_args --join-token rsj_x
+assert_status 2 "--node-name must be a host name" parse_args --join https://a.example.com --node-name "worker 1"
+assert_status 2 "--allow-worker takes an IP address" parse_args --allow-worker worker.example.com
+assert_status 2 "--database-address belongs to --allow-worker" parse_args --database-address 10.0.0.5
+assert_status 2 "--database-port must be a port" parse_args --allow-worker 10.0.0.7 --database-port 70000
+assert_status 2 "one worker access change at a time" parse_args --allow-worker 10.0.0.7 --disallow-worker 10.0.0.8
+assert_eq 11 "$EXIT_MASTER_KEY" "exit code 11: the master key does not open the dump"
+usage_text=$(usage)
+for option in --restore --env-from --join --join-token --node-name --standby-scheduler --join-ca --update-worker --allow-worker --disallow-worker --database-address; do
+  assert_contains "$option" "$usage_text" "--help names $option"
+done
+assert_contains "11  --restore: RESTOW_MASTER_KEY does not open the dump" "$usage_text" "--help lists exit code 11"
+assert_contains "is in development" "$usage_text" "--help says real replication is in development"
+
+old_env="$TMP_ROOT/old.env"
+cat >"$old_env" <<OLDENV
+# the old installation
+RESTOW_MASTER_KEY=$key
+BETTER_AUTH_SECRET="$key"
+DATABASE_URL=postgres://restow_app:old@postgres:5432/restow
+POSTGRES_PASSWORD=old-password
+RESTOW_IMAGE=ghcr.io/restow-backup/restow:0.4.12
+STORAGE_TARGET=s3
+S3_BUCKET=backups
+S3_BUCKET=backups-2
+ENTRA_CLIENT_ID=0000
+JOURNAL_SMTP_PORT=2525
+S3_PREFIX=
+OLDENV
+imported=$(import_env_values "$old_env")
+assert_eq "RESTOW_MASTER_KEY=$key
+BETTER_AUTH_SECRET=$key
+STORAGE_TARGET=s3
+S3_BUCKET=backups-2
+ENTRA_CLIENT_ID=0000
+JOURNAL_SMTP_PORT=2525" "$imported" "--env-from takes only the allowed keys, the last value, unquoted, none empty"
+
+hba=$(render_hba restow 10.0.0.7 2001:db8::7)
+assert_contains "hostssl restow  +restow_nodes  10.0.0.7/32  scram-sha-256" "$hba" "pg_hba.conf: the worker host, TLS, node logins only"
+assert_contains "hostssl restow  +restow_nodes  2001:db8::7/128  scram-sha-256" "$hba" "pg_hba.conf: an IPv6 worker host"
+assert_contains "host    all  all  samenet  scram-sha-256" "$hba" "pg_hba.conf: the containers of this host as before"
+assert_eq "hostssl all  all  all  reject" "$(printf '%s\n' "$hba" | tail -n 1)" "pg_hba.conf: everything else is refused"
+assert_eq "" "$(worker_override)" "no directory targets: no override"
+assert_eq "# Written by install.sh --join: the directory storage targets of the installation, at the
+# same path as on the main host (docs/SIZING.md, \"Several hosts: worker nodes\").
+services:
+  worker:
+    volumes:
+      - /srv/a:/srv/a
+      - /mnt/restow/b:/mnt/restow/b
+  scheduler:
+    volumes:
+      - /srv/a:/srv/a
+      - /mnt/restow/b:/mnt/restow/b" "$(worker_override /srv/a /mnt/restow/b)" "the directories bound at the same path"
+
+join_answer="$TMP_ROOT/join-answer"
+ca_b64=$(printf -- '-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----\n' | base64 | tr -d '\n')
+cat >"$join_answer" <<JOIN
+# restow join: node worker-1 (n1), release 0.5.0
+RESTOW_JOIN_FORMAT=1
+RESTOW_JOIN_STANDBY_SCHEDULER=1
+RESTOW_JOIN_DIRECTORIES=/srv/a:/mnt/restow/b
+RESTOW_JOIN_CA_B64=$ca_b64
+DATABASE_PROVIDER_URL=postgres://restow_node_0b8c8e5e6d6a_inst:pw@10.0.0.5:5432/restow?sslmode=verify-full
+DATABASE_URL=postgres://restow_node_0b8c8e5e6d6a_app:pw@10.0.0.5:5432/restow?sslmode=verify-full
+RESTOW_IMAGE=ghcr.io/restow-backup/restow:0.5.0
+RESTOW_MASTER_KEY=$key
+RESTOW_NODE_ID=0b8c8e5e-6d6a-4f7e-9d3c-1f2e3d4c5b6a
+RESTOW_PRODUCT_NAME='Acme Backup'
+JOIN
+assert_eq "" "$(join_env_problem "$join_answer")" "the join's answer is a worker's configuration"
+assert_eq "1" "$(join_value "$join_answer" STANDBY_SCHEDULER)" "the standby scheduler is read"
+assert_eq "/srv/a:/mnt/restow/b" "$(join_value "$join_answer" DIRECTORIES)" "the directories are read"
+node_env="$TMP_ROOT/node.env"
+split_join_env "$join_answer" "$node_env" "$TMP_ROOT/db-ca.crt"
+assert_eq 600 "$(file_mode "$node_env")" "the node's .env is mode 0600"
+assert_not_contains "RESTOW_JOIN_" "$(cat "$node_env")" "install.sh's own lines stay out of .env"
+assert_contains "RESTOW_PRODUCT_NAME='Acme Backup'" "$(cat "$node_env")" "the node's .env keeps the quoting"
+assert_contains "BEGIN CERTIFICATE" "$(cat "$TMP_ROOT/db-ca.crt")" "the database CA is written"
+bad="$TMP_ROOT/join-bad"
+{ cat "$join_answer"; printf 'BETTER_AUTH_SECRET=%s\n' "$key"; } >"$bad"
+assert_contains "must not have" "$(join_env_problem "$bad")" "an answer with the auth secret is refused"
+grep -v '^RESTOW_MASTER_KEY=' "$join_answer" >"$bad"
+assert_contains "lacks RESTOW_MASTER_KEY" "$(join_env_problem "$bad")" "an answer without the master key is refused"
+{ cat "$join_answer"; printf 'echo pwned\n'; } >"$bad"
+assert_contains "not settings" "$(join_env_problem "$bad")" "an answer with other lines is refused"
+printf '<html>sign in</html>\n' >"$bad"
+assert_contains "not the configuration of a worker node" "$(join_env_problem "$bad")" "an answer of something else is refused"
+
+# The first question of an interactive run (the run behind a proxy above answered 1).
+out=$(cat "$TMP_ROOT/e2e-proxy.out")
+assert_contains "What do you want to set up on this machine?" "$out" "interactive: the first question"
+assert_contains "  2) Restore an installation from a database dump" "$out" "interactive: option 2 is the restore"
+assert_contains "  3) Add a worker to an existing installation (another host)" "$out" "interactive: option 3 is a worker node"
+assert_contains "is in development; a worker node adds capacity only" "$out" "interactive: real replication is in development"
+if [ "$(line_number "What do you want to set up on this machine?" "$TMP_ROOT/e2e-proxy.out")" -ge "$(line_number "How will people reach Restow?" "$TMP_ROOT/e2e-proxy.out")" ]; then
+  fail "interactive: the first question comes before the mode"
+else
+  pass
+fi
+
+# A dry run of a restore: nothing is changed, the order is said.
+e2e_out="$TMP_ROOT/e2e-restore-dry.out"
+e2e_main - "$e2e_out" --dry-run --restore "$dump_file" --env-from "$old_env" --domain backup.example.com --version 0.5.0 --skip-signature-check --dir "$TMP_ROOT/e2e-restore"
+assert_eq 0 "$E2E_STATUS" "restore dry run: exit 0"
+out=$(cat "$e2e_out")
+assert_contains "settings taken from $old_env" "$out" "restore dry run: the old settings are taken"
+assert_contains "restore mode on before anything starts" "$out" "restore dry run: the plan says restore mode comes first"
+assert_contains "would start postgres only, create the database restow_restore" "$out" "restore dry run: the dump goes into the scratch database"
+assert_contains "undo this run (exit code 11)" "$out" "restore dry run: a wrong master key undoes the run"
+assert_not_contains "$key" "$out" "restore dry run: the master key is never printed"
+assert_not_contains "$key" "$(cat "$E2E_INSTALL_LOG" 2>/dev/null)" "restore dry run: the master key is in no log"
+if [ "$(line_number "restow_restore" "$e2e_out")" -ge "$(line_number "Starting the stack" "$e2e_out")" ]; then
+  fail "restore dry run: the stack (worker, scheduler) starts only after the restore"
+else
+  pass
+fi
+e2e_main - "$e2e_out" --dry-run --restore "$dump_file" --env-from "$old_env" --domain backup.example.com --version 0.4.12 --skip-signature-check --dir "$TMP_ROOT/e2e-restore"
+assert_eq 2 "$E2E_STATUS" "restore of a release without it: refused"
+printf 'not a dump' >"$TMP_ROOT/not-a.dump"
+e2e_main - "$e2e_out" --dry-run --restore "$TMP_ROOT/not-a.dump" --env-from "$old_env" --domain backup.example.com --version 0.5.0 --skip-signature-check --dir "$TMP_ROOT/e2e-restore"
+assert_eq 3 "$E2E_STATUS" "restore of a file that is no dump: preflight"
+assert_contains "is not a PostgreSQL custom-format dump" "$(cat "$e2e_out")" "restore of a file that is no dump: says why"
+e2e_main - "$e2e_out" --dry-run --restore "$dump_file" --domain backup.example.com --version 0.5.0 --skip-signature-check --dir "$TMP_ROOT/e2e-restore"
+assert_eq 2 "$E2E_STATUS" "a restore without a terminal needs --env-from"
+
+# An interrupted restore (.restore-in-progress left behind, e.g. Ctrl-C during pg_restore or at the
+# confirmation): a plain run never starts the stack on it; --restore undoes it and starts again.
+cut_dir="$TMP_ROOT/e2e-restore-cut"
+mkdir -p "$cut_dir"
+cp "$REPO/deploy/release/docker-compose.yml" "$cut_dir/docker-compose.yml"
+printf 'RESTOW_MASTER_KEY=%s\n' "$key" >"$cut_dir/.env"
+chmod 600 "$cut_dir/.env"
+: >"$cut_dir/.restore-in-progress"
+e2e_out="$TMP_ROOT/e2e-restore-cut.out"
+STUB_VOLUMES="restow_pgdata" STUB_PROJECT_DIRS="$cut_dir" e2e_main - "$e2e_out" --yes --dry-run --dir "$cut_dir"
+assert_eq 8 "$E2E_STATUS" "interrupted restore: a plain run is refused"
+out=$(cat "$e2e_out")
+assert_contains "did not finish" "$out" "interrupted restore: says so"
+assert_contains "worker and scheduler stay stopped" "$out" "interrupted restore: nothing that deletes starts"
+assert_contains "api restore activate" "$out" "interrupted restore: how to finish it by hand"
+assert_contains "install.sh --restore <dump>" "$out" "interrupted restore: how to start it again"
+assert_not_contains "Starting the stack" "$out" "interrupted restore: the stack is not started"
+assert_not_contains "would" "$out" "interrupted restore: nothing would be done"
+assert_eq 1 "$([ -f "$cut_dir/.restore-in-progress" ] && [ -f "$cut_dir/.env" ] && echo 1)" "interrupted restore: the refusal changes nothing"
+STUB_VOLUMES="restow_pgdata" STUB_PROJECT_DIRS="$cut_dir" e2e_main - "$e2e_out" --dry-run --restore "$dump_file" --env-from "$old_env" --domain backup.example.com --version 0.5.0 --skip-signature-check --dir "$cut_dir"
+assert_eq 0 "$E2E_STATUS" "interrupted restore: --restore starts it again (dry run)"
+out=$(cat "$e2e_out")
+assert_contains "did not finish: it is undone and started again" "$out" "interrupted restore: --restore says it starts again"
+assert_contains "Undoing the interrupted restore" "$out" "interrupted restore: this run's state is removed first"
+assert_contains "would run: docker compose down -v --remove-orphans" "$out" "interrupted restore: down -v before the new restore"
+assert_contains "would start postgres only, create the database restow_restore" "$out" "interrupted restore: the dump goes into the scratch database again"
+if [ "$(line_number "Undoing the interrupted restore" "$e2e_out")" -ge "$(line_number "restow_restore" "$e2e_out")" ]; then
+  fail "interrupted restore: undone before the new restore"
+else
+  pass
+fi
+assert_eq 1 "$([ -f "$cut_dir/.restore-in-progress" ] && [ -f "$cut_dir/.env" ] && echo 1)" "interrupted restore: a dry run removes nothing"
+assert_contains "would run: docker compose exec -T api restow disk-reserve create --initial" "$out" "restore of 0.5.0 (dry run): the emergency disk reserve is written after the start, as on a new server"
+
+# ---- The emergency disk reserve (docs/DATABASE.md, "Disk full") ----------------------------------
+# reserve_with <version> <exit code of the command> [output] [dry] [initial]: ensure_disk_reserve
+# against a compose stub; prints what it says, then every compose call.
+reserve_with() {
+  (
+    LOG_READY=0
+    WARNINGS=0
+    VERSION=$1
+    OPT_DRY_RUN=0
+    if [ "${4:-}" = dry ]; then
+      OPT_DRY_RUN=1
+    fi
+    RESERVE_CALLS="$TMP_ROOT/reserve-calls"
+    : >"$RESERVE_CALLS"
+    RESERVE_CODE=$2
+    RESERVE_OUT=${3:-}
+    # The installer runs it in a command substitution: the calls go to a file.
+    compose() {
+      printf '[%s]' "$*" >>"$RESERVE_CALLS"
+      if [ -n "$RESERVE_OUT" ]; then
+        printf '%s\n' "$RESERVE_OUT"
+      fi
+      return "$RESERVE_CODE"
+    }
+    set -Eeuo pipefail
+    ensure_disk_reserve "${5:-}" 2>&1
+    printf 'calls=%s warnings=%s\n' "$(cat "$RESERVE_CALLS")" "$WARNINGS"
+  )
+}
+out=$(reserve_with 0.5.0 0 "Disk reserve: 2.0 GiB at /data/restow-disk-reserve.")
+assert_contains "ok: Disk reserve: 2.0 GiB at /data/restow-disk-reserve." "$out" "disk reserve: written, the api's line is shown"
+assert_contains "calls=[exec -T api restow disk-reserve create]" "$out" "disk reserve: an existing server keeps the api's room rule (no --initial)"
+out=$(reserve_with 0.5.0 0 "Disk reserve: 2.0 GiB at /data/restow-disk-reserve." "" initial)
+assert_contains "calls=[exec -T api restow disk-reserve create --initial]" "$out" "disk reserve: a new server gets it whenever the floor stays free"
+out=$(reserve_with 0.5.1 2 "Not enough room for a disk reserve of 2.0 GiB: 1.5 GiB free.")
+assert_contains "warning: the emergency disk reserve was not written (Not enough room" "$out" "disk reserve: no room is a warning"
+assert_contains "warnings=1" "$out" "disk reserve: no room counts as a warning, not a failure"
+out=$(reserve_with 0.4.12 0 "")
+assert_eq "calls= warnings=0" "$out" "disk reserve: a release before 0.5.0 has none, nothing is run"
+out=$(reserve_with 0.5.0 0 "" dry)
+assert_contains "[dry-run] would run: docker compose exec -T api restow disk-reserve create" "$out" "disk reserve: a dry run only says it"
+assert_contains "calls= warnings=0" "$out" "disk reserve: a dry run runs nothing"
 
 printf '\n%s passed, %s failed\n' "$PASSED" "$FAILED"
 [ "$FAILED" -eq 0 ]

@@ -16,11 +16,14 @@
 #   - writes .env (mode 0600) with secrets from the kernel's random generator,
 #   - pulls the two images of the chosen build, checks their cosign signatures (the
 #     release workflow of exactly this version) and starts the stack,
-#   - waits until the api is healthy, reads the one-time setup token from its log and
+#   - waits until the api is healthy, writes the emergency disk reserve (0.5.0 and newer;
+#     docs/DATABASE.md, "Disk full"), reads the one-time setup token from its log and
 #     prints it with the address to open, on the terminal only (never in the log).
 #
-# Run without options on a terminal it explains what it will do and asks how Restow is
-# reached: public with its own certificate, behind a reverse proxy you already run
+# Run without options on a terminal it first asks what to set up: a new installation, a restore
+# of an installation from a database dump (--restore, with the old master key), or a worker
+# node that adds capacity to an existing installation on another host (--join). For a new
+# installation it explains what it will do and asks how Restow is reached: public with its own certificate, behind a reverse proxy you already run
 # (--behind-proxy), or a local evaluation (--local). With options, or without a
 # terminal, it asks nothing it was told.
 #
@@ -87,6 +90,14 @@ PROXY_TLS_MIN_VERSION="0.2.0"
 # The first release with the mounter (compose profile "mounts", docs/MOUNTS.md). A new
 # installation of it or a newer release starts the mounter by default (--no-mounter turns it off).
 MOUNTER_MIN_VERSION="0.3.0"
+# The first release that restores an installation from a dump and takes worker nodes (--restore,
+# --join, --allow-worker; docs/SIZING.md, "Several hosts: worker nodes").
+CLUSTER_MIN_VERSION="0.5.0"
+# The first release with the emergency disk reserve (docs/DATABASE.md, "Disk full"): the
+# installer writes it once the api answers (ensure_disk_reserve).
+DISK_RESERVE_MIN_VERSION="0.5.0"
+# The postgres user of the postgres:16-alpine image: it must own the TLS key and pg_hba.conf.
+POSTGRES_UID=70
 DOCS_URL="https://docs.restowbackup.com"
 PROXY_DOCS_URL="https://docs.restowbackup.com/administrators/get-started/#behind-a-reverse-proxy"
 # Caddy's local root certificate inside the edge container (the caddy-data volume).
@@ -102,6 +113,7 @@ EXIT_SIGNATURE=6
 EXIT_START=7
 EXIT_EXISTING=8
 EXIT_ABORTED=10
+EXIT_MASTER_KEY=11
 
 # ---- Paths (the tests point them at fixtures) -------------------------------------------
 OS_RELEASE_FILE=/etc/os-release
@@ -134,7 +146,23 @@ OPT_BEHIND_PROXY=0
 # The addresses of the reverse proxy, normalized (/32 or /128 added), separated by spaces.
 OPT_PROXY_IPS=""
 OPT_PROXY_HOP=""
+# What to set up (the first question): new, restore or worker; empty until asked or given.
+OPT_KIND=""
+OPT_RESTORE=""
+OPT_ENV_FROM=""
+OPT_JOIN_URL=""
+OPT_JOIN_TOKEN=""
+OPT_NODE_NAME=""
+OPT_STANDBY=0
+OPT_JOIN_CA=""
+OPT_ALLOW_WORKER=""
+OPT_DISALLOW_WORKER=""
+OPT_DB_ADDRESS=""
+OPT_DB_PORT=""
+OPT_DIR_SET=0
 ACTION="install"
+# The release files to download and check (a worker node needs docker-compose.worker.yml only).
+RELEASE_FILES="docker-compose.yml env.example"
 
 # ---- State ----------------------------------------------------------------------------
 LOG_READY=0
@@ -187,7 +215,11 @@ arm64, with 4 GiB of memory (8 GiB recommended) and 10 GiB free for Docker. The 
 check counts what the kernel reserves for kdump; it warns below 7 GiB (a VM shows a little
 less than it is given) and stops below 3 GiB.
 
-Run without options on a terminal, it explains what it will do and asks how Restow is
+Run without options on a terminal, it first asks what to set up: (1) a new installation,
+(2) restore an installation from a database dump (--restore), or (3) add a worker to an
+existing installation on another host (--join). Real replication (a second server that takes
+over: active/passive with PostgreSQL replication) is in development; a worker node adds
+capacity only. For a new installation it explains what it will do and asks how Restow is
 reached: (1) public, with its own certificate; (2) behind a reverse proxy you already run
 (Nginx Proxy Manager, Traefik, Caddy, ...); (3) a local evaluation. Options answer those
 questions in advance; without a terminal, or with --non-interactive, nothing is asked.
@@ -251,6 +283,32 @@ Options:
   --skip-signature-check   do NOT check the cosign signatures of the release files and
                            images (their checksums are still checked). For tests and
                            unsigned mirrors only, never for production.
+  --new                    a new installation (the first question's answer 1)
+  --restore FILE           restore an installation from FILE, a dump of its database
+                           (pg_dump -Fc, for example a dump the updater kept), onto this fresh
+                           host. Needs the old RESTOW_MASTER_KEY (asked for at a hidden prompt,
+                           or from --env-from) and release ${CLUSTER_MIN_VERSION} or newer. Restore mode is on
+                           before anything starts; a master key that does not open the dump
+                           undoes the run (exit code 11). The setup wizard is not needed.
+  --env-from FILE          with --restore: take RESTOW_MASTER_KEY, BETTER_AUTH_SECRET and the
+                           storage (STORAGE_*, S3_*), Microsoft 365 (ENTRA_*) and journal
+                           (JOURNAL_*) settings from the old installation's .env; nothing else
+  --join URL               make this host a worker node of the installation at URL (HTTPS),
+                           with a join token from its Installation > Cluster. Runs only the
+                           worker (and with --standby-scheduler a scheduler on stand-by).
+  --join-token TOKEN       the join token (rsj_...); asked for at a hidden prompt when missing
+  --node-name NAME         the node's name (default: this host's short name)
+  --standby-scheduler      also run a scheduler on stand-by on this node
+  --join-ca FILE           check the installation's certificate against this CA only (an
+                           installation with --local or the edge's own authority)
+  --update-worker          on a worker node: install the release the main host runs now
+  --allow-worker ADDRESS   on the main host: let the worker host at ADDRESS reach PostgreSQL
+                           (TLS, only the worker nodes' own logins; pg_hba.conf restricted to
+                           that address). The first call publishes PostgreSQL on
+                           --database-address. By default PostgreSQL is not published at all.
+  --disallow-worker ADDRESS  take that access away again (the last one unpublishes PostgreSQL)
+  --database-address ADDR  with --allow-worker: the address the nodes connect to, on this host
+                           (default: its LAN address); --database-port PORT (default 5432)
   --dry-run                run the checks and print what would be done; change nothing
   --upgrade                print how to update an installation; this script never updates
   -h, --help               show this help
@@ -268,6 +326,7 @@ Exit codes:
   7   the stack did not start or did not become healthy
   8   an existing installation or its data is in the way; nothing was changed
   10  aborted at a question
+  11  --restore: RESTOW_MASTER_KEY does not open the dump; the run was undone, nothing changed
   130 interrupted
 
 Not provided on purpose: --uninstall (README.md, "Removing Restow", has the manual steps).
@@ -926,6 +985,137 @@ render_env() {
     }' "$template"
 }
 
+# ---- Restore and worker nodes: pure helpers (covered by deploy/install/test.sh) --------------
+
+# valid_master_key <value>: 32 bytes, base64 (what RESTOW_MASTER_KEY and BETTER_AUTH_SECRET are).
+valid_master_key() {
+  [[ $1 =~ ^[A-Za-z0-9+/]{43}=$ ]]
+}
+
+# kind_from_answer <answer>: the first question's answer as new, restore or worker; nothing
+# for anything else.
+kind_from_answer() {
+  case $(to_lower "$1") in
+    1 | new) echo new ;;
+    2 | restore) echo restore ;;
+    3 | worker | join) echo worker ;;
+  esac
+}
+
+# env_import_allowed <key>: the settings of an old installation's .env a restore takes over
+# (--env-from). The master key and the auth secret must be the old ones; the storage, Microsoft
+# 365 and journal settings point at what the restored data needs. The database passwords are
+# new (a dump carries no roles), and the images and the address are this installation's.
+env_import_allowed() {
+  case $1 in
+    RESTOW_MASTER_KEY | BETTER_AUTH_SECRET | RESTOW_PRODUCT_NAME) return 0 ;;
+    STORAGE_TARGET | STORAGE_LOCAL_PATH | STORAGE_COPY_LOCAL_PATH) return 0 ;;
+    S3_* | ENTRA_* | JOURNAL_*) [[ $1 =~ ^[A-Z][A-Z0-9_]*$ ]] ;;
+    *) return 1 ;;
+  esac
+}
+
+# import_env_values <old .env>: KEY=value lines of the allowed keys, the last assignment of each,
+# without running the file. Secrets: never log what this prints.
+import_env_values() {
+  local key
+  awk '
+    /^[A-Za-z_][A-Za-z0-9_]*=/ {
+      eq = index($0, "=")
+      key = substr($0, 1, eq - 1)
+      value = substr($0, eq + 1)
+      if (value ~ /^".*"$/ || value ~ /^'"'"'.*'"'"'$/) value = substr(value, 2, length(value) - 2)
+      if (!(key in seen)) order[++n] = key
+      seen[key] = 1
+      values[key] = value
+    }
+    END { for (i = 1; i <= n; i++) if (values[order[i]] != "") print order[i] "=" values[order[i]] }' "$1" |
+    while IFS= read -r line; do
+      key=${line%%=*}
+      if env_import_allowed "$key"; then
+        printf '%s\n' "$line"
+      fi
+    done
+}
+
+# render_hba <database> <address...>: pg_hba.conf of a main host that admits worker nodes: the
+# containers of this host as before, TLS and SCRAM from each worker host for the node logins
+# (group restow_nodes) only, nothing else from the network.
+render_hba() {
+  local database=$1 address
+  shift
+  printf '# Written by install.sh --allow-worker (docs/SIZING.md, "Several hosts: worker nodes").\n'
+  printf '# TYPE  DATABASE  USER  ADDRESS  METHOD\n'
+  printf 'local   all  all  trust\n'
+  printf 'host    all  all  127.0.0.1/32  trust\n'
+  printf 'host    all  all  ::1/128  trust\n'
+  printf 'host    all  all  samenet  scram-sha-256\n'
+  for address in "$@"; do
+    case $address in
+      *:*) printf 'hostssl %s  +restow_nodes  %s/128  scram-sha-256\n' "$database" "$address" ;;
+      *) printf 'hostssl %s  +restow_nodes  %s/32  scram-sha-256\n' "$database" "$address" ;;
+    esac
+  done
+  printf 'host    all  all  all  reject\n'
+  printf 'hostssl all  all  all  reject\n'
+}
+
+# worker_override <directory...>: docker-compose.override.yml of a worker node that binds the
+# directory storage targets at the same path (worker and standby scheduler).
+worker_override() {
+  local service dir
+  if [ $# -eq 0 ]; then
+    return 0
+  fi
+  printf '# Written by install.sh --join: the directory storage targets of the installation, at the\n'
+  printf '# same path as on the main host (docs/SIZING.md, "Several hosts: worker nodes").\n'
+  printf 'services:\n'
+  for service in worker scheduler; do
+    printf '  %s:\n    volumes:\n' "$service"
+    for dir in "$@"; do
+      printf '      - %s:%s\n' "$dir" "$dir"
+    done
+  done
+}
+
+# join_env_problem <file>: why the join's answer cannot be used as a node's .env; nothing when it
+# can. Every line is a comment or KEY=value, and the keys a worker needs are there.
+join_env_problem() {
+  local file=$1 key
+  if ! grep -qx 'RESTOW_JOIN_FORMAT=1' "$file"; then
+    echo "the answer is not the configuration of a worker node (an older release, or not Restow)"
+    return 0
+  fi
+  if grep -Ev '^(#.*|[A-Z][A-Z0-9_]*=.*|)$' "$file" >/dev/null; then
+    echo "the answer has lines that are not settings"
+    return 0
+  fi
+  for key in DATABASE_URL DATABASE_PROVIDER_URL RESTOW_MASTER_KEY RESTOW_IMAGE RESTOW_NODE_ID RESTOW_JOIN_CA_B64; do
+    if ! grep -q "^$key=." "$file"; then
+      echo "the answer lacks $key"
+      return 0
+    fi
+  done
+  if grep -Eq '^(DATABASE_MIGRATION_URL|POSTGRES_PASSWORD|BETTER_AUTH_SECRET)=' "$file"; then
+    echo "the answer carries credentials a worker node must not have"
+  fi
+}
+
+# split_join_env <answer> <.env> <ca file>: the node's .env (every line but install.sh's own
+# RESTOW_JOIN_* ones, mode 0600) and the database's CA certificate.
+split_join_env() {
+  local answer=$1 target=$2 ca=$3
+  (umask 077 && grep -v '^RESTOW_JOIN_' "$answer" >"$target")
+  chmod 600 "$target"
+  sed -n 's/^RESTOW_JOIN_CA_B64=//p' "$answer" | base64 -d >"$ca"
+  chmod 644 "$ca"
+}
+
+# join_value <answer> <key>: one of install.sh's own lines of the join's answer.
+join_value() {
+  sed -n "s/^RESTOW_JOIN_$2=//p" "$1" | tail -n 1
+}
+
 # ---- Options ---------------------------------------------------------------------------
 
 need_value() {
@@ -942,6 +1132,34 @@ add_proxy_ips() {
     die "$EXIT_USAGE" "--proxy-ip: $problem (give the address of your reverse proxy, for example 192.168.1.20)"
   fi
   OPT_PROXY_IPS=$(proxy_list_normalize "${OPT_PROXY_IPS:+$OPT_PROXY_IPS }$1")
+}
+
+# set_value_option <option> <value>: the options of the restore and of worker nodes.
+set_value_option() {
+  case $1 in
+    --restore)
+      OPT_RESTORE=$2
+      OPT_KIND=restore
+      ;;
+    --env-from) OPT_ENV_FROM=$2 ;;
+    --join)
+      OPT_JOIN_URL=$2
+      OPT_KIND=worker
+      ;;
+    --join-token) OPT_JOIN_TOKEN=$2 ;;
+    --node-name) OPT_NODE_NAME=$2 ;;
+    --join-ca) OPT_JOIN_CA=$2 ;;
+    --allow-worker)
+      OPT_ALLOW_WORKER=$2
+      ACTION=worker-access
+      ;;
+    --disallow-worker)
+      OPT_DISALLOW_WORKER=$2
+      ACTION=worker-access
+      ;;
+    --database-address) OPT_DB_ADDRESS=$2 ;;
+    --database-port) OPT_DB_PORT=$2 ;;
+  esac
 }
 
 parse_args() {
@@ -980,11 +1198,13 @@ parse_args() {
       --dir)
         need_value "$1" "${2:-}"
         OPT_DIR=$2
+        OPT_DIR_SET=1
         shift 2
         ;;
       --dir=*)
         need_value --dir "${1#*=}"
         OPT_DIR=${1#*=}
+        OPT_DIR_SET=1
         shift
         ;;
       -y | --yes | --non-interactive)
@@ -1044,6 +1264,28 @@ parse_args() {
       --proxy-hop=*)
         need_value --proxy-hop "${1#*=}"
         OPT_PROXY_HOP=${1#*=}
+        shift
+        ;;
+      --new)
+        OPT_KIND=new
+        shift
+        ;;
+      --restore | --env-from | --join | --join-token | --node-name | --join-ca | --allow-worker | --disallow-worker | --database-address | --database-port)
+        need_value "$1" "${2:-}"
+        set_value_option "$1" "$2"
+        shift 2
+        ;;
+      --restore=* | --env-from=* | --join=* | --join-token=* | --node-name=* | --join-ca=* | --allow-worker=* | --disallow-worker=* | --database-address=* | --database-port=*)
+        need_value "${1%%=*}" "${1#*=}"
+        set_value_option "${1%%=*}" "${1#*=}"
+        shift
+        ;;
+      --standby-scheduler)
+        OPT_STANDBY=1
+        shift
+        ;;
+      --update-worker)
+        ACTION=update-worker
         shift
         ;;
       --skip-signature-check)
@@ -1109,6 +1351,58 @@ validate_options() {
     if [ -n "$problem" ]; then
       die "$EXIT_USAGE" "--domain: $problem"
     fi
+  fi
+  validate_cluster_options
+}
+
+# validate_cluster_options: the restore and worker node options go together only as documented.
+validate_cluster_options() {
+  local address
+  if [ -n "$OPT_RESTORE" ] && [ -n "$OPT_JOIN_URL" ]; then
+    die "$EXIT_USAGE" "--restore and --join exclude each other: restore an installation, or add a worker to one"
+  fi
+  if [ -n "$OPT_ENV_FROM" ] && [ -z "$OPT_RESTORE" ]; then
+    die "$EXIT_USAGE" "--env-from belongs to --restore"
+  fi
+  if [ -z "$OPT_JOIN_URL" ] && { [ -n "$OPT_JOIN_TOKEN" ] || [ -n "$OPT_NODE_NAME" ] || [ "$OPT_STANDBY" = 1 ]; }; then
+    if [ "$ACTION" != update-worker ]; then
+      die "$EXIT_USAGE" "--join-token, --node-name and --standby-scheduler belong to --join"
+    fi
+  fi
+  if [ -n "$OPT_JOIN_URL" ]; then
+    case $OPT_JOIN_URL in
+      https://*) OPT_JOIN_URL=${OPT_JOIN_URL%/} ;;
+      *) die "$EXIT_USAGE" "--join needs the installation's https:// address" ;;
+    esac
+    if [ "$OPT_LOCAL" = 1 ] || [ "$OPT_BEHIND_PROXY" = 1 ] || [ -n "$OPT_DOMAIN" ] || [ "$OPT_UPDATER" = 1 ]; then
+      die "$EXIT_USAGE" "--join sets up a worker node: --domain, --local, --behind-proxy and --with-updater are for a main host"
+    fi
+    if [ "$OPT_DIR_SET" != 1 ]; then
+      OPT_DIR="/opt/restow-node"
+    fi
+    if [ -z "$OPT_NODE_NAME" ]; then
+      OPT_NODE_NAME=$(to_lower "$(hostname -s 2>/dev/null || hostname 2>/dev/null || echo node)")
+    fi
+    OPT_NODE_NAME=$(to_lower "$OPT_NODE_NAME")
+    [[ $OPT_NODE_NAME =~ ^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$ ]] ||
+      die "$EXIT_USAGE" "--node-name: letters, digits and '-', at most 63 (found: $OPT_NODE_NAME)"
+  fi
+  if [ -n "$OPT_JOIN_CA" ] && [ ! -r "$OPT_JOIN_CA" ]; then
+    die "$EXIT_USAGE" "--join-ca: cannot read $OPT_JOIN_CA"
+  fi
+  for address in "$OPT_ALLOW_WORKER" "$OPT_DISALLOW_WORKER"; do
+    if [ -n "$address" ] && ! valid_ipv4 "$address" && ! valid_ipv6 "$address"; then
+      die "$EXIT_USAGE" "--allow-worker and --disallow-worker take the IP address of the worker host (found: $address)"
+    fi
+  done
+  if [ -n "$OPT_ALLOW_WORKER" ] && [ -n "$OPT_DISALLOW_WORKER" ]; then
+    die "$EXIT_USAGE" "--allow-worker and --disallow-worker: one at a time"
+  fi
+  if [ -n "$OPT_DB_PORT" ] && ! [[ $OPT_DB_PORT =~ ^[1-9][0-9]{0,4}$ && $OPT_DB_PORT -le 65535 ]]; then
+    die "$EXIT_USAGE" "--database-port must be 1 to 65535"
+  fi
+  if { [ -n "$OPT_DB_ADDRESS" ] || [ -n "$OPT_DB_PORT" ]; } && [ "$ACTION" != worker-access ]; then
+    die "$EXIT_USAGE" "--database-address and --database-port belong to --allow-worker"
   fi
 }
 
@@ -1876,22 +2170,36 @@ fetch() {
     --connect-timeout 20 --max-time 300 -o "$2" "$1"
 }
 
+# files_text: RELEASE_FILES for a sentence ("a, b and c").
+files_text() {
+  # shellcheck disable=SC2086 # a list of file names
+  set -- $RELEASE_FILES
+  case $# in
+    1) printf '%s' "$1" ;;
+    *)
+      local last=${*: -1}
+      printf '%s and %s' "$(printf '%s, ' "${@:1:$#-1}" | sed 's/, $//')" "$last"
+      ;;
+  esac
+}
+
 fetch_release_files() {
   local base dir name
   base=$(release_base_url "$VERSION")
   step "Release files of v$VERSION"
   if is_dry; then
-    dry "download SHA256SUMS, SHA256SUMS.sigstore.json, docker-compose.yml and env.example from $base"
+    dry "download SHA256SUMS, SHA256SUMS.sigstore.json, $(files_text) from $base"
     if [ "$OPT_SKIP_SIGNATURES" = 1 ]; then
-      dry "check docker-compose.yml and env.example against SHA256SUMS (signature NOT checked)"
+      dry "check $(files_text) against SHA256SUMS (signature NOT checked)"
     else
-      dry "check the cosign signature of SHA256SUMS (signer: $(signer_identity "$VERSION")), then docker-compose.yml and env.example against it"
+      dry "check the cosign signature of SHA256SUMS (signer: $(signer_identity "$VERSION")), then $(files_text) against it"
     fi
     return 0
   fi
   dir="$WORK/release"
   mkdir -p "$dir"
-  for name in SHA256SUMS docker-compose.yml env.example; do
+  # shellcheck disable=SC2086 # a list of file names
+  for name in SHA256SUMS $RELEASE_FILES; do
     fetch "$base/$name" "$dir/$name" || die "$EXIT_DOWNLOAD" "could not download $base/$name"
   done
   if [ "$OPT_SKIP_SIGNATURES" != 1 ]; then
@@ -1919,7 +2227,8 @@ verify_release_files() {
       die "$EXIT_DOWNLOAD" "SHA256SUMS of v$VERSION carries no valid signature of the release workflow of v$VERSION; refusing the release files"
     ok "SHA256SUMS is signed by the release workflow of v$VERSION"
   fi
-  for name in docker-compose.yml env.example; do
+  # shellcheck disable=SC2086 # a list of file names
+  for name in $RELEASE_FILES; do
     expected=$(sums_lookup "$dir/SHA256SUMS" "$name" || true)
     [ -n "$expected" ] || die "$EXIT_DOWNLOAD" "SHA256SUMS of v$VERSION lists no single checksum for $name"
     actual=$(sha256_of "$dir/$name")
@@ -2006,9 +2315,10 @@ assert_database_location() {
 # ---- .env ------------------------------------------------------------------------------
 
 write_env() {
-  local target="$OPT_DIR/.env" keys pg_password app_password provider_password auth_secret problem missing value
+  local target="$OPT_DIR/.env" keys pg_password app_password provider_password auth_secret problem missing value line name
   step "Configuration ($target)"
-  if [ -e "$target" ]; then
+  # (A dry run over an interrupted restore only said it would remove the .env first.)
+  if [ -e "$target" ] && ! { [ "$RESTORE_RETRY" = 1 ] && is_dry; }; then
     die "$EXIT_EXISTING" "$target exists; the installer never overwrites it"
   fi
   if is_dry; then
@@ -2023,12 +2333,21 @@ write_env() {
   provider_password=$(random_hex 16)
   auth_secret=$(random_base64 32)
   MASTER_KEY_ONCE=$(random_base64 32)
+  # A restore keeps the old master key and auth secret (the restored keys open only with them);
+  # the database passwords are new, a dump carries no roles.
+  if [ -n "$RESTORE_IMPORT" ] && [ -f "$RESTORE_IMPORT" ]; then
+    MASTER_KEY_ONCE=$(sed -n 's/^RESTOW_MASTER_KEY=//p' "$RESTORE_IMPORT" | tail -n 1)
+    value=$(sed -n 's/^BETTER_AUTH_SECRET=//p' "$RESTORE_IMPORT" | tail -n 1)
+    if [ -n "$value" ]; then
+      auth_secret=$value
+    fi
+  fi
   problem=""
   for value in "$pg_password" "$app_password" "$provider_password"; do
     [[ $value =~ ^[0-9a-f]{32}$ ]] || problem="a database password"
   done
   for value in "$auth_secret" "$MASTER_KEY_ONCE"; do
-    [[ $value =~ ^[A-Za-z0-9+/]{43}=$ ]] || problem="a 32-byte key"
+    valid_master_key "$value" || problem="a 32-byte key"
   done
   if [ -n "$problem" ] || [ "$pg_password" = "$app_password" ] || [ "$app_password" = "$provider_password" ] || [ "$auth_secret" = "$MASTER_KEY_ONCE" ]; then
     die "$EXIT_ERROR" "generating ${problem:-the secrets} from /dev/urandom failed"
@@ -2065,6 +2384,17 @@ write_env() {
     export RI_DATABASE_PROVIDER_URL="postgres://restow_provider:${provider_password}@postgres:5432/restow"
     export RI_RESTOW_MASTER_KEY="$MASTER_KEY_ONCE" RI_BETTER_AUTH_SECRET="$auth_secret"
     export RI_RESTOW_PROJECT_DIR="$OPT_DIR"
+    # The storage, Microsoft 365 and journal settings a restore takes from the old .env.
+    if [ -n "$RESTORE_IMPORT" ] && [ -f "$RESTORE_IMPORT" ]; then
+      while IFS= read -r line; do
+        name=${line%%=*}
+        case $name in
+          RESTOW_MASTER_KEY | BETTER_AUTH_SECRET) continue ;;
+        esac
+        export "RI_$name=${line#*=}"
+        keys="$keys $name"
+      done <"$RESTORE_IMPORT"
+    fi
     render_env "$OPT_DIR/env.example" $keys >"$ENV_TMP"
   ); then
     die "$EXIT_ERROR" "could not write the configuration"
@@ -2086,6 +2416,10 @@ write_env() {
 
 show_master_key() {
   local answer=""
+  if [ "$OPT_KIND" = restore ]; then
+    MASTER_KEY_ONCE=""
+    return 0
+  fi
   if is_dry; then
     dry "show RESTOW_MASTER_KEY once on the terminal (interactive runs only) and ask to confirm it is stored offline"
     return 0
@@ -2270,6 +2604,36 @@ wait_healthy() {
   done
   if run compose ps --status running --services; then
     log_line "running services listed above"
+  fi
+}
+
+# ensure_disk_reserve: the emergency disk reserve (docs/DATABASE.md, "Disk full"), a file of
+# real blocks (2 GiB unless RESTOW_DISK_RESERVE_MB in .env says otherwise) on the disk of the data
+# volume. When that disk is almost full the api frees it by itself, so the database can still
+# start and the cleanup can be done from the interface. The api writes it itself once the disk
+# has room; the installer writes it at once, so a new server has it before the first backup.
+# A warning when it cannot, never a stop. Releases before DISK_RESERVE_MIN_VERSION have none.
+# ensure_disk_reserve [initial]: on a new server ("initial") the reserve is written whenever the
+# disk keeps the floor besides it; on an existing one only when it keeps the low-space threshold,
+# as the api does (otherwise the api would free it again at once, with a critical alert).
+ensure_disk_reserve() {
+  local out command="restow disk-reserve create"
+  if ! version_ge "${VERSION:-0}" "$DISK_RESERVE_MIN_VERSION"; then
+    return 0
+  fi
+  if [ "${1:-}" = initial ]; then
+    command="$command --initial"
+  fi
+  if is_dry; then
+    dry "run: docker compose exec -T api $command (the emergency disk reserve)"
+    return 0
+  fi
+  log_line "run: docker compose exec -T api $command"
+  # shellcheck disable=SC2086 # the command and its option, split on purpose
+  if out=$(compose exec -T api $command </dev/null 2>&1); then
+    ok "${out:-the emergency disk reserve is in place}"
+  else
+    warn "the emergency disk reserve was not written (${out:-no answer}); the api writes it once the disk has room (docs/DATABASE.md, \"Disk full\")"
   fi
 }
 
@@ -2578,6 +2942,556 @@ print_summary() {
   resolve_setup_token
   print_next_steps
   print_final_block
+}
+
+# ---- The first question: new, restore, or a worker ---------------------------------------------
+
+# kind_is_open: whether the operator has still to say what to set up: a terminal, a fresh
+# directory, and no option that answers it (--domain, --local and --behind-proxy mean a new one).
+kind_is_open() {
+  [ -z "$OPT_KIND" ] && [ ! -f "$OPT_DIR/.env" ] && mode_is_open
+}
+
+# ask_kind: the first question of an interactive run. Sets OPT_KIND.
+ask_kind() {
+  local answer kind
+  {
+    printf '\nWhat do you want to set up on this machine?\n'
+    printf '  1) A new installation\n'
+    printf '  2) Restore an installation from a database dump (pg_dump -Fc of the old installation)\n'
+    printf '       You need the old RESTOW_MASTER_KEY (and BETTER_AUTH_SECRET), and the dump.\n'
+    printf '  3) Add a worker to an existing installation (another host)\n'
+    printf '       Needs a join token from Installation > Cluster of that installation.\n'
+    printf '       Note: real replication, a second server that takes over (active/passive with\n'
+    printf '       PostgreSQL replication), is in development; a worker node adds capacity only.\n'
+  } >>"$TTY_OUT"
+  while :; do
+    ask answer "Choose 1, 2 or 3" 1
+    kind=$(kind_from_answer "$answer")
+    if [ -n "$kind" ]; then
+      OPT_KIND=$kind
+      return 0
+    fi
+    tty_say "Please answer 1, 2 or 3."
+  done
+}
+
+# ---- Restore an installation from a dump (--restore) --------------------------------------------
+
+RESTORE_IMPORT=""
+RESTORE_AUTH_NEW=0
+# 1: --restore runs again over an interrupted restore of this directory (.restore-in-progress).
+RESTORE_RETRY=0
+# The marker of a restore that has not finished; removed once the restored database is live.
+RESTORE_MARKER=.restore-in-progress
+
+# ask_hidden <variable> <question>: a line from the terminal, not echoed.
+ask_hidden() {
+  local ask_reply=""
+  printf '%s: ' "$2" >>"$TTY_OUT"
+  if ! IFS= read -rs ask_reply <&3; then
+    printf '\n' >>"$TTY_OUT"
+    die "$EXIT_ABORTED" "no answer; nothing was changed"
+  fi
+  printf '\n' >>"$TTY_OUT"
+  printf -v "$1" '%s' "$ask_reply"
+}
+
+# check_dump: the dump is a custom-format archive and Docker's disk holds it about three times
+# (the file, the restored database, the database's own growth while it migrates).
+check_dump() {
+  local file=$OPT_RESTORE bytes need_kib docker_root have
+  if [ ! -f "$file" ] || [ ! -r "$file" ]; then
+    pf_fail "--restore: $file is not a readable file"
+    return 0
+  fi
+  if [ "$(head -c 5 "$file" 2>/dev/null)" != PGDMP ]; then
+    pf_fail "--restore: $file is not a PostgreSQL custom-format dump (pg_dump -Fc)"
+    return 0
+  fi
+  bytes=$(wc -c <"$file" | tr -d ' ')
+  need_kib=$((bytes * 3 / 1024 + MIN_DOCKER_DISK_KIB))
+  docker_root=$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || true)
+  have=$(avail_kib "${docker_root:-/var/lib/docker}")
+  if [ -n "$have" ] && [ "$have" -lt "$need_kib" ]; then
+    pf_fail "not enough disk space for the restore: $(kib_to_gib "$need_kib") GiB needed under ${docker_root:-/var/lib/docker} (the dump about three times), $(kib_to_gib "$have") GiB free"
+    return 0
+  fi
+  ok "dump $file ($((bytes / 1048576)) MiB)"
+}
+
+# collect_restore_secrets: the old installation's master key and auth secret, from --env-from
+# or typed at a hidden prompt; never generated (the restored keys only open with the old one).
+collect_restore_secrets() {
+  local answer=""
+  RESTORE_IMPORT="$WORK/restore-import.env"
+  (umask 077 && : >"$RESTORE_IMPORT")
+  if [ -n "$OPT_ENV_FROM" ]; then
+    [ -r "$OPT_ENV_FROM" ] || die "$EXIT_USAGE" "--env-from: cannot read $OPT_ENV_FROM"
+    import_env_values "$OPT_ENV_FROM" >"$RESTORE_IMPORT"
+    ok "settings taken from $OPT_ENV_FROM: $(cut -d= -f1 "$RESTORE_IMPORT" | tr '\n' ' ')"
+  fi
+  if ! grep -q '^RESTOW_MASTER_KEY=' "$RESTORE_IMPORT"; then
+    if [ "$INTERACTIVE" != 1 ]; then
+      die "$EXIT_USAGE" "--restore needs the old RESTOW_MASTER_KEY: give the old .env with --env-from, or run on a terminal"
+    fi
+    while :; do
+      ask_hidden answer "RESTOW_MASTER_KEY of the old installation (not shown)"
+      if valid_master_key "$answer"; then
+        break
+      fi
+      tty_say "That is not a master key (32 bytes, base64: 44 characters ending in =)."
+    done
+    printf 'RESTOW_MASTER_KEY=%s\n' "$answer" >>"$RESTORE_IMPORT"
+  fi
+  valid_master_key "$(sed -n 's/^RESTOW_MASTER_KEY=//p' "$RESTORE_IMPORT")" ||
+    die "$EXIT_USAGE" "the RESTOW_MASTER_KEY of $OPT_ENV_FROM is not 32 bytes, base64"
+  if ! grep -q '^BETTER_AUTH_SECRET=' "$RESTORE_IMPORT" && [ "$INTERACTIVE" = 1 ]; then
+    ask_hidden answer "BETTER_AUTH_SECRET of the old installation (not shown; Enter if lost)"
+    if [ -n "$answer" ]; then
+      printf 'BETTER_AUTH_SECRET=%s\n' "$answer" >>"$RESTORE_IMPORT"
+    fi
+  fi
+  if ! grep -q '^BETTER_AUTH_SECRET=.' "$RESTORE_IMPORT"; then
+    RESTORE_AUTH_NEW=1
+    warn "no BETTER_AUTH_SECRET of the old installation: a new one is generated. Sign-ins with an authenticator app (TOTP) then fail; an owner gets access again with: docker compose exec api restow admin recover --email <owner>"
+  fi
+}
+
+# restore_undo: a refused restore leaves nothing of this run behind (the host was fresh: the
+# volumes, the .env and the stack are this run's own).
+restore_undo() {
+  run compose down -v --remove-orphans || true
+  rm -f "$OPT_DIR/.env" "$OPT_DIR/$RESTORE_MARKER"
+}
+
+# restore_interrupted_lines <dir>: what to do about a restore that did not finish (the marker is
+# there): worker and scheduler, which delete, must not start on a half-restored database.
+restore_interrupted_lines() {
+  local dir=$1
+  printf '%s
+' \
+    "An earlier install.sh --restore in $dir did not finish ($dir/$RESTORE_MARKER is there)." \
+    "Nothing was started: worker and scheduler stay stopped until the restore is finished." \
+    "Either start the restore again (this run's database and .env are removed first):" \
+    "  sudo bash install.sh --restore <dump> --env-from <old .env> --dir $dir" \
+    "or, if the restore report said the restored database was prepared, finish it by hand:" \
+    "  cd $dir && docker compose run --rm --no-deps --entrypoint restow api restore activate" \
+    "  docker compose up -d && rm $RESTORE_MARKER" \
+    "(restore activate can run again after an interruption; docs/DATABASE.md, \"An interrupted restore\")."
+}
+
+# restore_interrupted: refuse a plain run over an interrupted restore.
+restore_interrupted() {
+  local line
+  restore_interrupted_lines "$OPT_DIR" | while IFS= read -r line; do
+    hint_line "$line"
+  done
+  die "$EXIT_EXISTING" "an earlier restore in $OPT_DIR did not finish; nothing was started (see above)"
+}
+
+# restore_database: postgres only; the dump into the scratch database, prepared there by the
+# application's own command line (migrated, restore mode on, master key and storage checked),
+# then made the live database. Worker and scheduler, which delete, start only after that.
+restore_database() {
+  local status=0 dump_name report
+  step "Restoring the database from $OPT_RESTORE"
+  dump_name=$(basename "$OPT_RESTORE" | tr -c 'A-Za-z0-9._\n-' '_')
+  if is_dry; then
+    dry "start postgres only, create the database restow_restore and pg_restore the dump into it (--no-owner --no-acl)"
+    dry "run: docker compose run --rm --no-deps --entrypoint restow api restore prepare --dump-name $dump_name --via install.sh"
+    dry "on a master key that does not open the dump: undo this run (exit code $EXIT_MASTER_KEY)"
+    dry "run: docker compose run --rm --no-deps --entrypoint restow api restore activate"
+    return 0
+  fi
+  : >"$OPT_DIR/$RESTORE_MARKER"
+  run compose pull postgres || die "$EXIT_DOWNLOAD" "could not pull the PostgreSQL image"
+  run compose up -d postgres || die "$EXIT_START" "PostgreSQL did not start"
+  local i
+  for i in $(seq 1 60); do
+    if compose exec -T postgres pg_isready -U restow -d postgres >/dev/null 2>&1; then
+      break
+    fi
+    sleep 2
+  done
+  run compose exec -T postgres psql -U restow -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS restow_restore WITH (FORCE)" ||
+    die "$EXIT_START" "the database for the restore could not be prepared"
+  run compose exec -T postgres psql -U restow -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE restow_restore" ||
+    die "$EXIT_START" "the database for the restore could not be created"
+  say "    restoring the dump (this takes a while for a large dump)"
+  log_line "run: docker compose exec -T postgres pg_restore -d restow_restore --no-owner --no-acl --exit-on-error < $OPT_RESTORE"
+  if ! compose exec -T postgres pg_restore -U restow -d restow_restore --no-owner --no-acl --exit-on-error <"$OPT_RESTORE" >>"$LOG_FILE" 2>&1; then
+    restore_undo
+    die "$EXIT_START" "pg_restore failed (see the log); this run was undone, nothing else was changed"
+  fi
+  report="$WORK/restore-report.txt"
+  compose run --rm --no-deps -T --entrypoint restow api restore prepare --dump-name "$dump_name" --via install.sh >"$report" 2>>"$LOG_FILE" || status=$?
+  cat "$report"
+  cat "$report" >>"$LOG_FILE" 2>/dev/null || true
+  case $status in
+    0) ok "the restored database is prepared; restore mode is on in it" ;;
+    3)
+      restore_undo
+      die "$EXIT_MASTER_KEY" "RESTOW_MASTER_KEY does not open the restored keys: the dump belongs to another master key. This run was undone, nothing changed; start again with the right key."
+      ;;
+    4)
+      restore_undo
+      die "$EXIT_PREFLIGHT" "the dump was refused (see above). This run was undone, nothing changed."
+      ;;
+    *)
+      restore_undo
+      die "$EXIT_START" "preparing the restored database failed (exit code $status, see the log). This run was undone."
+      ;;
+  esac
+  if ! confirm "Make the restored installation live (restore mode stays on until you end it)?"; then
+    restore_undo
+    die "$EXIT_ABORTED" "aborted; this run was undone, nothing changed"
+  fi
+  run compose run --rm --no-deps -T --entrypoint restow api restore activate ||
+    die "$EXIT_START" "activating the restored database failed (see the log); run it again: cd $OPT_DIR && docker compose run --rm --no-deps --entrypoint restow api restore activate"
+  rm -f "$OPT_DIR/$RESTORE_MARKER"
+  ok "the restored database is live, with restore mode on"
+}
+
+print_restore_summary() {
+  say ""
+  say "Restow $VERSION is restored in $OPT_DIR from $OPT_RESTORE."
+  say "Log: $LOG_FILE"
+  say ""
+  say "Next steps"
+  say "  1. Open $PUBLIC_URL and sign in with an account of the restored installation (no setup"
+  say "     wizard: the dump brought its users and settings)."
+  say "  2. Go to Installation > Restore mode. Nothing is deleted until you end it there: compare"
+  say "     the storage with the database again, import key versions found in storage, test a"
+  say "     restore point of each tenant, check the users, the address and the mail settings."
+  if [ "$RESTORE_AUTH_NEW" = 1 ]; then
+    say "  3. The auth secret is new: authenticator app sign-ins fail. Give an owner access again with:"
+    say "     cd $OPT_DIR && docker compose exec api restow admin recover --email <owner>"
+  fi
+  say "  Worker nodes of the old installation must join again (Installation > Cluster)."
+}
+
+install_restore() {
+  local problem
+  problem=$(cluster_version_problem "${OPT_VERSION:-$DEFAULT_VERSION}" "--restore")
+  [ -z "$problem" ] || die "$EXIT_USAGE" "$problem"
+  collect_configuration
+  step "Checking the target"
+  check_ports
+  check_disk
+  check_dump
+  check_images
+  if [ "$PREFLIGHT_FAILED" -gt 0 ]; then
+    die "$EXIT_PREFLIGHT" "$PREFLIGHT_FAILED check(s) failed (see above); nothing was changed"
+  fi
+  collect_restore_secrets
+  show_plan
+  say "    Restore      from $OPT_RESTORE: restore mode on before anything starts; the master key must open it"
+  if ! confirm "Restore Restow with this plan?"; then
+    die "$EXIT_ABORTED" "aborted; nothing was changed"
+  fi
+  ensure_docker
+  if [ "$RESTORE_RETRY" = 1 ]; then
+    # Everything in this directory is the interrupted run's own (a restore needs a fresh host).
+    step "Undoing the interrupted restore in $OPT_DIR"
+    if is_dry; then
+      dry "run: docker compose down -v --remove-orphans, remove $OPT_DIR/.env and $OPT_DIR/$RESTORE_MARKER"
+    else
+      restore_undo
+    fi
+  fi
+  if [ "$DOCKER_STATE" = ok ] && ! { [ "$RESTORE_RETRY" = 1 ] && is_dry; }; then
+    detect_existing
+    if [ "$(existing_verdict "$EXISTING_ENV" "$EXISTING_VOLUMES" "$EXISTING_DIRS" "$OPT_DIR")" != fresh ]; then
+      die "$EXIT_EXISTING" "Docker holds data or containers of an earlier Restow installation (${EXISTING_VOLUMES}${EXISTING_DIRS}); a restore goes onto a fresh host only. Nothing was written."
+    fi
+  fi
+  prepare_cosign
+  fetch_release_files
+  verify_release_files
+  install_files
+  write_env
+  pull_images
+  restore_database
+  start_stack "$OPT_UPDATER" 0 "$OPT_MOUNTER"
+  wait_healthy
+  ensure_disk_reserve initial
+  check_edge "$DOMAIN"
+  if is_dry; then
+    say ""
+    say "Dry run finished: nothing was changed."
+    return 0
+  fi
+  log_line "restore finished: v$VERSION $EDITION in $OPT_DIR from $OPT_RESTORE"
+  print_restore_summary
+}
+
+# ---- A worker node (--join) ----------------------------------------------------------------------
+
+# cluster_version_problem <version> <option>: a release before CLUSTER_MIN_VERSION has neither
+# the restore nor worker nodes.
+cluster_version_problem() {
+  if ! version_ge "$1" "$CLUSTER_MIN_VERSION"; then
+    printf '%s needs release %s or newer (found: %s)' "$2" "$CLUSTER_MIN_VERSION" "$1"
+  fi
+}
+
+compose_worker() {
+  docker compose -f "$OPT_DIR/docker-compose.worker.yml" "$@"
+}
+
+# join_curl <curl options...>: HTTPS only, the main host's certificate checked (with --join-ca
+# against that CA alone).
+join_curl() {
+  local -a pin=()
+  if [ -n "$OPT_JOIN_CA" ]; then
+    pin=(--cacert "$OPT_JOIN_CA")
+  fi
+  curl -fsS --proto '=https' --tlsv1.2 --max-time 60 "${pin[@]}" "$@"
+}
+
+join_installation() {
+  local url=${OPT_JOIN_URL%/} answer version token_header body problem dirs dir standby missing=""
+  step "Joining $url as worker node $OPT_NODE_NAME"
+  if is_dry; then
+    dry "read the release of $url (GET /api/v1/cluster-join/version) and install the same one"
+    dry "download docker-compose.worker.yml of that release and check it against SHA256SUMS"
+    dry "redeem the join token over HTTPS (POST /api/v1/cluster-join) and write $OPT_DIR/.env (0600) and db-ca.crt"
+    dry "pull and verify the image, run restow node check, then start the worker"
+    return 0
+  fi
+  version=$(join_curl "$url/api/v1/cluster-join/version" | sed -n 's/.*"version":"\([^"]*\)".*/\1/p') ||
+    die "$EXIT_DOWNLOAD" "$url does not answer over HTTPS (with --join-ca, the certificate must be signed by that CA)"
+  valid_version "$version" || die "$EXIT_DOWNLOAD" "$url did not name its release"
+  problem=$(cluster_version_problem "$version" "--join")
+  [ -z "$problem" ] || die "$EXIT_USAGE" "the installation runs $version: $problem"
+  VERSION=$version
+  ok "the installation runs $VERSION"
+  RELEASE_FILES="docker-compose.worker.yml"
+  prepare_cosign
+  fetch_release_files
+  verify_release_files
+  if [ ! -d "$OPT_DIR" ]; then
+    run install -d -m 0755 "$OPT_DIR" || die "$EXIT_ERROR" "could not create $OPT_DIR"
+  fi
+  run install -m 0644 "$WORK/release/docker-compose.worker.yml" "$OPT_DIR/docker-compose.worker.yml" ||
+    die "$EXIT_ERROR" "could not write $OPT_DIR/docker-compose.worker.yml"
+  if [ -z "$OPT_JOIN_TOKEN" ]; then
+    [ "$INTERACTIVE" = 1 ] || die "$EXIT_USAGE" "--join needs --join-token with --non-interactive"
+    ask_hidden OPT_JOIN_TOKEN "Join token from Installation > Cluster (not shown)"
+  fi
+  [[ $OPT_JOIN_TOKEN =~ ^rsj_[0-9A-Za-z]{40}$ ]] || die "$EXIT_USAGE" "that is not a join token (rsj_ and 40 letters and digits)"
+  # The token goes to curl in a file, never on its command line (the process list).
+  token_header="$WORK/join-header"
+  (umask 077 && printf 'Authorization: Bearer %s\n' "$OPT_JOIN_TOKEN" >"$token_header")
+  body=$(printf '{"nodeName":"%s","hostname":"%s","version":"%s"}' "$OPT_NODE_NAME" "$(hostname -f 2>/dev/null || hostname)" "$VERSION")
+  answer="$WORK/join-answer"
+  (umask 077 && : >"$answer")
+  log_line "run: POST $url/api/v1/cluster-join (the join token and the answer are not logged)"
+  if ! join_curl -X POST -H @"$token_header" -H 'Content-Type: application/json' --data "$body" "$url/api/v1/cluster-join?format=env" -o "$answer"; then
+    rm -f "$token_header"
+    die "$EXIT_DOWNLOAD" "the installation refused the join token (unknown, used, revoked, expired, bound to another address, or another release): issue a new one under Installation > Cluster"
+  fi
+  rm -f "$token_header"
+  problem=$(join_env_problem "$answer")
+  [ -z "$problem" ] || die "$EXIT_DOWNLOAD" "$problem"
+  if [ -e "$OPT_DIR/.env" ]; then
+    die "$EXIT_EXISTING" "$OPT_DIR/.env exists; the installer never overwrites it"
+  fi
+  split_join_env "$answer" "$OPT_DIR/.env" "$OPT_DIR/db-ca.crt"
+  printf 'RESTOW_JOIN_URL=%s\n' "$url" >>"$OPT_DIR/.env"
+  standby=$(join_value "$answer" STANDBY_SCHEDULER)
+  dirs=$(join_value "$answer" DIRECTORIES)
+  rm -f "$answer"
+  ok "$OPT_DIR/.env written (mode 0600): this node's own database logins, the master key, the storage settings"
+  # shellcheck disable=SC2046 # the directories are separated by ':', none holds a space
+  set -- $(printf '%s' "$dirs" | tr ':' ' ')
+  for dir in "$@"; do
+    [ -d "$dir" ] || missing="$missing $dir"
+  done
+  if [ $# -gt 0 ]; then
+    worker_override "$@" >"$OPT_DIR/docker-compose.override.yml"
+  fi
+  if [ -n "$missing" ]; then
+    die "$EXIT_PREFLIGHT" "the storage directories$missing do not exist on this host. Mount them at the same path as on the main host, then start: cd $OPT_DIR && docker compose -f docker-compose.worker.yml -f docker-compose.override.yml up -d"
+  fi
+  APP_IMAGE=$(env_get "$OPT_DIR/.env" RESTOW_IMAGE)
+  step "Image"
+  pull_and_verify "$APP_IMAGE"
+  set -- -f "$OPT_DIR/docker-compose.worker.yml"
+  if [ -f "$OPT_DIR/docker-compose.override.yml" ]; then
+    set -- "$@" -f "$OPT_DIR/docker-compose.override.yml"
+  fi
+  step "Checking this node"
+  docker compose "$@" run --rm --no-deps -T --entrypoint restow worker node check ||
+    die "$EXIT_START" "the node check failed (above): fix it, then run: cd $OPT_DIR && docker compose -f docker-compose.worker.yml run --rm --entrypoint restow worker node check"
+  if [ "$standby" = 1 ]; then
+    set -- "$@" --profile standby
+  fi
+  run docker compose "$@" up -d || die "$EXIT_START" "docker compose up failed (cd $OPT_DIR && docker compose -f docker-compose.worker.yml ps)"
+  for i in $(seq 1 60); do
+    if docker compose "$@" logs --no-color worker 2>/dev/null | grep -q '"worker started"'; then
+      ok "the worker runs and reports to the installation"
+      break
+    fi
+    sleep 2
+  done
+  say ""
+  say "Worker node $OPT_NODE_NAME runs release $VERSION in $OPT_DIR and appears under Installation > Cluster."
+  say "Updates: the updater of the main host updates only the main host. After each update there,"
+  say "run on this node: sudo bash install.sh --update-worker --dir $OPT_DIR"
+}
+
+# update_worker: bring a node to the release the main host runs now.
+update_worker() {
+  local url version old
+  if [ ! -f "$OPT_DIR/.env" ] || [ ! -f "$OPT_DIR/docker-compose.worker.yml" ]; then
+    die "$EXIT_USAGE" "$OPT_DIR is not a worker node (no .env or docker-compose.worker.yml)"
+  fi
+  url=$(env_get "$OPT_DIR/.env" RESTOW_JOIN_URL)
+  [ -n "$url" ] || die "$EXIT_USAGE" "$OPT_DIR/.env does not say which installation this node belongs to (RESTOW_JOIN_URL)"
+  OPT_JOIN_URL=$url
+  version=$(join_curl "$url/api/v1/cluster-join/version" | sed -n 's/.*"version":"\([^"]*\)".*/\1/p') ||
+    die "$EXIT_DOWNLOAD" "$url does not answer"
+  valid_version "$version" || die "$EXIT_DOWNLOAD" "$url did not name its release"
+  old=$(env_get "$OPT_DIR/.env" RESTOW_IMAGE)
+  VERSION=$version
+  APP_IMAGE="$(image_repository "$old"):$version"
+  step "Updating worker node $OPT_DIR to $version"
+  RELEASE_FILES="docker-compose.worker.yml"
+  prepare_cosign
+  fetch_release_files
+  verify_release_files
+  pull_and_verify "$APP_IMAGE"
+  if is_dry; then
+    dry "set RESTOW_IMAGE=$APP_IMAGE in $OPT_DIR/.env and recreate the worker"
+    return 0
+  fi
+  run install -m 0644 "$WORK/release/docker-compose.worker.yml" "$OPT_DIR/docker-compose.worker.yml"
+  (umask 077 && awk -v image="$APP_IMAGE" 'index($0, "RESTOW_IMAGE=") == 1 { print "RESTOW_IMAGE=" image; next } { print }' "$OPT_DIR/.env" >"$OPT_DIR/.env.update.$$")
+  chmod 600 "$OPT_DIR/.env.update.$$"
+  mv "$OPT_DIR/.env.update.$$" "$OPT_DIR/.env"
+  set -- -f "$OPT_DIR/docker-compose.worker.yml"
+  if [ -f "$OPT_DIR/docker-compose.override.yml" ]; then
+    set -- "$@" -f "$OPT_DIR/docker-compose.override.yml"
+  fi
+  if docker compose "$@" ps --services 2>/dev/null | grep -qx scheduler; then
+    set -- "$@" --profile standby
+  fi
+  run docker compose "$@" up -d || die "$EXIT_START" "the worker did not start on $version"
+  ok "the worker node runs $version"
+}
+
+# ---- Database access for worker nodes, on the main host (--allow-worker / --disallow-worker) ----
+
+# tls_material <address>: a CA and a server certificate for PostgreSQL (SAN: the address the
+# nodes connect to), once; the key belongs to the postgres user of the image (uid 70).
+tls_material() {
+  local dir="$OPT_DIR/postgres-tls" address=$1 san
+  if [ -f "$dir/server.crt" ] && [ -f "$dir/ca.crt" ]; then
+    return 0
+  fi
+  command -v openssl >/dev/null 2>&1 || die "$EXIT_PREFLIGHT" "openssl is missing (apt-get install openssl)"
+  if valid_ipv4 "$address" || valid_ipv6 "$address"; then
+    san="IP:$address"
+  else
+    san="DNS:$address"
+  fi
+  run install -d -m 0755 "$dir"
+  run openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -days 3650 \
+    -subj "/CN=Restow database CA" -keyout "$dir/ca.key" -out "$dir/ca.crt"
+  run openssl req -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes \
+    -subj "/CN=$address" -keyout "$dir/server.key" -out "$dir/server.csr"
+  printf 'subjectAltName=%s\nextendedKeyUsage=serverAuth\n' "$san" >"$dir/server.ext"
+  run openssl x509 -req -in "$dir/server.csr" -CA "$dir/ca.crt" -CAkey "$dir/ca.key" -CAcreateserial \
+    -days 1825 -extfile "$dir/server.ext" -out "$dir/server.crt"
+  rm -f "$dir/server.csr" "$dir/server.ext"
+  chmod 600 "$dir/ca.key"
+  chown "$POSTGRES_UID:$POSTGRES_UID" "$dir/server.key"
+  chmod 600 "$dir/server.key"
+  chmod 644 "$dir/ca.crt" "$dir/server.crt"
+  ok "a CA and a server certificate for $address in $dir (the CA key stays here, mode 0600)"
+}
+
+# env_set <file> <key> <value>: set one non-secret key of .env, keeping the file's mode.
+env_set() {
+  local file=$1 key=$2 value=$3
+  (umask 077 && awk -v key="$key" -v value="$value" '
+    index($0, key "=") == 1 { if (!done) print key "=" value; done = 1; next }
+    { print }
+    END { if (!done) print key "=" value }' "$file" >"$file.set.$$")
+  chmod 600 "$file.set.$$"
+  mv "$file.set.$$" "$file"
+}
+
+# env_unset <file> <key>
+env_unset() {
+  local file=$1 key=$2
+  (umask 077 && awk -v key="$key" 'index($0, key "=") != 1' "$file" >"$file.set.$$")
+  chmod 600 "$file.set.$$"
+  mv "$file.set.$$" "$file"
+}
+
+manage_worker_access() {
+  local env="$OPT_DIR/.env" dir="$OPT_DIR/postgres-tls" list address bind port database ip
+  [ -f "$env" ] || die "$EXIT_USAGE" "$OPT_DIR is no installation (no .env); --allow-worker runs on the main host"
+  APP_IMAGE=$(env_get "$env" RESTOW_IMAGE)
+  database=$(env_get "$env" POSTGRES_DB)
+  database=${database:-restow}
+  port=${OPT_DB_PORT:-5432}
+  address=${OPT_DB_ADDRESS:-$(lan_address)}
+  [ -n "$address" ] || die "$EXIT_USAGE" "give the address worker nodes reach this host at: --database-address <address>"
+  if valid_ipv4 "$address" || valid_ipv6 "$address"; then
+    bind=$address
+  else
+    bind=$(lan_address)
+  fi
+  list="$dir/workers"
+  step "Database access for worker nodes"
+  if is_dry; then
+    dry "write a CA and a server certificate (SAN $address) to $dir, pg_hba.conf admitting only the node logins from the worker hosts over TLS"
+    dry "publish PostgreSQL on $bind:$port in docker-compose.override.yml, set RESTOW_CLUSTER_DB_ADDRESS=$address:$port, recreate postgres and api"
+    return 0
+  fi
+  tls_material "$address"
+  touch "$list"
+  if [ -n "$OPT_ALLOW_WORKER" ]; then
+    grep -qx "$OPT_ALLOW_WORKER" "$list" || printf '%s\n' "$OPT_ALLOW_WORKER" >>"$list"
+  fi
+  if [ -n "$OPT_DISALLOW_WORKER" ]; then
+    grep -vx "$OPT_DISALLOW_WORKER" "$list" >"$list.new" || true
+    mv "$list.new" "$list"
+  fi
+  # shellcheck disable=SC2046 # one address per line
+  render_hba "$database" $(cat "$list") >"$dir/pg_hba.conf"
+  chown "$POSTGRES_UID:$POSTGRES_UID" "$dir/pg_hba.conf"
+  chmod 600 "$dir/pg_hba.conf"
+  if [ -s "$list" ]; then
+    run docker run --rm --user 0:0 -v "$OPT_DIR:/project" --entrypoint restow "$APP_IMAGE" \
+      cluster database-override --file /project/docker-compose.override.yml --bind "$bind" --port "$port" ||
+      die "$EXIT_ERROR" "docker-compose.override.yml could not be updated (see the log)"
+    env_set "$env" RESTOW_CLUSTER_DB_ADDRESS "$address:$port"
+    env_set "$env" RESTOW_CLUSTER_DB_CA_FILE /etc/restow/postgres-tls/ca.crt
+  else
+    run docker run --rm --user 0:0 -v "$OPT_DIR:/project" --entrypoint restow "$APP_IMAGE" \
+      cluster database-override --file /project/docker-compose.override.yml --remove ||
+      die "$EXIT_ERROR" "docker-compose.override.yml could not be updated (see the log)"
+    env_unset "$env" RESTOW_CLUSTER_DB_ADDRESS
+    env_unset "$env" RESTOW_CLUSTER_DB_CA_FILE
+  fi
+  run docker compose --project-directory "$OPT_DIR" -f "$OPT_DIR/docker-compose.yml" -f "$OPT_DIR/docker-compose.override.yml" up -d postgres api ||
+    die "$EXIT_START" "postgres and api did not start with the new settings (cd $OPT_DIR && docker compose ps)"
+  if [ -s "$list" ]; then
+    ok "PostgreSQL accepts the worker node logins over TLS from: $(tr '\n' ' ' <"$list")"
+    say "    Firewall: open TCP $port on $bind for these hosts only. Then issue a join token under"
+    say "    Installation > Cluster and run on the worker host:"
+    say "    sudo bash install.sh --join $(env_get "$env" RESTOW_PUBLIC_URL) --join-token <token> --node-name <name>"
+  else
+    ok "no worker host is admitted any more; PostgreSQL is not published"
+  fi
+  for ip in ${OPT_DISALLOW_WORKER:-}; do
+    say "    Remove the nodes of $ip under Installation > Cluster as well: that drops their database logins."
+  done
 }
 
 # ---- Flows --------------------------------------------------------------------------------
@@ -2986,6 +3900,7 @@ install_fresh() {
   pull_images
   start_stack "$OPT_UPDATER" 1 "$OPT_MOUNTER"
   wait_healthy
+  ensure_disk_reserve initial
   check_edge "$DOMAIN"
   if [ "$MODE" = proxy ] && [ "$PROXY_HOP" = https ]; then
     export_edge_root_ca
@@ -3084,6 +3999,7 @@ resume_existing() {
   pull_and_verify "$WEB_IMAGE"
   start_stack 0 0
   wait_healthy
+  ensure_disk_reserve
   if [ -n "$DOMAIN" ]; then
     check_edge "$DOMAIN"
   fi
@@ -3110,6 +4026,26 @@ main() {
       print_upgrade_info
       return 0
       ;;
+    worker-access | update-worker)
+      umask 022
+      trap 'on_error "$?" "$LINENO"' ERR
+      trap cleanup EXIT
+      trap 'exit 130' INT TERM HUP
+      init_log "$@"
+      banner
+      check_root
+      if [ "$PREFLIGHT_FAILED" -gt 0 ]; then
+        die "$EXIT_PREFLIGHT" "this needs root (sudo)"
+      fi
+      local work_base=${TMPDIR:-/tmp}
+      WORK=$(mktemp -d "${work_base%/}/restow-install.XXXXXX")
+      if [ "$ACTION" = worker-access ]; then
+        manage_worker_access
+      else
+        update_worker
+      fi
+      return 0
+      ;;
   esac
   umask 022
   trap 'on_error "$?" "$LINENO"' ERR
@@ -3120,9 +4056,21 @@ main() {
   require_proxy_options
   require_mounter_release
   banner
+  # The first question: a new installation, a restore, or a worker node of another installation.
+  if kind_is_open; then
+    ask_kind
+    if [ "$OPT_KIND" = worker ] && [ -z "$OPT_JOIN_URL" ]; then
+      ask OPT_JOIN_URL "Address of the existing installation (https://...)"
+      [ "$OPT_DIR_SET" = 1 ] || OPT_DIR="/opt/restow-node"
+      validate_cluster_options
+    fi
+    if [ "$OPT_KIND" = restore ] && [ -z "$OPT_RESTORE" ]; then
+      ask OPT_RESTORE "Path of the dump on this host (pg_dump -Fc)"
+    fi
+  fi
   # A first run on a terminal explains itself before it asks anything; an installation that
   # exists already is only checked and started, so it needs no introduction.
-  if mode_is_open && [ ! -f "$OPT_DIR/.env" ]; then
+  if [ "$OPT_KIND" != worker ] && mode_is_open && [ ! -f "$OPT_DIR/.env" ]; then
     print_intro
   fi
   warn_overrides
@@ -3143,9 +4091,33 @@ main() {
     die "$EXIT_PREFLIGHT" "$PREFLIGHT_FAILED check(s) failed (see above); nothing was changed"
   fi
 
+  if [ "$OPT_KIND" = worker ]; then
+    # A worker node next to a full installation would run two workers on one host's storage.
+    detect_existing
+    if [ -n "${EXISTING_DIRS// /}" ] || [ -n "${EXISTING_VOLUMES// /}" ]; then
+      die "$EXIT_EXISTING" "this host runs a Restow installation (${EXISTING_VOLUMES}${EXISTING_DIRS}); a worker node goes onto another host"
+    fi
+    ensure_docker
+    join_installation
+    return 0
+  fi
+
   detect_existing
   case "$(existing_verdict "$EXISTING_ENV" "$EXISTING_VOLUMES" "$EXISTING_DIRS" "$OPT_DIR")" in
     resume)
+      # An interrupted restore: never start the stack on it; --restore may start it again.
+      if [ -f "$OPT_DIR/$RESTORE_MARKER" ]; then
+        if [ "$OPT_KIND" = restore ]; then
+          warn "an earlier restore in $OPT_DIR did not finish: it is undone and started again"
+          RESTORE_RETRY=1
+          install_restore
+          return 0
+        fi
+        restore_interrupted
+      fi
+      if [ "$OPT_KIND" = restore ]; then
+        die "$EXIT_EXISTING" "$OPT_DIR holds an installation already; a restore goes onto a fresh host (or remove the installation first: README.md, \"Removing Restow\"). On this installation, restore through the updater (setup wizard) or by hand: docs/DATABASE.md, \"Restoring a dump by hand\"."
+      fi
       resume_existing
       ;;
     conflict-dir)
@@ -3155,7 +4127,11 @@ main() {
       die "$EXIT_EXISTING" "Docker holds data of an earlier Restow installation (${EXISTING_VOLUMES}${EXISTING_DIRS}) but $OPT_DIR/.env is missing. New secrets would not match it, and a new master key cannot read its backups. Put the old .env back into $OPT_DIR and run the installer again, or remove the old data deliberately (README.md, \"Removing Restow\")."
       ;;
     *)
-      install_fresh
+      if [ "$OPT_KIND" = restore ]; then
+        install_restore
+      else
+        install_fresh
+      fi
       ;;
   esac
 }

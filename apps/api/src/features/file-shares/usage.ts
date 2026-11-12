@@ -1,7 +1,7 @@
 import {
-  fileShareRepositoryPrefix,
   measureRepositoryBytes,
   type ResticLockRegistry,
+  repositoryPrefixOf,
   type ShareQuotaUsage,
   type StorageBackend,
   shareBudgetBytes,
@@ -63,16 +63,13 @@ export function shareLockRegistry(share: ShareKey): ResticLockRegistry {
 /** Measurements in progress, one per share: concurrent uploads wait for the same listing. */
 const measuring = new Map<string, Promise<number>>();
 
-function measureOnce(share: ShareKey, storage: StorageBackend): Promise<number> {
+function measureOnce(share: ShareKey, storage: StorageBackend, prefix: string): Promise<number> {
   const pending = measuring.get(share.fileShareId);
   if (pending) {
     return pending;
   }
   const measured = (async () => {
-    const bytes = await measureRepositoryBytes(
-      storage,
-      fileShareRepositoryPrefix(share.fileShareId),
-    );
+    const bytes = await measureRepositoryBytes(storage, prefix);
     await withTenantTx(db, share.tenantId, (tx) =>
       tx
         .update(fileShares)
@@ -92,7 +89,11 @@ export async function shareQuotaUsage(
 ): Promise<ShareQuotaUsage> {
   const { row, tenantUsed } = await withTenantTx(db, share.tenantId, async (tx) => {
     const [found] = await tx
-      .select({ bytes: fileShares.repositoryBytes, quotaGib: fileShares.quotaGib })
+      .select({
+        bytes: fileShares.repositoryBytes,
+        quotaGib: fileShares.quotaGib,
+        prefix: fileShares.repositoryPrefix,
+      })
       .from(fileShares)
       .where(eq(fileShares.id, share.fileShareId))
       .limit(1);
@@ -106,7 +107,11 @@ export async function shareQuotaUsage(
   let used = row?.bytes ?? null;
   let tenant = tenantUsed;
   if (used === null) {
-    used = await measureOnce(share, storage);
+    used = await measureOnce(
+      share,
+      storage,
+      repositoryPrefixOf("file_share", share.fileShareId, row?.prefix),
+    );
     tenant += used;
   }
   return {

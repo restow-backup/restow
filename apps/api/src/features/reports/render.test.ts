@@ -20,6 +20,18 @@ function alert(details: Record<string, unknown>, language: "en" | "de" = "en") {
 }
 
 describe("renderAlert", () => {
+  it("names the service with the object it is about (0.5.0)", () => {
+    expect(alert({ objectName: "msp@contoso.example", objectKind: "onedrive" }).text).toContain(
+      "OneDrive · msp@contoso.example",
+    );
+    expect(
+      alert({ objectName: "msp@contoso.example", objectKind: "mailbox" }, "de").text,
+    ).toContain("Postfach · msp@contoso.example");
+    // Without a kind, or with one no text knows, the name alone.
+    expect(alert({ objectKind: "something" }).text).toContain("Alice");
+    expect(alert({ objectKind: "something" }).text).not.toContain("· Alice");
+  });
+
   it("names the disk and what is left on it for the low disk space warning", () => {
     const disk = (language: "en" | "de") =>
       renderAlert({
@@ -47,6 +59,82 @@ describe("renderAlert", () => {
     expect(german.subject).toBe("[Contoso] Wenig Speicherplatz: restow_pgdata");
     expect(german.text).toContain("Datenträger: Unter der Datenbank");
     expect(german.text).toContain("Frei: 4,0 GiB");
+  });
+
+  it("names every place on one disk in one row (#98)", () => {
+    const shared = (language: "en" | "de") =>
+      renderAlert({
+        language,
+        tenantName: "Contoso",
+        ruleName: "Disks",
+        payload: {
+          event: "installation.disk_low",
+          occurredAt: "2026-11-11T10:00:00.000Z",
+          details: {
+            disk: "system",
+            disks: ["system", "database", "repository"],
+            location: "/",
+            freeBytes: 4 * 1024 ** 3,
+            totalBytes: 100 * 1024 ** 3,
+            objectName: "/",
+          },
+        },
+      });
+    expect(shared("en").text).toContain(
+      "Disk: System disk of the server, Under the database and Under the local default repository",
+    );
+    expect(shared("de").text).toContain(
+      "Datenträger: Systemdatenträger des Servers, Unter der Datenbank und ",
+    );
+  });
+
+  it("names the emergency disk reserve in a disk warning, and what to do once it was freed (#98)", () => {
+    const render = (
+      event: "installation.disk_low" | "installation.disk_reserve_released",
+      details: Record<string, unknown>,
+      language: "en" | "de",
+    ) =>
+      renderAlert({
+        language,
+        tenantName: "Contoso",
+        ruleName: "Disks",
+        payload: { event, occurredAt: "2026-11-11T10:00:00.000Z", details },
+      });
+    const low = render(
+      "installation.disk_low",
+      {
+        disk: "system",
+        location: "/",
+        freeBytes: 4 * 1024 ** 3,
+        totalBytes: 100 * 1024 ** 3,
+        objectName: "/",
+        reservePath: "/data/restow-disk-reserve",
+        reserveBytes: 2 * 1024 ** 3,
+        reserveState: "present",
+        reserveFloorBytes: 1024 ** 3,
+        reserveCommand: "docker compose exec api restow disk-reserve release",
+      },
+      "en",
+    );
+    expect(low.text).toContain("Disk: System disk of the server");
+    expect(low.text).toContain(
+      "Emergency reserve: 2.0 GiB at /data/restow-disk-reserve. Freed by itself below 1.0 GiB free, by hand with: docker compose exec api restow disk-reserve release",
+    );
+    const released = render(
+      "installation.disk_reserve_released",
+      {
+        path: "/data/restow-disk-reserve",
+        freeBytes: 2.5 * 1024 ** 3,
+        totalBytes: 100 * 1024 ** 3,
+        objectName: "/data/restow-disk-reserve",
+      },
+      "de",
+    );
+    expect(released.subject).toBe(
+      "[Contoso] Notreserve auf dem Datenträger freigegeben: /data/restow-disk-reserve",
+    );
+    expect(released.text).toContain("Frei: 2,5 GiB");
+    expect(released.text).toContain("docker image prune -a");
   });
 
   it("says when an app credential expires, how long is left and how to renew it", () => {
@@ -271,6 +359,21 @@ describe("renderAlert", () => {
     expect(journal.subject).toBe("[Contoso] Archiv-Abgleich fehlgeschlagen: Archiv-Abgleich");
     expect(journal.text).toContain("Seit mehr als 24 Stunden ist kein Journal-Report angekommen");
     expect(journal.text).toContain("Zuletzt angekommen: 12.10.2026");
+    // A capture gap: the archive page shows the count only, the API the list; both languages
+    // promise the same retries, and never one for mail without a MIME export.
+    for (const language of ["en", "de"] as const) {
+      const gap = alert(language, {
+        reason: "capture_gap",
+        queue: "archive",
+        objectName: "alice@contoso.example",
+        openedAt: "2026-10-13T08:30:00.000Z",
+      }).text;
+      expect(gap).toContain("/api/v1/archive/capture/mailboxes/");
+      expect(gap).not.toMatch(/lists them with the mailbox|Die Liste steht auf der Archiv-Seite/);
+      expect(gap).toContain(language === "en" ? "once a day" : "einmal am Tag");
+      expect(gap).toContain(language === "en" ? "a resync" : "ein Neuabgleich");
+      expect(gap).not.toContain("{appName}");
+    }
   });
 
   it("says since when retention of a held object is paused", () => {

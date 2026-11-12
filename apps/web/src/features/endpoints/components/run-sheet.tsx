@@ -1,7 +1,7 @@
 import { Info, RotateCcw, TriangleAlert } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { ErrorState, RelativeTime } from "@/components/kit";
+import { ErrorState, RelativeTime, StatusBadge } from "@/components/kit";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
@@ -16,7 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { FailureExplanation } from "@/features/failures";
 import { cn } from "@/lib/utils";
 
-import type { RunConsistency, RunDetail, RunProgress } from "../api.js";
+import type { RunConsistency, RunDetail, RunProgress, RunSqlStats } from "../api.js";
 import { type EndpointFormat, useEndpointFormat, useRun } from "../hooks.js";
 import {
   formatDuration,
@@ -26,11 +26,58 @@ import {
   runDurationMs,
   runErrorView,
   runKindKey,
+  sqlCodeMessage,
+  sqlOutcomeView,
 } from "../presenters.js";
+import { AppNotices } from "./app-notices.js";
 import { Fact, Facts } from "./facts.js";
 import { RunStatusBadge } from "./status.js";
 
 /** The live state of a running run: how far it is and which file it is on. */
+/** What a SQL run did with each database of its instance (W2a). */
+function SqlRunResults({ sql }: { sql: RunSqlStats }) {
+  const { t } = useTranslation("endpoints");
+  const format = useEndpointFormat();
+  const databases = sql.databases ?? [];
+  return (
+    <section className="space-y-2" data-slot="run-sql">
+      <h3 className="text-sm font-medium">
+        {sql.newName
+          ? t("sql.run.restoredAs", { name: sql.newName, instance: sql.instance })
+          : t("sql.run.heading", { instance: sql.instance })}
+      </h3>
+      {sql.checkdb ? (
+        <p className="text-sm text-muted-foreground">{t(`sql.run.checkdb.${sql.checkdb}`)}</p>
+      ) : null}
+      {databases.length > 0 ? (
+        <ul className="divide-y rounded-md border text-sm">
+          {databases.map((database) => {
+            const view = sqlOutcomeView(database.outcome);
+            const code = sqlCodeMessage(database.code);
+            return (
+              <li key={database.name} className="space-y-1 p-3" data-database={database.name}>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-medium break-all">{database.name}</span>
+                  <StatusBadge tone={view.tone} icon>
+                    {t(view.key)}
+                  </StatusBadge>
+                </div>
+                {database.bytes !== undefined ? (
+                  <p className="text-xs text-muted-foreground">{format.bytes(database.bytes)}</p>
+                ) : null}
+                {code ? <p className="text-xs">{t(code.key, code.values)}</p> : null}
+                {database.message ? (
+                  <p className="text-xs break-words text-muted-foreground">{database.message}</p>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+    </section>
+  );
+}
+
 export function RunProgressView({
   progress,
   format,
@@ -104,8 +151,10 @@ export function RunProgressView({
 
 /**
  * The consistency of a backup in words: "Shadow copy (file consistent)", "Partly without a shadow
- * copy: D:\", "Without a shadow copy". Never "consistent" alone: a shadow copy without writer
- * components makes open databases crash consistent, not application consistent.
+ * copy: D:\", "Without a shadow copy: E:\", "Without a shadow copy". Never "consistent" alone: a
+ * shadow copy without writer components makes open databases crash consistent, not application
+ * consistent. A volume read live is always named, also beside a shadow copy ("Shadow copy (file
+ * consistent); read live: E:\"): a removable, FAT or exFAT volume never is in one.
  */
 export function consistencyText(
   consistency: RunConsistency,
@@ -115,13 +164,18 @@ export function consistencyText(
   const live = (consistency.liveFilesystems ?? []).join(", ");
   switch (consistency.state) {
     case "used":
-      return t("runs.consistency.used", { method });
+      return live
+        ? t("runs.consistency.usedWith", { method, live })
+        : t("runs.consistency.used", { method });
     case "partial":
       return live
         ? t("runs.consistency.partialWith", { method, live })
         : t("runs.consistency.partial", { method });
     case "unavailable":
-      return t("runs.consistency.unavailable", { method });
+      // With the volumes read live (an exFAT disk VSS cannot do, or every volume failed).
+      return live
+        ? t("runs.consistency.unavailableWith", { method, live })
+        : t("runs.consistency.unavailable", { method });
     default:
       return t("runs.consistency.off", { method });
   }
@@ -181,6 +235,12 @@ export function RunDetailView({
             <code className="font-mono text-xs" title={run.snapshotId}>
               {run.snapshotId.slice(0, 8)}
             </code>
+            {/* Failed, cancelled in Restow, interrupted: restic saved it before the stop. */}
+            {run.status !== "succeeded" && run.status !== "partial" ? (
+              <span className="block text-xs text-muted-foreground">
+                {t("runs.facts.snapshotOfFailedRun")}
+              </span>
+            ) : null}
           </Fact>
         ) : null}
         {stats ? (
@@ -209,7 +269,9 @@ export function RunDetailView({
             {stats.dataAdded !== undefined ? (
               <Fact label={t("runs.facts.dataAdded")}>{format.bytes(stats.dataAdded)}</Fact>
             ) : null}
-            {stats.consistency ? (
+            {/* How a snapshot was read: a run that saved none has nothing to describe (its
+                errors say why the shadow copy failed). */}
+            {stats.consistency && run.snapshotId ? (
               <Fact label={t("runs.facts.consistency")}>
                 <span data-slot="run-consistency" data-state={stats.consistency.state}>
                   {consistencyText(stats.consistency, t)}
@@ -285,6 +347,9 @@ export function RunDetailView({
           </AlertDescription>
         </Alert>
       ) : null}
+
+      <AppNotices notices={stats?.notices} />
+      {stats?.sql ? <SqlRunResults sql={stats.sql} /> : null}
 
       <section className="space-y-2" data-slot="run-errors">
         <h3 className="text-sm font-medium">

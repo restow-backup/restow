@@ -11,6 +11,9 @@
  * the suite is skipped.
  */
 import { randomBytes } from "node:crypto";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   auditLog,
   createDb,
@@ -23,7 +26,7 @@ import {
   tenants,
 } from "@restow/db";
 import { and, asc, desc, eq, gte, isNull } from "drizzle-orm";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { ProblemError } from "../../problem.js";
 import { provisionTestRoles, type TestDatabaseRoles } from "../../testing/database-roles.js";
 import type {
@@ -46,6 +49,7 @@ const actor = { id: "owner-1", email: "owner@provider.test", ip: "192.0.2.10" };
 
 type DatabaseModule = typeof import("./database.js");
 type DiskWatchModule = typeof import("./disk-watch.js");
+type ReserveModule = typeof import("./disk-reserve.js");
 type ServiceModule = typeof import("./service.js");
 type StateModule = typeof import("./state.js");
 
@@ -104,6 +108,7 @@ function stateView(over: Partial<StateView> = {}): StateView {
     restart: null,
     projectDir: "/opt/restow",
     database: databaseView(),
+    restore: null,
     serverTime: "2026-10-01T09:00:00.000Z",
     ...over,
   };
@@ -171,6 +176,25 @@ class ScriptedUpdater implements UpdaterClient {
       headers: { "content-length": String(this.dump.length), "x-updater-internal": "1" },
     });
   }
+  // A restore from a dump (updater/restore.ts) is not part of these tests.
+  async startDumpUpload(): Promise<never> {
+    throw new Error("not scripted");
+  }
+  async putDumpPart(): Promise<never> {
+    throw new Error("not scripted");
+  }
+  async completeDumpUpload(): Promise<never> {
+    throw new Error("not scripted");
+  }
+  async startRestore(): Promise<never> {
+    throw new Error("not scripted");
+  }
+  async activateRestore(): Promise<never> {
+    throw new Error("not scripted");
+  }
+  async abortRestore(): Promise<never> {
+    throw new Error("not scripted");
+  }
   async deleteDump(file: string) {
     if (this.refuse) {
       throw this.refuse;
@@ -186,6 +210,7 @@ describe.skipIf(!testDatabaseAdminUrl)("Installation > Database against Postgres
   let roles: TestDatabaseRoles | undefined;
   let databaseModule: DatabaseModule;
   let diskWatchModule: DiskWatchModule;
+  let reserveModule: ReserveModule;
   let serviceModule: ServiceModule;
   let stateModule: StateModule;
   let contoso: string;
@@ -226,6 +251,7 @@ describe.skipIf(!testDatabaseAdminUrl)("Installation > Database against Postgres
     contoso = tenant?.id ?? "";
     databaseModule = await import("./database.js");
     diskWatchModule = await import("./disk-watch.js");
+    reserveModule = await import("./disk-reserve.js");
     serviceModule = await import("./service.js");
     stateModule = await import("./state.js");
   }, 60_000);
@@ -501,7 +527,7 @@ describe.skipIf(!testDatabaseAdminUrl)("Installation > Database against Postgres
     const bell = () =>
       owner.select().from(notifications).where(eq(notifications.event, "installation.disk_low"));
 
-    it("is raised once per episode, in the bell and in the rules that list it", async () => {
+    it("is raised once per episode, in the bell and in the rules that list it [ALERT-006]", async () => {
       await rule();
       // The database's disk is low (4 of 38 GiB); the repository is fine.
       expect(await watch().checkOnce()).toEqual({
@@ -545,7 +571,7 @@ describe.skipIf(!testDatabaseAdminUrl)("Installation > Database against Postgres
       expect(row?.alerts.database).toMatchObject({ low: true, freeBytes: 4 * GIB });
     });
 
-    it("watches the repository's disk without an updater", async () => {
+    it("watches the repository's disk without an updater [ALERT-006]", async () => {
       updater.view = null;
       repository = { path: "/data/chunks", freeBytes: 2 * GIB, totalBytes: 100 * GIB };
       expect(await watch().checkOnce()).toEqual({
@@ -590,6 +616,186 @@ describe.skipIf(!testDatabaseAdminUrl)("Installation > Database against Postgres
         (entry) => (entry.details as { disk?: string }).disk === "system",
       );
       expect(raised?.message).toContain("on the system disk of the server");
+    });
+
+    it("watches the database's disk without the updater, on the volume next to it (#98)", async () => {
+      updater.view = null;
+      repository = null;
+      const service = new databaseModule.DatabaseService({
+        db: providerDb,
+        updater,
+        repositoryDisk: async () => null,
+        databaseDisk: async () => ({ path: "pgdata", freeBytes: 3 * GIB, totalBytes: 40 * GIB }),
+      });
+      expect((await service.view()).disks.database).toMatchObject({
+        kind: "database",
+        location: "pgdata",
+        via: "volume",
+        low: true,
+      });
+      const outcome = await new diskWatchModule.DiskWatch({
+        db: providerDb,
+        service,
+      }).checkOnce();
+      expect(outcome.database).toBe("raised");
+      expect((await bell())[0]?.details).toMatchObject({ disk: "database", location: "pgdata" });
+    });
+
+    describe("one warning per disk (#98)", () => {
+      /** The database, the repository and the system disk, each low, on the given devices. */
+      function onDevices(devices: Record<"database" | "repository", string>, free = 3) {
+        updater.view = null;
+        repository = { path: "/data/chunks", freeBytes: free * GIB, totalBytes: 40 * GIB };
+        const service = new databaseModule.DatabaseService({
+          db: providerDb,
+          updater,
+          repositoryDisk: async () => repository,
+          databaseDisk: async () => ({
+            path: "pgdata",
+            measure: "/var/lib/restow/pgdata",
+            freeBytes: free * GIB,
+            totalBytes: 40 * GIB,
+          }),
+          deviceOf: async (path) =>
+            path === "/data/chunks" ? devices.repository : devices.database,
+        });
+        return new diskWatchModule.DiskWatch({
+          db: providerDb,
+          service,
+          // The system disk is the device `system` (the others are compared with it).
+          systemDisk: async () => ({ freeBytes: free * GIB, totalBytes: 40 * GIB }),
+        });
+      }
+
+      it("names every place on one disk in one warning, the reserve once", async () => {
+        await rule();
+        expect(await onDevices({ database: "system", repository: "system" }).checkOnce()).toEqual({
+          database: "raised",
+          repository: "raised",
+          system: "raised",
+        });
+        const rows = await bell();
+        expect(rows).toHaveLength(1);
+        expect(rows[0]?.details).toMatchObject({
+          disk: "system",
+          disks: ["system", "database", "repository"],
+          locations: { database: "pgdata", repository: "/data/chunks" },
+        });
+        expect(rows[0]?.message).toContain(
+          "on the system disk of the server, which is also the disk under the database and under the local repository",
+        );
+        expect(await owner.select().from(reportDeliveries)).toHaveLength(1);
+        // Still low: nothing new.
+        await onDevices({ database: "system", repository: "system" }).checkOnce();
+        expect(await bell()).toHaveLength(1);
+      });
+
+      it("warns for each disk of its own", async () => {
+        await onDevices({ database: "dev:7", repository: "dev:8" }).checkOnce();
+        const rows = await bell();
+        expect(rows.map((row) => (row.details as { disks?: string[] }).disks)).toEqual(
+          expect.arrayContaining([["system"], ["database"], ["repository"]]),
+        );
+        expect(rows).toHaveLength(3);
+      });
+
+      it("does not warn again for a disk already announced when another place on it runs low", async () => {
+        const devices = { database: "dev:7", repository: "dev:7" };
+        // Only the database's disk was low (the repository's reading was fine before).
+        const watchOf = onDevices(devices);
+        repository = { path: "/data/chunks", freeBytes: 30 * GIB, totalBytes: 40 * GIB };
+        expect((await watchOf.checkOnce()).database).toBe("raised");
+        expect(await bell()).toHaveLength(2);
+        repository = { path: "/data/chunks", freeBytes: 3 * GIB, totalBytes: 40 * GIB };
+        expect((await watchOf.checkOnce()).repository).toBe("raised");
+        // The database's disk is the repository's: announced already.
+        expect(await bell()).toHaveLength(2);
+      });
+    });
+
+    describe("the emergency disk reserve (#98)", () => {
+      let dir: string;
+      let free: number;
+      const reserveOf = () =>
+        new reserveModule.DiskReserve({
+          config: { path: join(dir, "restow-disk-reserve"), bytes: 1024 * 1024, floorBytes: GIB },
+          statfs: async () => ({ freeBytes: free, totalBytes: 100 * GIB }),
+          now: () => new Date("2026-11-11T10:00:00.000Z"),
+        });
+      const reserveWatch = () =>
+        new diskWatchModule.DiskWatch({
+          db: providerDb,
+          service: build(),
+          reserve: reserveOf(),
+          systemDisk: async () => ({ freeBytes: free, totalBytes: 100 * GIB }),
+        });
+      const events = async () =>
+        (await owner.select().from(notifications)).map((row) => row.event).sort();
+
+      beforeEach(async () => {
+        dir = await mkdtemp(join(tmpdir(), "restow-reserve-pg-"));
+        free = 50 * GIB;
+        updater.view = null;
+        repository = null;
+      });
+      afterEach(async () => {
+        await rm(dir, { recursive: true, force: true });
+      });
+
+      it("announces a release once, even one made while the database was down, and the recreation", async () => {
+        await reserveOf().create();
+        await owner.insert(reportRules).values({
+          tenantId: contoso,
+          name: "Reserve",
+          trigger: "event",
+          events: ["installation.disk_reserve_released"],
+          emailRecipients: ["ops@example.com"],
+        });
+        expect((await reserveWatch().checkOnce()).reserve).toBe("none");
+        // The entrypoint freed it before the database started: only the marker knows.
+        free = 300 * 1024 * 1024;
+        expect((await reserveOf().check({ create: false, reason: "start" })).action).toBe(
+          "released",
+        );
+        expect((await reserveWatch().checkOnce()).reserve).toBe("released");
+        expect((await reserveWatch().checkOnce()).reserve).toBe("none");
+        const [released] = await owner
+          .select()
+          .from(notifications)
+          .where(eq(notifications.event, "installation.disk_reserve_released"));
+        expect(released).toMatchObject({ tenantId: null, level: "error" });
+        expect(released?.details).toMatchObject({
+          path: join(dir, "restow-disk-reserve"),
+          releaseReason: "start",
+          freeAtReleaseBytes: 300 * 1024 * 1024,
+        });
+        const deliveries = await owner.select().from(reportDeliveries);
+        expect(deliveries.map((row) => row.event)).toEqual(["installation.disk_reserve_released"]);
+        // Room again: written, and announced once.
+        free = 50 * GIB;
+        expect((await reserveOf().check({ create: true })).action).toBe("created");
+        expect((await reserveWatch().checkOnce()).reserve).toBe("restored");
+        expect((await reserveWatch().checkOnce()).reserve).toBe("none");
+        // The nearly full system disk was announced as low, as ever.
+        expect(await events()).toEqual([
+          "installation.disk_low",
+          "installation.disk_reserve_released",
+          "installation.disk_reserve_restored",
+        ]);
+      });
+
+      it("names the reserve and the command that frees it in the low-space warning", async () => {
+        await reserveOf().create();
+        free = 4 * GIB;
+        expect((await reserveWatch().checkOnce()).system).toBe("raised");
+        const [warning] = await bell();
+        expect(warning?.message).toContain("docker compose exec api restow disk-reserve release");
+        expect(warning?.details).toMatchObject({
+          reservePath: join(dir, "restow-disk-reserve"),
+          reserveState: "present",
+          reserveFloorBytes: GIB,
+        });
+      });
     });
   });
 });

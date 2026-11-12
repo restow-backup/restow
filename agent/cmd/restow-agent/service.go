@@ -50,6 +50,13 @@ func cmdService(args []string, stdout, stderr io.Writer) int {
 		if exe != paths.InstalledAgentBinary() {
 			fmt.Fprintf(stderr, "note: the agent binary is at %s, not at the standard location %s\n", exe, paths.InstalledAgentBinary())
 		}
+		// The folders exist protected before the service can start: else a
+		// service that starts before the enrollment would be the first to
+		// create them (an elevated administrator runs this).
+		if err := paths.Default().Ensure(); err != nil {
+			fmt.Fprintf(stderr, "The service is not installed: cannot create the agent directories: %v\n", err)
+			return exitError
+		}
 		opErr = m.Install(exe)
 		if opErr == nil {
 			fmt.Fprintf(stdout, "Installed the %s service for %s. It starts at boot.\n", m.Name(), exe)

@@ -197,10 +197,14 @@ func (s *Server) HeartbeatCount() int {
 }
 
 func problem(w http.ResponseWriter, status int, title, detail string) {
+	typedProblem(w, status, "urn:restow:problem:test", title, detail)
+}
+
+func typedProblem(w http.ResponseWriter, status int, typ, title, detail string) {
 	w.Header().Set("Content-Type", "application/problem+json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"type": "urn:restow:problem:test", "title": title, "status": status, "detail": detail,
+		"type": typ, "title": title, "status": status, "detail": detail,
 	})
 }
 
@@ -249,7 +253,8 @@ func (s *Server) handleEnroll(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if req.Token != s.EnrollToken {
-		problem(w, http.StatusUnauthorized, "Invalid enrollment token", "The token is unknown, expired or already used.")
+		// The problem type of the real server (agent-service.ts).
+		typedProblem(w, http.StatusUnauthorized, api.EnrollmentTokenInvalidProblem, "Enrollment token not valid", "The token is unknown, expired or already used.")
 		return
 	}
 	s.Enrollments = append(s.Enrollments, req)

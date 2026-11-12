@@ -1,18 +1,26 @@
-import { measureRepositoryBytes, type StorageBackend, secretMatchesHash } from "@restow/core";
-import { pveGuests, pveRuns, tenants } from "@restow/db";
+import {
+  measureRepositoryBytes,
+  pveRunCredentialLive,
+  type StorageBackend,
+  secretMatchesHash,
+} from "@restow/core";
+import { pveGuests, pveRuns, storageGenerationSql, tenants } from "@restow/db";
 import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import { db, providerDb } from "../../db.js";
 import {
   buildRunResticRoute,
   processLocalLocks,
+  type RunResticAccess,
   type RunResticResolution,
 } from "../../lib/restic-run-route.js";
 import { withTenantTx } from "../../lib/tenant-context.js";
 import { authFailures } from "../endpoints/agent-auth.js";
+import { admitUpload } from "../run-size/guards.js";
+import { runSizeGuards } from "../run-size/instance.js";
 import { auditPve, PVE_AUDIT_ACTIONS } from "./audit.js";
 import { PVE_RESTIC_PATH } from "./meta.js";
-import { guestRepositoryPrefix } from "./repository.js";
-import { type TenantChunkStore, tenantChunkStore } from "./store.js";
+import { guestRepositoryPrefix, storageSwitchedDuringRun } from "./repository.js";
+import { searchedTargets, storeTarget, type TenantChunkStore, tenantChunkStore } from "./store.js";
 
 /**
  * /agent/pve/restic/:guestId: the restic REST backend of one container's
@@ -51,12 +59,17 @@ export async function resolvePveRunCredential(
       kind: pveRuns.kind,
       status: pveRuns.status,
       cancelRequestedAt: pveRuns.cancelRequestedAt,
+      startedAt: pveRuns.startedAt,
       tokenHash: pveRuns.resticTokenHash,
       expiresAt: pveRuns.resticExpiresAt,
+      storageTarget: pveRuns.storageTarget,
+      repositoryPrefix: pveGuests.repositoryPrefix,
       tenantStatus: tenants.status,
+      generation: sql<string>`${storageGenerationSql(sql`${pveRuns.tenantId}`)}`,
     })
     .from(pveRuns)
     .innerJoin(tenants, eq(tenants.id, pveRuns.tenantId))
+    .leftJoin(pveGuests, eq(pveGuests.id, pveRuns.guestId))
     .where(eq(pveRuns.id, credentials.runId))
     .limit(1);
   const ok =
@@ -66,33 +79,52 @@ export async function resolvePveRunCredential(
   if (!run || !ok || run.guestId !== guestId) {
     return { ok: false, reason: "invalid" };
   }
-  if (!run.expiresAt || run.expiresAt.getTime() < now || run.tenantStatus !== "active") {
+  // The credential lives as long as its open run (at most 48 hours), not 24 hours from its
+  // issue: a first backup of a large container may well take longer than a day.
+  if (!pveRunCredentialLive(run, now) || run.tenantStatus !== "active") {
     return { ok: false, reason: "expired" };
   }
   // A backup stopped in the UI, or a run that has ended: restic fails at its next write (a node
   // without cancel orders), but may still release the lock it holds on the way out. Otherwise
   // the lock stays until it is stale and blocks the check and the retention of the repository.
-  const closing = run.status !== "running" || run.cancelRequestedAt !== null;
-  const store = await tenantChunkStore(run.tenantId);
+  let closing = run.status !== "running" || run.cancelRequestedAt !== null;
+  // The store of the tenant's current storage generation: a change of the primary is seen at
+  // the next request, not when a cache runs out.
+  const store = await tenantChunkStore(run.tenantId, Date.now(), run.generation ?? undefined);
+  // The prefix the guest's current chain lies under (a fresh one on write-once storage).
+  const prefix = guestRepositoryPrefix({ id: guestId, repositoryPrefix: run.repositoryPrefix });
+  // Every request of a run goes to the one target its credential was issued for
+  // (docs/STORAGE.md, "Runs and storage changes"). A backup whose target stopped being the
+  // primary gets 403 for every write (restic takes it as final) instead of writing the rest of
+  // its backup elsewhere.
+  const pinned = run.storageTarget ? storeTarget(store, run.storageTarget) : null;
+  let refuseWrites: ReturnType<typeof storageSwitchedDuringRun> | undefined;
+  let storage: StorageBackend;
+  if (run.kind === "backup") {
+    if (run.storageTarget && run.storageTarget !== store.primaryTarget) {
+      refuseWrites = storageSwitchedDuringRun(403);
+      closing = true;
+    }
+    // A run from before 0.5.0 has no target recorded: the primary, as it always was.
+    storage = pinned ?? store.write.primary;
+  } else {
+    storage = pinned ?? (await readingBackend(run.id, store, prefix));
+  }
   return {
     ok: true,
     access: {
       tenantId: run.tenantId,
       runId: run.id,
+      runKind: run.kind,
       principal: closing ? "closing" : "agent",
-      prefix: guestRepositoryPrefix(guestId),
-      // A backup writes to the primary only (its credential made sure the repository is
-      // there, repository.ts); a restore reads from whichever target holds the repository,
-      // a retired primary included.
-      storage:
-        run.kind === "backup"
-          ? store.write.primary
-          : await readingBackend(run.id, store, guestRepositoryPrefix(guestId)),
+      prefix,
+      storage,
+      ...(refuseWrites ? { refuseWrites } : {}),
     },
   };
 }
 
-/** The target a restore run reads from, found once per run (bounded). */
+/** The target a restore run from before 0.5.0 (no target recorded) reads from, found once per run. */
 const readingBackends = new Map<string, StorageBackend>();
 
 async function readingBackend(
@@ -105,12 +137,10 @@ async function readingBackend(
     return known;
   }
   let found = store.write.primary;
-  if (!(await store.write.primary.head(`${prefix}config`).catch(() => null))) {
-    for (const other of store.read.copies) {
-      if (await other.head(`${prefix}config`).catch(() => null)) {
-        found = other;
-        break;
-      }
+  for (const target of await searchedTargets(store)) {
+    if (await target.backend.head(`${prefix}config`).catch(() => null)) {
+      found = target.backend;
+      break;
     }
   }
   if (readingBackends.size > 1000) {
@@ -123,6 +153,8 @@ async function readingBackend(
 export interface GuestKey {
   tenantId: string;
   guestId: string;
+  /** The repository's prefix (`guestRepositoryPrefix`); the guest's default when absent. */
+  prefix?: string;
 }
 
 /** Measurements in progress, one per guest: concurrent uploads wait for the same listing. */
@@ -134,7 +166,10 @@ function measureOnce(guest: GuestKey, storage: StorageBackend): Promise<number> 
     return pending;
   }
   const measured = (async () => {
-    const bytes = await measureRepositoryBytes(storage, guestRepositoryPrefix(guest.guestId));
+    const bytes = await measureRepositoryBytes(
+      storage,
+      guest.prefix ?? guestRepositoryPrefix({ id: guest.guestId, repositoryPrefix: null }),
+    );
     await withTenantTx(db, guest.tenantId, (tx) =>
       tx
         .update(pveGuests)
@@ -177,16 +212,33 @@ export async function addGuestUsage(
 /** Lock files a run wrote (process-local; restic removes its own lock at the end). */
 const runLocks = processLocalLocks();
 
+/** The size guard of a container's backup run (features/run-size/guards.ts). */
+function guestRunGuard(access: RunResticAccess, guestId: string) {
+  return runSizeGuards.forRun({
+    tenantId: access.tenantId,
+    kind: "pve_guest",
+    objectId: guestId,
+    runId: access.runId,
+    storage: access.storage,
+  });
+}
+
 export const pveResticRoutes = buildRunResticRoute({
   basePath: PVE_RESTIC_PATH,
   param: "guestId",
   realm: "restow-pve",
   resolve: resolvePveRunCredential,
   locks: (access) => runLocks(access.runId),
+  // The size and space guard of backup runs (#99): a container's backup run.
+  admitUpload: (access, guestId, declared, resource) =>
+    admitUpload(guestRunGuard(access, guestId), declared, resource),
   onAllowed: async (access, guestId, bytes, action) => {
+    if (action === "write" && access.principal === "agent" && access.runKind === "backup") {
+      guestRunGuard(access, guestId).record(bytes);
+    }
     // The accounting never fails the upload itself.
     await addGuestUsage(
-      { tenantId: access.tenantId, guestId },
+      { tenantId: access.tenantId, guestId, prefix: access.prefix },
       access.storage,
       action,
       bytes,

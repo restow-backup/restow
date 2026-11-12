@@ -147,4 +147,96 @@ describe.skipIf(!adminUrl)("report rules in the scheduler", () => {
     expect((await ruleRow(broken))?.next_run_at?.toISOString()).toBe("2026-10-03T00:00:00.000Z");
     expect(await deliveriesOf(waiting)).toEqual([]);
   });
+
+  describe("0.5.0", () => {
+    it("covers the previous calendar week of a weekly cadence rule, with its days", async () => {
+      const { rows } = await db.$client.query<{ id: string }>(
+        `INSERT INTO report_rules
+           (tenant_id, name, trigger, cron, cadence, attach_pdf, timezone, next_run_at, sections,
+            email_recipients)
+         VALUES ($1, 'Weekly', 'schedule', '0 7 * * 1', 'weekly', true, 'Europe/Berlin', $2,
+                 ARRAY['backups'], ARRAY['w@contoso.example'])
+         RETURNING id`,
+        [tenantId, new Date("2026-10-05T05:00:00Z")],
+      );
+      const id = rows[0]?.id ?? "";
+      await runDueReports(store, new Date("2026-10-05T05:00:30Z"), 50, () => {});
+      const [delivery] = await deliveriesOf(id);
+      expect(delivery?.payload).toMatchObject({
+        cadence: "weekly",
+        attachPdf: true,
+        periodStart: "2026-09-27T22:00:00.000Z",
+        periodEnd: "2026-10-04T22:00:00.000Z",
+        fromDay: "2026-09-28",
+        toDay: "2026-10-04",
+        periodDays: 7,
+      });
+      await db.$client.query("DELETE FROM report_rules WHERE id = $1", [id]);
+    });
+
+    it("names the month of a customer report", async () => {
+      const { rows } = await db.$client.query<{ id: string }>(
+        `INSERT INTO report_rules
+           (tenant_id, name, trigger, kind, cron, timezone, next_run_at, email_recipients,
+            attach_pdf, recipient_category)
+         VALUES ($1, 'Customer', 'schedule', 'customer', '0 8 3 * *', 'Europe/Berlin', $2,
+                 ARRAY['c@contoso.example'], true, 'customerReport')
+         RETURNING id`,
+        [tenantId, new Date("2026-11-03T07:00:00Z")],
+      );
+      const id = rows[0]?.id ?? "";
+      await runDueReports(store, new Date("2026-11-03T07:00:30Z"), 50, () => {});
+      const [delivery] = await deliveriesOf(id);
+      expect(delivery).toMatchObject({ kind: "summary", recipient: "c@contoso.example" });
+      expect(delivery?.payload).toMatchObject({
+        kind: "customer",
+        month: "2026-10",
+        attachPdf: true,
+      });
+      const after = await ruleRow(id);
+      // The next run: 3 December, 08:00 in Berlin.
+      expect(after?.next_run_at?.toISOString()).toBe("2026-12-03T07:00:00.000Z");
+      await db.$client.query("DELETE FROM report_rules WHERE id = $1", [id]);
+    });
+
+    it("fires the provider's report across tenants once per address, without a tenant", async () => {
+      const { rows } = await db.$client.query<{ id: string }>(
+        `INSERT INTO provider_report_rules
+           (cadence, timezone, send_hour, attach_pdf, email_recipients, next_run_at)
+         VALUES ('monthly', 'Europe/Berlin', 7, true,
+                 ARRAY['olivia@msp.example', 'OLIVIA@msp.example', 'noc@msp.example'], $1)
+         RETURNING id`,
+        [new Date("2026-11-01T06:00:00Z")],
+      );
+      const id = rows[0]?.id ?? "";
+      const summary = await runDueReports(store, new Date("2026-11-01T06:00:30Z"), 50, () => {});
+      expect(summary.deliveries).toBeGreaterThanOrEqual(2);
+      const { rows: deliveries } = await db.$client.query<{
+        tenant_id: string | null;
+        recipient: string;
+        payload: Record<string, unknown>;
+        rule_name: string;
+      }>(
+        "SELECT tenant_id, recipient, payload, rule_name FROM report_deliveries WHERE provider_rule_id = $1 ORDER BY recipient",
+        [id],
+      );
+      expect(deliveries.map((row) => [row.tenant_id, row.recipient])).toEqual([
+        [null, "noc@msp.example"],
+        [null, "olivia@msp.example"],
+      ]);
+      expect(deliveries[0]?.payload).toMatchObject({
+        scope: "provider",
+        cadence: "monthly",
+        fromDay: "2026-10-01",
+        toDay: "2026-10-31",
+        attachPdf: true,
+      });
+      expect(deliveries[0]?.rule_name).toBe("Monatsbericht");
+      const { rows: rule } = await db.$client.query<{ next_run_at: Date }>(
+        "SELECT next_run_at FROM provider_report_rules WHERE id = $1",
+        [id],
+      );
+      expect(rule[0]?.next_run_at.toISOString()).toBe("2026-12-01T06:00:00.000Z");
+    });
+  });
 });

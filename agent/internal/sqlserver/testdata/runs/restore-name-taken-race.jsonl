@@ -1,0 +1,3 @@
+{"type":"sqlmessage","step":"restore","number":50003,"class":16,"state":1,"message":"A database of this name exists already."}
+{"type":"error","problem":{"code":"sql_restore_name_taken","step":"restore","number":0,"message":"A database named Sales_restored_20261105 exists already; it was not touched."}}
+#exit 2

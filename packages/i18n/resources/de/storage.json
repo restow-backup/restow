@@ -20,8 +20,10 @@
     "copy": "Kopie",
     "previous": "Vorherig",
     "primaryHint": "Backups werden zuerst hierhin geschrieben; Wiederherstellungen lesen von hier.",
-    "copyHint": "Jedes neue Backup wird auch hierhin geschrieben. Daten aus der Zeit vor der Kopie spiegelt und prüft der Kopierlauf.",
+    "copyHint": "Jedes neue Backup wird auch hierhin geschrieben. Daten aus der Zeit vor der Kopie spiegelt und prüft der Kopierlauf; die Repositorys von Geräten, Containern und Freigaben werden nach jedem Backup hierhin kopiert.",
     "previousHint": "Abgelöst: Wird nicht mehr beschrieben. Bleibt bis zur Entfernung erhalten; Wiederherstellung, Prüfung, Downloads und spätere Backups von vor der Umstellung geschützten Objekten lesen weiterhin von hier, sobald ein Sicherungsstand nur noch hier liegt.",
+    "attachPrevious": "Alten Speicherort schreibgeschützt einbinden",
+    "attachPreviousHint": "Hierhin wird nichts geschrieben. Wiederherstellungen lesen daraus, und die Reparatur der Repositorys (unten) nimmt die Teile von Repositorys, die er enthält, etwa eine wiederhergestellte Kopie eines früheren primären Repositorys.",
     "replacePrimary": "Primäres Repository ersetzen",
     "replacePrimaryHint": "Wählen Sie unten, ob vorhandene Backups zuerst zum neuen Repository wandern oder dort bleiben, wo sie sind."
   },
@@ -144,7 +146,8 @@
     "warnings": {
       "ephemeral_path": "Dieses Verzeichnis liegt im Container, nicht auf einem Volume oder einer Einbindung. Seine Daten gehen verloren, wenn der Container neu erstellt wird.",
       "insecure_endpoint": "Der Endpunkt nutzt unverschlüsseltes HTTP: Zugangsdaten und Daten werden unverschlüsselt übertragen.",
-      "cleanup_failed": "Das kleine Testobjekt konnte nicht wieder gelöscht werden. Es liegt im Ordner probes des Mandanten und kann von Hand entfernt werden."
+      "cleanup_failed": "Das kleine Testobjekt konnte nicht wieder gelöscht werden. Es liegt im Ordner probes des Mandanten und kann von Hand entfernt werden.",
+      "write_once": "Der Speicher verweigert das Überschreiben und Löschen vorhandener Dateien (Write-once). Das Testobjekt bleibt im Ordner für Tests des Mandanten liegen; siehe „Write-once-Speicher“ unten."
     }
   },
   "objectLock": {
@@ -175,6 +178,30 @@
     },
     "retired": "Abgelöst",
     "retiredHint": "Dieser Platzhalter steht für die Speichereinstellungen der Umgebung von vor ihrer Ablösung; er wurde nie einzeln getestet."
+  },
+  "writeOnce": {
+    "title": "Write-once-Speicher",
+    "refused": {
+      "both": "Der letzte Test konnte sein Testobjekt weder überschreiben noch löschen ({code}).",
+      "overwrite": "Der letzte Test konnte sein Testobjekt nicht überschreiben ({code}).",
+      "delete": "Der letzte Test konnte sein Testobjekt nicht löschen ({code})."
+    },
+    "noRetention": "Die Aufbewahrung wird hier nicht angewendet: Kein Sicherungsstand wird entfernt, gleich was die Aufbewahrungseinstellungen eines Auftrags vorsehen.",
+    "grows": "Repositories wachsen nur; Speicherplatz wird nie wieder frei. Planen Sie die Kapazität entsprechend.",
+    "locks": "Sperrdateien jeder Sicherung bleiben liegen; {appName} beurteilt sie nach ihrem Alter und wird von ihnen nicht aufgehalten.",
+    "newChain": "Muss ein Repository eine neue Sicherungskette beginnen (nach einem Zurücksetzen), beginnt es in einem neuen Ordner neben dem alten; nichts wird verschoben oder gelöscht.",
+    "works": "Sicherungen, Wiederherstellungen und Restore-Prüfungen funktionieren wie gewohnt."
+  },
+  "writeOnceRetention": {
+    "title": "Aufbewahrung wird nicht angewendet",
+    "installationDefault": "das Standard-Repository der Installation",
+    "unnamed": "das primäre Repository",
+    "guest": "Die Sicherungen dieser VM oder dieses Containers gehen an {repository}, einen Write-once-Speicher: Kein Sicherungsstand wird entfernt, gleich was die Aufbewahrung des Auftrags vorsieht.",
+    "share": "Die Sicherungen dieser Dateifreigabe gehen an {repository}, einen Write-once-Speicher: Kein Sicherungsstand wird entfernt, gleich was die Aufbewahrung vorsieht.",
+    "machine": "Die Sicherungen dieses Rechners gehen an {repository}, einen Write-once-Speicher: Kein Snapshot wird entfernt, gleich was die Aufbewahrung vorsieht.",
+    "job": "Die Sicherungen dieses Auftrags gehen an {repository}, einen Write-once-Speicher: Diese Aufbewahrungseinstellungen können dort nicht angewendet werden, und kein Sicherungsstand wird entfernt.",
+    "settings": "Die Sicherungen dieses Mandanten gehen an {repository}, einen Write-once-Speicher: Aufbewahrungseinstellungen können dort nicht angewendet werden, und kein Sicherungsstand wird entfernt.",
+    "consequences": "Der Speicher verweigert das Löschen und Überschreiben vorhandener Dateien. Repositories wachsen nur, Sperrdateien bleiben liegen, Wiederherstellungen und Restore-Prüfungen funktionieren wie gewohnt. Die Einstellungen bleiben erhalten und gelten wieder, sobald die Sicherungen an ein anderes Repository gehen."
   },
   "migration": {
     "queued": "Migration eingeplant",
@@ -306,7 +333,7 @@
   },
   "completeness": {
     "title": "Kopie {name} prüfen",
-    "description": "Vergleicht die Kopie mit dem primären Repository: Jedes Pack, jedes Backup-Manifest und jeder Schlüssel muss vorhanden sein.",
+    "description": "Vergleicht die Kopie mit dem primären Repository: Jedes Pack, jedes Backup-Manifest, jeder Schlüssel und jeder versiegelte Archivdatensatz muss vorhanden sein.",
     "checking": "Kopie wird mit dem primären Repository verglichen …",
     "complete": {
       "title": "Die Kopie ist vollständig",
@@ -314,11 +341,13 @@
     },
     "incomplete": {
       "title": "Die Kopie ist noch nicht vollständig",
-      "description": "Es fehlen noch {bytes} Backup-Daten. Der Kopierlauf spiegelt sie; neue Backups erreichen die Kopie sofort."
+      "description": "Es fehlen noch {bytes} Backup-Daten. Der Kopierlauf spiegelt sie; neue Backups erreichen die Kopie sofort.",
+      "objects": "Es fehlen noch Objekte, die unten gezählt sind. Der Kopierlauf spiegelt sie; neue Backups und Archivelemente erreichen die Kopie sofort."
     },
     "packs": "Packs (Backup-Daten)",
     "manifests": "Backup-Manifeste",
     "keys": "Verschlüsselte Schlüssel",
+    "archive": "Versiegelte Archivdatensätze",
     "count": "{present} von {expected}",
     "listingOnly": "Die Vollständigkeit wird per Auflistung geprüft. Kopierlauf und Speicherprüfung prüfen die Inhalte per Prüfsumme.",
     "again": "Erneut prüfen"
@@ -390,7 +419,11 @@
     "immutabilityModeNotAvailable": "Dieser Modus ist für diese Art von Repository nicht verfügbar.",
     "immutabilityNotWritable": "An diesen Ort wird nichts mehr geschrieben; Unveränderbarkeit gilt für das, was ab jetzt geschrieben wird.",
     "immutabilityNotObjectLock": "Nur ein Repository mit Object Lock wird beim Speicher geprüft.",
-    "switchBlockedByRepositories": "Container oder Dateifreigaben dieses Mandanten haben Repositorys auf dem aktuellen primären Repository. Wenn Sie die vorhandenen Sicherungen dort lassen oder eine Kopie zum primären Repository machen, blieben diese Repositorys zurück, und ihre nächsten Sicherungen schlügen fehl oder begännen von vorn. Ersetzen Sie das primäre Repository stattdessen mit „Verschieben“: Dabei werden die Repositorys kopiert und geprüft, bevor umgeschaltet wird."
+    "switchBlockedByRepositories": "Container, Maschinen oder Dateifreigaben dieses Mandanten haben Repositorys auf dem aktuellen primären Repository. Wenn Sie die vorhandenen Sicherungen dort lassen oder eine Kopie zum primären Repository machen, blieben diese Repositorys zurück, und ihre nächsten Sicherungen schlügen fehl oder begännen von vorn. Ersetzen Sie das primäre Repository stattdessen mit „Verschieben“: Dabei werden die Repositorys kopiert und geprüft, bevor umgeschaltet wird.",
+    "switchBlockedByRuns": "Eine Proxmox-VE-Sicherung (Container oder VM) oder ein Lauf einer Dateifreigabe dieses Mandanten läuft gerade. Sie schreibt bis zu ihrem Ende auf das aktuelle primäre Repository; ein Wechsel jetzt würde ihre Sicherung auf zwei Repositorys verteilen. Warten Sie, bis sie fertig ist, oder brechen Sie sie ab, und versuchen Sie es dann erneut.",
+    "switchBlockedByRepair": "Eine Reparatur der Repositorys dieses Mandanten ist eingeplant oder läuft (Repositories › Repositorys reparieren). Sie baut Repositorys auf dem aktuellen primären Repository wieder auf; ein Wechsel jetzt ließe sie halb aufgebaut zurück. Warten Sie, bis sie fertig ist, und versuchen Sie es dann erneut.",
+    "repairBlocked": "Die Reparatur muss warten: Eine Proxmox-VE-Sicherung, ein Lauf einer Dateifreigabe oder eine Speichermigration dieses Mandanten läuft. Reparieren Sie, wenn sie beendet ist.",
+    "previousHoldsMovedAside": "Dieser Speicherort enthält Repository-Ordner, die die Reparatur der Repositorys oder eine neue Sicherungskette beiseitegelegt hat (….orphaned-…), und kein anderes Speicherziel hat sie. „Verschieben“ kopiert sie nicht. Kopieren Sie sie an einen anderen Ort oder löschen Sie sie von Hand, wenn sie nicht mehr gebraucht werden, und entfernen Sie dann diesen Speicherort."
   },
   "immutability": {
     "title": "Unveränderbare Backups",
@@ -481,6 +514,92 @@
       "badge": "Systemplatte",
       "title": "Sicherungen landen auf der Systemplatte des Servers",
       "description": "Dieses Verzeichnis liegt auf derselben Platte wie Betriebssystem, Docker und die Datenbank von {appName}. Füllen Sicherungen sie, stehen die Datenbank und {appName} selbst still, nicht nur die Sicherungen. Legen Sie das Repository auf eine zweite Platte, eine Netzwerkfreigabe oder einen Objektspeicher."
+    }
+  },
+  "repair": {
+    "title": "Repositorys reparieren",
+    "description": "Prüft jedes Sicherungs-Repository von Containern, Maschinen und Dateifreigaben auf jedem Speicherziel dieses Mandanten, den Installationsstandard eingeschlossen, und zeigt, wo seine Teile liegen. Eine Prüfung ändert nichts. Die Reparatur baut auf dem primären Repository wieder auf, was die Teile erlauben. Sicherungsstände einer Kette, die eine frühere Version still durch eine neue ersetzt hat, holt sie nicht zurück.",
+    "scan": "Repositorys prüfen",
+    "repair": "Reparieren…",
+    "lastRepair": "Letzte Reparatur",
+    "installationDefault": "Installationsstandard",
+    "holding": "{name}: config {config}, {keys} Schlüssel, {files} Dateien, {snapshots} Snapshots",
+    "yes": "ja",
+    "no": "nein",
+    "nowhere": "Auf keinem Speicherziel",
+    "allOk": "{count, plural, =0 {Dieser Mandant hat keine Sicherungs-Repositorys.} one {Das Repository ist auf dem primären Repository vollständig.} other {Alle # Repositorys sind auf dem primären Repository vollständig.}}",
+    "nothingChanged": "Es musste nichts geändert werden.",
+    "queued": "Reparatur eingeplant. Sie läuft im Hintergrund; diese Karte zeigt das Ergebnis.",
+    "dialogTitle": "Repositorys reparieren?",
+    "dialogDescription": "Die Reparatur handelt nur bei Repositorys, die noch so aussehen wie in dieser Prüfung, und nur, wenn jedes Speicherziel antwortet. Für jedes Repository, das die Prüfung verteilt oder auf einem anderen Speicherziel gefunden hat, werden zuerst die fehlenden Dateien auf das primäre Repository kopiert und per Hash geprüft, danach Schlüssel und config; restic prüft das Ergebnis. Schlägt das fehl, werden die kopierten Schlüssel und config wieder beiseitegelegt, und Sicherungen des Containers bleiben abgelehnt. Sicherungsstände, deren Snapshot im wieder aufgebauten Repository fehlt, werden unverfügbar. Container-Repositorys mit Daten, aber ohne config oder Schlüssel auf irgendeinem Speicherziel, werden auf dem primären Repository beiseitegelegt (nicht gelöscht), ihre Sicherungsstände werden unverfügbar, und ihre nächste Sicherung beginnt eine neue Kette. Ein Repository, das auf keinem Speicherziel liegt, bleibt unverändert. Während der Reparatur warten Sicherungen.",
+    "typeWord": "Geben Sie zur Bestätigung {word} ein",
+    "confirm": "Reparieren",
+    "cancel": "Abbrechen",
+    "failed": "Die Reparatur konnte nicht eingeplant werden.",
+    "columns": {
+      "repository": "Repository",
+      "state": "Zustand",
+      "where": "Wo seine Teile liegen",
+      "points": "Sicherungsstände",
+      "outcome": "Ergebnis"
+    },
+    "kind": {
+      "container": "Container",
+      "machine": "Maschine",
+      "file_share": "Dateifreigabe"
+    },
+    "status": {
+      "queued": "Eingeplant",
+      "running": "Läuft",
+      "completed": "Fertig",
+      "failed": "Fehlgeschlagen"
+    },
+    "class": {
+      "ok": "Vollständig",
+      "elsewhere": "Auf anderem Speicherziel",
+      "split": "Verteilt",
+      "data_only": "Daten ohne config",
+      "password_only": "Nur Passwortdatei",
+      "missing": "Fehlt",
+      "conflict": "Zwei Repositorys"
+    },
+    "classHint": {
+      "ok": "Vollständig auf dem primären Repository.",
+      "elsewhere": "Vollständig auf einem anderen Speicherziel. Die Reparatur kopiert {count, plural, one {# Datei} other {# Dateien}} auf das primäre Repository.",
+      "split": "Seine Teile liegen auf mehreren Speicherzielen. Die Reparatur führt {count, plural, one {# Datei} other {# Dateien}} auf dem primären Repository zusammen.",
+      "data_only": "Daten, aber keine config oder kein Schlüssel auf irgendeinem Speicherziel: Es lässt sich nicht öffnen. Binden Sie einen alten Speicherort ein, der sie noch haben könnte; sonst markiert die Reparatur seine Sicherungsstände als verloren.",
+      "password_only": "Nur die versiegelte Passwortdatei: Das Repository selbst liegt auf keinem Speicherziel.",
+      "missing": "Auf keinem Speicherziel. Die Reparatur lässt es unverändert; kommt es nicht zurück, setzen Sie das Repository auf der Seite des Gasts zurück.",
+      "conflict": "Zwei verschiedene Repositorys unter einem Präfix, keines auf dem primären Repository: Entscheiden Sie, welches bleiben soll."
+    },
+    "outcome": {
+      "merged": "Auf dem primären Repository wieder aufgebaut ({copied} Dateien kopiert); {count, plural, =0 {jeder Sicherungsstand ist darin} one {# Sicherungsstand war nicht darin und ist jetzt unverfügbar} other {# Sicherungsstände waren nicht darin und sind jetzt unverfügbar}}.",
+      "lost": "Verloren: {count, plural, one {# Sicherungsstand ist} other {# Sicherungsstände sind}} jetzt unverfügbar; die nächste Sicherung beginnt eine neue Kette.",
+      "moved_aside": "Reste beiseitegelegt nach {movedTo}; die nächste Sicherung beginnt eine neue Kette.",
+      "unchanged": "Unverändert gelassen.",
+      "failed": "Nicht repariert. Kopierte Schlüssel und config wurden wieder beiseitegelegt; Sicherungen eines Containers bleiben abgelehnt, bis eine Reparatur gelingt oder das Repository zurückgesetzt wird."
+    },
+    "unreachable": "Diese Prüfung konnte {names} nicht lesen (keine Antwort, oder der Ordner ist leer oder fehlt: eine nicht eingehängte Freigabe?). Auf dieser Grundlage wird nicht repariert. Prüfen Sie erneut, sobald jedes Speicherziel antwortet."
+  },
+  "repositoryCopies": {
+    "summary": "{current} von {total} Repositorys aktuell",
+    "behindCount": "{count} im Rückstand",
+    "failedCount": "{count} fehlgeschlagen",
+    "pendingCount": "{count} noch nicht kopiert",
+    "copyOn": "Kopie auf {target}:",
+    "unnamedTarget": "der Kopie des Installationsstandards",
+    "unknownReason": "Ursache unbekannt",
+    "state": {
+      "current": "aktuell",
+      "behind": "{count} im Rückstand",
+      "failed": "fehlgeschlagen ({reason})",
+      "pending": "noch nicht kopiert"
+    },
+    "deferred": {
+      "write_once": "Auf dieser Kopie wird keine Aufbewahrung angewendet: Das Kopieziel ist nur einmal beschreibbar.",
+      "restore_mode": "Die Aufbewahrung auf dieser Kopie wartet: Das Löschen ist pausiert (Wiederherstellungsmodus). Das Kopieren läuft weiter.",
+      "locked": "Einige Sicherungsstände auf dieser Kopie sind noch gesperrt und werden entfernt, sobald ihre Sperre abgelaufen ist.",
+      "other": "Die Aufbewahrung auf dieser Kopie wartet."
     }
   }
 }

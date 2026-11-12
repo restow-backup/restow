@@ -68,6 +68,7 @@ export interface ArchiveAppendItemRow {
   readonly bodyHash: string;
   readonly externalRef: string | null;
   readonly supersedesItemId: string | null;
+  readonly reportHash: string | null;
 }
 
 export interface ArchiveAppendCaptureRow {
@@ -117,6 +118,19 @@ export function archiveEnvelopeRow(envelope: CoreEnvelope | null) {
 
 /** Most candidates looked at per capture: a Message-ID shared by more mails is spam. */
 const MAX_CANDIDATES = 50;
+
+async function itemByReportHashOn(
+  tx: ArchiveExecutor,
+  tenantId: string,
+  reportHash: string,
+): Promise<string | null> {
+  const result = await tx.execute<{ id: string }>(sql`
+    select id from archive_items
+     where tenant_id = ${tenantId}::uuid and report_hash = ${reportHash}
+     limit 1
+  `);
+  return result.rows[0]?.id ?? null;
+}
 
 async function candidatesOn(
   tx: ArchiveExecutor,
@@ -222,24 +236,31 @@ export async function capturedExternalRefs(
 }
 
 /**
- * Which Message-IDs (as `messageKey` normalizes them) the archive already holds for a
- * mailbox: as its own item, assigned to it, or captured for it.
+ * What the archive already holds for a mailbox under the given Message-IDs (as `messageKey`
+ * normalizes them): as its own item, assigned to it, or captured for it. Per mail the size
+ * of the archived bytes and its Date header, so a capture way can tell the same mail from
+ * another one that reuses the Message-ID before it downloads (core archive/identity.ts).
  */
-export async function capturedMessageKeys(
+export async function capturedMessages(
   tx: ArchiveExecutor,
   tenantId: string,
   protectedObjectId: string,
   messageKeys: readonly string[],
-): Promise<Set<string>> {
+): Promise<Map<string, { sizeBytes: number | null; sentAt: Date | null }[]>> {
+  const held = new Map<string, { sizeBytes: number | null; sentAt: Date | null }[]>();
   if (messageKeys.length === 0) {
-    return new Set();
+    return held;
   }
   const keys = sql`ARRAY[${sql.join(
     messageKeys.map((key) => sql`${key}`),
     sql`, `,
   )}]::text[]`;
-  const result = await tx.execute<{ message_key: string }>(sql`
-    select lower(btrim(ai.message_id, '<> ')) as message_key
+  const result = await tx.execute<{
+    message_key: string;
+    size_bytes: string | number | null;
+    sent_at: Date | string | null;
+  }>(sql`
+    select lower(btrim(ai.message_id, '<> ')) as message_key, ai.size_bytes, ai.sent_at
       from archive_items ai
      where ai.tenant_id = ${tenantId}::uuid
        and lower(btrim(ai.message_id, '<> ')) = any(${keys})
@@ -253,7 +274,24 @@ export async function capturedMessageKeys(
                        and aic.protected_object_id = ${protectedObjectId}::uuid)
        )
   `);
-  return new Set(result.rows.map((row) => row.message_key));
+  for (const row of result.rows) {
+    const mail = {
+      sizeBytes: row.size_bytes === null ? null : Number(row.size_bytes),
+      sentAt:
+        row.sent_at === null
+          ? null
+          : row.sent_at instanceof Date
+            ? row.sent_at
+            : new Date(row.sent_at),
+    };
+    const list = held.get(row.message_key);
+    if (list) {
+      list.push(mail);
+    } else {
+      held.set(row.message_key, [mail]);
+    }
+  }
+  return held;
 }
 
 /** The session core's `captureArchiveItem` works in while the chain lock is held. */
@@ -270,8 +308,17 @@ class PgArchiveChainSession {
       created_ms: string;
     }>(sql`
       select chain_hash, ceil(extract(epoch from created_at) * 1000)::bigint::text as created_ms
-        from archive_items
-       where tenant_id = ${this.tenantId}::uuid
+        from (
+          (select chain_hash, created_at, id from archive_items
+            where tenant_id = ${this.tenantId}::uuid
+            order by created_at desc, id desc limit 1)
+          union all
+          -- The newest entry may be the tombstone of an item deleted after its retention:
+          -- the next item links to it, or the chain would fork at the deletion.
+          (select chain_hash, item_created_at, item_id from archive_chain_tombstones
+            where tenant_id = ${this.tenantId}::uuid
+            order by item_created_at desc, item_id desc limit 1)
+        ) tip
        order by created_at desc, id desc
        limit 1
     `);
@@ -281,6 +328,10 @@ class PgArchiveChainSession {
 
   candidates(query: ArchiveAppendQuery): Promise<ArchiveAppendCandidate[]> {
     return candidatesOn(this.tx, this.tenantId, query);
+  }
+
+  itemByReportHash(reportHash: string): Promise<string | null> {
+    return itemByReportHashOn(this.tx, this.tenantId, reportHash);
   }
 
   async insertItem(item: ArchiveAppendItemRow): Promise<void> {
@@ -310,6 +361,7 @@ class PgArchiveChainSession {
       bodyHash: item.bodyHash,
       externalRef: item.externalRef,
       supersedesItemId: item.supersedesItemId,
+      reportHash: item.reportHash,
       createdAt: record.createdAt,
     });
   }
@@ -351,6 +403,10 @@ export class PgArchiveAppendStore {
 
   candidates(query: ArchiveAppendQuery): Promise<ArchiveAppendCandidate[]> {
     return this.inTenant((tx) => candidatesOn(tx, this.tenantId, query));
+  }
+
+  itemByReportHash(reportHash: string): Promise<string | null> {
+    return this.inTenant((tx) => itemByReportHashOn(tx, this.tenantId, reportHash));
   }
 
   withChainLock<T>(fn: (session: PgArchiveChainSession) => Promise<T>): Promise<T> {

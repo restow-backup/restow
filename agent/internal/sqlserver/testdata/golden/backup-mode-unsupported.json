@@ -1,0 +1,15 @@
+{
+  "status": "failed",
+  "errors": [
+    {
+      "message": "The SQL Server mode \"own_log_chain\" of the backup job is not supported by this agent; nothing was backed up. Update the agent or choose \"alongside\".",
+      "code": "sql_mode_unsupported"
+    }
+  ],
+  "sql": {
+    "instance": "SQLEXPRESS",
+    "databases": []
+  },
+  "notices": null,
+  "ops": null
+}

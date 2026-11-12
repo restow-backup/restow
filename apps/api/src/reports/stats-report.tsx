@@ -17,7 +17,7 @@ import type { Granularity } from "../features/stats/period.js";
 import type { ObjectState } from "../features/verify/summary.js";
 import { Legend, Notes, Notice, Section } from "./blocks.js";
 import { BarChart, type ChartSeries, LineChart } from "./charts.js";
-import { ReportDocument, ReportHeader, ReportPage } from "./document.js";
+import { type ReportBrand, ReportDocument, ReportHeader, ReportPage } from "./document.js";
 import {
   formatBytes,
   formatDateTime,
@@ -52,6 +52,8 @@ export interface StatsReportProps {
   readonly stats: StatsDto;
   readonly subject: StatsReportSubject;
   readonly language: ReportLanguage;
+  /** The brand (0.5.0): logo, accent and name instead of the product's wordmark. */
+  readonly brand?: ReportBrand | null;
 }
 
 /** Everything the parts of the report share. */
@@ -590,10 +592,11 @@ export function StatsReport(props: StatsReportProps) {
       createdAt={new Date(stats.generatedAt)}
     >
       <ReportPage
-        footer={`${t("document.product")} - ${title} - ${generatedLine}`}
+        footer={`${props.brand?.name ?? t("document.product")} - ${title} - ${generatedLine}`}
         pageLabel={(page, total) => t("document.page", { page, total })}
       >
         <ReportHeader
+          brand={props.brand}
           product={t("document.product")}
           title={title}
           subtitle={subtitle}

@@ -117,6 +117,14 @@ export type PveNodeFacts = {
    * `boot_test`). The server hands a node only what it declared; an older node never gets one.
    */
   capabilities?: string[];
+  /**
+   * The tasks the node holds, as of `heldTasksAt`: the one it runs and the ones in its local
+   * queue (restow-pve from 0.5.0; absent from older helpers). A delivered task it lists never
+   * expires; a delivered restore, restore check or boot test it no longer lists has been lost
+   * (the helper restarted) and fails.
+   */
+  heldTasks?: string[];
+  heldTasksAt?: string;
 };
 
 /** A node with restow-pve. */
@@ -159,16 +167,15 @@ export const pveNodes = pgTable(
 /** Retention of a job's restore points (as for endpoints: daily, weekly, monthly). */
 export type PveRetention = { keepDaily: number; keepWeekly: number; keepMonthly: number };
 
-/** What a PVE job does. */
+/**
+ * What a PVE job does. A job saved before 0.5.0 may still hold `verifyReadEvery` and
+ * `bandwidthKbps`, which were never applied; the API refuses them and does not show them.
+ */
 export type PveJobSettings = {
   mode?: PveBackupMode;
   retention?: PveRetention;
-  /** Force a full read ("verify read") every this many backups; default 30. */
-  verifyReadEvery?: number;
   /** Monthly restore test into the restore pool (needs capacity; off by default). */
   restoreTest?: { enabled: boolean; targetStorage?: string };
-  /** Upload limit in kbit/s; null = unlimited. */
-  bandwidthKbps?: number | null;
   /** Boot tests of the job's guests (docs/PVE.md, "Boot test"); off by default. */
   bootTest?: PveBootTestSettings;
 };
@@ -205,11 +212,16 @@ export type PveBootTestResult = {
   /** Seconds from the start of the guest until the agent (or init) answered. */
   bootSeconds: number | null;
   guestAgent: boolean;
-  /** The temporary VMID on the node (destroyed again). */
+  /** The temporary VMID on the node (destroyed again); null when none was created. */
   tempVmid: number | null;
   storage: string | null;
-  /** Whether the temporary guest was destroyed. */
+  /**
+   * Whether the temporary guest was destroyed. False with a `tempVmid`: it is still on the node
+   * (amber on the run, the restore point and the guest) until `leftoverGoneAt`.
+   */
   cleanedUp: boolean;
+  /** When a later inventory of the node no longer listed the temporary guest (0.5.0). */
+  leftoverGoneAt?: string | null;
   runId: string;
 };
 
@@ -274,7 +286,13 @@ export type PveDiskState = Record<
  */
 export type PveRepositoryChain = {
   at: string;
-  reason: "missing" | "reset";
+  /**
+   * `missing`: a backup found the repository nowhere and began a new chain; `reset`: an
+   * administrator reset it; `lost`: the repository repair found it on no target and the next
+   * backup begins a new chain; `points_lost`: the repair rebuilt the repository (its chain goes
+   * on), but some restore points' snapshots were in none of its parts.
+   */
+  reason: "missing" | "reset" | "lost" | "points_lost";
   target: {
     name: string;
     kind: string | null;
@@ -285,7 +303,39 @@ export type PveRepositoryChain = {
   unavailablePoints: number;
   /** Who reset it (`reset` only). */
   actor: string | null;
+  /**
+   * The storage prefix the new chain began under, when it is not the guest's default: the old
+   * one could not be cleared (a write-once target), so it stays where it was (docs/STORAGE.md,
+   * "Write-once storage"). Absent in chains recorded before 0.5.0 and until the new chain began.
+   */
+  prefix?: string;
+  /** The prefix the chain before lay under, set together with `prefix`. */
+  previousPrefix?: string;
 };
+
+/**
+ * Why the server refused the last backup of a container (docs/PVE.md, "Repository problems"):
+ * the repository lies on another storage target, is split across targets, or is missing while
+ * restore points still refer to it. Null once a backup found its repository again.
+ */
+export type PveRepositoryProblem = {
+  at: string;
+  /** The problem type without its `urn:restow:problem:` prefix, e.g. `pve-repository-split`. */
+  type: string;
+  /** The target that holds (part of) the repository, when one does. */
+  heldBy: string | null;
+  /** Restore points that still refer to the repository. */
+  activePoints: number;
+};
+
+/**
+ * The problem type the repository repair records when it could not rebuild a container's
+ * repository (a file that could not be copied and verified, or restic found the result not
+ * sound). Unlike the others it is not cleared by a backup that finds `config` and a key on the
+ * primary: those may be what the failed repair left there, next to data that is not. Backups,
+ * retention and the check refuse until a repair succeeds or the repository is reset.
+ */
+export const PVE_REPOSITORY_REPAIR_FAILED = "pve-repository-repair-failed";
 
 /** How many chain changes a guest keeps (newest first). */
 export const PVE_REPOSITORY_CHAINS_KEPT = 10;
@@ -325,12 +375,22 @@ export const pveGuests = pgTable(
     // every upload and measured again after a prune; null until first measured.
     repositoryBytes: bigint("repository_bytes", { mode: "number" }),
     repositoryMeasuredAt: timestamp("repository_measured_at", { withTimezone: true }),
+    // When the worker last compared the container repository's restic snapshots with the
+    // restore points and forgot those no restore point holds (0.5.0); null: due now (a restore
+    // point was pruned, or never compared yet).
+    repositoryReconciledAt: timestamp("repository_reconciled_at", { withTimezone: true }),
     // The new backup chains of the container's repository, newest first (at most
     // PVE_REPOSITORY_CHAINS_KEPT): shown on the guest page and in its history.
     repositoryChains: jsonb("repository_chains")
       .$type<PveRepositoryChain[]>()
       .notNull()
       .default([]),
+    // Why the last backup was refused for the repository (null: none, or found again).
+    repositoryProblem: jsonb("repository_problem").$type<PveRepositoryProblem>(),
+    // The storage prefix of the container's repository when a chain began under a fresh one
+    // (`pve-guests/<id>.chain-<n>/`, @restow/core endpoints/repository-prefix.ts): its old prefix
+    // could not be cleared (a write-once target). Null: `pve-guests/<id>/`.
+    repositoryPrefix: text("repository_prefix"),
     lastBackupAt: timestamp("last_backup_at", { withTimezone: true }),
     lastSuccessAt: timestamp("last_success_at", { withTimezone: true }),
     lastSnapshotId: uuid("last_snapshot_id"),
@@ -350,10 +410,19 @@ export const pveGuests = pgTable(
     excludedAt: timestamp("excluded_at", { withTimezone: true }),
     excludedBy: text("excluded_by"),
     reportedAt: timestamp("reported_at", { withTimezone: true }),
+    // A VM's SMBIOS UUID as the inventory last reported it (restow-pve from 0.4.2), lower case;
+    // null for containers and from older nodes. Tells a VMID PVE gave to another VM (0.5.0).
+    smbiosUuid: text("smbios_uuid"),
+    // Set when the VMID came back as another guest (docs/PVE.md, "A VMID used again"): this row
+    // stays absent with its restore points, job and repository, and the new guest gets a row of
+    // its own. Only rows without it are unique per cluster and VMID.
+    retiredAt: timestamp("retired_at", { withTimezone: true }),
     ...timestamps(),
   },
   (t) => [
-    uniqueIndex("pve_guests_cluster_vmid_uq").on(t.clusterId, t.vmid),
+    uniqueIndex("pve_guests_cluster_vmid_uq")
+      .on(t.clusterId, t.vmid)
+      .where(sql`${t.retiredAt} IS NULL`),
     index("pve_guests_tenant_idx").on(t.tenantId),
     index("pve_guests_job_idx").on(t.jobId),
   ],
@@ -395,6 +464,27 @@ export const pveTasks = pgTable(
   ],
 );
 
+/**
+ * The consistency states of a VM restore point (restow-pve's ClassifyVMConsistency): `frozen`
+ * (fs-freeze and thaw issued), `stopped` (the guest did not run), `no_agent` (the agent is
+ * configured but did not answer), `crash_consistent` (no agent enabled, or the freeze switched
+ * off), `freeze_failed` (the freeze was issued and failed) or `unknown` (the log says nothing).
+ */
+export const PVE_VM_CONSISTENCY_STATES = [
+  "frozen",
+  "stopped",
+  "no_agent",
+  "crash_consistent",
+  "freeze_failed",
+  "unknown",
+] as const;
+export type PveVmConsistencyState = (typeof PVE_VM_CONSISTENCY_STATES)[number];
+export type PveVmConsistency = {
+  state: PveVmConsistencyState;
+  /** The node's line about it (the error of a failed freeze). */
+  detail?: string;
+};
+
 /** What the server recorded at the incremental query, per disk. */
 export type PveRunDevice = { size: number; baseSnapshotId: string | null };
 
@@ -423,6 +513,12 @@ export type PveRunStats = {
   /** The first of those items (nodes from 0.4 on). */
   unreadablePaths?: string[];
   consistency?: string | null;
+  /**
+   * VM backups (restow-pve 0.5.0 on): whether PVE froze the guest's file systems through the
+   * QEMU guest agent, as vzdump's log of the backup says (docs/PVE.md, "File restore of a VM").
+   * Missing for a container and for a restore point of an older node.
+   */
+  vmConsistency?: PveVmConsistency;
   /**
    * The warning lines vzdump logged beside a backup that committed its restore point ("TASK
    * WARNINGS"): the run succeeded with warnings.
@@ -480,6 +576,11 @@ export const pveRuns = pgTable(
     // A short-lived restic credential of a container run (SHA-256 only).
     resticTokenHash: text("restic_token_hash"),
     resticExpiresAt: timestamp("restic_expires_at", { withTimezone: true }),
+    // The storage target the run's credential was issued for (a target id, or
+    // `installation_default`), and the tenant's storage generation then (docs/STORAGE.md,
+    // "Runs and storage changes"): every restic request of the run goes to exactly this target.
+    storageTarget: text("storage_target"),
+    storageGeneration: text("storage_generation"),
     startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
     finishedAt: timestamp("finished_at", { withTimezone: true }),
     // Stop requested in the UI (0.4.2): the run shows "Cancelling" until the node stopped it.
@@ -550,8 +651,11 @@ export type PveSnapshotDisk = {
  * never "failed" and never proof.
  */
 export type PveVerifyNotChecked = {
-  /** `locked`: another run held the repository's lock; `interrupted`: restic was stopped. */
-  reason: "locked" | "interrupted";
+  /**
+   * `locked`: another run held the repository's lock; `interrupted`: restic was stopped (or ran
+   * out of time); `error`: the check could not start (its repository password, the storage).
+   */
+  reason: "locked" | "interrupted" | "error";
   /** When the check was asked for first; the postponements count from here. */
   since: string;
   /** How often it was tried. */
@@ -635,6 +739,9 @@ export const pveSnapshots = pgTable(
     verifyRequestedAt: timestamp("verify_requested_at", { withTimezone: true }),
     prunedAt: timestamp("pruned_at", { withTimezone: true }),
     unavailableAt: timestamp("unavailable_at", { withTimezone: true }),
+    // Why it became unavailable: `chain` (a new backup chain or a reset), `lost` (a repository
+    // repair found its snapshot or data on no storage target). Null on older rows (`chain`).
+    unavailableReason: text("unavailable_reason").$type<"chain" | "lost">(),
     ...timestamps(),
   },
   (t) => [

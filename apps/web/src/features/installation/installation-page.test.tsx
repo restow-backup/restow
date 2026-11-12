@@ -121,10 +121,15 @@ describe("who opens the installation page", () => {
     await open("/installation/mail");
     expect(subnavEntries()).toEqual([
       "Server",
+      "Modules",
       "Notification mail",
+      "Notifications",
+      "Branding",
       "Microsoft multi-tenant app",
       "Default repository & network shares",
+      "Cluster",
       "Database",
+      "Restore mode",
       "Ransomware detection",
       "Agent policy",
       "Proxmox VE",

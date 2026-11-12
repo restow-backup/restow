@@ -111,6 +111,13 @@ export const BODY_LIMIT_RULES: readonly BodyLimitRule[] = [
     path: new RegExp(`^/api/v1/imports/uploads/${SEGMENT}/segments/${SEGMENT}$`),
     limit: null,
   },
+  // One part of a dump uploaded for a restore in the setup wizard (application/octet-stream),
+  // read with a hard cap of its declared length, at most 32 MiB (routes/setup-restore.ts).
+  {
+    method: "PUT",
+    path: new RegExp(`^/api/v1/setup/restore/uploads/${SEGMENT}$`),
+    limit: null,
+  },
   // The selected paths of an endpoint download; the route checks the same limit.
   {
     method: "POST",

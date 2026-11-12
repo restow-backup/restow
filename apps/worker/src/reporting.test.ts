@@ -16,7 +16,20 @@ function failedJob(failure: unknown) {
 }
 
 describe("jobFinishedNotification", () => {
-  it("carries the cause of a failed job with the ids of the steps to take", () => {
+  it("names the service of the object it is about (0.5.0)", () => {
+    const notification = jobFinishedNotification(
+      TENANT,
+      failedJob(null),
+      "msp@contoso.example",
+      "onedrive",
+    );
+    expect(notification?.message).toMatch(
+      /^The backup job for OneDrive · msp@contoso\.example failed/,
+    );
+    expect(notification?.details).toMatchObject({ objectKind: "onedrive" });
+  });
+
+  it("carries the cause of a failed job with the ids of the steps to take [ALERT-002]", () => {
     const notification = jobFinishedNotification(
       TENANT,
       failedJob({
@@ -44,7 +57,7 @@ describe("jobFinishedNotification", () => {
     expect(JSON.stringify(notification?.details)).not.toContain("r-1");
   });
 
-  it("raises nothing for a backup that Graph or the storage held back (throttled, unavailable)", () => {
+  it("raises nothing for a backup that Graph or the storage held back (throttled, unavailable) [ALERT-002]", () => {
     for (const code of ["graph.throttled", "graph.service_unavailable", "storage.rate_limited"]) {
       const failure = {
         v: 1,
@@ -149,7 +162,7 @@ describe("jobFinishedNotification", () => {
     expect(done?.details).toMatchObject({ failure: null });
   });
 
-  it("raises restore.failed for a restore that completed but restored nothing while items failed", () => {
+  it("raises restore.failed for a restore that completed but restored nothing while items failed [ALERT-009]", () => {
     const restore = { ...failedJob(null), status: "completed" as const, queue: "restore" as const };
     const nothing = jobFinishedNotification(
       TENANT,

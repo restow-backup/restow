@@ -1,6 +1,6 @@
 {
-  "id": "37d43a66-6992-4aca-8068-f6e75ee13e74",
-  "prevId": "36df954a-f4c2-4ee3-bddf-d7eeed719a60",
+  "id": "68950001-500e-44dc-b36c-11411ad6c58f",
+  "prevId": "76d0e954-7574-4201-b346-192c41ab1a2d",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -4594,25 +4594,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        },
-        "endpoint_id": {
-          "name": "endpoint_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "purpose": {
-          "name": "purpose",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "unrevoke": {
-          "name": "unrevoke",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
         }
       },
       "indexes": {
@@ -4691,641 +4672,6 @@
             "id"
           ],
           "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "endpoint_enrollment_tokens_endpoint_id_endpoints_id_fk": {
-          "name": "endpoint_enrollment_tokens_endpoint_id_endpoints_id_fk",
-          "tableFrom": "endpoint_enrollment_tokens",
-          "tableTo": "endpoints",
-          "columnsFrom": [
-            "endpoint_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "endpoint_enrollment_tokens_purpose_ck": {
-          "name": "endpoint_enrollment_tokens_purpose_ck",
-          "value": "\"endpoint_enrollment_tokens\".\"purpose\" IS NULL OR \"endpoint_enrollment_tokens\".\"purpose\" IN ('baremetal', 'reinstall', 'mac_setup')"
-        },
-        "endpoint_enrollment_tokens_rebind_24h": {
-          "name": "endpoint_enrollment_tokens_rebind_24h",
-          "value": "\"endpoint_enrollment_tokens\".\"endpoint_id\" IS NULL OR \"endpoint_enrollment_tokens\".\"expires_at\" <= \"endpoint_enrollment_tokens\".\"created_at\" + interval '24 hours'"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.endpoint_layouts": {
-      "name": "endpoint_layouts",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "endpoint_id": {
-          "name": "endpoint_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "sha256": {
-          "name": "sha256",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "format": {
-          "name": "format",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "schema_version": {
-          "name": "schema_version",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "platform": {
-          "name": "platform",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "manifest": {
-          "name": "manifest",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "summary": {
-          "name": "summary",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "verdict": {
-          "name": "verdict",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "layout_fingerprint": {
-          "name": "layout_fingerprint",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "endpoint_layouts_endpoint_sha_uq": {
-          "name": "endpoint_layouts_endpoint_sha_uq",
-          "columns": [
-            {
-              "expression": "endpoint_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "sha256",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "endpoint_layouts_endpoint_created_idx": {
-          "name": "endpoint_layouts_endpoint_created_idx",
-          "columns": [
-            {
-              "expression": "endpoint_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "endpoint_layouts_tenant_id_tenants_id_fk": {
-          "name": "endpoint_layouts_tenant_id_tenants_id_fk",
-          "tableFrom": "endpoint_layouts",
-          "tableTo": "tenants",
-          "columnsFrom": [
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "endpoint_layouts_endpoint_id_endpoints_id_fk": {
-          "name": "endpoint_layouts_endpoint_id_endpoints_id_fk",
-          "tableFrom": "endpoint_layouts",
-          "tableTo": "endpoints",
-          "columnsFrom": [
-            "endpoint_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "endpoint_layouts_platform_ck": {
-          "name": "endpoint_layouts_platform_ck",
-          "value": "\"endpoint_layouts\".\"platform\" IN ('linux', 'darwin')"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.endpoint_recoveries": {
-      "name": "endpoint_recoveries",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "endpoint_id": {
-          "name": "endpoint_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "kind": {
-          "name": "kind",
-          "type": "endpoint_recovery_kind",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "status": {
-          "name": "status",
-          "type": "endpoint_recovery_status",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'issued'"
-        },
-        "code_hash": {
-          "name": "code_hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "instance_origin": {
-          "name": "instance_origin",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "spki_sha256": {
-          "name": "spki_sha256",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "require_approval": {
-          "name": "require_approval",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": true
-        },
-        "snapshot_id": {
-          "name": "snapshot_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "issued_at": {
-          "name": "issued_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "revoked_at": {
-          "name": "revoked_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "revoked_by": {
-          "name": "revoked_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "used_at": {
-          "name": "used_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "used_ip": {
-          "name": "used_ip",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "session_secret_hash": {
-          "name": "session_secret_hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "approved_at": {
-          "name": "approved_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "approved_by": {
-          "name": "approved_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "credentials_issued_at": {
-          "name": "credentials_issued_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "released_at": {
-          "name": "released_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "recovery_version": {
-          "name": "recovery_version",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "hardware": {
-          "name": "hardware",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "ssh_keys": {
-          "name": "ssh_keys",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "ssh_host_keys": {
-          "name": "ssh_host_keys",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "progress": {
-          "name": "progress",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "verification": {
-          "name": "verification",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "warnings": {
-          "name": "warnings",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "log_bytes": {
-          "name": "log_bytes",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "cancel_requested_at": {
-          "name": "cancel_requested_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "finished_at": {
-          "name": "finished_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "endpoint_recoveries_code_uq": {
-          "name": "endpoint_recoveries_code_uq",
-          "columns": [
-            {
-              "expression": "code_hash",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"endpoint_recoveries\".\"code_hash\" IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "endpoint_recoveries_endpoint_idx": {
-          "name": "endpoint_recoveries_endpoint_idx",
-          "columns": [
-            {
-              "expression": "endpoint_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "issued_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "endpoint_recoveries_active_idx": {
-          "name": "endpoint_recoveries_active_idx",
-          "columns": [
-            {
-              "expression": "endpoint_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"endpoint_recoveries\".\"status\" IN ('active', 'finishing')",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "endpoint_recoveries_tenant_id_tenants_id_fk": {
-          "name": "endpoint_recoveries_tenant_id_tenants_id_fk",
-          "tableFrom": "endpoint_recoveries",
-          "tableTo": "tenants",
-          "columnsFrom": [
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "endpoint_recoveries_endpoint_id_endpoints_id_fk": {
-          "name": "endpoint_recoveries_endpoint_id_endpoints_id_fk",
-          "tableFrom": "endpoint_recoveries",
-          "tableTo": "endpoints",
-          "columnsFrom": [
-            "endpoint_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "endpoint_recoveries_created_by_user_id_fk": {
-          "name": "endpoint_recoveries_created_by_user_id_fk",
-          "tableFrom": "endpoint_recoveries",
-          "tableTo": "user",
-          "columnsFrom": [
-            "created_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "endpoint_recoveries_revoked_by_user_id_fk": {
-          "name": "endpoint_recoveries_revoked_by_user_id_fk",
-          "tableFrom": "endpoint_recoveries",
-          "tableTo": "user",
-          "columnsFrom": [
-            "revoked_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "endpoint_recoveries_approved_by_user_id_fk": {
-          "name": "endpoint_recoveries_approved_by_user_id_fk",
-          "tableFrom": "endpoint_recoveries",
-          "tableTo": "user",
-          "columnsFrom": [
-            "approved_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "endpoint_recoveries_max_48h": {
-          "name": "endpoint_recoveries_max_48h",
-          "value": "\"endpoint_recoveries\".\"expires_at\" <= \"endpoint_recoveries\".\"issued_at\" + interval '48 hours'"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.endpoint_recovery_log": {
-      "name": "endpoint_recovery_log",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "recovery_id": {
-          "name": "recovery_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "lines": {
-          "name": "lines",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "endpoint_recovery_log_recovery_idx": {
-          "name": "endpoint_recovery_log_recovery_idx",
-          "columns": [
-            {
-              "expression": "recovery_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "endpoint_recovery_log_tenant_id_tenants_id_fk": {
-          "name": "endpoint_recovery_log_tenant_id_tenants_id_fk",
-          "tableFrom": "endpoint_recovery_log",
-          "tableTo": "tenants",
-          "columnsFrom": [
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "endpoint_recovery_log_recovery_id_endpoint_recoveries_id_fk": {
-          "name": "endpoint_recovery_log_recovery_id_endpoint_recoveries_id_fk",
-          "tableFrom": "endpoint_recovery_log",
-          "tableTo": "endpoint_recoveries",
-          "columnsFrom": [
-            "recovery_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
@@ -5724,19 +5070,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "layout_id": {
-          "name": "layout_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "activity_baseline": {
-          "name": "activity_baseline",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -5763,22 +5096,6 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "endpoint_runs_layout_idx": {
-          "name": "endpoint_runs_layout_idx",
-          "columns": [
-            {
-              "expression": "layout_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"endpoint_runs\".\"layout_id\" IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -5895,19 +5212,6 @@
             "id"
           ],
           "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "endpoint_runs_layout_id_endpoint_layouts_id_fk": {
-          "name": "endpoint_runs_layout_id_endpoint_layouts_id_fk",
-          "tableFrom": "endpoint_runs",
-          "tableTo": "endpoint_layouts",
-          "columnsFrom": [
-            "layout_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -7576,6 +6880,18 @@
           "primaryKey": false,
           "notNull": false
         },
+        "storage_target": {
+          "name": "storage_target",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "storage_generation": {
+          "name": "storage_generation",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "cancel_requested_at": {
           "name": "cancel_requested_at",
           "type": "timestamp with time zone",
@@ -8395,6 +7711,12 @@
         "repository_ready_at": {
           "name": "repository_ready_at",
           "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "repository_prefix": {
+          "name": "repository_prefix",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
@@ -11812,12 +11134,30 @@
           "primaryKey": false,
           "notNull": false
         },
+        "repository_reconciled_at": {
+          "name": "repository_reconciled_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "repository_chains": {
           "name": "repository_chains",
           "type": "jsonb",
           "primaryKey": false,
           "notNull": true,
           "default": "'[]'::jsonb"
+        },
+        "repository_problem": {
+          "name": "repository_problem",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "repository_prefix": {
+          "name": "repository_prefix",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "last_backup_at": {
           "name": "last_backup_at",
@@ -11893,6 +11233,18 @@
           "primaryKey": false,
           "notNull": false
         },
+        "smbios_uuid": {
+          "name": "smbios_uuid",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "retired_at": {
+          "name": "retired_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -11926,6 +11278,7 @@
             }
           ],
           "isUnique": true,
+          "where": "\"pve_guests\".\"retired_at\" IS NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -12665,6 +12018,18 @@
           "primaryKey": false,
           "notNull": false
         },
+        "storage_target": {
+          "name": "storage_target",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "storage_generation": {
+          "name": "storage_generation",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "started_at": {
           "name": "started_at",
           "type": "timestamp with time zone",
@@ -13032,6 +12397,12 @@
         "unavailable_at": {
           "name": "unavailable_at",
           "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "unavailable_reason": {
+          "name": "unavailable_reason",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
@@ -15249,6 +14620,169 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.storage_repository_repairs": {
+      "name": "storage_repository_repairs",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'queued'"
+        },
+        "scan_id": {
+          "name": "scan_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "requested_by": {
+          "name": "requested_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "requested_by_user_id": {
+          "name": "requested_by_user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "result": {
+          "name": "result",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "error_message": {
+          "name": "error_message",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "finished_at": {
+          "name": "finished_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "storage_repository_repairs_tenant_idx": {
+          "name": "storage_repository_repairs_tenant_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "storage_repository_repairs_queued_idx": {
+          "name": "storage_repository_repairs_queued_idx",
+          "columns": [
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"storage_repository_repairs\".\"status\" IN ('queued', 'running')",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "storage_repository_repairs_unfinished_uq": {
+          "name": "storage_repository_repairs_unfinished_uq",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"storage_repository_repairs\".\"status\" IN ('queued', 'running')",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "storage_repository_repairs_tenant_id_tenants_id_fk": {
+          "name": "storage_repository_repairs_tenant_id_tenants_id_fk",
+          "tableFrom": "storage_repository_repairs",
+          "tableTo": "tenants",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.storage_targets": {
       "name": "storage_targets",
       "schema": "",
@@ -16292,6 +15826,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'{}'::jsonb"
+        },
+        "default_storage_write_once": {
+          "name": "default_storage_write_once",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
         },
         "pve_settings": {
           "name": "pve_settings",
@@ -17793,36 +17333,13 @@
         "client"
       ]
     },
-    "public.endpoint_recovery_kind": {
-      "name": "endpoint_recovery_kind",
-      "schema": "public",
-      "values": [
-        "code"
-      ]
-    },
-    "public.endpoint_recovery_status": {
-      "name": "endpoint_recovery_status",
-      "schema": "public",
-      "values": [
-        "issued",
-        "pending_approval",
-        "active",
-        "finishing",
-        "succeeded",
-        "failed",
-        "cancelled",
-        "expired",
-        "revoked"
-      ]
-    },
     "public.endpoint_report_kind": {
       "name": "endpoint_report_kind",
       "schema": "public",
       "values": [
         "restore_test",
         "repository_check",
-        "retention",
-        "baremetal_check"
+        "retention"
       ]
     },
     "public.endpoint_run_kind": {

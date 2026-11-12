@@ -23,10 +23,20 @@ import {
   rename,
   rm,
   stat,
+  statfs,
 } from "node:fs/promises";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import type { Readable } from "node:stream";
-import type { HeadResult, PutOptions, StorageBackend } from "./backend.js";
+import type { HeadResult, PutOptions, StorageBackend, StorageSpace } from "./backend.js";
+import { isObjectNotFound } from "./backend.js";
+import {
+  assertDeletionPermitted,
+  assertKeyWritePermitted,
+  noteStorageWrite,
+} from "./deletion-guard.js";
+
+/** How long {@link LocalStorageBackend.freeSpace} waits for a (hung network) file system. */
+const STATFS_TIMEOUT_MS = 5000;
 
 /** Suffix of the temporary files a write goes through; never a key, never listed. */
 const TEMP_SUFFIX = ".restow-tmp";
@@ -105,6 +115,14 @@ export class LocalStorageBackend implements StorageBackend {
     // Object-lock/retention (_options.retainUntil) is not enforceable on a plain
     // filesystem; archive WORM guarantees require an object-lock capable target.
     const target = this.pathFor(key);
+    await assertKeyWritePermitted(key, data, () =>
+      this.get(key).catch((error: unknown) => {
+        if (isObjectNotFound(error)) {
+          return null;
+        }
+        throw error;
+      }),
+    );
     const directory = dirname(target);
     const created = await mkdir(directory, { recursive: true });
     const temp = join(
@@ -137,6 +155,7 @@ export class LocalStorageBackend implements StorageBackend {
       }
       await syncDirectory(dirname(created));
     }
+    noteStorageWrite(key);
   }
 
   async get(key: string): Promise<Buffer> {
@@ -205,7 +224,15 @@ export class LocalStorageBackend implements StorageBackend {
 
   async list(prefix: string): Promise<string[]> {
     const keys: string[] = [];
-    await this.walk(this.root, keys);
+    // Only the directory the prefix lies in is walked, not the whole tree: a repository's
+    // `keys/` must not cost a walk over every pack of the installation.
+    const slash = prefix.lastIndexOf("/");
+    const start = slash > 0 ? resolve(this.root, prefix.slice(0, slash)) : this.root;
+    const rel = relative(this.root, start);
+    if (rel.startsWith("..") || rel.split(sep).includes("..")) {
+      throw new Error(`storage key escapes the root: ${prefix}`);
+    }
+    await this.walk(start, keys);
     return keys.filter((key) => key.startsWith(prefix)).sort();
   }
 
@@ -230,7 +257,42 @@ export class LocalStorageBackend implements StorageBackend {
     }
   }
 
+  /** statfs of the root (an NFS or SMB mount reports its server's space); null when it fails or hangs. */
+  async freeSpace(): Promise<StorageSpace | null> {
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<null>((resolveTimeout) => {
+      timer = setTimeout(() => resolveTimeout(null), STATFS_TIMEOUT_MS);
+      timer.unref();
+    });
+    try {
+      return await Promise.race([
+        statfs(this.root).then((stats) => ({
+          freeBytes: Number(stats.bavail) * Number(stats.bsize),
+          totalBytes: Number(stats.blocks) * Number(stats.bsize),
+        })),
+        timeout,
+      ]);
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  async rootState(): Promise<"present" | "empty" | "missing"> {
+    try {
+      const entries = await readdir(this.root);
+      return entries.some((name) => !isTempName(name)) ? "present" : "empty";
+    } catch (error) {
+      if (isNotFound(error)) {
+        return "missing";
+      }
+      throw error;
+    }
+  }
+
   async delete(key: string): Promise<void> {
+    assertDeletionPermitted(key);
     try {
       await rm(this.pathFor(key));
     } catch (error) {

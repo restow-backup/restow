@@ -67,6 +67,7 @@ export const routes = [inventoryRoute, detailRoute, baremetalWizardRoute, fileRe
 export const navItems: NavItem[] = [
   {
     id: "inventory",
+    modules: ["endpoints"],
     path: INVENTORY_PATH,
     labelKey: "endpoints:nav.inventory",
     icon: Boxes,
@@ -76,6 +77,8 @@ export const navItems: NavItem[] = [
   },
   {
     id: "file-restore",
+    // Files of machines and file shares, and of the guests of Proxmox VE.
+    modules: ["endpoints", "pve"],
     path: FILE_RESTORE_PATH,
     labelKey: "endpoints:nav.fileRestore",
     icon: FolderSearch,

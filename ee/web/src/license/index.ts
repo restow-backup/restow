@@ -6,6 +6,7 @@ import type { NavItem } from "@/lib/navigation";
 
 import { AboutLicense } from "./components/about-license";
 import { EditionBadge } from "./components/edition-badge";
+import { FeatureLocked } from "./components/feature-locked";
 import { ReportsScheduleLocked } from "./components/reports-schedule-locked";
 import { TeamScopeLocked } from "./components/team-scope-locked";
 import { TenantsCreationLocked } from "./components/tenants-creation-locked";
@@ -31,6 +32,7 @@ export const licenseSlots = {
   "tenants.creationLocked": TenantsCreationLocked,
   "team.tenantScopeLocked": TeamScopeLocked,
   "reports.scheduleLocked": ReportsScheduleLocked,
+  "feature.locked": FeatureLocked,
 } satisfies NonNullable<WebExtension["slots"]>;
 
 /**

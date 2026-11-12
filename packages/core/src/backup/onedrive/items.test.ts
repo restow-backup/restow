@@ -110,7 +110,7 @@ describe("manifest objects", () => {
       createdBy: "Alice Example",
       lastModifiedBy: "Bob Example",
       contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      quickXorHash: "q3hash1=",
+      quickXorHash: "cZgBCMbwBjfQoQxuq0MIAAAAAAA=",
     });
 
     const folder = folderObject(docs, "Documents", NOW);
@@ -179,7 +179,10 @@ describe("canReuseContent", () => {
 
   it("falls back to the quickXorHash when no content tag is available", () => {
     const untagged = { ...movedQ3, cTag: undefined };
-    const withoutTag: ManifestObject = { ...previous, metadata: { quickXorHash: "q3hash1=" } };
+    const withoutTag: ManifestObject = {
+      ...previous,
+      metadata: { quickXorHash: "cZgBCMbwBjfQoQxuq0MIAAAAAAA=" },
+    };
     expect(canReuseContent(withoutTag, untagged)).toBe(true);
     expect(canReuseContent({ ...withoutTag, metadata: { quickXorHash: "x" } }, untagged)).toBe(
       false,
@@ -196,6 +199,47 @@ describe("canReuseContent", () => {
     expect(reused.metadata?.parentId).toBe("01REPORTS");
   });
 
+  it("keeps authorship and sharing the entry does not mention, but takes a known 'not shared'", () => {
+    const sharedBefore: ManifestObject = fileObject(
+      { ...q3, shared: { scope: "organization", sharedDateTime: "2026-05-01T08:00:00Z" } },
+      "Documents/Reports/Q3 report.xlsx",
+      { size: 11, sha256: "ab".repeat(32), chunks: ["cd".repeat(32)] },
+      { now: NOW },
+    );
+    // movedQ3 is a delta entry without createdBy, lastModifiedBy and shared.
+    const reused = reusedFileObject(sharedBefore, movedQ3, "Documents/Archive/Q3 report.xlsx", NOW);
+    expect(reused.metadata).toMatchObject({
+      createdBy: "Alice Example",
+      lastModifiedBy: "Bob Example",
+      sharedScope: "organization",
+      sharedDateTime: "2026-05-01T08:00:00Z",
+      eTag: '"{Q3},2"',
+    });
+    const stale = staleFileObject(sharedBefore, movedQ3, "Documents/Archive/Q3 report.xlsx", NOW);
+    expect(stale.metadata).toMatchObject({
+      createdBy: "Alice Example",
+      sharedScope: "organization",
+    });
+
+    // A getItem answer says null for "not shared": the old sharing does not stick.
+    const unshared = reusedFileObject(sharedBefore, { ...movedQ3, shared: null }, "x", NOW);
+    expect(unshared.metadata?.sharedScope).toBeUndefined();
+    expect(unshared.metadata?.sharedDateTime).toBeUndefined();
+    // What the entry does say wins.
+    const resharred = reusedFileObject(
+      sharedBefore,
+      {
+        ...movedQ3,
+        shared: { scope: "anonymous" },
+        lastModifiedBy: { user: { displayName: "Eve" } },
+      },
+      "x",
+      NOW,
+    );
+    expect(resharred.metadata).toMatchObject({ sharedScope: "anonymous", lastModifiedBy: "Eve" });
+    expect(resharred.metadata?.sharedDateTime).toBeUndefined();
+  });
+
   it("keeps everything that describes the stored bytes when a copy is carried forward stale", () => {
     const changed: DriveDeltaItem = {
       ...movedQ3,
@@ -208,7 +252,7 @@ describe("canReuseContent", () => {
       stale: "true",
       cTag: '"c:{Q3},1"',
       sourceSize: "11",
-      quickXorHash: "q3hash1=",
+      quickXorHash: "cZgBCMbwBjfQoQxuq0MIAAAAAAA=",
       contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       eTag: '"{Q3},2"',
     });

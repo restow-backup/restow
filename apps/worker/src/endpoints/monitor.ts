@@ -25,6 +25,9 @@
  *   - The credential of a source's own Microsoft 365 app that runs out raises
  *     `source.app_secret_expiring`, 30 days and 7 days before and once it has
  *     expired (../source-app-expiry.ts).
+ *   - The checks of the native SQL Server backup (W2a, ./sql-verify-plan.ts): a `sql_verify`
+ *     task per instance at the job's check slot, and `endpoint.sql_red`,
+ *     `endpoint.sql_recovered` and `endpoint.sql_overdue`, each once.
  *   - Once a day and tenant the bytes of its chunk store and of each restic
  *     repository are written down for the capacity page (../storage-samples.ts).
  *   - Bare metal recovery codes and sessions run out (docs/BAREMETAL.md 9.8, 9.9): a code nobody
@@ -80,6 +83,7 @@ import { raiseEvents } from "../reporting.js";
 import { alertSourceAppSecrets } from "../source-app-expiry.js";
 import { recordStorageSamples } from "../storage-samples.js";
 import type { EndpointJobDeps } from "./common.js";
+import { alertSqlOverdue, alertSqlReports, planSqlVerifyChecks } from "./sql-verify-plan.js";
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
@@ -112,6 +116,10 @@ export interface MonitorSummary {
   failedRecoveries: number;
   /** Recovery log rows older than 90 days. */
   purgedRecoveryLogs: number;
+  /** `sql_verify` tasks planned at the check slots of their jobs (W2a). */
+  sqlChecksPlanned: number;
+  /** `endpoint.sql_red`, `endpoint.sql_recovered` and `endpoint.sql_overdue` raised (W2a). */
+  sqlAlerts: number;
 }
 
 export function endpointName(endpoint: Pick<Endpoint, "displayName" | "hostname">): string {
@@ -306,14 +314,20 @@ async function alertFailedRuns(deps: EndpointJobDeps, now: Date): Promise<number
   for (const [tenantId, list] of byTenant) {
     const raised: NewNotification[] = [];
     for (const { run, hostname, displayName } of list) {
-      // A failed restore test is reported by its report (verify.red), not by the run, and a
-      // run the agent only lost to a restart is resumed by it: neither is an alert.
-      if (run.kind === "verify_sample" || isInterruptedOnly(run.errors)) {
+      // A failed restore test is reported by its report (verify.red), not by the run, and so is
+      // a check of a SQL Server backup (endpoint.sql_red); a run the agent only lost to a restart
+      // is resumed by it: none is an alert.
+      if (
+        run.kind === "verify_sample" ||
+        run.kind === "sql_verify" ||
+        isInterruptedOnly(run.errors)
+      ) {
         continue;
       }
       const name = endpointName({ hostname, displayName });
       const reason = run.errors[0]?.message ?? "";
-      const backup = run.kind === "backup";
+      // The native SQL Server backup of an instance (W2a) is a backup, its restore a restore.
+      const backup = run.kind === "backup" || run.kind === "sql";
       raised.push({
         tenantId,
         level: "error",
@@ -345,6 +359,7 @@ async function alertFailedRuns(deps: EndpointJobDeps, now: Date): Promise<number
     for (const { run, hostname, displayName, profile } of list) {
       if (
         run.kind !== "verify_sample" &&
+        run.kind !== "sql_verify" &&
         run.errors[0]?.message?.startsWith("The agent stopped reporting")
       ) {
         await emitWebhookEvent(deps.db, {
@@ -826,6 +841,8 @@ export async function endpointMonitor(deps: EndpointJobDeps): Promise<MonitorSum
     expiredRecoveryCodes: 0,
     failedRecoveries: 0,
     purgedRecoveryLogs: 0,
+    sqlChecksPlanned: 0,
+    sqlAlerts: 0,
   };
   const recoveries = await expireRecoveries(deps, now);
   summary.expiredRecoveryCodes = recoveries.expired;
@@ -839,5 +856,7 @@ export async function endpointMonitor(deps: EndpointJobDeps): Promise<MonitorSum
   summary.archiveAlerts = await alertArchiveCapture(deps, now);
   summary.sourceAppSecretAlerts = await alertSourceAppSecrets(deps, now);
   summary.storageSamples = (await recordStorageSamples(deps, now)).tenants;
+  summary.sqlChecksPlanned = await planSqlVerifyChecks(deps, now);
+  summary.sqlAlerts = (await alertSqlReports(deps, now)) + (await alertSqlOverdue(deps, now));
   return summary;
 }

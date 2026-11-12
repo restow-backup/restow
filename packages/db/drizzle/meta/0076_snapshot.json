@@ -1,5 +1,5 @@
 {
-  "id": "b18e4e79-5710-4ba5-a729-9bfa570a8608",
+  "id": "338aee0b-13ba-4033-8012-c288b42fcac6",
   "prevId": "da764dce-924f-4565-8678-6865fd5bd0a5",
   "version": "7",
   "dialect": "postgresql",
@@ -4681,168 +4681,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.endpoint_layouts": {
-      "name": "endpoint_layouts",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "endpoint_id": {
-          "name": "endpoint_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "sha256": {
-          "name": "sha256",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "format": {
-          "name": "format",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "schema_version": {
-          "name": "schema_version",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "platform": {
-          "name": "platform",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "manifest": {
-          "name": "manifest",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "summary": {
-          "name": "summary",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "verdict": {
-          "name": "verdict",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "layout_fingerprint": {
-          "name": "layout_fingerprint",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "endpoint_layouts_endpoint_sha_uq": {
-          "name": "endpoint_layouts_endpoint_sha_uq",
-          "columns": [
-            {
-              "expression": "endpoint_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "sha256",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "endpoint_layouts_endpoint_created_idx": {
-          "name": "endpoint_layouts_endpoint_created_idx",
-          "columns": [
-            {
-              "expression": "endpoint_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "endpoint_layouts_tenant_id_tenants_id_fk": {
-          "name": "endpoint_layouts_tenant_id_tenants_id_fk",
-          "tableFrom": "endpoint_layouts",
-          "tableTo": "tenants",
-          "columnsFrom": [
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "endpoint_layouts_endpoint_id_endpoints_id_fk": {
-          "name": "endpoint_layouts_endpoint_id_endpoints_id_fk",
-          "tableFrom": "endpoint_layouts",
-          "tableTo": "endpoints",
-          "columnsFrom": [
-            "endpoint_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "endpoint_layouts_platform_ck": {
-          "name": "endpoint_layouts_platform_ck",
-          "value": "\"endpoint_layouts\".\"platform\" IN ('linux', 'darwin')"
-        }
-      },
-      "isRLSEnabled": false
-    },
     "public.endpoint_reports": {
       "name": "endpoint_reports",
       "schema": "",
@@ -5232,12 +5070,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "layout_id": {
-          "name": "layout_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -5264,22 +5096,6 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "endpoint_runs_layout_idx": {
-          "name": "endpoint_runs_layout_idx",
-          "columns": [
-            {
-              "expression": "layout_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"endpoint_runs\".\"layout_id\" IS NOT NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -5396,19 +5212,6 @@
             "id"
           ],
           "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "endpoint_runs_layout_id_endpoint_layouts_id_fk": {
-          "name": "endpoint_runs_layout_id_endpoint_layouts_id_fk",
-          "tableFrom": "endpoint_runs",
-          "tableTo": "endpoint_layouts",
-          "columnsFrom": [
-            "layout_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -11313,6 +11116,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "repository_reconciled_at": {
+          "name": "repository_reconciled_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "repository_chains": {
           "name": "repository_chains",
           "type": "jsonb",
@@ -11394,6 +11203,18 @@
           "primaryKey": false,
           "notNull": false
         },
+        "smbios_uuid": {
+          "name": "smbios_uuid",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "retired_at": {
+          "name": "retired_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -11427,6 +11248,7 @@
             }
           ],
           "isUnique": true,
+          "where": "\"pve_guests\".\"retired_at\" IS NULL",
           "concurrently": false,
           "method": "btree",
           "with": {}

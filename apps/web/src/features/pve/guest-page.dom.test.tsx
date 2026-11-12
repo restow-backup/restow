@@ -28,11 +28,14 @@ vi.mock("@tanstack/react-router", () => ({
     ...props
   }: Record<string, unknown>) => <a {...(props as object)}>{children as React.ReactNode}</a>,
   useNavigate: () => () => undefined,
+  useSearch: () => ({}),
 }));
 vi.mock("@/features/storage", () => ({
   BackupDestinationNote: () => null,
+  ObjectCopyStatus: () => null,
   ServerDiskWarning: () => null,
   useStorageScope: () => ({ canManage: false }),
+  WriteOnceRetentionNotice: () => null,
 }));
 vi.mock("@/features/suspicion", () => ({
   judgementsById: () => new Map(),

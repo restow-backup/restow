@@ -1,9 +1,12 @@
 import { randomUUID } from "node:crypto";
 import {
+  DEFAULT_READINESS_POLICY,
+  freshnessReason,
   inactiveState,
   readinessWithoutFreshness,
   type ScrubJobPayload,
   type VerifyJobPayload,
+  worstReadiness,
 } from "@restow/core";
 import {
   type Database,
@@ -42,7 +45,7 @@ import {
   type ReportDetailsDto,
   type ScrubReportDto,
 } from "./details.js";
-import { confirmationApplies, type EmptyConfirmationDto, loadEmptyConfirmations } from "./empty.js";
+import { type EmptyConfirmationDto, emptyStateOf, loadEmptyConfirmations } from "./empty.js";
 import type {
   ListReportsQuery,
   RunScrubInput,
@@ -179,10 +182,17 @@ export interface ObjectReadinessDto {
    */
   previousCheck?: PreviousCheckDto | null;
   /**
-   * Who confirmed the object as empty (empty.ts), while that counts: set exactly when `state` is
-   * `empty`. Always set by the service; null otherwise.
+   * Who confirmed the object as empty (empty.ts), while that counts: set when `state` is `empty`
+   * by an admin's confirmation (not when it is empty by the source, `emptyBySource`). Always set
+   * by the service; null otherwise.
    */
   emptyConfirmation?: EmptyConfirmationDto | null;
+  /**
+   * The object reads "empty" because Microsoft 365 reports it empty as well, before and after
+   * the backup (0.5.0, empty.ts `emptyStateOf`), not because an admin confirmed it. Always set
+   * by the service.
+   */
+  emptyBySource?: boolean;
   /**
    * Items and content bytes of the backup the rating checked (0.4.9); null without a check, for
    * a storage finding, and for a check before 0.4.9. Always set by the service.
@@ -366,6 +376,41 @@ function toLatestReport(report: ReportFact, withoutAge: boolean): LatestReportDt
     ...ratedReasons(report, withoutAge),
     counts: parseCountSummary(report.counts),
   };
+}
+
+/**
+ * The age of the newest backup, judged now: the check judged it when it ran, but the backup
+ * keeps getting older after that (a backup that stopped right after a green check would stay
+ * green until the next weekly check). Null while it is current, and for an object rated without
+ * the age of its last backup ({@link ratedWithoutAge}).
+ */
+export function liveFreshness(
+  completedAt: Date | null | undefined,
+  now: Date,
+  withoutAge: boolean,
+): ReasonDto | null {
+  const reason = withoutAge
+    ? null
+    : freshnessReason(completedAt ?? null, now, DEFAULT_READINESS_POLICY);
+  return reason ? (parseReasons([reason], now)[0] ?? null) : null;
+}
+
+/** The worse of a stored rating and the backup's age now. */
+export function withLiveAge<T extends string>(state: T, live: ReasonDto | null): T | Readiness {
+  return live && isRating(state) ? worstReadiness([state, live.severity]) : state;
+}
+
+const isRating = (state: string): state is Readiness =>
+  state === "green" || state === "yellow" || state === "red";
+
+/** A report's reasons with the age reason replaced by the one judged now. */
+function withLiveReasons(report: LatestReportDto, live: ReasonDto | null): LatestReportDto {
+  if (!live) {
+    return report;
+  }
+  const reasons = [...report.reasons.filter((reason) => !isFreshnessReason(reason.code)), live];
+  reasons.sort((a, b) => (a.severity === b.severity ? 0 : a.severity === "red" ? -1 : 1));
+  return { ...report, reasons };
 }
 
 function toPreviousCheck(report: ReportFact): PreviousCheckDto {
@@ -652,10 +697,15 @@ export async function readinessOverview(
       const withoutAge = ratedWithoutAge(object.status, withoutJob);
       const rating =
         withoutAge && report ? readinessWithoutFreshness(parseReasons(report.reasons)) : null;
-      // Confirmed as empty, and the newest check still finds nothing to restore: neutral grey,
-      // never overdue (there is nothing whose check could be due), counted for no attention.
+      // The backup's age now, not at the check: a rated backup that stopped being renewed turns
+      // yellow after 48 hours and red after 7 days without waiting for the next check.
+      const live = report ? liveFreshness(latestSnapshot?.completedAt, now, withoutAge) : null;
+      // Confirmed as empty, or empty by Microsoft 365 as well (0.5.0), and the newest check still
+      // finds nothing to restore: neutral grey, never overdue (there is nothing whose check
+      // could be due), counted for no attention.
       const confirmation = emptyConfirmations.get(object.id) ?? null;
-      const confirmedEmpty = confirmationApplies(confirmation, report, withoutAge);
+      const empty = emptyStateOf(report, confirmation, withoutAge);
+      const confirmedEmpty = empty !== null;
       // A fresh "no_backup" object is not a problem yet, only once it missed
       // its first chance (isFirstBackupOverdue); every other state keeps the
       // ordinary "the last check is stale" rule. Either way, an object whose
@@ -675,19 +725,21 @@ export async function readinessOverview(
               : isOverdue(checkedAt, now);
       items.push({
         object,
-        state: confirmedEmpty ? "empty" : (rating ?? verification.state),
-        readiness: rating ?? report?.readiness ?? null,
+        state: confirmedEmpty ? "empty" : (rating ?? withLiveAge(verification.state, live)),
+        readiness:
+          rating ?? (report?.readiness ? withLiveAge(report.readiness, live) : null) ?? null,
         checkedAt: checkedAt?.toISOString() ?? null,
         overdue,
         latestSnapshotAt: latestSnapshot?.completedAt?.toISOString() ?? null,
-        report: report ? toLatestReport(report, withoutAge) : null,
+        report: report ? withLiveReasons(toLatestReport(report, withoutAge), live) : null,
         running: runningByObject.get(object.id) ?? null,
         latestSnapshotId: latestSnapshot?.id ?? null,
         previousCheck: facts?.verification.previous
           ? toPreviousCheck(facts.verification.previous)
           : null,
         inJob: !withoutJob,
-        emptyConfirmation: confirmedEmpty ? confirmation : null,
+        emptyConfirmation: empty === "admin" ? confirmation : null,
+        emptyBySource: empty === "source",
         contentStats:
           report && report.origin !== "scrub" ? parseContentStats(report.content) : null,
       });

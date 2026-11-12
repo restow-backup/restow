@@ -5,11 +5,14 @@ package pve
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -127,5 +130,261 @@ func TestActiveRunsListsTheOpenJobFiles(t *testing.T) {
 	want := []string{"11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("activeRuns = %v, want %v", got, want)
+	}
+}
+
+// fakeTaskAPI is the task status route of a PVE API: it fails the first `fail` calls with
+// `failWith` (an HTTP status, or 0 to drop the connection), then answers `answer`.
+type fakeTaskAPI struct {
+	mu       sync.Mutex
+	fail     int
+	failWith int
+	answer   TaskStatus
+	calls    int
+}
+
+func (f *fakeTaskAPI) handler(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	if f.calls <= f.fail {
+		if f.failWith == 0 {
+			if hj, ok := w.(http.Hijacker); ok {
+				c, _, _ := hj.Hijack()
+				_ = c.Close()
+				return
+			}
+		}
+		w.WriteHeader(f.failWith)
+		return
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{"data": f.answer})
+}
+
+// taskAPI is a PVE API client against f whose waits pass on a clock of their own.
+func taskAPI(t *testing.T, f *fakeTaskAPI) (*PVEAPI, *time.Duration) {
+	t.Helper()
+	ts := httptest.NewServer(http.HandlerFunc(f.handler))
+	t.Cleanup(ts.Close)
+	api, err := NewPVEAPI(ts.URL, "restow@pve!t", "x", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var waited time.Duration
+	start := time.Unix(1_900_000_000, 0)
+	api.now = func() time.Time { return start.Add(waited) }
+	api.sleep = func(ctx context.Context, d time.Duration) error {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		waited += d
+		return nil
+	}
+	return api, &waited
+}
+
+// A pveproxy restart (an upgrade of pve-manager, a renewed certificate) during a long backup or
+// restore: the status calls fail for a while, PVE goes on, and the wait goes on with it.
+func TestWaitTaskRidesOutAPVEAPIThatDoesNotAnswer(t *testing.T) {
+	for _, failWith := range []int{0, 502, 503, 595, 596} {
+		f := &fakeTaskAPI{fail: 12, failWith: failWith, answer: TaskStatus{Status: "stopped", ExitStatus: "OK"}}
+		api, waited := taskAPI(t, f)
+		exit, err := api.WaitTask(context.Background(), "pve1", "UPID:pve1:1:2:3:vzdump:101:root@pam:", 5*time.Second)
+		if err != nil || exit != "OK" {
+			t.Fatalf("%d: exit %q, err %v", failWith, exit, err)
+		}
+		if f.calls != 13 || *waited > DefaultWaitOutage {
+			t.Fatalf("%d: %d calls, waited %s", failWith, f.calls, *waited)
+		}
+	}
+}
+
+func TestWaitTaskGivesUpAfterTheOutageWindow(t *testing.T) {
+	f := &fakeTaskAPI{fail: 1_000_000, failWith: 503}
+	api, waited := taskAPI(t, f)
+	upid := "UPID:pve1:1:2:3:qmrestore:9001:restow@pve!t:"
+	_, err := api.WaitTask(context.Background(), "pve1", upid, 5*time.Second)
+	if err == nil || !strings.Contains(err.Error(), "the PVE API did not answer for 10 min; task "+upid+" may still run") {
+		t.Fatalf("err = %v", err)
+	}
+	if *waited < DefaultWaitOutage || *waited > DefaultWaitOutage+maxWaitBackoff {
+		t.Fatalf("waited %s", *waited)
+	}
+	if f.calls > 40 {
+		t.Fatalf("%d calls: the outage must be waited out slowly", f.calls)
+	}
+	// The window is the node's to set.
+	f = &fakeTaskAPI{fail: 1_000_000, failWith: 503}
+	api, _ = taskAPI(t, f)
+	api.WaitOutage = time.Minute
+	if _, err := api.WaitTask(context.Background(), "pve1", upid, time.Second); err == nil || !strings.Contains(err.Error(), "for 1 min") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// An answer of PVE itself is final: the token is refused, the task does not exist.
+func TestWaitTaskStopsAtAnAnswerOfPVE(t *testing.T) {
+	for _, status := range []int{401, 403, 404, 400} {
+		f := &fakeTaskAPI{fail: 1_000, failWith: status}
+		api, _ := taskAPI(t, f)
+		_, err := api.WaitTask(context.Background(), "pve1", "UPID:x", time.Second)
+		var pe *PVEAPIError
+		if !errors.As(err, &pe) || pe.Status != status || f.calls != 1 {
+			t.Fatalf("%d: err %v after %d calls", status, err, f.calls)
+		}
+	}
+}
+
+func TestWaitTaskEndsWhenItsContextEndsDuringTheBackoff(t *testing.T) {
+	f := &fakeTaskAPI{fail: 1_000_000, failWith: 503}
+	api, _ := taskAPI(t, f)
+	ctx, cancel := context.WithCancel(context.Background())
+	sleeps := 0
+	api.sleep = func(ctx context.Context, d time.Duration) error {
+		sleeps++
+		if sleeps == 3 {
+			cancel()
+		}
+		return ctx.Err()
+	}
+	if _, err := api.WaitTask(ctx, "pve1", "UPID:x", time.Second); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// A qm or pct call that hangs (a storage that does not answer) ends at its deadline: the node's
+// only task worker is not blocked.
+func TestAHungQmCallIsBounded(t *testing.T) {
+	old := cliTimeouts
+	cliTimeouts.Short, cliTimeouts.Long = 50*time.Millisecond, 50*time.Millisecond
+	defer func() { cliTimeouts = old }()
+	f := newFakeNode()
+	f.restoreConfig = parseConfigText(vmConfig)
+	b := newTester(t, f)
+	b.Cmd = runnerFunc(func(ctx context.Context, name string, args ...string) (string, error) {
+		if args[0] == "config" {
+			<-ctx.Done()
+			return "", ctx.Err()
+		}
+		return f.Run(ctx, name, args...)
+	})
+	start := time.Now()
+	res, err := b.Run(context.Background(), vmParams())
+	if err == nil || res.Outcome != "" || !strings.Contains(err.Error(), "did not end within") {
+		t.Fatalf("%+v %v", res, err)
+	}
+	if time.Since(start) > 5*time.Second {
+		t.Fatalf("took %s", time.Since(start))
+	}
+}
+
+// jsonAfterOutage answers 503 to the first fail requests, then body as JSON.
+func jsonAfterOutage(t *testing.T, fail int32, body any) (*Server, *atomic.Int32) {
+	t.Helper()
+	var calls atomic.Int32
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if calls.Add(1) <= fail {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("content-type", "application/json")
+		_ = json.NewEncoder(w).Encode(body)
+	}))
+	t.Cleanup(ts.Close)
+	s, err := NewServer(ts.URL, "n", "s", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.sleep = func(context.Context, time.Duration) error { return nil }
+	return s, &calls
+}
+
+// A restore copies for hours: its block reads, the lookup of the restore point and the restic
+// credential of a container restore ride out a restart of the server, as a backup's calls do.
+func TestRestoreCallsRideOutAServerRestart(t *testing.T) {
+	s, calls, _ := failingServer(t, 15)
+	if _, err := s.RestoreBlocks(context.Background(), "s1", "drive-scsi0", 0, 8); err != nil {
+		t.Fatalf("blocks during a restart: %v", err)
+	}
+	if calls.Load() != 16 {
+		t.Fatalf("calls = %d, want 16", calls.Load())
+	}
+	r, rcalls := jsonAfterOutage(t, 15, map[string]any{"snapshotId": "s1", "kind": "vm"})
+	rp, err := r.ResolveVolname(context.Background(), "backup/vm/101/x")
+	if err != nil || rp.SnapshotID != "s1" || rcalls.Load() != 16 {
+		t.Fatalf("restore point during a restart: %+v %v (%d calls)", rp, err, rcalls.Load())
+	}
+	c, ccalls := jsonAfterOutage(t, 15, map[string]any{"repositoryUrl": "https://r"})
+	a, err := c.RestoreRestic(context.Background(), "s1")
+	if err != nil || a.RepositoryURL != "https://r" || ccalls.Load() != 16 {
+		t.Fatalf("credential during a restart: %+v %v (%d calls)", a, err, ccalls.Load())
+	}
+}
+
+// flakyFetcher fails its first `fail` fetches (every fetch with fail < 0).
+type flakyFetcher struct {
+	mu    sync.Mutex
+	fail  int
+	n     int
+	calls map[uint32]int
+}
+
+func (f *flakyFetcher) RestoreBlocks(_ context.Context, _, _ string, from, count uint32) ([]RestoreBlock, error) {
+	f.mu.Lock()
+	f.calls[from]++
+	f.n++
+	n := f.n
+	f.mu.Unlock()
+	if f.fail < 0 || n <= f.fail {
+		return nil, errors.New("503 Service Unavailable")
+	}
+	out := make([]RestoreBlock, 0, count)
+	for i := from; i < from+count; i++ {
+		out = append(out, RestoreBlock{Index: i, Length: 8, Data: []byte{byte(i), 1, 2, 3, 4, 5, 6, 7}})
+	}
+	return out, nil
+}
+
+func flakyImage(t *testing.T, fail int) (*RestoreImage, *flakyFetcher) {
+	t.Helper()
+	oldPause := restoreRefetchPause
+	restoreRefetchPause = time.Millisecond
+	t.Cleanup(func() { restoreRefetchPause = oldPause })
+	f := &flakyFetcher{fail: fail, calls: map[uint32]int{}}
+	flags := []byte{FlagPresent, FlagPresent, FlagPresent, FlagPresent}
+	img := NewRestoreImage(context.Background(), f, "s1", "drive-scsi0", 4*BlockSize, flags)
+	img.ahead = 2
+	return img, f
+}
+
+// One failed fetch fails only its own waiters; the next read fetches again, and later blocks
+// are served (before, the first error stayed for every read of the image).
+func TestRestoreImageFetchesAgainAfterAFailure(t *testing.T) {
+	img, f := flakyImage(t, 2)
+	buf := make([]byte, 8)
+	if _, err := img.ReadAt(buf, 0); err != nil || buf[0] != 0 {
+		t.Fatalf("block 0 after two failed fetches: %v %v", buf, err)
+	}
+	if _, err := img.ReadAt(buf, 3*BlockSize); err != nil || buf[0] != 3 {
+		t.Fatalf("a later block: %v %v", buf, err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.calls[0] != 3 {
+		t.Fatalf("fetches of block 0: %d, want 3", f.calls[0])
+	}
+}
+
+// A fetch that keeps failing ends the read with its error after the bounded attempts.
+func TestRestoreImageGivesUpOnAPermanentFailure(t *testing.T) {
+	img, f := flakyImage(t, -1)
+	_, err := img.ReadAt(make([]byte, 8), 0)
+	if err == nil || !strings.Contains(err.Error(), "503") {
+		t.Fatalf("err = %v", err)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.calls[0] != restoreFetchAttempts {
+		t.Fatalf("fetches %d, want %d", f.calls[0], restoreFetchAttempts)
 	}
 }

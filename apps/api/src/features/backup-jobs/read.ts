@@ -9,6 +9,7 @@ import {
   effectiveSchedule,
   effectiveSettings,
   mailJobObjectIds,
+  mailObjectsInNoJob,
   RECOMMENDED_SCHEDULE_DEFAULTS,
   wholeMachineNote,
 } from "@restow/core";
@@ -158,11 +159,27 @@ async function loadFacts(
   }
   const mailIds = [...new Set([...covered.values()].flat())];
   const endpointIds = members.flatMap((member) => (member.endpointId ? [member.endpointId] : []));
+  // Rated without the age of their last backup, as on the readiness page: removed from their
+  // source, or in no enabled job.
+  const withoutAge = new Set([
+    ...objects.filter((object) => object.status === "orphaned").map((object) => object.id),
+    ...(mailJobs.length > 0
+      ? mailObjectsInNoJob(
+          mailJobs,
+          members.flatMap((member) =>
+            member.protectedObjectId === null
+              ? []
+              : [{ jobId: member.jobId, protectedObjectId: member.protectedObjectId }],
+          ),
+          objects,
+        )
+      : []),
+  ]);
   return {
     objects,
     members,
     covered,
-    mail: await loadMailFacts(tx, tenantId, mailIds),
+    mail: await loadMailFacts(tx, tenantId, mailIds, now, withoutAge),
     endpoint: await loadEndpointFacts(tx, tenantId, endpointIds, now),
     share: await loadShareJobFacts(tx, tenantId, all, now),
   };

@@ -129,5 +129,99 @@
     "failedAt": "Failed {when}"
   },
   "toConfirmHint": "{count, plural, one {# object is no longer backed up (removed, disabled, unlicensed or locked) and waits for a confirmation.} other {# objects are no longer backed up (removed, disabled, unlicensed or locked) and wait for a confirmation.}} That is not a failure, but readiness stays yellow until it is confirmed.",
-  "openToConfirm": "Check and confirm"
+  "openToConfirm": "Check and confirm",
+  "held": {
+    "title": "Held backups",
+    "description": "Backups that would leave their storage target too little free space are held before they fill the storage. A backup that adds far more than usual only raises a notice, unless its object's size check is set to \"hold\": then it is held as well. Every further backup of a held object waits.",
+    "none": "No backup is held. Runs are checked against the free space their storage target keeps (by default 5 % of its size, at least 20 GiB, at most 500 GiB) on targets that report it, and against ten times what their object usually adds, at least 10 GiB: by default a run past that goes on with a notice.",
+    "kind": {
+      "endpoint": "Server or client",
+      "file_share": "File share",
+      "pve_guest": "Proxmox VE container",
+      "m365": "Mailbox, OneDrive, site or IMAP account"
+    },
+    "status": {
+      "pending": "Waiting for a decision",
+      "approved": "Continues once"
+    },
+    "why": {
+      "size": "Would add more than {limit}: {bytes} so far, usually {usual}.",
+      "sizeNoHistory": "Would add more than {limit}: {bytes} so far.",
+      "space": "Would leave the storage target too little free space: {free} of {total} free."
+    },
+    "spaceNote": "This hold ends by itself once the target has room again: the next run checks again and goes ahead. It cannot be continued once, since that would fill the target. Free up space on the target, or switch the space rule off for the target or the tenant.",
+    "heldAt": "Held",
+    "refused": "{count, plural, one {# later run held} other {# later runs held}}",
+    "approvedBy": "allowed by {name}",
+    "continuesNext": "The next run of this object goes through once without the check.",
+    "excludeHint": "If a folder was added by mistake (a recycle bin, a download folder), exclude it in the object's backup settings first.",
+    "space": {
+      "summary": "Keeps {percent} % of the target free, at least {min}, at most {max}",
+      "off": "Off: no space is kept free",
+      "enabled": "Keep space free on the storage target",
+      "percent": "Share of the target's size (%)",
+      "minGib": "At least (GiB)",
+      "maxGib": "At most (GiB)",
+      "reset": "Use the general rule",
+      "targetLine": "Kept free for other data:",
+      "own": "own rule",
+      "change": "Change",
+      "targetTitle": "Free space on this storage target",
+      "targetDescription": "A backup run is held when it would leave this target less free space than this. Applies to this target only, before the tenant's and the installation's rule. Small targets keep at most a quarter of their size free.",
+      "installationTitle": "Free space on storage targets",
+      "installationHint": "Applies to every storage target that reports its size and free space, unless a tenant or a target has its own rule. On the shared default target only this rule applies.",
+      "installationDescription": "A backup run is held when it would leave its storage target less free space than this: the share of the target's size, but at least the minimum and at most the maximum. A target that reports free space but no size keeps the minimum. Small targets keep at most a quarter of their size free.",
+      "tenantTitle": "Free space on the storage targets of this tenant",
+      "shared": "This tenant writes to the installation's shared default target, where the installation's rule applies: {rule}."
+    },
+    "notices": {
+      "title": "Unusually large backups that went on",
+      "description": "Runs of the last 30 days that wrote more than their limit. They were not stopped: by default {appName} only warns about large backups.",
+      "row": "Wrote {bytes}, more than its limit of {limit}",
+      "usual": "usually {usual}",
+      "hold": "Hold such runs",
+      "holds": "Such runs are held now",
+      "off": "Size check off",
+      "toast": "Large runs of this object are held from now on."
+    },
+    "actions": {
+      "continue": "Continue once",
+      "raise": "Raise the limit",
+      "switchOff": "Switch the check off for this object"
+    },
+    "cancel": "Cancel",
+    "raise": {
+      "title": "Raise the limit of {name}",
+      "description": "The held run had added {bytes}. Each run of this object may then add at least the new limit; ten times its usual stays the rule above it.",
+      "label": "New limit in GiB",
+      "submit": "Raise the limit"
+    },
+    "settings": {
+      "open": "Size check",
+      "title": "Size and space check of backups",
+      "description": "For every object of this tenant without its own settings. A run that adds more than the factor times the median of its object's last runs (and at least the minimum) raises a notice and goes on, or is held when the size check is set to \"hold\". A run is always held when it would leave its storage target less free space than the rule below keeps.",
+      "enabled": "Check the size of backup runs",
+      "mode": "When a run adds more than that",
+      "modeWarn": "Notify only, the run goes on (default)",
+      "modeHold": "Hold the run until an administrator decides",
+      "factor": "Factor of the usual size",
+      "minGib": "Never hold below (GiB)",
+      "firstRunGib": "Limit of first backups (GiB)",
+      "firstRunExempt": "empty: first backups are not checked",
+      "objects": "Objects with their own settings",
+      "objectLimit": "own limit {limit}",
+      "objectOwn": "own settings",
+      "objectOff": "check off",
+      "objectHold": "holds large runs",
+      "objectWarn": "only notifies",
+      "reset": "Reset",
+      "save": "Save"
+    },
+    "toast": {
+      "continued": "The next run continues once.",
+      "raised": "Limit raised. The next run goes through up to it.",
+      "switchedOff": "The check is off for this object.",
+      "saved": "Settings saved."
+    }
+  }
 }

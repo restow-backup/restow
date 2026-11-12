@@ -7,6 +7,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -172,6 +173,104 @@ func TestMissingPathsAreSkippedAndReported(t *testing.T) {
 	fin := h.waitRun(1).Finish
 	if fin.Status != api.StatusSucceeded || !strings.Contains(fin.LogTail, "/definitely/not/here does not exist") {
 		t.Fatalf("log:\n%s", fin.LogTail)
+	}
+}
+
+// A source that exists but cannot be read (a drive locked by BitLocker,
+// offline, no access) is no missing path: the run says so and is partial.
+func TestUnreadableSourceMakesTheRunPartial(t *testing.T) {
+	h := newHarness(t)
+	locked := filepath.Join(filepath.Dir(h.src), "locked")
+	old := localSourceFS
+	t.Cleanup(func() { localSourceFS = old })
+	localSourceFS.lstat = func(p string) (fs.FileInfo, error) {
+		if p == locked {
+			return nil, &fs.PathError{Op: "lstat", Path: p, Err: errors.New("This drive is locked by BitLocker Drive Encryption.")}
+		}
+		return os.Lstat(p)
+	}
+	h.srv.Config.Paths = []string{h.src, locked}
+	h.srv.QueueTask(task("t-1", api.TaskBackupNow, nil))
+	h.start()
+	fin := h.waitRun(1).Finish
+	if fin.Status != api.StatusPartial || fin.SnapshotID == "" || len(fin.Errors) != 1 || fin.Errors[0].Code != "source_unreadable" || fin.Errors[0].Path != locked {
+		t.Fatalf("finish: %s %+v", fin.Status, fin.Errors)
+	}
+	if strings.Contains(fin.LogTail, "does not exist") || !strings.Contains(fin.LogTail, "BitLocker") {
+		t.Fatalf("log:\n%s", fin.LogTail)
+	}
+}
+
+func TestOnlyUnreadableSourcesFailTheRun(t *testing.T) {
+	h := newHarness(t)
+	closed := filepath.Join(filepath.Dir(h.src), "closed")
+	if err := os.MkdirAll(filepath.Join(closed, "data"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(closed, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(closed, 0o755) })
+	if os.Geteuid() == 0 {
+		// root passes a folder of mode 000: the error it would get otherwise.
+		old := localSourceFS
+		t.Cleanup(func() { localSourceFS = old })
+		localSourceFS.lstat = func(p string) (fs.FileInfo, error) {
+			if strings.HasPrefix(p, closed+"/") {
+				return nil, &fs.PathError{Op: "lstat", Path: p, Err: fs.ErrPermission}
+			}
+			return os.Lstat(p)
+		}
+	}
+	h.srv.Config.Paths = []string{filepath.Join(closed, "data")}
+	h.srv.QueueTask(task("t-1", api.TaskBackupNow, nil))
+	h.start()
+	fin := h.waitRun(1).Finish
+	if fin.Status != api.StatusFailed || len(fin.Errors) != 1 || fin.Errors[0].Code != "source_unreadable" ||
+		!strings.Contains(fin.Errors[0].Message, "permission denied") {
+		t.Fatalf("finish: %s %+v", fin.Status, fin.Errors)
+	}
+	if strings.Contains(h.commands(), "backup") {
+		t.Fatal("restic must not be started without a readable source")
+	}
+}
+
+// Safety net: a snapshot without a single file from a linked folder that
+// holds files (restic stored a link or mount point instead) is not green.
+func TestSnapshotWithoutFilesFromALinkedFolderWithFilesIsPartial(t *testing.T) {
+	h := newHarness(t)
+	if err := os.WriteFile(filepath.Join(h.src, "a.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(filepath.Dir(h.src), "src-link")
+	if err := os.Symlink(h.src, link); err != nil {
+		t.Fatal(err)
+	}
+	h.srv.Config.Paths = []string{link}
+	h.env("FAKE_BACKUP=link-only")
+	h.srv.QueueTask(task("t-1", api.TaskBackupNow, nil))
+	h.start()
+	fin := h.waitRun(1).Finish
+	if fin.Status != api.StatusPartial || len(fin.Errors) != 1 || fin.Errors[0].Code != "source_unreadable" || !strings.Contains(fin.Errors[0].Message, "no file") {
+		t.Fatalf("finish: %s %+v", fin.Status, fin.Errors)
+	}
+}
+
+// A plain folder whose files the job's exclusions leave out (a log folder
+// with only *.log files, a size limit) gives an empty snapshot: that is the
+// backup the job asks for, not a partial run on every schedule.
+func TestSnapshotWithoutFilesFromAnExcludedPlainFolderSucceeds(t *testing.T) {
+	h := newHarness(t)
+	if err := os.WriteFile(filepath.Join(h.src, "a.log"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h.srv.Config.Excludes = []string{"*.log"}
+	h.env("FAKE_BACKUP=link-only")
+	h.srv.QueueTask(task("t-1", api.TaskBackupNow, nil))
+	h.start()
+	fin := h.waitRun(1).Finish
+	if fin.Status != api.StatusSucceeded || len(fin.Errors) != 0 {
+		t.Fatalf("finish: %s %+v", fin.Status, fin.Errors)
 	}
 }
 
@@ -491,6 +590,7 @@ func TestManualBackupIgnoresACRestriction(t *testing.T) {
 	}
 }
 
+// claim: RESTORE-011
 func TestRestoreTaskGoesIntoANewFolder(t *testing.T) {
 	h := newHarness(t)
 	target := filepath.Join(h.dir, "Restow-Restore-test")
@@ -524,6 +624,7 @@ func TestRestoreTaskGoesIntoANewFolder(t *testing.T) {
 	}
 }
 
+// claim: RESTORE-011
 func TestRestoreRefusesExistingContent(t *testing.T) {
 	h := newHarness(t)
 	target := filepath.Join(h.dir, "existing")
@@ -550,6 +651,7 @@ func TestRestoreRefusesExistingContent(t *testing.T) {
 	}
 }
 
+// claim: RESTORE-011
 func TestRestoreDefaultTargetIsNewFolderInBackedUpRoot(t *testing.T) {
 	h := newHarness(t)
 	h.srv.QueueTask(task("t-1", api.TaskRestore, api.RestoreParams{SnapshotID: "abcdef0123456789"}))
@@ -642,6 +744,7 @@ func TestVerifySampleTask(t *testing.T) {
 	}
 }
 
+// claim: VERIFY-008
 func TestVerifySampleDetectsMismatchAndMissing(t *testing.T) {
 	h := newHarness(t)
 	restoreSrc := filepath.Join(h.dir, "snapshot-tree")
@@ -1148,9 +1251,9 @@ func TestHelpers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	existing, missing, _ := splitSources([]string{dir, dir, "relative/path", "/nope/nope", ""})
-	if len(existing) != 1 || len(missing) != 2 {
-		t.Errorf("splitSources: %v %v", existing, missing)
+	sp := splitSources([]string{dir, dir, "relative/path", "/nope/nope", ""})
+	if len(sp.existing) != 1 || len(sp.missing) != 2 || len(sp.problems) != 0 {
+		t.Errorf("splitSources: %v %v %v", sp.existing, sp.missing, sp.problems)
 	}
 	linkDir := t.TempDir()
 	real := filepath.Join(linkDir, "real")
@@ -1159,10 +1262,10 @@ func TestHelpers(t *testing.T) {
 	if err := os.Symlink(real, link); err != nil {
 		t.Fatal(err)
 	}
-	existing, _, resolved := splitSources([]string{link, real})
+	sp = splitSources([]string{link, real})
 	want, _ := filepath.EvalSymlinks(real)
-	if len(existing) != 1 || existing[0] != want || len(resolved) != 1 || resolved[0].Configured != link {
-		t.Errorf("a symbolic link source must be replaced by its target once: %v %v", existing, resolved)
+	if len(sp.existing) != 1 || sp.existing[0] != want || len(sp.resolved) != 1 || sp.resolved[0].Configured != link || sp.resolved[0].Kind != "symbolic link" {
+		t.Errorf("a symbolic link source must be replaced by its target once: %v %v", sp.existing, sp.resolved)
 	}
 	codeOf := func(err error) string {
 		var te *targetError

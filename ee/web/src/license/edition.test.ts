@@ -47,6 +47,10 @@ describe("requiredEditionOf", () => {
     expect(requiredEditionOf("stats.allTenants")).toBe("service_provider");
     expect(requiredEditionOf("dashboard.allTenants")).toBe("service_provider");
     expect(requiredEditionOf("reports.timed")).toBe("business");
+    // 0.5.0: the provider's branding is Business, a tenant's own and the customer report SP.
+    expect(requiredEditionOf("branding.provider")).toBe("business");
+    expect(requiredEditionOf("branding.tenant")).toBe("service_provider");
+    expect(requiredEditionOf("reports.customer")).toBe("service_provider");
   });
 
   it("ignores anything else", () => {

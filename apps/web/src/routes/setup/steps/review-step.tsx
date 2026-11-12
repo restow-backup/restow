@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
 
+import { MODULE_IDS, moduleTitleKey } from "@/lib/modules";
 import type { SetupFormValues, SetupLanguage } from "@/routes/setup/schema";
 
 interface ReviewStepProps {
@@ -11,6 +12,11 @@ interface ReviewStepProps {
 /** Read-only summary of every entry before the wizard submits. */
 export function ReviewStep({ values, language }: ReviewStepProps) {
   const { t } = useTranslation("setup");
+  const { t: tc } = useTranslation();
+
+  const modulesSummary = MODULE_IDS.filter((module) => values.modules.includes(module))
+    .map((module) => tc(moduleTitleKey(module)))
+    .join(" · ");
 
   const mailSummary = values.mail.skipped
     ? t("review.mailSkipped")
@@ -25,6 +31,7 @@ export function ReviewStep({ values, language }: ReviewStepProps) {
           label={t("review.language")}
           value={t("language.card.title", { lng: language })}
         />
+        <ReviewRow label={t("review.modules")} value={modulesSummary} />
         <ReviewRow
           label={t("review.mode")}
           value={values.operatingMode === "local" ? t("mode.local") : t("mode.public")}

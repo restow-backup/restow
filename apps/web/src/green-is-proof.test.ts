@@ -55,7 +55,7 @@ const ALLOWED: Readonly<Record<string, string>> = {
   "./features/history/presenters.ts":
     "a restore check that passed, and a restore that completed (the data is back)",
   "./features/endpoints/presenters.ts":
-    "restore and restore test runs; a green restore test report; a restore request that went through",
+    "restore and restore test runs; a green restore test report; a restore request that went through; a SQL Server database whose backup, restored from the repository, passed DBCC CHECKDB, and a SQL restore that completed",
   "./features/file-shares/presenters.ts":
     "a file share whose restore check passed; a restore into a share that completed",
   "./features/pve/guest-page.tsx":
@@ -104,7 +104,7 @@ describe("green is proof", () => {
     expect(Object.keys(sources).sort()).toEqual(onDisk);
   });
 
-  it("is named only by files that show a restore check, a restore or an integrity check", () => {
+  it("is named only by files that show a restore check, a restore or an integrity check [READY-001]", () => {
     const unexpected = using.filter((path) => !(path in ALLOWED));
     expect(
       unexpected,
@@ -117,7 +117,7 @@ describe("green is proof", () => {
     expect(stale, "These files no longer use green; remove them from ALLOWED.").toEqual([]);
   });
 
-  it("draws a backup run that merely completed in Lapis (info) in every chart, never green", () => {
+  it("draws a backup run that merely completed in Lapis (info) in every chart, never green [READY-001]", () => {
     // The two charts that plot backup outcomes. They may name green for the series next to it
     // (restores, readiness), so the file-level list above cannot tell; this reads the series.
     const BACKUP_CHARTS = [

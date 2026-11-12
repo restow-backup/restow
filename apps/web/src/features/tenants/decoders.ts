@@ -1,3 +1,4 @@
+import type { DeliveryMode, DeliveryModes, RecipientFailure } from "@/features/reports/api";
 import { isTenantRole, type TenantKind, type TenantRole, unwrapList } from "@/lib/api";
 
 import { tenantRoleFromMemberRole } from "./presenters";
@@ -120,7 +121,30 @@ function decodeContact(payload: unknown): TenantContact {
     email: asNullableString(raw.email),
     phone: asNullableString(raw.phone),
     isPrimary: raw.isPrimary === true,
+    monthlyReport: raw.monthlyReport === true,
   };
+}
+
+const DELIVERY_MODE_VALUES: readonly DeliveryMode[] = ["immediate", "hourly", "daily"];
+
+function decodeDeliveryModes(payload: unknown): DeliveryModes {
+  const raw = asObject(payload);
+  const mode = (value: unknown): DeliveryMode =>
+    DELIVERY_MODE_VALUES.includes(value as DeliveryMode) ? (value as DeliveryMode) : "immediate";
+  return { error: mode(raw.error), warning: mode(raw.warning), info: mode(raw.info) };
+}
+
+function decodeFailure(payload: unknown): RecipientFailure | null {
+  if (typeof payload !== "object" || payload === null) return null;
+  const raw = asObject(payload);
+  const since = asString(raw.since);
+  return since
+    ? {
+        since,
+        reason: asString(raw.reason) || "transport_error",
+        detail: asNullableString(raw.detail),
+      }
+    : null;
 }
 
 function decodeRecipient(payload: unknown): NotificationRecipient {
@@ -139,6 +163,8 @@ function decodeRecipient(payload: unknown): NotificationRecipient {
     name: asNullableString(raw.name),
     events,
     categories,
+    delivery: decodeDeliveryModes(raw.delivery),
+    failure: decodeFailure(raw.failure),
   };
 }
 

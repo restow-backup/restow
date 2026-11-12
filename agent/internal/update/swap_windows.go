@@ -11,13 +11,15 @@ import (
 	"strings"
 
 	"github.com/restow-backup/restow/agent/internal/atomicfile"
+	"github.com/restow-backup/restow/agent/internal/paths"
 	"github.com/restow-backup/restow/agent/internal/winapi"
 )
 
 // createStaged creates a new file with a random name next to dest:
-// .restow-agent.new-<16 hex>.exe, so `version` can run it. O_EXCL is
-// CREATE_NEW; there is no O_NOFOLLOW on Windows, the trust check of the bin
-// folder (nobody else can create anything there) takes its place.
+// .restow-agent.new-<16 hex>.exe, so `version` can run it, owned by
+// Administrators (paths.CreateTrusted, CREATE_NEW); there is no O_NOFOLLOW on
+// Windows, the trust check of the bin folder (nobody else can create
+// anything there) takes its place.
 func createStaged(dir, base string) (*os.File, string, error) {
 	ext := filepath.Ext(base)
 	stem := strings.TrimSuffix(base, ext)
@@ -27,7 +29,10 @@ func createStaged(dir, base string) (*os.File, string, error) {
 			return nil, "", err
 		}
 		name := filepath.Join(dir, "."+stem+".new-"+hex.EncodeToString(rnd[:])+ext)
-		f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		// Owned by Administrators whoever runs the update (an administrator
+		// whose objects are owned by the account itself, too): the rename keeps
+		// the owner, and the service refuses a binary owned by anyone else.
+		f, err := paths.CreateTrusted(name)
 		if err == nil {
 			return f, name, nil
 		}
@@ -95,9 +100,20 @@ func commitFile(staged, dest string, keepPrev bool) (swap, error) {
 }
 
 // removeOrLater deletes path, or marks it for deletion at the next reboot
-// when a running process still holds it.
+// when a running process still holds it. A fixed name (restow-agent.exe) is
+// renamed to <name>.old-<hex> first and only that name is marked: Windows
+// deletes whatever has the marked name at the restart.
 func removeOrLater(path string) {
-	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		_ = winapi.MoveFileEx(path, "", winapi.MoveFileDelayUntilReboot)
+	err := os.Remove(path)
+	if err == nil || os.IsNotExist(err) {
+		return
 	}
+	if !strings.Contains(filepath.Base(path), ".old-") {
+		aside := path + ".old-" + randomSuffix()
+		if moveRetry(path, aside) != nil {
+			return
+		}
+		path = aside
+	}
+	_ = winapi.MoveFileEx(path, "", winapi.MoveFileDelayUntilReboot)
 }

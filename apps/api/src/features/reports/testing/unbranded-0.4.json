@@ -1,0 +1,12 @@
+{
+  "alert": {
+    "subject": "[Contoso <&>] Backup failed: Mailbox \"x\"",
+    "text": "Backup failed: Mailbox \"x\"\n\nBackup failed: Mailbox \"x\" (Contoso <&>).\n\nTenant: Contoso <&>\nConcerns: Mailbox \"x\"\nWhen: 30 Sept 2026, 10:00 UTC\nError: <script>alert(1)</script>\n\n--\nYou receive this message because of the rule \"Failed runs\" in Restow. Change or pause it under Tenant › Notifications.",
+    "html": "<!doctype html><html><body style=\"font-family:-apple-system,Segoe UI,Arial,sans-serif;font-size:14px;color:#111;max-width:640px\"><h2 style=\"font-size:18px;margin:0 0 12px\">Backup failed: Mailbox &quot;x&quot;</h2><p>Backup failed: Mailbox &quot;x&quot; (Contoso &lt;&amp;&gt;).</p><table style=\"border-collapse:collapse\"><tr><td style=\"padding:4px 12px 4px 0;color:#555;vertical-align:top\">Tenant</td><td style=\"padding:4px 0\">Contoso &lt;&amp;&gt;</td></tr><tr><td style=\"padding:4px 12px 4px 0;color:#555;vertical-align:top\">Concerns</td><td style=\"padding:4px 0\">Mailbox &quot;x&quot;</td></tr><tr><td style=\"padding:4px 12px 4px 0;color:#555;vertical-align:top\">When</td><td style=\"padding:4px 0\">30 Sept 2026, 10:00 UTC</td></tr><tr><td style=\"padding:4px 12px 4px 0;color:#555;vertical-align:top\">Error</td><td style=\"padding:4px 0\">&lt;script&gt;alert(1)&lt;/script&gt;</td></tr></table><p style=\"margin-top:24px;color:#666;font-size:12px\">You receive this message because of the rule &quot;Failed runs&quot; in Restow. Change or pause it under Tenant › Notifications.</p></body></html>"
+  },
+  "summary": {
+    "subject": "[Contoso] Wochenbericht",
+    "text": "Wochenbericht\n\nZusammenfassung für Contoso, 21.09.2026, 00:00 bis 28.09.2026, 00:00.\n\nErfolgsquote: 99 %\n\n--\nSie erhalten diese Nachricht wegen der Regel „Wochenbericht“ in Restow. Ändern oder pausieren Sie sie unter Mandant › Benachrichtigungen.",
+    "html": "<!doctype html><html><body style=\"font-family:-apple-system,Segoe UI,Arial,sans-serif;font-size:14px;color:#111;max-width:640px\"><h2 style=\"font-size:18px;margin:0 0 12px\">Wochenbericht</h2><p>Zusammenfassung für Contoso, 21.09.2026, 00:00 bis 28.09.2026, 00:00.</p><table style=\"border-collapse:collapse\"><tr><td style=\"padding:4px 12px 4px 0;color:#555;vertical-align:top\">Erfolgsquote</td><td style=\"padding:4px 0\">99 %</td></tr></table><p style=\"margin-top:24px;color:#666;font-size:12px\">Sie erhalten diese Nachricht wegen der Regel „Wochenbericht“ in Restow. Ändern oder pausieren Sie sie unter Mandant › Benachrichtigungen.</p></body></html>"
+  }
+}

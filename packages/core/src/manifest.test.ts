@@ -85,6 +85,20 @@ describe("snapshot manifest", () => {
     expect(await deserializeManifest(await serializeManifest(big))).toEqual(big);
   });
 
+  it("round-trips the source's own size signal in the header (0.5.0)", async () => {
+    const signalled: SnapshotManifest = {
+      ...manifest,
+      objects: [],
+      sourceSignal: {
+        service: "onedrive",
+        before: { rootBytes: 0, rootChildren: 0, at: 1 },
+        after: { rootBytes: 0, rootChildren: 0, at: 2 },
+        quota: { used: 4096, deleted: 0, remaining: 1, total: 4097, state: "normal" },
+      },
+    };
+    expect(await deserializeManifest(await serializeManifest(signalled))).toEqual(signalled);
+  });
+
   it("round-trips a manifest without objects", async () => {
     const empty: SnapshotManifest = { ...manifest, objects: [] };
     expect(await deserializeManifest(await serializeManifest(empty))).toEqual(empty);

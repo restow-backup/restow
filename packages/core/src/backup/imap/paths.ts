@@ -5,6 +5,12 @@
  *   mail/<folder components...>              type "folder"  (size 0, no chunks)
  *   mail/<folder components...>/<uid>.eml    type "message" (byte-exact RFC 5322)
  *
+ * A Gmail account (state `imap.layout: "gmail"`, ./gmail.ts) is downloaded only
+ * from All Mail, Spam and Trash; each All Mail message carries its labels in
+ * `metadata.gmailLabels`. Every label folder still has a message object per
+ * message it shows, with its own UID and flags, whose content (chunks, SHA-256)
+ * is the All Mail copy's: the same X-GM-MSGID (`metadata.gmailMessageId`).
+ *
  * Folder components are the server's hierarchy split on its delimiter; a `/`
  * or `%` inside a component is percent-escaped so the logical path stays
  * unambiguous. The server-side path is kept verbatim in `metadata.mailbox`
@@ -40,6 +46,17 @@ export const META = {
   messageId: "messageId",
   /** RFC822.SIZE as reported by the server; `size` on the object is the real byte count. */
   reportedSize: "reportedSize",
+  /**
+   * Gmail labels of a message in `[Gmail]/All Mail`, a sorted JSON array (`["\\Inbox","Projekte"]`):
+   * a Gmail snapshot stores each message once, the labels say which label folders show it
+   * (./gmail.ts).
+   */
+  gmailLabels: "gmailLabels",
+  /**
+   * Gmail's X-GM-MSGID: the same on a message's object in All Mail and in each label folder,
+   * whose content is the All Mail copy's (./gmail.ts).
+   */
+  gmailMessageId: "gmailMessageId",
 
   subject: "subject",
   /** 'Display Name <address>' or the bare address. */

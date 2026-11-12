@@ -96,6 +96,7 @@
         "agent/README.md",
         "docs/AGENT.md",
         "docs/BAREMETAL.md",
+        "docs/BAREMETAL-WINDOWS.md",
         "docs/CI.md",
         "docs/GLOSSARY.md",
         "scripts/ci/check-separate-works.mjs",

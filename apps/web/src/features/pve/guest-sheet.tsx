@@ -41,8 +41,10 @@ import { activityHint, BackupProgress } from "./backup-progress.js";
 import { NEW_DATA_POINTS, newDataPoints, shortDate } from "./backup-size.js";
 import { GuestActionButton, GuestState, type SelfBackupGuard } from "./guest-cells.js";
 import { PVE_NAMESPACE } from "./i18n.js";
+import { notCheckedSuffix } from "./not-checked.js";
 import { guestTo } from "./paths.js";
-import { runStatusKey, runTone } from "./run-status.js";
+import { RestoreFindings } from "./restore-findings.js";
+import { runStatusLabel, runTone } from "./run-status.js";
 import { RestowServerNote } from "./self-backup.js";
 
 /**
@@ -71,33 +73,14 @@ function RecentRuns({ runs, shown }: { runs: readonly PveRun[]; shown?: string |
   return (
     <ol className="space-y-3" data-slot="pve-sheet-runs">
       {runs.map((run) => {
-        const warnings = run.warnings ?? [];
-        // A finished boot test says how it ended (its outcome), as on the guest page: a test
-        // that ran to "red" is not "Succeeded".
-        const bootTest =
-          run.kind === "boot_test" && run.status !== "running" && run.stats?.bootTest;
-        const variant = bootTest
-          ? runTone(run)
-          : run.status === "failed"
-            ? "destructive"
-            : run.status === "running"
-              ? "info"
-              : run.status === "cancelled"
-                ? "muted"
-                : warnings.length > 0
-                  ? "warning"
-                  : "outline";
+        // The same tone and label as on the guest page: a boot test says how it ended, a
+        // restore with something to report beside its success is amber, never green.
+        const status = runStatusLabel(run);
         return (
           <li key={run.id} className="space-y-1.5">
             <div className="flex flex-wrap items-center gap-2 text-sm">
               <span className="font-medium">{t(`guest.kind.${run.kind}`)}</span>
-              <Badge variant={variant}>
-                {bootTest
-                  ? t(runStatusKey(run))
-                  : run.status === "succeeded" && warnings.length > 0
-                    ? t("guests.succeededWithWarnings")
-                    : t(`guest.${run.status}`)}
-              </Badge>
+              <Badge variant={runTone(run)}>{t(status.key, status.values)}</Badge>
               <span className="text-muted-foreground tabular-nums">
                 {formatDateTime(run.startedAt, language)}
               </span>
@@ -110,9 +93,11 @@ function RecentRuns({ runs, shown }: { runs: readonly PveRun[]; shown?: string |
                 name={t("sheet.lastError")}
               />
             ) : null}
-            {warnings.length > 0 ? (
+            {run.kind === "restore" || run.kind === "restore_test" ? (
+              <RestoreFindings run={run} />
+            ) : (run.warnings ?? []).length > 0 ? (
               <LogBlock
-                text={warnings.join("\n")}
+                text={(run.warnings ?? []).join("\n")}
                 tone="warning"
                 label={t("sheet.copyWarnings")}
                 name={t("sheet.warnings")}
@@ -351,9 +336,7 @@ export function GuestSheet({
                         ? t("readiness.result.red")
                         : verify?.state === "yellow" && verify.notChecked
                           ? t(
-                              verify.notChecked.reason === "locked"
-                                ? "readiness.result.notCheckedLocked"
-                                : "readiness.result.notCheckedInterrupted",
+                              `readiness.result.notChecked${notCheckedSuffix(verify.notChecked.reason)}`,
                             )
                           : verify?.state
                             ? t("sheet.verifyPostponed")
@@ -372,9 +355,7 @@ export function GuestSheet({
                     // Tried again shortly; the result above (if any) still stands.
                     <Fact label={t("sheet.next")}>
                       <span data-slot="pve-sheet-verify-postponed">
-                        {verify.notChecked.reason === "locked"
-                          ? t("guest.verifyPostponedLocked")
-                          : t("guest.verifyPostponedInterrupted")}
+                        {t(`guest.verifyPostponed${notCheckedSuffix(verify.notChecked.reason)}`)}
                       </span>
                     </Fact>
                   ) : verify?.requested ? (

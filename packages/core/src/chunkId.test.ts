@@ -9,7 +9,7 @@ describe("chunk identifiers", () => {
     expect(dedupId(data).length).toBe(32);
   });
 
-  it("storedId is stable per key and scoped to key and content", () => {
+  it("storedId is stable per key and scoped to key and content [CRYPT-002]", () => {
     const keyA = Buffer.alloc(32, 0x01);
     const keyB = Buffer.alloc(32, 0x02);
     const data = Buffer.from("chunk bytes");

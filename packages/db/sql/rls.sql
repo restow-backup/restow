@@ -48,7 +48,8 @@ CREATE POLICY tenant_isolation_self ON tenants
 -- ---------------------------------------------------------------------------
 -- Per-tenant policy template, applied uniformly to every table that carries a
 -- tenant_id column. Tables whose tenant_id is nullable (users, user_roles,
--- audit_log, audit_anchor, secrets, api_keys, notifications) intentionally hide
+-- audit_log, audit_anchor, secrets, api_keys, notifications, report_events,
+-- report_deliveries) intentionally hide
 -- their provider-scope (NULL) rows from a tenant-pinned session; those rows are
 -- reached only via the BYPASSRLS provider role. Lookups that happen before a
 -- tenant is known (API-key authentication, the provider team) run on that
@@ -87,6 +88,8 @@ DECLARE
     'manifest_versions',
     'jobs',
     'job_progress',
+    -- A job's keyed record beside its cursor (0.5.0, a restore's per-item progress).
+    'job_cursor_entries',
     'item_failures',
     'restore_jobs',
     'verify_reports',
@@ -94,15 +97,24 @@ DECLARE
     'storage_targets',
     'immutability_deferred_deletions',
     'storage_migrations',
+    'storage_repository_repairs',
+    -- restic repositories on copy targets (0.5.0, docs/STORAGE.md).
+    'repository_copies',
     'audit_log',
     'audit_anchor',
     'archive_items',
     'archive_item_mailboxes',
     'archive_item_captures',
     'archive_anchor',
+    -- Chain links of items deleted after their retention (0.5.0).
+    'archive_chain_tombstones',
+    -- Sealed records the deletion run still has to remove from storage (0.5.0).
+    'archive_record_deletions',
     -- Archive capture from the mailbox (0.4.4, docs/ARCHIVE.md "Erfassungswege").
     'archive_capture_streams',
     'archive_capture_pending',
+    -- What the capture could not take in (0.5.0).
+    'archive_capture_gaps',
     'graph_subscriptions',
     'archive_forward_addresses',
     'retention_policies',
@@ -113,6 +125,10 @@ DECLARE
     'notifications',
     'report_rules',
     'report_deliveries',
+    -- Every event that reached the rules, for the provider's recipients (0.5.0).
+    'report_events',
+    -- A tenant's own branding (0.5.0, Service Provider).
+    'tenant_branding',
     'import_uploads',
     'import_upload_segments',
     'mail_imports',
@@ -133,6 +149,8 @@ DECLARE
     -- is pinned, like the agent's sign-in); everything after runs on the tenant role.
     'endpoint_recoveries',
     'endpoint_recovery_log',
+    'endpoint_sql_databases',
+    'endpoint_sql_backups',
     'backup_jobs',
     'backup_job_members',
     'run_samples',
@@ -159,10 +177,21 @@ DECLARE
     'file_share_downloads',
     'file_share_catalog',
     'restore_point_suspicions',
+    -- Runs the size and space guard held, and its settings per tenant and object (0.5.0, #99).
+    'run_size_holds',
+    'run_size_settings',
+    'run_size_runs',
     -- The daily size samples of the capacity page (0.5.0, apps/worker storage-samples.ts).
     'storage_samples',
     -- Who belongs to a Microsoft 365 group or a SharePoint site (0.5.0, #89).
     'directory_memberships',
+    -- Restore mode after restoring a database dump (0.5.0, src/restore-mode.ts): the database's
+    -- progress per tenant, its comparison with each storage target, refused deletions, wrapped
+    -- keys in storage that differ. Written on the installation pool.
+    'storage_progress',
+    'storage_progress_checks',
+    'restore_mode_refusals',
+    'key_mirror_findings',
     -- Read and written only by the installation role (packages/db roles.ts);
     -- the policy is a second line should the tenant role ever be granted it.
     'provider_member_tenants'
@@ -236,6 +265,17 @@ BEGIN
     DROP TRIGGER IF EXISTS archive_item_captures_append_only ON archive_item_captures;
     CREATE TRIGGER archive_item_captures_append_only
       BEFORE UPDATE ON archive_item_captures
+      FOR EACH ROW EXECUTE FUNCTION restow_forbid_mutation();
+  END IF;
+END $$;
+
+-- The chain links of deleted items stay for good (0.5.0, docs/ARCHIVE.md "Löschkonzept").
+DO $$
+BEGIN
+  IF to_regclass('public.archive_chain_tombstones') IS NOT NULL THEN
+    DROP TRIGGER IF EXISTS archive_chain_tombstones_append_only ON archive_chain_tombstones;
+    CREATE TRIGGER archive_chain_tombstones_append_only
+      BEFORE UPDATE OR DELETE ON archive_chain_tombstones
       FOR EACH ROW EXECUTE FUNCTION restow_forbid_mutation();
   END IF;
 END $$;

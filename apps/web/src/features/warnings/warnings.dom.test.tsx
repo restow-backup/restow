@@ -8,6 +8,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { Failure } from "@/features/failures";
+import { type HeldBackups, heldBackupKeys } from "@/features/held-backups/api";
 import { i18n } from "@/i18n";
 
 import type { WarningDetail, WarningList } from "./api";
@@ -140,6 +141,12 @@ beforeEach(() => {
       method: init?.method ?? "GET",
       body: init?.body ? JSON.parse(String(init.body)) : null,
     });
+    if (url.includes("/run-size/holds/") && url.endsWith("/continue")) {
+      return new Response(JSON.stringify({ id: "h-1", status: "approved" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
     if (url.endsWith("/warnings/acknowledge")) {
       return new Response(JSON.stringify({ acknowledged: [{}], skipped: [] }), {
         status: 200,
@@ -401,5 +408,284 @@ describe("the list of warnings", { timeout: 20_000 }, () => {
     await waitForText("admin@contoso.example");
     expect(text()).toContain("Too large, accepted.");
     expect(document.querySelector('tbody [role="checkbox"]')).toBeNull();
+  });
+});
+
+describe("held backups (#99)", { timeout: 20_000 }, () => {
+  const HELD: HeldBackups = {
+    open: [
+      {
+        id: "h-1",
+        objectKind: "endpoint",
+        objectId: "m-1",
+        objectName: "Fileserver",
+        runId: "r-9",
+        reason: "size",
+        status: "pending",
+        bytes: 879 * 1024 ** 3,
+        limitBytes: 20 * 1024 ** 3,
+        medianBytes: 2 * 1024 ** 3,
+        historyRuns: 10,
+        freeBytes: null,
+        totalBytes: null,
+        refusedRuns: 2,
+        heldAt: "2026-11-10T22:00:00.000Z",
+        lastRefusedAt: "2026-11-11T22:00:00.000Z",
+        approvedAt: null,
+        approvedBy: null,
+        note: null,
+        resolution: null,
+        resolvedAt: null,
+      },
+    ],
+    recent: [],
+  };
+  const EMPTY_LIST: WarningList = {
+    items: [],
+    counts: { open: 0, acknowledged: 0, failed: 0 },
+    truncated: false,
+  };
+
+  it("shows what the held run added and what is usual, and lets it continue once", async () => {
+    await mount(<WarningsPage state="open" />, (client) => {
+      client.setQueryData(warningKeys.list("t-1", "open"), EMPTY_LIST);
+      client.setQueryData(heldBackupKeys.holds("t-1"), HELD);
+    });
+    await waitForText("Held backups");
+    const row = document.querySelector('[data-slot="held-backup"]');
+    expect(row?.getAttribute("data-status")).toBe("pending");
+    expect(row?.textContent).toContain("Fileserver");
+    expect(row?.textContent).toContain("Would add more than 20 GB");
+    expect(row?.textContent).toContain("879 GB so far, usually 2 GB");
+    expect(row?.textContent).toContain("2 later runs held");
+    await act(async () => {
+      button("Continue once")?.click();
+    });
+    const sent = requests.find((request) => request.url.endsWith("/run-size/holds/h-1/continue"));
+    expect(sent?.method).toBe("POST");
+  });
+
+  it("offers nothing to decide to an end user, and says when nothing is held", async () => {
+    session.role = "end_user";
+    await mount(<WarningsPage state="open" />, (client) => {
+      client.setQueryData(warningKeys.list("t-1", "open"), EMPTY_LIST);
+      client.setQueryData(heldBackupKeys.holds("t-1"), HELD);
+    });
+    await waitForText("Held backups");
+    expect(button("Continue once")?.disabled).toBe(true);
+    expect(button("Raise the limit")?.disabled).toBe(true);
+    act(() => root?.unmount());
+    root = null;
+    session.role = "tenant_admin";
+    await mount(<WarningsPage state="open" />, (client) => {
+      client.setQueryData(warningKeys.list("t-1", "open"), EMPTY_LIST);
+      client.setQueryData(heldBackupKeys.holds("t-1"), { open: [], recent: [] });
+    });
+    await waitForText("No backup is held");
+  });
+
+  it("offers no limit for a hold for space, and says it ends by itself (review 2)", async () => {
+    const space: HeldBackups = {
+      open: [
+        {
+          ...(HELD.open[0] as HeldBackups["open"][number]),
+          reason: "space",
+          limitBytes: null,
+          freeBytes: 2 * 1024 ** 3,
+          totalBytes: 100 * 1024 ** 3,
+        },
+      ],
+      recent: [],
+    };
+    await mount(<WarningsPage state="open" />, (client) => {
+      client.setQueryData(warningKeys.list("t-1", "open"), EMPTY_LIST);
+      client.setQueryData(heldBackupKeys.holds("t-1"), space);
+    });
+    await waitForText("Held backups");
+    // Continue once lifts the size check only: a hold for space waits for room (#99).
+    expect(button("Continue once")?.disabled).toBe(true);
+    expect(button("Raise the limit")).toBeUndefined();
+    const note = document.querySelector('[data-slot="held-space-note"]')?.textContent;
+    expect(note).toContain("ends by itself");
+    expect(note).toContain("cannot be continued once");
+  });
+
+  describe("notices of large runs that went on (#99)", () => {
+    const NOTICE = {
+      objectKind: "endpoint" as const,
+      objectId: "m-1",
+      objectName: "Fileserver",
+      runId: "r-7",
+      bytes: 21 * 1024 ** 3,
+      limitBytes: 20 * 1024 ** 3,
+      medianBytes: 2 * 1024 ** 3,
+      noticedAt: "2026-11-11T22:00:00.000Z",
+      mode: "warn" as const,
+      enabled: true,
+    };
+
+    it("lists each run without a hold card, and holds such runs of the object from there", async () => {
+      await mount(<WarningsPage state="open" />, (client) => {
+        client.setQueryData(warningKeys.list("t-1", "open"), EMPTY_LIST);
+        client.setQueryData(heldBackupKeys.holds("t-1"), {
+          open: [],
+          recent: [],
+          notices: [NOTICE],
+        });
+      });
+      await waitForText("Unusually large backups that went on");
+      expect(document.querySelector('[data-slot="held-backup"]')).toBeNull();
+      const row = document.querySelector('[data-slot="size-notice"]');
+      expect(row?.textContent).toContain("Fileserver");
+      expect(row?.textContent).toContain("Wrote 21 GB, more than its limit of 20 GB, usually 2 GB");
+      expect(row?.textContent).toContain("exclude it in the object's backup settings");
+      await act(async () => {
+        button("Hold such runs")?.click();
+      });
+      const sent = requests.find(
+        (request) => request.url.endsWith("/run-size/settings") && request.method === "PUT",
+      );
+      expect(sent?.body).toEqual({
+        kind: "endpoint",
+        objectId: "m-1",
+        override: { mode: "hold" },
+      });
+    });
+
+    it("says when the object holds such runs already, and offers nothing to an end user", async () => {
+      await mount(<WarningsPage state="open" />, (client) => {
+        client.setQueryData(warningKeys.list("t-1", "open"), EMPTY_LIST);
+        client.setQueryData(heldBackupKeys.holds("t-1"), {
+          open: [],
+          recent: [],
+          notices: [
+            { ...NOTICE, mode: "hold" },
+            { ...NOTICE, runId: "r-8", objectId: "m-2" },
+          ],
+        });
+      });
+      await waitForText("Such runs are held now");
+      act(() => root?.unmount());
+      root = null;
+      session.role = "end_user";
+      await mount(<WarningsPage state="open" />, (client) => {
+        client.setQueryData(warningKeys.list("t-1", "open"), EMPTY_LIST);
+        client.setQueryData(heldBackupKeys.holds("t-1"), {
+          open: [],
+          recent: [],
+          notices: [NOTICE],
+        });
+      });
+      await waitForText("Unusually large backups that went on");
+      expect(button("Hold such runs")?.disabled).toBe(true);
+    });
+  });
+
+  describe("the space rule of the tenant (#99)", () => {
+    const GIB = 1024 ** 3;
+    const RULE = { enabled: true, percent: 5, minBytes: 20 * GIB, maxBytes: 500 * GIB };
+    const settings = (sharedTarget: boolean) => ({
+      defaults: {
+        enabled: true,
+        mode: "warn",
+        factor: 10,
+        minHistory: 3,
+        historyRuns: 10,
+        minBytes: 10 * GIB,
+        limitBytes: null,
+        firstRunBytes: null,
+      },
+      tenant: null,
+      effective: {
+        enabled: true,
+        mode: "warn",
+        factor: 10,
+        minHistory: 3,
+        historyRuns: 10,
+        minBytes: 10 * GIB,
+        limitBytes: null,
+        firstRunBytes: null,
+      },
+      space: { defaults: RULE, installation: {}, override: null, effective: RULE, sharedTarget },
+      objects: [],
+    });
+    const inputFor = (label: string) => {
+      const element = [...document.querySelectorAll("label")].find((candidate) =>
+        candidate.textContent?.includes(label),
+      );
+      return document.getElementById(element?.getAttribute("for") ?? "") as HTMLInputElement | null;
+    };
+    function setValue(element: HTMLInputElement, value: string) {
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set?.call(
+        element,
+        value,
+      );
+      element.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    async function openSettings(sharedTarget: boolean) {
+      await mount(<WarningsPage state="open" />, (client) => {
+        client.setQueryData(warningKeys.list("t-1", "open"), EMPTY_LIST);
+        client.setQueryData(heldBackupKeys.holds("t-1"), { open: [], recent: [] });
+        client.setQueryData(heldBackupKeys.settings("t-1"), settings(sharedTarget));
+      });
+      await waitForText("Held backups");
+      await act(async () => {
+        button("Size check")?.click();
+      });
+      await waitForText("Free space on the storage targets of this tenant");
+    }
+    const saved = () =>
+      requests.filter(
+        (request) => request.url.endsWith("/run-size/settings") && request.method === "PUT",
+      );
+
+    it("sends the rule only once it was changed", async () => {
+      await openSettings(false);
+      expect(inputFor("Share of the target's size (%)")?.value).toBe("5");
+      expect(inputFor("At least (GiB)")?.value).toBe("20");
+      expect(inputFor("At most (GiB)")?.value).toBe("500");
+      // Saving the size settings alone leaves the space rule following the installation.
+      await act(async () => {
+        button("Save")?.click();
+      });
+      expect(saved()[0]?.body).not.toHaveProperty("space");
+      await act(async () => {
+        setValue(inputFor("Share of the target's size (%)") as HTMLInputElement, "10");
+      });
+      await act(async () => {
+        button("Save")?.click();
+      });
+      // Only what was changed becomes the tenant's own.
+      expect(saved()[1]?.body).toEqual(expect.objectContaining({ space: { percent: 10 } }));
+    });
+
+    it("notifies only by default, and saves the tenant's choice to hold (#99)", async () => {
+      await openSettings(false);
+      const radio = (label: string) => {
+        const element = [...document.querySelectorAll("label")].find((candidate) =>
+          candidate.textContent?.includes(label),
+        );
+        return document.getElementById(element?.getAttribute("for") ?? "");
+      };
+      expect(radio("Notify only, the run goes on (default)")?.getAttribute("data-state")).toBe(
+        "checked",
+      );
+      await act(async () => {
+        radio("Hold the run until an administrator decides")?.click();
+      });
+      await act(async () => {
+        button("Save")?.click();
+      });
+      expect(saved()[0]?.body).toEqual(
+        expect.objectContaining({ override: expect.objectContaining({ mode: "hold" }) }),
+      );
+    });
+
+    it("on the installation's shared target: says the installation's rule applies, no fields", async () => {
+      await openSettings(true);
+      expect(text()).toContain("shared default target");
+      expect(text()).toContain("Keeps 5 % of the target free");
+      expect(inputFor("Share of the target's size (%)")).toBeNull();
+    });
   });
 });

@@ -9,12 +9,17 @@ import {
   REPORT_EVENTS,
 } from "./catalog.js";
 import {
+  completeDeliveryModes,
+  deliveryFailureExclusion,
+  deliveryModeFor,
+  digestDueAt,
   isAlertThrottled,
   MAX_REPORT_ATTEMPTS,
   nextAttemptAfter,
   plannedDeliveries,
   type RuleForDelivery,
   rulesForEvent,
+  storedDeliveryModes,
   subjectKeyOf,
 } from "./rules.js";
 
@@ -95,7 +100,7 @@ describe("plannedDeliveries", () => {
         ["discord", ["backup.failed", "job.failed"]],
         ["json", ["backup.failed", "backup.succeeded", "job.failed", "job.completed"]],
       ]),
-      recipients: new Map([["ops@x.de", ["backup.failed"]]]),
+      recipients: new Map([["ops@x.de", { events: ["backup.failed"], delivery: {} }]]),
     };
     const failing = rule({ emailRecipients: ["Ops@x.de", "adhoc@x.de"], webhookId: "discord" });
     expect(plannedDeliveries(failing, "event", { event: "backup.succeeded", columns })).toEqual([
@@ -122,7 +127,10 @@ describe("plannedDeliveries", () => {
   });
 
   it("never filters a summary report", () => {
-    const columns = { webhooks: new Map([["w1", []]]), recipients: new Map([["a@x.de", []]]) };
+    const columns = {
+      webhooks: new Map([["w1", []]]),
+      recipients: new Map([["a@x.de", { events: [], delivery: {} }]]),
+    };
     expect(
       plannedDeliveries(rule({ emailRecipients: ["a@x.de"], webhookId: "w1" }), "summary", {
         event: "backup.failed",
@@ -149,6 +157,16 @@ describe("subjectKeyOf", () => {
     expect(subjectKeyOf("update.available", {})).toBe("event:update.available");
   });
 
+  it("makes every run its own subject for the notice of a large run (#99)", () => {
+    expect(
+      subjectKeyOf("backup.unusually_large_notice", {
+        guardObjectKind: "endpoint",
+        runId: "r1",
+        endpointId: "e1",
+      }),
+    ).toBe("size_notice:endpoint:r1");
+  });
+
   it("makes every disk its own subject for the disk warning", () => {
     expect(subjectKeyOf("installation.disk_low", { disk: "database" })).toBe("disk:database");
     expect(subjectKeyOf("installation.disk_low", { disk: "repository" })).toBe("disk:repository");
@@ -168,6 +186,49 @@ describe("subjectKeyOf", () => {
     expect(subjectKeyOf("installation.app_secret_expiring", {})).toBe(
       "event:installation.app_secret_expiring",
     );
+  });
+
+  it("makes every restore mode activation its own subject", () => {
+    expect(subjectKeyOf("installation.restore_mode", { restoreModeId: "rm-1" })).toBe(
+      "restore_mode:rm-1",
+    );
+    expect(subjectKeyOf("installation.restore_mode", { restoreModeId: "rm-2" })).not.toBe(
+      subjectKeyOf("installation.restore_mode", { restoreModeId: "rm-1" }),
+    );
+  });
+
+  it("makes every tenant, target and key its own subject for a key that differs in storage", () => {
+    const finding = { tenantId: "t1", targetId: "target-primary", keyVersion: 2 };
+    const key = (details: Record<string, unknown>) =>
+      subjectKeyOf("installation.key_mirror_conflict", details);
+    expect(key(finding)).toBe("key_mirror:t1:target-primary:2");
+    const others = [
+      key({ ...finding, targetId: "target-copy" }),
+      key({ ...finding, keyVersion: 3 }),
+      key({ ...finding, tenantId: "t2" }),
+      key({ ...finding, keyVersion: 0, objectKey: "tenants/t1/repo-passwords/a.json" }),
+      key({ ...finding, keyVersion: 0, objectKey: "tenants/t1/repo-passwords/b.json" }),
+    ];
+    expect(new Set([key(finding), ...others]).size).toBe(6);
+    expect(others[3]).toBe("key_mirror:t1:target-primary:tenants/t1/repo-passwords/a.json");
+  });
+});
+
+describe("subjectKeyOf for the emergency disk reserve (#98)", () => {
+  it("makes every release and every recreation its own subject", () => {
+    const released = (releasedAt: string) =>
+      subjectKeyOf("installation.disk_reserve_released", { releasedAt });
+    expect(released("2026-11-11T10:00:00.000Z")).toBe(
+      "disk_reserve:released:2026-11-11T10:00:00.000Z",
+    );
+    expect(released("2026-11-12T10:00:00.000Z")).not.toBe(released("2026-11-11T10:00:00.000Z"));
+    // The recreation never falls into the throttle of its release.
+    expect(
+      subjectKeyOf("installation.disk_reserve_restored", {
+        releasedAt: "2026-11-11T10:00:00.000Z",
+        restoredAt: "2026-11-11T12:00:00.000Z",
+      }),
+    ).toBe("disk_reserve:restored:2026-11-11T12:00:00.000Z");
   });
 });
 
@@ -195,8 +256,13 @@ describe("installation events", () => {
     expect(INSTALLATION_REPORT_EVENTS).toEqual([
       "update.available",
       "installation.disk_low",
+      "installation.disk_reserve_released",
+      "installation.disk_reserve_restored",
       "installation.app_secret_expiring",
+      "installation.restore_mode",
+      "installation.key_mirror_conflict",
     ]);
+    expect(isInstallationReportEvent("installation.restore_mode")).toBe(true);
     expect(isInstallationReportEvent("installation.app_secret_expiring")).toBe(true);
     expect(isInstallationReportEvent("source.app_secret_expiring")).toBe(false);
     expect(isInstallationReportEvent("installation.disk_low")).toBe(true);
@@ -215,5 +281,128 @@ describe("nextAttemptAfter", () => {
     expect(nextAttemptAfter(1, now)?.toISOString()).toBe("2026-09-30T12:01:00.000Z");
     expect(nextAttemptAfter(4, now)?.toISOString()).toBe("2026-09-30T13:00:00.000Z");
     expect(nextAttemptAfter(MAX_REPORT_ATTEMPTS, now)).toBeNull();
+  });
+});
+
+describe("digests (0.5.0)", () => {
+  const columns = {
+    webhooks: new Map([["hook", ["backup.failed", "verify.red", "notification.delivery_failed"]]]),
+    recipients: new Map([
+      [
+        "ops@x.de",
+        {
+          events: ["backup.failed", "verify.red", "backup.overdue"],
+          delivery: { error: "hourly" as const, warning: "daily" as const },
+        },
+      ],
+    ]),
+  };
+
+  it("holds an alert for the recipient's digest of its severity", () => {
+    const r = rule({ emailRecipients: ["ops@x.de", "adhoc@x.de"], webhookId: "hook" });
+    expect(plannedDeliveries(r, "event", { event: "backup.failed", columns })).toEqual([
+      { channel: "email", recipient: "ops@x.de", digest: "hourly" },
+      { channel: "email", recipient: "adhoc@x.de" },
+      { channel: "webhook", recipient: "hook" },
+    ]);
+    expect(
+      plannedDeliveries(r, "event", { event: "backup.overdue", columns, level: "warning" })[0],
+    ).toEqual({ channel: "email", recipient: "ops@x.de", digest: "daily" });
+  });
+
+  it("sends critical events at once [ALERT-001]", () => {
+    const r = rule({ emailRecipients: ["ops@x.de"] });
+    expect(plannedDeliveries(r, "event", { event: "verify.red", columns })).toEqual([
+      { channel: "email", recipient: "ops@x.de" },
+    ]);
+    expect(deliveryModeFor({ error: "daily" }, "notification.delivery_failed")).toBe("immediate");
+    expect(deliveryModeFor({ error: "daily" }, "backup.failed")).toBe("daily");
+    expect(deliveryModeFor({ error: "daily" }, "backup.failed", "info")).toBe("immediate");
+  });
+
+  it("never digests a summary report", () => {
+    const r = rule({ emailRecipients: ["ops@x.de"] });
+    expect(plannedDeliveries(r, "summary", { event: "backup.failed", columns })).toEqual([
+      { channel: "email", recipient: "ops@x.de" },
+    ]);
+  });
+
+  it("completes and stores the modes", () => {
+    expect(completeDeliveryModes({ warning: "daily" })).toEqual({
+      error: "immediate",
+      warning: "daily",
+      info: "immediate",
+    });
+    expect(storedDeliveryModes({ error: "immediate", info: "hourly" })).toEqual({ info: "hourly" });
+  });
+
+  it("is due at the next full hour, or at the next 07:00 in the zone", () => {
+    const now = new Date("2026-03-28T10:15:00Z");
+    expect(digestDueAt("hourly", now, "UTC").toISOString()).toBe("2026-03-28T11:00:00.000Z");
+    expect(digestDueAt("hourly", new Date("2026-03-28T10:00:00Z"), "UTC").toISOString()).toBe(
+      "2026-03-28T11:00:00.000Z",
+    );
+    // Berlin is UTC+1 on 28 March and UTC+2 from 29 March (daylight saving).
+    expect(digestDueAt("daily", now, "Europe/Berlin").toISOString()).toBe(
+      "2026-03-29T05:00:00.000Z",
+    );
+    expect(
+      digestDueAt("daily", new Date("2026-03-28T05:00:00Z"), "Europe/Berlin").toISOString(),
+    ).toBe("2026-03-28T06:00:00.000Z");
+    expect(digestDueAt("daily", now, "Not/AZone").toISOString()).toBe("2026-03-29T07:00:00.000Z");
+  });
+});
+
+describe("delivery failure exclusion (0.5.0)", () => {
+  const columns = {
+    webhooks: new Map([["hook", ["notification.delivery_failed"]]]),
+    recipients: new Map(),
+  };
+  const r = rule({ emailRecipients: ["Ops@x.de", "b@x.de"], webhookId: "hook" });
+  const plan = (details: Record<string, unknown>) =>
+    plannedDeliveries(
+      r,
+      "event",
+      { event: "notification.delivery_failed", columns },
+      { exclude: deliveryFailureExclusion("notification.delivery_failed", details) },
+    );
+
+  it("never sends the alert through the webhook that failed [ALERT-004]", () => {
+    expect(plan({ channel: "webhook", webhookId: "hook" })).toEqual([
+      { channel: "email", recipient: "Ops@x.de" },
+      { channel: "email", recipient: "b@x.de" },
+    ]);
+  });
+
+  it("never mails the address that failed, and no mail while the transport is down [ALERT-004]", () => {
+    expect(plan({ channel: "email", scope: "recipient", recipient: "ops@X.de" })).toEqual([
+      { channel: "email", recipient: "b@x.de" },
+      { channel: "webhook", recipient: "hook" },
+    ]);
+    expect(plan({ channel: "email", scope: "transport" })).toEqual([
+      { channel: "webhook", recipient: "hook" },
+    ]);
+  });
+
+  it("excludes nothing for other events", () => {
+    expect(
+      deliveryFailureExclusion("backup.failed", { channel: "webhook", webhookId: "x" }),
+    ).toEqual({});
+  });
+
+  it("gives every failing channel its own subject", () => {
+    expect(
+      subjectKeyOf("notification.delivery_failed", { channel: "webhook", webhookId: "w1" }),
+    ).toBe("delivery:webhook:w1");
+    expect(
+      subjectKeyOf("notification.delivery_failed", { channel: "email", scope: "transport" }),
+    ).toBe("delivery:email:transport");
+    expect(
+      subjectKeyOf("notification.delivery_failed", {
+        channel: "email",
+        scope: "recipient",
+        recipient: " A@X.de ",
+      }),
+    ).toBe("delivery:email:a@x.de");
   });
 });

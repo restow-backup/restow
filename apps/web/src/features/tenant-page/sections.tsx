@@ -1,3 +1,4 @@
+import { TenantBrandingSection } from "@/features/branding/tenant-branding-section";
 import { extensionTenantSections, type TenantSectionSpec } from "@/lib/extensions";
 
 import { TENANT_SECTION_META } from "./meta";
@@ -34,6 +35,7 @@ const COMPONENTS: Readonly<Record<string, TenantSectionSpec["component"]>> = {
   agents: AgentsSection,
   archive: ArchiveSection,
   notifications: NotificationsSection,
+  branding: TenantBrandingSection,
   integrations: IntegrationsSection,
   members: MembersSection,
   "master-data": MasterDataSection,
@@ -47,11 +49,16 @@ export const CORE_TENANT_SECTIONS: readonly TenantSectionSpec[] = TENANT_SECTION
     icon: meta.icon,
     order: meta.order,
     component: COMPONENTS[meta.id] as TenantSectionSpec["component"],
+    ...(meta.providerOnly ? { providerOnly: true } : {}),
+    ...(meta.modules ? { modules: meta.modules } : {}),
   }),
 );
 
-/** The core's sections and the ones the extensions add, in sub-navigation order; a core id cannot be replaced. */
-export function tenantSections(): TenantSectionSpec[] {
+/**
+ * The core's sections and the ones the extensions add, in sub-navigation order; a core id cannot
+ * be replaced. `isProviderAdmin` false leaves out the sections for provider administrators only.
+ */
+export function tenantSections(isProviderAdmin = true): TenantSectionSpec[] {
   const taken = new Set(CORE_TENANT_SECTIONS.map((spec) => spec.id));
   const added = extensionTenantSections().filter((spec) => {
     if (taken.has(spec.id)) {
@@ -60,5 +67,7 @@ export function tenantSections(): TenantSectionSpec[] {
     taken.add(spec.id);
     return true;
   });
-  return [...CORE_TENANT_SECTIONS, ...added].sort((a, b) => a.order - b.order);
+  return [...CORE_TENANT_SECTIONS, ...added]
+    .filter((spec) => isProviderAdmin || !spec.providerOnly)
+    .sort((a, b) => a.order - b.order);
 }

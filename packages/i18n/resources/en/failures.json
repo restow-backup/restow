@@ -117,6 +117,42 @@
         "title": "Microsoft had a temporary service problem",
         "why": "Microsoft answered with a server error{has_httpStatus, select, yes { (HTTP {httpStatus})} other {}}. Such errors usually disappear on their own within minutes."
       },
+      "outcome_unknown": {
+        "title": "Microsoft did not confirm whether the change was carried out",
+        "why": "{appName} asked Microsoft to create something (for example a message, a contact or a folder). Microsoft {reason, select, timeout {did not answer in time} other {answered with a gateway or service error{has_httpStatus, select, yes { (HTTP {httpStatus})} other {}}}}. Whether the item was created is therefore unknown. To avoid a duplicate, {appName} does not blindly send the request again; the next attempt first checks what the target already holds."
+      },
+      "online_archive_not_covered": {
+        "title": "The online archive of this mailbox is not backed up",
+        "why": "This mailbox has an online archive (In-Place Archive). Microsoft Graph offers no generally available interface for it, so {appName} backs up the primary mailbox only. Mail that a retention policy or the user moves to the online archive is missing from new restore points from then on; older restore points keep it until their retention ends."
+      },
+      "online_archive_unknown": {
+        "title": "Whether this mailbox has an online archive could not be checked",
+        "why": "On every run {appName} asks Microsoft whether the mailbox has an online archive (In-Place Archive), because the archive is not backed up. This time Microsoft did not answer (for example the User.Read.All permission is missing or the beta interface is unavailable). If the mailbox has an archive, mail that a retention policy moves there is missing from new restore points from then on, without anything showing it. The next run asks again."
+      },
+      "group_event_attachments_not_covered": {
+        "title": "Attachments of events in the group calendar are not backed up",
+        "why": "{count, plural, one {# event} other {# events}} in this group's calendar {count, plural, one {has} other {have}} attachments. Microsoft Graph does not hand attachments of group events to the app, so {appName} backs up the events themselves only. A restore creates these events without their attachments."
+      },
+      "group_post_attachments_refused": {
+        "title": "Attachments of group posts were not backed up",
+        "why": "{count, plural, one {# post} other {# posts}} in this group's conversations {count, plural, one {has} other {have}} attachments that Microsoft Graph refused to the app. {appName} backed up the posts without these attachments; a restore or an export brings them back without them. If Graph hands the attachments out later, {appName} adds them on the next run."
+      },
+      "group_post_attachments_unreadable": {
+        "title": "Attachments of group posts could not be read",
+        "why": "{count, plural, one {# post} other {# posts}} in this group's conversations {count, plural, one {has} other {have}} attachments (a mail forwarded as an attachment, for example) that Microsoft did not deliver when asked. {appName} backed up the posts without these attachments and reads them again on the next run."
+      },
+      "group_calendar_windowed": {
+        "title": "The group calendar was read within a time window only",
+        "why": "Microsoft Graph refused the full event list of this group calendar to the app. {appName} therefore read it through the calendar view{has_windowStart, select, yes { from {windowStart}{has_windowEnd, select, yes { to {windowEnd}} other {}}} other { (five years back to two years ahead)}}. Events outside this window stay in the backup as they were last backed up; this run does not see changes or deletions there."
+      },
+      "mail_content_unchecked": {
+        "title": "The content of a changed message could not be checked",
+        "why": "This message changed since the last run. {appName} could not check whether only its flag, read state or category changed or its content (text, attachments) too, because Microsoft did not answer the request. The backup keeps the copy last backed up, and the next run checks the message again and downloads it again if its content changed."
+      },
+      "mail_stored_without_mime": {
+        "title": "A message is backed up without its original file for now",
+        "why": "Microsoft refused the original file (MIME) of this message with a server error over several runs. {appName} therefore backed up its content as JSON (text, headers and each attachment on its own): it can be restored, but an export as EML, MBOX or PST has no original file until then. The next runs ask for the original file again and replace the JSON copy as soon as Microsoft hands it out."
+      },
       "item_not_found": {
         "title": "The item was changed or deleted at Microsoft in the meantime",
         "why": "{appName} listed this item but could not read it afterwards, because it was moved or deleted at Microsoft in between. The next run sees the new state."
@@ -143,7 +179,7 @@
       },
       "item_incomplete": {
         "title": "Microsoft reported the item incompletely",
-        "why": "Microsoft reported this item without a name or without its folder. Without them {appName} cannot place it. This usually happens while the item is being moved, renamed or uploaded; the next run tries again."
+        "why": "Microsoft reported this item without a name, without its folder or without saying whether it is a file, a folder or a shortcut. Without them {appName} cannot place it or back it up. This usually happens while the item is being moved, renamed or uploaded; the next run tries again. If the failure stays, check the item in OneDrive or SharePoint."
       },
       "subscription_failed": {
         "title": "Microsoft 365 does not send change notifications for this mailbox",
@@ -203,6 +239,10 @@
         "title": "The IMAP server did not deliver a message",
         "why": "The server listed the message in the folder but did not return it when it was fetched. Usually it was deleted or moved in the meantime, or the server cut the fetch short because of a limit. The next run tries again."
       },
+      "gmail_all_mail_hidden": {
+        "title": "All Mail is hidden from IMAP for this Gmail account",
+        "why": "Gmail shows every label as an IMAP folder of its own. On Gmail, {appName} reads each message only once from [Gmail]/All Mail and records its labels. That folder is hidden from IMAP, so {appName} backed up folder by folder: each message is in the backup once per label, and a restore to another provider creates every one of those copies. Nothing is missing."
+      },
       "idle_unsupported": {
         "title": "The IMAP server does not offer IDLE",
         "why": "The server does not announce new mail as it arrives (IMAP IDLE). {appName} checks the account for new mail at regular intervals instead, so mail reaches the archive with the delay of that interval."
@@ -246,6 +286,10 @@
       "full": {
         "title": "The repository is full",
         "why": "There is no space left in the repository, or its quota is used up. {appName} cannot write new backup data until space is available."
+      },
+      "run_held": {
+        "title": "Held: this backup is unusually large",
+        "why": "This run would have added far more than this object usually does, or left its storage target too little free space, so {appName} stopped it before it could fill the storage. Nothing written so far is lost. Every further run of this object waits until an administrator decides."
       },
       "access_denied": {
         "title": "The storage service denied access",
@@ -331,6 +375,10 @@
         "title": "The catalogue of the latest backup cannot be read",
         "why": "{appName} could not read the list of what the latest backup contains. Without it nothing can be verified or restored from this backup."
       },
+      "manifest_missing": {
+        "title": "The catalogue of a backup is gone from storage",
+        "why": "The list of what the backup contains is missing on every storage target, although the targets still hold this tenant's other data: it was deleted there, for example by a lifecycle rule or a cleanup by hand. Without it nothing can be restored from this backup. Restore the file from a copy or a versioned bucket, or run a full backup."
+      },
       "no_snapshot": {
         "title": "There is no backup to restore yet",
         "why": "This object has no completed backup, so a restore would find nothing."
@@ -343,9 +391,25 @@
         "title": "The latest backup is getting old",
         "why": "The newest backup is {ageHours, plural, one {# hour} other {# hours}} old, which is more than a schedule normally leaves."
       },
+      "backup_incomplete": {
+        "title": "The checked backup is incomplete",
+        "why": "{has_count, select, yes {{count, plural, one {# item} other {# items}}} other {Some items}} could not be backed up by the run that made this backup. They are missing from it, even though everything else reads back fine; the run lists them with their cause. The next run tries them again."
+      },
+      "backup_incomplete_persistent": {
+        "title": "The same items are missing from every backup",
+        "why": "{has_count, select, yes {{count, plural, one {# item} other {# items}}} other {Some items}} could not be backed up in each of the last three runs. A restore would be incomplete until the cause is fixed; the run names it."
+      },
       "snapshot_empty": {
         "title": "Empty: nothing to restore",
         "why": "The latest backup holds only default folders or system pages and 0 bytes of content. This is no failure. An admin can confirm the object as empty, and it no longer counts as needing attention. Once a later backup holds content, it is rated like any other object again."
+      },
+      "snapshot_empty_source": {
+        "title": "Empty according to Microsoft 365 and to the backup: nothing to restore",
+        "why": "Microsoft 365 reports the object empty, measured before and after the backup, and the latest backup holds only default folders and 0 bytes. No confirmation is needed: the object counts as empty, not as needing attention. Once a later backup holds content, it is rated like any other object again."
+      },
+      "backup_missing_source_content": {
+        "title": "Microsoft 365 reports content, the backup holds none",
+        "why": "Microsoft 365 reports content for this object{has_count, select, yes { ({count, plural, one {# item} other {# items}})} other {}}, measured before and after the backup, but the latest backup holds only default folders and 0 bytes. A restore would bring back nothing. Start a full backup and check the latest run."
       },
       "nothing_to_verify": {
         "title": "The backup holds nothing a check can read back",
@@ -358,6 +422,10 @@
       "incomplete": {
         "title": "The restore check could not complete",
         "why": "{appName} could not read the backup data back, for a reason that says nothing about the backup itself. Nothing was rated and the last result stays as it was; the check is repeated automatically. The technical details name what failed."
+      },
+      "check_incomplete": {
+        "title": "The last restore checks could not complete",
+        "why": "{has_count, select, yes {{count, plural, one {The last check} other {The last # checks}}} other {The last checks}} of this backup could not read it back because the storage did not answer. Until a check completes, an earlier result no longer counts as proof that the backup can be restored."
       }
     },
     "config": {
@@ -416,6 +484,10 @@
       "interrupted": {
         "title": "The run was interrupted",
         "why": "{reason, select, shutdown {The worker was stopped or restarted while the run was in progress.} update {The run was stopped cleanly so that an update of {appName} could be installed.} expired {The run reached its time limit.} other {The run was interrupted before it finished.}} {final, select, yes {This was its last attempt, so the run ended as failed: its checkpoint was discarded and the next run starts over. Backups of earlier runs are not affected.} other {{appName} continues from the last checkpoint and keeps what was already saved. A stop by an update or a restart does not use up one of the run's attempts.}}"
+      },
+      "restore_mode_hold": {
+        "title": "The job was held after the database was restored",
+        "why": "The job was created before the database dump was restored, while restore mode is on. {appName} does not continue such jobs: the restored database may not know what the job did after the dump. Backups of earlier runs are not affected."
       }
     },
     "unknown": {
@@ -445,11 +517,19 @@
       },
       "snapshot_unavailable": {
         "title": "File system snapshots cannot be used on this machine",
-        "why": "The agent could not create any file system snapshot, for example because the Volume Shadow Copy service is disabled on Windows, the LVM or btrfs tools are missing on Linux, or the agent runs without administrator rights. Depending on the policy, the backup ran directly from the file system without a snapshot (a partial backup) or not at all."
+        "why": "The agent could not create any file system snapshot on this machine. On Windows (shadow copy, VSS), for example, the Volume Shadow Copy service is disabled or not installed, Windows denied the agent access to it (COM security, the agent not running as SYSTEM), or the shadow copy provider failed; on Linux, the LVM or btrfs tools are missing or the agent does not run as root. This is not a passing fault of one drive and stays until it is fixed on the machine. Depending on the policy, the backup ran directly from the file system without a snapshot (a partial backup) or not at all."
       },
       "layout_capture_failed": {
         "title": "The disk layout of the machine could not be recorded",
         "why": "A whole machine backup records the disk layout (partition tables, RAID, encryption, LVM, file systems, boot loader) before it backs up. That failed, for example because lsblk, blkid or sfdisk are missing on the machine. The mounted file systems were backed up anyway, so the backup is partial: the files are there, but this restore point cannot restore the machine onto new hardware."
+      },
+      "source_unreadable": {
+        "title": "A backup folder could not be read",
+        "why": "{has_path, select, yes {The backup path {path}} other {A backup path}} exists on the machine but could not be backed up, so it is missing from this backup. Usual reasons are a drive locked by BitLocker, a drive that is offline or not ready, missing permissions of the agent, or a link that restic does not follow. Any other paths of the run that could be read were backed up."
+      },
+      "source_is_mount_point": {
+        "title": "A backup folder is a volume without a drive letter",
+        "why": "{has_path, select, yes {{path}} other {A backup path}} is a folder at which a volume without a drive letter is mounted. restic would back up only the mount point, not the files on the volume, so it was not backed up. Any other paths of the run that could be read were backed up."
       },
       "timeout": {
         "title": "The run took too long",
@@ -522,6 +602,86 @@
       "repository_damaged": {
         "title": "The backup data is damaged",
         "why": "The integrity check found damaged or missing data among this machine's backups. Backups made from now on are not affected, but older data may not be restorable. The technical details show what the check reported."
+      },
+      "sql_instance_unreachable": {
+        "title": "The SQL Server instance could not be reached",
+        "why": "The agent could not connect to the instance over the local connection. Usually the SQL Server service of the instance is stopped or still starting. The next run tries again."
+      },
+      "sql_login_missing": {
+        "title": "The agent has no sign-in on SQL Server",
+        "why": "SQL Server gives neither the system account nor the administrators of the machine rights of their own, so the agent's service account needs a login on the instance. Until it has one, every connection fails with error 18456."
+      },
+      "sql_permission_missing": {
+        "title": "The agent lacks rights on SQL Server",
+        "why": "The agent signed in, but its login lacks a right the backup, the restore or the check needs (for example db_backupoperator on a database created after the rights were granted)."
+      },
+      "sql_powershell_constrained": {
+        "title": "The agent cannot connect: restricted script environment",
+        "why": "On this machine the script environment of Windows runs in Constrained Language Mode (often through application control such as WDAC). In that mode the agent cannot open a connection to SQL Server."
+      },
+      "sql_strict_encryption": {
+        "title": "The instance requires strict encryption",
+        "why": "The instance is set to strict encryption (TDS 8). The native backup does not connect to instances that require strict encryption."
+      },
+      "sql_fci_unsupported": {
+        "title": "Failover cluster instances are not supported",
+        "why": "The instance is part of a failover cluster. The native backup does not back up such instances."
+      },
+      "sql_mode_unsupported": {
+        "title": "The agent does not know this backup mode",
+        "why": "The backup job sets a mode of the native SQL Server backup that this agent does not know. It backs up nothing rather than something else."
+      },
+      "sql_staging_unusable": {
+        "title": "The staging folder cannot be used",
+        "why": "The staging folder must be a local folder on an NTFS drive with a drive letter, not a link and not below the Windows or program folders. Its parent folder must exist, and only SYSTEM and the Administrators may change it. The agent takes over a new or empty folder and marks it; a folder that already holds other files is refused, so nothing of anyone else is changed or deleted."
+      },
+      "sql_staging_too_small": {
+        "title": "Not enough space in the staging folder",
+        "why": "A database was not backed up because its backup needs more space in the staging folder than is free. The other databases were backed up."
+      },
+      "sql_database_unavailable": {
+        "title": "A database was not online",
+        "why": "The database was offline, restoring, in single-user mode or otherwise unavailable, so it was not backed up."
+      },
+      "sql_backup_failed": {
+        "title": "SQL Server could not make the backup",
+        "why": "BACKUP DATABASE ended with an error. The message of SQL Server is in the details."
+      },
+      "sql_snapshot_failed": {
+        "title": "The backup could not be stored",
+        "why": "The backup files were made, but storing them in the backup data failed. They stay in the staging folder until the next run."
+      },
+      "sql_script_failed": {
+        "title": "The SQL script of the agent ended unexpectedly",
+        "why": "The script the agent runs for SQL Server ended without a readable result. The details show what was received."
+      },
+      "sql_restore_name_taken": {
+        "title": "The new name is taken",
+        "why": "A database with the chosen name exists on the target instance. The restore never replaces an existing database."
+      },
+      "sql_restore_no_space": {
+        "title": "Not enough space for the restore",
+        "why": "The data or log folder of the target instance, or the restore staging folder, has less free space than the restore needs plus the reserve that stays free for the databases already on those volumes (at least 1 GiB or a tenth of the volume)."
+      },
+      "sql_restore_failed": {
+        "title": "The restore failed",
+        "why": "RESTORE DATABASE ended with an error. The message of SQL Server is in the details."
+      },
+      "sql_backup_mismatch": {
+        "title": "The backup does not match",
+        "why": "The file fetched from the backup data has another checksum than the one recorded when the backup was made, or the agent reported a backup without the facts needed to keep it."
+      },
+      "sql_verify_no_space": {
+        "title": "Not enough space for the check",
+        "why": "The check restores the backup under a check name and needs about the size of the data in free space, plus a reserve that stays free on the volumes of the data and log files (at least 1 GiB or a tenth of the volume) so the databases already there can keep growing. DBCC CHECKDB also needs room in tempdb. The check is incomplete, not failed: it rates nothing."
+      },
+      "sql_verify_timeout": {
+        "title": "The check took too long",
+        "why": "A step of the check ran longer than its limit and was stopped. The check is incomplete, not failed; the next one tries again."
+      },
+      "sql_verify_system_db": {
+        "title": "This system database cannot be checked",
+        "why": "A copy of this system database under another name cannot be restored, or is not checked correctly (for master, DBCC CHECKDB reports the server-level entries of its catalog as errors), so it cannot be checked this way."
       }
     },
     "share": {
@@ -617,6 +777,14 @@
         "title": "The restic repository of the share reported damage",
         "why": "restic reported that the share's repository is damaged or cannot be opened."
       },
+      "repository_unavailable": {
+        "title": "The share's repository is not complete on the primary storage target",
+        "why": "Its repository lies on another storage target, is split across targets (a run went on while the primary changed), or is on no target while restore points still refer to it. Nothing was backed up. Repositories › Repository repair shows where its parts are and rebuilds it on the primary where they allow."
+      },
+      "repository_repair_running": {
+        "title": "A repository repair is running",
+        "why": "A repository repair of this tenant is queued or running (Repositories › Repository repair). The share was not backed up so that the repair does not rebuild or move aside the repository while it is written to. The next scheduled run backs it up as usual."
+      },
       "quota_exceeded": {
         "title": "The storage budget for file share backups is used up",
         "why": "The budget of this share, or of all of the tenant's shares, is used up, so new backups are refused. Restores and copies keep working."
@@ -671,6 +839,9 @@
     "free_target_space": "Free up space in the target, or choose another target for the restore.",
     "check_app_password": "Check the username and the password in the source settings. If the provider requires two-step verification, create an app password and use that.",
     "enable_imap_access": "Make sure IMAP access is switched on for the account at the mail provider.",
+    "show_gmail_all_mail_in_imap": "In Gmail, open Settings > Labels and tick \"Show in IMAP\" for All Mail. The next run then backs up each message only once.",
+    "check_archive_policy": "Check whether a retention policy moves mail to the online archive. If needed, back up the archive another way (for example with an eDiscovery export), or keep the restore points for as long as you need that mail.",
+    "store_group_attachments_in_files": "Also keep important attachments in the files of the group (its SharePoint site); those are backed up with the site.",
     "reauthorize_oauth": "Connect the account again in the source settings so that {appName} receives a new OAuth token.",
     "set_object_password": "Set or correct the password of this account on the Protected objects page.",
     "check_host_reachable": "{has_host, select, yes {Check that {host}{has_port, select, yes {:{port}} other {}} is reachable from the {appName} server} other {Check that the server is reachable from the {appName} server}}: name, port, firewall and proxy.",
@@ -712,22 +883,37 @@
     "check_copy_target": "Check the copy job: its source and target share, the target folder and the mode. Use Copy anyway only when the source was emptied on purpose.",
     "wait_share_restore_check": "Wait for the restore check of the source's newest restore point, or start it now on the source share.",
     "raise_share_budget": "Raise the storage budget of the share or of the tenant's shares, or tighten the retention so older restore points are removed.",
+    "decide_held_backup": "Look at the held backup: let it continue once, raise the limit of this object, or switch the check off for it.",
+    "exclude_large_folder": "If a folder was added by mistake (a recycle bin, a download folder), exclude it in the object's backup settings.",
     "raise_runner_memory": "Raise the memory of the runners under Installation > Default repository & network shares > File share runners.",
     "raise_run_hours": "Raise the longest run time under Installation > Default repository & network shares > File share runners, or back up the share in smaller parts.",
     "start_mounter": "Make sure the mounter runs: start it with docker compose --profile mounts up -d mounter in the folder with docker-compose.yml, or enable it under Installation > Default repository & network shares.",
     "read_technical_details": "The technical details below show the exact answer.",
     "check_endpoint_paths": "Check that the folders in the machine's settings exist on the machine, or change the folders.",
+    "check_endpoint_source": "On the machine, open the folder named in the run: unlock a drive locked by BitLocker (manage-bde -unlock, or set it to unlock automatically), connect or switch on an offline drive, and check that the agent's account (SYSTEM for the RestowAgent service) may read it. For a link, add the folder it points to instead.",
+    "mount_endpoint_volume": "Give the volume a drive letter (Disk Management, or diskpart: assign letter=E) and add it to the backup by that letter, for example E:\\, instead of the folder it is mounted at.",
     "check_endpoint_hooks": "Run the before and after commands from the settings by hand on the machine as administrator and fix what fails.",
     "allow_endpoint_hooks": "On the machine, allow hooks as administrator: `sudo restow-agent hooks scripts` (only scripts in /etc/restow-agent/hooks.d) or `sudo restow-agent hooks any` (any command). Or remove the commands from the settings.",
     "check_endpoint_snapshot": "On a Windows machine, check the shadow copy as administrator: `vssadmin list writers` (every writer should be \"Stable\" with no error) and the Event Viewer under Windows Logs > Application, source VSS. On a Linux machine, check the free space of the volume group (`vgs`) or of the btrfs file system (`btrfs filesystem usage <mount>`) and the kernel log (`journalctl -k`). If another backup runs at the same time, move one of them.",
-    "check_endpoint_snapshot_service": "On a Windows machine, check that the Volume Shadow Copy (VSS) service is not disabled (startup type \"Manual\") and that the agent runs as the RestowAgent service. On a Linux machine, check that the LVM or btrfs tools are installed and the agent runs as root. To back up without a snapshot, switch it off in the machine's settings.",
+    "check_endpoint_snapshot_service": "On a Windows machine, open services.msc as administrator: the services \"Volume Shadow Copy\" (VSS) and \"Microsoft Software Shadow Copy Provider\" must not be disabled (startup type \"Manual\") and must start. If the run says that Windows denied access, check that the agent runs as the RestowAgent service under the SYSTEM account and that the COM security (dcomcnfg: Component Services > Computers > My Computer > Properties > COM Security) or a security product does not block it. The Event Viewer under Windows Logs > Application, sources VSS and VolSnap, names the error. On a Linux machine, check that the LVM or btrfs tools are installed and the agent runs as root. To back up without a snapshot, switch it off in the machine's settings.",
     "check_endpoint_layout_tools": "Install lsblk, blkid and sfdisk (util-linux/fdisk) on the machine, then run the backup again. The technical message names the part that failed.",
     "check_endpoint_agent": "Check that the agent service is running on the machine and that the machine can reach the server over HTTPS.",
     "check_endpoint_file_access": "Check the permissions of the files named in the run. Databases and other files that change while they are copied are best dumped by a command that runs before the backup.",
     "choose_empty_restore_folder": "Request the restore again and choose a folder that does not exist yet or is empty. A restore never overwrites files.",
     "wait_endpoint_retry": "Nothing to do. The agent tries again at its next scheduled run, or start one with Back up now.",
     "set_public_https_url": "Set a public URL starting with https:// under Installation › Server & operation (or RESTOW_PUBLIC_URL) that Microsoft can reach on port 443. {appName} then sets up change notifications by itself.",
-    "unlock_object": "If the object should be backed up again, assign the user a licence that includes OneDrive, or lift the lock in the SharePoint admin center. Backups resume by themselves after the next directory sync."
+    "unlock_object": "If the object should be backed up again, assign the user a licence that includes OneDrive, or lift the lock in the SharePoint admin center. Backups resume by themselves after the next directory sync.",
+    "start_again_if_needed": "Start the job again if it is still needed. New backups run as usual while restore mode is on.",
+    "create_sql_login": "Let a database administrator create the login for the agent on the instance: the SQL Server tab of the machine shows the T-SQL to run and offers to check the sign-in.",
+    "grant_sql_permissions": "Grant the missing rights: run the T-SQL of the small variant again for the new databases, or make the login a member of sysadmin.",
+    "start_sql_instance": "Check that the SQL Server service of the instance is running on the machine.",
+    "allow_sql_powershell": "Allow the agent's script in the application control of the machine, or ask your administrator. Until then, keep backing the databases up with your existing tool.",
+    "check_sql_encryption": "Turn strict encryption off for this instance, or keep backing it up with your existing tool.",
+    "check_sql_staging": "Choose a new or empty local NTFS folder with a drive letter as staging folder in the backup job, or leave the field empty for the agent's own folder.",
+    "free_sql_staging": "Free space on the drive of the staging folder, or choose a staging folder on a larger drive in the backup job.",
+    "check_sql_database": "Bring the database online, or leave it out in the backup job.",
+    "choose_sql_restore_name": "Choose another name for the restored database.",
+    "free_sql_restore_space": "Free space on the drives of the data and log folders of the instance, or choose a smaller backup."
   },
   "go": {
     "settings_microsoft": "Open Microsoft 365 settings",

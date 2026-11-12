@@ -36,6 +36,7 @@ import type {
   Reason,
   ReportDetail,
   ScrubFinding,
+  SourceStats,
   VerifyDetails,
 } from "@/features/verify/api";
 import { PackList } from "@/features/verify/components/pack-list";
@@ -215,6 +216,9 @@ function VerifyDetailsView({
                   <p className="text-muted-foreground">
                     {t("report.snapshot.items", { count: details.snapshot.itemCount })}
                   </p>
+                  {details.snapshot.source ? (
+                    <SourceFigures source={details.snapshot.source} format={format} />
+                  ) : null}
                 </>
               ) : (
                 <p className="text-muted-foreground">{t("report.snapshot.none")}</p>
@@ -762,6 +766,48 @@ export function ReportPage({ reportId }: { reportId: string }) {
       )}
 
       <HistoryCard objectId={report.object.id} currentId={report.id} format={format} />
+    </div>
+  );
+}
+
+/**
+ * What Microsoft 365 itself reported when the backup ran (0.5.0, core verify/source.ts): the
+ * root folder of a OneDrive (and its quota, which counts recycle bin and versions as well, for
+ * information only), or the items in a mailbox's folders. The verdict says what the rating made
+ * of it.
+ */
+function SourceFigures({ source, format }: { source: SourceStats; format: VerifyFormat }) {
+  const { t } = format;
+  const bytes = (value: number | null) => (value === null ? "–" : format.bytes(value));
+  return (
+    <div className="space-y-0.5 pt-1" data-slot="source-figures">
+      <p className="text-xs font-medium text-muted-foreground">{t("report.source.title")}</p>
+      {source.service === "onedrive" ? (
+        <>
+          <p className="text-muted-foreground">
+            {t("report.source.drive", {
+              before: bytes(source.rootBytesBefore),
+              after: bytes(source.rootBytesAfter),
+            })}
+          </p>
+          {source.quotaUsed !== null ? (
+            <p className="text-muted-foreground">
+              {t("report.source.quota", {
+                used: bytes(source.quotaUsed),
+                deleted: bytes(source.quotaDeleted),
+              })}
+            </p>
+          ) : null}
+        </>
+      ) : (
+        <p className="text-muted-foreground">
+          {t("report.source.mailbox", {
+            visible: format.integer(source.visibleItems ?? 0),
+            hidden: format.integer(source.hiddenItems ?? 0),
+          })}
+        </p>
+      )}
+      <p>{t(`report.source.verdict.${source.verdict}`)}</p>
     </div>
   );
 }

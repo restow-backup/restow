@@ -58,6 +58,9 @@ func ensureLayout(l Layout) error {
 	if err := EnsureProtectedDir(filepath.Dir(l.DataDir), ProtectedSDDL); err != nil {
 		return err
 	}
+	if err := EnsureProtectedDir(l.StateDir, ProtectedSDDL); err != nil {
+		return err
+	}
 	if err := EnsureProtectedDir(l.DataDir, DataDirSDDL); err != nil {
 		return err
 	}

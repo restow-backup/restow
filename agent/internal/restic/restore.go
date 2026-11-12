@@ -20,7 +20,12 @@ type RestoreOptions struct {
 	Target string
 	// Includes are snapshot paths (forward slashes, starting with /). Empty
 	// restores the whole snapshot.
-	Includes   []string
+	Includes []string
+	// Subfolder, when set, is a folder of the snapshot (forward slashes,
+	// starting with /) whose contents restic restores at the root of Target
+	// (restic's snapshotID:subfolder), instead of the whole path below it;
+	// Includes are then relative to it ("/file" is Subfolder/file).
+	Subfolder  string
 	OnProgress func(Progress)
 
 	// The options below are those of the bare-metal restore (recover,
@@ -44,8 +49,6 @@ type RestoreOptions struct {
 	// OwnershipByName restores owners by name instead of by number
 	// (--ownership-by-name).
 	OwnershipByName bool
-	// Subfolder restores only this folder of the snapshot (<id>:<path>).
-	Subfolder string
 	// NoVerify leaves out --verify (by default every restored file is read
 	// back and compared).
 	NoVerify bool
@@ -84,6 +87,10 @@ func RestoreArgs(o RestoreOptions) ([]string, error) {
 	if o.OwnershipByName {
 		args = append(args, "--ownership-by-name")
 	}
+	if o.Subfolder != "" && (!strings.HasPrefix(o.Subfolder, "/") || strings.ContainsRune(o.Subfolder, 0) ||
+		strings.Contains(o.Subfolder+"/", "/../") || strings.Contains(o.Subfolder+"/", "/./")) {
+		return nil, fmt.Errorf("restore: invalid snapshot folder %q (must start with /)", o.Subfolder)
+	}
 	total := 0
 	for _, inc := range o.Includes {
 		if !strings.HasPrefix(inc, "/") || strings.ContainsRune(inc, 0) {
@@ -111,9 +118,6 @@ func RestoreArgs(o RestoreOptions) ([]string, error) {
 	}
 	snap := o.SnapshotID
 	if o.Subfolder != "" {
-		if !strings.HasPrefix(o.Subfolder, "/") || strings.ContainsRune(o.Subfolder, 0) {
-			return nil, fmt.Errorf("restore: invalid subfolder %q", o.Subfolder)
-		}
 		snap += ":" + o.Subfolder
 	}
 	return append(args, snap), nil

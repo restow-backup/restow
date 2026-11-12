@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   BOOT_TEST_WEEKLY_MS,
@@ -5,11 +6,20 @@ import {
   DEFAULT_BOOT_TEST_TIMEOUT_SECONDS,
   MAX_BOOT_TEST_TIMEOUT_SECONDS,
   PVE_BOOT_TEST_CAPABILITY,
+  PVE_BOOT_TEST_REASON_OUTCOMES,
+  PVE_BOOT_TEST_TRANSIENT_REASONS,
   pveBootTestDue,
+  pveBootTestOutcomeOf,
+  pveBootTestOverdueMs,
   pveBootTestPlan,
   pveBootTestRating,
+  pveBootTestRetry,
   pveBootTestTaskParams,
+  pveBootTestTransient,
   pveNodeDeclares,
+  pveRestoreCheckBlocker,
+  pveRestoreCheckSkipRetryMs,
+  pveRestorePointPrivileged,
   pveRestorePointRating,
 } from "./boot-test.js";
 
@@ -177,5 +187,214 @@ describe("the task a node gets", () => {
       dataBytes: 5000,
       diskBytes: 5000,
     });
+  });
+});
+
+describe("pveRestoreCheckBlocker", () => {
+  const now = new Date("2030-05-06T12:00:00Z");
+  const seen = (minutesAgo: number) => new Date(now.getTime() - minutesAgo * 60_000);
+  it("lets a node run a restore check only with restores allowed and seen lately", () => {
+    expect(pveRestoreCheckBlocker({ facts: {}, lastSeenAt: seen(1) }, now)).toBeNull();
+    expect(
+      pveRestoreCheckBlocker({ facts: { restoresAllowed: true }, lastSeenAt: seen(9) }, now),
+    ).toBeNull();
+    expect(
+      pveRestoreCheckBlocker({ facts: { restoresAllowed: false }, lastSeenAt: seen(1) }, now),
+    ).toBe("restores_off");
+    expect(pveRestoreCheckBlocker({ facts: {}, lastSeenAt: seen(11) }, now)).toBe("node_offline");
+    expect(pveRestoreCheckBlocker({ facts: {}, lastSeenAt: null }, now)).toBe("node_offline");
+    expect(pveRestoreCheckBlocker(null, now)).toBe("no_node");
+  });
+});
+
+describe("pveBootTestRetry", () => {
+  const at = (minutesAgo: number) => new Date(NOW.getTime() - minutesAgo * 60_000);
+  const skip = (reason: string, minutesAgo: number) => ({
+    outcome: "skipped",
+    reason,
+    startedAt: at(minutesAgo),
+  });
+  it("retries a transient skip or an error with a doubling wait, and gives up after five", () => {
+    expect(pveBootTestRetry([])).toMatchObject({ tested: false, retryAt: null });
+    expect(pveBootTestRetry([skip("backup_running", 10)])).toEqual({
+      tested: false,
+      retryAt: at(-20),
+      attempts: 1,
+      gaveUp: false,
+    });
+    const twice = pveBootTestRetry([
+      { outcome: "error", reason: "node_error", startedAt: at(10) },
+      skip("node_memory", 100),
+    ]);
+    expect(twice).toMatchObject({ tested: false, attempts: 2, retryAt: at(-50) });
+    const five = [1, 2, 3, 4, 5].map((n) => skip("boot_test_running", n * 60));
+    expect(pveBootTestRetry(five)).toMatchObject({ tested: true, gaveUp: true });
+    // The wait is capped at six hours.
+    expect(pveBootTestRetry(five.slice(0, 4), { maxMs: 60 * 60_000 }).retryAt).toEqual(at(0));
+  });
+
+  it("counts an outcome that stands as tested: rated, a permanent skip, one going", () => {
+    expect(pveBootTestRetry([{ outcome: "green", reason: "", startedAt: at(5) }]).tested).toBe(
+      true,
+    );
+    expect(pveBootTestRetry([skip("memory_limit", 5)]).tested).toBe(true);
+    expect(pveBootTestRetry([{ outcome: null, reason: "", startedAt: at(5) }]).tested).toBe(true);
+    // A transient skip after a red one is retried: only the attempts since count.
+    expect(
+      pveBootTestRetry([
+        skip("backup_running", 5),
+        { outcome: "red", reason: "", startedAt: at(90) },
+      ]).tested,
+    ).toBe(false);
+  });
+
+  it("raises the overdue alert after two days (after every backup) or eight (weekly)", () => {
+    expect(pveBootTestOverdueMs("after_backup")).toBe(2 * 24 * 60 * 60 * 1000);
+    expect(pveBootTestOverdueMs("weekly")).toBe(8 * 24 * 60 * 60 * 1000);
+    expect(pveBootTestOverdueMs("off")).toBeNull();
+  });
+});
+
+describe("a restore point of a privileged container", () => {
+  const ct = (guestConfig: string) => ({ kind: "ct", guestConfig });
+
+  it("is decided by the restore point's own configuration, not by the guest now", () => {
+    expect(pveRestorePointPrivileged(ct("arch: amd64\nunprivileged: 1\n"), true)).toBe(false);
+    expect(pveRestorePointPrivileged(ct("arch: amd64\nhostname: db\n"), false)).toBe(true);
+    expect(pveRestorePointPrivileged(ct("arch: amd64\nunprivileged: 0\n"), false)).toBe(true);
+    // Only the main section counts, not a snapshot's.
+    expect(
+      pveRestorePointPrivileged(ct("arch: amd64\n\n[before-upgrade]\nunprivileged: 1\n"), false),
+    ).toBe(true);
+    expect(pveRestorePointPrivileged(ct("unprivileged: 1\n\n[old]\narch: amd64\n"), true)).toBe(
+      false,
+    );
+  });
+
+  it("falls back to the inventory's flag without a configuration, and never blocks a VM", () => {
+    expect(pveRestorePointPrivileged(ct(""), true)).toBe(true);
+    expect(pveRestorePointPrivileged(ct(""), false)).toBe(false);
+    expect(pveRestorePointPrivileged({ kind: "vm", guestConfig: "" }, true)).toBe(false);
+  });
+});
+
+/** The reasons restow-pve sends: the constants of agent/internal/pve/bootreasons.go. */
+function agentBootTestReasons(): Map<string, string> {
+  const source = readFileSync(
+    new URL("../../../../agent/internal/pve/bootreasons.go", import.meta.url),
+    "utf8",
+  );
+  const block = /\nconst \(([\s\S]*?)\n\)/.exec(source)?.[1] ?? "";
+  const reasons = new Map<string, string>();
+  let group = "";
+  for (const line of block.split("\n")) {
+    const comment = /^\s*\/\/\s*(green|yellow|red|skipped|error)\b/.exec(line);
+    if (comment?.[1]) {
+      group = comment[1];
+    }
+    const constant = /^\s*reason\w+\s*=\s*"([a-z_]+)"\s*$/.exec(line);
+    if (constant?.[1]) {
+      reasons.set(constant[1], group);
+    }
+  }
+  return reasons;
+}
+
+describe("the boot test reasons of the node and the server", () => {
+  const agent = agentBootTestReasons();
+  // A node before 0.5.0 still sends these; the server records node_error itself.
+  const older = ["init_running"];
+  const server = ["node_error"];
+
+  it("reads the reasons of the Go agent", () => {
+    expect(agent.size).toBeGreaterThan(20);
+    expect(agent.get("agent_answered")).toBe("green");
+    expect(agent.get("storage_io_error")).toBe("skipped");
+  });
+
+  it("knows every reason restow-pve sends, with the outcome the node files it under", () => {
+    for (const [reason, group] of agent) {
+      expect(PVE_BOOT_TEST_REASON_OUTCOMES[reason], reason).toBe(group);
+    }
+  });
+
+  it("lists no reason that no node sends", () => {
+    for (const reason of Object.keys(PVE_BOOT_TEST_REASON_OUTCOMES)) {
+      expect(agent.has(reason) || older.includes(reason) || server.includes(reason), reason).toBe(
+        true,
+      );
+    }
+    for (const reason of PVE_BOOT_TEST_TRANSIENT_REASONS) {
+      expect(PVE_BOOT_TEST_REASON_OUTCOMES[reason], reason).toBe("skipped");
+    }
+  });
+});
+
+describe("what a boot test's reason stands for", () => {
+  it("never reads green for a reason that proves nothing", () => {
+    for (const reason of [
+      "custom_qemu_args",
+      "host_disk",
+      "bridge_not_isolated",
+      "node_resources",
+      "storage_space",
+      "storage_io_error",
+    ]) {
+      expect(pveBootTestOutcomeOf("green", reason)).toBe("skipped");
+      expect(pveBootTestOutcomeOf("red", reason)).toBe("skipped");
+    }
+    expect(pveBootTestOutcomeOf("red", "node_error")).toBe("error");
+    for (const reason of [
+      "no_guest_agent",
+      "agent_not_answering",
+      "guest_paused",
+      "system_degraded",
+      "system_starting",
+      "system_unknown",
+      "init_running_unverified",
+      "init_unknown",
+    ]) {
+      expect(pveBootTestOutcomeOf("green", reason)).toBe("yellow");
+      // A yellow reason never makes a red any better.
+      expect(pveBootTestOutcomeOf("red", reason)).toBe("red");
+    }
+    for (const reason of [
+      "restore_failed",
+      "start_failed",
+      "guest_stopped",
+      "guest_panicked",
+      "guest_internal_error",
+      "system_maintenance",
+    ]) {
+      expect(pveBootTestOutcomeOf("green", reason)).toBe("red");
+      expect(pveBootTestOutcomeOf("yellow", reason)).toBe("red");
+    }
+  });
+
+  it("keeps the node's outcome for a proof and for a reason it does not know", () => {
+    expect(pveBootTestOutcomeOf("green", "agent_answered")).toBe("green");
+    expect(pveBootTestOutcomeOf("green", "system_running")).toBe("green");
+    expect(pveBootTestOutcomeOf("green", "init_running")).toBe("green");
+    // A proof never makes anything better.
+    expect(pveBootTestOutcomeOf("yellow", "agent_answered")).toBe("yellow");
+    expect(pveBootTestOutcomeOf("yellow", "a_reason_of_a_newer_node")).toBe("yellow");
+    expect(pveBootTestOutcomeOf("green", "")).toBe("green");
+  });
+
+  it("tries a test skipped for the node's resources or the storage's I/O again", () => {
+    expect(pveBootTestTransient({ outcome: "skipped", reason: "node_resources" })).toBe(true);
+    expect(pveBootTestTransient({ outcome: "skipped", reason: "storage_io_error" })).toBe(true);
+    expect(pveBootTestTransient({ outcome: "skipped", reason: "custom_qemu_args" })).toBe(false);
+    expect(pveBootTestTransient({ outcome: "error", reason: "node_error" })).toBe(true);
+  });
+});
+
+describe("the wait after a skipped restore check", () => {
+  it("is a day, then doubles for the same reason in a row, at most a week", () => {
+    const day = 24 * 60 * 60 * 1000;
+    expect([1, 2, 3, 4, 5, 9].map((n) => pveRestoreCheckSkipRetryMs(n) / day)).toEqual([
+      1, 2, 4, 7, 7, 7,
+    ]);
+    expect(pveRestoreCheckSkipRetryMs(0)).toBe(day);
   });
 });

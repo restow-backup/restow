@@ -64,6 +64,10 @@ export type ItemCheck = {
   reason: string | null;
   /** The classified cause of anything but `verified` (why, what to do). */
   cause?: FailureCause;
+  /** Parts read back with the object (attachments, file versions), when it has any. */
+  parts?: number;
+  /** The part that failed, when the object itself read back fine. */
+  failedPart?: string;
 };
 
 function base(
@@ -177,4 +181,46 @@ function damagedCause(error: unknown): FailureCause {
   return cause.code.startsWith("crypto.")
     ? cause
     : buildCause("verify.pack_unreadable", {}, cause.technical);
+}
+
+/**
+ * Read an object back and then each of its parts (the attachments of a JSON-format message,
+ * the versions of a file; sampling.ts). A part that fails fails the object, with the part's
+ * status, cause and path; a part read that proves nothing makes the whole read inconclusive.
+ */
+export async function checkObjectWithParts(
+  reader: ChunkReader,
+  object: ManifestObject,
+  category: SampleCategory,
+  parts: readonly ManifestObject[] = [],
+): Promise<ItemCheck | InconclusiveRead> {
+  const main = await checkObject(reader, object, category);
+  if (main.status !== "verified" || parts.length === 0) {
+    return main;
+  }
+  let bytesRead = main.bytesRead;
+  for (const part of parts) {
+    const check = await checkObject(reader, part, category);
+    if (check.status === "inconclusive") {
+      return {
+        ...check,
+        path: object.path,
+        id: object.id ?? null,
+        reason: `${part.path}: ${check.reason}`,
+      };
+    }
+    bytesRead += check.bytesRead;
+    if (check.status !== "verified") {
+      return {
+        ...main,
+        bytesRead,
+        status: check.status,
+        reason: `${part.path}: ${check.reason ?? check.status}`,
+        ...(check.cause ? { cause: check.cause } : {}),
+        parts: parts.length,
+        failedPart: part.path,
+      };
+    }
+  }
+  return { ...main, bytesRead, parts: parts.length };
 }

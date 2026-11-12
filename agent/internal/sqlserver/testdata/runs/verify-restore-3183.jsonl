@@ -1,0 +1,5 @@
+{"type":"progress","step":"restore","percent":10}
+{"type":"progress","step":"restore","percent":50}
+{"type":"progress","step":"restore","percent":100}
+{"type":"result","data":{"restore":{"ok":false,"errors":[{"number":3183,"severity":16,"state":1,"message":"RESTORE detected an error on page (1:312) in database \"Sales__restow_verify_20261108T030000Z\" as read from the backup set."},{"number":3013,"severity":16,"state":1,"message":"RESTORE DATABASE is terminating abnormally."}]},"checkdb":null,"newBroker":true,"dropped":true}}
+#exit 0

@@ -246,7 +246,8 @@ export async function renewSubscriptions(
 /** Answer a `reauthorizationRequired` lifecycle notification. Throws {@link GraphError}. */
 export async function reauthorizeSubscription(client: GraphClient, id: string): Promise<void> {
   const url = `/subscriptions/${encodeURIComponent(id)}/reauthorize`;
-  const response = await client.request({ method: "POST", url });
+  // Reauthorizing twice changes nothing.
+  const response = await client.request({ method: "POST", url, idempotent: true });
   if (response.status < 200 || response.status >= 300) {
     throw errorOf(response, "POST", url);
   }

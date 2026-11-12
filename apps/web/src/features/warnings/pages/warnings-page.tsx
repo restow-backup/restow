@@ -25,6 +25,7 @@ import {
 import { LinkButton } from "@/features/dashboard/components/link-button";
 import { directoryPath } from "@/features/directory/search";
 import { useCauseTitle } from "@/features/failures";
+import { HeldBackupsSection } from "@/features/held-backups";
 import { HISTORY_PATH } from "@/features/jobs/paths";
 import { PVE_PATH } from "@/features/pve/paths";
 import { formatDateTime, formatInteger, formatRelative } from "@/lib/format";
@@ -101,6 +102,8 @@ export function WarningsPage({ state }: { state: "open" | "acknowledged" }) {
           ) : null
         }
       />
+      {/* Backups the size and space guard held (#99): decided here. */}
+      {state === "open" ? <HeldBackupsSection /> : null}
       {query.data && query.data.counts.failed > 0 ? (
         <Alert variant="destructive" data-slot="failed-hint">
           <TriangleAlert />

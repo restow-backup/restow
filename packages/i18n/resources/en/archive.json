@@ -100,7 +100,8 @@
     "empty": "Nothing to verify yet: the archive is empty.",
     "links": {
       "ok": "Links: {count, plural, one {# entry} other {all # entries}} chained without a gap. This checked the checksums stored in the database.",
-      "broken": "Chain broken at entry {position} of {total}: “{subject}”, received on {date}."
+      "broken": "Chain broken at entry {position} of {total}: “{subject}”, received on {date}.",
+      "deleted": "Of these, {count, plural, one {# entry was} other {# entries were}} deleted after the retention period, last on {date}. Every deletion is in the audit log and its chain link is kept; this is not a break of the chain."
     },
     "noSubject": "no subject",
     "openItem": "Open message",
@@ -115,15 +116,20 @@
     "content": {
       "skipped": "Content: not read. The check above covers only the checksums in the database. Whether the messages in storage are unchanged is what the sample shows.",
       "ok": "Content: {count, plural, one {# message} other {# messages}} read from storage, each matches its checksum.",
-      "failed": "Content: {failed} of {total} messages read do not match their checksum or could not be read.",
+      "failed": "Content: {failed} of {total} messages read are missing, damaged or do not match their checksum.",
       "notRecorded": "{count, plural, one {# message of the sample was archived before its repository was recorded and could not be compared.} other {# messages of the sample were archived before their repository was recorded and could not be compared.}}",
-      "none": "Content: no message of the sample could be compared."
+      "none": "Content: no message of the sample could be compared.",
+      "inconclusive": "{count, plural, one {# message of the sample} other {# messages of the sample}} could not be read from storage (no answer, timeout or an error of the storage); that proves nothing about the content. Run the check again.",
+      "notChecked": "Content: not checked. Storage did not deliver the messages of the sample (no answer, timeout or an error of the storage); that proves nothing about their content. Run the check again."
     },
     "problem": {
       "mismatch": "Content differs from its checksum",
       "unreadable": "Not readable from storage",
-      "not_recorded": "Repository not recorded"
-    }
+      "not_recorded": "Repository not recorded",
+      "missing": "Missing from storage",
+      "damaged": "Stored data damaged"
+    },
+    "inconclusive": "Not checked, please run again"
   },
   "legalHold": {
     "title": "Legal holds",
@@ -290,7 +296,8 @@
     "recipient-classification-degraded": "To/Cc/Bcc could not be determined for every recipient",
     "recipients-truncated": "More than 100,000 recipients; only the first 100,000 are listed (the archived report keeps all of them)",
     "captured-late": "Captured afterwards: in the mailbox before capture started",
-    "message-id-conflict": "Another archived mail has the same Message-ID but different content"
+    "message-id-conflict": "Another archived mail has the same Message-ID but different content",
+    "journal-shaped": "Built like a journal report but not accepted as one (no X-MS-Journal-Report at the tenant's journal address); archived as received"
   },
   "protection": {
     "title": "Protection of the archive storage",
@@ -375,10 +382,15 @@
       "last7Days": "7 days",
       "value": "{items} new, {count, plural, one {# again} other {# again}}"
     },
+    "gaps": {
+      "way": "{count, plural, one {# mailbox is} other {# mailboxes are}} incomplete: {gaps} folders or messages could not be taken in and are not in the archive.",
+      "mailbox": "Incomplete: {count, plural, one {# folder or message} other {# folders or messages}} not in the archive"
+    },
     "backfill": {
       "label": "Existing mail taken over",
       "progress": "Existing mail taken over: {completed} of {total} mailboxes",
-      "late": "{count, plural, one {# mail} other {# mails}} in the last 7 days captured afterwards"
+      "late": "{count, plural, one {# mail} other {# mails}} in the last 7 days captured afterwards",
+      "stalled": "{count, plural, one {# mailbox has} other {# mailboxes have}} been taking over existing mail for more than 48 hours or after an error; their older mail is not in the archive yet. {appName} tries again by itself."
     },
     "mailboxes": {
       "title": "Per mailbox",
@@ -397,6 +409,7 @@
         "poll": "checked at intervals"
       },
       "backfillDone": "Existing mail taken over",
+      "backfillStalled": "Takeover stuck: older mail not in the archive yet",
       "resync": "Catch up",
       "resyncFor": "Catch up {mailbox} completely",
       "resyncDone": "{mailbox} is caught up on the next pass.",

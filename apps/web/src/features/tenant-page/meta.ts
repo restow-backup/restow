@@ -8,12 +8,14 @@ import {
   Hourglass,
   LayoutDashboard,
   type LucideIcon,
+  Palette,
   Plug,
   Shield,
   Users,
   Webhook,
 } from "lucide-react";
 
+import { type ModuleId, withShownModules } from "@/lib/modules";
 import type { TenantSectionId } from "@/lib/tenant-paths";
 
 /**
@@ -25,8 +27,8 @@ import type { TenantSectionId } from "@/lib/tenant-paths";
  *
  *   10 Overview   20 Connections   30 Protection   40 Jobs & schedules
  *   50 Backup retention   60 Storage   70 Agents   80 Archive
- *   90 Notifications   100 Integrations   110 Members   120 Audit log (extension)
- *   130 Master data
+ *   90 Notifications   95 Branding (provider administrators)   100 Integrations
+ *   110 Members   120 Audit log (extension)   130 Master data
  */
 
 export interface TenantSectionMeta {
@@ -37,6 +39,17 @@ export interface TenantSectionMeta {
   readonly descriptionKey: string;
   readonly icon: LucideIcon;
   readonly order: number;
+  /**
+   * Only for provider administrators (0.5.0, the tenant's own branding): the tenant's own
+   * administrators never see the section, in the sub-navigation, the overview or the palette.
+   */
+  readonly providerOnly?: boolean;
+  /**
+   * The modules of the installation the section belongs to (lib/modules.ts): while none of them
+   * is on it is left out of the sub-navigation, the overview's links and the palette, and still
+   * opens by its address.
+   */
+  readonly modules?: readonly ModuleId[];
 }
 
 export const TENANT_SECTION_META: readonly TenantSectionMeta[] = [
@@ -49,6 +62,8 @@ export const TENANT_SECTION_META: readonly TenantSectionMeta[] = [
   },
   {
     id: "connections",
+    // What mail comes from: Microsoft 365, IMAP and the mail file imports.
+    modules: ["microsoft365", "imap", "archive"],
     labelKey: "tenantpage:sections.connections",
     descriptionKey: "tenantpage:descriptions.connections",
     icon: Plug,
@@ -56,6 +71,7 @@ export const TENANT_SECTION_META: readonly TenantSectionMeta[] = [
   },
   {
     id: "protection",
+    modules: ["microsoft365", "imap"],
     labelKey: "tenantpage:sections.protection",
     descriptionKey: "tenantpage:descriptions.protection",
     icon: Shield,
@@ -84,6 +100,7 @@ export const TENANT_SECTION_META: readonly TenantSectionMeta[] = [
   },
   {
     id: "agents",
+    modules: ["endpoints"],
     labelKey: "tenantpage:sections.agents",
     descriptionKey: "tenantpage:descriptions.agents",
     icon: Boxes,
@@ -91,6 +108,7 @@ export const TENANT_SECTION_META: readonly TenantSectionMeta[] = [
   },
   {
     id: "archive",
+    modules: ["archive"],
     labelKey: "tenantpage:sections.archive",
     descriptionKey: "tenantpage:descriptions.archive",
     icon: Archive,
@@ -102,6 +120,14 @@ export const TENANT_SECTION_META: readonly TenantSectionMeta[] = [
     descriptionKey: "tenantpage:descriptions.notifications",
     icon: BellRing,
     order: 90,
+  },
+  {
+    id: "branding",
+    labelKey: "tenantpage:sections.branding",
+    descriptionKey: "tenantpage:descriptions.branding",
+    icon: Palette,
+    order: 95,
+    providerOnly: true,
   },
   {
     id: "integrations",
@@ -125,6 +151,21 @@ export const TENANT_SECTION_META: readonly TenantSectionMeta[] = [
     order: 130,
   },
 ];
+
+/**
+ * The core's sections the viewer is offered: the provider's own only for provider admins, and
+ * none of a module of the installation that is off (`enabledModules`, the session's; absent or
+ * null leaves none out).
+ */
+export function visibleSectionMeta(
+  isProviderAdmin: boolean,
+  enabledModules?: readonly ModuleId[] | null,
+): readonly TenantSectionMeta[] {
+  return withShownModules(
+    TENANT_SECTION_META.filter((meta) => isProviderAdmin || !meta.providerOnly),
+    enabledModules,
+  );
+}
 
 export function sectionMeta(id: string): TenantSectionMeta | undefined {
   return TENANT_SECTION_META.find((meta) => meta.id === id);

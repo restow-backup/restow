@@ -1,14 +1,17 @@
 import { createHash } from "node:crypto";
 import type { Readable } from "node:stream";
 import {
+  appFilesNotices,
   type DirectoryPosition,
   ENDPOINT_QUEUES,
   type EndpointJobPayload,
+  endpointPrefix,
   endpointQuotaLimits,
   endpointSingletonKey,
   enrollmentTokenExpiry,
   enrollmentTokenState,
   generateEnrollmentToken,
+  hasSqlCapability,
   isAgentStatePath,
   isKeyFilePath,
   isSupportedEndpointOs,
@@ -40,6 +43,7 @@ import {
   endpointEnrollmentTokens,
   endpointReports,
   endpointRuns,
+  endpointSamples,
   endpointSnapshotFlags,
   endpoints,
   endpointTasks,
@@ -50,6 +54,7 @@ import { and, desc, eq, gt, inArray, isNotNull, isNull, lt, ne, or, sql } from "
 import { z } from "zod";
 import { config as appConfig } from "../../config.js";
 import { audit } from "../../lib/audit.js";
+import { readSecret } from "../../lib/secrets.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
 import { decodeCursor, encodeCursor } from "../../routes/v1/cursor.js";
@@ -57,6 +62,12 @@ import { sameJson } from "../backup-jobs/json.js";
 import { jobRetentionOf, jobsOfEndpoints, jobWithOverridesOf } from "../backup-jobs/membership.js";
 import { pgBossExecutor } from "../jobs/pg-boss-tx.js";
 import { isMissingQueueSchema, jobQueue } from "../jobs/queue.js";
+import {
+  type ReadFrom,
+  readFromOf,
+  repositorySource,
+  snapshotOnSource,
+} from "../storage/repository-source.js";
 import { auditEndpoint, ENDPOINT_AUDIT_ACTIONS, type EndpointActor } from "./audit.js";
 import { bandwidthWindowsProblem } from "./bandwidth.js";
 import { keyFilesForSnapshot, loadKeyFiles } from "./baremetal.js";
@@ -103,6 +114,7 @@ import { isInsecureTransport } from "./instance-url.js";
 import { ENDPOINT_PROBLEMS } from "./problems.js";
 import { loadEndpointReadiness } from "./readiness.js";
 import { activeRecoveriesOf } from "./recovery-codes.js";
+import { pendingBackupDeletion } from "./removal.js";
 import { holdRepositoryForRead, repositoryAccess } from "./repository.js";
 import { resticGate } from "./restic-gate.js";
 import { resticProblem } from "./restic-problem.js";
@@ -541,6 +553,7 @@ export async function getEndpoint(
               expiresAt: endpoint.removal.expiresAt ?? null,
             }
           : null,
+      backupDeletion: pendingBackupDeletion(endpoint),
       config: toConfigDto(
         options.revealHooks ? endpoint.config : { ...endpoint.config, hooks: {} },
         { os: endpoint.os, baremetalPreview: appConfig.baremetalPreview },
@@ -549,6 +562,12 @@ export async function getEndpoint(
       agentConfigVersion: endpoint.agentConfigVersion,
       dataFolders: dataFoldersOf(endpoint, membership),
       machine: machineOf(endpoint),
+      appNotices: appFilesNotices(endpoint.settings.agent?.machine?.windows, endpoint.config.sql),
+      sqlNative: {
+        capable:
+          endpoint.os === "windows" && hasSqlCapability(endpoint.settings.agent?.capabilities),
+        enabled: endpoint.config.sql?.enabled === true,
+      },
       settings: effectiveSettings(endpoint.settings),
       problems: problemsOf(endpoint, runs[0] ?? null, readinessOf(readiness, id), now),
       runs: runs.map((run) => toRunSummary(run, rated)),
@@ -1214,6 +1233,41 @@ export async function revokeEndpoint(
 
 const FULL_SNAPSHOT_ID = /^[0-9a-f]{64}$/i;
 
+/**
+ * Where a machine's restore reads when the primary no longer holds its repository, and the id
+ * under which that target holds the snapshot (`snapshotId` may be the id the runs recorded on
+ * the primary, or the copy's own, as the snapshot list shows it then). Null on the primary.
+ */
+async function restoreFromCopy(
+  database: Database,
+  tenantId: string,
+  endpointId: string,
+  snapshotId: string,
+): Promise<{ readFrom: ReadFrom; snapshotId: string } | null> {
+  const source = await repositorySource(tenantId, endpointPrefix(endpointId));
+  const readFrom = readFromOf(source);
+  if (!readFrom) {
+    return null;
+  }
+  const endpoint = await withTenantTx(database, tenantId, (tx) =>
+    loadEndpoint(tx, tenantId, endpointId),
+  );
+  const password = endpoint.repositorySecretId
+    ? await readSecret(database, { id: endpoint.repositorySecretId, tenantId })
+    : null;
+  if (password === null) {
+    return null;
+  }
+  return {
+    readFrom,
+    snapshotId: await snapshotOnSource(
+      source,
+      { prefix: endpointPrefix(endpointId), password, repositoryKey: endpointId },
+      snapshotId,
+    ),
+  };
+}
+
 export async function createTask(
   database: Database,
   tenantId: string,
@@ -1222,6 +1276,13 @@ export async function createTask(
   actor: SnapshotReader,
   now: Date = new Date(),
 ): Promise<{ task: TaskDto; alreadyQueued: boolean }> {
+  // A restore while the primary no longer holds the repository reads its copy on a copy target
+  // (docs/STORAGE.md, "Restoring from a copy"): the task names the snapshot by the id that
+  // repository holds it under, and says which target it reads.
+  const fromCopy =
+    input.kind === "restore" && FULL_SNAPSHOT_ID.test(input.snapshotId)
+      ? await restoreFromCopy(database, tenantId, id, input.snapshotId)
+      : null;
   return withTenantTx(database, tenantId, async (tx) => {
     const endpoint = await loadEndpoint(tx, tenantId, id);
     if (endpoint.status !== "active") {
@@ -1279,9 +1340,10 @@ export async function createTask(
     const params: Record<string, unknown> =
       input.kind === "restore"
         ? {
-            snapshotId: input.snapshotId,
+            snapshotId: fromCopy?.snapshotId ?? input.snapshotId,
             paths: input.paths,
             ...(input.targetDir ? { targetDir: input.targetDir } : {}),
+            ...(fromCopy ? { readFrom: fromCopy.readFrom } : {}),
           }
         : {};
     const [task] = await tx
@@ -1313,10 +1375,11 @@ export async function createTask(
         taskId: task.id,
         ...(input.kind === "restore"
           ? {
-              snapshotId: input.snapshotId,
+              snapshotId: fromCopy?.snapshotId ?? input.snapshotId,
               paths: input.paths.slice(0, 50),
               pathCount: input.paths.length,
               targetDir: input.targetDir ?? null,
+              ...(fromCopy ? { readFrom: fromCopy.readFrom } : {}),
             }
           : {}),
       },
@@ -1413,6 +1476,24 @@ export async function requestRestoreTest(
       throw new ProblemError(409, "Nothing to test", {
         type: ENDPOINT_PROBLEMS.nothingToTest,
         detail: "The endpoint has no good backup to test yet.",
+      });
+    }
+    // Without sample files the worker has nothing to read back: say so instead of queueing a
+    // test that ends without a result.
+    const [sample] = await tx
+      .select({ id: endpointSamples.id })
+      .from(endpointSamples)
+      .where(
+        and(
+          eq(endpointSamples.endpointId, id),
+          eq(endpointSamples.snapshotId, endpoint.lastSnapshotId),
+        ),
+      )
+      .limit(1);
+    if (!sample) {
+      throw new ProblemError(409, "No sample files", {
+        type: ENDPOINT_PROBLEMS.noSamples,
+        detail: "The newest backup recorded no sample files, so no restore test of it is possible.",
       });
     }
     const payload: EndpointJobPayload = { tenantId, endpointId: id, force: true };
@@ -1571,6 +1652,10 @@ export async function listSnapshots(
     }
     return bySnapshot;
   });
+  // Read from a repository copy (the primary lost the repository, docs/STORAGE.md "restic
+  // repositories on copies"), a snapshot has an id of its own; what the server recorded about
+  // it is filed under the primary's id, which `restic copy` keeps as `original`.
+  const recordedId = (snapshot: (typeof snapshots)[number]) => snapshot.original ?? snapshot.id;
   return {
     items: snapshots.map((snapshot) => ({
       id: snapshot.id,
@@ -1581,9 +1666,9 @@ export async function listSnapshots(
       filesNew: snapshot.filesNew,
       totalFilesProcessed: snapshot.totalFilesProcessed,
       totalBytesProcessed: snapshot.totalBytesProcessed,
-      dataAdded: added.get(snapshot.id) ?? snapshot.dataAdded,
-      verification: ratings.get(snapshot.id) ?? { state: "unverified", checkedAt: null },
-      flags: flags.get(snapshot.id) ?? [],
+      dataAdded: added.get(recordedId(snapshot)) ?? snapshot.dataAdded,
+      verification: ratings.get(recordedId(snapshot)) ?? { state: "unverified", checkedAt: null },
+      flags: flags.get(recordedId(snapshot)) ?? [],
     })),
   };
 }

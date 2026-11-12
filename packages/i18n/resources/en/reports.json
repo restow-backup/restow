@@ -1,4 +1,11 @@
 {
+  "objectKinds": {
+    "mailbox": "Mailbox",
+    "onedrive": "OneDrive",
+    "site": "SharePoint site",
+    "group": "Microsoft 365 group",
+    "imap": "IMAP mailbox"
+  },
   "document": {
     "author": "{appName}",
     "product": "{appName}",
@@ -226,7 +233,18 @@
     },
     "panelTitle": "Alert and report rules",
     "panelDescription": "An alert is sent when something happens, a report at a point in time. The recipients above feed the rules marked with them.",
-    "noChannel": "Sends nothing: no channel"
+    "noChannel": "Sends nothing: no channel",
+    "calendar": {
+      "daily": "Previous day, at 07:00",
+      "weekly": "Previous week (Monday to Sunday), Mondays at 07:00",
+      "monthly": "Previous month, on the 1st at 07:00"
+    },
+    "withPdf": "with PDF",
+    "deliveryProblems": {
+      "title": "Deliveries fail",
+      "email": "{recipient}: failing since {since}. {reason}",
+      "webhook": "Webhook: failing since {since}. {reason}"
+    }
   },
   "deliveries": {
     "title": "Delivery log",
@@ -240,7 +258,8 @@
       "what": "About",
       "channel": "Channel",
       "status": "Status",
-      "tenant": "Tenant"
+      "tenant": "Tenant",
+      "audience": "For"
     },
     "channel": {
       "email": "E-mail",
@@ -281,7 +300,22 @@
     },
     "loadMore": "Load older",
     "openRule": "Open the rule under Tenant › Notifications",
-    "openWebhook": "See the delivery at the webhook"
+    "openWebhook": "See the delivery at the webhook",
+    "audience": {
+      "installation": "Installation",
+      "about": "about {tenant}",
+      "tenant": "Tenant",
+      "provider": "Provider"
+    },
+    "digestWaiting": {
+      "hourly": "Waiting for the hourly digest",
+      "daily": "Waiting for the daily digest"
+    },
+    "digestDue": "Goes out",
+    "digestSent": {
+      "hourly": "Sent in the hourly digest",
+      "daily": "Sent in the daily digest"
+    }
   },
   "editor": {
     "title": {
@@ -365,7 +399,25 @@
       "timezone": "This time zone is unknown. Choose one from the list, e.g. Europe/Berlin.",
       "overdueHours": "Enter a whole number of hours between 24 and 720."
     },
-    "recipientsManaged": "These are the recipients who chose this category under Recipients. Change them there."
+    "recipientsManaged": "These are the recipients who chose this category under Recipients. Change them there.",
+    "cadence": {
+      "label": "Period",
+      "options": {
+        "daily": "Previous day",
+        "weekly": "Previous week (Monday to Sunday)",
+        "monthly": "Previous month",
+        "custom": "Own interval or cron"
+      },
+      "hints": {
+        "daily": "Sent every day at 07:00 in the time zone below, about the day before.",
+        "weekly": "Sent every Monday at 07:00 in the time zone below, about the calendar week before.",
+        "monthly": "Sent on the 1st at 07:00 in the time zone below, about the calendar month before.",
+        "custom": "Your own schedule, about the last days chosen below."
+      }
+    },
+    "attachPdf": "Attach PDF statistics",
+    "attachPdfHint": "The report mail carries the PDF statistics of the period.",
+    "attachPdfUnavailable": "The PDF statistics are not available on this installation."
   },
   "eventGroups": {
     "jobs": "Runs",
@@ -379,7 +431,9 @@
       "overdue": "Backup overdue",
       "succeeded": "Backup succeeded",
       "suspicious": "Suspicious backup (signs of ransomware)",
-      "suspicious_hold": "Retention still paused after a suspicious backup"
+      "suspicious_hold": "Retention still paused after a suspicious backup",
+      "unusually_large": "Backup held as unusually large",
+      "unusually_large_notice": "Unusually large backup, not stopped"
     },
     "restore": {
       "failed": "Restore failed",
@@ -399,7 +453,8 @@
     },
     "boot_test": {
       "failed": "Boot test failed",
-      "unproven": "Boot test without proof"
+      "unproven": "Boot test without proof",
+      "skipped": "No boot test result"
     },
     "scrub": {
       "corrupt": "Storage damage found",
@@ -417,7 +472,12 @@
       "recovery_code": {
         "rejected": "Dead recovery code tried"
       },
-      "rebound": "Machine rebound with a new agent secret"
+      "rebound": "Machine rebound with a new agent secret",
+      "sql_red": "The check of a SQL Server backup found damage",
+      "sql_recovered": "A SQL Server backup was checked without errors again",
+      "sql_overdue": "A SQL Server backup has not been checked for more than 8 days",
+      "backups_deletion_scheduled": "Backups of a revoked machine scheduled for deletion",
+      "backups_deleted": "Backups of a removed machine deleted"
     },
     "file_share": {
       "storage_quota": "Storage budget of file shares",
@@ -428,7 +488,11 @@
     },
     "installation": {
       "disk_low": "Low disk space",
-      "app_secret_expiring": "Microsoft 365 app credential expires"
+      "disk_reserve_released": "Emergency disk reserve freed",
+      "disk_reserve_restored": "Emergency disk reserve written again",
+      "app_secret_expiring": "Microsoft 365 app credential expires",
+      "restore_mode": "Restore mode switched on by itself",
+      "key_mirror_conflict": "Wrapped key in storage differs"
     },
     "source": {
       "app_secret_expiring": "Own app credential of a source expires"
@@ -436,6 +500,12 @@
     "object": {
       "inactive": "Object no longer backed up, please confirm",
       "inactive_many": "Many objects no longer backed up"
+    },
+    "notification": {
+      "delivery_failed": "Notification could not be delivered"
+    },
+    "storage": {
+      "copy_behind": "Repository copy behind"
     }
   },
   "eventHints": {
@@ -444,7 +514,9 @@
       "overdue": "A mailbox, OneDrive, IMAP account, machine or guest (VM or container) had no successful backup for longer than its backup jobs plan (twice the longest gap of the schedules, two days without one), or for longer than the rule's own deadline. Once per object, until a backup succeeds again.",
       "succeeded": "A backup run of a mailbox, OneDrive, IMAP account or file share finished. Every run, so best for a channel that wants to see each one.",
       "suspicious": "What a backup of a machine, file share, Proxmox VE guest, mailbox or OneDrive saw looks like ransomware at work: far more changes than usual, mass deletions or renamed extensions, known ransomware names or files that look encrypted. Once per object until a restore point without findings follows or the finding is marked as a false alarm. Retention of the object pauses until an administrator resolves the finding.",
-      "suspicious_hold": "Retention of a machine, file share, Proxmox VE guest, mailbox or OneDrive has been paused for a while (14 days by default) because of a suspicious restore point nobody resolved. No restore point of it is deleted, so its storage keeps growing. Repeated at the same interval until an administrator marks the finding as a false alarm or releases the hold."
+      "suspicious_hold": "Retention of a machine, file share, Proxmox VE guest, mailbox or OneDrive has been paused for a while (14 days by default) because of a suspicious restore point nobody resolved. No restore point of it is deleted, so its storage keeps growing. Repeated at the same interval until an administrator marks the finding as a false alarm or releases the hold.",
+      "unusually_large": "A backup of a machine, file share, Proxmox VE container, mailbox or OneDrive would have left its storage target less free space than it keeps (by default 5 % of its size, at least 20 GiB, at most 500 GiB), or would have added far more than usual (ten times the median by default) while its size check is set to \"hold\". It was held before it filled the storage. A run held for space goes ahead once the target has room again; a run held for its size waits until an administrator lets it continue once, raises the limit or switches the check off.",
+      "unusually_large_notice": "A backup of a machine, file share, Proxmox VE container, mailbox or OneDrive has written far more than usual (ten times the median by default, at least 10 GiB, or the object's own limit). By default {appName} only warns about this: the run goes on, and this notice comes once per run. If a folder does not belong in the backup (a recycle bin, a download folder), exclude it in the object's settings. To hold such runs from now on, set the object's size check to \"hold\" (Warnings, \"Held backups\")."
     },
     "restore": {
       "failed": "A restore or a download, of a server or client too, could not be finished.",
@@ -464,7 +536,8 @@
     },
     "boot_test": {
       "failed": "A Proxmox VE restore point did not boot: restoring it to a temporary guest, starting it or its boot failed.",
-      "unproven": "A VM restored from a Proxmox VE restore point started and kept running, but its QEMU Guest Agent never answered, so nothing proves the system inside works."
+      "unproven": "A VM restored from a Proxmox VE restore point started and kept running, but its QEMU Guest Agent never answered, so nothing proves the system inside works.",
+      "skipped": "A guest's job boot-tests it, but for longer than its schedule allows (two days after every backup, eight days weekly) every boot test was skipped or could not be carried out. The message names the last reason."
     },
     "scrub": {
       "corrupt": "The storage check found damaged or missing pack files.",
@@ -482,7 +555,12 @@
       "recovery_code": {
         "rejected": "Someone tried a recovery code that had expired, was used already or was revoked. That is a sign the code was passed on or stolen."
       },
-      "rebound": "A machine got a new agent secret through a rebind token, after a restore or a reinstall. Its previous installation no longer has access; if nobody here rebound it, revoke the machine."
+      "rebound": "A machine got a new agent secret through a rebind token, after a restore or a reinstall. Its previous installation no longer has access; if nobody here rebound it, revoke the machine.",
+      "sql_red": "The check restored the newest backup of a database from the backup data and DBCC CHECKDB, the restore or the checksum found damage.",
+      "sql_recovered": "A database whose last check found damage was checked without errors again.",
+      "sql_overdue": "No check of a backed-up database came out without errors for more than 8 days.",
+      "backups_deletion_scheduled": "A provider owner asked to delete every backup of a revoked machine. They are deleted in seven days unless someone cancels on the machine's page; always sent to the mandatory recipients at once.",
+      "backups_deleted": "Every backup of a removed machine was deleted, with the number of snapshots and files."
     },
     "file_share": {
       "storage_quota": "The backup data of a file share, or all of a tenant's shares together, reached 80 percent of the storage budget, or new backups are refused because it is used up.",
@@ -493,7 +571,11 @@
     },
     "installation": {
       "disk_low": "The disk under the database or under the local default repository has less than a tenth of its size free (and less than 5 GiB). Raised once until the disk recovers, for the whole installation, so only provider administrators can choose it.",
-      "app_secret_expiring": "Warns before the client secret or certificate of the central Microsoft 365 app registration expires: 30 days before, again 7 days before, and once it has expired. Only when its expiry is known. Raised for the whole installation, so only provider administrators can choose it."
+      "disk_reserve_released": "The disk under the data volume (in a standard installation also the database's) was almost full, so {appName} freed its emergency reserve (2 GiB by default) to keep the database running. Free up space at once. Raised once per release, for the whole installation, so only provider administrators can choose it.",
+      "disk_reserve_restored": "The emergency disk reserve was written again after the disk had room. Raised once per recreation, for the whole installation.",
+      "app_secret_expiring": "Warns before the client secret or certificate of the central Microsoft 365 app registration expires: 30 days before, again 7 days before, and once it has expired. Only when its expiry is known. Raised for the whole installation, so only provider administrators can choose it.",
+      "restore_mode": "A storage target shows progress the database does not have (a database dump was restored). Nothing is deleted until a provider owner ends restore mode.",
+      "key_mirror_conflict": "A wrapped tenant key in storage differs from the database's under the same version. It is never overwritten."
     },
     "source": {
       "app_secret_expiring": "Warns before the client secret or certificate of a Microsoft 365 source's own app expires: 30 days before, again 7 days before, and once it has expired. Only for sources whose expiry is known (the date noted for the secret, or the certificate's own end). Once it has expired, backups of the source fail until a new secret or certificate is entered."
@@ -501,6 +583,12 @@
     "object": {
       "inactive": "Once per object when {appName} stops backing it up because the source no longer has it, the account is disabled or unlicensed, or Microsoft locked the OneDrive or site. Also once per IMAP account when its login has been refused for several days and an answer is needed whether the account was shut down. Not a failure: confirm or answer under Protection.",
       "inactive_many": "One warning instead of many notices when more than 10 objects, or more than 20% of a tenant's protected objects, stop being backed up within a day, for example because licences were removed or the sync scope is wrong. The same for IMAP accounts whose login questions are raised at once, for example after the source's password changed."
+    },
+    "notification": {
+      "delivery_failed": "A notification could not be delivered: the mail server refused an address, the mail transport is down, or a webhook keeps failing. Raised once per episode, never through the channel that failed, always in the bell and to the provider's mandatory recipients."
+    },
+    "storage": {
+      "copy_behind": "A restic repository's copy on a copy target is more than two days behind, or copying it keeps failing."
     }
   },
   "sections": {
@@ -551,6 +639,15 @@
     "disk": "Disk",
     "diskDatabase": "Under the database",
     "diskRepository": "Under the local default repository",
+    "diskSystem": "System disk of the server",
+    "reserve": "Emergency reserve",
+    "reserveLine": "{size} at {path}. Freed by itself below {floor} free, by hand with: {command}",
+    "reserveTodo": "Free up space now, for example unused images (docker image prune -a) and old update dumps of the database. Never delete the database's data or a volume (docs/DATABASE.md, \"Disk full\"). The reserve is written again by itself once the disk has room.",
+    "runSize": "Added by this run",
+    "usualSize": "Usually added",
+    "sizeLimit": "Limit",
+    "runHeldTodo": "Open Held backups. A run held for its size: let it continue once, raise the limit of this object, or switch the check off for it; if a folder was added by mistake (a recycle bin), exclude it first. A run held for space goes ahead once the storage target has room again. Until then every backup of this object waits.",
+    "runNoticeTodo": "The run goes on: by default {appName} only warns about large backups. If a folder was added by mistake (a recycle bin), exclude it in the object's settings. To hold such runs from now on, open Warnings and choose \"Hold such runs\" for this object.",
     "location": "Location",
     "free": "Free",
     "total": "Size",
@@ -566,7 +663,9 @@
     "archiveReason": {
       "capture_error": "Archive capture from this mailbox has been failing for more than an hour. New mail of the mailbox does not reach the archive until it works again.",
       "forward_stale": "No forwarded copy of this account has arrived for more than 24 hours, although copies arrived before. Check the forwarding rule at the mail provider.",
-      "journal_stale": "No journal report has arrived for more than 24 hours, although reports arrived before. Check the journal rule and the connector in Exchange Online, and that the journal receiver is reachable."
+      "journal_stale": "No journal report has arrived for more than 24 hours, although reports arrived before. Check the journal rule and the connector in Exchange Online, and that the journal receiver is reachable.",
+      "backfill_stalled": "The one-time takeover of this mailbox's existing mail has not finished 48 hours after it started, or its last run failed. Mail that was in the mailbox before capture started is not in the archive yet. {appName} tries the takeover again by itself; see the error of the last run under Jobs.",
+      "capture_gap": "Archive capture could not take in folders or messages of this mailbox: the server refused them several times or never delivered them, or Microsoft 365 has no MIME export of them. They are not in the archive. The archive page shows how many there are for the mailbox; the API lists them (GET /api/v1/archive/capture/mailboxes/<mailbox id>/gaps). {appName} asks once a day again for those that may be fetchable by then, and a resync of the mailbox tries all of them again. A message too large for a MIME export or one Exchange cannot convert stays out of the archive; no retry changes that."
     },
     "clientId": "Application (client) ID",
     "credential": "Credential",
@@ -592,7 +691,24 @@
     "inactiveCount": "Objects",
     "inactiveConfirm": "Check under Protection whether this is intended and confirm it with \"Yes, intended\". Existing backups are kept. When the object becomes active at the source again, {appName} backs it up again by itself.",
     "loginQuestionConfirm": "Answer under Protection whether this account was shut down. \"Yes, shut down\" stops the backups and shows the account grey; \"No, fix the login\" keeps it protected. Existing backups are kept either way.",
-    "loginQuestionSourceFirst": "The login is refused for several accounts of the same source. Check the source's password first, then answer under Protection whether the accounts were shut down. Existing backups are kept either way."
+    "loginQuestionSourceFirst": "The login is refused for several accounts of the same source. Check the source's password first, then answer under Protection whether the accounts were shut down. Existing backups are kept either way.",
+    "installation": "Installation",
+    "deliveryFailed": {
+      "channel": "Channel",
+      "email": "E-mail",
+      "webhook": "Webhook",
+      "webhookName": "Webhook",
+      "recipient": "Recipient",
+      "transport": "The notification mail as a whole",
+      "reason": "Reason",
+      "since": "Failing since",
+      "count": "Undelivered notifications",
+      "rule": "Rule"
+    },
+    "restoreModeTodo": "Check the restored database under Installation, Restore mode, import key versions found in storage, then end restore mode. Until then nothing is deleted; backups continue.",
+    "keyMirrorTodo": "Keep the stored key: data written under it may need it. Compare it with the database's under Installation, Restore mode (docs/STORAGE.md).",
+    "keyVersion": "Key version",
+    "storageTarget": "Storage target"
   },
   "summary": {
     "previous": "previous period",
@@ -605,7 +721,8 @@
     "noFailures": "None in this period",
     "logicalBytes": "Protected data",
     "physicalBytes": "Stored after deduplication",
-    "restores": "Restores"
+    "restores": "Restores",
+    "tenants": "Tenants"
   },
   "bell": {
     "label": "Notifications",
@@ -627,7 +744,9 @@
       "overdue": "No successful backup {days, plural, one {for over # day} other {for over # days}}: {object}",
       "succeeded": "Backup succeeded: {object}",
       "suspicious": "Suspicious backup: {object}",
-      "suspicious_hold": "Retention still paused: {object}"
+      "suspicious_hold": "Retention still paused: {object}",
+      "unusually_large": "Backup held as unusually large: {object}",
+      "unusually_large_notice": "Unusually large backup, not stopped: {object}"
     },
     "restore": {
       "failed": "Restore failed: {object}",
@@ -637,7 +756,9 @@
       "failed": "Archive sync failed: {object}",
       "capture_error": "Archive capture failing for over an hour: {object}",
       "forward_stale": "No forwarded copies for 24 hours: {object}",
-      "journal_stale": "No journal reports for 24 hours"
+      "journal_stale": "No journal reports for 24 hours",
+      "backfill_stalled": "Taking over existing mail is stuck: {object}",
+      "capture_gap": "Archive capture incomplete: {object}"
     },
     "directory": {
       "failed": "Directory sync failed"
@@ -651,7 +772,8 @@
     },
     "boot_test": {
       "failed": "Boot test failed: {object}",
-      "unproven": "Boot test without proof: {object}"
+      "unproven": "Boot test without proof: {object}",
+      "skipped": "No boot test result: {object}"
     },
     "scrub": {
       "corrupt": "Storage damage found",
@@ -669,7 +791,12 @@
       "recovery_code": {
         "rejected": "Dead recovery code tried: {object}"
       },
-      "rebound": "Machine rebound: {object}"
+      "rebound": "Machine rebound: {object}",
+      "sql_red": "SQL Server check found damage: {object}",
+      "sql_recovered": "SQL Server check without errors again: {object}",
+      "sql_overdue": "SQL Server check overdue: {object}",
+      "backups_deletion_scheduled": "Backups scheduled for deletion: {object}",
+      "backups_deleted": "Backups deleted: {object}"
     },
     "file_share": {
       "storage_quota": "Storage budget: {object}",
@@ -686,10 +813,21 @@
     "installation": {
       "disk_low_database": "Low disk space under the database: {free} free",
       "disk_low_repository": "Low disk space under the local repository: {free} free",
+      "disk_low_system": "Low disk space on the system disk: {free} free",
+      "disk_low_shared": "Low disk space on one disk ({places}): {free} free",
+      "diskPlace": {
+        "database": "database",
+        "repository": "local repository",
+        "system": "system disk"
+      },
+      "disk_reserve_released": "Disk almost full: the emergency reserve was freed ({free} free now)",
+      "disk_reserve_restored": "Emergency disk reserve written again ({free} free)",
       "app_secret_expiring": "Microsoft 365 app credential expires on {date}",
       "app_secret_expiring_soon30": "Microsoft 365 app credential expires {days, plural, =0 {today} one {in # day} other {in # days}} ({date})",
       "app_secret_expiring_soon7": "Microsoft 365 app credential expires {days, plural, =0 {today} one {in # day} other {in # days}} ({date}). Renew it now",
-      "app_secret_expiring_expired": "Microsoft 365 app credential has expired ({date}). Microsoft 365 backups fail"
+      "app_secret_expiring_expired": "Microsoft 365 app credential has expired ({date}). Microsoft 365 backups fail",
+      "restore_mode": "Restore mode is on: the database is older than its storage. Nothing is deleted until a provider owner checks it",
+      "key_mirror_conflict": "A wrapped key in storage (version {keyVersion}) differs from the database's and was not overwritten"
     },
     "database": {
       "move": {
@@ -708,6 +846,14 @@
       "inactive_many": "{count} objects are not backed up any more since today, please check and confirm",
       "login_question": "{object}: the login is refused for several days, was the account shut down?",
       "login_question_many": "{count} IMAP accounts: the login is refused for several days, please check the source's password and answer whether they were shut down"
+    },
+    "notification": {
+      "delivery_failed_transport": "Notification mail cannot be sent",
+      "delivery_failed_recipient": "Mail to {recipient} cannot be delivered",
+      "delivery_failed_webhook": "Webhook keeps failing: {webhook}"
+    },
+    "storage": {
+      "copy_behind": "Copy behind: {object}"
     }
   },
   "toasts": {
@@ -750,7 +896,11 @@
     "weeklyReport": "Weekly report",
     "errors": "Other errors",
     "warnings": "Warnings",
-    "notices": "Notices"
+    "notices": "Notices",
+    "dailyReport": "Daily report",
+    "monthlyReport": "Monthly report",
+    "customerReport": "Monthly customer report",
+    "provider": "Provider notifications"
   },
   "history": {
     "title": "Notifications",
@@ -769,5 +919,55 @@
     "empty": "No notifications.",
     "loadError": "The notifications could not be loaded.",
     "loadMore": "Load older"
+  },
+  "digest": {
+    "subject": "{count, plural, one {# notification} other {# notifications}} in the digest",
+    "subjectProvider": "{appName}: {count, plural, one {# notification} other {# notifications}} in the digest",
+    "intro": "{count, plural, one {# notification} other {# notifications}} from {from} to {to} (UTC).",
+    "more": "And {count, plural, one {# more} other {# more}}.",
+    "tenantHeading": "{tenant}",
+    "hourly": "Hourly digest",
+    "daily": "Daily digest",
+    "footer": "You receive this digest because your notification settings in {appName} collect these notifications. Critical events are always sent at once.",
+    "level": {
+      "error": "Error",
+      "warning": "Warning",
+      "info": "Notice"
+    }
+  },
+  "customer": {
+    "title": "Monthly report",
+    "subtitle": "{tenant}, {month}",
+    "period": "Reporting period: {month}",
+    "kpis": {
+      "title": "At a glance",
+      "backupSuccessRate": "Successful backups",
+      "verifiedShare": "Proven restorable",
+      "restores": "Restores",
+      "storedBytes": "Storage used",
+      "suspicious": "Suspicious findings"
+    },
+    "objects": {
+      "title": "What is protected",
+      "kind": "Kind",
+      "count": "Count",
+      "empty": "Nothing is protected yet."
+    },
+    "incidents": {
+      "title": "Most frequent causes of failed backups",
+      "cause": "Cause",
+      "count": "Count",
+      "empty": "No failed backups in this month."
+    },
+    "kinds": {
+      "mailbox": "Mailboxes",
+      "onedrive": "OneDrive",
+      "imap": "IMAP accounts",
+      "site": "SharePoint sites",
+      "group": "Microsoft 365 groups",
+      "endpoint": "Servers and clients",
+      "file_share": "File shares",
+      "pve_guest": "Virtual machines and containers"
+    }
   }
 }

@@ -117,6 +117,11 @@ export interface RunDto {
    * never as failed.
    */
   checkIncomplete: boolean;
+  /**
+   * The rating a finished restore check recorded (jobs DTO `checkReadiness`): red makes the run
+   * `failed`, yellow `partial` (0.5.0). Null for every other run.
+   */
+  checkReadiness: "green" | "yellow" | "red" | null;
   /** A failed run that Graph or the storage held back (jobs DTO `serviceLimited`). */
   serviceLimited: boolean;
   /**
@@ -272,6 +277,12 @@ export interface RunDetailDto extends RunDto {
   errorCount: number;
   /** The tail of the agent's log (machine runs), redacted by the server. */
   logTail: string | null;
+  /**
+   * A restore of a machine or file share that read the repository from another storage target
+   * than the primary (a copy target's repository copy, docs/STORAGE.md "Restoring from a
+   * copy"): which one. Null for every other run.
+   */
+  readFrom: { targetId: string; targetName: string | null; role: string } | null;
   docsUrl: string;
 }
 
@@ -312,10 +323,13 @@ export const QUEUES_OF_CATEGORY: Readonly<Record<RunCategory, readonly JobQueueN
 export function categoryOfEndpointKind(kind: EndpointRun["kind"]): RunCategory {
   switch (kind) {
     case "backup":
+    case "sql":
       return "backup";
     case "restore":
+    case "sql_restore":
       return "restore";
     default:
+      // verify_sample, sql_verify (the check of a SQL Server backup restored from the repository)
       return "restore_check";
   }
 }
@@ -323,9 +337,9 @@ export function categoryOfEndpointKind(kind: EndpointRun["kind"]): RunCategory {
 export const ENDPOINT_KINDS_OF_CATEGORY: Readonly<
   Record<RunCategory, readonly EndpointRun["kind"][]>
 > = {
-  backup: ["backup"],
-  restore: ["restore"],
-  restore_check: ["verify_sample"],
+  backup: ["backup", "sql"],
+  restore: ["restore", "sql_restore"],
+  restore_check: ["verify_sample", "sql_verify"],
   export: [],
   import: [],
   maintenance: [],
@@ -377,6 +391,26 @@ export function stateOfJob(status: JobStatusName, failedItems: number): RunState
     default:
       return "cancelled";
   }
+}
+
+/**
+ * The state of a mail run. A finished restore check reads by its rating, not only by whether an
+ * item failed: red (a damaged pack, a backup too old, a failed test restore) is `failed`, yellow
+ * `partial`, so a check that proved the backup not restorable never reads "Completed".
+ */
+export function stateOfMailRun(
+  dto: Pick<JobDto, "status" | "queue" | "checkReadiness"> & {
+    progress: { failed: number } | null;
+  },
+): RunState {
+  const state = stateOfJob(dto.status, dto.progress?.failed ?? 0);
+  if (dto.queue !== "verify" || dto.status !== "completed") {
+    return state;
+  }
+  if (dto.checkReadiness === "red") {
+    return "failed";
+  }
+  return dto.checkReadiness === "yellow" ? "partial" : state;
 }
 
 export function stateOfEndpointRun(status: EndpointRun["status"]): RunState {
@@ -468,7 +502,7 @@ export interface MailRunInput {
 /** A mail run (a `jobs` row with its progress and object). */
 export function mailRun(input: MailRunInput): RunDto {
   const { row, dto, job } = input;
-  const state = stateOfJob(dto.status, dto.progress?.failed ?? 0);
+  const state = stateOfMailRun(dto);
   const running = state === "running";
   const finished = isFinished(state);
   const progress = row.progress;
@@ -494,6 +528,7 @@ export function mailRun(input: MailRunInput): RunDto {
     type: dto.queue,
     state,
     checkIncomplete: dto.checkIncomplete,
+    checkReadiness: dto.checkReadiness,
     serviceLimited: dto.serviceLimited,
     notBackedUp: dto.notBackedUp,
     attempt: mailCheckAttempt(dto.queue, dto.status, dto.failure),
@@ -607,6 +642,7 @@ export function endpointRun(input: EndpointRunInput): RunDto {
     type: run.kind,
     state,
     checkIncomplete: incomplete,
+    checkReadiness: null,
     serviceLimited: false,
     notBackedUp: null,
     attempt: endpointCheckAttempt(run.kind, input.taskParams),
@@ -643,7 +679,13 @@ export function endpointRun(input: EndpointRunInput): RunDto {
     throttle: null,
     errorMessage: interruptedOnly ? null : (run.errors[0]?.message ?? null),
     failure: failureDto(run.failure),
-    cancellable: running && run.kind === "backup" && run.cancelRequestedAt === null,
+    cancellable:
+      running &&
+      (run.kind === "backup" ||
+        run.kind === "sql" ||
+        run.kind === "sql_verify" ||
+        run.kind === "sql_restore") &&
+      run.cancelRequestedAt === null,
     cancelling: running && run.cancelRequestedAt !== null,
     cancelledBy: run.cancelledBy ?? null,
   };
@@ -714,6 +756,7 @@ export function shareRun(input: ShareRunInput): RunDto {
     type: copy ? "copy" : run.kind,
     state,
     checkIncomplete: false,
+    checkReadiness: null,
     serviceLimited: false,
     notBackedUp: null,
     attempt: null,

@@ -89,7 +89,17 @@ describe("mailSummaryOf", () => {
       isRead: false,
       flagged: true,
       protection: "rights-protected",
+      attachmentsNotBackedUp: false,
     });
+  });
+
+  it("knows a group post whose attachments were not backed up", () => {
+    expect(
+      mailSummaryOf({ missingAttachments: '["(attachments not available to the app)"]' })
+        .attachmentsNotBackedUp,
+    ).toBe(true);
+    expect(mailSummaryOf({ attachmentsNotBackedUp: "true" }).attachmentsNotBackedUp).toBe(true);
+    expect(mailSummaryOf({ missingAttachments: "[]" }).attachmentsNotBackedUp).toBe(false);
   });
 
   it("reads IMAP flags in JSON and whitespace form and the internal date", () => {
@@ -122,6 +132,7 @@ describe("mailSummaryOf", () => {
       isRead: null,
       flagged: null,
       protection: null,
+      attachmentsNotBackedUp: false,
     });
     expect(mailSummaryOf({ subject: "   " }).subject).toBeNull();
   });
@@ -194,9 +205,29 @@ const emptyMailSummary: MailSummary = {
   isRead: null,
   flagged: null,
   protection: null,
+  attachmentsNotBackedUp: false,
 };
 
 describe("toTreeEntry", () => {
+  it("marks a library carried forward from an earlier run, and nothing else", () => {
+    const row = {
+      id: "r-lib",
+      kind: "folder" as const,
+      name: "Documents",
+      path: "Libraries/Documents",
+      parentPath: "Libraries",
+      size: 0,
+      mtime: null,
+      itemId: null,
+      deleted: false,
+      metadata: { carriedForward: "true", lastReadAt: "2026-10-01T02:00:00.000Z" },
+    };
+    expect(toTreeEntry(row).carriedForward).toEqual({ lastReadAt: "2026-10-01T02:00:00.000Z" });
+    expect(toTreeEntry({ ...row, metadata: { driveId: "b!docs" } })).not.toHaveProperty(
+      "carriedForward",
+    );
+  });
+
   it("maps a row and attaches a mail summary for mail items", () => {
     const mtime = new Date("2026-02-01T10:00:00Z");
     const dto = toTreeEntry({

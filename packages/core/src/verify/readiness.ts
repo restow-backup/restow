@@ -3,26 +3,42 @@
  * operator, with every reason that led to it.
  *
  *   red     a restore of this object would fail or be incomplete today: no
- *           backup, unreadable manifest, sampled items that do not come back
+ *           backup, unreadable manifest or one gone from every storage target
+ *           that still holds the tenant's other data (0.5.0), sampled items that do not come back
  *           byte-exact, storage the scrub found corrupt (or could not read in
  *           several checks over more than a day), a failed test restore,
- *           or a latest backup so old that recent data is not recoverable
+ *           a latest backup so old that recent data is not recoverable, or
+ *           items that failed to back up in each of the last runs
+ *           ({@link PERSISTENT_FAILURE_RUNS}), so they are missing from it, or
+ *           an empty backup of an object Microsoft 365 reports content for, before
+ *           and after the run (`backup_missing_source_content`, 0.5.0)
  *   yellow  restorable, but something needs attention: the latest backup is
  *           getting old, the storage check could not read a pack of it yet, the
  *           snapshot is empty (only default folders or system pages, 0 bytes) or
- *           holds data of no type a check can read back, or a test restore
- *           landed without the target confirming it
+ *           holds data of no type a check can read back, a test restore
+ *           landed without the target confirming it, or the run that made
+ *           the checked backup could not back up some items (0.5.0), or the
+ *           last checks of the backup could not complete one after the other
+ *           (`check_incomplete`, 0.5.0: an earlier green no longer proves it)
+ *   empty   (0.5.0) not a severity of its own: an empty backup of an object the
+ *           source reports empty as well (`snapshot_empty_confirmed_by_source`) is
+ *           stored as yellow, and the views read it as "empty", neutral, exactly
+ *           like an empty object an admin confirmed (apps/api verify/empty.ts)
  *   green   every sampled item came back byte-exact from a current backup
+ *           that is complete: green needs both, an intact read-back and a
+ *           backup without failed items
  *
  * The verdict is the worst severity among the reasons. Reasons are machine
  * codes with parameters; the UI translates them.
  */
 import type { RecoveryReadiness } from "../engine/types.js";
 import type { ItemCheckStatus } from "./check.js";
+import type { SourceEvidence } from "./source.js";
 
 export type ReadinessReasonCode =
   | "no_snapshot"
   | "manifest_unreadable"
+  | "manifest_missing"
   | "items_missing"
   | "items_unreadable"
   | "items_mismatched"
@@ -33,8 +49,13 @@ export type ReadinessReasonCode =
   | "snapshot_outdated"
   | "snapshot_stale"
   | "snapshot_empty"
+  | "snapshot_empty_confirmed_by_source"
+  | "backup_missing_source_content"
   | "nothing_to_verify"
-  | "test_restore_unconfirmed";
+  | "test_restore_unconfirmed"
+  | "backup_incomplete"
+  | "backup_incomplete_persistent"
+  | "check_incomplete";
 
 export type ReadinessSeverity = "yellow" | "red";
 
@@ -45,7 +66,10 @@ export type ReadinessReason = {
   count?: number;
   /** Age of the latest snapshot in hours, for the freshness reasons. */
   ageHours?: number;
-  /** Bytes of content the snapshot holds, for `nothing_to_verify`. */
+  /**
+   * Bytes of content the snapshot holds, for `nothing_to_verify`; bytes the source reports,
+   * for `backup_missing_source_content` of a OneDrive (a mailbox gives `count`, its items).
+   */
   bytes?: number;
 };
 
@@ -66,6 +90,11 @@ export type ReadinessFacts = {
   snapshotCompletedAt: Date | null;
   hasSnapshot: boolean;
   manifestReadable: boolean;
+  /**
+   * The manifest that could not be read is gone from every target, while each target still
+   * holds the tenant's other data (presence.ts): evidence, `manifest_missing`.
+   */
+  manifestMissing?: boolean;
   /** Objects that were read back. */
   checked: number;
   /**
@@ -88,8 +117,27 @@ export type ReadinessFacts = {
   persistentlyUnreadablePacks?: number;
   /** Test-restore outcome, when one ran. */
   testRestore: { failed: number; unconfirmed: number } | null;
+  /**
+   * Items the backup run that made the checked snapshot could not back up (they are not in
+   * it): `failed` in that run, `persistent` of them failed in each of the object's last
+   * {@link PERSISTENT_FAILURE_RUNS} runs. Null or absent: none, or not known.
+   */
+  backupFailures?: BackupFailureFacts | null;
+  /**
+   * What the source's own size signal says (verify/source.ts), when the snapshot carries
+   * one. Only consulted for a snapshot without content.
+   */
+  source?: SourceEvidence | null;
   now: Date;
 };
+
+export type BackupFailureFacts = {
+  readonly failed: number;
+  readonly persistent: number;
+};
+
+/** Runs in a row an item must have failed in to make the rating red. */
+export const PERSISTENT_FAILURE_RUNS = 3;
 
 export type ReadinessAssessment = {
   readiness: RecoveryReadiness;
@@ -113,7 +161,13 @@ function ageInHours(from: Date, now: Date): number {
   return Math.max(0, Math.floor((now.getTime() - from.getTime()) / 3_600_000));
 }
 
-function freshnessReason(
+/**
+ * The age reason of a backup completed at `completedAt`, judged at `now`: red when recent data
+ * is no longer recoverable, yellow when it is getting old, null while it is current. Applied by
+ * a verify run at check time, and by the readiness views at view time (the age keeps growing
+ * after the check).
+ */
+export function freshnessReason(
   completedAt: Date | null,
   now: Date,
   policy: ReadinessPolicy,
@@ -147,7 +201,10 @@ export function assessReadiness(
   };
 
   if (!facts.manifestReadable) {
-    reasons.push({ code: "manifest_unreadable", severity: "red" });
+    reasons.push({
+      code: facts.manifestMissing ? "manifest_missing" : "manifest_unreadable",
+      severity: "red",
+    });
   }
   add("items_missing", "red", facts.outcomes.missing);
   add("items_unreadable", "red", facts.outcomes.unreadable);
@@ -155,6 +212,13 @@ export function assessReadiness(
   add("storage_corrupt", "red", facts.damagedPacks);
   add("storage_unreadable_persistent", "red", facts.persistentlyUnreadablePacks ?? 0);
   add("test_restore_failed", "red", facts.testRestore?.failed ?? 0);
+  // A backup that left items out is not a complete restore, however well the rest reads back.
+  const persistent = Math.min(
+    facts.backupFailures?.persistent ?? 0,
+    facts.backupFailures?.failed ?? 0,
+  );
+  add("backup_incomplete_persistent", "red", persistent);
+  add("backup_incomplete", "yellow", (facts.backupFailures?.failed ?? 0) - persistent);
 
   const freshness = freshnessReason(facts.snapshotCompletedAt, facts.now, policy);
   if (freshness) {
@@ -163,11 +227,7 @@ export function assessReadiness(
   if (facts.manifestReadable && facts.checked === 0) {
     reasons.push(
       facts.contentBytes === 0
-        ? {
-            code: "snapshot_empty",
-            severity: "yellow",
-            count: facts.itemCount ?? facts.contentObjects,
-          }
+        ? emptyReason(facts)
         : { code: "nothing_to_verify", severity: "yellow", bytes: facts.contentBytes },
     );
   }
@@ -176,6 +236,29 @@ export function assessReadiness(
 
   reasons.sort((a, b) => RANK[b.severity] - RANK[a.severity]);
   return { readiness: worstReadiness(reasons.map((reason) => reason.severity)), reasons };
+}
+
+/**
+ * The reason for a snapshot without content: empty by the source as well, contradicted by the
+ * source, or (no signal, or one that proves nothing) empty for an admin to confirm.
+ */
+function emptyReason(facts: ReadinessFacts): ReadinessReason {
+  const count = facts.itemCount ?? facts.contentObjects;
+  const source = facts.source;
+  if (source?.verdict === "empty") {
+    return { code: SOURCE_EMPTY_REASON, severity: "yellow", count };
+  }
+  if (source?.verdict === "content") {
+    const reason: ReadinessReason = { code: SOURCE_CONTENT_REASON, severity: "red" };
+    if (typeof source.bytes === "number") {
+      reason.bytes = source.bytes;
+    }
+    if (typeof source.items === "number") {
+      reason.count = source.items;
+    }
+    return reason;
+  }
+  return { code: EMPTY_REASON, severity: "yellow", count };
 }
 
 /** The reasons that only say how old the latest backup is. */
@@ -208,10 +291,28 @@ export function readinessWithoutFreshness(
 export const EMPTY_REASON = "snapshot_empty";
 
 /**
+ * The reason of a check that found the object empty while the source reports it empty as
+ * well (0.5.0): rated "empty" without an admin's confirmation.
+ */
+export const SOURCE_EMPTY_REASON = "snapshot_empty_confirmed_by_source";
+
+/** The reason of an empty backup of an object the source reports content for (0.5.0, red). */
+export const SOURCE_CONTENT_REASON = "backup_missing_source_content";
+
+/**
  * Whether a report says no more than "this object is empty": its rating rests on the empty
  * reason alone. Only such a report can be confirmed as empty by an admin, and a confirmation
  * counts only while the newest report still says so (any other finding, or content, ends it).
  */
 export function isEmptyFinding(reasons: readonly { readonly code: string }[]): boolean {
   return reasons.length > 0 && reasons.every((reason) => reason.code === EMPTY_REASON);
+}
+
+/**
+ * Whether a report says no more than "empty by the source and by the backup": its rating
+ * rests on {@link SOURCE_EMPTY_REASON} alone. Such an object reads "empty" without an admin's
+ * confirmation; it cannot be confirmed either ({@link isEmptyFinding} is false for it).
+ */
+export function isSourceEmptyFinding(reasons: readonly { readonly code: string }[]): boolean {
+  return reasons.length > 0 && reasons.every((reason) => reason.code === SOURCE_EMPTY_REASON);
 }

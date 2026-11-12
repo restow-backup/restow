@@ -325,6 +325,13 @@ if [ "$ROLE" = mounter ]; then
   exec node /prod/api/dist/apps/api/src/mounter/main.js
 fi
 DIR="/prod/$ROLE"
+# The emergency disk reserve (docs/DATABASE.md, "Disk full"): on a disk that is almost full the
+# api frees it before anything else, so PostgreSQL, which restarts by itself, has room to start.
+# Needs no database and never stops the start: a data volume that hangs (a network mount) gives
+# up after 30 seconds and the start goes on.
+if [ "$ROLE" = api ]; then
+  timeout 30 node /prod/api/dist/apps/api/src/cli/bin.js disk-reserve guard || true
+fi
 # The api role applies database migrations (Drizzle migrations + RLS + the
 # application and installation roles) as the database owner
 # (DATABASE_MIGRATION_URL) before it serves. Idempotent; single-instance deploys

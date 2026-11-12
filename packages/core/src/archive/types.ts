@@ -29,9 +29,11 @@ export const ARCHIVE_SOURCES: readonly ArchiveSource[] = [
  * Flags an item carries: the journal parser's ({@link JournalFlag}), and those of the
  * capture (0.4.4): `captured-late` = taken over by the one-time backfill of a mailbox way,
  * received before live capture started; `message-id-conflict` = the archive already holds
- * another mail with the same Message-ID but a different body.
+ * another mail with the same Message-ID but a different body; `journal-shaped` = a plain
+ * copy built like a journal report, archived as received (only a report with the
+ * `X-MS-Journal-Report` header at the tenant's journal address is taken as one).
  */
-export type ArchiveFlag = JournalFlag | "captured-late" | "message-id-conflict";
+export type ArchiveFlag = JournalFlag | "captured-late" | "message-id-conflict" | "journal-shaped";
 
 /**
  * One archived item, as written by {@link writeArchiveItem} (./writer.ts) and

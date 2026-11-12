@@ -63,6 +63,14 @@ describe("backup.overdue", () => {
       /never been backed up/,
     );
   });
+
+  it("names the service of a protected object (0.5.0)", () => {
+    const drive = { ...mailbox("msp", 50), objectKind: "onedrive" };
+    expect(overdueNotification("t", drive, bounds)).toMatchObject({
+      message: "No successful backup of OneDrive · msp@contoso.example for more than 2 days.",
+      details: { protectedObjectId: "msp", objectKind: "onedrive" },
+    });
+  });
 });
 
 describe("backup.overdue for VMs and containers, and by a rule's own deadline", () => {

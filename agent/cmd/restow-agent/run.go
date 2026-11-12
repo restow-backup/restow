@@ -63,8 +63,23 @@ func runAgent(ctx context.Context, debug, inService bool) (code int, restart boo
 	// hand. Under launchd it is a file without rotation, and a Windows
 	// service has none, so only the rotating agent log is written there.
 	toStderr := !inService && (stderrIsTerminal() || os.Getenv("INVOCATION_ID") != "")
-	logger, closeLog := logging.Setup(logging.Options{LogFile: layout.LogFile(), Stderr: toStderr, Debug: debug})
+	// The folders come first, protected from the start (Windows: owner
+	// Administrators, SYSTEM and Administrators only): the log would
+	// otherwise create C:\ProgramData\Restow\logs with the permissions of
+	// ProgramData, where Users may read files and create folders, and a
+	// service that starts before the enrollment would leave it so.
+	ensureErr := layout.Ensure()
+	logFile := layout.LogFile()
+	if ensureErr != nil {
+		logFile = "" // never in a folder that is not protected
+	}
+	logger, closeLog := logging.Setup(logging.Options{LogFile: logFile, Stderr: toStderr, Debug: debug, Protect: paths.ProtectFile})
 	defer closeLog()
+	if ensureErr != nil {
+		logger.Error("cannot create the agent directories", "error", ensureErr)
+		eventlog.Error(eventlog.IDTrustRefused, "The Restow agent does nothing until it can create its folders safely: "+ensureErr.Error())
+		return exitError, false
+	}
 	if inService && !serviceConsole {
 		logger.Warn("the service has no console; a cancelled backup stops restic hard instead of asking it to stop (its repository lock then expires on its own)")
 	}
@@ -95,10 +110,6 @@ func runAgent(ctx context.Context, debug, inService bool) (code int, restart boo
 		eventlog.Info(eventlog.IDUninstalled, "The Restow agent was uninstalled by a task of the Restow server "+st.ServerURL+".")
 		return svc.Uninstall(svc.UninstallOptions{Layout: layout, FromService: true, SkipService: devLayout(), KeepBinaries: devLayout(),
 			KeepLogs: runtime.GOOS == "windows", Out: logWriter{logger}})
-	}
-	if err := layout.Ensure(); err != nil {
-		logger.Error("cannot create the agent directories", "error", err)
-		return exitError, false
 	}
 	// A missing restic binary or a bad URL is repairable (re-run the install
 	// script): wait and retry instead of exiting into a restart loop.

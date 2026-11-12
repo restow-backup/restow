@@ -222,7 +222,7 @@ function ExportForm({
   const showCalendarNote = object?.kind === "mailbox";
 
   return (
-    <form onSubmit={submit} className="grid gap-5" noValidate>
+    <form onSubmit={submit} className="grid grid-cols-[minmax(0,1fr)] gap-5" noValidate>
       <DialogHeader>
         <DialogTitle>{t("dialog.title")}</DialogTitle>
         <DialogDescription>

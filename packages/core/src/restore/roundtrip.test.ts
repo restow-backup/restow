@@ -31,7 +31,7 @@ describe("backup and restore round trip", () => {
     await fixture?.cleanup();
   });
 
-  it("puts an Exchange mailbox back into another mailbox, by meaning and byte for byte", async () => {
+  it("puts an Exchange mailbox back into another mailbox, by meaning and byte for byte [RESTORE-004]", async () => {
     const user = "alice@contoso.example";
     fixture = await createJobContextFixture({ kind: "mailbox", externalId: user, now: () => NOW });
 
@@ -90,6 +90,14 @@ describe("backup and restore round trip", () => {
       internetMessageId: "<m4@contoso.example>",
       hasAttachments: true,
       mimeTooLarge: true,
+      receivedDateTime: "2026-09-01T07:45:12Z",
+      // What Graph returns with the message: the transport headers of the delivery.
+      internetMessageHeaders: [
+        { name: "Received", value: "from AM0PR01.eurprd01.prod.outlook.com by ..." },
+        { name: "DKIM-Signature", value: "v=1; a=rsa-sha256; d=contoso.example" },
+        { name: "Message-ID", value: "<m4@contoso.example>" },
+        { name: "X-Launch-Campaign", value: "2026-autumn" },
+      ],
       attachments: [
         { id: "A1", name: "launch.mp4", contentType: "video/mp4", bytes: video },
         {
@@ -99,7 +107,14 @@ describe("backup and restore round trip", () => {
           bytes: new Uint8Array(),
           odataType: "#microsoft.graph.referenceAttachment",
         },
-        { id: "A3", name: "logo.png", contentType: "image/png", bytes: logo, isInline: true },
+        {
+          id: "A3",
+          name: "logo.png",
+          contentType: "image/png",
+          bytes: logo,
+          isInline: true,
+          contentId: "logo.png@01DB2F6A.5C3E1D20",
+        },
       ],
     });
     source.addCalendar({ id: "cal-1", name: "Kalender", isDefaultCalendar: true });
@@ -180,9 +195,16 @@ describe("backup and restore round trip", () => {
 
     const big = restored("<m4@contoso.example>");
     expect(big.parentFolderId).toBe("wk-inbox");
-    expect(big.attachments.map((a) => [a.name, a.contentBytes, a.isInline])).toEqual([
-      ["launch.mp4", Buffer.from(video).toString("base64"), false],
-      ["logo.png", Buffer.from(logo).toString("base64"), true],
+    // Received mail again, at its own time, with only the custom header Graph takes.
+    expect(big.isDraft).toBe(false);
+    expect(Date.parse(big.receivedDateTime)).toBe(Date.parse("2026-09-01T07:45:12Z"));
+    expect(big.json?.internetMessageHeaders).toEqual([
+      { name: "X-Launch-Campaign", value: "2026-autumn" },
+    ]);
+    expect(big.attachments.map((a) => [a.name, a.contentBytes, a.isInline, a.contentId])).toEqual([
+      ["launch.mp4", Buffer.from(video).toString("base64"), false, undefined],
+      // The body's cid: reference resolves again only with the Content-ID.
+      ["logo.png", Buffer.from(logo).toString("base64"), true, "logo.png@01DB2F6A.5C3E1D20"],
     ]);
     expect(report.items.find((item) => item.id === "M4")?.reason).toMatch(
       /not re-created: Freigabe/,
@@ -199,7 +221,7 @@ describe("backup and restore round trip", () => {
     expect(target.contactFolderPath(carol.folderId)).toEqual(["Lieferanten"]);
   });
 
-  it("puts a OneDrive back byte for byte with its timestamps, notebook sections included", async () => {
+  it("puts a OneDrive back byte for byte with its timestamps, notebook sections included [RESTORE-005]", async () => {
     fixture = await createJobContextFixture({
       kind: "onedrive",
       externalId: DRIVE,

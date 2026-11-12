@@ -135,6 +135,26 @@ describe("RestoreJobsPage", () => {
     expect(machines?.getAttribute("href")).toBe("/file-restore");
   });
 
+  it("names an IMAP target account by its login and source, never by its object id", async () => {
+    apiFetch.mockImplementation(() =>
+      Promise.resolve({
+        items: [
+          {
+            ...job(1),
+            target: {
+              type: "other",
+              ref: "3f2a9c1e-5b4d-4c6e-8f7a-9b0c1d2e3f4a",
+              label: "info@firma.de · New mail server",
+            },
+          },
+        ],
+      }),
+    );
+    await mount();
+    expect(text()).toContain("Into info@firma.de · New mail server");
+    expect(text()).not.toContain("3f2a9c1e-5b4d-4c6e-8f7a-9b0c1d2e3f4a");
+  });
+
   it("names how many restores are shown and loads older ones", async () => {
     await mount();
     expect(text()).toContain("The newest 100 runs are shown.");

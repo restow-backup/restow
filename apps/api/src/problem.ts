@@ -1,3 +1,4 @@
+import { deletionsHeldErrorOf } from "@restow/core";
 import { safeErrorMessage } from "@restow/db";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
@@ -104,6 +105,14 @@ function logUnexpected(err: Error, c: Context): void {
 
 /** Global `onError` handler: known problems pass through, everything else is a 500. */
 export function errorHandler(err: Error, c: Context) {
+  // A deletion the guard refused (restore mode after restoring a database dump).
+  if (deletionsHeldErrorOf(err)) {
+    return sendProblem(c, 409, "Restore mode is on", {
+      type: "urn:restow:problem:restore-mode",
+      detail:
+        "Deleting is paused for the whole installation until a provider owner has checked the restored database.",
+    });
+  }
   if (err instanceof ProblemError) {
     return sendProblem(c, err.status, err.title, {
       type: err.type,

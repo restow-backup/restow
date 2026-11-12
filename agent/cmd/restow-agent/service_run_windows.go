@@ -23,19 +23,12 @@ var (
 // runService runs the agent as the Windows service RestowAgent. Stopping
 // comes only from the service control manager; a self-update ends the
 // service with the service-specific code 3, so the failure action starts the
-// new binary.
+// new binary; a failure ends it with a service-specific code (serviceExit).
 func runService(debug bool, stderr io.Writer) int {
 	inWindowsService = true
 	serviceConsole = procctl.EnsureConsole()
 	err := winsvc.Run(svc.WindowsServiceName, func(ctx context.Context) winsvc.Exit {
-		code, restart := runAgent(ctx, debug, true)
-		switch {
-		case restart:
-			return winsvc.Exit{Specific: svc.RestartExitCode}
-		case code != exitOK:
-			return winsvc.Exit{Code: 1}
-		}
-		return winsvc.Exit{}
+		return serviceExit(runAgent(ctx, debug, true))
 	})
 	if err != nil {
 		fmt.Fprintln(stderr, err)

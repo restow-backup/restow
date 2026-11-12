@@ -20,9 +20,11 @@ import {
   type JobRetention,
   type JobSchedule,
   type JobScopeMode,
+  type JobSqlSettings,
   LIMITS,
   type MemberInput,
   type MemberKind,
+  type SqlDatabaseRef,
   type UpdateBackupJobInput,
 } from "./api.js";
 import {
@@ -250,6 +252,103 @@ export interface SettingsDraft {
    * the switch has not replaced any in this editor.
    */
   previousExcludes: string[] | null;
+  /** The native SQL Server backup of Windows members (preview; never part of a member's overrides). */
+  sql: SqlDraft;
+}
+
+/** The SQL Server settings as the editor holds them; databases one per line, `INSTANCE\name` or `name`. */
+export interface SqlDraft {
+  /** The job has SQL settings, or the person switched them on: they are saved. */
+  present: boolean;
+  enabled: boolean;
+  /** Kept as stored (the editor offers every instance). */
+  instances: "all" | string[];
+  databasesAll: boolean;
+  databases: string;
+  exclude: string;
+  stagingDir: string;
+  verifyEnabled: boolean;
+  /** 1 = Monday ... 7 = Sunday. */
+  verifyWeekday: string;
+  verifyTime: string;
+  verifyMaxGiB: string;
+  verifyPhysicalOnly: boolean;
+}
+
+/** Sunday 03:00 in the job's zone, CHECKDB in full up to 200 GiB (@restow/core DEFAULT_SQL_VERIFY). */
+const SQL_VERIFY_DEFAULTS = { weekday: 7, time: "03:00", maxGiB: 200 } as const;
+
+function refLines(refs: readonly SqlDatabaseRef[] | undefined): string {
+  return (refs ?? [])
+    .map((ref) => (ref.instance ? `${ref.instance}\\${ref.name}` : ref.name))
+    .join("\n");
+}
+
+/** `INSTANCE\name` or `name` per line; empty lines are ignored. */
+export function refsOfLines(text: string): SqlDatabaseRef[] {
+  return text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => {
+      const slash = line.indexOf("\\");
+      return slash > 0 && slash < line.length - 1
+        ? { instance: line.slice(0, slash).trim(), name: line.slice(slash + 1).trim() }
+        : { name: line };
+    });
+}
+
+export function sqlDraftOf(sql: JobSqlSettings | undefined): SqlDraft {
+  return {
+    present: sql !== undefined,
+    enabled: sql?.enabled === true,
+    instances: sql?.instances ?? "all",
+    databasesAll: sql === undefined || sql.databases === "all",
+    databases: sql && sql.databases !== "all" ? refLines(sql.databases) : "",
+    exclude: refLines(sql?.exclude),
+    stagingDir: sql?.stagingDir ?? "",
+    verifyEnabled: sql?.verify?.enabled ?? true,
+    verifyWeekday: String(sql?.verify?.weekday ?? SQL_VERIFY_DEFAULTS.weekday),
+    verifyTime: sql?.verify?.time ?? SQL_VERIFY_DEFAULTS.time,
+    verifyMaxGiB: String(sql?.verify?.maxGiB ?? SQL_VERIFY_DEFAULTS.maxGiB),
+    verifyPhysicalOnly: sql?.verify?.physicalOnly === true,
+  };
+}
+
+export function sqlOfDraft(draft: SqlDraft): JobSqlSettings {
+  const stagingDir = draft.stagingDir.trim();
+  return {
+    enabled: draft.enabled,
+    mode: "alongside",
+    instances: draft.instances,
+    databases: draft.databasesAll ? "all" : refsOfLines(draft.databases),
+    exclude: refsOfLines(draft.exclude),
+    ...(stagingDir ? { stagingDir } : {}),
+    verify: {
+      enabled: draft.verifyEnabled,
+      weekday: wholeNumber(draft.verifyWeekday) ?? SQL_VERIFY_DEFAULTS.weekday,
+      time: draft.verifyTime,
+      maxGiB: wholeNumber(draft.verifyMaxGiB) ?? SQL_VERIFY_DEFAULTS.maxGiB,
+      physicalOnly: draft.verifyPhysicalOnly,
+    },
+  };
+}
+
+/** At least this many minutes between the SQL check and the daily backup (the API refuses less). */
+export const SQL_VERIFY_MIN_GAP_MINUTES = 60;
+
+function minutesOf(value: string): number | null {
+  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(value);
+  return match ? Number(match[1]) * 60 + Number(match[2]) : null;
+}
+
+/** Whether the check slot lies within an hour of a daily backup (around midnight too). */
+export function sqlSlotTooClose(verifyTime: string, dailyTime: string | null): boolean {
+  const a = minutesOf(verifyTime);
+  const b = dailyTime === null ? null : minutesOf(dailyTime);
+  if (a === null || b === null) return false;
+  const distance = Math.abs(a - b);
+  return Math.min(distance, 24 * 60 - distance) < SQL_VERIFY_MIN_GAP_MINUTES;
 }
 
 const FALLBACK_RETENTION: JobRetention = { keepDaily: 30, keepWeekly: 12, keepMonthly: 12 };
@@ -279,6 +378,7 @@ export function settingsDraftOf(
     policy: { ...(s.policy ?? {}) },
     wholeMachine: s.wholeMachine === true,
     previousExcludes: null,
+    sql: sqlDraftOf(s.sql),
   };
 }
 
@@ -289,6 +389,8 @@ export interface SettingsParts {
   bandwidth: boolean;
   hooks: boolean;
   retention: boolean;
+  /** The SQL Server settings: the job's only, never a member's. */
+  sql?: boolean;
 }
 
 export const ALL_SETTINGS_PARTS: SettingsParts = {
@@ -297,6 +399,7 @@ export const ALL_SETTINGS_PARTS: SettingsParts = {
   bandwidth: true,
   hooks: true,
   retention: true,
+  sql: true,
 };
 
 export type SettingsField =
@@ -308,7 +411,11 @@ export type SettingsField =
   | "hooks"
   | "keepDaily"
   | "keepWeekly"
-  | "keepMonthly";
+  | "keepMonthly"
+  | "sqlDatabases"
+  | "sqlStagingDir"
+  | "sqlVerifyTime"
+  | "sqlVerifyMaxGiB";
 
 export type SettingsProblems = Partial<Record<SettingsField, FormProblem>>;
 
@@ -378,6 +485,24 @@ export function checkSettings(
       draft.postHook.length > LIMITS.hookLength
     ) {
       problems.hooks = { code: "hookTooLong", values: { max: LIMITS.hookLength } };
+    }
+  }
+
+  if (parts.sql && draft.sql.enabled) {
+    if (!draft.sql.databasesAll && refsOfLines(draft.sql.databases).length === 0) {
+      problems.sqlDatabases = { code: "sql.databases" };
+    }
+    const staging = draft.sql.stagingDir.trim();
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are refused
+    if (staging !== "" && !/^[A-Za-z]:\\[^\u0000-\u001f]*$/.test(staging)) {
+      problems.sqlStagingDir = { code: "sql.stagingDir" };
+    }
+    if (draft.sql.verifyEnabled) {
+      if (minutesOf(draft.sql.verifyTime) === null) {
+        problems.sqlVerifyTime = { code: "sql.time" };
+      }
+      const max = rangeProblem(draft.sql.verifyMaxGiB, 1, 100_000);
+      if (max) problems.sqlVerifyMaxGiB = max;
     }
   }
 
@@ -463,6 +588,8 @@ export function settingsOfDraft(draft: SettingsDraft): JobEndpointSettings {
     ...(Object.keys(draft.policy).length > 0 ? { policy: draft.policy } : {}),
     // Only when on: a job without the switch stays as it was.
     ...(draft.wholeMachine ? { wholeMachine: true } : {}),
+    // Kept once the job has them: switching them off is `enabled: false`, not a missing key.
+    ...(draft.sql.present || draft.sql.enabled ? { sql: sqlOfDraft(draft.sql) } : {}),
   };
 }
 
@@ -850,8 +977,11 @@ function stableSettingsKey(settings: JobEndpointSettings): string {
     retention,
     policy,
     wholeMachine,
+    sql,
   } = settings;
   return JSON.stringify({
+    // In the form the editor writes it, so the order of keys the server keeps does not count.
+    sql: sql ? sqlOfDraft(sqlDraftOf(sql)) : null,
     policy:
       policy && Object.keys(policy).length > 0
         ? Object.fromEntries(Object.entries(policy).sort(([a], [b]) => (a < b ? -1 : 1)))

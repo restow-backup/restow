@@ -1,12 +1,27 @@
-import type { Database } from "@restow/db";
+import { validateStorageLocation } from "@restow/core";
+import { type Database, storageTargets } from "@restow/db";
+import { and, eq } from "drizzle-orm";
 import { type Context, Hono, type MiddlewareHandler } from "hono";
 import { db } from "../../db.js";
+import { assertRecentSignIn } from "../../lib/recent-sign-in.js";
 import { clientIp } from "../../lib/request.js";
+import { withTenantTx } from "../../lib/tenant-context.js";
 import { requireTenant, type TenantEnv } from "../../middleware/session.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
+import { assertNotInRestoreMode } from "../restore-mode/service.js";
 import { backupDestination } from "./destination.js";
+import { locationOf } from "./dto.js";
 import { setImmutability, verifyImmutabilityNow } from "./immutability.js";
+import { objectCopyStatus, repositoryCopyStatus } from "./repository-copies.js";
 import {
+  repositoryRepairs,
+  requestRepairSchema,
+  requestRepositoryRepair,
+  requestRepositoryScan,
+} from "./repository-repair.js";
+import { movesLocation } from "./rules.js";
+import {
+  configSchemaFor,
   createStorageTargetSchema,
   migrationIdParamSchema,
   probeStorageSchema,
@@ -30,6 +45,7 @@ import {
   testTarget,
   updateTarget,
 } from "./service.js";
+import { primaryWriteOnce } from "./write-once.js";
 
 /**
  * /api/v1/storage — where the active tenant's chunk store lives.
@@ -38,6 +54,8 @@ import {
  * targets are paths on the server, so creating, changing, promoting or removing
  * one additionally requires a provider admin (enforced in the service).
  *
+ *   GET    /write-once                       whether the primary is write-once (no retention there);
+ *                                            every member of the tenant (docs/STORAGE.md)
  *   GET    /usage                            logical vs physical bytes, 30/90-day growth, daily series
  *   GET    /destination                      where backups land now (the effective primary), and
  *                                            whether that is a disk of the server itself
@@ -50,6 +68,10 @@ import {
  *   DELETE /targets/:id                      remove the target (its data stays where it is)
  *   POST   /targets/:id/test                 write/read/list/delete probe + Object Lock detection, recorded
  *   POST   /targets/:id/completeness         does this copy hold everything the primary holds?
+ *   GET    /repositories/repairs             the newest repository scan and repair
+ *   POST   /repositories/scan                queue a scan of every restic repository (202)
+ *   POST   /repositories/repair              repair the newest scan ({ scanId, confirm: "REPAIR" },
+ *                                            a recent sign-in; 202)
  *   POST   /targets/:id/promote              make this copy the primary
  *   POST   /targets/:id/migration/cancel     cancel the storage migration replacing the primary with :id
  *   POST   /targets/:id/migration/retry      re-queue a failed "move" replacing the primary with :id
@@ -68,6 +90,8 @@ export interface StorageRoutesDeps {
   db: Database;
   /** Authenticates and admits tenant administrators (or a provider admin) only. */
   requireAdmin: MiddlewareHandler<TenantEnv>;
+  /** Authenticates and admits every member of the tenant; `requireTenant()` without it. */
+  requireMember?: MiddlewareHandler<TenantEnv>;
 }
 
 function actorOf(c: Context<TenantEnv>): Actor {
@@ -87,6 +111,43 @@ function targetId(c: Context<TenantEnv>): string {
 }
 
 /**
+ * Whether a PATCH points the tenant's primary at another location: the same as replacing the
+ * primary, which restore mode refuses (a config that cannot be read as a location counts as a
+ * move; the service then refuses it for what it is).
+ */
+async function patchMovesPrimary(
+  database: Database,
+  tenantId: string,
+  id: string,
+  config: unknown,
+): Promise<boolean> {
+  if (config === undefined) {
+    return false;
+  }
+  const [row] = await withTenantTx(database, tenantId, (tx) =>
+    tx
+      .select({
+        role: storageTargets.role,
+        kind: storageTargets.kind,
+        config: storageTargets.config,
+      })
+      .from(storageTargets)
+      .where(and(eq(storageTargets.id, id), eq(storageTargets.tenantId, tenantId)))
+      .limit(1),
+  );
+  if (row?.role !== "primary" || (row.kind !== "local" && row.kind !== "s3")) {
+    return false;
+  }
+  const current = locationOf(row);
+  const parsed = configSchemaFor(row.kind).safeParse(config);
+  if (!current || !parsed.success) {
+    return true;
+  }
+  const next = validateStorageLocation(row.kind, parsed.data);
+  return !next.ok || movesLocation(current, next.location);
+}
+
+/**
  * Build the storage routes against injected dependencies, same style as
  * schedules/dashboard: production wires the real `db` and `requireTenant`
  * once below (`storageRoutes`), a test wires its own scratch database and a
@@ -95,6 +156,22 @@ function targetId(c: Context<TenantEnv>): string {
  */
 export function buildStorageRoutes(deps: StorageRoutesDeps): Hono<TenantEnv> {
   const routes = new Hono<TenantEnv>();
+
+  routes.get("/write-once", deps.requireMember ?? requireTenant(), async (c) => {
+    return c.json(await primaryWriteOnce(deps.db, c.get("tenantId")));
+  });
+
+  // The copies of the tenant's restic repositories (docs/STORAGE.md, "restic repositories on
+  // copies"): per copy target for administrators, per object for every member (the pages of a
+  // container, machine or file share).
+  routes.get("/repository-copies", deps.requireAdmin, async (c) => {
+    return c.json(await repositoryCopyStatus(deps.db, c.get("tenantId")));
+  });
+
+  routes.get("/repository-copies/objects/:id", deps.requireMember ?? requireTenant(), async (c) => {
+    const { id } = parseOrProblem(targetIdParamSchema, c.req.param());
+    return c.json(await objectCopyStatus(deps.db, c.get("tenantId"), id));
+  });
 
   routes.get("/usage", deps.requireAdmin, async (c) => {
     return c.json(await storageUsage(deps.db, c.get("tenantId")));
@@ -110,6 +187,11 @@ export function buildStorageRoutes(deps: StorageRoutesDeps): Hono<TenantEnv> {
 
   routes.post("/targets", deps.requireAdmin, async (c) => {
     const input = await parseJsonBody(c.req, createStorageTargetSchema);
+    // Restore mode: a new primary is filled from what the restored database knows; data written
+    // after the dump would stay behind on the old one (docs/STORAGE.md).
+    if (input.role === "primary") {
+      await assertNotInRestoreMode("primary_replacement", c.get("tenantId"));
+    }
     return c.json(await createTarget(deps.db, c.get("tenantId"), input, actorOf(c)), 201);
   });
 
@@ -128,10 +210,17 @@ export function buildStorageRoutes(deps: StorageRoutesDeps): Hono<TenantEnv> {
 
   routes.patch("/targets/:id", deps.requireAdmin, async (c) => {
     const patch = await parseJsonBody(c.req, updateStorageTargetSchema);
-    return c.json(await updateTarget(deps.db, c.get("tenantId"), targetId(c), patch, actorOf(c)));
+    const id = targetId(c);
+    // Restore mode: a primary pointed elsewhere is a primary replacement (as POST /targets and
+    // promote): data written after the dump would stay behind at the old location.
+    if (await patchMovesPrimary(deps.db, c.get("tenantId"), id, patch.config)) {
+      await assertNotInRestoreMode("primary_replacement", c.get("tenantId"));
+    }
+    return c.json(await updateTarget(deps.db, c.get("tenantId"), id, patch, actorOf(c)));
   });
 
   routes.delete("/targets/:id", deps.requireAdmin, async (c) => {
+    await assertNotInRestoreMode("storage_target_removal", c.get("tenantId"));
     await deleteTarget(deps.db, c.get("tenantId"), targetId(c), actorOf(c));
     return c.body(null, 204);
   });
@@ -144,7 +233,28 @@ export function buildStorageRoutes(deps: StorageRoutesDeps): Hono<TenantEnv> {
     return c.json(await checkCompleteness(deps.db, c.get("tenantId"), targetId(c), actorOf(c)));
   });
 
+  routes.get("/repositories/repairs", deps.requireAdmin, async (c) => {
+    return c.json(await repositoryRepairs(deps.db, c.get("tenantId")));
+  });
+
+  routes.post("/repositories/scan", deps.requireAdmin, async (c) => {
+    return c.json(await requestRepositoryScan(deps.db, c.get("tenantId"), actorOf(c)), 202);
+  });
+
+  // Changes repositories on the primary and marks lost restore points: a recent sign-in and the
+  // typed confirmation (docs/STORAGE.md, "Repository repair").
+  routes.post("/repositories/repair", deps.requireAdmin, async (c) => {
+    const input = await parseJsonBody(c.req, requestRepairSchema);
+    assertRecentSignIn(c.get("auth").session);
+    await assertNotInRestoreMode("repository_repair_apply", c.get("tenantId"));
+    return c.json(
+      await requestRepositoryRepair(deps.db, c.get("tenantId"), input, actorOf(c)),
+      202,
+    );
+  });
+
   routes.post("/targets/:id/promote", deps.requireAdmin, async (c) => {
+    await assertNotInRestoreMode("primary_replacement", c.get("tenantId"));
     return c.json(await promoteTarget(deps.db, c.get("tenantId"), targetId(c), actorOf(c)));
   });
 
@@ -154,6 +264,7 @@ export function buildStorageRoutes(deps: StorageRoutesDeps): Hono<TenantEnv> {
   });
 
   routes.post("/targets/:id/migration/retry", deps.requireAdmin, async (c) => {
+    await assertNotInRestoreMode("primary_replacement", c.get("tenantId"));
     const id = parseOrProblem(migrationIdParamSchema, c.req.param()).id;
     return c.json(await retryMigration(deps.db, c.get("tenantId"), id, actorOf(c)));
   });

@@ -4,7 +4,12 @@ import type { ProgressUpdate } from "../../engine/progress.js";
 import type { FirstBackupProgress, JobContext } from "../../engine/types.js";
 import { classifyFailure } from "../../failures/classify.js";
 import type { DriveDeltaItem } from "../../graph/resources/drive.js";
-import { type FixtureRoute, graphError, must } from "../../graph/testing/fake-graph.js";
+import {
+  type FixtureRoute,
+  graphError,
+  must,
+  selectedEntity,
+} from "../../graph/testing/fake-graph.js";
 import driveFixture from "../../graph/testing/fixtures/drive-delta.json" with { type: "json" };
 import { OneDriveUnavailableError, resolveOneDriveId } from "./engine.js";
 import fixture from "./fixtures/drive-backup.json" with { type: "json" };
@@ -12,12 +17,16 @@ import { ONEDRIVE_OBJECT_TYPES } from "./items.js";
 import { ONEDRIVE_PHASES } from "./run.js";
 import { type OneDriveCursor, type OneDriveManifestState, readCursor } from "./state.js";
 import {
+  bytesResponse,
   contentRoutes,
   createFakeGraph,
   DELTA_PATH,
   DRIVE,
   deltaUrl,
   downloadUrl,
+  driveQuotaRoute,
+  driveRootRoute,
+  FIXED_NOW,
   failingPackStorage,
   Harness,
   interruptedFetch,
@@ -28,6 +37,7 @@ import {
   streamingFetch,
 } from "./testing.js";
 
+const FIXED_NOW_MS = FIXED_NOW.getTime();
 const Q3_PATH = "Documents/Reports/Q3 report.xlsx";
 const Q3_ARCHIVED = "Documents/Archive/Q3 report.xlsx";
 const DOWNLOAD_HOST = "https://contoso-my.sharepoint.example/download.aspx";
@@ -63,6 +73,27 @@ function q3Item(overrides: Partial<DriveDeltaItem> = {}): DriveDeltaItem {
 
 function notesItem(overrides: Partial<DriveDeltaItem> = {}): DriveDeltaItem {
   return { ...(fixture.initialPage2.value[0] as DriveDeltaItem), ...overrides };
+}
+
+/** An item route that answers like Graph: only what the request's $select names. */
+function itemAnswer(id: string, item: DriveDeltaItem): FixtureRoute {
+  return {
+    url: itemRoute(id),
+    respond: (call) => ({ status: 200, json: selectedEntity(call, item) }),
+  };
+}
+
+/**
+ * A delta page as OneDrive for Business answers it: an item whose only change
+ * is its sharing is listed (flagged `@microsoft.graph.sharedChanged`) only when
+ * the request asks for it with `Prefer: deltashowsharingchanges`.
+ */
+function sharingDelta(changed: DriveDeltaItem[], deltaToken: string): FixtureRoute["respond"] {
+  return (call) => {
+    const prefer = call.headers.prefer ?? "";
+    const asked = prefer.split(",").some((value) => value.trim() === "deltashowsharingchanges");
+    return { status: 200, json: page(asked ? changed : [], deltaToken) };
+  };
 }
 
 function downloadLink(item: string): string {
@@ -566,7 +597,7 @@ describe("OneDriveBackupEngine", () => {
       eTag: '"{Q3},3"',
       cTag: '"c:{Q3},2"',
       size: 12,
-      file: { mimeType: "text/plain", hashes: { quickXorHash: "q3hash2=" } },
+      file: { mimeType: "text/plain", hashes: { quickXorHash: "cZgBCMbwBjfQoQxurAMIZAAAAAA=" } },
       "@microsoft.graph.downloadUrl": downloadLink("q3v2"),
     });
     const newFile = q3Item({
@@ -635,6 +666,523 @@ describe("OneDriveBackupEngine", () => {
     expect(state(healed).retry).toEqual([]);
     expect(harness.progress.updates.map((u) => u.snapshot.phase)).toContain(ONEDRIVE_PHASES.retry);
     expect(graph.callsTo("GET", "/items/01NEW")).toHaveLength(1);
+  });
+
+  it("keeps authorship, sharing and the shortcut facet of items fetched again by the retry", async () => {
+    const sharedQ3 = q3Item({
+      shared: {
+        scope: "organization",
+        sharedBy: { user: { displayName: "Alice Example", id: "user-1" } },
+        sharedDateTime: "2026-09-10T08:00:00Z",
+      },
+    });
+    const shortcut = fixture.initialPage2.value[2] as DriveDeltaItem;
+    const graph = createFakeGraph([
+      {
+        url: deltaUrl(null),
+        respond: {
+          status: 200,
+          json: {
+            ...fixture.initialPage1,
+            value: [...fixture.initialPage1.value.slice(0, 3), sharedQ3],
+          },
+        },
+      },
+      {
+        url: deltaUrl("NEXT1"),
+        respond: {
+          status: 200,
+          // The shortcut arrives without its name: it cannot be placed and is retried.
+          json: {
+            ...fixture.initialPage2,
+            value: [
+              fixture.initialPage2.value[0],
+              fixture.initialPage2.value[1],
+              { ...shortcut, name: undefined },
+            ],
+          },
+        },
+      },
+      { url: deltaUrl("DELTA1"), respond: { status: 200, json: page([], "DELTA2") } },
+      {
+        url: downloadUrl("q3"),
+        respond: [
+          { status: 423, json: graphError("resourceLocked", "The file is checked out") },
+          { status: 200, bytes: new TextEncoder().encode(CONTENT.q3) },
+        ],
+      },
+      ...contentRoutes({ notes: CONTENT.notes }),
+      itemAnswer("01Q3", sharedQ3),
+      itemAnswer("01SHORTCUT", shortcut),
+    ]);
+    const engine = harness.engine(graph);
+    const first = await engine.run(harness.context({ jobId: "job-1" }), oneDrive, {});
+    expect(first.failures.map((f) => f.itemRef)).toEqual([Q3_PATH, "01SHORTCUT"]);
+    expect(state(await harness.manifest(first)).retry).toEqual(["01Q3", "01SHORTCUT"]);
+
+    const second = await engine.run(harness.context({ jobId: "job-2" }), oneDrive, {});
+    expect(second.failures).toEqual([]);
+    const manifest = await harness.manifest(second);
+    expect(objectAt(manifest, Q3_PATH).metadata).toMatchObject({
+      createdBy: "Alice Example",
+      lastModifiedBy: "Bob Example",
+      sharedScope: "organization",
+      sharedBy: "Alice Example",
+      sharedDateTime: "2026-09-10T08:00:00Z",
+    });
+    expect(objectAt(manifest, "Team files")).toMatchObject({
+      type: ONEDRIVE_OBJECT_TYPES.shortcut,
+      metadata: { remoteItemId: "01REMOTE", remoteDriveId: "b!teamdrive" },
+    });
+    expect(state(manifest).retry).toEqual([]);
+  });
+
+  it("records a sharing-only change on the next incremental run without downloading again", async () => {
+    // A flagged entry need not carry the sharing itself: it is read from the item.
+    const flagged = q3Item({ "@microsoft.graph.sharedChanged": "True" });
+    const shared = q3Item({
+      shared: {
+        scope: "anonymous",
+        sharedBy: { user: { displayName: "Bob Example", id: "user-2" } },
+        sharedDateTime: "2026-09-20T12:00:00Z",
+      },
+    });
+    let current = shared;
+    const graph = createFakeGraph([
+      ...initialRoutes(),
+      { url: deltaUrl("DELTA1"), respond: sharingDelta([flagged], "DELTA2") },
+      { url: deltaUrl("DELTA2"), respond: sharingDelta([flagged], "DELTA3") },
+      {
+        url: itemRoute("01Q3"),
+        respond: (call) => ({ status: 200, json: selectedEntity(call, current) }),
+      },
+    ]);
+    const engine = harness.engine(graph);
+    const first = await engine.run(harness.context({ jobId: "job-1" }), oneDrive, {});
+    const before = objectAt(await harness.manifest(first), Q3_PATH);
+    expect(before.metadata?.sharedScope).toBeUndefined();
+    const downloads = () => graph.callsTo("GET", "item=q3").length;
+    expect(downloads()).toBe(1);
+
+    const second = await engine.run(harness.context({ jobId: "job-2" }), oneDrive, {});
+    expect(second.failures).toEqual([]);
+    const after = objectAt(await harness.manifest(second), Q3_PATH);
+    expect(after.metadata).toMatchObject({
+      sharedScope: "anonymous",
+      sharedBy: "Bob Example",
+      sharedDateTime: "2026-09-20T12:00:00Z",
+    });
+    expect(after.chunks).toEqual(before.chunks);
+    expect(downloads()).toBe(1);
+    for (const call of graph.callsTo("GET", "/root/delta")) {
+      expect(call.headers.prefer).toBe("deltashowsharingchanges");
+    }
+
+    // The link is removed again: the item comes without `shared`, and the sharing goes.
+    current = q3Item();
+    const third = await engine.run(harness.context({ jobId: "job-3" }), oneDrive, {});
+    const unshared = objectAt(await harness.manifest(third), Q3_PATH);
+    expect(unshared.metadata?.sharedScope).toBeUndefined();
+    expect(unshared.metadata?.sharedBy).toBeUndefined();
+    expect(downloads()).toBe(1);
+  });
+
+  it("records the sharing a new file inherits from its shared folder", async () => {
+    // As OneDrive for Business answers: with `hierarchicalsharing` the inherited sharing is left
+    // out of every item below the folder where it is set.
+    const inherited = {
+      scope: "organization",
+      sharedBy: { user: { displayName: "Alice Example", id: "user-1" } },
+      sharedDateTime: "2026-09-10T08:00:00Z",
+    };
+    const newFile = q3Item({
+      id: "01NEW",
+      name: "new.txt",
+      cTag: '"c:{NEW},1"',
+      size: 5,
+      file: { mimeType: "text/plain" },
+      "@microsoft.graph.downloadUrl": downloadLink("new"),
+      parentReference: { driveId: DRIVE, id: "01REPORTS" },
+    });
+    const graph = createFakeGraph([
+      ...initialRoutes(),
+      {
+        url: deltaUrl("DELTA1"),
+        respond: (call) => {
+          const hierarchical = (call.headers.prefer ?? "").includes("hierarchicalsharing");
+          return {
+            status: 200,
+            json: page([hierarchical ? newFile : { ...newFile, shared: inherited }], "DELTA2"),
+          };
+        },
+      },
+      {
+        url: downloadUrl("new"),
+        respond: { status: 200, bytes: new TextEncoder().encode("new!!") },
+      },
+    ]);
+    const engine = harness.engine(graph);
+    await engine.run(harness.context({ jobId: "job-1" }), oneDrive, {});
+    const second = await engine.run(harness.context({ jobId: "job-2" }), oneDrive, {});
+    expect(second.failures).toEqual([]);
+    expect(
+      objectAt(await harness.manifest(second), "Documents/Reports/new.txt").metadata,
+    ).toMatchObject({ sharedScope: "organization", sharedBy: "Alice Example" });
+  });
+
+  it("reports a sharing change it could not read and keeps the file", async () => {
+    const flagged = q3Item({ "@microsoft.graph.sharedChanged": "True" });
+    const graph = createFakeGraph([
+      ...initialRoutes(),
+      { url: deltaUrl("DELTA1"), respond: sharingDelta([flagged], "DELTA2") },
+      {
+        url: itemRoute("01Q3"),
+        respond: { status: 403, json: graphError("accessDenied", "Access denied") },
+      },
+    ]);
+    const engine = harness.engine(graph);
+    const first = await engine.run(harness.context({ jobId: "job-1" }), oneDrive, {});
+    const second = await engine.run(harness.context({ jobId: "job-2" }), oneDrive, {});
+    expect(second.failures.map((f) => f.itemRef)).toEqual([Q3_PATH]);
+    expect(must(second.failures[0]).reason).toMatch(/^reading the sharing: Graph 403/);
+    const manifest = await harness.manifest(second);
+    expect(objectAt(manifest, Q3_PATH).chunks).toEqual(
+      objectAt(await harness.manifest(first), Q3_PATH).chunks,
+    );
+    expect(state(manifest).retry).toEqual(["01Q3"]);
+  });
+
+  it("asks Graph once more for an entry without a facet and never skips it in silence", async () => {
+    const at = { driveId: DRIVE, id: "01ROOT", path: "/drive/root:" };
+    // A partial entry: Graph names the item but not what it is.
+    const bare = { id: "01BARE", name: "bare.txt", parentReference: at };
+    const bareFile = q3Item({
+      ...bare,
+      size: 4,
+      cTag: '"c:{BARE},1"',
+      file: { mimeType: "text/plain" },
+      "@microsoft.graph.downloadUrl": downloadLink("bare"),
+    });
+    // A kind the classifier does not know (a personal OneDrive album, the bundle facet).
+    const album = {
+      id: "01ALBUM",
+      name: "Holiday",
+      parentReference: at,
+      bundle: { childCount: 2 },
+    };
+    const graph = createFakeGraph([
+      { url: deltaUrl(null), respond: { status: 200, json: fixture.initialPage1 } },
+      {
+        url: deltaUrl("NEXT1"),
+        respond: {
+          status: 200,
+          json: { ...fixture.initialPage2, value: [...fixture.initialPage2.value, bare, album] },
+        },
+      },
+      { url: deltaUrl("DELTA1"), respond: { status: 200, json: page([], "DELTA2") } },
+      ...contentRoutes({ ...CONTENT, bare: "bare" }),
+      itemAnswer("01BARE", bareFile),
+      itemAnswer("01ALBUM", album as DriveDeltaItem),
+    ]);
+    const engine = harness.engine(graph);
+    const first = await engine.run(harness.context({ jobId: "job-1" }), oneDrive, {});
+    const manifest = await harness.manifest(first);
+    expect((await harness.readObject(objectAt(manifest, "bare.txt"))).toString()).toBe("bare");
+    expect(paths(manifest)).not.toContain("Holiday");
+    expect(first.failures).toHaveLength(1);
+    expect(must(first.failures[0])).toMatchObject({
+      itemRef: "Holiday",
+      cause: { code: "graph.item_incomplete" },
+    });
+    expect(state(manifest).retry).toEqual(["01ALBUM"]);
+
+    // The next run asks again (once) and still reports it.
+    const second = await engine.run(harness.context({ jobId: "job-2" }), oneDrive, {});
+    expect(second.failures.map((f) => f.cause?.code)).toEqual(["graph.item_incomplete"]);
+    expect(graph.callsTo("GET", "/items/01ALBUM")).toHaveLength(2);
+    expect(state(await harness.manifest(second)).retry).toEqual(["01ALBUM"]);
+  });
+
+  describe("proves the downloaded bytes against the hash Graph reported", () => {
+    const QXH_V2 = "cZgBCMbwBjfQoQxurAMIZAAAAAA="; // "q3 content 2"
+    const QXH_V3 = "cZgBCMbwBjfQoQxurAMIZgAAAAA="; // "q3 content 3"
+    const v2 = q3Item({
+      eTag: '"{Q3},2"',
+      cTag: '"c:{Q3},2"',
+      size: 12,
+      file: { mimeType: "text/plain", hashes: { quickXorHash: QXH_V2 } },
+      "@microsoft.graph.downloadUrl": downloadLink("q3v2"),
+    });
+
+    function routes(served: string, current: DriveDeltaItem): FixtureRoute[] {
+      return [
+        ...initialRoutes(),
+        { url: deltaUrl("DELTA1"), respond: { status: 200, json: page([v2], "DELTA2") } },
+        ...contentRoutes({ q3v2: served }),
+        itemAnswer("01Q3", current),
+      ];
+    }
+
+    it("keeps the last good copy and retries when bytes of the right length are not the file's", async () => {
+      // Same length, other bytes: a Content-Length check alone passes them.
+      const graph = createFakeGraph(routes("Q3 CONTENT 2", v2));
+      const engine = harness.engine(graph);
+      await engine.run(harness.context({ jobId: "job-1" }), oneDrive, {});
+      const second = await engine.run(harness.context({ jobId: "job-2" }), oneDrive, {});
+      expect(second.failures.map((f) => f.itemRef)).toEqual([Q3_PATH]);
+      expect(must(second.failures[0]).reason).toMatch(
+        new RegExp(
+          `ContentMismatchError: .*QuickXorHash .*reported ${QXH_V2.replace(/[+/=]/g, ".")}`,
+        ),
+      );
+      const manifest = await harness.manifest(second);
+      const stale = objectAt(manifest, Q3_PATH);
+      expect(stale.metadata).toMatchObject({ stale: "true", cTag: '"c:{Q3},1"' });
+      expect((await harness.readObject(stale)).toString()).toBe(CONTENT.q3);
+      expect(state(manifest).retry).toEqual(["01Q3"]);
+      // Graph was asked once whether the file had changed in between.
+      expect(graph.callsTo("GET", "/items/01Q3")).toHaveLength(1);
+    });
+
+    it("stores a revision that arrived after the delta page under that revision's tag and hash", async () => {
+      const v3 = q3Item({
+        eTag: '"{Q3},3"',
+        cTag: '"c:{Q3},3"',
+        size: 12,
+        file: { mimeType: "text/plain", hashes: { quickXorHash: QXH_V3 } },
+        "@microsoft.graph.downloadUrl": downloadLink("q3v3"),
+      });
+      const graph = createFakeGraph(routes("q3 content 3", v3));
+      const engine = harness.engine(graph);
+      await engine.run(harness.context({ jobId: "job-1" }), oneDrive, {});
+      const second = await engine.run(harness.context({ jobId: "job-2" }), oneDrive, {});
+      expect(second.failures).toEqual([]);
+      const q3 = objectAt(await harness.manifest(second), Q3_PATH);
+      expect(q3.metadata).toMatchObject({ cTag: '"c:{Q3},3"', quickXorHash: QXH_V3 });
+      expect(q3.metadata?.stale).toBeUndefined();
+      expect((await harness.readObject(q3)).toString()).toBe("q3 content 3");
+    });
+
+    it("measures a download without Content-Length against the size Graph reported", async () => {
+      const graph = createFakeGraph([
+        { url: deltaUrl(null), respond: { status: 200, json: fixture.initialPage1 } },
+        { url: deltaUrl("NEXT1"), respond: { status: 200, json: fixture.initialPage2 } },
+        {
+          url: downloadUrl("q3"),
+          // An encoded body: Content-Length (if any) says nothing about the bytes fetch hands over.
+          respond: bytesResponse("q3 cont", { "content-encoding": "gzip" }),
+        },
+        ...contentRoutes({ notes: CONTENT.notes }),
+      ]);
+      const result = await harness.engine(graph).run(harness.context(), oneDrive, {});
+      expect(result.failures.map((f) => f.itemRef)).toEqual([Q3_PATH]);
+      expect(must(result.failures[0]).reason).toMatch(/TruncatedDownloadError: .*7 of 11/);
+      expect(paths(await harness.manifest(result))).not.toContain(Q3_PATH);
+    });
+  });
+
+  it("takes back a failure when a later delta entry says the item was deleted", async () => {
+    const graph = createFakeGraph([
+      { url: deltaUrl(null), respond: { status: 200, json: fixture.initialPage1 } },
+      { url: deltaUrl("NEXT1"), respond: { status: 200, json: fixture.initialPage2 } },
+      ...contentRoutes({ notes: CONTENT.notes }),
+      {
+        url: downloadUrl("q3"),
+        respond: { status: 423, json: graphError("resourceLocked", "The file is checked out") },
+      },
+      {
+        // The retry pass cannot read it (a passing fault) ...
+        url: itemRoute("01Q3"),
+        respond: { status: 500, json: graphError("generalException", "General exception") },
+      },
+      {
+        // ... and the walk then says it was deleted.
+        url: deltaUrl("DELTA1"),
+        respond: {
+          status: 200,
+          json: page(
+            [{ id: "01Q3", deleted: { state: "deleted" }, parentReference: { driveId: DRIVE } }],
+            "DELTA2",
+          ),
+        },
+      },
+    ]);
+    const engine = harness.engine(graph);
+    const first = await engine.run(harness.context({ jobId: "job-1" }), oneDrive, {});
+    expect(state(await harness.manifest(first)).retry).toEqual(["01Q3"]);
+    harness.progress.updates.length = 0;
+
+    const second = await engine.run(harness.context({ jobId: "job-2" }), oneDrive, {});
+    expect(second.failures).toEqual([]);
+    const withdrawn = harness.progress.updates.flatMap((update) => update.withdrawn ?? []);
+    // Never stored, so the retry knew it by its id only.
+    expect(withdrawn.map((failure) => failure.itemRef)).toEqual(["01Q3"]);
+    const manifest = await harness.manifest(second);
+    expect(paths(manifest)).not.toContain(Q3_PATH);
+    expect(state(manifest).retry).toEqual([]);
+  });
+
+  it("takes back the failures of items below a folder deleted later in the same run", async () => {
+    const changedQ3 = q3Item({
+      cTag: '"c:{Q3},2"',
+      size: 12,
+      file: { mimeType: "text/plain", hashes: { quickXorHash: "cZgBCMbwBjfQoQxurAMIZAAAAAA=" } },
+      "@microsoft.graph.downloadUrl": downloadLink("q3v2"),
+    });
+    const newFile = q3Item({
+      id: "01NEW",
+      name: "new.txt",
+      cTag: '"c:{NEW},1"',
+      size: 5,
+      file: { mimeType: "text/plain" },
+      "@microsoft.graph.downloadUrl": downloadLink("new"),
+      parentReference: { driveId: DRIVE, id: "01REPORTS" },
+    });
+    const graph = createFakeGraph([
+      ...initialRoutes(),
+      {
+        url: deltaUrl("DELTA1"),
+        respond: {
+          status: 200,
+          json: page(
+            [
+              changedQ3,
+              newFile,
+              // Graph names only the folder; what was below it goes with it.
+              { id: "01DOCS", deleted: { state: "deleted" }, parentReference: { driveId: DRIVE } },
+            ],
+            "DELTA2",
+          ),
+        },
+      },
+      ...["q3v2", "new"].map((item) => ({
+        url: downloadUrl(item),
+        respond: { status: 500, json: graphError("generalException", "General exception") },
+      })),
+    ]);
+    const engine = harness.engine(graph);
+    await engine.run(harness.context({ jobId: "job-1" }), oneDrive, {});
+    const second = await engine.run(harness.context({ jobId: "job-2" }), oneDrive, {});
+    expect(second.failures).toEqual([]);
+    const manifest = await harness.manifest(second);
+    expect(paths(manifest)).toEqual(["Notebook", "Team files", "notes.txt"]);
+    expect(state(manifest).retry).toEqual([]);
+  });
+
+  it("keeps the failure of a file whose folder was moved out of a folder deleted in the same run", async () => {
+    // Reports moves from Documents to the top level, then Documents is deleted, and a new file
+    // in Reports cannot be read: it is not below anything deleted.
+    const reportsMoved = {
+      ...(fixture.initialPage1.value[2] as DriveDeltaItem),
+      parentReference: { driveId: DRIVE, id: "01ROOT" },
+    };
+    const newFile = q3Item({
+      id: "01NEW",
+      name: "new.txt",
+      cTag: '"c:{NEW},1"',
+      size: 5,
+      file: { mimeType: "text/plain" },
+      "@microsoft.graph.downloadUrl": downloadLink("new"),
+      parentReference: { driveId: DRIVE, id: "01REPORTS" },
+    });
+    const graph = createFakeGraph([
+      ...initialRoutes(),
+      {
+        url: deltaUrl("DELTA1"),
+        respond: {
+          status: 200,
+          json: page(
+            [
+              reportsMoved,
+              newFile,
+              { id: "01DOCS", deleted: { state: "deleted" }, parentReference: { driveId: DRIVE } },
+            ],
+            "DELTA2",
+          ),
+        },
+      },
+      {
+        url: downloadUrl("new"),
+        respond: { status: 500, json: graphError("generalException", "General exception") },
+      },
+    ]);
+    const engine = harness.engine(graph);
+    await engine.run(harness.context({ jobId: "job-1" }), oneDrive, {});
+    const second = await engine.run(harness.context({ jobId: "job-2" }), oneDrive, {});
+    expect(second.failures.map((failure) => failure.itemRef)).toEqual(["Reports/new.txt"]);
+    const manifest = await harness.manifest(second);
+    expect(paths(manifest)).toContain("Reports/Q3 report.xlsx");
+    expect(state(manifest).retry).toEqual(["01NEW"]);
+  });
+
+  describe("an Office document SharePoint rewrites, served without Content-Length", () => {
+    /** A ZIP with one stored entry, as an Office document is one. */
+    function zipOf(name: string, data: Buffer): Buffer {
+      const nameBytes = Buffer.from(name, "utf8");
+      const local = Buffer.alloc(30);
+      local.writeUInt32LE(0x04034b50, 0);
+      local.writeUInt16LE(20, 4);
+      local.writeUInt32LE(data.length, 18);
+      local.writeUInt32LE(data.length, 22);
+      local.writeUInt16LE(nameBytes.length, 26);
+      const central = Buffer.alloc(46);
+      central.writeUInt32LE(0x02014b50, 0);
+      central.writeUInt16LE(20, 4);
+      central.writeUInt16LE(20, 6);
+      central.writeUInt32LE(data.length, 20);
+      central.writeUInt32LE(data.length, 24);
+      central.writeUInt16LE(nameBytes.length, 28);
+      const directoryOffset = local.length + nameBytes.length + data.length;
+      const end = Buffer.alloc(22);
+      end.writeUInt32LE(0x06054b50, 0);
+      end.writeUInt16LE(1, 8);
+      end.writeUInt16LE(1, 10);
+      end.writeUInt32LE(central.length + nameBytes.length, 12);
+      end.writeUInt32LE(directoryOffset, 16);
+      return Buffer.concat([local, nameBytes, data, central, nameBytes, end]);
+    }
+
+    /** The document as Graph lists it (the size of `rewritten` before SharePoint's rewrite), served as `served`. */
+    function routesFor(rewritten: Buffer, served: Buffer = rewritten): FixtureRoute[] {
+      const docx = q3Item({
+        id: "01DOCX",
+        name: "minutes.docx",
+        cTag: '"c:{DOCX},1"',
+        // What Graph reports: the size before SharePoint promoted its properties into the file.
+        size: rewritten.length - 37,
+        file: {
+          mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        },
+        "@microsoft.graph.downloadUrl": downloadLink("docx"),
+        parentReference: { driveId: DRIVE, id: "01ROOT" },
+      });
+      return [
+        ...initialRoutes(),
+        { url: deltaUrl("DELTA1"), respond: { status: 200, json: page([docx], "DELTA2") } },
+        // Chunked: no Content-Length.
+        { url: downloadUrl("docx"), respond: { status: 200, bytes: new Uint8Array(served) } },
+      ];
+    }
+
+    it("stores the rewritten document when its bytes are a complete ZIP", async () => {
+      const served = zipOf("word/document.xml", Buffer.from("<w:document>promoted</w:document>"));
+      const engine = harness.engine(createFakeGraph(routesFor(served)));
+      await engine.run(harness.context({ jobId: "job-1" }), oneDrive, {});
+      const second = await engine.run(harness.context({ jobId: "job-2" }), oneDrive, {});
+      expect(second.failures).toEqual([]);
+      const stored = objectAt(await harness.manifest(second), "minutes.docx");
+      expect(await harness.readObject(stored)).toEqual(served);
+    });
+
+    it("still fails a document cut short", async () => {
+      const whole = zipOf("word/document.xml", Buffer.alloc(4000, 0x41));
+      // The connection ends half-way, without a length to tell.
+      const engine = harness.engine(createFakeGraph(routesFor(whole, whole.subarray(0, 2000))));
+      await engine.run(harness.context({ jobId: "job-1" }), oneDrive, {});
+      const second = await engine.run(harness.context({ jobId: "job-2" }), oneDrive, {});
+      expect(second.failures.map((f) => f.itemRef)).toEqual(["minutes.docx"]);
+      expect(must(second.failures[0]).reason).toMatch(/TruncatedDownloadError/);
+    });
   });
 
   it("reports a download that breaks off mid-stream as an item failure and carries on", async () => {
@@ -847,6 +1395,7 @@ describe("OneDriveBackupEngine", () => {
     const changedQ3 = q3Item({
       size: 12,
       cTag: '"c:{Q3},2"',
+      file: { mimeType: "text/plain", hashes: { quickXorHash: "cZgBCMbwBjfQoQxurAMIZAAAAAA=" } },
       "@microsoft.graph.downloadUrl": downloadLink("q3v2"),
     });
     const trimmed = {
@@ -976,6 +1525,96 @@ describe("OneDriveBackupEngine", () => {
     });
     // A checkpoint was left behind so the retry does not start from nothing.
     expect(readCursor(harness.cursor.cursor, DRIVE)?.snapshot?.snapshotId).toBe("snap-1");
+  });
+
+  describe("records the drive's own size signal for the restore check (0.5.0)", () => {
+    const rootItem = fixture.initialPage1.value[0] as DriveDeltaItem;
+    const emptyDrive = (): FixtureRoute => ({
+      url: deltaUrl(null),
+      respond: {
+        status: 200,
+        json: page([{ ...rootItem, folder: { childCount: 0 } }], "DELTA1"),
+      },
+    });
+    const rootCalls = (graph: ReturnType<typeof createFakeGraph>) =>
+      graph.calls.filter((call) => new URL(call.url).pathname === `/v1.0/drives/${DRIVE}/root`);
+
+    it("measures an empty drive before and after the walk, with the quota for display", async () => {
+      const graph = createFakeGraph([
+        emptyDrive(),
+        driveRootRoute([0, 0]),
+        driveQuotaRoute({
+          used: 12_288,
+          deleted: 0,
+          remaining: 1e12,
+          total: 1e12,
+          state: "normal",
+        }),
+      ]);
+      const result = await harness.engine(graph).run(harness.context(), oneDrive, {});
+      const manifest = await harness.manifest(result);
+      expect(manifest.sourceSignal).toEqual({
+        service: "onedrive",
+        before: { rootBytes: 0, rootChildren: 0, at: FIXED_NOW_MS },
+        after: { rootBytes: 0, rootChildren: 0, at: FIXED_NOW_MS },
+        quota: { used: 12_288, deleted: 0, remaining: 1e12, total: 1e12, state: "normal" },
+      });
+      expect(rootCalls(graph)).toHaveLength(2);
+      expect(new URL(rootCalls(graph)[0]?.url ?? "").searchParams.get("$select")).toBe(
+        "id,size,folder",
+      );
+    });
+
+    it("measures a drive with content once, before the walk", async () => {
+      const graph = createFakeGraph([...initialRoutes(), driveRootRoute([4096])]);
+      const result = await harness.engine(graph).run(harness.context(), oneDrive, {});
+      const manifest = await harness.manifest(result);
+      expect(manifest.sourceSignal).toEqual({
+        service: "onedrive",
+        before: { rootBytes: 4096, rootChildren: 1, at: FIXED_NOW_MS },
+        after: null,
+      });
+      expect(rootCalls(graph)).toHaveLength(1);
+      expect(graph.callsTo("GET", `/drives/${DRIVE}?`)).toHaveLength(0);
+    });
+
+    it("gives no signal when Graph does not answer, and the backup still completes", async () => {
+      for (const failure of [
+        { status: 404, json: graphError("itemNotFound") },
+        { status: 503, json: graphError("serviceNotAvailable") },
+      ]) {
+        const own = await Harness.create();
+        try {
+          const graph = createFakeGraph([emptyDrive(), driveRootRoute([failure])]);
+          const result = await own.engine(graph).run(own.context(), oneDrive, {});
+          expect(result.failures).toEqual([]);
+          const manifest = await own.manifest(result);
+          expect(manifest.sourceSignal).toEqual({ service: "onedrive", before: null, after: null });
+          // Without a first measure the second one is not taken.
+          expect(rootCalls(graph).length).toBeGreaterThan(0);
+          expect(graph.callsTo("GET", `/drives/${DRIVE}?`)).toHaveLength(0);
+        } finally {
+          await own.dispose();
+        }
+      }
+    });
+
+    it("ends the run on a cancellation while the drive is measured", async () => {
+      const controller = new AbortController();
+      const graph = createFakeGraph([
+        emptyDrive(),
+        {
+          url: (url) => url.pathname === `/v1.0/drives/${DRIVE}/root`,
+          respond: () => {
+            controller.abort();
+            return { status: 503, json: graphError("serviceNotAvailable") };
+          },
+        },
+      ]);
+      await expect(
+        harness.engine(graph).run(harness.context({ signal: controller.signal }), oneDrive, {}),
+      ).rejects.toBeInstanceOf(JobAbortedError);
+    });
   });
 
   it("refuses protected objects of another kind", async () => {

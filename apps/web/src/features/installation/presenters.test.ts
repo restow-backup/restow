@@ -6,6 +6,7 @@ import {
   registerWebExtension,
   resetWebExtensionsForTesting,
 } from "@/lib/extensions";
+import type { ModuleId } from "@/lib/modules";
 import type { NavLock, NavLockContext } from "@/lib/navigation";
 
 import { installationAccess } from "./access";
@@ -16,7 +17,13 @@ import {
   installationSectionTo,
   installationTo,
 } from "./paths";
-import { hasSection, parseInstallationSearch, sectionStates, wordingScope } from "./presenters";
+import {
+  hasSection,
+  listedSections,
+  parseInstallationSearch,
+  sectionStates,
+  wordingScope,
+} from "./presenters";
 import { CORE_INSTALLATION_SECTIONS, installationSections } from "./sections";
 
 afterEach(() => {
@@ -50,13 +57,18 @@ describe("the paths of the installation page", () => {
 });
 
 describe("the sections of the core", () => {
-  it("are Server, Notification mail, Microsoft multi-tenant app, Default repository & network shares, Database, Ransomware detection, Agent policy, Proxmox VE, Prices, Updates, About, in that order", () => {
+  it("are Server, Modules, Notification mail, Notifications, Branding, Microsoft multi-tenant app, Default repository & network shares, Cluster, Database, Restore mode, Ransomware detection, Agent policy, Proxmox VE, Prices, Updates, About, in that order", () => {
     expect(CORE_INSTALLATION_SECTIONS.map((section) => section.id)).toEqual([
       "server",
+      "modules",
       "mail",
+      "notifications",
+      "branding",
       "microsoft-app",
       "default-storage",
+      "cluster",
       "database",
+      "restore-mode",
       "ransomware",
       "agent-policy",
       "proxmox",
@@ -100,11 +112,16 @@ describe("installationSections", () => {
     });
     expect(installationSections().map((section) => section.id)).toEqual([
       "server",
+      "modules",
       "mail",
+      "notifications",
+      "branding",
       "microsoft-app",
       "journal",
       "default-storage",
+      "cluster",
       "database",
+      "restore-mode",
       "ransomware",
       "agent-policy",
       "proxmox",
@@ -150,6 +167,52 @@ describe("sectionStates", () => {
   it("keeps a locked section locked while the profile has not loaded", () => {
     const [state] = sectionStates([extra("journal", 40, BUSINESS_ONLY)], context(null));
     expect(state?.locked).toBe(true);
+  });
+
+  it("marks a section hidden while every module it belongs to is off, whatever its lock says", () => {
+    const specs = [
+      { ...extra("guests", 10), modules: ["pve"] as const },
+      { ...extra("jobs", 20), modules: ["endpoints", "pve"] as const },
+      extra("server", 30),
+    ];
+    const hidden = (modules: readonly ModuleId[] | null | undefined) =>
+      sectionStates(specs, { ...context("community"), modules }).map((s) => [s.spec.id, s.hidden]);
+    expect(hidden(["endpoints"])).toEqual([
+      ["guests", true],
+      ["jobs", false],
+      ["server", false],
+    ]);
+    expect(hidden(["microsoft365"])).toEqual([
+      ["guests", true],
+      ["jobs", true],
+      ["server", false],
+    ]);
+    // No modules known (the profile is not there, an older server): nothing is hidden.
+    expect(hidden(null).every(([, isHidden]) => isHidden === false)).toBe(true);
+    expect(hidden(undefined).every(([, isHidden]) => isHidden === false)).toBe(true);
+  });
+
+  it("lists every section that is not hidden, and the open one even when it is", () => {
+    const states = sectionStates(
+      [{ ...extra("guests", 10), modules: ["pve"] as const }, extra("server", 30)],
+      { ...context("community"), modules: ["endpoints"] },
+    );
+    expect(listedSections(states, "server").map((s) => s.spec.id)).toEqual(["server"]);
+    expect(listedSections(states, "guests").map((s) => s.spec.id)).toEqual(["guests", "server"]);
+  });
+
+  it("names the modules of the core's own sections", () => {
+    const modules = Object.fromEntries(
+      CORE_INSTALLATION_SECTIONS.filter((spec) => spec.modules).map((spec) => [
+        spec.id,
+        spec.modules,
+      ]),
+    );
+    expect(modules).toEqual({
+      "microsoft-app": ["microsoft365"],
+      "agent-policy": ["endpoints"],
+      proxmox: ["pve"],
+    });
   });
 });
 

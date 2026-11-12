@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "@tanstack/react-router";
-import { ArrowLeft, History, Play, RotateCcw } from "lucide-react";
+import { Link, useNavigate, useSearch } from "@tanstack/react-router";
+import { ArrowLeft, History, Play, RotateCcw, TriangleAlert } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
@@ -38,7 +38,13 @@ import {
 } from "@/components/ui/table";
 import { useTenantScope } from "@/features/endpoints/hooks";
 import { fileRestoreContainerTo } from "@/features/endpoints/paths";
-import { BackupDestinationNote, ServerDiskWarning, useStorageScope } from "@/features/storage";
+import {
+  BackupDestinationNote,
+  ObjectCopyStatus,
+  ServerDiskWarning,
+  useStorageScope,
+  WriteOnceRetentionNotice,
+} from "@/features/storage";
 import {
   judgementsById,
   LastCleanHint,
@@ -47,6 +53,7 @@ import {
   SuspicionBadge,
   useObjectSuspicions,
 } from "@/features/suspicion";
+import { ApiError } from "@/lib/api";
 import { formatBytes, formatDateTime } from "@/lib/format";
 import { isRecentSignInRequired } from "@/lib/recent-sign-in";
 
@@ -54,10 +61,13 @@ import {
   backupNow,
   fetchGuest,
   guestRefreshMs,
+  PVE_VMID_HELD_PROBLEM,
+  type PveBootTestLeftover,
   type PveFollowUpAverage,
   type PveGuest,
   type PveGuestDetail,
   type PveRepositoryChain,
+  type PveRepositoryProblem,
   type PveRestorePoint,
   type PveRun,
   pveKeys,
@@ -70,11 +80,18 @@ import {
 } from "./api.js";
 import { BackupProgress } from "./backup-progress.js";
 import { newDataPoints } from "./backup-size.js";
-import { BootTestBadge, BootTestFacts } from "./boot-test.js";
+import {
+  BootTestBadge,
+  BootTestFacts,
+  BootTestLeftoverNote,
+  bootTestLeftover,
+} from "./boot-test.js";
 import { CancelBackupButton, CancelledBadge, CancellingBadge } from "./cancel-controls.js";
 import { PVE_NAMESPACE } from "./i18n.js";
+import { notCheckedSuffix } from "./not-checked.js";
 import { pveTo } from "./paths.js";
-import { runStatusKey, runTone } from "./run-status.js";
+import { RestoreCheckFacts, RestoreFindings } from "./restore-findings.js";
+import { runStatusLabel, runTone } from "./run-status.js";
 import { RestowServerNote, useSelfBackupGuard } from "./self-backup.js";
 
 /** File restore with this container chosen, as `<Link>` takes it. */
@@ -97,6 +114,7 @@ function RestoreDialog({
   const [node, setNode] = React.useState(detail.guest.node ?? "");
   const [vmid, setVmid] = React.useState("");
   const [start, setStart] = React.useState(false);
+  const [reuseVmid, setReuseVmid] = React.useState(false);
   const mutation = useMutation({
     mutationFn: () =>
       restoreSnapshot(point.id, {
@@ -104,13 +122,20 @@ function RestoreDialog({
         targetNode: node || undefined,
         targetVmid: vmid ? Number(vmid) : undefined,
         start,
+        ...(reuseVmid ? { confirmVmidReuse: true } : {}),
       }),
     onSuccess: () => {
       toast.success(t("restore.queued"));
       onClose();
     },
   });
-  const blocked = detail.guest.kind === "ct" && detail.guest.privileged;
+  // By the restore point's own configuration (a server before 0.5.0: the guest's flag).
+  const blocked = point.privileged ?? (detail.guest.kind === "ct" && detail.guest.privileged);
+  // The VMID belonged to a deleted guest whose restore points Restow keeps: only when confirmed.
+  const held =
+    mutation.error instanceof ApiError && mutation.error.problem?.type === PVE_VMID_HELD_PROBLEM
+      ? mutation.error.problem
+      : null;
   return (
     <Dialog open onOpenChange={(open) => (open ? undefined : onClose())}>
       <DialogContent>
@@ -148,9 +173,32 @@ function RestoreDialog({
               type="number"
               min={100}
               value={vmid}
-              onChange={(e) => setVmid(e.target.value)}
+              onChange={(e) => {
+                setVmid(e.target.value);
+                // Another VMID: the earlier refusal and confirmation no longer apply.
+                setReuseVmid(false);
+                mutation.reset();
+              }}
             />
           </div>
+          {held || reuseVmid ? (
+            <div className="space-y-2 text-sm" data-slot="pve-restore-vmid-held">
+              <p className="text-warning-text">
+                {t("restore.vmidHeld", {
+                  vmid: vmid || String(held?.vmid ?? ""),
+                  name: typeof held?.name === "string" && held.name ? held.name : vmid,
+                })}
+              </p>
+              <label htmlFor="pve-restore-vmid-reuse" className="flex items-center gap-2">
+                <Checkbox
+                  id="pve-restore-vmid-reuse"
+                  checked={reuseVmid}
+                  onCheckedChange={(checked) => setReuseVmid(checked === true)}
+                />
+                {t("restore.vmidReuse")}
+              </label>
+            </div>
+          ) : null}
           <label htmlFor="pve-restore-start" className="flex items-center gap-2 text-sm">
             <Checkbox
               id="pve-restore-start"
@@ -159,7 +207,10 @@ function RestoreDialog({
             />
             {t("restore.start")}
           </label>
-          {mutation.isError ? (
+          <p className="text-sm text-muted-foreground" data-slot="pve-restore-ip-note">
+            {t("restore.ipNote")}
+          </p>
+          {mutation.isError && !held ? (
             <p className="text-sm text-destructive-text">{(mutation.error as Error).message}</p>
           ) : null}
           <DialogFooter>
@@ -196,9 +247,7 @@ function VerifyResult({ point }: { point: PveRestorePoint }) {
     return (
       <div className="max-w-80 space-y-1" data-slot="pve-point-verify-not-checked">
         <Badge variant="warning">
-          {notChecked.reason === "locked"
-            ? t("guest.verifyNotCheckedLocked")
-            : t("guest.verifyNotCheckedInterrupted")}
+          {t(`guest.verifyNotChecked${notCheckedSuffix(notChecked.reason)}`)}
         </Badge>
         {notChecked.detail ? (
           <DetailHover text={notChecked.detail} tone="warning">
@@ -213,9 +262,7 @@ function VerifyResult({ point }: { point: PveRestorePoint }) {
   // Still tried again: the earlier result (if any) stands, with a note why the new check waits.
   const postponedBadge = notChecked ? (
     <Badge variant="muted" data-slot="pve-point-verify-postponed">
-      {notChecked.reason === "locked"
-        ? t("guest.verifyPostponedLocked")
-        : t("guest.verifyPostponedInterrupted")}
+      {t(`guest.verifyPostponed${notCheckedSuffix(notChecked.reason)}`)}
     </Badge>
   ) : null;
   const postponed =
@@ -291,7 +338,34 @@ function PointType({ point }: { point: PveRestorePoint }) {
           {t("guest.unreadable", { count: unreadable })}
         </Badge>
       ) : null}
+      <PointConsistency point={point} />
     </div>
+  );
+}
+
+/**
+ * Whether PVE froze a VM's file systems for its restore point. A failed freeze and a guest
+ * agent that did not answer are amber: the point is only crash-consistent although the VM is
+ * set up for a freeze. A frozen or stopped guest is a plain fact, never green: it says nothing
+ * about whether the point can be restored. Nothing for a container or an unrecorded point.
+ */
+export function PointConsistency({ point }: { point: Pick<PveRestorePoint, "vmConsistency"> }) {
+  const { t } = useTranslation(PVE_NAMESPACE);
+  const consistency = point.vmConsistency;
+  if (!consistency) {
+    return null;
+  }
+  const warn = consistency.state === "freeze_failed" || consistency.state === "no_agent";
+  const hint = t(`guest.consistency.${consistency.state}.hint`);
+  return (
+    <Badge
+      variant={warn ? "warning" : "outline"}
+      title={consistency.detail ? `${hint}\n${consistency.detail}` : hint}
+      data-slot="pve-point-consistency"
+      data-state={consistency.state}
+    >
+      {t(`guest.consistency.${consistency.state}.label`)}
+    </Badge>
   );
 }
 
@@ -324,12 +398,13 @@ function RunStatus({ run, name }: { run: PveRun; name: string }) {
   if (run.status === "cancelled") {
     return <CancelledBadge by={run.cancelledBy} />;
   }
+  const status = runStatusLabel(run);
   return (
     <div className="space-y-1.5">
       {run.status === "running" && run.cancelRequestedAt ? (
         <CancellingBadge by={run.cancelledBy} />
       ) : (
-        <Badge variant={runTone(run)}>{t(runStatusKey(run))}</Badge>
+        <Badge variant={runTone(run)}>{t(status.key, status.values)}</Badge>
       )}
       {run.status === "running" && run.kind === "backup" ? (
         <BackupProgress progress={run.progress} name={name} node={run.node} />
@@ -344,8 +419,22 @@ function RunStatus({ run, name }: { run: PveRun; name: string }) {
  */
 function RunNote({ run }: { run: PveRun }) {
   const { t } = useTranslation(PVE_NAMESPACE);
+  const leftover = run.kind === "boot_test" ? bootTestLeftover(run.stats?.bootTest) : null;
+  if (leftover) {
+    // Whatever the outcome: the temporary guest still takes memory and disk on the node.
+    return (
+      <span className="flex flex-col gap-0.5">
+        <BootTestLeftoverNote leftover={leftover} node={run.node?.name ?? null} />
+        {run.error ? <span title={run.error}>{run.error}</span> : null}
+      </span>
+    );
+  }
   if (run.error) {
     return <span title={run.error}>{run.error}</span>;
+  }
+  if (run.kind === "restore" || run.kind === "restore_test") {
+    // What a restore reported beside its success, each with what to do.
+    return <RestoreFindings run={run} />;
   }
   if (run.warnings && run.warnings.length > 0) {
     return <span title={run.warnings.join("\n")}>{run.warnings[0]}</span>;
@@ -392,34 +481,116 @@ function chainTarget(
     : chain.target.name;
 }
 
+/** The i18n key of a chain record's reason (`guest.chain.<key>`, `<key>Title`). */
+function chainKey(reason: PveRepositoryChain["reason"]): string {
+  return reason === "points_lost" ? "pointsLost" : reason;
+}
+
 /**
- * The newest new backup chain of a container (docs/PVE.md, "New backup chain"): the repository
- * was missing on the primary when a backup began, or an administrator reset it.
+ * The newest change of a container's backup chain (docs/PVE.md, "Repository problems"): the
+ * repository was missing on the primary when a backup began, an administrator reset it, or the
+ * repository repair found it lost (a new chain begins) or rebuilt it without some restore points
+ * (the chain goes on).
  */
 export function RepositoryChainNotice({ chain }: { chain: PveRepositoryChain }) {
   const { t, i18n } = useTranslation(PVE_NAMESPACE);
   const language = i18n.resolvedLanguage ?? i18n.language;
   const date = formatDateTime(chain.at, language);
   const target = chainTarget(chain, t);
+  const key = chainKey(chain.reason);
   return (
     <Alert
-      variant={chain.reason === "missing" ? "warning" : "info"}
+      variant={chain.reason === "reset" ? "info" : "warning"}
       data-slot="pve-repository-chain"
+      data-reason={chain.reason}
     >
       <History />
-      <AlertTitle>
-        {t(chain.reason === "missing" ? "guest.chain.missingTitle" : "guest.chain.resetTitle", {
-          date,
+      <AlertTitle>{t(`guest.chain.${key}Title`, { date })}</AlertTitle>
+      <AlertDescription>
+        {t(`guest.chain.${key}`, {
+          target,
+          count: chain.unavailablePoints,
+          actor: chain.actor ?? t("guest.chain.someone"),
         })}
+        {chain.prefix ? (
+          <p className="mt-1" data-slot="pve-repository-chain-prefix">
+            {t("guest.chain.freshPrefix", {
+              prefix: chain.prefix,
+              previous: chain.previousPrefix ?? "",
+            })}
+          </p>
+        ) : null}
+      </AlertDescription>
+    </Alert>
+  );
+}
+
+/** The problem types the guest page explains (docs/PVE.md, "Repository problems"). */
+const PROBLEM_KEYS: Record<string, "elsewhere" | "split" | "missing" | "repairFailed"> = {
+  "pve-repository-elsewhere": "elsewhere",
+  "pve-repository-split": "split",
+  "pve-repository-missing": "missing",
+  "pve-repository-repair-failed": "repairFailed",
+};
+
+/**
+ * Why the last backup of a container was refused for its repository, and the way out: the
+ * repository repair under Repositories, or a reset of the repository (docs/PVE.md, "Repository
+ * problems").
+ */
+export function RepositoryProblemNotice({ problem }: { problem: PveRepositoryProblem }) {
+  const { t, i18n } = useTranslation(PVE_NAMESPACE);
+  const found = PROBLEM_KEYS[problem.type];
+  if (!found) {
+    return null;
+  }
+  // Split with no other holder: the primary has data without config or keys, nothing elsewhere.
+  const kind = found === "split" && problem.heldBy === null ? "splitPrimaryOnly" : found;
+  const titleKind = kind === "splitPrimaryOnly" ? "split" : kind;
+  const language = i18n.resolvedLanguage ?? i18n.language;
+  const target =
+    problem.heldBy === null
+      ? null
+      : problem.heldBy === "installation_default"
+        ? t("guest.chain.installationDefault")
+        : problem.heldBy;
+  return (
+    <Alert variant="destructive" data-slot="pve-repository-problem" data-problem={kind}>
+      <History />
+      <AlertTitle>{t(`guest.repositoryProblem.${titleKind}Title`)}</AlertTitle>
+      <AlertDescription>
+        <p>
+          {t(`guest.repositoryProblem.${kind}`, {
+            target: target ?? t("guest.repositoryProblem.noTarget"),
+            count: problem.activePoints,
+            date: formatDateTime(problem.at, language),
+          })}
+        </p>
+        <p>{t(`guest.repositoryProblem.${kind}Action`, { count: problem.activePoints })}</p>
+      </AlertDescription>
+    </Alert>
+  );
+}
+
+/**
+ * A boot test's temporary guest that could not be removed is still on its node (it takes
+ * memory and disk there): amber until the node's inventory no longer lists it.
+ */
+export function BootTestLeftoverNotice({ leftover }: { leftover: PveBootTestLeftover }) {
+  const { t } = useTranslation(PVE_NAMESPACE);
+  return (
+    <Alert variant="warning" data-slot="pve-boot-test-leftover-notice">
+      <TriangleAlert />
+      <AlertTitle>
+        {leftover.storage
+          ? t("guest.bootTestLeftover.onStorage", {
+              vmid: leftover.vmid,
+              storage: leftover.storage,
+            })
+          : t("guest.bootTestLeftover.plain", { vmid: leftover.vmid })}
       </AlertTitle>
       <AlertDescription>
-        {chain.reason === "missing"
-          ? t("guest.chain.missing", { target, count: chain.unavailablePoints })
-          : t("guest.chain.reset", {
-              target,
-              count: chain.unavailablePoints,
-              actor: chain.actor ?? t("guest.chain.someone"),
-            })}
+        {t("guest.bootTestLeftover.what", { node: leftover.node ?? "?" })}
       </AlertDescription>
     </Alert>
   );
@@ -722,6 +893,20 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
     onError: (error) => toast.error((error as Error).message),
   });
   const data = detail.data;
+  // ?restore=<point>: File restore sends the admin here to restore the guest as a whole from the
+  // restore point shown there; open its dialog once and drop the parameter again.
+  const { restore: wantedRestore } = useSearch({ strict: false }) as { restore?: string };
+  const navigate = useNavigate();
+  React.useEffect(() => {
+    if (!wantedRestore || !data) {
+      return;
+    }
+    const point = data.snapshots.find((p) => p.id === wantedRestore && p.available !== false);
+    if (point) {
+      setRestoring(point);
+    }
+    void navigate({ to: ".", search: {} as never, replace: true });
+  }, [wantedRestore, data, navigate]);
   const title = data ? `${data.guest.name ?? data.guest.vmid} (${data.guest.vmid})` : "";
   // What can be stopped (0.4.2): the running backup, else a backup that waits for the node.
   const runningBackup = data?.runs.find((r) => r.kind === "backup" && r.status === "running");
@@ -812,11 +997,27 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
         ) : null}
       </PageHeader>
       {data && canManage ? <BackupDestinationNote /> : null}
+      {data?.repository?.problem ? (
+        <RepositoryProblemNotice problem={data.repository.problem} />
+      ) : null}
       {chains[0] ? <RepositoryChainNotice chain={chains[0]} /> : null}
+      {data?.guest.attention.includes("no_restow_node") ? (
+        <Alert variant="warning" data-slot="pve-guest-no-restow-node">
+          <TriangleAlert />
+          <AlertTitle>{t("guest.noRestowNode.title", { node: data.guest.node ?? "?" })}</AlertTitle>
+          <AlertDescription>{t("guest.noRestowNode.what")}</AlertDescription>
+        </Alert>
+      ) : null}
+      {data?.guest.bootTestLeftover ? (
+        <BootTestLeftoverNotice leftover={data.guest.bootTestLeftover} />
+      ) : null}
       {data ? <ExclusionSection guest={data.guest} canManage={canManage} /> : null}
       {data && !data.guest.excludedAt ? <RestowServerSection guest={data.guest} /> : null}
       <ObjectSuspicionBadge target={suspicionTarget} />
       <RetentionHoldNotice target={suspicionTarget} objectName={title} />
+      <WriteOnceRetentionNotice context="guest" />
+      {/* A container's repository on each copy target (docs/STORAGE.md). */}
+      <ObjectCopyStatus ownerId={guestId} />
       <LastCleanHint
         points={timeline}
         judgements={judgements}
@@ -837,6 +1038,7 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
           </div>
         ) : null}
         {data?.bootTest ? <BootTestFacts facts={data.bootTest} /> : null}
+        {data?.restoreCheck ? <RestoreCheckFacts facts={data.restoreCheck} /> : null}
         {data && data.snapshots.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t("guest.noRestorePoints")}</p>
         ) : (
@@ -967,11 +1169,15 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
                     </TableCell>
                     <TableCell>{t("guest.chain.history")}</TableCell>
                     <TableCell>
-                      <Badge variant={row.chain.reason === "missing" ? "warning" : "info"}>
+                      <Badge variant={row.chain.reason === "reset" ? "info" : "warning"}>
                         {t(
                           row.chain.reason === "missing"
                             ? "guest.chain.historyMissing"
-                            : "guest.chain.historyReset",
+                            : row.chain.reason === "lost"
+                              ? "guest.chain.historyLost"
+                              : row.chain.reason === "points_lost"
+                                ? "guest.chain.historyPointsLost"
+                                : "guest.chain.historyReset",
                           {
                             target: chainTarget(row.chain, t),
                             actor: row.chain.actor ?? t("guest.chain.someone"),

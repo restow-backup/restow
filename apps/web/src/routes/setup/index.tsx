@@ -31,25 +31,33 @@ import { HOME_PATH, LOGIN_PATH } from "@/lib/entry";
 import { zodResolver } from "@/lib/form";
 import { holdPasswordForEnrolment } from "@/lib/password-handoff";
 import { PasskeyReadiness } from "@/routes/setup/passkey-readiness";
+import { RESTORE_ACTIVATED_KEY, type RestoreOperation } from "@/routes/setup/restore-api";
 import {
   buildSubmission,
   initialSetupValues,
   SETUP_LANGUAGES,
   type SetupFormValues,
+  type SetupKind,
   type SetupLanguage,
   STEP_FIELDS,
-  STEP_KEYS,
+  STEPS_BY_KIND,
   type StepKey,
   setupFormSchema,
 } from "@/routes/setup/schema";
 import { Stepper, shownSteps } from "@/routes/setup/stepper";
 import { AdminStep } from "@/routes/setup/steps/admin-step";
 import { DisclaimerStep, type DisclaimerStepError } from "@/routes/setup/steps/disclaimer-step";
+import { KindStep } from "@/routes/setup/steps/kind-step";
 import { LanguageStep } from "@/routes/setup/steps/language-step";
 import { MailStep } from "@/routes/setup/steps/mail-step";
 import { ModeStep } from "@/routes/setup/steps/mode-step";
+import { ModulesStep } from "@/routes/setup/steps/modules-step";
+import { RestoreDoneStep } from "@/routes/setup/steps/restore-done-step";
+import { RestoreRunStep } from "@/routes/setup/steps/restore-run-step";
+import { RestoreSourceStep } from "@/routes/setup/steps/restore-source-step";
 import { ReviewStep } from "@/routes/setup/steps/review-step";
 import { TokenStep, type TokenStepError } from "@/routes/setup/steps/token-step";
+import { WorkerStep } from "@/routes/setup/steps/worker-step";
 
 type Phase = "editing" | "submitting" | "signingIn";
 
@@ -76,11 +84,25 @@ function setupLanguageOf(language: string | undefined): SetupLanguage {
   return SETUP_LANGUAGES.find((candidate) => candidate === language) ?? "en";
 }
 
+/** The wizard activated a restore before the api restarted (restore-done-step.tsx). */
+function restoreWasActivated(): boolean {
+  try {
+    return sessionStorage.getItem(RESTORE_ACTIVATED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 /**
- * First-run setup wizard: the language, the setup token, the operator notice,
- * operating mode, first admin account, mail transport (which can be skipped)
- * and a review step (docs/ARCHITECTURE.md, setup and operating modes). On
- * success the new admin is signed in right away and lands on the dashboard.
+ * First-run setup wizard (docs/ARCHITECTURE.md, setup and operating modes): the
+ * language, then what to set up. A new installation: the setup token, the
+ * operator notice, what it is to protect (its modules), operating mode, first
+ * admin account, mail transport (which can be skipped) and a review step; on
+ * success the new admin is signed in right away and lands on the dashboard. A
+ * restore from a database dump: the setup token, the dump, its run and report,
+ * the activation; no admin is created and no modules are asked, the dump brings
+ * its users and settings. A worker node for another installation: what to run
+ * on that host (install.sh --join).
  */
 export function SetupPage() {
   const { t } = useTranslation("setup");
@@ -96,7 +118,15 @@ export function SetupPage() {
   // The language is the wizard's first step, the demo's included. The steps that
   // do not apply (no setup token to ask for in the demo, a notice that counts as
   // accepted there) are passed over, forwards and backwards.
-  const [stepIndex, setStepIndex] = React.useState(0);
+  // A restore activated before the api restarted continues at its end.
+  const [kind, setKind] = React.useState<SetupKind>(() =>
+    restoreWasActivated() ? "restore" : "new",
+  );
+  const stepKeys: readonly StepKey[] = STEPS_BY_KIND[kind];
+  const [stepIndex, setStepIndex] = React.useState(() =>
+    restoreWasActivated() ? STEPS_BY_KIND.restore.indexOf("restoreDone") : 0,
+  );
+  const [restoreOperation, setRestoreOperation] = React.useState<RestoreOperation | null>(null);
   const language = setupLanguageOf(i18n.resolvedLanguage ?? i18n.language);
   const [setupToken, setSetupToken] = React.useState("");
   const [tokenError, setTokenError] = React.useState<TokenStepError | null>(null);
@@ -122,20 +152,29 @@ export function SetupPage() {
     }
   }, []);
 
-  const currentKey = STEP_KEYS[stepIndex] ?? "language";
-  const totalSteps = STEP_KEYS.length;
+  const currentKey: StepKey = stepKeys[stepIndex] ?? "language";
+  const totalSteps = stepKeys.length;
+  const demo = setupState?.demo?.enabled === true;
+  // The demo installs one documented account: it neither restores nor joins anything.
   const stepApplies = (key: StepKey) =>
-    key === "token" ? tokenRequired : key === "disclaimer" ? !disclaimer.accepted : true;
+    key === "token"
+      ? tokenRequired
+      : key === "disclaimer"
+        ? !disclaimer.accepted
+        : key === "kind"
+          ? !demo
+          : true;
   const stepFrom = (from: number, direction: 1 | -1) => {
     let index = from + direction;
-    while (index > 0 && index < totalSteps - 1 && !stepApplies(STEP_KEYS[index] ?? "review")) {
+    while (index > 0 && index < totalSteps - 1 && !stepApplies(stepKeys[index] ?? "review")) {
       index += direction;
     }
     return Math.min(Math.max(index, 0), totalSteps - 1);
   };
   const next = () => setStepIndex((index) => stepFrom(index, 1));
+  const goTo = (key: StepKey) => setStepIndex(Math.max(0, stepKeys.indexOf(key)));
   // Only the steps that apply are shown and counted ("Step 2 of 5", not "3 of 7").
-  const steps = shownSteps(stepApplies, stepIndex);
+  const steps = shownSteps(stepKeys, stepApplies, stepIndex);
   const stepPosition = Math.max(
     0,
     steps.findIndex((step) => step.index === stepIndex),
@@ -211,19 +250,19 @@ export function SetupPage() {
       if (type === SETUP_TOKEN_PROBLEM) {
         // The token changed since the first step (the api restarted): ask again.
         setTokenError("changed");
-        setStepIndex(STEP_KEYS.indexOf("token"));
+        goTo("token");
         return;
       }
       if (type === DISCLAIMER_REQUIRED_PROBLEM || type === DISCLAIMER_VERSION_PROBLEM) {
         // Back to the notice: read it (again) and accept it.
         setNoticeChecked(false);
         setNoticeError(type === DISCLAIMER_VERSION_PROBLEM ? "versionChanged" : "serverRequired");
-        setStepIndex(STEP_KEYS.indexOf("disclaimer"));
+        goTo("disclaimer");
         await queryClient.invalidateQueries({ queryKey: queryKeys.setupState });
         return;
       }
       if (type === PROBLEM.emailInUse) {
-        setStepIndex(STEP_KEYS.indexOf("admin"));
+        goTo("admin");
         form.setError("admin.email", { message: "emailInUse" }, { shouldFocus: true });
       }
     },
@@ -267,11 +306,20 @@ export function SetupPage() {
       }
       return;
     }
+    if (currentKey === "kind") {
+      next();
+      return;
+    }
     if (currentKey === "mail") {
       // Next on this step means "set it up now", also after an earlier "Skip for now".
       form.setValue("mail.skipped", false);
     }
-    if (currentKey !== "review") {
+    if (
+      currentKey === "modules" ||
+      currentKey === "mode" ||
+      currentKey === "admin" ||
+      currentKey === "mail"
+    ) {
       const valid = await form.trigger(STEP_FIELDS[currentKey], { shouldFocus: true });
       if (!valid) {
         return;
@@ -380,6 +428,36 @@ export function SetupPage() {
                   onReload={() => window.location.reload()}
                 />
               ) : null}
+              {currentKey === "kind" ? (
+                <KindStep
+                  value={kind}
+                  onSelect={setKind}
+                  restoreInWizard={setupState?.restore?.available === true}
+                />
+              ) : null}
+              {currentKey === "restoreSource" ? (
+                <RestoreSourceStep
+                  token={setupToken}
+                  onStarted={(operation) => {
+                    setRestoreOperation(operation);
+                    goTo("restoreRun");
+                  }}
+                />
+              ) : null}
+              {currentKey === "restoreRun" ? (
+                <RestoreRunStep
+                  token={setupToken}
+                  initial={restoreOperation}
+                  onStartAgain={() => {
+                    setRestoreOperation(null);
+                    goTo("restoreSource");
+                  }}
+                  onActivated={() => goTo("restoreDone")}
+                />
+              ) : null}
+              {currentKey === "restoreDone" ? <RestoreDoneStep /> : null}
+              {currentKey === "workerInfo" ? <WorkerStep /> : null}
+              {currentKey === "modules" ? <ModulesStep form={form} /> : null}
               {currentKey === "mode" ? <ModeStep form={form} /> : null}
               {currentKey === "admin" ? <AdminStep form={form} /> : null}
               {currentKey === "mail" ? (
@@ -411,12 +489,21 @@ export function SetupPage() {
               variant="ghost"
               type="button"
               onClick={goBack}
-              disabled={stepIndex === 0 || busy}
+              disabled={
+                stepIndex === 0 ||
+                busy ||
+                currentKey === "restoreRun" ||
+                currentKey === "restoreDone"
+              }
             >
               {tc("actions.back")}
             </Button>
 
-            {currentKey === "review" ? (
+            {/* The restore steps and the worker explanation carry their own actions. */}
+            {currentKey === "restoreSource" ||
+            currentKey === "restoreRun" ||
+            currentKey === "restoreDone" ||
+            currentKey === "workerInfo" ? null : currentKey === "review" ? (
               <Button type="submit" loading={busy}>
                 {phase === "submitting"
                   ? t("review.submitting")

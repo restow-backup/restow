@@ -2,9 +2,13 @@ import { Readable } from "node:stream";
 import {
   changeImmutability,
   createMemoryJobContext,
+  type DeletionDecision,
+  type DeletionGuard,
+  DeletionsHeldError,
   generateDek,
   type HeadResult,
   ImmutableStorageBackend,
+  installDeletionEnforcement,
   Keyring,
   MANIFEST_VERSION,
   MemoryChunkIndex,
@@ -14,7 +18,7 @@ import {
   serializeManifest,
 } from "@restow/core";
 import type { Database } from "@restow/db";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import type { WorkerJobContext } from "./framework.js";
 import {
   createRetentionHandler,
@@ -22,6 +26,7 @@ import {
   pruneSnapshot,
   type RetentionStore,
   RetentionTaskRegistry,
+  RetentionTasksFailedError,
 } from "./retention.js";
 
 const TENANT = "0f6e4b4e-2f2a-4d9a-9c2b-1a2b3c4d5e6f";
@@ -203,6 +208,30 @@ function workerContext(
   return { ...base, db: {} as Database, protectedObject: null, chunkIndex };
 }
 
+/** A guard that allows the first `allowed` decisions, then refuses: restore mode came on. */
+function guardTurningOnAfter(allowed: number): DeletionGuard & { decisions: number } {
+  const guard = {
+    decisions: 0,
+    async decide(): Promise<DeletionDecision> {
+      guard.decisions++;
+      if (guard.decisions <= allowed) {
+        return { allowed: true, keepUnknownBefore: null, inRestoreMode: false };
+      }
+      return { allowed: false, reason: "restore_mode", restoreModeId: null };
+    },
+    holding() {
+      return guard.decisions > allowed;
+    },
+  };
+  return guard;
+}
+
+let uninstallGuard: (() => void) | null = null;
+afterEach(() => {
+  uninstallGuard?.();
+  uninstallGuard = null;
+});
+
 describe("pruneSnapshot", () => {
   it("flips the row, releases references from the manifest, drops the index rows and the file", async () => {
     const primary = new MemoryStorage();
@@ -261,6 +290,38 @@ describe("pruneSnapshot", () => {
     expect(ctx.chunkIndex.chunks.get("aa")?.refcount).toBe(0);
   });
 
+  it("changes nothing, in the database or the chunk index, while deleting is paused", async () => {
+    const primary = new MemoryStorage();
+    const ctx = workerContext(primary);
+    const row = snapshot("s1", OBJECT_A, 1, 100);
+    await ctx.chunkIndex.recordPack({ id: "pack", path: "packs/pack", sha256: "00", size: 1 }, [
+      { storedId: "aa", offset: 0, length: 1 },
+    ]);
+    await ctx.chunkIndex.addReferences(["aa"]);
+    await primary.put(row.manifestPath, await manifestFor(row, [["aa"]]));
+    const { store, pruned, deleted } = fakeStore({
+      policies: [],
+      holds: { tenantWide: false, protectedObjectIds: new Set() },
+      snapshots: [row],
+      mirrored: new Map([["s1", ["aa"]]]),
+    });
+    const [candidate] = await store.loadCompletedSnapshots();
+    if (!candidate) {
+      throw new Error("expected a candidate");
+    }
+    uninstallGuard = installDeletionEnforcement(guardTurningOnAfter(0));
+
+    await expect(pruneSnapshot(ctx, store, candidate, ctx.logger)).rejects.toBeInstanceOf(
+      DeletionsHeldError,
+    );
+
+    // The restore point stays active and keeps its references: GC after restore mode keeps "aa".
+    expect(pruned).toEqual([]);
+    expect(deleted).toEqual([]);
+    expect(ctx.chunkIndex.chunks.get("aa")?.refcount).toBe(1);
+    expect(await primary.head(row.manifestPath)).not.toBeNull();
+  });
+
   it("is a no-op when another run pruned the snapshot first", async () => {
     const ctx = workerContext(new MemoryStorage());
     const row = snapshot("s1", OBJECT_A, 1, 100);
@@ -304,7 +365,7 @@ describe("retention handler", () => {
     expect(pruned).toEqual([]);
   });
 
-  it("prunes what the policy expires, honours legal holds and reports progress", async () => {
+  it("prunes what the policy expires, honours legal holds and reports progress [RETAIN-001]", async () => {
     const primary = new MemoryStorage();
     const ctx = workerContext(primary);
     const { store, pruned } = fakeStore({
@@ -336,7 +397,7 @@ describe("retention handler", () => {
     expect(ctx.progress.snapshot()).toMatchObject({ total: 2, done: 2, failed: 0, phase: "prune" });
   });
 
-  it("leaves an expired restore point alone while a target still locks its manifest", async () => {
+  it("leaves an expired restore point alone while a target still locks its manifest [RETAIN-005]", async () => {
     // The file times of this storage are "now": a deletion delay of 30 days locks them all.
     class DatedStorage extends MemoryStorage {
       override async head(key: string): Promise<HeadResult | null> {
@@ -375,7 +436,7 @@ describe("retention handler", () => {
     expect(raw.objects.has(store.manifestPathOf("a1"))).toBe(true);
   });
 
-  it("never removes the only verified restore point of an object, even under an aggressive custom policy", async () => {
+  it("never removes the only verified restore point of an object, even under an aggressive custom policy [RETAIN-003]", async () => {
     const aggressive: RetentionPolicyRow = {
       id: "p2",
       name: "Aggressive",
@@ -434,7 +495,7 @@ describe("retention handler", () => {
     expect(pruned.sort()).toEqual(["a1", "a3"]);
   });
 
-  it("sets aside a legal hold's overdue restore points even under an aggressive custom policy", async () => {
+  it("sets aside a legal hold's overdue restore points even under an aggressive custom policy [RETAIN-001]", async () => {
     const aggressive: RetentionPolicyRow = {
       id: "p-hold",
       name: "Aggressive",
@@ -494,7 +555,7 @@ describe("retention handler", () => {
     expect(pruned).toEqual(["l1"]);
   });
 
-  it("never removes the newest verified restore point, even with several verified points under an aggressive custom policy", async () => {
+  it("never removes the newest verified restore point, even with several verified points under an aggressive custom policy [RETAIN-003]", async () => {
     const aggressive: RetentionPolicyRow = {
       id: "p3",
       name: "Aggressive",
@@ -571,10 +632,114 @@ describe("retention handler", () => {
     expect(ctx.progress.snapshot()).toMatchObject({ done: 2, failed: 1 });
   });
 
+  it("stops at the first restore point refused when restore mode comes on mid-run [RETAIN-008]", async () => {
+    const primary = new MemoryStorage();
+    const ctx = workerContext(primary);
+    await ctx.chunkIndex.recordPack({ id: "pack", path: "packs/pack", sha256: "00", size: 3 }, [
+      { storedId: "aa", offset: 0, length: 1 },
+      { storedId: "bb", offset: 1, length: 1 },
+      { storedId: "cc", offset: 2, length: 1 },
+    ]);
+    await ctx.chunkIndex.addReferences(["aa", "bb", "cc"]);
+    const { store, pruned, deleted } = fakeStore({
+      policies: [policy30],
+      holds: { tenantWide: false, protectedObjectIds: new Set() },
+      snapshots,
+      mirrored: new Map([
+        ["a1", ["aa"]],
+        ["a2", ["bb"]],
+        ["b1", ["cc"]],
+      ]),
+    });
+    // The run's own check and the first prune are allowed; then restore mode is on.
+    const guard = guardTurningOnAfter(2);
+    uninstallGuard = installDeletionEnforcement(guard);
+    const handler = createRetentionHandler(
+      new RetentionTaskRegistry([createSnapshotRetentionTask(() => store)]),
+    );
+
+    const outcome = await handler.run(ctx, { jobId: JOB, tenantId: TENANT });
+
+    // One restore point went; the two after it stay active with their chunk references.
+    expect(pruned).toHaveLength(1);
+    expect(deleted).toEqual(pruned);
+    const refcounts = ["aa", "bb", "cc"].map((id) => ctx.chunkIndex.chunks.get(id)?.refcount);
+    expect(refcounts.filter((count) => count === 0)).toHaveLength(1);
+    expect(refcounts.filter((count) => count === 1)).toHaveLength(2);
+    // The run ends as held, not as item failures, and asks no further permit.
+    expect(guard.decisions).toBe(3);
+    expect(outcome?.summary?.snapshots).toMatchObject({
+      candidates: 3,
+      pruned: 1,
+      restoreMode: true,
+    });
+    expect(ctx.progress.snapshot()).toMatchObject({ done: 1, failed: 0 });
+  });
+
   it("runs every registered task and refuses duplicate names", () => {
     const registry = new RetentionTaskRegistry([createSnapshotRetentionTask()]);
     expect(() => registry.register(createSnapshotRetentionTask())).toThrow(/already registered/);
     registry.register({ name: "archive", run: async () => ({}) });
     expect(registry.list().map((task) => task.name)).toEqual(["snapshots", "archive"]);
+  });
+});
+
+describe("createRetentionHandler", () => {
+  it("runs every task when one fails, and fails the job at the end", async () => {
+    const ctx = workerContext(new MemoryStorage());
+    const ran: string[] = [];
+    const registry = new RetentionTaskRegistry([
+      {
+        name: "snapshots",
+        run: async () => {
+          ran.push("snapshots");
+          throw new Error("bind message has 4466 parameter formats but 0 parameters");
+        },
+      },
+      {
+        name: "mail-files",
+        run: async () => {
+          ran.push("mail-files");
+          return { removed: 3 };
+        },
+      },
+      {
+        name: "immutability",
+        run: async () => {
+          ran.push("immutability");
+          return { renewed: 1 };
+        },
+      },
+    ]);
+    const recorded: Record<string, unknown>[] = [];
+    const handler = createRetentionHandler(registry, {
+      recordResult: async (_ctx, summary) => {
+        recorded.push({ ...summary });
+      },
+    });
+    const failure = await handler.run(ctx, { jobId: JOB, tenantId: TENANT }).then(
+      () => null,
+      (error: unknown) => error,
+    );
+    // The later tasks (mail-file sweep, Object Lock renewal) still ran ...
+    expect(ran).toEqual(["snapshots", "mail-files", "immutability"]);
+    // ... and the job is not reported as a success.
+    expect(failure).toBeInstanceOf(RetentionTasksFailedError);
+    const failed = failure as RetentionTasksFailedError;
+    expect(failed.tasks).toEqual(["snapshots"]);
+    expect(failed.summary).toMatchObject({
+      snapshots: { status: "failed" },
+      "mail-files": { removed: 3 },
+      immutability: { renewed: 1 },
+    });
+    expect(ctx.progress.snapshot().failed).toBe(1);
+    // What the other tasks did is stored with the failed job, not only logged.
+    expect(recorded).toEqual([
+      expect.objectContaining({
+        failed: ["snapshots"],
+        "mail-files": { removed: 3 },
+        immutability: { renewed: 1 },
+      }),
+    ]);
   });
 });

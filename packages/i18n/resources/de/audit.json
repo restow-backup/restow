@@ -162,7 +162,11 @@
     "file_share": "Freigaben",
     "warning": "Warnungen",
     "database": "Datenbank",
-    "suspicion": "Ransomware-Erkennung"
+    "suspicion": "Ransomware-Erkennung",
+    "branding": "Branding",
+    "provider_notifications": "Provider-Benachrichtigungen",
+    "installation": "Installation",
+    "cluster": "Worker-Knoten"
   },
   "events": {
     "account": {
@@ -246,7 +250,11 @@
     },
     "backup": {
       "requested": "Backup manuell gestartet",
-      "first_queued": "Erste Sicherung eingeplant"
+      "first_queued": "Erste Sicherung eingeplant",
+      "size_hold_continued": "Angehaltene, ungewöhnlich große Sicherung darf einmal weiterlaufen",
+      "size_limit_raised": "Größengrenze einer angehaltenen Sicherung erhöht",
+      "size_guard_changed": "Größen- und Platzprüfung der Sicherungen geändert",
+      "space_rule_changed": "Auf Speicherzielen frei gehaltener Platz geändert"
     },
     "directory": {
       "account": {
@@ -352,6 +360,9 @@
       "pve": {
         "updated": "Einstellungen für Proxmox VE der Installation geändert"
       },
+      "modules": {
+        "updated": "Module der Installation geändert"
+      },
       "time_zone": {
         "changed": "Zeitzone der Installation geändert"
       },
@@ -428,6 +439,15 @@
         "promoted": "Repository zum primären gemacht",
         "tested": "Repository getestet",
         "updated": "Repository geändert"
+      },
+      "repositories": {
+        "scan_requested": "Prüfung der Repositorys angefordert",
+        "scanned": "Repositorys auf allen Speicherzielen geprüft",
+        "repair_requested": "Reparatur der Repositorys angefordert"
+      },
+      "repository": {
+        "merged": "Repository aus seinen Teilen auf dem primären Repository wieder aufgebaut",
+        "lost": "Repository verloren: seine Sicherungsstände wurden unverfügbar"
       }
     },
     "tenant": {
@@ -464,6 +484,9 @@
       },
       "agent_policy": {
         "updated": "Richtlinie der Agenten des Mandanten geändert"
+      },
+      "key_mirror": {
+        "conflict": "Gespeicherter Schlüssel weicht ab (nicht überschrieben)"
       }
     },
     "verify": {
@@ -503,7 +526,11 @@
         "deleted": "Berichtsregel gelöscht"
       },
       "test_sent": "Test einer Berichtsregel gesendet",
-      "matrix_updated": "Benachrichtigungsmatrix geändert"
+      "matrix_updated": "Benachrichtigungsmatrix geändert",
+      "customer": {
+        "updated": "Monatlicher Kundenbericht geändert",
+        "test_sent": "Monatlicher Kundenbericht als Test gesendet"
+      }
     },
     "update": {
       "check": "Update-Prüfung",
@@ -541,6 +568,8 @@
       "revoked": "Rechner gesperrt",
       "removed": "Rechner aus {appName} entfernt",
       "removal": {
+        "scheduled": "Löschen der Sicherungen des gesperrten Rechners geplant",
+        "cancelled": "Geplantes Löschen der Sicherungen des gesperrten Rechners abgebrochen",
         "held": "Löschen der Sicherungen des entfernten Rechners angehalten",
         "deferred": "Löschen der Sicherungen des entfernten Rechners wegen Speichersperren verschoben",
         "completed": "Sicherungen des entfernten Rechners gelöscht",
@@ -602,7 +631,25 @@
         "created": "Wiederanbindungs-Token erstellt"
       },
       "rebound": "Rechner mit neuem Agent-Secret wieder angebunden",
-      "unrevoked": "Gesperrter Rechner reaktiviert"
+      "unrevoked": "Gesperrter Rechner reaktiviert",
+      "sql": {
+        "inventory": {
+          "requested": "Prüfung der SQL-Server-Anmeldung angefordert"
+        },
+        "restore": {
+          "requested": "SQL-Server-Wiederherstellung unter neuem Namen angefordert",
+          "finished": "SQL-Server-Wiederherstellung unter neuem Namen beendet"
+        },
+        "restore_script": {
+          "downloaded": "SQL-Server-Restore-Skript heruntergeladen"
+        },
+        "tde": {
+          "confirmed": "Sicherung des TDE-Zertifikats bestätigt"
+        },
+        "verify": {
+          "requested": "SQL-Server-Prüfung angefordert"
+        }
+      }
     },
     "backup_job": {
       "created": "Backup-Job angelegt",
@@ -643,7 +690,8 @@
         "cancelled": "Sicherung des Gasts abgebrochen"
       },
       "restore": {
-        "requested": "Wiederherstellung als neuer Gast angefordert"
+        "requested": "Wiederherstellung als neuer Gast angefordert",
+        "read_from_copy": "Container-Wiederherstellung hat die Sicherungen aus einem anderen Repository als dem primären gelesen"
       },
       "verify": {
         "requested": "Restore-Prüfung des Sicherungsstands angefordert"
@@ -664,7 +712,8 @@
       },
       "repository": {
         "reinitialized": "Repository des Containers fehlte auf dem primären Repository: neue Sicherungskette begonnen",
-        "reset": "Repository des Containers zurückgesetzt: neue Sicherungskette mit der nächsten Sicherung"
+        "reset": "Repository des Containers zurückgesetzt: neue Sicherungskette mit der nächsten Sicherung",
+        "fresh_prefix": "Repository des Containers auf Write-once-Speicher: neue Sicherungskette unter einem neuen Präfix begonnen, die alte bleibt erhalten"
       },
       "guest": {
         "restow_server": "Gast als {appName}-Server markiert oder Markierung aufgehoben",
@@ -701,7 +750,8 @@
       "repository_password_shown": "Repository-Passwort der Freigabe angezeigt",
       "private_network_approved": "Freigabe in einem privaten Netz genehmigt",
       "private_network_withdrawn": "Genehmigung für ein privates Netz zurückgezogen",
-      "settings_changed": "Freigabe-Einstellungen der Installation geändert"
+      "settings_changed": "Freigabe-Einstellungen der Installation geändert",
+      "restore_read_from_copy": "Wiederherstellung der Dateifreigabe hat die Sicherungen aus einem anderen Repository als dem primären gelesen"
     },
     "warning": {
       "acknowledged": "Warnung bestätigt",
@@ -726,6 +776,37 @@
       "false_alarm": "Verdächtiger Sicherungsstand als Fehlalarm markiert",
       "false_alarm_revoked": "Fehlalarm eines Sicherungsstands zurückgenommen",
       "hold_released": "Angehaltene Aufbewahrung eines Objekts freigegeben"
+    },
+    "branding": {
+      "updated": "Branding geändert",
+      "logo_uploaded": "Logo hochgeladen",
+      "logo_removed": "Logo entfernt",
+      "test_sent": "Testmail des Brandings gesendet"
+    },
+    "provider_notifications": {
+      "recipients_updated": "Benachrichtigungsempfänger des Providers geändert",
+      "test_sent": "Testbenachrichtigung an einen Empfänger des Providers gesendet",
+      "summary_updated": "Zusammenfassung über alle Mandanten geändert",
+      "summary_test_sent": "Zusammenfassung über alle Mandanten als Test gesendet"
+    },
+    "installation": {
+      "restore_mode": {
+        "started": "Wiederherstellungsmodus eingeschaltet",
+        "detected": "Wiederherstellungsmodus von selbst eingeschaltet (Speicher der Datenbank voraus)",
+        "ended": "Wiederherstellungsmodus beendet",
+        "keys_imported": "Schlüsselversion aus dem Speicher übernommen"
+      }
+    },
+    "cluster": {
+      "join_token": {
+        "created": "Beitrittstoken für einen Worker-Knoten ausgestellt",
+        "revoked": "Beitrittstoken für einen Worker-Knoten widerrufen"
+      },
+      "node": {
+        "joined": "Worker-Knoten beigetreten",
+        "join_refused": "Beitritt eines Worker-Knotens abgelehnt",
+        "removed": "Worker-Knoten entfernt"
+      }
     }
   },
   "targetTypes": {
@@ -756,6 +837,7 @@
     "source": "Quelle",
     "stats": "Statistik",
     "storage_location": "Repository",
+    "storage_repository_repair": "Prüfung oder Reparatur der Repositorys",
     "storage_target": "Repository",
     "tenant": "Mandant",
     "user": "Benutzer",
@@ -778,7 +860,12 @@
     "service": "Dienst",
     "database": "Datenbank",
     "dump": "Datenbanksicherung",
-    "restore_point": "Sicherungsstand"
+    "restore_point": "Sicherungsstand",
+    "branding": "Branding",
+    "notification_recipients": "Benachrichtigungsempfänger",
+    "summary_report": "Zusammenfassung",
+    "cluster_join_token": "Beitrittstoken",
+    "cluster_node": "Worker-Knoten"
   },
   "sectionDescription": "{scope, select, organisation {Das Protokoll dieser Organisation} other {Das Protokoll dieses Mandanten}}: wer wann was getan hat, mit der Hash-Kette, die beweist, dass nichts verändert wurde.",
   "export": {

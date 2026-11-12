@@ -153,8 +153,11 @@ func backupArgs(o BackupOptions, filesFrom, excludeFile string) []string {
 // Backup runs `restic backup`. A returned *BackupResult with a nil error means
 // a snapshot was created; otherwise the error is a *Error for restic
 // failures (its SnapshotOutcome says what happened to the snapshot) or the
-// context's error when cancelled, then with a result that carries only
-// Snapshot (what restic reported about it before it was stopped).
+// context's error when cancelled, then with a result that carries Snapshot
+// (what restic reported about it before it was stopped) and, when restic had
+// saved its snapshot all the same (it finished before the interrupt took
+// effect), SnapshotID, Summary and Partial: that snapshot is in the
+// repository, and the caller has to account for it.
 func (r *Runner) Backup(ctx context.Context, o BackupOptions) (*BackupResult, error) {
 	if len(o.Paths) == 0 {
 		return nil, errors.New("backup: no paths to back up")
@@ -247,10 +250,15 @@ func (r *Runner) Backup(ctx context.Context, o BackupOptions) (*BackupResult, er
 	if err != nil {
 		return nil, err
 	}
+	res.Errors, res.ErrorCount = items.kept, items.count
 	if ctx.Err() != nil {
+		// restic writes its summary only after the snapshot is saved.
+		if summary != nil && summary.SnapshotID != "" {
+			res.Summary, res.SnapshotID = *summary, summary.SnapshotID
+			res.Partial = xr.ExitCode == ExitIncomplete
+		}
 		return res, ctx.Err()
 	}
-	res.Errors, res.ErrorCount = items.kept, items.count
 	switch xr.ExitCode {
 	case 0, ExitIncomplete:
 		if summary == nil || summary.SnapshotID == "" {

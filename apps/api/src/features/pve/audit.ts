@@ -19,6 +19,9 @@ export const PVE_AUDIT_ACTIONS = {
   queueResumed: "pve.queue.resumed",
   updateRequested: "pve.node.update_requested",
   restoreRequested: "pve.restore.requested",
+  // A container restore, restore check or boot test read the repository from another target
+  // than the primary (docs/STORAGE.md, "Restoring from a copy").
+  restoreReadFromCopy: "pve.restore.read_from_copy",
   verifyRequested: "pve.verify.requested",
   bootTestRequested: "pve.boot_test.requested",
   jobChanged: "pve.job.changed",
@@ -38,10 +41,13 @@ export const PVE_AUDIT_ACTIONS = {
   filesDownloaded: "pve.snapshot.downloaded",
   denied: "pve.node.denied",
   // A container's repository was missing on the primary when a backup began: a new chain
-  // began (docs/PVE.md, "New backup chain").
+  // began (docs/PVE.md, "Repository problems").
   repositoryReinitialized: "pve.repository.reinitialized",
   // An administrator reset a container's repository (typed confirmation, recent sign-in).
   repositoryReset: "pve.repository.reset",
+  // A container's new chain began under a fresh prefix: its old one could not be cleared (a
+  // write-once target, docs/STORAGE.md "Write-once storage") and stays where it was.
+  repositoryFreshPrefix: "pve.repository.fresh_prefix",
 } as const;
 
 export interface PveActor {

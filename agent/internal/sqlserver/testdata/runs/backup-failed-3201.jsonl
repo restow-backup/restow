@@ -1,0 +1,3 @@
+{"type":"sqlmessage","step":"backup","number":3201,"class":16,"state":1,"message":"Cannot open backup device 'C:\\ProgramData\\Restow\\data\\staging\\sql\\SQLEXPRESS\\Sales~8de4e0ea\\full-20261105T020011Z.bak'. Operating system error 5(Access is denied.)."}
+{"type":"error","problem":{"code":"sql_backup_failed","step":"backup","number":3201,"message":"Cannot open backup device '...'. Operating system error 5(Access is denied.). (3201) BACKUP DATABASE is terminating abnormally. (3013)"}}
+#exit 2

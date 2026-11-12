@@ -8,9 +8,11 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -215,6 +217,9 @@ type fakeRestow struct {
 	progressInterval int
 	progress         []Progress
 	logs             []string
+	// lastCommit is the last commit request, logConsistency what came with the last log.
+	lastCommit     CommitRequest
+	logConsistency *VMConsistency
 }
 
 func (f *fakeRestow) handler(t *testing.T) http.Handler {
@@ -234,10 +239,16 @@ func (f *fakeRestow) handler(t *testing.T) http.Handler {
 			f.progress = append(f.progress, in)
 			w.WriteHeader(204)
 		case strings.HasSuffix(p, "/log"):
-			var in struct{ Log string }
+			var in struct {
+				Log           string
+				VMConsistency *VMConsistency `json:"vmConsistency"`
+			}
 			_ = json.NewDecoder(r.Body).Decode(&in)
 			f.logs = append(f.logs, in.Log)
+			f.logConsistency = in.VMConsistency
 			w.WriteHeader(204)
+		case strings.HasSuffix(p, "/restic"):
+			_ = json.NewEncoder(w).Encode(ResticAccess{RepositoryURL: "https://restow.example/r", Username: "u", Password: "p"})
 		case strings.HasSuffix(p, "/incremental"):
 			var in struct{ Devices []DeviceSize }
 			_ = json.NewDecoder(r.Body).Decode(&in)
@@ -264,6 +275,7 @@ func (f *fakeRestow) handler(t *testing.T) http.Handler {
 			}
 			var in CommitRequest
 			_ = json.NewDecoder(r.Body).Decode(&in)
+			f.lastCommit = in
 			snap, again := f.commits[in.CommitID]
 			if !again {
 				snap = "snap-" + in.CommitID[:8]
@@ -402,7 +414,8 @@ func TestListVolumesFromCacheOnly(t *testing.T) {
 	if _, err := p.Handle(context.Background(), "job-init", ProviderRequest{StoreID: "restow"}); err != nil {
 		t.Fatal(err)
 	}
-	out, err := p.Handle(context.Background(), "list-volumes", ProviderRequest{StoreID: "restow", VMID: 101})
+	// Without a VMID ("Storage > restow > Backups") only the listing job-init kept is read.
+	out, err := p.Handle(context.Background(), "list-volumes", ProviderRequest{StoreID: "restow"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -476,6 +489,34 @@ func TestParsers(t *testing.T) {
 	if len(ct) != 2 || ct[0].Backup || !ct[1].Backup {
 		t.Fatalf("%+v", ct)
 	}
+	// PVE never backs up a bind or device mount point, whatever its backup flag says; a volume
+	// mount point only with backup=1 (or yes, true, on), never because a path reads so.
+	ct = GuestDisks("ct", map[string]any{"rootfs": "local-lvm:vm-1-disk-0,size=8G",
+		"mp0": "/srv/media,mp=/media,backup=1", "mp1": "/dev/sdb1,mp=/mnt/usb,backup=1",
+		"mp2": "volume=local-lvm:vm-1-disk-1,mp=/data,backup=yes,size=2G", "mp3": "local-lvm:vm-1-disk-2,mp=/backup=1,size=1G",
+		"mp4": "volume=/srv/x,mp=/x,backup=1", "mp5": "local-lvm:vm-1-disk-3,mp=/y,backup=0,size=1G"})
+	want := map[string]InventoryDisk{
+		"mp0":    {Device: "mp0", Backup: false, Reason: "not part of the backup"},
+		"mp1":    {Device: "mp1", Backup: false, Reason: "not part of the backup"},
+		"mp2":    {Device: "mp2", Size: 2 << 30, Backup: true},
+		"mp3":    {Device: "mp3", Size: 1 << 30, Backup: false},
+		"mp4":    {Device: "mp4", Backup: false, Reason: "not part of the backup"},
+		"mp5":    {Device: "mp5", Size: 1 << 30, Backup: false},
+		"rootfs": {Device: "rootfs", Size: 8 << 30, Backup: true},
+	}
+	if len(ct) != len(want) {
+		t.Fatalf("%+v", ct)
+	}
+	for _, d := range ct {
+		if d != want[d.Device] {
+			t.Errorf("%s = %+v, want %+v", d.Device, d, want[d.Device])
+		}
+	}
+	vm := GuestDisks("vm", map[string]any{"scsi0": "local-lvm:vm-1-disk-0,size=8G", "scsi1": "local-lvm:vm-1-disk-1,backup=0,size=8G",
+		"scsi2": "local-lvm:vm-1-disk-2,backup=no,size=8G", "scsi3": "local-lvm:vm-1-disk-3,backup=1,size=8G"})
+	if len(vm) != 4 || !vm[0].Backup || vm[1].Backup || vm[2].Backup || !vm[3].Backup {
+		t.Fatalf("%+v", vm)
+	}
 	if !VersionAtLeast("9.2.1", 8, 4) || VersionAtLeast("8.3.5", 8, 4) || !VersionAtLeast("8.4.0", 8, 4) {
 		t.Fatal("versions")
 	}
@@ -492,4 +533,300 @@ func TestParsers(t *testing.T) {
 		t.Fatal("privileges")
 	}
 	_ = filepath.Join
+}
+
+// A container restore asks PVE for new MAC addresses and no start with the node, as a VM restore
+// gets new MAC addresses: the copy must not come up beside the original with its identity.
+// claim: RESTORE-013
+func TestRestoreGuestGivesAContainerNewMACsAndNoOnboot(t *testing.T) {
+	var mu sync.Mutex
+	forms := map[string]url.Values{}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		mu.Lock()
+		forms[r.URL.Path] = r.PostForm
+		mu.Unlock()
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": "UPID:pve1:1:2:3:vzrestore:124:restow@pve!t:"})
+	}))
+	defer ts.Close()
+	api, err := NewPVEAPI(ts.URL, "restow@pve!t", "x", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if _, err := api.RestoreGuest(ctx, "pve1", "ct", 124, "restow:backup/ct/113/x", "local-lvm", "restow-restore", nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := api.RestoreGuest(ctx, "pve1", "vm", 125, "restow:backup/vm/101/x", "local-lvm", "restow-restore", nil); err != nil {
+		t.Fatal(err)
+	}
+	ct, vm := forms["/api2/json/nodes/pve1/lxc"], forms["/api2/json/nodes/pve1/qemu"]
+	if ct.Get("unique") != "1" || ct.Get("onboot") != "0" || ct.Get("restore") != "1" || ct.Get("ostemplate") != "restow:backup/ct/113/x" {
+		t.Fatalf("container form %v", ct)
+	}
+	if ct.Has("start") || vm.Has("start") {
+		t.Fatalf("a restore asked PVE to start the guest: %v %v", ct, vm)
+	}
+	if vm.Get("unique") != "1" || vm.Get("archive") != "restow:backup/vm/101/x" || vm.Has("onboot") {
+		t.Fatalf("VM form %v (qmrestore refuses other options beside archive)", vm)
+	}
+}
+
+// patternSource is a large disk that is never held in memory: every block reads as non-zero.
+type patternSource struct {
+	size    uint64
+	mu      sync.Mutex
+	reads   int
+	trimmed int
+}
+
+func (s *patternSource) Size() uint64 { return s.size }
+func (s *patternSource) ReadAt(p []byte, off uint64) error {
+	s.mu.Lock()
+	s.reads++
+	s.mu.Unlock()
+	for i := range p {
+		p[i] = byte(off/BlockSize) + 1
+	}
+	return nil
+}
+func (s *patternSource) Context(string) (uint32, bool)                        { return 0, false }
+func (s *patternSource) Extents(uint32, uint64, uint64) ([]nbd.Extent, error) { return nil, nil }
+func (s *patternSource) CanTrim() bool                                        { return true }
+func (s *patternSource) Trim(uint64, uint64) error {
+	s.mu.Lock()
+	s.trimmed++
+	s.mu.Unlock()
+	return nil
+}
+
+// countingSink fails from its failAt-th frame on (1-based).
+type countingSink struct {
+	mu     sync.Mutex
+	frames int
+	failAt int
+}
+
+func (s *countingSink) PutBlocks(context.Context, string, []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.frames++
+	if s.frames >= s.failAt {
+		return errors.New("409 the run is closed")
+	}
+	return nil
+}
+
+// An upload that fails for good stops the reading at once: the rest of a large disk is not read
+// for hours, and the error comes back without delay.
+func TestBackupDiskStopsReadingWhenTheUploadFails(t *testing.T) {
+	const blocks = 2000 // 8000 MiB
+	src := &patternSource{size: blocks * BlockSize}
+	sink := &countingSink{failAt: 1}
+	_, err := BackupDisk(context.Background(), src, sink, "run", DiskPlan{Device: "drive-scsi0", Size: src.size, BitmapMode: "new"}, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "upload blocks") || !strings.Contains(err.Error(), "run is closed") {
+		t.Fatalf("err = %v", err)
+	}
+	if src.reads > 6*MaxBlocksPerFrame {
+		t.Fatalf("%d of %d blocks read after the first frame failed", src.reads, blocks)
+	}
+	if src.trimmed != 0 {
+		t.Fatalf("%d blocks trimmed that the server did not take", src.trimmed)
+	}
+	// The final frame fails: its error is returned, its blocks are not trimmed.
+	src = &patternSource{size: (MaxBlocksPerFrame + 4) * BlockSize}
+	sink = &countingSink{failAt: 2}
+	_, err = BackupDisk(context.Background(), src, sink, "run", DiskPlan{Device: "drive-scsi0", Size: src.size, BitmapMode: "new"}, nil, nil)
+	if err == nil || !strings.Contains(err.Error(), "upload blocks") {
+		t.Fatalf("final frame: err = %v", err)
+	}
+	if src.trimmed != MaxBlocksPerFrame {
+		t.Fatalf("trimmed %d, want the %d blocks of the first frame", src.trimmed, MaxBlocksPerFrame)
+	}
+	// A cancelled backup still ends with the cancellation when no upload failed.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	src = &patternSource{size: 4 * BlockSize}
+	_, err = BackupDisk(ctx, src, &countingSink{failAt: 1 << 30}, "run", DiskPlan{Device: "d", Size: src.size, BitmapMode: "new"}, nil, nil)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled: %v", err)
+	}
+}
+
+// vzdump of PVE 8.1 and newer notifies after every backup unless notification-mode is
+// legacy-sendmail without mailto; an older PVE does not know the parameter and refuses it.
+func TestVzdumpFormNotificationModePerPVEVersion(t *testing.T) {
+	for _, tc := range []struct {
+		version string
+		quiet   bool
+	}{
+		{"9.1.2", true}, {"9.0.0", true}, {"8.4.14", true}, {"8.1.3", true},
+		{"8.0.4", false}, {"7.4-17", false}, {"", false}, {"unknown", false},
+	} {
+		form := vzdumpForm(101, "restow", "snapshot", "local-lvm", tc.version)
+		got := form.Get("notification-mode")
+		if tc.quiet && got != "legacy-sendmail" || !tc.quiet && form.Has("notification-mode") {
+			t.Errorf("PVE %q: notification-mode = %q", tc.version, got)
+		}
+		if form.Has("mailto") || form.Has("mailnotification") {
+			t.Errorf("PVE %q: vzdump is given a mail target: %v", tc.version, form)
+		}
+		if form.Get("vmid") != "101" || form.Get("storage") != "restow" || form.Get("mode") != "snapshot" ||
+			form.Get("remove") != "0" || form.Get("fleecing") != "enabled=1,storage=local-lvm" {
+			t.Errorf("PVE %q: form = %v", tc.version, form)
+		}
+	}
+}
+
+// inventoryNode is a PVE API with the cluster's guests and their configurations, and a Restow
+// server that keeps the inventory it is sent.
+type inventoryNode struct {
+	mu        sync.Mutex
+	resources []Resource
+	// resourcesFail: /cluster/resources answers 500.
+	resourcesFail bool
+	configs       map[int]map[string]any
+	sent          []map[string]any
+}
+
+func (f *inventoryNode) service(t *testing.T) *Service {
+	t.Helper()
+	pveSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		answer := func(v any) { _ = json.NewEncoder(w).Encode(map[string]any{"data": v}) }
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/cluster/resources") && f.resourcesFail:
+			w.WriteHeader(http.StatusInternalServerError)
+		case strings.HasSuffix(r.URL.Path, "/cluster/resources"):
+			answer(f.resources)
+		case strings.HasSuffix(r.URL.Path, "/config"):
+			parts := strings.Split(r.URL.Path, "/")
+			var id int
+			_, _ = fmt.Sscan(parts[len(parts)-2], &id)
+			answer(f.configs[id])
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(pveSrv.Close)
+	restow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		f.mu.Lock()
+		f.sent = append(f.sent, body)
+		f.mu.Unlock()
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(restow.Close)
+	api, err := NewPVEAPI(pveSrv.URL, "restow@pve!t", "x", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv, err := NewServer(restow.URL, "n", "s", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.Attempts = 1
+	dir := t.TempDir()
+	return &Service{Layout: Layout{DataDir: dir + "/data", RunDir: dir + "/run"},
+		State: &State{NodeName: "pve1", StorageID: "restow"}, Server: srv, PVE: api, Logf: func(string, ...any) {}}
+}
+
+func (f *inventoryNode) reported(t *testing.T) []int {
+	t.Helper()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.sent) != 1 {
+		t.Fatalf("inventories sent: %d", len(f.sent))
+	}
+	var out []int
+	guests, _ := f.sent[0]["guests"].([]any)
+	for _, g := range guests {
+		out = append(out, int(g.(map[string]any)["vmid"].(float64)))
+	}
+	return out
+}
+
+// The temporary guests of boot tests and restore checks are no guests of the inventory: tagged
+// and named, or in the restore pool with the tag, the name or a marker of this node. A real
+// restore into the restore pool is reported.
+func TestInventoryLeavesTheTemporaryGuestsOut(t *testing.T) {
+	f := &inventoryNode{resources: []Resource{
+		{VMID: 101, Type: "qemu", Name: "web", Node: "pve1"},
+		{VMID: 105, Type: "qemu", Name: "restow-boottest-101", Node: "pve1", Pool: BootTestPool, Tags: "restow-boottest"},
+		{VMID: 106, Type: "lxc", Name: "restow-restorecheck-200", Node: "pve1", Pool: BootTestPool, Tags: "restow-restorecheck"},
+		// Restoring: neither tag nor name yet, only the node's marker.
+		{VMID: 107, Type: "qemu", Name: "web", Node: "pve1", Pool: BootTestPool},
+		// Tagged, the name not yet set.
+		{VMID: 108, Type: "qemu", Name: "web", Node: "pve1", Pool: BootTestPool, Tags: "restow-boottest"},
+		// A real restore into the restore pool.
+		{VMID: 109, Type: "qemu", Name: "web", Node: "pve1", Pool: BootTestPool},
+		// The tag on a guest outside the restore pool, named as the admin chose.
+		{VMID: 110, Type: "qemu", Name: "db", Node: "pve1", Tags: "restow-boottest"},
+		{VMID: 111, Type: "lxc", Name: "restow-boottest-200", Node: "pve1", Tags: "restow-boottest"},
+	}, configs: map[int]map[string]any{}}
+	s := f.service(t)
+	if err := os.MkdirAll(filepath.Join(s.Layout.DataDir, "tempguests"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(s.Layout.DataDir, "tempguests", "107.json"), []byte(`{"vmid":107,"kind":"vm","purpose":"boottest"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	n, err := s.ReportInventory(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := f.reported(t)
+	if n != 3 || len(got) != 3 || got[0] != 101 || got[1] != 109 || got[2] != 110 {
+		t.Fatalf("reported %d guests: %v", n, got)
+	}
+}
+
+// The inventory carries the cluster's guests with their nodes (clusterGuests): a guest on
+// another node is in clusterGuests only, never among the node's own guests; the temporary
+// guests of checks are in neither.
+func TestInventoryCarriesTheClustersGuests(t *testing.T) {
+	f := &inventoryNode{resources: []Resource{
+		{VMID: 101, Type: "qemu", Name: "web", Node: "pve1"},
+		{VMID: 120, Type: "lxc", Name: "dns", Node: "pve3"},
+		{VMID: 130, Type: "qemu", Name: "mail", Node: "pve2", Template: 1},
+		{VMID: 140, Type: "qemu", Name: "restow-boottest-130", Node: "pve2", Pool: BootTestPool, Tags: "restow-boottest"},
+	}, configs: map[int]map[string]any{}}
+	s := f.service(t)
+	if _, err := s.ReportInventory(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.reported(t); len(got) != 1 || got[0] != 101 {
+		t.Fatalf("own guests = %v", got)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	raw, ok := f.sent[0]["clusterGuests"].([]any)
+	if !ok {
+		t.Fatalf("no clusterGuests: %v", f.sent[0])
+	}
+	var got []string
+	for _, g := range raw {
+		m := g.(map[string]any)
+		got = append(got, fmt.Sprintf("%v@%v/%v", m["vmid"], m["node"], m["type"]))
+	}
+	if strings.Join(got, " ") != "101@pve1/qemu 120@pve3/lxc 130@pve2/qemu" {
+		t.Fatalf("clusterGuests = %v", got)
+	}
+}
+
+// When /cluster/resources cannot be read no inventory is sent at all: the server never takes
+// a guest for absent because the list was missing.
+func TestInventoryIsNotSentWithoutTheClustersGuests(t *testing.T) {
+	f := &inventoryNode{resourcesFail: true}
+	s := f.service(t)
+	if _, err := s.ReportInventory(context.Background()); err == nil {
+		t.Fatal("an inventory without the cluster's list was reported")
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.sent) != 0 {
+		t.Fatalf("sent %v", f.sent)
+	}
 }

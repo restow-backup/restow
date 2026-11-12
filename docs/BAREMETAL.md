@@ -1525,6 +1525,12 @@ Weil `recover` keine Sperre schreibt, schützt der Server den Snapshot selbst:
   SSH-Schlüssel sind für einen entfernten Rechner gesperrt (409 `baremetal-not-available`,
   Grund `removed`), und der Tausch hält die Zeile des Rechners (`FOR SHARE`) bis zu seinem
   `UPDATE`, sodass ein gleichzeitiges Entfernen entweder vorher kommt oder die Sitzung sieht.
+  Seit `release/0.5.0` beginnt das Löschen (`delete`) erst sieben Tage nach dem Auftrag und
+  lässt sich bis dahin abbrechen (docs/AGENT.md, "Rechner entfernen"). Für das Vormerken gilt
+  dasselbe wie für das Entfernen: 409 bei aktiver Sitzung, offene Codes widerrufen, wartende
+  Sitzungen beendet. Bis der Worker beginnt, ist der Rechner nicht entfernt; ein danach
+  ausgestellter Code bleibt möglich, und der Worker wartet beim Beginn wie oben auf eine aktive
+  Sitzung.
 - `endpoint-check` liest nur und darf laufen.
 
 ### 9.8 Fortschritt, Ende, Ablauf
@@ -4482,12 +4488,12 @@ und des Enroll-Dialogs; die Wiederanbindung ist davon unabhängig). M5 und M6 si
 bleibt dieses Dokument der Entwurf. Was M2 liefert und abweichend entschieden hat, steht in 26.4 bis
 26.6, für M3 in 26.7 bis 26.9, für M4 in 26.10 bis 26.12; die Verteilung des ISO durch die
 Instanz und die Neubauten des ISO (Entscheidung des Maintainers nach M4) stehen in 26.13 und
-26.14. Die Migrationen auf diesem Zweig sind
-0076 (M1), 0077 (M2), 0078 und 0079 (M3); die Nummern in 14.2 sind die des Entwurfs. **M4 bringt
-keine Migration** (alles passt in vorhandene Spalten: `endpoint_recoveries.verification` und
-`warnings` sind JSONB, der Zustand des ISO liegt in Dateien, der Hash-Zwischenspeicher im
-Speicher). Die nächsten freien beim Merge bekommen M5 (`boot_probe`, 0080) und M6 (`darwin_check`,
-0081).
+26.14. Die Migrationen sind seit dem
+Zusammenführen mit `release/0.5.0` 0099 (M1), 0100 (M2), 0101 und 0102 (M3; auf dem Zweig zuvor
+0076 bis 0079); die Nummern in 14.2 sind die des Entwurfs. **M4 bringt keine Migration** (alles
+passt in vorhandene Spalten: `endpoint_recoveries.verification` und `warnings` sind JSONB, der
+Zustand des ISO liegt in Dateien, der Hash-Zwischenspeicher im Speicher). Die nächsten freien
+Nummern bekommen M5 (`boot_probe`, 0103) und M6 (`darwin_check`, 0104).
 
 **M4 gilt als umgesetzt, aber noch nicht als reproduzierbar belegt:** Das erste `packages.lock`
 schreibt die CI (`ci.yml` von Hand mit `update-lock`, 26.11 R14); erst wenn danach zwei CI-Bauten
@@ -4515,8 +4521,8 @@ Server (`packages/`, `apps/`):
   Testdaten des Go-Pakets (`agent/internal/baremetal/testdata/manifests`): kanonische Bytes,
   SHA-256 und Fingerabdruck stimmen mit Go überein, jedes `invalid-*` wird abgelehnt.
 - `packages/db`: Tabelle `endpoint_layouts`, Spalte `endpoint_runs.layout_id` mit Teilindex,
-  Migration **0076_baremetal_layouts** (mit drizzle erzeugt), Row Level Security über
-  `sql/rls.sql`; Job-Einstellung `wholeMachine` (JSONB).
+  Migration **0099_baremetal_layouts** (mit drizzle erzeugt, auf dem Zweig zuvor 0076), Row Level
+  Security über `sql/rls.sql`; Job-Einstellung `wholeMachine` (JSONB).
 - `apps/api`: `RESTOW_BAREMETAL_PREVIEW` (`config.baremetalPreview`); `GET /agent/v1/config` mit
   `wholeMachine` und `fsSnapshot` (C2); `finish` speichert das Layout (`storeRunLayout`,
   dedupliziert, sonst Hinweis `layout_rejected`); `GET /api/v1/endpoints/:id/baremetal`
@@ -4579,8 +4585,8 @@ Nachgebessert nach dem Review von M1:
 
 ### 26.2 Abweichungen vom Entwurf (in M1 entschieden)
 
-- **Migrationsnummer:** 0074 und 0075 waren schon vergeben, M1 ist **0076**; M2 bis M6 rücken auf
-  0077 bis 0081.
+- **Migrationsnummer:** 0074 und 0075 waren schon vergeben, M1 war auf dem Zweig **0076**; seit
+  dem Zusammenführen mit `release/0.5.0` ist es 0099 (siehe 26.1).
 - **RLS** steht nach Konvention in `sql/rls.sql` (`tenant_tables`), nicht in der Migration.
 - **Zwischendateien:** `state.Save` schreibt `.state-*.tmp`, nicht `.state.json.*`; ausgeschlossen
   und gesperrt sind beide Formen, unter Linux auch `/etc/restow-pve/state.json` und
@@ -4700,9 +4706,9 @@ Server (`packages/`, `apps/`):
   wartet auf das Ende, damit kein restic an einer vollen Pipe hängt und die Repository-Sperre
   hält), `resticReadFile` (mit Obergrenze). `queues.ts`: `endpoint-baremetal-check` (stately,
   3 Wiederholungen, 300 s mit Backoff, 6 Stunden, 14 Tage), `EndpointJobPayload.runId`.
-- `packages/db`: Berichtsart `baremetal_check`, Migration **0077_baremetal_check** (mit drizzle
-  erzeugt, nur `ALTER TYPE ... ADD VALUE`, keine Tabelle, also keine Änderung an `sql/rls.sql`),
-  Upgrade-Test auf 0076.
+- `packages/db`: Berichtsart `baremetal_check`, Migration **0100_baremetal_check** (auf dem Zweig
+  zuvor 0077; mit drizzle erzeugt, nur `ALTER TYPE ... ADD VALUE`, keine Tabelle, also keine
+  Änderung an `sql/rls.sql`), Upgrade-Test auf 0099.
 - `apps/worker`: `endpoints/planner.ts` (Sandbox nach 12.2, Ergebnis Plan, abgelehnt oder
   unvollständig), `endpoints/baremetal-check.ts` (Ablauf wie 12.1: geteilte Sperre, `restic
   snapshots <id>`, L4-Dump, ein `restic ls` über den ganzen Baum, höchstens 80 Dumps; danach ohne
@@ -4768,7 +4774,8 @@ Karte und i18n im Web.
 - **Migrationsnummer:** Die 0075 des Entwurfs ist auf diesem Zweig **0077**. `release/0.5.0` hat
   inzwischen eine eigene `0076_pve_reconcile_vmid_reuse`; beim Zusammenführen müssen
   `0076_baremetal_layouts` und `0077_baremetal_check` je um eins aufrücken (Journal, Snapshots,
-  Upgrade-Tests). Das ist nicht Teil von M2.
+  Upgrade-Tests). Das ist nicht Teil von M2. Beim Zusammenführen sind alle vier Migrationen des
+  Zweigs hinter die 0098 des Release gerückt: 0099 bis 0102.
 - **dbx:** Das Manifest trägt nur `dbxSha256`, Stufe 1 kann Sperrungen also nicht prüfen (10.5,
   Prüfung 2). Die synthetischen Ziele tragen `dbx: null` und geben die Warnung
   `secure_boot_dbx_unknown`; CA- und SBAT-Prüfung laufen. `recover` (M4) liest die volle dbx des
@@ -4937,8 +4944,8 @@ Server (`packages/`, `apps/`):
   eindeutiger Teilindex über `code_hash`, Index je Rechner und Teilindex der aktiven Sitzungen wie
   14.2) und `endpoint_recovery_log`, `endpoint_enrollment_tokens.endpoint_id`, `.purpose` (CHECK),
   `.unrevoke` und der CHECK `endpoint_enrollment_tokens_rebind_24h`,
-  `endpoint_runs.activity_baseline`; Migration **0078_endpoint_recoveries** (mit drizzle erzeugt,
-  Upgrade-Test auf 0077), Row Level Security über `sql/rls.sql`; `activeRecoveryOf` und
+  `endpoint_runs.activity_baseline`; Migration **0101_endpoint_recoveries** (auf dem Zweig zuvor
+  0078; mit drizzle erzeugt, Upgrade-Test auf 0100), Row Level Security über `sql/rls.sql`; `activeRecoveryOf` und
   `EndpointRecoveryActiveError` (Unterklasse von `EndpointRepositoryBusyError`).
 - `apps/api`: `recovery-codes.ts` (Ausstellen mit allen Bedingungen aus 9.2 und Prüfwert,
   Widerruf, Verlängern, Liste, Einzelansicht mit Log seitenweise, Freigabe unter der geteilten
@@ -4993,12 +5000,13 @@ Rechners); `removal.pg.test.ts` (409, Widerruf offener Codes); `recovery-iso.tes
 der Body-Grenzen; Worker `recovery-monitor.pg.test.ts` (Aufbewahrung in beiden Reihenfolgen,
 `pending_approval` sperrt nicht, Entfernen aufgeschoben, Übergänge des Monitors je einmal, Logs) und
 `scan.pg.test.ts` (Basis nach Wiederanbindung); Web: Code-Dialog, Wiederanbindungs-Dialog,
-Live-Ansicht, Karte (Knopf nur bei geprüftem ISO), Presenter, i18n; Migrationstest 0078.
+Live-Ansicht, Karte (Knopf nur bei geprüftem ISO), Presenter, i18n; Migrationstest 0101.
 
 ### 26.8 Abweichungen vom Entwurf (in M3 entschieden)
 
-- **Migrationsnummer:** 0078 statt 0076; der CHECK der Wiederanbindungs-Tokens steht in 0078.
-  0079 ergänzt `endpoint_recoveries.log_in_key_block` (9.8).
+- **Migrationsnummer:** 0101 statt 0076 (auf dem Zweig zuvor 0078); der CHECK der
+  Wiederanbindungs-Tokens steht in 0101. 0102 (zuvor 0079) ergänzt
+  `endpoint_recoveries.log_in_key_block` (9.8).
   Zusätzlich zum Entwurf ein CHECK über `purpose` (`endpoint_enrollment_tokens_purpose_ck`) und ein
   Index `endpoint_recovery_log_recovery_idx` für das seitenweise Lesen. Nach der Regel des Schemas
   (jede Tabelle hat eine UUID als `id` und `created_at`) hat `endpoint_recoveries` zusätzlich
@@ -5238,8 +5246,8 @@ Prüfung, jeder Hinweis mit genau seinen Platzhaltern); `check-separate-works.te
 
 ### 26.11 Abweichungen vom Entwurf (in M4 entschieden)
 
-- **R1 Migration:** keine; die nächsten freien Nummern sind 0080 (M5) und 0081 (M6), nicht 0079
-  und 0080 wie zuvor hier notiert.
+- **R1 Migration:** keine; die nächsten freien Nummern sind seit dem Zusammenführen mit
+  `release/0.5.0` 0103 (M5) und 0104 (M6).
 - **R2 `--retry-lock` mit `--no-lock`:** restic lehnt beides zusammen ab; jeder Aufruf von
   `recover` (`restore`, `dump`, `ls`, `snapshots`) lässt `--retry-lock` weg.
 - **R3 TLS ohne CA:** Nach dem passenden Prüfwert schreibt `recover` das Blatt-Zertifikat der

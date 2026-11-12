@@ -44,10 +44,18 @@ export const endpointArchEnum = pgEnum("endpoint_arch", ["amd64", "arm64"]);
 /** `revoked` endpoints are refused everywhere; their repository stays restorable. */
 export const endpointStatusEnum = pgEnum("endpoint_status", ["active", "revoked"]);
 
+/**
+ * `sql`, `sql_restore`, `sql_verify` (W2a, docs/BAREMETAL-WINDOWS.md 5.1): the native SQL Server
+ * backup of one instance, a restore of one database under a new name, and the check of a backup
+ * restored from the repository with `DBCC CHECKDB`.
+ */
 export const endpointRunKindEnum = pgEnum("endpoint_run_kind", [
   "backup",
   "restore",
   "verify_sample",
+  "sql",
+  "sql_restore",
+  "sql_verify",
 ]);
 
 /** `partial` = a snapshot exists but some files could not be read. */
@@ -66,6 +74,10 @@ export const endpointTaskKindEnum = pgEnum("endpoint_task_kind", [
   "verify_sample",
   "update_config",
   "uninstall",
+  // W2a (docs/BAREMETAL-WINDOWS.md 5.1): `sql_inventory` finishes on delivery, like `update_config`.
+  "sql_restore",
+  "sql_verify",
+  "sql_inventory",
 ]);
 
 /**
@@ -85,6 +97,8 @@ export const endpointReportKindEnum = pgEnum("endpoint_report_kind", [
   "restore_test",
   "repository_check",
   "retention",
+  // One database's backup restored from the repository and checked with DBCC CHECKDB (W2a).
+  "sql_verify",
   // Bare metal stage 1 (docs/BAREMETAL.md 12.1): layout and boot chain of a whole machine snapshot.
   "baremetal_check",
 ]);
@@ -166,6 +180,41 @@ export type EndpointConfig = {
    * for a whole machine backup, off otherwise).
    */
   fsSnapshot?: "auto" | "off";
+  /**
+   * The native SQL Server backup (W2a, docs/BAREMETAL-WINDOWS.md 5.1.3): Windows only, written from
+   * a backup job and absent when no job sets it. The agent gets it without `verify`, which only the
+   * server plans (@restow/core `agentFacingConfig`).
+   */
+  sql?: EndpointSqlConfig;
+};
+
+/** A database of the SQL settings: its name, and the instance when only that one's is meant. */
+export type EndpointSqlDatabaseRef = { instance?: string; name: string };
+
+/** When and how the server checks the newest backup of each database (W2a, 5.1.7). */
+export type EndpointSqlVerifyConfig = {
+  enabled: boolean;
+  /** 1 = Monday ... 7 = Sunday, read in the zone of the schedule. */
+  weekday: number;
+  /** Local `HH:MM`. */
+  time: string;
+  /** Above this many GiB of used pages CHECKDB runs with PHYSICAL_ONLY. */
+  maxGiB: number;
+  /** Always PHYSICAL_ONLY. */
+  physicalOnly: boolean;
+};
+
+export type EndpointSqlConfig = {
+  enabled: boolean;
+  /** W2a knows `alongside` only: copy-only fulls beside the customer's own backups. */
+  mode: "alongside";
+  instances: "all" | string[];
+  databases: "all" | EndpointSqlDatabaseRef[];
+  exclude: EndpointSqlDatabaseRef[];
+  /** A staging folder of its own; absent: the agent's (`C:\ProgramData\Restow\data\staging\sql`). */
+  stagingDir?: string;
+  /** Server only; never sent to the agent. */
+  verify?: EndpointSqlVerifyConfig;
 };
 
 /** The effective agent policy stored with a machine's configuration. */
@@ -198,7 +247,10 @@ export type EndpointRetention = {
  * while its runs, reports and audit entries stay (the row is kept as a tombstone).
  *
  *   delete   its restic repository (`endpoints/<id>/` on every target of the tenant that holds
- *            files of it) is deleted as soon as nothing holds it.
+ *            files of it) is deleted as soon as nothing holds it, at the earliest seven days
+ *            after the request (since 0.5.0; a provider owner asks, with a reason, and may
+ *            cancel until the worker starts). Until it starts the machine stays listed as
+ *            revoked (`removed_at` stays NULL); the worker sets `removed_at` when it starts.
  *   expire   its backups stay until the machine's retention would have let the newest of them
  *            go (`expiresAt`), then they are deleted the same way.
  *
@@ -219,6 +271,15 @@ export type EndpointRemoval = {
   requestedAt: string;
   /** `expire`: when the machine's retention lets the newest backup go. */
   expiresAt?: string | null;
+  /** `delete` (0.5.0): why, as the requester gave it (also in the audit entry). */
+  reason?: string | null;
+  /**
+   * `delete` (0.5.0): when the worker started deleting. From then on the removal can no longer be
+   * cancelled, and the machine is removed (`removed_at`).
+   */
+  startedAt?: string | null;
+  /** Snapshots deleted so far, over every attempt and target (distinct snapshot ids). */
+  deletedSnapshots?: number;
   /** `held`: what holds it. */
   heldBy?: "legal_hold" | "suspicion" | null;
   /** `deferred`: the latest retain-until of the objects the storage refused to delete. */
@@ -260,6 +321,12 @@ export type EndpointSettings = {
   /** What the agent reports about the machine; written by the server from enrollment and heartbeat only. */
   agent?: EndpointAgentFacts;
   /**
+   * The SQL Server instances of the machine's last SQL inventory, without their databases (those
+   * are rows of `endpoint_sql_databases`). Written only by a heartbeat that carries an inventory,
+   * with a `jsonb_set` of its own, so a heartbeat without one never removes it (W2a).
+   */
+  sqlInstances?: EndpointSqlInventoryState;
+  /**
    * The machine was enrolled with a client token but got the server profile, because its agent
    * reported a container or a virtual machine without a desktop (release 0.4.0, #59). Written once
    * at enrollment.
@@ -296,6 +363,11 @@ export type EndpointAgentFacts = {
    * the agent does not report them.
    */
   dataFolders?: string[];
+  /**
+   * What the agent can do beyond the base contract, e.g. `sql_native_v1` (W2a): the server offers
+   * SQL actions only to an agent that names it. Absent: an older agent, nothing beyond the base.
+   */
+  capabilities?: string[];
 };
 
 /** How the agent sees the machine it runs on. */
@@ -304,6 +376,69 @@ export type EndpointMachineFacts = {
   /** `lxc`, `docker`, `kvm`, `vmware`, ...; empty when unknown. */
   technology: string;
   desktop: boolean;
+  /** Windows only (agent 0.5.0, W1): version, roles, SQL Server instances, BitLocker. */
+  windows?: EndpointWindowsFacts;
+};
+
+/** A SQL Server instance as the registry and the service configuration name it (W1). */
+export type EndpointWindowsSqlInstance = {
+  name: string;
+  id: string;
+  version: string;
+  edition: string;
+  serviceName: string;
+  serviceAccount: string;
+  clustered: boolean;
+  strictEncryption: boolean;
+};
+
+/** What a Windows agent reports about its system (W1, docs/BAREMETAL-WINDOWS.md 6.1). */
+export type EndpointWindowsFacts = {
+  productName: string;
+  editionId: string;
+  productType: "workstation" | "server" | "domain_controller" | "unknown";
+  installationType: string;
+  build: number;
+  ubr: number;
+  displayVersion: string;
+  domainMember: boolean;
+  domain: string;
+  roles: {
+    domainController: boolean;
+    dfsr: boolean;
+    exchange: boolean;
+    hyperV: boolean;
+    sqlServer: boolean;
+  };
+  sqlInstances: EndpointWindowsSqlInstance[];
+  bitlocker: {
+    /** `unavailable`: the feature is not installed; `error`: it could not be read. */
+    state: "ok" | "unavailable" | "error";
+    volumes: { mount: string; protection: "on" | "off" | "unknown"; conversion: string }[];
+  };
+};
+
+/** A problem the agent met with one SQL Server instance or database (W2a). */
+export type EndpointSqlProblem = { code: string; step?: string; number?: number; message?: string };
+
+/** One instance of the SQL inventory, without its databases. */
+export type EndpointSqlInstanceState = {
+  name: string;
+  state: "ok" | "error";
+  version?: string;
+  edition?: string;
+  engineEdition?: number;
+  clustered?: boolean;
+  hadr?: boolean;
+  backupCompressionDefault?: boolean;
+  login?: { name: string; sysadmin: boolean; canCreateDatabase: boolean };
+  error?: EndpointSqlProblem;
+};
+
+export type EndpointSqlInventoryState = {
+  collectedAt: string;
+  truncated: boolean;
+  instances: EndpointSqlInstanceState[];
 };
 
 /** A machine with an agent enrolled. */
@@ -458,6 +593,39 @@ export type EndpointRunStats = {
    * `RunConsistency`. Kept for a failed run too, when the snapshot is why it failed.
    */
   consistency?: { method?: string; state: string; liveFilesystems?: string[] };
+  /** A `sql`, `sql_restore` or `sql_verify` run (W2a): its instance and what became of each database. */
+  sql?: EndpointRunSqlStats;
+  /** Fixed warnings of the run (W1, W2a): `app_files_not_app_backup`, `sql_log_growing`, ... */
+  notices?: EndpointRunNotice[];
+  /**
+   * A restore that read the repository from another target than the primary (a copy target's
+   * repository copy, docs/STORAGE.md "Restoring from a copy"): which one.
+   */
+  readFrom?: { targetId: string; targetName: string | null; role: string };
+};
+
+export type EndpointRunNotice = { code: string; subjects?: string[]; message?: string };
+
+/** One database of a SQL run, as the run sheet shows it. */
+export type EndpointRunSqlDatabase = {
+  name: string;
+  /**
+   * `sql`: `backed_up`, `skipped`, `failed`; `sql_verify`: `green`, `red`, `incomplete`;
+   * `sql_restore`: `restored`, `failed`.
+   */
+  outcome: string;
+  code?: string;
+  message?: string;
+  bytes?: number;
+  durationMs?: number;
+};
+
+export type EndpointRunSqlStats = {
+  instance: string;
+  databases?: EndpointRunSqlDatabase[];
+  /** `sql_restore`: the name the copy got and whether CHECKDB ran on it. */
+  newName?: string;
+  checkdb?: "clean" | "errors" | "skipped";
 };
 
 export type EndpointRunProgress = {
@@ -716,6 +884,45 @@ export type EndpointVerifySampleParams = {
   files: { path: string; sha256: string }[];
 };
 
+/** A file of a SQL Server backup as `RESTORE FILELISTONLY` names it (W2a). */
+export type EndpointSqlBackupFile = {
+  logicalName: string;
+  /** `D` data, `L` log, `F` FILESTREAM or full text, `S` memory-optimized. */
+  type: string;
+  fileGroup: string;
+  fileId: number;
+  sizeBytes: number;
+  physicalName: string;
+};
+
+/** The backup a `sql_verify` or `sql_restore` task fetches from the repository. */
+export type EndpointSqlBackupRef = {
+  backupId: string;
+  snapshotId: string;
+  pathInSnapshot: string;
+  sha256: string;
+  bytes: number;
+  fileList: EndpointSqlBackupFile[];
+};
+
+/** Params of a `sql_verify` task: the newest full of each database of one instance (W2a, 5.1.7). */
+export type EndpointSqlVerifyParams = {
+  instance: string;
+  maxGiB: number;
+  physicalOnly: boolean;
+  databases: (EndpointSqlBackupRef & { databaseId: string; name: string; usedBytes: number })[];
+};
+
+/** Params of a `sql_restore` task: one backup restored under a new name (W2a, 5.1.4). */
+export type EndpointSqlRestoreParams = EndpointSqlBackupRef & {
+  instance: string;
+  targetInstance: string;
+  database: string;
+  newName: string;
+  checkdb: boolean;
+  maxGiB: number;
+};
+
 /** A job for the agent, delivered with its next heartbeat. */
 export const endpointTasks = pgTable(
   "endpoint_tasks",
@@ -795,6 +1002,28 @@ export type EndpointReportSummary = {
   futureSnapshots?: number;
   /** Agent lock files removed before the run (no backup of the agent was running). */
   removedLocks?: number;
+  /** How the prune of this run went: restic's normal prune, or one that only deleted (docs/STORAGE.md). */
+  pruneMode?: "full" | "delete_only";
+  /** Why it only deleted: too little free space for the repack, or the normal prune ran out of it. */
+  pruneReason?: "low_space" | "storage_full";
+  /** A prune is still due (repacking deferred, or a prune that failed): the next run prunes. */
+  prunePending?: boolean;
+  /** Retention could not free space: the storage target is full (docs/STORAGE.md, "A full target"). */
+  targetFull?: boolean;
+  /** SQL backups whose snapshot retention forgot (W2a). */
+  prunedSqlBackups?: number;
+  // sql_verify (W2a): one report per database; `outcome` is the server's judgement.
+  databaseId?: string;
+  backupId?: string;
+  outcome?: "green" | "red" | "incomplete";
+  instance?: string;
+  database?: string;
+  method?: string;
+  code?: string;
+  physicalOnly?: boolean;
+  backupLsn?: string;
+  durationMs?: number;
+  evidence?: { source: "checkdb" | "restore" | "sha256"; number?: number; message: string }[];
   // any failed step
   errorMessage?: string;
   [key: string]: unknown;

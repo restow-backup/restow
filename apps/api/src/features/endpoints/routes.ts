@@ -5,6 +5,7 @@ import { and, eq, isNull, or, sql } from "drizzle-orm";
 import { type Context, Hono, type MiddlewareHandler } from "hono";
 import { config as appConfig } from "../../config.js";
 import { db, providerDb } from "../../db.js";
+import { loadInstallationTimeZone } from "../../lib/installation-time-zone.js";
 import { providerRoleSatisfies } from "../../lib/provider-access.js";
 import { assertRecentSignIn } from "../../lib/recent-sign-in.js";
 import { clientIp } from "../../lib/request.js";
@@ -20,6 +21,7 @@ import {
 } from "../../middleware/session.js";
 import { ProblemError } from "../../problem.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
+import { assertNotInRestoreMode } from "../restore-mode/service.js";
 import { resticRestorePointImmutability } from "../storage/immutability.js";
 import { retentionHoldSettings } from "../suspicion/service.js";
 import {
@@ -43,7 +45,7 @@ import {
   revokeRecoveryCode,
   setRecoverySshKeys,
 } from "./recovery-codes.js";
-import { listRemovals, removeEndpoint } from "./removal.js";
+import { cancelRemoval, listRemovals, removeEndpoint } from "./removal.js";
 import {
   agentPolicyLevelSchema,
   agentUpdatesSchema,
@@ -68,6 +70,10 @@ import {
   removeEndpointSchema,
   runParamSchema,
   snapshotImmutabilityParamSchema,
+  sqlBackupParamSchema,
+  sqlDatabaseParamSchema,
+  sqlRestoreSchema,
+  sqlVerifySchema,
   tokenIdParamSchema,
   updateEndpointSchema,
 } from "./schemas.js";
@@ -94,6 +100,15 @@ import {
   setAgentUpdates,
   updateEndpoint,
 } from "./service.js";
+import {
+  confirmSqlTde,
+  getSqlOverview,
+  listSqlBackups,
+  requestSqlInventory,
+  requestSqlRestore,
+  requestSqlVerify,
+  sqlRestoreScript,
+} from "./sql.js";
 
 /**
  * /api/v1/endpoints: servers and clients backed up by the Restow agent, for
@@ -128,8 +143,10 @@ import {
  *   POST   /:id/revoke                          refuse the endpoint from now on
  *   POST   /:id/uninstall                       have the agent remove itself, then revoke
  *   POST   /:id/remove                          remove a revoked machine from Restow: its backups are
- *                                               deleted at once or when they expire (#65; typed
- *                                               hostname, recent sign-in)
+ *                                               deleted when they expire, or (`delete`, provider
+ *                                               owners only, with a reason) in seven days (#65;
+ *                                               typed hostname, recent sign-in)
+ *   POST   /:id/remove/cancel                   cancel a `delete` before the worker starts (owners)
  *   GET    /removals                            removed machines whose backups are not deleted yet
  *   POST   /:id/tasks                           back up now, or restore into a new folder on the endpoint
  *   POST   /:id/cancel                          stop the running backup, withdraw a queued one
@@ -160,6 +177,14 @@ import {
  *   POST   /:id/rebind-token                    a token that gives the machine a new agent secret, shown
  *                                               once with the install commands (docs/BAREMETAL.md 11;
  *                                               admins, recent sign-in)
+ *   GET    /:id/sql                             SQL Server (W2a): instances, sign-in with the login
+ *                                               script, databases with rating, backup and check
+ *   GET    /:id/sql/databases/:databaseId/backups  the backups of one database
+ *   POST   /:id/sql/restore                     restore a backup under a new name (audited)
+ *   POST   /:id/sql/verify                      check the newest backups now (one database or all)
+ *   POST   /:id/sql/inventory                   "Check sign-in": the agent connects once and reports
+ *   GET    /:id/sql/backups/:backupId/restore-script  the restore script for another machine (audited)
+ *   POST   /:id/sql/databases/:databaseId/tde-confirm  the TDE certificate is backed up elsewhere (audited)
  *
  * The agent's state file (agent secret, repository password) is hidden from browsing and never
  * handed out; the LUKS key files a machine's layout names are hidden from restore operators and
@@ -328,18 +353,51 @@ endpointsRoutes.post("/:id/uninstall", admin, async (c) => {
   return c.json(await requestUninstall(db, c.get("tenantId"), id, actorOf(c)), 202);
 });
 
+/**
+ * Deleting a machine's backups (and cancelling that) is the provider owners' (0.5.0), like
+ * deleting a tenant: the strongest role there is. A tenant's own administrators (an
+ * organization's "owner" is a tenant administrator too) and provider members below owner may
+ * still remove a machine with its backups kept until they expire.
+ */
+function assertProviderOwner(c: Context<TenantEnv>): void {
+  if (c.get("isProviderAdmin") && c.get("providerAccess")?.role === "owner") {
+    return;
+  }
+  throw new ProblemError(403, "Owner only", {
+    type: ENDPOINT_PROBLEMS.ownerRequired,
+    detail:
+      "Only an owner of the provider team can delete the backups of a machine or cancel such a deletion.",
+    extensions: { required: "owner" },
+  });
+}
+
 endpointsRoutes.post("/:id/remove", admin, async (c) => {
   const { id } = parseOrProblem(endpointIdParamSchema, c.req.param());
   const input = await parseJsonBody(c.req, removeEndpointSchema);
+  if (input.mode === "delete") {
+    assertProviderOwner(c);
+  }
   // Deleting backups cannot be undone: a sign-in from the last minutes, like other such actions.
   assertRecentSignIn(c.get("auth").session);
+  // Restore mode: the restored database may not know every backup of the machine.
+  if (input.mode === "delete") {
+    await assertNotInRestoreMode("endpoint_removal", c.get("tenantId"));
+  }
   const holdSettings = await retentionHoldSettings(providerDb).catch(() => null);
   return c.json(
     await removeEndpoint(db, c.get("tenantId"), id, input, actorOf(c), {
       suspicionHoldsApply: holdSettings?.enabled ?? true,
+      installationTimeZone: async () => (await loadInstallationTimeZone(providerDb)).timeZone,
     }),
     202,
   );
+});
+
+endpointsRoutes.post("/:id/remove/cancel", admin, async (c) => {
+  const { id } = parseOrProblem(endpointIdParamSchema, c.req.param());
+  assertProviderOwner(c);
+  await cancelRemoval(db, c.get("tenantId"), id, actorOf(c));
+  return c.body(null, 204);
 });
 
 endpointsRoutes.post("/:id/tasks", restorer, async (c) => {
@@ -600,4 +658,51 @@ endpointsRoutes.get("/:id/downloads/:downloadId", restorerForDownload, async (c)
       "x-content-type-options": "nosniff",
     },
   });
+});
+
+// ---------------------------------------------------------------------------
+// The native SQL Server backup (W2a, docs/BAREMETAL-WINDOWS.md 5.1)
+// ---------------------------------------------------------------------------
+
+endpointsRoutes.get("/:id/sql", restorer, async (c) => {
+  const { id } = parseOrProblem(endpointIdParamSchema, c.req.param());
+  return c.json(await getSqlOverview(db, c.get("tenantId"), id));
+});
+
+endpointsRoutes.get("/:id/sql/databases/:databaseId/backups", restorer, async (c) => {
+  const { id, databaseId } = parseOrProblem(sqlDatabaseParamSchema, c.req.param());
+  return c.json(await listSqlBackups(db, c.get("tenantId"), id, databaseId));
+});
+
+endpointsRoutes.post("/:id/sql/restore", admin, async (c) => {
+  const { id } = parseOrProblem(endpointIdParamSchema, c.req.param());
+  const input = await parseJsonBody(c.req, sqlRestoreSchema);
+  return c.json(await requestSqlRestore(db, c.get("tenantId"), id, input, actorOf(c)), 202);
+});
+
+endpointsRoutes.post("/:id/sql/verify", admin, async (c) => {
+  const { id } = parseOrProblem(endpointIdParamSchema, c.req.param());
+  const input = await parseJsonBody(c.req, sqlVerifySchema);
+  return c.json(await requestSqlVerify(db, c.get("tenantId"), id, input, actorOf(c)), 202);
+});
+
+endpointsRoutes.post("/:id/sql/inventory", admin, async (c) => {
+  const { id } = parseOrProblem(endpointIdParamSchema, c.req.param());
+  return c.json(await requestSqlInventory(db, c.get("tenantId"), id, actorOf(c)), 202);
+});
+
+endpointsRoutes.get("/:id/sql/backups/:backupId/restore-script", admin, async (c) => {
+  const { id, backupId } = parseOrProblem(sqlBackupParamSchema, c.req.param());
+  const script = await sqlRestoreScript(db, c.get("tenantId"), id, backupId, actorOf(c));
+  return c.body(script.body, 200, {
+    "content-type": "text/plain; charset=utf-8",
+    "content-disposition": `attachment; filename="${script.fileName}"`,
+    "cache-control": "no-store",
+    "x-content-type-options": "nosniff",
+  });
+});
+
+endpointsRoutes.post("/:id/sql/databases/:databaseId/tde-confirm", admin, async (c) => {
+  const { id, databaseId } = parseOrProblem(sqlDatabaseParamSchema, c.req.param());
+  return c.json(await confirmSqlTde(db, c.get("tenantId"), id, databaseId, actorOf(c)));
 });

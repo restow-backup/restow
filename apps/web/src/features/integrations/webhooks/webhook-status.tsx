@@ -1,6 +1,7 @@
-import { Loader2, LockOpen } from "lucide-react";
+import { Loader2, LockOpen, TriangleAlert } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -18,6 +19,72 @@ export function WebhookHealthBadge({ webhook }: { webhook: Pick<Webhook, "active
       ) : null}
       {t(`webhooks.health.${health}`)}
     </Badge>
+  );
+}
+
+function localTime(iso: string | null, language: string): string {
+  if (!iso) return "";
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime())
+    ? ""
+    : date.toLocaleString(language, { dateStyle: "medium", timeStyle: "short" });
+}
+
+/**
+ * "Failing since ..." in the list (0.5.0): the worker marks a webhook whose attempts keep failing
+ * and raises one alert about it through the other channels. Nothing while it delivers.
+ */
+export function WebhookFailingBadge({ webhook }: { webhook: Pick<Webhook, "health"> }) {
+  const { t, i18n } = useTranslation("integrations");
+  const health = webhook.health;
+  if (health?.status !== "failing") {
+    return null;
+  }
+  return (
+    <Badge variant="destructive" data-slot="webhook-failing">
+      <TriangleAlert aria-hidden="true" />
+      {t("webhooks.failingSince", {
+        since: localTime(health.failingSince, i18n.resolvedLanguage ?? i18n.language),
+      })}
+    </Badge>
+  );
+}
+
+/**
+ * The health banner of a webhook's page (0.5.0): failing since when, how many attempts in a
+ * row, the last error, and when the alert about it went out through the other channels.
+ */
+export function WebhookHealthBanner({ webhook }: { webhook: Pick<Webhook, "health"> }) {
+  const { t, i18n } = useTranslation("integrations");
+  const health = webhook.health;
+  if (health?.status !== "failing") {
+    return null;
+  }
+  const language = i18n.resolvedLanguage ?? i18n.language;
+  return (
+    <Alert variant="destructive" data-slot="webhook-health-banner">
+      <TriangleAlert />
+      <AlertTitle>{t("detail.health.title")}</AlertTitle>
+      <AlertDescription className="space-y-1">
+        <p>
+          {t("detail.health.since", {
+            since: localTime(health.failingSince, language),
+            count: health.consecutiveFailures,
+          })}
+        </p>
+        {health.lastError ? (
+          <p>
+            {t("detail.health.lastError")}{" "}
+            <code className="break-all font-mono text-xs">{health.lastError}</code>
+          </p>
+        ) : null}
+        <p>
+          {health.alertedAt
+            ? t("detail.health.alerted", { at: localTime(health.alertedAt, language) })
+            : t("detail.health.notAlerted")}
+        </p>
+      </AlertDescription>
+    </Alert>
   );
 }
 

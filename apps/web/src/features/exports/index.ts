@@ -39,6 +39,7 @@ export const routes = [exportsRoute, exportRoute];
 export const navItems: NavItem[] = [
   {
     id: "exports",
+    modules: ["microsoft365", "imap", "archive"],
     path: EXPORT_PATHS.list,
     labelKey: "exports:nav",
     icon: FileDown,

@@ -278,6 +278,7 @@ describe("customer data, contacts and notification recipients", () => {
           isPrimary: true,
         },
       ], // insert().returning()
+      [], // the customer monthly report's rule (none: nothing to sync)
       [], // audit select
       [{ id: "audit-2" }], // audit insert
     ]);
@@ -354,6 +355,8 @@ describe("customer data, contacts and notification recipients", () => {
         name: null,
         events: ["backup.failed", "restore.failed", "archive.failed", "directory.failed"],
         categories: ["jobFailures"],
+        delivery: { error: "immediate", warning: "immediate", info: "immediate" },
+        failure: null,
       },
     ]);
     expect(script.pending()).toBe(0);

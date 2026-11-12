@@ -25,7 +25,7 @@ describe("runStartupLicenseCheck", () => {
     { row: { edition: "business", series: "1", updates_until: "2027-11-30" } },
   ];
 
-  it("exits 1 for a release the installed key does not cover, and closes the connection", async () => {
+  it("exits 1 for a release the installed key does not cover, and closes the connection [LICENSE-004]", async () => {
     const database = fakeDatabase(expiredRow);
     const lines: Array<[string, string]> = [];
     const code = await runStartupLicenseCheck(env, {
@@ -38,7 +38,7 @@ describe("runStartupLicenseCheck", () => {
     expect(lines[0]?.[1]).toContain("has not touched the database");
   });
 
-  it("exits 0 and warns when the operator starts it as Community", async () => {
+  it("exits 0 and warns when the operator starts it as Community [LICENSE-005]", async () => {
     const lines: string[] = [];
     const code = await runStartupLicenseCheck(
       { ...env, RESTOW_RUN_AS_COMMUNITY: "1" },
@@ -63,7 +63,7 @@ describe("runStartupLicenseCheck", () => {
     expect(lines).toEqual([]);
   });
 
-  it("never stops a start because the database could not be read", async () => {
+  it("never stops a start because the database could not be read [LICENSE-006]", async () => {
     const lines: string[] = [];
     const code = await runStartupLicenseCheck(env, {
       connect: () => ({

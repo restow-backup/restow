@@ -59,6 +59,8 @@ export interface ReadinessDto {
   overdue: boolean;
   basis: EndpointReadinessDto["basis"];
   latestSnapshotId: string | null;
+  /** The newest backup recorded no sample files: no restore test of it is possible. */
+  noSamples: boolean;
 }
 
 export interface RunSummaryDto {
@@ -292,6 +294,18 @@ export interface EndpointDetailDto extends EndpointSummaryDto {
     expiresAt: string | null;
   } | null;
   /**
+   * A requested deletion of the machine's backups that has not started yet (0.5.0, removal.ts):
+   * the date it starts, who asked and why; it can still be cancelled. Null for none.
+   */
+  backupDeletion: {
+    dueAt: string;
+    requestedAt: string;
+    requestedBy: string;
+    reason: string | null;
+    state: "scheduled" | "held";
+    heldBy: "legal_hold" | "suspicion" | null;
+  } | null;
+  /**
    * The stored configuration, with `fsSnapshot` as the machine stores it (null: the default) and
    * `wholeMachine` as its job writes it (docs/BAREMETAL.md 5.1, 6.1).
    */
@@ -299,6 +313,14 @@ export interface EndpointDetailDto extends EndpointSummaryDto {
   /** null when the agent does not report data folders. */
   dataFolders: DataFoldersDto | null;
   machine: MachineDto;
+  /**
+   * The fixed warnings of W1 (docs/BAREMETAL-WINDOWS.md 6.5): the file backup of this machine
+   * holds files of open databases that are no restorable backup of the roles named. The SQL Server
+   * part goes once the native backup covers every database.
+   */
+  appNotices: { code: string; subjects?: string[] }[];
+  /** The native SQL Server backup (W2a): the agent can do it, and a job switched it on. */
+  sqlNative: { capable: boolean; enabled: boolean };
   configVersion: number;
   /** The configuration version the agent runs; differs from `configVersion` until it fetched the change. */
   agentConfigVersion: number | null;
@@ -624,6 +646,7 @@ export function toReadiness(readiness: EndpointReadinessDto): ReadinessDto {
     overdue: readiness.overdue,
     basis: readiness.basis,
     latestSnapshotId: readiness.latestSnapshotId,
+    noSamples: readiness.noSamples,
   };
 }
 

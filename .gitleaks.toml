@@ -19,9 +19,9 @@ paths = [
   '''(^|/)deploy/install/test\.sh$''',
   # The PVE node installer's shell test feeds made-up enrollment and PVE API tokens to pve.sh
   '''(^|/)agent/scripts/test-pve-install\.sh$''',
-  # Bare metal fixtures: captured layouts and manifests carry the public Authenticode
-  # hashes of boot loaders, the recovery code vectors carry made-up session secrets
+  # Synthetic bare-metal layout recordings: SHA-256 sums of boot loaders and partition ids
   '''(^|/)agent/internal/baremetal/testdata/''',
+  # Generated test vectors of recovery codes and session secrets (shared by Go and TypeScript)
   '''(^|/)agent/internal/recovery/testdata/''',
 ]
 regexes = [

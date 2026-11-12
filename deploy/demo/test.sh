@@ -813,5 +813,10 @@ for value in ../docker-compose.yml /etc/passwd missing.yml 'docker-compose.yml:s
   assert_contains "is not a compose file" "$LOG" "RESTOW_DEMO_COMPOSE_FILES=$value: logged"
 done
 
+# The api keeps no emergency disk reserve (#98) on the demo's tmpfs /data: it would take
+# 2 GiB of the host's RAM for nothing.
+API_SERVICE=$(awk '/^  api:$/ { inside = 1; next } /^  [a-z][a-z-]*:$/ { inside = 0 } inside' "$HERE/docker-compose.yml")
+assert_contains 'RESTOW_DISK_RESERVE_MB: "0"' "$API_SERVICE" "compose: the api keeps no disk reserve on the tmpfs"
+
 printf 'deploy/demo/test.sh: %d passed, %d failed\n' "$PASSED" "$FAILED"
 [ "$FAILED" -eq 0 ]

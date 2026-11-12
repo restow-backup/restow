@@ -11,7 +11,18 @@ export {
   ServerDiskWarning,
   useBackupDestination,
 } from "./destination";
+export {
+  ObjectCopyList,
+  ObjectCopyStatus,
+  type RepositoryCopy,
+  useObjectCopies,
+} from "./repository-copies";
 export { useStorageScope } from "./use-storage";
+export {
+  usePrimaryWriteOnce,
+  type WriteOnceRetentionContext,
+  WriteOnceRetentionNotice,
+} from "./write-once";
 
 /**
  * Repositories: where the tenant's chunk store lives (installation default,

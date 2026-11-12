@@ -1,0 +1,40 @@
+{
+  "description": "Windows Server 2022 Datacenter without the BitLocker feature (the WMI namespace is missing), workgroup, a clustered SQL instance and a name the agent refuses",
+  "osVersion": "Windows Server 2022 Datacenter 21H2 (build 20348.3091)",
+  "virtualization": "none",
+  "technology": "",
+  "desktop": false,
+  "windows": {
+    "bitlocker": {
+      "state": "not_installed",
+      "volumes": []
+    },
+    "build": 20348,
+    "displayVersion": "21H2",
+    "domainMember": false,
+    "editionId": "ServerDatacenter",
+    "installationType": "server",
+    "productName": "Windows Server 2022 Datacenter",
+    "productType": "server",
+    "roles": {
+      "dfsr": false,
+      "domainController": false,
+      "exchange": false,
+      "hyperV": false,
+      "sqlServer": true
+    },
+    "sqlInstances": [
+      {
+        "clustered": true,
+        "edition": "Enterprise Edition: Core-based Licensing",
+        "id": "MSSQL16.PROD",
+        "name": "PROD",
+        "serviceAccount": "CORP\\svc-sql",
+        "serviceName": "MSSQL$PROD",
+        "strictEncryption": false,
+        "version": "16.0.1000.6"
+      }
+    ],
+    "ubr": 3091
+  }
+}

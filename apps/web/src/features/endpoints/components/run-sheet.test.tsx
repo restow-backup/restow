@@ -60,6 +60,20 @@ describe("RunDetailView", () => {
     expect(html).toContain("Secrets are never part of it.");
   });
 
+  it("says that the snapshot of a failed run does not count as a backup", () => {
+    const failed = render_(run({ status: "failed" }));
+    expect(failed).toContain("01234567");
+    expect(failed).toContain("It does not count as a successful backup");
+    expect(render_(run())).not.toContain("It does not count as a successful backup");
+    expect(render_(run({ status: "partial" }))).not.toContain(
+      "It does not count as a successful backup",
+    );
+    // Cancelled in Restow after restic had saved it: no successful backup either.
+    expect(render_(run({ status: "cancelled" }))).toContain(
+      "It does not count as a successful backup",
+    );
+  });
+
   it("says how consistent the files are: shadow copy, partly without, without", () => {
     const base = run().stats ?? {};
     const used = render_(
@@ -81,6 +95,17 @@ describe("RunDetailView", () => {
       run({ status: "failed", stats: { consistency: { method: "vss", state: "unavailable" } } }),
     );
     expect(failed).toContain("Without a shadow copy (shadow copy not available)");
+    // Only an exFAT disk, which VSS cannot do: a green run that names the volume read live.
+    const exfat = render_(
+      run({
+        stats: {
+          ...base,
+          consistency: { method: "vss", state: "unavailable", liveFilesystems: ["E:\\"] },
+        },
+      }),
+    );
+    expect(exfat).toContain("Without a shadow copy: E:\\");
+    expect(exfat).not.toContain("not available");
     const linux = render_(run({ stats: { ...base, consistency: { state: "off" } } }));
     expect(linux).toContain("Without a file system snapshot, read from the live file system");
     // A run of an agent before 0.5.0 says nothing about it.
@@ -107,6 +132,44 @@ describe("RunDetailView", () => {
     expect(render_(run({ layoutId: null }))).not.toContain("Layout captured");
     const linked = render(<RunDetailView run={run({ layoutId: "l1" })} onShowLayout={() => {}} />);
     expect(linked).toContain("Show on the machine&#x27;s page");
+  });
+
+  it("names the volumes read live beside a shadow copy, never plain file consistent", () => {
+    const base = run().stats ?? {};
+    const html = render_(
+      run({
+        stats: {
+          ...base,
+          consistency: { method: "vss", state: "used", liveFilesystems: ["E:\\", "F:\\"] },
+        },
+      }),
+    );
+    expect(html).toContain("Shadow copy (file consistent); read live: E:\\, F:\\");
+  });
+
+  it("leaves out the consistency of a failed run that saved no snapshot", () => {
+    // Policy "stop the backup": the shadow copy of C:\ failed, restic was stopped, nothing saved.
+    const failed = render_(
+      run({
+        status: "failed",
+        snapshotId: null,
+        stats: {
+          consistency: { method: "vss", state: "partial", liveFilesystems: ["C:\\"] },
+        },
+      }),
+    );
+    expect(failed).not.toContain("Consistency");
+    expect(failed).not.toContain("Partly without a shadow copy");
+    // A failed run that still saved a snapshot says how that snapshot was read.
+    const saved = render_(
+      run({
+        status: "failed",
+        stats: {
+          consistency: { method: "vss", state: "partial", liveFilesystems: ["D:\\"] },
+        },
+      }),
+    );
+    expect(saved).toContain("Partly without a shadow copy: D:\\");
   });
 
   it("lists the files a partial run could not read, and says what partial means", () => {

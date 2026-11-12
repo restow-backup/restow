@@ -248,6 +248,40 @@ describe("buildChatMessage", () => {
     expect(red.fields).toContainEqual({ name: "Gründe", value: "mismatch" });
   });
 
+  it("names the service with the object of a check or a job (0.5.0)", () => {
+    const check = buildChatMessage(
+      "verify.completed",
+      envelope("verify.completed", {
+        reportId: "rep-1",
+        readiness: "yellow",
+        objectName: "msp@contoso.example",
+        objectKind: "onedrive",
+        reasons: [],
+      }),
+      DE,
+    );
+    expect(check.title).toContain("OneDrive · msp@contoso.example");
+    expect(check.fields).toContainEqual({
+      name: "Betrifft",
+      value: "OneDrive · msp@contoso.example",
+    });
+    const job = buildChatMessage(
+      "job.failed",
+      envelope("job.failed", {
+        job: { id: "j-1", queue: "backup.mail", status: "failed", errorMessage: "quota" },
+      }),
+      { ...EN, objectKind: "mailbox" },
+    );
+    expect(job.title).toContain("Mailbox · anna@contoso.example");
+    // Without a kind, or with one it has no label for, the bare name as before.
+    const bare = buildChatMessage(
+      "job.failed",
+      envelope("job.failed", { job: { id: "j-1", queue: "backup.mail", status: "failed" } }),
+      { ...EN, objectKind: "something-new" },
+    );
+    expect(bare.title).toContain(": anna@contoso.example");
+  });
+
   it("builds the test message with a link to the webhook", () => {
     const msg = buildChatMessage(
       "webhook.test",
@@ -625,5 +659,97 @@ describe("renderChatBody", () => {
     for (const format of ["discord", "slack", "teams"] as const) {
       expect(() => JSON.parse(renderChatBody(format, message()))).not.toThrow();
     }
+  });
+});
+
+describe("branded chat messages (0.5.0)", () => {
+  const brand = {
+    name: "MSP Backup",
+    avatarUrl: "https://restow.example/api/v1/public/branding/tok.png",
+    logoUrl: "https://restow.example/api/v1/public/branding/tok.png",
+    accentPngUrl: "https://restow.example/api/v1/public/branding/accent/1d4ed8.png",
+    accentColor: "#1d4ed8",
+  };
+  const alert = envelope("report.alert", {
+    subject: "[Contoso] Backup failed: Alice",
+    text: "Backup failed: Alice\n\nCause: x\n\n--\nfooter",
+    level: "error",
+    event: "backup.failed",
+    rule: { name: "Errors" },
+  });
+
+  it("names the brand in the footer of every format", () => {
+    const branded = buildChatMessage("report.alert", alert, { ...EN, brand });
+    expect(branded.footer).toBe("MSP Backup · Contoso");
+    const plain = buildChatMessage("report.alert", alert, EN);
+    expect(plain.footer).not.toContain("MSP Backup");
+    expect(plain.brand).toBeNull();
+  });
+
+  it("sends Discord the brand as username and avatar, the accent on a summary only", () => {
+    const branded = buildChatMessage("report.alert", alert, { ...EN, brand });
+    const body = renderDiscord(branded);
+    expect(body.username).toBe("MSP Backup");
+    expect(body.avatar_url).toBe(brand.avatarUrl);
+    const embed = (body.embeds as Record<string, unknown>[])[0];
+    expect(embed?.color).toBe(DISCORD_COLORS.error);
+    const summary = renderDiscord(
+      buildChatMessage(
+        "report.summary",
+        envelope("report.summary", { subject: "Weekly report", text: "x" }),
+        { ...EN, brand },
+      ),
+    );
+    expect((summary.embeds as Record<string, unknown>[])[0]?.color).toBe(0x1d4ed8);
+  });
+
+  it("leaves out a username Discord refuses and an avatar without https", () => {
+    const body = renderDiscord(
+      buildChatMessage("report.alert", alert, {
+        ...EN,
+        brand: { ...brand, name: "Our Discord bot", avatarUrl: "http://restow.example/x.png" },
+      }),
+    );
+    expect(body.username).toBeUndefined();
+    expect(body.avatar_url).toBeUndefined();
+  });
+
+  it("sends Slack the name only", () => {
+    const body = renderSlack(buildChatMessage("report.alert", alert, { ...EN, brand }));
+    expect(body.username).toBe("MSP Backup");
+    expect(body.icon_url).toBeUndefined();
+    expect(JSON.stringify(body)).not.toContain("tok.png");
+  });
+
+  it("gives the Teams card the accent band and the logo, and today's card without https", () => {
+    const card = (body: Record<string, unknown>) => {
+      const [attachment] = body.attachments as Record<string, unknown>[];
+      const content = (attachment?.content ?? {}) as Record<string, unknown>;
+      return content.body as Record<string, unknown>[];
+    };
+    const branded = card(renderTeams(buildChatMessage("report.alert", alert, { ...EN, brand })));
+    expect(branded[0]).toMatchObject({
+      type: "Container",
+      minHeight: "4px",
+      backgroundImage: { url: brand.accentPngUrl, fillMode: "Repeat" },
+    });
+    expect(JSON.stringify(branded[1])).toContain('"type":"Image"');
+    expect(JSON.stringify(branded[1])).toContain('"altText":"MSP Backup"');
+    const insecure = card(
+      renderTeams(
+        buildChatMessage("report.alert", alert, {
+          ...EN,
+          brand: { ...brand, logoUrl: "http://x/logo.png", accentPngUrl: null },
+        }),
+      ),
+    );
+    const plain = card(renderTeams(buildChatMessage("report.alert", alert, EN)));
+    expect(insecure[0]).toEqual(plain[0]);
+    expect(JSON.stringify(insecure)).not.toContain('"type":"Image"');
+  });
+
+  it("leaves the signed restow format alone", () => {
+    // The signed JSON envelope is sent as stored; nothing here renders it.
+    expect(isChatFormat("restow")).toBe(false);
   });
 });

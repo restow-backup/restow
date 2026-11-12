@@ -24,6 +24,7 @@ import {
   DEFAULT_SCHEDULE_TIMEZONE,
   DEFAULT_SHARE_CHECK_SUBSET_PERCENT,
   DEFAULT_SHARE_RETENTION,
+  deletionDecision,
   type FileShareJobPayload,
   isValidTimeZone,
   listRepositoryObjects,
@@ -39,6 +40,8 @@ import {
   restoreTestSamples,
   SHARE_NO_SAMPLES,
   splitLockedSnapshots,
+  storageShortOfSpace,
+  withDeletionPermit,
   withRepository,
 } from "@restow/core";
 import {
@@ -62,8 +65,9 @@ import {
   LOCKED_ALERT_ATTEMPTS,
   LOCKED_ALERT_MIN_MS,
 } from "../endpoints/maintenance.js";
+import { pruneFailureSummary, pruneSummary, targetFull } from "../endpoints/prune-summary.js";
 import { ratingOf } from "../endpoints/verify.js";
-import { tenantRunner, withTenantTx } from "../handlers/framework.js";
+import { primaryWriteOnce, tenantRunner, withTenantTx } from "../handlers/framework.js";
 import { hasActiveMigration } from "../handlers/storage-migration.js";
 import { emitWebhookEvent } from "../handlers/webhooks.js";
 import { raiseEvents } from "../reporting.js";
@@ -255,7 +259,33 @@ export async function shareRetention(
   if (await hasActiveMigration(tenantRunner(deps.db, share.tenantId), share.tenantId)) {
     return;
   }
-  await withShareMaintenanceLock(deps, share.id, "exclusive", () => retain(deps, share, access));
+  // Write-once storage (docs/STORAGE.md, "Write-once storage"): restic forget and prune would
+  // only fail on every deletion; every restore point stays, and the share's page says so.
+  if (primaryWriteOnce(await deps.runtime.storage.get(share.tenantId))) {
+    deps.runtime.logger.info(
+      "file share retention: not applied, the primary storage target of the tenant is write-once",
+      { tenantId: share.tenantId, fileShareId: share.id },
+    );
+    return;
+  }
+  // Restore mode after restoring a database dump (docs/STORAGE.md): the restored database lacks
+  // the restore points and holds made after the dump; restic forget and prune do not run.
+  const deletions = await deletionDecision({
+    pass: "file_share_retention",
+    tenantId: share.tenantId,
+  });
+  if (!deletions.allowed) {
+    deps.runtime.logger.warn("file share retention held: deleting is paused", {
+      tenantId: share.tenantId,
+      fileShareId: share.id,
+      reason: deletions.reason,
+    });
+    return;
+  }
+  // restic's deletes through the loopback carry this permit (storage/deletion-guard.ts).
+  await withDeletionPermit({ pass: "file_share_retention", tenantId: share.tenantId }, () =>
+    withShareMaintenanceLock(deps, share.id, "exclusive", () => retain(deps, share, access)),
+  );
 }
 
 async function retain(
@@ -291,8 +321,20 @@ async function retain(
           ),
         ),
     );
+    const [lastReport] = await withTenantTx(deps.db, share.tenantId, (tx) =>
+      tx
+        .select({ summary: fileShareReports.summary })
+        .from(fileShareReports)
+        .where(
+          and(eq(fileShareReports.fileShareId, share.id), eq(fileShareReports.kind, "retention")),
+        )
+        .orderBy(desc(fileShareReports.checkedAt))
+        .limit(1),
+    );
+    const pending =
+      lastReport?.summary.prunePending === true || (await storageShortOfSpace(access.storage));
     const result = await withRepository(access, async (session) => {
-      await resticUnlock(session).catch(() => undefined);
+      await resticUnlock(session, { signal: deps.runtime.shutdownSignal }).catch(() => undefined);
       const stored = await listRepositoryObjects(access.storage, access.prefix, "snapshots");
       let claimed: ResticSnapshot[] = [];
       try {
@@ -323,9 +365,14 @@ async function retain(
         : await splitLockedSnapshots(access.storage, access.prefix, planned);
       if (remove.length > 0) {
         await resticForget(session, remove, { signal });
-        await resticPrune(session, { signal });
       }
-      return { audit, remove, heldBack: planned.length, total: stored.length };
+      // One policy for a target short of space (docs/STORAGE.md, "A full target"), and a
+      // prune the last run left due runs even when nothing is forgotten.
+      const prune =
+        remove.length > 0 || pending
+          ? await resticPrune(session, { signal, storage: access.storage })
+          : null;
+      return { audit, remove, heldBack: planned.length, total: stored.length, prune };
     });
     await recordShareUnlocked(deps, share);
     const removedIds = new Set(result.remove);
@@ -371,6 +418,7 @@ async function retain(
           futureSnapshots: result.audit.flags.filter((flag) => flag.reasons.includes("future_time"))
             .length,
           removedLocks,
+          ...pruneSummary(result.prune),
           ...(held
             ? { ...retentionHoldSummary(holds, share.id), heldBackSnapshots: result.heldBack }
             : {}),
@@ -396,10 +444,16 @@ async function retain(
         fileShareId: share.id,
         kind: "retention",
         readiness: null,
-        summary: { errorMessage: reportableMessage(error) },
+        summary: { errorMessage: reportableMessage(error), ...pruneFailureSummary(error) },
       },
       now,
     ).catch(() => undefined);
+    if (targetFull(error)) {
+      deps.runtime.logger.warn(
+        "file share retention could not free space: the storage target is full",
+        { tenantId: share.tenantId, fileShareId: share.id },
+      );
+    }
     throw error;
   }
 }
@@ -421,7 +475,7 @@ export async function shareCheck(deps: FileShareDeps, payload: FileShareJobPaylo
     try {
       await clearShareLocks(deps, share, access, now);
       await withRepository(access, async (session) => {
-        await resticUnlock(session).catch(() => undefined);
+        await resticUnlock(session, { signal: deps.runtime.shutdownSignal }).catch(() => undefined);
         await resticCheck(session, subset, { signal: deps.runtime.shutdownSignal });
       });
       await recordShareUnlocked(deps, share);

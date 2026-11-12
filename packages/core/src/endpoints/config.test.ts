@@ -154,4 +154,29 @@ describe("a machine in no backup job", () => {
     const config = defaultEndpointConfig("linux", "server", options);
     expect(agentFacingConfig(config)).toBe(config);
   });
+
+  it("hands the agent the SQL settings without the check plan, and none in no job", () => {
+    const sql = {
+      enabled: true,
+      mode: "alongside" as const,
+      instances: "all" as const,
+      databases: "all" as const,
+      exclude: [{ instance: "SQLEXPRESS", name: "Scratch" }],
+      stagingDir: "E:\\SqlStaging",
+      verify: { enabled: true, weekday: 7, time: "03:00", maxGiB: 200, physicalOnly: false },
+    };
+    const config = { ...defaultEndpointConfig("windows", "server", options), sql };
+    const sent = agentFacingConfig(config);
+    expect(sent.sql).toEqual({
+      enabled: true,
+      mode: "alongside",
+      instances: "all",
+      databases: "all",
+      exclude: [{ instance: "SQLEXPRESS", name: "Scratch" }],
+      stagingDir: "E:\\SqlStaging",
+    });
+    expect(config.sql.verify).toBeDefined();
+    const unscheduled = agentFacingConfig({ ...config, schedule: noSchedule("Europe/Berlin") });
+    expect("sql" in unscheduled).toBe(false);
+  });
 });

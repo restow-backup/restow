@@ -236,7 +236,7 @@ pve-storage `check_volume_access`:
 | List nodes, guests, storages | `Sys.Audit` on `/nodes/{node}`; `VM.Audit` on `/vms/{vmid}` (list filters by it); `Datastore.Audit` on `/storage/{id}` [V for VM.Audit filter; I for the other paths] |
 | `POST /nodes/{node}/vzdump` | "`VM.Backup` permissions on any VM, and `Datastore.AllocateSpace` on the backup storage (and fleecing storage when fleecing is used)". `bwlimit`/`performance`/`ionice` need `Sys.Modify` on `/`; `script`, `dumpdir`, `tmpdir`, `job-id` are root@pam only. |
 | Read a backup volume for restore | `Datastore.AllocateSpace` on the storage **and** `VM.Backup` on the owner VM (`check_volume_access`, vtype `backup`) |
-| Restore as a **new** VM/CT | `VM.Allocate` on `/vms/{newid}` **or on `/pool/{pool}`** if `pool` is given; `Datastore.AllocateSpace` on the target storage; `SDN.Use` on the bridges or vnets in the config (`check_bridge_access`) and access to mapped devices (`check_mapping_access`); `VM.PowerMgmt` only if `start=1` |
+| Restore as a **new** VM/CT | `VM.Allocate` on `/vms/{newid}` **or on `/pool/{pool}`** if `pool` is given; `Datastore.AllocateSpace` on the target storage; `SDN.Use` on the bridges or vnets in the config (`check_bridge_access`) and access to mapped devices (`check_mapping_access`: `Mapping.Use` on `/mapping/pci/<id>`, `/mapping/usb/<id>` or `/mapping/dir/<id>`); `VM.PowerMgmt` only if `start=1`. **root@pam only** (`check_restore_permissions`): non-mapped `hostpciN` and `usbN` host devices, serial and parallel ports on host devices, `args`; for a container bind and device mount points and raw `lxc.*` keys (skipped with a warning). restow-pve restores a VM with any of these (and with a mapped device, virtiofs or a hook script) as root with `qmrestore`, leaves a container's bind and device mount points out, and never passes `start=1` (it starts a guest as root); the RestowRestore role stays as it is. |
 | Create PVE backup jobs (`/cluster/backup`) | Not needed if Restow schedules itself (recommended). |
 
 API tokens: `pveum user token add <user> <name> --privsep 1` gives a token whose rights are the
@@ -328,7 +328,9 @@ Key decisions:
    "request a backup or a restore" (section 2.8).
 3. **Restow schedules.** The scheduler plans per-guest backup runs from Restow jobs (kind `pve`). The
    helper starts them as `POST /nodes/{local}/vzdump` with `vmid`, `storage=<restow storeid>`,
-   `mode` (default `snapshot`), `fleecing=enabled=1,storage=<node fleecing storage>`, `notes-template`.
+   `mode` (default `snapshot`), `fleecing=enabled=1,storage=<node fleecing storage>`, `remove=0`, no
+   notes template, and from PVE 8.1 on `notification-mode=legacy-sendmail` without `mailto` (no PVE
+   notification per guest; Restow reports the outcome).
    Backups that an admin starts from the PVE UI (or a PVE backup job) onto the Restow storage also work.
    They are reported as runs with origin `pve` and keep the same block-map chain.
 4. **One helper process tree per node, with no long-lived state in Perl.** Each Perl callback runs
@@ -370,9 +372,13 @@ crypto and no network code; it only turns callbacks into helper calls. Two point
   Perl `use base` makes a derivative work. **Maintainer decision required before 0.3.0.**
 - *Robustness:* `status()` is polled by `pvestatd` every few seconds on every node [I]. It must return
   cached values from a local file the helper maintains and must never block on the network. `list_volumes`
-  likewise reads a local cache, refreshed by the helper and on demand with a short timeout.
-  `free_image`/volume removal and `prune_backups` refuse with a clear message ("retention is managed in
-  Restow").
+  without a VMID reads the cluster's listing the helper keeps (every page of it); with a VMID (a guest's
+  Backup tab) and `volume_size_info` ask the server with a short timeout and fall back to the local
+  listings, so a restore point the cluster-wide listing does not hold still shows and has a size.
+  `free_image`/volume removal refuses with a clear message ("retention is managed in Restow").
+  `prune_backups` (vzdump of a PVE job with retention, `pvesm prune-backups`) prunes nothing, lists
+  nothing and logs "restow: retention is managed in Restow; PVE's retention settings are ignored":
+  dying there failed the guest's backup in PVE after its restore point was committed.
 
 **Server.** New module `apps/api/src/features/pve` and `packages/core/src/pve`, jobs under
 `apps/worker/src/pve`, schema in `packages/db`. It reuses enrollment, heartbeat, tasks, runs, failure
@@ -506,18 +512,23 @@ keys anyway.
 - `backup_get_mechanism(lxc)` returns `directory`.
 - `backup_container_prepare` (root): the helper fetches a short-lived **per-run** restic-REST credential
   and the repository password for this guest's repository. It writes them to
-  `/run/restow-pve/run-<id>/` with owner `backup-user-id` and mode 0400, and prepares a restic cache dir
-  owned by that uid (or uses `--no-cache`).
+  `/run/restow-pve/run-<id>/` with owner `backup-user-id` and mode 0400, and hands the guest's persistent
+  restic cache dir `/var/cache/restow-pve/ct-<vmid>` to that uid (or uses `--no-cache` below 1 GB free).
 - `backup_container` (as uid 100000 in the user namespace): runs `restic backup` on `directory` for each
   entry of `sources`, translates `$exclude_patterns` (vzdump globs) to restic `--exclude`, and tags
-  `vmid=<id>`, `cluster=<id>`, `run=<id>`. It also stores `pct.conf` and the firewall config as files in
-  the snapshot (e.g. `/.restow/pct.conf`) or as restic snapshot metadata. Network access works because
-  only the user namespace changes [I, test].
+  `vmid=<id>`, `run=<id>`. The `pct` configuration and the firewall config are not stored in the
+  snapshot: they go to the server with the commit (`guestConfig`, `firewallConfig`) and are kept with
+  the restore point. A file beside the sources would add a path to the snapshot (restic picks the
+  parent snapshot by its paths, and the tree would no longer be the container root the file browser
+  and every restore rely on); a second snapshot per run would break the one snapshot per restore
+  point the server's retention, checks and restores assume. Network access works because only the
+  user namespace changes [I, test].
 - **One restic repository per guest** under `endpoints/<repoId>/` (same layout, authz matrix, quota and
   lock handling as the agent). Retention, check and restore-test run on the server through the existing
   loopback maintenance path. Reasons: a guest migrates between nodes, per-guest retention and quotas
   apply, prune does not block other guests' backups, and "restore without Restow" stays a plain
-  `restic restore`.
+  `restic restore`, followed by `tar --numeric-owner -cpf - . | pct restore <vmid> - --unprivileged 1`
+  so that PVE maps the container's ids (docs/PVE.md, "Without Restow").
 - **Credential scope:** the restic-REST principal for a run is limited to that guest's repository and
   expires with the run. A node holds no long-lived restic credential.
 - Alternative considered: CT file trees into the chunk store via server-side ingest. That would mean
@@ -530,20 +541,22 @@ keys anyway.
 **Restore as new guest from Restow (the main path):**
 
 1. The admin picks a restore point in Restow. Options: target node (default: original node), target
-   storage, new VMID (default: next free id), start after restore (off), keep MACs (off; PVE's `unique`
-   regenerates them).
+   storage, new VMID (default: next free id), start after restore (off). Both kinds get new MAC
+   addresses (PVE's `unique=1`); IP addresses in the configuration and inside the guest stay the same.
 2. The server queues task `restore` to that node's helper.
 3. The helper calls `POST /nodes/{node}/qemu` with `vmid=<new>`, `archive=restow:backup/vm/101/<time>`,
    `storage=<target>`, `unique=1`, `pool=restow-restore`, optionally `bwlimit`. For CTs it calls
-   `POST /nodes/{node}/lxc` with `ostemplate=<archive>`, `restore=1`, `unprivileged=1`.
+   `POST /nodes/{node}/lxc` with `ostemplate=<archive>`, `restore=1`, `unprivileged=1`, `unique=1`
+   (a random `hwaddr` for every interface) and `onboot=0`.
 4. PVE calls the plugin. `restore_vm_init` lists the devices and sizes; `restore_vm_volume_init` makes
    the helper start an NBD server that serves the synthetic full of that disk and returns
    `nbd+unix:///drive-scsi0?socket=/run/restow-pve/restore-<id>.sock`. The server reads the map and
    streams chunks with readahead (sequential, 8 to 16 blocks in flight).
-5. CTs: `restore_container_init` returns `archive-directory` = a `restic mount` of the snapshot (FUSE is
-   present on PVE because pmxcfs uses it [I]) or, as a fallback, a `restic restore` into a temporary
-   directory on a local storage with enough free space. PVE then tars it into the new rootfs with the ID
-   mapping.
+5. CTs: `restore_container_init` returns `archive-directory` = a `restic restore --sparse
+   --retry-lock 15m` into a folder of its own below the restore folder (`--restore-tmp`, default
+   `/var/tmp/restow-pve`), after a check of its free space; `restore_container_cleanup` gets that
+   directory back from the shim and removes only that folder. PVE then tars it into the new rootfs
+   with the ID mapping. (A `restic mount` was the first idea; it is not used.)
 6. The run ends with the new VMID. The original guest is never touched; Restow never passes `force=1`.
 
 The restore pool `restow-restore` limits `VM.Allocate` (create and **delete**) to guests in that pool
@@ -653,8 +666,8 @@ tenant, with a guest-to-tenant mapping by PVE pool. The helper then holds one se
 **Immutability.**
 
 - *Logical (phase 1):* nodes are append-only and cannot delete or overwrite; retention runs only on
-  the server. PVE's "remove backup" and prune are refused by the plugin and would be refused by the
-  server anyway.
+  the server. PVE's "remove backup" is refused by the plugin and would be refused by the server
+  anyway; PVE's prune is a no-op of the plugin that removes nothing.
 - *Physical (phase 2): S3 Object Lock for packs and manifests* of `pve-vm` snapshots. Today packs carry
   no retention and GC repacks (docs/ARCHITECTURE.md, docs/STORAGE.md). Required changes: set
   `RetainUntil` = (latest retention end of any snapshot referencing chunks in the pack) + safety margin,

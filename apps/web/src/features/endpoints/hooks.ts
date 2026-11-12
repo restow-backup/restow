@@ -22,6 +22,8 @@ import {
   type CreateTokenInput,
   cancelEndpointBackup,
   cancelRecovery,
+  cancelRemoval,
+  confirmSqlTde,
   createDownload,
   createRebindToken,
   createTask,
@@ -42,6 +44,8 @@ import {
   fetchRun,
   fetchRuns,
   fetchSnapshots,
+  fetchSqlBackups,
+  fetchSqlOverview,
   fetchTokens,
   type IssueRecoveryCodeInput,
   issueRecoveryCode,
@@ -50,11 +54,15 @@ import {
   removeEndpoint,
   requestEndpointUpdate,
   requestRestoreTest,
+  requestSqlInventory,
+  requestSqlRestore,
+  requestSqlVerify,
   resumeMachineUpdates,
   revealRepositoryPassword,
   revokeEndpoint,
   revokeRecoveryCode,
   revokeToken,
+  type SqlRestoreInput,
   setAgentUpdates,
   setRecoverySshKeys,
   type TokenListState,
@@ -268,17 +276,44 @@ export function useRemoveEndpoint(endpointId: string) {
   const queryClient = useQueryClient();
   const { tenantId } = useTenantScope();
   return useMutation({
-    mutationFn: (input: { mode: RemovalMode; confirmHostname: string }) =>
+    mutationFn: (input: { mode: RemovalMode; confirmHostname: string; reason?: string }) =>
       removeEndpoint(endpointId, input),
-    onSuccess: () => {
-      queryClient.removeQueries({ queryKey: endpointKeys.detail(tenantId, endpointId) });
+    onSuccess: (_result, input) => {
+      // A scheduled deletion keeps the machine (and its page) until it starts.
+      if (input.mode === "expire") {
+        queryClient.removeQueries({ queryKey: endpointKeys.detail(tenantId, endpointId) });
+      }
     },
     onSettled: () =>
       Promise.all([
+        queryClient.invalidateQueries({ queryKey: endpointKeys.detail(tenantId, endpointId) }),
         queryClient.invalidateQueries({ queryKey: endpointKeys.lists(tenantId) }),
         queryClient.invalidateQueries({ queryKey: endpointKeys.removals(tenantId) }),
       ]),
   });
+}
+
+/** Cancel a scheduled deletion of the machine's backups (provider owners, 0.5.0). */
+export function useCancelRemoval(endpointId: string) {
+  const queryClient = useQueryClient();
+  const { tenantId } = useTenantScope();
+  return useMutation({
+    mutationFn: () => cancelRemoval(endpointId),
+    onSettled: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: endpointKeys.detail(tenantId, endpointId) }),
+        queryClient.invalidateQueries({ queryKey: endpointKeys.lists(tenantId) }),
+      ]),
+  });
+}
+
+/**
+ * Whether the viewer may delete a machine's backups and cancel that (0.5.0): an owner of the
+ * provider team (a provider admin without a team role is one, as on the server).
+ */
+export function useMayDeleteBackups(): boolean {
+  const { isProviderAdmin, providerRole } = useSession();
+  return isProviderAdmin === true && (providerRole ?? "owner") === "owner";
 }
 
 /** Removed machines whose backups are not deleted yet; only for who may remove machines. */
@@ -372,6 +407,65 @@ export function useRestoreTest(endpointId: string) {
   const refresh = useRefreshEndpoint();
   return useMutation({
     mutationFn: () => requestRestoreTest(endpointId),
+    onSettled: () => refresh(endpointId),
+  });
+}
+
+// --- SQL Server (preview) ------------------------------------------------------------------
+
+/** The SQL part of a machine; polls while a check, restore or sign-in check waits. */
+export function useSqlOverview(endpointId: string, enabled: boolean) {
+  const scope = useTenantScope();
+  return useQuery({
+    queryKey: endpointKeys.sql(scope.tenantId, endpointId),
+    queryFn: () => fetchSqlOverview(endpointId),
+    enabled: scope.enabled && enabled,
+    refetchInterval: (query) => {
+      const pending = query.state.data?.pending;
+      return pending && pending.verify + pending.restore + pending.inventory > 0
+        ? RUN_REFRESH_MS
+        : IDLE_REFRESH_MS;
+    },
+  });
+}
+
+export function useSqlBackups(endpointId: string, databaseId: string | null) {
+  const scope = useTenantScope();
+  return useQuery({
+    queryKey: endpointKeys.sqlBackups(scope.tenantId, endpointId, databaseId ?? ""),
+    queryFn: () => fetchSqlBackups(endpointId, databaseId ?? ""),
+    enabled: scope.enabled && databaseId !== null,
+  });
+}
+
+export function useSqlRestore(endpointId: string) {
+  const refresh = useRefreshEndpoint();
+  return useMutation({
+    mutationFn: (input: SqlRestoreInput) => requestSqlRestore(endpointId, input),
+    onSettled: () => refresh(endpointId),
+  });
+}
+
+export function useSqlVerify(endpointId: string) {
+  const refresh = useRefreshEndpoint();
+  return useMutation({
+    mutationFn: (databaseId?: string) => requestSqlVerify(endpointId, databaseId),
+    onSettled: () => refresh(endpointId),
+  });
+}
+
+export function useSqlInventory(endpointId: string) {
+  const refresh = useRefreshEndpoint();
+  return useMutation({
+    mutationFn: () => requestSqlInventory(endpointId),
+    onSettled: () => refresh(endpointId),
+  });
+}
+
+export function useConfirmSqlTde(endpointId: string) {
+  const refresh = useRefreshEndpoint();
+  return useMutation({
+    mutationFn: (databaseId: string) => confirmSqlTde(endpointId, databaseId),
     onSettled: () => refresh(endpointId),
   });
 }

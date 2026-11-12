@@ -9,7 +9,7 @@
  *   - a paused queue hands out no backup; "cancel all queued" per node and per tenant,
  *   - "update now" and the fleet phase of an update tell the node to update.
  */
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -309,6 +309,80 @@ describe.skipIf(!canRun)("stopping Proxmox VE backups against Postgres", () => {
     expect(guest?.lastBackupAt).toBeNull();
   });
 
+  it("ends a backup stopped after its commit succeeded, with the node's message as a warning", async () => {
+    const queued = await service.backupNow(
+      shared.db,
+      fixture.tenantId,
+      vm,
+      { verifyRead: false },
+      actor(),
+    );
+    expect((await beat()).tasks.map((t) => t.id)).toEqual([queued.taskId]);
+    // Started after every earlier run of the guest: the newest backup run, which its row reads.
+    const opened = await openRun(
+      new Date(Date.now() + 60_000).toISOString().replace(/\.\d+Z$/, "Z"),
+    );
+    expect(opened.status).toBe(201);
+    const { runId } = (await opened.json()) as { runId: string };
+    // The restore point is committed (the commit's own path is covered in pve.pg.test.ts).
+    await fixture.db.update(pveRuns).set({ snapshotId: randomUUID() }).where(eq(pveRuns.id, runId));
+    const started = new Date();
+    expect(await cancel.cancelGuestBackup(shared.db, fixture.tenantId, vm, actor())).toEqual({
+      withdrawn: 0,
+      stopping: 1,
+    });
+    // The stop reached vzdump after the commit: restow-pve reports the end as failed.
+    const error = "interrupted by signal (the restore point was committed before and is kept)";
+    expect((await call(`/runs/${runId}/finish`, { status: "failed", error })).status).toBe(204);
+    const [run] = await fixture.db.select().from(pveRuns).where(eq(pveRuns.id, runId));
+    expect(run).toMatchObject({ status: "succeeded", errorMessage: null });
+    expect(run?.stats.warnings).toEqual([error]);
+    const task = async () =>
+      (await fixture.db.select().from(pveTasks).where(eq(pveTasks.id, queued.taskId)))[0];
+    expect(await task()).toMatchObject({ status: "done", errorMessage: null });
+    const [guest] = await fixture.db.select().from(pveGuests).where(eq(pveGuests.id, vm));
+    expect(guest?.lastBackupAt?.getTime()).toBeGreaterThanOrEqual(started.getTime() - 1000);
+    const overview = await service.overview(shared.db, fixture.tenantId);
+    expect(overview.guests.find((g) => g.id === vm)).toMatchObject({
+      activity: null,
+      lastRunStatus: "succeeded",
+      attention: expect.not.arrayContaining(["last_backup_failed"]),
+    });
+    // The task's own failed result comes late: the committed run stays succeeded.
+    expect(
+      (await call(`/tasks/${queued.taskId}/result`, { status: "failed", error: "job errors" }))
+        .status,
+    ).toBe(204);
+    const [late] = await fixture.db.select().from(pveRuns).where(eq(pveRuns.id, runId));
+    expect(late?.status).toBe("succeeded");
+    expect(await task()).toMatchObject({ status: "done" });
+  });
+
+  it("ends a committed backup whose vzdump failed afterwards succeeded, with a warning", async () => {
+    const opened = await openRun("2026-10-21T12:45:00Z");
+    expect(opened.status).toBe(201);
+    const { runId } = (await opened.json()) as { runId: string };
+    await fixture.db.update(pveRuns).set({ snapshotId: randomUUID() }).where(eq(pveRuns.id, runId));
+    // No stop: vzdump failed while it cleaned up (fleecing), without a message.
+    expect((await call(`/runs/${runId}/finish`, { status: "failed" })).status).toBe(204);
+    const [run] = await fixture.db.select().from(pveRuns).where(eq(pveRuns.id, runId));
+    expect(run).toMatchObject({ status: "succeeded", errorMessage: null });
+    expect(run?.stats.warnings).toEqual([
+      "The backup reported an error after its restore point was committed.",
+    ]);
+    // Not committed is still failed.
+    const other = await openRun("2026-10-21T12:50:00Z");
+    const { runId: bare } = (await other.json()) as { runId: string };
+    expect((await call(`/runs/${bare}/finish`, { status: "succeeded", stats: {} })).status).toBe(
+      204,
+    );
+    const [failed] = await fixture.db.select().from(pveRuns).where(eq(pveRuns.id, bare));
+    expect(failed).toMatchObject({
+      status: "failed",
+      errorMessage: "The backup ended without a restore point.",
+    });
+  });
+
   it("holds backups while the node's queue is paused and withdraws every queued one", async () => {
     const paused = await cancel.setNodeQueuePaused(
       shared.db,
@@ -355,6 +429,76 @@ describe.skipIf(!canRun)("stopping Proxmox VE backups against Postgres", () => {
       "pve.queue.paused",
       "pve.queue.resumed",
     ]);
+  });
+
+  it("never hands out a task from before restore mode's hold point, also not again", async () => {
+    // Restored from a dump: a restore over the guest that is still pending there, and one the
+    // node took 40 minutes ago with no run left in the database. Both are from the old timeline.
+    const hour = 3_600_000;
+    const [pending] = await fixture.db
+      .insert(pveTasks)
+      .values({
+        tenantId: fixture.tenantId,
+        nodeId: node.nodeId,
+        guestId: vm,
+        kind: "restore",
+        params: { snapshotId: randomUUID() },
+        createdAt: new Date(Date.now() - hour),
+        expiresAt: new Date(Date.now() + 24 * hour),
+      })
+      .returning();
+    const [delivered] = await fixture.db
+      .insert(pveTasks)
+      .values({
+        tenantId: fixture.tenantId,
+        nodeId: node.nodeId,
+        guestId: ct,
+        kind: "restore",
+        params: { snapshotId: randomUUID() },
+        status: "delivered",
+        createdAt: new Date(Date.now() - hour),
+        deliveredAt: new Date(Date.now() - 40 * 60_000),
+        expiresAt: new Date(Date.now() + 24 * hour),
+      })
+      .returning();
+    await fixture.db.execute(sql`
+      INSERT INTO installation_restore_mode (source, reason, activated_by, hold_jobs_before)
+      VALUES ('cli', 'rollback', '{"label":"cli"}'::jsonb, now() - interval '30 minutes')`);
+    const { apiRestoreModeGuard } = await import("../restore-mode/instance.js");
+    apiRestoreModeGuard().forgetChecks();
+    try {
+      const queued = await service.backupNow(
+        shared.db,
+        fixture.tenantId,
+        vm,
+        { verifyRead: false },
+        actor(),
+      );
+      const hb = await beat();
+      expect(hb.tasks.map((task) => task.id)).toEqual([queued.taskId]);
+      // The delivered one goes out as a cancel order, so the node drops a copy it still queues.
+      expect(hb.cancel.tasks).toContain(delivered?.id);
+      for (const id of [pending?.id, delivered?.id]) {
+        const [row] = await fixture.db
+          .select()
+          .from(pveTasks)
+          .where(eq(pveTasks.id, id as string));
+        expect(row).toMatchObject({
+          status: "cancelled",
+          errorMessage: expect.stringContaining("from before the database restore"),
+        });
+      }
+      expect((await beat()).tasks).toEqual([]);
+    } finally {
+      await fixture.db.execute(sql`DELETE FROM installation_restore_mode`);
+      // Leave no open task or run for the cases after this one.
+      await fixture.db.execute(sql`
+        UPDATE pve_tasks SET status = 'done', finished_at = now()
+         WHERE status IN ('pending', 'delivered')`);
+      await fixture.db.execute(sql`
+        UPDATE pve_runs SET status = 'cancelled', finished_at = now() WHERE status = 'running'`);
+      apiRestoreModeGuard().forgetChecks();
+    }
   });
 
   it("tells the node to update now, on request and while the fleet phase of an update holds", async () => {

@@ -108,9 +108,18 @@ export function redactAuditEntryForDemo(entry: AuditEntryDto): AuditEntryDto {
   return entry.ip === null ? entry : { ...entry, ip: null };
 }
 
-const PRICE_KEYS: ReadonlySet<string> = new Set(["mailboxPrice", "storagePrice"]);
+const PRICE_KEYS: ReadonlySet<string> = new Set([
+  "mailboxPrice",
+  "storagePrice",
+  // The prices per unit (0.5.0, apps/api settings/pricing.ts `UNIT_LINES`).
+  "serverPrice",
+  "clientPrice",
+  "vmPrice",
+  "containerPrice",
+  "fileSharePrice",
+]);
 
-/** The value without any `mailboxPrice` / `storagePrice` key, however deep. */
+/** The value without any price key (`mailboxPrice`, `storagePrice`, ...), however deep. */
 function withoutPrices(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map(withoutPrices);

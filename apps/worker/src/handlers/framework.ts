@@ -16,6 +16,7 @@
  *     aborts the engine) and graceful shutdown (abort, checkpoint, retry later)
  *   - structured logs without secrets or payloads
  */
+import { createHash } from "node:crypto";
 import {
   type ChunkIndex,
   type ChunkLocation,
@@ -25,6 +26,7 @@ import {
   type CursorStore,
   discardUncommittedSnapshot,
   type FailureCause,
+  INSTALLATION_DEFAULT_TARGET_ID,
   JobAbortedError,
   type JobContext,
   type JobPayload,
@@ -39,7 +41,9 @@ import {
   type PackRecord,
   type ProtectedObjectRef,
   parseImmutabilitySettings,
+  type ResolvedStorageTarget,
   redactSensitiveText,
+  rowWriteOnce,
   type S3CredentialsSecret,
   S3StorageBackend,
   type SecretReader,
@@ -52,6 +56,7 @@ import {
   type TenantKeyring,
   withImmutability,
   withReadOnlyFallback,
+  withStorageOperation,
   wrappedKeyKey,
 } from "@restow/core";
 import {
@@ -59,6 +64,7 @@ import {
   type Database,
   type FailureRecordJson,
   type Job,
+  jobCursorEntries,
   jobs,
   type ManifestMirrorEntry,
   type ManifestObjectKind,
@@ -68,9 +74,11 @@ import {
   releaseManifestSnapshot,
   reportableError,
   type StorageTarget,
+  safeErrorMessage,
   secrets,
   snapshots,
   sources,
+  storageGeneration,
   storageMigrations,
   storageTargets,
   tenantKeys,
@@ -481,7 +489,35 @@ export class PgCursorStore implements CursorStore {
   }
 
   async clear(): Promise<void> {
-    await this.run((tx) => tx.update(jobs).set({ cursor: null }).where(eq(jobs.id, this.jobId)));
+    await this.run(async (tx) => {
+      await tx.update(jobs).set({ cursor: null }).where(eq(jobs.id, this.jobId));
+      await tx.delete(jobCursorEntries).where(eq(jobCursorEntries.jobId, this.jobId));
+    });
+  }
+
+  async loadEntries(): Promise<Record<string, string>> {
+    const rows = await this.run((tx) =>
+      tx
+        .select({ key: jobCursorEntries.key, value: jobCursorEntries.value })
+        .from(jobCursorEntries)
+        .where(eq(jobCursorEntries.jobId, this.jobId)),
+    );
+    return Object.fromEntries(rows.map((row) => [row.key, row.value]));
+  }
+
+  /** One statement for the batch, whatever the job's other entries hold; the tenant is the job's. */
+  async putEntries(entries: Readonly<Record<string, string>>): Promise<void> {
+    if (Object.keys(entries).length === 0) {
+      return;
+    }
+    await this.run((tx) =>
+      tx.execute(sql`
+        INSERT INTO job_cursor_entries (tenant_id, job_id, key, value)
+        SELECT j.tenant_id, j.id, e.key, e.value
+          FROM jobs j, jsonb_each_text(${JSON.stringify(entries)}::jsonb) AS e(key, value)
+         WHERE j.id = ${this.jobId}::uuid
+        ON CONFLICT (job_id, key) DO UPDATE SET value = EXCLUDED.value`),
+    );
   }
 }
 
@@ -507,6 +543,18 @@ export class CheckpointTrackingCursorStore implements CursorStore {
 
   clear(): Promise<void> {
     return this.inner.clear();
+  }
+
+  loadEntries(): Promise<Record<string, string>> {
+    return this.inner.loadEntries();
+  }
+
+  /** Entries are progress only when there are any: an empty batch is no checkpoint. */
+  async putEntries(entries: Readonly<Record<string, string>>): Promise<void> {
+    await this.inner.putEntries(entries);
+    if (Object.keys(entries).length > 0) {
+      this.saves += 1;
+    }
   }
 }
 
@@ -689,6 +737,8 @@ export async function resolveStorageForJob(options: {
    * Omitted (tests), the default is not checked.
    */
   readonly getDefaultGeneration?: () => Promise<string>;
+  /** The tenant's current storage generation (`@restow/db`); omitted (tests), not checked. */
+  readonly getStorageGeneration?: (tenantId: string) => Promise<string>;
 }): Promise<StorageTargets> {
   const { tenantId, queue, storage, getLatestKeepSwitchAt, getDefaultGeneration } = options;
   if (STORAGE_WRITE_QUEUES.has(queue)) {
@@ -699,6 +749,13 @@ export async function resolveStorageForJob(options: {
       const currentGeneration = await getLatestKeepSwitchAt(tenantId);
       const usedDefault = resolved.defaultGeneration ?? null;
       if (!sameGeneration(cachedGeneration, currentGeneration)) {
+        storage.invalidate(tenantId);
+      } else if (
+        resolved.storageGeneration !== undefined &&
+        options.getStorageGeneration &&
+        resolved.storageGeneration !== (await options.getStorageGeneration(tenantId))
+      ) {
+        // A promotion or the switch of a "move" since the value was cached.
         storage.invalidate(tenantId);
       } else if (
         usedDefault !== null &&
@@ -812,7 +869,15 @@ export async function discardAbandonedSnapshots(
   let discarded = 0;
   for (const { id } of rows) {
     try {
-      const outcome = await discardUncommittedSnapshot({ ...env, snapshots: index }, id);
+      const outcome = await discardUncommittedSnapshot(
+        {
+          ...env,
+          snapshots: index,
+          // A sweep over the tenant may find checkpoints of snapshots the database lost track of.
+          pass: "jobId" in scope ? "job_checkpoint_discard" : "abandoned_checkpoint",
+        },
+        id,
+      );
       if (outcome === "discarded") {
         discarded++;
       }
@@ -985,6 +1050,26 @@ export interface ResolvedTenantStorage extends StorageTargets {
    * Default storage is never written to from a stale cache.
    */
   readonly defaultGeneration?: string | null;
+  /**
+   * The tenant's storage generation (`@restow/db` `storageGeneration`) read with the rows:
+   * {@link freshTenantStorage} and `resolveStorageForJob` reload a cached value of another one,
+   * so a promotion or the switch of a "move" is seen at once (docs/STORAGE.md, "Runs and
+   * storage changes"). Absent in values built by tests.
+   */
+  readonly storageGeneration?: string;
+  /** Every target by the id a run records (core `ResolvedStorageTarget`); absent in tests. */
+  readonly targets?: readonly ResolvedStorageTarget[];
+  /** The primary's id (a row id, or `installation_default`); absent in tests. */
+  readonly primaryTarget?: string;
+}
+
+/**
+ * Whether the tenant's primary is write-once (docs/STORAGE.md, "Write-once storage"): retention
+ * is not applied there and nothing is deleted. False for values built by tests without targets.
+ */
+export function primaryWriteOnce(storage: Partial<ResolvedTenantStorage>): boolean {
+  const id = storage.primaryTarget;
+  return storage.targets?.find((target) => target.id === id)?.writeOnce === true;
 }
 
 /** The installation default as `resolveTenantStorage` takes it (apps/worker/src/default-storage.ts). */
@@ -1013,6 +1098,8 @@ export async function resolveTenantStorage(options: {
   readonly secretReader: SecretReader;
   /** Fixed targets (tests), or the process's resolver of the current default, called only when needed. */
   readonly defaults: TenantStorageDefaults;
+  /** Whether the default is write-once (default-storage.ts); asked only when the tenant uses it. */
+  readonly defaultWriteOnce?: () => Promise<boolean>;
   readonly logger: Logger;
 }): Promise<ResolvedTenantStorage> {
   // Both statements run inside the one transaction `run` opens, so the
@@ -1020,14 +1107,15 @@ export async function resolveTenantStorage(options: {
   // `storage_targets` rows it describes, not derived from a separate call
   // (and separate clock) minutes or milliseconds apart — see
   // `ResolvedTenantStorage.keepGeneration` and `resolveStorageForJob`.
-  const { rows, keepGeneration } = await options.run(async (tx) => {
+  const { rows, keepGeneration, generation } = await options.run(async (tx) => {
     const rows = await tx
       .select()
       .from(storageTargets)
       .where(eq(storageTargets.tenantId, options.tenantId))
       .orderBy(asc(storageTargets.createdAt));
     const keepGeneration = await latestKeepSwitchAtTx(tx, options.tenantId);
-    return { rows, keepGeneration };
+    const generation = await storageGeneration(tx, options.tenantId);
+    return { rows, keepGeneration, generation };
   });
   // Resolved once, and only when this tenant actually uses the default.
   const resolvedDefault: { used: { targets: StorageTargets; generation: string | null } | null } = {
@@ -1041,6 +1129,8 @@ export async function resolveTenantStorage(options: {
     }
     return resolvedDefault.used.targets;
   };
+  const defaultWriteOnce = async (): Promise<boolean> =>
+    options.defaultWriteOnce ? await options.defaultWriteOnce().catch(() => false) : false;
   if (rows.length === 0) {
     const targets = await defaults();
     return {
@@ -1049,6 +1139,23 @@ export async function resolveTenantStorage(options: {
       previous: [],
       keepGeneration,
       defaultGeneration: resolvedDefault.used?.generation ?? null,
+      storageGeneration: generation,
+      targets: [
+        {
+          id: INSTALLATION_DEFAULT_TARGET_ID,
+          name: null,
+          role: "primary",
+          backend: targets.primary,
+          writeOnce: await defaultWriteOnce(),
+        },
+        ...targets.copies.map((backend, index) => ({
+          id: `${INSTALLATION_DEFAULT_TARGET_ID}:copy:${index}`,
+          name: null,
+          role: "copy" as const,
+          backend,
+        })),
+      ],
+      primaryTarget: INSTALLATION_DEFAULT_TARGET_ID,
     };
   }
   const primaryRow = rows.find((row) => row.role === "primary");
@@ -1057,15 +1164,45 @@ export async function resolveTenantStorage(options: {
     : (await defaults()).primary;
   const copies: StorageBackend[] = primaryRow ? [] : [...(await defaults()).copies];
   const previous: StorageBackend[] = [];
+  const targets: ResolvedStorageTarget[] = [
+    {
+      id: primaryRow ? primaryRow.id : INSTALLATION_DEFAULT_TARGET_ID,
+      name: primaryRow?.name ?? null,
+      role: "primary",
+      backend: primary,
+      writeOnce: primaryRow ? rowWriteOnce(primaryRow) : await defaultWriteOnce(),
+    },
+    ...copies.map((backend, index) => ({
+      id: `${INSTALLATION_DEFAULT_TARGET_ID}:copy:${index}`,
+      name: null,
+      role: "copy" as const,
+      backend,
+    })),
+  ];
   for (const row of rows) {
     if (row.role === "copy") {
-      copies.push(await storageBackendFor(row, options.secretReader));
+      const backend = await storageBackendFor(row, options.secretReader);
+      copies.push(backend);
+      targets.push({
+        id: row.id,
+        name: row.name,
+        role: "copy",
+        backend,
+        writeOnce: rowWriteOnce(row),
+      });
     } else if (row.role === "previous") {
-      previous.push(
-        row.kind === "installation_default"
-          ? (await defaults()).primary
-          : await storageBackendFor(row, options.secretReader),
-      );
+      const retiredDefault = row.kind === "installation_default";
+      const backend = retiredDefault
+        ? (await defaults()).primary
+        : await storageBackendFor(row, options.secretReader);
+      previous.push(backend);
+      targets.push({
+        id: retiredDefault ? INSTALLATION_DEFAULT_TARGET_ID : row.id,
+        name: row.name,
+        role: "previous",
+        backend,
+        writeOnce: retiredDefault ? await defaultWriteOnce() : rowWriteOnce(row),
+      });
     }
   }
   return {
@@ -1074,7 +1211,31 @@ export async function resolveTenantStorage(options: {
     previous,
     keepGeneration,
     defaultGeneration: resolvedDefault.used?.generation ?? null,
+    storageGeneration: generation,
+    targets,
+    primaryTarget: primaryRow ? primaryRow.id : INSTALLATION_DEFAULT_TARGET_ID,
   };
+}
+
+/**
+ * The tenant's storage from the process cache, resolved afresh when the cached value is of
+ * another storage generation than the tenant's current one (docs/STORAGE.md, "Runs and storage
+ * changes"): what the file share dispatcher and the PVE maintenance use before they pin a run
+ * or touch a repository. One indexed query.
+ */
+export async function freshTenantStorage(
+  run: TenantTxRunner,
+  cache: TenantCache<StorageTargets>,
+  tenantId: string,
+): Promise<StorageTargets & Partial<ResolvedTenantStorage>> {
+  const cached = cache.peek(tenantId) as Partial<ResolvedTenantStorage> | undefined;
+  if (cached?.storageGeneration !== undefined) {
+    const current = await run((tx) => storageGeneration(tx, tenantId));
+    if (current !== cached.storageGeneration) {
+      cache.invalidate(tenantId);
+    }
+  }
+  return (await cache.get(tenantId)) as StorageTargets & Partial<ResolvedTenantStorage>;
 }
 
 /** Generic per-tenant cache with a TTL (keyrings, storage targets). */
@@ -1153,20 +1314,55 @@ export async function loadTenantKeyring(options: {
   return new Keyring(tenantId, deks);
 }
 
+/** A wrapped key in storage that differs from the database's under the same version. */
+export interface KeyMirrorFinding {
+  readonly tenantId: string;
+  readonly targetId: string;
+  readonly keyVersion: number;
+  /** SHA-256 (hex) of what the target holds ("unreadable" when it could not be read). */
+  readonly storedSha256: string;
+  /** `conflict`: a different valid key under the same version; `damaged`: it does not unwrap. */
+  readonly kind: "conflict" | "damaged";
+}
+
 /**
  * Mirror the wrapped (never plaintext) DEKs into every storage target under
  * `tenants/<tid>/keys/<version>`, so the standalone restore can unwrap them
- * with the KEK alone (packages/cli). Idempotent. A mirror is compared byte
- * for byte with the database, not only checked for existence: a truncated or
- * damaged copy (an interrupted write, a bit flip) is rewritten, because the
- * standalone restore cannot open data encrypted under a key it cannot unwrap.
+ * with the KEK alone (packages/cli). Idempotent: a missing key is written, an
+ * identical one is left alone.
+ *
+ * A stored key that differs is never overwritten (0.5.0): after restoring a database
+ * dump the database may hand out a version again that storage already holds with
+ * another key, and the stored one may be the only key that opens data written under
+ * it. It is reported instead (`report`, the alert and the audit entry), classified by
+ * whether it unwraps with the KEK (`unwraps`): a different valid key (`conflict`) or
+ * damaged bytes (`damaged`, docs/STORAGE.md says how to replace it by hand).
+ *
+ * A stored key that cannot be read this time (throttling, a timeout) is skipped with a
+ * warning and tried again on the next resolution; it is no finding. Once a target holds
+ * the database's bytes again (the operator resolved it by hand), its open findings for
+ * that version are resolved (`resolve`), and a finding for other stored bytes than the
+ * target now holds is resolved too (the new bytes are reported on their own).
  */
 export async function mirrorTenantKeys(options: {
   readonly run: TenantTxRunner;
   readonly tenantId: string;
   readonly storage: StorageTargets;
   readonly logger: Logger;
-}): Promise<void> {
+  /** Whether stored bytes unwrap with the KEK (the key provider). */
+  readonly unwraps?: (wrapped: Buffer) => Promise<boolean>;
+  readonly report?: (finding: KeyMirrorFinding) => Promise<void>;
+  /**
+   * Resolve the open findings of `keyVersion` on `targetId` except the one for
+   * `keepSha256` (null: resolve all of them, the target holds the database's key).
+   */
+  readonly resolve?: (input: {
+    readonly tenantId: string;
+    readonly targetId: string;
+    readonly keyVersion: number;
+    readonly keepSha256: string | null;
+  }) => Promise<void>;
+}): Promise<KeyMirrorFinding[]> {
   const { run, tenantId, storage, logger } = options;
   const rows = await run((tx) =>
     tx
@@ -1174,35 +1370,72 @@ export async function mirrorTenantKeys(options: {
       .from(tenantKeys)
       .where(eq(tenantKeys.tenantId, tenantId)),
   );
+  const resolved = storage as Partial<ResolvedTenantStorage>;
+  const targetIdOf = (backend: StorageBackend, index: number): string =>
+    resolved.targets?.find((target) => target.backend === backend)?.id ??
+    (index === 0 ? "primary" : `copy:${index - 1}`);
+  const resolve = async (targetId: string, keyVersion: number, keepSha256: string | null) => {
+    await options
+      .resolve?.({ tenantId, targetId, keyVersion, keepSha256 })
+      .catch((error: unknown) =>
+        logger.warn("could not resolve a wrapped key finding", {
+          targetId,
+          keyVersion,
+          errorMessage: safeErrorMessage(error),
+        }),
+      );
+  };
+  const findings: KeyMirrorFinding[] = [];
   for (const row of rows) {
     const key = wrappedKeyKey(tenantId, row.keyVersion);
     const wrapped = Buffer.from(row.encryptedDek, "base64");
-    for (const target of [storage.primary, ...storage.copies]) {
+    for (const [index, target] of [storage.primary, ...storage.copies].entries()) {
+      const targetId = targetIdOf(target, index);
       const present = (await target.head(key)) !== null;
-      if (present && (await storedBytesEqual(target, key, wrapped))) {
+      if (!present) {
+        await target.put(key, wrapped);
+        logger.info("mirrored wrapped tenant key to storage", { key });
         continue;
       }
-      await target.put(key, wrapped);
-      if (present) {
-        logger.warn("rewrote a damaged wrapped tenant key in storage", { key });
-      } else {
-        logger.info("mirrored wrapped tenant key to storage", { key });
+      let stored: Buffer;
+      try {
+        stored = await target.get(key);
+      } catch (error) {
+        // Not readable this time: neither overwritten nor reported; the next resolution
+        // tries again.
+        logger.warn("could not read a wrapped tenant key in storage; it is compared next time", {
+          key,
+          targetId,
+          errorMessage: safeErrorMessage(error),
+        });
+        continue;
       }
+      if (stored.equals(wrapped)) {
+        await resolve(targetId, row.keyVersion, null);
+        continue;
+      }
+      const valid = options.unwraps ? await options.unwraps(stored).catch(() => false) : false;
+      const finding: KeyMirrorFinding = {
+        tenantId,
+        targetId,
+        keyVersion: row.keyVersion,
+        storedSha256: createHash("sha256").update(stored).digest("hex"),
+        kind: valid ? "conflict" : "damaged",
+      };
+      findings.push(finding);
+      logger.error(
+        "a wrapped tenant key in storage differs from the database; it is not overwritten",
+        {
+          key,
+          targetId: finding.targetId,
+          kind: finding.kind,
+        },
+      );
+      await options.report?.(finding);
+      await resolve(targetId, row.keyVersion, finding.storedSha256);
     }
   }
-}
-
-/** Whether `key` holds exactly `expected`; an object that cannot be read does not. */
-async function storedBytesEqual(
-  target: StorageBackend,
-  key: string,
-  expected: Buffer,
-): Promise<boolean> {
-  try {
-    return (await target.get(key)).equals(expected);
-  } catch {
-    return false;
-  }
+  return findings;
 }
 
 /** Per-tenant keyring cache with a TTL, so a rotation is picked up without a restart. */
@@ -1383,20 +1616,41 @@ export function parseJobPayload<Q extends QueueName>(queue: Q, data: unknown): J
 /**
  * Why a job's abort signal fired: the process is shutting down, an update
  * drains the worker (#46: new starts paused, running jobs stop cleanly), the
- * API cancelled it, or the pg-boss expiration is about to hit. Shutdown,
- * update and expiry all mean "checkpoint now, continue in the retry".
+ * API cancelled it, the pg-boss expiration is about to hit, or restore mode
+ * came on while a job of the restored database dump ran (restore-mode.ts).
+ * Shutdown, update and expiry all mean "checkpoint now, continue in the
+ * retry"; a restore mode hold ends the job for good, like a cancel.
  */
-export type AbortReason = "shutdown" | "update" | "cancelled" | "expired";
+export type AbortReason = "shutdown" | "update" | "cancelled" | "expired" | "restore_mode_hold";
 
 export function abortReasonOf(signal: AbortSignal): AbortReason | null {
   if (!signal.aborted) {
     return null;
   }
-  if (signal.reason === "cancelled" || signal.reason === "expired" || signal.reason === "update") {
+  if (
+    signal.reason === "cancelled" ||
+    signal.reason === "expired" ||
+    signal.reason === "update" ||
+    signal.reason === "restore_mode_hold"
+  ) {
     return signal.reason;
   }
   return "shutdown";
 }
+
+/**
+ * Restore mode's hold on jobs from before a restored database dump
+ * (restore-mode.ts `RestoreModeJobHold`): `holds` is non-null while restore
+ * mode is on and the job was created before its hold point; `cancel` ends the
+ * pg-boss job and its row with the explanation (`job.restore_mode_hold`).
+ */
+export interface RunningJobHold {
+  holds(createdOn: Date | null): Promise<unknown | null>;
+  cancel(queue: string, bossJobId: string): Promise<void>;
+}
+
+/** How often a running job asks whether restore mode holds it (the guard reads every 5 s). */
+export const RESTORE_MODE_HOLD_POLL_MS = 5_000;
 
 /**
  * An update's drain (#46, job-pause.ts): while it is on, every running job is
@@ -1620,6 +1874,15 @@ export interface WorkerRuntime {
     queue: QueueName,
     pgBossJobId: string,
   ) => Promise<RetryBudget | null>;
+  /**
+   * Restore mode (restore-mode.ts): a job created before its hold point is
+   * stopped while it waits for a slot or runs (abort reason
+   * `restore_mode_hold`) and ends through the hold's `cancel`, never in a
+   * retry. The job gate only checks a job when it is handed out.
+   */
+  readonly restoreModeHold?: RunningJobHold;
+  /** How often a running job asks the hold (default {@link RESTORE_MODE_HOLD_POLL_MS}). */
+  readonly restoreModeHoldPollMs?: number;
 }
 
 // A failed query's own message carries the SQL and the bound parameters; logs
@@ -1678,6 +1941,7 @@ export async function runJob(
     }
   });
   let cancelPoll: ReturnType<typeof setInterval> | null = null;
+  let holdPoll: ReturnType<typeof setInterval> | null = null;
   let expiryTimer: ReturnType<typeof setTimeout> | null = null;
   let reporter: ReturnType<typeof createProgressReporter>["reporter"] | null = null;
   const cursorStore = new CheckpointTrackingCursorStore(new PgCursorStore(run, payload.jobId));
@@ -1689,6 +1953,34 @@ export async function runJob(
   if (expiryDelay !== null) {
     expiryTimer = setTimeout(() => controller.abort("expired"), expiryDelay);
     expiryTimer.unref();
+  }
+
+  // Restore mode may come on while the job waits or runs: a job of the restored dump stops
+  // then and ends through the hold (a mail restore or a backfill would otherwise keep writing).
+  const restoreModeHold = runtime.restoreModeHold;
+  const createdOn = job.createdOn ? new Date(job.createdOn) : null;
+  /** Ask the hold; true (and the signal aborted) when restore mode holds this job. */
+  const checkRestoreModeHold = async (): Promise<boolean> => {
+    if (!restoreModeHold) {
+      return false;
+    }
+    let held: boolean;
+    try {
+      held = (await restoreModeHold.holds(createdOn)) !== null;
+    } catch (error) {
+      logger.debug("restore mode probe failed", errorFields(error));
+      return false;
+    }
+    if (held && !controller.signal.aborted) {
+      controller.abort("restore_mode_hold");
+    }
+    return held;
+  };
+  if (restoreModeHold) {
+    holdPoll = setInterval(() => {
+      void checkRestoreModeHold();
+    }, runtime.restoreModeHoldPollMs ?? RESTORE_MODE_HOLD_POLL_MS);
+    holdPoll.unref();
   }
 
   /**
@@ -1834,6 +2126,10 @@ export async function runJob(
     // The tenant's slots are shared by all queues; the wait ends with the job's own signal
     // (expiry, shutdown, an update's drain) and then fails the attempt like any interruption.
     release = await runtime.tenantLimiter.acquire(payload.tenantId, controller.signal);
+    // The slot may have come long after the gate checked the job: ask restore mode again.
+    if (await checkRestoreModeHold()) {
+      throw new JobAbortedError();
+    }
     if ((await currentStatus(run, payload.jobId)) === "cancelled") {
       await endCancelledBeforeStart();
       return;
@@ -1874,6 +2170,7 @@ export async function runJob(
         storage: runtime.storage,
         getLatestKeepSwitchAt: (tenantId) => latestKeepSwitchAt(run, tenantId),
         getDefaultGeneration: runtime.defaultStorageGeneration,
+        getStorageGeneration: (tenantId) => run((tx) => storageGeneration(tx, tenantId)),
       }),
       queue,
     );
@@ -1939,6 +2236,21 @@ export async function runJob(
       logger.info("job cancelled", { progress: snapshot });
       return;
     }
+    if (reason === "restore_mode_hold" && restoreModeHold) {
+      // A job of the restored dump: it ends for good (no checkpoint, no retry).
+      try {
+        await restoreModeHold.cancel(queue, job.id);
+        logger.warn("job stopped: it is from before the database restore", {
+          progress: snapshot,
+        });
+        return;
+      } catch (holdError) {
+        // It fails below and the gate holds it when pg-boss hands it out again.
+        logger.warn("could not hold the job from before the database restore", {
+          ...errorFields(holdError),
+        });
+      }
+    }
     const failedAt = runtime.now();
     if (error instanceof InvalidPayloadError) {
       const failure = jobFailureRecord({
@@ -1968,7 +2280,7 @@ export async function runJob(
           ? // Stopped while waiting for a tenant slot: it never ran, the wait was not its doing.
             reason === "expired" || reason === "shutdown" || reason === "update"
           : mayContinueForFree({
-              reason,
+              reason: reason === "restore_mode_hold" ? null : reason,
               checkpointed: cursorStore.checkpointed,
               startedAt: await firstStartedAt(run, payload.jobId).catch(() => null),
               now: failedAt,
@@ -2013,6 +2325,9 @@ export async function runJob(
     if (cancelPoll) {
       clearInterval(cancelPoll);
     }
+    if (holdPoll) {
+      clearInterval(holdPoll);
+    }
     if (expiryTimer) {
       clearTimeout(expiryTimer);
     }
@@ -2029,7 +2344,9 @@ export function createWorkHandler(
 ): PgBoss.WorkWithMetadataHandler<unknown> {
   return async (delivered) => {
     for (const job of delivered) {
-      await runJob(runtime, handler, job);
+      // One storage operation per job: what it writes it may delete again in restore mode
+      // (@restow/core storage/deletion-guard.ts).
+      await withStorageOperation(() => runJob(runtime, handler, job));
     }
   };
 }

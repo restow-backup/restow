@@ -175,7 +175,7 @@ describe.skipIf(!testDatabaseAdminUrl)("group mailbox restore requests against P
     expect(stored).toMatchObject({ targetType: "other", impersonated: false, reason: null });
   });
 
-  it("refuses replace into a group", async () => {
+  it("refuses replace into a group [RESTORE-007]", async () => {
     await expect(
       service.createRestore(
         db,

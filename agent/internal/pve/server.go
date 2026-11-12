@@ -303,6 +303,20 @@ type HeartbeatRequest struct {
 	// The server hands a node only what it announced; older servers ignore the field.
 	// Never null.
 	Capabilities []string `json:"capabilities"`
+	// HeldTasks are the server's tasks this node holds: the one it works on, those waiting in
+	// its queue (also a task it waits for again after a restart) and those whose result it keeps
+	// to send again. The server keeps them from expiring while the node holds them and closes a
+	// delivered check the list leaves out (restow-pve 0.5.0; older servers ignore it).
+	HeldTasks HeldTasks `json:"heldTasks"`
+}
+
+// HeldTasks is what the heartbeat says about the node's own queue.
+type HeldTasks struct {
+	// Current is the task the node works on now; "" when none.
+	Current string `json:"current,omitempty"`
+	// Queued are the tasks waiting in the node's queue, in the order they will run, then those
+	// whose result waits to be sent again; at most 64. Never null.
+	Queued []string `json:"queued"`
 }
 
 // Task is a job the server queued for this node.
@@ -343,6 +357,10 @@ type InventoryDisk struct {
 	Device string `json:"device"`
 	Size   uint64 `json:"size"`
 	Backup bool   `json:"backup"`
+	// Reason says why a disk is not backed up where its configuration alone does not ("not
+	// part of the backup" for a container's bind or device mount point, whatever its backup
+	// flag says).
+	Reason string `json:"reason,omitempty"`
 }
 
 // InventoryGuest is one VM or container.
@@ -362,9 +380,25 @@ type InventoryGuest struct {
 	SMBIOSUUID string `json:"smbiosUuid,omitempty"`
 }
 
-// ReportInventory replaces the inventory this node reports.
-func (s *Server) ReportInventory(ctx context.Context, guests []InventoryGuest) error {
-	return s.json(ctx, http.MethodPost, "/inventory", map[string]any{"guests": guests}, nil, true)
+// ClusterGuest is one guest of the cluster with the node it runs on (/cluster/resources).
+type ClusterGuest struct {
+	VMID int    `json:"vmid"`
+	Node string `json:"node"`
+	Type string `json:"type"` // qemu | lxc
+}
+
+// maxClusterGuests bounds clusterGuests (the server refuses a longer list).
+const maxClusterGuests = 20000
+
+// ReportInventory replaces the inventory this node reports: its own guests, and every guest of
+// the cluster with its node (servers from 0.5.0; nil leaves the field out, and the server then
+// takes the node's own guests alone).
+func (s *Server) ReportInventory(ctx context.Context, guests []InventoryGuest, cluster []ClusterGuest) error {
+	body := map[string]any{"guests": guests}
+	if cluster != nil {
+		body["clusterGuests"] = cluster
+	}
+	return s.json(ctx, http.MethodPost, "/inventory", body, nil, true)
 }
 
 // TaskResult reports how a task ended.
@@ -383,12 +417,60 @@ type Listing struct {
 	SnapshotID string `json:"snapshotId"`
 }
 
-// Listings is GET /listing: the restore points of the cluster.
+// listingPage is one answer of GET /listing; Next is the cursor of the page after (servers
+// from 0.5.0; null on the last page and absent from an older server, which sends one page).
+type listingPage struct {
+	Volumes []Listing `json:"volumes"`
+	Next    *string   `json:"next"`
+}
+
+// maxListingPages bounds the pages of one listing (10,000 restore points each).
+const maxListingPages = 1000
+
+// Listings is GET /listing: every active restore point of the cluster, page by page
+// (docs/PVE-PROTOCOL.md). A server from 0.5.0 gives at most 10,000 per page and the cursor
+// of the next; an older one gives its newest 10,000 and no cursor. It fails rather than
+// return part of the listing: the cache it fills would lose restore points.
 func (s *Server) Listings(ctx context.Context) ([]Listing, error) {
-	var out struct {
-		Volumes []Listing `json:"volumes"`
+	var all []Listing
+	seen := map[string]bool{}
+	path := "/listing"
+	for page := 0; ; page++ {
+		if page == maxListingPages {
+			return nil, fmt.Errorf("listing: more than %d pages", maxListingPages)
+		}
+		var out listingPage
+		if err := s.json(ctx, http.MethodGet, path, nil, &out, true); err != nil {
+			return nil, err
+		}
+		all = append(all, out.Volumes...)
+		if out.Next == nil || *out.Next == "" {
+			return all, nil
+		}
+		if seen[*out.Next] {
+			return nil, fmt.Errorf("listing: the server repeated the cursor %q", *out.Next)
+		}
+		seen[*out.Next] = true
+		path = "/listing?" + url.Values{"cursor": {*out.Next}}.Encode()
 	}
-	return out.Volumes, s.json(ctx, http.MethodGet, "/listing", nil, &out, true)
+}
+
+// ListingOf is GET /listing?vmid=: every active restore point of one VMID (servers from
+// 0.5.0). An older server ignores the parameter and answers with its cluster-wide page,
+// so the answer is filtered here as well.
+func (s *Server) ListingOf(ctx context.Context, vmid int) ([]Listing, error) {
+	var out listingPage
+	path := "/listing?" + url.Values{"vmid": {strconv.Itoa(vmid)}}.Encode()
+	if err := s.json(ctx, http.MethodGet, path, nil, &out, true); err != nil {
+		return nil, err
+	}
+	own := []Listing{}
+	for _, l := range out.Volumes {
+		if l.VMID == vmid {
+			own = append(own, l)
+		}
+	}
+	return own, nil
 }
 
 // UpdateOffer asks for a newer helper release.
@@ -539,6 +621,9 @@ type CommitRequest struct {
 	ResticFilesNew     uint64 `json:"resticFilesNew,omitempty"`
 	ResticFilesChanged uint64 `json:"resticFilesChanged,omitempty"`
 	ResticFilesTotal   uint64 `json:"resticFilesTotal,omitempty"`
+	// VMConsistency is what vzdump's log says about the guest agent's fs-freeze of a VM
+	// backup (an older server ignores it).
+	VMConsistency *VMConsistency `json:"vmConsistency,omitempty"`
 }
 
 // CommitResponse is the answer of a commit.
@@ -579,9 +664,14 @@ func (s *Server) ReportProgress(ctx context.Context, runID string, p Progress) e
 		body: body, timeout: progressTimeout})
 }
 
-// RunLog attaches the PVE task log (its tail) to a run.
-func (s *Server) RunLog(ctx context.Context, runID, log string) error {
-	return s.json(ctx, http.MethodPost, "/runs/"+url.PathEscape(runID)+"/log", map[string]string{"log": log}, nil, true)
+// RunLog attaches the PVE task log (its tail) to a run, with what the whole log says about a
+// VM's fs-freeze (nil for a container; an older server ignores it).
+func (s *Server) RunLog(ctx context.Context, runID, log string, c *VMConsistency) error {
+	body := map[string]any{"log": log}
+	if c != nil {
+		body["vmConsistency"] = c
+	}
+	return s.json(ctx, http.MethodPost, "/runs/"+url.PathEscape(runID)+"/log", body, nil, true)
 }
 
 // ResticAccess is a short-lived credential for one guest's restic repository.
@@ -595,6 +685,9 @@ type ResticAccess struct {
 	// credential (backup runs, servers from 0.4.0 on; empty otherwise).
 	ProgressURL             string `json:"progressUrl,omitempty"`
 	ProgressIntervalSeconds int    `json:"progressIntervalSeconds,omitempty"`
+	// RunID is the run a container restore reads for (POST /snapshots/:id/restic, servers from
+	// 0.5.0; "" from older ones): its end is reported with RestoreEnd (restoreend.go).
+	RunID string `json:"runId,omitempty"`
 }
 
 // RunRestic fetches the per-run restic credential of a container backup.
@@ -615,21 +708,36 @@ type RestorePoint struct {
 	Devices        []DeviceSize `json:"devices"`
 	ResticSnapshot string       `json:"resticSnapshotId"`
 	ResticRoot     string       `json:"resticRoot"`
+	// ByteSize is the restore point's size (servers from 0.5.0): it sizes a container volume
+	// that has none in the configuration (size=0) on a storage without subvolumes.
+	ByteSize uint64 `json:"byteSize,omitempty"`
 }
 
-// ResolveVolname looks a PVE volume name up.
+// ResolveVolname looks a PVE volume name up. It rides out a restart of the server
+// (OutageWindow): a restore, a restore server and a boot test start with it.
 func (s *Server) ResolveVolname(ctx context.Context, volname string) (*RestorePoint, error) {
+	var out RestorePoint
+	q := url.Values{"volname": {volname}}
+	return &out, s.do(ctx, request{method: http.MethodGet, path: "/restore-points?" + q.Encode(), out: &out,
+		idempotent: true, outage: true})
+}
+
+// LookupVolname is ResolveVolname for a caller that waits on the answer (the storage plugin's
+// volume_size_info): it keeps the usual attempts but does not ride out a restart of the server.
+func (s *Server) LookupVolname(ctx context.Context, volname string) (*RestorePoint, error) {
 	var out RestorePoint
 	q := url.Values{"volname": {volname}}
 	return &out, s.json(ctx, http.MethodGet, "/restore-points?"+q.Encode(), nil, &out, true)
 }
 
-// RestoreBlocks streams blocks [from, from+count) of a disk of a restore point.
+// RestoreBlocks streams blocks [from, from+count) of a disk of a restore point. Like the calls
+// of a backup it rides out a restart of the server (an update of Restow): a restore copies for
+// hours and must not fail for a minute without the server.
 func (s *Server) RestoreBlocks(ctx context.Context, snapshotID, device string, from, count uint32) ([]RestoreBlock, error) {
 	var raw []byte
 	path := "/snapshots/" + url.PathEscape(snapshotID) + "/disks/" + url.PathEscape(device) +
 		"/blocks?from=" + strconv.FormatUint(uint64(from), 10) + "&count=" + strconv.FormatUint(uint64(count), 10)
-	if err := s.do(ctx, request{method: http.MethodGet, path: path, raw: &raw, idempotent: true,
+	if err := s.do(ctx, request{method: http.MethodGet, path: path, raw: &raw, idempotent: true, outage: true,
 		maxBytes: int64(count)*(BlockSize+9) + 64, timeout: 10 * time.Minute}); err != nil {
 		return nil, err
 	}
@@ -648,8 +756,10 @@ func (s *Server) RestoreBlocks(ctx context.Context, snapshotID, device string, f
 	return out, nil
 }
 
-// RestoreRestic fetches a read credential for a container restore point.
+// RestoreRestic fetches a read credential for a container restore point (riding out a restart
+// of the server, as ResolveVolname).
 func (s *Server) RestoreRestic(ctx context.Context, snapshotID string) (*ResticAccess, error) {
 	var out ResticAccess
-	return &out, s.json(ctx, http.MethodPost, "/snapshots/"+url.PathEscape(snapshotID)+"/restic", map[string]any{}, &out, true)
+	return &out, s.jsonRequest(ctx, request{method: http.MethodPost, path: "/snapshots/" + url.PathEscape(snapshotID) + "/restic",
+		out: &out, idempotent: true, outage: true}, map[string]any{})
 }

@@ -425,11 +425,22 @@ export const TABLE_ACCESS: Readonly<Record<string, TableAccess>> = {
   restart_requests: "installation",
   // New job starts paused for an update (job-start-pause.ts); no tenant data.
   job_start_pause: "installation",
+  // Restore mode after restoring a database dump (restore-mode.ts); no tenant data beyond ids.
+  installation_restore_mode: "installation",
+  // Worker nodes on other hosts and their one-time join tokens (schema/cluster.ts).
+  cluster_join_tokens: "installation",
+  cluster_nodes: "installation",
   // Who may do what on the provider side (schema/provider-team.ts): no
   // tenant-scoped code path can widen a provider admin's rights.
   provider_members: "installation",
   // Carries tenant_id and a policy, a second line should it ever be granted.
   provider_member_tenants: "installation",
+  // The provider's notification recipients and its summary reports across tenants (0.5.0).
+  provider_notification_recipients: "installation",
+  provider_report_rules: "installation",
+  // Branding (0.5.0): the provider's, and the logos the public image route serves.
+  provider_branding: "installation",
+  branding_images: "installation",
 };
 
 /** The tables {@link TABLE_ACCESS} gives `access`. */
@@ -460,6 +471,142 @@ export const AUTH_ROLE_RESTOW_GRANTS: Readonly<Record<string, string>> = {
 
 /** Tables nobody but the owner may rewrite (the triggers in sql/rls.sql refuse it as well). */
 const APPEND_ONLY_TABLES = ["audit_log", "audit_anchor", "archive_anchor"];
+
+// ---------------------------------------------------------------------------
+// The role of worker nodes on other hosts (node-roles.ts)
+// ---------------------------------------------------------------------------
+
+/** Suffix of the node role's name. */
+const NODE_ROLE_SUFFIX = "_node";
+
+/**
+ * The role the installation login of a worker node switches to (node-roles.ts): named after the
+ * installation role (`restow_provider` becomes `restow_provider_node`), so two installations on
+ * one Postgres server never share it. NOLOGIN and BYPASSRLS like the installation role, with the
+ * installation role's table rights minus what only the api needs: no CREATE on the database, no
+ * access to the sign-in tables, the provider team or the join tokens, and only a read of the
+ * node list ({@link NODE_DENIED_TABLES}, {@link NODE_TABLE_READS}). A worker host that is taken
+ * over can do what a worker does, not plant a join token, take over a provider account or widen
+ * a provider member's rights. Created by the first join (node-roles.ts `createNodeLogins`); the
+ * migration step renews its grants while it exists.
+ */
+export function nodeInstallationRoleName(installationRole: string): string {
+  if (!ROLE_NAME.test(installationRole)) {
+    throw new DatabaseRoleError(`invalid role name "${installationRole}"`);
+  }
+  return `${installationRole.slice(0, 63 - NODE_ROLE_SUFFIX.length)}${NODE_ROLE_SUFFIX}`;
+}
+
+/** The node role's attributes: BYPASSRLS for the cross-tenant scans of a worker, no login. */
+const NODE_ROLE_ATTRIBUTES =
+  "NOLOGIN NOSUPERUSER BYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT";
+
+/**
+ * Tables the node role gets nothing on (beyond {@link NODE_TABLE_READS}): better-auth's (password
+ * hashes, sessions, second factors, passkeys, provider admins), the provider team, and the
+ * cluster's own tables, so a node can neither create a join token nor change the node list.
+ */
+export const NODE_DENIED_TABLES: readonly string[] = [
+  ...tablesWithAccess("auth"),
+  "provider_members",
+  "provider_member_tenants",
+  "cluster_join_tokens",
+  "cluster_nodes",
+];
+
+/** What the node role may read of {@link NODE_DENIED_TABLES}: `restow node check` asks whether it is still an active node. */
+export const NODE_TABLE_READS: Readonly<Record<string, string>> = {
+  cluster_nodes: "SELECT",
+};
+
+/** Run `statement` only when `schema` exists. */
+function whenSchemaExists(schema: string, statement: string): string {
+  return `DO $$ BEGIN IF to_regnamespace(${literal(schema)}) IS NOT NULL THEN EXECUTE ${literal(statement)}; END IF; END $$`;
+}
+
+/**
+ * The node role's access to the pg-boss schema: the job and queue tables a worker and a standby
+ * scheduler read and write, nothing it could own (the queue partitions are the installation
+ * role's; the main host creates them). Run as the installation role (which owns the schema) or
+ * as the database owner; `installationRole` names the role whose future pg-boss tables are
+ * covered as well.
+ */
+function nodeQueueAccessStatements(nodeRole: string, installationRole: string): string[] {
+  const role = ident(nodeRole);
+  return [
+    `GRANT USAGE ON SCHEMA pgboss TO ${role}`,
+    `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA pgboss TO ${role}`,
+    `GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA pgboss TO ${role}`,
+    `ALTER DEFAULT PRIVILEGES FOR ROLE ${ident(installationRole)} IN SCHEMA pgboss GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${role}`,
+    `ALTER DEFAULT PRIVILEGES FOR ROLE ${ident(installationRole)} IN SCHEMA pgboss GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO ${role}`,
+  ];
+}
+
+/**
+ * Create the node role when it is missing (the database owner, a superuser in the compose
+ * default; a concurrent creation for another database of the same server is fine) and give it
+ * its rights on the current database. One statement list, run by {@link provisionRoles} and by
+ * node-roles.ts `createNodeLogins` inside their transaction.
+ */
+export function nodeRoleStatements(input: {
+  readonly nodeRole: string;
+  readonly installationRole: string;
+  /** The current database, already quoted. */
+  readonly database: string;
+}): string[] {
+  const role = ident(input.nodeRole);
+  return [
+    `DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = ${literal(input.nodeRole)}) THEN
+    BEGIN
+      CREATE ROLE ${role} WITH ${NODE_ROLE_ATTRIBUTES};
+    EXCEPTION WHEN duplicate_object OR unique_violation THEN
+      NULL;
+    END;
+  END IF;
+END $$`,
+    `ALTER ROLE ${role} WITH ${NODE_ROLE_ATTRIBUTES}`,
+    `GRANT CONNECT ON DATABASE ${input.database} TO ${role}`,
+    // Never CREATE on the database: a node creates no schema (pg-boss' is the main host's).
+    `REVOKE CREATE ON DATABASE ${input.database} FROM ${role}`,
+    `GRANT USAGE ON SCHEMA public TO ${role}`,
+    `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ${role}`,
+    `GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO ${role}`,
+    `REVOKE UPDATE, DELETE, TRUNCATE ON ${APPEND_ONLY_TABLES.join(", ")} FROM ${role}`,
+    `REVOKE UPDATE, TRUNCATE ON archive_items FROM ${role}`,
+    whenTableExists(
+      "archive_item_mailboxes",
+      `REVOKE UPDATE, TRUNCATE ON archive_item_mailboxes FROM ${role}`,
+    ),
+    whenTableExists(
+      "archive_item_captures",
+      `REVOKE UPDATE, TRUNCATE ON archive_item_captures FROM ${role}`,
+    ),
+    ...NODE_DENIED_TABLES.map((table) =>
+      whenTableExists(table, `REVOKE ALL ON ${ident(table)} FROM ${role}`),
+    ),
+    ...Object.entries(NODE_TABLE_READS).map(([table, privileges]) =>
+      whenTableExists(table, `GRANT ${privileges} ON ${ident(table)} TO ${role}`),
+    ),
+    // The schema check of a node (node-guard.ts, `restow node check`).
+    ...migrationTableStatements(input.nodeRole),
+    ...nodeQueueAccessStatements(input.nodeRole, input.installationRole).map((statement) =>
+      whenSchemaExists("pgboss", statement),
+    ),
+  ];
+}
+
+/**
+ * Read access to Drizzle's migration journal (`drizzle.__drizzle_migrations`): a worker node
+ * compares the database's migrations with its image's (migrate.ts `appliedMigrationCount`).
+ */
+function migrationTableStatements(role: string): string[] {
+  return [
+    whenSchemaExists("drizzle", `GRANT USAGE ON SCHEMA drizzle TO ${ident(role)}`),
+    `DO $$ BEGIN IF to_regclass('drizzle.__drizzle_migrations') IS NOT NULL THEN EXECUTE ${literal(`GRANT SELECT ON drizzle.__drizzle_migrations TO ${ident(role)}`)}; END IF; END $$`,
+  ];
+}
 
 /** Run `statement` only when `table` exists (a database being upgraded may not have it yet). */
 function whenTableExists(table: string, statement: string): string {
@@ -500,9 +647,25 @@ function queueAccessStatements(tenant: string): string[] {
  * migration step's by an advisory lock.
  */
 export async function grantQueueAccess(installation: Queryable, tenantRole: string): Promise<void> {
+  const { rows } = await installation.query<{ role: string; owns: boolean; node: boolean }>(
+    `SELECT current_user AS role,
+            COALESCE((SELECT pg_get_userbyid(nspowner) = current_user
+                        FROM pg_namespace WHERE nspname = 'pgboss'), false) AS owns,
+            EXISTS (SELECT 1 FROM pg_roles
+                     WHERE rolname = left(current_user, ${63 - NODE_ROLE_SUFFIX.length}) || ${literal(NODE_ROLE_SUFFIX)}) AS node`,
+  );
+  const self = rows[0];
+  // A worker node's role does not own the schema: the main host's processes grant.
+  if (!self?.owns) {
+    return;
+  }
   // Several statements in one simple query run as one implicit transaction:
   // all or nothing, and the pooled connection never stays in a failed one.
-  const statements = [GRANT_LOCK, ...queueAccessStatements(tenantRole)];
+  const statements = [
+    GRANT_LOCK,
+    ...queueAccessStatements(tenantRole),
+    ...(self.node ? nodeQueueAccessStatements(nodeInstallationRoleName(self.role), self.role) : []),
+  ];
   await installation.query(statements.join(";\n"));
 }
 
@@ -665,6 +828,11 @@ export async function provisionRoles(
         "archive_item_mailboxes",
         `REVOKE DELETE ON archive_item_mailboxes FROM ${tenant}`,
       ),
+      // The chain links of items deleted after their retention stay for good (0.5.0).
+      whenTableExists(
+        "archive_chain_tombstones",
+        `REVOKE UPDATE, DELETE, TRUNCATE ON archive_chain_tombstones FROM ${both}`,
+      ),
       // So are its further captures (0.4.4): the tenant role selects and inserts.
       whenTableExists(
         "archive_item_captures",
@@ -701,8 +869,25 @@ export async function provisionRoles(
       `ALTER DEFAULT PRIVILEGES FOR ROLE ${installation} REVOKE ALL ON TABLES FROM ${tenant}`,
       `ALTER DEFAULT PRIVILEGES FOR ROLE ${installation} REVOKE ALL ON SEQUENCES FROM ${tenant}`,
       pgBossOwnershipSql(logins.installation.name),
+      // A worker node checks the schema version as the installation role (node-guard.ts).
+      ...migrationTableStatements(logins.installation.name),
     ]) {
       await owner.query(statement);
+    }
+    // The worker nodes' role, once a node has joined: its grants follow every migration.
+    const nodeRole = nodeInstallationRoleName(logins.installation.name);
+    const { rows: nodes } = await owner.query<{ present: boolean }>(
+      "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $1) AS present",
+      [nodeRole],
+    );
+    if (nodes[0]?.present) {
+      for (const statement of nodeRoleStatements({
+        nodeRole,
+        installationRole: logins.installation.name,
+        database,
+      })) {
+        await owner.query(statement);
+      }
     }
     const { rows: pgBoss } = await owner.query<{ present: boolean }>(
       "SELECT to_regnamespace('pgboss') IS NOT NULL AS present",

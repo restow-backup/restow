@@ -6,22 +6,28 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   compareDirectoryEntries,
   normaliseSnapshotPath,
+  RESTIC_UNLOCK_TIMEOUT_MS,
   ResticError,
   type ResticNode,
   type ResticSession,
+  redactSecrets,
   resticBinary,
   resticCheck,
+  resticCopy,
   resticDump,
   resticErrorDetail,
   resticForget,
   resticInit,
+  resticInitCopy,
   resticListDirectory,
+  resticLockTime,
   resticPrune,
   resticSnapshots,
   resticStat,
   resticStatMany,
   resticWalk,
   runRestic,
+  snapshotIdIn,
 } from "./restic-cli.js";
 import { restoreTestSamples } from "./restore-test.js";
 import { resolveSelection, SelectionError } from "./zip.js";
@@ -268,6 +274,112 @@ describe("forgetting snapshots by id", () => {
   );
 });
 
+describe("copying snapshots into a second repository (repository copies)", () => {
+  const session: ResticSession = {
+    repositoryUrl: "/nonexistent",
+    username: "",
+    password: "",
+    repositoryPassword: "x",
+    cacheDir: "/nonexistent",
+  };
+
+  it("needs a source repository and takes only hex ids", async () => {
+    await expect(resticCopy(session, ["a".repeat(64)])).rejects.toBeInstanceOf(TypeError);
+    await expect(resticInitCopy(session)).rejects.toBeInstanceOf(TypeError);
+    const paired = { ...session, from: session };
+    for (const bad of ["--from-repo=/x", "latest", "ABCDEF12", "abc"]) {
+      await expect(resticCopy(paired, [bad])).rejects.toBeInstanceOf(TypeError);
+    }
+    expect(await resticCopy(paired, [])).toBe(0);
+  });
+
+  it("finds a snapshot by its own id, else the copy made from it", () => {
+    const original = "a".repeat(64);
+    const listed = [
+      { id: "b".repeat(64), original },
+      { id: "c".repeat(64), original: null },
+    ];
+    expect(snapshotIdIn(listed, "c".repeat(64))).toBe("c".repeat(64));
+    expect(snapshotIdIn(listed, "cccccccc")).toBe("c".repeat(64));
+    // The primary's id names the copy; the copy's own id names itself.
+    expect(snapshotIdIn(listed, original)).toBe("b".repeat(64));
+    expect(snapshotIdIn(listed, "b".repeat(64))).toBe("b".repeat(64));
+    expect(snapshotIdIn(listed, "d".repeat(64))).toBeNull();
+    expect(snapshotIdIn(listed, "")).toBeNull();
+  });
+
+  it("keeps the source's listener credential and password out of error text", () => {
+    const from = {
+      repositoryUrl: "rest:http://127.0.0.1:1/",
+      username: "restow-maintenance",
+      password: "listener-secret-of-the-source",
+      repositoryPassword: "repository-password-of-the-source",
+    };
+    const text = redactSecrets(
+      "Fatal: rest:http://restow-maintenance:listener-secret-of-the-source@127.0.0.1:1/ repository-password-of-the-source",
+      { password: "p", repositoryPassword: "q", from },
+    );
+    expect(text).not.toContain("listener-secret-of-the-source");
+    expect(text).not.toContain("repository-password-of-the-source");
+  });
+
+  it.skipIf(!resticAvailable())(
+    "copies the named snapshots with the source's chunker parameters, each under a new id that keeps the original",
+    async () => {
+      const work = await mkdtemp(join(tmpdir(), "restow-restic-copy-"));
+      try {
+        const source = join(work, "source");
+        await mkdir(source, { recursive: true });
+        const primary: ResticSession = {
+          repositoryUrl: join(work, "primary"),
+          username: "",
+          password: "",
+          repositoryPassword: "repository-password-for-tests",
+          cacheDir: join(work, "cache"),
+        };
+        await resticInit(primary);
+        for (const content of ["one", "two", "three"]) {
+          await writeFile(join(source, "file.txt"), content);
+          await runRestic(primary, ["backup", "--host", "test-host", source]);
+        }
+        const ids = (await resticSnapshots(primary, { noLock: true })).map((s) => s.id);
+        const copy: ResticSession = {
+          ...primary,
+          repositoryUrl: join(work, "copy"),
+          cacheDir: join(work, "cache-copy"),
+          from: primary,
+        };
+        await resticInitCopy(copy);
+        const chunker = async (session: ResticSession) =>
+          JSON.parse((await runRestic(session, ["cat", "config", "--no-lock"])).stdout) as {
+            chunker_polynomial: string;
+            id: string;
+          };
+        const [primaryConfig, copyConfig] = [await chunker(primary), await chunker(copy)];
+        expect(copyConfig.chunker_polynomial).toBe(primaryConfig.chunker_polynomial);
+        expect(copyConfig.id).not.toBe(primaryConfig.id);
+
+        expect(await resticCopy(copy, [ids[0] as string, ids[1] as string])).toBe(2);
+        const first = await resticSnapshots(copy, { noLock: true });
+        expect(first.map((s) => s.original).sort()).toEqual([ids[0], ids[1]].sort());
+        expect(first.every((s) => !ids.includes(s.id))).toBe(true);
+        // Again, with the third: what the copy holds is not copied twice.
+        await resticCopy(copy, ids);
+        const second = await resticSnapshots(copy, { noLock: true });
+        expect(second.map((s) => s.original).sort()).toEqual([...ids].sort());
+        expect(snapshotIdIn(second, ids[2] as string)).toMatch(/^[0-9a-f]{64}$/);
+        // A snapshot a backup wrote has no original.
+        expect((await resticSnapshots(primary, { noLock: true })).every((s) => !s.original)).toBe(
+          true,
+        );
+      } finally {
+        await rm(work, { recursive: true, force: true });
+      }
+    },
+    120_000,
+  );
+});
+
 describe("the sizes restic keeps in a snapshot", () => {
   let work: string;
 
@@ -308,6 +420,51 @@ describe("the sizes restic keeps in a snapshot", () => {
     expect(point).toMatchObject({ filesNew: 3, totalBytesProcessed: 9000, dataAdded: 1234 });
     const older = await listedBy(JSON.stringify([{ id, time: "2026-10-14T00:00:00Z" }]));
     expect((await resticSnapshots(older))[0]?.dataAdded).toBeNull();
+  });
+});
+
+describe("the own time of a lock", () => {
+  let work: string;
+
+  beforeAll(async () => {
+    work = await mkdtemp(join(tmpdir(), "restow-restic-lock-"));
+  });
+
+  afterAll(async () => {
+    await rm(work, { recursive: true, force: true });
+  });
+
+  async function fakeRestic(script: string): Promise<ResticSession> {
+    const fake = join(work, `restic-${Math.random().toString(36).slice(2)}.sh`);
+    await writeFile(fake, `#!/bin/sh\n${script}\n`);
+    await chmod(fake, 0o755);
+    return {
+      repositoryUrl: join(work, "repo"),
+      username: "",
+      password: "",
+      repositoryPassword: "x",
+      cacheDir: join(work, "cache"),
+      binary: fake,
+    };
+  }
+
+  it("tells a read time from a lock that could not be read", async () => {
+    const lock = "c".repeat(64);
+    const read = await fakeRestic(
+      `echo '{"time":"2026-10-01T11:59:00Z","hostname":"pve1","pid":42}'`,
+    );
+    expect(await resticLockTime(read, lock)).toEqual({ time: new Date("2026-10-01T11:59:00Z") });
+    // A timeout of the storage is not "gone" and not "old": the caller must keep the lock.
+    const failed = await fakeRestic(
+      "echo 'Fatal: Load(<lock/cccccc>): context deadline exceeded' >&2; exit 1",
+    );
+    expect(await resticLockTime(failed, lock)).toEqual({
+      unreadable: expect.stringContaining("deadline exceeded"),
+    });
+    const garbage = await fakeRestic("echo 'not json'");
+    expect(await resticLockTime(garbage, lock)).toEqual({ unreadable: "the lock is not JSON" });
+    const timeless = await fakeRestic(`echo '{"hostname":"pve1"}'`);
+    expect(await resticLockTime(timeless, lock)).toEqual({ unreadable: "the lock holds no time" });
   });
 });
 
@@ -502,5 +659,65 @@ describe("a check of a repository another run locked", () => {
     expect(detail.split("unlock").length - 1).toBe(1);
     expect(resticErrorDetail(error, 40)).toHaveLength(40);
     expect(resticErrorDetail(new Error("plain"))).toBe("plain");
+  });
+
+  it("checks without a lock when asked, and never waits for one then", async () => {
+    const { session, argsFile } = await lockedRestic();
+    await expect(resticCheck(session, "5%", { noLock: true })).rejects.toBeInstanceOf(ResticError);
+    expect((await readFile(argsFile, "utf8")).trim().split("\n")).toEqual([
+      "check",
+      "--no-lock",
+      "--read-data-subset=5%",
+    ]);
+    await expect(
+      resticCheck(session, "5%", { noLock: true, retryLock: "2m" }),
+    ).rejects.toBeInstanceOf(TypeError);
+  });
+});
+
+describe("time limits of the server's restic", () => {
+  let work: string;
+
+  beforeAll(async () => {
+    work = await mkdtemp(join(tmpdir(), "restow-restic-timeout-"));
+  });
+
+  afterAll(async () => {
+    await rm(work, { recursive: true, force: true });
+  });
+
+  /** A restic that never ends by itself (a storage it keeps retrying). */
+  async function hangingRestic(): Promise<ResticSession> {
+    const fake = join(work, `restic-${Math.random().toString(36).slice(2)}.sh`);
+    await writeFile(fake, "#!/bin/sh\nexec sleep 60\n");
+    await chmod(fake, 0o755);
+    return {
+      repositoryUrl: join(work, "repo"),
+      username: "",
+      password: "",
+      repositoryPassword: "x",
+      cacheDir: join(work, "cache"),
+      binary: fake,
+    };
+  }
+
+  it("stops a run that takes longer than its limit, as a timeout, not a finding", async () => {
+    const session = await hangingRestic();
+    const started = Date.now();
+    const error = await runRestic(session, ["unlock"], { timeoutMs: 200, killGraceMs: 200 }).catch(
+      (e: unknown) => e,
+    );
+    expect(Date.now() - started).toBeLessThan(10_000);
+    expect(error).toBeInstanceOf(ResticError);
+    expect((error as ResticError).failure).toBe("timeout");
+    expect((error as ResticError).message).toContain("did not finish within");
+    await expect(
+      resticCheck(session, "5%", { noLock: true, timeoutMs: 200 }),
+    ).rejects.toMatchObject({ failure: "timeout" });
+  });
+
+  it("bounds restic unlock by default", () => {
+    expect(RESTIC_UNLOCK_TIMEOUT_MS).toBeGreaterThan(0);
+    expect(RESTIC_UNLOCK_TIMEOUT_MS).toBeLessThanOrEqual(5 * 60 * 1000);
   });
 });

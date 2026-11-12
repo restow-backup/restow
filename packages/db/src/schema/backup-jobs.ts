@@ -14,7 +14,12 @@ import {
 import { timestamps } from "./_shared.js";
 import { retentionPolicies } from "./archive.js";
 import { user } from "./auth.js";
-import { type EndpointBandwidthWindow, type EndpointRetention, endpoints } from "./endpoints.js";
+import {
+  type EndpointBandwidthWindow,
+  type EndpointRetention,
+  type EndpointSqlConfig,
+  endpoints,
+} from "./endpoints.js";
 import { fileShares } from "./file-shares.js";
 import { protectedObjects } from "./sources.js";
 import { storageTargets } from "./storage.js";
@@ -89,6 +94,11 @@ export type BackupJobEndpointSettings = {
   bandwidthWindows?: EndpointBandwidthWindow[];
   /** Server-side retention of the machine's repository (`restic forget --keep-*`). */
   retention?: EndpointRetention;
+  /**
+   * The native SQL Server backup of Windows members (W2a, docs/BAREMETAL-WINDOWS.md 5.1.3), with
+   * the check plan (`verify`, the server's only); absent or `enabled: false` = off.
+   */
+  sql?: EndpointSqlConfig;
   /**
    * The job's level of the agent policy (@restow/core endpoints/agent-policy.ts): backup window,
    * catching up missed backups, AC power, retries; a key left out inherits from the tenant and

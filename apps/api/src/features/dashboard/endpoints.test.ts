@@ -35,6 +35,7 @@ function machine(
       overdue: false,
       basis: null,
       latestSnapshotId: null,
+      noSamples: false,
     },
     latestRun: null,
     attention: values.attention ?? [],

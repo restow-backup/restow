@@ -47,6 +47,19 @@ func IsAuthError(err error) bool {
 	return errors.As(err, &ae) && (ae.Status == 401 || ae.Status == 403)
 }
 
+// EnrollmentTokenInvalidProblem is the problem type of the server's refusal
+// of an enrollment token (HTTP 401: unknown, expired, revoked or used).
+const EnrollmentTokenInvalidProblem = "urn:restow:problem:enrollment-token-invalid"
+
+// IsTokenRefused reports whether the Restow instance itself refused an
+// enrollment token. Only its own problem type counts: a 401 of a reverse
+// proxy with a login, a 403 of a web application firewall, a 404 of a wrong
+// address or a 407 of a proxy says nothing about the token.
+func IsTokenRefused(err error) bool {
+	var ae *APIError
+	return errors.As(err, &ae) && ae.Status == 401 && ae.Type == EnrollmentTokenInvalidProblem
+}
+
 // IsConflict reports HTTP 409 (for a run: its task was finished or cancelled meanwhile).
 func IsConflict(err error) bool {
 	var ae *APIError

@@ -1,6 +1,5 @@
 import type { Readable } from "node:stream";
 import {
-  type OpenRepository,
   openRepository,
   type RepositoryAccess,
   resolveSelection,
@@ -27,7 +26,13 @@ import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
 import type { BrowseDto, PreparedDownloadDto } from "../endpoints/dto.js";
 import { ENDPOINT_PROBLEMS } from "../endpoints/problems.js";
-import { backendHolding, READ_LOCK_WAIT_MS, tenantStorage } from "../endpoints/repository.js";
+import {
+  holdingFor,
+  READ_LOCK_WAIT_MS,
+  type ReadRepository,
+  snapshotRefOf,
+  tenantStorage,
+} from "../endpoints/repository.js";
 import { resticGate } from "../endpoints/restic-gate.js";
 import { resticProblem } from "../endpoints/restic-problem.js";
 import { browseCursorFor, decodeBrowseCursor } from "../endpoints/service.js";
@@ -169,7 +174,7 @@ async function loadContainerPoint(
 async function guestRepositoryAccess(
   database: Database,
   guest: PveGuest,
-): Promise<RepositoryAccess> {
+): Promise<RepositoryAccess & { fallback: boolean }> {
   if (!guest.repositorySecretId || !guest.repositoryReadyAt) {
     throw noRepository();
   }
@@ -180,9 +185,13 @@ async function guestRepositoryAccess(
   if (password === null) {
     throw noRepository();
   }
-  const prefix = guestRepositoryPrefix(guest.id);
-  const storage = await backendHolding(await tenantStorage(database, guest.tenantId), prefix);
+  const prefix = guestRepositoryPrefix(guest);
+  const { storage, fallback } = await holdingFor(
+    await tenantStorage(database, guest.tenantId),
+    prefix,
+  );
   return {
+    fallback,
     storage,
     prefix,
     repositoryPassword: password,
@@ -217,17 +226,18 @@ async function openFor(
   database: Database,
   tenantId: string,
   id: string,
-): Promise<ContainerPoint & { open: () => Promise<OpenRepository> }> {
+): Promise<ContainerPoint & { open: () => Promise<ReadRepository> }> {
   const point = await withTenantTx(database, tenantId, (tx) =>
     loadContainerPoint(tx, tenantId, id),
   );
   const access = await guestRepositoryAccess(database, point.guest);
-  const open = async (): Promise<OpenRepository> => {
+  const open = async (): Promise<ReadRepository> => {
     const release = await holdForRead(database, point.guest.id);
     try {
       const repository = await openRepository(access);
       return {
         session: repository.session,
+        snapshotRef: snapshotRefOf(repository.session, access.fallback),
         close: async () => {
           try {
             await repository.close();
@@ -295,7 +305,8 @@ export async function browseContainerFiles(
   const listing = await resticGate.run(tenantId, async () => {
     const repository = await open();
     try {
-      return await resticListDirectory(repository.session, snapshot.resticSnapshotId, query.path, {
+      const snapshotId = await repository.snapshotRef(snapshot.resticSnapshotId);
+      return await resticListDirectory(repository.session, snapshotId, query.path, {
         limit: query.limit,
         after,
         signal,
@@ -369,12 +380,12 @@ export async function prepareContainerDownload(
   }
   const { snapshot, open } = await openFor(database, tenantId, id);
   const release = resticGate.acquire(tenantId);
-  let repository: OpenRepository | null = null;
+  let repository: ReadRepository | null = null;
   try {
     repository = await open();
     const selection = await resolveSelection(
       repository.session,
-      snapshot.resticSnapshotId,
+      await repository.snapshotRef(snapshot.resticSnapshotId),
       input.paths,
       { signal },
     ).catch((error) => {
@@ -450,7 +461,7 @@ export async function openContainerDownload(
   const { snapshot, guest, open } = await openFor(database, tenantId, id);
   // A busy server, or a repository under maintenance, refuses here, before the download is spent.
   const release = resticGate.acquire(tenantId);
-  let repository: OpenRepository | null = null;
+  let repository: ReadRepository | null = null;
   try {
     repository = await open();
     const download = await withTenantTx(database, tenantId, async (tx) => {
@@ -494,7 +505,7 @@ export async function openContainerDownload(
     }
     const zip = streamSnapshotZip({
       session: repository.session,
-      snapshotId: snapshot.resticSnapshotId,
+      snapshotId: await repository.snapshotRef(snapshot.resticSnapshotId),
       paths: download.selection.map((item) => item.path),
       selection: download.selection,
       signal,

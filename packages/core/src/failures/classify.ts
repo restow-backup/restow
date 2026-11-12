@@ -651,6 +651,14 @@ function classifyImapShape(
     return buildCause("imap.mailbox_full", hostParams, technical);
   }
   if (
+    /exceeded (the )?(command|bandwidth|download)|(bandwidth|download) limit/i.test(response) &&
+    writesToMailbox(str(layer.executedCommand)) !== true
+  ) {
+    // Gmail's "[ALERT] Account exceeded command or bandwidth limits" on a FETCH: no RFC 5530
+    // code, but the same cap as OVERQUOTA on a read, and it clears by itself.
+    return buildCause("imap.server_limit", limitParams, technical, true);
+  }
+  if (
     str(layer.code) === "NoConnection" ||
     (heuristics &&
       /connection not available|connection closed|closed unexpectedly/i.test(messageOf(layer)))

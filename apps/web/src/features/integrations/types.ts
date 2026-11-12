@@ -5,7 +5,12 @@
  * the event catalog.
  */
 
-import { REPORT_EVENT_STREAM, REPORT_EVENTS, type ReportEvent } from "@/features/reports/api";
+import {
+  REPORT_EVENT_STREAM,
+  REPORT_EVENTS,
+  type ReportEvent,
+  type WebhookHealth,
+} from "@/features/reports/api";
 
 export const API_SCOPES = [
   "status:read",
@@ -117,6 +122,11 @@ export interface Webhook {
   createdAt: string;
   updatedAt: string;
   stats: WebhookStats;
+  /**
+   * Whether its deliveries keep failing, since when, and when the alert about it was raised
+   * (0.5.0; absent from an older server).
+   */
+  health?: WebhookHealth;
 }
 
 /** Creation and rotation responses: the signing secret, shown this one time. */

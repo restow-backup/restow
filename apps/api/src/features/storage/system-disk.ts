@@ -146,3 +146,17 @@ export async function onSystemDisk(path: string, deps: SystemDiskDeps = {}): Pro
   }
   return SYSTEM_DISK_PROBES.some((probe) => blockDevice(mountOf(info, probe)?.source) === source);
 }
+
+/**
+ * Which device `path` lies on, as one key per disk (#98, the low disk space warning): `system`
+ * for the system disk ({@link onSystemDisk}: the same `st_dev` as `/` or the same block device),
+ * else `dev:<st_dev>` of the path or the nearest directory above it that exists; null when nothing
+ * of it exists. Two paths with the same key are one disk.
+ */
+export async function deviceKeyOf(path: string, deps: SystemDiskDeps = {}): Promise<string | null> {
+  if (await onSystemDisk(path, deps)) {
+    return "system";
+  }
+  const existing = await deviceOfExisting(deps.deviceOf ?? defaultDeviceOf, path);
+  return existing ? `dev:${existing.device}` : null;
+}

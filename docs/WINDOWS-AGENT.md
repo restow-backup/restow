@@ -121,11 +121,11 @@ Harte Randbedingungen, die für alles Folgende gelten:
 | Ein unbekannter `-o vss.provider` ergibt je Volume `failed to create snapshot for [c:\]: invalid VSS provider "…"`, ohne dass eine Schattenkopie entstehen muss. | `vss_windows.go:1129-1175` |
 | restic fordert die Schattenkopie mit `SetContext(VSS_CTX_BACKUP)` (nicht dauerhaft) und `SetBackupState(false, false, VSS_BT_COPY, false)` an: Kopie-Sicherung ohne Komponentenauswahl der Writer. Ergebnis ist ein dateikonsistenter Zeitpunkt; SQL Server oder Exchange werden nicht als Anwendung gesichert, Transaktionsprotokolle nicht gekürzt. | `vss_windows.go:227, 947, 954` |
 | Im JSON-Modus schreibt restic keine Erfolgsmeldung ("creating VSS snapshot", "successfully created"); der Agent kann den Erfolg nur aus dem Fehlen eines Fehlers ableiten. | `cmd_backup.go:585-589` |
-| UNC-Pfade und nicht unterstützte Einhängepunkte werden ohne Schattenkopie und ohne Fehler gelesen. | `fs_local_vss.go:160-164, 225-232` |
+| UNC-Pfade und nicht unterstützte Einhängepunkte werden ohne Schattenkopie und ohne Fehler gelesen (eingehängte Ordner, die VSS sicher nicht kann, erkennt der Agent vorab, 17.1). | `fs_local_vss.go:160-164, 225-232` |
 | VSS nur mit amd64-restic auf 64-Bit-Windows (oder 386 auf 32 Bit); ein arm64-restic bekommt `executables compiled for arm64 can't use VSS`. | `vss_windows.go:888-900, 1248-1260` |
 | restic sichert und stellt Security Descriptors (Owner, Gruppe, DACL, SACL) wieder her, wenn es als Administrator läuft (sonst nur DACL); Vererbungs-Flags seit 0.19.0 korrekt. NTFS Extended Attributes seit 0.17.0. | CHANGELOG 0.17.0 #4708 und #4807, 0.19.0 #5427 und #5424; `doc/050_restore.rst:82-89` |
 | **Alternate Data Streams werden nicht gesichert** (Pfade mit `:` werden übersprungen, kein Changelog-Eintrag führt ADS ein). `Zone.Identifier` (Mark of the Web) geht damit verloren. | `internal/fs/node_windows.go:96, 346` |
-| restic setzt `godebug winsymlink=0`: Junctions verhalten sich wie vor Go 1.23 (als symbolische Links). | `go.mod:9` von restic |
+| restic setzt `godebug winsymlink=0`: Junctions verhalten sich wie vor Go 1.23 (als symbolische Links). Eine Junction oder ein eingehängter Ordner als Quelle löst darum der Agent auf (16.5). | `go.mod:9` von restic |
 | Snapshot-Pfade: Das Volume wird wörtlich übernommen, `C:\Users` wird `/C/Users`, `c:\Users` aber `/c/Users`. | `internal/archiver/tree.go:35-65` |
 | Mindestversion von restic selbst: Windows 10 / Server 2016. | CHANGELOG 0.18.0 #4938 |
 | `--one-file-system` bricht unter Windows sofort ab. | `doc/040_backup.rst:518-519` |
@@ -204,8 +204,11 @@ Der Server nimmt `os=windows` nur mit `arch=amd64` an (Abschnitt 19.1).
   bei einem Domänencontroller (`ProductType = LanmanNT`) zeigt die Oberfläche einen festen
   Hinweis.
 - **Hyper-V-Host** (VM-Dateien im laufenden Betrieb), **Exchange und SQL Server als
-  Anwendung** (siehe Abschnitt 17.5: dateikonsistent, nicht anwendungskonsistent; für
-  Anwendungskonsistenz bleiben Hooks wie `sqlcmd -Q "BACKUP DATABASE …"`).
+  Anwendung** (siehe Abschnitt 17.5: dateikonsistent, nicht anwendungskonsistent). Für SQL
+  Server gibt es seit 0.5.0 die native Sicherung (Vorschau, docs/BAREMETAL-WINDOWS.md 5.1);
+  ein Hook wie `sqlcmd -Q "BACKUP DATABASE …"` scheitert ohne Anmeldung, weil Hooks als
+  SYSTEM laufen und SYSTEM seit SQL Server 2012 kein sysadmin ist. Die Oberfläche zeigt für
+  diese Rollen einen festen Hinweis (`app_files_not_app_backup`).
 - **Alternate Data Streams, EFS-Dateien anderer Benutzer, Authenticode, Windows on ARM.**
 - **WPAD/PAC und NTLM/Kerberos am Proxy** (Abschnitt 12.5).
 
@@ -482,7 +485,7 @@ Normalfall.
 | `C:\ProgramData\Restow\data\status.json` | Laufzeitstatus ohne Geheimnisse | Ordner `data`: SY, BA Vollzugriff, `BU` nur "Ordner auflisten" (dieser Ordner); Datei `status.json`: zusätzlich `(A;;FR;;;BU)` |
 | `C:\ProgramData\Restow\data\{cache,tmp,restic-tmp,outbox}` | restic-Cache, temporäre Kopien, unzustellte Berichte | `D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)` |
 | `C:\ProgramData\Restow\data\run.lock` | Laufsperre | wie `data` |
-| `C:\ProgramData\Restow\logs\agent.log` | Agent-Log, rotiert wie heute (`internal/logging/rotate.go`) | `D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)` |
+| `C:\ProgramData\Restow\logs\agent.log` | Agent-Log, rotiert wie heute (`internal/logging/rotate.go`) | Ordner `D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)`; `agent.log` und die rotierten Kopien bei jedem Öffnen `D:P(A;;FA;;;SY)(A;;FA;;;BA)` (`paths.ProtectFile`), so verliert auch eine ältere Datei die von `C:\ProgramData` geerbten Leserechte der Benutzer |
 | Registry `HKLM\SYSTEM\CurrentControlSet\Services\RestowAgent` | Dienst, optional `Environment` (Proxy ohne Zugangsdaten, Abschnitt 12.5) | Standard des SCM (für Benutzer lesbar) |
 | Ereignisanzeige, Protokoll "Anwendung", Quelle `Restow` | Sicherheitsrelevante Ereignisse (Abschnitt 9.5) | Standard |
 
@@ -492,7 +495,17 @@ geschützt (Flag `P`), Eigentümer `BA`. Ein schon vorhandener Ordner, dessen Ei
 SYSTEM, Administratoren oder TrustedInstaller ist oder der ein Reparse-Point ist, wird
 abgelehnt und nicht repariert: das entspricht `EnsureRootDir`
 (`agent/internal/paths/trust_unix.go:119-160`), dort "someone else may have prepared it".
-Der Installer prüft das selbst in PowerShell, bevor der Agent existiert (Abschnitt 14.2).
+Nur ein **leerer** Ordner eines anderen Eigentümers wird gelöscht und geschützt neu angelegt
+(von ihm wird nichts benutzt). Der Installer prüft das selbst in PowerShell, bevor der Agent
+existiert (Abschnitt 14.2).
+
+Die Reihenfolge schließt das Fenster, in dem Benutzer vorgreifen könnten: `service install`
+legt `C:\ProgramData\Restow` mit `state`, `data` und `logs` geschützt an, bevor der Dienst
+existiert, und der Dienst ruft `Layout.Ensure` als Erstes auf, noch vor dem Agent-Log
+(`cmd/restow-agent/run.go`). Früher legte das Log `logs` mit `os.MkdirAll` und den Rechten
+von `C:\ProgramData` an, wenn der Dienst vor der Anmeldung startete (Token abgelaufen,
+Neustart); Benutzer konnten dann `agent.log` lesen und `state` selbst anlegen. Kann der Dienst
+seine Ordner nicht anlegen, schreibt er kein Log-File, sondern das Ereignis 1002 und endet.
 
 `paths.go`: `WindowsInstallDir`, `InstallDirFor("windows")`, `Default()` mit Windows-Zweig,
 `InstalledAgentBinary()`/`InstalledResticBinary()` mit `.exe`. `CommandLink` und die
@@ -551,6 +564,36 @@ Funktion in `paths/acl.go` ohne Build-Tag. Ihre Tests nutzen als Testdaten die e
 `icacls`-Ausgabe von `C:\`, `C:\ProgramData`, `C:\Program Files` und `C:\Windows\Temp` einer
 frischen Windows-11- und Server-2022-Installation, als SDDL abgelegt
 (`paths/testdata/*.sddl`) **[Maschine]**.
+
+**Besitzer beim Anlegen.** Was der Installer oder der Agent anlegt, bekommt den Besitzer
+Administratoren (`S-1-5-32-544`) gleich beim Anlegen, wer es auch anlegt. Ohne das gehört ein
+neuer Ordner oder eine neue Datei dort, wo Administratoren selbst Besitzer dessen sind, was sie
+anlegen (UAC aus, das eingebaute Konto Administrator, die Richtlinie "Standardbesitzer für
+Objekte, die von Mitgliedern der Administratorengruppe erstellt werden: Objektersteller", der
+GitHub-Runner `windows-2022`), dem Konto selbst. Der Installer lehnte dann seinen eigenen
+Ordner `C:\Program Files\Restow` ab ("owned by S-1-5-21-…, someone else may have prepared
+it"), `service install` die `restow-agent.exe`, ein Hook-Skript den Ordner `hooks.d`, und nach
+`restow-agent update` durch einen Administrator blieb der Dienst untätig. Darum:
+
+- Installer: `C:\Program Files\Restow` und `bin` direkt nach `New-Item`, jede Datei direkt
+  nach `Move-Item` mit `icacls <pfad> /setowner *S-1-5-32-544`, danach `icacls <pfad> /reset`
+  (`Set-InstalledSecurity`). Die Reihenfolge zählt: Das Zurücksetzen macht aus dem Eintrag
+  `CREATOR OWNER` von `Program Files` einen Eintrag für den Besitzer, und der muss dann schon
+  Administratoren sein, nicht das Konto. Der Staging-Ordner bekommt den Besitzer in seiner
+  `DirectorySecurity` (`SetOwner`).
+- Agent: `paths.MkdirTrusted` und `paths.CreateTrusted` legen mit der SDDL `O:BA` an
+  (Besitzer, keine DACL, also geerbte Rechte): `EnsureRootDir` (Ordner der Binaries beim
+  Update), `hooks.d` (`restow-agent hooks scripts`), die neue Datei der Selbstaktualisierung
+  (`createStaged`; das Umbenennen behält den Besitzer). Geschützte Ordner und die temporäre
+  State-Datei hatten `O:BA` schon (Abschnitt 7).
+- Ein Entwicklungslauf ohne Erhöhung darf den Besitzer nicht setzen und vertraut sich selbst;
+  er legt ohne Besitzer an.
+- Getestet auf dem Windows-Runner: eine Installation ohne `RESTOW_INSTALL_ROOT` in das echte
+  `C:\Program Files\Restow` (`test-install-windows.ps1`, Schritt 4b, prüft den Besitzer jedes
+  Ordners und jeder Datei) und `windowsintegration`-Tests für `EnsureRootDir`,
+  `MkdirTrusted`, `CreateTrusted` und `createStaged`. Hook-Skripte, die ein Administrator
+  selbst in `hooks.d` legt, gehören auf solchen Rechnern ihm; `icacls <datei> /setowner
+  *S-1-5-32-544` macht sie nutzbar (die Ablehnung nennt den Besitzer).
 
 Verwendet wird die Prüfung wie heute: für `restic.exe` vor jedem Start
 (`paths.TrustedRestic`, `paths.go:165-174`), für den Ordner der Binaries vor einem Update
@@ -707,9 +750,25 @@ Die Methoden des vorhandenen Interfaces (`svc.go:72-103`):
    abbrechen, `SERVICE_STOP_PENDING` mit `dwWaitHint = 10000` und steigendem
    `dwCheckPoint` alle 5 s melden, bis `cmdRun` zurückkehrt. `SERVICE_CONTROL_INTERROGATE`:
    aktuellen Zustand melden. Alles andere: `ERROR_CALL_NOT_IMPLEMENTED`.
-4. Ende: `SERVICE_STOPPED` mit Exit-Code. `0` bei normalem Ende; bei `core.ErrRestart`
-   (`agent/internal/core/agent.go:33-35`, `run.go:94-96`) `dwWin32ExitCode =
-   ERROR_SERVICE_SPECIFIC_ERROR`, `dwServiceSpecificExitCode = 3`; bei Fehler `1`.
+4. Ende: `SERVICE_STOPPED` mit Exit-Code. `0` bei normalem Ende; sonst immer
+   `dwWin32ExitCode = ERROR_SERVICE_SPECIFIC_ERROR` mit einem dienstspezifischen Code
+   (`cmd/restow-agent/service_exit.go`, Tabellentest ohne Build-Tag):
+
+   | Dienstspezifischer Code | Bedeutung |
+   | --- | --- |
+   | `3` | Neustart nach einer Selbstaktualisierung (`core.ErrRestart`, 9.3), kein Fehler |
+   | `536870913` (`0x20000001`) | Der Agent hat mit einem Fehler aufgehört; der Grund steht in `C:\ProgramData\Restow\logs\agent.log` (Kann er seine Ordner nicht anlegen, steht er im Ereignis 1002 der Quelle `Restow`) |
+   | `536870914` (`0x20000002`) | Aufruf- oder Konfigurationsfehler |
+
+   Die Ereignisanzeige (System, Quelle "Service Control Manager", Ereignis 7024) gibt den
+   dienstspezifischen Code als Windows-Meldung wieder. Bis 0.5.0 endete der Dienst bei einem
+   Fehler mit dem Win32-Code `1`, und Windows schrieb dazu "Unzulässige Funktion" ("Incorrect
+   function", Ereignis 7023/7024), was auf eine falsche Spur führte; ein dienstspezifisches `1`
+   oder `2` hätte dieselbe bzw. "Die angegebene Datei wurde nicht gefunden" ergeben. Codes mit
+   gesetztem Bit 29 sind Anwendungen vorbehalten und haben keine Windows-Meldung: das Ereignis
+   zeigt die Zahl (z. B. `%%536870913`), diese Tabelle erklärt sie. Bei Code `3` schreibt Windows
+   den Systemtext zu 3 ("Das System kann den angegebenen Pfad nicht finden"); er bedeutet hier
+   nur den Neustart. Die Fehleraktion (9.3) startet den Dienst nach jedem dieser Codes neu.
 
 Im Dienstmodus gibt es kein `signalContext` (`common.go:101-103`): Stoppen kommt nur über
 `HandlerEx`. Ohne `--service` läuft `run` wie heute im Vordergrund (Konsole, Strg+C), für
@@ -735,7 +794,7 @@ startet nur nach einem Fehler neu. Darum endet der Dienst nach einem Update mit 
 dienstspezifischen Code 3 (9.2, Schritt 4), und die Fehleraktion mit
 `FailureActionsOnNonCrashFailures = TRUE` startet ihn nach 5 s neu, jetzt mit der neuen
 `restow-agent.exe` am selben Pfad. Nebenwirkung: Die Ereignisanzeige zeigt Ereignis 7024
-("beendet mit dienstspezifischem Fehler 3"). docs/AGENT.md erklärt das; das eigene Ereignis
+("beendet mit dienstspezifischem Fehler 3", mit dem Systemtext zu 3, siehe 9.2). docs/AGENT.md erklärt das; das eigene Ereignis
 "Update auf Version X installiert" (9.5) steht unmittelbar davor. Die Alternative, ein
 abgekoppelter Hilfsprozess mit `sc.exe start`, ist verworfen: zusätzlicher Prozess,
 Wettlauf mit dem Ende des Dienstes.
@@ -743,16 +802,36 @@ Wettlauf mit dem Ende des Dienstes.
 ### 9.4 Deinstallation
 
 - **Von Hand über den Installer** (`windows.ps1 -Uninstall`, empfohlener Weg): Das Skript
-  ruft `restow-agent.exe uninstall --keep-binaries`, wartet auf das Ende des Prozesses und
-  löscht danach `C:\Program Files\Restow` selbst. Kein Rest, kein Hilfsprozess.
+  merkt sich vorher die Prozess-ID des Dienstes (`Win32_Service.ProcessId`), ruft
+  `restow-agent.exe uninstall --keep-binaries`, wartet auf das Ende des Dienstprozesses und
+  jedes Prozesses aus `restow-agent.exe` (`Wait-AgentExit`) und löscht danach
+  `C:\Program Files\Restow` selbst, mit einigen Versuchen für eine Datei, die einen Moment
+  noch in Gebrauch ist (`Remove-FolderWithRetry`); bleibt sie es, nennt es den Ordner statt
+  einer PowerShell-Ausnahme. Kein Rest, kein Hilfsprozess. Ohne brauchbares Binary stoppt es
+  den Dienst selbst (`ServiceController.Stop` mit 120 s Frist, nicht das unbegrenzt wartende
+  `Stop-Service`) und wartet ebenso, bevor es den Dienst und `C:\ProgramData\Restow` löscht.
+- **Dienst hört nicht auf:** Läuft beim Deinstallieren eine Sicherung (restic hat bis 45 s
+  zum Beenden) oder ein Post-Hook und ist der Dienst nach 90 s nicht gestoppt, gibt
+  `scm.Uninstall` `svc.ErrStillRunning` zurück und löscht den Dienst nicht, und
+  `svc.Uninstall` entfernt **nichts** (weder Zustand noch Daten, Logs oder Binaries):
+  "the Restow agent is still running …; nothing was removed". Früher ging die
+  Deinstallation trotz der Zeitüberschreitung weiter, löschte den Zustand mit den
+  Zugangsdaten, und der Installer scheiterte dann mit einer Ausnahme an der laufenden
+  `restow-agent.exe`. Der Installer wartet in diesem Fall noch bis zu 120 s auf das Ende und
+  versucht es einmal neu; danach bricht er mit dem Hinweis ab, es später erneut zu tun.
 - **Von Hand über das Binary** (`restow-agent.exe uninstall`, erhöht) und **aus dem Dienst**
   (Aufgabe `uninstall` vom Server, `UninstallFromInside`): Ablauf wie `svc.Uninstall`
   (`internal/svc/uninstall.go`): Dienst stoppen bzw. löschen, Logger und Laufsperre
   **schließen**, dann `C:\ProgramData\Restow` entfernen, dann `restic.exe` und
-  `THIRD_PARTY_NOTICES.txt`. Die laufende `restow-agent.exe` und der Ordner
-  `C:\Program Files\Restow` werden mit `MoveFileExW(…, MOVEFILE_DELAY_UNTIL_REBOOT)` zum
-  Löschen beim nächsten Neustart vorgemerkt. Bis dahin bleibt eine Datei ohne Dienst liegen;
-  `status` des Installers und die Doku sagen das. Kein `cmd /c ping … & rd`: das Muster
+  `THIRD_PARTY_NOTICES.txt`. Die laufende `restow-agent.exe` (und eine Datei, die noch in
+  Gebrauch ist, etwa `restic.exe`) wird zuerst im selben Ordner in
+  `<name>.old-<16 hex>` umbenannt, und nur dieser Name wird mit
+  `MoveFileExW(…, MOVEFILE_DELAY_UNTIL_REBOOT)` zum Löschen beim nächsten Neustart vorgemerkt,
+  danach die Ordner `bin` und `C:\Program Files\Restow` (ein Ordner, der beim Neustart nicht
+  leer ist, bleibt). Nie der feste Pfad: Windows löscht beim Neustart, was dann unter dem
+  vorgemerkten Namen liegt, also einen Agenten, der vor dem Neustart neu installiert wurde.
+  Dieselbe Regel gilt für die Selbstaktualisierung (`removeOrLater`). Bis zum Neustart bleibt
+  eine Datei ohne Dienst liegen; `status` des Installers und die Doku sagen das. Kein `cmd /c ping … & rd`: das Muster
   scheitert an Gos Quoting der Argumente, öffnet ein Konsolenfenster und ist zugleich die
   typische Selbstlöschung von Schadsoftware, die Defender- und EDR-Heuristiken auslöst.
 - **Logs bei Deinstallation aus dem Dienst:** `UninstallFromInside` behält unter Windows
@@ -856,16 +935,26 @@ Windows (`hooks/run_windows.go`, `hooks/resolve_windows.go`):
 
   ```powershell
   [Console]::OutputEncoding = [Text.Encoding]::UTF8
-  $ErrorActionPreference = 'Stop'
+  $PSDefaultParameterValues['*:ErrorAction'] = 'Stop'
+  trap { [Console]::Error.WriteLine(($_ | Out-String).TrimEnd()); exit 1 }
   <Befehl>
-  exit $(if ($?) { 0 } elseif ($LASTEXITCODE) { $LASTEXITCODE } else { 1 })
+  exit $(if ($?) { 0 } elseif ($LASTEXITCODE) { $LASTEXITCODE } elseif ($Error.Count -gt 0 -and $Error[0] -is [Management.Automation.ErrorRecord] -and $Error[0].FullyQualifiedErrorId -like 'NativeCommandError*') { 0 } else { 1 })
   ```
 
-  Damit bricht ein Cmdlet-Fehler ab (Exit 1), ein natives Programm mit Code 3 liefert 3, ein
-  eigenes `exit 5` im Befehl liefert 5. Ein natives Programm, das mitten im Befehl scheitert,
-  bricht unter Windows PowerShell 5.1 nicht ab (wie `sh -c` ohne `set -e`); die Doku sagt das.
-  Die Hülle ist eine reine Funktion ohne Build-Tag und hat Tabellentests; die tatsächlichen
-  Codes prüft der Windows-Job (Abschnitt 22.1).
+  Damit bricht ein Cmdlet-Fehler ab (Exit 1, der Fehlertext steht im Hook-Protokoll), ein
+  natives Programm mit Code 3 liefert 3, ein eigenes `exit 5` im Befehl liefert 5. Die Hülle
+  setzt bewusst **nicht** `$ErrorActionPreference = 'Stop'`: Windows PowerShell 5.1 macht bei
+  umgeleiteter Ausgabe (wie beim Hook) aus jeder stderr-Zeile eines nativen Programms einen
+  `NativeCommandError`, und unter `Stop` beendete schon die erste Warnung von `mysqldump`, die
+  Fortschrittsanzeige von `git` oder `pg_dump --verbose` den Hook mit Exit 1, obwohl das
+  Programm erfolgreich war. Der Vorgabewert `-ErrorAction Stop` gilt nur für Cmdlets und
+  erweiterte Funktionen; native Programme haben den Parameter nicht. Für ein natives Programm
+  zählt allein sein Exit-Code: stderr mit Code 0 ist Erfolg (auch mit `2>&1` im Befehl), Code 4
+  bleibt 4. Ein natives Programm, das mitten im Befehl scheitert, bricht unter Windows
+  PowerShell 5.1 nicht ab (wie `sh -c` ohne `set -e`); wer das will, prüft `$LASTEXITCODE`
+  selbst (`if ($LASTEXITCODE) { exit $LASTEXITCODE }`). Die Hülle ist eine reine Funktion ohne
+  Build-Tag und hat Tabellentests; die tatsächlichen Codes prüft der Windows-Job (Abschnitt
+  22.1, `hooks/run_windows_test.go`).
 - **Regel `scripts`:** Name nach `IsScriptName` (`policy.go:61-65`) in
   `C:\ProgramData\Restow\state\hooks.d`, Erweiterung bestimmt den Aufruf. In 0.5.0 nur zwei:
   - `.ps1`: über PowerShell wie oben, der Befehl ist `& '<pfad>'` in derselben Hülle (nicht
@@ -1034,7 +1123,13 @@ Begründungen:
 
 - `SecurityProtocol = 'Tls12'` steht vor `irm`, weil Windows PowerShell 5.1 auf Server 2016
   ohne `SchUseStrongCrypto` nur TLS 1.0 anbietet; der Abruf des Skripts selbst würde sonst
-  scheitern.
+  scheitern. Das gilt nur für die Sitzung, in der die Zeile läuft: `-File windows.ps1` und
+  der Neustart als 64-Bit-PowerShell beginnen ohne. Darum schaltet `Invoke-RestowInstaller`
+  als Erstes TLS 1.2 selbst dazu (`Enable-Tls12`: `SecurityProtocol -bor Tls12`, was schon
+  an ist, etwa TLS 1.3, bleibt; `SystemDefault` bleibt unverändert die Wahl von Windows),
+  und ein Download, der beim Aufbau von TLS scheitert, nennt TLS 1.2 und `SchUseStrongCrypto`
+  statt "prüfen Sie die Verbindung" (`Get-DownloadHint`). Getestet in
+  `test-install-windows.ps1`, Schritt 3c, ausgehend von SSL 3 und TLS 1.0.
 - `-UseBasicParsing`: ohne es braucht PowerShell 5.1 die Internet-Explorer-Engine, die auf
   Server Core fehlt.
 - `iex` eines Strings unterliegt nicht der Ausführungsrichtlinie (anders als eine
@@ -1047,11 +1142,19 @@ Begründungen:
   RMM-Werkzeuge laufen meist als SYSTEM und können dort schreiben. Ein 32-Bit-RMM-Prozess
   (Intune startet Skripte standardmäßig 32-bittig) sieht `System32` umgeleitet nach
   `SysWOW64`; die Doku nennt für diesen Fall `C:\Windows\Sysnative\config\systemprofile\…`
-  zum Schreiben der Datei. Der Installer selbst startet sich 64-bittig neu (14.2).
+  zum Schreiben der Datei. Der Installer selbst startet sich 64-bittig neu (14.2) und gibt
+  dabei einen Pfad unter `System32`, den der 32-Bit-Host sieht (also in `SysWOW64`), als
+  `SysWOW64`-Pfad weiter (`Get-RelaunchTokenFile`), einen `Sysnative`-Pfad als `System32`.
+  Fehlt die Datei, bricht der Installer vor jeder Installation ab und nennt ein vorhandenes
+  Gegenstück in `SysWOW64` (`Get-TokenFileProblem`).
 - Dokumentiert wird nur `RESTOW_TOKEN_FILE`. `RESTOW_TOKEN` als Variable bleibt für Tests,
   steht aber nicht in der Doku: getippt landet es im PSReadLine-Verlauf und in der
   Skriptblock-Protokollierung (Ereignis 4104). Der Token wird nie als Cmdlet- oder
   Prozessargument übergeben (Ereignisse 4103, 4688), nur über die Umgebung des Kindprozesses.
+- Ohne Token fragt der Installer nur nach, wenn jemand antworten kann: nicht in einer
+  Dienstsitzung und nicht in einer PowerShell mit `-NonInteractive` (Skripte,
+  Verteilwerkzeuge). Dort bricht er mit einer Meldung ab, statt auf eine Eingabe zu warten;
+  der 64-Bit-Neustart behält `-NonInteractive` bei.
 - `RESTOW_RELEASE_KEY_FINGERPRINT` (oder Parameter `-ReleaseKeyFingerprint`): Pin auf den
   Release-Schlüssel (Abschnitt 14.3). Im unbeaufsichtigten Aufruf Pflicht; der Dialog füllt
   ihn vor, die Doku sagt, ihn einmal mit den Release-Notizen auf GitHub abzugleichen.
@@ -1069,8 +1172,12 @@ jeder Schritt steht in `try`/`catch`, ein Fehler beendet das Skript mit Exit-Cod
      `$env:windir\Sysnative\WindowsPowerShell\v1.0\powershell.exe` neu. Weil der Skripttext
      für `-EncodedCommand` zu lang ist, lädt der Neustart das Skript per
      `iex (irm …)` mit derselben URL neu; Parameter werden vorher in die entsprechenden
-     `RESTOW_*`-Variablen übertragen, die der Kindprozess erbt. Ein zweiter 32-Bit-Start
-     bricht ab. Pfade kommen danach aus `[Environment]::GetFolderPath` bzw. `$env:ProgramW6432`,
+     `RESTOW_*`-Variablen übertragen, die nur der Kindprozess bekommt (`Invoke-Relaunch`
+     stellt die Umgebung der Sitzung danach wieder her). Wie bei `Invoke-Agent` gilt dort
+     `$ErrorActionPreference = 'Continue'` und nur der Exit-Code: unter `Stop` machte Windows
+     PowerShell 5.1 aus einer stderr-Zeile des Kindes (einer weitergereichten Warnung des
+     Agents) einen abbrechenden Fehler, der die Installation mittendrin beendete. Ein zweiter
+     32-Bit-Start bricht ab. Pfade kommen danach aus `[Environment]::GetFolderPath` bzw. `$env:ProgramW6432`,
      nie aus `$env:ProgramFiles` eines 32-Bit-Hosts.
    - Administrator und erhöht
      (`[Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole('Administrators')`),
@@ -1102,11 +1209,13 @@ jeder Schritt steht in `try`/`catch`, ein Fehler beendet das Skript mit Exit-Cod
    DACL im selben Aufruf. Jede Datei mit `Get-FileHash -Algorithm SHA256` gegen die signierte
    Liste. Erst danach wird irgendetwas ausgeführt.
 5. **Installation:** Läuft der Dienst schon, `Stop-Service RestowAgent`. Ordner
-   `C:\Program Files\Restow\bin` anlegen (erbt die DACL von `Program Files`), Eigentümer und
+   `C:\Program Files\Restow\bin` anlegen (erbt die DACL von `Program Files`, Besitzer
+   Administratoren wie in Abschnitt 6, "Besitzer beim Anlegen"), Eigentümer und
    DACL mit `Get-Acl` gegen die Regeln aus Abschnitt 6 prüfen. Dateien verschieben; eine
    laufende alte `restow-agent.exe` wird wie in Abschnitt 13 umbenannt. Ein Verschieben auf
    demselben Volume behält die DACL der Datei, also die des Staging-Ordners (nur SY, BA);
-   `icacls <datei> /reset` gibt jeder verschobenen Datei danach die geerbten Rechte ihres
+   `icacls <datei> /setowner *S-1-5-32-544` und `icacls <datei> /reset` geben jeder
+   verschobenen Datei danach den Besitzer Administratoren und die geerbten Rechte ihres
    neuen Ordners, wie bei den Dateien der Selbstaktualisierung (dort im `bin`-Ordner
    angelegt). Sonst könnte ein Benutzer ohne Erhöhung `restow-agent status` nicht starten.
    **Am Zielort** werden die Hashes unmittelbar vor `service install` noch einmal geprüft.
@@ -1116,7 +1225,22 @@ jeder Schritt steht in `try`/`catch`, ein Fehler beendet das Skript mit Exit-Cod
    die Umgebung des Kindprozesses, wie `linux.sh`; die Eingabe kommt aus
    `Read-Host -AsSecureString` und wird nur für diesen Aufruf entschlüsselt), dann
    `service start` und `status`. Ist der Rechner schon angemeldet, wird kein Token
-   abgefragt (Reparatur/Upgrade, wie unter Linux). Mit `RESTOW_TOKEN_FILE`: vorher die ACL
+   abgefragt (Reparatur/Upgrade, wie unter Linux). "Angemeldet" entscheidet
+   `restow-agent status --json` des neu installierten Agents (`credentials: readable`), nicht
+   `Test-Path` auf `state.json`; nur wenn `status` nicht läuft, gilt die Datei wie früher. Ist
+   die Anmeldung unlesbar (DPAPI-Schlüssel weg, Datei beschädigt), nennt der Installer den
+   Grund, verlangt einen Token und ruft `enroll --force` auf. `-Hooks` auf einem angemeldeten
+   Rechner prüft den Exit-Code von `restow-agent hooks` und bricht bei einem Fehler ab. Der
+   Text eines gescheiterten `enroll` richtet sich nach dessen Exit-Code: 4 (die Instanz selbst hat den
+   Token abgelehnt: HTTP 401 mit dem Problemtyp `enrollment-token-invalid`) verlangt einen neuen
+   Token, 5 (Instanz nicht erreichbar, auch HTTP 407 eines Proxys mit Anmeldung) nennt Netz,
+   Firewall und `-Proxy`, und nutzt Windows für die URL einen Proxy
+   (`[Net.WebRequest]::GetSystemWebProxy()`, Internetoptionen, WPAD oder PAC), nennt der
+   Installer ihn mit `-Proxy <proxy>`; er übernimmt ihn nie ungefragt. Jeder andere Code
+   verweist auf die Meldung des Agents, die sagt, ob der Token verbraucht ist; eine andere
+   4xx-Antwort (404 einer falschen Adresse, 403 einer Web Application Firewall) ist Code 1, und
+   die Meldung nennt Adresse, Reverse-Proxy und Firewall statt des Tokens. `linux.sh` und
+   `macos.sh` machen dasselbe. Mit `RESTOW_TOKEN_FILE`: vorher die ACL
    der Datei mit den Regeln aus Abschnitt 6 prüfen (Lesen für nicht vertraute SIDs →
    Warnung wie `linux.sh:316-319`), nach erfolgreichem `enroll` die Datei löschen (der
    Token ist ohnehin nur einmal gültig, `agent-service.ts:226-257`).
@@ -1198,7 +1322,7 @@ Skriptsignaturen ohnehin nicht. Folgen:
 | SmartScreen (App-Reputation) | Prüft Dateien mit Mark of the Web beim Start aus dem Explorer. `Invoke-RestMethod`/`Invoke-WebRequest` setzen kein Mark of the Web, der Dienst startet nicht über den Explorer: **kein SmartScreen-Dialog** beim Skriptweg. Lädt ein Admin die `.exe` per Browser und startet sie per Doppelklick, kommt "Der Computer wurde durch Windows geschützt". | Doku: nur den Skriptweg nutzen. |
 | AMSI, ASR, EDR gegen `iex (irm …)` | Das Muster "Download und direkt ausführen" wird von vielen Regeln gemeldet oder blockiert. | Doku nennt den Weg "Datei laden, Hash vergleichen, mit `-File` starten" gleichwertig (14.1). |
 | Microsoft Defender Antivirus | Unsignierte, neue Go-Binaries werden gelegentlich heuristisch als Schadsoftware erkannt (Fehlalarm), auch nach Updates (neuer Hash). | Einreichung über das Microsoft-Portal "Submit a file for malware analysis" als Softwareentwickler, **schon für den Prerelease-Build**: Der Build ist reproduzierbar (`SOURCE_DATE_EPOCH`, `release.yml:256`), die Hashes stehen nach dem Job `agent` fest, und das Urteil dauert Tage. Die Zeile "Defender-Einreichung geprüft" steht in der Aufforderung zum Signieren (3.6) und in der Checkliste von agent/README.md ("Release signing"). Keine pauschale Ausnahme für den Ordner empfehlen. |
-| Smart App Control (Windows 11, nur bei Neuinstallation aktiv) | Blockiert unsignierte Programme ohne Reputation unabhängig vom Mark of the Web. Der Dienst startet dann nicht. | Kein Ausweg ohne Signatur; der Installer erkennt den Zustand (`HKLM\SYSTEM\CurrentControlSet\Control\CI\Policy`, Wert `VerifiedAndReputablePolicyState` = 1) und bricht mit Erklärung ab **[Maschine]**. Betrifft vor allem Privatgeräte; auf verwalteten Geräten ist SAC meist aus. |
+| Smart App Control (Windows 11, nur bei Neuinstallation aktiv) | Blockiert unsignierte Programme ohne Reputation unabhängig vom Mark of the Web. Der Dienst startet dann nicht. Ein frisch installiertes Windows 11 beginnt im **Auswertungsmodus**: SAC blockiert noch nichts, Windows schaltet es nach einer Lernphase aber selbst ein oder aus. Schaltet es ein, blockiert es `restow-agent.exe`, `restic.exe` und jedes Agent-Update; der Dienst startet nicht mehr, Sicherungen bleiben aus, und der Server sieht nur, dass der Rechner offline ist (der blockierte Agent kann nichts mehr melden). | Kein Ausweg ohne Signatur. Der Installer liest `HKLM\SYSTEM\CurrentControlSet\Control\CI\Policy`, Wert `VerifiedAndReputablePolicyState` (0 aus, 1 an, 2 Auswertung): Bei 1 bricht er mit Erklärung ab, bei 2 installiert er und warnt am Anfang und am Ende deutlich, dass SAC später einschalten und den Agenten blockieren kann **[Maschine]**. Beide Texte nennen den Weg zum Ausschalten (Windows-Sicherheit › App- & Browsersteuerung › Einstellungen für intelligente App-Steuerung › Aus) und dass das endgültig ist: Einschalten lässt sich SAC danach nur durch Zurücksetzen oder Neuinstallieren von Windows. Geht ein Windows-11-Rechner ohne erkennbaren Grund offline, ist SAC eine mögliche Ursache. Betrifft vor allem Privatgeräte; auf verwalteten Geräten ist SAC meist aus. |
 | ASR-Regel "Ausführbare Dateien nur bei Verbreitung, Alter oder vertrauenswürdiger Liste" | Blockiert neue, seltene Binaries. Auf MSP-Flotten mit Defender for Endpoint häufig aktiv. | Doku: Ausnahme je Pfad `C:\Program Files\Restow\bin\` für diese ASR-Regel oder Datei-Indikator "Zulassen" nach SHA-256 (je Release neu). |
 | WDAC / AppLocker | Publisher-Regeln greifen nicht; Hash-Regeln brechen bei jedem Update. | Pfadregel für `C:\Program Files\Restow\bin\` (nur Administratoren dürfen dort schreiben, Abschnitt 6). |
 | Controlled Folder Access | Ein unbekanntes Programm darf nicht in geschützte Ordner (Dokumente, Bilder) schreiben. Betrifft Restores dorthin. | Standard-Restore-Ziel liegt außerhalb (Abschnitt 18.2). Doku nennt die App-Freigabe. |
@@ -1319,6 +1443,13 @@ ab. Folgen im Agenten:
   Snapshot-Pfaden `/C/Users/…`: **kein Treffer**, die Ransomware-Auswertung hielte jede Datei
   für "außerhalb der Quellen". Neue Funktion `snapshotPathOf(osPath)` (`C:\Users` →
   `/C/Users`), getestet.
+- Der Rückweg für Dateien, die der Agent nach der Sicherung auf der Platte liest
+  (Stichproben für Restore-Tests, Entropie der Ransomware-Signale): `snapshotToLocalPath`
+  macht unter Windows aus `/C/Users/a.txt` wieder `C:\Users\a.txt` und aus `/C` `C:\`, nur
+  wenn das erste Segment ein einzelner Laufwerksbuchstabe ist. `filepath.FromSlash` ergäbe
+  `\C\Users\a.txt`, einen Pfad relativ zum aktuellen Laufwerk: Kein Windows-Rechner hätte
+  Stichproben oder Entropiewerte. Getestet als Umkehrung von `snapshotPathOf` (auch unter
+  Linux).
 - `restic/pattern.go:7-21` (`EscapeIncludePath`) escapt mit `\`; unter Windows wirkungslos
   (Abschnitt 1.2). Windows-Fassung: `[` wird `[[]`, `]` bleibt; `*` und `?` kommen in
   Windows-Dateinamen nicht vor. Restic-Muster unter Windows sind außerdem
@@ -1327,6 +1458,41 @@ ab. Folgen im Agenten:
 - Die Weboberfläche zeigt Snapshot-Pfade eines Windows-Rechners als `C:\Users\anna`
   (Abschnitt 19.3); an API und Agent bleiben es `/C/…`-Pfade
   (`schemas.ts:390-396`, `core/restore.go:52-58` passen schon).
+
+### 16.5 Quellen, die nicht gelesen werden können, Junctions und eingehängte Ordner
+
+`splitSources` (`core/util.go`) prüft jede konfigurierte Quelle vor dem Start von restic:
+
+- **Fehlt sie** (`os.Lstat` meldet `ErrNotExist`, auch ein fehlender Laufwerksbuchstabe), steht
+  wie bisher "existiert nicht und wird übersprungen" im Lauf-Log; kein Lauf-Fehler.
+- **Jeder andere Fehler** (BitLocker-gesperrtes Laufwerk, `ERROR_NOT_READY` einer
+  ausgeschalteten iSCSI- oder USB-Platte, Zugriff verweigert, ebenso ein Fehler beim Auflösen
+  von Links) ist der Lauf-Fehler `source_unreadable` mit Pfad und dem Text des Systems; der
+  Lauf endet höchstens `partial`, ohne lesbare Quelle `failed`. Vorher galt jeder Fehler als
+  "existiert nicht", und der Lauf blieb grün, während das Datenlaufwerk nie gesichert wurde.
+- **Junction** (`mklink /J`) und **eingehängter Ordner** tragen beide den Reparse-Tag
+  `IO_REPARSE_TAG_MOUNT_POINT`. Seit Go 1.23 meldet `os.Lstat` sie als "irregular" und
+  `filepath.EvalSymlinks` löst sie nicht mehr auf; restic (`winsymlink=0`) speichert sie als
+  Link, ohne Inhalt. Der Agent liest den Reparse-Punkt selbst (`FSCTL_GET_REPARSE_POINT`,
+  `winapi.ReparsePoint`): Eine Junction ersetzt er durch ihr Ziel, einen eingehängten Ordner
+  durch den Laufwerksbuchstaben des Volumes (`GetVolumePathNamesForVolumeNameW`), beides mit
+  einer Zeile im Lauf-Log wie bei symbolischen Links. Ein Volume ohne Laufwerksbuchstaben ist
+  der Lauf-Fehler `source_is_mount_point` ("geben Sie dem Volume einen Laufwerksbuchstaben und
+  sichern Sie es darüber"); andere Links (etwa WSL-Symlinks) sind `source_unreadable`. Junctions
+  *innerhalb* einer Quelle bleiben Links, wie restic sie sichert.
+- **Sicherheitsnetz:** Hat restic keine einzige Datei verarbeitet, obwohl eine Quelle, die als
+  Link oder eingehängter Ordner eingetragen ist (symbolischer Link, Junction, Volume, oben
+  aufgelöst), eine Datei ist oder direkt eine enthält, ist das `source_unreadable` und der Lauf
+  `partial`. Ein gewöhnlicher Ordner zählt nicht: Lassen die Ausschlüsse des Jobs (Muster,
+  Größengrenze, reine Online-Dateien) nichts von ihm übrig, ist der leere Snapshot die Sicherung,
+  die der Job verlangt, und der Lauf bleibt `succeeded`. Ein Link in einem Ordner *über* einer
+  Quelle ist keine Ursache: Den löst das System für restic auf wie für jedes Programm.
+
+Getestet mit einem nachgebildeten Dateisystem (gesperrt, nicht bereit, kein Zugriff, Junction,
+Junction auf Junction, Volume mit und ohne Buchstaben, unbekannter Tag, Schleife), dem Parser
+für `REPARSE_DATA_BUFFER` (auch unter Linux) und unter `windowsintegration` mit `mklink /J`
+und `mountvol` auf dem Windows-Runner. Die Erklärungen der Codes im Fehlerkatalog gehören zum
+Server.
 
 ## 17. Schattenkopie (VSS)
 
@@ -1350,6 +1516,19 @@ Meldungstext und in den Erklärungsschritten. Das Feld `useVss` am Rechner bleib
   Schattenkopie: Dateisystem exFAT"). Das ist nur eine Abkürzung, keine Vorhersage: Ob der
   Anbieter ein Volume kann, hängt auch an ReFS-Version, VHD oder BitLocker-Zustand; was die
   Vorprüfung durchlässt, entscheidet restic (17.3, `snapshot_skipped`).
+- Eingehängte Ordner unter einer Quelle: restic macht von einem Laufwerk auch die Volumes
+  mit Schattenkopie, die in seinen Ordnern eingehängt sind (17.2), und liest einen solchen
+  Ordner, dessen Volume es nicht kann (`IsVolumeSupported` scheitert oder verneint),
+  **still** vom Live-Dateisystem: Der JSON-Modus meldet dazu nichts. Darum listet der Agent je
+  Laufwerk einer Quelle die eingehängten Ordner (`FindFirstVolumeMountPointW`, derselbe Aufruf
+  wie restic), nimmt die unter einer Quelle, bestimmt ihr Volume
+  (`GetVolumeNameForVolumeMountPointW`) und prüft es wie oben. Ein Wechseldatenträger, FAT32
+  oder exFAT geht mit seinem Volume-GUID-Pfad in `vss.exclude-volumes` (restic vergleicht das
+  Volume, und ein Ordnername darf `;` enthalten), steht im Lauf-Log ("C:\Daten\Archiv\ (ein
+  in einem Ordner eingehängtes Volume) ohne Schattenkopie: Dateisystem exFAT") und in
+  `liveFilesystems`. Bleibt die Grenze: Ein NTFS- oder ReFS-Volume in einem Ordner, das der
+  Anbieter trotzdem ablehnt, liest restic weiterhin ohne jedes Zeichen live; der Agent kann
+  `IsVolumeSupported` ohne eigene VSS-Sitzung nicht vorab fragen.
 
 ### 17.2 Aufruf
 
@@ -1386,11 +1565,14 @@ ohne Build-Tag):
 | restic-Eintrag | Bedeutung | Agent |
 | --- | --- | --- |
 | `during: "archival"`, `item` ist ein Volume (`x:\` oder `\\?\Volume{…}\`), Text beginnt mit `failed to create snapshot for [` und enthält `Snapshots are not supported for volume` | Anbieter kann das Volume nicht | `SkippedVolumes`, nur Lauf-Log ("ohne Schattenkopie: vom Anbieter nicht unterstützt"), **kein** Fehler, keine Abwertung, auch nicht bei `fail` |
+| Text beginnt mit `failed to create snapshot for [` und enthält ein sicheres Zeichen, dass der Dienst auf dem ganzen Rechner nicht nutzbar ist: `0x80070422` (Dienst deaktiviert), `0x80070424` (nicht installiert), `0x8007042c` (abhängiger Dienst startet nicht), `can't use VSS` (Architektur), `invalid VSS provider`; oder **jedes** geplante Volume scheiterte mit `E_ACCESSDENIED`/`0x80070005` (`restic.SplitMachineWide`) | VSS gar nicht nutzbar, erst beim ersten Volume bemerkt: `HasSufficientPrivilegesForVSS` lädt nur `VssApi.dll` und legt die Backup-Komponenten im eigenen Prozess an, den Dienst spricht erst `InitializeForBackup` je Volume an; restic endet mit Exit 0 | `FailedVolumes` wie unten, gemeldet aber als **ein** `snapshot_unavailable` mit der Ursache (dauerhaft, 17.4), nicht als `snapshot_failed` je Volume; Konsistenz `unavailable`. Zugriff verweigert kann auch ein einzelnes Volume oder dessen Anbieter betreffen: Bekam ein anderes Volume seine Schattenkopie (restic meldet es nicht als gescheitert), oder sind die Volumes nicht alle bekannt, bleibt es `snapshot_failed` dieses Volumes mit Konsistenz `partial`, und der Text nennt die wahrscheinliche Ursache, falls es jedes Volume trifft. Unter `fail` hält der Agent restic beim ersten Eintrag an; ein Zugriff verweigert auf dem ersten Volume ist dann `snapshot_failed`, ein deaktivierter Dienst `snapshot_unavailable`. Dass alle Volumes scheitern, reicht allein nicht: ein zweites Backup-Programm mit eigener Schattenkopie (`VSS_E_SNAPSHOT_SET_IN_PROGRESS`), ein Writer in falschem Zustand oder ein Anbieterfehler (`VSS_E_UNEXPECTED_PROVIDER_ERROR`, oft der Speicher eines Volumes) lässt ebenfalls jedes Volume scheitern und geht vorüber. |
 | sonst Text beginnt mit `failed to create snapshot for [` | Schattenkopie eines Volumes fehlgeschlagen, restic liest live | `FailedVolumes = append(…, {Volume, Message})`, **nicht** als Dateifehler gezählt |
 | Text beginnt mit `failed to delete VSS snapshot` | Schattenkopie blieb nach dem Lauf liegen | `CleanupFailed` |
 | `failed to get volume from mount point` / `failed to parse vss.exclude-volumes` | Konfigurationsproblem einzelner Einhängepunkte | Warnung im Log |
-| Exit 1 vor der ersten `status`-Zeile, `--use-fs-snapshot` war gesetzt, `Fatal`/`Stderr` enthält `VSS error`, einen `VSS_E_`-Code, `VssApi.dll`, `CoInitializeEx` oder `CoInitializeSecurity` | VSS gar nicht nutzbar (DLL, COM, Rechte, Dienst deaktiviert, Architektur) | `restic.Error` mit `SnapshotUnavailable() == true` |
-| Exit 1 vor der ersten `status`-Zeile, `--use-fs-snapshot` war gesetzt, Exit nicht 10, 11 oder 12, Text passt auf nichts davon | vielleicht VSS, vielleicht nicht | Rückfall wie bei "nicht nutzbar" (17.4); `snapshot_unavailable` nur, wenn der zweite Lauf ohne VSS nicht mit derselben `Fatal`-Meldung scheitert, sonst normaler `restic_error` |
+| Text beginnt mit `VSS error:` (in restic 0.19.1 nur `VSS error: GetSnapshotProperties() for mount point <ordner> returned error: …`, `item` ist der Ordner) | Die Schattenkopie eines in einem Ordner eingehängten Volumes ist gemacht, aber nicht nutzbar; restic liest den Ordner live und endet mit Exit 0 | `FailedVolumes` mit dem Ordner (`C:\daten\archiv\`), also `snapshot_failed`, Lauf `partial` und Konsistenz `partial` wie bei einem Volume; unter `fail` hält der Agent restic an. Kein Dateifehler. Andere Dateifehler bleiben Dateifehler: Nur dieser Anfang zählt, nicht jeder Fehlereintrag eines Laufs mit `--use-fs-snapshot`. |
+| Exit 1 vor der ersten `status`-Zeile, `--use-fs-snapshot` war gesetzt, `Fatal`/`Stderr` enthält `VSS error`, einen `VSS_E_`-Code, `VssApi.dll`, `CoInitializeEx`, `CoInitializeSecurity` oder den rohen OLE-Text von `CoInitializeEx` (`Cannot change thread mode after it is set`, `0x80010106`, `Catastrophic failure`) | VSS gar nicht nutzbar (DLL, COM, Rechte, Dienst deaktiviert, Architektur) | `restic.Error` mit `SnapshotUnavailable() == true` |
+| Exit 1 vor der ersten `status`-Zeile, Text eines Repository- oder Netzfehlers (`unable to open`, `dial tcp`, `http response`, `Load(<…>)`, `i/o timeout`, `connection refused`, TLS) | nicht VSS | gewöhnlicher Fehler (`restic_exit_1` mit Hinweis) |
+| Exit 1 vor der ersten `status`-Zeile, `--use-fs-snapshot` war gesetzt, Text passt auf nichts davon | vermutlich nicht VSS: in restic 0.19.1 endet nur die VSS-Einrichtung (`HasSufficientPrivilegesForVSS`) einen Lauf, und deren Texte sind oben erfasst | gewöhnlicher Fehler (`restic_exit_1`), kein zweiter Lauf ohne VSS, kein `snapshot_unavailable`; das Lauf-Log nennt VSS als mögliche Ursache, falls es sich wiederholt. Die Wiederholung der Richtlinie läuft wieder mit Schattenkopie. |
 
 Die Texte sind restics eigene Formate (`fs_local_vss.go:199-204`, `:119`,
 `vss_windows.go:199, 219, 966-972, 797-861`) und werden mit Testdaten aus genau diesen
@@ -1412,9 +1594,10 @@ Richtlinie gilt für APFS und LVM/btrfs.
 
 | Fall | `continue` | `fail` |
 | --- | --- | --- |
-| Ein Volume ohne Schattenkopie (`FailedVolumes`, restic Exit 0 oder 3) | Snapshot bleibt. Status `partial`, Fehler `snapshot_failed` je Volume. | Der Agent bricht restic ab, sobald der erste solche Eintrag kommt (CTRL_BREAK, 12.1; restic legt bei Abbruch keinen Snapshot an, `cmd_backup.go:697-701`). Status `failed`, Fehler `snapshot_failed`. Schon hochgeladene Daten ohne Snapshot räumt das nächste `prune` des Servers weg. |
+| Ein Volume ohne Schattenkopie (`FailedVolumes`, restic Exit 0 oder 3) | Snapshot bleibt. Status `partial`, Fehler `snapshot_failed` je Volume. | Der Agent bricht restic ab, sobald der erste solche Eintrag kommt (CTRL_BREAK, 12.1). Ein restic, das den Abbruch noch bemerkt, legt keinen Snapshot an (`cmd_backup.go:697-701`); schon hochgeladene Daten ohne Snapshot räumt das nächste `prune` des Servers weg. Status `failed`, Fehler `snapshot_failed`. Hatte restic seinen Snapshot aber schon gespeichert (kleine Quellen, der Abbruch kam zu spät), meldet der Agent dessen ID und Zahlen mit dem gescheiterten Lauf, und `snapshot_failed` sagt, dass dieser Snapshot mit live gelesenen Dateien im Repository bleibt und keine Sicherung im Sinne der Richtlinie ist. So ist er keinem Lauf fremd (sonst markierte ihn der Server als "von keiner Sicherung gemeldet" und die Aufbewahrung ließe ihn nie gehen); die Laufdetails sagen beim Snapshot eines gescheiterten oder in Restow abgebrochenen Laufs, dass er nicht als erfolgreiche Sicherung zählt. Markieren (`restic tag`) kann der Agent ihn nicht: Das schreibt einen neuen Snapshot und löscht den alten, und der Agent schreibt nur anhängend (docs/AGENT.md, Autorisierung). Dasselbe gilt für einen Snapshot, den restic vor einer Unterbrechung (Neustart des Agents, Abbruch in Restow) oder vor der Zeitüberschreitung gespeichert hat: Er wird mit dem Lauf gemeldet. |
 | Volume vom Anbieter nicht unterstützt (`SkippedVolumes`) | nur Lauf-Log | nur Lauf-Log |
-| VSS gar nicht nutzbar (17.3, oder Agent ohne Rechte) | Der Agent startet restic sofort ein zweites Mal ohne `--use-fs-snapshot`. Status höchstens `partial`, Fehler `snapshot_unavailable`. | Status `failed`, Fehler `snapshot_unavailable`. |
+| VSS gar nicht nutzbar, erst an den Volumes erkannt (17.3: Dienst deaktiviert, Zugriff verweigert auf jedem geplanten Volume, restic Exit 0) | Snapshot bleibt (restic las alle Volumes live). Status `partial`, **ein** Fehler `snapshot_unavailable` ("The file system snapshot (Volume Shadow Copy) cannot be used on this machine: the Volume Shadow Copy service (VSS) is disabled (C:\, D:\: <restics Text>)"), kein `snapshot_failed` für diese Volumes; das Lauf-Log nennt den Dienst "Volume Shadow Copy" in `services.msc`. | Abbruch beim ersten solchen Eintrag wie oben, Status `failed`, Fehler `snapshot_unavailable` mit derselben Ursache. |
+| VSS gar nicht nutzbar (17.3, oder Agent ohne Rechte) | Der Agent startet restic sofort ein zweites Mal ohne `--use-fs-snapshot`. Gelingt das, Status höchstens `partial` und Fehler `snapshot_unavailable` ("restic could not initialise the Volume Shadow Copy service: <restics Text>"). Scheitert auch der zweite Lauf, ist dessen Fehler die Ursache des Laufs, ohne `snapshot_unavailable`. | Status `failed`, Fehler `snapshot_unavailable`. |
 | Schattenkopie nicht gelöscht | Status bleibt, Fehler `snapshot_cleanup_failed` (Hinweis, keine Abwertung). | ebenso |
 
 Der eigene Abbruch bei `fail` läuft über `context.WithCancelCause` mit einer eigenen Ursache
@@ -1437,16 +1620,31 @@ Feld nicht und läuft auf Linux/macOS ohnehin ohne Snapshot).
   - `{ code: "snapshot_cleanup_failed", path: "C:\\", message: "…" }`.
 - **Statistik** (umgesetzt als Berichtsfeld `consistency`, Form in Entscheidung 1):
   `stats.snapshot = { method: "vss" | "apfs" | "lvm" | "btrfs", state:
-  "used" | "partial" | "unavailable" | "off" }`. `used`: angefordert, kein Fehler
-  (übersprungene Volumes zählen nicht); `partial`: mindestens ein Volume ohne; `unavailable`:
-  ganz ohne; `off`: nicht angefordert.
+  "used" | "partial" | "unavailable" | "off" }`. `used`: angefordert, kein Fehler und
+  mindestens ein Volume wirklich aus einer Schattenkopie; vorab ausgeschlossene und vom
+  Anbieter nicht unterstützte Volumes stehen in `liveFilesystems`, werten aber nicht ab.
+  `partial`: mindestens ein Volume mit fehlgeschlagener Schattenkopie; `unavailable`: ganz ohne,
+  auch wenn jedes Volume der Quellen ausgeschlossen, übersprungen oder fehlgeschlagen ist (dann
+  mit der Liste in `liveFilesystems`); `off`: nicht angefordert. Vorher hieß ein Lauf, der nur
+  einen exFAT-Stick las, "Schattenkopie (dateikonsistent)"; jetzt "Ohne Schattenkopie: E:\".
+  Der Status folgt nur aus dem, was scheiterte: Volumes, die VSS sicher nicht kann (vorab
+  ausgeschlossen) oder die der Anbieter nicht unterstützt, sind kein Fehler, auch wenn sie alles
+  sind, was der Lauf hat. Ein Lauf nur mit einem exFAT-Stick bleibt `succeeded` mit Konsistenz
+  `unavailable` und dem Volume, wie ein exFAT-Stick neben einem C:\ aus der Schattenkopie
+  `succeeded` mit `used` bleibt; sonst bliebe ein solcher Job für immer `partial`, und abhelfen
+  könnte man nur, indem man VSS für den ganzen Rechner abschaltet. `partial` machen nur
+  `snapshot_failed` und `snapshot_unavailable`. Wie die Oberfläche
+  `liveFilesystems` bei `used` zeigt, regelt der Server.
 - **Oberfläche:** "Schattenkopie (dateikonsistent)" bzw. "Ohne Schattenkopie". Nicht
   "konsistent": restic fordert eine Kopie-Sicherung ohne Writer-Komponenten an
   (`VSS_BT_COPY`, Abschnitt 1.2). Dateien offener Datenbanken (SQL Server, Exchange) sind
   absturzkonsistent, ein Administrator muss sie nach dem Restore anhängen bzw. wiederherstellen
-  lassen, und Transaktionsprotokolle werden nicht gekürzt. Anwendungskonsistenz geht über
-  Hooks (`sqlcmd -Q "BACKUP DATABASE … TO DISK=…"` als Pre-Hook). Das steht in docs/AGENT.md
-  und agent/README.md unter den bekannten Grenzen.
+  lassen, und Transaktionsprotokolle werden nicht gekürzt. Für SQL Server ist die native
+  Sicherung der Weg (0.5.0, Vorschau, docs/BAREMETAL-WINDOWS.md 5.1). Ein Pre-Hook
+  `sqlcmd -Q "BACKUP DATABASE … TO DISK=…"` ist es nicht: Hooks laufen als SYSTEM, und SYSTEM
+  ist seit SQL Server 2012 kein sysadmin; er bräuchte eine Anmeldung für
+  `NT SERVICE\RestowAgent`. Das steht in docs/AGENT.md und agent/README.md unter den
+  bekannten Grenzen.
 - **Lauf-Log:** eine Zeile je Volume mit dem Grund und dem Hinweis "Ereignisanzeige >
   Windows-Protokolle > Anwendung, Quelle VSS; `vssadmin list writers` als Administrator".
 - **Erklärung** (`endpoint_runs.failure`): neue Codes `endpoint.snapshot_failed` und
@@ -1726,7 +1924,12 @@ Zugangsdaten (12.5), keine Gnadenfrist für Hooks unter Windows und Hooks nur `.
 (12.2), `.ps1`-Hooks unter einer GPO mit `AllSigned` nur signiert (12.2), Binärdatei bleibt
 nach Deinstallation über das Binary bis zum Neustart liegen (9.4), Restrisiko beim
 Job-Zuordnen (12.3), Installer-Prüfung schützt ohne Pin nicht gegen eine feindliche Instanz
-(14.3).
+(14.3), Smart App Control im Auswertungsmodus kann den Agenten nach der Installation
+blockieren, ohne dass der Agent das noch melden kann (15). Seit 0.5.0 (W1, W2a,
+docs/BAREMETAL-WINDOWS.md): Die Dateisicherung ist keine Sicherung von SQL Server, Exchange,
+Active Directory oder Hyper-V (fester Hinweis `app_files_not_app_backup`); die native
+SQL-Server-Sicherung ist Vorschau (nur Kopie-Vollsicherungen, kein Point-in-Time, keine
+Failover-Cluster, kein Restore über die vorhandene Datenbank).
 
 ## 22. Testplan
 
@@ -1832,7 +2035,8 @@ Punkte folgen nach dem Release und gehen in 0.5.x ein.
    gemeldet? Einreichung bei Microsoft vorher erledigt? Gilt als bestanden mit einem sauberen
    Ergebnis auf einem frischen Windows 11 mit Standardeinstellungen.
 3. Smart App Control (Windows 11 frisch installiert, SAC an): erkennt der Installer es und
-   bricht verständlich ab?
+   bricht verständlich ab? Im Auswertungsmodus (Wert 2): installiert er und warnt am Anfang
+   und am Ende, mit dem Weg zum Ausschalten?
 4. ARM64: klare Ablehnung durch Installer und Server.
 5. Dienst: startet nach Neustart (verzögert), steht unter LocalSystem mit der reduzierten
    Privilegienliste (`sc qprivs RestowAgent`), kein sichtbares Konsolenfenster, Stopp über
@@ -2030,6 +2234,10 @@ Der Maintainer hat alle Punkte entschieden; die Begründungen der Empfehlungen g
 
 ## 26. Stand der Umsetzung
 
+**0.5.0, W1 und W2a (Windows-Fakten, Hinweise, native SQL-Server-Sicherung):** siehe
+docs/BAREMETAL-WINDOWS.md, Abschnitt "Stand der Umsetzung". Die Hook-Empfehlung mit `sqlcmd`
+ist in diesem Dokument (2.2, 17.5), in docs/AGENT.md und agent/README.md korrigiert.
+
 **M1, Teil Build, CI und Release-Gerüst (umgesetzt):**
 
 - `agent/build.sh` baut fünf Ziele; `windows-amd64` liefert `restow-agent.exe` und
@@ -2189,8 +2397,10 @@ Fehlerpolitik, Server, Oberfläche und i18n folgen im nächsten Schritt.
   wird wie bisher protokolliert). Unter `fail` bricht der Agent restic über
   `context.WithCancelCause` mit eigener Ursache ab, das zählt weder als Unterbrechung noch als
   `restic_error`. Unter `continue` startet er bei "VSS nicht nutzbar" restic ein zweites Mal
-  ohne `--use-fs-snapshot`; bei einem unbekannten Exit 1 nur dann `snapshot_unavailable`, wenn
-  der zweite Lauf nicht mit derselben Meldung scheitert.
+  ohne `--use-fs-snapshot` und meldet `snapshot_unavailable` nur, wenn dieser Lauf gelingt.
+  Ein unbekannter Exit 1 ist seit dem Audit zu 0.5.0 ein gewöhnlicher Fehler: Vorher führte
+  auch ein kurzer Netzfehler beim Öffnen des Repositorys zu einer Sicherung ohne Schattenkopie
+  und zur Erklärung "Schattenkopien nicht nutzbar" (17.3).
 - Pfade (16): Quellen der anderen Pfadform werden übersprungen und einmal protokolliert
   (`ownFormSources`), `snapshotPathOf` (`C:\Users` -> `/C/Users`) für die Ransomware-Auswertung,
   `verify.go` prüft Snapshot-Pfade mit `path.Clean`, Restore unter Windows mit `--iinclude` und
@@ -2335,13 +2545,17 @@ geprüft sind die reinen Funktionen und die Politik mit einem falschen restic un
     erhöhten Konsole (`backup-now` lehnt dort schon ab; sonst Hinweis im Log).
 26. Vorab ausgeschlossene Volumes: exFAT-USB-Stick und eine FAT32-Partition als Quelle;
     `-o vss.exclude-volumes=E:\` steht in der restic-Zeile, Hinweis im Log, Lauf `succeeded`
-    (`state: "used"`, `liveFilesystems: ["E:\\"]`), auch mit `fail`. Ob restic die Form
+    (nur der Stick als Quelle: `state: "unavailable"`, mit `C:\Users` zusammen: `state:
+    "used"`, beide mit `liveFilesystems: ["E:\\"]`), auch mit `fail`. Ob restic die Form
     `E:\` in `vss.exclude-volumes` annimmt oder `E:` verlangt, ist hier nicht geprüft.
 27. Vom Anbieter nicht unterstütztes Volume (eingehängte VHD, ReFS auf älterem Server): nur
     Hinweis im Log, kein Fehler, auch mit `fail`.
-28. Eingehängter Ordner (Volume unter `C:\mnt\daten`): `GetVolumePathNameW` liefert den
-    Einhängepunkt, restic macht eine eigene Schattenkopie; prüfen, dass `liveFilesystems` und
-    die Lauf-Fehler den Einhängepunkt sinnvoll nennen.
+28. Eingehängter Ordner (Volume unter `C:\mnt\daten`) als Quelle: mit Laufwerksbuchstaben
+    sichert der Agent das Laufwerk (Lauf-Log nennt beides), ohne Buchstaben endet der Lauf
+    `partial` mit `source_is_mount_point`. Ein exFAT-Stick, eingehängt unter `C:\Daten\Stick` mit
+    `C:\Daten` als Quelle: `vss.exclude-volumes` nennt den Volume-GUID-Pfad, das Lauf-Log und
+    `liveFilesystems` nennen `C:\Daten\Stick\`, Lauf `succeeded` mit `state: "used"`. Eine Junction als Quelle wird über ihr Ziel
+    gesichert; ein BitLocker-gesperrtes Datenlaufwerk ergibt `source_unreadable` (16.5).
 29. `--exclude-cloud-files` mit OneDrive (Nur-Online-Dateien): nichts wird heruntergeladen,
     lokal vorhandene Dateien sind im Snapshot; `--iexclude-file`: `c:\windows\temp` wird von
     `C:\Windows\Temp` getroffen; `pagefile.sys`, `hiberfil.sys`, `$Recycle.Bin` und

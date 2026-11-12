@@ -62,6 +62,7 @@ import type { ManifestObject, SnapshotManifest } from "../manifest.js";
 import { chunkReaderFor, type RestoreGraphClientFactory, throwIfAborted } from "./common.js";
 import { objectTypeOf } from "./conventions.js";
 import { OneDriveRestoreSession, parseDriveTargetRef } from "./onedrive.js";
+import { RestoreProgress } from "./progress.js";
 import { isAbortError, RestoreLedger, type RestoreReport } from "./results.js";
 import { planRestore, resolveRestoreSource } from "./selection.js";
 
@@ -87,6 +88,25 @@ interface LibraryGroup {
 interface ListGroup {
   readonly folder: string;
   readonly items: ManifestObject[];
+}
+
+/**
+ * The note for what is restored from a library the backup could not read and
+ * carried forward from an earlier run (`carriedForward`, `lastReadAt` on the
+ * library's folder object, backup/sharepoint): the files are what that run
+ * read, not this backup's state. Their verification is untouched: they are
+ * restored exactly as backed up.
+ */
+export function carriedForwardNote(library: ManifestObject | undefined): string | undefined {
+  if (library?.metadata?.carriedForward !== "true") {
+    return undefined;
+  }
+  const lastReadAt = library.metadata.lastReadAt;
+  const when =
+    lastReadAt !== undefined && !Number.isNaN(Date.parse(lastReadAt))
+      ? `as of ${new Date(lastReadAt).toISOString()}`
+      : "as of an earlier backup";
+  return `the library could not be read at this backup; its files are ${when}`;
 }
 
 /** Objects of the snapshot keyed by path, for the library and list folder records. */
@@ -189,15 +209,28 @@ export class SharePointRestoreEngine implements RestoreEngine {
     const reader = chunkReaderFor(ctx);
     if (libraries.size > 0) {
       ctx.progress.phase("files");
-      await this.restoreLibraries(
-        ctx,
-        request,
-        client,
-        objects,
-        [...libraries.values()],
-        ledger,
-        logger,
-      );
+      const progress = await RestoreProgress.open(ctx.cursor, {
+        restoreJobId: request.restoreJobId,
+        retry: ctx.attempt > 0,
+      });
+      try {
+        await this.restoreLibraries(
+          ctx,
+          request,
+          client,
+          objects,
+          [...libraries.values()],
+          ledger,
+          logger,
+          progress,
+        );
+      } finally {
+        await progress.flush().catch((error: unknown) =>
+          logger.warn("could not save the restore progress", {
+            error: error instanceof Error ? error.message : String(error),
+          }),
+        );
+      }
     }
     if (lists.size > 0) {
       ctx.progress.phase("lists");
@@ -247,6 +280,7 @@ export class SharePointRestoreEngine implements RestoreEngine {
     groups: readonly LibraryGroup[],
     ledger: RestoreLedger,
     logger: Logger,
+    progress: RestoreProgress,
   ): Promise<void> {
     const other =
       request.target.type === "other" ? parseDriveTargetRef(request.target.ref ?? "") : null;
@@ -287,18 +321,27 @@ export class SharePointRestoreEngine implements RestoreEngine {
         reader: chunkReaderFor(ctx),
         ledger,
         logger: logger.child({ library: group.folder, driveId }),
+        progress,
         targetPathOf: (path) => (path.startsWith(prefix) ? path.slice(prefix.length) : ""),
       });
+      // A library Graph refused at this backup kept the files of the run that last read it.
+      const stale = carriedForwardNote(objects.get(libraryPath(group.folder)));
       for (const folder of group.folders) {
         if (folder.path === libraryPath(group.folder)) {
           // The library itself: it exists (or the target was named); nothing to create.
-          ledger.restored(folder, { targetRef: driveId, bytes: 0, verified: true });
+          ledger.restored(folder, { targetRef: driveId, bytes: 0, verified: true, note: stale });
           continue;
         }
         await session.restoreFolder(folder);
+        if (stale !== undefined) {
+          ledger.amendRestored(folder.path, stale);
+        }
       }
       for (const file of group.files) {
         await session.restoreFile(file);
+        if (stale !== undefined) {
+          ledger.amendRestored(file.path, stale);
+        }
       }
     }
   }

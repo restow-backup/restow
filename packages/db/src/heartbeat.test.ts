@@ -217,3 +217,39 @@ describe("ServiceHeartbeatReporter", () => {
     expect(second.instanceId).not.toBe(first.instanceId);
   });
 });
+
+describe("the node a process runs on", () => {
+  it("reads RESTOW_NODE_ID and RESTOW_NODE_NAME, and nothing on the main host", async () => {
+    const { nodeIdentity } = await import("./heartbeat.js");
+    expect(nodeIdentity({})).toEqual({ nodeId: null, nodeName: null });
+    expect(
+      nodeIdentity({
+        RESTOW_NODE_ID: "0B8C8E5E-6D6A-4F7E-9D3C-1F2E3D4C5B6A",
+        RESTOW_NODE_NAME: " worker-1 ",
+      }),
+    ).toEqual({ nodeId: "0b8c8e5e-6d6a-4f7e-9d3c-1f2e3d4c5b6a", nodeName: "worker-1" });
+    expect(nodeIdentity({ RESTOW_NODE_ID: "x" }).nodeId).toBeNull();
+  });
+
+  it("reports the node id with every beat", async () => {
+    const { ServiceHeartbeatReporter } = await import("./heartbeat.js");
+    const rows: { details: Record<string, unknown>; hostname: string | null }[] = [];
+    const reporter = new ServiceHeartbeatReporter({
+      store: {
+        upsert: async (row) => void rows.push(row),
+        remove: async () => undefined,
+        prune: async () => undefined,
+      },
+      role: "worker",
+      details: () => ({ state: "running" }),
+      hostname: "worker-1",
+      nodeId: "0b8c8e5e-6d6a-4f7e-9d3c-1f2e3d4c5b6a",
+    });
+    await reporter.beat();
+    expect(rows[0]?.details).toEqual({
+      state: "running",
+      nodeId: "0b8c8e5e-6d6a-4f7e-9d3c-1f2e3d4c5b6a",
+    });
+    expect(rows[0]?.hostname).toBe("worker-1");
+  });
+});

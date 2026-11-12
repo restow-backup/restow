@@ -75,6 +75,7 @@
     "green": "Ready",
     "yellow": "Attention",
     "red": "Not restorable",
+    "empty": "Empty",
     "unverified": "Unverified",
     "none": "No backup",
     "needs_credential": "Needs attention",

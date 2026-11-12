@@ -2,6 +2,8 @@
 # Integration tests: the agent against the real restic binary and a real restic
 # REST server in append-only mode.
 #
+# claim: RETAIN-013 (docs/CLAIMS.md: the agent adds backups and can neither delete nor overwrite one)
+#
 #   scripts/integration.sh            run on Linux (in Docker if Go is not installed)
 #   scripts/integration.sh --native   run natively on this machine (macOS or Linux):
 #                                     the test binary and the agent are cross-compiled

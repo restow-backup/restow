@@ -24,8 +24,10 @@ Known Issues.
 
 ## What it does
 
-- **Backup** of Exchange Online (mail, calendar, contacts) and OneDrive through
-  Microsoft Graph, incremental via delta queries, and of any IMAP mailbox.
+- **Backup** of Exchange Online (mail, calendar, contacts), OneDrive, SharePoint
+  sites (with the files of Teams channels) and the calendars and conversations of
+  Microsoft 365 groups through Microsoft Graph, incremental via delta queries, and
+  of any IMAP mailbox, Gmail and Google Workspace included.
   Graph is the only Microsoft interface Restow uses; Exchange Web Services, which
   Microsoft switched off for Exchange Online on 1 October 2026, are not.
 - **Endpoint backup** of servers and clients with the Restow agent and restic:
@@ -67,7 +69,9 @@ Known Issues.
   machines shows the request as queued until the agent picks it up at its next
   check-in.
 - **Restore** of a single mail, a folder, a file, a file version or a whole
-  account, next to the original, never over it; or as a ZIP download. People
+  account, next to the original, never over it (a SharePoint site is the one
+  exception: there "Overwrite" is an explicit choice, and the library keeps the
+  overwritten file as an earlier version); or as a ZIP download. People
   with the role "user" restore only their own mailbox and OneDrive. File restore
   lists the machines with their restore points on one timeline by day and a
   jump to any date; mailboxes and OneDrive are restored in the restore explorer.
@@ -79,8 +83,9 @@ Known Issues.
   imported mail files go into an append-only store with a SHA-256 hash chain,
   chain verification and search over subject, extracted text and addresses (not
   attachments). Business adds enforced retention (fixed at 8 years in 0.3.0) and
-  legal hold, designed for GoBD-compliant use (not certified). Continuous
-  IMAP and Graph archive sync are not part of 0.3.0. On local and NFS
+  legal hold, designed for GoBD-compliant use (not certified), and captures mail
+  into the archive continuously from IMAP mailboxes and through Microsoft Graph
+  ([docs/IMAP.md](docs/IMAP.md), [docs/ARCHIVE.md](docs/ARCHIVE.md)). On local and NFS
   targets the archive's immutability is enforced by the application only, and on
   S3 with Object Lock 0.3.0 locks the archive item records but not the packs
   that hold the message content; see Known Issues in the changelog.
@@ -126,9 +131,11 @@ Known Issues.
   multi-selection to put several machines or mailboxes into a new job, full-width
   tables, German and English.
 
-Not included in 0.3.0: PST and OST import, PST and MSG export, a Windows agent,
-continuous IMAP and Graph archive sync, SharePoint, Teams, Google Workspace and
-public folders. The first backup of a large tenant can take days because
+Not included: PST and OST import, PST and MSG export, Teams channel and chat
+messages (Microsoft offers them only through metered Protected APIs), a backup of
+Google Workspace through its own APIs (its mailboxes are backed up over IMAP),
+public folders, and a macOS agent tested on a real Mac (it is built, but no test
+runs on macOS). The first backup of a large tenant can take days because
 Microsoft throttles Graph; Restow shows that wait instead of hiding it.
 
 ## Screenshots
@@ -335,6 +342,19 @@ passkeys are not offered; `--http-local` is a deprecated name for it),
 (for tests and unsigned mirrors only, never for production). Its log is
 `/var/log/restow-install.log`, without secrets.
 
+Its first question (from 0.5.0) is what to set up: a new installation (`--new`), a
+**restore** of an installation from a dump of its database (`--restore <file>`, with the old
+master key typed at a hidden prompt or taken from the old `.env` with `--env-from <file>`;
+restore mode is on before anything starts, and a master key that does not open the dump undoes
+the run with exit code 11; see [docs/DATABASE.md](docs/DATABASE.md#restore-an-installation-from-a-dump)),
+or a **worker node** for an existing installation on another host (`--join <https address>
+--join-token <token> [--node-name <name>] [--standby-scheduler] [--join-ca <file>]`, with a
+token from Installation › Cluster; `--update-worker` brings a node to the main host's release).
+On the main host, `--allow-worker <address>` (and `--disallow-worker`, `--database-address`,
+`--database-port`) lets a worker host reach PostgreSQL over TLS; by default it is not published.
+Real replication (a second server that takes over) is in development; see
+[docs/SIZING.md](docs/SIZING.md#several-hosts-worker-nodes).
+
 Running the script again is safe: it finds the installation, never changes
 `.env`, a secret or data, checks the images named in `.env` and makes sure the
 stack runs. It brings `docker-compose.yml` to the checked file of the release
@@ -478,7 +498,11 @@ step 2.
    docker compose logs api | grep 'SETUP TOKEN'
    ```
 
-   Then it shows the operator notice, chooses the operating mode and the
+   Then it shows the operator notice, asks what you want to protect (Microsoft
+   365, IMAP mailboxes, the mail archive, servers & clients, Proxmox VE: all
+   ticked to begin with; what you leave out is only hidden in the menu, and you
+   switch it on again under Installation, Server & operation, Modules), chooses
+   the operating mode and the
    installation's time zone (the browser's is preselected; planned updates are
    read in it and new tenants start with it), asks for the
    name of your organisation (it becomes your own organisation, the place for

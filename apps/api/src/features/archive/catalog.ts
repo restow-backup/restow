@@ -13,8 +13,8 @@
  * mutable flag on the item itself) — see features/archive/legal-holds.ts.
  */
 import { archive } from "@restow/core";
-import { type ArchiveEnvelope, archiveItems } from "@restow/db";
-import { asc, desc, eq } from "drizzle-orm";
+import { type ArchiveEnvelope, archiveChainTombstones, archiveItems } from "@restow/db";
+import { asc, eq, sql } from "drizzle-orm";
 import type { DbExecutor } from "../../lib/tenant-context.js";
 
 type ArchiveItemRecord = archive.ArchiveItemRecord;
@@ -142,13 +142,18 @@ export class PgArchiveCatalog implements archive.ArchiveCatalog {
     // walks (verify.ts); writers append through @restow/core archive/append.ts,
     // under the per-tenant advisory chain lock and with a strictly increasing
     // `created_at`, so two concurrent writers never read the same predecessor.
-    const [row] = await this.options.db
-      .select({ chainHash: archiveItems.chainHash })
-      .from(archiveItems)
-      .where(eq(archiveItems.tenantId, tenantId))
-      .orderBy(desc(archiveItems.createdAt), desc(archiveItems.id))
-      .limit(1);
-    return row?.chainHash ?? null;
+    // The newest entry may be the tombstone of an item deleted after its retention.
+    const result = await this.options.db.execute<{ chain_hash: string }>(sql`
+      select chain_hash from (
+        (select chain_hash, created_at, id from ${archiveItems}
+          where tenant_id = ${tenantId}::uuid order by created_at desc, id desc limit 1)
+        union all
+        (select chain_hash, item_created_at, item_id from ${archiveChainTombstones}
+          where tenant_id = ${tenantId}::uuid order by item_created_at desc, item_id desc limit 1)
+      ) tip
+      order by created_at desc, id desc
+      limit 1`);
+    return result.rows[0]?.chain_hash ?? null;
   }
 
   async chain(tenantId: string): Promise<readonly ArchiveItemRecord[]> {

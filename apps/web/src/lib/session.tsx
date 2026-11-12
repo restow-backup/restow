@@ -18,6 +18,7 @@ import {
   type TenantSummary,
 } from "@/lib/api";
 import { type AuthSession, authClient } from "@/lib/auth-client";
+import { type ModuleId, readModules } from "@/lib/modules";
 import { requiresAuthenticatorEnrollment } from "@/lib/second-factor";
 import {
   canEnterTenant,
@@ -37,7 +38,7 @@ import {
  * (reactive via `authClient.useSession()`); `/api/v1/me` adds what Restow
  * knows on top: the tenants this user may work in with the role in each, the
  * tenant the server considers active, the gated features the installation
- * enables, the fields server extensions add, and the running version. The
+ * enables, its modules that are on, the fields server extensions add, and the running version. The
  * provider merges both and owns the active-tenant choice.
  *
  * `role` is the role in the active tenant. The API decides every request with
@@ -117,6 +118,12 @@ export interface SessionContextValue {
    * until the profile loaded.
    */
   extensions: Readonly<Record<string, unknown>> | null;
+  /**
+   * The installation's modules that are on (lib/modules.ts): what is not among them is hidden in
+   * the menu, on the overview and where something new is created. Null until the profile loaded;
+   * optional so that test doubles written before modules existed stay valid (both hide nothing).
+   */
+  modules?: readonly ModuleId[] | null;
   isProviderAdmin: boolean;
   /**
    * A provider admin's role in the provider team, and whether it covers every
@@ -465,6 +472,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const version = React.useMemo(() => readRunningVersion(me.data), [me.data]);
   const features = React.useMemo(() => (me.data ? readFeatures(me.data) : null), [me.data]);
   const extensions = React.useMemo(() => (me.data ? readExtensions(me.data) : null), [me.data]);
+  const modules = React.useMemo(() => (me.data ? readModules(me.data) : null), [me.data]);
   const providerAllTenants = isProviderAdmin ? (me.data?.provider?.allTenants ?? true) : false;
   const canViewAll = canViewAllTenants({
     isProviderAdmin,
@@ -481,6 +489,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       role: view.role,
       features,
       extensions,
+      modules,
       isProviderAdmin,
       providerRole: isProviderAdmin ? (me.data?.provider?.role ?? "owner") : null,
       providerAllTenants,
@@ -510,6 +519,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       version,
       features,
       extensions,
+      modules,
       signOut,
       refresh,
     ],

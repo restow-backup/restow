@@ -1,0 +1,5 @@
+{"type":"progress","step":"restore","percent":10}
+{"type":"progress","step":"restore","percent":50}
+{"type":"progress","step":"restore","percent":100}
+{"type":"result","data":{"restore":{"ok":true,"errors":[]},"checkdb":{"ran":true,"physicalOnly":false,"errors":[],"durationMs":41000},"newBroker":true,"dropped":true}}
+#exit 0

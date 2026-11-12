@@ -8,6 +8,7 @@
  * hash to the same SHA-256 as the message that was appended, folder by
  * folder. The restore check ("Verify now") must come back green.
  */
+// claim: RESTORE-008 (docs/CLAIMS.md: every restored message has the SHA-256 of the one written)
 import { buildCorpus, buildMessage, sha256 } from "../lib/corpus.mjs";
 import { ImapClient } from "../lib/imap-lite.mjs";
 import {

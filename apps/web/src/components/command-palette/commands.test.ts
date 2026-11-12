@@ -242,6 +242,25 @@ describe("palette navigation", () => {
       ["setup:members", { kind: "navigate", to: "/tenants/contoso/members" }],
       ["setup:master-data", { kind: "navigate", to: "/tenants/contoso/master-data" }],
     ]);
+    // The sections of a module of the installation that is off are not offered (lib/modules.ts).
+    const pveOnly = buildPaletteGroups(
+      input({
+        role: "tenant_admin",
+        activeTenantId: "contoso",
+        lockContext: { features: [], extensions: { unlocked: true }, modules: ["pve"] },
+      }),
+    );
+    expect(
+      pveOnly.find((group) => group.id === "setup")?.commands.map((command) => command.id),
+    ).toEqual([
+      "setup:jobs",
+      "setup:retention",
+      "setup:storage",
+      "setup:notifications",
+      "setup:integrations",
+      "setup:members",
+      "setup:master-data",
+    ]);
     // Where tenants are managed they are the tenant's settings; an end user has no tenant page.
     const provider = buildPaletteGroups(
       input({

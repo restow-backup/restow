@@ -1,0 +1,57 @@
+{
+  "description": "Windows Server 2022 Standard in VMware, domain member, a default instance (2022 Standard, strict encryption) and SQLEXPRESS (2019 Express)",
+  "osVersion": "Windows Server 2022 Standard 21H2 (build 20348.2340)",
+  "virtualization": "vm",
+  "technology": "vmware",
+  "desktop": false,
+  "windows": {
+    "bitlocker": {
+      "state": "ok",
+      "volumes": [
+        {
+          "conversion": "fully_decrypted",
+          "mount": "C:",
+          "protection": "off"
+        }
+      ]
+    },
+    "build": 20348,
+    "displayVersion": "21H2",
+    "domain": "corp.example",
+    "domainMember": true,
+    "editionId": "ServerStandard",
+    "installationType": "server",
+    "productName": "Windows Server 2022 Standard",
+    "productType": "server",
+    "roles": {
+      "dfsr": false,
+      "domainController": false,
+      "exchange": false,
+      "hyperV": false,
+      "sqlServer": true
+    },
+    "sqlInstances": [
+      {
+        "clustered": false,
+        "edition": "Standard Edition",
+        "id": "MSSQL16.MSSQLSERVER",
+        "name": "MSSQLSERVER",
+        "serviceAccount": "NT Service\\MSSQLSERVER",
+        "serviceName": "MSSQLSERVER",
+        "strictEncryption": true,
+        "version": "16.0.1000.6"
+      },
+      {
+        "clustered": false,
+        "edition": "Express Edition",
+        "id": "MSSQL15.SQLEXPRESS",
+        "name": "SQLEXPRESS",
+        "serviceAccount": "NT Service\\MSSQL$SQLEXPRESS",
+        "serviceName": "MSSQL$SQLEXPRESS",
+        "strictEncryption": false,
+        "version": "15.0.2000.5"
+      }
+    ],
+    "ubr": 2340
+  }
+}

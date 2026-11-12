@@ -169,7 +169,11 @@ describe("RepositoryKeyCard", () => {
     revealRepositoryPassword.mockRejectedValue(
       new ApiError(
         409,
-        { type: "urn:restow:problem:endpoint-repository-unavailable", title: "x", status: 409 },
+        {
+          type: "urn:restow:problem:endpoint-repository-password-missing",
+          title: "x",
+          status: 409,
+        },
         "x",
       ),
     );
@@ -177,7 +181,7 @@ describe("RepositoryKeyCard", () => {
     await page.click(page.byText("button", "Show repository password"));
     await page.click(page.byText("button", "Show password"));
     await page.settle();
-    expect(page.text()).toContain("could not be opened in the repository");
+    expect(page.text()).toContain("No repository password is stored for this machine");
     expect(page.text()).not.toContain(PASSWORD);
   });
 

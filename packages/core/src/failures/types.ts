@@ -48,6 +48,31 @@ export const FAILURE_CODES = [
   "graph.group_unavailable",
   "graph.throttled",
   "graph.service_unavailable",
+  // A request that creates something got no answer that says whether it was carried out
+  // (504, 503 without Retry-After, timeout); it was not sent again (graph/errors.ts).
+  "graph.outcome_unknown",
+  // The mailbox has an online archive (In-Place Archive) the backup does not reach
+  // (backup/exchange/online-archive.ts). A warning on every run of that mailbox.
+  "graph.online_archive_not_covered",
+  // Graph did not answer whether a mailbox has an online archive: never plain green.
+  "graph.online_archive_unknown",
+  // Events of a group calendar with attachments: Graph does not hand those to the app
+  // (backup/exchange/calendar.ts). One warning per run and group.
+  "graph.group_event_attachments_not_covered",
+  // Posts of group conversations whose attachments Graph refused to the app
+  // (backup/groups/conversations.ts). One warning per run and group.
+  "graph.group_post_attachments_refused",
+  // Posts whose attachments (items, files without bytes) could not be read: read again next run.
+  "graph.group_post_attachments_unreadable",
+  // A group calendar read through calendarView (Graph refused the plain listing): events
+  // outside the window are kept as last backed up (backup/exchange/calendar.ts).
+  "graph.group_calendar_windowed",
+  // A changed message whose content Graph did not let the backup check: kept as stored,
+  // checked again next run (backup/exchange/mail.ts).
+  "graph.mail_content_unchecked",
+  // A message whose MIME Graph refused with server errors for several runs, stored as JSON
+  // for now and asked again on later runs (backup/exchange/mail.ts).
+  "graph.mail_stored_without_mime",
   "graph.item_not_found",
   "graph.item_too_large",
   "graph.item_unreadable",
@@ -70,6 +95,9 @@ export const FAILURE_CODES = [
   "imap.server_limit",
   "imap.connection_lost",
   "imap.message_missing",
+  // A Gmail account whose All Mail is hidden from IMAP: backed up folder by folder, so every
+  // message once per label (backup/imap/gmail.ts). A warning; nothing is missing.
+  "imap.gmail_all_mail_hidden",
   // Archive capture over IMAP (0.4.4): why an account is polled instead of watched with IDLE.
   // Informational: the account is still captured, only with the delay of the poll.
   "imap.idle_unsupported",
@@ -84,6 +112,8 @@ export const FAILURE_CODES = [
   "storage.path_missing",
   "storage.not_writable",
   "storage.full",
+  // The size and space guard held the run (#99): far larger than usual, or the target too full.
+  "storage.run_held",
   "storage.access_denied",
   "storage.credentials_invalid",
   "storage.bucket_missing",
@@ -106,13 +136,19 @@ export const FAILURE_CODES = [
   "verify.storage_unreadable_persistent",
   "verify.restore_test_failed",
   "verify.manifest_unreadable",
+  "verify.manifest_missing",
   "verify.no_snapshot",
   "verify.snapshot_outdated",
   "verify.snapshot_stale",
+  "verify.backup_incomplete",
+  "verify.backup_incomplete_persistent",
   "verify.snapshot_empty",
+  "verify.snapshot_empty_source",
+  "verify.backup_missing_source_content",
   "verify.nothing_to_verify",
   "verify.restore_test_unconfirmed",
   "verify.incomplete",
+  "verify.check_incomplete",
   // Configuration the operator has to fix first
   "config.source_not_connected",
   "config.source_disabled",
@@ -129,6 +165,8 @@ export const FAILURE_CODES = [
   "endpoint.snapshot_failed",
   "endpoint.snapshot_unavailable",
   "endpoint.layout_capture_failed",
+  "endpoint.source_unreadable",
+  "endpoint.source_is_mount_point",
   "endpoint.timeout",
   "endpoint.target_not_empty",
   "endpoint.invalid_task",
@@ -147,6 +185,27 @@ export const FAILURE_CODES = [
   "endpoint.interrupted",
   "endpoint.silent",
   "endpoint.backup_overdue",
+  // The native SQL Server backup of Windows machines (W2a, docs/BAREMETAL-WINDOWS.md 5.1)
+  "endpoint.sql_instance_unreachable",
+  "endpoint.sql_login_missing",
+  "endpoint.sql_permission_missing",
+  "endpoint.sql_powershell_constrained",
+  "endpoint.sql_strict_encryption",
+  "endpoint.sql_fci_unsupported",
+  "endpoint.sql_mode_unsupported",
+  "endpoint.sql_staging_unusable",
+  "endpoint.sql_staging_too_small",
+  "endpoint.sql_database_unavailable",
+  "endpoint.sql_backup_failed",
+  "endpoint.sql_snapshot_failed",
+  "endpoint.sql_script_failed",
+  "endpoint.sql_restore_name_taken",
+  "endpoint.sql_restore_no_space",
+  "endpoint.sql_restore_failed",
+  "endpoint.sql_backup_mismatch",
+  "endpoint.sql_verify_no_space",
+  "endpoint.sql_verify_timeout",
+  "endpoint.sql_verify_system_db",
   // File shares, SMB and NFS (docs/FILESHARES.md section 11)
   "share.auth_failed",
   "share.unreachable",
@@ -171,6 +230,8 @@ export const FAILURE_CODES = [
   "share.restore_partial",
   "share.repository_locked",
   "share.repository_damaged",
+  "share.repository_unavailable",
+  "share.repository_repair_running",
   "share.quota_exceeded",
   "share.out_of_memory",
   "share.timeout",
@@ -185,6 +246,8 @@ export const FAILURE_CODES = [
   "database.error",
   "directory.conflict",
   "job.interrupted",
+  // Held in restore mode: the job is from before a restored database dump (docs/STORAGE.md).
+  "job.restore_mode_hold",
   "unknown",
 ] as const;
 
@@ -255,7 +318,9 @@ export type FailureTarget =
   /** The file share the failure concerns (its page), else the file share list. */
   | "file_share"
   /** The file share runners of the installation (Installation > Default repository & network shares). */
-  | "file_share_runners";
+  | "file_share_runners"
+  /** The backups the size and space guard held (#99): the page where they are decided. */
+  | "held_backups";
 
 /** One thing to do, with an optional place in the UI to do it. */
 export interface FailureStep {
@@ -289,6 +354,9 @@ export const FAILURE_STEP_IDS = [
   "free_target_space",
   "check_app_password",
   "enable_imap_access",
+  "show_gmail_all_mail_in_imap",
+  "check_archive_policy",
+  "store_group_attachments_in_files",
   "reauthorize_oauth",
   "set_object_password",
   "check_host_reachable",
@@ -314,6 +382,8 @@ export const FAILURE_STEP_IDS = [
   "restore_from_copy",
   "check_test_target",
   "check_endpoint_paths",
+  "check_endpoint_source",
+  "mount_endpoint_volume",
   "check_endpoint_hooks",
   "allow_endpoint_hooks",
   "check_endpoint_snapshot",
@@ -323,11 +393,22 @@ export const FAILURE_STEP_IDS = [
   "check_endpoint_file_access",
   "choose_empty_restore_folder",
   "wait_endpoint_retry",
+  "create_sql_login",
+  "grant_sql_permissions",
+  "start_sql_instance",
+  "allow_sql_powershell",
+  "check_sql_encryption",
+  "check_sql_staging",
+  "free_sql_staging",
+  "check_sql_database",
+  "choose_sql_restore_name",
+  "free_sql_restore_space",
   "wait_for_exports_to_expire",
   "export_less_mail",
   "raise_export_limit",
   "check_database",
   "worker_resources",
+  "start_again_if_needed",
   "check_share_account",
   "check_share_server",
   "check_share_path",
@@ -340,6 +421,9 @@ export const FAILURE_STEP_IDS = [
   "check_copy_target",
   "wait_share_restore_check",
   "raise_share_budget",
+  // The size and space guard held a backup (#99).
+  "decide_held_backup",
+  "exclude_large_folder",
   "raise_runner_memory",
   "raise_run_hours",
   "start_mounter",

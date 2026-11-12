@@ -25,8 +25,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "i18next": "^26.6.0",
-    "i18next-icu": "^2.6.1",
+    "i18next": "^26.7.2",
+    "i18next-icu": "^2.7.0",
     "intl-messageformat": "^10.7.0"
   }
 }

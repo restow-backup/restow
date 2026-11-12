@@ -1,16 +1,21 @@
 import {
   enrollmentTokenExpiry,
   generateEnrollmentToken,
+  pveBootTestRating,
+  pveGuestBackable,
   pveGuestCounted,
   pveGuestExcluded,
+  pveGuestInRestorePool,
   pveGuestIsRestowServer,
   pveJobOfGuest,
   pveNextRunAt,
+  pveRestorePointPrivileged,
   pveRestorePointReadiness,
   pveSelfBackupBlocked,
 } from "@restow/core";
 import {
   type Database,
+  type PveBootTestResult,
   type PveGuest,
   type PveJob,
   type PveJobSchedule,
@@ -39,11 +44,19 @@ import {
   isSafeOrigin,
 } from "../endpoints/distribution.js";
 import { auditPve, PVE_AUDIT_ACTIONS, type PveActor } from "./audit.js";
-import { guestBootTestFacts } from "./boot-tests.js";
+import {
+  type BootTestLeftover,
+  bootTestLeftovers,
+  guestBootTestFacts,
+  guestRestoreCheckFacts,
+  PRIVILEGED_CONTAINER_DETAIL,
+} from "./boot-tests.js";
 import { withdrawQueued } from "./cancel.js";
 import { containerBackupPaths } from "./files.js";
 import { NODE_ONLINE_MS } from "./node-service.js";
+import { supportedJobSettings } from "./schemas.js";
 import { browsableDisks } from "./vm-files.js";
+import { avoidVmids, heldVmid } from "./vmids.js";
 
 /**
  * The session side of the Proxmox VE feature (docs/PVE.md): clusters, nodes
@@ -59,6 +72,7 @@ export const PVE_PROBLEMS = {
   restoresOff: "urn:restow:problem:pve-restores-off",
   restowServer: "urn:restow:problem:pve-restow-server",
   excluded: "urn:restow:problem:pve-guest-excluded",
+  vmidHeld: "urn:restow:problem:pve-vmid-held",
 } as const;
 
 /** A guest an administrator excluded from backup is neither backed up nor put into a job. */
@@ -315,6 +329,7 @@ type SnapshotSizeRow = {
   byte_size: number | string;
   stats: PveRunStats | null;
   verify?: PveVerifyResult | null;
+  boot_test?: PveBootTestResult | null;
 };
 
 /** The restore check of a guest's newest restore point, as the guest row shows it. */
@@ -334,19 +349,35 @@ export interface GuestVerifyFact {
    * again), with what restic said; null when it ran.
    */
   notChecked: {
-    reason: "locked" | "interrupted";
+    reason: "locked" | "interrupted" | "error";
     detail: string;
     attempts: number;
     gaveUp: boolean;
   } | null;
+  /**
+   * The rated boot test of the same restore point (green, yellow, red), or null. The guest row
+   * rates the restore point by both checks (`pveRestorePointRating`): a red boot test is red
+   * whatever the read-back says, a yellow one is no proof.
+   */
+  bootTest: { outcome: "green" | "yellow" | "red"; checkedAt: string; message: string } | null;
 }
 
 export function verifyFact(
   verify: PveVerifyResult | null | undefined,
   requestedAt: Date | string | null | undefined,
+  bootTest: PveBootTestResult | null | undefined = null,
 ): GuestVerifyFact {
   const notChecked = verify?.notChecked;
+  const boot = pveBootTestRating(bootTest);
   return {
+    bootTest:
+      boot && bootTest
+        ? {
+            outcome: boot,
+            checkedAt: bootTest.checkedAt,
+            message: String(bootTest.message ?? "").slice(0, 1000),
+          }
+        : null,
     state: pveRestorePointReadiness(verify ?? null),
     checkedAt: verify?.notChecked?.gaveUpAt ?? verify?.checkedAt ?? null,
     errors: (verify?.errors ?? []).slice(0, 5).map((e) => String(e).slice(0, 1000)),
@@ -424,6 +455,8 @@ function guestDto(
   sizes: GuestBackupSizes = { first: null, last: null },
   detail: GuestActivityDetail = { since: null, progress: null },
   verify: GuestVerifyFact | null = null,
+  leftover: BootTestLeftover | null = null,
+  helperNodes: ReadonlySet<string> | null = null,
 ) {
   const attention: string[] = [];
   if (g.template && g.kind === "vm") {
@@ -443,8 +476,23 @@ function guestDto(
   if (!g.present) {
     attention.push("absent");
   }
+  // It runs on a node of its cluster without restow-pve (its inventory comes from another
+  // node's cluster list): nothing backs it up there (docs/PVE.md, "Nodes without restow-pve").
+  const noRestowNode =
+    helperNodes !== null && g.present && g.node !== null && !helperNodes.has(g.node);
+  if (noRestowNode && pveGuestCounted(g)) {
+    attention.push("no_restow_node");
+  }
+  // A restored copy or a temporary guest in no job: not backed up, and not to be (docs/PVE.md).
+  if (pveGuestBackable(g) && g.jobId === null && pveGuestInRestorePool(g)) {
+    attention.push("restore_pool");
+  }
   if (pveSelfBackupBlocked(g)) {
     attention.push("restow_server");
+  }
+  // A boot test left its temporary guest on the node (memory and disk) until it is removed.
+  if (leftover) {
+    attention.push("boot_test_leftover");
   }
   return {
     id: g.id,
@@ -496,6 +544,7 @@ function guestDto(
     progress: activity === "running" ? detail.progress : null,
     bitmapState: bitmapState(g),
     backups: sizes,
+    bootTestLeftover: leftover,
     attention,
   };
 }
@@ -506,7 +555,7 @@ export function jobDto(j: PveJob, facts: { guests?: number; round?: JobRound | n
     name: j.name,
     scopeAll: j.scopeAll,
     schedule: j.schedule,
-    settings: j.settings,
+    settings: supportedJobSettings(j.settings),
     enabled: j.enabled,
     recommended: j.recommended,
     nextRunAt: j.nextRunAt?.toISOString() ?? null,
@@ -638,10 +687,13 @@ export async function overview(database: Database, tenantId: string, now: Date =
         FROM pve_snapshots ORDER BY guest_id, sequence ASC`);
     const lasts = await tx.execute<SnapshotSizeRow & { verify_requested_at: Date | null }>(sql`
       SELECT DISTINCT ON (guest_id) guest_id, kind, sequence, backup_at, byte_size, stats,
-             verify, verify_requested_at
+             verify, verify_requested_at, boot_test
         FROM pve_snapshots WHERE status = 'active' ORDER BY guest_id, sequence DESC`);
     const verifies = new Map(
-      lasts.rows.map((row) => [row.guest_id, verifyFact(row.verify, row.verify_requested_at)]),
+      lasts.rows.map((row) => [
+        row.guest_id,
+        verifyFact(row.verify, row.verify_requested_at, row.boot_test),
+      ]),
     );
     // The newest kept follow-up points per guest (after the first backup ever), for the
     // average a follow-up backup adds.
@@ -683,6 +735,13 @@ export async function overview(database: Database, tenantId: string, now: Date =
         entry.followUp = followUpAverage(points, firstSequences.get(guestId) ?? null);
       }
     }
+    const leftovers = await bootTestLeftovers(tx);
+    const helpersByCluster = new Map<string, Set<string>>();
+    for (const n of nodes) {
+      const set = helpersByCluster.get(n.clusterId) ?? new Set<string>();
+      set.add(n.name);
+      helpersByCluster.set(n.clusterId, set);
+    }
     const jobMap = new Map(jobs.map((j) => [j.id, j]));
     const guestCounts = new Map<string, number>();
     // Paused jobs count their guests too (the worker's `coveredBy`).
@@ -711,6 +770,8 @@ export async function overview(database: Database, tenantId: string, now: Date =
           sizes.get(g.id),
           activityDetail.get(g.id),
           verifies.get(g.id) ?? null,
+          leftovers.get(g.id) ?? null,
+          helpersByCluster.get(g.clusterId) ?? new Set(),
         ),
       ),
       jobs: jobs.map((j) =>
@@ -903,9 +964,19 @@ export async function guestDetail(database: Database, tenantId: string, id: stri
         null,
         undefined,
         undefined,
-        newest ? verifyFact(newest.verify, newest.verifyRequestedAt) : null,
+        newest ? verifyFact(newest.verify, newest.verifyRequestedAt, newest.bootTest) : null,
+        (await bootTestLeftovers(tx, guest.id)).get(guest.id) ?? null,
+        new Set(
+          (
+            await tx
+              .select({ name: pveNodes.name })
+              .from(pveNodes)
+              .where(and(eq(pveNodes.clusterId, guest.clusterId), isNull(pveNodes.revokedAt)))
+          ).map((n) => n.name),
+        ),
       ),
       bootTest: await guestBootTestFacts(tx, guest),
+      restoreCheck: await guestRestoreCheckFacts(tx, guest),
       followUp: followUpAverage(
         snapshots.map((s) => ({ sequence: s.sequence, added: addedBytes(s.kind, s.stats) })),
         firstSequence,
@@ -915,12 +986,15 @@ export async function guestDetail(database: Database, tenantId: string, id: stri
         : null,
       diskState: guest.diskState,
       // A container's repository: whether it exists yet and its new backup chains (docs/PVE.md,
-      // "New backup chain"), newest first.
+      // "Repository problems"), newest first.
       repository:
         guest.kind === "ct"
           ? {
               readyAt: guest.repositoryReadyAt?.toISOString() ?? null,
               chains: guest.repositoryChains ?? [],
+              // Why the last backup was refused for the repository (docs/PVE.md, "Repository
+              // problems"); null once a backup found it again.
+              problem: guest.repositoryProblem ?? null,
             }
           : null,
       snapshots: listed.map((s) => ({
@@ -935,7 +1009,11 @@ export async function guestDetail(database: Database, tenantId: string, id: stri
         backupType: backupType(s, firstSequence),
         unreadable: unreadableItems(s.stats),
         consistency: typeof s.stats.consistency === "string" ? s.stats.consistency : null,
+        // A VM's fs-freeze (restow-pve 0.5.0 on); null when the node did not record it.
+        vmConsistency: s.kind === "vm" ? (s.stats.vmConsistency ?? null) : null,
         stats: s.stats,
+        // Of a privileged container: Restow does not restore it (PRIVILEGED_CONTAINER_DETAIL).
+        privileged: pveRestorePointPrivileged(s, guest.privileged),
         // What a container restore point holds, as paths in the container (#59, #62).
         contents: s.kind === "ct" ? containerBackupPaths(s.guestConfig) : null,
         // Whether its files can be browsed and downloaded: a container's restic snapshot (#62),
@@ -1210,7 +1288,14 @@ export async function restoreSnapshot(
   database: Database,
   tenantId: string,
   snapshotId: string,
-  input: { targetNode?: string; targetStorage: string; targetVmid?: number; start: boolean },
+  input: {
+    targetNode?: string;
+    targetStorage: string;
+    targetVmid?: number;
+    start: boolean;
+    /** Restore to `targetVmid` although a deleted guest Restow keeps had it. */
+    confirmVmidReuse?: boolean;
+  },
   actor: PveActor,
   options: { restoreTest?: boolean } = {},
   now: Date = new Date(),
@@ -1225,11 +1310,12 @@ export async function restoreSnapshot(
       throw new ProblemError(404, "Restore point not found");
     }
     const guest = await loadGuest(tx, snap.guestId);
-    if (snap.kind === "ct" && guest.privileged) {
+    // Decided by the restore point's own configuration: a container converted since is
+    // restored as the point was.
+    if (pveRestorePointPrivileged(snap, guest.privileged)) {
       throw new ProblemError(409, "Privileged container", {
         type: PVE_PROBLEMS.privilegedRestore,
-        detail:
-          "PVE refuses to restore privileged containers from a backup provider. Restore it by hand as unprivileged (docs/PVE.md).",
+        detail: PRIVILEGED_CONTAINER_DETAIL,
       });
     }
     const node = await nodeFor(tx, guest.clusterId, input.targetNode ?? guest.node);
@@ -1238,6 +1324,18 @@ export async function restoreSnapshot(
         type: PVE_PROBLEMS.restoresOff,
         detail: `Restores are switched off on node ${node.name} (restow-pve config --allow-restores).`,
       });
+    }
+    // A VMID a deleted guest had whose restore points (or job) Restow keeps: the copy would
+    // take over that guest's history at the next inventory. Only when asked for anyway.
+    if (input.targetVmid !== undefined && !input.confirmVmidReuse) {
+      const held = await heldVmid(tx, guest.clusterId, input.targetVmid);
+      if (held) {
+        throw new ProblemError(409, "This VMID belongs to a deleted guest", {
+          type: PVE_PROBLEMS.vmidHeld,
+          detail: `VMID ${input.targetVmid} belonged to ${held.name ?? `guest ${input.targetVmid}`}, which Proxmox VE no longer has; Restow keeps its restore points. Choose another VMID, or confirm to use it anyway.`,
+          extensions: { vmid: input.targetVmid, name: held.name },
+        });
+      }
     }
     const [task] = await tx
       .insert(pveTasks)
@@ -1250,6 +1348,8 @@ export async function restoreSnapshot(
           volname: snap.archiveName,
           kind: snap.kind,
           targetVmid: input.targetVmid ?? 0,
+          // restow-pve from 0.5.0 picks a free VMID outside these (docs/PVE-PROTOCOL.md).
+          avoidVmids: await avoidVmids(tx, guest.clusterId),
           targetStorage: input.targetStorage,
           pool: RESTORE_POOL,
           start: input.start,

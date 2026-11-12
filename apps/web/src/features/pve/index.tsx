@@ -62,6 +62,11 @@ export const pveRoute = createRoute({
 export const pveGuestRoute = createRoute({
   getParentRoute: () => appLayoutRoute,
   path: PVE_GUEST_PATTERN,
+  // ?restore=<restore point id>: open the restore dialog for that point (from File restore).
+  validateSearch: (search: Record<string, unknown>): { restore?: string } =>
+    typeof search.restore === "string" && search.restore.length > 0
+      ? { restore: search.restore }
+      : {},
   component: PveGuestRoute,
 });
 
@@ -70,6 +75,7 @@ export const routes = [pveRoute, pveGuestRoute];
 export const navItems: NavItem[] = [
   {
     id: "virtualization",
+    modules: ["pve"],
     path: PVE_PATH,
     labelKey: "pve:nav.label",
     icon: Container,

@@ -52,6 +52,9 @@
     "failed": "Fehlgeschlagen",
     "cancelled": "Abgebrochen",
     "incomplete": "Nicht abgeschlossen, wird wiederholt",
+    "checkPassed": "Wiederherstellbar",
+    "checkAttention": "Prüfung braucht Aufmerksamkeit",
+    "checkFailed": "Prüfung fehlgeschlagen: nicht wiederherstellbar",
     "limited": "Vom Dienst gedrosselt, wird wiederholt",
     "notBackedUp_account_disabled": "Nicht gesichert: Konto deaktiviert",
     "notBackedUp_no_license": "Nicht gesichert: keine Lizenz",
@@ -195,7 +198,9 @@
       "restoreCheck": "Restore-Prüfung",
       "checksPassed": "{passed} von {total} bestanden",
       "failedItems": "Fehlgeschlagene Elemente",
-      "items": "Elemente"
+      "items": "Elemente",
+      "readFrom": "Gelesen aus der Kopie auf",
+      "readFromUnnamed": "einem anderen Repository"
     },
     "charts": {
       "label": "Durchsatz",

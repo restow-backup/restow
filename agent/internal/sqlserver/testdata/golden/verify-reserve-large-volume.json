@@ -1,0 +1,33 @@
+{
+  "errors": [
+    {
+      "message": "Sales was not checked: restoring Sales needs 0.0 GiB for the backup file and 1.0 GiB for its data files and 0.2 GiB for its log on Q:\\ and leaves at least 10.0 GiB free there for what is already on it; Q:\\ has 6.3 GiB free. The check is incomplete, not failed.",
+      "code": "sql_verify_no_space"
+    }
+  ],
+  "ops": [
+    "inventory"
+  ],
+  "sqlVerify": {
+    "instance": "SQLEXPRESS",
+    "databases": [
+      {
+        "databaseId": "c1d2e3f4-0a1b-4c2d-8e3f-5a6b7c8d9e01",
+        "backupId": "a9e8d7c6-b5a4-4392-8170-6f5e4d3c2b1a",
+        "name": "Sales",
+        "method": "restore+checkdb",
+        "fetched": false,
+        "sha256Match": false,
+        "restore": null,
+        "checkdb": null,
+        "dropped": false,
+        "backupLsn": "",
+        "logsApplied": 0,
+        "durationMs": 1000,
+        "code": "sql_verify_no_space",
+        "message": "Sales was not checked: restoring Sales needs 0.0 GiB for the backup file and 1.0 GiB for its data files and 0.2 GiB for its log on Q:\\ and leaves at least 10.0 GiB free there for what is already on it; Q:\\ has 6.3 GiB free. The check is incomplete, not failed."
+      }
+    ]
+  },
+  "status": "failed"
+}

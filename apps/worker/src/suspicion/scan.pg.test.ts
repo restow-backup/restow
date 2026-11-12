@@ -184,7 +184,7 @@ describe.skipIf(!adminUrl)("judging restore points against Postgres", () => {
     await q(`UPDATE settings SET ransomware_detection = '{}'`);
   });
 
-  it("judges a machine's restore points against its history, one alert per episode", async () => {
+  it("judges a machine's restore points against its history, one alert per episode [RETAIN-012]", async () => {
     // Ten ordinary days before the window: the baseline, never judged themselves.
     for (let day = 13; day >= 4; day--) {
       await endpointRun(ago(day * DAY), 280 + (day % 4) * 10);
@@ -515,7 +515,7 @@ describe.skipIf(!adminUrl)("judging restore points against Postgres", () => {
     });
   });
 
-  it("announces an unresolved retention hold again after the reminder days, and a release ends the episode", async () => {
+  it("announces an unresolved retention hold again after the reminder days, and a release ends the episode [RETAIN-012]", async () => {
     const reminders = () =>
       q<{ details: Record<string, unknown>; level: string }>(
         `SELECT details, level FROM notifications WHERE event = 'backup.suspicious_hold'

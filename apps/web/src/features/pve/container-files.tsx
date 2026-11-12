@@ -1,7 +1,9 @@
 import { useInfiniteQuery, useMutation, useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
+import { RotateCcw } from "lucide-react";
 
 import { ErrorState } from "@/components/kit";
+import { buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { LIMITS } from "@/features/endpoints/api";
 import { useEndpointFormat, useTenantScope } from "@/features/endpoints/hooks";
@@ -176,6 +178,22 @@ export function ContainerRestorePoints({
     startDownload: startBrowserDownload,
     limits: { downloadPaths: LIMITS.downloadPaths, restorePaths: LIMITS.restorePaths },
     canRestore: false,
+    // Restoring the guest as a whole is on its page: the way there sits in the title row of the
+    // chosen restore point and opens the restore dialog for exactly that point.
+    headerAction: opensGuest
+      ? (point) => (
+          <Link
+            {...guestTo(guestId)}
+            search={{ restore: point.id } as never}
+            title={t(`${texts}.restoreWholeHint`)}
+            className={buttonVariants({ size: "sm", variant: "outline" })}
+            data-slot="restore-whole-guest"
+          >
+            <RotateCcw aria-hidden="true" />
+            {t(`${texts}.restoreWhole`)}
+          </Link>
+        )
+      : undefined,
     note: opensGuest ? (
       <>
         {t(`${texts}.downloadOnly`)}{" "}

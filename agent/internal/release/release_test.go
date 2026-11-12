@@ -33,6 +33,7 @@ func fixtureKey(t *testing.T) *PublicKey {
 
 // The fixtures were made with the stock OpenSSH ssh-keygen (-Y sign), so these
 // tests prove the agent reads what the maintainer's tool writes.
+// claim: UPDATE-016
 func TestVerifiesSignaturesMadeBySSHKeygen(t *testing.T) {
 	k := fixtureKey(t)
 	if err := k.Verify(read(t, "SHA256SUMS"), read(t, "SHA256SUMS.sig")); err != nil {

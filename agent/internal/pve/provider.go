@@ -27,7 +27,7 @@ var ProviderVerbs = []string{
 	"restore-get-mechanism", "archive-get-guest-config", "archive-get-firewall-config",
 	"restore-vm-init", "restore-vm-cleanup", "restore-vm-volume-init",
 	"restore-vm-volume-cleanup", "restore-container-init", "restore-container-cleanup",
-	"storage-status", "list-volumes", "activate-storage",
+	"storage-status", "list-volumes", "volume-size", "activate-storage",
 }
 
 // ProviderRequest is the JSON object the shim writes to stdin. Fields not
@@ -45,6 +45,8 @@ type ProviderRequest struct {
 	LogFile         string                    `json:"logFile,omitempty"`
 	Volname         string                    `json:"volname,omitempty"`
 	Device          string                    `json:"device,omitempty"`
+	// Directory is the archive directory restore-container-init gave (restore-container-cleanup).
+	Directory string `json:"directory,omitempty"`
 }
 
 // ProviderVolume is one disk of backup_vm or backup_vm_query_incremental.
@@ -133,7 +135,9 @@ func (p *Provider) clock() time.Time {
 
 // Handle runs a verb.
 func (p *Provider) Handle(ctx context.Context, verb string, req ProviderRequest) (any, error) {
-	if verb != "backup-container" && verb != "storage-status" && verb != "list-volumes" {
+	// list-volumes and volume-size load the state themselves and answer from the node's
+	// listings when they cannot reach the server.
+	if verb != "backup-container" && verb != "storage-status" && verb != "list-volumes" && verb != "volume-size" {
 		if err := p.load(); err != nil {
 			return nil, err
 		}
@@ -146,9 +150,14 @@ func (p *Provider) Handle(ctx context.Context, verb string, req ProviderRequest)
 			_ = os.Remove(p.taskLog)
 		}
 	}
-	if verb == "backup-vm" || verb == "backup-container" {
-		// The service stops a backup that was cancelled in Restow through this process (cancel.go).
-		defer markProvider(p.Layout, req.VMID)()
+	if verb == "backup-vm" && req.VMID > 0 {
+		// The service stops a backup that was cancelled in Restow through this process (cancel.go);
+		// backup-container records itself in its run folder (backupContainer).
+		done, err := markProvider(p.Layout.providerPIDFile(req.VMID))
+		if err != nil {
+			p.logf("info", "this backup cannot be stopped from Restow: %v", err)
+		}
+		defer done()
 	}
 	switch verb {
 	case "activate-storage":
@@ -156,7 +165,9 @@ func (p *Provider) Handle(ctx context.Context, verb string, req ProviderRequest)
 	case "storage-status":
 		return p.storageStatus(), nil
 	case "list-volumes":
-		return p.listVolumes(req), nil
+		return p.listVolumes(ctx, req), nil
+	case "volume-size":
+		return p.volumeSize(ctx, req)
 	case "job-init":
 		p.refreshListing(ctx)
 		return map[string]any{}, nil
@@ -217,16 +228,15 @@ func (p *Provider) Handle(ctx context.Context, verb string, req ProviderRequest)
 	case "restore-vm-volume-init":
 		return p.restoreVolumeInit(ctx, req)
 	case "restore-vm-volume-cleanup":
-		p.stopRestoreServers(req.Volname, req.Device)
+		p.stopRestoreServers(req.Volname, restoreOwner(), req.Device)
 		return map[string]any{}, nil
 	case "restore-vm-cleanup":
-		p.stopRestoreServers(req.Volname, "")
+		p.stopRestoreServers(req.Volname, restoreOwner(), "")
 		return map[string]any{}, nil
 	case "restore-container-init":
 		return p.restoreContainerInit(ctx, req)
 	case "restore-container-cleanup":
-		p.restoreContainerCleanup(req)
-		return map[string]any{}, nil
+		return map[string]any{}, p.restoreContainerCleanup(req)
 	}
 	return nil, fmt.Errorf("unknown provider verb %q", verb)
 }
@@ -247,6 +257,9 @@ type jobState struct {
 	RunDir      string                       `json:"runDir,omitempty"`
 	// ProgressInterval is how often the server wants progress (0: never).
 	ProgressInterval int `json:"progressInterval,omitempty"`
+	// GuestConfig is a VM's configuration as backup_vm got it (for the consistency of the
+	// log, backup_handle_log_file).
+	GuestConfig string `json:"guestConfig,omitempty"`
 }
 
 func (p *Provider) loadJob(storeid string, vmid int) (*jobState, error) {
@@ -310,6 +323,7 @@ func (p *Provider) backupInit(ctx context.Context, req ProviderRequest) (any, er
 		return nil, err
 	}
 	p.logf("info", "Restow run %s, archive %s", run.RunID, name)
+	p.takeLockWaitNote(req.VMID)
 	return map[string]any{"archiveName": name}, nil
 }
 
@@ -494,15 +508,20 @@ func (p *Provider) backupVM(ctx context.Context, req ProviderRequest) (any, erro
 		doneUploaded += res.UploadedBytes
 	}
 	reporter.Stop()
+	// PVE froze (or did not freeze) the guest before backup_vm; vzdump's log of it says which.
+	cons := ClassifyVMConsistency(vzdumpGuestLog(req.VMID), req.GuestConfig)
+	p.logConsistency(cons)
 	// The commit id is stored before the commit is sent: a retry after a
 	// lost answer asks for the same commit, which the server answers with
 	// the snapshot it already made.
 	job.CommitID = newCommitID()
+	job.GuestConfig = req.GuestConfig
 	if err := p.saveJob(job); err != nil {
 		return nil, err
 	}
 	commit, err := p.server.Commit(ctx, job.RunID, CommitRequest{CommitID: job.CommitID, Devices: devices,
-		GuestConfig: req.GuestConfig, FirewallConfig: req.Info.FirewallConfig})
+		GuestConfig: req.GuestConfig, FirewallConfig: req.Info.FirewallConfig,
+		ConsistencyRemark: cons.Remark(), VMConsistency: &cons})
 	if err != nil {
 		// Unknown outcome: dying lets QEMU merge the bitmap back; the next
 		// run reads the whole disk if the server did commit (journal mismatch).
@@ -567,6 +586,8 @@ func (p *Provider) backupCleanup(ctx context.Context, req ProviderRequest) (any,
 		p.foldTaskLog(job)
 		_ = os.RemoveAll(job.RunDir)
 		_ = os.Remove(p.ctPointer(job.StoreID, job.VMID))
+		// Empty on the host: only the backup's own mount namespace mounted the copy on it.
+		_ = os.Remove(p.Layout.ctStableRoot(job.VMID))
 	}
 	if cerr != nil {
 		return nil, cerr
@@ -583,7 +604,14 @@ func (p *Provider) handleLogFile(ctx context.Context, req ProviderRequest) (any,
 			// into the guest's log file (tasklog.go).
 			ours, _ := readTail(logFile, 64<<10)
 			data = tailBytes(MergeTaskLog(data, ours), 64<<10)
-			if err := p.server.RunLog(ctx, job.RunID, string(data)); err != nil {
+			var cons *VMConsistency
+			if job.Kind == "vm" {
+				// The whole log: the freeze lines come early, the tail may have lost them.
+				head, _ := readHead(req.LogFile, 256<<10)
+				c := ClassifyVMConsistency(string(head), job.GuestConfig)
+				cons = &c
+			}
+			if err := p.server.RunLog(ctx, job.RunID, string(data), cons); err != nil {
 				p.logf("warn", "could not upload the task log: %v", err)
 			}
 		}
@@ -591,6 +619,32 @@ func (p *Provider) handleLogFile(ctx context.Context, req ProviderRequest) (any,
 	}
 	_ = os.Remove(logFile)
 	return map[string]any{}, nil
+}
+
+// readHead reads the first n bytes of a file.
+func readHead(path string, n int64) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return io.ReadAll(io.LimitReader(f, n))
+}
+
+// logConsistency says in the task log what the restore point records about the freeze; a
+// failed freeze or thaw is a warning.
+func (p *Provider) logConsistency(c VMConsistency) {
+	switch c.State {
+	case "freeze_failed":
+		p.logf("warn", "%s", c.Detail)
+	case "unknown":
+		p.logf("info", "vzdump's log does not say whether the guest agent froze the file systems")
+	default:
+		p.logf("info", "%s", c.Detail)
+	}
+	for _, w := range c.Warnings {
+		p.logf("warn", "%s", w)
+	}
 }
 
 func readTail(path string, n int64) ([]byte, error) {
@@ -618,7 +672,7 @@ func (p *Provider) cleanupStaleJobs(storeid string) {
 		if !strings.HasPrefix(e.Name(), storeid+"-") {
 			continue
 		}
-		if info, err := e.Info(); err == nil && time.Since(info.ModTime()) > 48*time.Hour {
+		if info, err := e.Info(); err == nil && time.Since(info.ModTime()) > staleJobAge {
 			_ = os.Remove(filepath.Join(dir, e.Name()))
 		}
 	}
@@ -643,14 +697,22 @@ func (p *Provider) storageStatus() StatusCache {
 	return s
 }
 
-func (p *Provider) listVolumes(req ProviderRequest) map[string]any {
-	var all []Listing
-	_ = readJSON(p.Layout.VolumesCache(), &all)
+// askServerTimeout bounds what list-volumes and volume-size wait for the server: the plugin
+// gives them 10 seconds, and PVE's API call waits on them.
+const askServerTimeout = 5 * time.Second
+
+// listVolumes answers PVE's list_volumes. Without a VMID ("Storage > restow > Backups",
+// pvesm list) it reads the cluster's listing the service keeps (every page of it). With one
+// (a guest's Backup tab) it asks the server for that guest's restore points and keeps the
+// answer (cache/volumes-<vmid>.json); without the server it answers from the newer of that
+// file and the cluster's listing.
+func (p *Provider) listVolumes(ctx context.Context, req ProviderRequest) map[string]any {
+	vols, err := p.askVolumesOf(ctx, req.VMID)
+	if err != nil {
+		vols = p.cachedVolumes(req.VMID)
+	}
 	out := []map[string]any{}
-	for _, l := range all {
-		if req.VMID > 0 && l.VMID != req.VMID {
-			continue
-		}
+	for _, l := range vols {
 		subtype := "qemu"
 		if l.Kind == "ct" {
 			subtype = "lxc"
@@ -661,6 +723,94 @@ func (p *Provider) listVolumes(req ProviderRequest) map[string]any {
 		})
 	}
 	return map[string]any{"volumes": out}
+}
+
+// askVolumesOf asks the server for the restore points of one VMID and keeps them.
+func (p *Provider) askVolumesOf(ctx context.Context, vmid int) ([]Listing, error) {
+	if vmid <= 0 {
+		return nil, errors.New("no VMID")
+	}
+	if err := p.load(); err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, askServerTimeout)
+	defer cancel()
+	vols, err := p.server.ListingOf(ctx, vmid)
+	if err != nil {
+		return nil, err
+	}
+	_ = os.MkdirAll(filepath.Dir(p.Layout.VolumesCacheOf(vmid)), 0o755)
+	_ = writeJSONAtomic(p.Layout.VolumesCacheOf(vmid), vols, 0o644)
+	return vols, nil
+}
+
+// cachedVolumes are the restore points the node keeps, of one VMID (vmid > 0) or all: the
+// cluster's listing, or the VMID's own when that is newer.
+func (p *Provider) cachedVolumes(vmid int) []Listing {
+	path := p.Layout.VolumesCache()
+	if vmid > 0 {
+		own, err := os.Stat(p.Layout.VolumesCacheOf(vmid))
+		if err == nil {
+			if all, err := os.Stat(path); err != nil || own.ModTime().After(all.ModTime()) {
+				path = p.Layout.VolumesCacheOf(vmid)
+			}
+		}
+	}
+	var all []Listing
+	_ = readJSON(path, &all)
+	out := []Listing{}
+	for _, l := range all {
+		if vmid <= 0 || l.VMID == vmid {
+			out = append(out, l)
+		}
+	}
+	return out
+}
+
+// volumeSize answers PVE's volume_size_info: the size of one restore point. It asks the
+// server (by the volume name, as a restore does), since a listing may not hold every restore
+// point of the cluster; without the server it answers from the listings the node keeps.
+func (p *Provider) volumeSize(ctx context.Context, req ProviderRequest) (any, error) {
+	_, vmid, ok := ParseVolname(req.Volname)
+	if !ok {
+		return nil, fmt.Errorf("not a volume name of this storage: %q", req.Volname)
+	}
+	name := strings.TrimPrefix(req.Volname, "backup/")
+	cached := func() (Listing, bool) {
+		for _, l := range p.cachedVolumes(vmid) {
+			if l.Volname == name {
+				return l, true
+			}
+		}
+		return Listing{}, false
+	}
+	askErr := p.load()
+	if askErr == nil {
+		actx, cancel := context.WithTimeout(ctx, askServerTimeout)
+		rp, err := p.server.LookupVolname(actx, req.Volname)
+		cancel()
+		if err == nil {
+			size := rp.ByteSize
+			if size == 0 {
+				// A server before 0.5.0 sends no byteSize: a VM's disks add up to it.
+				for _, d := range rp.Devices {
+					size += d.Size
+				}
+			}
+			if l, ok := cached(); size == 0 && ok {
+				size = l.Size
+			}
+			return map[string]any{"size": size}, nil
+		}
+		if IsStatus(err, 404) {
+			return nil, fmt.Errorf("restore point %s not found in Restow", req.Volname)
+		}
+		askErr = err
+	}
+	if l, ok := cached(); ok {
+		return map[string]any{"size": l.Size}, nil
+	}
+	return nil, fmt.Errorf("restore point %s: the Restow server did not answer (%v), and the node's listing does not hold it", req.Volname, askErr)
 }
 
 func (p *Provider) refreshListing(ctx context.Context) {

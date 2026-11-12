@@ -1,0 +1,5 @@
+{"type":"progress","step":"restore","percent":10}
+{"type":"progress","step":"restore","percent":50}
+{"type":"progress","step":"restore","percent":100}
+{"type":"result","data":{"restore":{"ok":true,"errors":[]},"checkdb":{"ran":false,"physicalOnly":true,"errors":[],"durationMs":3600000},"newBroker":true,"dropped":true,"checkdbProblem":{"code":"sql_verify_timeout","step":"checkdb","number":-2,"message":"Execution Timeout Expired. (-2)"}}}
+#exit 0

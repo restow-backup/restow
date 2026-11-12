@@ -2,7 +2,9 @@
  * `MANIFEST.csv` and `SHA256SUMS`, the two files at the end of every ZIP export.
  *
  * `MANIFEST.csv` (RFC 4180, CRLF) describes each entry for people:
- * `entry,sha256,size,message_id,date,from,to,subject,status,note`. Text cells
+ * `entry,sha256,size,message_id,date,from,to,subject,status,note`. A message
+ * written without parts the backup does not hold has the status `incomplete`
+ * and the reason as its note. Text cells
  * that would be read as a formula by a spreadsheet (they start with `=`, `+`,
  * `-`, `@`, a tab or a carriage return) get a leading apostrophe, because the
  * subject and sender of a message are chosen by strangers. `SHA256SUMS` is for
@@ -52,8 +54,12 @@ export function manifestRow(entry: ExportEntry, message: ManifestMessage | null)
     manifestText(message?.from),
     manifestText(message?.to),
     manifestText(message?.subject),
-    csvField(entry.status),
-    manifestText(entry.note),
+    csvField(
+      entry.status === "added" && entry.incomplete !== undefined ? "incomplete" : entry.status,
+    ),
+    manifestText(
+      [entry.incomplete, entry.note].filter((part) => part !== undefined).join("; ") || undefined,
+    ),
   ].join(",");
 }
 

@@ -5,6 +5,9 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -124,11 +127,31 @@ func TestEnrollRefusals(t *testing.T) {
 	}
 }
 
+// A state folder that cannot be created fails the enrollment before the
+// server sees the one-time token (K113).
+func TestEnrollChecksTheStateFolderFirst(t *testing.T) {
+	c := newCLI(t)
+	if err := os.MkdirAll(filepath.Join(c.dir, "agent"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(c.dir, "agent", "state"), []byte("in the way"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, se, code := c.run("enroll", "--allow-insecure-http", "--force")
+	if code != exitError || !strings.Contains(se, "could not be stored") || !strings.Contains(se, "The token was not used") {
+		t.Fatalf("exit %d\n%s", code, se)
+	}
+	if len(c.srv.Enrollments) != 0 {
+		t.Fatalf("the server got %d enrollments", len(c.srv.Enrollments))
+	}
+}
+
 func TestEnrollRejectedToken(t *testing.T) {
 	c := newCLI(t)
 	t.Setenv("RESTOW_TOKEN", "rset_this_token_was_never_issued")
 	_, se, code := c.run("enroll", "--allow-insecure-http")
-	if code != exitError {
+	// Only this exit code makes the install scripts ask for a new token (K115).
+	if code != exitTokenRefused {
 		t.Fatalf("exit %d", code)
 	}
 	for _, want := range []string{"did not accept the enrollment token", "valid for 24 hours", "Create a new server or client"} {
@@ -141,6 +164,47 @@ func TestEnrollRejectedToken(t *testing.T) {
 	}
 }
 
+// Only the instance's own refusal of the token is exit 4. A wrong address
+// (404), a firewall (403), a reverse proxy with its own login (401 without the
+// problem type) or a proxy that wants a login (407) is not, and the message
+// sends the administrator to the URL and the proxy, not to a new token.
+func TestEnrollBlamesTheTokenOnlyForItsRefusal(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		ctype  string
+		body   string
+		want   int
+		text   string
+	}{
+		{"wrong address", 404, "text/html", "<html>Not Found</html>", exitError, "no refusal of the token"},
+		{"firewall", 403, "text/html", "<html>Request blocked</html>", exitError, "web application firewall"},
+		{"login of a reverse proxy", 401, "text/plain", "Unauthorized", exitError, "no refusal of the token"},
+		{"other problem type", 422, "application/problem+json", `{"type":"urn:restow:problem:unsupported-os","title":"Operating system not supported","status":422}`, exitError, "no refusal of the token"},
+		{"proxy login", 407, "text/plain", "Proxy Authentication Required", exitUnreachable, "proxy asked for authentication"},
+		{"token refused", 401, "application/problem+json", `{"type":"urn:restow:problem:enrollment-token-invalid","title":"Enrollment token not valid","status":401}`, exitTokenRefused, "did not accept the enrollment token"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", tc.ctype)
+				w.WriteHeader(tc.status)
+				_, _ = io.WriteString(w, tc.body)
+			}))
+			defer stub.Close()
+			c := newCLI(t)
+			t.Setenv("RESTOW_URL", stub.URL)
+			_, se, code := c.run("enroll", "--allow-insecure-http")
+			if code != tc.want || !strings.Contains(se, tc.text) {
+				t.Fatalf("exit %d, want %d\n%s", code, tc.want, se)
+			}
+			if tc.want != exitTokenRefused && strings.Contains(se, "did not accept the enrollment token") {
+				t.Fatalf("the token is blamed:\n%s", se)
+			}
+		})
+	}
+}
+
 func TestEnrollUntrustedCertificateExplains(t *testing.T) {
 	tlsSrv := fakeserver.New(true)
 	defer tlsSrv.Close()
@@ -148,8 +212,41 @@ func TestEnrollUntrustedCertificateExplains(t *testing.T) {
 	t.Setenv("RESTOW_URL", tlsSrv.URL)
 	t.Setenv("RESTOW_TOKEN", tlsSrv.EnrollToken)
 	_, se, code := c.run("enroll")
-	if code != exitError || !strings.Contains(se, "not trusted") {
+	if code != exitUnreachable || !strings.Contains(se, "not trusted") {
 		t.Fatalf("exit %d\n%s", code, se)
+	}
+}
+
+// An instance that cannot be reached is no refused token: the install
+// scripts tell to check the network and the proxy instead (K115).
+func TestEnrollUnreachableInstance(t *testing.T) {
+	c := newCLI(t)
+	t.Setenv("RESTOW_URL", "http://127.0.0.1:1")
+	_, se, code := c.run("enroll", "--allow-insecure-http")
+	if code != exitUnreachable || strings.Contains(se, "did not accept the enrollment token") {
+		t.Fatalf("exit %d\n%s", code, se)
+	}
+}
+
+// status --json says why an existing enrollment cannot be read, so the
+// install scripts can explain it and ask for a token (K116).
+func TestStatusJSONUnreadableCredentials(t *testing.T) {
+	c := newCLI(t)
+	stateDir := filepath.Join(c.dir, "agent", "state")
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "state.json"), []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	so, _, code := c.run("status", "--json")
+	var rep statusReport
+	if code != exitOK || json.Unmarshal([]byte(so), &rep) != nil || rep.Credentials != "unreadable" || rep.CredentialsError == "" {
+		t.Fatalf("%d %+v\n%s", code, rep, so)
+	}
+	// The install scripts look for this exact text.
+	if !strings.Contains(so, `"credentials": "unreadable"`) {
+		t.Fatalf("status --json:\n%s", so)
 	}
 }
 
@@ -336,8 +433,27 @@ func TestEnrollRejectedReconnectTokenHint(t *testing.T) {
 	c := newCLI(t)
 	t.Setenv("RESTOW_TOKEN", "rset_this_reconnect_token_expired")
 	_, se, code := c.run("enroll", "--allow-insecure-http")
-	if code != exitError || !strings.Contains(se, "reconnect tokens for 1 hour") || !strings.Contains(se, "new reconnect token") {
+	if code != exitTokenRefused || !strings.Contains(se, "reconnect tokens for 1 hour") || !strings.Contains(se, "new reconnect token") {
 		t.Fatalf("exit %d\n%s", code, se)
+	}
+}
+
+// A file named hooks.d is no folder for scripts: `hooks scripts` fails
+// (exit 1, which the install scripts now check) instead of reporting success.
+func TestHooksScriptsNeedsAFolder(t *testing.T) {
+	c := newCLI(t)
+	if _, se, code := c.run("enroll", "--allow-insecure-http"); code != exitOK {
+		t.Fatalf("enroll: %d %s", code, se)
+	}
+	if err := os.WriteFile(filepath.Join(c.dir, "agent", "state", "hooks.d"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, se, code := c.run("hooks", "scripts"); code != exitError || !strings.Contains(se, "not a folder") {
+		t.Fatalf("hooks scripts: %d %s", code, se)
+	}
+	raw, _ := os.ReadFile(filepath.Join(c.dir, "agent", "state", "state.json"))
+	if strings.Contains(string(raw), `"hooks": "scripts"`) {
+		t.Fatalf("the policy was stored: %s", raw)
 	}
 }
 

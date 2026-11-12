@@ -116,6 +116,7 @@
     "folders": "Folders",
     "mailData": "Mail data",
     "failedMessages": "Not exported",
+    "incompleteMessages": "Without all attachments",
     "noReport": "There is no report for this export, so how many emails the file holds is not known.",
     "checksum": "SHA-256 checksum of the file",
     "copyChecksum": "Copy checksum",
@@ -132,6 +133,10 @@
     "calendar": "{count, plural, one {# calendar item was left out.} other {# calendar items were left out.}}",
     "contacts": "{count, plural, one {# contact was left out.} other {# contacts were left out.}}",
     "other": "{count, plural, one {# other item that is not mail was left out.} other {# other items that are not mail were left out.}}"
+  },
+  "incomplete": {
+    "title": "Mails without all their attachments",
+    "description": "These mails are in the file, but without attachments that are not in the backup: Microsoft did not hand them out, or they are link or item attachments, which the backup does not hold. MANIFEST.csv lists them with the status “incomplete”. The reason comes from the export."
   },
   "failures": {
     "title": "Mails that could not be exported",

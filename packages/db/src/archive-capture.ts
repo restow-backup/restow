@@ -201,3 +201,27 @@ export function kindsWithoutWay(
   }
   return missing;
 }
+
+/** A backfill not completed this long after activation counts as stalled (0.5.0). */
+export const BACKFILL_STALLED_AFTER_HOURS = 48;
+
+/**
+ * Whether the one-time takeover of a capture stream (alias `stream` in the statement) is
+ * stalled: the stream is activated and works (neither switched off nor paused), the
+ * backfill is not completed, and it either started more than
+ * {@link BACKFILL_STALLED_AFTER_HOURS} hours ago or its newest backfill job failed. The
+ * status page shows such a stream as stalled, never as fine, and the capture alerts
+ * (apps/worker archive-capture/alerts.ts) announce it. One indexed lookup in `jobs` per
+ * stream that is still taking over.
+ */
+export function backfillStalledSql(stream: string): SQL {
+  const s = sql.raw(`"${stream}"`);
+  return sql`(${s}.activated_at is not null and ${s}.backfill_completed_at is null
+    and ${s}.status not in ('disabled', 'paused')
+    and (${s}.activated_at < now() - ${`${BACKFILL_STALLED_AFTER_HOURS} hours`}::interval
+      or (select j.status from jobs j
+           where j.tenant_id = ${s}.tenant_id and j.queue = 'archive'
+             and j.protected_object_id = ${s}.protected_object_id
+             and j.payload->>'mode' = 'backfill' and j.payload->>'capture' = ${s}.way::text
+           order by j.created_at desc limit 1) = 'failed'))`;
+}

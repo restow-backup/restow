@@ -19,6 +19,7 @@ import {
 import type { FetchLike } from "../backup/imap/oauth2.js";
 import type { ImapAccountConfig } from "../backup/imap/types.js";
 import type { JobContext, ProtectedObjectRef, RestoreTarget } from "../engine/types.js";
+import { isGmailSystemMailbox } from "./gmail.js";
 import { ImapRestoreError, type ImapRestoreSession, type ImapSessionFactory } from "./imap.js";
 
 /**
@@ -35,6 +36,8 @@ export type ImapFlowClient = Pick<
   | "getMailboxLock"
   | "search"
   | "append"
+  | "messageCopy"
+  | "mailbox"
   | "fetchOne"
   | "logout"
   | "close"
@@ -57,6 +60,9 @@ export class ImapFlowRestoreSession implements ImapRestoreSession {
   private readonly known = new Map<string, string>();
   private readonly specialUse = new Map<string, string>();
 
+  /** Gmail: `[Gmail]/All Mail` with `\All` in LIST (./gmail.ts). */
+  isGmail = false;
+
   private constructor(
     private readonly client: ImapFlowClient,
     readonly delimiter: string,
@@ -71,6 +77,9 @@ export class ImapFlowRestoreSession implements ImapRestoreSession {
     session.specialUse.set("\\inbox", "INBOX");
     for (const box of listed) {
       session.known.set(box.path, box.path);
+      if (box.specialUse?.toLowerCase() === "\\all" && isGmailSystemMailbox(box.path)) {
+        session.isGmail = true;
+      }
       if (box.specialUse && box.specialUse.toLowerCase() !== "\\inbox") {
         const key = box.specialUse.toLowerCase();
         if (!session.specialUse.has(key)) {
@@ -138,6 +147,34 @@ export class ImapFlowRestoreSession implements ImapRestoreSession {
     });
   }
 
+  async findSimilar(
+    mailbox: string,
+    message: { readonly internalDate: Date | undefined; readonly size: number },
+  ): Promise<number[]> {
+    // SEARCH compares dates by day in the server's own time zone (RFC 3501 ignores time and
+    // zone), while imapflow sends the UTC day: a message appended at 23:30 UTC is on the next
+    // day for a server in Europe. A window of a day either side finds it wherever the server
+    // is; the caller tells the copies apart by SHA-256.
+    const day = 24 * 60 * 60 * 1000;
+    const window = message.internalDate
+      ? {
+          since: new Date(message.internalDate.getTime() - day),
+          before: new Date(message.internalDate.getTime() + 2 * day),
+        }
+      : {};
+    return this.withMailbox(mailbox, async () => {
+      const found = await this.client.search(
+        {
+          ...window,
+          larger: Math.max(0, message.size - 1),
+          smaller: message.size + 1,
+        },
+        { uid: true },
+      );
+      return Array.isArray(found) ? found : [];
+    });
+  }
+
   async append(
     mailbox: string,
     content: Buffer,
@@ -149,6 +186,23 @@ export class ImapFlowRestoreSession implements ImapRestoreSession {
       throw new ImapRestoreError(`the server rejected the APPEND to ${mailbox}`);
     }
     return { uid: result.uid };
+  }
+
+  async copy(mailbox: string, uid: number, destination: string): Promise<void> {
+    await this.withMailbox(mailbox, async () => {
+      const result = await this.client.messageCopy(String(uid), destination, { uid: true });
+      if (result === false) {
+        throw new ImapRestoreError(`the server refused to COPY message ${uid} to ${destination}`);
+      }
+    });
+  }
+
+  async permanentFlags(mailbox: string): Promise<readonly string[] | undefined> {
+    return this.withMailbox(mailbox, async () => {
+      const opened = this.client.mailbox;
+      const flags = opened ? opened.permanentFlags : undefined;
+      return flags === undefined ? undefined : [...flags];
+    });
   }
 
   async fetchSha256(mailbox: string, uid: number): Promise<string | null> {

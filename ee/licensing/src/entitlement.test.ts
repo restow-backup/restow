@@ -50,7 +50,7 @@ describe("updateEntitlement: beta licences (no update period)", () => {
 });
 
 describe("updateEntitlement: update period", () => {
-  it("covers a release made on the last day, up to its last millisecond (UTC)", () => {
+  it("covers a release made on the last day, up to its last millisecond (UTC) [LICENSE-003]", () => {
     for (const releasedAt of [
       "2027-11-30T00:00:00Z",
       "2027-11-30T23:59:59.999Z",
@@ -66,7 +66,7 @@ describe("updateEntitlement: update period", () => {
     }
   });
 
-  it("does not cover a release made after the last day", () => {
+  it("does not cover a release made after the last day [LICENSE-003]", () => {
     for (const releasedAt of [
       "2027-12-01T00:00:00Z",
       new Date("2027-12-01T00:00:00.000Z"),
@@ -84,7 +84,7 @@ describe("updateEntitlement: update period", () => {
     ).toBe(true);
   });
 
-  it("decides by the release date alone, whatever the version", () => {
+  it("decides by the release date alone, whatever the version [LICENSE-003]", () => {
     expect(
       updateEntitlement(PERIOD, { version: "2.0.0", releasedAt: "2027-10-01T00:00:00Z" }).entitled,
     ).toBe(true);
@@ -93,7 +93,7 @@ describe("updateEntitlement: update period", () => {
     ).toBe(false);
   });
 
-  it("covers a development build (no release date)", () => {
+  it("covers a development build (no release date) [LICENSE-003]", () => {
     expect(updateEntitlement(PERIOD, { version: "1.9.0", releasedAt: null })).toMatchObject({
       entitled: true,
       reason: "development_build",
@@ -103,7 +103,7 @@ describe("updateEntitlement: update period", () => {
     );
   });
 
-  it("never reads the clock: a covered release stays covered years later", () => {
+  it("never reads the clock: a covered release stays covered years later [LICENSE-002]", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2040-01-01T00:00:00Z"));
     expect(

@@ -25,6 +25,7 @@ export const REPORT_EVENTS = [
   "verify.completed",
   "boot_test.failed",
   "boot_test.unproven",
+  "boot_test.skipped",
   "scrub.corrupt",
   "scrub.repaired",
   "endpoint.stale",
@@ -35,12 +36,25 @@ export const REPORT_EVENTS = [
   "endpoint.recovery_code.rejected",
   "endpoint.rebound",
   "endpoint.recovery.failed",
+  "endpoint.sql_red",
+  "endpoint.sql_recovered",
+  "endpoint.sql_overdue",
+  "endpoint.backups_deletion_scheduled",
+  "endpoint.backups_deleted",
   "file_share.storage_quota",
   "file_share.repository_locked",
+  "backup.unusually_large",
+  "backup.unusually_large_notice",
+  "storage.copy_behind",
   "source.app_secret_expiring",
   "update.available",
   "installation.disk_low",
+  "installation.disk_reserve_released",
+  "installation.disk_reserve_restored",
   "installation.app_secret_expiring",
+  "installation.restore_mode",
+  "installation.key_mirror_conflict",
+  "notification.delivery_failed",
 ] as const;
 
 export type ReportEvent = (typeof REPORT_EVENTS)[number];
@@ -63,6 +77,12 @@ export interface ReportEventInfo {
    * subscribed to it gets that payload for this event as long as its column has the event on.
    */
   readonly webhookEvent?: WebhookEvent;
+  /**
+   * A security or data-loss event (0.5.0): always sent at once (never held for a digest),
+   * always delivered to the provider's mandatory recipients (the floor) whatever their column
+   * says, and always written to the bell, whose column cannot switch it off.
+   */
+  readonly critical?: true;
 }
 
 export const REPORT_EVENT_INFO: Readonly<Record<ReportEvent, ReportEventInfo>> = {
@@ -79,7 +99,7 @@ export const REPORT_EVENT_INFO: Readonly<Record<ReportEvent, ReportEventInfo>> =
   // What a backup saw looks like ransomware at work (docs/RANSOMWARE.md): mass changes far above
   // the object's baseline, mass deletions or extension renames, known ransomware extensions or
   // ransom notes, sampled files that look encrypted. Once per object and episode.
-  "backup.suspicious": { group: "recoverability", level: "error" },
+  "backup.suspicious": { group: "recoverability", level: "error", critical: true },
   // Retention of an object with a suspicious restore point is still paused after
   // `retentionHold.reminderDays` (14), and every that many days after: nobody resolved it.
   "backup.suspicious_hold": { group: "recoverability", level: "warning" },
@@ -95,7 +115,7 @@ export const REPORT_EVENT_INFO: Readonly<Record<ReportEvent, ReportEventInfo>> =
   // objects in one sync or day): one warning instead of a notice per object, since a mass change
   // at the source (licences removed, a wrong sync scope) is worth a look before confirming.
   "object.inactive_many": { group: "jobs", level: "warning" },
-  "verify.red": { group: "recoverability", level: "error" },
+  "verify.red": { group: "recoverability", level: "error", critical: true },
   "verify.yellow": { group: "recoverability", level: "warning" },
   "verify.recovered": { group: "recoverability", level: "info" },
   // A restore check finished, whatever its rating (the same name on the webhook stream).
@@ -110,13 +130,17 @@ export const REPORT_EVENT_INFO: Readonly<Record<ReportEvent, ReportEventInfo>> =
   // A boot test's temporary VM started and kept running, but its QEMU guest agent never
   // answered: no proof that the system inside works.
   "boot_test.unproven": { group: "recoverability", level: "warning" },
-  "scrub.corrupt": { group: "storage", level: "error" },
+  // A guest's job boot-tests it, but no boot test came to a result for longer than its schedule
+  // allows (two days after every backup, eight weekly): each was skipped or could not be carried
+  // out. Once per guest until a boot test comes to a result again.
+  "boot_test.skipped": { group: "recoverability", level: "warning" },
+  "scrub.corrupt": { group: "storage", level: "error", critical: true },
   "scrub.repaired": { group: "storage", level: "info" },
   // An endpoint (server or client, docs/AGENT.md) went silent or missed its backups.
   "endpoint.stale": { group: "jobs", level: "warning" },
   // A snapshot no backup run reported, or one dated in the future, appeared in an endpoint's
   // repository: retention leaves it alone, and the machine may be compromised.
-  "endpoint.suspicious_snapshot": { group: "storage", level: "error" },
+  "endpoint.suspicious_snapshot": { group: "storage", level: "error", critical: true },
   // An endpoint's repository (or all of a tenant's) reached 90 % of its storage budget, or
   // an upload was refused because the budget is used up.
   "endpoint.storage_quota": { group: "storage", level: "warning" },
@@ -132,11 +156,37 @@ export const REPORT_EVENT_INFO: Readonly<Record<ReportEvent, ReportEventInfo>> =
   // A bare metal recovery ended as failed: reported so by the ISO, not released within 30 minutes,
   // or silent past its expiry.
   "endpoint.recovery.failed": { group: "recoverability", level: "error" },
+  // The check of a SQL Server database restored from the repository found damage (CHECKDB, a
+  // damaged backup, another SHA-256), a red database is green again, or no check of a backed-up
+  // database was green for more than 8 days (W2a, docs/BAREMETAL-WINDOWS.md 5.1.7). Once each.
+  "endpoint.sql_red": { group: "jobs", level: "error" },
+  "endpoint.sql_recovered": { group: "jobs", level: "info" },
+  "endpoint.sql_overdue": { group: "jobs", level: "warning" },
+  // A provider owner asked to delete every backup of a revoked machine (0.5.0, apps/api
+  // features/endpoints/removal.ts): they go in seven days unless someone cancels. Critical, so
+  // the provider's mandatory recipients learn of it at once and can still stop it.
+  "endpoint.backups_deletion_scheduled": { group: "storage", level: "warning", critical: true },
+  // ... and the worker deleted them (apps/worker endpoints/removal.ts).
+  "endpoint.backups_deleted": { group: "storage", level: "info" },
   // A file share's repository (or all of a tenant's shares) reached 80 % of its storage budget,
   // or the budget is used up and new backups are refused (docs/FILESHARES.md 7.4).
   "file_share.storage_quota": { group: "storage", level: "warning" },
   // Retention and checks of a file share's repository kept finding it locked.
   "file_share.repository_locked": { group: "jobs", level: "warning" },
+  // A backup run would have added far more than its object usually does, or left its storage
+  // target too little free space: the size and space guard held it before it filled the storage
+  // (0.5.0, #99; @restow/db run-size.ts). Once per hold; every later run of the object waits for
+  // an administrator. Critical: backups of the object stop until someone decides.
+  "backup.unusually_large": { group: "storage", level: "warning", critical: true },
+  // A backup run passed its size limit and went on: the size check of its object is in `warn`
+  // mode, the default (#99, maintainer decision). Once per run. Not critical: nothing stopped,
+  // the administrator decides whether the run's object should hold such runs from now on.
+  "backup.unusually_large_notice": { group: "storage", level: "warning" },
+  // The copy of a restic repository (a container's, a machine's or a file share's) on a copy
+  // target is more than two days behind, or its copying keeps failing (0.5.0, apps/worker
+  // repository-copies): once per repository, copy target and episode. Not critical: the primary
+  // still holds every backup.
+  "storage.copy_behind": { group: "storage", level: "warning" },
   // The client secret (or certificate) of a Microsoft 365 source's own app registration ends
   // within 30 days, within 7, or has ended (entra/expiry.ts; apps/worker source-app-expiry.ts):
   // once per stage and date, `details.stage` names it. A tenant event in `jobs`, so the tenant's
@@ -145,11 +195,54 @@ export const REPORT_EVENT_INFO: Readonly<Record<ReportEvent, ReportEventInfo>> =
   "update.available": { group: "system", level: "info" },
   // The disk under the database or under the installation's local default repository runs low
   // (apps/api features/updates/disk-watch.ts, docs/DATABASE.md "Disk space"): once per episode.
-  "installation.disk_low": { group: "system", level: "warning" },
+  "installation.disk_low": { group: "system", level: "warning", critical: true },
+  // The emergency disk reserve was freed because the disk under the data volume was almost full
+  // (0.5.0, #98; apps/api features/updates/disk-reserve.ts): once per release, also one the
+  // container's start made while the database was down. Critical: the next step is the operator's.
+  "installation.disk_reserve_released": { group: "system", level: "error", critical: true },
+  // ... and written again once the disk had room (once per recreation).
+  "installation.disk_reserve_restored": { group: "system", level: "info" },
   // The same for the central backup app registration (Settings, Microsoft 365, or the
   // environment): apps/api features/updates/secret-watch.ts, once per stage and date.
   "installation.app_secret_expiring": { group: "system", level: "warning" },
+  // Restore mode came on by itself: a storage target shows progress the database does not have
+  // (a database dump was restored). Nothing is deleted until a provider owner ends it
+  // (docs/STORAGE.md, "Restore mode and progress markers"); once per restore mode.
+  "installation.restore_mode": { group: "system", level: "error" },
+  // A wrapped tenant key in storage differs from the database's under the same version: never
+  // overwritten, reported once per stored content (apps/worker handlers/framework.ts).
+  "installation.key_mirror_conflict": { group: "system", level: "error" },
+  // A notification could not be delivered (0.5.0, docs/NOTIFICATIONS.md): a mail the transport
+  // refused or that failed after every retry, a mail transport that is down, a webhook that keeps
+  // failing. Raised once per episode, through every channel but the one that failed; it always
+  // reaches the bell and the provider's mandatory recipients, and is never held for a digest.
+  "notification.delivery_failed": { group: "system", level: "error" },
 };
+
+/** The event of a failed delivery (see {@link REPORT_EVENT_INFO}). */
+export const DELIVERY_FAILED_EVENT = "notification.delivery_failed" satisfies ReportEvent;
+
+/** The security and data-loss events ({@link ReportEventInfo.critical}), in catalog order. */
+export const CRITICAL_REPORT_EVENTS: readonly ReportEvent[] = REPORT_EVENTS.filter(
+  (event) => REPORT_EVENT_INFO[event].critical === true,
+);
+
+export function isCriticalReportEvent(event: string): boolean {
+  return (CRITICAL_REPORT_EVENTS as readonly string[]).includes(event);
+}
+
+/**
+ * The events the floor (the provider's owners and mandatory recipients) always gets and the bell
+ * always shows: the critical ones and the failed delivery. They are always sent at once.
+ */
+export const FLOOR_REPORT_EVENTS: readonly ReportEvent[] = [
+  ...CRITICAL_REPORT_EVENTS,
+  DELIVERY_FAILED_EVENT,
+];
+
+export function isFloorReportEvent(event: string): boolean {
+  return (FLOOR_REPORT_EVENTS as readonly string[]).includes(event);
+}
 
 /**
  * Events about the installation, not about one tenant's data. They are raised
@@ -160,7 +253,11 @@ export const REPORT_EVENT_INFO: Readonly<Record<ReportEvent, ReportEventInfo>> =
 export const INSTALLATION_REPORT_EVENTS: readonly ReportEvent[] = [
   "update.available",
   "installation.disk_low",
+  "installation.disk_reserve_released",
+  "installation.disk_reserve_restored",
   "installation.app_secret_expiring",
+  "installation.restore_mode",
+  "installation.key_mirror_conflict",
 ];
 
 export function isInstallationReportEvent(event: string): boolean {
@@ -259,12 +356,18 @@ export const DEFAULT_BELL_EVENTS: readonly ReportEvent[] = REPORT_EVENTS.filter(
   (event) => !ROUTINE_REPORT_EVENTS.includes(event),
 );
 
-/** The bell's column: what the tenant chose, or the default. Unknown names are dropped. */
+/**
+ * The bell's column: what the tenant chose, or the default. Unknown names are dropped. The
+ * critical events and the failed delivery are always on (0.5.0): nobody can switch them off.
+ */
 export function bellEventsOf(stored: readonly string[] | null | undefined): ReportEvent[] {
   return stored
-    ? REPORT_EVENTS.filter((event) => stored.includes(event))
+    ? REPORT_EVENTS.filter((event) => stored.includes(event) || isFloorReportEvent(event))
     : [...DEFAULT_BELL_EVENTS];
 }
+
+/** The bell's events its column cannot switch off ({@link FLOOR_REPORT_EVENTS}). */
+export const BELL_LOCKED_EVENTS: readonly ReportEvent[] = FLOOR_REPORT_EVENTS;
 
 /** The catalog events of a stored event list, in catalog order (webhook and recipient lists). */
 export function catalogEventsOf(stored: readonly string[]): ReportEvent[] {
@@ -352,6 +455,46 @@ export type ReportSection = (typeof REPORT_SECTIONS)[number];
 
 export function isReportSection(value: string): value is ReportSection {
   return (REPORT_SECTIONS as readonly string[]).includes(value);
+}
+
+/**
+ * The calendar cadences of a summary report (0.5.0): the previous day, the previous Monday to
+ * Sunday, the previous calendar month, in the rule's time zone (reports/period.ts).
+ */
+export const REPORT_CADENCES = ["daily", "weekly", "monthly"] as const;
+
+export type ReportCadence = (typeof REPORT_CADENCES)[number];
+
+export function isReportCadence(value: unknown): value is ReportCadence {
+  return typeof value === "string" && (REPORT_CADENCES as readonly string[]).includes(value);
+}
+
+/** The cron a calendar cadence fires on (07:00 in the rule's time zone). */
+export const REPORT_CADENCE_CRON: Readonly<Record<ReportCadence, string>> = {
+  daily: "0 7 * * *",
+  weekly: "0 7 * * 1",
+  monthly: "0 7 1 * *",
+};
+
+/** The `periodDays` a calendar cadence stands for (the log and older clients read it). */
+export const REPORT_CADENCE_DAYS: Readonly<Record<ReportCadence, number>> = {
+  daily: 1,
+  weekly: 7,
+  monthly: 30,
+};
+
+/** A recipient's entries for the summary reports (no events): `report.<cadence>`. */
+export const SUMMARY_ENTRIES = ["report.daily", "report.weekly", "report.monthly"] as const;
+
+export type SummaryEntry = (typeof SUMMARY_ENTRIES)[number];
+
+export function isSummaryEntry(value: string): value is SummaryEntry {
+  return (SUMMARY_ENTRIES as readonly string[]).includes(value);
+}
+
+/** The cadence of a summary entry. */
+export function cadenceOfSummaryEntry(entry: SummaryEntry): ReportCadence {
+  return entry.slice("report.".length) as ReportCadence;
 }
 
 /** Periods a summary report can cover, in days. */

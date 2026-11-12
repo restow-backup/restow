@@ -7,6 +7,7 @@
  */
 
 export * from "./append.js";
+export * from "./capture-gaps.js";
 export * from "./chain.js";
 export * from "./format.js";
 export * from "./graph-capture.js";

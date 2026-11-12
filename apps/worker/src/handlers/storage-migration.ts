@@ -72,6 +72,7 @@
  */
 import {
   destinationObjectKeys,
+  INSTALLATION_DEFAULT_TARGET_ID,
   type MirrorItem,
   type MirrorItemResult,
   metadataMirrorItems,
@@ -79,16 +80,24 @@ import {
   openStorageTarget,
   packMirrorItems,
   parseManifestKey,
+  type RepositoryAccess,
   readOnlyFallbackChain,
   resolveStorageTargets,
+  resticBinary,
+  resticCacheBase,
+  resticCheckStructure,
+  resticErrorDetail,
   type StorageBackend,
   type StorageMigrationJobPayload,
   type StorageTargets,
+  withRepository,
 } from "@restow/core";
 import {
+  endpoints,
   fileShareRuns,
   type Job,
   jobs,
+  lockTenantStorage,
   packs,
   pveGuests,
   pveRuns,
@@ -103,6 +112,7 @@ import { and, eq, inArray, ne } from "drizzle-orm";
 import { appendAuditEntry } from "../audit.js";
 import { processDefaultStorage } from "../default-storage.js";
 import type { TenantTx, TenantTxRunner } from "../progress.js";
+import { archiveRecordRetention } from "./archive-records.js";
 import {
   type AbortReason,
   abortReasonOf,
@@ -113,9 +123,13 @@ import {
   type WorkerJobContext,
 } from "./framework.js";
 import {
+  blocksSwitch,
   isResticRepositoryKey,
+  planRepositories,
+  type RepositoryOwner,
+  type RepositorySource,
   resticKeysOn,
-  resticMirrorItems,
+  tenantRepositoryOwners,
   tenantRepositoryPrefixes,
 } from "./storage-migration-restic.js";
 
@@ -268,7 +282,12 @@ export async function hasActiveMigration(run: TenantTxRunner, tenantId: string):
  * share run.
  */
 async function hasActiveBackupJob(run: TenantTxRunner, tenantId: string): Promise<boolean> {
-  return run(async (tx) => {
+  return run((tx) => hasActiveBackupJobTx(tx, tenantId));
+}
+
+/** {@link hasActiveBackupJob} in an open transaction (the switch's, under the storage lock). */
+async function hasActiveBackupJobTx(tx: TenantTx, tenantId: string): Promise<boolean> {
+  {
     const [row] = await tx
       .select({ id: jobs.id })
       .from(jobs)
@@ -310,7 +329,7 @@ async function hasActiveBackupJob(run: TenantTxRunner, tenantId: string): Promis
       )
       .limit(1);
     return share !== undefined;
-  });
+  }
 }
 
 async function loadMigration(
@@ -380,8 +399,13 @@ function isPrunedManifest(key: string, live: ReadonlySet<string>): boolean {
 /** Where the item list reads from: the merged source, and its targets one by one (primary first). */
 interface MigrationSources {
   readonly source: StorageBackend;
-  /** The source primary, then each retired `previous` target (restic repositories, one holder each). */
-  readonly targets: readonly StorageBackend[];
+  /**
+   * Every place a restic repository of the tenant may lie, the source primary first: the
+   * copies (the destination aside), the retired targets and the installation default
+   * (storage-migration-restic.ts). A run split by an earlier storage change left parts of a
+   * repository on more than one of them.
+   */
+  readonly repositories: readonly RepositorySource[];
 }
 
 /**
@@ -401,9 +425,11 @@ async function buildItemList(
         .where(eq(packs.tenantId, tenantId)),
     ),
     liveSnapshotIds(run, tenantId),
-    metadataMirrorItems(tenantId, sources.source),
-    tenantRepositoryPrefixes(run, tenantId).then((prefixes) =>
-      resticMirrorItems(prefixes, sources.targets),
+    metadataMirrorItems(tenantId, sources.source, {
+      archiveRetention: archiveRecordRetention(run, tenantId),
+    }),
+    tenantRepositoryOwners(run, tenantId).then(async (owners) =>
+      (await planRepositories(owners, sources.repositories)).flatMap((plan) => plan.items),
     ),
   ]);
   // Retention may already have pruned a manifest this listing still shows
@@ -837,7 +863,20 @@ async function totalBytesOf(
  * destination's stored addressing no longer matches what this job copied
  * everything to (an admin edited it mid-migration).
  */
-type SwitchPreconditionFailure = "source_not_primary" | "destination_changed";
+type SwitchPreconditionFailure =
+  | "source_not_primary"
+  | "destination_changed"
+  | "runs_active"
+  | "active_endpoints";
+
+/** Why a switch was refused, as the migration's error says it. */
+const SWITCH_FAILURES: Record<Exclude<SwitchPreconditionFailure, "runs_active">, string> = {
+  source_not_primary:
+    "the source is no longer the tenant's primary target; another change replaced it while this migration ran",
+  destination_changed: "the destination's storage settings changed while this migration ran",
+  active_endpoints:
+    "a machine was enrolled while this migration ran; its agent writes to the current primary. Revoke it (its backups stay readable) or wait until the migration can be started again, then retry",
+};
 
 function switchPreconditionFailure(
   freshSource: StorageTarget | null,
@@ -873,6 +912,21 @@ async function switchPrimary(
   totals: { objectsTotal: number; bytesTotal: number },
 ): Promise<SwitchPreconditionFailure | null> {
   return run(async (tx) => {
+    // The lock credential issue takes: no run gets a credential for the old primary while this
+    // decides, and every run that has one is seen here (docs/STORAGE.md, "Runs and storage
+    // changes").
+    await lockTenantStorage(tx, ctx.tenantId);
+    if (await hasActiveBackupJobTx(tx, ctx.tenantId)) {
+      return "runs_active";
+    }
+    const [machine] = await tx
+      .select({ id: endpoints.id })
+      .from(endpoints)
+      .where(and(eq(endpoints.tenantId, ctx.tenantId), eq(endpoints.status, "active")))
+      .limit(1);
+    if (machine) {
+      return "active_endpoints";
+    }
     const [freshSource, freshDestination] = await Promise.all([
       sourceRow
         ? tx
@@ -943,6 +997,108 @@ async function switchPrimary(
     });
     return null;
   });
+}
+
+/**
+ * The restic repositories as the switch would leave them (storage-migration-restic.ts): one
+ * that was created but cannot be copied whole from all sources together (data without a
+ * `config` or a key anywhere, two different chains and none on the primary) rejects the
+ * migration with a list of them. Switching would leave it behind silently: its next backup
+ * would begin from scratch, its restore points would point at nothing.
+ */
+async function assertRepositoriesCopyable(
+  run: TenantTxRunner,
+  ctx: WorkerJobContext,
+  migration: StorageMigration,
+  sources: MigrationSources,
+): Promise<void> {
+  const owners = await tenantRepositoryOwners(run, ctx.tenantId);
+  const plans = await planRepositories(owners, sources.repositories);
+  const blocking = plans.filter(blocksSwitch);
+  if (blocking.length === 0) {
+    return;
+  }
+  const listed = blocking
+    .slice(0, MAX_REPORTED_PROBLEMS)
+    .map(
+      (plan) =>
+        `${plan.owner.prefix} (${plan.owner.kind} ${plan.owner.name ?? plan.owner.ownerId}: ${plan.class})`,
+    )
+    .join(", ");
+  const more =
+    blocking.length > MAX_REPORTED_PROBLEMS
+      ? `, +${blocking.length - MAX_REPORTED_PROBLEMS} more`
+      : "";
+  await rejectMigration(
+    run,
+    ctx,
+    migration,
+    `Restic repositories that cannot be copied whole (their parts are missing on every target, or two chains lie under one prefix): ${listed}${more}. Run the repository repair (storage) and decide for each of them before moving.`,
+  );
+}
+
+/** How the structure of a copied repository is checked (restic; tests replace it). */
+export const repositoryStructureCheck: {
+  run: (access: RepositoryAccess) => Promise<void>;
+} = {
+  run: async (access) => {
+    await withRepository(access, (session) => resticCheckStructure(session));
+  },
+};
+
+/**
+ * restic's own structural check (`restic check`, no pack data read) of every repository the
+ * migration copied, on the destination, before the switch: config and keys open with the
+ * password, index and snapshots read, every pack the index names present. A repository that
+ * fails rejects the migration; the old primary stays as it is.
+ */
+async function checkRepositoriesOnDestination(
+  run: TenantTxRunner,
+  ctx: WorkerJobContext,
+  migration: StorageMigration,
+  destination: StorageBackend,
+): Promise<void> {
+  const owners = await tenantRepositoryOwners(run, ctx.tenantId);
+  const failures: string[] = [];
+  for (const owner of owners) {
+    if (!owner.secretId || !(await destination.head(`${owner.prefix}config`).catch(() => null))) {
+      continue;
+    }
+    const password = await ctx.secrets.get(owner.secretId).catch(() => null);
+    if (!password) {
+      continue;
+    }
+    try {
+      await repositoryStructureCheck.run({
+        storage: destination,
+        prefix: owner.prefix,
+        repositoryPassword: password,
+        repositoryKey: `migration-${migration.id}-${owner.ownerId}`,
+        binary: resticBinary(),
+        cacheBase: resticCacheBase(),
+      });
+    } catch (error) {
+      failures.push(
+        `${owner.prefix} (${repositoryLabel(owner)}): ${resticErrorDetail(error, 300)}`,
+      );
+    }
+  }
+  if (failures.length > 0) {
+    await rejectMigration(
+      run,
+      ctx,
+      migration,
+      `restic found copied repositories incomplete on the destination: ${failures
+        .slice(0, MAX_REPORTED_PROBLEMS)
+        .join(
+          "; ",
+        )}${failures.length > MAX_REPORTED_PROBLEMS ? `; +${failures.length - MAX_REPORTED_PROBLEMS} more` : ""}`,
+    );
+  }
+}
+
+function repositoryLabel(owner: RepositoryOwner): string {
+  return `${owner.kind} ${owner.name ?? owner.ownerId}`;
 }
 
 /**
@@ -1090,10 +1246,49 @@ export const storageMigrationHandler: JobHandler<"storage_migration"> = {
       secrets: ctx.secrets,
       defaults: openDefaults,
     });
+    // Restic repositories are collected from every place they may lie (a run split by an
+    // earlier storage change, a promotion of 0.4.1 that dropped the installation default):
+    // the copies besides the destination, the retired targets and the installation default.
+    const repositorySources: RepositorySource[] = [
+      {
+        id: sourceRow?.id ?? INSTALLATION_DEFAULT_TARGET_ID,
+        name: sourceRow?.name ?? "installation default",
+        role: "primary",
+        backend: primarySource,
+      },
+    ];
+    for (const target of resolved.targets) {
+      if (
+        target.role === "primary" ||
+        target.id === destinationRow.id ||
+        repositorySources.some((known) => known.id === target.id)
+      ) {
+        continue;
+      }
+      repositorySources.push({
+        id: target.id,
+        name:
+          target.name ??
+          (target.id === INSTALLATION_DEFAULT_TARGET_ID ? "installation default" : target.id),
+        role: target.role,
+        backend: target.backend,
+      });
+    }
+    if (!repositorySources.some((known) => known.id === INSTALLATION_DEFAULT_TARGET_ID)) {
+      const defaults = await openDefaults().catch(() => null);
+      if (defaults) {
+        repositorySources.push({
+          id: INSTALLATION_DEFAULT_TARGET_ID,
+          name: "installation default",
+          role: "installation_default",
+          optional: true,
+          backend: defaults.primary,
+        });
+      }
+    }
+    const fallbacks = repositorySources.slice(1).map((entry) => entry.backend);
     const source =
-      resolved.previous.length > 0
-        ? readOnlyFallbackChain([primarySource, ...resolved.previous])
-        : primarySource;
+      fallbacks.length > 0 ? readOnlyFallbackChain([primarySource, ...fallbacks]) : primarySource;
 
     if (migration.status === "queued") {
       await setMigration(run, ctx.tenantId, migration.id, {
@@ -1102,7 +1297,9 @@ export const storageMigrationHandler: JobHandler<"storage_migration"> = {
       });
     }
 
-    const sources: MigrationSources = { source, targets: [primarySource, ...resolved.previous] };
+    const sources: MigrationSources = { source, repositories: repositorySources };
+    // A repository that cannot be copied whole stops the move before anything is copied.
+    await assertRepositoriesCopyable(run, ctx, migration, sources);
     const items = await buildItemList(run, ctx.tenantId, sources);
     const loadedCursor = await ctx.cursor.load();
     const cursor = isMigrationCursor(loadedCursor) ? loadedCursor : null;
@@ -1157,14 +1354,7 @@ export const storageMigrationHandler: JobHandler<"storage_migration"> = {
       return rejectMigration(run, ctx, migration, problemSummary(verifyResult, "Verifying"));
     }
 
-    const reconciled = await reconcileBeforeSwitch(
-      run,
-      ctx,
-      migration,
-      sources,
-      destination,
-      items,
-    );
+    let reconciled = await reconcileBeforeSwitch(run, ctx, migration, sources, destination, items);
 
     // Every worker process's tenant storage cache must have had time to
     // notice the destination as a copy before it is safe to retire the old
@@ -1180,26 +1370,47 @@ export const storageMigrationHandler: JobHandler<"storage_migration"> = {
       );
     }
 
-    await setMigration(run, ctx.tenantId, migration.id, { status: "switching" });
-    const bytesTotal = await totalBytesOf(reconciled.items, destination);
-    const failure = await switchPrimary(
-      run,
-      ctx,
-      migration,
-      sourceRow,
-      destinationRow.id,
-      destinationRow.config,
-      { objectsTotal: reconciled.items.length, bytesTotal },
-    );
-    if (failure) {
-      return rejectMigration(
+    for (let attempt = 0; ; attempt++) {
+      // The repositories once more, from a fresh listing, then restic's own look at each one
+      // on the destination: a repository that is not whole there never becomes the primary's.
+      await assertRepositoriesCopyable(run, ctx, migration, sources);
+      await checkRepositoriesOnDestination(run, ctx, migration, destination);
+      await setMigration(run, ctx.tenantId, migration.id, { status: "switching" });
+      const bytesTotal = await totalBytesOf(reconciled.items, destination);
+      const failure = await switchPrimary(
         run,
         ctx,
         migration,
-        failure === "source_not_primary"
-          ? "the source is no longer the tenant's primary target; another change replaced it while this migration ran"
-          : "the destination's storage settings changed while this migration ran",
+        sourceRow,
+        destinationRow.id,
+        destinationRow.config,
+        { objectsTotal: reconciled.items.length, bytesTotal },
       );
+      if (failure === "runs_active") {
+        // A backup started between the reconciliation and the switch (seen under the storage
+        // lock credential issue takes too): it writes to the old primary until it ends. Wait,
+        // bring over what it wrote, and try again.
+        await setMigration(run, ctx.tenantId, migration.id, { status: "verifying" });
+        if (attempt >= RECONCILE_MAX_ROUNDS) {
+          throw new Error(
+            `storage migration ${migration.id}: backups keep running; switching later`,
+          );
+        }
+        await sleep(RECONCILE_WAIT_MS);
+        reconciled = await reconcileBeforeSwitch(
+          run,
+          ctx,
+          migration,
+          sources,
+          destination,
+          reconciled.items,
+        );
+        continue;
+      }
+      if (failure) {
+        return rejectMigration(run, ctx, migration, SWITCH_FAILURES[failure]);
+      }
+      break;
     }
     await ctx.cursor.clear();
     const skippedPruned = copyResult

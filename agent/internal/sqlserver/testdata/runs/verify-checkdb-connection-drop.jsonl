@@ -1,0 +1,4 @@
+{"type":"progress","step":"restore","percent":100}
+{"type":"sqlmessage","step":"checkdb","number":233,"class":20,"state":0,"message":"A transport-level error has occurred when receiving results from the server. (provider: Shared Memory Provider, error: 0 - No process is on the other end of the pipe.)"}
+{"type":"error","problem":{"code":"sql_script_failed","step":"exists","number":0,"message":"The SQL Server script stopped: ExecuteReader requires an open and available Connection. The connection's current state is closed."}}
+#exit 3

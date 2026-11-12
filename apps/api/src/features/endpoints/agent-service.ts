@@ -4,6 +4,7 @@ import {
   agentFacingConfig,
   agentPolicyWire,
   bandwidthTimeZone,
+  buildCause,
   cleanDataFolderReport,
   DEFAULT_SCHEDULE_TIMEZONE,
   ENDPOINT_QUEUES,
@@ -34,9 +35,11 @@ import {
   resticInit,
   restoreTestAlreadyWaiting,
   restoreTestRetry,
+  type StorageBackend,
   SUPPORTED_ENDPOINT_OS,
   sealEndpointPassword,
   toFailureRecord,
+  withDeletionPermit,
 } from "@restow/core";
 import {
   type Endpoint,
@@ -51,11 +54,13 @@ import {
   endpoints,
   endpointTasks,
   type JobStartPauseState,
+  lockTenantStorage,
   NOT_PAUSED,
   readJobStartPause,
+  runSizeHoldOfRun,
   tenants,
 } from "@restow/db";
-import { and, asc, eq, inArray, isNull, lt, ne, or, type SQL, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lt, notInArray, or, type SQL, sql } from "drizzle-orm";
 import { config as appConfig } from "../../config.js";
 import { db, providerDb } from "../../db.js";
 import { loadTenantDek, storeSecret } from "../../lib/secrets.js";
@@ -64,6 +69,8 @@ import { emitWebhookEvent } from "../../lib/webhooks.js";
 import { ProblemError } from "../../problem.js";
 import { pgBossExecutor } from "../jobs/pg-boss-tx.js";
 import { jobQueue } from "../jobs/queue.js";
+import { RESTORE_MODE_TASK_HOLD_MESSAGE, restoreModeTaskHoldBefore } from "../restore-mode/hold.js";
+import { readFromIn } from "../storage/repository-source.js";
 import { type AgentContext, FailureTracker } from "./agent-auth.js";
 import { agentActor, auditEndpoint, ENDPOINT_AUDIT_ACTIONS } from "./audit.js";
 import { storeRunLayout } from "./baremetal.js";
@@ -97,6 +104,14 @@ import {
   type ProgressInput,
   type StartRunInput,
 } from "./schemas.js";
+import {
+  recordSqlBackupRun,
+  recordSqlInventory,
+  recordSqlRestoreRun,
+  recordSqlVerifyRun,
+  runNoticesOf,
+  withSqlStats,
+} from "./sql-agent.js";
 
 /**
  * The server side of the agent contract (docs/AGENT.md, "Agent API"):
@@ -118,7 +133,15 @@ const LOG_TAIL_KEEP = 20 * 1024;
 
 export interface AgentTask {
   id: string;
-  kind: "backup_now" | "restore" | "verify_sample" | "update_config" | "uninstall";
+  kind:
+    | "backup_now"
+    | "restore"
+    | "verify_sample"
+    | "update_config"
+    | "uninstall"
+    | "sql_restore"
+    | "sql_verify"
+    | "sql_inventory";
   params: Record<string, unknown>;
 }
 
@@ -326,6 +349,8 @@ export async function enrollEndpoint(
   const repositoryPassword = randomBytes(32).toString("base64url");
   let secretId: string | null = null;
   let endpointCreated = false;
+  /** The target `restic init` and the password file went to: the one a failure cleans up. */
+  let initBackend: StorageBackend | null = null;
   try {
     const [tenant] = await providerDb
       .select({ status: tenants.status, timeZone: tenants.timeZone })
@@ -353,6 +378,12 @@ export async function enrollEndpoint(
     });
     secretId = stored.id;
     await withTenantTx(db, tenantId, async (tx) => {
+      // The lock every change of the primary takes (docs/STORAGE.md, "Runs and storage
+      // changes"): a promotion, "keep" or "move" either committed before this (the target
+      // resolved below is the new primary) or sees this active machine and refuses. Without it a
+      // switch could commit between the two, and `restic init` would go to the old primary while
+      // the agent writes everything else to the new one.
+      await lockTenantStorage(tx, tenantId);
       await tx.insert(endpoints).values({
         id: endpointId,
         tenantId,
@@ -394,6 +425,7 @@ export async function enrollEndpoint(
       { id: endpointId, tenantId, repositorySecretId: stored.id },
       { forWrite: true },
     );
+    initBackend = access.storage;
     await withRepository(access, (session) => resticInit(session));
     // The password also lies next to the repository, sealed with the tenant key, so the
     // master key and the storage are enough to restore without this database.
@@ -444,9 +476,17 @@ export async function enrollEndpoint(
       if (secretId) {
         await removeSecret(tenantId, secretId);
       }
-      const targets = await tenantStorage(db, tenantId).catch(() => null);
-      if (targets) {
-        await removeRepositoryObjects(targets.storage, `endpoints/${endpointId}/`);
+      // Where init wrote, not whatever is the primary by now.
+      const backend =
+        initBackend ?? (await tenantStorage(db, tenantId).catch(() => null))?.storage ?? null;
+      if (backend) {
+        // Only the repository this request began under its fresh endpoint id goes: an own_scope
+        // pass, held neither by restore mode nor by a target that cannot be compared
+        // (storage/deletion-guard.ts). A guard that cannot read the restore mode leaves it; the
+        // token is released all the same.
+        await withDeletionPermit({ pass: "enrollment_cleanup", tenantId }, () =>
+          removeRepositoryObjects(backend, `endpoints/${endpointId}/`),
+        ).catch(() => undefined);
       }
       await releaseToken(claimed.id);
     } catch {
@@ -509,19 +549,28 @@ function toAgentTask(row: {
  * folders are kept as far as they are on the list of the machine's system.
  */
 export function agentFactsOf(
-  input: Pick<HeartbeatInput, "hooks" | "hookScripts" | "machine" | "dataFolders">,
+  input: Pick<HeartbeatInput, "hooks" | "hookScripts" | "machine" | "dataFolders"> & {
+    capabilities?: string[] | undefined;
+  },
   now: Date,
   os: string,
 ): EndpointAgentFacts | null {
   const dataFolders = cleanDataFolderReport(os, input.dataFolders);
-  if (!input.hooks && !input.machine && dataFolders === null) {
+  if (!input.hooks && !input.machine && dataFolders === null && !input.capabilities) {
     return null;
   }
+  // The Windows facts are Windows only (W1): another system never keeps them.
+  const machine =
+    input.machine && os !== "windows" && "windows" in input.machine
+      ? (({ windows: _windows, ...rest }) => rest)(input.machine)
+      : input.machine;
   return {
     ...(input.hooks ? { hooks: input.hooks } : {}),
     ...(input.hooks === "scripts" ? { hookScripts: input.hookScripts ?? [] } : {}),
-    ...(input.machine ? { machine: input.machine } : {}),
+    ...(machine ? { machine } : {}),
     ...(dataFolders !== null ? { dataFolders } : {}),
+    // What the agent can do beyond the base contract (0.5.0: `sql_native_v1`, W2a).
+    ...(input.capabilities ? { capabilities: input.capabilities } : {}),
     reportedAt: now.toISOString(),
   };
 }
@@ -561,6 +610,8 @@ export async function heartbeat(
   // The answer says so, and an agent from 0.4.0 also holds back its scheduled backups.
   const pause = await agentStartPause();
   const startsPaused = pause.paused;
+  // Restore mode: tasks from the restored dump are never handed out (restore-mode/hold.ts).
+  const holdBefore = await restoreModeTaskHoldBefore();
   const answer = await withTenantTx(db, agent.tenantId, async (tx) => {
     const nextRunAt = input.nextRunAt ? new Date(input.nextRunAt) : null;
     const facts = agentFactsOf(input, now, agent.os);
@@ -584,6 +635,11 @@ export async function heartbeat(
     if (!endpoint) {
       throw new ProblemError(404, "Endpoint not found");
     }
+    // The SQL inventory (W2a): only a Windows agent sends one, at most every 6 hours or after an
+    // `sql_inventory` task.
+    if (input.sqlInventory !== undefined && agent.os === "windows") {
+      await recordSqlInventory(tx, agent, input.sqlInventory, now);
+    }
 
     // Tasks nobody picked up in time end here.
     await tx
@@ -597,6 +653,31 @@ export async function heartbeat(
         ),
       );
 
+    if (holdBefore) {
+      // A task from before the restore, waiting or delivered without a run: a restore, an
+      // uninstall or a backup the agent may have done already in the timeline the database lost.
+      await tx
+        .update(endpointTasks)
+        .set({
+          status: "cancelled",
+          finishedAt: now,
+          errorMessage: RESTORE_MODE_TASK_HOLD_MESSAGE,
+        })
+        .where(
+          and(
+            eq(endpointTasks.endpointId, agent.endpointId),
+            lt(endpointTasks.createdAt, holdBefore),
+            or(
+              eq(endpointTasks.status, "pending"),
+              and(
+                eq(endpointTasks.status, "delivered"),
+                sql`NOT EXISTS (SELECT 1 FROM ${endpointRuns} r WHERE r.task_id = ${endpointTasks.id})`,
+              ),
+            ),
+          ),
+        );
+    }
+
     const redeliverBefore = new Date(now.getTime() - REDELIVER_AFTER_MS);
     const waiting = await tx
       .select()
@@ -604,7 +685,8 @@ export async function heartbeat(
       .where(
         and(
           eq(endpointTasks.endpointId, agent.endpointId),
-          startsPaused ? ne(endpointTasks.kind, "backup_now") : undefined,
+          // A check of the SQL backups (W2a) restores a database and runs CHECKDB: it waits too.
+          startsPaused ? notInArray(endpointTasks.kind, ["backup_now", "sql_verify"]) : undefined,
           or(
             and(
               eq(endpointTasks.status, "pending"),
@@ -626,7 +708,13 @@ export async function heartbeat(
 
     const tasks: AgentTask[] = [];
     const finishedOnDelivery = waiting
-      .filter((task) => task.kind === "update_config" || task.kind === "uninstall")
+      // `sql_inventory` (W2a) has no run: the agent answers with its next heartbeat.
+      .filter(
+        (task) =>
+          task.kind === "update_config" ||
+          task.kind === "uninstall" ||
+          task.kind === "sql_inventory",
+      )
       .map((task) => task.id);
     for (const task of waiting) {
       tasks.push(toAgentTask({ id: task.id, kind: task.kind, params: task.params }));
@@ -730,11 +818,15 @@ async function agentUpdateNow(
 // Runs
 // ---------------------------------------------------------------------------
 
-const TASK_KIND_OF_RUN = {
+/** The task a run of each kind may belong to; a `sql` run (W2a) never belongs to one. */
+const TASK_KIND_OF_RUN: Readonly<Record<StartRunInput["kind"], AgentTask["kind"] | null>> = {
   backup: "backup_now",
   restore: "restore",
   verify_sample: "verify_sample",
-} as const;
+  sql: null,
+  sql_restore: "sql_restore",
+  sql_verify: "sql_verify",
+};
 
 /** Clamp a time the agent reports: never in the future, never more than a day back. */
 function agentTime(value: string, now: Date): Date {
@@ -763,7 +855,7 @@ export async function startRun(
       if (!task) {
         throw new ProblemError(404, "Task not found");
       }
-      if (task.kind !== TASK_KIND_OF_RUN[input.kind]) {
+      if (TASK_KIND_OF_RUN[input.kind] === null || task.kind !== TASK_KIND_OF_RUN[input.kind]) {
         throw new ProblemError(409, "Task does not match the run", {
           detail: `A ${task.kind} task cannot start a ${input.kind} run.`,
         });
@@ -944,7 +1036,42 @@ export async function finishRun(
     // The layout of a whole machine backup: stored before the run's errors are, so a refused one
     // adds its hint to them.
     const layoutId = await storeRunLayout(tx, agent, run, input, errors);
-    const failure = cancelled ? null : failureRecordOf(input.status, errors, now);
+    // A backup the size and space guard held (#99) says so, not the refusal restic reported. A
+    // held run made no restore point, so it failed; a `partial` run made one and keeps its
+    // own explanation.
+    const held =
+      !cancelled && input.status === "failed" && run.kind === "backup"
+        ? await runSizeHoldOfRun(tx, "endpoint", agent.endpointId, run.id, run.startedAt)
+        : null;
+    const failure = held
+      ? toFailureRecord(buildCause("storage.run_held", {}, { holdId: held.id }), { now })
+      : cancelled
+        ? null
+        : failureRecordOf(input.status, errors, now);
+    // The native SQL Server backup (W2a): its databases, backups and check reports.
+    const sqlStats =
+      run.kind === "sql"
+        ? await recordSqlBackupRun(tx, agent, run, input, now)
+        : // A check stopped in the UI states nothing about the backups: no report.
+          run.kind === "sql_verify" && !cancelled
+          ? await recordSqlVerifyRun(tx, agent, run, input, now)
+          : run.kind === "sql_restore"
+            ? await recordSqlRestoreRun(tx, agent, run, input, errors)
+            : undefined;
+    // A restore whose task read the repository from another target than the primary (a copy
+    // target's repository copy, docs/STORAGE.md "Restoring from a copy") says so on its run.
+    const readFrom =
+      run.kind === "restore" && run.taskId
+        ? readFromIn(
+            (
+              await tx
+                .select({ params: endpointTasks.params })
+                .from(endpointTasks)
+                .where(eq(endpointTasks.id, run.taskId))
+                .limit(1)
+            )[0]?.params.readFrom,
+          )
+        : null;
     await tx
       .update(endpointRuns)
       .set({
@@ -952,7 +1079,13 @@ export async function finishRun(
         layoutId,
         finishedAt: finishedAt.getTime() < run.startedAt.getTime() ? now : finishedAt,
         snapshotId: input.snapshotId ?? null,
-        stats: statsWithActivity(input.stats, input.activity, input.consistency),
+        stats: {
+          ...withSqlStats(statsWithActivity(input.stats, input.activity, input.consistency), {
+            sql: sqlStats,
+            notices: runNoticesOf(input),
+          }),
+          ...(readFrom ? { readFrom } : {}),
+        },
         errors,
         // What went wrong, explained: the headline, the reason and what to do, in the viewer's language.
         failure,
@@ -1037,13 +1170,33 @@ export async function finishRun(
         );
     }
 
+    // A machine that backs up only its databases (no folders, W2a): its `sql` runs are its
+    // backups, so they keep it from going stale. Otherwise the file backup decides, and a
+    // failing one is not hidden by working SQL runs.
+    if (run.kind === "sql" && !interrupted && endpoint.config.paths.length === 0) {
+      const good = input.status !== "failed" && input.snapshotId !== undefined;
+      await tx
+        .update(endpoints)
+        .set({
+          lastBackupAt: finishedAt,
+          ...(good ? { lastSuccessAt: finishedAt, staleAlertedAt: null } : {}),
+        })
+        .where(eq(endpoints.id, agent.endpointId));
+    }
+
     if (run.kind === "restore") {
       await auditEndpoint(tx, {
         tenantId: agent.tenantId,
         actor: agentActor(agent.hostname, agent.ip),
         action: ENDPOINT_AUDIT_ACTIONS.restoreFinished,
         endpointId: agent.endpointId,
-        details: { runId, status: input.status, taskId: run.taskId, errors: errors.length },
+        details: {
+          runId,
+          status: input.status,
+          taskId: run.taskId,
+          errors: errors.length,
+          ...(readFrom ? { readFrom } : {}),
+        },
       });
     }
 
@@ -1064,7 +1217,12 @@ export async function finishRun(
         .where(eq(endpointTasks.id, run.taskId));
     }
 
-    if (input.status === "failed" && !interrupted && !incompleteTest) {
+    // Likewise a SQL check that came to no result for any database (no space, a time limit).
+    const incompleteSqlCheck =
+      run.kind === "sql_verify" &&
+      (sqlStats?.databases ?? []).every((database) => database.outcome === "incomplete");
+
+    if (input.status === "failed" && !interrupted && !incompleteTest && !incompleteSqlCheck) {
       await emitWebhookEvent(tx, {
         tenantId: agent.tenantId,
         event: "job.failed",

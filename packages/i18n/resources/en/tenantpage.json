@@ -14,7 +14,8 @@
     "notifications": "Notifications",
     "integrations": "Integrations",
     "members": "Users",
-    "masterData": "Master data"
+    "masterData": "Master data",
+    "branding": "Branding"
   },
   "descriptions": {
     "overview": "{scope, select, organisation {Your organisation at a glance: what is protected, whether it is proven restorable and where each setting lives.} other {{tenant} at a glance: what is protected, whether it is proven restorable and where each setting lives.}}",
@@ -28,7 +29,8 @@
     "notifications": "Who is told what: the recipients and the rules that send alerts and reports.",
     "integrations": "API keys and webhooks for RMM, PSA and ticket systems.",
     "members": "Who can sign in, and with which role.",
-    "masterData": "Name, customer number, language, time zone, address and contacts."
+    "masterData": "Name, customer number, language, time zone, address and contacts.",
+    "branding": "The tenant's own logo, sender and colours on its mails, chat messages and customer reports, instead of yours."
   },
   "access": {
     "role": "Your role in the provider team can look at this page but not change it. Changing settings needs the Administrator role or higher.",
@@ -218,5 +220,40 @@
       "defaultStorageUsed": "In use here: {scope, select, organisation {your organisation} other {this tenant}} stores on the installation's default ({kind, select, s3 {S3} other {local storage}}).",
       "defaultStorageUnused": "Not in use here: {scope, select, organisation {your organisation} other {this tenant}} has a repository of its own."
     }
+  },
+  "branding": {
+    "loadError": "The branding could not be loaded.",
+    "locked": {
+      "title": "The tenant's own branding",
+      "description": "A logo, sender and colours of its own for this tenant's mails, chat messages and customer reports."
+    },
+    "inherit": "Use the provider's branding",
+    "inheritHint": "Messages about {tenant} carry your branding.",
+    "ownHint": "Messages about {tenant} carry the branding below. Switch this on to go back to yours.",
+    "inherited": "The tenant uses your branding again.",
+    "inheritsNamed": "This tenant's messages come from \"{name}\", your branding.",
+    "inheritsProduct": "This tenant's messages carry {appName} until you set up a branding."
+  },
+  "customerReport": {
+    "title": "Customer monthly report",
+    "description": "Once a month, a report in your branding to the contacts of this tenant who receive it: what is protected, the backup success rate, the restore checks, restores and storage. No prices.",
+    "loadError": "The customer report could not be loaded.",
+    "saved": "Customer report saved.",
+    "never": "never",
+    "enabled": "Send the monthly report",
+    "runs": "Next: {next} · Last: {last}",
+    "sendDay": "Day of the month",
+    "day": "Day {day}",
+    "sendHour": "At",
+    "timezone": "Time zone: {zone}",
+    "language": "Language",
+    "languageTenant": "The tenant's language",
+    "recipients": "Recipients",
+    "noRecipients": "No contact receives it yet. Tick \"Receives the monthly report\" for a contact under Master data.",
+    "openContacts": "Open Master data",
+    "previewPdf": "Download preview (PDF)",
+    "test": "Send test to me",
+    "testSent": "The report is queued for {to}.",
+    "lastDelivery": "Last sent {at}: {status}"
   }
 }

@@ -357,6 +357,175 @@ describe.skipIf(!canRun)("boot tests of Proxmox VE restore points", () => {
     expect((await readinessRow())?.bootTest?.outcome).toBe("red");
   });
 
+  it("rates by what the reason stands for: no green without proof, an unknown reason keeps its message", async () => {
+    const stored = async (taskId: string) => {
+      const [run] = await rows((tx) => tx.select().from(pveRuns).where(eq(pveRuns.taskId, taskId)));
+      return run;
+    };
+    const pointTest = async () =>
+      (await rows((tx) => tx.select().from(pveSnapshots).where(eq(pveSnapshots.id, newest()))))[0]
+        ?.bootTest;
+    // A green whose init runs but whose services were not checked: amber, rated.
+    let taskId = await openBootTask(newest());
+    await report(taskId, nodeResult("green", { reason: "init_running_unverified" }));
+    expect((await stored(taskId))?.stats.bootTest).toMatchObject({
+      outcome: "yellow",
+      reason: "init_running_unverified",
+    });
+    expect(await pointTest()).toMatchObject({ outcome: "yellow" });
+    expect(await readinessRow()).toMatchObject({ state: "yellow" });
+    // A guest that failed in its virtual CPU, a container in emergency mode, a panicked guest:
+    // red, also when the node said amber or green.
+    for (const [sent, reason] of [
+      ["green", "guest_internal_error"],
+      ["green", "system_maintenance"],
+      ["yellow", "guest_panicked"],
+    ] as const) {
+      taskId = await openBootTask(newest());
+      await report(taskId, nodeResult(sent, { reason }));
+      expect(await pointTest()).toMatchObject({ outcome: "red", reason });
+    }
+    // Not booted for a reason outside the restore point: skipped, the rating stays red.
+    for (const reason of [
+      "custom_qemu_args",
+      "host_disk",
+      "bridge_not_isolated",
+      "node_resources",
+      "storage_io_error",
+    ]) {
+      taskId = await openBootTask(newest());
+      await report(taskId, nodeResult("green", { reason, message: `not booted: ${reason}` }));
+      expect(await stored(taskId)).toMatchObject({
+        status: "failed",
+        errorMessage: `not booted: ${reason}`,
+      });
+      expect((await stored(taskId))?.stats.bootTest).toMatchObject({ outcome: "skipped", reason });
+      expect(await pointTest()).toMatchObject({ outcome: "red", reason: "guest_panicked" });
+    }
+    // A reason this server does not know: the node's outcome and message.
+    taskId = await openBootTask(newest());
+    await report(taskId, nodeResult("yellow", { reason: "a_newer_reason", message: "said so" }));
+    expect((await stored(taskId))?.stats.bootTest).toMatchObject({
+      outcome: "yellow",
+      reason: "a_newer_reason",
+      message: "said so",
+    });
+    // Leave the restore point red, as the tests after this one expect it.
+    taskId = await openBootTask(newest());
+    await report(taskId, nodeResult("red", { reason: "guest_stopped" }));
+  });
+
+  it("keeps a temporary guest the node could not remove, also when the test failed, until the inventory no longer lists it", async () => {
+    // The isolation failed after the restore (outcome ""), and the temporary VM could not be
+    // destroyed: the node sends its VMID and cleanedUp false with the failed task.
+    const taskId = await openBootTask(newest());
+    await report(taskId, {
+      status: "failed",
+      error: "isolating the temporary guest: PVE API answered 500",
+      result: {
+        outcome: "",
+        reason: "",
+        message: "",
+        durationMs: 12_000,
+        bootSeconds: null,
+        guestAgent: false,
+        tempVmid: 9007,
+        storage: "local-zfs",
+        cleanedUp: false,
+        log: "12:00:00 restoring\n12:00:10 the temporary guest 9007 is still there\n",
+      },
+    });
+    const [run] = await rows((tx) => tx.select().from(pveRuns).where(eq(pveRuns.taskId, taskId)));
+    expect(run?.status).toBe("failed");
+    expect(run?.stats.bootTest).toMatchObject({
+      outcome: "error",
+      tempVmid: 9007,
+      storage: "local-zfs",
+      cleanedUp: false,
+    });
+    expect(run?.errorMessage).toBe(
+      "isolating the temporary guest: PVE API answered 500 The temporary guest 9007 on local-zfs could not be removed.",
+    );
+    // The node's log is kept, not dropped with the outcome.
+    expect(run?.logTail).toContain("9007 is still there");
+    // The rating of the restore point is not touched by a test that did not run to an end.
+    expect((await readinessRow())?.bootTest?.outcome).toBe("red");
+    const leftover = { vmid: 9007, storage: "local-zfs", node: "pve1", runId: run?.id };
+    let overview = await service.overview(shared.db, fixture.tenantId);
+    let guest = overview.guests.find((g) => g.id === guestId);
+    expect(guest?.attention).toContain("boot_test_leftover");
+    expect(guest?.bootTestLeftover).toMatchObject(leftover);
+    const detail = await service.guestDetail(shared.db, fixture.tenantId, guestId);
+    expect(detail.guest.bootTestLeftover).toMatchObject(leftover);
+
+    // An inventory right after the run may have been taken before it: it proves nothing.
+    let inventory = await call("/inventory", {
+      guests: [{ vmid: 101, kind: "vm", name: "web01", node: "pve1", agent: true }],
+    });
+    expect(inventory.status).toBe(200);
+    overview = await service.overview(shared.db, fixture.tenantId);
+    expect(overview.guests.find((g) => g.id === guestId)?.attention).toContain(
+      "boot_test_leftover",
+    );
+    // Later, still listed (restow-boottest-101 in restow-restore): still there.
+    await rows((tx) =>
+      tx
+        .update(pveRuns)
+        .set({ finishedAt: new Date(Date.now() - 10 * 60_000) })
+        .where(eq(pveRuns.taskId, taskId)),
+    );
+    inventory = await call("/inventory", {
+      guests: [
+        { vmid: 101, kind: "vm", name: "web01", node: "pve1", agent: true },
+        {
+          vmid: 9007,
+          kind: "vm",
+          name: "restow-boottest-101",
+          node: "pve1",
+          pool: "restow-restore",
+          tags: ["restow-boottest"],
+        },
+      ],
+    });
+    expect(inventory.status).toBe(200);
+    overview = await service.overview(shared.db, fixture.tenantId);
+    expect(overview.guests.find((g) => g.id === guestId)?.bootTestLeftover).toMatchObject(leftover);
+    // The node removed it (its service started): the next inventory leaves it out.
+    inventory = await call("/inventory", {
+      guests: [{ vmid: 101, kind: "vm", name: "web01", node: "pve1", agent: true }],
+    });
+    expect(inventory.status).toBe(200);
+    overview = await service.overview(shared.db, fixture.tenantId);
+    guest = overview.guests.find((g) => g.id === guestId);
+    expect(guest?.attention).not.toContain("boot_test_leftover");
+    expect(guest?.bootTestLeftover).toBeNull();
+    const [after] = await rows((tx) => tx.select().from(pveRuns).where(eq(pveRuns.taskId, taskId)));
+    expect(
+      (after?.stats.bootTest as { leftoverGoneAt?: string } | undefined)?.leftoverGoneAt,
+    ).toBeTruthy();
+  });
+
+  it("a rated test whose temporary guest stayed: the rating stands, the leftover is named", async () => {
+    const taskId = await openBootTask(newest());
+    await report(taskId, nodeResult("green", { tempVmid: 9008, cleanedUp: false }));
+    const [run] = await rows((tx) => tx.select().from(pveRuns).where(eq(pveRuns.taskId, taskId)));
+    expect(run?.status).toBe("succeeded");
+    expect(run?.errorMessage).toBe(
+      "boot test green The temporary guest 9008 on local-lvm could not be removed.",
+    );
+    const [point] = await rows((tx) =>
+      tx.select().from(pveSnapshots).where(eq(pveSnapshots.id, newest())),
+    );
+    expect(point?.bootTest).toMatchObject({ outcome: "green", tempVmid: 9008, cleanedUp: false });
+    const overview = await service.overview(shared.db, fixture.tenantId);
+    expect(overview.guests.find((g) => g.id === guestId)?.bootTestLeftover?.vmid).toBe(9008);
+    // A later test on the node that removed a guest of that VMID ends it as well.
+    const next = await openBootTask(newest());
+    await report(next, nodeResult("green", { tempVmid: 9008, cleanedUp: true }));
+    const again = await service.overview(shared.db, fixture.tenantId);
+    expect(again.guests.find((g) => g.id === guestId)?.bootTestLeftover).toBeNull();
+  });
+
   it("fails a queued boot test once the node stops announcing them", async () => {
     const taskId = await openBootTask(older());
     const tasks = await heartbeat({ capabilities: [] });

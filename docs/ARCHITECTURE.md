@@ -62,6 +62,26 @@ Worker skalierbar. Postgres 16 ist die einzige Zustandsquelle außer dem Chunk-S
   `tenant.pricing.updated`; ohne die Erweiterung gelten wieder die Preise der Installation). Den
   ersten Mandanten legt der Kern immer an; jeder weitere existiert nur, solange eine Erweiterung
   `tenants.additional` freischaltet (siehe unten).
+- Preise je geschützter Einheit (0.5.0): Auf Wunsch kommt je Art ein Monatspreis je geschützter
+  Einheit hinzu (`serverPrice`, `clientPrice`, `vmPrice`, `containerPrice`, `fileSharePrice`, in
+  `settings.pricing` und als eigener Preis eines Mandanten in `tenants.pricing`; leer = wird nicht
+  berechnet, gleiche Währung, ungerundet wie der Postfachpreis). Ohne diese Preise zählen Rechner,
+  Gäste und Freigaben nur über ihren Speicher. Die Zählregel (`apps/api` `usage/units.ts`
+  `countProtectedUnits`) folgt der der Postfächer: Es zählt, was jetzt geschützt ist, je Einheit
+  einmal, gleich ob im Monat eine Sicherung lief.
+  - Server und Clients: Rechner mit Agent nach ihrem Profil (`server`, `client`), aktiv (nicht
+    gesperrt), nicht aus Restow entfernt (`removed_at` leer) und Mitglied eines Backup-Jobs (wie
+    „geschützt“ im Dashboard).
+  - VMs und Container: Proxmox-VE-Gäste nach ihrer Art, nicht stillgelegt (`retired_at` leer) und
+    in einem aktiven PVE-Job, dem eigenen oder dem für alle Gäste (`pveJobOfGuest`: vom Knoten
+    gemeldet, keine VM-Vorlage, nicht ausgeschlossen, keine wiederhergestellte Kopie ohne Job).
+  - Dateifreigaben: nicht stillgelegt und Mitglied eines aktiven Freigabe-Jobs
+    (`PROTECTED_SHARE_SQL`).
+
+  Die Schätzung (`GET /api/v1/settings/pricing/estimate`) führt je Mandant zusätzlich die Zahlen
+  (`servers`, `clients`, `vms`, `containers`, `fileShares`), die geltenden Preise und je Zeile den
+  Betrag (`amount.servers` usw.) und `overridden.server` usw.; die bisherigen Felder bleiben. Die
+  Preise sind JSON-Schlüssel der vorhandenen Spalten, eine Migration braucht es nicht.
 - Eigene Organisation (`tenant.kind`): Ein Mandant ist `customer` (Standard) oder `internal`,
   die eigene Organisation des Betreibers mit seinem eigenen M365, seinen Servern und seinem
   Speicher. Höchstens einer je Provider ist `internal` (partieller Unique-Index
@@ -420,9 +440,14 @@ wohin und wie lange, für viele Objekte oder Rechner zugleich. Ein **Lauf** ist,
   wirkungslos und wird als "rename" gespeichert. Ausnahme: SharePoint-Websites, bei denen
   "Überschreiben" eine ausdrückliche Wahl ist (Datei wird in SharePoint zur Vorversion,
   Listenelement erhält die gesicherten Werte). Der `restore_mode`-Enum behält den Wert
-  für die Historie. Geplant für später: "replace" für OneDrive-Dateien, bei dem die
-  aktuelle Datei zur Vorversion wird statt gelöscht zu werden (Engine-Code dafür liegt
-  in packages/core/src/restore/onedrive.ts, ist aber nicht erreichbar).
+  für die Historie und für SharePoint. Hinter der API sichern die Engines dasselbe noch
+  einmal ab: Postfach, IMAP und OneDrive führen einen gespeicherten Auftrag mit "replace"
+  als "rename" aus und sagen das an jedem Element (`mailboxRestoreMode` in
+  packages/core/src/restore/common.ts, `oneDriveRestoreMode` in
+  packages/core/src/restore/onedrive.ts). Das Überschreiben im Code der gemeinsamen
+  Upload-Sitzung (`OneDriveRestoreSession`) erreicht nur die SharePoint-Engine. Geplant für
+  später: "replace" für OneDrive-Dateien, bei dem die aktuelle Datei zur Vorversion wird
+  statt gelöscht zu werden.
 - Datei-Explorer für den Restore: Browsen durch Snapshots, Ordnerbaum und Datei-Versionen
   (Zeitpunkt wählbar), Auswahl einzelner Dateien oder ganzer Ordner. Gilt für OneDrive und
   die Infrastruktur-Dateibackups. Wiederherstellen an Ort, in ein anderes Ziel oder als
@@ -696,6 +721,68 @@ gesicherten Daten werden nie ein zweites Mal gelesen (Einzelheiten, Schwellenwer
   Fehlalarm mit Notiz (`/api/v1/suspicions`, auditiert), Schwellenwerte je Installation unter
   Installation > Ransomware-Erkennung (`/api/v1/settings/ransomware`, Inhaber).
 
+### Empfänger des Providers, Sammelmails, Zustellfehler und Branding (0.5.0)
+
+Für Betreiber beschrieben in [NOTIFICATIONS.md](NOTIFICATIONS.md); hier, wie es gebaut ist.
+
+- **Ein Weg für Ereignisse**: `raiseReportEvents` in `packages/db/src/report-events.ts` schreibt
+  in der Mandanten-Transaktion die Glocke, plant die Zustellungen der Regeln (Drossel, Spalten der
+  Matrix, Sammelmail) und legt für jedes Katalog-Ereignis eine Zeile in `report_events` an. Der
+  Worker (`apps/worker/src/reporting.ts`) und die API (Zustellfehler) rufen ihn auf;
+  `raiseInstallationEvent` (`apps/api/src/features/updates/notify.ts`) schreibt die
+  Installations-Ereignisse mit `tenant_id` NULL.
+- **Kritische Ereignisse** (`critical` im Katalog: `backup.suspicious`,
+  `endpoint.suspicious_snapshot`, `endpoint.backups_deletion_scheduled`, `scrub.corrupt`,
+  `verify.red`, `backup.unusually_large`, `installation.disk_low`,
+  `installation.disk_reserve_released`) und
+  `notification.delivery_failed` gehen immer sofort, immer an die Pflichtempfänger und immer in
+  die Glocke (`bellEventsOf`, `BELL_LOCKED_EVENTS`).
+- **Empfänger des Providers** (`provider_notification_recipients`, Installationsrolle): die
+  Inhaber des Provider-Teams (`kind = 'owner'`, abgeglichen mit dem Team,
+  `syncOwnerRecipients`) und weitere Adressen; Inhaber und `mandatory` sind die
+  Pflichtempfänger.
+- **Verteilung** (`apps/api/src/features/reports/fanout.ts`): Der Dispatcher holt je Takt die
+  nicht verteilten Zeilen aus `report_events` (`FOR UPDATE SKIP LOCKED`) und plant je Empfänger
+  des Providers eine Mail mit `tenant_id` NULL und `about_tenant_id`, ohne Adressen, die das
+  Ereignis schon über eine Regel des Mandanten bekommen, mit 60 Minuten Drossel je Empfänger und
+  Gegenstand (Hinweise ungedrosselt). Row Level Security verbirgt diese Zeilen vor jeder
+  Mandanten-Sitzung. Verteilte Ereignisse werden nach sieben Tagen gelöscht.
+- **Sammelmails**: `report_deliveries.digest` (`hourly`, `daily`) hält eine Mail bis
+  `next_attempt_at` (volle Stunde UTC, 07:00 in der Zeitzone des Mandanten, sonst der
+  Installation); `dispatchDigestsOnce` schickt je Mandant (oder Provider), Adresse und Fenster eine
+  Mail und vermerkt alle Zeilen mit derselben `digest_group`. Webhooks und die Glocke sammeln nie.
+- **Zustellfehler** (`apps/api/src/features/reports/delivery-failure.ts`, Worker
+  `handlers/webhooks.ts` `recordWebhookHealth`): Eine Mail, die endgültig scheitert (SMTP 5xx
+  an RCPT/DATA und Graph `ErrorInvalidRecipients` sofort und ohne Wiederholung, alles andere nach
+  den Wiederholungen), löst je Episode einmal `notification.delivery_failed` aus: der Versand
+  insgesamt in `settings.mail_failure`, ein Empfänger an seiner Zeile (`failing_since`,
+  `failure_alerted_at`), eine nur in einer Regel genannte Adresse höchstens einmal in 24 Stunden.
+  Die Episode wird in derselben Transaktion vermerkt, die den Alarm auslöst. Eine 5xx-Antwort an
+  RCPT/DATA, die den Absender nennt („Sender address rejected", „not owned by user",
+  `5.2.252 SendAsDenied`), zählt wie eine an MAIL FROM als `smtp_sender_rejected` zum Versand
+  insgesamt. Dessen Alarm erreicht die Webhooks aller Mandanten und trägt deshalb nur den Grund,
+  nie die Antwort des Servers (die bleibt in `settings.mail_failure` und an der gescheiterten
+  Zustellung). Ohne Transport und mit `settings.mail_not_needed` plant die Verteilung keine Mail an
+  die Empfänger des Providers, und `mail_not_configured` löst keinen Alarm aus.
+  Ein Webhook führt `failing_since`, `consecutive_failures`, `failure_alerted_at` und
+  `last_failure`; er meldet bei einem endgültigen Fehler sofort, sonst nach drei Fehlversuchen in
+  Folge über mindestens 15 Minuten. Der gestörte Kanal wird beim Planen ausgelassen
+  (`deliveryFailureExclusion`); ein Alarm über einen Zustellfehler löst nie einen weiteren aus.
+- **Zusammenfassungen**: `report_rules.cadence` (`daily`, `weekly`, `monthly`) wählt den
+  Kalenderzeitraum in der Zeitzone der Regel (`packages/core/src/reports/period.ts`),
+  `attach_pdf` hängt den Statistikbericht an, `kind = 'customer'` ist der Kundenmonatsbericht.
+  Die Zusammenfassungen des Providers über alle Mandanten stehen in `provider_report_rules`; der
+  Scheduler legt ihre Zustellungen ohne Mandanten an, `ee/api/src/reports/summary.ts` summiert
+  jeden aktiven Mandanten in einer eigenen Mandanten-Transaktion.
+- **Branding** (`apps/api/src/features/branding`): `provider_branding` (Installation),
+  `tenant_branding` (Row Level Security) und `branding_images` (Installationsrolle, PNG und JPEG
+  ohne Metadaten, SVG abgelehnt). `effectiveBrand` wählt nach den Gates (`branding.tenant`, sonst
+  `branding.provider`, sonst der Produktname) und hält das Ergebnis eine Minute. Mails tragen das
+  Logo als Inline-Anhang (`cid:`); `GET /api/v1/public/branding/:token.(png|jpg)` und
+  `/accent/:hex.png` liefern ohne Sitzung nur das Bild, für Discord und Teams.
+- **Neue Gates**: `branding.provider` (Business), `branding.tenant` und `reports.customer`
+  (Service Provider); im Worker `branding.provider` und `branding.tenant`.
+
 ## Setup und Betriebsmodi
 
 Erststart läuft über einen Setup-Wizard. Konfiguration in `settings` (ein Datensatz je
@@ -712,6 +799,43 @@ als `setup.internal_tenant_failed` in die Installationskette geschrieben, und da
 bietet an, die eigene Organisation anzulegen. Einstellungen ändert der Provider-Admin
 danach in der Oberfläche. Der Admin mit Passwort muss vor allem anderen eine
 Authenticator-App (TOTP) einrichten.
+
+Nach dem Betreiberhinweis fragt der Wizard einer neuen Installation „Was möchten Sie mit Restow
+schützen?": je Modul ein Kästchen, alle vorbelegt, mindestens eines (`modules` im Setup-Request,
+sonst 422; ohne das Feld sind alle Module an). Die Wiederherstellung aus einem Dump und der
+Worker-Knoten überspringen den Schritt: Der Dump bringt seine Module mit. Die Module der
+Installation (`apps/api/src/lib/modules.ts`, dieselbe Liste in `apps/web/src/lib/modules.ts`)
+sind die Bereiche des Produkts:
+
+| Modul | Umfang |
+| --- | --- |
+| `microsoft365` | Microsoft 365: Postfächer, OneDrive, SharePoint-Websites, Gruppen und Teams (Quellen `m365`) |
+| `imap` | IMAP-Postfächer (Quellen `imap`); Google Workspace läuft bis zu einer eigenen Quelle darüber |
+| `archive` | Mail-Archiv (docs/ARCHIVE.md) |
+| `endpoints` | Server & Clients: Rechner mit Agent und Freigaben |
+| `pve` | Proxmox VE: VMs und Container (docs/PVE.md) |
+
+Gespeichert werden in `settings.modules` (Migration 0094, JSON `{ hidden: [...] }`) nur die
+**ausgeschalteten** Module: Eine Installation aus einem früheren Release hat `{}` und zeigt nach
+dem Update alles wie zuvor, und ein Modul, das ein späteres Release ergänzt, ist an, bis es jemand
+ausschaltet. Geändert wird unter **Installation › Server & Betrieb › Module** (`GET`/`PUT
+/api/v1/settings/modules`, `{ enabled: [...] }` mit mindestens einem Modul; lesen darf jeder
+Provider-Admin mit allen Mandanten, ändern Administratoren und Owner; Audit
+`settings.modules.updated` mit vorher, nachher und was umgeschaltet wurde). `GET /api/v1/me` trägt
+die eingeschalteten Module als `modules`, damit das Menü ohne eigene Anfrage steht; sie gelten für
+alle Angemeldeten der Installation, eine Übersteuerung je Mandant gibt es nicht.
+
+Ein ausgeschaltetes Modul wird **nur ausgeblendet**: seine Menüeinträge und die Befehle der
+Befehlspalette (`NavItem.modules`, gefiltert in `lib/use-nav-items.ts`), seine Karten in der
+Übersicht (`widget-registry.tsx`), seine Bereiche der Mandanten- und der Installationsseite
+(Unternavigation) und seine Einträge beim Anlegen (Reiter unter Verbindungen, Job-Typ unter „Neuer
+Job"). Was zu mehreren Modulen gehört (die Jobs, der Datei-Restore), bleibt, solange eines davon an
+ist. Es wird nichts gelöscht, kein Job angehalten und keine API-Route verweigert: Die Module sind
+nie eine Zugriffsregel und unabhängig von den Editionen (`lib/features.ts`). Die Seite Module nennt
+für jedes ausgeschaltete Modul, was es über alle Mandanten noch enthält (Verbindungen, geschützte
+Objekte, archivierende Jobs, Archive mit Mails, Rechner, Freigaben, Jobs, Knoten, VMs und
+Container), und führt zu seiner Seite. Die bleibt über ihre Adresse erreichbar und zeigt oben
+einen dezenten Hinweis, dass das Modul in der Navigation ausgeblendet ist.
 
 Erster Schritt des Wizards ist die Sprache (Deutsch oder Englisch, vorbelegt aus der
 Browsersprache, sofort angewendet): Sie läuft als `language` im Setup-Request mit und wird die
@@ -746,6 +870,54 @@ alle Schritte erledigt oder nicht nötig, verschwindet „Start" aus dem Menü.
   Browser-Schutz der Session-Routen (`requireSameOrigin`: Cross-Site 403, Body nicht JSON
   415). Der Demo-Modus hat kein Setup-Token; dort richtet nur der Seed mit seinem
   Seed-Token ein.
+- Wiederherstellungsmodus (`apps/api/src/cli/restore-mode.ts`, `apps/api/src/features/restore-mode`,
+  docs/STORAGE.md „Restore mode and progress markers“): Nach dem Zurückspielen eines
+  Datenbank-Dumps löscht die Installation nichts, bis ein Provider-Owner die Datenbank geprüft
+  hat. `restow restore-mode status|on|check|import-keys|off` läuft im api-Image auch ohne
+  laufenden Server (`docker compose run --rm --no-deps --entrypoint restow api restore-mode on
+  --reason "..."`, vor dem Start von Worker und Scheduler); `off` verlangt die Adresse eines
+  aktiven Owners und eine Beschreibung des Geprüften und schreibt wie die Seite unter
+  Installation › Wiederherstellungsmodus `installation.restore_mode.ended` in die
+  Installationskette. Jede Löschung läuft über den Deletion Guard (`@restow/core`
+  storage/deletion-guard.ts), die Speicher-Backends prüfen ihn selbst; Fortschrittsmarker je
+  Speicherziel lassen den Worker eine ältere Datenbank selbst erkennen.
+- Was eingerichtet wird (erste Frage nach der Sprache, `STEPS_BY_KIND` in
+  `apps/web/src/routes/setup/schema.ts`, die erste Frage von `install.sh`): (1) eine neue
+  Installation, (2) die Wiederherstellung einer Installation aus einem Datenbank-Dump oder (3) ein
+  Worker für eine bestehende Installation auf einem anderen Host. Die Wiederherstellung
+  (`apps/api/src/features/setup-restore`, `apps/api/src/routes/setup-restore.ts`,
+  `apps/api/src/updater/restore.ts`, docs/DATABASE.md „Restore an installation from a dump“)
+  verlangt ebenfalls das Setup-Token, überspringt Betreiberhinweis, Betriebsart, ersten Admin und
+  Mail (der Dump bringt seine Benutzer mit) und läuft über den Updater: Worker und Scheduler
+  angehalten, Dump in die eigene Datenbank `restow_restore`, `restow restore prepare` (migrieren,
+  Wiederherstellungsmodus mit Quelle `setup` als erster Schreibvorgang, Prüfung, dass
+  `RESTOW_MASTER_KEY` alle Mandantenschlüssel und die Installationsgeheimnisse öffnet, sonst
+  `master_key_mismatch` und nichts geändert, Vergleich der Speicherziele), Bericht, Bestätigung,
+  `restow restore activate` (Umbenennen, die frische Datenbank bleibt als
+  `restow_before_restore_<Zeit>`), erst dann Worker und Scheduler. Ohne Updater zeigt der
+  Assistent die Wiederherstellung von Hand auf diesem Server (`install.sh --restore` nur für einen
+  neuen Host). Bleibt eine Aktivierung `needs_attention`, zeigt der letzte Schritt den Grund aus
+  dem öffentlichen Setup-Zustand und die Befehle zum Abschließen. `POST /api/v1/setup` antwortet während einer
+  Wiederherstellung 409 `restore-in-progress`.
+- Worker-Knoten (`apps/api/src/features/cluster`, Installation › Cluster, docs/SIZING.md
+  „Several hosts: worker nodes“): Der Inhaber stellt ein Einmal-Beitrittstoken aus (`rsj_…`,
+  nur ein Hash gespeichert, einmal gültig, 15 Minuten bis 24 Stunden, optional an die Adresse
+  gebunden, widerrufbar, auditiert; gespeichert als HMAC mit einem aus `BETTER_AUTH_SECRET`
+  abgeleiteten Schlüssel, den kein Knoten bekommt, sodass eine untergeschobene Zeile kein Token
+  trifft); `install.sh --join` löst es über TLS ein
+  (`POST /api/v1/cluster-join`, öffentlich, je IP begrenzt) und bekommt eine Allowlist: eigene
+  Datenbank-Anmeldungen des Knotens (`restow_node_<id>_app|_inst`, Mitglieder von
+  `restow_nodes`, die beim Anmelden per `ALTER ROLE … SET role` zur Mandantenrolle bzw. zur
+  Knotenrolle `<Installationsrolle>_node` wechseln; `packages/db/src/node-roles.ts`). Die
+  Knotenrolle hat BYPASSRLS und die Tabellenrechte der Installationsrolle ohne die
+  better-auth-Tabellen, das Provider-Team und die Beitrittstokens (nur Lesen von
+  `cluster_nodes`), ohne CREATE auf der Datenbank und ohne eigene Objekte. Dazu die CA der Datenbank, den
+  Hauptschlüssel und die Speichereinstellungen, nie die Owner-Verbindung oder
+  `BETTER_AUTH_SECRET`. Entfernen löscht die Anmeldungen. Nur einmal auf dem Haupt-Host:
+  Datenbank, api mit Migrationen, Caddy, Updater, Mounter, Journal-SMTP-Empfang, Importe aus dem
+  Server-Ordner, Speicher in Docker-Volumes. PostgreSQL wird standardmäßig nicht veröffentlicht;
+  `install.sh --allow-worker <IP>` schaltet TLS und eine auf den Worker-Host beschränkte
+  `pg_hba.conf` ein. Echte Failover-Replikation (aktiv/passiv) ist in Entwicklung.
 - Admin-Wiederherstellung (`apps/api/src/cli`): Ein verlorener Owner wird über
   die Kommandozeile des Servers wiederhergestellt, nie über den Wizard:
   `docker compose exec api restow admin recover --email <owner>` (Liste:

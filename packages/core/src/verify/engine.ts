@@ -22,6 +22,13 @@
  * A test restore that failed only for such reasons counts the same way. Only
  * cancellation aborts the run otherwise.
  *
+ * A manifest no target has is evidence only when every target still holds the
+ * tenant's other data (presence.ts): then it was deleted, and the backup cannot
+ * be restored (`manifest_missing`, red). An emptied or unmounted target answers
+ * "not found" for everything and leaves the check incomplete. Checks that stay
+ * incomplete one after the other are not left to an old green: the worker
+ * records {@link unverifiedOutcome} after {@link INCOMPLETE_CHECKS_LIMIT}.
+ *
  * Which packs a snapshot uses is resolved through the chunk index (the same
  * lookup the restore path does), never from `SnapshotManifest.packs`: that
  * list records where the chunks were written at backup time, and garbage
@@ -29,6 +36,7 @@
  * informational only.
  */
 import { ChunkReader } from "../engine/chunkstore.js";
+import { contentOf } from "../engine/content.js";
 import { loadManifest } from "../engine/snapshot.js";
 import type {
   ChunkIndex,
@@ -41,18 +49,23 @@ import type {
 import { buildCause, classifyFailure } from "../failures/classify.js";
 import type { FailureCause } from "../failures/types.js";
 import type { SnapshotManifest } from "../manifest.js";
-import { objectTypeOf } from "../restore/conventions.js";
 import {
-  checkObject,
+  checkObjectWithParts,
   type InconclusiveRead,
   type ItemCheck,
   type ItemCheckStatus,
 } from "./check.js";
 import { describeError, isAbortError, throwIfAborted, VerifyIncompleteError } from "./errors.js";
 import { isTestRestoreEvidence, readEvidence } from "./evidence.js";
+import { targetsHoldTenant } from "./presence.js";
 import type { RestoreProbe, TestRestoreOutcome } from "./probe.js";
 import { newSeed, seededRandom } from "./random.js";
-import { assessReadiness, DEFAULT_READINESS_POLICY, type ReadinessPolicy } from "./readiness.js";
+import {
+  assessReadiness,
+  type BackupFailureFacts,
+  DEFAULT_READINESS_POLICY,
+  type ReadinessPolicy,
+} from "./readiness.js";
 import {
   listedItems,
   READINESS_REPORT_FORMAT,
@@ -69,6 +82,7 @@ import {
   type SamplePlan,
   type SampleQuota,
 } from "./sampling.js";
+import { sourceEvidence } from "./source.js";
 
 export type VerifyRunOptions = VerifyOptions & {
   /** Seed for the sample draw; a fresh random seed when omitted. */
@@ -84,6 +98,11 @@ export type VerifyRunOptions = VerifyOptions & {
    */
   readonly unreadablePacks?: ReadonlySet<string>;
   readonly persistentlyUnreadablePacks?: ReadonlySet<string>;
+  /**
+   * The items the run that made `snapshot` could not back up (readiness `backup_incomplete`):
+   * the worker reads them from the run's job (`jobs.item_failure_summary`).
+   */
+  readonly backupFailures?: (snapshot: SnapshotRecord) => Promise<BackupFailureFacts | null>;
 };
 
 export type VerifyOutcome = VerifyResult & {
@@ -127,28 +146,12 @@ export async function damagedPacksOfSnapshot(
   return [...found].sort();
 }
 
-/** Object types that structure a snapshot but hold no content of their own. */
-const STRUCTURE_TYPES: ReadonlySet<string> = new Set(["folder", "package", "shortcut"]);
-
-/** What a snapshot holds besides folders and placeholders: bytes and objects. */
-export function contentOf(manifest: Pick<SnapshotManifest, "objects">): {
-  bytes: number;
-  objects: number;
-} {
-  let bytes = 0;
-  let objects = 0;
-  for (const object of manifest.objects) {
-    if (STRUCTURE_TYPES.has(objectTypeOf(object))) {
-      continue;
-    }
-    objects += 1;
-    bytes += Math.max(0, object.size);
-  }
-  return { bytes, objects };
-}
+export { contentOf };
 
 function snapshotRef(record: SnapshotRecord, manifest: SnapshotManifest | null): ReportSnapshotRef {
   const content = manifest ? contentOf(manifest) : null;
+  const signal = manifest?.sourceSignal;
+  const evidence = sourceEvidence(signal);
   return {
     id: record.id,
     sequence: record.sequence,
@@ -156,6 +159,7 @@ function snapshotRef(record: SnapshotRecord, manifest: SnapshotManifest | null):
     itemCount: manifest?.objects.length ?? record.itemCount,
     packCount: manifest?.packs?.length ?? 0,
     ...(content ? { contentBytes: content.bytes, contentObjects: content.objects } : {}),
+    ...(signal && evidence ? { source: { ...evidence, signal } } : {}),
   };
 }
 
@@ -183,12 +187,15 @@ async function readManifest(
   record: SnapshotRecord,
 ): Promise<{
   manifest: SnapshotManifest | null;
+  missing: boolean;
   error: string | null;
   cause: FailureCause | null;
 }> {
+  const key = record.manifestPath as string;
   try {
     return {
-      manifest: await loadManifest(ctx.storage, record.manifestPath as string, ctx.keys),
+      manifest: await loadManifest(ctx.storage, key, ctx.keys),
+      missing: false,
       error: null,
       cause: null,
     };
@@ -197,10 +204,22 @@ async function readManifest(
       throw error;
     }
     const cause = classifyFailure(error, { role: "storage" });
-    // Only a manifest that does not decode is evidence. One the storage did not return proves
-    // nothing, not even a definite "not found": the manifest is the first object a check reads,
-    // and an emptied or unmounted target answers exactly so.
+    // A manifest that does not decode is evidence. One the storage did not return proves
+    // nothing by itself, not even a definite "not found": the manifest is the first object a
+    // check reads, and an emptied or unmounted target answers exactly so. Only when every
+    // target still holds the tenant's other data is "not found" the manifest's own loss.
     const evidence = readEvidence(error);
+    if (
+      evidence === "missing" &&
+      (await targetsHoldTenant(ctx.storage, ctx.tenantId, new Set([key])))
+    ) {
+      return {
+        manifest: null,
+        missing: true,
+        error: describeError(error),
+        cause: buildCause("verify.manifest_missing", {}, cause.technical),
+      };
+    }
     if (evidence === null || evidence === "missing") {
       throw new VerifyIncompleteError(
         `the manifest of the latest backup could not be read (${describeError(error)})`,
@@ -211,6 +230,7 @@ async function readManifest(
     // The classifier names the damage (a key that does not open it); "manifest unreadable" is the fallback.
     return {
       manifest: null,
+      missing: false,
       error: describeError(error),
       cause:
         cause.code === "unknown" || cause.code === "storage.error"
@@ -279,17 +299,22 @@ export async function verifyProtectedObject(
   const record = await ctx.snapshots.latestCompleted(protectedObject.id);
   const {
     manifest,
+    missing: manifestMissing,
     error: manifestError,
     cause: manifestCause,
-  } = record ? await readManifest(ctx, record) : { manifest: null, error: null, cause: null };
+  } = record
+    ? await readManifest(ctx, record)
+    : { manifest: null, missing: false, error: null, cause: null };
   if (manifestError) {
-    logger.error("manifest of the latest snapshot is unreadable", {
-      snapshotId: record?.id,
-      error: manifestError,
-    });
+    logger.error(
+      manifestMissing
+        ? "manifest of the latest snapshot is gone from every storage target"
+        : "manifest of the latest snapshot is unreadable",
+      { snapshotId: record?.id, error: manifestError },
+    );
     ctx.progress.fail(
       record?.manifestPath ?? protectedObject.id,
-      `manifest unreadable: ${manifestError}`,
+      `${manifestMissing ? "manifest missing" : "manifest unreadable"}: ${manifestError}`,
       manifestCause ?? undefined,
     );
   }
@@ -315,7 +340,7 @@ export async function verifyProtectedObject(
   let inconclusive: InconclusiveRead | null = null;
   for (const item of plan.items) {
     throwIfAborted(ctx.signal);
-    const check = await checkObject(reader, item.object, item.category);
+    const check = await checkObjectWithParts(reader, item.object, item.category, item.parts);
     if (check.status === "inconclusive") {
       inconclusive = check;
       logger.warn("an item could not be read back, the check cannot complete", {
@@ -365,6 +390,8 @@ export async function verifyProtectedObject(
     ) ?? [];
   const testRestore = probed;
 
+  const backupFailures =
+    record && options.backupFailures ? await options.backupFailures(record) : null;
   const counts = tally(plan, checks);
   const content = manifest ? contentOf(manifest) : { bytes: 0, objects: 0 };
   const now = ctx.now();
@@ -373,6 +400,7 @@ export async function verifyProtectedObject(
       hasSnapshot: record !== null,
       snapshotCompletedAt: record?.completedAt ?? null,
       manifestReadable: manifest !== null,
+      manifestMissing,
       checked: counts.checked,
       contentBytes: content.bytes,
       contentObjects: content.objects,
@@ -389,6 +417,8 @@ export async function verifyProtectedObject(
             unconfirmed: testRestore.items.filter((item) => item.status === "unconfirmed").length,
           }
         : null,
+      backupFailures,
+      source: sourceEvidence(manifest?.sourceSignal),
       now,
     },
     options.policy ?? DEFAULT_READINESS_POLICY,
@@ -445,6 +475,52 @@ export async function verifyProtectedObject(
     // Unreadable items are as lost to a restore as missing ones.
     missing: counts.missing + counts.unreadable,
     snapshotId: record?.id ?? null,
+    details,
+  };
+}
+
+/** Checks of one backup in a row that could not complete before it is no longer rated by an older check. */
+export const INCOMPLETE_CHECKS_LIMIT = 3;
+
+/**
+ * The outcome the worker records for a backup whose last {@link INCOMPLETE_CHECKS_LIMIT}
+ * checks could not complete (the storage did not answer): yellow `check_incomplete`, nothing
+ * read. It replaces the backup's earlier rating, so an old green stops counting as proof
+ * while nobody can read the backup; the next check that completes rates it again.
+ */
+export function unverifiedOutcome(input: {
+  readonly record: SnapshotRecord;
+  readonly kind: VerifyRunOptions["kind"];
+  /** Checks in a row that could not complete, this one included. */
+  readonly incompleteChecks: number;
+  readonly startedAt: Date;
+  readonly now: Date;
+}): VerifyOutcome {
+  const plan = EMPTY_PLAN;
+  const counts = tally(plan, []);
+  const details: VerifyReportDetails = {
+    format: READINESS_REPORT_FORMAT,
+    origin: "verify",
+    kind: input.kind,
+    scope: input.kind === "health_check" ? "all" : "sample",
+    seed: null,
+    quota: null,
+    snapshot: snapshotRef(input.record, null),
+    reasons: [{ code: "check_incomplete", severity: "yellow", count: input.incompleteChecks }],
+    counts,
+    items: [],
+    itemsOmitted: 0,
+    damagedPacks: [],
+    testRestore: null,
+    startedAt: input.startedAt.toISOString(),
+    durationMs: Math.max(0, input.now.getTime() - input.startedAt.getTime()),
+  };
+  return {
+    readiness: "yellow",
+    checked: 0,
+    mismatched: 0,
+    missing: 0,
+    snapshotId: input.record.id,
     details,
   };
 }

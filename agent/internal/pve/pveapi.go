@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -30,7 +31,21 @@ type PVEAPI struct {
 	auth    string
 	http    *http.Client
 	timeout time.Duration
+
+	// WaitOutage is how long WaitTask rides out a PVE API that does not answer (default
+	// DefaultWaitOutage): a pveproxy restart (an upgrade of pve-manager, a renewed certificate)
+	// must not end the wait for a backup or restore that PVE goes on with.
+	WaitOutage time.Duration
+	// sleep and now are replaced by tests.
+	sleep func(ctx context.Context, d time.Duration) error
+	now   func() time.Time
 }
+
+// DefaultWaitOutage is how long WaitTask keeps asking while the PVE API does not answer.
+const DefaultWaitOutage = 10 * time.Minute
+
+// maxWaitBackoff bounds the pause between two status calls while the PVE API does not answer.
+const maxWaitBackoff = 30 * time.Second
 
 // PVEAPIError is an error answer of the PVE API.
 type PVEAPIError struct {
@@ -106,7 +121,9 @@ func (p *PVEAPI) call(ctx context.Context, method, path string, form url.Values,
 	defer cancel()
 	var body io.Reader
 	target := p.base + path
-	if form != nil && method == http.MethodGet {
+	// pve-http-server reads a form body only for POST and PUT: the parameters of GET and DELETE
+	// go into the query string (a DELETE body is dropped without a word).
+	if form != nil && (method == http.MethodGet || method == http.MethodDelete) {
 		target += "?" + form.Encode()
 	} else if form != nil {
 		body = strings.NewReader(form.Encode())
@@ -225,10 +242,57 @@ func (p *PVEAPI) NextID(ctx context.Context) (int, error) {
 	return int(n), err
 }
 
+// VMIDFree asks the cluster whether vmid is free (GET /cluster/nextid?vmid=N, which PVE answers
+// with the VMID when it is free and refuses with "VM N already exists" when it is not).
+func (p *PVEAPI) VMIDFree(ctx context.Context, vmid int) (bool, error) {
+	var out json.Number
+	err := p.call(ctx, http.MethodGet, "/cluster/nextid", url.Values{"vmid": {strconv.Itoa(vmid)}}, &out)
+	if err == nil {
+		return true, nil
+	}
+	var pe *PVEAPIError
+	if errors.As(err, &pe) && pe.Status == http.StatusBadRequest && strings.Contains(pe.Message, "already exists") {
+		return false, nil
+	}
+	return false, err
+}
+
 // StartBackup starts vzdump for one guest onto the Restow storage and returns the task UPID.
 // It asks for no notes: the Restow storage keeps none (restore points are named and described
 // in Restow), and a notes template made vzdump end every backup with "TASK WARNINGS: 1".
-func (p *PVEAPI) StartBackup(ctx context.Context, node string, vmid int, storage, mode, fleecing string) (string, error) {
+// pveVersion is the node's PVE version ("" unknown); see vzdumpForm for what it changes.
+func (p *PVEAPI) StartBackup(ctx context.Context, node string, vmid int, storage, mode, fleecing, pveVersion string) (string, error) {
+	form := vzdumpForm(vmid, storage, mode, fleecing, pveVersion)
+	path := "/nodes/" + url.PathEscape(node) + "/vzdump"
+	var upid string
+	err := p.call(ctx, http.MethodPost, path, form, &upid)
+	if notificationModeRefused(err) {
+		// A PVE that does not take the parameter (its parameter check started no task): the
+		// backup runs without it and PVE may notify (docs/PVE.md, "Notifications of vzdump").
+		form.Del("notification-mode")
+		err = p.call(ctx, http.MethodPost, path, form, &upid)
+	}
+	if err != nil {
+		return "", err
+	}
+	return checkUPID("vzdump", upid)
+}
+
+// notificationModeRefused says whether PVE's parameter check refused notification-mode.
+func notificationModeRefused(err error) bool {
+	var pe *PVEAPIError
+	return errors.As(err, &pe) && pe.Status == http.StatusBadRequest && strings.Contains(pe.Message, "notification-mode:")
+}
+
+// vzdumpForm is the form of POST /nodes/{node}/vzdump for one guest. From PVE 8.1 on, vzdump
+// without mailto sends a notification through PVE's notification system after every backup,
+// also a successful one (notification-mode "auto"): the default matcher mails it to root@pam,
+// one mail per guest and run. Restow reports every outcome itself, so it asks for
+// notification-mode "legacy-sendmail", which mails only to a mailto (none is passed; one
+// in /etc/vzdump.conf is the admin's own choice). A PVE older than 8.1, or one whose version is
+// unknown, gets no such parameter: it would refuse the call, and a backup must not fail for a
+// notification (StartBackup also starts it again without the parameter when PVE refuses it).
+func vzdumpForm(vmid int, storage, mode, fleecing, pveVersion string) url.Values {
 	form := url.Values{
 		"vmid":    {fmt.Sprint(vmid)},
 		"storage": {storage},
@@ -238,14 +302,38 @@ func (p *PVEAPI) StartBackup(ctx context.Context, node string, vmid int, storage
 	if fleecing != "" {
 		form.Set("fleecing", "enabled=1,storage="+fleecing)
 	}
-	var upid string
-	return upid, p.call(ctx, http.MethodPost, "/nodes/"+url.PathEscape(node)+"/vzdump", form, &upid)
+	if VersionAtLeast(pveVersion, 8, 1) {
+		form.Set("notification-mode", "legacy-sendmail")
+	}
+	return form
+}
+
+// NoTaskError is the answer of a call that starts a PVE task when it is no UPID. vzdump answers
+// "OK" and starts nothing when none of the guests it was asked for is on the node ("silent
+// exit if specified VMs run on other nodes"): the guest migrated, or it is gone.
+type NoTaskError struct {
+	Call   string
+	Answer string
+}
+
+func (e *NoTaskError) Error() string {
+	return fmt.Sprintf("%s started no task (PVE answered %q)", e.Call, e.Answer)
+}
+
+// checkUPID passes a UPID through and makes a NoTaskError of anything else, so that it never
+// reaches WaitTask or StopTask (whose 400 "unable to parse worker upid" says nothing).
+func checkUPID(call, answer string) (string, error) {
+	if !strings.HasPrefix(answer, "UPID:") {
+		return "", &NoTaskError{Call: call, Answer: answer}
+	}
+	return answer, nil
 }
 
 // RestoreGuest creates a new guest from a backup volume; returns the task UPID.
-// It never passes force and always targets a new VMID. mounts are a container's rootfs
+// It never passes force nor start and always targets a new VMID, with new MAC addresses
+// (unique=1); a container also with onboot=0. mounts are a container's rootfs
 // and mpN parameters (TestRestoreMounts); nil keeps the mount points of the backup.
-func (p *PVEAPI) RestoreGuest(ctx context.Context, node, kind string, vmid int, archive, storage, pool string, start bool, mounts map[string]string) (string, error) {
+func (p *PVEAPI) RestoreGuest(ctx context.Context, node, kind string, vmid int, archive, storage, pool string, mounts map[string]string) (string, error) {
 	form := url.Values{"vmid": {fmt.Sprint(vmid)}, "storage": {storage}}
 	if pool != "" {
 		form.Set("pool", pool)
@@ -254,6 +342,10 @@ func (p *PVEAPI) RestoreGuest(ctx context.Context, node, kind string, vmid int, 
 		form.Set("ostemplate", archive)
 		form.Set("restore", "1")
 		form.Set("unprivileged", "1")
+		// A new hwaddr for every interface (as unique=1 does for a VM), and no start with the
+		// node: the copy must not come up beside the original with its MAC address.
+		form.Set("unique", "1")
+		form.Set("onboot", "0")
 		for k, v := range mounts {
 			form.Set(k, v)
 		}
@@ -261,19 +353,13 @@ func (p *PVEAPI) RestoreGuest(ctx context.Context, node, kind string, vmid int, 
 		form.Set("archive", archive)
 		form.Set("unique", "1")
 	}
-	if start {
-		form.Set("start", "1")
+	// Never start=1: PVE would start the guest in a task of its own whose failure the restore
+	// task does not show, and the start needs VM.PowerMgmt. restow-pve starts it as root.
+	var upid string
+	if err := p.call(ctx, http.MethodPost, fmt.Sprintf("/nodes/%s/%s", url.PathEscape(node), apiType(kind)), form, &upid); err != nil {
+		return "", err
 	}
-	var upid string
-	return upid, p.call(ctx, http.MethodPost, fmt.Sprintf("/nodes/%s/%s", url.PathEscape(node), apiType(kind)), form, &upid)
-}
-
-// DeleteGuest removes a guest (restore tests clean up after themselves; the
-// token may only delete guests in the restore pool).
-func (p *PVEAPI) DeleteGuest(ctx context.Context, node, kind string, vmid int) (string, error) {
-	var upid string
-	return upid, p.call(ctx, http.MethodDelete, fmt.Sprintf("/nodes/%s/%s/%d", url.PathEscape(node), apiType(kind), vmid),
-		url.Values{"purge": {"1"}, "destroy-unreferenced-disks": {"1"}}, &upid)
+	return checkUPID("the restore", upid)
 }
 
 // TaskStatus is GET /nodes/{node}/tasks/{upid}/status.
@@ -282,35 +368,117 @@ type TaskStatus struct {
 	ExitStatus string `json:"exitstatus"`
 }
 
-// WaitTask polls a task until it stops and returns its exit status ("OK" on success).
+// TaskStatus reads the status of a task.
+func (p *PVEAPI) TaskStatus(ctx context.Context, node, upid string) (TaskStatus, error) {
+	var st TaskStatus
+	err := p.call(ctx, http.MethodGet, "/nodes/"+url.PathEscape(node)+"/tasks/"+url.PathEscape(upid)+"/status", nil, &st)
+	return st, err
+}
+
+// WaitTask polls a task until it stops and returns its exit status ("OK" on success). A PVE API
+// that does not answer (no connection, a timeout, 5xx including pveproxy's 595 and 596) is
+// asked again with a growing pause for up to WaitOutage of failures in a row; an answer of PVE
+// itself (401, 403, 404, another 4xx) ends the wait at once.
 func (p *PVEAPI) WaitTask(ctx context.Context, node, upid string, poll time.Duration) (string, error) {
+	if poll <= 0 {
+		poll = 5 * time.Second
+	}
+	outage := p.WaitOutage
+	if outage <= 0 {
+		outage = DefaultWaitOutage
+	}
+	var failingSince time.Time
+	backoff := poll
 	for {
-		var st TaskStatus
-		if err := p.call(ctx, http.MethodGet, "/nodes/"+url.PathEscape(node)+"/tasks/"+url.PathEscape(upid)+"/status", nil, &st); err != nil {
-			return "", err
-		}
-		if st.Status == "stopped" {
-			return st.ExitStatus, nil
-		}
-		select {
-		case <-ctx.Done():
+		st, err := p.TaskStatus(ctx, node, upid)
+		wait := poll
+		switch {
+		case err == nil:
+			failingSince, backoff = time.Time{}, poll
+			if st.Status == "stopped" {
+				return st.ExitStatus, nil
+			}
+		case ctx.Err() != nil:
 			return "", ctx.Err()
-		case <-time.After(poll):
+		case !transientPVEError(err):
+			return "", err
+		default:
+			if failingSince.IsZero() {
+				failingSince = p.clock()
+			}
+			if p.clock().Sub(failingSince) >= outage {
+				return "", fmt.Errorf("the PVE API did not answer for %s; task %s may still run: %w", minutes(outage), upid, err)
+			}
+			backoff = min(2*backoff, maxWaitBackoff)
+			wait = max(backoff, poll)
+		}
+		if err := p.pause(ctx, wait); err != nil {
+			return "", err
 		}
 	}
 }
 
+// transientPVEError says whether a failed call of the PVE API may succeed when asked again: no
+// answer at all, or a 5xx of pveproxy (595 and 596 are its own for a backend it cannot reach).
+func transientPVEError(err error) bool {
+	var pe *PVEAPIError
+	if errors.As(err, &pe) {
+		return pe.Status >= 500
+	}
+	return true
+}
+
+func (p *PVEAPI) clock() time.Time {
+	if p.now != nil {
+		return p.now()
+	}
+	return time.Now()
+}
+
+func (p *PVEAPI) pause(ctx context.Context, d time.Duration) error {
+	if p.sleep != nil {
+		return p.sleep(ctx, d)
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(d):
+		return nil
+	}
+}
+
+// minutes writes a duration for a message ("10 min", "45 s").
+func minutes(d time.Duration) string {
+	if d >= time.Minute {
+		return fmt.Sprintf("%d min", int(d.Round(time.Minute)/time.Minute))
+	}
+	return fmt.Sprintf("%d s", int(d.Round(time.Second)/time.Second))
+}
+
 // NodeTask is one entry of GET /nodes/{node}/tasks.
 type NodeTask struct {
-	UPID   string `json:"upid"`
-	Type   string `json:"type"`
-	Status string `json:"status"`
-	ID     string `json:"id"`
+	UPID      string `json:"upid"`
+	Type      string `json:"type"`
+	Status    string `json:"status"`
+	ID        string `json:"id"`
+	User      string `json:"user"`
+	StartTime int64  `json:"starttime"`
 }
 
 // ActiveTasks lists the tasks running on a node now, of one type (vzdump, qmrestore, ...).
 func (p *PVEAPI) ActiveTasks(ctx context.Context, node, typeFilter string) ([]NodeTask, error) {
 	form := url.Values{"source": {"active"}}
+	if typeFilter != "" {
+		form.Set("typefilter", typeFilter)
+	}
+	var out []NodeTask
+	return out, p.call(ctx, http.MethodGet, "/nodes/"+url.PathEscape(node)+"/tasks", form, &out)
+}
+
+// RecentTasks lists the tasks of a node of one type for one guest, running or ended (newest
+// first; reading the tasks of other users needs Sys.Audit on the node, which the token holds).
+func (p *PVEAPI) RecentTasks(ctx context.Context, node, typeFilter string, vmid int) ([]NodeTask, error) {
+	form := url.Values{"source": {"all"}, "limit": {"20"}, "vmid": {strconv.Itoa(vmid)}}
 	if typeFilter != "" {
 		form.Set("typefilter", typeFilter)
 	}

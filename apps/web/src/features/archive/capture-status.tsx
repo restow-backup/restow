@@ -162,6 +162,12 @@ function WayCard({ status }: { status: MailboxWayStatus }) {
         </div>
       )}
 
+      {inUse && status.gaps.streams > 0 ? (
+        <p className="text-warning-text text-sm" data-slot="capture-way-gaps">
+          {t("capture.gaps.way", { count: status.gaps.streams, gaps: number(status.gaps.open) })}
+        </p>
+      ) : null}
+
       {inUse && status.modes.notifications + status.modes.poll > 0 ? (
         <p className="text-sm" data-slot="capture-way-mode">
           {status.way === "graph_sync"
@@ -239,6 +245,11 @@ function WayCard({ status }: { status: MailboxWayStatus }) {
             value={status.backfill.completed}
             aria-label={t("capture.backfill.label")}
           />
+          {status.backfill.stalled > 0 ? (
+            <p className="text-warning-text text-xs" data-slot="capture-backfill-stalled">
+              {t("capture.backfill.stalled", { count: status.backfill.stalled })}
+            </p>
+          ) : null}
           {status.capturedLate7d > 0 ? (
             <p className="text-muted-foreground text-xs">
               {t("capture.backfill.late", { count: status.capturedLate7d })}
@@ -371,7 +382,22 @@ function CaptureMailboxes() {
                   <StatusBadge tone={STREAM_TONE[row.status]} icon>
                     {t(`capture.status.${row.status}`)}
                   </StatusBadge>
-                  {row.status === "backfilling" || row.backfillCompletedAt === null ? null : (
+                  {row.gaps > 0 ? (
+                    <span
+                      className="text-warning-text block text-xs"
+                      data-slot="capture-mailbox-gaps"
+                    >
+                      {t("capture.gaps.mailbox", { count: row.gaps })}
+                    </span>
+                  ) : null}
+                  {row.backfillStalled ? (
+                    <span
+                      className="text-warning-text block text-xs"
+                      data-slot="capture-mailbox-backfill-stalled"
+                    >
+                      {t("capture.mailboxes.backfillStalled")}
+                    </span>
+                  ) : row.status === "backfilling" || row.backfillCompletedAt === null ? null : (
                     <span className="text-muted-foreground block text-xs">
                       {t("capture.mailboxes.backfillDone")}
                     </span>

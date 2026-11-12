@@ -162,7 +162,7 @@ describe("stripEe", () => {
 });
 
 describe("the real workspace", () => {
-  it("can be stripped: every loader exists and nothing else reaches ee/", async () => {
+  it("can be stripped: every loader exists and nothing else reaches ee/ [LICENSE-010]", async () => {
     const plan = await planStrip(repoRoot);
     assert.deepEqual(plan.loaders, [
       "apps/api/src/ee.ts",

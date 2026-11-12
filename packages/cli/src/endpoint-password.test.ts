@@ -145,7 +145,7 @@ function resticAvailable(): boolean {
 }
 
 describe.skipIf(!resticAvailable())("restoring a server's backup without the server", () => {
-  it("opens the repository with plain restic and the recovered password, and restores byte for byte", async () => {
+  it("opens the repository with plain restic and the recovered password, and restores byte for byte [RESTORE-014]", async () => {
     const password = randomBytes(32).toString("base64url");
     const store = await storage("e2e", password);
     const repository = join(store.storageDir, "endpoints", ENDPOINT_ID);

@@ -21,6 +21,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from "node:net";
 import { Readable } from "node:stream";
 import type { StorageBackend } from "../storage/backend.js";
+import { bindDeletionContext } from "../storage/deletion-guard.js";
 import { handleResticRequest } from "./restic-rest.js";
 import { parseBasicAuthorization } from "./tokens.js";
 
@@ -33,6 +34,8 @@ export interface LoopbackRepository {
   readonly password: string;
   /** Requests served so far (tests, logs). */
   readonly requests: () => number;
+  /** Uploads the storage refused so far because it is full (answered with 403, restic-rest.ts). */
+  readonly storageFullRefusals: () => number;
   close(): Promise<void>;
 }
 
@@ -93,8 +96,12 @@ export async function serveMaintenanceRepository(
 ): Promise<LoopbackRepository> {
   const password = randomBytes(32).toString("base64url");
   let served = 0;
+  let full = 0;
+  // restic's requests run in the deletion context of the operation that started restic: a
+  // forget or prune deletes only under that pass's permit (storage/deletion-guard.ts).
+  const inContext = bindDeletionContext();
   const server: Server = createServer((req, res) => {
-    void (async () => {
+    void inContext(async () => {
       const credentials = parseBasicAuthorization(req.headers.authorization);
       if (
         !credentials ||
@@ -114,6 +121,9 @@ export async function serveMaintenanceRepository(
           principal: "maintenance",
           path: url.pathname,
           query: url.searchParams,
+          onStorageFull: () => {
+            full += 1;
+          },
           ...(options.onDeletionDeferred
             ? {
                 onDeletionDeferred: (event) =>
@@ -128,7 +138,7 @@ export async function serveMaintenanceRepository(
         }
         res.end("internal error\n");
       }
-    })();
+    });
   });
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
@@ -140,6 +150,7 @@ export async function serveMaintenanceRepository(
     username: MAINTENANCE_USERNAME,
     password,
     requests: () => served,
+    storageFullRefusals: () => full,
     close: () =>
       new Promise<void>((resolve) => {
         server.close(() => resolve());

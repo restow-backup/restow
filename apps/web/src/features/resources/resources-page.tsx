@@ -35,7 +35,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { dayLabel } from "@/features/dashboard/presenters";
+import type { EstimateTenant } from "@/features/pricing/api";
 import { formatMoney } from "@/features/pricing/presenters";
+import { PriceUnitsSummary } from "@/features/pricing/price-body";
 import { usePricingEstimate } from "@/features/pricing/use-estimate";
 import { formatBytes, formatDateTime } from "@/lib/format";
 import { useSession } from "@/lib/session";
@@ -147,6 +149,11 @@ export function ResourcesPage() {
       ),
     [pricing.data],
   );
+  // Each tenant's estimate entry, for the units it is billed for per unit (servers, VMs, ...).
+  const priceEntries = React.useMemo(
+    () => new Map((pricing.data?.tenants ?? []).map((entry) => [entry.tenantId, entry] as const)),
+    [pricing.data],
+  );
   const priceColumn = pricing.data?.hasPrices === true;
   const currency = pricing.data?.currency ?? "EUR";
   // A price sort without a price column (the address says so, the prices are gone) is the default.
@@ -226,6 +233,7 @@ export function ResourcesPage() {
                 onSort={(key) => setSort(nextSort(effectiveSort, key))}
                 columns={columnsOf(priceColumn)}
                 prices={priceColumn ? prices : null}
+                priceEntries={priceEntries}
                 currency={currency}
               />
             ) : (
@@ -408,6 +416,7 @@ function CapacityTable({
   onSort,
   columns,
   prices,
+  priceEntries,
   currency,
 }: {
   rows: readonly CapacityTenant[];
@@ -416,6 +425,8 @@ function CapacityTable({
   columns: readonly Column[];
   /** The monthly amount per tenant, or null where the table has no price column. */
   prices: PriceByTenant | null;
+  /** Each tenant's entry of the estimate (the units billed per unit); absent: none. */
+  priceEntries?: ReadonlyMap<string, EstimateTenant>;
   currency: string;
 }) {
   const { t } = useTranslation("resources");
@@ -456,6 +467,7 @@ function CapacityTable({
                       amount: prices.get(tenant.tenantId) ?? null,
                       billed: tenant.kind !== "internal",
                       currency,
+                      entry: priceEntries?.get(tenant.tenantId),
                     }
                   : null
               }
@@ -482,7 +494,13 @@ function TenantRows({
    * The tenant's amount per month; null where the table has no price column. `billed` is false
    * for the operator's own organisation, which has no amount to show.
    */
-  price: { amount: number | null; billed: boolean; currency: string } | null;
+  price: {
+    amount: number | null;
+    billed: boolean;
+    currency: string;
+    /** The tenant's estimate entry: the units billed per unit are named under the amount. */
+    entry?: EstimateTenant;
+  } | null;
 }) {
   const { t } = useTranslation("resources");
   const { t: tCommon } = useTranslation();
@@ -548,9 +566,12 @@ function TenantRows({
             ) : price.amount === null ? (
               <span className="text-muted-foreground">{t("table.unavailable")}</span>
             ) : (
-              <span className="block text-sm">
-                {formatMoney(price.amount, price.currency, language)}
-              </span>
+              <>
+                <span className="block text-sm">
+                  {formatMoney(price.amount, price.currency, language)}
+                </span>
+                {price.entry ? <PriceUnitsSummary entry={price.entry} /> : null}
+              </>
             )}
           </TableCell>
         ) : null}

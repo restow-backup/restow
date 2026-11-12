@@ -35,7 +35,7 @@ afterEach(() => {
 });
 
 describe("currentEdition", () => {
-  it("is Community without a key", async () => {
+  it("is Community without a key [LICENSE-009]", async () => {
     expect(await currentEdition(fakeDb())).toBe("community");
   });
 
@@ -137,6 +137,16 @@ describe("licenseFeatureGate", () => {
   it("opens time-triggered reports from Business on", async () => {
     expect(await licenseFeatureGate.isEnabled(fakeDb(), "reports.timed")).toBe(false);
     expect(await licenseFeatureGate.isEnabled(fakeDb("business"), "reports.timed")).toBe(true);
+  });
+
+  it("opens provider branding from Business, tenant branding and the customer report from Service Provider", async () => {
+    expect(await licenseFeatureGate.isEnabled(fakeDb(), "branding.provider")).toBe(false);
+    expect(await licenseFeatureGate.isEnabled(fakeDb("business"), "branding.provider")).toBe(true);
+    for (const feature of ["branding.tenant", "reports.customer"] as const) {
+      expect(await licenseFeatureGate.isEnabled(fakeDb(), feature)).toBe(false);
+      expect(await licenseFeatureGate.isEnabled(fakeDb("business"), feature)).toBe(false);
+      expect(await licenseFeatureGate.isEnabled(fakeDb("service_provider"), feature)).toBe(true);
+    }
   });
 
   it("opens archive capture from the mailbox and by SMTP from Business on", async () => {

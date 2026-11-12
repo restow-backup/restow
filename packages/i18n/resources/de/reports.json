@@ -1,4 +1,11 @@
 {
+  "objectKinds": {
+    "mailbox": "Postfach",
+    "onedrive": "OneDrive",
+    "site": "SharePoint-Website",
+    "group": "Microsoft-365-Gruppe",
+    "imap": "IMAP-Postfach"
+  },
   "document": {
     "author": "{appName}",
     "product": "{appName}",
@@ -226,7 +233,18 @@
     },
     "panelTitle": "Regeln für Alarme und Berichte",
     "panelDescription": "Ein Alarm wird gesendet, wenn etwas passiert, ein Bericht zu einem Zeitpunkt. Die Empfänger oben speisen die Regeln, die mit ihnen gekennzeichnet sind.",
-    "noChannel": "Sendet nichts: kein Kanal"
+    "noChannel": "Sendet nichts: kein Kanal",
+    "calendar": {
+      "daily": "Vortag, um 07:00",
+      "weekly": "Vorwoche (Montag bis Sonntag), montags um 07:00",
+      "monthly": "Vormonat, am 1. um 07:00"
+    },
+    "withPdf": "mit PDF",
+    "deliveryProblems": {
+      "title": "Zustellungen scheitern",
+      "email": "{recipient}: scheitert seit {since}. {reason}",
+      "webhook": "Webhook: scheitert seit {since}. {reason}"
+    }
   },
   "deliveries": {
     "title": "Zustellprotokoll",
@@ -240,7 +258,8 @@
       "what": "Betrifft",
       "channel": "Kanal",
       "status": "Status",
-      "tenant": "Mandant"
+      "tenant": "Mandant",
+      "audience": "Für"
     },
     "channel": {
       "email": "E-Mail",
@@ -281,7 +300,22 @@
     },
     "loadMore": "Ältere laden",
     "openRule": "Regel unter Mandant › Benachrichtigungen öffnen",
-    "openWebhook": "Zustellung am Webhook ansehen"
+    "openWebhook": "Zustellung am Webhook ansehen",
+    "audience": {
+      "installation": "Installation",
+      "about": "zu {tenant}",
+      "tenant": "Mandant",
+      "provider": "Provider"
+    },
+    "digestWaiting": {
+      "hourly": "Wartet auf die stündliche Sammelmail",
+      "daily": "Wartet auf die tägliche Sammelmail"
+    },
+    "digestDue": "Geht hinaus",
+    "digestSent": {
+      "hourly": "In der stündlichen Sammelmail gesendet",
+      "daily": "In der täglichen Sammelmail gesendet"
+    }
   },
   "editor": {
     "title": {
@@ -365,7 +399,25 @@
       "timezone": "Diese Zeitzone ist unbekannt. Wählen Sie eine aus der Liste, z. B. Europe/Berlin.",
       "overdueHours": "Geben Sie eine ganze Zahl von Stunden zwischen 24 und 720 ein."
     },
-    "recipientsManaged": "Das sind die Empfänger, die diese Kategorie unter Empfänger gewählt haben. Ändern Sie sie dort."
+    "recipientsManaged": "Das sind die Empfänger, die diese Kategorie unter Empfänger gewählt haben. Ändern Sie sie dort.",
+    "cadence": {
+      "label": "Zeitraum",
+      "options": {
+        "daily": "Vortag",
+        "weekly": "Vorwoche (Montag bis Sonntag)",
+        "monthly": "Vormonat",
+        "custom": "Eigenes Intervall oder Cron"
+      },
+      "hints": {
+        "daily": "Wird täglich um 07:00 in der Zeitzone unten gesendet, über den Vortag.",
+        "weekly": "Wird jeden Montag um 07:00 in der Zeitzone unten gesendet, über die Kalenderwoche davor.",
+        "monthly": "Wird am 1. um 07:00 in der Zeitzone unten gesendet, über den Kalendermonat davor.",
+        "custom": "Ihr eigener Zeitplan, über die unten gewählten letzten Tage."
+      }
+    },
+    "attachPdf": "PDF-Statistik anhängen",
+    "attachPdfHint": "Die Berichtsmail trägt die PDF-Statistik des Zeitraums.",
+    "attachPdfUnavailable": "Die PDF-Statistik steht auf dieser Installation nicht zur Verfügung."
   },
   "eventGroups": {
     "jobs": "Läufe",
@@ -379,7 +431,9 @@
       "overdue": "Sicherung überfällig",
       "succeeded": "Sicherung erfolgreich",
       "suspicious": "Verdächtige Sicherung (Anzeichen von Ransomware)",
-      "suspicious_hold": "Aufbewahrung nach verdächtiger Sicherung weiter angehalten"
+      "suspicious_hold": "Aufbewahrung nach verdächtiger Sicherung weiter angehalten",
+      "unusually_large": "Sicherung als ungewöhnlich groß angehalten",
+      "unusually_large_notice": "Ungewöhnlich große Sicherung, nicht angehalten"
     },
     "restore": {
       "failed": "Wiederherstellung fehlgeschlagen",
@@ -399,7 +453,8 @@
     },
     "boot_test": {
       "failed": "Startprüfung nicht bestanden",
-      "unproven": "Startprüfung ohne Nachweis"
+      "unproven": "Startprüfung ohne Nachweis",
+      "skipped": "Kein Ergebnis der Startprüfung"
     },
     "scrub": {
       "corrupt": "Speicherschaden gefunden",
@@ -417,7 +472,12 @@
       "recovery_code": {
         "rejected": "Toter Wiederherstellungscode versucht"
       },
-      "rebound": "Rechner mit neuem Agent-Secret wieder angebunden"
+      "rebound": "Rechner mit neuem Agent-Secret wieder angebunden",
+      "sql_red": "Die Prüfung einer SQL-Server-Sicherung hat Schäden gefunden",
+      "sql_recovered": "Eine SQL-Server-Sicherung wurde wieder ohne Fehler geprüft",
+      "sql_overdue": "Eine SQL-Server-Sicherung wurde seit mehr als 8 Tagen nicht geprüft",
+      "backups_deletion_scheduled": "Sicherungen eines gesperrten Rechners zum Löschen vorgemerkt",
+      "backups_deleted": "Sicherungen eines entfernten Rechners gelöscht"
     },
     "file_share": {
       "storage_quota": "Speicherbudget der Freigaben",
@@ -428,7 +488,11 @@
     },
     "installation": {
       "disk_low": "Wenig Speicherplatz",
-      "app_secret_expiring": "Zugangsdaten der Microsoft-365-App laufen ab"
+      "disk_reserve_released": "Notreserve auf dem Datenträger freigegeben",
+      "disk_reserve_restored": "Notreserve auf dem Datenträger wieder angelegt",
+      "app_secret_expiring": "Zugangsdaten der Microsoft-365-App laufen ab",
+      "restore_mode": "Wiederherstellungsmodus von selbst eingeschaltet",
+      "key_mirror_conflict": "Gespeicherter Schlüssel weicht ab"
     },
     "source": {
       "app_secret_expiring": "Zugangsdaten der eigenen App einer Quelle laufen ab"
@@ -436,6 +500,12 @@
     "object": {
       "inactive": "Objekt nicht mehr gesichert, bitte bestätigen",
       "inactive_many": "Viele Objekte nicht mehr gesichert"
+    },
+    "notification": {
+      "delivery_failed": "Benachrichtigung nicht zustellbar"
+    },
+    "storage": {
+      "copy_behind": "Repository-Kopie im Rückstand"
     }
   },
   "eventHints": {
@@ -444,7 +514,9 @@
       "overdue": "Ein Postfach, OneDrive, IMAP-Konto, Rechner oder Gast (VM oder Container) hatte länger keine erfolgreiche Sicherung, als seine Backup-Jobs vorsehen (doppelter längster Abstand der Zeitpläne, ohne Zeitplan zwei Tage), oder länger als die eigene Frist der Regel. Einmal je Objekt, bis wieder eine Sicherung gelingt.",
       "succeeded": "Ein Sicherungslauf eines Postfachs, OneDrives, IMAP-Kontos oder einer Dateifreigabe ist abgeschlossen. Jeder Lauf, also eher für einen Kanal, der jeden sehen soll.",
       "suspicious": "Was eine Sicherung eines Rechners, einer Freigabe, eines Proxmox-VE-Gasts, Postfachs oder OneDrives gesehen hat, sieht nach Ransomware aus: weit mehr Änderungen als üblich, massenhafte Löschungen oder umbenannte Endungen, bekannte Ransomware-Namen oder verschlüsselt wirkende Dateien. Je Objekt einmal, bis ein Sicherungsstand ohne Befund folgt oder der Befund als Fehlalarm markiert wird. Die Aufbewahrung des Objekts ist angehalten, bis ein Administrator den Befund klärt.",
-      "suspicious_hold": "Die Aufbewahrung eines Rechners, einer Freigabe, eines Proxmox-VE-Gasts, Postfachs oder OneDrives ist seit einiger Zeit (standardmäßig 14 Tage) wegen eines verdächtigen Sicherungsstands angehalten, den niemand geklärt hat. Kein Sicherungsstand davon wird gelöscht, der Speicherbedarf wächst also weiter. Wiederholt sich im selben Abstand, bis ein Administrator den Befund als Fehlalarm markiert oder die Aufbewahrung wieder freigibt."
+      "suspicious_hold": "Die Aufbewahrung eines Rechners, einer Freigabe, eines Proxmox-VE-Gasts, Postfachs oder OneDrives ist seit einiger Zeit (standardmäßig 14 Tage) wegen eines verdächtigen Sicherungsstands angehalten, den niemand geklärt hat. Kein Sicherungsstand davon wird gelöscht, der Speicherbedarf wächst also weiter. Wiederholt sich im selben Abstand, bis ein Administrator den Befund als Fehlalarm markiert oder die Aufbewahrung wieder freigibt.",
+      "unusually_large": "Eine Sicherung eines Rechners, einer Dateifreigabe, eines Proxmox-VE-Containers, eines Postfachs oder eines OneDrive hätte ihrem Speicherziel weniger freien Platz gelassen, als es frei hält (standardmäßig 5 % seiner Größe, mindestens 20 GiB, höchstens 500 GiB), oder weit mehr als üblich hinzugefügt (standardmäßig das Zehnfache des Medians), während ihre Größenprüfung auf „Anhalten“ steht. Sie wurde angehalten, bevor sie den Speicher füllt. Ein wegen des Platzes angehaltener Lauf geht weiter, sobald das Ziel wieder Platz hat; ein wegen der Größe angehaltener Lauf wartet, bis ein Administrator ihn einmal weiterlaufen lässt, die Grenze erhöht oder die Prüfung ausschaltet.",
+      "unusually_large_notice": "Eine Sicherung eines Rechners, einer Dateifreigabe, eines Proxmox-VE-Containers, eines Postfachs oder eines OneDrive hat weit mehr als üblich geschrieben (standardmäßig das Zehnfache des Medians, mindestens 10 GiB, oder die eigene Grenze des Objekts). Standardmäßig warnt {appName} davor nur: Der Lauf geht weiter, und dieser Hinweis kommt einmal je Lauf. Gehört ein Ordner nicht in die Sicherung (ein Papierkorb, ein Download-Ordner), schließen Sie ihn in den Einstellungen des Objekts aus. Sollen solche Läufe künftig angehalten werden, stellen Sie die Größenprüfung des Objekts auf „Anhalten“ (Warnungen, „Angehaltene Sicherungen“)."
     },
     "restore": {
       "failed": "Eine Wiederherstellung oder ein Download, auch eines Servers oder Clients, konnte nicht abgeschlossen werden.",
@@ -464,7 +536,8 @@
     },
     "boot_test": {
       "failed": "Ein Sicherungsstand aus Proxmox VE ist nicht gestartet: Die Wiederherstellung als temporärer Gast, sein Start oder sein Hochfahren ist fehlgeschlagen.",
-      "unproven": "Eine aus einem Sicherungsstand von Proxmox VE wiederhergestellte VM ist gestartet und lief weiter, aber ihr QEMU Guest Agent hat nie geantwortet. Damit ist nicht nachgewiesen, dass das System darin funktioniert."
+      "unproven": "Eine aus einem Sicherungsstand von Proxmox VE wiederhergestellte VM ist gestartet und lief weiter, aber ihr QEMU Guest Agent hat nie geantwortet. Damit ist nicht nachgewiesen, dass das System darin funktioniert.",
+      "skipped": "Der Job eines Gastes sieht Startprüfungen vor, aber länger, als sein Zeitplan erlaubt (zwei Tage bei Prüfung nach jeder Sicherung, acht Tage bei wöchentlicher), wurde jede Startprüfung übersprungen oder konnte nicht durchgeführt werden. Die Meldung nennt den letzten Grund."
     },
     "scrub": {
       "corrupt": "Die Speicherprüfung hat beschädigte oder fehlende Pack-Dateien gefunden.",
@@ -482,7 +555,12 @@
       "recovery_code": {
         "rejected": "Jemand hat einen Wiederherstellungscode versucht, der abgelaufen, schon eingelöst oder widerrufen war. Das ist ein Zeichen, dass der Code weitergegeben oder gestohlen wurde."
       },
-      "rebound": "Ein Rechner hat über ein Wiederanbindungs-Token ein neues Agent-Secret bekommen, nach einer Wiederherstellung oder Neuinstallation. Seine bisherige Installation hat keinen Zugang mehr; hat ihn hier niemand wieder angebunden, sperren Sie den Rechner."
+      "rebound": "Ein Rechner hat über ein Wiederanbindungs-Token ein neues Agent-Secret bekommen, nach einer Wiederherstellung oder Neuinstallation. Seine bisherige Installation hat keinen Zugang mehr; hat ihn hier niemand wieder angebunden, sperren Sie den Rechner.",
+      "sql_red": "Die Prüfung hat die neueste Sicherung einer Datenbank aus den Sicherungsdaten zurückgeholt, und DBCC CHECKDB, die Wiederherstellung oder die Prüfsumme hat Schäden gefunden.",
+      "sql_recovered": "Eine Datenbank, deren letzte Prüfung Schäden fand, wurde wieder ohne Fehler geprüft.",
+      "sql_overdue": "Seit mehr als 8 Tagen kam keine Prüfung einer gesicherten Datenbank ohne Fehler zum Ergebnis.",
+      "backups_deletion_scheduled": "Ein Inhaber des Providers hat beauftragt, jede Sicherung eines gesperrten Rechners zu löschen. Sie werden in sieben Tagen gelöscht, wenn niemand das auf der Seite des Rechners abbricht; geht immer sofort an die Pflichtempfänger.",
+      "backups_deleted": "Jede Sicherung eines entfernten Rechners wurde gelöscht, mit der Zahl der Snapshots und Dateien."
     },
     "file_share": {
       "storage_quota": "Die Sicherungsdaten einer Freigabe oder aller Freigaben eines Mandanten zusammen haben 80 Prozent des Speicherbudgets erreicht, oder neue Sicherungen werden abgelehnt, weil es aufgebraucht ist.",
@@ -493,7 +571,11 @@
     },
     "installation": {
       "disk_low": "Auf dem Datenträger unter der Datenbank oder unter dem lokalen Standard-Repository ist weniger als ein Zehntel frei (und weniger als 5 GiB). Wird für die gesamte Installation einmal ausgelöst, bis wieder genug Platz frei ist, und kann daher nur von Provider-Administratoren gewählt werden.",
-      "app_secret_expiring": "Warnt, bevor der geheime Clientschlüssel oder das Zertifikat der zentralen Microsoft-365-App-Registrierung abläuft: 30 Tage vorher, erneut 7 Tage vorher und nach dem Ablauf. Nur wenn der Ablauf bekannt ist. Wird für die gesamte Installation ausgelöst und kann daher nur von Provider-Administratoren gewählt werden."
+      "disk_reserve_released": "Der Datenträger unter dem Datenvolume (in einer Standardinstallation auch der der Datenbank) war fast voll. {appName} hat deshalb seine Notreserve (standardmäßig 2 GiB) freigegeben, damit die Datenbank weiterläuft. Schaffen Sie sofort Platz. Wird einmal je Freigabe für die gesamte Installation ausgelöst und kann daher nur von Provider-Administratoren gewählt werden.",
+      "disk_reserve_restored": "Die Notreserve wurde wieder angelegt, nachdem der Datenträger wieder Platz hatte. Wird einmal je Neuanlage für die gesamte Installation ausgelöst.",
+      "app_secret_expiring": "Warnt, bevor der geheime Clientschlüssel oder das Zertifikat der zentralen Microsoft-365-App-Registrierung abläuft: 30 Tage vorher, erneut 7 Tage vorher und nach dem Ablauf. Nur wenn der Ablauf bekannt ist. Wird für die gesamte Installation ausgelöst und kann daher nur von Provider-Administratoren gewählt werden.",
+      "restore_mode": "Ein Speicherziel zeigt einen Stand, den die Datenbank nicht kennt (ein Datenbank-Dump wurde zurückgespielt). Nichts wird gelöscht, bis ein Provider-Inhaber den Wiederherstellungsmodus beendet.",
+      "key_mirror_conflict": "Ein verpackter Mandantenschlüssel im Speicher weicht unter derselben Version von dem der Datenbank ab. Er wird nie überschrieben."
     },
     "source": {
       "app_secret_expiring": "Warnt, bevor der geheime Clientschlüssel oder das Zertifikat der eigenen App einer Microsoft-365-Quelle abläuft: 30 Tage vorher, erneut 7 Tage vorher und nach dem Ablauf. Nur für Quellen, deren Ablauf bekannt ist (das für den Schlüssel eingetragene Datum oder das Ende des Zertifikats). Nach dem Ablauf schlagen Sicherungen der Quelle fehl, bis ein neuer Schlüssel oder ein neues Zertifikat eingetragen ist."
@@ -501,6 +583,12 @@
     "object": {
       "inactive": "Einmal je Objekt, wenn {appName} es nicht mehr sichert, weil die Quelle es nicht mehr kennt, das Konto deaktiviert oder ohne Lizenz ist oder Microsoft das OneDrive oder die Website gesperrt hat. Außerdem einmal je IMAP-Konto, wenn die Anmeldung seit mehreren Tagen abgelehnt wird und eine Antwort fehlt, ob das Konto abgeschaltet wurde. Kein Fehler: Bestätigen oder beantworten Sie es unter Schutz.",
       "inactive_many": "Eine Warnung statt vieler Hinweise, wenn bei einem Mandanten an einem Tag mehr als 10 Objekte oder mehr als 20 % der gesicherten Objekte nicht mehr gesichert werden, zum Beispiel weil Lizenzen entfernt wurden oder der Abgleich falsch eingegrenzt ist. Ebenso bei IMAP-Konten, deren Anmeldefragen gleichzeitig entstehen, etwa nach einer Passwortänderung der Quelle."
+    },
+    "notification": {
+      "delivery_failed": "Eine Benachrichtigung konnte nicht zugestellt werden: Der Mailserver hat eine Adresse abgewiesen, der Mailversand ist gestört oder ein Webhook schlägt wiederholt fehl. Wird einmal je Störung ausgelöst, nie über den gestörten Kanal, immer in der Glocke und an die Pflichtempfänger des Providers."
+    },
+    "storage": {
+      "copy_behind": "Die Kopie eines restic-Repositorys auf einem Kopieziel liegt mehr als zwei Tage zurück, oder das Kopieren schlägt wiederholt fehl."
     }
   },
   "sections": {
@@ -551,6 +639,15 @@
     "disk": "Datenträger",
     "diskDatabase": "Unter der Datenbank",
     "diskRepository": "Unter dem lokalen Standard-Repository",
+    "diskSystem": "Systemdatenträger des Servers",
+    "reserve": "Notreserve",
+    "reserveLine": "{size} unter {path}. Wird unter {floor} freiem Platz von selbst freigegeben, von Hand mit: {command}",
+    "reserveTodo": "Schaffen Sie jetzt Platz, zum Beispiel durch ungenutzte Images (docker image prune -a) und alte Update-Sicherungen der Datenbank. Löschen Sie nie die Daten der Datenbank oder ein Volume (docs/DATABASE.md, „Disk full“). Die Reserve wird von selbst wieder angelegt, sobald der Datenträger Platz hat.",
+    "runSize": "Von diesem Lauf hinzugefügt",
+    "usualSize": "Üblicherweise hinzugefügt",
+    "sizeLimit": "Grenze",
+    "runHeldTodo": "Öffnen Sie Angehaltene Sicherungen. Ein wegen der Größe angehaltener Lauf: Lassen Sie ihn einmal weiterlaufen, erhöhen Sie die Grenze dieses Objekts oder schalten Sie die Prüfung dafür aus; wurde ein Ordner versehentlich hinzugefügt (ein Papierkorb), schließen Sie ihn zuerst aus. Ein wegen des Platzes angehaltener Lauf geht weiter, sobald das Speicherziel wieder Platz hat. Bis dahin wartet jede Sicherung dieses Objekts.",
+    "runNoticeTodo": "Der Lauf geht weiter: Standardmäßig warnt {appName} vor großen Sicherungen nur. Wurde ein Ordner versehentlich hinzugefügt (ein Papierkorb), schließen Sie ihn in den Einstellungen des Objekts aus. Sollen solche Läufe künftig angehalten werden, öffnen Sie Warnungen und wählen Sie für dieses Objekt „Solche Läufe anhalten“.",
     "location": "Ort",
     "free": "Frei",
     "total": "Größe",
@@ -566,7 +663,9 @@
     "archiveReason": {
       "capture_error": "Die Archiv-Erfassung aus diesem Postfach schlägt seit mehr als einer Stunde fehl. Neue Mail des Postfachs kommt erst wieder ins Archiv, wenn sie funktioniert.",
       "forward_stale": "Seit mehr als 24 Stunden ist keine weitergeleitete Kopie dieses Kontos angekommen, vorher kamen Kopien an. Prüfen Sie die Weiterleitungsregel beim Mail-Anbieter.",
-      "journal_stale": "Seit mehr als 24 Stunden ist kein Journal-Report angekommen, vorher kamen Reports an. Prüfen Sie die Journalregel und den Connector in Exchange Online und ob der Journal-Empfänger erreichbar ist."
+      "journal_stale": "Seit mehr als 24 Stunden ist kein Journal-Report angekommen, vorher kamen Reports an. Prüfen Sie die Journalregel und den Connector in Exchange Online und ob der Journal-Empfänger erreichbar ist.",
+      "backfill_stalled": "Die einmalige Übernahme des Altbestands dieses Postfachs ist 48 Stunden nach dem Start nicht abgeschlossen oder ihr letzter Lauf ist fehlgeschlagen. Mail, die vor dem Start der Erfassung im Postfach lag, ist noch nicht im Archiv. {appName} versucht die Übernahme selbst erneut; sehen Sie sich den Fehler des letzten Laufs unter Jobs an.",
+      "capture_gap": "Die Archiv-Erfassung konnte Ordner oder Nachrichten dieses Postfachs nicht übernehmen: Der Server hat sie mehrfach verweigert oder nie ausgeliefert, oder Microsoft 365 liefert keinen MIME-Export. Sie sind nicht im Archiv. Die Archiv-Seite zeigt beim Postfach, wie viele es sind; die Liste liefert die API (GET /api/v1/archive/capture/mailboxes/<Postfach-ID>/gaps). {appName} fragt einmal am Tag erneut nach denen, die bis dahin abrufbar sein können, und ein Neuabgleich des Postfachs versucht alle erneut. Eine Mail, die für einen MIME-Export zu groß ist oder die Exchange nicht umwandeln kann, bleibt außerhalb des Archivs; daran ändert kein neuer Versuch etwas."
     },
     "clientId": "Anwendungs-ID (Client)",
     "credential": "Zugangsdaten",
@@ -592,7 +691,24 @@
     "inactiveCount": "Objekte",
     "inactiveConfirm": "Prüfen Sie unter Schutz, ob das beabsichtigt ist, und bestätigen Sie es mit \"Ja, beabsichtigt\". Vorhandene Sicherungen bleiben erhalten. Wird das Objekt an der Quelle wieder aktiv, sichert {appName} es von selbst wieder.",
     "loginQuestionConfirm": "Beantworten Sie unter Schutz, ob dieses Konto abgeschaltet wurde. Mit \"Ja, abgeschaltet\" werden keine Sicherungen mehr erstellt und das Konto wird grau angezeigt; mit \"Nein, Anmeldung korrigieren\" bleibt es geschützt. Vorhandene Sicherungen bleiben in beiden Fällen erhalten.",
-    "loginQuestionSourceFirst": "Die Anmeldung wird bei mehreren Konten derselben Quelle abgelehnt. Prüfen Sie zuerst das Passwort der Quelle und beantworten Sie dann unter Schutz, ob die Konten abgeschaltet wurden. Vorhandene Sicherungen bleiben in beiden Fällen erhalten."
+    "loginQuestionSourceFirst": "Die Anmeldung wird bei mehreren Konten derselben Quelle abgelehnt. Prüfen Sie zuerst das Passwort der Quelle und beantworten Sie dann unter Schutz, ob die Konten abgeschaltet wurden. Vorhandene Sicherungen bleiben in beiden Fällen erhalten.",
+    "installation": "Installation",
+    "deliveryFailed": {
+      "channel": "Kanal",
+      "email": "E-Mail",
+      "webhook": "Webhook",
+      "webhookName": "Webhook",
+      "recipient": "Empfänger",
+      "transport": "Der Mailversand insgesamt",
+      "reason": "Grund",
+      "since": "Gestört seit",
+      "count": "Nicht zugestellte Benachrichtigungen",
+      "rule": "Regel"
+    },
+    "restoreModeTodo": "Prüfen Sie die zurückgespielte Datenbank unter Installation, Wiederherstellungsmodus, übernehmen Sie Schlüsselversionen aus dem Speicher und beenden Sie dann den Wiederherstellungsmodus. Bis dahin wird nichts gelöscht; Sicherungen laufen weiter.",
+    "keyMirrorTodo": "Behalten Sie den gespeicherten Schlüssel: Daten, die damit geschrieben wurden, brauchen ihn möglicherweise. Vergleichen Sie ihn unter Installation, Wiederherstellungsmodus mit dem der Datenbank (docs/STORAGE.md).",
+    "keyVersion": "Schlüsselversion",
+    "storageTarget": "Speicherziel"
   },
   "summary": {
     "previous": "Vorzeitraum",
@@ -605,7 +721,8 @@
     "noFailures": "Keine in diesem Zeitraum",
     "logicalBytes": "Geschützte Daten",
     "physicalBytes": "Gespeichert nach Deduplizierung",
-    "restores": "Wiederherstellungen"
+    "restores": "Wiederherstellungen",
+    "tenants": "Mandanten"
   },
   "bell": {
     "label": "Benachrichtigungen",
@@ -627,7 +744,9 @@
       "overdue": "Keine erfolgreiche Sicherung {days, plural, one {seit über # Tag} other {seit über # Tagen}}: {object}",
       "succeeded": "Sicherung erfolgreich: {object}",
       "suspicious": "Verdächtige Sicherung: {object}",
-      "suspicious_hold": "Aufbewahrung weiter angehalten: {object}"
+      "suspicious_hold": "Aufbewahrung weiter angehalten: {object}",
+      "unusually_large": "Sicherung als ungewöhnlich groß angehalten: {object}",
+      "unusually_large_notice": "Ungewöhnlich große Sicherung, nicht angehalten: {object}"
     },
     "restore": {
       "failed": "Wiederherstellung fehlgeschlagen: {object}",
@@ -637,7 +756,9 @@
       "failed": "Archiv-Abgleich fehlgeschlagen: {object}",
       "capture_error": "Archiv-Erfassung seit über einer Stunde fehlerhaft: {object}",
       "forward_stale": "Seit 24 Stunden keine weitergeleiteten Kopien: {object}",
-      "journal_stale": "Seit 24 Stunden keine Journal-Reports"
+      "journal_stale": "Seit 24 Stunden keine Journal-Reports",
+      "backfill_stalled": "Übernahme des Altbestands hängt: {object}",
+      "capture_gap": "Archiv-Erfassung unvollständig: {object}"
     },
     "directory": {
       "failed": "Verzeichnisabgleich fehlgeschlagen"
@@ -651,7 +772,8 @@
     },
     "boot_test": {
       "failed": "Startprüfung nicht bestanden: {object}",
-      "unproven": "Startprüfung ohne Nachweis: {object}"
+      "unproven": "Startprüfung ohne Nachweis: {object}",
+      "skipped": "Kein Ergebnis der Startprüfung: {object}"
     },
     "scrub": {
       "corrupt": "Speicherschaden gefunden",
@@ -669,7 +791,12 @@
       "recovery_code": {
         "rejected": "Toter Wiederherstellungscode versucht: {object}"
       },
-      "rebound": "Rechner wieder angebunden: {object}"
+      "rebound": "Rechner wieder angebunden: {object}",
+      "sql_red": "SQL-Server-Prüfung hat Schäden gefunden: {object}",
+      "sql_recovered": "SQL-Server-Prüfung wieder ohne Fehler: {object}",
+      "sql_overdue": "SQL-Server-Prüfung überfällig: {object}",
+      "backups_deletion_scheduled": "Sicherungen zum Löschen vorgemerkt: {object}",
+      "backups_deleted": "Sicherungen gelöscht: {object}"
     },
     "file_share": {
       "storage_quota": "Speicherbudget: {object}",
@@ -686,10 +813,21 @@
     "installation": {
       "disk_low_database": "Wenig Speicherplatz unter der Datenbank: {free} frei",
       "disk_low_repository": "Wenig Speicherplatz unter dem lokalen Repository: {free} frei",
+      "disk_low_system": "Wenig Speicherplatz auf dem Systemdatenträger: {free} frei",
+      "disk_low_shared": "Wenig Speicherplatz auf einem Datenträger ({places}): {free} frei",
+      "diskPlace": {
+        "database": "Datenbank",
+        "repository": "lokales Repository",
+        "system": "Systemdatenträger"
+      },
+      "disk_reserve_released": "Datenträger fast voll: Notreserve freigegeben (jetzt {free} frei)",
+      "disk_reserve_restored": "Notreserve wieder angelegt ({free} frei)",
       "app_secret_expiring": "Zugangsdaten der Microsoft-365-App laufen am {date} ab",
       "app_secret_expiring_soon30": "Zugangsdaten der Microsoft-365-App laufen {days, plural, =0 {heute} one {in # Tag} other {in # Tagen}} ab ({date})",
       "app_secret_expiring_soon7": "Zugangsdaten der Microsoft-365-App laufen {days, plural, =0 {heute} one {in # Tag} other {in # Tagen}} ab ({date}). Bitte jetzt erneuern",
-      "app_secret_expiring_expired": "Zugangsdaten der Microsoft-365-App sind abgelaufen ({date}). Microsoft-365-Sicherungen schlagen fehl"
+      "app_secret_expiring_expired": "Zugangsdaten der Microsoft-365-App sind abgelaufen ({date}). Microsoft-365-Sicherungen schlagen fehl",
+      "restore_mode": "Der Wiederherstellungsmodus ist aktiv: Die Datenbank ist älter als ihr Speicher. Nichts wird gelöscht, bis ein Provider-Inhaber sie prüft",
+      "key_mirror_conflict": "Ein Schlüssel im Speicher (Version {keyVersion}) weicht von dem der Datenbank ab und wurde nicht überschrieben"
     },
     "database": {
       "move": {
@@ -708,6 +846,14 @@
       "inactive_many": "{count} Objekte werden seit heute nicht mehr gesichert, bitte prüfen und bestätigen",
       "login_question": "{object}: Die Anmeldung wird seit mehreren Tagen abgelehnt, wurde das Konto abgeschaltet?",
       "login_question_many": "{count} IMAP-Konten: Die Anmeldung wird seit mehreren Tagen abgelehnt, bitte Passwort der Quelle prüfen und beantworten, ob sie abgeschaltet wurden"
+    },
+    "notification": {
+      "delivery_failed_transport": "Benachrichtigungsmail kann nicht gesendet werden",
+      "delivery_failed_recipient": "Mail an {recipient} kann nicht zugestellt werden",
+      "delivery_failed_webhook": "Webhook scheitert weiter: {webhook}"
+    },
+    "storage": {
+      "copy_behind": "Kopie im Rückstand: {object}"
     }
   },
   "toasts": {
@@ -750,7 +896,11 @@
     "weeklyReport": "Wochenbericht",
     "errors": "Weitere Fehler",
     "warnings": "Warnungen",
-    "notices": "Hinweise"
+    "notices": "Hinweise",
+    "dailyReport": "Tagesbericht",
+    "monthlyReport": "Monatsbericht",
+    "customerReport": "Monatlicher Kundenbericht",
+    "provider": "Provider-Benachrichtigungen"
   },
   "history": {
     "title": "Benachrichtigungen",
@@ -769,5 +919,55 @@
     "empty": "Keine Benachrichtigungen.",
     "loadError": "Die Benachrichtigungen konnten nicht geladen werden.",
     "loadMore": "Ältere laden"
+  },
+  "digest": {
+    "subject": "{count, plural, one {# Benachrichtigung} other {# Benachrichtigungen}} in der Sammelmail",
+    "subjectProvider": "{appName}: {count, plural, one {# Benachrichtigung} other {# Benachrichtigungen}} in der Sammelmail",
+    "intro": "{count, plural, one {# Benachrichtigung} other {# Benachrichtigungen}} vom {from} bis {to} (UTC).",
+    "more": "Und {count, plural, one {# weitere} other {# weitere}}.",
+    "tenantHeading": "{tenant}",
+    "hourly": "Stündliche Sammelmail",
+    "daily": "Tägliche Sammelmail",
+    "footer": "Sie erhalten diese Sammelmail, weil Ihre Benachrichtigungseinstellungen in {appName} diese Benachrichtigungen sammeln. Kritische Ereignisse werden immer sofort gesendet.",
+    "level": {
+      "error": "Fehler",
+      "warning": "Warnung",
+      "info": "Hinweis"
+    }
+  },
+  "customer": {
+    "title": "Monatsbericht",
+    "subtitle": "{tenant}, {month}",
+    "period": "Berichtszeitraum: {month}",
+    "kpis": {
+      "title": "Auf einen Blick",
+      "backupSuccessRate": "Erfolgreiche Sicherungen",
+      "verifiedShare": "Nachweislich wiederherstellbar",
+      "restores": "Wiederherstellungen",
+      "storedBytes": "Belegter Speicher",
+      "suspicious": "Verdächtige Befunde"
+    },
+    "objects": {
+      "title": "Was geschützt ist",
+      "kind": "Art",
+      "count": "Anzahl",
+      "empty": "Noch ist nichts geschützt."
+    },
+    "incidents": {
+      "title": "Häufigste Ursachen fehlgeschlagener Sicherungen",
+      "cause": "Ursache",
+      "count": "Anzahl",
+      "empty": "Keine fehlgeschlagenen Sicherungen in diesem Monat."
+    },
+    "kinds": {
+      "mailbox": "Postfächer",
+      "onedrive": "OneDrive",
+      "imap": "IMAP-Konten",
+      "site": "SharePoint-Websites",
+      "group": "Microsoft-365-Gruppen",
+      "endpoint": "Server und Clients",
+      "file_share": "Dateifreigaben",
+      "pve_guest": "Virtuelle Maschinen und Container"
+    }
   }
 }

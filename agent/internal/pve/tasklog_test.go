@@ -4,9 +4,11 @@ package pve
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -86,5 +88,94 @@ func TestMergeTaskLogByTime(t *testing.T) {
 	}
 	if got := string(tailBytes([]byte("aaa\nbbb\nccc\n"), 6)); got != "ccc\n" {
 		t.Fatalf("tail %q", got)
+	}
+}
+
+func vzdumpFixture(t *testing.T, name string) []string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join("testdata", name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+}
+
+func TestVzdumpLockStateOfRealTaskLogs(t *testing.T) {
+	for name, want := range map[string][2]bool{
+		// waiting, begun
+		"vzdump-lockwait.log":     {true, false},
+		"vzdump-lockwait-got.log": {false, true},
+		"vzdump-locktimeout.log":  {true, false},
+		"vzdump-nolock.log":       {false, true},
+	} {
+		tail := strings.Join(vzdumpFixture(t, name), "\n")
+		if got := [2]bool{vzdumpLockState(tail), vzdumpBackupBegun(tail)}; got != want {
+			t.Errorf("%s: waiting, begun = %v, want %v", name, got, want)
+		}
+	}
+	if err := lockTimeoutError("can't acquire lock '/var/run/vzdump.lock' - got timeout", "pve1"); err == nil ||
+		!strings.Contains(err.Error(), "another Proxmox VE backup job held the backup lock of node pve1") ||
+		!strings.Contains(err.Error(), "Move the schedule") {
+		t.Fatalf("lock timeout: %v", err)
+	}
+	if lockTimeoutError("job errors", "pve1") != nil {
+		t.Fatal("another exit status is no lock timeout")
+	}
+}
+
+// A Restow backup that waits for a PVE backup job's lock says so while it waits, and the lock
+// timeout names the cause.
+func TestBackupWaitingForThePVEBackupJobsLock(t *testing.T) {
+	oldPoll, oldLock := backupTaskPoll, lockWaitPoll
+	backupTaskPoll, lockWaitPoll = 5*time.Millisecond, 10*time.Millisecond
+	t.Cleanup(func() { backupTaskPoll, lockWaitPoll = oldPoll, oldLock })
+	vz := &fakeVzdump{runningPolls: 40, exit: "can't acquire lock '/var/run/vzdump.lock' - got timeout",
+		log: vzdumpFixture(t, "vzdump-locktimeout.log")}
+	s := newTaskService(t, vz, &fakeResults{})
+	var mu sync.Mutex
+	var logs []string
+	s.Logf = func(f string, a ...any) { mu.Lock(); logs = append(logs, fmt.Sprintf(f, a...)); mu.Unlock() }
+	_, err := s.task(context.Background(), backupTask("t1"))
+	if err == nil || !strings.Contains(err.Error(), "another Proxmox VE backup job held the backup lock of node pve1") {
+		t.Fatalf("err = %v", err)
+	}
+	mu.Lock()
+	joined := strings.Join(logs, "\n")
+	mu.Unlock()
+	if strings.Count(joined, "backup of 101: waiting for another backup on node pve1 (a Proxmox VE backup job holds vzdump's lock)") != 1 {
+		t.Fatalf("log %q", joined)
+	}
+	if _, err := os.Stat(s.Layout.lockWaitNote(101)); !os.IsNotExist(err) {
+		t.Fatalf("the note of a backup that never got the lock stayed: %v", err)
+	}
+}
+
+// The run opens only once vzdump has the lock: backup_init puts the wait into the run's log.
+func TestBackupInitLogsTheLockWait(t *testing.T) {
+	f := &fakeRestow{commits: map[string]string{}}
+	p := testProvider(t, f, &memSource{})
+	since := p.clock().Add(-95 * time.Minute)
+	_ = os.MkdirAll(filepath.Dir(p.Layout.lockWaitNote(101)), 0o700)
+	if err := os.WriteFile(p.Layout.lockWaitNote(101), []byte(since.UTC().Format(time.RFC3339)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Handle(context.Background(), "backup-init", ProviderRequest{StoreID: "restow", VMID: 101, VMType: "qemu"}); err != nil {
+		t.Fatal(err)
+	}
+	log, _ := os.ReadFile(p.Layout.jobLogFile("restow", 101))
+	want := "INFO: this backup waited from " + since.Local().Format(taskLogStamp) + " for another backup on this node (a Proxmox VE backup job) to release vzdump's lock"
+	if !strings.Contains(string(log), want) {
+		t.Fatalf("job log %q lacks %q", log, want)
+	}
+	if _, err := os.Stat(p.Layout.lockWaitNote(101)); !os.IsNotExist(err) {
+		t.Fatal("the note was not taken")
+	}
+	// An old note says nothing.
+	_ = os.WriteFile(p.Layout.lockWaitNote(101), []byte(p.clock().Add(-5*time.Hour).UTC().Format(time.RFC3339)), 0o600)
+	if _, err := p.Handle(context.Background(), "backup-init", ProviderRequest{StoreID: "restow", VMID: 101, VMType: "qemu"}); err != nil {
+		t.Fatal(err)
+	}
+	if log, _ := os.ReadFile(p.Layout.jobLogFile("restow", 101)); strings.Contains(string(log), "waited") {
+		t.Fatalf("a stale note was logged: %q", log)
 	}
 }

@@ -627,7 +627,7 @@ describe("toStoredBackupResult", () => {
 });
 
 describe("ensureManifestOnCopies", () => {
-  it("writes the manifest to copies that miss it and leaves complete copies alone", async () => {
+  it("writes the manifest to copies that miss it and leaves complete copies alone [COPY-001]", async () => {
     const primary = new MemoryStorage();
     const complete = new MemoryStorage();
     const incomplete = new MemoryStorage();
@@ -956,7 +956,7 @@ describe("Graph client per source", () => {
 });
 
 describe("enqueueVerifyAfterBackup", () => {
-  it("skips without a verify schedule", async () => {
+  it("skips without a verify schedule [VERIFY-006]", async () => {
     const { store, queued } = fakeStore({ verifyScheduled: false });
     const sent: string[] = [];
     const result = await enqueueVerifyAfterBackup({
@@ -974,7 +974,7 @@ describe("enqueueVerifyAfterBackup", () => {
     expect(queued).toEqual([]);
   });
 
-  it("sends a verify with priority and singleton key and records the queued row", async () => {
+  it("sends a verify with priority and singleton key and records the queued row [VERIFY-006]", async () => {
     const { store, queued } = fakeStore({ verifyScheduled: true });
     const sent: unknown[] = [];
     const jobId = await enqueueVerifyAfterBackup({
@@ -1142,6 +1142,78 @@ describe("backup handler", () => {
     ]);
     expect(runtime.at(-1)).toEqual(IDLE_RUNTIME_STATE);
     expect(ctx.progress.snapshot()).toMatchObject({ total: 2, done: 1, failed: 1, bytes: 100 });
+  });
+
+  describe("the size and space guard (#99)", () => {
+    /** A guard that holds once the run passes `limit` bytes. */
+    function limitGuard(limit: number) {
+      const state = { written: 0, asked: [] as number[] };
+      return {
+        state,
+        guard: {
+          async admit(bytes: number) {
+            state.asked.push(bytes);
+            return state.written + bytes > limit
+              ? { ok: false as const, holdId: "hold-1", message: "The backup of Alice was held." }
+              : { ok: true as const };
+          },
+          record(bytes: number) {
+            state.written += bytes;
+          },
+        },
+      };
+    }
+
+    function packingEngine(packs: number, swallow = false) {
+      return engine("mailbox", async (engineCtx) => {
+        for (let index = 0; index < packs; index++) {
+          try {
+            await engineCtx.admitPack?.(80, 64);
+          } catch (error) {
+            if (!swallow) {
+              throw error;
+            }
+          }
+        }
+        throw new Error("the engine never committed");
+      });
+    }
+
+    it("asks before every pack and ends a held run as held, not failed", async () => {
+      const ctx = workerContext(storage());
+      const { guard, state } = limitGuard(100);
+      const handler = createBackupHandler({
+        engines: new BackupEngineRegistry([["mailbox", () => packingEngine(5)]]),
+        store: () => fakeStore().store,
+        sizeGuard: () => guard,
+      });
+      const error = await handler
+        .run(ctx, { jobId: JOB, tenantId: TENANT, protectedObjectId: OBJECT })
+        .catch((caught: unknown) => caught);
+      expect(error).toBeInstanceOf(InvalidPayloadError);
+      expect((error as InvalidPayloadError).failure).toMatchObject({
+        code: "storage.run_held",
+        technical: { holdId: "hold-1" },
+      });
+      // 64 went through, the second pack (128 > 100) was held.
+      expect(state).toEqual({ written: 64, asked: [64, 64] });
+    });
+
+    it("stays held when the engine swallowed the refusal and failed otherwise", async () => {
+      const ctx = workerContext(storage());
+      const { guard, state } = limitGuard(100);
+      const handler = createBackupHandler({
+        engines: new BackupEngineRegistry([["mailbox", () => packingEngine(5, true)]]),
+        store: () => fakeStore().store,
+        sizeGuard: () => guard,
+      });
+      const error = await handler
+        .run(ctx, { jobId: JOB, tenantId: TENANT, protectedObjectId: OBJECT })
+        .catch((caught: unknown) => caught);
+      expect((error as InvalidPayloadError).failure?.code).toBe("storage.run_held");
+      // After the hold nothing more is asked: the run is held for good.
+      expect(state.asked).toEqual([64, 64]);
+    });
   });
 
   it("records failures an engine only returned", async () => {

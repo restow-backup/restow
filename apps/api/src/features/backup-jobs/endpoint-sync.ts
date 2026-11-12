@@ -78,6 +78,7 @@ const CONFIG_KEYS = [
   "excludeLargerThanBytes",
   "policy",
   "wholeMachine",
+  "sql",
 ] as const;
 
 function hooksOf(config: EndpointConfig): { pre?: string; post?: string } {
@@ -169,7 +170,13 @@ export async function syncEndpointConfigs(
     const next = buildEndpointConfig(
       endpoint.config,
       effectiveSchedule(job.schedule, overrides),
-      { ...settings, policy: job.settings?.policy, wholeMachine: job.settings?.wholeMachine },
+      // The native SQL Server backup is Windows only; other systems never get the field.
+      {
+        ...settings,
+        sql: endpoint.os === "windows" ? settings.sql : undefined,
+        policy: job.settings?.policy,
+        wholeMachine: job.settings?.wholeMachine,
+      },
       levels,
       // A whole machine job writes the switch to Linux machines that are no container (5.1).
       { os: endpoint.os, virtualization: endpoint.settings.agent?.machine?.virtualization },

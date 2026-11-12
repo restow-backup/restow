@@ -16,7 +16,11 @@
 # `restow-pve provider <verb>` and its answer back into what PVE expects.
 # No state is kept here: what crosses calls (the run, the archive name) is
 # kept by restow-pve under /run/restow-pve, which also works for
-# backup_container, which PVE runs forked and unprivileged.
+# backup_container, which PVE runs forked and unprivileged. The one exception
+# is the archive directory of a container restore: restore_container_init and
+# restore_container_cleanup run in the same restore worker on this object, and
+# cleanup hands the directory back so restow-pve removes that folder only (two
+# restores of one restore point get one folder each).
 package PVE::BackupProvider::Plugin::Restow;
 
 use strict;
@@ -216,12 +220,14 @@ sub restore_container_init {
     my ($self, $volname, @rest) = @_;
     my $info = $rest[-1];
     my $res = $self->helper('restore-container-init', { volname => $volname, info => info_hash($info) });
+    $self->{restore_dirs}->{$volname} = $res->{archiveDirectory};
     return { 'archive-directory' => $res->{archiveDirectory} };
 }
 
 sub restore_container_cleanup {
     my ($self, $volname, @rest) = @_;
-    $self->helper('restore-container-cleanup', { volname => $volname });
+    my $dir = delete $self->{restore_dirs}->{$volname};
+    $self->helper('restore-container-cleanup', { volname => $volname, (defined($dir) ? (directory => "$dir") : ()) });
     return;
 }
 

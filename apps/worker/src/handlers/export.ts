@@ -32,6 +32,7 @@ import {
   mailfiles,
   type ProtectedObjectRef,
   type RestoreSelection,
+  withDeletionPermit,
 } from "@restow/core";
 import {
   archiveItemOfMailbox,
@@ -437,8 +438,15 @@ export function createExportHandler(options: ExportHandlerOptions = {}): JobHand
       const progress = { ...ctx, progress: recorder };
       const segments = new mailfiles.SegmentStore({ storage: ctx.storage.primary, keys: ctx.keys });
       const scope = { tenantId: ctx.tenantId, kind: "export" as const, id: row.id };
-      // A retry starts the file over: leftovers of the failed attempt must not mix in.
-      await segments.delete(scope);
+      // A retry starts the file over: leftovers of the failed attempt must not mix in. The scope
+      // is named by this export's own id, so only its own output goes: export_reset is an
+      // own_scope pass, never held by restore mode or by a copy target that cannot be compared
+      // (storage/deletion-guard.ts). A first attempt finds nothing and asks for no permit.
+      const resetPermit = { pass: "export_reset" as const, tenantId: ctx.tenantId };
+      const leftovers = await ctx.storage.primary.list(mailfiles.segmentPrefix(scope));
+      if (leftovers.length > 0) {
+        await withDeletionPermit(resetPermit, () => segments.delete(scope));
+      }
       // What is left of the tenant's room for exports: nothing is written when there is none.
       const usedByOtherExports = await store.usedBytes(row.id);
       const room = maxTenantBytes - usedByOtherExports;
@@ -503,6 +511,10 @@ export function createExportHandler(options: ExportHandlerOptions = {}): JobHand
         recorder.phase("writing");
         const failures: { ref: string; reason: string }[] = [];
         let failedCount = 0;
+        // Written, but without parts the backup does not hold (a group post without its
+        // attachments): in the file, yet never reported as a clean copy.
+        const incomplete: { ref: string; reason: string }[] = [];
+        let incompleteCount = 0;
         const writerOptions: mailfiles.ExportOptions = {
           signal: ctx.signal,
           extraFolders,
@@ -510,6 +522,12 @@ export function createExportHandler(options: ExportHandlerOptions = {}): JobHand
           onEntry: (entry) => {
             if (entry.status === "added") {
               ctx.progress.advance(1, entry.bytes);
+              if (entry.incomplete !== undefined) {
+                incompleteCount++;
+                if (incomplete.length < MAX_REPORT_ITEMS) {
+                  incomplete.push({ ref: entry.name, reason: entry.incomplete });
+                }
+              }
               return;
             }
             failedCount++;
@@ -539,7 +557,9 @@ export function createExportHandler(options: ExportHandlerOptions = {}): JobHand
               ? (written.reason as unknown)
               : null;
         if (failure !== null) {
-          await segments.delete(scope).catch(() => undefined);
+          await withDeletionPermit(resetPermit, () => segments.delete(scope)).catch(
+            () => undefined,
+          );
           if (outOfRoom) {
             logger.warn("export stopped: it does not fit the export storage limit", {
               limitBytes: maxTenantBytes,
@@ -572,12 +592,14 @@ export function createExportHandler(options: ExportHandlerOptions = {}): JobHand
           folders: counts.folders,
           bytes: summary.bytes,
           failed: failedCount,
+          incomplete: incompleteCount,
           skipped: {
             calendar: counts.calendar,
             contacts: counts.contacts,
             other: counts.other,
           },
           items: failures,
+          incompleteItems: incomplete,
         };
         const recorded = await store.persistResult(row.id, {
           fileName,
@@ -590,7 +612,9 @@ export function createExportHandler(options: ExportHandlerOptions = {}): JobHand
         });
         if (!recorded.accepted) {
           // Another export finished first and took the room this one measured at its start.
-          await segments.delete(scope).catch(() => undefined);
+          await withDeletionPermit(resetPermit, () => segments.delete(scope)).catch(
+            () => undefined,
+          );
           throw quotaExceeded(recorded.usedBytes);
         }
         await store.persistJobResult(ctx.jobId, {
@@ -599,10 +623,23 @@ export function createExportHandler(options: ExportHandlerOptions = {}): JobHand
           sha256: file.sha256,
           messages: summary.messages,
           failed: failedCount,
+          incomplete: incompleteCount,
           expiresAt: expiresAt.toISOString(),
         });
-        logger.info("export finished", { fileName, size: file.size, messages: summary.messages });
-        return { summary: { messages: summary.messages, failed: failedCount, bytes: file.size } };
+        logger.info("export finished", {
+          fileName,
+          size: file.size,
+          messages: summary.messages,
+          incomplete: incompleteCount,
+        });
+        return {
+          summary: {
+            messages: summary.messages,
+            failed: failedCount,
+            incomplete: incompleteCount,
+            bytes: file.size,
+          },
+        };
       };
       try {
         return await execute();

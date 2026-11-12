@@ -13,6 +13,23 @@ export interface NotificationMessage {
   subject: string;
   text: string;
   html?: string;
+  /**
+   * The sender as the branding names it (0.5.0): the display name, and an address that replaces
+   * the configured one (null keeps it). Graph and Google always send from the configured mailbox.
+   */
+  from?: { name: string; address: string | null };
+  /** Where replies go; validated before it gets here. */
+  replyTo?: string;
+  /** Files to attach; one with a `cid` is inline (the logo the HTML refers to as `cid:`). */
+  attachments?: MailAttachment[];
+}
+
+export interface MailAttachment {
+  filename: string;
+  contentType: string;
+  content: Buffer;
+  /** Content-ID without angle brackets: the attachment is inline and the HTML says `cid:<cid>`. */
+  cid?: string;
 }
 
 /**
@@ -23,10 +40,16 @@ export const MAIL_FAILURE_REASONS = [
   // Any transport
   "timeout",
   "transport_error",
+  // The server refused the recipient or the message for good (SMTP 5xx at RCPT or DATA, Graph
+  // ErrorInvalidRecipients): not retried, and the address raises a delivery failure alert.
+  "recipient_rejected",
   // SMTP
   "smtp_auth_failed",
   "smtp_connection_failed",
   "smtp_tls_failed",
+  // The server refused the sender (5xx at MAIL FROM): a failure of the transport, not of one
+  // recipient (0.5.0).
+  "smtp_sender_rejected",
   // Microsoft 365 (Graph sendMail)
   "graph_app_missing",
   "graph_credential_missing",
@@ -58,6 +81,8 @@ export interface NotifyResult {
   reason?: MailFailureReason;
   /** The transport's technical message; never contains a credential. */
   error?: string;
+  /** A retry cannot change the outcome (the recipient was refused for good). */
+  permanent?: boolean;
 }
 
 export interface Notifier {
@@ -85,6 +110,26 @@ export function testNotification(language: SupportedLanguage): { subject: string
 /** A failed result with a reason and the technical message. */
 export function failed(reason: MailFailureReason, error: string): NotifyResult {
   return { ok: false, reason, error };
+}
+
+/**
+ * The reasons that are about the transport as a whole (its configuration, its login, its
+ * reachability), not about one recipient: one alert per episode covers them all (0.5.0).
+ */
+export function isTransportFailureReason(reason: string | null | undefined): boolean {
+  if (!reason) {
+    return false;
+  }
+  return (
+    reason === "mail_not_configured" ||
+    reason === "timeout" ||
+    reason === "smtp_auth_failed" ||
+    reason === "smtp_connection_failed" ||
+    reason === "smtp_tls_failed" ||
+    reason === "smtp_sender_rejected" ||
+    reason.startsWith("graph_") ||
+    reason.startsWith("google_")
+  );
 }
 
 /** Header values must never carry a line break (header injection). */

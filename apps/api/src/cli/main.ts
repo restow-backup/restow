@@ -1,5 +1,33 @@
 import { createInterface } from "node:readline/promises";
 import type { AdminSummary, RecoveryResult } from "./admin-recovery.js";
+import {
+  DISK_RESERVE_KINDS,
+  type DiskReserveCommand,
+  DiskReserveUsageError,
+  parseDiskReserveCommand,
+} from "./disk-reserve.js";
+import {
+  parseClusterCommand,
+  parseNodeCommand,
+  parseRestoreCommand,
+  type RestoreCommand,
+  RestoreUsageError,
+} from "./restore-args.js";
+import {
+  parseRestoreModeCommand,
+  type RestoreModeCommand,
+  RestoreModeUsageError,
+} from "./restore-mode-args.js";
+
+/** The scratch database a restore is prepared in (features/setup-restore/report.ts). */
+const SCRATCH_DATABASE = "restow_restore";
+const RESTORE_KINDS: ReadonlySet<string> = new Set([
+  "restore-prepare",
+  "restore-activate",
+  "restore-abort",
+  "node-check",
+  "cluster-override",
+]);
 
 /**
  * `restow`: maintenance commands an operator runs on the server, in the api
@@ -7,6 +35,7 @@ import type { AdminSummary, RecoveryResult } from "./admin-recovery.js";
  *
  *   docker compose exec api restow admin list
  *   docker compose exec api restow admin recover --email owner@example.com
+ *   docker compose run --rm --no-deps --entrypoint restow api restore-mode on --reason "..."
  *
  * It uses the api's own configuration (the container environment) and talks
  * to the database directly; it needs no running api and opens no port.
@@ -31,11 +60,86 @@ Commands:
                            standard input (for scripts; needs --yes)
         --yes              do not ask for confirmation
 
+  restore-mode status [--json]
+      Whether restore mode is on, and what the last comparison of the
+      storage with the database found.
+
+  restore-mode on --reason <text> [--yes]
+      Switch restore mode on after restoring a database dump, before the
+      worker and the scheduler start: nothing is deleted (no retention, no
+      clean-up, no purge) and jobs from before the restore are held. New
+      backups still run.
+
+  restore-mode check
+      Compare every tenant's storage with the database now, one line per
+      storage target.
+
+  restore-mode import-keys [--tenant <id>] [--yes]
+      Take wrapped keys found in storage that the database does not have
+      into the database (each must open with the master key and be the
+      same on every target).
+
+  restore-mode off --email <owner> --checked <text>
+                   [--storage-only-data keep|release]
+                   [--accept-unreachable <tenant>/<target>]... [--yes]
+      End restore mode after checking the restored database. --checked
+      says in at least 20 characters what was checked. With "keep" (the
+      default) data in storage the database does not know stays for good;
+      "release" lets the clean-ups remove it again.
+
+  restore prepare [--database restow_restore] [--dump-name <file>] [--json]
+      After a database dump of an installation was restored into the
+      scratch database (the setup wizard and install.sh --restore do that):
+      migrate it to this release, switch restore mode on in it, check that
+      RESTOW_MASTER_KEY opens its keys and secrets and compare its storage
+      targets. Exit code 0 ok, 3 the master key does not match, 4 the dump
+      is refused (newer release, no Restow database, no setup), 1 error.
+
+  restore activate [--database restow_restore] [--json]
+      Make the prepared scratch database the live database (api, worker
+      and scheduler stopped); the fresh database is kept aside.
+
+  restore abort [--database restow_restore]
+      Drop the scratch database; the live database is unchanged.
+
+  node check [--json]
+      On a worker node (install.sh --join): check the encrypted database
+      connection, the roles, the schema version, the master key and every
+      storage target before the worker starts.
+
+  cluster database-override --file <override> (--bind <address> --port <port> | --remove)
+      Used by install.sh --allow-worker: publish PostgreSQL with TLS for
+      worker nodes in docker-compose.override.yml, or take that out again.
+
+  disk-reserve status [--json]
+      The emergency disk reserve: where it is, whether it is there, and
+      how much the disk has free. Needs no database.
+
+  disk-reserve release
+      Free the emergency disk reserve now, so a full disk has room again
+      (for example for the database to start). It is written again once
+      the disk has room; the alert follows once the database runs.
+
+  disk-reserve create [--initial]
+      Write the reserve now if the disk keeps its low-space threshold
+      besides it; with --initial (the installer on a new server) if it
+      keeps the floor besides it.
+
+  disk-reserve guard
+      Free the reserve if the disk is below its floor (the container's
+      start does this before the migrations).
+
   help
       Show this text.
 
 Run it in the api container, for example:
   docker compose exec api restow admin recover --email owner@example.com
+
+On a full disk, while the api does not start:
+  docker compose run --rm --no-deps --entrypoint restow api disk-reserve release
+
+After restoring a database dump, while only postgres runs:
+  docker compose run --rm --no-deps --entrypoint restow api restore-mode on --reason "rollback to 0.5.0"
 `;
 
 export type Command =
@@ -46,7 +150,10 @@ export type Command =
       email: string;
       passwordStdin: boolean;
       yes: boolean;
-    };
+    }
+  | RestoreModeCommand
+  | RestoreCommand
+  | DiskReserveCommand;
 
 /** A command line that cannot be run; printed with the usage, exit code 64. */
 export class UsageError extends Error {
@@ -61,6 +168,40 @@ export function parseCommand(args: readonly string[]): Command {
   const [group, action, ...rest] = args;
   if (group === undefined || group === "help" || group === "--help" || group === "-h") {
     return { kind: "help" };
+  }
+  if (group === "restore-mode") {
+    try {
+      return parseRestoreModeCommand(action, rest);
+    } catch (error) {
+      if (error instanceof RestoreModeUsageError) {
+        throw new UsageError(error.message);
+      }
+      throw error;
+    }
+  }
+  if (group === "disk-reserve") {
+    try {
+      return parseDiskReserveCommand(action, rest);
+    } catch (error) {
+      if (error instanceof DiskReserveUsageError) {
+        throw new UsageError(error.message);
+      }
+      throw error;
+    }
+  }
+  if (group === "restore" || group === "node" || group === "cluster") {
+    try {
+      return group === "restore"
+        ? parseRestoreCommand(action, rest, SCRATCH_DATABASE)
+        : group === "node"
+          ? parseNodeCommand(action, rest)
+          : parseClusterCommand(action, rest);
+    } catch (error) {
+      if (error instanceof RestoreUsageError) {
+        throw new UsageError(error.message);
+      }
+      throw error;
+    }
   }
   if (group !== "admin") {
     throw new UsageError(`Unknown command: ${group}`);
@@ -230,6 +371,22 @@ async function run(command: Command): Promise<number> {
     process.stdout.write(USAGE);
     return 0;
   }
+  // The disk reserve needs no configuration and no database: the disk may be full.
+  if (DISK_RESERVE_KINDS.has(command.kind)) {
+    const { runDiskReserveCommand } = await import("./disk-reserve.js");
+    return runDiskReserveCommand(command as DiskReserveCommand, {
+      out: (text) => process.stdout.write(text),
+      err: (text) => process.stderr.write(text),
+    });
+  }
+  // A restore and the node check bring their own connections (the scratch database, the node's).
+  if (RESTORE_KINDS.has(command.kind)) {
+    const { runRestoreCommand } = await import("./restore.js");
+    return runRestoreCommand(command as RestoreCommand, {
+      out: (text) => process.stdout.write(text),
+      err: (text) => process.stderr.write(text),
+    });
+  }
   // Configuration and database only now: `restow help` works anywhere.
   const { config, missingRequiredConfig } = await import("../config.js");
   const missing = missingRequiredConfig(config).filter((name) => name.startsWith("DATABASE_"));
@@ -242,9 +399,20 @@ async function run(command: Command): Promise<number> {
   const { authDb, db, providerDb } = await import("../db.js");
   const recovery = await import("./admin-recovery.js");
   try {
+    if (command.kind.startsWith("restore-mode")) {
+      const { runRestoreModeCommand } = await import("./restore-mode.js");
+      return await runRestoreModeCommand(command as RestoreModeCommand, providerDb, {
+        confirm,
+        out: (text) => process.stdout.write(text),
+        err: (text) => process.stderr.write(text),
+      });
+    }
     if (command.kind === "list") {
       process.stdout.write(formatAdmins(await recovery.listProviderAdmins(providerDb)));
       return 0;
+    }
+    if (command.kind !== "recover") {
+      throw new UsageError("Unknown command.");
     }
     // Refused before anything is asked: an unknown account, not an owner, disabled.
     const target = await recovery.recoveryTarget(providerDb, command.email);
@@ -275,7 +443,11 @@ async function run(command: Command): Promise<number> {
     );
     return 0;
   } catch (error) {
-    if (error instanceof recovery.RecoveryError || error instanceof UsageError) {
+    if (
+      error instanceof recovery.RecoveryError ||
+      error instanceof UsageError ||
+      (error instanceof Error && error.name === "ProblemError")
+    ) {
       process.stderr.write(`${error.message}\n`);
       return 1;
     }

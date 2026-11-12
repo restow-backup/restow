@@ -297,10 +297,13 @@ func loadService(layout pve.Layout) (*pve.Service, error) {
 const (
 	firstUpdateCheck    = 2 * time.Minute
 	updateCheckInterval = 6 * time.Hour
+	// updateBusyRetry is the next check after an offer that waited for a running task.
+	updateBusyRetry = 15 * time.Minute
 )
 
-// updateLoop calls check once after first, then after every interval, until ctx ends.
-func updateLoop(ctx context.Context, first, interval time.Duration, check func(context.Context)) {
+// updateLoop calls check once after first, then after every interval, until ctx ends; after a
+// check that found the node busy (check returns true) already after busyRetry.
+func updateLoop(ctx context.Context, first, interval, busyRetry time.Duration, check func(context.Context) bool) {
 	wait := first
 	for {
 		select {
@@ -308,8 +311,10 @@ func updateLoop(ctx context.Context, first, interval time.Duration, check func(c
 			return
 		case <-time.After(wait):
 		}
-		check(ctx)
 		wait = interval
+		if check(ctx) {
+			wait = busyRetry
+		}
 	}
 }
 
@@ -342,14 +347,20 @@ func cmdRun(layout pve.Layout, stderr io.Writer) int {
 	// "Update now" from the server (the node's page, or right after the server was updated):
 	// installed with the heartbeat that says so, once the node is idle.
 	s.OnUpdate = install
-	go updateLoop(ctx, firstUpdateCheck, updateCheckInterval, func(ctx context.Context) {
+	go updateLoop(ctx, firstUpdateCheck, updateCheckInterval, updateBusyRetry, func(ctx context.Context) bool {
+		waits := false
 		if v, err := s.Server.UpdateOffer(ctx); err == nil && v != "" {
-			install(ctx, v)
+			// Never beside a task: the update restarts the PVE daemons and this service.
+			if reason := s.UpdateWhenIdle(ctx, func(ctx context.Context) { install(ctx, v) }); reason != "" {
+				logger("update to %s waits: %s; next try in %s", v, reason, updateBusyRetry)
+				waits = true
+			}
 		}
 		// A node an older restow-pve updated still has the PVE daemons on the old plugin.
-		if !s.Busy() {
+		s.UpdateWhenIdle(ctx, func(ctx context.Context) {
 			pve.EnsurePluginLoaded(ctx, layout, pve.ExecRunner{}, logger)
-		}
+		})
+		return waits
 	})
 	if err := s.Run(ctx); err != nil {
 		logger("%v", err)
@@ -422,6 +433,16 @@ func cmdDiagnose(layout pve.Layout, args []string, stdout, stderr io.Writer, str
 		add("restic", false, "%s missing (needed for containers)", filepath.Join(layout.BinDir, "restic"))
 	} else {
 		add("restic", true, "%s", filepath.Join(layout.BinDir, "restic"))
+	}
+	st, _ := pve.LoadState(layout.StateFile)
+	if dir, total, avail, onRoot, err := pve.RestoreFolderStatus(layout, st); err != nil {
+		add("restore folder", false, "%s: free space unknown (%v)", dir, err)
+	} else {
+		where := ""
+		if onRoot {
+			where = " on the root file system; container restores unpack the whole container here (restow-pve config --restore-tmp <a folder on a data storage>)"
+		}
+		add("restore folder", true, "%s: %.1f GB free of %.1f GB%s", dir, float64(avail)/1e9, float64(total)/1e9, where)
 	}
 	if data, err := os.ReadFile("/etc/pve/storage.cfg"); err == nil {
 		ok := strings.Contains(string(data), "restow:")
@@ -603,7 +624,7 @@ func cmdUninstall(layout pve.Layout, args []string, stdout, stderr io.Writer) in
 	root := os.Getenv("RESTOW_PVE_ROOT")
 	paths := []string{
 		root + "/etc/systemd/system/restow-pve.service",
-		filepath.Dir(layout.StateFile), layout.DataDir, layout.RunDir, layout.RestoreTmp,
+		filepath.Dir(layout.StateFile), layout.DataDir, layout.RunDir, layout.RestoreTmp, layout.CacheDir,
 	}
 	for _, f := range pve.PluginFiles {
 		paths = append(paths, pve.PluginPath(layout, f))
@@ -632,19 +653,23 @@ func cmdServeRestore(layout pve.Layout, args []string, stderr io.Writer) int {
 	volname := fs.String("volname", "", "")
 	device := fs.String("device", "", "")
 	socket := fs.String("socket", "", "")
-	idle := fs.Duration("max-time", 48*time.Hour, "stop after this long in any case")
+	// The restore's cleanup stops the server. Without it (a PVE worker that crashed), the server
+	// stops after an hour without a request; the absolute cap is only a safety net, far beyond
+	// the copy of a disk of many terabytes.
+	idle := fs.Duration("idle", time.Hour, "stop after this long without a request")
+	maxTime := fs.Duration("max-time", 30*24*time.Hour, "stop after this long in any case")
 	if err := fs.Parse(args); err != nil || *volname == "" || *device == "" || *socket == "" {
 		fmt.Fprintln(stderr, "usage: restow-pve serve-restore --volname V --device D --socket PATH")
 		return 2
 	}
 	ctx, cancel := signalContext()
 	defer cancel()
-	ctx, cancel2 := context.WithTimeout(ctx, *idle)
+	ctx, cancel2 := context.WithTimeout(ctx, *maxTime)
 	defer cancel2()
 	logf := func(f string, a ...any) {
 		fmt.Fprintf(stderr, "%s %s\n", time.Now().UTC().Format(time.RFC3339), fmt.Sprintf(f, a...))
 	}
-	if err := pve.ServeRestore(ctx, layout, *volname, *device, *socket, logf); err != nil {
+	if err := pve.ServeRestore(ctx, layout, *volname, *device, *socket, *idle, logf); err != nil {
 		logf("%v", err)
 		return 1
 	}

@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   bigint,
+  boolean,
   index,
   integer,
   jsonb,
@@ -163,6 +164,9 @@ export const storageTargets = pgTable(
     // Immutable backups (docs/STORAGE.md); null = never set.
     immutability: jsonb("immutability").$type<StorageTargetImmutability>(),
     immutabilityState: jsonb("immutability_state").$type<StorageTargetImmutabilityState>(),
+    // The space backups keep free on this target (#99, @restow/core `RunSpaceOverride`), over the
+    // tenant's and the installation's; null takes theirs.
+    spaceRule: jsonb("space_rule").$type<Record<string, unknown>>(),
     ...timestamps(),
   },
   (t) => [
@@ -296,6 +300,187 @@ export const immutabilityDeferredDeletions = pgTable(
     index("immutability_deferred_tenant_idx").on(t.tenantId),
   ],
 );
+
+/**
+ * What a repository scan (docs/STORAGE.md, "Repository repair") found for one restic
+ * repository of the tenant, compared across every storage target:
+ *
+ *   - `ok`: complete on the primary;
+ *   - `elsewhere`: complete on another target, nothing on the primary;
+ *   - `split`: `config` and keys on one target, data the holder lacks on another;
+ *   - `data_only`: data, but no `config` or no key on any target;
+ *   - `password_only`: only the sealed password file;
+ *   - `missing`: nothing on any target;
+ *   - `conflict`: two different `config` files (two chains under one prefix).
+ */
+export type StorageRepositoryClass =
+  | "ok"
+  | "elsewhere"
+  | "split"
+  | "data_only"
+  | "password_only"
+  | "missing"
+  | "conflict";
+
+/** What one target holds of a repository. */
+export interface StorageRepositoryHolding {
+  /** A target id, or `installation_default`. */
+  readonly target: string;
+  readonly targetName: string;
+  readonly role: string;
+  readonly config: boolean;
+  readonly keys: number;
+  /** Content-addressed files (data, index, snapshots), keys excluded. */
+  readonly files: number;
+  readonly snapshots: number;
+  readonly password: boolean;
+}
+
+export interface StorageRepositoryScanEntry {
+  readonly prefix: string;
+  readonly kind: "container" | "machine" | "file_share";
+  readonly ownerId: string;
+  readonly name: string | null;
+  readonly class: StorageRepositoryClass;
+  readonly holdings: readonly StorageRepositoryHolding[];
+  /** Files no single target holds all of: what a merge onto the primary would copy. */
+  readonly filesToCopy: number;
+  /** Restore points (containers) or snapshots that still refer to the repository. */
+  readonly activePoints: number;
+  /** Whether "apply" can rebuild it on the primary from what the targets hold. */
+  readonly repairable: boolean;
+}
+
+/** The outcome of "apply" for one repository. */
+export interface StorageRepositoryRepairEntry {
+  readonly prefix: string;
+  readonly kind: StorageRepositoryScanEntry["kind"];
+  readonly ownerId: string;
+  readonly name: string | null;
+  readonly outcome: "merged" | "lost" | "moved_aside" | "unchanged" | "failed";
+  readonly copied: number;
+  readonly lostPoints: number;
+  readonly movedTo: string | null;
+  readonly detail: string | null;
+}
+
+export interface StorageRepositoryRepairResult {
+  readonly repositories: readonly (StorageRepositoryScanEntry | StorageRepositoryRepairEntry)[];
+  /** The places a scan listed (ids), the primary first. Absent on results before 0.5.0's fix. */
+  readonly sources?: readonly string[];
+  /**
+   * The places a scan could not read (an error, or the empty or missing folder of a share that
+   * is not mounted). A repair refuses to apply a scan with any: it was decided on half the facts.
+   */
+  readonly unreachable?: readonly { id: string; name: string; reason: string }[];
+}
+
+/**
+ * A repository scan or repair of a tenant (docs/STORAGE.md, "Repository repair"): queued by an
+ * administrator, run by the worker. `scan` only lists and classifies every restic repository
+ * of the tenant on every target; `apply` (needs a completed scan, `scanId`) rebuilds what can be
+ * rebuilt on the primary and marks what is lost.
+ */
+export const storageRepositoryRepairs = pgTable(
+  "storage_repository_repairs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<"scan" | "apply">().notNull(),
+    status: text("status")
+      .$type<"queued" | "running" | "completed" | "failed">()
+      .notNull()
+      .default("queued"),
+    scanId: uuid("scan_id"),
+    requestedBy: text("requested_by").notNull(),
+    requestedByUserId: uuid("requested_by_user_id"),
+    result: jsonb("result").$type<StorageRepositoryRepairResult>(),
+    errorMessage: text("error_message"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    ...timestamps(),
+  },
+  (t) => [
+    index("storage_repository_repairs_tenant_idx").on(t.tenantId, t.createdAt),
+    index("storage_repository_repairs_queued_idx")
+      .on(t.createdAt)
+      .where(sql`${t.status} IN ('queued', 'running')`),
+    // One scan or repair at a time per tenant.
+    uniqueIndex("storage_repository_repairs_unfinished_uq")
+      .on(t.tenantId)
+      .where(sql`${t.status} IN ('queued', 'running')`),
+  ],
+);
+
+export type StorageRepositoryRepair = typeof storageRepositoryRepairs.$inferSelect;
+
+/** The state of one repository copy (docs/STORAGE.md, "restic repositories on copies"). */
+export type RepositoryCopyState =
+  /** Not copied yet (a new repository, a copy target added later). */
+  | "pending"
+  /** Every restore point the server keeps is on the copy, and its check passed. */
+  | "current"
+  /** Restore points are missing on the copy (`missing_snapshots`); the next pass copies them. */
+  | "behind"
+  /** The last attempt failed (`last_error`); the next pass tries again. */
+  | "failed";
+
+/**
+ * One restic repository of the tenant (a container's `pve-guests/<id>/`, a machine's
+ * `endpoints/<id>/`, a file share's `file-shares/<id>/`) on one copy target: a repository at the
+ * same prefix with the same password, filled with `restic copy` (apps/worker
+ * repository-copies). One row per repository and copy target; the worker's pass keeps it.
+ */
+export const repositoryCopies = pgTable(
+  "repository_copies",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    /** The repository's storage prefix on the primary and on the copy (trailing slash). */
+    prefix: text("prefix").notNull(),
+    kind: text("kind").$type<"container" | "machine" | "file_share">().notNull(),
+    /** The guest, machine or file share. */
+    ownerId: uuid("owner_id").notNull(),
+    /** The copy target: a `storage_targets` id, or `installation_default:copy:<n>`. */
+    targetId: text("target_id").notNull(),
+    state: text("state").$type<RepositoryCopyState>().notNull().default("pending"),
+    /** Restore points the server keeps that are on the primary (the last pass). */
+    primarySnapshots: integer("primary_snapshots").notNull().default(0),
+    /** Of these, how many the copy does not hold yet (the lag). */
+    missingSnapshots: integer("missing_snapshots").notNull().default(0),
+    /** The newest restore point on the copy (its id on the primary, restic's `original`). */
+    lastSnapshotId: text("last_snapshot_id"),
+    /** When the last pass that got through copied (or found nothing to copy). */
+    lastCopiedAt: timestamp("last_copied_at", { withTimezone: true }),
+    lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    /** Snapshots forgotten on the copy by the last pass (retention on the copy). */
+    lastForgotten: integer("last_forgotten").notNull().default(0),
+    /** Retention on the copy was due but deleting is not possible there (write-once, restore mode). */
+    deletionsDeferred: text("deletions_deferred"),
+    /** `restic check` (structure) after the last copy: passed, or what it found. */
+    lastCheckAt: timestamp("last_check_at", { withTimezone: true }),
+    lastCheckOk: boolean("last_check_ok"),
+    lastCheckMessage: text("last_check_message"),
+    /** The last `check --read-data-subset` of a sample (weekly). */
+    lastDataCheckAt: timestamp("last_data_check_at", { withTimezone: true }),
+    /** Since when the copy is behind or failing (null while current): the alert after 2 days. */
+    troubleSince: timestamp("trouble_since", { withTimezone: true }),
+    /** When the alert of the current episode was raised (once per episode). */
+    alertedAt: timestamp("alerted_at", { withTimezone: true }),
+    ...timestamps(),
+  },
+  (t) => [
+    uniqueIndex("repository_copies_uq").on(t.tenantId, t.prefix, t.targetId),
+    index("repository_copies_owner_idx").on(t.tenantId, t.ownerId),
+  ],
+);
+
+export type RepositoryCopy = typeof repositoryCopies.$inferSelect;
 
 export type ImmutabilityDeferredDeletion = typeof immutabilityDeferredDeletions.$inferSelect;
 export type StorageTarget = typeof storageTargets.$inferSelect;

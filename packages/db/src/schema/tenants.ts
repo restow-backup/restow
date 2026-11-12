@@ -42,7 +42,22 @@ export const tenantKindEnum = pgEnum("tenant_kind", ["customer", "internal"]);
 export interface TenantPricing {
   mailboxPrice?: number;
   storagePrice?: number;
+  /** Per protected unit (0.5.0), as in settings.pricing (PricingSettings). */
+  serverPrice?: number;
+  clientPrice?: number;
+  vmPrice?: number;
+  containerPrice?: number;
+  fileSharePrice?: number;
 }
+
+/**
+ * How a notification recipient wants the alerts of each severity (0.5.0): at once, or collected
+ * in an hourly or daily digest. A severity that is absent is sent at once; the critical events and
+ * failed deliveries are always sent at once (packages/core reports/rules.ts `deliveryModeFor`).
+ */
+export type DeliveryModes = Partial<
+  Record<"info" | "warning" | "error", "immediate" | "hourly" | "daily">
+>;
 
 /**
  * A tenant is a customer organisation. Every tenant-scoped table
@@ -185,6 +200,8 @@ export const tenantContacts = pgTable(
     email: text("email"),
     phone: text("phone"),
     isPrimary: boolean("is_primary").notNull().default(false),
+    // Receives the customer monthly report (0.5.0, Service Provider); needs an e-mail address.
+    monthlyReport: boolean("monthly_report").notNull().default(false),
     ...timestamps(),
   },
   (t) => [
@@ -197,7 +214,8 @@ export const tenantContacts = pgTable(
 /**
  * Who receives operational notification e-mails for a tenant, independent of who has a login.
  * `events` is the recipient's column in the notification matrix: the catalog events it is mailed
- * about (packages/core reports/catalog.ts), plus `report.weekly` for the weekly report. A
+ * about (packages/core reports/catalog.ts), plus `report.daily`, `report.weekly` and
+ * `report.monthly` for the summary reports. A
  * recipient with no events is kept but silent. The rules that send carry the recipients'
  * addresses (apps/api features/reports/defaults.ts); a rule never mails a recipient an event its
  * column has off.
@@ -212,6 +230,13 @@ export const tenantNotificationRecipients = pgTable(
     email: text("email").notNull(),
     name: text("name"),
     events: text("events").array().notNull().default(sql`'{}'::text[]`),
+    // Digest mode per severity (0.5.0); `{}` sends everything at once.
+    delivery: jsonb("delivery").$type<DeliveryModes>().notNull().default({}),
+    // A failure episode of this address (0.5.0): since when its mails fail, when the
+    // `notification.delivery_failed` alert went out, and the last reason. Cleared on success.
+    failingSince: timestamp("failing_since", { withTimezone: true }),
+    failureAlertedAt: timestamp("failure_alerted_at", { withTimezone: true }),
+    lastFailureReason: text("last_failure_reason"),
     ...timestamps(),
   },
   (t) => [

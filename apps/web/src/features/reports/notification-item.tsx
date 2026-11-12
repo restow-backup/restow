@@ -20,10 +20,18 @@ export function bellEventKey(item: Pick<BellNotification, "event" | "details">):
   if (item.event === "verify.red" && item.details?.redReason === "outdated") {
     return "bellEvents.verify.redOutdated";
   }
-  // The disk warning names which disk: the database's or the local repository's.
+  // The disk warning names which disk: the database's, the local repository's or the system disk;
+  // one disk that holds several of them is one warning that names them all (0.5.0).
+  if (
+    item.event === "installation.disk_low" &&
+    Array.isArray(item.details?.disks) &&
+    item.details.disks.length > 1
+  ) {
+    return "bellEvents.installation.disk_low_shared";
+  }
   if (item.event === "installation.disk_low") {
-    return item.details?.disk === "repository"
-      ? "bellEvents.installation.disk_low_repository"
+    return item.details?.disk === "repository" || item.details?.disk === "system"
+      ? `bellEvents.installation.disk_low_${item.details.disk}`
       : "bellEvents.installation.disk_low_database";
   }
   // An app credential's expiry names its stage (30 days, 7 days, expired; core entra/expiry.ts).
@@ -47,11 +55,23 @@ export function bellEventKey(item: Pick<BellNotification, "event" | "details">):
       ? "bellEvents.object.login_question"
       : "bellEvents.object.login_question_many";
   }
+  // A notification that could not be delivered names what failed (0.5.0): the notification mail
+  // as a whole, one address, or a webhook.
+  if (item.event === "notification.delivery_failed") {
+    const scope = item.details?.scope;
+    return scope === "transport" || scope === "webhook"
+      ? `bellEvents.notification.delivery_failed_${scope}`
+      : "bellEvents.notification.delivery_failed_recipient";
+  }
   // An alert of the archive capture names what stopped (apps/worker archive-capture/alerts.ts).
   const reason = item.details?.reason;
   if (
     item.event === "archive.failed" &&
-    (reason === "capture_error" || reason === "forward_stale" || reason === "journal_stale")
+    (reason === "capture_error" ||
+      reason === "forward_stale" ||
+      reason === "journal_stale" ||
+      reason === "backfill_stalled" ||
+      reason === "capture_gap")
   ) {
     return `bellEvents.archive.${reason}`;
   }
@@ -64,6 +84,23 @@ const LEVEL_DOT: Record<BellNotification["level"], string> = {
   error: "bg-destructive",
 };
 
+/**
+ * The object a notification names, with its service when the event says which one (0.5.0):
+ * "OneDrive · msp@contoso.example". A person's mailbox and OneDrive share the person's name.
+ */
+export function notificationObject(
+  item: Pick<BellNotification, "details">,
+  t: (key: string, options?: { defaultValue?: string }) => string,
+): string {
+  const name = typeof item.details?.objectName === "string" ? item.details.objectName : "";
+  const kind = typeof item.details?.objectKind === "string" ? item.details.objectKind : null;
+  if (!name || !kind) {
+    return name;
+  }
+  const service = t(`objectKinds.${kind}`, { defaultValue: "" });
+  return service ? `${service} · ${name}` : name;
+}
+
 /** The line of a notification in the reader's language. */
 export function useNotificationText() {
   const { t, i18n } = useTranslation("reports");
@@ -71,7 +108,7 @@ export function useNotificationText() {
   return (item: BellNotification) =>
     t(bellEventKey(item), {
       defaultValue: item.message,
-      object: typeof item.details?.objectName === "string" ? item.details.objectName : "",
+      object: notificationObject(item, t),
       rule: typeof item.details?.ruleName === "string" ? item.details.ruleName : "",
       version: typeof item.details?.version === "string" ? item.details.version : "",
       days: typeof item.details?.days === "number" ? item.details.days : "",
@@ -84,6 +121,22 @@ export function useNotificationText() {
         typeof item.details?.freeBytes === "number"
           ? `${(item.details.freeBytes / 1024 ** 3).toFixed(1)} GiB`
           : "",
+      recipient: typeof item.details?.recipient === "string" ? item.details.recipient : "",
+      places: Array.isArray(item.details?.disks)
+        ? new Intl.ListFormat(language, { type: "conjunction" }).format(
+            item.details.disks
+              .filter((kind): kind is string => typeof kind === "string")
+              .map((kind) =>
+                t(`bellEvents.installation.diskPlace.${kind}`, { defaultValue: kind }),
+              ),
+          )
+        : "",
+      webhook:
+        typeof item.details?.webhookName === "string" && item.details.webhookName
+          ? item.details.webhookName
+          : typeof item.details?.host === "string"
+            ? item.details.host
+            : "",
     });
 }
 

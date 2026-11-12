@@ -88,9 +88,20 @@ Endpunkt (Linux/macOS)                       Restow-Instanz
      `$env:RESTOW_TOKEN_FILE = 'C:\Windows\System32\config\systemprofile\restow-enrollment.token'`
      und `$env:RESTOW_RELEASE_KEY_FINGERPRINT = 'SHA256:...'` (Pin des Release-Schlüssels, den
      der Assistent vorbelegt); ein 32-Bit-RMM-Prozess schreibt die Datei über
-     `C:\Windows\Sysnative\config\systemprofile`. Statt `iex` gleichwertig: Datei laden,
+     `C:\Windows\Sysnative\config\systemprofile`. Schreibt er sie doch nach `System32` (die
+     Windows-Umleitung legt sie dann in `C:\Windows\SysWOW64\config\systemprofile` ab), findet
+     der Installer sie beim Neustart als 64-Bit-PowerShell dort, und fehlt die Datei, nennt er
+     vor jeder Installation das Gegenstück in `SysWOW64`. Statt `iex` gleichwertig: Datei laden,
      SHA-256 mit dem Wert im Assistenten vergleichen (`windows.sha256`, siehe unten), mit
-     `powershell -NoProfile -ExecutionPolicy Bypass -File windows.ps1` starten.
+     `powershell -NoProfile -ExecutionPolicy Bypass -File windows.ps1` starten. Das Skript
+     schaltet TLS 1.2 für seine eigenen Downloads selbst ein (auch beim Neustart als
+     64-Bit-PowerShell); nur der Abruf mit `irm` braucht die Zeile `SecurityProtocol` davor.
+     Scheitert ein Download trotzdem beim Aufbau von TLS ("The underlying connection was
+     closed"), nennt der Installer TLS 1.2 als Ursache; auf Windows Server 2016 und älteren
+     Windows-10-Versionen hilft dann starke Kryptografie für das .NET Framework
+     (`SchUseStrongCrypto = 1` unter
+     `HKLM:\SOFTWARE\Microsoft\.NETFramework\v4.0.30319` und
+     `HKLM:\SOFTWARE\WOW6432Node\Microsoft\.NETFramework\v4.0.30319`).
 
    Die Adresse steht in einfachen Anführungszeichen und muss eine reine Origin sein
    (Schema, Host, Port); der Server baut keinen Befehl aus etwas anderem.
@@ -113,7 +124,14 @@ Endpunkt (Linux/macOS)                       Restow-Instanz
    installiert mit einer Warnung), richtet den Dienst ein (systemd-Unit `restow-agent.service`, macOS LaunchDaemon
    `com.restowbackup.agent`) und ruft `restow-agent enroll` auf. Es ist idempotent: Erneutes
    Ausführen repariert und verschiebt eine Installation einer Vorabversion aus `/usr/local`,
-   ohne deren Binärdatei auszuführen. Option `--hooks=off|scripts|any` setzt die Hook-Regel des Rechners
+   ohne deren Binärdatei auszuführen. Ob der Rechner schon angemeldet ist, sagt
+   `restow-agent status --json` (`"credentials": "readable"`); eine unlesbare Anmeldung wird
+   mit neuem Token neu angemeldet (`enroll --force`). Einen neuen Token verlangt das Skript nur,
+   wenn `enroll` mit Exit-Code 4 endet: Die Instanz selbst hat den Token abgelehnt (HTTP 401
+   mit dem Problemtyp `urn:restow:problem:enrollment-token-invalid`). Exit-Code 5 heißt "Instanz
+   nicht erreichbar" (Netz, Firewall, Proxy, auch HTTP 407 eines Proxys mit Anmeldung); jede
+   andere 4xx-Antwort (404 einer falschen Adresse, 403 einer Web Application Firewall, 401 eines
+   Reverse-Proxys mit eigener Anmeldung) ist Exit-Code 1 mit einem Hinweis auf Adresse und Proxy. Ein scheiterndes `restow-agent hooks` bricht ab. Option `--hooks=off|scripts|any` setzt die Hook-Regel des Rechners
    (siehe "Hooks"). Deinstallation: `sudo /opt/restow-agent/bin/restow-agent uninstall` oder
    das Skript mit `--uninstall`; beides zeigt der Assistent an und entfernt auch die
    Lizenzhinweise.
@@ -181,7 +199,7 @@ Alle Antworten sind JSON, Fehler `application/problem+json` wie im Rest der API.
 | `POST /enroll` | Token gegen Zugangsdaten tauschen (siehe oben). |
 | `GET /config` | `{ profile, schedule, paths, excludes, hooks, bandwidthKbps, onlyOnAcPower, useVss, configVersion }`, bei einem Rechner in einem Job mit Größenlimit zusätzlich `excludeLargerThanBytes` (siehe "Jobs"; ein Agent, der das Feld nicht kennt, ignoriert es). `schedule.kind` ist `interval`, `daily`, `on_connect` oder (seit 0.2.1) `none`; bei `none` sind `paths` leer und `hooks` `{}` (siehe "Rechner ohne Job"). `bandwidthKbps` ist das Limit, das **im Moment der Anfrage** gilt (aktives Zeitfenster des Jobs, sonst der Standard, `null` = unbegrenzt); die Zeitfenster selbst bekommt der Agent nie. Ab 0.4.0 zusätzlich `startsPaused` (pausiert ein Update gerade neue Läufe, siehe "Update-Pause") und, wenn eine Richtlinie etwas festlegt, `policy: { backupWindow?, catchUp, maxRetries, snapshotOnFailure? }` (siehe "Richtlinien"; `snapshotOnFailure` seit 0.5.0 und nur als `"fail"`, fehlt es, gilt `continue`); Bandbreite und Netzteil der Richtlinie stecken dann schon in `bandwidthKbps` und `onlyOnAcPower`. Ein älterer Agent ignoriert beide Felder. Seit 0.5.0 (docs/BAREMETAL.md 5.1, 6.1): `wholeMachine: true` nur, wenn der Job des Rechners ihn als Ganzes sichert, der Rechner Linux ist und `RESTOW_BAREMETAL_PREVIEW` an ist (sonst fehlt das Feld; schaltet man die Vorschau ab, sendet der Server es beim nächsten Abruf nicht mehr, ohne `configVersion` zu ändern); `fsSnapshot: "auto" \| "off"` für Linux (macOS bis M6 immer `"off"`, Windows nie): die Einstellung des Rechners, sonst `"auto"` bei `wholeMachine`, sonst `"off"`. Ein Agent vor 0.5.0 ignoriert beide. `Cache-Control: no-store`. |
 | `POST /heartbeat` | `{ agentVersion, osVersion, state: idle/running, nextRunAt, configVersion, hooks, hookScripts?, machine?, dataFolders?, waiting? }` ergibt `{ tasks, startsPaused, cancel, updateNow }` (`startsPaused` ab 0.4.0; solange es `true` ist, enthält `tasks` keine `backup_now`-Aufgabe; `cancel` und `updateNow` ab 0.4.2, siehe "Sicherung stoppen" und "Selbstaktualisierung"). Alle 5 Minuten (Jitter +-60 s), während ein Lauf läuft jede Minute (Agent ab 0.4.2), und sofort beim Start. `hooks` ist die Hook-Regel des Rechners (`off`, `scripts`, `any`), `hookScripts` die Skripte in `/etc/restow-agent/hooks.d` (Regel `scripts`, höchstens 50). `machine` und `dataFolders` (Agent ab 0.4.0) siehe "Rechner und Datenordner". `waiting` (Agent ab 0.4.0, immer gesendet): worauf eine fällige Sicherung wartet, `""` wenn nichts wartet (siehe "Richtlinien"); fehlt es, gilt es als unbekannt. |
-| `POST /runs` | `{ kind: backup/restore/verify_sample, taskId?, startedAt }` ergibt `{ runId }`. |
+| `POST /runs` | `{ kind: backup/restore/verify_sample/sql/sql_restore/sql_verify, taskId?, startedAt }` ergibt `{ runId }`. Ein `sql`-Lauf (Agent ab 0.5.0) gehört nie zu einer Aufgabe; mit `taskId` antwortet der Server 409. |
 | `POST /runs/:id/progress` | `{ filesDone, bytesDone, totalFiles?, totalBytes?, currentPath? }`, alle 5 s (Agent ab 0.2.0; 0.1.x: alle 10 s). Das Limit der Agent-API (600 Aufrufe je Endpunkt und 10 Minuten, gleitendes Fenster) lässt das zu: Mit Heartbeat, Konfiguration und Start und Ende des Laufs sind es etwa 125 Aufrufe in 10 Minuten. Der Verlauf (`run_samples`) behält Punkte, die mindestens 1,5 s auseinanderliegen. |
 | `POST /runs/:id/finish` | `{ status: succeeded/partial/failed, finishedAt, snapshotId?, stats?, sample?, errors, logTail, restoreTest?, activity?, consistency? }`. `consistency` (Agent ab 0.5.0, jeder Backup-Lauf, der restic erreicht hat, auch ein fehlgeschlagener, wenn der Snapshot der Grund ist): `{ method?: vss/lvm/btrfs/apfs/mixed, state: used/partial/unavailable/off, liveFilesystems? }`, siehe "Konsistenz"; der Server prüft und begrenzt es und legt es als `stats.consistency` ab, ein fehlerhaftes wird verworfen. `activity` (Agent ab 0.4.0, nur bei einem Backup mit vorigem Snapshot): was sich gegenüber dem vorigen Snapshot geändert hat, für die Ransomware-Erkennung (Format und Grenzen: docs/RANSOMWARE.md, "The activity report"); ein Server, der das Feld nicht kennt, ignoriert es, ein fehlerhafter Bericht wird verworfen, ohne den Abschluss abzulehnen. `restoreTest` nur bei `verify_sample`: `{ files: [{ path, sha256? \| missing: true \| error }], restic?: { exitCode, fatal, errors: [{ item, message }] } }` (siehe "Restore-Test"). `layout` (Agent ab 0.5.0, nur bei einer Sicherung des ganzen Rechners mit `snapshotId`): das Layout-Manifest `restow-layout-v1` (docs/BAREMETAL.md 4), genau die kanonischen Bytes von `layout.json` im Snapshot, höchstens 512 KiB; der Server prüft es (`parseLayoutManifest`), legt es je Rechner und SHA-256 einmal in `endpoint_layouts` ab und setzt `endpoint_runs.layout_id`. Ein abgelehntes (ungültig, zu groß, macOS vor M6) ändert den Status des Laufs nicht und hängt den Hinweis `layout_rejected` an seine Fehler. Wiederholung für einen beendeten Lauf antwortet gleich und ändert nichts. |
 | `GET /update` | `{ version, url, sha256 }` oder `null`: neuere **signierte** Agent-Version auf dieser Instanz; `null` auch, solange der Mandant Agent-Updates pausiert hat. |
@@ -512,7 +530,9 @@ Hash eines Geheimnisses.
 Während eine Sitzung `active` oder `finishing` ist und nicht abgelaufen, warten Aufbewahrung und das
 Löschen der Sicherungen eines entfernten Rechners (`EndpointRecoveryActiveError`, pg-boss wiederholt);
 sie prüfen vor und nach dem Nehmen der exklusiven Sperre, die Freigabe nimmt die geteilte. Entfernen
-antwortet 409 `endpoint-recovery-active`; offene Codes eines entfernten Rechners werden widerrufen.
+(`expire` wie das Vormerken von `delete`) antwortet 409 `endpoint-recovery-active`; mit dem Entfernen
+bzw. dem Vormerken werden offene Codes widerrufen und wartende Sitzungen beendet. Beginnt der Worker
+nach den sieben Tagen mit dem Löschen, wartet er ebenso auf eine laufende Sitzung.
 
 **Wiederanbindung** (docs/BAREMETAL.md 11): `POST /api/v1/endpoints/:id/rebind-token` mit
 `{ purpose: reinstall/baremetal, validityHours?, unrevoke? }` (Admin, frische Anmeldung) stellt ein
@@ -714,7 +734,8 @@ der Agent das im Heartbeat (`waiting: "update_pause"`), und die Seite des Rechne
 
 ### Aufgaben (`tasks`)
 
-`backup_now`, `restore`, `verify_sample`, `update_config`, `uninstall`. Eine Aufgabe ist
+`backup_now`, `restore`, `verify_sample`, `update_config`, `uninstall`, seit 0.5.0 `sql_restore`,
+`sql_verify`, `sql_inventory` (siehe "SQL Server (native Sicherung, Vorschau)"). Eine Aufgabe ist
 `pending`, dann `delivered` (der Agent hat sie mit dem Heartbeat erhalten), dann `done` oder
 `failed`; seit 0.4.2 auch `cancelled` (in der Oberfläche zurückgezogen, siehe "Sicherung stoppen").
 
@@ -722,6 +743,10 @@ der Agent das im Heartbeat (`waiting: "update_pause"`), und die Seite des Rechne
   Eine zugestellte Aufgabe, für die 30 Minuten lang kein Lauf begann, wird erneut zugestellt.
   Eine offene Aufgabe mit `params.notBefore` (ein erneut angebotener Restore-Test) gibt der
   Heartbeat erst ab diesem Zeitpunkt aus.
+- `sql_restore` und `sql_verify` enden mit ihrem Lauf; `sql_inventory` gilt wie `update_config`
+  mit der Zustellung als erledigt (der Agent antwortet mit einem frischen SQL-Inventar im
+  nächsten Heartbeat). Solange ein Update neue Läufe anhält, hält der Heartbeat `sql_verify`
+  wie `backup_now` zurück.
 - `update_config` und `uninstall` gelten mit der Zustellung als erledigt. Nach `uninstall`
   ist der Endpunkt widerrufen (der Agent entfernt sich selbst; das Repository bleibt
   wiederherstellbar).
@@ -803,7 +828,11 @@ Platte nur, wenn sie nachweislich unverändert ist (Größe wie im Snapshot, Än
 zwei Sekunden daneben, und vor wie nach dem Hashen gleich); andere Kandidaten überspringt er.
 Sonst würde der Restore-Test eine nach der Sicherung bearbeitete Datei fälschlich rot bewerten.
 Der Server speichert die Stichproben (`endpoint_samples`, 90 Tage) und benutzt sie für den
-Restore-Test.
+Restore-Test. Hat die neueste gute Sicherung keine Stichprobe (der Agent konnte keine aufzeichnen;
+unter Windows vor 0.5.0 bei jeder Sicherung), ist kein Restore-Test von ihr möglich: Die
+Readiness bleibt `unverified` mit `noSamples: true`, die Oberfläche zeigt den Rechner gelb mit
+"Keine Restore-Prüfung möglich" statt des ruhigen "Ungeprüft", und ein verlangter Test wird mit
+`endpoint-no-samples` (409) abgelehnt, statt eingereiht zu werden und ohne Ergebnis zu enden.
 
 ### Fehlercodes eines Laufs
 
@@ -812,8 +841,22 @@ darf weitere senden), die Oberfläche formuliert die bekannten (`endpoints:runEr
 `interrupted`, `cancelled` (seit 0.4.2, siehe "Sicherung stoppen"), `no_paths`, `pre_hook_failed`, `post_hook_failed`, `hooks_not_allowed`, `timeout`,
 `target_not_empty`, `invalid_task`, `hash_mismatch`, `missing`, `not_regular`, `read_error`,
 `snapshot_failed`, `snapshot_unavailable`, `snapshot_cleanup_failed` (seit 0.5.0, siehe
-"Konsistenz"), `layout_capture_failed`, `layout_too_large`, `layout_rejected` (seit 0.5.0, Sicherung
-des ganzen Rechners, siehe unten) und `restic_exit_<N>`. `hooks_not_allowed` heißt: Ein Hook ist eingestellt, aber der Rechner lässt
+"Konsistenz"), `source_unreadable`, `source_is_mount_point` (seit 0.5.0), `layout_capture_failed`,
+`layout_too_large`, `layout_rejected` (seit 0.5.0, Sicherung des ganzen Rechners, siehe unten), die Codes der
+nativen SQL-Server-Sicherung (seit 0.5.0, `endpoints:sql.codes.<code>`: `sql_instance_unreachable`,
+`sql_login_missing`, `sql_permission_missing`, `sql_powershell_constrained`,
+`sql_strict_encryption`, `sql_fci_unsupported`, `sql_mode_unsupported`, `sql_staging_unusable`,
+`sql_staging_too_small`, `sql_database_unavailable`, `sql_backup_failed`, `sql_snapshot_failed`,
+`sql_script_failed`, `sql_restore_name_taken`, `sql_restore_no_space`, `sql_restore_failed`,
+`sql_backup_mismatch`, `sql_verify_no_space`, `sql_verify_timeout`, `sql_verify_system_db`; jeder
+hat eine Erklärung `endpoint.sql_*`, vorübergehend sind `sql_instance_unreachable` und
+`sql_verify_timeout`) und `restic_exit_<N>`.
+`source_unreadable` heißt: Ein Sicherungspfad existiert, ist aber nicht lesbar (mit BitLocker
+gesperrt, offline oder nicht bereit, kein Zugriff, ein Link, dem restic nicht folgt) oder restic hat
+aus einem als Link eingetragenen Ordner mit Dateien keine Datei gesichert; `source_is_mount_point`:
+Der Pfad ist ein Ordner, in dem ein Volume ohne Laufwerksbuchstaben eingehängt ist. Beide machen
+den Lauf `partial` (ohne lesbaren Pfad `failed`) und erklären ihn vor einer einzelnen unlesbaren
+Datei (docs/WINDOWS-AGENT.md, 16.5). `hooks_not_allowed` heißt: Ein Hook ist eingestellt, aber der Rechner lässt
 Hooks des Servers nicht zu; die Sicherung lief ohne ihn und ist `partial`. `missing` heißt nur noch:
 In der hergestellten Kopie liegt unter diesem Pfad nichts; jeder andere Fehler beim Prüfen des
 Pfads ist `read_error`. Dateien, die restic bei einer Sicherung nicht lesen konnte, stehen je Datei
@@ -854,6 +897,82 @@ unvollständig) und nach dem Text des Fehlers (Netzwerk, abgelehnt). Die Detaila
 Endpunkts erklärt jeden Grund für Aufmerksamkeit ebenso (`problems`: still, überfällig, letzte
 Sicherung fehlgeschlagen, Restore-Test fehlgeschlagen, Repository beschädigt). Die Texte stehen
 in `failures.json` (de/en); ein Test in apps/api verlangt sie für jeden Code.
+
+### SQL Server (native Sicherung, Vorschau, seit 0.5.0)
+
+Entwurf und Entscheidungen: docs/BAREMETAL-WINDOWS.md 5.1 (Stufe W2a). Der Vertrag ist mit
+Testdaten festgelegt, die Agent und Server teilen (`agent/internal/api/testdata/contract/*.json`;
+der Go-Test dekodiert sie strikt, `packages/core/src/endpoints/sql/contract.test.ts` und
+`apps/api/src/features/endpoints/sql.pg.test.ts` lesen dieselben Dateien). LSNs sind
+Dezimal-**Zeichenketten** (numeric(25,0) ist größer als 2^53), GUIDs klein mit Bindestrichen,
+Zeiten RFC 3339 UTC; ein optionales Feld fehlt, statt `null` zu sein.
+
+- **Fähigkeit:** Enroll und Heartbeat tragen `capabilities: ["sql_native_v1"]`
+  (`settings.agent.capabilities`). Jede SQL-Aktion der Oberfläche verlangt sie und einen
+  aktiven Windows-Rechner, sonst 409 `urn:restow:problem:endpoint-sql-unsupported`.
+- **Heartbeat:** `machine.windows` (Version, Build, UBR, Produkt- und Installationsart, Domäne,
+  Rollen `domainController`, `dfsr`, `exchange`, `hyperV`, `sqlServer`, SQL-Instanzen aus der
+  Registry, BitLocker je Volume) und `sqlInventory` (höchstens 64 KiB; zu groß: Datenbanken vom
+  Ende weg und `truncated: true`). Der Server schreibt je Datenbank eine Zeile in
+  `endpoint_sql_databases` (nach `family_guid`: dieselbe Name, neue `family_guid` = eine andere
+  Datenbank), setzt `dropped_at` für eine Datenbank, die ein vollständiges Inventar einer
+  `ok`-Instanz nicht mehr nennt, und legt die Instanzen ohne Datenbanken mit eigenem
+  `jsonb_set` in `settings.sqlInstances` ab (ein Heartbeat ohne Inventar entfernt nichts). Das
+  Inventar läuft nur alle 6 Stunden, solange die native Sicherung an ist; sonst nur nach
+  `sql_inventory` ("Anmeldung prüfen"), weil jede gescheiterte Anmeldung im Fehlerprotokoll
+  der Instanz landet.
+- **Konfiguration:** `GET /config` trägt `sql: { enabled, mode: "alongside", instances: "all" |
+  [..], databases: "all" | [{ instance?, name }], exclude: [..], stagingDir? }`, nur für
+  Windows-Rechner in einem Job, der es setzt, und nie mit `verify` (das plant der Server).
+  Ein unbekannter `mode` ergibt `sql_mode_unsupported`, kein stiller Rückfall.
+- **Lauf `sql`** (ein Lauf je Instanz, ohne Aufgabe, nach der Dateisicherung): `finish` trägt
+  `sql: { instance, databases: [{ name, familyGuid, databaseGuid, recoveryModel, outcome:
+  backed_up/skipped/failed, backup?: { kind: "full", copyOnly, compressed, checksum,
+  pathInSnapshot, sha256, bytes, firstLsn, lastLsn, databaseBackupLsn?, checkpointLsn?,
+  firstRecoveryForkGuid?, lastRecoveryForkGuid?, beginsLogChain, hasBulkLoggedData, backupStart,
+  backupFinish, fileList }, code?, message? }] }` und `notices`. Jede Sicherung mit der vollen
+  Snapshot-ID wird eine Zeile in `endpoint_sql_backups`; die Kettenangaben stammen nur aus
+  `RESTORE HEADERONLY` der eigenen Datei, nie aus msdb. Snapshot-Tags `restow-sql`,
+  `restow-sql-instance=<instanz>`. Bei einem Rechner ohne Ordner zählt der `sql`-Lauf als seine
+  Sicherung (`last_success_at`), sonst entscheidet die Dateisicherung.
+- **Lauf `sql_verify`** (Aufgabe je Instanz, geplant vom Monitor am Prüftermin des Jobs,
+  Vorgabe Sonntag 03:00 in der Zone des Zeitplans, oder "Jetzt prüfen"; Parameter wie
+  `task-sql-verify.json`): Der Agent meldet nur Fakten (`sqlVerify.databases[]`: `fetched`,
+  `sha256Match`, `restore { ok, errors }`, `checkdb { ran, physicalOnly, errors }`, `code`).
+  Der Server urteilt (`packages/core/src/endpoints/sql/judge.ts`): **rot** bei anderer SHA-256,
+  CHECKDB-Fehlern oder einem RESTORE-Fehler 3183, 3189, 3241, 3242 oder 3243; **grün** nur mit
+  `method: "restore+checkdb"`, geholter Datei, passender SHA-256, gelungenem RESTORE und
+  fehlerfreiem CHECKDB; sonst **unvollständig** mit dem Code des Agenten. Je Datenbank der
+  Aufgabe ein Bericht `endpoint_reports.kind = sql_verify` (`readiness` green/red, `null` bei
+  unvollständig), `summary` mit `databaseId`, `backupId`, `outcome`, `evidence`. Ein Bericht
+  über eine Datenbank, die nicht in der Aufgabe stand, wird ignoriert. `last_restore_test_at`
+  bleibt unberührt (das ist der Restore-Test der Dateisicherung).
+- **Lauf `sql_restore`** (Aufgabe aus `POST /api/v1/endpoints/:id/sql/restore`, auditiert):
+  Restore einer Sicherung unter einem neuen Namen (1 bis 128 Zeichen, keine Steuerzeichen,
+  keine Systemdatenbank, nicht mit `__restow_verify_`); eine vorhandene Datenbank wird nie
+  ersetzt. `finish` trägt `sqlRestore`; der Server auditiert `endpoint.sql.restore.finished`.
+- **Bewertung je Datenbank:** `not_protected`, `unverified`, `green`, `red`, `overdue` (letzte
+  grüne Prüfung älter als 8 Tage). Alarme `endpoint.sql_red`, `endpoint.sql_recovered`,
+  `endpoint.sql_overdue`, je einmal (Gruppe `jobs`).
+- **Aufbewahrung:** Die Regeln des Rechners gelten je Gruppe (`files` für Backup-Läufe,
+  `sql:<INSTANZ>` für `sql`-Läufe und die aktiven Zeilen von `endpoint_sql_backups`); SQL-Snapshots
+  werden nie als `unrecorded` markiert. Eine Sicherung, deren Snapshot vergessen wurde, wird
+  `pruned`.
+- **Session-API:** `GET /:id/sql` (Instanzen, Anmeldung mit T-SQL-Block je Instanz, Datenbanken
+  mit Bewertung, letzter Sicherung und Prüfung; auch Restore-Bediener),
+  `GET /:id/sql/databases/:databaseId/backups`, `POST /:id/sql/restore`, `POST /:id/sql/verify`,
+  `POST /:id/sql/inventory`, `GET /:id/sql/backups/:backupId/restore-script` (PowerShell-Skript
+  für einen anderen Rechner, `text/plain`, auditiert, ohne Geheimnis) und
+  `POST /:id/sql/databases/:databaseId/tde-confirm` (alle Aktionen nur für Admins).
+  Problem-Typen: `endpoint-sql-unsupported`, `endpoint-sql-backup-pruned` (409),
+  `endpoint-sql-name-taken` (409), `endpoint-sql-nothing-to-verify` (409).
+- **Anmeldung:** Der Agent meldet sich als `NT SERVICE\RestowAgent` mit integrierter
+  Authentifizierung an; nirgends liegt ein SQL-Kennwort. Ohne Anmeldung auf der Instanz
+  scheitert jede Verbindung mit 18456 (`sql_login_missing`); die Oberfläche zeigt den
+  T-SQL-Block (sysadmin oder die kleine Variante).
+- **Hinweise eines Laufs** (`notices`, auch beim Datei-Lauf): `app_files_not_app_backup`
+  (`subjects` aus `sql_server`, `exchange`, `active_directory`, `hyper_v`), `sql_log_growing`,
+  `sql_tde_certificate`, `sql_version_untested`; höchstens 16, als `stats.notices` gespeichert.
 
 ### Grenzen, die der Server erzwingt
 
@@ -1163,6 +1282,8 @@ Bericht oder Endpunkt wird in derselben Transaktion gesetzt).
 | `endpoint.recovery_code.rejected` (Gruppe Wiederherstellbarkeit, Fehler) | ein abgelaufener, eingelöster oder widerrufener Code wurde versucht (API, sofort). |
 | `endpoint.rebound` (Gruppe Wiederherstellbarkeit, Fehler) | ein Rechner hat über ein Wiederanbindungs-Token ein neues Agent-Secret (API, sofort). |
 | `endpoint.recovery.failed` (Gruppe Wiederherstellbarkeit, Fehler) | eine Wiederherstellung endete mit `failed`: so gemeldet, 30 Minuten ohne Freigabe oder 30 Minuten nach Ablauf ohne Abschluss (Monitor). |
+| `endpoint.backups_deletion_scheduled` (Gruppe Speicher, Warnung, kritisch) | ein Inhaber hat beauftragt, jede Sicherung eines gesperrten Rechners in sieben Tagen zu löschen (siehe "Rechner entfernen"); geht immer sofort an die Pflichtempfänger. |
+| `endpoint.backups_deleted` (Gruppe Speicher, Info) | der Worker hat jede Sicherung eines entfernten Rechners gelöscht (Objekte, Snapshots, Bytes). |
 
 Damit deckt eine bestehende Alarmregel für `backup.failed` und `verify.red` Endpunkte ohne
 Änderung mit ab. Zusätzlich löst ein fehlgeschlagener Lauf das Webhook-Ereignis `job.failed`
@@ -1183,20 +1304,38 @@ Aufmerksamkeit braucht, schlagen vor, ihn zu sperren. (Die Integrations-API meld
 noch nicht; ein solcher Rechner ist ohnehin `silent` oder `backup_overdue`.)
 
 Ein gesperrter Rechner lässt sich dann **entfernen** (`POST /api/v1/endpoints/:id/remove`,
-`{ "mode": "delete" | "expire", "confirmHostname": "<hostname>" }`, nur Mandanten-Admins, frische
-Anmeldung wie bei anderen unumkehrbaren Aktionen, auditiert als `endpoint.removed`):
+`{ "mode": "delete" | "expire", "confirmHostname": "<hostname>", "reason": "..." }`, frische
+Anmeldung wie bei anderen unumkehrbaren Aktionen):
 
-- `delete`: Rechner und Sicherungen löschen. Abgelehnt (409), solange eine Legal Hold über den
-  ganzen Mandanten besteht (ein Rechner ist kein geschütztes Objekt, nur eine Hold ohne Objekt
-  erfasst ihn) oder ein ungeklärter Verdacht auf dem Rechner seine Sicherungen hält
-  (docs/RANSOMWARE.md, "Retention hold"; nur, solange der Halt der Installation eingeschaltet ist).
-- `expire`: aus der Liste entfernen, die Sicherungen bis zum Ablauf behalten. Ablauf ist die neueste
+- `delete` (seit 0.5.0 verzögert): jede Sicherung des Rechners **sieben Tage nach dem Auftrag**
+  löschen (`BACKUP_DELETION_DELAY_DAYS` in `apps/api/src/features/endpoints/removal.ts`). Nur
+  **Inhaber des Provider-Teams** (wie beim Löschen eines Mandanten; ein Provider-Admin ohne
+  Teamrolle zählt als Inhaber), alle anderen erhalten 403 `owner-required`. Mandanten-Admins
+  (auch der "owner" einer Organisation ist in Restow Mandanten-Admin) und Provider-Mitglieder
+  unter Inhaber bleibt `expire`. `reason` ist Pflicht (422 `endpoint-removal-reason-required`)
+  und steht im Audit-Eintrag `endpoint.removal.scheduled` und in `removal.reason`. Abgelehnt
+  (409), solange eine Legal Hold über den ganzen Mandanten besteht (ein Rechner ist kein
+  geschütztes Objekt, nur eine Hold ohne Objekt erfasst ihn) oder ein ungeklärter Verdacht auf
+  dem Rechner seine Sicherungen hält (docs/RANSOMWARE.md, "Retention hold"; nur, solange der
+  Halt der Installation eingeschaltet ist), sowie im Wiederherstellungsmodus
+  (`assertNotInRestoreMode("endpoint_removal")`). Bis der Worker beginnt, bleibt der Rechner als
+  gesperrt in den Listen (`removed_at` bleibt leer, Sicherungspunkte und Dateiwiederherstellung
+  bleiben nutzbar); Rechnerseite und Dateiwiederherstellung zeigen "Sicherungen werden am
+  <Datum> gelöscht" mit Auftraggeber und Grund (`backupDeletion` in `GET /:id`). Sofort geht das
+  kritische Ereignis `endpoint.backups_deletion_scheduled` an die Glocke und an die
+  Pflichtempfänger des Providers. **Abbrechen** (`POST /api/v1/endpoints/:id/remove/cancel`,
+  ebenfalls nur Inhaber, auditiert als `endpoint.removal.cancelled`) geht, bis der Worker
+  begonnen hat; danach 409 `endpoint-removal-not-cancellable`. Ein abgebrochener Rechner bleibt
+  gesperrt mit seinen Sicherungen, aber außerhalb seines Backup-Jobs. Ein zweiter Auftrag, solange
+  einer wartet, wird abgelehnt (409 `endpoint-removal-scheduled`).
+- `expire`: aus der Liste entfernen, die Sicherungen bis zum Ablauf behalten (Mandanten-Admins,
+  auditiert als `endpoint.removed`). Ablauf ist die neueste
   gute Sicherung plus die längste Regel der Aufbewahrung des Rechners, als Zeit gelesen (N Tage,
   N Wochen, N Kalendermonate; Standard also zwölf Monate). restics Regeln zählen Snapshots, nicht
   Zeit, und würden auf einem Rechner ohne neue Sicherungen die letzten für immer behalten. Eine
   Aufbewahrung ohne Regel behält alles und wird abgelehnt (409).
 
-Ab dann fehlt der Rechner in jeder Liste, Auswahl, Übersicht und Zählung (Inventar, auch hinter
+Ab dann (bei `delete` ab dem Beginn des Löschens) fehlt der Rechner in jeder Liste, Auswahl, Übersicht und Zählung (Inventar, auch hinter
 "Gesperrte Rechner anzeigen", Auswahl der Dateiwiederherstellung, Jobs, Live-Ansicht, Dashboard)
 und jede Anfrage an ihn antwortet 404, außer dem Lesen seiner Sicherungen, solange sie noch
 liegen (unten). Er verlässt seinen Backup-Job. Seine Zeile bleibt als Grabstein
@@ -1205,7 +1344,10 @@ Audit-Einträgen, damit Verlauf und Audit-Log ihn weiter nennen.
 
 Die Sicherungen löscht der Worker (`endpoint-removal`), sobald `removal_due_at` erreicht ist; der
 Scheduler übergibt fällige Entfernungen jede Minute (partieller Index), die API sofort nach einem
-`delete`. Der Lauf hält die Wartungssperre des Repositorys exklusiv und löscht jedes Objekt unter
+schon fälligen `expire`. Bevor das erste Objekt geht, beansprucht der Worker die Entfernung auf der
+Zeile des Rechners (`FOR UPDATE`, wie das Abbrechen): Er setzt `removal.startedAt` und, bei
+`delete`, `removed_at`. Kam ein Abbruch zuvor, gibt es nichts zu beanspruchen, und nichts wird
+gelöscht. Der Lauf hält die Wartungssperre des Repositorys exklusiv und löscht jedes Objekt unter
 `endpoints/<id>/` auf jedem Ziel des Mandanten, das Dateien davon halten kann: Primärziel, Kopien
 und stillgelegte Primärziele eines Wechsels mit "behalten". Zustände in `endpoints.removal.state`:
 
@@ -1214,7 +1356,7 @@ und stillgelegte Primärziele eines Wechsels mit "behalten". Zustände in `endpo
 | `scheduled` | wartet auf `removal_due_at` (sofort bzw. Ablauf). |
 | `held` | eine Legal Hold über den Mandanten oder ein Verdacht hält die Sicherungen (`heldBy`); nichts wird gelöscht, nach einem Tag wird erneut geprüft. Auditiert als `endpoint.removal.held`. |
 | `deferred` | der Speicher sperrt noch Objekte (S3 Object Lock, Löschverzögerung eines Verzeichnisses): Sie bleiben, werden wie ein verweigertes Prune in `immutability_deferred_deletions` vermerkt, und der nächste Versuch folgt eine Stunde nach dem spätesten `lockedUntil` (ohne bekanntes Datum: nach einem Tag). Die Verlängerung der Sperren lässt das Repository eines entfernten Rechners aus, sobald seine Sicherungen gehen sollen; bis zum Ablauf eines `expire` verlängert sie weiter. Auditiert als `endpoint.removal.deferred`. |
-| `done` | nichts mehr übrig; Repository-Passwort, Stichproben und Snapshot-Markierungen sind gelöscht. Auditiert als `endpoint.removal.completed`. |
+| `done` | nichts mehr übrig; Repository-Passwort, Stichproben und Snapshot-Markierungen sind gelöscht. Auditiert als `endpoint.removal.completed` mit `deletedObjects`, `deletedSnapshots` (verschiedene Snapshot-IDs über alle Ziele) und `repositoryBytes` (zuletzt gemessen); dazu das Ereignis `endpoint.backups_deleted` (Info) mit denselben Zahlen. Der Rechner bleibt wie bisher als Grabstein verborgen (keine Anzeige "Sicherungen gelöscht am"); Verlauf und Audit-Log nennen ihn weiter. |
 
 `GET /api/v1/endpoints/removals` listet die entfernten Rechner, deren Sicherungen noch nicht
 gelöscht sind; die Rechnerseite zeigt sie Admins mit Datum, Halt oder Sperrfrist. Die weitere
@@ -1347,6 +1489,7 @@ hier.
 | --- | --- | --- |
 | `endpoint-revoked` | 401 an den Agenten, 409 bei Änderung oder Aufgabe durch einen Admin | Der Endpunkt ist widerrufen. |
 | `endpoint-nothing-to-test` | 409 | Ein Restore-Test wurde verlangt, aber es gibt noch keine gute Sicherung. |
+| `endpoint-no-samples` | 409 | Ein Restore-Test wurde verlangt, aber die neueste Sicherung hat keine Stichprobendateien aufgezeichnet. |
 | `endpoint-instance-unknown` | 503 | Die öffentliche Adresse der Installation ist nicht gesetzt; ein Installationsbefehl lässt sich nicht bauen. |
 | `endpoint-queue-not-ready` | 503 | Der Worker hat seine Queues noch nicht angelegt. |
 | `endpoint-token-settled` | 409 | Das Token ist bereits verwendet oder widerrufen. |
@@ -1355,7 +1498,10 @@ hier.
 | `endpoint-download-too-large` | 413 | Die Auswahl eines Downloads ist zu groß (Body über 4 MiB). |
 | `endpoint-invalid-cursor` | 400 | Der Cursor einer Ordnerseite stammt nicht vom Server. |
 | `endpoint-repository-locked` | 503 | Das Repository ist durch eine Sicherung oder Wartung gesperrt, später erneut versuchen. |
-| `endpoint-repository-unavailable` | 409 oder 500 | Das Repository oder sein Passwort ist nicht verfügbar. |
+| `endpoint-repository-not-found` | 409 | Kein Speicherziel des Mandanten (und auch nicht der Standardspeicher der Installation) enthält das Repository des Rechners. |
+| `endpoint-repository-password-rejected` | 500 | Das gespeicherte Passwort öffnet das Repository nicht. |
+| `endpoint-repository-password-missing` | 409 | Für den Rechner ist kein Repository-Passwort gespeichert. |
+| `endpoint-repository-unavailable` | 409 oder 500 | Bis 0.4.x der gemeinsame Typ der drei Fälle darüber. Seit 0.5.0 trägt keine Antwort ihn mehr als `type`; jede der drei trägt ihn als Erweiterungsfeld `category`, sodass ein Client, der auf ihn prüfte, stattdessen `category` prüfen kann. |
 | `restic-busy` | 429 | Zu viele Snapshot-Lesevorgänge gleichzeitig (6 insgesamt, 3 je Mandant). |
 | `restic-failed` | 502 | restic ist auf eine Weise gescheitert, die keinen eigenen Typ hat. |
 | `restic-unavailable` | 503 | Das restic-Binary fehlt auf dem Server. |
@@ -1388,6 +1534,10 @@ hier.
 | `recovery-state-conflict` | 409 | Freigeben, ablehnen, verlängern, abschließen oder wiederanbinden in einem Zustand, der das nicht erlaubt (`status`). Auch (ISO) jede Meldung an eine beendete Sitzung: `progress`, `log`, `event`, `release`, `finish`. |
 | `endpoint-recovery-active` | 409 | Entfernen, während eine Recovery-Sitzung die Sicherungen liest. |
 | `endpoint-rebind-os-mismatch` | 422 | Ein Wiederanbindungs-Token wurde von einem anderen Betriebssystem eingelöst; das Token bleibt gültig. |
+| `endpoint-removal-scheduled` | 409 | Die Sicherungen des Rechners sind schon zum Löschen vorgemerkt; erst abbrechen. |
+| `endpoint-removal-reason-required` | 422 | Sicherungen löschen ohne Grund (Feld `reason`). |
+| `endpoint-removal-not-cancellable` | 409 | Abbrechen, aber es wartet kein Löschen (mehr): Der Worker hat begonnen, oder es ist keines (bzw. nur ein `expire`) vorgemerkt. |
+| `owner-required` | 403 | Sicherungen löschen oder das Löschen abbrechen, ohne Inhaber des Provider-Teams zu sein (`required: "owner"`). |
 | `unsupported-os` | 422 | Betriebssystem nicht unterstützt: ein unbekanntes System oder Windows on ARM (Windows nur amd64). |
 | `enrollment-token-invalid` | 401 | Das Enrollment-Token ist unbekannt, abgelaufen, widerrufen oder verwendet. |
 | `agent-unauthorized` | 401 | Falsche oder fehlende Zugangsdaten des Agenten. |
@@ -1680,8 +1830,11 @@ Mandantentabellen (`packages/db/sql/rls.sql`).
   `vss.exclude-volumes`), wenn `useVss` am Rechner an ist. Das Ergebnis ist **dateikonsistent,
   nicht anwendungskonsistent**: restic fordert eine Kopie-Sicherung ohne Writer-Komponenten an,
   offene Datenbanken (SQL Server, Exchange) sind absturzkonsistent und ihre Protokolle werden
-  nicht gekürzt; Anwendungskonsistenz geht über einen Pre-Hook (`sqlcmd -Q "BACKUP DATABASE
-  ..."`). restic endet bei einer fehlgeschlagenen Schattenkopie mit Exit 0 und liest das Volume
+  nicht gekürzt. Für SQL Server gibt es die native Sicherung (Abschnitt "SQL Server (native
+  Sicherung, Vorschau)"). Ein Pre-Hook mit `sqlcmd -Q "BACKUP DATABASE ..."` ist kein Ausweg:
+  Hooks laufen als SYSTEM, und SQL Server gibt seit 2012 weder SYSTEM noch den
+  Administratoren sysadmin; ein solcher Hook bräuchte eine Anmeldung für die Dienst-SID
+  `NT SERVICE\RestowAgent` (dieselbe, die die native Sicherung braucht). restic endet bei einer fehlgeschlagenen Schattenkopie mit Exit 0 und liest das Volume
   live; der Agent erkennt das an restics Fehlereinträgen (`failed to create snapshot for [...]`)
   und wendet `snapshotOnFailure` an. Ist VSS gar nicht nutzbar (Dienst deaktiviert, keine
   Rechte, COM), startet der Agent restic unter `continue` ein zweites Mal ohne Schattenkopie

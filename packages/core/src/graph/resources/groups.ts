@@ -134,6 +134,11 @@ export function listPosts(
   return paginate<PostWithAttachments>(client, url);
 }
 
+/** The URL of a post below its group: the parent of its attachments. */
+export function postPath(groupId: string, threadId: string, postId: string): string {
+  return `${groupPath(groupId)}/threads/${encodeURIComponent(threadId)}/posts/${encodeURIComponent(postId)}`;
+}
+
 /** Graph refused `$expand=attachments` on posts for the app (403, or a 400 about it). */
 export function isAttachmentExpansionRefused(error: unknown): boolean {
   if (!isGraphError(error)) {

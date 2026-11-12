@@ -22,6 +22,10 @@ export const ENDPOINT_AUDIT_ACTIONS = {
   uninstallRequested: "endpoint.uninstall.requested",
   /** Removed from Restow (#65); the worker's steps follow as `endpoint.removal.*`. */
   removed: "endpoint.removed",
+  /** A provider owner asked to delete the backups of a revoked machine, in seven days (0.5.0). */
+  removalScheduled: "endpoint.removal.scheduled",
+  /** ... and someone cancelled that before the worker started. */
+  removalCancelled: "endpoint.removal.cancelled",
   browse: "endpoint.snapshot.browsed",
   download: "endpoint.snapshot.downloaded",
   repositoryDenied: "endpoint.repository.denied",
@@ -52,6 +56,13 @@ export const ENDPOINT_AUDIT_ACTIONS = {
   rebindTokenCreated: "endpoint.rebind_token.created",
   rebound: "endpoint.rebound",
   unrevoked: "endpoint.unrevoked",
+  // The native SQL Server backup (W2a, docs/BAREMETAL-WINDOWS.md 5.1)
+  sqlRestoreRequested: "endpoint.sql.restore.requested",
+  sqlRestoreFinished: "endpoint.sql.restore.finished",
+  sqlVerifyRequested: "endpoint.sql.verify.requested",
+  sqlInventoryRequested: "endpoint.sql.inventory.requested",
+  sqlRestoreScriptDownloaded: "endpoint.sql.restore_script.downloaded",
+  sqlTdeConfirmed: "endpoint.sql.tde.confirmed",
 } as const;
 
 /** Who did it: a signed-in admin, or the agent of an endpoint. */

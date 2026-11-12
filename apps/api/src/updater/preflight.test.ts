@@ -148,7 +148,7 @@ describe("Preflight", () => {
     expect(await h.preflight.get()).toBe(fresh);
   });
 
-  it("blocks while the updater's own image follows the variables the updater rewrites", async () => {
+  it("blocks while the updater's own image follows the variables the updater rewrites [UPDATE-011]", async () => {
     h.ops.updaterImage = "follows";
     const capabilities = await h.preflight.get();
     expect(capabilities.ready).toBe(false);

@@ -6,8 +6,8 @@
  *
  *   - `mode: "backfill"`: the one-time takeover of a mailbox's existing mail by a capture
  *     way, queued by the capture service once the stream went live (the `jobs` row shows it
- *     as the archive takeover). The way's `backfill` runs checkpointed in the job's cursor;
- *     interrupted, it resumes there. Mail received before the stream went live is flagged
+ *     as the archive takeover). The way's `backfill` runs checkpointed in a cursor kept on the
+ *     stream (`backfill_cursor`); interrupted, continued or queued again, it resumes there. Mail received before the stream went live is flagged
  *     `captured-late`. Done, the stream is `live`.
  *   - without a mode (the archive schedules of older releases): the named mailboxes, or
  *     every mailbox of the named source, are made due for the capture service now.
@@ -15,16 +15,27 @@
  * While the gate `archive.mailboxCapture` is closed (the Community build) the job ends
  * at once as skipped, with the reason in its summary.
  */
-import { type ArchiveJobPayload, JobAbortedError } from "@restow/core";
+import {
+  type ArchiveJobPayload,
+  type Cursor,
+  type CursorStore,
+  JobAbortedError,
+} from "@restow/core";
 import type { Database } from "@restow/db";
 import { sql } from "drizzle-orm";
 import { alreadyCapturedFor, appendCapturedMail } from "../archive-capture/append.js";
+import { PgCaptureGaps } from "../archive-capture/gaps.js";
 import { CAPTURE_WAYS } from "../archive-capture/registry.js";
 import { type BackfillEnqueuer, pgBackfillEnqueuer } from "../archive-capture/service.js";
 import { PgStreamStore } from "../archive-capture/streams.js";
 import type { BackfillContext, CaptureWay, MailboxWay } from "../archive-capture/ways.js";
 import type { WorkerFeatureGate } from "../extensions.js";
-import type { JobHandler, JobOutcome, WorkerJobContext } from "./framework.js";
+import {
+  type JobHandler,
+  type JobOutcome,
+  type WorkerJobContext,
+  withTenantTx,
+} from "./framework.js";
 import { archiveRetentionPolicyFor } from "./import-archive.js";
 
 export interface ArchiveHandlerDeps {
@@ -97,6 +108,13 @@ async function backfill(
   }
   const retentionPolicy = await archiveRetentionPolicyFor(ctx.db, ctx.tenantId);
   const logger = ctx.logger.child({ streamId: stream.id, way: stream.way });
+  // The way's position lives on the stream, so the next job (a continuation, a retry, a
+  // backfill the capture pass queued again) resumes where this one stopped.
+  const job: WorkerJobContext = {
+    ...ctx,
+    cursor: streamBackfillCursor(store, stream.id, ctx.cursor),
+  };
+  const gaps = new PgCaptureGaps(ctx.db, ctx.tenantId, stream.id);
   const backfillContext: BackfillContext = {
     db: ctx.db,
     tenantId: ctx.tenantId,
@@ -107,9 +125,9 @@ async function backfill(
     logger,
     signal: ctx.signal,
     now: ctx.now,
-    job: ctx,
-    append: (mail) =>
-      appendCapturedMail(
+    job,
+    append: async (mail) => {
+      const appended = await appendCapturedMail(
         {
           db: ctx.db,
           tenantId: ctx.tenantId,
@@ -123,19 +141,41 @@ async function backfill(
         },
         stream,
         mail,
-      ),
+      );
+      await gaps.resolved("message", mail.externalRef);
+      return appended;
+    },
+    gaps,
     alreadyCaptured: (query) =>
       alreadyCapturedFor(ctx.db, ctx.tenantId, stream.protectedObjectId, query),
-    // The backfill's own position lives in the job's cursor; the stream's state belongs to
-    // the live passes and is not written from here.
+    // The backfill's own position is its cursor (`job.cursor`, kept on the stream); the
+    // stream's state belongs to the live passes and is not written from here.
     checkpoint: async () => undefined,
   };
   const result = await way.backfill(backfillContext);
   if (ctx.signal.aborted) {
     throw new JobAbortedError();
   }
+  if (!result.completed && result.retryLater) {
+    // Folders or messages failed and are tried again later: not at once (the server would
+    // most likely refuse again), but once BACKFILL_REQUEUE_AFTER_FAILURE_MS has passed: the
+    // capture pass reads this job's result (`payload.result.status`) and queues the backfill
+    // again then (../archive-capture/service.ts). What waits is recorded as failed items of
+    // the job (the way's `progress.fail`), so the job reads "completed with failed items".
+    logger.info("archive backfill waits to retry what failed", {
+      captured: result.captured,
+      skipped: result.skipped,
+    });
+    const summary = {
+      status: "retry_later",
+      captured: result.captured,
+      skipped: result.skipped,
+    } as const;
+    await recordResult(ctx, summary);
+    return { summary };
+  }
   if (!result.completed) {
-    // The way stopped on its own budget: the next job resumes from the cursor.
+    // The way stopped on its own budget: the next job resumes from the stream's cursor.
     const next = await (deps.enqueueBackfill ?? pgBackfillEnqueuer(ctx.db))(stream);
     return {
       summary: { status: "continued", captured: result.captured, skipped: result.skipped, next },
@@ -145,6 +185,49 @@ async function backfill(
   await ctx.cursor.clear();
   logger.info("archive backfill completed", { captured: result.captured, skipped: result.skipped });
   return { summary: { status: "completed", captured: result.captured, skipped: result.skipped } };
+}
+
+/** Keep a backfill job's result in `jobs.payload.result` (read by the capture pass). */
+async function recordResult(ctx: WorkerJobContext, result: Record<string, unknown>): Promise<void> {
+  await withTenantTx(ctx.db, ctx.tenantId, (tx) =>
+    tx.execute(sql`
+      update jobs set payload = coalesce(payload, '{}'::jsonb) || ${JSON.stringify({ result })}::jsonb
+       where id = ${ctx.jobId}::uuid
+    `),
+  );
+}
+
+/**
+ * The backfill cursor of a stream (`archive_capture_streams.backfill_cursor`), with the
+ * job's own cursor as the fallback a job from before 0.5.0 left and as a copy (the
+ * framework counts a job's checkpoints there, to give an interrupted attempt back). Keyed
+ * entries (`putEntries`) are the job's own (`job_cursor_entries`).
+ */
+export function streamBackfillCursor(
+  store: Pick<PgStreamStore, "backfillCursor" | "saveBackfillCursor">,
+  streamId: string,
+  jobCursor: CursorStore,
+): CursorStore {
+  return {
+    async load() {
+      return ((await store.backfillCursor(streamId)) as Cursor | null) ?? (await jobCursor.load());
+    },
+    async save(cursor) {
+      await store.saveBackfillCursor(streamId, cursor);
+      await jobCursor.save(cursor);
+    },
+    async clear() {
+      await store.saveBackfillCursor(streamId, null);
+      await jobCursor.clear();
+    },
+    // A backfill keeps no keyed record; the job's own entries stay the job's.
+    loadEntries() {
+      return jobCursor.loadEntries();
+    },
+    putEntries(entries) {
+      return jobCursor.putEntries(entries);
+    },
+  };
 }
 
 export const archiveHandler: JobHandler<"archive"> = {

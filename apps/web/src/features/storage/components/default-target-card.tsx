@@ -21,6 +21,7 @@ import { useDeleteTarget, useTestInstallationDefault } from "../use-storage";
 import { ObjectLockLine } from "./object-lock-line";
 import { ProbeResult } from "./probe-result";
 import { RoleBadge, ToneLine } from "./status";
+import { WriteOnceLine } from "./write-once-line";
 
 /**
  * What going back to the installation default means for a tenant with a
@@ -135,6 +136,9 @@ export function DefaultTargetCard({
               <ToneLine tone="neutral">{t("default.notChecked")}</ToneLine>
             )}
             <ObjectLockLine kind={kind} capability={test.data?.objectLock ?? null} />
+            <WriteOnceLine
+              finding={test.data?.probe.writeOnce ?? installationDefault.writeOnce ?? null}
+            />
           </>
         ) : back === "blocked" ? (
           <p className="text-xs text-muted-foreground">{t("default.backBlocked")}</p>

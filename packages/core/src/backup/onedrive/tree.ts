@@ -41,6 +41,8 @@ export interface MaterializedTree {
   readonly objects: ManifestObject[];
   /** Objects dropped because an ancestor was deleted (only when cascading). */
   readonly cascaded: number;
+  /** The ids of those objects. */
+  readonly cascadedIds: readonly string[];
   /** Paths claimed by more than one item; the most recently recorded item was kept. */
   readonly collisions: readonly string[];
 }
@@ -117,6 +119,15 @@ export class DriveTree {
     return this.nodes.get(id)?.object;
   }
 
+  /**
+   * The parent an item hangs under in this tree (as recorded or moved in this run): its id,
+   * null at the top, undefined when the tree does not hold the item.
+   */
+  parentOf(id: string): string | null | undefined {
+    const node = this.nodes.get(id);
+    return node === undefined ? undefined : node.parentId;
+  }
+
   /** Stored versions of a file. */
   versionsOf(itemId: string): ManifestObject[] {
     const ids = this.versionIdsByItem.get(itemId) ?? new Set<string>();
@@ -182,12 +193,12 @@ export class DriveTree {
     const resolve = this.resolver(options.cascadeDeletions);
     const byPath = new Map<string, DriveNode>();
     const collisions: string[] = [];
-    let cascaded = 0;
+    const cascadedIds: string[] = [];
 
     for (const node of this.nodes.values()) {
       const path = resolve(node);
       if (path === null) {
-        cascaded++;
+        cascadedIds.push(node.id);
         continue;
       }
       if (node.object.path !== path) {
@@ -204,7 +215,8 @@ export class DriveTree {
     }
     return {
       objects: [...byPath.values()].map((node) => node.object),
-      cascaded,
+      cascaded: cascadedIds.length,
+      cascadedIds,
       collisions,
     };
   }

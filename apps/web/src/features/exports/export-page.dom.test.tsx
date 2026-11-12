@@ -292,6 +292,35 @@ describe("ExportPage", () => {
     expect(downloadLink()).toBeDefined();
   });
 
+  it("lists mails exported without all their attachments and never calls the export clean", async () => {
+    fetchExport.mockResolvedValue(
+      detail({
+        report: {
+          messages: 12,
+          folders: 1,
+          bytes: 1,
+          failed: 0,
+          incomplete: 1,
+          skipped: { calendar: 0, contacts: 0, other: 0 },
+          items: [],
+          incompleteItems: [
+            {
+              ref: "Conversations/2026-03-03 Plan.eml",
+              reason: "the backup does not hold these attachments of the post: Plan.pdf",
+            },
+          ],
+        },
+      }),
+    );
+    await mount();
+    expect(text()).toContain("Completed with issues");
+    expect(text()).toContain("Without all attachments");
+    expect(text()).toContain("Mails without all their attachments");
+    expect(text()).toContain("Conversations/2026-03-03 Plan.eml");
+    expect(text()).toContain("Plan.pdf");
+    expect(downloadLink()).toBeDefined();
+  });
+
   it("explains a failed export and offers no download", async () => {
     fetchExport.mockResolvedValue(
       detail({

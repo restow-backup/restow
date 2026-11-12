@@ -14,6 +14,8 @@
  *                       oversized-message fallback of docs/MICROSOFT.md.
  *   "attachment"        One attachment of a "parts" message.
  *   "event"             Graph event JSON: `{ event, exceptions }` or a bare event.
+ *   "event-attachment"  The bytes of one file attachment of an event (an item
+ *                       attachment: its MIME, restored as `.eml`).
  *   "contact"           Graph contact JSON.
  *   "file"              OneDrive file bytes (also the default for untyped objects).
  *   "file-version"      A historical OneDrive file version at `<file>:versions/<id>`.
@@ -39,16 +41,30 @@
  *     flagStatus         notFlagged | flagged | complete
  *     categories         JSON array (or whitespace list) of category names
  *     importance         low | normal | high
+ *     isDraft            "true" | "false"
+ *     receivedDateTime   ISO 8601 time Exchange received the message
  *     format             "mime" (default) | "json" ("parts" is read as "json")
  *     referenceAttachments  JSON message: JSON array of link attachment names
+ *     missingAttachments  group post: JSON array of the attachments Graph did not
+ *                        hand out (not backed up); attachmentsNotBackedUp "true" says
+ *                        the same without names
  *     folderKind         folder objects: mail | calendar | contacts | attachments | root
  *   Attachments (of "json" messages)
  *     messagePath        path of the message it belongs to (or messageItemId: its id)
  *     name, contentType  file name and MIME type
  *     attachmentType     Graph `@odata.type` (file or item attachment)
  *     isInline, contentId  inline attachment facts
+ *   Event attachments
+ *     eventPath          path of the event it belongs to (or eventItemId: its id);
+ *                        `<series path>#<exception id>` for an attachment of a changed
+ *                        occurrence of a series (eventItemId is then the exception's id,
+ *                        seriesMasterId the series')
+ *     name, contentType, attachmentType, isInline, contentId  as for attachments; an
+ *                        item attachment holds the item's Graph JSON (contentType
+ *                        application/json), not MIME
  *   Calendar and contacts
  *     calendarId         events and calendar folder objects
+ *     hasAttachments     events: "true" when the event had attachments
  *     calendarName       display name of the calendar (events and calendar folders)
  *     isDefaultCalendar  "true" for the default calendar (events and calendar folders)
  *     folderPath         contacts: folder names below the default folder ("" = default)
@@ -57,6 +73,9 @@
  *     createdDateTime, lastModifiedDateTime  ISO 8601 (default: mtime)
  *     contentType        MIME type
  *     quickXorHash       hash OneDrive reported at backup time
+ *     sourceSize         size OneDrive reported; differs from the object's
+ *                        size when the source rewrote the file on download
+ *                        (SharePoint, Office document properties)
  *     stale              "true" when the bytes are the last good copy of a changed file
  *     versionId          file-version: the OneDrive version id
  *     packageType        folder: a package (OneNote notebook) whose files lie below it
@@ -77,6 +96,7 @@ export type RestoreObjectType =
   | "mail"
   | "attachment"
   | "event"
+  | "event-attachment"
   | "contact"
   | "file"
   | "version"
@@ -97,6 +117,7 @@ export function objectTypeOf(object: ManifestObject): RestoreObjectType {
       return "version";
     case "attachment":
     case "event":
+    case "event-attachment":
     case "contact":
     case "file":
     case "folder":
@@ -232,25 +253,117 @@ function parseStringArray(value: string | undefined): string[] | undefined {
 const FLAG_STATUSES = new Set(["notFlagged", "flagged", "complete"]);
 const IMPORTANCES = new Set(["low", "normal", "high"]);
 
-/** Flags, categories and importance that a MIME import does not carry. */
+/** IMAP keywords that are client bookkeeping, never a category a person gave a message. */
+const BOOKKEEPING_KEYWORDS = new Set(["junk", "nonjunk", "notjunk"]);
+
+/**
+ * Flags, categories and importance that a MIME import does not carry. An
+ * IMAP backup or import records IMAP flags instead of Graph's properties:
+ * `\Seen` is the read state (absent: unread, set explicitly), `\Flagged`
+ * the follow-up flag, a keyword a category (except `$`-keywords and junk
+ * markers, which are a client's bookkeeping).
+ */
 export function messageFlagsOf(object: ManifestObject): MessageFlags {
   const metadata = object.metadata ?? {};
   const flags: MessageFlags = {};
+  const imap = metadata.flags !== undefined ? imapFlagsOf(object) : undefined;
+  const has = (flag: string) => imap?.some((entry) => entry.toLowerCase() === flag) === true;
   const isRead = parseBoolean(metadata.isRead);
   if (isRead !== undefined) {
     flags.isRead = isRead;
+  } else if (imap !== undefined) {
+    flags.isRead = has("\\seen");
   }
   if (metadata.flagStatus !== undefined && FLAG_STATUSES.has(metadata.flagStatus)) {
     flags.flag = { flagStatus: metadata.flagStatus as FollowupFlag["flagStatus"] };
+  } else if (imap !== undefined) {
+    flags.flag = { flagStatus: has("\\flagged") ? "flagged" : "notFlagged" };
   }
   const categories = parseStringArray(metadata.categories);
   if (categories !== undefined) {
     flags.categories = categories;
+  } else if (imap !== undefined) {
+    const keywords = imap.filter(
+      (entry) =>
+        !entry.startsWith("\\") &&
+        !entry.startsWith("$") &&
+        !BOOKKEEPING_KEYWORDS.has(entry.toLowerCase()),
+    );
+    if (keywords.length > 0) {
+      flags.categories = keywords;
+    }
   }
   if (metadata.importance !== undefined && IMPORTANCES.has(metadata.importance)) {
     flags.importance = metadata.importance as Importance;
   }
   return flags;
+}
+
+/**
+ * The attachments a message had but the backup does not hold (a group post
+ * whose attachments Graph refused to hand out to the app,
+ * backup/groups/conversations.ts): their names, `[]` when only the fact is
+ * known, undefined when nothing is missing.
+ */
+export function attachmentsNotBackedUpOf(object: ManifestObject): string[] | undefined {
+  const metadata = object.metadata ?? {};
+  const names = parseStringArray(metadata.missingAttachments);
+  if (names !== undefined && names.length > 0) {
+    return names;
+  }
+  return parseBoolean(metadata.attachmentsNotBackedUp) === true ? [] : undefined;
+}
+
+/** The sentence a restore or download adds for {@link attachmentsNotBackedUpOf}. */
+export function attachmentsNotBackedUpNote(missing: readonly string[]): string {
+  // "(attachments not available to the app)": Graph refused the attachments altogether.
+  const named = missing.filter((name) => !name.startsWith("("));
+  const notes: string[] = [];
+  if (named.length < missing.length || missing.length === 0) {
+    notes.push(
+      "Microsoft did not hand out the attachments of this post to the app, so they were not backed up",
+    );
+  }
+  if (named.length > 0) {
+    notes.push(`the backup does not hold these attachments of the post: ${named.join(", ")}`);
+  }
+  return notes.join("; ");
+}
+
+/**
+ * Whether the backed-up message was a draft: the Exchange backup records
+ * `isDraft`, an IMAP backup or import the `\Draft` flag. Undefined when the
+ * backup says neither.
+ */
+export function messageIsDraftOf(object: ManifestObject): boolean | undefined {
+  const recorded = parseBoolean(object.metadata?.isDraft);
+  if (recorded !== undefined) {
+    return recorded;
+  }
+  if (object.metadata?.flags === undefined) {
+    return undefined;
+  }
+  return imapFlagsOf(object).some((flag) => flag.toLowerCase() === "\\draft");
+}
+
+/**
+ * IMAP flags of a message that a restore into Microsoft 365 cannot carry
+ * (`\Answered`, `$Forwarded` and other client keywords); `\Seen`,
+ * `\Flagged`, `\Draft`, `\Recent`, `\Deleted` and keywords that become
+ * categories are not listed.
+ */
+export function imapFlagsNotCarried(object: ManifestObject): string[] {
+  if (object.metadata?.flags === undefined) {
+    return [];
+  }
+  const carried = new Set(["\\seen", "\\flagged", "\\draft", "\\recent", "\\deleted"]);
+  return imapFlagsOf(object).filter(
+    (flag) =>
+      !carried.has(flag.toLowerCase()) &&
+      (flag.startsWith("\\") ||
+        flag.startsWith("$") ||
+        BOOKKEEPING_KEYWORDS.has(flag.toLowerCase())),
+  );
 }
 
 /** Names of link attachments a JSON message had; they carry no content to restore. */
@@ -300,6 +413,23 @@ export function attachmentFactsOf(object: ManifestObject): AttachmentFacts {
     isInline: parseBoolean(metadata.isInline) ?? false,
     contentId: nonEmpty(metadata.contentId),
   };
+}
+
+/**
+ * The file name an attachment is restored or downloaded under. An attached item
+ * comes back as a file: a message as `.eml` (its MIME), an event's attached item
+ * as `.json` (the backup holds its Graph JSON).
+ */
+export function attachmentFileNameOf(facts: AttachmentFacts, name: string = facts.name): string {
+  if (facts.kind !== "item" || /\.[A-Za-z0-9]{1,8}$/.test(name)) {
+    return name;
+  }
+  return isItemJson(facts) ? `${name}.json` : `${name}.eml`;
+}
+
+/** Whether an item attachment was backed up as the item's Graph JSON (an event's), not as MIME. */
+export function isItemJson(facts: AttachmentFacts): boolean {
+  return facts.kind === "item" && facts.contentType?.toLowerCase() === "application/json";
 }
 
 // ---------------------------------------------------------------------------
@@ -371,12 +501,43 @@ export function versionFactsOf(object: ManifestObject): VersionFacts {
   return { filePath, versionId: nonEmpty(object.metadata?.versionId) ?? fromPath };
 }
 
-/** The backup-time QuickXorHash of a file, when its bytes still belong to it. */
+/**
+ * Whether the backed-up bytes differ from what the source stored: SharePoint
+ * (and OneDrive for Business) rewrite the document properties of an Office
+ * file on download, so the backup holds other bytes than the item, of
+ * another size (`sourceSize`, the size Graph reported, differs).
+ */
+export function rewrittenOnDownload(object: ManifestObject): boolean {
+  const recorded = nonEmpty(object.metadata?.sourceSize);
+  return recorded !== undefined && recorded !== String(object.size);
+}
+
+/**
+ * The backup-time QuickXorHash of a file, when it is the hash of the
+ * backed-up bytes: not for the last good copy of a changed file (stale), and
+ * not for a file the source rewrote on download, whose recorded hash belongs
+ * to the bytes the source stores, not to the backup's.
+ */
 export function recordedQuickXorHashOf(object: ManifestObject): string | undefined {
-  if (object.metadata?.stale === "true") {
+  if (object.metadata?.stale === "true" || rewrittenOnDownload(object)) {
     return undefined;
   }
   return nonEmpty(object.metadata?.quickXorHash);
+}
+
+/**
+ * What the source stored for a file it rewrites on download: the size and
+ * QuickXorHash Graph reported at backup time, to recognise the unchanged
+ * original in its place. Undefined for any other file.
+ */
+export function sourceStoredOf(
+  object: ManifestObject,
+): { readonly size: number; readonly quickXorHash: string } | undefined {
+  const quickXorHash = nonEmpty(object.metadata?.quickXorHash);
+  if (!rewrittenOnDownload(object) || object.metadata?.stale === "true" || !quickXorHash) {
+    return undefined;
+  }
+  return { size: Number(object.metadata?.sourceSize), quickXorHash };
 }
 
 // ---------------------------------------------------------------------------

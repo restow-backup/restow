@@ -183,6 +183,60 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     retryable: true,
     steps: () => [step("wait_automatic"), step("check_service_health")],
   },
+  "graph.outcome_unknown": {
+    category: "microsoft",
+    transient: true,
+    retryable: true,
+    steps: () => [step("wait_automatic"), step("check_service_health")],
+  },
+  "graph.online_archive_not_covered": {
+    category: "microsoft",
+    transient: false,
+    retryable: false,
+    steps: () => [step("check_archive_policy")],
+  },
+  "graph.online_archive_unknown": {
+    category: "microsoft",
+    transient: true,
+    retryable: true,
+    steps: () => [step("verify_permissions"), step("check_archive_policy")],
+  },
+  "graph.group_event_attachments_not_covered": {
+    category: "microsoft",
+    transient: false,
+    retryable: false,
+    steps: () => [step("store_group_attachments_in_files")],
+  },
+  "graph.group_post_attachments_refused": {
+    category: "microsoft",
+    transient: false,
+    retryable: false,
+    steps: () => [step("store_group_attachments_in_files")],
+  },
+  "graph.group_post_attachments_unreadable": {
+    category: "microsoft",
+    transient: true,
+    retryable: true,
+    steps: () => [step("wait_automatic")],
+  },
+  "graph.group_calendar_windowed": {
+    category: "microsoft",
+    transient: false,
+    retryable: false,
+    steps: () => [step("verify_permissions")],
+  },
+  "graph.mail_content_unchecked": {
+    category: "microsoft",
+    transient: true,
+    retryable: true,
+    steps: () => [step("wait_automatic")],
+  },
+  "graph.mail_stored_without_mime": {
+    category: "microsoft",
+    transient: true,
+    retryable: true,
+    steps: () => [step("wait_automatic")],
+  },
   "graph.item_not_found": {
     category: "microsoft",
     transient: true,
@@ -320,6 +374,12 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     retryable: true,
     steps: () => [step("wait_automatic"), step("check_server_limits")],
   },
+  "imap.gmail_all_mail_hidden": {
+    category: "imap",
+    transient: false,
+    retryable: false,
+    steps: () => [step("show_gmail_all_mail_in_imap")],
+  },
   // Archive capture (0.4.4): the account is polled instead of watched with IDLE (informational).
   "imap.idle_unsupported": {
     category: "imap",
@@ -384,6 +444,14 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     transient: false,
     retryable: true,
     steps: () => [step("free_storage_space", "storage")],
+  },
+  // A run the size and space guard held (#99, core run-size): the same run fails the same way
+  // until an administrator lets it continue once, raises the limit or frees space.
+  "storage.run_held": {
+    category: "storage",
+    transient: false,
+    retryable: false,
+    steps: () => [step("decide_held_backup", "held_backups"), step("exclude_large_folder")],
   },
   "storage.access_denied": {
     category: "storage",
@@ -524,6 +592,26 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
       step("restore_from_copy", "storage"),
     ],
   },
+  // The manifest is gone from every target that still holds the tenant's keys or other
+  // manifests: deleted (a lifecycle rule, a cleanup), the backup cannot be restored.
+  "verify.manifest_missing": {
+    category: "verify",
+    transient: false,
+    retryable: true,
+    steps: () => [
+      step("check_storage_health", "storage"),
+      step("restore_from_copy", "storage"),
+      step("run_backup_again", "jobs"),
+    ],
+  },
+  // The last checks of the backup could not complete one after the other (the storage did
+  // not answer): an earlier green rating no longer proves it restorable.
+  "verify.check_incomplete": {
+    category: "verify",
+    transient: false,
+    retryable: true,
+    steps: () => [step("check_storage_health", "storage")],
+  },
   "verify.no_snapshot": {
     category: "verify",
     transient: false,
@@ -542,6 +630,20 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     retryable: false,
     steps: () => [step("run_backup_again", "jobs")],
   },
+  // The run that made the checked backup could not back up some items: they are missing from
+  // it (the run lists them with their causes); red once the same items failed run after run.
+  "verify.backup_incomplete": {
+    category: "verify",
+    transient: false,
+    retryable: true,
+    steps: () => [step("open_item_at_source", "source"), step("run_backup_again", "jobs")],
+  },
+  "verify.backup_incomplete_persistent": {
+    category: "verify",
+    transient: false,
+    retryable: true,
+    steps: () => [step("open_item_at_source", "source"), step("run_backup_again", "jobs")],
+  },
   // Nothing to restore (only default folders or system pages, 0 bytes): no failure. An admin
   // confirms it as empty, or the next backup that holds content ends it.
   "verify.snapshot_empty": {
@@ -549,6 +651,22 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     transient: false,
     retryable: false,
     steps: () => [step("run_backup_again", "jobs")],
+  },
+  // Empty by the source and by the backup (0.5.0): nothing to restore, nothing to confirm. As
+  // for an empty one, the next backup that holds content ends it.
+  "verify.snapshot_empty_source": {
+    category: "verify",
+    transient: false,
+    retryable: false,
+    steps: () => [step("run_backup_again", "jobs")],
+  },
+  // Microsoft 365 reports content before and after the run, the backup holds none: a full
+  // backup reads the object again; the source shows what it holds.
+  "verify.backup_missing_source_content": {
+    category: "verify",
+    transient: false,
+    retryable: true,
+    steps: () => [step("run_backup_again", "jobs"), step("open_item_at_source", "source")],
   },
   "verify.nothing_to_verify": {
     category: "verify",
@@ -655,6 +773,21 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     transient: false,
     retryable: true,
     steps: () => [step("check_endpoint_layout_tools"), READ_DETAILS],
+  },
+  // A backup path exists but could not be read (a drive locked by BitLocker, offline, no
+  // access, a link restic does not follow): it stays so until someone unlocks or changes it.
+  "endpoint.source_unreadable": {
+    category: "endpoint",
+    transient: false,
+    retryable: true,
+    steps: () => [step("check_endpoint_source"), step("check_endpoint_paths"), READ_DETAILS],
+  },
+  // A backup path is a folder a volume without a drive letter is mounted at.
+  "endpoint.source_is_mount_point": {
+    category: "endpoint",
+    transient: false,
+    retryable: true,
+    steps: () => [step("mount_endpoint_volume"), step("check_endpoint_paths")],
   },
   "endpoint.post_hook_failed": {
     category: "endpoint",
@@ -769,6 +902,127 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     transient: false,
     retryable: true,
     steps: () => [step("check_endpoint_agent"), step("check_endpoint_paths")],
+  },
+  // The native SQL Server backup (W2a, docs/BAREMETAL-WINDOWS.md 5.1): the agent's codes.
+  "endpoint.sql_instance_unreachable": {
+    category: "endpoint",
+    transient: true,
+    retryable: true,
+    steps: () => [step("start_sql_instance"), step("wait_endpoint_retry")],
+  },
+  "endpoint.sql_login_missing": {
+    category: "endpoint",
+    transient: false,
+    retryable: true,
+    steps: () => [step("create_sql_login")],
+  },
+  "endpoint.sql_permission_missing": {
+    category: "endpoint",
+    transient: false,
+    retryable: true,
+    steps: () => [step("grant_sql_permissions"), step("create_sql_login")],
+  },
+  "endpoint.sql_powershell_constrained": {
+    category: "endpoint",
+    transient: false,
+    retryable: true,
+    steps: () => [step("allow_sql_powershell")],
+  },
+  "endpoint.sql_strict_encryption": {
+    category: "endpoint",
+    transient: false,
+    retryable: true,
+    steps: () => [step("check_sql_encryption")],
+  },
+  "endpoint.sql_fci_unsupported": {
+    category: "endpoint",
+    transient: false,
+    retryable: true,
+    steps: () => [READ_DETAILS],
+  },
+  "endpoint.sql_mode_unsupported": {
+    category: "endpoint",
+    transient: false,
+    retryable: true,
+    steps: () => [step("check_endpoint_agent")],
+  },
+  "endpoint.sql_staging_unusable": {
+    category: "endpoint",
+    transient: false,
+    retryable: true,
+    steps: () => [step("check_sql_staging")],
+  },
+  "endpoint.sql_staging_too_small": {
+    category: "endpoint",
+    transient: false,
+    retryable: true,
+    steps: () => [step("free_sql_staging")],
+  },
+  "endpoint.sql_database_unavailable": {
+    category: "endpoint",
+    transient: false,
+    retryable: true,
+    steps: () => [step("check_sql_database")],
+  },
+  "endpoint.sql_backup_failed": {
+    category: "endpoint",
+    transient: false,
+    retryable: true,
+    steps: () => [READ_DETAILS, step("run_backup_again")],
+  },
+  "endpoint.sql_snapshot_failed": {
+    category: "endpoint",
+    transient: false,
+    retryable: true,
+    steps: () => [step("check_endpoint_agent"), READ_DETAILS],
+  },
+  "endpoint.sql_script_failed": {
+    category: "endpoint",
+    transient: false,
+    retryable: true,
+    steps: () => [step("check_endpoint_agent"), READ_DETAILS],
+  },
+  "endpoint.sql_restore_name_taken": {
+    category: "endpoint",
+    transient: false,
+    retryable: true,
+    steps: () => [step("choose_sql_restore_name")],
+  },
+  "endpoint.sql_restore_no_space": {
+    category: "endpoint",
+    transient: false,
+    retryable: true,
+    steps: () => [step("free_sql_restore_space")],
+  },
+  "endpoint.sql_restore_failed": {
+    category: "endpoint",
+    transient: false,
+    retryable: true,
+    steps: () => [READ_DETAILS],
+  },
+  "endpoint.sql_backup_mismatch": {
+    category: "endpoint",
+    transient: false,
+    retryable: true,
+    steps: () => [step("run_backup_again"), READ_DETAILS],
+  },
+  "endpoint.sql_verify_no_space": {
+    category: "endpoint",
+    transient: false,
+    retryable: true,
+    steps: () => [step("free_sql_restore_space")],
+  },
+  "endpoint.sql_verify_timeout": {
+    category: "endpoint",
+    transient: true,
+    retryable: true,
+    steps: () => [step("wait_endpoint_retry")],
+  },
+  "endpoint.sql_verify_system_db": {
+    category: "endpoint",
+    transient: false,
+    retryable: true,
+    steps: () => [READ_DETAILS],
   },
 
   // --- File shares (docs/FILESHARES.md section 11) -----------------------------------------
@@ -910,6 +1164,18 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     retryable: true,
     steps: () => [step("check_storage_health", "storage"), READ_DETAILS],
   },
+  "share.repository_unavailable": {
+    category: "share",
+    transient: false,
+    retryable: true,
+    steps: () => [step("check_storage_health", "storage"), READ_DETAILS],
+  },
+  "share.repository_repair_running": {
+    category: "share",
+    transient: true,
+    retryable: true,
+    steps: () => [step("wait_automatic")],
+  },
   "share.quota_exceeded": {
     category: "share",
     transient: false,
@@ -988,6 +1254,12 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     transient: true,
     retryable: true,
     steps: () => [step("wait_automatic"), step("worker_resources")],
+  },
+  "job.restore_mode_hold": {
+    category: "system",
+    transient: false,
+    retryable: true,
+    steps: () => [step("start_again_if_needed")],
   },
   unknown: {
     category: "system",

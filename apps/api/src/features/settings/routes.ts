@@ -6,8 +6,10 @@ import { assertRecentSignIn } from "../../lib/recent-sign-in.js";
 import { clientIp } from "../../lib/request.js";
 import { refuseApiKeys, requireProviderAdmin, type SessionEnv } from "../../middleware/session.js";
 import { acceptDisclaimerSchema, parseJsonBody, parseOrProblem } from "../../schemas.js";
+import { buildBrandingRoutes } from "../branding/routes.js";
 import { getGlobalAgentPolicy, updateGlobalAgentPolicy } from "../endpoints/agent-policy.js";
 import { globalAgentPolicySchema } from "../endpoints/schemas.js";
+import { buildProviderNotificationRoutes } from "../provider-notifications/routes.js";
 import { getPveSettings, pveSettingsSchema, updatePveSettings } from "../pve/settings.js";
 import { ransomwareSettingsSchema } from "../suspicion/schemas.js";
 import { getRansomwareSettings, updateRansomwareSettings } from "../suspicion/service.js";
@@ -24,6 +26,7 @@ import {
   saveMicrosoftApp,
   testMicrosoftApp,
 } from "./microsoft-app/service.js";
+import { getModules, modulesSchema, updateModules } from "./modules.js";
 import { browserOrigin } from "./origin.js";
 import { getPasskeyImpact } from "./passkey-impact.js";
 import { getPricing, pricingSchema, updatePricing } from "./pricing.js";
@@ -42,6 +45,7 @@ import {
 import {
   type Actor,
   checkPasskeyReadiness,
+  createInstallationNotifier,
   getSettings,
   type RequestContext,
   removeMailConfiguration,
@@ -89,6 +93,10 @@ import {
  *   GET    /pricing/estimate      the monthly estimate per tenant at those prices (and the
  *                                  tenants' own, tenants/:id/pricing), ?tenant=<id> for one tenant;
  *                                  a member limited to some tenants gets those
+ *   GET    /modules               the installation's modules (what it protects): which are on
+ *                                  and what each still holds across every tenant
+ *   PUT    /modules               replace the modules that are on ({ enabled: [...] }, at least
+ *                                  one); a module that is off is hidden in the web interface only
  *   GET    /agent-policy          the installation's agent policy, its locks, the defaults
  *   PUT    /agent-policy          replace it; every machine whose effective policy changes gets
  *                                  a new configuration version (all tenants)
@@ -103,6 +111,11 @@ import {
  *   POST   /default-storage/test  write/read/list/delete probe and Object Lock detection on the
  *                                  default; recorded in the installation audit chain
  *
+ *   GET    /branding ...          the provider's branding (features/branding/routes.ts)
+ *   GET    /notification-recipients, /summary-reports
+ *                                  the provider's recipients and its summary reports
+ *                                  (features/provider-notifications/routes.ts)
+ *
  * Responses never contain secrets; the SMTP password, the client secret and the
  * certificate's private key are write-only. API keys are refused (403): these
  * are web UI routes.
@@ -115,6 +128,14 @@ import {
 export const settingsRoutes = new Hono<SessionEnv>();
 
 settingsRoutes.use("*", refuseApiKeys, requireProviderAdmin);
+
+// The provider's branding, notification recipients and summary reports (0.5.0).
+const settingsNotifier = () => createInstallationNotifier(providerDb);
+settingsRoutes.route("/branding", buildBrandingRoutes({ providerDb, notifier: settingsNotifier }));
+settingsRoutes.route(
+  "/",
+  buildProviderNotificationRoutes({ providerDb, notifier: settingsNotifier }),
+);
 
 function actorOf(c: Context<SessionEnv>): Actor {
   const user = c.get("user");
@@ -248,6 +269,17 @@ settingsRoutes.get("/pricing/estimate", async (c) => {
       },
     ),
   );
+});
+
+// The installation's modules (settings/modules.ts): what the web interface shows. Switching one
+// off hides it and nothing else; owners and administrators change it (lib/provider-access.ts).
+settingsRoutes.get("/modules", async (c) => {
+  return c.json(await getModules(providerDb));
+});
+
+settingsRoutes.put("/modules", async (c) => {
+  const input = await parseJsonBody(c.req, modulesSchema);
+  return c.json(await updateModules(providerDb, input, actorOf(c)));
 });
 
 // Agent policies (docs/AGENT.md, "Richtlinien"): every provider admin reads the installation's

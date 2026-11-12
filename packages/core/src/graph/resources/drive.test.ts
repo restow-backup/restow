@@ -1,7 +1,8 @@
 import { Readable } from "node:stream";
 import { describe, expect, it } from "vitest";
+import { FakeDrive } from "../../restore/testing/fake-drive.js";
 import { InMemoryDeltaTokenStore } from "../delta.js";
-import { createFakeGraph, graphError, must } from "../testing/fake-graph.js";
+import { createFakeGraph, graphError, must, selectedEntity } from "../testing/fake-graph.js";
 import fixture from "../testing/fixtures/drive-delta.json" with { type: "json" };
 import {
   createUploadSession,
@@ -9,6 +10,7 @@ import {
   driveDelta,
   driveItemPath,
   ensureDriveFolderPath,
+  getItem,
   getUserDrive,
   isDeletedItem,
   isFileItem,
@@ -24,6 +26,7 @@ import {
   UPLOAD_FRAGMENT_UNIT,
   UploadSessionError,
   uploadToSession,
+  uploadToSessionOrCancel,
 } from "./upload-session.js";
 
 const DRIVE = "b!drive1";
@@ -132,6 +135,58 @@ describe("drive", () => {
     expect(must(graph.callsTo("GET", "/items/01REPORT")[0]).headers.authorization).toBe(
       "Bearer test-token",
     );
+  });
+
+  it("fetches one item as completely as the delta lists it: authorship, sharing, shortcut facet", async () => {
+    const shared: DriveDeltaItem = {
+      id: "01SHARED",
+      name: "contract.pdf",
+      size: 4,
+      cTag: '"c:{S},1"',
+      file: {
+        mimeType: "application/pdf",
+        hashes: { quickXorHash: "AAAAAAAAAAAAAAAAAAAAAAAAAAA=" },
+      },
+      parentReference: { driveId: DRIVE, id: "01ROOT", path: "/drive/root:" },
+      createdBy: { user: { displayName: "Alice Example", id: "user-1" } },
+      lastModifiedBy: { user: { displayName: "Bob Example", id: "user-2" } },
+      shared: { scope: "anonymous", sharedDateTime: "2026-09-01T08:00:00Z" },
+      "@microsoft.graph.downloadUrl": "https://contoso-my.sharepoint.example/download.aspx?item=s",
+    };
+    const shortcut: DriveDeltaItem = {
+      id: "01SHORTCUT",
+      name: "Team files",
+      parentReference: { driveId: DRIVE, id: "01ROOT", path: "/drive/root:" },
+      remoteItem: {
+        id: "01REMOTE",
+        folder: { childCount: 3 },
+        parentReference: { driveId: "b!t" },
+      },
+    };
+    const unshared: DriveDeltaItem = { ...shared, id: "01PLAIN", shared: undefined };
+    const entities = new Map([shared, shortcut, unshared].map((item) => [item.id, item]));
+    const graph = createFakeGraph([
+      {
+        // Like Graph: an item comes back with what $select names, nothing more.
+        url: (u) => u.pathname.includes("/items/"),
+        respond: (call) => ({
+          status: 200,
+          json: selectedEntity(
+            call,
+            must(entities.get(new URL(call.url).pathname.split("/").pop() ?? "")),
+          ),
+        }),
+      },
+    ]);
+    const client = graph.client();
+    const file = await getItem(client, DRIVE, "01SHARED");
+    expect(file.createdBy?.user?.displayName).toBe("Alice Example");
+    expect(file.lastModifiedBy?.user?.displayName).toBe("Bob Example");
+    expect(file.shared?.scope).toBe("anonymous");
+    expect(file["@microsoft.graph.downloadUrl"]).toBe(shared["@microsoft.graph.downloadUrl"]);
+    expect((await getItem(client, DRIVE, "01SHORTCUT")).remoteItem?.id).toBe("01REMOTE");
+    // Asked for and absent: not shared, which is not the same as "unknown".
+    expect((await getItem(client, DRIVE, "01PLAIN")).shared).toBeNull();
   });
 
   it("asks for the file bytes unencoded and takes no size from an encoded response", async () => {
@@ -286,6 +341,24 @@ describe("drive", () => {
     });
   });
 
+  it("descends into a OneNote notebook, which Graph returns as a package without a folder facet", async () => {
+    const graph = createFakeGraph([
+      {
+        url: (u) => u.pathname === `/v1.0/drives/${DRIVE}/root:/Notebook`,
+        respond: {
+          status: 200,
+          json: { id: "01NB", name: "Notebook", package: { type: "oneNote" } },
+        },
+      },
+      {
+        url: (u) => u.pathname === `/v1.0/drives/${DRIVE}/items/01NB:/Sections`,
+        respond: { status: 200, json: { id: "01SG", name: "Sections", folder: {} } },
+      },
+    ]);
+    expect(await ensureDriveFolderPath(graph.client(), DRIVE, "Notebook/Sections")).toBe("01SG");
+    expect(graph.callsTo("POST", "/children")).toEqual([]);
+  });
+
   it("refuses to treat a file as a folder", async () => {
     const graph = createFakeGraph([
       {
@@ -385,6 +458,102 @@ describe("upload sessions", () => {
     ).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(UploadSessionError);
     expect((error as UploadSessionError).details.nextExpectedRanges).toEqual(["655360-"]);
+  });
+
+  it("carries a 40-fragment upload through a 502, a reset and a timeout without starting again at 0", async () => {
+    const unit = UPLOAD_FRAGMENT_UNIT;
+    const data = Buffer.alloc(40 * unit);
+    for (let i = 0; i < data.length; i++) {
+      data[i] = (i * 31 + (i >> 9)) & 0xff;
+    }
+    const drive = new FakeDrive(DRIVE);
+    // Fragment 17 refused with 502; fragment 5 taken but the connection breaks before the
+    // answer; fragment 30 taken but no answer in time, so the client's resend gets 416.
+    drive.failFragmentAt(17 * unit, { kind: "status", status: 502 });
+    drive.failFragmentAt(5 * unit, { kind: "reset-after-accept" });
+    drive.failFragmentAt(30 * unit, { kind: "timeout-after-accept" });
+    const client = drive.graph.client();
+    const session = await createUploadSession(client, DRIVE, "root", "big.bin");
+
+    // A sequential source, as a MIME attachment is: the current fragment is resent from memory.
+    const outcome = await uploadToSession<{ id: string }>(
+      client,
+      session,
+      Readable.from([data]),
+      data.length,
+      { fragmentSize: unit, bounds: OUTLOOK_FRAGMENT_BOUNDS, retryDelayMs: 0 },
+    );
+
+    expect(outcome.result?.id).toBeDefined();
+    expect(must(drive.child("root", "big.bin")).content.equals(data)).toBe(true);
+    const ranges = must([...drive.sessions.values()][0]).ranges;
+    // Never from byte 0 again: 40 fragments, the 502 one twice, the timed-out one twice.
+    expect(ranges.filter((range) => range.startsWith("bytes 0-"))).toHaveLength(1);
+    expect(ranges.filter((range) => range.startsWith(`bytes ${17 * unit}-`))).toHaveLength(2);
+    expect(ranges.filter((range) => range.startsWith(`bytes ${30 * unit}-`))).toHaveLength(2);
+    expect(ranges.filter((range) => range.startsWith(`bytes ${6 * unit}-`))).toHaveLength(1);
+    expect(ranges).toHaveLength(42);
+  });
+
+  it("gives up after a bounded number of attempts and cancels the session", async () => {
+    const unit = UPLOAD_FRAGMENT_UNIT;
+    const data = Buffer.alloc(3 * unit, 7);
+    const drive = new FakeDrive(DRIVE);
+    drive.failFragmentAt(unit, { kind: "status", status: 500 }, 100);
+    const client = drive.graph.client();
+    const session = await createUploadSession(client, DRIVE, "root", "big.bin");
+
+    const error = await uploadToSessionOrCancel(client, session, data, data.length, {
+      fragmentSize: unit,
+      bounds: OUTLOOK_FRAGMENT_BOUNDS,
+      fragmentAttempts: 4,
+      retryDelayMs: 0,
+    }).catch((e: unknown) => e);
+
+    expect(error).toMatchObject({ status: 500 });
+    const stored = must([...drive.sessions.values()][0]);
+    expect(stored.ranges.filter((range) => range.startsWith(`bytes ${unit}-`))).toHaveLength(4);
+    expect(stored.cancelled).toBe(true);
+    expect(drive.child("root", "big.bin")).toBeUndefined();
+  });
+
+  it("seeks a range reader back when the session lost an earlier fragment", async () => {
+    const unit = UPLOAD_FRAGMENT_UNIT;
+    const data = Buffer.alloc(4 * unit);
+    for (let i = 0; i < data.length; i++) {
+      data[i] = (i * 7) & 0xff;
+    }
+    const drive = new FakeDrive(DRIVE);
+    drive.failFragmentAt(2 * unit, { kind: "lose-previous" });
+    const client = drive.graph.client();
+    const session = await createUploadSession(client, DRIVE, "root", "big.bin");
+    const reads: number[] = [];
+    await uploadToSession(
+      client,
+      session,
+      async (offset, length) => {
+        reads.push(offset);
+        return data.subarray(offset, offset + length);
+      },
+      data.length,
+      { fragmentSize: unit, bounds: OUTLOOK_FRAGMENT_BOUNDS, retryDelayMs: 0 },
+    );
+    expect(must(drive.child("root", "big.bin")).content.equals(data)).toBe(true);
+    expect(reads).toEqual([0, unit, 2 * unit, unit, 2 * unit, 3 * unit]);
+
+    // A stream cannot go back: the upload fails, clearly, instead of storing a gap.
+    const second = new FakeDrive(DRIVE);
+    second.failFragmentAt(2 * unit, { kind: "lose-previous" });
+    const client2 = second.graph.client();
+    const session2 = await createUploadSession(client2, DRIVE, "root", "big.bin");
+    await expect(
+      uploadToSessionOrCancel(client2, session2, Readable.from([data]), data.length, {
+        fragmentSize: unit,
+        bounds: OUTLOOK_FRAGMENT_BOUNDS,
+        retryDelayMs: 0,
+      }),
+    ).rejects.toThrow(/the source is sequential/);
+    expect(must([...second.sessions.values()][0]).cancelled).toBe(true);
   });
 
   it("creates a OneDrive upload session with conflict behaviour and timestamps", async () => {

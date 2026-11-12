@@ -16,9 +16,33 @@ import (
 // exit code into 0 or 1 and pass over non-terminating errors; with the
 // wrapper a failing cmdlet stops the hook (exit 1), a native program's code is
 // kept (cmd /c exit 7 gives 7) and an own `exit 5` gives 5.
+//
+// The wrapper never sets $ErrorActionPreference = 'Stop'. Windows PowerShell
+// 5.1 wraps every stderr line of a native program in an ErrorRecord
+// (NativeCommandError) when the output is redirected, as it is for a hook, and
+// under 'Stop' the first such line ended the hook with exit 1, although
+// mysqldump, git or pg_dump only printed a warning or their progress. Instead
+// the default parameter value -ErrorAction Stop makes every cmdlet error
+// terminating (native programs have no such parameter), and the trap turns
+// any terminating error into exit 1 with its text on stderr. That includes
+// the statement-terminating errors that no preference governs: a .NET method
+// exception ([IO.Compression.ZipFile]::CreateFromDirectory on a missing
+// folder), a failed conversion, a division by zero, an unknown command. trap
+// and catch see those under the default preference Continue as well (only
+// SilentlyContinue and Ignore would swallow them), also from a child scope
+// (a .ps1, a script block): the hook ends with exit 1 before its next
+// statement runs. The Windows integration tests pin this.
+//
+// The exit line: $? is false after a native program that failed or that wrote
+// to stderr. A code other than 0 is kept; with code 0 the hook succeeded when
+// the last error is such a stderr line; anything else is 1.
 const (
-	powerShellPreamble = "[Console]::OutputEncoding = [Text.Encoding]::UTF8\n$ErrorActionPreference = 'Stop'\n"
-	powerShellExit     = "\nexit $(if ($?) { 0 } elseif ($LASTEXITCODE) { $LASTEXITCODE } else { 1 })\n"
+	powerShellPreamble = "[Console]::OutputEncoding = [Text.Encoding]::UTF8\n" +
+		"$PSDefaultParameterValues['*:ErrorAction'] = 'Stop'\n" +
+		"trap { [Console]::Error.WriteLine(($_ | Out-String).TrimEnd()); exit 1 }\n"
+	powerShellExit = "\nexit $(if ($?) { 0 } elseif ($LASTEXITCODE) { $LASTEXITCODE } " +
+		"elseif ($Error.Count -gt 0 -and $Error[0] -is [Management.Automation.ErrorRecord] -and " +
+		"$Error[0].FullyQualifiedErrorId -like 'NativeCommandError*') { 0 } else { 1 })\n"
 )
 
 // WrapPowerShell returns the script a hook command runs as.

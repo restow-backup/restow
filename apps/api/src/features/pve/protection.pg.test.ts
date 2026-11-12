@@ -35,6 +35,7 @@ import {
   pveSnapshots,
   tenants,
 } from "@restow/db";
+import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { withTenantTx } from "../../lib/tenant-context.js";
 import { provisionTestRoles, type TestDatabaseRoles } from "../../testing/database-roles.js";
@@ -161,6 +162,13 @@ async function seed(db: Database): Promise<Fixture> {
     lastSuccessAt: ago(4 * DAY),
     excludedAt: ago(DAY),
     excludedBy: "admin@contoso.test",
+  });
+  // A restored copy not yet accepted and a boot test's leftover, both in no job: no guest to
+  // protect, so none of the counts below moves (S14).
+  await guest(contoso, contosoCluster, 107, "web-restored", { kind: "ct", pool: "restow-restore" });
+  await guest(contoso, contosoCluster, 9001, "restow-boottest-101", {
+    tags: ["restow-boottest"],
+    pool: "restow-restore",
   });
   const foreign = await guest(fabrikam, fabrikamCluster, 101, "fabrikam-vm");
 
@@ -422,5 +430,137 @@ describe.skipIf(!testDatabaseAdminUrl)("VMs and containers in the overviews", ()
     const aggregate = aggregateTenant(tenantFacts, period, "tenant");
     expect(aggregate.readinessEnd).toEqual({ green: 2, yellow: 0, red: 1, unverified: 2 });
     expect(aggregate.available.objects).toBe(true);
+  });
+
+  it("says when a guest's check waits far longer than expected, and which run holds it back (0.5.0)", async () => {
+    const { readinessOverview } = await import("../verify/service.js");
+    const cacheRow = async () =>
+      (await readinessOverview(appDb, f.contoso, NOW)).guests.find((row) => row.name === "cache");
+    const [cluster] = await owner
+      .select({ clusterId: pveGuests.clusterId })
+      .from(pveGuests)
+      .where(eq(pveGuests.id, f.guests.cache));
+    // Due five minutes ago: queued, nothing more.
+    await owner
+      .update(pveSnapshots)
+      .set({ verifyRequestedAt: ago(5 * 60_000) })
+      .where(eq(pveSnapshots.guestId, f.guests.cache));
+    expect(await cacheRow()).toMatchObject({
+      checkRequested: true,
+      checkRequestedAt: ago(5 * 60_000).toISOString(),
+      checkOverdue: false,
+      checkBlockedBy: null,
+    });
+    // Due two hours ago, and a restore of the guest still recorded as running since yesterday.
+    await owner
+      .update(pveSnapshots)
+      .set({ verifyRequestedAt: ago(2 * HOUR) })
+      .where(eq(pveSnapshots.guestId, f.guests.cache));
+    const [restore] = await owner
+      .insert(pveRuns)
+      .values({
+        tenantId: f.contoso,
+        clusterId: cluster?.clusterId ?? "",
+        guestId: f.guests.cache,
+        kind: "restore",
+        origin: "pve",
+        startedAt: ago(20 * HOUR),
+      })
+      .returning();
+    try {
+      expect(await cacheRow()).toMatchObject({
+        checkRequested: true,
+        checkOverdue: true,
+        checkBlockedBy: { kind: "restore", since: ago(20 * HOUR).toISOString() },
+        checkWaitsFor: null,
+      });
+    } finally {
+      await owner.delete(pveRuns).where(eq(pveRuns.id, restore?.id ?? ""));
+      await owner
+        .update(pveSnapshots)
+        .set({ verifyRequestedAt: null })
+        .where(eq(pveSnapshots.guestId, f.guests.cache));
+    }
+    expect(await cacheRow()).toMatchObject({ checkRequested: false, checkOverdue: false });
+  });
+
+  it("does not call a check overdue that waits behind a backup that is going (0.5.0)", async () => {
+    const { readinessOverview } = await import("../verify/service.js");
+    const cacheRow = async () =>
+      (await readinessOverview(appDb, f.contoso, NOW)).guests.find((row) => row.name === "cache");
+    const [cluster] = await owner
+      .select({ clusterId: pveGuests.clusterId })
+      .from(pveGuests)
+      .where(eq(pveGuests.id, f.guests.cache));
+    // "Check now" two hours ago, and a full backup of a large VM running for three hours, which
+    // reported progress a minute ago: the check waits for it, as it should.
+    await owner
+      .update(pveSnapshots)
+      .set({ verifyRequestedAt: ago(2 * HOUR) })
+      .where(eq(pveSnapshots.guestId, f.guests.cache));
+    const [backup] = await owner
+      .insert(pveRuns)
+      .values({
+        tenantId: f.contoso,
+        clusterId: cluster?.clusterId ?? "",
+        guestId: f.guests.cache,
+        kind: "backup",
+        origin: "restow",
+        startedAt: ago(3 * HOUR),
+        progress: {
+          bytesDone: 1,
+          bytesTotal: null,
+          bytesUploaded: null,
+          bytesPerSecond: null,
+          at: ago(60_000).toISOString(),
+        },
+      })
+      .returning();
+    try {
+      expect(await cacheRow()).toMatchObject({
+        checkRequested: true,
+        checkOverdue: false,
+        checkBlockedBy: null,
+        checkWaitsFor: { kind: "backup", since: ago(3 * HOUR).toISOString() },
+      });
+      // An after-backup check due 40 minutes ago behind the next round's backup, which started
+      // 15 minutes ago and reported no progress yet: 25 minutes of waiting before it, not overdue.
+      await owner
+        .update(pveRuns)
+        .set({ startedAt: ago(15 * 60_000), progress: null })
+        .where(eq(pveRuns.id, backup?.id ?? ""));
+      await owner
+        .update(pveSnapshots)
+        .set({ verifyRequestedAt: ago(40 * 60_000) })
+        .where(eq(pveSnapshots.guestId, f.guests.cache));
+      expect(await cacheRow()).toMatchObject({
+        checkOverdue: false,
+        checkBlockedBy: null,
+        checkWaitsFor: { kind: "backup", since: ago(15 * 60_000).toISOString() },
+      });
+      // Due for two hours before that backup began: the pass did not get to it, overdue, and the
+      // backup is not named as the reason.
+      await owner
+        .update(pveSnapshots)
+        .set({ verifyRequestedAt: ago(2 * HOUR) })
+        .where(eq(pveSnapshots.guestId, f.guests.cache));
+      expect(await cacheRow()).toMatchObject({ checkOverdue: true, checkBlockedBy: null });
+      // The same backup, silent for more than two hours: it is named as what holds the check.
+      await owner
+        .update(pveRuns)
+        .set({ startedAt: ago(5 * HOUR) })
+        .where(eq(pveRuns.id, backup?.id ?? ""));
+      expect(await cacheRow()).toMatchObject({
+        checkOverdue: true,
+        checkBlockedBy: { kind: "backup", since: ago(5 * HOUR).toISOString() },
+        checkWaitsFor: null,
+      });
+    } finally {
+      await owner.delete(pveRuns).where(eq(pveRuns.id, backup?.id ?? ""));
+      await owner
+        .update(pveSnapshots)
+        .set({ verifyRequestedAt: null })
+        .where(eq(pveSnapshots.guestId, f.guests.cache));
+    }
   });
 });

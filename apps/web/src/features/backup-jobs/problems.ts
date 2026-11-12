@@ -60,6 +60,7 @@ export type ProblemTarget =
   | "retention"
   | "retentionPolicy"
   | "archiveCapture"
+  | "sql"
   | "general";
 
 export function problemTarget(path: readonly string[]): ProblemTarget {
@@ -93,6 +94,8 @@ export function problemTarget(path: readonly string[]): ProblemTarget {
           return "hooks";
         case "retention":
           return "retention";
+        case "sql":
+          return "sql";
         default:
           return "general";
       }

@@ -25,6 +25,7 @@ const summary = (overrides: Partial<EndpointSummaryDto> = {}): EndpointSummaryDt
     overdue: false,
     basis: "restore_test",
     latestSnapshotId: "a".repeat(64),
+    noSamples: false,
   },
   latestRun: null,
   attention: [],

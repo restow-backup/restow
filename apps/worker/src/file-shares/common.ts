@@ -5,18 +5,18 @@
  * overlapping (the endpoints' advisory lock, keyed by the share).
  */
 
-import type { HostResolver } from "@restow/core";
+import type { HostResolver, StorageBackend } from "@restow/core";
 import {
   ensureRepositoryPasswordFile,
   FILE_SHARE_PASSWORD_KIND,
   type FileShareSettings,
   fileShareRepositoryKey,
-  fileShareRepositoryPrefix,
   fileShareSettingsOf,
   type MounterRunnerCaps,
   mounterRunnerCapsFromEnv,
   type RepositoryAccess,
   type RunnerClient,
+  repositoryPrefixOf,
   resticBinary,
   resticCacheBase,
   SHARE_SNAPSHOT_ROOT,
@@ -39,6 +39,7 @@ import {
   type WorkerRuntime,
   withTenantTx,
 } from "../handlers/framework.js";
+import { reportRepositoryPasswordFinding, targetIdOfBackend } from "../restore-mode.js";
 
 export interface FileShareDeps {
   /** The application role (Row Level Security). */
@@ -63,6 +64,12 @@ export interface FileShareDeps {
   readonly maintenanceLockWaitMs?: number;
   /** New starts are paused for an update (#46): the dispatcher starts no run meanwhile. */
   readonly startsPaused?: () => boolean;
+  /**
+   * Restore mode after restoring a database dump (restore-mode.ts): runs queued, or started,
+   * before this are from the restored dump and are held (cancelled with the explanation), never
+   * started or watched on. Null while restore mode is off.
+   */
+  readonly holdRunsBefore?: () => Promise<Date | null>;
 }
 
 export const MAINTENANCE_LOCK_WAIT_MS = 60_000;
@@ -131,10 +138,20 @@ export async function openTenantSecret(
   return new PgSecretReader(tenantRunner(deps.db, tenantId), tenantId, keys).get(secretId);
 }
 
+/**
+ * The prefix a share's repository lies under: `file-shares/<id>/`, or the fresh prefix it began
+ * under when what lay there could not be cleared (write-once storage, `file_shares.repository_prefix`).
+ */
+export function shareRepositoryPrefix(share: Pick<FileShare, "id" | "repositoryPrefix">): string {
+  return repositoryPrefixOf("file_share", share.id, share.repositoryPrefix);
+}
+
 /** What restic needs to open a share's repository on the tenant's primary target. */
 export async function shareRepositoryAccess(
   deps: FileShareDeps,
-  share: Pick<FileShare, "id" | "tenantId" | "repositorySecretId">,
+  share: Pick<FileShare, "id" | "tenantId" | "repositorySecretId" | "repositoryPrefix">,
+  /** The target a run was pinned to (docs/STORAGE.md, "Runs and storage changes"); else the primary. */
+  storage?: StorageBackend,
 ): Promise<RepositoryAccess> {
   if (!share.repositorySecretId) {
     throw new FileShareGoneError(share.id);
@@ -143,10 +160,10 @@ export async function shareRepositoryAccess(
   if (password === null) {
     throw new FileShareGoneError(share.id);
   }
-  const targets = await deps.runtime.storage.get(share.tenantId);
+  const backend = storage ?? (await deps.runtime.storage.get(share.tenantId)).primary;
   return {
-    storage: targets.primary,
-    prefix: fileShareRepositoryPrefix(share.id),
+    storage: backend,
+    prefix: shareRepositoryPrefix(share),
     repositoryPassword: password,
     repositoryKey: fileShareRepositoryKey(share.id),
     binary: resticBinary(),
@@ -174,7 +191,7 @@ export async function openShareRepository(
 export async function keepSharePasswordFile(
   deps: FileShareDeps,
   share: Pick<FileShare, "id" | "tenantId">,
-  access: Pick<RepositoryAccess, "storage" | "repositoryPassword">,
+  access: Pick<RepositoryAccess, "storage" | "repositoryPassword" | "prefix">,
 ): Promise<void> {
   try {
     const keys = await deps.runtime.keyrings.get(share.tenantId);
@@ -183,6 +200,25 @@ export async function keepSharePasswordFile(
       id: share.id,
       password: access.repositoryPassword,
       keys,
+      prefix: access.prefix,
+      // A stored document that differs is never replaced: it may be the only copy of the
+      // password of backups the database does not know (after restoring a database dump).
+      onDifferent: async (finding) =>
+        reportRepositoryPasswordFinding(
+          deps.providerDb,
+          {
+            tenantId: share.tenantId,
+            targetId: await targetIdOfBackend(
+              (id) => deps.runtime.storage.get(id),
+              share.tenantId,
+              access.storage,
+            ),
+            objectKey: finding.key,
+            storedSha256: finding.storedSha256,
+            kind: finding.kind,
+          },
+          deps.runtime.logger,
+        ),
     });
   } catch (error) {
     deps.runtime.logger.warn("could not store the sealed file share repository password", {

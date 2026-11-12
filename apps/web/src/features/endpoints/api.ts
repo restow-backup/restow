@@ -1,6 +1,12 @@
-import type { MachineFacts, ProfileDetection } from "@/features/backup-jobs/api";
+import type {
+  JobSqlSettings,
+  MachineFacts,
+  ProfileDetection,
+  WindowsSqlInstance,
+} from "@/features/backup-jobs/api";
 import type { BandwidthWindow } from "@/features/backup-jobs/bandwidth-windows";
 import type { Failure } from "@/features/failures";
+import { downloadFile } from "@/features/stats/download";
 import { apiFetch } from "@/lib/api";
 
 import type { EndpointProfile } from "./paths.js";
@@ -45,9 +51,15 @@ export interface EndpointReadiness {
   overdue: boolean;
   basis: "restore_test" | "repository_check" | null;
   latestSnapshotId: string | null;
+  /**
+   * The newest backup recorded no sample files, so no restore test of it is possible (0.5.0;
+   * absent from older servers).
+   */
+  noSamples?: boolean;
 }
 
-export type RunKind = "backup" | "restore" | "verify_sample";
+/** `sql`, `sql_restore`, `sql_verify`: the native SQL Server backup of a Windows machine (preview). */
+export type RunKind = "backup" | "restore" | "verify_sample" | "sql" | "sql_restore" | "sql_verify";
 /** `cancelled` (0.4.2): stopped on request in the UI; neither a failure nor a backup. */
 export type RunStatus = "running" | "succeeded" | "partial" | "failed" | "cancelled";
 
@@ -156,6 +168,34 @@ export interface RunStats {
   totalBytesProcessed?: number;
   /** Whether a file system snapshot was used (agents from 0.5.0; also on a failed run). */
   consistency?: RunConsistency;
+  /** A SQL run: its instance and what became of each database. */
+  sql?: RunSqlStats;
+  /** The fixed warnings of the run (`app_files_not_app_backup`, `sql_log_growing`, ...). */
+  notices?: RunNotice[];
+}
+
+/** A fixed warning of a run or a machine; `subjects` names the applications or databases. */
+export interface RunNotice {
+  code: string;
+  subjects?: string[];
+  message?: string;
+}
+
+export interface RunSqlDatabase {
+  name: string;
+  /** `sql`: backed_up, skipped, failed; `sql_verify`: green, red, incomplete; `sql_restore`: restored, failed. */
+  outcome: string;
+  code?: string;
+  message?: string;
+  bytes?: number;
+  durationMs?: number;
+}
+
+export interface RunSqlStats {
+  instance: string;
+  databases?: RunSqlDatabase[];
+  newName?: string;
+  checkdb?: "clean" | "errors" | "skipped";
 }
 
 /**
@@ -177,7 +217,15 @@ export interface RunDetail extends RunSummary {
   stats: RunStats | null;
 }
 
-export type TaskKind = "backup_now" | "restore" | "verify_sample" | "update_config" | "uninstall";
+export type TaskKind =
+  | "backup_now"
+  | "restore"
+  | "verify_sample"
+  | "update_config"
+  | "uninstall"
+  | "sql_restore"
+  | "sql_verify"
+  | "sql_inventory";
 export type TaskStatus = "pending" | "delivered" | "done" | "failed" | "cancelled";
 
 export interface EndpointTask {
@@ -196,7 +244,7 @@ export interface EndpointTask {
   cancelledBy?: string | null;
 }
 
-export type ReportKind = "restore_test" | "repository_check" | "retention";
+export type ReportKind = "restore_test" | "repository_check" | "retention" | "sql_verify";
 
 export interface ReportMismatch {
   path: string;
@@ -217,6 +265,10 @@ export interface ReportData {
   unrecordedSnapshots?: number;
   /** Snapshots dated in the future or after their file was stored. */
   futureSnapshots?: number;
+  /** The prune only deleted unused data because space was short (docs/STORAGE.md). */
+  pruneMode?: "full" | "delete_only";
+  /** Retention could not free space: the storage target is full. */
+  targetFull?: boolean;
   errorMessage?: string;
   [key: string]: unknown;
 }
@@ -342,10 +394,19 @@ export interface EndpointDetail extends EndpointSummary {
     state: "scheduled" | "held" | "deferred" | "done";
     expiresAt: string | null;
   } | null;
+  /**
+   * A requested deletion of the machine's backups that has not started yet (0.5.0): they go on
+   * `dueAt` unless a provider owner cancels. Null or missing for none.
+   */
+  backupDeletion?: BackupDeletion | null;
   config: EndpointConfig;
   /** null when the agent does not report data folders (before 0.4.0, macOS). */
   dataFolders: EndpointDataFolders | null;
   machine: EndpointMachine;
+  /** The fixed warnings of the machine's file backup (Windows roles, 0.5.0; else missing). */
+  appNotices?: RunNotice[];
+  /** The native SQL Server backup: the agent can do it, a job switched it on (0.5.0; else missing). */
+  sqlNative?: { capable: boolean; enabled: boolean };
   configVersion: number;
   /** The configuration version the agent runs; differs from `configVersion` until it fetched the change. */
   agentConfigVersion: number | null;
@@ -1145,6 +1206,11 @@ export const endpointKeys = {
     ["tenant", tenantId, "endpoints", "detail", endpointId, "recoveries", recoveryId] as const,
   recoveryIso: (tenantId: TenantKey) => ["tenant", tenantId, "recovery-iso"] as const,
   capabilities: (tenantId: TenantKey) => ["tenant", tenantId, "endpoints", "capabilities"] as const,
+  /** Below the detail, so refreshing the machine refreshes its SQL part. */
+  sql: (tenantId: TenantKey, endpointId: string) =>
+    ["tenant", tenantId, "endpoints", "detail", endpointId, "sql"] as const,
+  sqlBackups: (tenantId: TenantKey, endpointId: string, databaseId: string) =>
+    ["tenant", tenantId, "endpoints", "detail", endpointId, "sql", "backups", databaseId] as const,
 };
 
 // --- Requests ---------------------------------------------------------------------
@@ -1189,8 +1255,22 @@ export function revokeEndpoint(endpointId: string): Promise<void> {
   return apiFetch<void>(`${BASE}/${id(endpointId)}/revoke`, { method: "POST" });
 }
 
-/** How a removed machine's backups go (#65): deleted now, or kept until they expire. */
+/**
+ * How a removed machine's backups go (#65): deleted (since 0.5.0 seven days after the request,
+ * provider owners only), or kept until they expire.
+ */
 export type RemovalMode = "delete" | "expire";
+
+/** A pending deletion of a machine's backups (EndpointDetail.backupDeletion). */
+export interface BackupDeletion {
+  dueAt: string;
+  requestedAt: string;
+  requestedBy: string;
+  reason: string | null;
+  /** `held`: a legal hold or a suspicion holds it; the worker looks again daily. */
+  state: "scheduled" | "held";
+  heldBy: "legal_hold" | "suspicion" | null;
+}
 
 /** A removed machine whose backups are not deleted yet (GET /endpoints/removals). */
 export interface EndpointRemoval {
@@ -1210,17 +1290,29 @@ export interface EndpointRemoval {
   deletedObjects: number;
   repositoryBytes: number | null;
   lastError: string | null;
+  /** `delete` (0.5.0): why. Missing from older servers. */
+  reason?: string | null;
+  /** `delete` (0.5.0): not started yet, so it can still be cancelled. */
+  cancellable?: boolean;
 }
 
-/** Remove a revoked machine from the lists; its backups go now or when they expire. */
+/**
+ * Remove a revoked machine: its backups are deleted in seven days (`delete`, with a reason; the
+ * machine stays listed until then), or it leaves the lists and its backups go when they expire.
+ */
 export function removeEndpoint(
   endpointId: string,
-  input: { mode: RemovalMode; confirmHostname: string },
+  input: { mode: RemovalMode; confirmHostname: string; reason?: string },
 ): Promise<EndpointRemoval> {
   return apiFetch<EndpointRemoval>(`${BASE}/${id(endpointId)}/remove`, {
     method: "POST",
     body: input,
   });
+}
+
+/** Cancel a scheduled deletion of a machine's backups before it starts (provider owners). */
+export function cancelRemoval(endpointId: string): Promise<void> {
+  return apiFetch<void>(`${BASE}/${id(endpointId)}/remove/cancel`, { method: "POST" });
 }
 
 export async function fetchRemovals(): Promise<EndpointRemoval[]> {
@@ -1380,6 +1472,145 @@ export function revokeRecoveryCode(endpointId: string, codeId: string): Promise<
   });
 }
 
+// --- SQL Server (preview, docs/BAREMETAL-WINDOWS.md 5.1) -------------------------------------
+
+export type SqlDatabaseRating = "not_protected" | "unverified" | "green" | "red" | "overdue";
+export type SqlSignIn = "ok" | "missing" | "permission" | "error" | "unknown";
+
+export interface SqlProblem {
+  code: string;
+  step?: string;
+  number?: number;
+  message?: string;
+}
+
+export interface SqlInstance {
+  name: string;
+  facts: WindowsSqlInstance | null;
+  inventory: {
+    name: string;
+    state: "ok" | "error";
+    version?: string;
+    edition?: string;
+    clustered?: boolean;
+    hadr?: boolean;
+    backupCompressionDefault?: boolean;
+    login?: { name: string; sysadmin: boolean; canCreateDatabase: boolean };
+    error?: SqlProblem;
+  } | null;
+  signIn: SqlSignIn;
+  loginScripts: { sysadmin: string; minimal: string };
+}
+
+export interface SqlBackup {
+  id: string;
+  kind: "full" | "log" | "tail";
+  copyOnly: boolean;
+  snapshotId: string;
+  backupStart: string;
+  backupFinish: string;
+  bytes: number;
+  firstLsn: string;
+  lastLsn: string;
+  compressed: boolean;
+  checksum: boolean;
+  status: "active" | "pruned";
+}
+
+export interface SqlVerification {
+  outcome: "green" | "red" | "incomplete";
+  checkedAt: string;
+  code: string | null;
+  physicalOnly: boolean;
+  backupId: string | null;
+  evidence: { source: string; number?: number; message: string }[];
+}
+
+export interface SqlDatabase {
+  id: string;
+  instance: string;
+  name: string;
+  recoveryModel: string;
+  mode: string;
+  system: boolean;
+  state: string | null;
+  encrypted: boolean;
+  tdeConfirmedAt: string | null;
+  sizeBytes: number | null;
+  usedBytes: number | null;
+  droppedAt: string | null;
+  selected: boolean;
+  rating: SqlDatabaseRating;
+  lastBackup: SqlBackup | null;
+  lastVerification: SqlVerification | null;
+  lastForeignFullAt: string | null;
+}
+
+export interface SqlOverview {
+  capable: boolean;
+  enabled: boolean;
+  settings: JobSqlSettings | null;
+  verify: NonNullable<JobSqlSettings["verify"]>;
+  inventoryAt: string | null;
+  inventoryTruncated: boolean;
+  instances: SqlInstance[];
+  databases: SqlDatabase[];
+  pending: { verify: number; restore: number; inventory: number };
+  account: string;
+}
+
+export interface SqlRestoreInput {
+  backupId: string;
+  newName: string;
+  targetInstance?: string;
+  checkdb?: boolean;
+}
+
+export function fetchSqlOverview(endpointId: string): Promise<SqlOverview> {
+  return apiFetch<SqlOverview>(`${BASE}/${id(endpointId)}/sql`);
+}
+
+export async function fetchSqlBackups(
+  endpointId: string,
+  databaseId: string,
+): Promise<SqlBackup[]> {
+  const body = await apiFetch<{ backups: SqlBackup[] }>(
+    `${BASE}/${id(endpointId)}/sql/databases/${id(databaseId)}/backups`,
+  );
+  return body.backups;
+}
+
+export function requestSqlRestore(
+  endpointId: string,
+  input: SqlRestoreInput,
+): Promise<{ taskId: string }> {
+  return apiFetch(`${BASE}/${id(endpointId)}/sql/restore`, { method: "POST", body: input });
+}
+
+export function requestSqlVerify(
+  endpointId: string,
+  databaseId?: string,
+): Promise<{ queued: string[]; alreadyQueued: string[] }> {
+  return apiFetch(`${BASE}/${id(endpointId)}/sql/verify`, {
+    method: "POST",
+    body: databaseId ? { databaseId } : {},
+  });
+}
+
+export function requestSqlInventory(endpointId: string): Promise<{ alreadyQueued: boolean }> {
+  return apiFetch(`${BASE}/${id(endpointId)}/sql/inventory`, { method: "POST", body: {} });
+}
+
+export function confirmSqlTde(
+  endpointId: string,
+  databaseId: string,
+): Promise<{ confirmedAt: string }> {
+  return apiFetch(`${BASE}/${id(endpointId)}/sql/databases/${id(databaseId)}/tde-confirm`, {
+    method: "POST",
+    body: {},
+  });
+}
+
 export function extendRecoveryCode(
   endpointId: string,
   codeId: string,
@@ -1424,6 +1655,18 @@ export function createRebindToken(
   return apiFetch<CreatedRebindToken>(`${BASE}/${id(endpointId)}/rebind-token`, {
     method: "POST",
     body: input,
+  });
+}
+
+/**
+ * Save the restore script of one backup for another machine (PowerShell, audited by the server).
+ * It carries no secret; it comes through the tenant's session and the browser saves it.
+ */
+export function downloadSqlRestoreScript(endpointId: string, backupId: string): Promise<string> {
+  return downloadFile({
+    path: `${BASE}/${id(endpointId)}/sql/backups/${id(backupId)}/restore-script`,
+    accept: "text/plain",
+    fallbackName: "restore.ps1",
   });
 }
 

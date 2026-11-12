@@ -117,6 +117,42 @@
         "title": "Microsoft hatte ein vorübergehendes Dienstproblem",
         "why": "Microsoft hat mit einem Serverfehler geantwortet{has_httpStatus, select, yes { (HTTP {httpStatus})} other {}}. Solche Fehler verschwinden meist innerhalb weniger Minuten von selbst."
       },
+      "outcome_unknown": {
+        "title": "Microsoft hat nicht bestätigt, ob die Änderung ausgeführt wurde",
+        "why": "{appName} hat bei Microsoft etwas angelegt (zum Beispiel eine Nachricht, einen Kontakt oder einen Ordner). Microsoft hat {reason, select, timeout {nicht rechtzeitig geantwortet} other {mit einem Gateway- oder Dienstfehler geantwortet{has_httpStatus, select, yes { (HTTP {httpStatus})} other {}}}}. Ob das Element angelegt wurde, ist damit unbekannt. Damit keine Doppelung entsteht, sendet {appName} die Anfrage nicht blind erneut; der nächste Versuch prüft zuerst, was im Ziel schon vorhanden ist."
+      },
+      "online_archive_not_covered": {
+        "title": "Das Online-Archiv dieses Postfachs wird nicht gesichert",
+        "why": "Dieses Postfach hat ein Online-Archiv (In-Place Archive). Microsoft Graph bietet dafür keine allgemein verfügbare Schnittstelle, deshalb sichert {appName} nur das primäre Postfach. Mails, die eine Aufbewahrungsrichtlinie oder ein Benutzer ins Online-Archiv verschiebt, fehlen ab dann in den neuen Sicherungsständen; ältere Sicherungsstände behalten sie, bis deren Aufbewahrung abläuft."
+      },
+      "online_archive_unknown": {
+        "title": "Ob dieses Postfach ein Online-Archiv hat, ließ sich nicht prüfen",
+        "why": "{appName} fragt bei jedem Lauf bei Microsoft nach, ob das Postfach ein Online-Archiv (In-Place Archive) hat, denn das Archiv wird nicht gesichert. Microsoft hat die Frage diesmal nicht beantwortet (zum Beispiel fehlende Berechtigung User.Read.All oder die Beta-Schnittstelle nicht verfügbar). Hat das Postfach ein Archiv, fehlen Mails, die eine Aufbewahrungsrichtlinie dorthin verschiebt, ab dann in den neuen Sicherungsständen, ohne dass es auffällt. Der nächste Lauf fragt erneut."
+      },
+      "group_event_attachments_not_covered": {
+        "title": "Anhänge von Terminen im Gruppenkalender werden nicht gesichert",
+        "why": "{count, plural, one {# Termin} other {# Termine}} im Kalender dieser Gruppe {count, plural, one {hat} other {haben}} Anhänge. Microsoft Graph gibt Anhänge von Gruppenterminen nicht an die App heraus, deshalb sichert {appName} nur die Termine selbst. Eine Wiederherstellung legt diese Termine ohne ihre Anhänge an."
+      },
+      "group_post_attachments_refused": {
+        "title": "Anhänge von Gruppenbeiträgen wurden nicht gesichert",
+        "why": "{count, plural, one {# Beitrag} other {# Beiträge}} in den Unterhaltungen dieser Gruppe {count, plural, one {hat} other {haben}} Anhänge, die Microsoft Graph der App verweigert hat. {appName} hat die Beiträge ohne diese Anhänge gesichert; eine Wiederherstellung oder ein Export bringt sie ohne Anhänge zurück. Gibt Graph die Anhänge später heraus, holt {appName} sie beim nächsten Lauf nach."
+      },
+      "group_post_attachments_unreadable": {
+        "title": "Anhänge von Gruppenbeiträgen ließen sich nicht lesen",
+        "why": "{count, plural, one {# Beitrag} other {# Beiträge}} in den Unterhaltungen dieser Gruppe {count, plural, one {hat} other {haben}} Anhänge (zum Beispiel eine als Anlage weitergeleitete Mail), die Microsoft beim Abruf nicht ausgeliefert hat. {appName} hat die Beiträge ohne diese Anhänge gesichert und liest sie beim nächsten Lauf erneut."
+      },
+      "group_calendar_windowed": {
+        "title": "Der Gruppenkalender wurde nur in einem Zeitfenster gelesen",
+        "why": "Microsoft Graph hat der App die vollständige Terminliste dieses Gruppenkalenders verweigert. {appName} hat ihn deshalb über die Kalenderansicht{has_windowStart, select, yes { vom {windowStart}{has_windowEnd, select, yes { bis zum {windowEnd}} other {}}} other { (fünf Jahre zurück bis zwei Jahre voraus)}} gelesen. Termine außerhalb dieses Fensters bleiben so in der Sicherung, wie sie zuletzt gesichert wurden; Änderungen oder Löschungen dort sieht dieser Lauf nicht."
+      },
+      "mail_content_unchecked": {
+        "title": "Der Inhalt einer geänderten Nachricht ließ sich nicht prüfen",
+        "why": "Diese Nachricht wurde seit dem letzten Lauf geändert. Ob nur Markierung, Lesestatus oder Kategorie oder auch ihr Inhalt (Text, Anhänge) betroffen ist, konnte {appName} nicht prüfen, weil Microsoft auf die Abfrage nicht geantwortet hat. Die Sicherung behält die zuletzt gesicherte Fassung, und der nächste Lauf prüft die Nachricht erneut und lädt sie neu, wenn sich ihr Inhalt geändert hat."
+      },
+      "mail_stored_without_mime": {
+        "title": "Eine Nachricht ist vorerst ohne ihre Originaldatei gesichert",
+        "why": "Microsoft hat die Originaldatei (MIME) dieser Nachricht über mehrere Läufe hinweg mit einem Serverfehler verweigert. {appName} hat ihren Inhalt deshalb als JSON gesichert (Text, Kopfzeilen und jeder Anhang einzeln): Sie lässt sich wiederherstellen, aber ein Export als EML, MBOX oder PST hat bis dahin keine Originaldatei. Die nächsten Läufe fragen die Originaldatei erneut an und ersetzen die JSON-Kopie, sobald Microsoft sie herausgibt."
+      },
       "item_not_found": {
         "title": "Das Element wurde inzwischen bei Microsoft geändert oder gelöscht",
         "why": "{appName} hatte dieses Element aufgelistet, konnte es danach aber nicht lesen, weil es dazwischen bei Microsoft verschoben oder gelöscht wurde. Der nächste Lauf sieht den neuen Stand."
@@ -143,7 +179,7 @@
       },
       "item_incomplete": {
         "title": "Microsoft hat das Element unvollständig gemeldet",
-        "why": "Microsoft hat dieses Element ohne Namen oder ohne seinen Ordner gemeldet. Ohne diese Angaben kann {appName} es nicht einordnen. Das passiert meist, wenn das Element gerade verschoben, umbenannt oder hochgeladen wird; der nächste Lauf versucht es erneut."
+        "why": "Microsoft hat dieses Element ohne Namen, ohne seinen Ordner oder ohne Angabe, ob es eine Datei, ein Ordner oder eine Verknüpfung ist, gemeldet. Ohne diese Angaben kann {appName} es nicht einordnen und nicht sichern. Das passiert meist, wenn das Element gerade verschoben, umbenannt oder hochgeladen wird; der nächste Lauf versucht es erneut. Bleibt der Fehler, prüfen Sie das Element in OneDrive oder SharePoint."
       },
       "subscription_failed": {
         "title": "Microsoft 365 sendet für dieses Postfach keine Änderungsbenachrichtigungen",
@@ -203,6 +239,10 @@
         "title": "Der IMAP-Server hat eine Nachricht nicht ausgeliefert",
         "why": "Der Server hat die Nachricht im Ordner aufgeführt, sie beim Abruf aber nicht zurückgegeben. Meist wurde sie zwischenzeitlich gelöscht oder verschoben, oder der Server hat den Abruf wegen einer Grenze abgebrochen. Der nächste Lauf versucht es erneut."
       },
+      "gmail_all_mail_hidden": {
+        "title": "Bei diesem Gmail-Konto ist „Alle Nachrichten“ für IMAP ausgeblendet",
+        "why": "Gmail zeigt jedes Label als eigenen IMAP-Ordner. {appName} liest bei Gmail jede Nachricht nur einmal aus „[Gmail]/Alle Nachrichten“ und merkt sich ihre Labels. Dieser Ordner ist für IMAP ausgeblendet, deshalb hat {appName} Ordner für Ordner gesichert: Jede Nachricht liegt einmal je Label in der Sicherung, und eine Wiederherstellung zu einem anderen Anbieter legt jede dieser Kopien an. Es fehlt nichts."
+      },
       "idle_unsupported": {
         "title": "Der IMAP-Server bietet kein IDLE an",
         "why": "Der Server meldet neue Mails nicht beim Eingang (IMAP IDLE). {appName} prüft das Konto stattdessen in festen Abständen auf neue Mails, sie erreichen das Archiv daher mit der Verzögerung dieses Abstands."
@@ -246,6 +286,10 @@
       "full": {
         "title": "Das Repository ist voll",
         "why": "Im Repository ist kein Platz mehr frei oder sein Kontingent ist aufgebraucht. {appName} kann keine neuen Backup-Daten schreiben, bis wieder Platz da ist."
+      },
+      "run_held": {
+        "title": "Angehalten: diese Sicherung ist ungewöhnlich groß",
+        "why": "Dieser Lauf hätte weit mehr hinzugefügt, als dieses Objekt sonst hinzufügt, oder seinem Speicherziel zu wenig freien Platz gelassen. {appName} hat ihn deshalb angehalten, bevor er den Speicher füllt. Bisher Geschriebenes geht nicht verloren. Jeder weitere Lauf dieses Objekts wartet, bis ein Administrator entscheidet."
       },
       "access_denied": {
         "title": "Der Speicherdienst hat den Zugriff verweigert",
@@ -331,6 +375,10 @@
         "title": "Das Verzeichnis des letzten Backups lässt sich nicht lesen",
         "why": "{appName} konnte die Liste dessen, was das letzte Backup enthält, nicht lesen. Ohne sie lässt sich aus diesem Backup nichts prüfen oder wiederherstellen."
       },
+      "manifest_missing": {
+        "title": "Das Verzeichnis einer Sicherung fehlt im Speicher",
+        "why": "Die Liste dessen, was die Sicherung enthält, fehlt auf jedem Speicherziel, obwohl dort die übrigen Daten dieses Mandanten liegen: Sie wurde dort gelöscht, etwa durch eine Lifecycle-Regel oder eine Bereinigung von Hand. Ohne sie lässt sich aus dieser Sicherung nichts wiederherstellen. Stellen Sie die Datei aus einer Kopie oder einem versionierten Bucket wieder her, oder führen Sie eine vollständige Sicherung aus."
+      },
       "no_snapshot": {
         "title": "Es gibt noch kein Backup zum Wiederherstellen",
         "why": "Dieses Objekt hat kein abgeschlossenes Backup, eine Wiederherstellung würde also nichts finden."
@@ -343,9 +391,25 @@
         "title": "Das letzte Backup wird alt",
         "why": "Das neueste Backup ist {ageHours, plural, one {# Stunde} other {# Stunden}} alt, mehr als ein Zeitplan normalerweise zulässt."
       },
+      "backup_incomplete": {
+        "title": "Die geprüfte Sicherung ist unvollständig",
+        "why": "{has_count, select, yes {{count, plural, one {# Element konnte} other {# Elemente konnten}}} other {Einige Elemente konnten}} beim Lauf, der diese Sicherung erstellt hat, nicht gesichert werden. Sie fehlen in der Sicherung, auch wenn alles andere einwandfrei zurückgelesen wird; der Lauf nennt sie mit ihrer Ursache. Der nächste Lauf versucht sie erneut."
+      },
+      "backup_incomplete_persistent": {
+        "title": "Dieselben Elemente fehlen in jeder Sicherung",
+        "why": "{has_count, select, yes {{count, plural, one {# Element konnte} other {# Elemente konnten}}} other {Einige Elemente konnten}} in den letzten drei Läufen in Folge nicht gesichert werden. Eine Wiederherstellung wäre unvollständig, bis die Ursache behoben ist; der Lauf nennt sie."
+      },
       "snapshot_empty": {
         "title": "Leer: Es gibt nichts wiederherzustellen",
         "why": "Das letzte Backup enthält nur Standardordner bzw. Systemseiten und 0 Bytes Inhalt. Das ist kein Fehler. Ein Administrator kann das Objekt als leer bestätigen, dann zählt es nicht mehr als „Achtung“. Sobald ein späteres Backup Inhalt enthält, wird es wieder wie jedes andere Objekt bewertet."
+      },
+      "snapshot_empty_source": {
+        "title": "Leer laut Microsoft 365 und laut Sicherung: Es gibt nichts wiederherzustellen",
+        "why": "Microsoft 365 meldet das Objekt als leer, gemessen vor und nach der Sicherung, und die letzte Sicherung enthält nur Standardordner und 0 Bytes. Eine Bestätigung ist nicht nötig: Das Objekt zählt als leer, nicht als „Achtung“. Sobald ein späteres Backup Inhalt enthält, wird es wieder wie jedes andere Objekt bewertet."
+      },
+      "backup_missing_source_content": {
+        "title": "Microsoft 365 meldet Inhalt, die Sicherung enthält keinen",
+        "why": "Microsoft 365 meldet für dieses Objekt Inhalt{has_count, select, yes { ({count, plural, one {# Element} other {# Elemente}})} other {}}, gemessen vor und nach der Sicherung, aber die letzte Sicherung enthält nur Standardordner und 0 Bytes. Eine Wiederherstellung brächte nichts zurück. Starten Sie eine vollständige Sicherung und prüfen Sie den letzten Lauf."
       },
       "nothing_to_verify": {
         "title": "Das Backup enthält nichts, was eine Prüfung zurücklesen kann",
@@ -358,6 +422,10 @@
       "incomplete": {
         "title": "Die Restore-Prüfung konnte nicht abgeschlossen werden",
         "why": "{appName} konnte die Backup-Daten nicht zurücklesen, aus einem Grund, der nichts über das Backup selbst aussagt. Es wurde nichts bewertet, das letzte Ergebnis bleibt bestehen; die Prüfung wird automatisch wiederholt. Die technischen Details nennen, was fehlgeschlagen ist."
+      },
+      "check_incomplete": {
+        "title": "Die letzten Prüfungen konnten nicht abgeschlossen werden",
+        "why": "{has_count, select, yes {{count, plural, one {Die letzte Prüfung} other {Die letzten # Prüfungen}}} other {Die letzten Prüfungen}} dieser Sicherung konnten sie nicht zurücklesen, weil der Speicher nicht geantwortet hat. Bis eine Prüfung abgeschlossen ist, gilt ein früheres Ergebnis nicht mehr als Beleg, dass sich die Sicherung wiederherstellen lässt."
       }
     },
     "config": {
@@ -416,6 +484,10 @@
       "interrupted": {
         "title": "Der Lauf wurde unterbrochen",
         "why": "{reason, select, shutdown {Der Worker wurde gestoppt oder neu gestartet, während der Lauf aktiv war.} update {Der Lauf wurde sauber angehalten, damit ein Update von {appName} installiert werden konnte.} expired {Der Lauf hat seine Zeitgrenze erreicht.} other {Der Lauf wurde unterbrochen, bevor er fertig war.}} {final, select, yes {Das war sein letzter Versuch, deshalb endete der Lauf als fehlgeschlagen: Sein Kontrollpunkt wurde verworfen, und der nächste Lauf beginnt von vorn. Sicherungen früherer Läufe sind davon nicht betroffen.} other {{appName} macht vom letzten Kontrollpunkt weiter und behält, was schon gesichert ist. Ein Halt durch ein Update oder einen Neustart verbraucht keinen der Versuche des Laufs.}}"
+      },
+      "restore_mode_hold": {
+        "title": "Der Auftrag wurde nach dem Zurückspielen der Datenbank angehalten",
+        "why": "Der Auftrag wurde angelegt, bevor der Datenbank-Dump zurückgespielt wurde, und der Wiederherstellungsmodus ist aktiv. {appName} setzt solche Aufträge nicht fort: Die zurückgespielte Datenbank kennt möglicherweise nicht, was der Auftrag nach dem Dump getan hat. Sicherungen früherer Läufe sind davon nicht betroffen."
       }
     },
     "unknown": {
@@ -445,11 +517,19 @@
       },
       "snapshot_unavailable": {
         "title": "Dateisystem-Snapshots sind auf diesem Rechner nicht nutzbar",
-        "why": "Der Agent konnte gar keinen Dateisystem-Snapshot anlegen, etwa weil unter Windows der Dienst Volumeschattenkopie deaktiviert ist, unter Linux die LVM- oder btrfs-Werkzeuge fehlen, oder weil der Agent ohne Administratorrechte läuft. Je nach Richtlinie lief die Sicherung direkt vom Dateisystem ohne Snapshot (eine teilweise Sicherung) oder gar nicht."
+        "why": "Der Agent konnte auf diesem Rechner überhaupt keinen Dateisystem-Snapshot anlegen. Unter Windows (Schattenkopie, VSS) ist zum Beispiel der Dienst \"Volumeschattenkopie\" deaktiviert oder nicht installiert, Windows hat dem Agent den Zugriff darauf verweigert (COM-Sicherheit, der Agent läuft nicht als SYSTEM), oder der Schattenkopie-Anbieter ist gescheitert; unter Linux fehlen die LVM- oder btrfs-Werkzeuge, oder der Agent läuft nicht als root. Das ist kein vorübergehender Fehler eines Laufwerks und bleibt, bis es auf dem Rechner behoben ist. Je nach Richtlinie wurde ohne Snapshot direkt vom Dateisystem gesichert (teilweise Sicherung) oder gar nicht."
       },
       "layout_capture_failed": {
         "title": "Das Plattenlayout des Rechners ließ sich nicht erfassen",
         "why": "Eine Sicherung des ganzen Rechners erfasst vor der Sicherung das Plattenlayout (Partitionstabellen, RAID, Verschlüsselung, LVM, Dateisysteme, Bootloader). Das ist gescheitert, etwa weil lsblk, blkid oder sfdisk auf dem Rechner fehlen. Die eingehängten Dateisysteme wurden trotzdem gesichert, die Sicherung ist also teilweise: Die Dateien sind da, aber mit diesem Wiederherstellungspunkt lässt sich der Rechner nicht auf neuer Hardware wiederherstellen."
+      },
+      "source_unreadable": {
+        "title": "Ein Sicherungsordner konnte nicht gelesen werden",
+        "why": "{has_path, select, yes {Der Sicherungspfad {path}} other {Ein Sicherungspfad}} existiert auf dem Rechner, konnte aber nicht gesichert werden und fehlt in dieser Sicherung. Übliche Gründe sind ein mit BitLocker gesperrtes Laufwerk, ein Laufwerk, das offline oder nicht bereit ist, fehlende Rechte des Agents oder ein Link, dem restic nicht folgt. Andere Pfade des Laufs wurden gesichert, soweit sie lesbar waren."
+      },
+      "source_is_mount_point": {
+        "title": "Ein Sicherungsordner ist ein Volume ohne Laufwerksbuchstaben",
+        "why": "{has_path, select, yes {{path}} other {Ein Sicherungspfad}} ist ein Ordner, in dem ein Volume ohne Laufwerksbuchstaben eingehängt ist. restic würde nur den Einhängepunkt sichern, nicht die Dateien auf dem Volume, deshalb wurde er nicht gesichert. Andere Pfade des Laufs wurden gesichert, soweit sie lesbar waren."
       },
       "timeout": {
         "title": "Der Lauf hat zu lange gedauert",
@@ -522,6 +602,86 @@
       "repository_damaged": {
         "title": "Die Sicherungsdaten sind beschädigt",
         "why": "Die Integritätsprüfung hat beschädigte oder fehlende Daten in den Sicherungen dieses Rechners gefunden. Neue Sicherungen sind nicht betroffen, ältere Daten lassen sich aber möglicherweise nicht wiederherstellen. Die technischen Details zeigen, was die Prüfung gemeldet hat."
+      },
+      "sql_instance_unreachable": {
+        "title": "Die SQL-Server-Instanz war nicht erreichbar",
+        "why": "Der Agent konnte über die lokale Verbindung keine Verbindung zur Instanz herstellen. Meist ist der SQL-Server-Dienst der Instanz gestoppt oder startet noch. Der nächste Lauf versucht es erneut."
+      },
+      "sql_login_missing": {
+        "title": "Der Agent hat keine Anmeldung an SQL Server",
+        "why": "SQL Server gibt weder dem Systemkonto noch den Administratoren des Rechners eigene Rechte, darum braucht das Dienstkonto des Agenten eine Anmeldung auf der Instanz. Bis es eine hat, scheitert jede Verbindung mit Fehler 18456."
+      },
+      "sql_permission_missing": {
+        "title": "Dem Agenten fehlen Rechte an SQL Server",
+        "why": "Der Agent ist angemeldet, aber seiner Anmeldung fehlt ein Recht, das die Sicherung, die Wiederherstellung oder die Prüfung braucht (etwa db_backupoperator auf einer Datenbank, die nach der Rechtevergabe angelegt wurde)."
+      },
+      "sql_powershell_constrained": {
+        "title": "Der Agent kann sich nicht verbinden: eingeschränkte Skriptumgebung",
+        "why": "Auf diesem Rechner läuft die Skriptumgebung von Windows im Constrained Language Mode (oft durch Anwendungssteuerung wie WDAC). In diesem Modus kann der Agent keine Verbindung zu SQL Server öffnen."
+      },
+      "sql_strict_encryption": {
+        "title": "Die Instanz verlangt strikte Verschlüsselung",
+        "why": "Die Instanz ist auf strikte Verschlüsselung (TDS 8) eingestellt. Die native Sicherung verbindet sich nicht mit Instanzen, die strikte Verschlüsselung verlangen."
+      },
+      "sql_fci_unsupported": {
+        "title": "Failover-Cluster-Instanzen werden nicht unterstützt",
+        "why": "Die Instanz gehört zu einem Failover-Cluster. Die native Sicherung sichert solche Instanzen nicht."
+      },
+      "sql_mode_unsupported": {
+        "title": "Der Agent kennt diese Sicherungsart nicht",
+        "why": "Der Backup-Job stellt eine Art der nativen SQL-Server-Sicherung ein, die dieser Agent nicht kennt. Er sichert lieber nichts als etwas anderes."
+      },
+      "sql_staging_unusable": {
+        "title": "Der Staging-Ordner kann nicht verwendet werden",
+        "why": "Der Staging-Ordner muss ein lokaler Ordner auf einem NTFS-Laufwerk mit Laufwerksbuchstaben sein, keine Verknüpfung und nicht unterhalb der Windows- oder Programmordner. Der Ordner darüber muss vorhanden sein, und nur SYSTEM und die Administratoren dürfen ihn ändern. Der Agent übernimmt einen neuen oder leeren Ordner und kennzeichnet ihn; ein Ordner, der schon andere Dateien enthält, wird abgelehnt, damit nichts von anderen geändert oder gelöscht wird."
+      },
+      "sql_staging_too_small": {
+        "title": "Im Staging-Ordner ist nicht genug Platz",
+        "why": "Eine Datenbank wurde nicht gesichert, weil ihre Sicherung mehr Platz im Staging-Ordner braucht, als frei ist. Die übrigen Datenbanken wurden gesichert."
+      },
+      "sql_database_unavailable": {
+        "title": "Eine Datenbank war nicht online",
+        "why": "Die Datenbank war offline, in Wiederherstellung, im Einzelbenutzermodus oder anders nicht verfügbar, darum wurde sie nicht gesichert."
+      },
+      "sql_backup_failed": {
+        "title": "SQL Server konnte die Sicherung nicht anlegen",
+        "why": "BACKUP DATABASE endete mit einem Fehler. Die Meldung von SQL Server steht in den Details."
+      },
+      "sql_snapshot_failed": {
+        "title": "Die Sicherung konnte nicht abgelegt werden",
+        "why": "Die Sicherungsdateien wurden angelegt, aber das Ablegen in den Sicherungsdaten ist fehlgeschlagen. Sie bleiben bis zum nächsten Lauf im Staging-Ordner."
+      },
+      "sql_script_failed": {
+        "title": "Das SQL-Skript des Agenten endete unerwartet",
+        "why": "Das Skript, das der Agent für SQL Server ausführt, endete ohne lesbares Ergebnis. Die Details zeigen, was ankam."
+      },
+      "sql_restore_name_taken": {
+        "title": "Der neue Name ist vergeben",
+        "why": "Auf der Zielinstanz gibt es eine Datenbank mit dem gewählten Namen. Die Wiederherstellung ersetzt nie eine vorhandene Datenbank."
+      },
+      "sql_restore_no_space": {
+        "title": "Für die Wiederherstellung ist nicht genug Platz",
+        "why": "Der Daten- oder Log-Ordner der Zielinstanz oder der Staging-Ordner der Wiederherstellung hat weniger freien Platz, als die Wiederherstellung braucht, zuzüglich der Reserve, die für die Datenbanken auf diesen Volumes frei bleibt (mindestens 1 GiB oder ein Zehntel des Volumes)."
+      },
+      "sql_restore_failed": {
+        "title": "Die Wiederherstellung ist fehlgeschlagen",
+        "why": "RESTORE DATABASE endete mit einem Fehler. Die Meldung von SQL Server steht in den Details."
+      },
+      "sql_backup_mismatch": {
+        "title": "Die Sicherung passt nicht",
+        "why": "Die aus den Sicherungsdaten geholte Datei hat eine andere Prüfsumme als die beim Anlegen der Sicherung festgehaltene, oder der Agent meldete eine Sicherung ohne die Angaben, die zum Aufbewahren nötig sind."
+      },
+      "sql_verify_no_space": {
+        "title": "Für die Prüfung ist nicht genug Platz",
+        "why": "Die Prüfung stellt die Sicherung unter einem Prüfnamen wieder her und braucht etwa die Datengröße an freiem Platz, dazu eine Reserve, die auf den Volumes der Daten- und Log-Dateien frei bleibt (mindestens 1 GiB oder ein Zehntel des Volumes), damit die dortigen Datenbanken weiter wachsen können. DBCC CHECKDB braucht außerdem Platz in tempdb. Die Prüfung ist unvollständig, nicht fehlgeschlagen: Sie bewertet nichts."
+      },
+      "sql_verify_timeout": {
+        "title": "Die Prüfung dauerte zu lange",
+        "why": "Ein Schritt der Prüfung lief länger als seine Grenze und wurde beendet. Die Prüfung ist unvollständig, nicht fehlgeschlagen; die nächste versucht es erneut."
+      },
+      "sql_verify_system_db": {
+        "title": "Diese Systemdatenbank lässt sich nicht prüfen",
+        "why": "Eine Kopie dieser Systemdatenbank unter einem anderen Namen lässt sich nicht wiederherstellen oder nicht richtig prüfen (bei master meldet DBCC CHECKDB die Einträge der Serverebene in ihrem Katalog als Fehler), darum lässt sie sich auf diesem Weg nicht prüfen."
       }
     },
     "share": {
@@ -617,6 +777,14 @@
         "title": "Das restic-Repository der Freigabe meldet einen Schaden",
         "why": "restic meldet, dass das Repository der Freigabe beschädigt ist oder sich nicht öffnen lässt."
       },
+      "repository_unavailable": {
+        "title": "Das Repository der Freigabe ist auf dem primären Repository nicht vollständig",
+        "why": "Sein Repository liegt auf einem anderen Speicherziel, ist auf mehrere Speicherziele verteilt (ein Lauf ging weiter, während das primäre Repository wechselte) oder liegt auf keinem Speicherziel, obwohl Sicherungsstände darauf verweisen. Es wurde nichts gesichert. Repositories › Repositorys reparieren zeigt, wo seine Teile liegen, und baut es auf dem primären Repository wieder auf, soweit sie es erlauben."
+      },
+      "repository_repair_running": {
+        "title": "Eine Reparatur der Repositorys läuft",
+        "why": "Eine Reparatur der Repositorys dieses Mandanten ist eingeplant oder läuft (Repositories › Repositorys reparieren). Die Freigabe wurde nicht gesichert, damit die Reparatur das Repository nicht wieder aufbaut oder beiseitelegt, während darauf geschrieben wird. Der nächste geplante Lauf sichert sie wie gewohnt."
+      },
       "quota_exceeded": {
         "title": "Das Speicherbudget für Freigabe-Sicherungen ist aufgebraucht",
         "why": "Das Budget dieser Freigabe oder aller Freigaben des Mandanten ist aufgebraucht; neue Sicherungen werden abgelehnt. Wiederherstellungen und Kopien funktionieren weiter."
@@ -671,6 +839,9 @@
     "free_target_space": "Schaffen Sie Platz im Ziel oder wählen Sie für die Wiederherstellung ein anderes Ziel.",
     "check_app_password": "Prüfen Sie Benutzername und Passwort in den Quelleneinstellungen. Verlangt der Anbieter eine Zwei-Faktor-Anmeldung, erstellen Sie ein App-Passwort und verwenden Sie dieses.",
     "enable_imap_access": "Stellen Sie sicher, dass der IMAP-Zugriff für das Konto beim Mailanbieter eingeschaltet ist.",
+    "show_gmail_all_mail_in_imap": "Schalten Sie in Gmail unter Einstellungen > Labels bei „Alle Nachrichten“ die Option „In IMAP anzeigen“ ein. Der nächste Lauf sichert jede Nachricht dann nur noch einmal.",
+    "check_archive_policy": "Prüfen Sie, ob eine Aufbewahrungsrichtlinie Mails ins Online-Archiv verschiebt. Sichern Sie das Archiv bei Bedarf auf anderem Weg (zum Beispiel mit einem eDiscovery-Export), oder bewahren Sie die Sicherungsstände so lange auf, wie Sie diese Mails brauchen.",
+    "store_group_attachments_in_files": "Legen Sie wichtige Anhänge zusätzlich in den Dateien der Gruppe ab (die SharePoint-Website der Gruppe); diese werden mit der Website gesichert.",
     "reauthorize_oauth": "Verbinden Sie das Konto in den Quelleneinstellungen neu, damit {appName} ein neues OAuth-Token erhält.",
     "set_object_password": "Setzen oder korrigieren Sie das Passwort dieses Kontos auf der Seite Geschützte Objekte.",
     "check_host_reachable": "{has_host, select, yes {Prüfen Sie, ob {host}{has_port, select, yes {:{port}} other {}} vom Server von {appName} aus erreichbar ist} other {Prüfen Sie, ob der Server von dem Rechner aus erreichbar ist, auf dem {appName} läuft}}: Name, Port, Firewall und Proxy.",
@@ -712,22 +883,37 @@
     "check_copy_target": "Prüfen Sie den Kopierjob: Quell- und Ziel-Freigabe, Zielordner und Modus. Wählen Sie Trotzdem kopieren nur, wenn die Quelle absichtlich geleert wurde.",
     "wait_share_restore_check": "Warten Sie auf die Restore-Prüfung des neuesten Sicherungsstands der Quelle oder starten Sie sie jetzt bei der Quell-Freigabe.",
     "raise_share_budget": "Erhöhen Sie das Speicherbudget der Freigabe oder aller Freigaben des Mandanten, oder verkürzen Sie die Aufbewahrung, damit ältere Sicherungsstände entfernt werden.",
+    "decide_held_backup": "Sehen Sie sich die angehaltene Sicherung an: Lassen Sie sie einmal weiterlaufen, erhöhen Sie die Grenze dieses Objekts oder schalten Sie die Prüfung dafür aus.",
+    "exclude_large_folder": "Wurde ein Ordner versehentlich hinzugefügt (ein Papierkorb, ein Download-Ordner), schließen Sie ihn in den Sicherungseinstellungen des Objekts aus.",
     "raise_runner_memory": "Erhöhen Sie den Speicher der Runner unter Installation > Standard-Repository & Netzlaufwerke > Runner für Freigaben.",
     "raise_run_hours": "Erhöhen Sie die längste Laufzeit unter Installation > Standard-Repository & Netzlaufwerke > Runner für Freigaben oder sichern Sie die Freigabe in kleineren Teilen.",
     "start_mounter": "Stellen Sie sicher, dass der Mounter läuft: Starten Sie ihn mit docker compose --profile mounts up -d mounter im Ordner mit docker-compose.yml oder schalten Sie ihn unter Installation > Standard-Repository & Netzlaufwerke ein.",
     "read_technical_details": "Die technischen Details unten zeigen die genaue Antwort.",
     "check_endpoint_paths": "Prüfen Sie, ob die Ordner aus den Einstellungen des Rechners auf ihm existieren, oder ändern Sie die Ordner.",
+    "check_endpoint_source": "Öffnen Sie auf dem Rechner den im Lauf genannten Ordner: Entsperren Sie ein mit BitLocker gesperrtes Laufwerk (manage-bde -unlock, oder stellen Sie die automatische Entsperrung ein), schließen Sie ein Laufwerk an oder schalten Sie es ein, und prüfen Sie, ob das Konto des Agents (SYSTEM beim Dienst RestowAgent) es lesen darf. Bei einem Link tragen Sie stattdessen den Ordner ein, auf den er zeigt.",
+    "mount_endpoint_volume": "Geben Sie dem Volume einen Laufwerksbuchstaben (Datenträgerverwaltung, oder diskpart: assign letter=E) und tragen Sie es mit diesem Buchstaben in die Sicherung ein, zum Beispiel E:\\, statt des Ordners, in dem es eingehängt ist.",
     "check_endpoint_hooks": "Führen Sie die Befehle vor und nach der Sicherung aus den Einstellungen von Hand auf dem Rechner als Administrator aus und beheben Sie, was fehlschlägt.",
     "allow_endpoint_hooks": "Erlauben Sie Hooks auf dem Rechner als Administrator: `sudo restow-agent hooks scripts` (nur Skripte in /etc/restow-agent/hooks.d) oder `sudo restow-agent hooks any` (beliebige Befehle). Oder entfernen Sie die Befehle aus den Einstellungen.",
     "check_endpoint_snapshot": "Prüfen Sie auf einem Windows-Rechner als Administrator den Zustand der Schattenkopie: `vssadmin list writers` (alle Writer sollten \"Stabil\" und ohne Fehler sein) und die Ereignisanzeige unter Windows-Protokolle > Anwendung, Quelle VSS. Prüfen Sie auf einem Linux-Rechner den freien Platz der Volume Group (`vgs`) bzw. des btrfs-Dateisystems (`btrfs filesystem usage <Einhängepunkt>`) und das Kernel-Log (`journalctl -k`). Läuft gleichzeitig eine andere Sicherung, verschieben Sie eine der beiden.",
-    "check_endpoint_snapshot_service": "Prüfen Sie auf einem Windows-Rechner, ob der Dienst \"Volumeschattenkopie\" (VSS) nicht deaktiviert ist (Starttyp \"Manuell\") und ob der Agent als Dienst RestowAgent läuft. Prüfen Sie auf einem Linux-Rechner, ob die LVM- bzw. btrfs-Werkzeuge installiert sind und der Agent als root läuft. Soll ohne Snapshot gesichert werden, schalten Sie ihn in den Einstellungen des Rechners ab.",
+    "check_endpoint_snapshot_service": "Öffnen Sie auf einem Windows-Rechner services.msc als Administrator: Die Dienste \"Volumeschattenkopie\" (VSS) und \"Microsoft-Softwareschattenkopie-Anbieter\" dürfen nicht deaktiviert sein (Starttyp \"Manuell\") und müssen starten. Sagt der Lauf, dass Windows den Zugriff verweigert hat, prüfen Sie, ob der Agent als Dienst RestowAgent unter dem Konto SYSTEM läuft und ob die COM-Sicherheit (dcomcnfg: Komponentendienste > Computer > Arbeitsplatz > Eigenschaften > COM-Sicherheit) oder ein Sicherheitsprodukt ihn blockiert. Die Ereignisanzeige unter Windows-Protokolle > Anwendung, Quellen VSS und VolSnap, nennt den Fehler. Prüfen Sie auf einem Linux-Rechner, ob die LVM- bzw. btrfs-Werkzeuge installiert sind und der Agent als root läuft. Soll ohne Snapshot gesichert werden, schalten Sie ihn in den Einstellungen des Rechners ab.",
     "check_endpoint_layout_tools": "Installieren Sie lsblk, blkid und sfdisk (util-linux/fdisk) auf dem Rechner und sichern Sie dann erneut. Die technische Meldung nennt den Teil, der gescheitert ist.",
     "check_endpoint_agent": "Prüfen Sie, ob der Agent-Dienst auf dem Rechner läuft und der Rechner den Server per HTTPS erreicht.",
     "check_endpoint_file_access": "Prüfen Sie die Berechtigungen der im Lauf genannten Dateien. Datenbanken und andere Dateien, die sich beim Kopieren ändern, sichert man am besten mit einem Befehl, der vor der Sicherung einen Dump erstellt.",
     "choose_empty_restore_folder": "Fordern Sie die Wiederherstellung erneut an und wählen Sie einen Ordner, der noch nicht existiert oder leer ist. Eine Wiederherstellung überschreibt nie Dateien.",
     "wait_endpoint_retry": "Nichts zu tun. Der Agent versucht es beim nächsten geplanten Lauf erneut, oder starten Sie mit Jetzt sichern einen.",
     "set_public_https_url": "Hinterlegen Sie unter Installation › Server & Betrieb (oder in RESTOW_PUBLIC_URL) eine öffentliche URL, die mit https:// beginnt und die Microsoft auf Port 443 erreicht. {appName} richtet die Änderungsbenachrichtigungen dann selbst ein.",
-    "unlock_object": "Wenn das Objekt wieder gesichert werden soll, weisen Sie dem Benutzer eine Lizenz mit OneDrive zu oder heben Sie die Sperre im SharePoint Admin Center auf. Nach dem nächsten Verzeichnisabgleich wird von selbst wieder gesichert."
+    "unlock_object": "Wenn das Objekt wieder gesichert werden soll, weisen Sie dem Benutzer eine Lizenz mit OneDrive zu oder heben Sie die Sperre im SharePoint Admin Center auf. Nach dem nächsten Verzeichnisabgleich wird von selbst wieder gesichert.",
+    "start_again_if_needed": "Starten Sie den Auftrag erneut, wenn er noch gebraucht wird. Neue Sicherungen laufen im Wiederherstellungsmodus wie gewohnt.",
+    "create_sql_login": "Lassen Sie einen Datenbankadministrator die Anmeldung für den Agenten auf der Instanz anlegen: Der Reiter SQL Server des Rechners zeigt das auszuführende T-SQL und bietet an, die Anmeldung zu prüfen.",
+    "grant_sql_permissions": "Vergeben Sie die fehlenden Rechte: Führen Sie das T-SQL der kleinen Variante für die neuen Datenbanken erneut aus, oder machen Sie die Anmeldung zum Mitglied von sysadmin.",
+    "start_sql_instance": "Prüfen Sie, ob der SQL-Server-Dienst der Instanz auf dem Rechner läuft.",
+    "allow_sql_powershell": "Lassen Sie das Skript des Agenten in der Anwendungssteuerung des Rechners zu, oder fragen Sie Ihre Administration. Sichern Sie die Datenbanken bis dahin weiter mit Ihrem bisherigen Werkzeug.",
+    "check_sql_encryption": "Schalten Sie die strikte Verschlüsselung für diese Instanz aus, oder sichern Sie sie weiter mit Ihrem bisherigen Werkzeug.",
+    "check_sql_staging": "Wählen Sie im Backup-Job einen neuen oder leeren lokalen NTFS-Ordner mit Laufwerksbuchstaben als Staging-Ordner, oder lassen Sie das Feld leer für den eigenen Ordner des Agenten.",
+    "free_sql_staging": "Geben Sie auf dem Laufwerk des Staging-Ordners Platz frei, oder wählen Sie im Backup-Job einen Staging-Ordner auf einem größeren Laufwerk.",
+    "check_sql_database": "Bringen Sie die Datenbank online, oder lassen Sie sie im Backup-Job aus.",
+    "choose_sql_restore_name": "Wählen Sie einen anderen Namen für die wiederhergestellte Datenbank.",
+    "free_sql_restore_space": "Geben Sie auf den Laufwerken der Daten- und Log-Ordner der Instanz Platz frei, oder wählen Sie eine kleinere Sicherung."
   },
   "go": {
     "settings_microsoft": "Microsoft-365-Einstellungen öffnen",

@@ -242,6 +242,17 @@ jobs:
     permissions:
       contents: read
 
+  sql-server:
+    # The native SQL Server backup (docs/BAREMETAL-WINDOWS.md 8.2): strict, so a release is never
+    # published on an "incomplete" because SQL Server could not be downloaded.
+    name: SQL Server
+    needs: verify
+    uses: ./.github/workflows/sql-server.yml
+    with:
+      strict: true
+    permissions:
+      contents: read
+
   agent:
     name: Agent release (build)
     needs: verify
@@ -572,7 +583,7 @@ jobs:
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Log in to ghcr.io
-        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -767,7 +778,7 @@ jobs:
           path: digests
 
       - name: Log in to ghcr.io
-        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -836,7 +847,7 @@ jobs:
 
   publish:
     name: Publish
-    needs: [verify, ci, release-smoke, recovery-iso]
+    needs: [verify, ci, sql-server, release-smoke, recovery-iso]
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
@@ -875,7 +886,7 @@ jobs:
           path: reports
 
       - name: Log in to ghcr.io
-        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -913,7 +924,7 @@ jobs:
           EOF
 
       - name: Install cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
         with:
           cosign-release: v3.1.3
 
@@ -1008,6 +1019,8 @@ jobs:
           cp reports/smoke-report-community-arm64/smoke-report-community-arm64.md assets/smoke-report-community-arm64.md
           cp deploy/release/docker-compose.yml assets/docker-compose.yml
           cp deploy/release/.env.example assets/env.example
+          # A worker node of another host (install.sh --join, docs/SIZING.md): signed in SHA256SUMS too.
+          cp deploy/release/docker-compose.worker.yml assets/docker-compose.worker.yml
           # The server install script and its own checksum file (for `sha256sum -c` right
           # after the download); both are listed in SHA256SUMS below and so signed with it.
           cp deploy/install/install.sh assets/install.sh
@@ -1081,7 +1094,7 @@ jobs:
             echo
             echo "restow-recovery_${VERSION}_FIRMWARE-LICENSES.txt holds the licences of the non-free firmware in the image; restow-recovery_${VERSION}_sources.txt and restow-recovery_${VERSION}_sources.tar (in parts when large) are the source code of every package in it."
             echo
-            echo "docker-compose.yml and env.example are the release stack (deploy/release/); install.sh installs it on a dedicated Linux VM (README.md, \"Install with the script\"; install.sh.sha256 for \`sha256sum -c\` after the download); restow-agent-THIRD_PARTY_NOTICES.txt holds the licenses of the agent binaries and of the restic they run; SHA256SUMS lists every file of this release and is signed (SHA256SUMS.sigstore.json)."
+            echo "docker-compose.yml and env.example are the release stack (deploy/release/), docker-compose.worker.yml the stack of a worker node on another host (install.sh --join); install.sh installs it on a dedicated Linux VM (README.md, \"Install with the script\"; install.sh.sha256 for \`sha256sum -c\` after the download); restow-agent-THIRD_PARTY_NOTICES.txt holds the licenses of the agent binaries and of the restic they run; SHA256SUMS lists every file of this release and is signed (SHA256SUMS.sigstore.json)."
           } >> notes.md
 
           (cd assets && sha256sum -- * > SHA256SUMS)

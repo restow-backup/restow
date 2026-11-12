@@ -5,7 +5,12 @@
  *
  *   connect   -> resolve the credential (password or a fresh OAuth2 access
  *                token) and open the first session; TLS is mandatory.
- *   enumerate -> LIST with SPECIAL-USE, INBOX first, containers skipped.
+ *   enumerate -> LIST with SPECIAL-USE, INBOX first, containers skipped. On Gmail
+ *                (X-GM-EXT-1 and `[Gmail]/All Mail` with `\All`, ./gmail.ts) bodies
+ *                come only from All Mail, Spam and Trash; All Mail's X-GM-LABELS
+ *                become metadata. The label folders follow once those are done:
+ *                their messages are matched to All Mail by X-GM-MSGID and reuse
+ *                its content, so each keeps its messages without a download.
  *   download  -> up to two sessions work through the folder queue. Per folder:
  *                EXAMINE, one FETCH 1:* (UID FLAGS), then a plan:
  *                  incremental  same UIDVALIDITY as the previous snapshot:
@@ -24,10 +29,16 @@
  *
  * Failures are scoped: a message the server does not return is recorded and
  * retried on the next run; a folder that keeps failing is recorded and its
- * previous objects are carried forward; a dropped connection is re-opened. The
- * job checkpoints (packs, partial manifest, cursor) after every folder and
- * every few hundred messages, so a restarted worker resumes without
- * downloading anything it already stored.
+ * previous objects are carried forward (in a full read under the same
+ * UIDVALIDITY those not read again yet; after a UIDVALIDITY change the older
+ * copy of every message not read again yet, until the new read covers the
+ * folder, so the restore point is never worse than the last one and the
+ * re-read goes on where it stopped); a dropped connection is re-opened. The
+ * job checkpoints (packs, partial manifest, cursor) after a folder that
+ * changed something and, while downloading, every few hundred messages, both
+ * at most once a minute, so a restarted worker redoes at most a minute of
+ * work. Every checkpoint rewrites the whole object list, so an unchanged
+ * folder (redone cheaply after a crash) gets none.
  */
 import { chunkDataStats, JobAbortedError } from "../../engine/chunkstore.js";
 import { SnapshotWriter } from "../../engine/snapshot.js";
@@ -47,6 +58,7 @@ import type { ManifestObject, SnapshotManifest } from "../../manifest.js";
 import { CredentialSource, SessionPool } from "./connections.js";
 import { MessageDedupIndex, type StoredContent } from "./dedup.js";
 import { ReadWriteGate } from "./gate.js";
+import { encodeGmailLabels, gmailMessageFolders, isGmailFolderList } from "./gmail.js";
 import { ImapFlowConnector } from "./imapflow-connector.js";
 import type { FetchLike } from "./oauth2.js";
 import {
@@ -98,8 +110,19 @@ export interface ImapEngineLimits {
   readonly fetchBatchMessages: number;
   /** UIDs per metadata FETCH. */
   readonly metaBatchMessages: number;
+  /**
+   * Extra metadata FETCHes allowed per refused batch to find the messages the server cannot
+   * read (bisection). Past it the server is taken to refuse the folder, not a message.
+   */
+  readonly metaIsolationCommands: number;
+  /**
+   * Interval checkpoint after this many downloaded messages; grows with the restore point
+   * (at least 1/20 of its objects), since each checkpoint rewrites the whole object list.
+   */
   readonly checkpointEveryMessages: number;
   readonly checkpointEveryBytes: number;
+  /** And not before this long after the previous checkpoint (ms). */
+  readonly checkpointMinIntervalMs: number;
   /** Reconnects tolerated in one run before the job is failed (and resumed by the retry). */
   readonly maxReconnects: number;
 }
@@ -108,8 +131,10 @@ export const DEFAULT_IMAP_LIMITS: ImapEngineLimits = {
   fetchBatchBytes: 32 * 1024 * 1024,
   fetchBatchMessages: 100,
   metaBatchMessages: 1000,
+  metaIsolationCommands: 100,
   checkpointEveryMessages: 250,
   checkpointEveryBytes: 128 * 1024 * 1024,
+  checkpointMinIntervalMs: 60_000,
   maxReconnects: 5,
 };
 
@@ -348,6 +373,11 @@ class BackupRun {
   /** EXAMINE results of folders opened in this attempt. */
   private readonly opened = new Map<string, ImapFolderStatus>();
   private readonly reconciled = new Set<string>();
+  /** Plan and FLAGS listing of folders reconciled in this attempt (what a failure falls back to). */
+  private readonly planned = new Map<
+    string,
+    { readonly plan: FolderPlan; readonly liveFlags: ReadonlyMap<number, readonly string[]> }
+  >();
   private readonly queue: ImapFolderInfo[] = [];
 
   private touched = false;
@@ -355,7 +385,18 @@ class BackupRun {
   private discoveredTotal = 0;
   private messagesSinceCheckpoint = 0;
   private bytesSinceCheckpoint = 0;
+  private lastCheckpointAt: number;
+  /** Folders whose objects changed in this attempt against the previous restore point. */
+  private readonly changedFolders = new Set<string>();
   private reconnects = 0;
+  /** Gmail layout (./gmail.ts): All Mail's path; null for every other server. */
+  private gmailAllMail: string | null = null;
+  /** Gmail label folders: their messages reuse the content of the All Mail copy. */
+  private readonly labelFolders = new Set<string>();
+  /** X-GM-LABELS and X-GM-MSGID of All Mail's messages, from this attempt's FLAGS listing. */
+  private liveGmail: ReadonlyMap<number, GmailMessageFacts> = new Map();
+  /** All Mail's stored objects by X-GM-MSGID, built once the label folders begin. */
+  private allMailById: Map<string, ManifestObject> | null = null;
 
   constructor(options: BackupRunOptions) {
     this.ctx = options.ctx;
@@ -379,33 +420,90 @@ class BackupRun {
     }
     // A resumed run already has stored data worth keeping on the next failure.
     this.touched = this.completed.size > 0 || this.active.size > 0;
+    this.lastCheckpointAt = this.ctx.now().getTime();
   }
 
   async execute(): Promise<void> {
     const firstSession = await this.pool.acquire();
     this.ctx.progress.phase("enumerate");
-    const folders = orderFolders(await firstSession.listFolders());
+    const listed = await firstSession.listFolders();
+    const folders = orderFolders(listed);
+    this.planLayout(listed, folders, firstSession.gmailExtensions);
     this.logVanishedFolders(folders);
+    this.dropUnlistedFromEarlierAttempt(folders);
 
-    for (const folder of folders) {
-      if (!this.completed.has(folder.path)) {
-        this.queue.push(folder);
-      }
-    }
+    // On Gmail the folders with bodies first, then the label folders, whose messages reuse
+    // what All Mail stored: they only start once All Mail, Spam and Trash are done.
+    const pending = folders.filter((folder) => !this.completed.has(folder.path));
+    const bodies = pending.filter((folder) => !this.labelFolders.has(folder.path));
+    const labels = pending.filter((folder) => this.labelFolders.has(folder.path));
     this.logger.info("imap folders enumerated", {
       folders: folders.length,
-      pending: this.queue.length,
+      pending: pending.length,
       resumedCompleted: this.completed.size,
+      ...(this.gmailAllMail ? { layout: "gmail", labelFolders: this.labelFolders.size } : {}),
     });
 
     this.ctx.progress.phase("download");
-    const workers = await this.openWorkers(firstSession);
+    await this.drainFolders(firstSession, bodies);
+    if (labels.length > 0) {
+      // The first phase logged its sessions out: no session sits idle while All Mail downloads.
+      await this.drainFolders(await this.pool.acquire(), labels);
+    }
+  }
+
+  /** Work through `folders` with up to the account's session budget, starting with `first`. */
+  private async drainFolders(
+    first: ImapSession,
+    folders: readonly ImapFolderInfo[],
+  ): Promise<void> {
+    this.queue.push(...folders);
+    const workers = await this.openWorkers(first);
     // Every worker stops at its next message boundary once one of them failed,
     // so the run ends with all sessions quiet and the checkpoint consistent.
     await Promise.allSettled(workers.map((worker) => this.drainQueue(worker)));
     if (this.failure !== null) {
       throw this.failure;
     }
+  }
+
+  /**
+   * Gmail (./gmail.ts): with X-GM-EXT-1 and All Mail listed, every message is read once from
+   * All Mail (labels as metadata) and Spam and Trash; every other folder is a label folder,
+   * whose message objects reuse the All Mail copies' content.
+   * A Gmail account whose All Mail is hidden from IMAP ("Show in IMAP" off) can only be read
+   * folder by folder: each message is stored once per label, and a restore to another
+   * provider brings each copy back. That is said once per run, as a warning the operator
+   * can fix or acknowledge (docs/IMAP.md "Gmail").
+   */
+  private planLayout(
+    listed: readonly ImapFolderInfo[],
+    folders: readonly ImapFolderInfo[],
+    gmailExtensions: boolean,
+  ): void {
+    if (!gmailExtensions) {
+      return;
+    }
+    const gmail = isGmailFolderList(listed) ? gmailMessageFolders(folders) : null;
+    if (!gmail) {
+      const reason =
+        "Gmail account without All Mail in IMAP: every message is backed up once per label and a restore to another provider duplicates it";
+      const cause = buildCause("imap.gmail_all_mail_hidden", {}, { message: reason });
+      this.failures.push({ itemRef: "[Gmail]/All Mail", reason, cause });
+      this.ctx.progress.fail("[Gmail]/All Mail", reason, cause);
+      this.logger.warn("gmail account without All Mail in IMAP, backing up folder by folder", {
+        folders: folders.length,
+      });
+      return;
+    }
+    this.gmailAllMail = gmail.allMail.path;
+    const bodies = new Set([gmail.allMail.path, ...gmail.outsideAllMail.map((f) => f.path)]);
+    for (const folder of folders) {
+      if (!bodies.has(folder.path)) {
+        this.labelFolders.add(folder.path);
+      }
+    }
+    this.publishState();
   }
 
   /** On failure, keep whatever was stored so the retry resumes; discard an untouched snapshot. */
@@ -525,9 +623,29 @@ class BackupRun {
     const previous = this.previousState.imap.folders[folder.path];
     const plan = planFolder(previous, status, { full: this.full });
     const resumeAfterUid = this.resumePoint(folder.path, status);
-    const live = await worker.session.listFlags();
+    const allMail = folder.path === this.gmailAllMail;
+    const label = this.labelFolders.has(folder.path);
+    const live = await worker.session.listFlags(
+      allMail ? { labels: true, gmailIds: true } : label ? { gmailIds: true } : {},
+    );
     const liveFlags = new Map(live.map((message) => [message.uid, message.flags]));
+    if (allMail) {
+      this.liveGmail = new Map(
+        live.map((message) => [
+          message.uid,
+          { labels: message.labels ?? [], id: message.gmailMessageId },
+        ]),
+      );
+    }
+    const gmailIds = label
+      ? new Map(
+          live.flatMap((message) =>
+            message.gmailMessageId ? [[message.uid, message.gmailMessageId] as const] : [],
+          ),
+        )
+      : undefined;
     const components = folderComponents(folder);
+    this.planned.set(folder.path, { plan, liveFlags });
 
     const { known, deleted } = await this.reconcile(
       worker,
@@ -557,7 +675,8 @@ class BackupRun {
       resumeAfterUid,
     });
 
-    await this.downloadAll(worker, folder, status, components, toFetch);
+    await this.downloadAll(worker, folder, status, components, toFetch, gmailIds);
+    this.settleOlderCopies(folder, status, components, liveFlags);
 
     this.writer.add(this.folderObject(folder, status, components));
     this.folderState[folder.path] = folderStateOf(folder, status);
@@ -566,7 +685,16 @@ class BackupRun {
     this.completed.add(folder.path);
     this.touched = true;
     await this.closeFolderQuietly(worker);
-    await this.checkpoint("folder");
+    if (
+      this.changedFolders.has(folder.path) ||
+      this.messagesSinceCheckpoint > 0 ||
+      this.bytesSinceCheckpoint > 0
+    ) {
+      await this.checkpoint("folder");
+    } else {
+      // Nothing to lose: after a crash the folder is planned again, which costs no download.
+      this.logger.debug("imap folder unchanged, no checkpoint", { folder: folder.path });
+    }
   }
 
   /** Where a checkpointed earlier attempt stopped in this folder, if the UIDs still mean the same thing. */
@@ -610,7 +738,11 @@ class BackupRun {
           deleted++;
           continue;
         }
-        this.writer.add(withFlags(object, flags));
+        const current = withFlags(object, flags, this.gmailFactsOf(folder.path, uid));
+        if (current !== object) {
+          this.changedFolders.add(folder.path);
+        }
+        this.writer.add(current);
         known.add(uid);
         if (!hasEnvelopeMetadata(object)) {
           needsEnvelope.push(uid);
@@ -618,6 +750,9 @@ class BackupRun {
       }
     }
     this.reconciled.add(folder.path);
+    if (deleted > 0) {
+      this.changedFolders.add(folder.path);
+    }
     if (needsEnvelope.length > 0) {
       await this.backfillEnvelopes(worker, folder, components, needsEnvelope);
     }
@@ -640,7 +775,7 @@ class BackupRun {
   ): Promise<void> {
     let metas: Map<number, ImapMessageMeta>;
     try {
-      metas = await this.fetchMetas(worker.session, uids);
+      metas = await this.fetchMetas(worker.session, uids, folder.path);
     } catch (error) {
       if (!isImapSessionError(error)) {
         throw error;
@@ -679,6 +814,7 @@ class BackupRun {
     if (backfilled > 0) {
       this.logger.info("imap envelope metadata backfilled", { folder: folder.path, backfilled });
       this.touched = true;
+      this.changedFolders.add(folder.path);
     }
   }
 
@@ -706,6 +842,7 @@ class BackupRun {
       }
     }
     if (purged > 0) {
+      this.changedFolders.add(folderPath);
       this.logger.info("imap objects from a previous attempt discarded (UIDVALIDITY changed)", {
         folder: folderPath,
         purged,
@@ -721,8 +858,12 @@ class BackupRun {
     this.logger.error("imap folder failed", { folder: folder.path, error });
 
     const status = this.opened.get(folder.path);
-    if (this.reconciled.has(folder.path) && status) {
+    const planned = this.planned.get(folder.path);
+    if (this.reconciled.has(folder.path) && status && planned?.plan.mode === "full") {
+      this.fullReadFailed(folder, status, planned.liveFlags);
+    } else if (this.reconciled.has(folder.path) && status) {
       // Reconciled against the live folder: what was not downloaded is absent and retried next run.
+      this.settleOlderCopies(folder, status, folderComponents(folder), planned?.liveFlags);
       this.folderState[folder.path] = folderStateOf(folder, status);
     } else if (this.partialByFolder.has(folder.path)) {
       // An earlier attempt of this run already reconciled it; its objects are in the partial manifest.
@@ -748,15 +889,194 @@ class BackupRun {
     this.completed.add(folder.path);
   }
 
+  /**
+   * A full read (requested, or after a UIDVALIDITY change) that failed after reconcile: it
+   * carried nothing forward, so the folder would hold only what this attempt read. The
+   * restore point must not be worse than the previous one.
+   *
+   *  - Same UIDVALIDITY as the previous snapshot (`full` requested): the previous objects
+   *    whose UID was not read again and is still in the folder are carried forward with
+   *    their current flags. The live state is kept only when that covers every live UID;
+   *    otherwise the previous state stays and the next run plans the folder again.
+   *  - UIDVALIDITY changed: what this attempt read under the new UIDVALIDITY is kept, and
+   *    every previous message it did not read again yet stays as its older copy
+   *    ({@link settleOlderCopies}). The state moves to the new UIDVALIDITY, so the next run
+   *    goes on with the UIDs not stored yet instead of starting over (a download cap that
+   *    recurs every night still lets the folder converge).
+   */
+  private fullReadFailed(
+    folder: ImapFolderInfo,
+    status: ImapFolderStatus,
+    liveFlags: ReadonlyMap<number, readonly string[]>,
+  ): void {
+    const previousState = this.previousState.imap.folders[folder.path];
+    const previousObjects = this.previousByFolder.get(folder.path) ?? [];
+    if (!previousState) {
+      // A first backup: nothing older to fall back to; the next run fetches what is missing.
+      this.folderState[folder.path] = folderStateOf(folder, status);
+      return;
+    }
+    const components = folderComponents(folder);
+    if (previousState.uidValidity !== status.uidValidity) {
+      const older = this.settleOlderCopies(folder, status, components, liveFlags);
+      this.writer.add(this.folderObject(folder, status, components));
+      this.folderState[folder.path] = folderStateOf(folder, status);
+      this.logger.warn(
+        "imap folder re-read after a UIDVALIDITY change failed, older copies kept for what is not read yet",
+        { folder: folder.path, olderCopies: older },
+      );
+      return;
+    }
+    let carried = 0;
+    for (const object of previousObjects) {
+      if (!isMessageObject(object) || object.metadata?.[META.uidValidity] !== status.uidValidity) {
+        continue;
+      }
+      const uid = objectUid(object);
+      const flags = uid === null ? undefined : liveFlags.get(uid);
+      if (uid === null || flags === undefined || this.writer.has(object.path)) {
+        continue;
+      }
+      this.writer.add(withFlags(object, flags, this.gmailFactsOf(folder.path, uid)));
+      carried++;
+    }
+    const covered = [...liveFlags.keys()].every((uid) =>
+      this.writer.has(messageObjectPath(components, uid)),
+    );
+    this.settleOlderCopies(folder, status, components, liveFlags);
+    this.writer.add(this.folderObject(folder, status, components));
+    this.folderState[folder.path] = covered ? folderStateOf(folder, status) : previousState;
+    this.logger.warn("imap folder full read failed, previous messages carried forward", {
+      folder: folder.path,
+      carried,
+      covered,
+    });
+  }
+
+  /**
+   * After a UIDVALIDITY change the folder is read again under its new UIDs, which can take
+   * several runs (a daily download cap, a run that fails half-way). Until every live UID is
+   * stored under the new UIDVALIDITY, each previous message (any older UIDVALIDITY) that was
+   * not read again yet stays in the restore point as its older copy: matched by Message-ID,
+   * SHA-256 and size against what the new read stored, one for one, and kept at a path of its
+   * own (`<uid>.v<uidvalidity>.eml`, the new UIDs take the plain paths). Once the new read
+   * covers the folder, the older copies go. Returns how many older copies stay.
+   */
+  private settleOlderCopies(
+    folder: ImapFolderInfo,
+    status: ImapFolderStatus,
+    components: readonly string[],
+    liveFlags: ReadonlyMap<number, readonly string[]> | undefined,
+  ): number {
+    const older = (this.previousByFolder.get(folder.path) ?? []).filter(
+      (object) =>
+        isMessageObject(object) && object.metadata?.[META.uidValidity] !== status.uidValidity,
+    );
+    if (older.length === 0) {
+      return 0;
+    }
+    const current = (uid: number): boolean =>
+      this.writer.get(messageObjectPath(components, uid))?.metadata?.[META.uidValidity] ===
+      status.uidValidity;
+    const covered = liveFlags !== undefined && [...liveFlags.keys()].every(current);
+    if (covered) {
+      this.changedFolders.add(folder.path);
+      this.logger.info("imap folder read in full under its new UIDVALIDITY, older copies dropped", {
+        folder: folder.path,
+        dropped: older.length,
+      });
+      return 0;
+    }
+    const readAgain = new Map<string, number>();
+    for (const object of this.writer.listObjects()) {
+      if (
+        objectMailbox(object) === folder.path &&
+        isMessageObject(object) &&
+        object.metadata?.[META.uidValidity] === status.uidValidity
+      ) {
+        const key = contentKey(object);
+        readAgain.set(key, (readAgain.get(key) ?? 0) + 1);
+      }
+    }
+    let kept = 0;
+    for (const object of older) {
+      const key = contentKey(object);
+      const matches = readAgain.get(key) ?? 0;
+      if (matches > 0) {
+        readAgain.set(key, matches - 1);
+        continue;
+      }
+      const uid = objectUid(object);
+      const validity = object.metadata?.[META.uidValidity] ?? "";
+      const path = uid === null ? object.path : olderCopyPath(components, uid, validity);
+      if (!this.writer.has(path)) {
+        this.writer.add({ ...object, path });
+      }
+      kept++;
+    }
+    this.changedFolders.add(folder.path);
+    this.logger.info(
+      "imap folder not read in full under its new UIDVALIDITY yet, older copies kept",
+      {
+        folder: folder.path,
+        olderCopies: kept,
+        readAgain: older.length - kept,
+      },
+    );
+    return kept;
+  }
+
   private logVanishedFolders(folders: readonly ImapFolderInfo[]): void {
     const listed = new Set(folders.map((folder) => folder.path));
     const vanished = Object.keys(this.previousState.imap.folders).filter(
       (path) => !listed.has(path),
     );
     if (vanished.length > 0) {
-      this.logger.info("imap folders no longer on the server; their messages leave the snapshot", {
-        folders: vanished,
-      });
+      this.logger.info(
+        "imap folders no longer on the server, not in this restore point (older restore points keep them)",
+        { folders: vanished },
+      );
+    }
+  }
+
+  /**
+   * A resumed attempt starts from the partial manifest of the earlier one. A folder that
+   * attempt completed or had begun, and that the server no longer lists (renamed or deleted
+   * in between), would otherwise stay in the restore point next to its new name: a restore
+   * would bring it back and duplicate every message of a renamed folder. Its objects, state
+   * and cursor entries go, as for any folder that vanished between runs.
+   */
+  private dropUnlistedFromEarlierAttempt(folders: readonly ImapFolderInfo[]): void {
+    const listed = new Set(folders.map((folder) => folder.path));
+    const earlier = new Set([
+      ...this.partialByFolder.keys(),
+      ...this.completed,
+      ...this.active.keys(),
+      ...Object.keys(this.folderState),
+    ]);
+    const dropped: string[] = [];
+    let objects = 0;
+    for (const path of earlier) {
+      if (listed.has(path)) {
+        continue;
+      }
+      for (const object of this.partialByFolder.get(path) ?? []) {
+        if (this.writer.remove(object.path)) {
+          objects++;
+        }
+      }
+      this.partialByFolder.delete(path);
+      this.completed.delete(path);
+      this.active.delete(path);
+      delete this.folderState[path];
+      dropped.push(path);
+    }
+    if (dropped.length > 0) {
+      this.publishState();
+      this.logger.info(
+        "imap folder from an earlier attempt no longer listed, dropped from this restore point",
+        { folders: dropped, objects },
+      );
     }
   }
 
@@ -767,12 +1087,18 @@ class BackupRun {
     folder: ImapFolderInfo,
     status: ImapFolderStatus,
     components: readonly string[],
-    uids: readonly number[],
+    all: readonly number[],
+    gmailIds?: ReadonlyMap<number, string>,
   ): Promise<void> {
-    if (uids.length === 0) {
+    if (all.length === 0) {
       return;
     }
-    const metas = await this.fetchMetas(worker.session, uids);
+    const uids = gmailIds ? this.copyFromAllMail(folder, status, components, all, gmailIds) : all;
+    if (uids.length === 0) {
+      await this.maybeCheckpoint();
+      return;
+    }
+    const metas = await this.fetchMetas(worker.session, uids, folder.path);
     const ordered: Pick<ImapMessageMeta, "uid" | "size">[] = uids.map(
       (uid) => metas.get(uid) ?? { uid, size: 0 },
     );
@@ -819,6 +1145,62 @@ class BackupRun {
         );
       }
     }
+  }
+
+  /**
+   * A Gmail label folder's messages are All Mail's (./gmail.ts): each UID whose X-GM-MSGID
+   * All Mail stored gets an object of this folder (its own UID, UIDVALIDITY and flags) with
+   * the All Mail copy's content, without a download. Returns the UIDs that still need one:
+   * no X-GM-MSGID, or a message All Mail did not store (failed there, or not in All Mail).
+   */
+  private copyFromAllMail(
+    folder: ImapFolderInfo,
+    status: ImapFolderStatus,
+    components: readonly string[],
+    uids: readonly number[],
+    gmailIds: ReadonlyMap<number, string>,
+  ): number[] {
+    const byId = this.allMailObjects();
+    const flags = this.planned.get(folder.path)?.liveFlags;
+    const download: number[] = [];
+    let copied = 0;
+    for (const uid of uids) {
+      this.throwIfStopping();
+      const id = gmailIds.get(uid);
+      const source = id === undefined ? undefined : byId.get(id);
+      if (!source) {
+        download.push(uid);
+        continue;
+      }
+      this.writer.add(
+        this.labelCopyObject(folder, status, components, uid, flags?.get(uid) ?? [], source),
+      );
+      this.objectsDeduplicated++;
+      this.noteStored(folder.path, uid, 0);
+      copied++;
+    }
+    this.logger.info("gmail label folder taken from All Mail", {
+      folder: folder.path,
+      copied,
+      download: download.length,
+    });
+    return download;
+  }
+
+  /** All Mail's stored message objects by X-GM-MSGID; All Mail is complete when this is first asked. */
+  private allMailObjects(): ReadonlyMap<string, ManifestObject> {
+    if (this.allMailById) {
+      return this.allMailById;
+    }
+    const byId = new Map<string, ManifestObject>();
+    for (const object of this.writer.listObjects()) {
+      const id = object.metadata?.[META.gmailMessageId];
+      if (id && isMessageObject(object) && objectMailbox(object) === this.gmailAllMail) {
+        byId.set(id, object);
+      }
+    }
+    this.allMailById = byId;
+    return byId;
   }
 
   /**
@@ -920,19 +1302,106 @@ class BackupRun {
     }
   }
 
+  /**
+   * Metadata of `uids`, slice by slice. Dovecot and Gmail refuse a whole UID FETCH with a NO
+   * ("Some messages could not be FETCHed") when one message of the set cannot be read; such a
+   * slice is split in halves until the unreadable UIDs are isolated, so they alone go without
+   * metadata (the body FETCH then records each as an item failure) and the rest of the folder
+   * is backed up. A dropped connection is rethrown (reconnect), and so is a command or download
+   * cap (imap.server_limit): more FETCHes only hit it again. When the bisection of a slice uses
+   * up {@link ImapEngineLimits.metaIsolationCommands}, the part not looked at yet goes on
+   * without metadata (the body FETCH and its one-by-one fallback sort it out); only a server
+   * that answered none of the bisection's FETCHes refuses the folder, not a message.
+   */
   private async fetchMetas(
     session: ImapSession,
     uids: readonly number[],
+    folderPath?: string,
   ): Promise<Map<number, ImapMessageMeta>> {
     const metas = new Map<number, ImapMessageMeta>();
+    const unreadable: number[] = [];
+    let unlooked = 0;
     for (let i = 0; i < uids.length; i += this.limits.metaBatchMessages) {
       this.throwIfStopping();
       const slice = uids.slice(i, i + this.limits.metaBatchMessages);
-      for (const meta of await session.fetchMeta(slice)) {
-        metas.set(meta.uid, meta);
+      try {
+        for (const meta of await session.fetchMeta(slice)) {
+          metas.set(meta.uid, meta);
+        }
+      } catch (error) {
+        if (!isMetadataRefusal(error)) {
+          throw error;
+        }
+        const isolated = await this.isolateUnreadable(session, slice, metas, error);
+        unreadable.push(...isolated.unreadable);
+        unlooked += isolated.unlooked;
       }
     }
+    if (unreadable.length > 0 || unlooked > 0) {
+      this.logger.warn("imap messages whose metadata the server refuses, isolated", {
+        folder: folderPath,
+        uids: unreadable.slice(0, 50),
+        count: unreadable.length,
+        ...(unlooked > 0 ? { withoutMetadata: unlooked } : {}),
+      });
+    }
     return metas;
+  }
+
+  /**
+   * Bisect a refused metadata slice: the UIDs that are refused on their own, and how many UIDs
+   * were left without metadata when the command budget ran out.
+   */
+  private async isolateUnreadable(
+    session: ImapSession,
+    slice: readonly number[],
+    metas: Map<number, ImapMessageMeta>,
+    refusal: ImapSessionError,
+  ): Promise<{ unreadable: number[]; unlooked: number }> {
+    const unreadable: number[] = [];
+    if (slice.length === 1) {
+      return { unreadable: [slice[0] as number], unlooked: 0 };
+    }
+    let budget = this.limits.metaIsolationCommands;
+    let answered = 0;
+    let unlooked = 0;
+    const visit = async (part: readonly number[]): Promise<void> => {
+      if (part.length === 0) {
+        return;
+      }
+      this.throwIfStopping();
+      if (budget <= 0) {
+        unlooked += part.length;
+        return;
+      }
+      budget--;
+      try {
+        for (const meta of await session.fetchMeta(part)) {
+          metas.set(meta.uid, meta);
+        }
+        answered++;
+      } catch (error) {
+        if (!isMetadataRefusal(error)) {
+          throw error;
+        }
+        if (part.length === 1) {
+          unreadable.push(part[0] as number);
+          return;
+        }
+        await split(part);
+      }
+    };
+    const split = async (part: readonly number[]): Promise<void> => {
+      const middle = Math.ceil(part.length / 2);
+      await visit(part.slice(0, middle));
+      await visit(part.slice(middle));
+    };
+    await split(slice);
+    if (unlooked > 0 && answered === 0) {
+      // Not one FETCH of the bisection went through: the server refuses the folder.
+      throw refusal;
+    }
+    return { unreadable, unlooked };
   }
 
   /**
@@ -983,6 +1452,7 @@ class BackupRun {
   }
 
   private noteStored(folderPath: string, uid: number, bytes: number): void {
+    this.changedFolders.add(folderPath);
     const entry = this.active.get(folderPath);
     if (entry && uid > entry.lastUid) {
       this.active.set(folderPath, { uidValidity: entry.uidValidity, lastUid: uid });
@@ -1016,7 +1486,7 @@ class BackupRun {
   ): ManifestObject {
     const metadata: Record<string, string> = {
       [META.mailbox]: folder.path,
-      [META.delimiter]: folder.delimiter,
+      [META.delimiter]: delimiterOf(folder),
       [META.uid]: String(message.uid),
       [META.uidValidity]: status.uidValidity,
       [META.flags]: encodeFlags(message.flags),
@@ -1033,6 +1503,13 @@ class BackupRun {
     }
     if (message.envelope) {
       Object.assign(metadata, encodeEnvelope(message.envelope));
+    }
+    const gmail = this.gmailFactsOf(folder.path, message.uid);
+    if (gmail) {
+      metadata[META.gmailLabels] = encodeGmailLabels(gmail.labels);
+      if (gmail.id) {
+        metadata[META.gmailMessageId] = gmail.id;
+      }
     }
     return {
       path: messageObjectPath(components, message.uid),
@@ -1053,7 +1530,7 @@ class BackupRun {
   ): ManifestObject {
     const metadata: Record<string, string> = {
       [META.mailbox]: folder.path,
-      [META.delimiter]: folder.delimiter,
+      [META.delimiter]: delimiterOf(folder),
       [META.uidValidity]: status.uidValidity,
     };
     if (folder.specialUse) {
@@ -1070,8 +1547,53 @@ class BackupRun {
     };
   }
 
+  /**
+   * A Gmail label folder's object for `uid`: the All Mail copy's content and envelope, this
+   * folder's mailbox, UID, UIDVALIDITY and flags. The labels stay on the All Mail object.
+   */
+  private labelCopyObject(
+    folder: ImapFolderInfo,
+    status: ImapFolderStatus,
+    components: readonly string[],
+    uid: number,
+    flags: readonly string[],
+    source: ManifestObject,
+  ): ManifestObject {
+    const metadata: Record<string, string> = {
+      ...source.metadata,
+      [META.mailbox]: folder.path,
+      [META.delimiter]: delimiterOf(folder),
+      [META.uid]: String(uid),
+      [META.uidValidity]: status.uidValidity,
+      [META.flags]: encodeFlags(flags),
+    };
+    delete metadata[META.gmailLabels];
+    delete metadata[META.specialUse];
+    if (folder.specialUse) {
+      metadata[META.specialUse] = folder.specialUse;
+    }
+    return {
+      ...source,
+      path: messageObjectPath(components, uid),
+      id: messageObjectId(folder.path, status.uidValidity, uid),
+      metadata,
+      chunks: [...source.chunks],
+    };
+  }
+
+  /** X-GM-LABELS and X-GM-MSGID of an All Mail message; undefined elsewhere and on other servers. */
+  private gmailFactsOf(folderPath: string, uid: number): GmailMessageFacts | undefined {
+    return folderPath === this.gmailAllMail ? this.liveGmail.get(uid) : undefined;
+  }
+
   private publishState(): void {
-    const state: ImapEngineState = { imap: { version: 1, folders: { ...this.folderState } } };
+    const state: ImapEngineState = {
+      imap: {
+        version: 1,
+        folders: { ...this.folderState },
+        ...(this.gmailAllMail ? { layout: "gmail" as const } : {}),
+      },
+    };
     this.writer.setState(state as unknown as Record<string, unknown>);
   }
 
@@ -1095,11 +1617,34 @@ class BackupRun {
     }
   }
 
+  /**
+   * An interval checkpoint is due when enough was downloaded since the last one and that one
+   * is at least `checkpointMinIntervalMs` old. Each checkpoint rewrites the whole object list,
+   * so the message threshold grows with it (1/20 of the objects): a first backup of n
+   * messages costs O(n log n) object writes, not O(n²).
+   */
   private checkpointDue(): boolean {
-    return (
-      this.messagesSinceCheckpoint >= this.limits.checkpointEveryMessages ||
-      this.bytesSinceCheckpoint >= this.limits.checkpointEveryBytes
+    const everyMessages = Math.max(
+      this.limits.checkpointEveryMessages,
+      Math.floor(this.writer.objectCount / 20),
     );
+    const enough =
+      this.messagesSinceCheckpoint >= everyMessages ||
+      this.bytesSinceCheckpoint >= this.limits.checkpointEveryBytes;
+    return (
+      enough &&
+      this.ctx.now().getTime() - this.lastCheckpointAt >= this.limits.checkpointMinIntervalMs
+    );
+  }
+
+  /**
+   * The checkpoint after a folder that changed something: at most once per
+   * `checkpointMinIntervalMs` as well. A first backup of thousands of small folders would
+   * otherwise rewrite the growing object list once per folder (quadratic again); a crash
+   * redoes at most that interval's folders, and their downloads dedupe.
+   */
+  private folderCheckpointDue(): boolean {
+    return this.ctx.now().getTime() - this.lastCheckpointAt >= this.limits.checkpointMinIntervalMs;
   }
 
   private async checkpoint(reason: "interval" | "folder" | "failure"): Promise<void> {
@@ -1107,9 +1652,14 @@ class BackupRun {
       if (reason === "interval" && !this.checkpointDue()) {
         return; // another worker just checkpointed
       }
+      if (reason === "folder" && !this.folderCheckpointDue()) {
+        this.logger.debug("imap folder checkpoint deferred (one came less than the interval ago)");
+        return;
+      }
       await this.writer.checkpoint(this.cursor());
       this.messagesSinceCheckpoint = 0;
       this.bytesSinceCheckpoint = 0;
+      this.lastCheckpointAt = this.ctx.now().getTime();
       this.logger.debug("imap checkpoint", { reason, completed: this.completed.size });
     });
   }
@@ -1134,14 +1684,45 @@ class BackupRun {
 // Small helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * A metadata FETCH the server refused for the messages in its set (bisected). Not: a dropped
+ * connection (reconnect) and a command or download cap (imap.server_limit: every further
+ * FETCH only hits it again, the folder fails as a whole and the next run resumes).
+ */
+function isMetadataRefusal(error: unknown): error is ImapSessionError {
+  return (
+    isImapSessionError(error) &&
+    !error.connectionLost &&
+    classifyFailure(error, { role: "imap" }).code !== "imap.server_limit"
+  );
+}
+
+/** What identifies a message's content across UIDVALIDITYs: Message-ID, SHA-256 and size. */
+function contentKey(object: ManifestObject): string {
+  return `${object.metadata?.[META.messageId] ?? ""}\n${object.sha256 ?? object.path}\n${object.size}`;
+}
+
+/** The path of an older copy kept during a re-read after a UIDVALIDITY change. */
+function olderCopyPath(components: readonly string[], uid: number, uidValidity: string): string {
+  return `${folderObjectPath(components)}/${uid}.v${uidValidity}.eml`;
+}
+
 function folderStateOf(folder: ImapFolderInfo, status: ImapFolderStatus): ImapFolderState {
+  // A server without UIDNEXT, or a NIL delimiter, must not make the state unreadable (the
+  // next run would read the folder in full again, every night).
+  const uidNext = status.uidNext as number | undefined;
   return {
     uidValidity: status.uidValidity,
-    uidNext: status.uidNext,
-    delimiter: folder.delimiter,
+    ...(typeof uidNext === "number" && uidNext > 0 ? { uidNext } : {}),
+    delimiter: delimiterOf(folder),
     ...(folder.specialUse ? { specialUse: folder.specialUse } : {}),
     messages: status.exists,
   };
+}
+
+/** The folder's delimiter as a string; "" for a NIL delimiter. */
+function delimiterOf(folder: ImapFolderInfo): string {
+  return (folder.delimiter as string | null | undefined) ?? "";
 }
 
 function groupByFolder(objects: readonly ManifestObject[]): Map<string, ManifestObject[]> {
@@ -1161,11 +1742,39 @@ function groupByFolder(objects: readonly ManifestObject[]): Map<string, Manifest
   return groups;
 }
 
-/** The same object with its flags brought up to date (a new object only when they changed). */
-function withFlags(object: ManifestObject, flags: readonly string[]): ManifestObject {
+/** What Gmail says about one All Mail message besides its flags. */
+interface GmailMessageFacts {
+  readonly labels: readonly string[];
+  /** X-GM-MSGID; undefined when the server left it out. */
+  readonly id: string | undefined;
+}
+
+/**
+ * The same object with its flags (and on Gmail's All Mail its labels and X-GM-MSGID) brought
+ * up to date; a new object only when they changed. `gmail` undefined leaves those as they are.
+ */
+function withFlags(
+  object: ManifestObject,
+  flags: readonly string[],
+  gmail?: GmailMessageFacts,
+): ManifestObject {
   const encoded = encodeFlags(flags);
-  if (object.metadata?.[META.flags] === encoded) {
+  const encodedLabels = gmail === undefined ? undefined : encodeGmailLabels(gmail.labels);
+  const id = gmail?.id;
+  if (
+    object.metadata?.[META.flags] === encoded &&
+    (encodedLabels === undefined || object.metadata?.[META.gmailLabels] === encodedLabels) &&
+    (id === undefined || object.metadata?.[META.gmailMessageId] === id)
+  ) {
     return object;
   }
-  return { ...object, metadata: { ...object.metadata, [META.flags]: encoded } };
+  return {
+    ...object,
+    metadata: {
+      ...object.metadata,
+      [META.flags]: encoded,
+      ...(encodedLabels === undefined ? {} : { [META.gmailLabels]: encodedLabels }),
+      ...(id === undefined ? {} : { [META.gmailMessageId]: id }),
+    },
+  };
 }

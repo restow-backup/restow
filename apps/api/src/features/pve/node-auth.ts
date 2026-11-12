@@ -1,4 +1,4 @@
-import { parseBasicAuthorization, secretMatchesHash } from "@restow/core";
+import { parseBasicAuthorization, pveRunCredentialLive, secretMatchesHash } from "@restow/core";
 import { pveClusters, pveNodes, pveRuns, tenants } from "@restow/db";
 import { eq } from "drizzle-orm";
 import type { Context, MiddlewareHandler } from "hono";
@@ -133,6 +133,9 @@ export async function authenticateRunCredential(
           tenantId: pveRuns.tenantId,
           tokenHash: pveRuns.resticTokenHash,
           expiresAt: pveRuns.resticExpiresAt,
+          status: pveRuns.status,
+          cancelRequestedAt: pveRuns.cancelRequestedAt,
+          startedAt: pveRuns.startedAt,
           tenantStatus: tenants.status,
         })
         .from(pveRuns)
@@ -145,7 +148,8 @@ export async function authenticateRunCredential(
     authFailures.record(key, now);
     throw unauthorized(c);
   }
-  if (!row.expiresAt || row.expiresAt.getTime() < now || row.tenantStatus !== "active") {
+  // As long as its open run, like the restic credential it is (pveRunCredentialLive).
+  if (!pveRunCredentialLive(row, now) || row.tenantStatus !== "active") {
     throw new ProblemError(401, "Credential expired", {
       type: NODE_UNAUTHORIZED_PROBLEM,
       detail: "The credential of this run has expired.",

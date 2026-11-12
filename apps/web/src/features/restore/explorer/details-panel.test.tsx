@@ -128,6 +128,30 @@ describe("DetailsPanel", () => {
     expect(restoreButtonAt).toBeGreaterThan(readingPaneAt);
   });
 
+  it("says when the backup holds a group post without its attachments", () => {
+    expect(render(mailEntry)).not.toContain("Not all attachments backed up");
+    const html = render({ ...mailEntry, mail: { ...mail, attachmentsNotBackedUp: true } });
+    expect(html).toContain("Not all attachments backed up");
+    expect(html).toContain("or some of them could not be read at the backup");
+  });
+
+  it("says when a SharePoint library holds the files of an earlier backup", () => {
+    const library: TreeEntry = {
+      ...mailEntry,
+      id: "lib-1",
+      kind: "folder",
+      name: "Documents",
+      path: "Libraries/Documents",
+      parentPath: "Libraries",
+      mail: null,
+      carriedForward: { lastReadAt: "2026-10-01T02:00:00.000Z" },
+    };
+    const html = render(library);
+    expect(html).toContain("Library not readable at this backup");
+    expect(html).toContain("its files are as of");
+    expect(render({ ...library, carriedForward: undefined })).not.toContain("Library not readable");
+  });
+
   it("shows a protection hint next to Download for a protected mail", () => {
     const client = new QueryClient();
     const protectedEntry: TreeEntry = {

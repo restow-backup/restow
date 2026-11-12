@@ -1,0 +1,217 @@
+{
+  "status": "succeeded",
+  "snapshotId": "0000000000000000000000000000000000000000000000000000000000000001",
+  "errors": null,
+  "sql": {
+    "instance": "SQLEXPRESS",
+    "databases": [
+      {
+        "name": "master",
+        "familyGuid": "0b8f6a4c-2d1e-4f3a-9b5c-7e6d5c4b3a21",
+        "databaseGuid": "1c9a7b5d-3e2f-4a4b-8c6d-8f7e6d5c4b32",
+        "recoveryModel": "SIMPLE",
+        "outcome": "backed_up",
+        "backup": {
+          "kind": "full",
+          "copyOnly": true,
+          "compressed": false,
+          "checksum": true,
+          "pathInSnapshot": "<root>/staging/sql/SQLEXPRESS/master~fc613b4d/full-20261105T020012Z.bak",
+          "sha256": "158fe1826830ef520c0f43e4f0fed21127ec7a9f7c3a7d08bef03e26e20150ca",
+          "bytes": 21,
+          "firstLsn": "512000000012000037",
+          "lastLsn": "512000000014400001",
+          "databaseBackupLsn": "511000000015200036",
+          "checkpointLsn": "512000000012000037",
+          "firstRecoveryForkGuid": "2c5e8f1a-4b3d-4e6f-9a8b-7c6d5e4f3a2b",
+          "lastRecoveryForkGuid": "2c5e8f1a-4b3d-4e6f-9a8b-7c6d5e4f3a2b",
+          "beginsLogChain": false,
+          "hasBulkLoggedData": false,
+          "backupStart": "2026-11-05T02:00:02Z",
+          "backupFinish": "2026-11-05T02:00:04Z",
+          "fileList": [
+            {
+              "logicalName": "master",
+              "type": "D",
+              "fileGroup": "PRIMARY",
+              "fileId": 1,
+              "sizeBytes": 4194304,
+              "physicalName": "C:\\Program Files\\Microsoft SQL Server\\MSSQL16.SQLEXPRESS\\MSSQL\\DATA\\master.mdf"
+            },
+            {
+              "logicalName": "mastlog",
+              "type": "L",
+              "fileGroup": "",
+              "fileId": 2,
+              "sizeBytes": 2097152,
+              "physicalName": "C:\\Program Files\\Microsoft SQL Server\\MSSQL16.SQLEXPRESS\\MSSQL\\DATA\\mastlog.ldf"
+            }
+          ]
+        }
+      },
+      {
+        "name": "Sales",
+        "familyGuid": "6f1e8a52-3c1d-4a8e-9b0e-2b7d9f1c0a11",
+        "databaseGuid": "0d9c2e7a-5b44-4f61-8a2e-7c3b1d9e4f22",
+        "recoveryModel": "FULL",
+        "outcome": "backed_up",
+        "backup": {
+          "kind": "full",
+          "copyOnly": true,
+          "compressed": false,
+          "checksum": true,
+          "pathInSnapshot": "<root>/staging/sql/SQLEXPRESS/Sales~8de4e0ea/full-20261105T020015Z.bak",
+          "sha256": "43a2fd6746196c179f71413eaf34a191385bd8159801bf8194cf056ff533a1cf",
+          "bytes": 20,
+          "firstLsn": "37000000012800001",
+          "lastLsn": "37000000014400001",
+          "databaseBackupLsn": "36000000011200037",
+          "checkpointLsn": "37000000012800001",
+          "firstRecoveryForkGuid": "2c5e8f1a-4b3d-4e6f-9a8b-7c6d5e4f3a2b",
+          "lastRecoveryForkGuid": "2c5e8f1a-4b3d-4e6f-9a8b-7c6d5e4f3a2b",
+          "beginsLogChain": false,
+          "hasBulkLoggedData": false,
+          "backupStart": "2026-11-05T02:00:11Z",
+          "backupFinish": "2026-11-05T02:01:40Z",
+          "fileList": [
+            {
+              "logicalName": "Sales",
+              "type": "D",
+              "fileGroup": "PRIMARY",
+              "fileId": 1,
+              "sizeBytes": 1073741824,
+              "physicalName": "Q:\\Data\\Sales.mdf"
+            },
+            {
+              "logicalName": "Sales_log",
+              "type": "L",
+              "fileGroup": "",
+              "fileId": 2,
+              "sizeBytes": 268435456,
+              "physicalName": "L:\\Log\\Sales_log.ldf"
+            }
+          ]
+        }
+      },
+      {
+        "name": "Scratch",
+        "familyGuid": "7a6b5c4d-3e2f-4a1b-9c8d-7e6f5a4b3c2d",
+        "databaseGuid": "8b7c6d5e-4f3a-4b2c-8d9e-0f1a2b3c4d5e",
+        "recoveryModel": "SIMPLE",
+        "outcome": "backed_up",
+        "backup": {
+          "kind": "full",
+          "copyOnly": true,
+          "compressed": false,
+          "checksum": true,
+          "pathInSnapshot": "<root>/staging/sql/SQLEXPRESS/Scratch~abe50eeb/full-20261105T020018Z.bak",
+          "sha256": "4799f79971730eeb57471a293f9e3460932d00126ab33279c92adc95163662a6",
+          "bytes": 22,
+          "firstLsn": "41000000000800037",
+          "lastLsn": "41000000002400001",
+          "databaseBackupLsn": "40000000000800037",
+          "checkpointLsn": "41000000000800037",
+          "firstRecoveryForkGuid": "2c5e8f1a-4b3d-4e6f-9a8b-7c6d5e4f3a2b",
+          "lastRecoveryForkGuid": "2c5e8f1a-4b3d-4e6f-9a8b-7c6d5e4f3a2b",
+          "beginsLogChain": false,
+          "hasBulkLoggedData": false,
+          "backupStart": "2026-11-05T02:01:41Z",
+          "backupFinish": "2026-11-05T02:01:42Z",
+          "fileList": [
+            {
+              "logicalName": "Scratch",
+              "type": "D",
+              "fileGroup": "PRIMARY",
+              "fileId": 1,
+              "sizeBytes": 8388608,
+              "physicalName": "Q:\\Data\\Scratch.mdf"
+            },
+            {
+              "logicalName": "Scratch_log",
+              "type": "L",
+              "fileGroup": "",
+              "fileId": 2,
+              "sizeBytes": 8388608,
+              "physicalName": "L:\\Log\\Scratch_log.ldf"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "notices": [
+    {
+      "code": "sql_log_growing",
+      "subjects": [
+        "Sales"
+      ],
+      "message": "Sales uses the FULL recovery model, but no tool has backed up its transaction log in the last 24 hours: the log keeps growing. Back the log up with your existing tool, or switch the database to SIMPLE if you need no point-in-time restore."
+    }
+  ],
+  "ops": [
+    "inventory",
+    "backup:master",
+    "backup:Sales",
+    "backup:Scratch"
+  ],
+  "inventory": {
+    "name": "SQLEXPRESS",
+    "state": "ok",
+    "version": "16.0.4135.4",
+    "edition": "Express Edition (64-bit)",
+    "engineEdition": 4,
+    "clustered": false,
+    "hadr": false,
+    "backupCompressionDefault": true,
+    "login": {
+      "name": "NT SERVICE\\RestowAgent",
+      "sysadmin": true,
+      "canCreateDatabase": true
+    },
+    "databases": [
+      {
+        "name": "master",
+        "databaseId": 1,
+        "system": true,
+        "familyGuid": "0b8f6a4c-2d1e-4f3a-9b5c-7e6d5c4b3a21",
+        "databaseGuid": "1c9a7b5d-3e2f-4a4b-8c6d-8f7e6d5c4b32",
+        "state": "ONLINE",
+        "recoveryModel": "SIMPLE",
+        "readOnly": false,
+        "encrypted": false,
+        "sizeBytes": 6291456,
+        "usedBytes": 4194304,
+        "canBackup": true
+      },
+      {
+        "name": "Sales",
+        "databaseId": 5,
+        "system": false,
+        "familyGuid": "6f1e8a52-3c1d-4a8e-9b0e-2b7d9f1c0a11",
+        "databaseGuid": "0d9c2e7a-5b44-4f61-8a2e-7c3b1d9e4f22",
+        "state": "ONLINE",
+        "recoveryModel": "FULL",
+        "readOnly": false,
+        "encrypted": false,
+        "sizeBytes": 1342177280,
+        "usedBytes": 734003200,
+        "canBackup": true,
+        "lastFullBackupAt": "2026-11-04T22:10:00Z"
+      },
+      {
+        "name": "Scratch",
+        "databaseId": 6,
+        "system": false,
+        "familyGuid": "7a6b5c4d-3e2f-4a1b-9c8d-7e6f5a4b3c2d",
+        "databaseGuid": "8b7c6d5e-4f3a-4b2c-8d9e-0f1a2b3c4d5e",
+        "state": "ONLINE",
+        "recoveryModel": "SIMPLE",
+        "readOnly": false,
+        "encrypted": false,
+        "sizeBytes": 8388608,
+        "usedBytes": 3145728,
+        "canBackup": true
+      }
+    ]
+  }
+}

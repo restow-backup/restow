@@ -15,7 +15,7 @@ import { createDb } from "@restow/db";
 import { runMigrations } from "@restow/db/migrate";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { withTenantTx } from "./handlers/framework.js";
-import { raiseEvents, raiseJobFinished } from "./reporting.js";
+import { configureReportTimeZone, raiseEvents, raiseJobFinished } from "./reporting.js";
 import { dropTestDatabase } from "./testing/database.js";
 
 const adminUrl = process.env.RESTOW_TEST_DATABASE_URL;
@@ -91,7 +91,7 @@ describe.skipIf(!adminUrl)("raising events against Postgres", () => {
       )
     ).rows;
 
-  it("writes the bell and queues one mail per recipient of the matching rule", async () => {
+  it("writes the bell and queues one mail per recipient of the matching rule [ALERT-002]", async () => {
     await withTenantTx(db, contoso, (tx) =>
       raiseJobFinished(tx, contoso, {
         id: "00000000-0000-4000-8000-000000000001",
@@ -267,7 +267,7 @@ describe.skipIf(!adminUrl)("raising events against Postgres", () => {
     expect(bell.rows).toEqual([{ event: "backup.succeeded", level: "info" }]);
   });
 
-  it("reads a completed restore's stored counters: nothing restored, items failed is restore.failed", async () => {
+  it("reads a completed restore's stored counters: nothing restored, items failed is restore.failed [ALERT-009]", async () => {
     const jobId = "00000000-0000-4000-8000-000000000301";
     await db.$client.query(
       `INSERT INTO jobs (id, tenant_id, queue, status, protected_object_id, payload, completed_at)
@@ -303,5 +303,64 @@ describe.skipIf(!adminUrl)("raising events against Postgres", () => {
         }),
       }),
     ]);
+  });
+
+  it("holds a daily digest until 07:00 of the installation's zone for a tenant without one", async () => {
+    const q = <T extends Record<string, unknown>>(text: string, values: unknown[] = []) =>
+      db.$client.query<T>(text, values).then((result) => result.rows);
+    const [provider] = await q<{ id: string }>("SELECT id FROM providers LIMIT 1");
+    const [tenant] = await q<{ id: string }>(
+      "INSERT INTO tenants (provider_id, name, slug) VALUES ($1, 'Northwind', 'northwind') RETURNING id",
+      [provider?.id],
+    );
+    const northwind = tenant?.id ?? "";
+    await q(
+      `INSERT INTO tenant_notification_recipients (tenant_id, email, events, delivery)
+       VALUES ($1, 'ops@northwind.example', ARRAY['backup.failed'], '{"error":"daily"}'::jsonb)`,
+      [northwind],
+    );
+    const [rule] = await q<{ id: string }>(
+      `INSERT INTO report_rules (tenant_id, name, trigger, events, throttle_minutes, email_recipients)
+       VALUES ($1, 'Daily', 'event', ARRAY['backup.failed'], 0, ARRAY['ops@northwind.example'])
+       RETURNING id`,
+      [northwind],
+    );
+    // Chosen in the setup wizard; the environment says otherwise.
+    await q("INSERT INTO settings (time_zone) VALUES ('America/New_York')");
+    const environment = process.env.RESTOW_TIME_ZONE;
+    process.env.RESTOW_TIME_ZONE = "Europe/Berlin";
+    configureReportTimeZone({ providerDb: db });
+    try {
+      // 10:15 UTC is 06:15 in New York (12:15 in Berlin): the digest is due at 07:00 New York.
+      await withTenantTx(db, northwind, (tx) =>
+        raiseEvents(
+          tx,
+          [
+            {
+              tenantId: northwind,
+              level: "error",
+              event: "backup.failed",
+              message: "failed",
+              details: { protectedObjectId: "00000000-0000-4000-8000-00000000a001" },
+            },
+          ],
+          new Date("2026-09-30T10:15:00.000Z"),
+        ),
+      );
+      const held = await q<{ digest: string; next_attempt_at: Date }>(
+        "SELECT digest, next_attempt_at FROM report_deliveries WHERE rule_id = $1",
+        [rule?.id],
+      );
+      expect(held).toHaveLength(1);
+      expect(held[0]?.digest).toBe("daily");
+      expect(held[0]?.next_attempt_at.toISOString()).toBe("2026-09-30T11:00:00.000Z");
+    } finally {
+      configureReportTimeZone(null);
+      if (environment === undefined) {
+        delete process.env.RESTOW_TIME_ZONE;
+      } else {
+        process.env.RESTOW_TIME_ZONE = environment;
+      }
+    }
   });
 });

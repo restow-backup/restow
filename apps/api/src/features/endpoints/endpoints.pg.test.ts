@@ -52,6 +52,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   basic,
   type EndpointFixture,
+  keepLittleFree,
   resticAvailable,
   startFixture,
   testDatabaseAdminUrl,
@@ -91,6 +92,7 @@ describe.skipIf(!canRun)("endpoint backup against Postgres", () => {
 
   beforeAll(async () => {
     fixture = await startFixture(DATABASE);
+    await keepLittleFree(fixture.db);
     shared = await import("../../db.js");
     service = await import("./service.js");
     await import("./agent-service.js");
@@ -1020,6 +1022,41 @@ describe.skipIf(!canRun)("endpoint backup against Postgres", () => {
         logTail: "line 1\nline 2",
         filesNew: 3,
       });
+    }, 30_000);
+
+    it("says a backup without sample files cannot be restore-checked and refuses a check of it (S-C4)", async () => {
+      const who = await enrolled("server");
+      // A Windows agent before 0.5.0 recorded no samples at all: the backup itself succeeded.
+      const { finish } = await finishedBackup(who, { sample: [] });
+      expect(finish.status).toBe(200);
+      const detail = await service.getEndpoint(
+        shared.db,
+        fixture.tenantId,
+        who.endpointId,
+        instance.url,
+      );
+      expect(detail.readiness).toMatchObject({
+        state: "unverified",
+        latestSnapshotId: SNAPSHOT,
+        noSamples: true,
+      });
+      const listed = await service.listEndpoints(shared.db, fixture.tenantId);
+      expect(listed.items.find((item) => item.id === who.endpointId)?.readiness.noSamples).toBe(
+        true,
+      );
+      await expect(
+        service.requestRestoreTest(shared.db, fixture.tenantId, who.endpointId, actor()),
+      ).rejects.toMatchObject({ status: 409, type: "urn:restow:problem:endpoint-no-samples" });
+
+      // The next backup records samples: an ordinary unverified backup that a check can rate.
+      await finishedBackup(who);
+      const after = await service.getEndpoint(
+        shared.db,
+        fixture.tenantId,
+        who.endpointId,
+        instance.url,
+      );
+      expect(after.readiness).toMatchObject({ state: "unverified", noSamples: false });
     }, 30_000);
 
     it("keeps the agent's activity report with the statistics, checked, and works without one", async () => {

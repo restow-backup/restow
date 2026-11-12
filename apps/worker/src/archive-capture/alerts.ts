@@ -10,6 +10,15 @@
  *                  chose the forwarded copy. Once per address and stretch: a new copy ends it.
  *   journal_stale  the tenant's journal address received journal reports, but none for 24
  *                  hours. Once per tenant and stretch.
+ *   backfill_stalled the one-time takeover of a stream's existing mail has not completed 48
+ *                  hours after activation, or its newest job failed (packages/db
+ *                  `backfillStalledSql`). The capture pass queues it again by itself
+ *                  (./service.ts); the alert says that mail from before the activation is not
+ *                  in the archive yet. Once per stream and activation.
+ *   capture_gap    a stream could not take in a folder or a message (an open row in
+ *                  `archive_capture_gaps`, ./gaps.ts: refused three times, or given up at once).
+ *                  Once per stream and newly opened gaps: a gap opened after the last alert of
+ *                  the stream raises the next one.
  *
  * "Received before" looks back 7 days, like the status of the forwarding and journal pages
  * (`stale`); an address silent for longer was already announced, or never worked. Whether
@@ -21,7 +30,12 @@
  * indexed columns, no query per mailbox; at most {@link MAX_ALERTS_PER_TENANT} per tenant
  * and pass.
  */
-import { captureKindSql, type NewNotification } from "@restow/db";
+import {
+  BACKFILL_STALLED_AFTER_HOURS,
+  backfillStalledSql,
+  captureKindSql,
+  type NewNotification,
+} from "@restow/db";
 import { sql } from "drizzle-orm";
 import type { EndpointJobDeps } from "../endpoints/common.js";
 import { withTenantTx } from "../handlers/framework.js";
@@ -36,7 +50,12 @@ export const SMTP_STALE_ALERT_MS = 24 * HOUR_MS;
 const LOOKBACK_MS = 7 * 24 * HOUR_MS;
 const MAX_ALERTS_PER_TENANT = 100;
 
-export type ArchiveAlertReason = "capture_error" | "forward_stale" | "journal_stale";
+export type ArchiveAlertReason =
+  | "capture_error"
+  | "forward_stale"
+  | "journal_stale"
+  | "backfill_stalled"
+  | "capture_gap";
 
 type Deps = Pick<EndpointJobDeps, "db" | "providerDb">;
 
@@ -80,6 +99,85 @@ async function erroredStreams(deps: Deps, now: Date): Promise<StreamRow[]> {
             and n.details->>'captureStreamId' = e.id::text
             and (n.details->>'errorSince')::timestamptz >= e.error_since - interval '1 millisecond')
      order by e.tenant_id, e.error_since
+  `);
+  return result.rows;
+}
+
+type BackfillRow = {
+  id: string;
+  tenant_id: string;
+  protected_object_id: string;
+  way: string;
+  name: string;
+  activated_at: Date | string;
+  failure: Record<string, unknown> | null;
+};
+
+/** Streams whose backfill is stalled (see the module docstring), not yet announced. */
+async function stalledBackfills(deps: Deps): Promise<BackfillRow[]> {
+  const result = await deps.providerDb.execute<BackfillRow>(sql`
+    select s.id, s.tenant_id, s.protected_object_id, s.way::text as way, s.activated_at,
+           coalesce(nullif(trim(po.display_name), ''), po.external_id) as name,
+           (select j.failure from jobs j
+             where j.tenant_id = s.tenant_id and j.queue = 'archive'
+               and j.protected_object_id = s.protected_object_id
+               and j.payload->>'mode' = 'backfill' and j.payload->>'capture' = s.way::text
+               and j.status = 'failed'
+             order by j.created_at desc limit 1) as failure
+      from archive_capture_streams s
+      join protected_objects po on po.id = s.protected_object_id
+      join tenants t on t.id = s.tenant_id and t.status = 'active'
+     where s.backfill_completed_at is null and s.activated_at is not null
+       and ${backfillStalledSql("s")}
+       and not exists (
+         select 1 from notifications n
+          where n.tenant_id = s.tenant_id and n.event = 'archive.failed'
+            and n.details->>'reason' = 'backfill_stalled'
+            and n.details->>'captureStreamId' = s.id::text
+            and (n.details->>'activatedAt')::timestamptz >= s.activated_at - interval '1 millisecond')
+     order by s.tenant_id, s.activated_at
+  `);
+  return result.rows;
+}
+
+type GapRow = {
+  id: string;
+  tenant_id: string;
+  protected_object_id: string;
+  way: string;
+  name: string;
+  gaps: number;
+  folders: number;
+  messages: number;
+  opened_at: Date | string;
+};
+
+/** Streams with gaps opened since their last `capture_gap` alert. */
+async function streamsWithNewGaps(deps: Deps): Promise<GapRow[]> {
+  const result = await deps.providerDb.execute<GapRow>(sql`
+    with open_gaps as (
+      select g.stream_id, count(*)::int as gaps,
+             count(*) filter (where g.kind in ('folder', 'backfill_folder'))::int as folders,
+             count(*) filter (where g.kind = 'message')::int as messages,
+             max(g.opened_at) as opened_at
+        from archive_capture_gaps g
+       where g.resolved_at is null and g.opened_at is not null
+       group by g.stream_id
+    )
+    select s.id, s.tenant_id, s.protected_object_id, s.way::text as way, o.gaps, o.folders,
+           o.messages, o.opened_at,
+           coalesce(nullif(trim(po.display_name), ''), po.external_id) as name
+      from open_gaps o
+      join archive_capture_streams s on s.id = o.stream_id and s.status <> 'disabled'
+      join protected_objects po on po.id = s.protected_object_id
+      join tenants t on t.id = s.tenant_id and t.status = 'active'
+     where not exists (
+         select 1 from notifications n
+          where n.tenant_id = s.tenant_id and n.event = 'archive.failed'
+            and n.details->>'reason' = 'capture_gap'
+            and n.details->>'captureStreamId' = s.id::text
+            and (n.details->>'openedAt')::timestamptz >= o.opened_at - interval '1 millisecond')
+     order by s.tenant_id, o.opened_at
   `);
   return result.rows;
 }
@@ -215,6 +313,56 @@ export function captureErrorNotification(row: StreamRow): NewNotification {
   };
 }
 
+/** The alert of a stream whose one-time takeover of the existing mail is stalled. */
+export function backfillStalledNotification(row: BackfillRow): NewNotification {
+  const failure =
+    row.failure && typeof row.failure.code === "string"
+      ? alertFailure(row.failure as unknown as Parameters<typeof alertFailure>[0])
+      : null;
+  const way = WAY_LABEL[row.way] ?? row.way;
+  return {
+    tenantId: row.tenant_id,
+    level: "error",
+    event: "archive.failed",
+    message: failure
+      ? `Taking over the existing mail of ${row.name} by ${way} failed; mail from before the capture started is not in the archive yet.`
+      : `Taking over the existing mail of ${row.name} by ${way} has not finished after ${BACKFILL_STALLED_AFTER_HOURS} hours; mail from before the capture started is not in the archive yet.`,
+    details: {
+      reason: "backfill_stalled" satisfies ArchiveAlertReason,
+      queue: "archive",
+      protectedObjectId: row.protected_object_id,
+      objectName: row.name,
+      captureStreamId: row.id,
+      captureWay: row.way,
+      activatedAt: iso(row.activated_at),
+      failure,
+    },
+  };
+}
+
+/** The alert of a stream that left folders or messages out of the archive. */
+export function captureGapNotification(row: GapRow): NewNotification {
+  const way = WAY_LABEL[row.way] ?? row.way;
+  return {
+    tenantId: row.tenant_id,
+    level: "error",
+    event: "archive.failed",
+    message: `Archive capture of ${row.name} by ${way} could not take in ${row.folders} folder(s) and ${row.messages} message(s); they are not in the archive.`,
+    details: {
+      reason: "capture_gap" satisfies ArchiveAlertReason,
+      queue: "archive",
+      protectedObjectId: row.protected_object_id,
+      objectName: row.name,
+      captureStreamId: row.id,
+      captureWay: row.way,
+      gaps: Number(row.gaps),
+      folders: Number(row.folders),
+      messages: Number(row.messages),
+      openedAt: iso(row.opened_at),
+    },
+  };
+}
+
 /** The alert of an archive address that stopped receiving forwarded copies. */
 export function forwardStaleNotification(row: ForwardRow): NewNotification {
   return {
@@ -254,6 +402,8 @@ export async function alertArchiveCapture(deps: Deps, now: Date): Promise<number
     ...(await erroredStreams(deps, now)).map(captureErrorNotification),
     ...(await staleForwardAddresses(deps, now)).map(forwardStaleNotification),
     ...(await staleJournals(deps, now)).map(journalStaleNotification),
+    ...(await stalledBackfills(deps)).map(backfillStalledNotification),
+    ...(await streamsWithNewGaps(deps)).map(captureGapNotification),
   ];
   const byTenant = new Map<string, NewNotification[]>();
   for (const notification of raised) {

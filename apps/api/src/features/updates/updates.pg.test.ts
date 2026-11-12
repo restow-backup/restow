@@ -135,6 +135,7 @@ function idleState(over: Partial<StateView> = {}): StateView {
     restart: null,
     projectDir: null,
     database: null,
+    restore: null,
     serverTime: "2026-10-01T09:00:00.000Z",
     ...over,
   };
@@ -253,6 +254,25 @@ class ScriptedUpdater implements UpdaterClient {
     throw new Error("not scripted");
   }
 
+  // A restore from a dump (updater/restore.ts) is not part of these tests.
+  async startDumpUpload(): Promise<never> {
+    throw new Error("not scripted");
+  }
+  async putDumpPart(): Promise<never> {
+    throw new Error("not scripted");
+  }
+  async completeDumpUpload(): Promise<never> {
+    throw new Error("not scripted");
+  }
+  async startRestore(): Promise<never> {
+    throw new Error("not scripted");
+  }
+  async activateRestore(): Promise<never> {
+    throw new Error("not scripted");
+  }
+  async abortRestore(): Promise<never> {
+    throw new Error("not scripted");
+  }
   async deleteDump(): Promise<never> {
     throw new Error("not scripted");
   }
@@ -807,7 +827,7 @@ describe.skipIf(!testDatabaseAdminUrl)("updates against Postgres", () => {
       expect(feed.requests).toHaveLength(requests + 1);
     });
 
-    it("never contacts anything when the check is off or in demo mode", async () => {
+    it("never contacts anything when the check is off or in demo mode [UPDATE-015]", async () => {
       const off = build();
       await off.service.runScheduledCheckIfDue();
       const demo = build({}, true);
@@ -1153,7 +1173,7 @@ describe.skipIf(!testDatabaseAdminUrl)("updates against Postgres", () => {
       expect(updater.scheduled).toEqual([]);
     });
 
-    it("offers and installs only releases the installed licence key covers (0.4.5)", async () => {
+    it("offers and installs only releases the installed licence key covers (0.4.5) [LICENSE-008]", async () => {
       const { registerApiExtension, resetExtensionsForTesting } = await import(
         "../../extensions.js"
       );

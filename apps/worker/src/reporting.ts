@@ -2,53 +2,38 @@
  * Events for the bell, the notification rules and the delivery outbox
  * (docs/ARCHITECTURE.md, Reports and notifications).
  *
- * Every event the worker raises is written as an in-app notification (the
- * bell), but a routine one (a backup succeeded, a restore check finished) only
- * when the tenant's bell has it on: one row per backup would bury everything
- * else. The bell hides the other events its column has off when it is read
- * (apps/api features/reports/service.ts); the rows stay, the overdue and quota
- * passes read some of them back. In the same transaction, each enabled event
- * rule of the tenant that lists the event gets its deliveries queued in
- * `report_deliveries`, unless the rule alerted about the same subject within
- * its throttle window, and only for the channels whose column in the
- * notification matrix has the event on (plannedDeliveries). The API's
- * dispatcher renders and sends them; nothing here talks to a mail server, so a
- * slow SMTP server never holds up a job.
- *
- * A rule with its own deadline for `backup.overdue` (`overdueAfterHours`) is left out when that
- * event is raised at the schedules' bound: the overdue pass queues its alerts by its own deadline
- * (overdue.ts, `queueRuleDeliveries`).
+ * The raise path itself lives in @restow/db (report-events.ts, `raiseReportEvents`), shared with
+ * the API, which raises failed deliveries the same way: every event the worker raises is written
+ * as an in-app notification (the bell), but a routine one only when the tenant's bell has it on;
+ * each tenant catalog event gets a `report_events` row the API fans out to the provider's
+ * recipients; and each enabled event rule of the tenant that lists the event gets its deliveries
+ * queued in `report_deliveries` (at once, or held for a recipient's digest). The API's dispatcher
+ * renders and sends them; nothing here talks to a mail server, so a slow SMTP server never holds
+ * up a job.
  */
 import {
-  bellEventsOf,
-  type ChannelColumns,
   FAILED_JOB_EVENTS,
   guidanceFor,
-  isAlertThrottled,
   isNotBackedUpFailure,
-  isReportEvent,
   isServiceLimitedFailure,
-  overdueDeadlineOf,
-  plannedDeliveries,
   type ReportEvent,
-  ROUTINE_REPORT_EVENTS,
-  rulesForEvent,
-  subjectKeyOf,
+  type RunSpaceOverride,
+  resolveInstallationTimeZone,
 } from "@restow/core";
 import {
+  channelColumnsOf,
+  type Database,
   type Job,
+  lastRuleAlertAt,
+  loadInstallationSpaceRule,
   type NewNotification,
-  type NewReportDelivery,
-  notifications,
   protectedObjects,
+  queueRuleDeliveries as queueDeliveries,
   type ReportRule,
-  reportDeliveries,
-  reportRules,
-  tenantNotificationRecipients,
-  tenants,
-  webhooks,
+  raiseReportEvents,
+  settings,
 } from "@restow/db";
-import { and, eq, max } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { TenantTx } from "./progress.js";
 import {
   loadRestoreCounts,
@@ -56,6 +41,63 @@ import {
   type RestoreCounts,
   restoreOutcome,
 } from "./restore-outcome.js";
+import { serviceLabel } from "./service-label.js";
+
+/**
+ * Where the installation's time zone comes from: `settings.time_zone`, which only the
+ * installation pool may read (the jobs raise their events in a tenant transaction). Set once at
+ * start-up (index.ts); unset (tests, tools) the environment's zone applies.
+ */
+let zoneSource: (() => Promise<string>) | null = null;
+let zoneCache: { at: number; zone: string } | null = null;
+const ZONE_CACHE_MS = 60_000;
+
+/** The installation pool, for the installation's space rule of the run size guard (#99). */
+let spaceRuleDb: Database | null = null;
+
+/**
+ * The installation's space rule (`settings.run_space_rule`, @restow/db loadInstallationSpaceRule),
+ * which the tenant transaction of a backup cannot read; null where no installation pool is set.
+ */
+export async function reportInstallationSpaceRule(): Promise<RunSpaceOverride | null> {
+  return spaceRuleDb ? loadInstallationSpaceRule(spaceRuleDb) : null;
+}
+
+export function configureReportTimeZone(deps: { providerDb: Database } | null): void {
+  zoneCache = null;
+  spaceRuleDb = deps?.providerDb ?? null;
+  zoneSource = deps
+    ? async () => {
+        const [row] = await deps.providerDb
+          .select({ timeZone: settings.timeZone })
+          .from(settings)
+          .limit(1);
+        return resolveInstallationTimeZone(row?.timeZone ?? null, process.env).timeZone;
+      }
+    : null;
+}
+
+/**
+ * The installation's time zone for the daily digest of a tenant without a zone of its own, as
+ * the API reads it (the setup wizard's or Installation › Server's choice, else the environment).
+ * Cached for a minute; a failed read falls back to the environment's zone.
+ */
+export async function reportInstallationTimeZone(): Promise<string | null> {
+  if (!zoneSource) {
+    return null;
+  }
+  const now = Date.now();
+  if (zoneCache && now - zoneCache.at < ZONE_CACHE_MS) {
+    return zoneCache.zone;
+  }
+  try {
+    const zone = await zoneSource();
+    zoneCache = { at: now, zone };
+    return zone;
+  } catch {
+    return null;
+  }
+}
 
 /** Write the notifications and queue the deliveries of every rule they reach. */
 export async function raiseEvents(
@@ -63,183 +105,15 @@ export async function raiseEvents(
   raised: readonly NewNotification[],
   now: Date = new Date(),
 ): Promise<void> {
-  if (raised.length === 0) {
-    return;
-  }
-  const written = await forTheBell(tx, raised);
-  if (written.length > 0) {
-    await tx.insert(notifications).values(written);
-  }
-
-  const byTenant = new Map<string, NewNotification[]>();
-  for (const notification of raised) {
-    if (!notification.tenantId || !isReportEvent(notification.event)) {
-      continue;
-    }
-    const list = byTenant.get(notification.tenantId) ?? [];
-    list.push(notification);
-    byTenant.set(notification.tenantId, list);
-  }
-
-  for (const [tenantId, events] of byTenant) {
-    const rules = await tx
-      .select()
-      .from(reportRules)
-      .where(
-        and(
-          eq(reportRules.tenantId, tenantId),
-          eq(reportRules.enabled, true),
-          eq(reportRules.trigger, "event"),
-        ),
-      );
-    if (rules.length === 0) {
-      continue;
-    }
-    const columns = await channelColumns(tx, tenantId);
-    const rows: NewReportDelivery[] = [];
-    for (const notification of events) {
-      const event = notification.event as ReportEvent;
-      for (const rule of rulesForEvent(rules, event)) {
-        if (event === "backup.overdue" && overdueDeadlineOf(rule) !== null) {
-          // This rule decides by its own deadline (overdue.ts).
-          continue;
-        }
-        rows.push(...(await ruleDeliveries(tx, tenantId, rule, notification, now, columns)));
-      }
-    }
-    if (rows.length > 0) {
-      await tx.insert(reportDeliveries).values(rows);
-    }
-  }
+  await raiseReportEvents(tx, raised, now, { installationTimeZone: reportInstallationTimeZone });
 }
 
-/** The raised notifications the bell keeps: all but the routine ones its column has off. */
-async function forTheBell(
-  tx: TenantTx,
-  raised: readonly NewNotification[],
-): Promise<NewNotification[]> {
-  const bells = new Map<string, readonly string[]>();
-  const written: NewNotification[] = [];
-  for (const notification of raised) {
-    const tenantId = notification.tenantId;
-    if (!tenantId || !(ROUTINE_REPORT_EVENTS as readonly string[]).includes(notification.event)) {
-      written.push(notification);
-      continue;
-    }
-    let bell = bells.get(tenantId);
-    if (!bell) {
-      const [tenant] = await tx
-        .select({ bellEvents: tenants.bellEvents })
-        .from(tenants)
-        .where(eq(tenants.id, tenantId));
-      bell = bellEventsOf(tenant?.bellEvents);
-      bells.set(tenantId, bell);
-    }
-    if (bell.includes(notification.event)) {
-      written.push(notification);
-    }
-  }
-  return written;
-}
-
-/**
- * The tenant's channels and their columns in the notification matrix: what each webhook and each
- * notification recipient gets (plannedDeliveries leaves the others out).
- */
-export async function channelColumns(tx: TenantTx, tenantId: string): Promise<ChannelColumns> {
-  const hooks = await tx
-    .select({ id: webhooks.id, events: webhooks.events })
-    .from(webhooks)
-    .where(eq(webhooks.tenantId, tenantId));
-  const recipients = await tx
-    .select({
-      email: tenantNotificationRecipients.email,
-      events: tenantNotificationRecipients.events,
-    })
-    .from(tenantNotificationRecipients)
-    .where(eq(tenantNotificationRecipients.tenantId, tenantId));
-  return {
-    webhooks: new Map(hooks.map((hook) => [hook.id, hook.events])),
-    recipients: new Map(
-      recipients.map((recipient) => [recipient.email.trim().toLowerCase(), recipient.events]),
-    ),
-  };
-}
+/** The tenant's channels and their columns in the notification matrix. */
+export const channelColumns = (tx: TenantTx, tenantId: string) => channelColumnsOf(tx, tenantId);
 
 /** When the rule last alerted about the subject; null when it never did. */
-export async function lastAlertAt(
-  tx: TenantTx,
-  tenantId: string,
-  ruleId: string,
-  subjectKey: string,
-): Promise<Date | null> {
-  const [last] = await tx
-    .select({ at: max(reportDeliveries.createdAt) })
-    .from(reportDeliveries)
-    .where(
-      and(
-        eq(reportDeliveries.tenantId, tenantId),
-        eq(reportDeliveries.ruleId, ruleId),
-        eq(reportDeliveries.subjectKey, subjectKey),
-        eq(reportDeliveries.kind, "event"),
-      ),
-    );
-  return last?.at ?? null;
-}
-
-/**
- * The outbox rows one event gives one rule: one per channel and recipient whose column has the
- * event on, none while the rule alerted about the same subject within its throttle window. A rule
- * none of whose channels wants the event queues nothing, and so does not start a throttle window.
- */
-async function ruleDeliveries(
-  tx: TenantTx,
-  tenantId: string,
-  rule: ReportRule,
-  notification: NewNotification,
-  now: Date,
-  columns: ChannelColumns,
-): Promise<NewReportDelivery[]> {
-  const event = notification.event as ReportEvent;
-  const details = notification.details ?? {};
-  const subjectKey = subjectKeyOf(event, details);
-  const planned = plannedDeliveries(rule, "event", { event, columns });
-  if (planned.length === 0) {
-    return [];
-  }
-  if (
-    isAlertThrottled(
-      await lastAlertAt(tx, tenantId, rule.id, subjectKey),
-      now,
-      rule.throttleMinutes,
-    )
-  ) {
-    return [];
-  }
-  const payload = {
-    event,
-    level: notification.level ?? "info",
-    message: notification.message,
-    details,
-    occurredAt: now.toISOString(),
-  };
-  return planned.map((planned) => ({
-    tenantId,
-    ruleId: rule.id,
-    ruleName: rule.name,
-    kind: "event" as const,
-    event,
-    subjectKey,
-    payload,
-    channel: planned.channel,
-    recipient: planned.recipient,
-    language: rule.language,
-    status: "pending" as const,
-    nextAttemptAt: now,
-    createdAt: now,
-    updatedAt: now,
-  }));
-}
+export const lastAlertAt = (tx: TenantTx, tenantId: string, ruleId: string, subjectKey: string) =>
+  lastRuleAlertAt(tx, tenantId, ruleId, subjectKey);
 
 /**
  * Queue one rule's deliveries of events the bell already knows about, or never will: the
@@ -253,17 +127,9 @@ export async function queueRuleDeliveries(
   raised: readonly NewNotification[],
   now: Date,
 ): Promise<number> {
-  const rows: NewReportDelivery[] = [];
-  const columns = raised.length > 0 ? await channelColumns(tx, tenantId) : null;
-  for (const notification of raised) {
-    if (columns) {
-      rows.push(...(await ruleDeliveries(tx, tenantId, rule, notification, now, columns)));
-    }
-  }
-  if (rows.length > 0) {
-    await tx.insert(reportDeliveries).values(rows);
-  }
-  return rows.length;
+  return queueDeliveries(tx, tenantId, rule, raised, now, {
+    installationTimeZone: reportInstallationTimeZone,
+  });
 }
 
 /** The cause of a failed job as an alert carries it: code, facts and the ids of the steps to take. */
@@ -303,6 +169,7 @@ export function jobFinishedNotification(
   tenantId: string,
   job: FinishedJob,
   objectName: string | null,
+  objectKind: string | null = null,
 ): NewNotification | null {
   let event: ReportEvent | undefined;
   if (
@@ -331,7 +198,8 @@ export function jobFinishedNotification(
   if (!event) {
     return null;
   }
-  const target = objectName ?? job.queue;
+  // The service named with the object (0.5.0): a person's mailbox and OneDrive share a name.
+  const target = objectName ? serviceLabel(objectKind, objectName) : job.queue;
   const failed = job.status === "failed" || outcome === "nothingRestored";
   // The run itself went through: its error is that not one item could be written.
   const errorMessage =
@@ -354,6 +222,7 @@ export function jobFinishedNotification(
       queue: job.queue,
       protectedObjectId: job.protectedObjectId,
       objectName,
+      ...(objectKind ? { objectKind } : {}),
       errorMessage,
       // Set only for a restore that did not restore anything (restore-outcome.ts).
       ...(outcome === "nothingRestored" || outcome === "allSkipped"
@@ -373,11 +242,13 @@ export async function raiseJobFinished(tx: TenantTx, tenantId: string, finished:
       ? { ...finished, restoreResult: await loadRestoreCounts(tx, finished) }
       : finished;
   let objectName: string | null = null;
+  let objectKind: string | null = null;
   if (job.protectedObjectId) {
     const [object] = await tx
       .select({
         displayName: protectedObjects.displayName,
         externalId: protectedObjects.externalId,
+        kind: protectedObjects.kind,
       })
       .from(protectedObjects)
       .where(
@@ -387,8 +258,9 @@ export async function raiseJobFinished(tx: TenantTx, tenantId: string, finished:
         ),
       );
     objectName = object ? object.displayName?.trim() || object.externalId : null;
+    objectKind = object?.kind ?? null;
   }
-  const notification = jobFinishedNotification(tenantId, job, objectName);
+  const notification = jobFinishedNotification(tenantId, job, objectName, objectKind);
   if (notification) {
     await raiseEvents(tx, [notification]);
   }

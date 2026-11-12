@@ -74,6 +74,9 @@ export type MailConfig =
       security: "starttls" | "implicit" | "none";
       from: string;
       username?: string;
+      // Further From addresses branding may use (0.5.0): exact addresses or `@domain`. The
+      // configured `from` is always allowed.
+      allowedSenders?: string[];
     }
   | {
       transport: "graph";
@@ -98,6 +101,19 @@ export type MailConfig =
       serviceAccountEmail: string;
       clientId: string;
     };
+
+/**
+ * An episode of the mail transport failing as a whole (0.5.0): not configured, the login refused,
+ * the server unreachable, a token that cannot be had. One `notification.delivery_failed` alert per
+ * episode (`alertedAt`); the next successful send clears it.
+ */
+export type MailFailureState = {
+  since: string;
+  reason: string;
+  detail: string | null;
+  alertedAt: string | null;
+  failedDeliveries: number;
+};
 
 /** One release as the update check keeps it (docs/ARCHITECTURE.md, Updates). */
 export type StoredUpdateRelease = {
@@ -208,7 +224,20 @@ export type DiskAlertEntry = {
    */
   samples?: { at: string; freeBytes: number }[];
 };
-export type DiskAlertState = Partial<Record<"database" | "repository" | "system", DiskAlertEntry>>;
+/**
+ * The emergency disk reserve (#98, apps/api features/updates/disk-reserve.ts): the release and
+ * the recreation that were announced, by the time the reserve's marker gives for them (a release
+ * while the database was down is announced once it is back).
+ */
+export type DiskReserveAlertEntry = {
+  /** `releasedAt` of the release that went out as `installation.disk_reserve_released`. */
+  releasedAt: string | null;
+  /** `restoredAt` of the recreation that went out as `installation.disk_reserve_restored`. */
+  restoredAt: string | null;
+};
+export type DiskAlertState = Partial<
+  Record<"database" | "repository" | "system", DiskAlertEntry>
+> & { reserve?: DiskReserveAlertEntry };
 
 /**
  * The last expiry reminder of a Microsoft 365 app credential (0.4.7, @restow/core
@@ -247,6 +276,18 @@ export interface AppSecretAlertState {
  * encrypted secret store. `singleton` is a unique flag keeping this table to one row.
  */
 /**
+ * The modules of the installation (0.5.0): what it protects, as the setup wizard asks and
+ * Installation > Modules changes later (apps/api features/settings/modules.ts has the list).
+ * Only the ids of the modules switched off are stored, so an installation from an earlier release
+ * (`{}`) shows every module, and so does a module a later release adds. Switching a module off
+ * only hides its place in the web interface; nothing is deleted, stopped or refused.
+ */
+export type InstallationModules = {
+  /** Ids of the modules switched off; an id this release does not know is ignored. */
+  hidden?: string[];
+};
+
+/**
  * The provider's own prices, per month (0.4.7): per gigabyte or terabyte of stored backups (the
  * deduplicated, compressed bytes on the repositories) and per protected mailbox (the counting
  * rule of the usage figures). A price left out is not shown.
@@ -263,7 +304,27 @@ export interface PricingSettings {
    */
   storageBilling?: "exact" | "block_100gb" | "block_1tb";
   mailboxPrice?: number | null;
+  /**
+   * Per protected unit and month (0.5.0), besides the mailboxes: a server or a client (agent
+   * machines by their profile), a Proxmox VE VM or container, a file share. The counting rule of
+   * each is apps/api usage/units.ts. Left out or null: the line is not billed.
+   */
+  serverPrice?: number | null;
+  clientPrice?: number | null;
+  vmPrice?: number | null;
+  containerPrice?: number | null;
+  fileSharePrice?: number | null;
 }
+
+/** The installation default's write-once finding (@restow/core storage/write-once.ts). */
+export type DefaultStorageWriteOnce = {
+  /** `describeStorageLocation` of the location that was probed. */
+  location: string;
+  writeOnce: boolean;
+  refused: ("overwrite" | "delete")[];
+  code: string | null;
+  checkedAt: string;
+};
 
 export const settings = pgTable(
   "settings",
@@ -328,14 +389,27 @@ export const settings = pgTable(
     // settings and the ones it locks for every tenant and job. `{}` sets nothing, which is what the
     // agents did before policies existed (@restow/core endpoints/agent-policy.ts).
     agentPolicy: jsonb("agent_policy").$type<GlobalAgentPolicyRecord>().notNull().default({}),
+    // The write-once finding of the installation default's newest probe (docs/STORAGE.md,
+    // "Write-once storage"), with the location it was found on: it applies only while the
+    // default still describes that location. Null until the default was probed with 0.5.0.
+    defaultStorageWriteOnce: jsonb("default_storage_write_once").$type<DefaultStorageWriteOnce>(),
     // Proxmox VE backups (docs/PVE.md): `{}` takes every default (PveInstallationSettings).
     pveSettings: jsonb("pve_settings").$type<PveInstallationSettings>().notNull().default({}),
+    // The space backups keep free on a storage target (#99, @restow/core `RunSpaceOverride`):
+    // the installation's default over the built-in one (5 %, at least 20 GiB, at most 500 GiB),
+    // and the whole rule on the installation's default target. `{}` takes the built-in default.
+    runSpaceRule: jsonb("run_space_rule").$type<Record<string, unknown>>().notNull().default({}),
     // What the provider charges its customers (0.4.7, PricingSettings): only a figure on the
     // tenant overview to keep an eye on; nothing bills or enforces it. `{}` sets no price.
     pricing: jsonb("pricing").$type<PricingSettings>().notNull().default({}),
     // The expiry reminders sent for the central app registration's secret or certificate
     // (apps/api features/updates/secret-watch.ts, see AppSecretAlertState); `{}` before the first.
     appSecretAlerts: jsonb("app_secret_alerts").$type<AppSecretAlertState>().notNull().default({}),
+    // The mail transport's failure episode (0.5.0, MailFailureState); null while it works.
+    mailFailure: jsonb("mail_failure").$type<MailFailureState>(),
+    // The modules of the installation the web interface hides (0.5.0, InstallationModules); `{}`
+    // hides none, which is what every installation showed before modules existed.
+    modules: jsonb("modules").$type<InstallationModules>().notNull().default({}),
     ...timestamps(),
   },
   (t) => [uniqueIndex("settings_singleton_uq").on(t.singleton)],

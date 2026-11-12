@@ -12,6 +12,7 @@ package winapi
 // Win32 error codes the agent tells apart (winerror.h).
 const (
 	ErrorFileNotFound              = 2
+	ErrorNoMoreFiles               = 18
 	ErrorAccessDenied              = 5
 	ErrorInvalidOwner              = 1307
 	ErrorFileExists                = 80
@@ -21,10 +22,12 @@ const (
 	ErrorInsufficientBuffer        = 122
 	ErrorAlreadyExists             = 183
 	ErrorMoreData                  = 234
+	ErrorNoMoreItems               = 259
 	ErrorIOPending                 = 997
 	ErrorServiceAlreadyRunning     = 1056
 	ErrorServiceDoesNotExist       = 1060
 	ErrorServiceNotActive          = 1062
+	ErrorServiceCannotAcceptCtrl   = 1061
 	ErrorFailedServiceControllerCx = 1063
 	ErrorServiceSpecificError      = 1066
 	ErrorServiceMarkedForDelete    = 1072

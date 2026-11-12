@@ -504,7 +504,7 @@ describe.skipIf(!adminUrl)("migrations on a fresh and on a 0.300.x database", ()
       await owner?.end();
     });
 
-    it("applies the new migrations", async () => {
+    it("applies the new migrations [UPDATE-017]", async () => {
       expect(await appliedMigrations(owner)).toBe(journal.entries.length);
     });
 
@@ -2236,7 +2236,7 @@ describe.skipIf(!adminUrl)(
   },
 );
 
-describe.skipIf(!adminUrl)("upgrading to 0.5.0: layouts of whole machine backups (0076)", () => {
+describe.skipIf(!adminUrl)("upgrading to 0.5.0: layouts of whole machine backups (0099)", () => {
   const base = adminUrl as string;
   const database = `restow_db_migrate_layouts_${suffix}`;
   const owner: RoleLogin = {
@@ -2247,7 +2247,7 @@ describe.skipIf(!adminUrl)("upgrading to 0.5.0: layouts of whole machine backups
   let folder = "";
 
   beforeAll(async () => {
-    folder = migrationsFolderUpTo("0075_archive_gap_index");
+    folder = migrationsFolderUpTo("0098_run_size_notice");
     const admin = new pg.Pool({ connectionString: base });
     try {
       await admin.query(
@@ -2270,7 +2270,7 @@ describe.skipIf(!adminUrl)("upgrading to 0.5.0: layouts of whole machine backups
     }
   });
 
-  it("applies on top of 0075, keeps every run and links a run to a layout", async () => {
+  it("applies on top of 0098, keeps every run and links a run to a layout", async () => {
     const url = urlFor(base, database, owner);
     await applyReleasedSchema(url, folder, null);
     const pool = new pg.Pool({ connectionString: url });
@@ -2346,7 +2346,7 @@ describe.skipIf(!adminUrl)("upgrading to 0.5.0: layouts of whole machine backups
   }, 120_000);
 });
 
-describe.skipIf(!adminUrl)("upgrading to 0.5.0: the bare metal layout check (0077)", () => {
+describe.skipIf(!adminUrl)("upgrading to 0.5.0: the bare metal layout check (0100)", () => {
   const base = adminUrl as string;
   const database = `restow_db_migrate_bmcheck_${suffix}`;
   const owner: RoleLogin = {
@@ -2357,7 +2357,7 @@ describe.skipIf(!adminUrl)("upgrading to 0.5.0: the bare metal layout check (007
   let folder = "";
 
   beforeAll(async () => {
-    folder = migrationsFolderUpTo("0076_baremetal_layouts");
+    folder = migrationsFolderUpTo("0099_baremetal_layouts");
     const admin = new pg.Pool({ connectionString: base });
     try {
       await admin.query(
@@ -2380,7 +2380,7 @@ describe.skipIf(!adminUrl)("upgrading to 0.5.0: the bare metal layout check (007
     }
   });
 
-  it("applies on top of 0076, keeps every report and accepts the new kind", async () => {
+  it("applies on top of 0099, keeps every report and accepts the new kind", async () => {
     const url = urlFor(base, database, owner);
     await applyReleasedSchema(url, folder, null);
     const pool = new pg.Pool({ connectionString: url });
@@ -2417,6 +2417,7 @@ describe.skipIf(!adminUrl)("upgrading to 0.5.0: the bare metal layout check (007
         "restore_test",
         "repository_check",
         "retention",
+        "sql_verify",
         "baremetal_check",
       ]);
       await asTenant(pool, ids.tenant, async (client) => {
@@ -2447,7 +2448,7 @@ describe.skipIf(!adminUrl)("upgrading to 0.5.0: the bare metal layout check (007
   }, 120_000);
 });
 
-describe.skipIf(!adminUrl)("upgrading to 0.5.0: recovery codes and rebind tokens (0078)", () => {
+describe.skipIf(!adminUrl)("upgrading to 0.5.0: recovery codes and rebind tokens (0101)", () => {
   const base = adminUrl as string;
   const database = `restow_db_migrate_recoveries_${suffix}`;
   const owner: RoleLogin = {
@@ -2458,7 +2459,7 @@ describe.skipIf(!adminUrl)("upgrading to 0.5.0: recovery codes and rebind tokens
   let folder = "";
 
   beforeAll(async () => {
-    folder = migrationsFolderUpTo("0077_baremetal_check");
+    folder = migrationsFolderUpTo("0100_baremetal_check");
     const admin = new pg.Pool({ connectionString: base });
     try {
       await admin.query(
@@ -2481,7 +2482,7 @@ describe.skipIf(!adminUrl)("upgrading to 0.5.0: recovery codes and rebind tokens
     }
   });
 
-  it("applies on top of 0077 alone, keeps every run and token and enforces the new checks", async () => {
+  it("applies on top of 0100 alone, keeps every run and token and enforces the new checks", async () => {
     const url = urlFor(base, database, owner);
     await applyReleasedSchema(url, folder, null);
     const pool = new pg.Pool({ connectionString: url });
@@ -2514,12 +2515,12 @@ describe.skipIf(!adminUrl)("upgrading to 0.5.0: recovery codes and rebind tokens
         );
       });
 
-      // Only 0078 and 0079 (the log's key block mark) are left to apply.
+      // Only 0101 and 0102 (the log's key block mark) are left to apply.
       await runMigrations(url);
       const { rows: applied } = await pool.query<{ count: string }>(
         "SELECT count(*)::text AS count FROM drizzle.__drizzle_migrations",
       );
-      expect(Number(applied[0]?.count)).toBe(80);
+      expect(Number(applied[0]?.count)).toBe(103);
       const { rows: column } = await pool.query(
         `SELECT data_type, is_nullable, column_default FROM information_schema.columns
           WHERE table_name = 'endpoint_recoveries' AND column_name = 'log_in_key_block'`,
@@ -2600,3 +2601,94 @@ describe.skipIf(!adminUrl)("upgrading to 0.5.0: recovery codes and rebind tokens
     }
   }, 120_000);
 });
+describe.skipIf(!adminUrl)(
+  "upgrading to 0.5.0: the tenants' weekly report moves to the calendar week (0091)",
+  () => {
+    const base = adminUrl as string;
+    const database = `restow_db_migrate_cadence_${suffix}`;
+    const owner: RoleLogin = {
+      name: `restow_mig_cadence_${suffix}`,
+      password: randomBytes(18).toString("base64url"),
+    };
+    const ids = { provider: randomUUID(), tenant: randomUUID(), other: randomUUID() };
+    let folder = "";
+
+    beforeAll(async () => {
+      folder = migrationsFolderUpTo("0090_cluster_nodes");
+      const admin = new pg.Pool({ connectionString: base });
+      try {
+        await admin.query(
+          `CREATE ROLE ${owner.name} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE PASSWORD '${owner.password}'`,
+        );
+        await admin.query(`CREATE DATABASE ${database} OWNER ${owner.name}`);
+      } finally {
+        await admin.end();
+      }
+    });
+
+    afterAll(async () => {
+      if (folder) rmSync(folder, { recursive: true, force: true });
+      await dropTestDatabase(base, database);
+      const admin = new pg.Pool({ connectionString: base });
+      try {
+        await admin.query(`DROP ROLE IF EXISTS ${owner.name}`);
+      } finally {
+        await admin.end();
+      }
+    });
+
+    const rulesOf = (pool: pg.Pool, tenantId: string) =>
+      asTenant(pool, tenantId, async (client) => {
+        const { rows } = await client.query<{ name: string; cadence: string | null }>(
+          "SELECT name, cadence FROM report_rules ORDER BY name",
+        );
+        return rows;
+      });
+
+    it("sets the weekly cadence on the recipients' weekly rule, for an owner bound by RLS", async () => {
+      const url = urlFor(base, database, owner);
+      await applyReleasedSchema(url, folder, null);
+      const pool = new pg.Pool({ connectionString: url });
+      try {
+        await pool.query("INSERT INTO providers (id, name) VALUES ($1, 'p')", [ids.provider]);
+        for (const [tenantId, slug] of [
+          [ids.tenant, "contoso"],
+          [ids.other, "fabrikam"],
+        ] as const) {
+          await asTenant(pool, tenantId, async (client) => {
+            await client.query(
+              "INSERT INTO tenants (id, provider_id, name, slug) VALUES ($1, $2, $3, $3)",
+              [tenantId, ids.provider, slug],
+            );
+            await client.query(
+              `INSERT INTO report_rules (tenant_id, name, trigger, cron, recipient_category)
+               VALUES ($1, 'Weekly', 'schedule', '0 7 * * 1', 'weeklyReport')`,
+              [tenantId],
+            );
+            // A schedule rule of its own keeps its rolling period.
+            await client.query(
+              `INSERT INTO report_rules (tenant_id, name, trigger, cron)
+               VALUES ($1, 'Own', 'schedule', '0 7 * * 1')`,
+              [tenantId],
+            );
+          });
+        }
+
+        await runMigrations(url);
+
+        for (const tenantId of [ids.tenant, ids.other]) {
+          expect(await rulesOf(pool, tenantId)).toEqual([
+            { name: "Own", cadence: null },
+            { name: "Weekly", cadence: "weekly" },
+          ]);
+        }
+        const { rows } = await pool.query<{ force: boolean }>(
+          "SELECT relforcerowsecurity AS force FROM pg_class WHERE relname = 'report_rules' AND relkind = 'r'",
+        );
+        expect(rows).toEqual([{ force: true }]);
+      } finally {
+        await pool.end();
+      }
+    }, 120_000);
+  },
+);

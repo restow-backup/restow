@@ -15,7 +15,9 @@ import {
   mailCadenceOf,
   mailJobObjectIds,
   normalizeMailSchedule,
+  SQL_VERIFY_MIN_GAP_MINUTES,
   scheduleKey,
+  sqlVerifySlotTooClose,
   UNLIMITED_BANDWIDTH_KBPS,
   validateJobSchedule,
 } from "@restow/core";
@@ -159,6 +161,7 @@ const ENDPOINT_OVERRIDE_KEYS = [
   "bandwidthKbps",
   "bandwidthWindows",
   "retention",
+  "sql",
 ] as const;
 
 const SHARE_OVERRIDE_KEYS = [
@@ -311,9 +314,29 @@ const ENDPOINT_SETTING_KEYS = [
   "bandwidthKbps",
   "bandwidthWindows",
   "retention",
+  "sql",
   "policy",
   "wholeMachine",
 ];
+
+/**
+ * The check slot of the native SQL backup (W2a, decision C21) at least an hour from the job's daily
+ * backup: the agent runs one job at a time, so a long check would hold the backup up.
+ */
+function assertSqlVerifySlot(settings: BackupJobSettings, schedule: JobSchedule | null): void {
+  const verify = settings.sql?.verify;
+  if (!settings.sql?.enabled || !verify?.enabled) {
+    return;
+  }
+  const daily = schedule?.kind === "daily" ? (schedule.timeOfDay ?? null) : null;
+  if (sqlVerifySlotTooClose(verify.time, daily)) {
+    throw jobProblem(
+      ["settings", "sql", "verify", "time"],
+      "sql_verify_too_close",
+      `Start the SQL check at least ${SQL_VERIFY_MIN_GAP_MINUTES} minutes before or after the daily backup.`,
+    );
+  }
+}
 
 /** Settings checked for the job: a machine job needs folders, a mail job takes none. */
 function checkedSettings(
@@ -1075,6 +1098,7 @@ export async function createBackupJob(
   const kind = input.kind;
   const { schedule, verifySchedule } = checkedBase(kind, input, now);
   let settings = checkedSettings(kind, input.settings, { requirePaths: true });
+  assertSqlVerifySlot(settings, schedule);
   await assertJobPolicyAllowed(settings, null);
   assertWholeMachineAllowed(settings, null);
   if (kind !== "copy" && (input.sourceFileShareId || input.targetFileShareId)) {
@@ -1438,6 +1462,9 @@ export async function updateBackupJob(
       patch.settings !== undefined
         ? checkedSettings(kind, patch.settings, { requirePaths: true })
         : (before.settings ?? {});
+    if (kind === "endpoint" && (patch.settings !== undefined || scheduleGiven)) {
+      assertSqlVerifySlot(settings, base.schedule);
+    }
     await assertJobPolicyAllowed(settings, before.settings ?? null);
     assertWholeMachineAllowed(settings, before.settings ?? null);
     let sourceFileShareId = before.sourceFileShareId;

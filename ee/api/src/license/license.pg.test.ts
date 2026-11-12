@@ -177,7 +177,7 @@ describe.skipIf(!testDatabaseAdminUrl)("license against Postgres", () => {
     });
   });
 
-  it("rejects keys for another installation and tampered keys", async () => {
+  it("rejects keys for another installation and tampered keys [LICENSE-001]", async () => {
     const foreign = keyFor("business", randomUUID());
     const mismatch = await service.installLicense(db, foreign, actor).catch((e) => e);
     expect(mismatch).toBeInstanceOf(ProblemError);
@@ -266,7 +266,7 @@ describe.skipIf(!testDatabaseAdminUrl)("license against Postgres", () => {
     expect((again as ProblemError).status).toBe(404);
   });
 
-  it("accepts a key an older issuer gave a mailbox_limit, and the value has no effect", async () => {
+  it("accepts a key an older issuer gave a mailbox_limit, and the value has no effect [LICENSE-011]", async () => {
     const legacy = vendor.signPayload({
       ...vendor.payload({
         edition: "business",
@@ -342,7 +342,7 @@ describe.skipIf(!testDatabaseAdminUrl)("license against Postgres", () => {
       });
     });
 
-    it("refuses a key whose update period ended before the running release", async () => {
+    it("refuses a key whose update period ended before the running release [LICENSE-007]", async () => {
       const refused = await withEnv(releaseEnv, () =>
         service.installLicense(db, periodKey("2027-11-30", "service_provider"), actor),
       ).catch((e) => e);
@@ -363,7 +363,7 @@ describe.skipIf(!testDatabaseAdminUrl)("license against Postgres", () => {
       expect(state.key?.updates).toMatchObject({ until: "2028-11-30", coversRunning: true });
     });
 
-    it("runs a release the key does not cover as Community with RESTOW_RUN_AS_COMMUNITY", async () => {
+    it("runs a release the key does not cover as Community with RESTOW_RUN_AS_COMMUNITY [LICENSE-005]", async () => {
       await service.installLicense(db, periodKey("2027-11-30"), actor);
       const state = await withEnv({ ...releaseEnv, RESTOW_RUN_AS_COMMUNITY: "1" }, () =>
         service.getLicenseState(db),
@@ -379,7 +379,7 @@ describe.skipIf(!testDatabaseAdminUrl)("license against Postgres", () => {
       expect(await withEnv(releaseEnv, () => gate.currentEdition(db))).toBe("business");
     });
 
-    it("tells the update check which releases the key covers", async () => {
+    it("tells the update check which releases the key covers [LICENSE-008]", async () => {
       const { licenseUpdateCoverage } = await import("./coverage.js");
       await service.installLicense(db, periodKey("2027-11-30"), actor);
       const coverage = await licenseUpdateCoverage(db);
@@ -396,7 +396,7 @@ describe.skipIf(!testDatabaseAdminUrl)("license against Postgres", () => {
       ).toBeNull();
     });
 
-    it("lets the start check refuse that release before any migration, and only that one", async () => {
+    it("lets the start check refuse that release before any migration, and only that one [LICENSE-004]", async () => {
       const { runStartupLicenseCheck } = await import("./startup-check.js");
       const url = process.env.DATABASE_URL as string;
       const logs: string[] = [];
