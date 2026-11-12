@@ -218,6 +218,17 @@ unique per installation).
   changed blocks are uploaded all the same. Every 30th backup of a disk is a
   full read on purpose (verify read). The guest list shows "Incremental" or
   "Full read".
+- **Unusually large backups** (since 0.5.0): the server measures what a VM backup
+  adds to the chunk store (new data after deduplication) before it stores each
+  pack, and a container backup's uploads, against the guest's earlier runs. By
+  default a run far above the usual goes on with a notice; with the size check
+  set to "hold" it is held, and a run that would leave the storage target too
+  little free space is always held: the node gets 403 `run-size-held`, vzdump
+  fails, and the run ends "Held: this backup is unusually large". A VM's first
+  backup, and one after its base restore points are gone or every disk was
+  resized, starts a new chain and is never taken as unusually large; a full read
+  after a lost dirty bitmap counts only what changed (docs/STORAGE.md,
+  "Unusually large runs").
 - **Retention** runs on the server only. Removing a restore point in PVE is
   refused by the plugin. PVE's prune (the Retention tab of a PVE backup job onto
   the Restow storage, `pvesm prune-backups`, the storage's Prune dialog) prunes

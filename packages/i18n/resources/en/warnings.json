@@ -137,7 +137,7 @@
     "kind": {
       "endpoint": "Server or client",
       "file_share": "File share",
-      "pve_guest": "Proxmox VE container",
+      "pve_guest": "Proxmox VE VM or container",
       "m365": "Mailbox, OneDrive, site or IMAP account"
     },
     "status": {

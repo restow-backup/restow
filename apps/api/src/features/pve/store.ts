@@ -5,6 +5,7 @@ import {
   ChunkReader,
   type ChunkRecord,
   ChunkWriter,
+  type ChunkWriterOptions,
   decodeBlockMap,
   INSTALLATION_DEFAULT_TARGET_ID,
   type PackRecord,
@@ -204,12 +205,16 @@ export async function searchedTargets(store: TenantChunkStore): Promise<Searched
   return out;
 }
 
-export function newChunkWriter(store: TenantChunkStore): ChunkWriter {
+export function newChunkWriter(
+  store: TenantChunkStore,
+  hooks: Pick<ChunkWriterOptions, "beforePack" | "onPackStored"> = {},
+): ChunkWriter {
   return new ChunkWriter({
     tenantId: store.tenantId,
     storage: store.write,
     keys: store.keys,
     index: store.index,
+    ...hooks,
   });
 }
 
