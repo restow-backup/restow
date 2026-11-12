@@ -6,7 +6,9 @@
 # console (README.md, "No auto-activation").
 set -eu
 
-# GPT partitions of other disks are never mounted by the generator.
+# GPT partitions of other disks are never mounted by the generator. The folder for
+# local generator overrides does not exist in a fresh image.
+mkdir -p /etc/systemd/system-generators
 ln -sf /dev/null /etc/systemd/system-generators/systemd-gpt-auto-generator
 # No swap of a connected disk, no LVM or RAID activation by event.
 for unit in lvm2-monitor.service lvm2-lvmpolld.socket mdmonitor.service mdcheck_start.timer \
