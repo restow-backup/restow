@@ -27,11 +27,16 @@ dpkg-query -W -f '${Package} ${Version} ${Architecture}\n' | while read -r packa
 done >"$actual"
 
 if [ -f "$dir/update-lock" ]; then
+  # live-build mounts its config read-only in the chroot: the new lock goes into the
+  # chroot, and build-inner.sh copies it out after lb build. Only an --update-lock
+  # build carries this file; its ISO is never a release.
+  new=/var/lib/restow-recovery/packages.lock.new
+  mkdir -p "$(dirname "$new")"
   {
     sed -n '/^#/p' "$dir/packages.lock"
     LC_ALL=C sort "$actual"
-  } >"$dir/packages.lock.new"
-  echo "wrote $dir/packages.lock.new ($(wc -l <"$actual" | tr -d ' ') packages)"
+  } >"$new"
+  echo "wrote $new ($(wc -l <"$actual" | tr -d ' ') packages)"
   rm -f "$actual"
   exit 0
 fi

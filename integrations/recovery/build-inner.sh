@@ -41,6 +41,13 @@ lb config
 lb build
 
 [ -f live-image-amd64.hybrid.iso ] || { echo "error: lb build wrote no ISO" >&2; exit 1; }
+# --update-lock: the lock hook wrote the new lock into the chroot (its config is
+# read-only there); build.sh takes it from config/restow/.
+if [ "${RESTOW_UPDATE_LOCK:-no}" = yes ]; then
+  [ -f chroot/var/lib/restow-recovery/packages.lock.new ] ||
+    { echo "error: the lock hook wrote no new packages.lock" >&2; exit 1; }
+  cp chroot/var/lib/restow-recovery/packages.lock.new config/restow/packages.lock.new
+fi
 cp chroot/usr/share/doc/restow-recovery/FIRMWARE-LICENSES.txt FIRMWARE-LICENSES.txt
 # The ISO carries the snapshot's time, not the time of the build.
 touch -d "@$SOURCE_DATE_EPOCH" live-image-amd64.hybrid.iso FIRMWARE-LICENSES.txt

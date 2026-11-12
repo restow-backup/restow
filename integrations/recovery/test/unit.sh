@@ -216,6 +216,9 @@ hook="$WORK/config/hooks/live/0500-restow-lockcheck.hook.chroot"
 expect "the lock hook reads update-lock mode from a file" grep -q 'if \[ -f "\$dir/update-lock" \]' "$hook"
 refuse "the lock hook does not rely on the environment" grep -q 'RESTOW_UPDATE_LOCK' "$hook"
 expect "build.sh leaves the update-lock file for the hook" grep -q 'config/restow/update-lock' "$WORK/build.sh"
+# shellcheck disable=SC2016 # the literal text of the hook, not an expansion
+refuse "the lock hook never writes into live-build's read-only config" grep -q '>"\$dir/packages.lock.new"' "$hook"
+expect "build-inner.sh copies the new lock out of the chroot" grep -q 'chroot/var/lib/restow-recovery/packages.lock.new config/restow/packages.lock.new' "$WORK/build-inner.sh"
 
 # --- boot menus ---------------------------------------------------------------------------
 
