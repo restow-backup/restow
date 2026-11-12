@@ -696,7 +696,13 @@ describe.skipIf(!testDatabaseAdminUrl)(
             await owner.select().from(reportEvents).where(isNull(reportEvents.tenantId)),
           ]);
           expect(seen).toContain("smtp_sender_rejected");
-          for (const part of ["contoso-brand", "msp-relay", "Sender address rejected", "553"]) {
+          // "553 5.7.1", not a bare "553": random ids contain those three digits by chance.
+          for (const part of [
+            "contoso-brand",
+            "msp-relay",
+            "Sender address rejected",
+            "553 5.7.1",
+          ]) {
             expect(seen).not.toContain(part);
           }
           // The installation keeps the message for itself.
