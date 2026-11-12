@@ -105,6 +105,69 @@ rr_lock_compare() {
   return $status
 }
 
+# Every .deb in the given folders as "<package> <version> <architecture> <sha256>",
+# read from the package itself (debootstrap and apt name their files differently:
+# no epoch, or the epoch as %3a).
+#   rr_deb_sums <dir>...
+rr_deb_sums() {
+  for folder in "$@"; do
+    for deb in "$folder"/*.deb; do
+      [ -f "$deb" ] || continue
+      # shellcheck disable=SC2016 # a dpkg-deb format, not a shell expansion
+      fields=$(dpkg-deb --show --showformat='${Package} ${Version} ${Architecture}' "$deb") || return 1
+      printf '%s %s\n' "$fields" "$(sha256sum "$deb" | cut -d ' ' -f 1)"
+    done
+  done
+}
+
+# The installed packages ("<package> <version> <architecture>" per line) with the
+# SHA-256 of their .deb from rr_deb_sums output: "<package> <version> <sha256>",
+# "-" when no .deb of exactly that version and architecture is there.
+#   rr_with_sums <installed> <sums>
+rr_with_sums() {
+  awk '
+    FNR == NR { sum[$1 " " $2 " " $3] = $4; next }
+    NF >= 3 { key = $1 " " $2 " " $3; print $1, $2, ((key in sum) ? sum[key] : "-") }
+  ' "$2" "$1"
+}
+
+# A lock written by --update-lock must name the SHA-256 of every package: prints
+# each entry without one and fails when there is one (or a malformed line).
+#   rr_lock_complete <lock>
+rr_lock_complete() {
+  awk '
+    /^[[:space:]]*(#|$)/ { next }
+    NF != 3 { print "packages.lock line " NR " is not \"<package> <version> <sha256>\": " $0; bad = 1; next }
+    $3 !~ /^[0-9a-f]{64}$/ { print "no .deb to hash: " $1 " " $2; bad = 1 }
+    END { exit bad }
+  ' "$1"
+}
+
+# The installed packages of dpkg-query -W -f '${db:Status-Status} ${Package}\n' output:
+# dpkg-query also lists names it only knows from other packages' fields (Provides,
+# Recommends, Conflicts) with the status not-installed.
+#   rr_installed_names <file>
+rr_installed_names() {
+  awk '$1 == "installed" && NF >= 2 { print $2 }' "$1" | LC_ALL=C sort -u
+}
+
+# A keyboard layout of the boot menu compiles in the image: ckbcomp writes a keymap
+# with keycodes, and loadkeys parses it as on the Unicode console of the live system.
+# --bkeymap keeps loadkeys away from the console (it has none in a chroot); --parse
+# writes nothing. Runs inside the image (check-image.sh: a chroot without /dev, so no
+# /dev/null either), or with stand-ins (unit.sh).
+#   rr_keymap_compiles <layout>
+rr_keymap_compiles() {
+  keymap=$(mktemp) || return 1
+  if ckbcomp "$1" >"$keymap" && grep -q '^keycode' "$keymap" &&
+    loadkeys --unicode --parse --bkeymap - <"$keymap" >"$keymap.out"; then
+    rm -f "$keymap" "$keymap.out"
+    return 0
+  fi
+  rm -f "$keymap" "$keymap.out"
+  return 1
+}
+
 # The package names of a live-build package list (comments and blanks left out).
 rr_list_packages() {
   sed -e 's/#.*//' -e 's/[[:space:]]\{1,\}/\n/g' "$1" | sed '/^$/d' | LC_ALL=C sort -u
@@ -181,25 +244,72 @@ rr_part_names() {
   done
 }
 
+# A file is an ELF program or library.
+rr_is_elf() {
+  [ "$(head -c 4 "$1" 2>/dev/null | od -An -c | tr -d ' \n')" = '177ELF' ]
+}
+
+# A private key in PEM form: the BEGIN line, at least one line of base64 (or the
+# headers of an encrypted key) and the END line, one after the other; also written
+# on one line with escaped line breaks (JSON, YAML). The header text alone is no key:
+# OpenSSH, GLib and others carry it as a format string. NULs count as line ends,
+# carriage returns are left out. (No open intervals such as {40,} in these awk
+# programs: mawk, the awk of Debian and Ubuntu, does not know them.)
+#   rr_has_pem_key <file>
+rr_has_pem_key() {
+  tr '\000' '\n' <"$1" | tr -d '\r' | awk '
+    /-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----(\\r)?\\n[A-Za-z0-9+\/=]{40}/ { found = 1; exit }
+    /^-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----$/ { state = 1; headers = 0; long = 0; next }
+    state == 1 && long == 0 && /^(Proc-Type|DEK-Info):/ { headers = 1; next }
+    state == 1 && long == 0 && headers == 1 && /^$/ { next }
+    state == 1 && /^[A-Za-z0-9+\/=]+$/ && length($0) >= 40 { long++; next }
+    state == 1 && long > 0 && /^[A-Za-z0-9+\/=]+$/ { next }
+    state == 1 && long > 0 && /^-----END [A-Z0-9 ]*PRIVATE KEY-----$/ { found = 1; exit }
+    { state = 0 }
+    END { exit !found }
+  '
+}
+
 # The scan for secrets and instance data in an unpacked image (README,
 # "Nothing instance-specific"). Prints every finding and fails when there is one.
+#   - private keys: real PEM blocks (rr_has_pem_key), in every file;
+#   - rebind tokens (rset_...) and recovery codes (RC-...): in every file but ELF
+#     programs and libraries. Instance data reaches an image only as
+#     a file (answers, configuration); the programs are built from the repository, and
+#     their read-only data runs strings together (a Go binary holds "rset_" next to
+#     other text and the placeholder RC-XXXXX-XXXXX-XXXXX-XXXXX-XXXXX), which would
+#     look like a token. The placeholder is no code in any file;
+#   - instance addresses: in every file outside the recovery program's folder and the
+#     documentation;
+#   - SSH host keys: by name.
 #   rr_no_secrets <dir>
 rr_no_secrets() {
   dir="$1"
   [ -d "$dir" ] || { echo "no such directory: $dir" >&2; return 2; }
   bad=0
-  # Private keys of any kind, recovery codes and rebind tokens, anywhere.
+  found=$(mktemp)
+  grep -rlaE -- '-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----' "$dir" 2>/dev/null | while read -r file; do
+    if rr_has_pem_key "$file"; then printf '%s\n' "$file"; fi
+  done >"$found"
+  if [ -s "$found" ]; then
+    printf 'private key in:\n%s\n' "$(cat "$found")"
+    bad=1
+  fi
   for pattern in \
-    '-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----' \
-    'rset_[A-Za-z0-9]{20,}' \
+    '(^|[^A-Za-z0-9_])rset_[A-Za-z0-9]{20,}' \
     'RC-[0-9A-Z]{5}(-[0-9A-Z]{5}){4}'; do
-    hits=$(grep -rlaE -- "$pattern" "$dir" 2>/dev/null || true)
-    if [ -n "$hits" ]; then
-      printf 'secret pattern %s in:\n%s\n' "$pattern" "$hits"
+    grep -rlaE -- "$pattern" "$dir" 2>/dev/null | while read -r file; do
+      rr_is_elf "$file" && continue
+      # The placeholder of the format is no code.
+      grep -oaE -- "$pattern" "$file" | grep -vqxE 'RC-X{5}(-X{5}){4}' && printf '%s\n' "$file"
+    done >"$found"
+    if [ -s "$found" ]; then
+      printf 'secret pattern %s in:\n%s\n' "$pattern" "$(cat "$found")"
       bad=1
     fi
   done
   # Addresses of an instance; the programs of the image itself name only their project.
+  rm -f "$found"
   hits=$(grep -rlaE --exclude-dir=restow-recovery -- 'https?://[A-Za-z0-9.-]*restow[A-Za-z0-9.-]*\.[a-z]{2,}' "$dir" 2>/dev/null |
     grep -v '/usr/share/doc/' || true)
   if [ -n "$hits" ]; then

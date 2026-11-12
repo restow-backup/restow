@@ -37,9 +37,12 @@ xorriso -osirrox on -indev "$iso" -extract /live/filesystem.squashfs "$work/file
 unsquashfs -q -d "$work/root" "$work/filesystem.squashfs" >/dev/null
 root="$work/root"
 
-# Exactly the firmware packages of the list, and the Intel ice DDP package.
+# Exactly the firmware packages of the list, and the Intel ice DDP package. Installed
+# ones only: with a pattern, dpkg-query also names packages it knows only from other
+# packages' Provides, Recommends or Conflicts (firmware-adi, firmware-intel-graphics, ...).
 # shellcheck disable=SC2016 # a dpkg-query format, not a shell expansion
-chroot "$root" dpkg-query -W -f '${Package}\n' 'firmware-*' >"$work/firmware" 2>/dev/null || true
+chroot "$root" dpkg-query -W -f '${db:Status-Status} ${Package}\n' 'firmware-*' >"$work/firmware-status" 2>/dev/null || true
+rr_installed_names "$work/firmware-status" >"$work/firmware"
 rr_list_compare "$HERE/../config/package-lists/firmware.list.chroot" "$work/firmware" ||
   problem "the firmware packages of the image differ from firmware.list.chroot"
 [ -f "$root/lib/firmware/intel/ice/ddp/ice.pkg" ] || [ -f "$root/usr/lib/firmware/intel/ice/ddp/ice.pkg" ] ||
@@ -62,11 +65,16 @@ while read -r program package; do
     problem "$program (from $package) is not in the image"
 done <"$work/tools"
 
-# The keyboard layouts the boot menu offers: ckbcomp writes a keymap loadkeys reads.
+# The keyboard layouts the boot menu offers compile with the image's own ckbcomp and
+# loadkeys (rr_keymap_compiles; the chroot has no console, loadkeys gets none).
+mkdir -p "$root/tmp"
+cp "$HERE/../lib/functions.sh" "$root/tmp/rr-functions.sh"
 for layout in de us ch at fr; do
-  chroot "$root" sh -c "ckbcomp '$layout' | loadkeys --parse -" >/dev/null 2>&1 ||
+  # shellcheck disable=SC2016 # $1 is expanded by the image's shell
+  chroot "$root" /bin/sh -c '. /tmp/rr-functions.sh && rr_keymap_compiles "$1"' sh "$layout" >/dev/null 2>&1 ||
     problem "keyboard layout $layout does not compile (ckbcomp | loadkeys)"
 done
+rm -f "$root/tmp/rr-functions.sh"
 
 # Nothing activates by itself (the files of README.md, "No auto-activation").
 grep -q 'auto_activation_volume_list = \[\]' "$root/etc/lvm/lvmlocal.conf" || problem "lvmlocal.conf activates volume groups"

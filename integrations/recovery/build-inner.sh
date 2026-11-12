@@ -38,7 +38,19 @@ mkdir -p config/apt
 cp /etc/apt/apt.conf.d/80-restow-snapshot config/apt/apt.conf
 
 lb config
-lb build
+# lb build, stage by stage: the lock hook in the chroot stage needs the .debs debootstrap
+# installed, and live-build keeps them outside the chroot (cache/packages.bootstrap,
+# --cache-packages true); its config folder is the one thing the chroot sees.
+lb bootstrap
+mkdir -p config/restow/bootstrap-debs
+ls cache/packages.bootstrap/*.deb >/dev/null 2>&1 ||
+  { echo "error: live-build kept no bootstrap packages in cache/packages.bootstrap" >&2; exit 1; }
+ln -f cache/packages.bootstrap/*.deb config/restow/bootstrap-debs/ 2>/dev/null ||
+  cp cache/packages.bootstrap/*.deb config/restow/bootstrap-debs/
+lb chroot
+lb installer
+lb binary
+lb source
 
 [ -f live-image-amd64.hybrid.iso ] || { echo "error: lb build wrote no ISO" >&2; exit 1; }
 # --update-lock: the lock hook wrote the new lock into the chroot (its config is

@@ -5,26 +5,30 @@
 # package, its version and the SHA-256 of its .deb must equal packages.lock.
 # build.sh puts the lock and the helpers under /live-build/config/restow/. With
 # --update-lock (build.sh leaves the file update-lock there; the hook does not see the
-# build's environment) the hook writes the new lock there instead of comparing.
+# build's environment) the hook writes the new lock instead of comparing.
+#
+# The .debs: what apt installed in this chroot is in /var/cache/apt/archives (live-build
+# keeps it there until the chroot stage ends); what debootstrap installed lives outside
+# the chroot (cache/packages.bootstrap), and build-inner.sh links it into
+# config/restow/bootstrap-debs between lb bootstrap and lb chroot.
 set -eu
 
 dir=/live-build/config/restow
 [ -f "$dir/functions.sh" ] || { echo "error: $dir/functions.sh is missing (run the build through build.sh)" >&2; exit 1; }
 # shellcheck source=../../../lib/functions.sh
 . "$dir/functions.sh"
+[ -d "$dir/bootstrap-debs" ] ||
+  rr_die "$dir/bootstrap-debs is missing: build-inner.sh links debootstrap's packages there"
 
+installed=$(mktemp)
+sums=$(mktemp)
 actual=$(mktemp)
-dpkg-query -W -f '${Package} ${Version} ${Architecture}\n' | while read -r package version arch; do
-  file=$(printf '%s_%s_%s.deb' "$package" "$(printf '%s' "$version" | sed 's/:/%3a/')" "$arch")
-  sum=-
-  for cache in /var/cache/apt/archives /live-build/cache/packages.chroot; do
-    if [ -f "$cache/$file" ]; then
-      sum=$(sha256sum "$cache/$file" | cut -d ' ' -f 1)
-      break
-    fi
-  done
-  printf '%s %s %s\n' "$package" "$version" "$sum"
-done >"$actual"
+# shellcheck disable=SC2016 # a dpkg-query format, not a shell expansion
+dpkg-query -W -f '${db:Status-Status} ${Package} ${Version} ${Architecture}\n' |
+  awk '$1 == "installed" { print $2, $3, $4 }' >"$installed"
+rr_deb_sums /var/cache/apt/archives "$dir/bootstrap-debs" >"$sums"
+rr_with_sums "$installed" "$sums" >"$actual"
+rm -f "$installed" "$sums"
 
 if [ -f "$dir/update-lock" ]; then
   # live-build mounts its config read-only in the chroot: the new lock goes into the
@@ -36,8 +40,10 @@ if [ -f "$dir/update-lock" ]; then
     sed -n '/^#/p' "$dir/packages.lock"
     LC_ALL=C sort "$actual"
   } >"$new"
-  echo "wrote $new ($(wc -l <"$actual" | tr -d ' ') packages)"
   rm -f "$actual"
+  # A lock without the SHA-256 of every package is no lock: the build fails here.
+  rr_lock_complete "$new" || rr_die "the new packages.lock lacks the SHA-256 of the packages above"
+  echo "wrote $new ($(rr_lock_count "$new") packages)"
   exit 0
 fi
 

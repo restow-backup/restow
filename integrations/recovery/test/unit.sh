@@ -88,6 +88,52 @@ says "a package less" "missing in the image: lvm2"
 refuse "no .deb to hash" rr_lock_compare "$FIXTURES/packages.lock" "$FIXTURES/installed-nodeb.txt"
 says "no .deb to hash" "no .deb to hash: lvm2"
 refuse "a malformed lock" rr_lock_entries "$FIXTURES/packages-malformed.lock"
+# A lock written by --update-lock names the SHA-256 of every package; "-" (no .deb was
+# found) fails the build, and a lock with "-" is never accepted for a comparison.
+expect "a complete lock" rr_lock_complete "$FIXTURES/packages.lock"
+sed 's/^lvm2 .*/lvm2 2.03.31-2 -/' "$FIXTURES/packages.lock" >"$tmp/lock-dash"
+refuse "a lock entry without a SHA-256" rr_lock_complete "$tmp/lock-dash"
+says "a lock entry without a SHA-256" "no .deb to hash: lvm2 2.03.31-2"
+refuse "a lock with \"-\" in a comparison" rr_lock_compare "$tmp/lock-dash" "$FIXTURES/installed-nodeb.txt"
+refuse "a lock with \"-\" counted" rr_lock_count "$tmp/lock-dash"
+# shellcheck disable=SC2016 # the hook's literal text
+grep -q 'rr_lock_complete "$new" || rr_die' "$WORK/config/hooks/live/0500-restow-lockcheck.hook.chroot" && ok ||
+  fail "the lock hook does not refuse an incomplete new lock"
+# The .debs of both kinds of name: debootstrap's (no epoch) and apt's (epoch as %3a),
+# matched by package, version and architecture as dpkg-deb reads them from the file.
+if command -v dpkg-deb >/dev/null 2>&1; then
+  mkdeb() { # mkdeb <dir> <file name> <package> <version> <architecture>
+    mkdir -p "$tmp/pkg/DEBIAN" "$1"
+    printf 'Package: %s\nVersion: %s\nArchitecture: %s\nMaintainer: t <t@example.org>\nDescription: t\n' \
+      "$3" "$4" "$5" >"$tmp/pkg/DEBIAN/control"
+    dpkg-deb --root-owner-group --build "$tmp/pkg" "$1/$2" >/dev/null
+    rm -rf "$tmp/pkg"
+  }
+  mkdeb "$tmp/bootstrap-debs" base-files_13.8+deb13u7_amd64.deb base-files 13.8+deb13u7 amd64
+  mkdeb "$tmp/bootstrap-debs" mawk_1.3.4.20250131-1_amd64.deb mawk 1:1.3.4.20250131-1 amd64
+  mkdeb "$tmp/archives" kbd_2.7.1-2_amd64.deb kbd 2.7.1-2 amd64
+  mkdeb "$tmp/archives" xkb-data_2.41-1_all.deb xkb-data 2.41-1 all
+  rr_deb_sums "$tmp/archives" "$tmp/bootstrap-debs" >"$tmp/sums"
+  [ "$(wc -l <"$tmp/sums" | tr -d ' ')" = 4 ] && ok || fail "rr_deb_sums reads every .deb"
+  printf '%s\n' 'base-files 13.8+deb13u7 amd64' 'mawk 1:1.3.4.20250131-1 amd64' 'kbd 2.7.1-2 amd64' \
+    'xkb-data 2.42-1 all' >"$tmp/installed"
+  rr_with_sums "$tmp/installed" "$tmp/sums" >"$tmp/with-sums"
+  base_sum=$(sha256sum "$tmp/bootstrap-debs/base-files_13.8+deb13u7_amd64.deb" | cut -d ' ' -f 1)
+  grep -qx "base-files 13.8+deb13u7 $base_sum" "$tmp/with-sums" && ok || fail "a debootstrap .deb gives its SHA-256"
+  grep -Eqx 'mawk 1:1.3.4.20250131-1 [0-9a-f]{64}' "$tmp/with-sums" && ok || fail "a .deb named without its epoch is found"
+  grep -Eqx 'kbd 2.7.1-2 [0-9a-f]{64}' "$tmp/with-sums" && ok || fail "an apt .deb gives its SHA-256"
+  # Another version of the package in the cache is not its .deb.
+  grep -qx 'xkb-data 2.42-1 -' "$tmp/with-sums" && ok || fail "the .deb of another version counts"
+  { echo '# header'; cat "$tmp/with-sums"; } >"$tmp/lock-new"
+  refuse "a new lock with a package without .deb" rr_lock_complete "$tmp/lock-new"
+else
+  echo "note: dpkg-deb is missing; the .deb lookup is not tested here"
+fi
+grep -q 'cache/packages.bootstrap/\*.deb config/restow/bootstrap-debs/' "$WORK/build-inner.sh" && ok ||
+  fail "build-inner.sh does not give the lock hook debootstrap's packages"
+# shellcheck disable=SC2016 # the hook's literal text
+grep -q '"$dir/bootstrap-debs"' "$WORK/config/hooks/live/0500-restow-lockcheck.hook.chroot" && ok ||
+  fail "the lock hook does not read debootstrap's packages"
 refuse "Check-Valid-Until=false without a lock" rr_valid_until_allowed "$WORK/packages.lock" no
 expect "Check-Valid-Until=false while writing the lock" rr_valid_until_allowed "$WORK/packages.lock" yes
 expect "Check-Valid-Until=false with a lock" rr_valid_until_allowed "$FIXTURES/packages.lock" no
@@ -119,6 +165,13 @@ says "Wi-Fi firmware in the image" "in the image but not listed: firmware-iwlwif
 grep -v firmware-realtek "$tmp/firmware" >"$tmp/firmware-less"
 refuse "firmware missing in the image" rr_list_compare "$WORK/config/package-lists/firmware.list.chroot" "$tmp/firmware-less"
 says "firmware missing in the image" "listed but not in the image: firmware-realtek"
+# dpkg-query with a pattern also names packages only known from other packages' fields
+# (Provides, Recommends, Conflicts) as not-installed: only installed ones count.
+printf '%s\n' 'installed firmware-bnx2' 'not-installed firmware-adi' 'not-installed firmware-intel-graphics' \
+  'installed firmware-realtek' 'config-files firmware-old' >"$tmp/firmware-status"
+[ "$(rr_installed_names "$tmp/firmware-status" | tr '\n' ' ')" = "firmware-bnx2 firmware-realtek " ] && ok ||
+  fail "rr_installed_names counts packages that are not installed"
+grep -q "db:Status-Status" "$WORK/test/check-image.sh" && ok || fail "check-image.sh counts firmware that is not installed"
 # firmware.md names exactly the packages of the list (its table, the licence notes).
 # shellcheck disable=SC2016 # backticks of the Markdown table, not a command
 sed -n 's/^| `\(firmware-[a-z0-9-]*\)` |.*/\1/p' "$WORK/firmware.md" | LC_ALL=C sort -u >"$tmp/firmware-md"
@@ -168,8 +221,33 @@ scan_with() {
   rr_no_secrets "$tmp/dirty"
 }
 dashes=-----
-refuse "a private key" scan_with "${dashes}BEGIN OPENSSH PRIVATE KEY${dashes}"
-refuse "an RSA private key" scan_with "${dashes}BEGIN RSA PRIVATE KEY${dashes}"
+# Key material is made up at run time (a committed key would trip the CI's secret scan).
+body=$(head -c 96 /dev/urandom | base64 | tr -d '\n' | fold -w 64)
+pem() { printf '%sBEGIN %s PRIVATE KEY%s\n%s\n%sEND %s PRIVATE KEY%s\n' "$dashes" "$1" "$dashes" "$body" "$dashes" "$1" "$dashes"; }
+refuse "a private key" scan_with "$(pem OPENSSH)"
+refuse "an RSA private key" scan_with "$(pem RSA)"
+refuse "a private key with Windows line ends" scan_with "$(pem EC | sed 's/$/\r/')"
+refuse "a private key in JSON" scan_with "{\"key\": \"${dashes}BEGIN PRIVATE KEY${dashes}\\n$(printf '%s' "$body" | tr -d '\n')\\n${dashes}END PRIVATE KEY${dashes}\"}"
+expect "the header of a key alone" scan_with "printf(\"${dashes}BEGIN OPENSSH PRIVATE KEY${dashes}\\n\")"
+# ELF programs: OpenSSH and GLib carry the PEM headers as format strings, the agent its
+# own token prefix and the placeholder of a recovery code; a real key in one still counts.
+# elf_with <text>: a program holding the text after a NUL, as strings are stored.
+elf_with() {
+  rm -rf "$tmp/dirty"
+  cp -R "$clean" "$tmp/dirty"
+  { printf '\177ELF\002\001\001\000'; printf '%s\000' "$1"; } >"$tmp/dirty/usr/bin/prog"
+  rr_no_secrets "$tmp/dirty"
+}
+mkdir -p "$clean/usr/bin"
+# (Command substitution drops NULs: each format string ends with its own line break here.)
+expect "PEM headers as format strings in a program" \
+  elf_with "$(printf '%sBEGIN OPENSSH PRIVATE KEY%s\n\n%sEND OPENSSH PRIVATE KEY%s\n\n%sBEGIN %%s PRIVATE KEY%s' \
+    "$dashes" "$dashes" "$dashes" "$dashes" "$dashes" "$dashes")"
+expect "the token prefix and the code placeholder in a program" \
+  elf_with "rset_tokenexpectedReconnectinvalidformatRC-XXXXX-XXXXX-XXXXX-XXXXX-XXXXXRC-0A1B2-C3D4E-F5G6H-J7K8M-N9P0Q"
+refuse "a private key inside a program" elf_with "$(pem OPENSSH)"
+expect "the placeholder of a recovery code in a text" scan_with "Code: RC-XXXXX-XXXXX-XXXXX-XXXXX-XXXXX"
+expect "the token prefix in a text" scan_with "a token starts with rset_ and is single use"
 refuse "a rebind token" scan_with "token=rset_$(printf 'A%.0s' 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22)"
 refuse "a recovery code" scan_with "RC-0A1B2-C3D4E-F5G6H-J7K8M-N9P0Q"
 refuse "an instance address" scan_with "url=https://restow.firma.de/api"
@@ -177,6 +255,38 @@ rm -rf "$tmp/dirty" && cp -R "$clean" "$tmp/dirty" && : >"$tmp/dirty/etc/ssh/ssh
 refuse "an SSH host key" rr_no_secrets "$tmp/dirty"
 expect "test/no-secrets.sh on a clean image" sh "$HERE/no-secrets.sh" "$clean"
 refuse "test/no-secrets.sh on an image with a host key" sh "$HERE/no-secrets.sh" "$tmp/dirty"
+
+# --- keyboard layouts ----------------------------------------------------------------------
+
+# rr_keymap_compiles with stand-ins: ckbcomp knows "de", loadkeys refuses to run without
+# --bkeymap (it would need a console, and a chroot has none) and fails on a bad keymap.
+mkdir -p "$tmp/kbin"
+cat >"$tmp/kbin/ckbcomp" <<'STUB'
+#!/bin/sh
+case "$1" in
+  de) printf 'keymaps 0-127\nkeycode 30 = +a\n' ;;
+  empty) : ;;
+  broken) printf 'keycode 30 = nonsense\n' ;;
+  *) echo "Can not find file symbols/$1" >&2; exit 2 ;;
+esac
+STUB
+cat >"$tmp/kbin/loadkeys" <<'STUB'
+#!/bin/sh
+case " $* " in *" --bkeymap "*) ;; *) echo "Couldn't get a file descriptor referring to the console." >&2; exit 1 ;; esac
+case " $* " in *" --unicode "*) ;; *) echo "not the Unicode console" >&2; exit 1 ;; esac
+! grep -q nonsense
+STUB
+chmod 0755 "$tmp/kbin/ckbcomp" "$tmp/kbin/loadkeys"
+# keymap_with <layout>: rr_keymap_compiles in a shell that finds only the stand-ins.
+keymap_with() {
+  # shellcheck disable=SC2016 # $1 and $2 are expanded by the inner shell
+  env PATH="$tmp/kbin:$PATH" sh -c '. "$1" && rr_keymap_compiles "$2"' sh "$WORK/lib/functions.sh" "$1"
+}
+expect "a layout that compiles" keymap_with de
+refuse "an unknown layout" keymap_with xx
+refuse "an empty keymap" keymap_with empty
+refuse "a keymap loadkeys rejects" keymap_with broken
+grep -q 'rr_keymap_compiles "[$]1"' "$WORK/test/check-image.sh" && ok || fail "check-image.sh does not use rr_keymap_compiles"
 
 # --- build.sh arguments and refusals --------------------------------------------------------
 
@@ -259,7 +369,13 @@ grep -qx 'Conflicts=getty@tty1.service' "$unit" && ok || fail "the unit owns tty
 grep -q '^After=systemd-networkd.service' "$unit" && ok || fail "the unit starts after the network"
 grep -q 'auto_activation_volume_list = \[\]' "$WORK/config/includes.chroot/etc/lvm/lvmlocal.conf" && ok || fail "lvmlocal.conf"
 grep -q 'event_activation = 0' "$WORK/config/includes.chroot/etc/lvm/lvmlocal.conf" && ok || fail "event activation"
-grep -qx 'AUTO -all' "$WORK/config/includes.chroot/etc/mdadm/mdadm.conf" && ok || fail "mdadm.conf"
+grep -qx 'AUTO -all' "$WORK/config/includes.chroot/usr/lib/restow-recovery/mdadm.conf" && ok || fail "mdadm.conf"
+# live-build's hook 8040-remove-mdadm-configuration deletes /etc/mdadm/mdadm.conf, so the
+# include there would be gone; the live hook (after it) installs the file.
+[ ! -e "$WORK/config/includes.chroot/etc/mdadm/mdadm.conf" ] && ok ||
+  fail "an mdadm.conf under includes.chroot/etc is deleted by live-build's hook 8040"
+grep -qx 'install -D -m 0644 /usr/lib/restow-recovery/mdadm.conf /etc/mdadm/mdadm.conf' \
+  "$WORK/config/hooks/live/0100-restow-mask.hook.chroot" && ok || fail "the mask hook does not install mdadm.conf"
 for rules in 64-md-raid-assembly.rules 64-btrfs.rules; do
   # Only comments: an empty rule file masks the packaged one.
   grep -v '^#' "$WORK/config/includes.chroot/etc/udev/rules.d/$rules" | grep -q . && fail "$rules has rules" || ok

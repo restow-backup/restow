@@ -1079,7 +1079,7 @@ integrations/recovery/
   config/package-lists/firmware.list.chroot
   config/hooks/live/*.hook.chroot       (Shell, SPDX)
   config/includes.chroot/etc/lvm/lvmlocal.conf                     (keine Auto-Aktivierung)
-  config/includes.chroot/etc/mdadm/mdadm.conf                      (AUTO -all)
+  config/includes.chroot/usr/lib/restow-recovery/mdadm.conf        (AUTO -all; Hook 0100 legt sie nach /etc/mdadm, live-builds Hook 8040 löscht sie dort)
   config/includes.chroot/etc/udev/rules.d/64-md-raid-assembly.rules   (leer: maskiert)
   config/includes.chroot/etc/udev/rules.d/64-btrfs.rules              (leer: maskiert)
   config/includes.chroot/etc/systemd/system/restow-recover.service
@@ -5176,8 +5176,9 @@ Eigenes Werk `integrations/recovery` (GPL-3.0-or-later, kein TypeScript, JavaScr
   desselben Zeitpunkts, ohne Recommends, `iso-hybrid`, `grub-efi,syslinux`, Secure Boot,
   Volume `RESTOW_RECOVERY`); Paketlisten aus 8.2 und die feste Firmwareliste (R15); Hooks
   `0100` (gpt-auto-generator maskiert, SSH aus, LVM/md-Units maskiert, `restow-recover.service`
-  an), `0500` (Lock-Vergleich aus `dpkg-query` und den `.deb`-Hashes, mit `--update-lock` das neue
-  Lock), `0600` (`FIRMWARE-LICENSES.txt` aus den `copyright`-Dateien), `9900` (Listen, Caches, Logs,
+  an, `mdadm.conf` nach `/etc/mdadm`), `0500` (Lock-Vergleich aus `dpkg-query` und den
+  `.deb`-Hashes, auch der von debootstrap installierten Pakete; mit `--update-lock` das neue
+  Lock, das jede Prüfsumme nennen muss), `0600` (`FIRMWARE-LICENSES.txt` aus den `copyright`-Dateien), `9900` (Listen, Caches, Logs,
   Maschinen-ID, Hostschlüssel weg); Includes `lvmlocal.conf`, `mdadm.conf` (`AUTO -all`), die zwei
   maskierenden udev-Regeln (nur Kommentare), `restow-recover.service` (C-M4-2),
   `80-restow-dhcp.network`, `README`; Startmenüs für GRUB (BIOS und UEFI gleich) und syslinux mit

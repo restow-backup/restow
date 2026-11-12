@@ -10,6 +10,10 @@ set -eu
 # local generator overrides does not exist in a fresh image.
 mkdir -p /etc/systemd/system-generators
 ln -sf /dev/null /etc/systemd/system-generators/systemd-gpt-auto-generator
+# No RAID array assembles by itself (AUTO -all). live-build's own hook
+# 8040-remove-mdadm-configuration deletes /etc/mdadm/mdadm.conf after the includes are
+# copied (it would hold the arrays of the build host); the live hooks run after it.
+install -D -m 0644 /usr/lib/restow-recovery/mdadm.conf /etc/mdadm/mdadm.conf
 # No swap of a connected disk, no LVM or RAID activation by event.
 for unit in lvm2-monitor.service lvm2-lvmpolld.socket mdmonitor.service mdcheck_start.timer \
   mdcheck_continue.timer mdmonitor-oneshot.timer swap.target; do

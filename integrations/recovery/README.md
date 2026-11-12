@@ -39,8 +39,13 @@ writes it with `rr_apt_conf` into `config/apt/apt.conf`, the one file live-build
 there (`lb chroot_apt`), and live-build removes it before the image is packed.
 `packages.lock` names every installed package with its version and the
 SHA-256 of its `.deb`; a hook compares the image with it and the build fails on any
-difference. `build.sh --update-lock` writes the lock anew (by hand only; review the
-diff). Forbidden anywhere in the configuration, and checked: `trusted=yes`,
+difference. The hook reads the `.deb`s apt installed in the chroot and those debootstrap
+installed, which live-build keeps outside the chroot (`cache/packages.bootstrap`;
+`build-inner.sh` runs the stages of `lb build` one by one and links them into
+`config/restow/bootstrap-debs` before the chroot stage), matched by package, version and
+architecture. `build.sh --update-lock` writes the lock anew (by hand only; review the
+diff); a package without its `.deb` fails that build, and a lock entry without a
+SHA-256 is never accepted. Forbidden anywhere in the configuration, and checked: `trusted=yes`,
 `--allow-unauthenticated`, `AllowInsecureRepositories`.
 
 Every Restow release takes a new snapshot time (security updates); `snapshot.env` and
@@ -55,9 +60,17 @@ are equal does the release list it in its signed checksums.
 - `test/check-image.sh <iso> <version>`: the firmware packages in the image equal the
   list, the Intel `ice` DDP package is there, every program the recovery program calls
   is found (from `restow-agent recover --list-tools`), the version, the BIOS and UEFI
-  boot entries, the size (below 900 MiB) and the keyboard layouts.
+  boot entries, the size (below 900 MiB), the keyboard layouts (the image's `ckbcomp`
+  and `loadkeys --unicode --parse --bkeymap`, which needs no console) and `mdadm.conf`.
+  Firmware counts only when installed: with a pattern, `dpkg-query` also names
+  packages it knows only from other packages' fields.
 - `test/no-secrets.sh <dir>`: no private key, recovery code, rebind token, instance
-  address or SSH host key in the unpacked image.
+  address or SSH host key in the unpacked image. A private key is a PEM block with its
+  base64 body (OpenSSH and GLib carry the header line alone as a format string). Tokens
+  and recovery codes are looked for in every file but ELF programs and libraries:
+  instance data reaches an image only as a file, and a program's read-only data runs
+  strings together (the agent holds the prefix `rset_` next to other text and the
+  placeholder `RC-XXXXX-XXXXX-XXXXX-XXXXX-XXXXX`).
 - `test/no-autoactivation.sh`: run inside the started ISO with a disk that carries an
   md array, a volume group and swap: nothing of it may be active.
 - `test/machines/`: the factory of the source machines for the end-to-end tests.
