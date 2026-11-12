@@ -48,6 +48,14 @@ diff); a package without its `.deb` fails that build, and a lock entry without a
 SHA-256 is never accepted. Forbidden anywhere in the configuration, and checked: `trusted=yes`,
 `--allow-unauthenticated`, `AllowInsecureRepositories`.
 
+Nothing of the build stays in the image: the hook `9900-restow-clean` removes package
+lists, caches, logs, the machine id and SSH host keys, and after the chroot stage
+`build-inner.sh` removes what live-build and package scripts leave after it
+(`rr_clean_build_leftovers`): the contents of `/run`, systemd-resolved's copy of the
+build's `resolv.conf`, apt's caches and the NVMe host identity (`/etc/nvme/hostnqn`,
+`hostid`), which nvme-cli makes at install and which would otherwise be the same for
+every machine started from the ISO.
+
 Every Restow release takes a new snapshot time (security updates); `snapshot.env` and
 `packages.lock` are set in the release commit and so are part of the tag. From the tag
 the ISO can be rebuilt bit for bit. The CI builds it twice, on two different runner
@@ -61,7 +69,8 @@ are equal does the release list it in its signed checksums.
   list, the Intel `ice` DDP package is there, every program the recovery program calls
   is found (from `restow-agent recover --list-tools`), the version, the BIOS and UEFI
   boot entries, the size (below 900 MiB), the keyboard layouts (the image's `ckbcomp`
-  and `loadkeys --unicode --parse --bkeymap`, which needs no console) and `mdadm.conf`.
+  and `loadkeys --unicode --parse --bkeymap`, which needs no console), `mdadm.conf` and
+  no build leftovers (`rr_build_leftovers`).
   Firmware counts only when installed: with a pattern, `dpkg-query` also names
   packages it knows only from other packages' fields.
 - `test/no-secrets.sh <dir>`: no private key, recovery code, rebind token, instance

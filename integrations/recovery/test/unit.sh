@@ -258,6 +258,33 @@ refuse "an SSH host key" rr_no_secrets "$tmp/dirty"
 expect "test/no-secrets.sh on a clean image" sh "$HERE/no-secrets.sh" "$clean"
 refuse "test/no-secrets.sh on an image with a host key" sh "$HERE/no-secrets.sh" "$tmp/dirty"
 
+# --- build leftovers ------------------------------------------------------------------------
+
+built="$tmp/built"
+mkdir -p "$built/run/systemd/resolve" "$built/etc/nvme" "$built/var/cache/apt/archives/partial" "$built/usr/bin"
+printf 'nameserver 192.0.2.53\nsearch build.example\n' >"$built/run/systemd/resolve/stub-resolv.conf"
+: >"$built/run/adduser"
+cp "$built/run/systemd/resolve/stub-resolv.conf" "$built/etc/.resolv.conf.systemd-resolved.bak"
+printf 'nqn.2014-08.org.nvmexpress:uuid:00000000-0000-4000-8000-000000000000\n' >"$built/etc/nvme/hostnqn"
+printf '00000000-0000-4000-8000-000000000000\n' >"$built/etc/nvme/hostid"
+: >"$built/etc/nvme/discovery.conf"
+: >"$built/var/cache/apt/pkgcache.bin"
+: >"$built/var/cache/apt/srcpkgcache.bin"
+: >"$built/usr/bin/prog"
+refuse "an image with build leftovers" rr_build_leftovers "$built"
+[ "$(rr_build_leftovers "$built" | grep -c .)" -eq 9 ] && ok || fail "every leftover is named"
+expect "the cleaning" rr_clean_build_leftovers "$built"
+expect "an image without build leftovers" rr_build_leftovers "$built"
+[ -d "$built/run" ] && [ -f "$built/etc/nvme/discovery.conf" ] && [ -d "$built/var/cache/apt/archives/partial" ] &&
+  [ -f "$built/usr/bin/prog" ] && ok || fail "the cleaning keeps /run and everything else"
+mkdir -p "$tmp/no-run"
+expect "an image without /run" rr_build_leftovers "$tmp/no-run"
+refuse "a missing directory" rr_build_leftovers "$tmp/missing"
+grep -q '^rr_clean_build_leftovers chroot$' "$HERE/../build-inner.sh" && ok || fail "build-inner.sh cleans the chroot"
+[ "$(grep -n '^lb chroot$' "$HERE/../build-inner.sh" | cut -d: -f1)" -lt "$(grep -n '^rr_clean_build_leftovers chroot$' "$HERE/../build-inner.sh" | cut -d: -f1)" ] &&
+  [ "$(grep -n '^rr_clean_build_leftovers chroot$' "$HERE/../build-inner.sh" | cut -d: -f1)" -lt "$(grep -n '^lb binary$' "$HERE/../build-inner.sh" | cut -d: -f1)" ] &&
+  ok || fail "build-inner.sh cleans between lb chroot and lb binary"
+
 # --- keyboard layouts ----------------------------------------------------------------------
 
 # rr_keymap_compiles with stand-ins: ckbcomp knows "de", loadkeys refuses to run without

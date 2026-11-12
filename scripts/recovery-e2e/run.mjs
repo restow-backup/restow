@@ -436,7 +436,7 @@ async function startInstance(options, workDir, agentDir) {
   const ca = await stack.compose([
     "exec",
     "-T",
-    "web",
+    "caddy",
     "cat",
     "/data/caddy/pki/authorities/local/root.crt",
   ]);

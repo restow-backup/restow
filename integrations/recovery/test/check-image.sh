@@ -82,6 +82,10 @@ grep -q '^AUTO -all' "$root/etc/mdadm/mdadm.conf" || problem "mdadm.conf assembl
 [ "$(readlink "$root/etc/systemd/system-generators/systemd-gpt-auto-generator")" = /dev/null ] ||
   problem "systemd-gpt-auto-generator is not masked"
 
+# Nothing of the build: the two builds of one version are equal bit for bit.
+leftovers=$(rr_build_leftovers "$root") ||
+  problem "build leftovers in the image: $(echo "$leftovers" | tr '\n' ' ')"
+
 # No secrets, nothing of an instance.
 sh "$HERE/no-secrets.sh" "$root" || problem "secrets or instance data in the image"
 

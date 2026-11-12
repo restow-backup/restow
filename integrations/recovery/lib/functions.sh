@@ -325,6 +325,36 @@ rr_no_secrets() {
   return $bad
 }
 
+# What package scripts and live-build leave in the chroot after the 9900 hook and that
+# differs per build or names the build host: the contents of /run (the build's DNS),
+# systemd-resolved's copy of the build's resolv.conf, the NVMe host identity nvme-cli
+# makes at install (one per machine, never one for every machine started from the ISO)
+# and apt's caches from live-build's last apt-get update.
+RR_LEFTOVER_FILES="etc/.resolv.conf.systemd-resolved.bak etc/nvme/hostnqn etc/nvme/hostid var/cache/apt/pkgcache.bin var/cache/apt/srcpkgcache.bin"
+
+# rr_clean_build_leftovers <root>: removes them, before lb binary packs the image.
+rr_clean_build_leftovers() {
+  root="$1"
+  [ -d "$root" ] || { echo "no such directory: $root" >&2; return 2; }
+  for file in $RR_LEFTOVER_FILES; do rm -f "$root/$file"; done
+  if [ -d "$root/run" ]; then find "$root/run" -mindepth 1 -delete; fi
+}
+
+# rr_build_leftovers <root>: names every one still in the image; fails if there is one.
+rr_build_leftovers() {
+  root="$1"
+  [ -d "$root" ] || { echo "no such directory: $root" >&2; return 2; }
+  found=0
+  for file in $RR_LEFTOVER_FILES; do
+    if [ -e "$root/$file" ] || [ -L "$root/$file" ]; then echo "/$file"; found=1; fi
+  done
+  if [ -d "$root/run" ] && [ -n "$(find "$root/run" -mindepth 1 -print | head -n 1)" ]; then
+    find "$root/run" -mindepth 1 -print | sed "s#^$root##"
+    found=1
+  fi
+  [ "$found" -eq 0 ]
+}
+
 # Arguments of build.sh. Sets RR_AGENT_DIST, RR_VERSION, RR_OUT, RR_REBUILD, RR_UPDATE_LOCK
 # (yes|no) and RR_SOURCES (yes|no); prints the problem and fails otherwise.
 # shellcheck disable=SC2034 # the variables are the result, read by the caller
