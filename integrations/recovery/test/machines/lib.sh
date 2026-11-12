@@ -202,7 +202,9 @@ release_all() {
   vgchange -an >/dev/null 2>&1 || true
   for map in /dev/mapper/*; do
     [ "$map" = /dev/mapper/control ] && continue
-    [ -e "$map" ] && cryptsetup close "$(basename "$map")" 2>/dev/null || true
+    if [ -e "$map" ]; then
+      cryptsetup close "$(basename "$map")" 2>/dev/null || true
+    fi
   done
   mdadm --stop --scan >/dev/null 2>&1 || true
   sync
