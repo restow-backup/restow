@@ -497,6 +497,7 @@ describe.skipIf(!adminUrl)("the boot probe in the worker", () => {
         "iso",
         "origin",
         "passphrase",
+        "restoreBytes",
         "snapshotId",
         "spkiCheck",
         "timeouts",

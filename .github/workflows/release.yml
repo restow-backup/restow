@@ -83,6 +83,7 @@ jobs:
       community_web_image: ${{ steps.names.outputs.community_web_image }}
       demo_seed_image: ${{ steps.names.outputs.demo_seed_image }}
       demo_dovecot_image: ${{ steps.names.outputs.demo_dovecot_image }}
+      lab_image: ${{ steps.names.outputs.lab_image }}
       previous_version: ${{ steps.previous.outputs.version }}
       created: ${{ steps.names.outputs.created }}
     steps:
@@ -217,6 +218,7 @@ jobs:
             echo "community_web_image=$image-web-community"
             echo "demo_seed_image=$image-demo-seed"
             echo "demo_dovecot_image=$image-demo-dovecot"
+            echo "lab_image=$image-lab"
             echo "created=$(git log -1 --format=%cI "$GITHUB_SHA")"
           } >> "$GITHUB_OUTPUT"
 
@@ -702,6 +704,26 @@ jobs:
           cache-from: type=gha,scope=release-demo-dovecot-${{ matrix.arch }}
           cache-to: type=gha,scope=release-demo-dovecot-${{ matrix.arch }},mode=max
 
+      # The recovery lab of the boot probe (docs/BAREMETAL.md 12.3): amd64 only (QEMU and OVMF
+      # for x86_64 guests). Optional in an installation (install.sh --with-recovery-lab).
+      - name: Build and push the recovery lab image by digest
+        id: lab
+        if: matrix.arch == 'amd64'
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: lab
+          platforms: linux/amd64
+          build-args: |
+            RESTOW_VERSION=${{ needs.verify.outputs.version }}
+            RESTOW_REVISION=${{ github.sha }}
+            RESTOW_CREATED=${{ needs.verify.outputs.created }}
+          outputs: type=image,name=${{ needs.verify.outputs.lab_image }},push-by-digest=true,name-canonical=true,push=true
+          provenance: false
+          sbom: false
+          cache-from: type=gha,scope=release-${{ matrix.arch }}
+          cache-to: type=gha,scope=release-${{ matrix.arch }},mode=max
+
       - name: Record the digests
         env:
           APP_DIGEST: ${{ steps.app.outputs.digest }}
@@ -710,8 +732,13 @@ jobs:
           COMMUNITY_WEB_DIGEST: ${{ steps.community_web.outputs.digest }}
           DEMO_SEED_DIGEST: ${{ steps.demo_seed.outputs.digest }}
           DEMO_DOVECOT_DIGEST: ${{ steps.demo_dovecot.outputs.digest }}
+          LAB_DIGEST: ${{ steps.lab.outputs.digest }}
         run: |
           mkdir -p digests
+          if [ -n "$LAB_DIGEST" ]; then
+            printf '%s' "$LAB_DIGEST" > "digests/lab-${{ matrix.arch }}"
+            echo "recovery lab   ${{ matrix.arch }}: $LAB_DIGEST"
+          fi
           printf '%s' "$APP_DIGEST" > "digests/app-${{ matrix.arch }}"
           printf '%s' "$WEB_DIGEST" > "digests/web-${{ matrix.arch }}"
           printf '%s' "$COMMUNITY_APP_DIGEST" > "digests/community-app-${{ matrix.arch }}"
@@ -861,6 +888,7 @@ jobs:
       COMMUNITY_WEB_IMAGE: ${{ needs.verify.outputs.community_web_image }}
       DEMO_SEED_IMAGE: ${{ needs.verify.outputs.demo_seed_image }}
       DEMO_DOVECOT_IMAGE: ${{ needs.verify.outputs.demo_dovecot_image }}
+      LAB_IMAGE: ${{ needs.verify.outputs.lab_image }}
       VERSION: ${{ needs.verify.outputs.version }}
       TAGS: ${{ needs.verify.outputs.tags }}
     steps:
@@ -922,13 +950,26 @@ jobs:
           demo_seed $DEMO_SEED_IMAGE demo-seed
           demo_dovecot $DEMO_DOVECOT_IMAGE demo-dovecot
           EOF
+          # The recovery lab: amd64 only, one manifest of one platform.
+          refs=()
+          for tag in "${tags[@]}"; do
+            refs+=(--tag "$LAB_IMAGE:$tag")
+          done
+          lab_amd64="$LAB_IMAGE@$(cat digests/lab-amd64)"
+          docker buildx imagetools create "${refs[@]}" "$lab_amd64"
+          lab_index="$(docker buildx imagetools inspect "$LAB_IMAGE:$first" --format '{{json .Manifest}}' | jq -r .digest)"
+          {
+            echo "lab_index=$lab_index"
+            echo "lab_amd64=$lab_amd64"
+          } >> "$GITHUB_OUTPUT"
+          echo "$LAB_IMAGE@$lab_index"
 
       - name: Install cosign
         uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
         with:
           cosign-release: v3.1.3
 
-      - name: Sign all six images (keyless, GitHub OIDC)
+      - name: Sign all seven images (keyless, GitHub OIDC)
         env:
           APP_INDEX: ${{ steps.tag.outputs.app_index }}
           WEB_INDEX: ${{ steps.tag.outputs.web_index }}
@@ -936,6 +977,7 @@ jobs:
           COMMUNITY_WEB_INDEX: ${{ steps.tag.outputs.community_web_index }}
           DEMO_SEED_INDEX: ${{ steps.tag.outputs.demo_seed_index }}
           DEMO_DOVECOT_INDEX: ${{ steps.tag.outputs.demo_dovecot_index }}
+          LAB_INDEX: ${{ steps.tag.outputs.lab_index }}
         run: |
           set -euo pipefail
           cosign sign --yes "$IMAGE@$APP_INDEX"
@@ -944,6 +986,7 @@ jobs:
           cosign sign --yes "$COMMUNITY_WEB_IMAGE@$COMMUNITY_WEB_INDEX"
           cosign sign --yes "$DEMO_SEED_IMAGE@$DEMO_SEED_INDEX"
           cosign sign --yes "$DEMO_DOVECOT_IMAGE@$DEMO_DOVECOT_INDEX"
+          cosign sign --yes "$LAB_IMAGE@$LAB_INDEX"
 
       - name: Install syft
         uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
@@ -962,6 +1005,7 @@ jobs:
           DEMO_SEED_ARM64: ${{ steps.tag.outputs.demo_seed_arm64 }}
           DEMO_DOVECOT_AMD64: ${{ steps.tag.outputs.demo_dovecot_amd64 }}
           DEMO_DOVECOT_ARM64: ${{ steps.tag.outputs.demo_dovecot_arm64 }}
+          LAB_AMD64: ${{ steps.tag.outputs.lab_amd64 }}
         run: |
           set -euo pipefail
           mkdir -p assets
@@ -982,7 +1026,15 @@ jobs:
           restow-demo-seed-$VERSION-linux-arm64 $DEMO_SEED_ARM64
           restow-demo-dovecot-$VERSION-linux-amd64 $DEMO_DOVECOT_AMD64
           restow-demo-dovecot-$VERSION-linux-arm64 $DEMO_DOVECOT_ARM64
+          restow-lab-$VERSION-linux-amd64 $LAB_AMD64
           EOF
+
+      - name: The Debian sources of the recovery lab image (licenses/restow-lab-NOTICES.md)
+        env:
+          LAB_AMD64: ${{ steps.tag.outputs.lab_amd64 }}
+        run: |
+          set -euo pipefail
+          sh scripts/docker/lab-sources.sh --image "$LAB_AMD64" --version "$VERSION" --out assets
 
       - name: The agent binaries (taken from the image that was smoke-tested)
         env:

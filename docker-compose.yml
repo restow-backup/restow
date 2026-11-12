@@ -118,6 +118,7 @@ services:
     stop_grace_period: 60s
     environment:
       ROLE: worker
+      RESTOW_LAB_TLS_UPSTREAM: ${RESTOW_LAB_TLS_UPSTREAM:-caddy:443}
       # The mounter starts the file share runs the worker dispatches (docs/FILESHARES.md 8.2).
       RESTOW_MOUNTER_URL: ${RESTOW_MOUNTER_URL:-http://mounter:8091}
       # The mounter's caps for runner containers (docs/FILESHARES.md 3.8): the worker keeps the
@@ -269,6 +270,41 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # --- Optional: the recovery lab of the boot probe (profile: recovery-lab) ---
+  # docs/BAREMETAL.md 12.3: proves that a whole machine backup starts on other hardware by
+  # restoring it in QEMU/KVM, through the same recovery a person runs. Needs /dev/kvm on this
+  # host and RESTOW_LAB_TOKEN in .env (the worker's lab API answers only with it). The lab gets
+  # its token and nothing else of the installation: no env_file, no database, no key; its VMs
+  # reach only the TLS edge (caddy:443) through the lab's own proxy. Start it once in this
+  # directory: docker compose --profile recovery-lab up -d recovery-lab
+  recovery-lab:
+    profiles: ["recovery-lab"]
+    build:
+      context: .
+      target: lab
+    image: ${RESTOW_LAB_IMAGE:-restow-lab:local}
+    environment:
+      RESTOW_LAB_TOKEN: ${RESTOW_LAB_TOKEN:-}
+      RESTOW_LAB_API: http://worker:8095
+      RESTOW_LAB_CONCURRENCY: ${RESTOW_LAB_CONCURRENCY:-1}
+      RESTOW_LAB_TLS_UPSTREAM: ${RESTOW_LAB_TLS_UPSTREAM:-caddy:443}
+    devices:
+      - /dev/kvm:/dev/kvm
+    group_add:
+      - "${RESTOW_LAB_KVM_GID:-kvm}" # keep: the group of /dev/kvm on this host
+    volumes:
+      - restow-lab:/var/lib/restow-lab
+    tmpfs:
+      - /tmp
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      - worker
+    restart: unless-stopped
+
   # --- Optional: Vite dev server with hot reload (profile: dev) ---
   web:
     profiles: ["dev"]
@@ -315,6 +351,8 @@ volumes:
   # even without the mounts profile.
   restow-mounter:
   restow-mounter-shared:
+  # The recovery lab: its ISO cache and the probes' encrypted disks (profile recovery-lab).
+  restow-lab:
 
 networks:
   # The network of the file share runners (docs/FILESHARES.md 3.4): the mounter starts

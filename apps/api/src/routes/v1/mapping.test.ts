@@ -473,6 +473,41 @@ describe("verification report", () => {
     expect(second.next).toBeNull();
   });
 
+  it("counts the bare metal state of the machines backed up as a whole apart from the files [READY-014]", () => {
+    const row = (id: string, hostname: string, baremetal: string | null) =>
+      ({
+        id,
+        hostname,
+        displayName: null,
+        baremetal,
+      }) as unknown as ReadinessOverviewDto["endpoints"][number];
+    const page = pageOverview(
+      {
+        ...overview,
+        endpoints: [
+          row("00000000-0000-4000-8000-000000000003", "web", "layout_checked"),
+          row("00000000-0000-4000-8000-000000000001", "db", "green"),
+          row("00000000-0000-4000-8000-000000000002", "laptop", null),
+        ],
+      },
+      10,
+      null,
+    );
+    expect(verifyLatestSchema.parse(page)).toEqual(page);
+    expect(page.baremetal.machines.map((m) => [m.hostname, m.state])).toEqual([
+      ["db", "green"],
+      ["web", "layout_checked"],
+    ]);
+    expect(page.baremetal.counts).toMatchObject({
+      green: 1,
+      layout_checked: 1,
+      overdue: 0,
+      red: 0,
+    });
+    // The files' summary is not changed by it.
+    expect(page.summary.total).toBe(3);
+  });
+
   it("serves an object confirmed as empty as green, and v1 reasons without bytes", () => {
     const empty = objectEntry(ids[0] as string);
     const withEmpty: ReadinessOverviewDto = {

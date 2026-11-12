@@ -1529,7 +1529,9 @@
       "no_layout": "No layout captured yet",
       "unverified": "Layout captured; restore check pending",
       "layout_checked": "Layout checked",
-      "red": "Restore check failed"
+      "red": "Restore check failed",
+      "green": "Starts on new hardware",
+      "overdue": "Boot probe overdue"
     },
     "notPossible": {
       "container": "A container is restored with its host.",
@@ -1629,7 +1631,9 @@
       "stack": "Storage stack"
     },
     "incompleteHint": "The layout check of the newest restore point could not finish. It runs again after the next whole machine backup; until then nothing here is proof.",
-    "layoutCheckedHint": "The newest restore point holds this layout and its boot chain, and the restore planner can put it on the same and on the smallest possible disks. A boot test follows in a later version: this is not yet proof that the restored machine starts.",
+    "layoutCheckedHint": "The newest restore point holds this layout and its boot chain, and the restore planner can put it on the same and on the smallest possible disks. That is not yet proof that the restored machine starts: the boot probe below proves it.",
+    "greenHint": "The recovery lab restored the newest whole machine backup onto other hardware through the same recovery a person runs, and the restored system started. Valid for 8 days and for this layout and boot chain.",
+    "overdueHint": "The last passed boot probe is older than 8 days. The next one runs once the recovery lab has room; you can start it now.",
     "redHint": "The layout check found a problem in the newest restore point (see below). Fix it on the machine; the next whole machine backup is checked again.",
     "check": {
       "title": "Layout check",
@@ -1771,6 +1775,57 @@
       "disk": "{disk} (now {size}): at least {min}",
       "filesystem": "{mount}: {restore} to restore, at least {min}",
       "hint": "What replacement hardware needs at least, from what the newest restore point holds. Larger disks are used in full."
+    },
+    "probe": {
+      "title": "Boot probe",
+      "now": "Probe now",
+      "requested": "Boot probe planned. The recovery lab takes it with its next request.",
+      "requestFailed": "The boot probe could not be planned",
+      "checkedAt": "Probed",
+      "result": "Result",
+      "hardware": "Probe hardware",
+      "leftEmpty": "Left empty",
+      "serial": "Serial console of the restored system",
+      "readiness": {
+        "green": "Started",
+        "red": "Did not start",
+        "none": "No result"
+      },
+      "firmware": {
+        "uefi-sb": "UEFI with Secure Boot",
+        "uefi": "UEFI",
+        "bios": "BIOS"
+      },
+      "blocked": {
+        "no_lab": "This installation runs no recovery lab.",
+        "no_kvm": "The recovery lab has no KVM.",
+        "planned": "A boot probe is planned already.",
+        "running": "A boot probe is running."
+      },
+      "reasons": {
+        "no_lab": "This installation runs no recovery lab, so no boot probe proves that the machine starts. An administrator turns it on with the compose profile recovery-lab on a host with KVM.",
+        "no_kvm": "The recovery lab runs on a host without KVM (a VM without nested virtualization), so it cannot boot a probe.",
+        "planned": "A boot probe is planned; the recovery lab takes it with its next request.",
+        "running": "The recovery lab is restoring and starting this backup now.",
+        "incomplete": "The last boot probe proved nothing (the lab, a time limit). It is repeated within six hours.",
+        "not_systemd": "The boot probe needs a system that starts with systemd.",
+        "too_large": "The system file systems are larger than the recovery lab restores, even with the largest data folders left empty.",
+        "no_disks": "The layout has no disk the probe could restore onto."
+      },
+      "cause": {
+        "booted": "The restored system reached its normal operation.",
+        "recovery_failed": "The recovery found a problem of the backup.",
+        "verification_failed": "The check after the recovery failed.",
+        "incomplete": "The probe proved nothing; it is repeated."
+      },
+      "pattern": {
+        "kernel_panic": "The kernel stopped with a panic.",
+        "root_not_found": "The start did not find the root file system.",
+        "emergency_mode": "The system started into its emergency mode.",
+        "secure_boot_refused": "Secure Boot refused the boot chain.",
+        "no_bootable_device": "The firmware found nothing to start.",
+        "unknown": "The restored system did not start."
+      }
     }
   },
   "recovery": {

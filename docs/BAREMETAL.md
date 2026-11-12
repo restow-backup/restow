@@ -4510,8 +4510,8 @@ Wiederanbindung) und M4 (Recovery-ISO und `restow-agent recover`, ohne die in 26
 Teile von 10.6, 10.7 und 10.20) sind umgesetzt**, hinter
 `RESTOW_BAREMETAL_PREVIEW` (Standard aus; der Schalter hängt am Job-Schalter, 26.2, am Ausstellen
 eines Wiederherstellungscodes, 26.8, und seit M4 an den Texten "kein Bare-Metal-Restore" der Liste
-und des Enroll-Dialogs; die Wiederanbindung ist davon unabhängig). M5 und M6 sind offen; für sie
-bleibt dieses Dokument der Entwurf. Was M2 liefert und abweichend entschieden hat, steht in 26.4 bis
+und des Enroll-Dialogs; die Wiederanbindung ist davon unabhängig). **M5 (Startprobe im Labor)
+ist umgesetzt** (26.15, 26.16). M6 ist offen; für M6 bleibt dieses Dokument der Entwurf. Was M2 liefert und abweichend entschieden hat, steht in 26.4 bis
 26.6, für M3 in 26.7 bis 26.9, für M4 in 26.10 bis 26.12; die Verteilung des ISO durch die
 Instanz und die Neubauten des ISO (Entscheidung des Maintainers nach M4) stehen in 26.13 und
 26.14. Die Migrationen sind seit dem
@@ -5874,6 +5874,68 @@ keine bei unerreichbarer Release-Seite neben einer Kopie, Umgebung); Scheduler `
   unterstützt (dann ohne Proxy); ebenso wenig eine eigene Proxy-Einstellung der Installation.
 - Die Oberfläche fragt den Zustand nicht laufend ab (5 Minuten `staleTime`); der Fortschritt
   erscheint beim nächsten Laden.
+
+### 26.15 Was M5 liefert (Startprobe, "grün ist Beweis")
+
+Entscheidungen des Maintainers zum Plan von M5: grün braucht für 0.5.0 einen Haupthost mit KVM
+(sonst "Layout geprüft" mit Grund "kein Labor" oder "kein KVM"; ein Labor auf einem anderen Host
+kommt mit 0.5.1); das Labor ist ein optionales Image; die Probe läuft über den echten Ablauf
+einer Wiederherstellung (12.3, 25.C7); 8 Tage gültig, wöchentlich und sofort bei neuen
+Fingerabdrücken, 64 GiB Grenze, eine Probe je Labor gleichzeitig (einstellbar).
+
+- **Migration 0103** (`boot_probe`, `probe`, `settings.recovery_lab`).
+- **Kern** (`packages/core/src/endpoints/baremetal/probe.ts`): Auswahl (Systemdateisysteme ganz,
+  übrige leer, große Ordner unter `/var/lib`, `/srv`, `/home` leer, nie die geschützten),
+  Hardware der Probe, Antwortdatei, Muster der seriellen Ausgabe, `judgeBootProbe`,
+  `bootProbeDue`, `probeRating`; `baremetalReadiness` liefert `green` und `overdue`.
+  `measureInstanceSpki` liegt jetzt im Kern (die API und die Labor-API messen gleich).
+- **Agent** (`recover`): `answers.probe` nur aus `fw_cfg` in QEMU, mit Code, ohne Rebind;
+  Ausschlüsse und leere Ordner im Plan, Schritt `probe_boot` (serielle Konsole in GRUB-Vorgaben,
+  `/etc/kernel/cmdline`, BLS-Einträgen und `kernelopts`, `restow-probe.service`), nach `release`
+  die Zeile `RESTOW-PROBE phase=released` und bis 60 s Warten auf das Ende der Links.
+- **API**: Art `probe` in der Recovery-API (keine Freigabe, kein Sicherheitsereignis, kein
+  `endpoint.recovery.failed`, kein Rebind, außerhalb der drei Codes und der Bedienerwege),
+  `POST /api/v1/endpoints/:id/baremetal/probe`, `probe` in `GET .../baremetal`, Spalte
+  `baremetal` in `GET /api/v1/verify/latest` (eigene Zählung) und im Überblick der Rechner.
+- **Worker**: Ordnergrößen in Stufe 1 (`summary.folderSizes`), Planung im Monitor, Labor-API
+  (`apps/worker/src/endpoints/lab-api.ts`), Alarme `baremetal.red`, `baremetal.recovered`,
+  `baremetal.overdue`, `job.failed` je rotem Bericht, Fehlercodes
+  `endpoint.baremetal_check_failed` und `endpoint.boot_probe_failed`.
+- **Labor** (`apps/worker/src/lab/`, Image `restow-lab`, Dockerfile-Stufe `lab`): QEMU-Schicht
+  (aus `scripts/recovery-e2e/lib/qemu.mjs` hierher verschoben, recovery-e2e liest sie von hier),
+  ISO-Cache mit SHA-256-Prüfung vor jedem Start, Variablenspeicher mit der Vereinigung der
+  DBX-Aktualisierungen, qcow2 mit LUKS und einem Schlüssel nur im Speicher (über eine Pipe an
+  QEMU), CONNECT-Proxy, beide VMs mit `-sandbox` und `-nodefaults`, Passphrase an der seriellen
+  Eingabe (systemd, dracut, cryptsetup, initramfs-tools) und einmal über die Tastatur, wenn die
+  Konsole 45 s still bleibt (GRUB-cryptodisk), Zeitgrenzen, Prüfung des freien Platzes,
+  Aufräumen nach jedem Lauf und nach einem Absturz. Compose-Dienst `recovery-lab` (nur sein
+  Token, `/dev/kvm`, nur lesbar, keine Capabilities), `install.sh --with-recovery-lab`.
+- **DBX**: Debian 13 liefert die Sperrliste in keinem Paket (kein `secureboot-db` wie bei Ubuntu;
+  `ovmf` schreibt nur die Schlüssel ein, `fwupd` lädt sie zur Laufzeit). Die Dateien kommen aus
+  dem Repository `microsoft/secureboot_objects` (BSD-2-Clause-Patent, Weitergabe mit
+  Copyright-Hinweis erlaubt; die UEFI-Seite verweist seit 2024 dorthin) zu einem festen Commit,
+  jede mit SHA-256 (`licenses/restow-lab-NOTICES.md`): die letzte vollständige Liste mit dem KEK
+  von 2011 (443 Einträge) und die neuere mit dem KEK von 2023 (291, zwei davon neu); die
+  Vereinigung hat 445 Einträge, genau die der aktuellen Liste.
+- **Web**: Karte mit `green`, `overdue`, dem Grund, dem letzten Probebericht (Ergebnis, Beleg,
+  Hardware, leere Ordner, serielle Konsole) und "Jetzt prüfen"; Grün nur für die bestandene Probe
+  (green-is-proof).
+- **Ende zu Ende**: P1 (grün) und P2 (rot, Notfallmodus) in `recovery-e2e` bei Änderungen an ISO-,
+  Agent- oder Laborpfaden, P3 (NVMe-Quelle auf AHCI, LVM thin, Größengrenze mit leerem Ordner)
+  nachts.
+
+### 26.16 Zurückgestellt und offen (M5)
+
+- Wie in 12.3 entschieden: kein wöchentlicher Start mit leerem NVRAM, kein Bild des VGA-Schirms,
+  kein TCG, kein Labor auf einem anderen Host (0.5.1).
+- Die Spalte "Bare Metal" in der Bereitschaftsseite der Oberfläche (die Daten liefert der
+  Überblick schon); die Karte des Rechners zeigt den Zustand.
+- Der opt-in Updater bewegt das Image des Labors noch nicht mit; nach einem Update setzen Sie
+  `RESTOW_LAB_IMAGE` auf das neue Release.
+- Ob ein Labor die ISO-Version der Instanz braucht, prüft es nicht selbst: Ein ISO ohne
+  Probemodus lehnt die Antworten ab, die Probe endet unvollständig und wird wiederholt.
+- **[CI]** P1 bis P3 laufen erst, wenn `integrations/recovery/packages.lock` Einträge hat und das
+  ISO gebaut wird (wie E1 und E2); hier ohne KVM nicht ausgeführt.
 
 ## 27. Nur auf echter Hardware zu prüfen
 

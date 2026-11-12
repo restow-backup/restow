@@ -174,6 +174,8 @@ export interface LeasedProbe {
   spkiCheck: string | null;
   iso: { sha256: string; version: string; fileName: string; size: number };
   hardware: ProbeHardware;
+  /** What the probe restores: the lab checks its free space against it. */
+  restoreBytes: number;
   /** The answers file for fw_cfg (`opt/restow/answers`), with the code and the passphrase. */
   answers: Record<string, unknown>;
   /** The passphrase of the probe's LUKS volumes; the lab types it at the boot of the copy. */
@@ -315,6 +317,7 @@ export async function leaseBootProbe(
             size: iso.local?.size ?? 0,
           },
           hardware,
+          restoreBytes: selection.restoreBytes,
           answers: probeAnswers({
             origin,
             code: formatRecoveryCode(code),

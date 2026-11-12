@@ -66,6 +66,7 @@ services:
     stop_grace_period: 60s # running jobs checkpoint; keep
     environment:
       ROLE: worker
+      RESTOW_LAB_TLS_UPSTREAM: ${RESTOW_LAB_TLS_UPSTREAM:-caddy:443}
       RESTOW_MOUNTER_URL: ${RESTOW_MOUNTER_URL:-http://mounter:8091}
       RESTOW_MOUNTER_MAX_RUNNERS: ${RESTOW_MOUNTER_MAX_RUNNERS:-8}
       RESTOW_MOUNTER_RUNNER_MAX_MEMORY_MIB: ${RESTOW_MOUNTER_RUNNER_MAX_MEMORY_MIB:-16384}
@@ -167,6 +168,33 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # The recovery lab of the boot probe (docs/BAREMETAL.md 12.3; install.sh --with-recovery-lab).
+  # Needs /dev/kvm and RESTOW_LAB_TOKEN; it gets nothing else of the installation.
+  recovery-lab:
+    profiles: ["recovery-lab"]
+    image: ${RESTOW_LAB_IMAGE:-restow-lab:unset}
+    environment:
+      RESTOW_LAB_TOKEN: ${RESTOW_LAB_TOKEN:-}
+      RESTOW_LAB_API: http://worker:8095
+      RESTOW_LAB_CONCURRENCY: ${RESTOW_LAB_CONCURRENCY:-1}
+      RESTOW_LAB_TLS_UPSTREAM: ${RESTOW_LAB_TLS_UPSTREAM:-caddy:443}
+    devices:
+      - /dev/kvm:/dev/kvm
+    group_add:
+      - "${RESTOW_LAB_KVM_GID:-kvm}" # keep: the group of /dev/kvm on this host
+    volumes:
+      - restow-lab:/var/lib/restow-lab
+    tmpfs:
+      - /tmp
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      - worker
+    restart: unless-stopped
+
 volumes:
   pgdata:
   restow-data:
@@ -176,6 +204,7 @@ volumes:
   restow-updater-shared:
   restow-mounter:
   restow-mounter-shared:
+  restow-lab:
 
 networks:
   runners:

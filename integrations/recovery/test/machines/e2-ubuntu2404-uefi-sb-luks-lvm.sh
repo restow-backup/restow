@@ -47,5 +47,11 @@ in_root "$root" update-initramfs -u -k all
 in_root "$root" grub-install --target=x86_64-efi --efi-directory=/boot/efi --uefi-secure-boot --no-nvram
 printf 'GRUB_CMDLINE_LINUX="console=tty0 console=ttyS0,115200n8"\n' >>"$root/etc/default/grub"
 in_root "$root" update-grub
+# The red boot probe (scripts/recovery-e2e P2): a GRUB default that starts the emergency target,
+# written after update-grub. The machine itself starts as before; the GRUB configuration the
+# restore writes starts the emergency target, and the probe must say so.
+if [ "${FACTORY_PROBE_EMERGENCY:-}" = 1 ]; then
+  printf 'GRUB_CMDLINE_LINUX_DEFAULT="systemd.unit=emergency.target"\n' >>"$root/etc/default/grub"
+fi
 release_all "$root"
 say "E2 ready"

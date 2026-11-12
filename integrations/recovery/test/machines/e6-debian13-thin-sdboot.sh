@@ -31,5 +31,11 @@ finish_root "$root"
 printf 'root=UUID=%s ro console=tty0 console=ttyS0,115200n8\n' "$(blkid -s UUID -o value /dev/vg0/root)" >"$root/etc/kernel/cmdline"
 in_root "$root" bootctl --esp-path=/boot/efi install --no-variables
 in_root "$root" update-initramfs -u -k all
+# The boot probe's size limit (scripts/recovery-e2e P3): 3 GiB of data in a folder under
+# /var/lib that a probe with a smaller limit leaves empty.
+if [ "${FACTORY_PROBE_BULK:-}" = 1 ]; then
+  mkdir -p "$root/var/lib/e2e-bulk"
+  dd if=/dev/zero of="$root/var/lib/e2e-bulk/data" bs=1M count=3072 status=none
+fi
 release_all "$root"
 say "E6 ready"

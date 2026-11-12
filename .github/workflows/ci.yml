@@ -307,6 +307,53 @@ jobs:
           cache-from: type=gha,scope=ci-app
           cache-to: type=gha,scope=ci-app,mode=max
 
+      - name: Build the recovery lab image
+        # docs/BAREMETAL.md 12.3: Debian's QEMU, OVMF, SeaBIOS and virt-firmware from the
+        # recovery ISO's snapshot, the DBX pinned by SHA-256, the lab's own files only
+        # (scripts/docker/lab-image.test.mjs checks the stage and the compose service).
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: lab
+          push: false
+          load: true
+          tags: restow-lab:ci
+          build-args: |
+            RESTOW_REVISION=${{ github.sha }}
+          cache-from: type=gha,scope=ci-app
+          cache-to: type=gha,scope=ci-app,mode=max
+
+      - name: The lab image runs its tools, its DBX and nothing of the server
+        # QEMU, qemu-img and virt-fw-vars start; the Secure Boot store takes the union of the
+        # DBX updates (all entries of both); the image holds no database client, no worker and
+        # no server code beside the lab's files; it runs as its own user; the licence notices.
+        run: |
+          set -eu
+          docker run --rm --entrypoint qemu-system-x86_64 restow-lab:ci --version
+          docker run --rm --entrypoint qemu-img restow-lab:ci --version
+          docker run --rm --entrypoint sh restow-lab:ci -c '
+            set -eu
+            test "$(id -u)" = 10001
+            cd /tmp
+            node --input-type=module -e "
+              import { readFileSync, writeFileSync } from \"node:fs\";
+              import { unionDbx, dbxCount } from \"/opt/restow-lab/dbx.js\";
+              const dir = \"/usr/share/restow-lab/dbx/\";
+              const a = readFileSync(dir + \"dbx-kek2011-amd64.bin\"), b = readFileSync(dir + \"dbx-kek2023-x64.efiauth2\");
+              const u = unionDbx([a, b]);
+              if (dbxCount(u) < Math.max(dbxCount(a), dbxCount(b))) process.exit(1);
+              writeFileSync(\"/tmp/dbx.auth2\", u);
+              console.log(\"DBX entries:\", dbxCount(a), dbxCount(b), dbxCount(u));"
+            virt-fw-vars --input /usr/share/OVMF/OVMF_VARS_4M.ms.fd --output /tmp/vars.fd --secure-boot --set-dbx /tmp/dbx.auth2
+            virt-fw-vars --input /tmp/vars.fd --print | grep -q "^dbx"
+            test ! -e /prod && test ! -e /app
+            test ! -e /opt/restow-lab/node_modules && test -z "$(find / -xdev -type d -name node_modules 2>/dev/null)"
+            for f in NOTICES.md packages.txt secureboot_objects-LICENSE.txt; do test -s "/usr/share/doc/restow-lab/$f"; done
+            test -s /usr/share/doc/qemu-system-x86/copyright && test -s /usr/share/doc/ovmf/copyright && test -s /usr/share/doc/seabios/copyright
+          '
+          licenses="$(docker image inspect restow-lab:ci --format '{{index .Config.Labels "org.opencontainers.image.licenses"}}')"
+          test "$licenses" = "Apache-2.0 AND GPL-2.0-only AND LGPL-3.0-only AND BSD-2-Clause-Patent"
+
       - name: The images carry their tools
         # restic and the standalone restore tool must be in both application images, the
         # agent binaries with their checksums must sit where the api serves them from
@@ -881,7 +928,7 @@ jobs:
           fi
           changed=false
           if git diff --name-only "$base" HEAD |
-            grep -qE '^(integrations/recovery/|agent/|scripts/recovery-e2e/|apps/api/src/features/endpoints/recovery)'; then
+            grep -qE '^(integrations/recovery/|agent/|scripts/recovery-e2e/|apps/api/src/features/endpoints/recovery|apps/worker/src/lab/|apps/worker/src/endpoints/(lab-api|boot-probe))'; then
             changed=true
           else
             echo "::notice::nothing of the recovery ISO changed; its build, comparison and end-to-end tests are skipped."
@@ -1053,14 +1100,14 @@ jobs:
           exit 1
 
   recovery-e2e:
-    name: Recovery end to end (E1, E2 in QEMU/KVM)
+    name: Recovery end to end (E1, E2 and the boot probes P1, P2 in QEMU/KVM)
     # docs/BAREMETAL.md 21.2: a source machine is backed up, restored by the ISO onto other
     # hardware through the recovery API and must boot. KVM through a udev rule; without
     # it the driver stops with a clear message (TCG would take hours).
     needs: [agent, recovery-iso, recovery-paths]
     if: needs.recovery-paths.outputs.changed == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
+    timeout-minutes: 240
     permissions:
       contents: read
     steps:
@@ -1090,7 +1137,10 @@ jobs:
           pattern: "{agent-dist-linux-amd64,recovery-iso}"
           path: ${{ runner.temp }}/artifacts
 
-      - name: E1 and E2
+      - name: E1, E2, P1 and P2
+        # claim: VERIFY-009
+        # P1 and P2 run the recovery lab's container (Dockerfile target lab, built here) next to
+        # the test instance: green for E1's source, red with the emergency pattern for P2.
         run: |
           set -euo pipefail
           iso="$(ls "$RUNNER_TEMP"/artifacts/recovery-iso/restow-recovery_*_amd64.iso)"

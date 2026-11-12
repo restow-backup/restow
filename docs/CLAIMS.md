@@ -208,7 +208,7 @@ Repository-Secrets eines Entwickler-Mandanten und wurde bisher in jedem Release 
 - Aussage: Bare Metal ist nur grün, wenn Stufe 1 der neuesten Sicherung des ganzen Rechners bestanden ist und eine bestandene Startprobe mit denselben Fingerabdrücken von Layout und Startkette höchstens 8 Tage alt ist. Danach ist der Rechner überfällig, eine Startprobe mit Befund macht ihn rot, und eine geänderte Startkette fällt auf „Layout geprüft“ zurück.
 - Fundstelle: docs/BAREMETAL.md (Abschnitte 12.3 und 12.4)
 - Öffentliche Seite: nicht abgeglichen
-- Tests: packages/core/src/endpoints/baremetal/readiness.test.ts, packages/core/src/endpoints/baremetal/probe.test.ts, apps/api/src/features/endpoints/baremetal.pg.test.ts
+- Tests: packages/core/src/endpoints/baremetal/readiness.test.ts, packages/core/src/endpoints/baremetal/probe.test.ts, apps/api/src/features/endpoints/baremetal.pg.test.ts, apps/api/src/routes/v1/mapping.test.ts, apps/web/src/features/endpoints/components/baremetal-card.test.tsx
 - Belegt gegen: echtes System (PostgreSQL 16, Job test in ci.yml; die Bewertungsregel zusätzlich als Einheitentest)
 - Stand: belegt
 
@@ -216,7 +216,7 @@ Repository-Secrets eines Entwickler-Mandanten und wurde bisher in jedem Release 
 - Aussage: Ohne Wiederherstellungslabor mit KVM wird kein Rechner grün: Er bleibt bei „Layout geprüft“, und die Karte nennt den Grund (kein Labor, kein KVM).
 - Fundstelle: docs/BAREMETAL.md (Abschnitte 12.3 und 12.4)
 - Öffentliche Seite: nicht abgeglichen
-- Tests: packages/core/src/endpoints/baremetal/readiness.test.ts, packages/core/src/endpoints/baremetal/probe.test.ts, apps/api/src/features/endpoints/baremetal.pg.test.ts
+- Tests: packages/core/src/endpoints/baremetal/readiness.test.ts, packages/core/src/endpoints/baremetal/probe.test.ts, apps/api/src/features/endpoints/baremetal.pg.test.ts, apps/web/src/features/endpoints/components/baremetal-card.test.tsx
 - Belegt gegen: echtes System (PostgreSQL 16, Job test in ci.yml; die Bewertungsregel zusätzlich als Einheitentest)
 - Stand: belegt
 
@@ -293,10 +293,10 @@ Repository-Secrets eines Entwickler-Mandanten und wurde bisher in jedem Release 
 - Aussage: Rechner: Eine Startprobe ist nur grün, wenn die Wiederherstellung des ISO mit einem Prüfbericht ohne Fehler endete und das wiederhergestellte System auf der seriellen Konsole `RESTOW-PROBE-OK` meldet. Rot ist sie nur mit Beleg (ein festes Fehlermuster beim Start, eine fehlgeschlagene Prüfung nach der Wiederherstellung, ein Problem der Sicherung); alles andere (das Labor, ein Zeitlimit ohne Muster) beweist nichts und wird wiederholt. Jedes Ergebnis wird einmal und nur für eine Startprobe angenommen, die das Labor übernommen hat.
 - Fundstelle: docs/BAREMETAL.md (Abschnitt 12.3)
 - Öffentliche Seite: nicht abgeglichen
-- Tests: packages/core/src/endpoints/baremetal/probe.test.ts, apps/worker/src/endpoints/boot-probe.pg.test.ts
-- Belegt gegen: echtes System (PostgreSQL 16, Job test in ci.yml; die Bewertungsregel zusätzlich als Einheitentest)
+- Tests: packages/core/src/endpoints/baremetal/probe.test.ts, apps/worker/src/endpoints/boot-probe.pg.test.ts, scripts/recovery-e2e/run.test.mjs, .github/workflows/ci.yml
+- Belegt gegen: echtes System (PostgreSQL 16, Job test in ci.yml; der Start echter Sicherungen im Labor unter QEMU/KVM in den Fällen P1 und P2 des Jobs recovery-e2e in ci.yml, P3 nachts; die Bewertungsregel zusätzlich als Einheitentest)
 - Stand: belegt
-- Hinweis: Belegt ist die Bewertung dessen, was Labor und ISO melden. Dass das Labor eine Sicherung in QEMU/KVM wirklich startet, belegt erst der Fall der Startprobe in recovery-e2e (M5, WP9).
+- Hinweis: recovery-e2e läuft nur, wenn sich ISO-, Agent- oder Laborpfade ändern und das ISO gebaut wird (das Paketverzeichnis des ISO hat Einträge); bis dahin belegen P1 und P2 nichts.
 
 ## Speicherprüfung (SCRUB)
 
@@ -780,14 +780,12 @@ Repository-Secrets eines Entwickler-Mandanten und wurde bisher in jedem Release 
 - Stand: belegt
 
 ### CRYPT-006
-- Aussage: Das Wiederherstellungslabor bekommt für eine Startprobe einen Einmal-Code, der an die Adresse der Installation gebunden ist, und nie das Passwort oder die Zugangsdaten eines Repositorys; gespeichert wird nur der Hash des Code-Nachweises. Eine Startprobe wird genau einmal übernommen, auch wenn zwei Labore gleichzeitig fragen.
-- Fundstelle: docs/BAREMETAL.md (Abschnitte 12.3 und 25.C7)
+- Aussage: Das Wiederherstellungslabor bekommt für eine Startprobe einen Einmal-Code, der an die Adresse der Installation gebunden ist, und nie das Passwort oder die Zugangsdaten eines Repositorys; gespeichert wird nur der Hash des Code-Nachweises. Eine Startprobe wird genau einmal übernommen, auch wenn zwei Labore gleichzeitig fragen. Das Labor selbst hat weder Datenbankzugang noch Hauptschlüssel: Sein Image enthält vom Server nur die Dateien des Labors, sein Compose-Dienst bekommt nur sein Token.
+- Fundstelle: docs/BAREMETAL.md (Abschnitte 12.3 und 25.C7), licenses/restow-lab-NOTICES.md
 - Öffentliche Seite: nicht abgeglichen
-- Tests: apps/worker/src/endpoints/boot-probe.pg.test.ts
-- Belegt gegen: echtes System (PostgreSQL 16, Job test in ci.yml)
+- Tests: apps/worker/src/endpoints/boot-probe.pg.test.ts, apps/worker/src/lab/lab.test.ts, scripts/docker/lab-image.test.mjs
+- Belegt gegen: beides (PostgreSQL 16 und die Dateien des Images und der Compose-Dienste, Jobs test und docker in ci.yml)
 - Stand: belegt
-
-## Kopien der Repositories (COPY)
 
 ### COPY-001
 - Aussage: Die Speicherprüfung bringt ein Kopie-Ziel auf den Stand des primären: fehlende Schlüssel, Manifeste und Packs werden kopiert. Nach einer Sicherung liegt das Manifest auch auf den Kopien.

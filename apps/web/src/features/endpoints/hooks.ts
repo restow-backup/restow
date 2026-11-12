@@ -52,6 +52,7 @@ import {
   type RecoveryStatus,
   type RemovalMode,
   removeEndpoint,
+  requestBootProbe,
   requestEndpointUpdate,
   requestRestoreTest,
   requestSqlInventory,
@@ -400,6 +401,17 @@ export function useRequestEndpointUpdate(endpointId: string) {
   return useMutation({
     mutationFn: () => requestEndpointUpdate(endpointId),
     onSettled: () => refresh(endpointId),
+  });
+}
+
+/** "Probe now" on the bare metal card; the card reads the planned probe afterwards. */
+export function useRequestBootProbe(endpointId: string) {
+  const { tenantId } = useTenantScope();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => requestBootProbe(endpointId),
+    onSettled: () =>
+      queryClient.invalidateQueries({ queryKey: endpointKeys.baremetal(tenantId, endpointId) }),
   });
 }
 

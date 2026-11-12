@@ -10,7 +10,7 @@ key, stays on the maintainer's machine: the release waits until it is used there
 
 | Workflow | Runs on | What it does |
 | --- | --- | --- |
-| `ci.yml` | every push to a branch, every pull request, and as part of the release | lint (biome), the `ee/` import guard, the former-name guard (no tracked file or path may name the product before its rename), the package file guard (`check-package-files.mjs`: no test file or test data folder in what a workspace package ships into the images) and the claims guard (`check-claims.mjs`: every claim of `docs/CLAIMS.md` names a test that carries its ID, see "Claims register"), all in `scripts/ci`, typecheck, unit and Postgres tests (with the pinned restic installed, the endpoint suites run it) and the guard that no Postgres suite was skipped, i18n completeness (every key of `en` in `de` and the other way round), full build, Docker build of all four images, full and Community (no push, see "Two build targets"), with a look inside (the self-test of `scripts/docker`, restic, `restow-restore`, the agent checksums, the license texts, no `@tutao/oxmsg` in the production trees, the OCI labels with each build's license, the variant marker, no `ee/` code in the Community images and no license signing code in any image), `pnpm audit` for high and critical advisories, dependency licenses (see "Dependency licenses and Dependabot"), gitleaks over the history (over the commits of a pull request), the Go agent in `agent/` (its own scripts: `agent/scripts/test.sh` with gofmt, go vet for the five targets, `go test -race` and ShellCheck; `integration.sh` against the real restic and an append-only REST server; `test-install.sh` for the install script; then `agent/build.sh` for linux and darwin on amd64 and arm64 and windows on amd64, the license check of all five restic binaries and the byte guard on the snapshot error texts in `restic.exe`; passes with a notice on a commit that has no `agent/`), the Go agent on a Windows runner (job `agent-windows`, `windows-2022`: gofmt, native `go vet` and the unit tests without the `unix` build tag, see docs/WINDOWS-AGENT.md section 3.5), shellcheck for every `*.sh`, the tests of the server install script (`deploy/install/test.sh`, see "Server install script") and of the demo reset (`deploy/demo/test.sh`: the default mode and the follow mode of `deploy/demo/reset.sh` against a stub docker), actionlint for the workflows; the recovery ISO (see "Recovery ISO": `recovery-scripts`, `recovery-paths`, `recovery-iso`, `recovery-iso-rebuild`, `recovery-iso-compare`, `recovery-e2e`) and `agent-root` (the Go tests as root on loop devices). The job **CI passed** is the one to require in branch protection; it counts a recovery ISO job that the path filter skipped as passed. |
+| `ci.yml` | every push to a branch, every pull request, and as part of the release | lint (biome), the `ee/` import guard, the former-name guard (no tracked file or path may name the product before its rename), the package file guard (`check-package-files.mjs`: no test file or test data folder in what a workspace package ships into the images) and the claims guard (`check-claims.mjs`: every claim of `docs/CLAIMS.md` names a test that carries its ID, see "Claims register"), all in `scripts/ci`, typecheck, unit and Postgres tests (with the pinned restic installed, the endpoint suites run it) and the guard that no Postgres suite was skipped, i18n completeness (every key of `en` in `de` and the other way round), full build, Docker build of all four images, full and Community (no push, see "Two build targets"), and of the recovery lab image (target `lab`: QEMU, qemu-img and virt-fw-vars start, the union of its DBX updates goes into a Secure Boot variable store, no server code but the lab's, its own user, the licence notices; `scripts/docker/lab-image.test.mjs` checks the stage and the compose service), with a look inside (the self-test of `scripts/docker`, restic, `restow-restore`, the agent checksums, the license texts, no `@tutao/oxmsg` in the production trees, the OCI labels with each build's license, the variant marker, no `ee/` code in the Community images and no license signing code in any image), `pnpm audit` for high and critical advisories, dependency licenses (see "Dependency licenses and Dependabot"), gitleaks over the history (over the commits of a pull request), the Go agent in `agent/` (its own scripts: `agent/scripts/test.sh` with gofmt, go vet for the five targets, `go test -race` and ShellCheck; `integration.sh` against the real restic and an append-only REST server; `test-install.sh` for the install script; then `agent/build.sh` for linux and darwin on amd64 and arm64 and windows on amd64, the license check of all five restic binaries and the byte guard on the snapshot error texts in `restic.exe`; passes with a notice on a commit that has no `agent/`), the Go agent on a Windows runner (job `agent-windows`, `windows-2022`: gofmt, native `go vet` and the unit tests without the `unix` build tag, see docs/WINDOWS-AGENT.md section 3.5), shellcheck for every `*.sh`, the tests of the server install script (`deploy/install/test.sh`, see "Server install script") and of the demo reset (`deploy/demo/test.sh`: the default mode and the follow mode of `deploy/demo/reset.sh` against a stub docker), actionlint for the workflows; the recovery ISO (see "Recovery ISO": `recovery-scripts`, `recovery-paths`, `recovery-iso`, `recovery-iso-rebuild`, `recovery-iso-compare`, `recovery-e2e`) and `agent-root` (the Go tests as root on loop devices). The job **CI passed** is the one to require in branch protection; it counts a recovery ISO job that the path filter skipped as passed. |
 | `release.yml` | a tag `v*` | see "Releasing" |
 | `recovery-rebuild.yml` | a tag `recovery-v*` | rebuilds only the recovery ISO of a published release against a newer Debian snapshot; see "Recovery ISO rebuilds" |
 | `recovery-nightly.yml` | nightly, on demand, and called by `release.yml` | the bare metal restore cases E1b and E3 to E10 in QEMU/KVM (all cases before a release) against the recovery ISO; see "Recovery ISO" |
@@ -267,16 +267,20 @@ image).
      targets"), and the two images of the public demo, `ghcr.io/<owner>/restow-demo-seed`
      (target `demo-seed`) and `ghcr.io/<owner>/restow-demo-dovecot`
      (`deploy/demo/dovecot`), which the demo host pulls in follow mode
-     (`deploy/demo/README.md`, "Following the releases"); all pushed **by digest and
-     untagged**. The demo images are no part of an installation and not smoke-tested;
+     (`deploy/demo/README.md`, "Following the releases"), and on amd64 only the recovery
+     lab `ghcr.io/<owner>/restow-lab` (target `lab`, docs/BAREMETAL.md 12.3: Debian's QEMU,
+     OVMF, SeaBIOS and virt-firmware from the recovery ISO's snapshot, the DBX pinned by
+     SHA-256, the lab's own files); all pushed **by digest and untagged**. The demo images are no part of an installation and not smoke-tested;
      the demo's reset checks that all four images it runs carry the same release version.
    - **release-smoke** (amd64 and arm64, full and Community): the smoke checks against
      exactly those digests, `--variant community` for the Community images. It gates
      the release: nothing below runs unless all four runs pass.
    - **publish**: checks the agent signature on the draft once more, then the tags (one
      multi-arch manifest per image, the demo images with the same tags), the cosign
-     signatures of all six images, an SBOM per image and architecture, and publishes the
-     draft release.
+     signatures of all seven images (the recovery lab with one platform), an SBOM per image
+     and architecture, the Debian sources of the recovery lab image
+     (`restow-lab_<version>_sources.tar` and `.txt`, `scripts/docker/lab-sources.sh`), and
+     publishes the draft release.
 4. Docker tags (`scripts/ci/release-lib.mjs`): `0.x.y` gets
    `:<version>` and `:beta`; from 1.0.0 a stable release gets `:<version>`, `:MAJOR.MINOR`,
    `:MAJOR` and `:latest`; a pre-release (`-rc.N`) gets only `:<version>`. A 0.x release is
@@ -296,8 +300,8 @@ image).
    license notices `restow-agent-THIRD_PARTY_NOTICES.txt`,
    `agent-SHA256SUMS` with the maintainer's signature `agent-SHA256SUMS.sig`, the SBOMs
    (`<image>-<version>-linux-<arch>.spdx.json` for `restow`, `restow-web`,
-   `restow-community`, `restow-web-community`, `restow-demo-seed` and
-   `restow-demo-dovecot`, SPDX, also attached to the images as
+   `restow-community`, `restow-web-community`, `restow-demo-seed`,
+   `restow-demo-dovecot` and `restow-lab` (amd64), SPDX, also attached to the images as
    cosign attestations), `docker-compose.yml` and `env.example` of the release stack
    (`deploy/release/`), and the server install script `install.sh`
    (`deploy/install/install.sh`) with `install.sh.sha256`.
@@ -327,7 +331,7 @@ The build recipe of the recovery ISO is the separate work `integrations/recovery
 | `recovery-iso` | `ubuntu-24.04`: `build.sh` from the `linux-amd64` agent of this commit (artifact `agent-dist-linux-amd64`), then `test/check-image.sh` (firmware list, the `ice` DDP package, every program of `restow-agent recover --list-tools`, the version, the BIOS and UEFI boot entries, under 900 MiB, the keyboard layouts, no auto-activation files, `no-secrets.sh`), then `scripts/recovery-e2e/no-autoactivation.mjs` in QEMU/KVM (the ISO prepares a second disk with md RAID1, a volume group and swap, then starts normally and runs `test/no-autoactivation.sh`; the job fails when anything of it is active); `permissions: contents: read`, no secrets |
 | `recovery-iso-rebuild` | the same build on `ubuntu-22.04` with another `TZ` and `umask` |
 | `recovery-iso-compare` | the SHA-256 of both builds must be equal; otherwise `diffoscope` and a failure |
-| `recovery-e2e` | E1 and E2 (`scripts/recovery-e2e/run.mjs --cases per-pr`) with KVM through a udev rule; the serial logs as an artifact |
+| `recovery-e2e` | E1 and E2, and the boot probes P1 (green) and P2 (red, the emergency target) with the recovery lab's container built from this commit (`scripts/recovery-e2e/run.mjs --cases per-pr`), with KVM through a udev rule; the serial logs and the lab's log as an artifact; also when the lab's paths change (`apps/worker/src/lab/`, the lab API and the planning) |
 
 The first `packages.lock` comes from **Actions > CI > Run workflow** with `update-lock`:
 `recovery-iso` keeps the lock it wrote as the artifact `recovery-packages-lock`; review its

@@ -5,10 +5,17 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 
 import { i18n } from "@/i18n";
 
-import type { Baremetal, BaremetalCheck, LayoutSummary } from "../api.js";
+import type {
+  Baremetal,
+  BaremetalCheck,
+  BaremetalProbe,
+  BaremetalProbeReport,
+  LayoutSummary,
+} from "../api.js";
 import { type Mounted, mount } from "../dom-harness.js";
 import "../i18n.js";
 import { BaremetalCard, showsBaremetalCard } from "./baremetal-card.js";
+import { probeNowBlocked } from "./baremetal-probe.js";
 
 vi.mock("@/lib/session", () => ({
   useSession: () => ({
@@ -23,6 +30,7 @@ vi.mock("@/lib/session", () => ({
 const fetchBaremetal = vi.fn();
 const fetchRecoveryIso = vi.fn();
 const fetchRecoveries = vi.fn(async () => [] as unknown[]);
+const requestBootProbe = vi.fn(async () => ({ id: "p1", state: "planned" }));
 vi.mock("../api.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../api.js")>();
   return {
@@ -30,6 +38,7 @@ vi.mock("../api.js", async (importOriginal) => {
     fetchBaremetal: (...args: unknown[]) => fetchBaremetal(...args),
     fetchRecoveryIso: (...args: unknown[]) => fetchRecoveryIso(...args),
     fetchRecoveries: () => fetchRecoveries(),
+    requestBootProbe: (...args: unknown[]) => requestBootProbe(...(args as [])),
   };
 });
 // No router in this harness: a link is a plain anchor.
@@ -320,7 +329,7 @@ describe("BaremetalCard", () => {
     await open(baremetal({ state: "layout_checked", check: check() }));
     const text = page.text();
     expect(text).toContain("Layout checked");
-    expect(text).toContain("this is not yet proof that the restored machine starts");
+    expect(text).toContain("That is not yet proof that the restored machine starts");
     expect(document.querySelector('[data-slot="baremetal-check-result"]')?.textContent).toBe(
       "Passed",
     );
@@ -479,5 +488,132 @@ describe("BaremetalCard", () => {
     expect(
       showsBaremetalCard(baremetal({ latest: null, state: "not_enabled", enabled: false })),
     ).toBe(true);
+  });
+
+  const probeReport = (over: Partial<BaremetalProbeReport> = {}): BaremetalProbeReport => ({
+    reportId: "r1",
+    checkedAt: "2026-11-10T08:00:00.000Z",
+    snapshotId: "a".repeat(64),
+    readiness: "green",
+    cause: {
+      kind: "booted",
+      line: "RESTOW-PROBE-OK 0f6c 6.1.0-27-amd64",
+      kernel: "6.1.0-27-amd64",
+    },
+    notPossible: null,
+    firmware: "uefi-sb",
+    controllers: ["sata"],
+    kvm: true,
+    emptyFilesystems: ["/home"],
+    emptyDirs: [],
+    restoreBytes: 9,
+    serialTail: "[  OK  ] Reached target\nRESTOW-PROBE-OK 0f6c 6.1.0-27-amd64",
+    ...over,
+  });
+  const probeButton = () =>
+    document.querySelector<HTMLButtonElement>('[data-action="baremetal-probe-now"]');
+
+  it("is green only with a boot probe that started the restored system, with its evidence [READY-014]", async () => {
+    await open(
+      baremetal({
+        state: "green",
+        check: check(),
+        probe: {
+          lab: { present: true, kvm: true },
+          pending: null,
+          reason: null,
+          latest: probeReport(),
+        },
+      }),
+    );
+    expect(document.querySelector('[data-slot="baremetal-state"]')?.getAttribute("data-tone")).toBe(
+      "success",
+    );
+    const text = page.text();
+    expect(text).toContain("Starts on new hardware");
+    expect(text).toContain("The restored system reached its normal operation.");
+    expect(text).toContain("UEFI with Secure Boot, SATA");
+    expect(text).toContain("/home");
+    expect(document.querySelector('[data-slot="baremetal-probe-evidence"]')?.textContent).toContain(
+      "RESTOW-PROBE-OK",
+    );
+    expect(probeButton()?.disabled).toBe(false);
+  });
+
+  it("says why no probe proves the boot yet, and plans one on request [READY-015]", async () => {
+    await open(
+      baremetal({
+        state: "layout_checked",
+        check: check(),
+        probe: {
+          lab: { present: false, kvm: false },
+          pending: null,
+          reason: "no_lab",
+          latest: null,
+        },
+      }),
+    );
+    expect(document.querySelector('[data-slot="baremetal-probe-reason"]')?.textContent).toContain(
+      "This installation runs no recovery lab",
+    );
+    expect(probeButton()?.disabled).toBe(true);
+    expect(page.html()).not.toContain('data-tone="success"');
+    // Each reason the button gives (its tooltip).
+    const lab = { present: true, kvm: true };
+    const blocked = (over: Partial<BaremetalProbe>) =>
+      probeNowBlocked({ lab, pending: null, reason: null, latest: null, ...over });
+    expect(blocked({ lab: { present: false, kvm: false } })).toBe("baremetal.probe.blocked.no_lab");
+    expect(blocked({ lab: { present: true, kvm: false } })).toBe("baremetal.probe.blocked.no_kvm");
+    expect(blocked({ pending: "running" })).toBe("baremetal.probe.blocked.running");
+    expect(blocked({ reason: "not_systemd" })).toBe("baremetal.probe.reasons.not_systemd");
+    expect(blocked({ reason: "too_large" })).toBeNull();
+    page.unmount();
+    requestBootProbe.mockClear();
+    await open(
+      baremetal({
+        state: "layout_checked",
+        check: check(),
+        probe: {
+          lab: { present: true, kvm: true },
+          pending: null,
+          reason: "planned",
+          latest: null,
+        },
+      }),
+    );
+    expect(probeButton()?.disabled).toBe(false);
+    await act(async () => {
+      probeButton()?.click();
+    });
+    await page.settle();
+    expect(requestBootProbe).toHaveBeenCalledWith(ID);
+  });
+
+  it("shows a red probe with the console line it failed on, never green", async () => {
+    await open(
+      baremetal({
+        state: "red",
+        check: check(),
+        probe: {
+          lab: { present: true, kvm: true },
+          pending: null,
+          reason: null,
+          latest: probeReport({
+            readiness: "red",
+            cause: {
+              kind: "boot_failed",
+              pattern: "emergency_mode",
+              line: "You are in emergency mode.",
+            },
+          }),
+        },
+      }),
+    );
+    const text = page.text();
+    expect(text).toContain("The system started into its emergency mode.");
+    expect(document.querySelector('[data-slot="baremetal-probe-evidence"]')?.textContent).toBe(
+      "You are in emergency mode.",
+    );
+    expect(page.html()).not.toContain('data-tone="success"');
   });
 });

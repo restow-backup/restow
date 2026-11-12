@@ -685,6 +685,8 @@ export type BaremetalState =
   | "no_layout"
   | "unverified"
   | "layout_checked"
+  | "green"
+  | "overdue"
   | "red";
 export type BaremetalNotPossible =
   | "container"
@@ -818,6 +820,51 @@ export interface LayoutSummary {
   counts: { subvolumes: number; lvs: number };
 }
 
+/** Why no boot probe proves the boot yet (docs/BAREMETAL.md 12.4), when the state is `layout_checked`. */
+export type BaremetalProbeReason =
+  | "no_lab"
+  | "no_kvm"
+  | "planned"
+  | "running"
+  | "incomplete"
+  | "not_systemd"
+  | "too_large"
+  | "no_disks";
+
+/** The newest boot probe report for the fingerprints of the newest layout check (12.3). */
+export interface BaremetalProbeReport {
+  reportId: string;
+  checkedAt: string;
+  snapshotId: string | null;
+  /** null: the probe proved nothing (the lab, a time limit) and is repeated. */
+  readiness: "green" | "red" | null;
+  cause: {
+    kind?: string;
+    reason?: string;
+    pattern?: string;
+    line?: string;
+    codes?: string[];
+    checks?: string[];
+    kernel?: string;
+  } | null;
+  notPossible: string | null;
+  firmware: string | null;
+  controllers: string[];
+  kvm: boolean | null;
+  emptyFilesystems: string[];
+  emptyDirs: string[];
+  restoreBytes: number | null;
+  /** The end of the serial console of the restored system (at most 4 KiB). */
+  serialTail: string;
+}
+
+export interface BaremetalProbe {
+  lab: { present: boolean; kvm: boolean };
+  pending: "planned" | "running" | null;
+  reason: BaremetalProbeReason | null;
+  latest: BaremetalProbeReport | null;
+}
+
 export interface Baremetal {
   /** Whole machine backups are switched on for this installation. */
   preview: boolean;
@@ -847,6 +894,8 @@ export interface Baremetal {
     mounts: string[];
   } | null;
   check: BaremetalCheck | null;
+  /** The boot probe (servers since M5); null until the layout check of the newest backup passed. */
+  probe?: BaremetalProbe | null;
   /** The whole machine snapshots, newest first (servers since M4). */
   snapshots?: BaremetalSnapshot[];
   /** What replacement hardware needs for the newest layout. */
@@ -1370,6 +1419,13 @@ export async function fetchRuns(endpointId: string, limit: number): Promise<RunS
 /** The bare metal card of a machine (restore role and up). */
 export function fetchBaremetal(endpointId: string): Promise<Baremetal> {
   return apiFetch<Baremetal>(`${BASE}/${id(endpointId)}/baremetal`);
+}
+
+/** "Probe now": a boot probe of the newest whole machine backup, at once (admins). */
+export function requestBootProbe(
+  endpointId: string,
+): Promise<{ id: string; state: "planned" | "running" }> {
+  return apiFetch(`${BASE}/${id(endpointId)}/baremetal/probe`, { method: "POST" });
 }
 
 export function fetchRun(endpointId: string, runId: string): Promise<RunDetail> {

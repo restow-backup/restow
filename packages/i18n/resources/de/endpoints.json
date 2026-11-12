@@ -1529,7 +1529,9 @@
       "no_layout": "Noch kein Layout erfasst",
       "unverified": "Layout erfasst; Restore-Prüfung ausstehend",
       "layout_checked": "Layout geprüft",
-      "red": "Restore-Prüfung fehlgeschlagen"
+      "red": "Restore-Prüfung fehlgeschlagen",
+      "green": "Startet auf neuer Hardware",
+      "overdue": "Startprobe überfällig"
     },
     "notPossible": {
       "container": "Ein Container wird mit seinem Host wiederhergestellt.",
@@ -1629,7 +1631,9 @@
       "stack": "Speicherstapel"
     },
     "incompleteHint": "Die Layout-Prüfung des neuesten Wiederherstellungspunkts konnte nicht abgeschlossen werden. Sie läuft nach der nächsten Sicherung des ganzen Rechners erneut; bis dahin ist nichts hier ein Beweis.",
-    "layoutCheckedHint": "Der neueste Wiederherstellungspunkt enthält dieses Layout und seine Startkette, und der Restore-Planer kann es auf gleiche und auf möglichst kleine Platten bringen. Eine Startprobe folgt in einer späteren Version: Das ist noch kein Beweis, dass der wiederhergestellte Rechner startet.",
+    "layoutCheckedHint": "Der neueste Wiederherstellungspunkt enthält dieses Layout und seine Startkette, und der Wiederherstellungsplaner kann es auf dieselben und auf die kleinstmöglichen Platten bringen. Das beweist noch nicht, dass der wiederhergestellte Rechner startet: Das beweist die Startprobe unten.",
+    "greenHint": "Das Wiederherstellungslabor hat die neueste Sicherung des ganzen Rechners mit derselben Wiederherstellung, die auch Sie ausführen würden, auf andere Hardware zurückgeholt, und das wiederhergestellte System ist gestartet. Gültig für 8 Tage und für dieses Layout und diese Startkette.",
+    "overdueHint": "Die letzte bestandene Startprobe ist älter als 8 Tage. Die nächste läuft, sobald das Wiederherstellungslabor Platz hat; Sie können sie jetzt starten.",
     "redHint": "Die Layout-Prüfung hat im neuesten Wiederherstellungspunkt ein Problem gefunden (siehe unten). Beheben Sie es auf dem Rechner; die nächste Sicherung des ganzen Rechners wird erneut geprüft.",
     "check": {
       "title": "Layout-Prüfung",
@@ -1771,6 +1775,57 @@
       "disk": "{disk} (jetzt {size}): mindestens {min}",
       "filesystem": "{mount}: {restore} wiederherzustellen, mindestens {min}",
       "hint": "Was Ersatzhardware mindestens braucht, nach dem Inhalt des neuesten Wiederherstellungspunkts. Größere Platten werden ganz genutzt."
+    },
+    "probe": {
+      "title": "Startprobe",
+      "now": "Jetzt prüfen",
+      "requested": "Startprobe geplant. Das Wiederherstellungslabor übernimmt sie bei seiner nächsten Anfrage.",
+      "requestFailed": "Die Startprobe konnte nicht geplant werden",
+      "checkedAt": "Geprüft",
+      "result": "Ergebnis",
+      "hardware": "Hardware der Probe",
+      "leftEmpty": "Leer gelassen",
+      "serial": "Serielle Konsole des wiederhergestellten Systems",
+      "readiness": {
+        "green": "Gestartet",
+        "red": "Nicht gestartet",
+        "none": "Kein Ergebnis"
+      },
+      "firmware": {
+        "uefi-sb": "UEFI mit Secure Boot",
+        "uefi": "UEFI",
+        "bios": "BIOS"
+      },
+      "blocked": {
+        "no_lab": "Diese Installation betreibt kein Wiederherstellungslabor.",
+        "no_kvm": "Das Wiederherstellungslabor hat kein KVM.",
+        "planned": "Eine Startprobe ist schon geplant.",
+        "running": "Eine Startprobe läuft."
+      },
+      "reasons": {
+        "no_lab": "Diese Installation betreibt kein Wiederherstellungslabor, deshalb beweist keine Startprobe, dass der Rechner startet. Ein Administrator schaltet es mit dem Compose-Profil recovery-lab auf einem Host mit KVM ein.",
+        "no_kvm": "Das Wiederherstellungslabor läuft auf einem Host ohne KVM (eine VM ohne verschachtelte Virtualisierung) und kann keine Probe starten.",
+        "planned": "Eine Startprobe ist geplant; das Wiederherstellungslabor übernimmt sie bei seiner nächsten Anfrage.",
+        "running": "Das Wiederherstellungslabor stellt diese Sicherung gerade wieder her und startet sie.",
+        "incomplete": "Die letzte Startprobe hat nichts bewiesen (das Labor, ein Zeitlimit). Sie wird innerhalb von sechs Stunden wiederholt.",
+        "not_systemd": "Die Startprobe braucht ein System, das mit systemd startet.",
+        "too_large": "Die Systemdateisysteme sind größer, als das Wiederherstellungslabor zurückholt, auch wenn die größten Datenordner leer bleiben.",
+        "no_disks": "Das Layout hat keine Platte, auf die die Probe zurückholen könnte."
+      },
+      "cause": {
+        "booted": "Das wiederhergestellte System hat seinen normalen Betrieb erreicht.",
+        "recovery_failed": "Die Wiederherstellung hat ein Problem der Sicherung gefunden.",
+        "verification_failed": "Die Prüfung nach der Wiederherstellung ist fehlgeschlagen.",
+        "incomplete": "Die Probe hat nichts bewiesen; sie wird wiederholt."
+      },
+      "pattern": {
+        "kernel_panic": "Der Kernel ist mit einer Panik stehen geblieben.",
+        "root_not_found": "Der Start hat das Wurzeldateisystem nicht gefunden.",
+        "emergency_mode": "Das System ist in seinen Notfallmodus gestartet.",
+        "secure_boot_refused": "Secure Boot hat die Startkette abgelehnt.",
+        "no_bootable_device": "Die Firmware hat nichts zum Starten gefunden.",
+        "unknown": "Das wiederhergestellte System ist nicht gestartet."
+      }
     }
   },
   "recovery": {

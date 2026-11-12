@@ -15,6 +15,11 @@
  *   5. boot the restored disks on another controller and expect
  *      "E2E-BOOT <hostname> <sha256 of the marker>" on the serial console.
  *
+ * The boot probe cases (P1 to P3, cases.mjs) replace 4 and 5 with the recovery lab: its
+ * container (the image of this checkout, Dockerfile target lab) runs next to the test instance
+ * with /dev/kvm, "Probe now" plans the probe, and the machine's bare metal state and its newest
+ * probe report must say what the case expects (docs/BAREMETAL.md 12.3).
+ *
  *   node scripts/recovery-e2e/run.mjs --iso <iso> --agent-dist <dir> [--cases per-pr|nightly|all|E1,E2]
  *
  * Needs KVM, qemu-system-x86_64, qemu-img, OVMF and virt-fw-vars (python3-virt-firmware),
@@ -36,7 +41,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { connect } from "node:tls";
 import { fileURLToPath } from "node:url";
-import { CASES, selectCases } from "./cases.mjs";
+import { CASES, PROBE_CASES, selectCases } from "./cases.mjs";
 import {
   assertKvm,
   createDisk,
@@ -60,6 +65,7 @@ export const USAGE = `Usage: node scripts/recovery-e2e/run.mjs --iso <iso> --age
   --image REF         the application image of the test instance (default: built like the smoke)
   --web-image REF     its web edge image
   --dbx FILE          the current DBX update for the Secure Boot variable store (virt-fw-vars)
+  --lab-image REF     the recovery lab image of the probe cases (default: built from this checkout)
   --keep              leave the test instance running afterwards
   --pin-images        download the cloud images of images.json and print their SHA-256 (by hand)
   --help
@@ -98,6 +104,9 @@ export function parseArgs(argv) {
         break;
       case "--dbx":
         options.dbx = value(index++, flag);
+        break;
+      case "--lab-image":
+        options.labImage = value(index++, flag);
         break;
       case "--keep":
         options.keep = true;
@@ -225,6 +234,49 @@ export function factoryCmdline() {
   ].join(" ");
 }
 
+/**
+ * The settings of the test instance for the boot probe cases among `selected`: the lab's token,
+ * image and /dev/kvm group, and the restore limit a case asks for. Empty without probe cases.
+ */
+export function labEnv(selected, { token, kvmGid, image }) {
+  const probes = selected.filter((item) => item.probe);
+  if (probes.length === 0) return {};
+  const limits = probes.map((item) => item.probe.maxRestoreGiB).filter((v) => v !== undefined);
+  return {
+    RESTOW_LAB_TOKEN: token,
+    RESTOW_LAB_IMAGE: image,
+    RESTOW_LAB_KVM_GID: String(kvmGid),
+    ...(limits.length > 0 ? { RESTOW_LAB_MAX_RESTORE_GIB: String(Math.min(...limits)) } : {}),
+  };
+}
+
+/**
+ * Whether the machine's bare metal state shows the end of the probe the case asked for at
+ * `requestedAt`: null while it runs, else `{ ok, reason }` judged against the case.
+ */
+export function probeOutcome(testCase, state, requestedAt) {
+  const latest = state.probe?.latest;
+  if (!latest || Date.parse(latest.checkedAt) < requestedAt || state.probe?.pending) return null;
+  const expect = testCase.probe;
+  const cause = latest.cause ?? {};
+  const said = `state ${state.state}, probe ${latest.readiness ?? "without a rating"} (${cause.kind ?? latest.notPossible ?? "?"}${cause.reason ? `: ${cause.reason}` : ""}${cause.pattern ? `: ${cause.pattern}` : ""})`;
+  if (expect.expect === "green") {
+    const empty = (expect.emptyDirs ?? []).filter((dir) => !latest.emptyDirs.includes(dir));
+    if (state.state !== "green" || latest.readiness !== "green" || cause.kind !== "booted") {
+      return { ok: false, reason: `expected green: ${said}` };
+    }
+    if (empty.length > 0) return { ok: false, reason: `not left empty: ${empty.join(", ")}` };
+    return { ok: true, reason: said };
+  }
+  if (state.state !== "red" || latest.readiness !== "red") {
+    return { ok: false, reason: `expected red: ${said}` };
+  }
+  if (expect.pattern && cause.pattern !== expect.pattern) {
+    return { ok: false, reason: `expected the pattern ${expect.pattern}: ${said}` };
+  }
+  return { ok: true, reason: said };
+}
+
 /** The status of a recovery the API reports, until it leaves the running states. */
 export function isFinal(status) {
   return ["succeeded", "failed", "cancelled", "expired", "revoked"].includes(status);
@@ -305,6 +357,24 @@ async function startInstance(options, workDir, agentDir) {
   const host = new URL(guestInstanceUrl(stack.ports.https)).hostname;
   stack.publicUrl = guestInstanceUrl(stack.ports.https);
   stack.writeFiles();
+  // The boot probe cases: the lab's token and image, the group of /dev/kvm on this host.
+  const lab = labEnv(options.selected, {
+    token: randomBytes(32).toString("hex"),
+    kvmGid: options.selected.some((item) => item.probe) ? sh("stat", ["-c", "%g", "/dev/kvm"]) : 0,
+    image: options.labImage ?? "restow-lab:recovery-e2e",
+  });
+  if (lab.RESTOW_LAB_TOKEN && !options.labImage) {
+    sh("docker", [
+      "buildx",
+      "build",
+      "--load",
+      "--target",
+      "lab",
+      "-t",
+      "restow-lab:recovery-e2e",
+      repoRoot,
+    ]);
+  }
   const overlay = join(stack.dir, "docker-compose.recovery-e2e.yml");
   writeFileSync(
     overlay,
@@ -330,6 +400,7 @@ async function startInstance(options, workDir, agentDir) {
     RESTOW_APP_DOMAIN: host,
     RESTOW_EDGE_TLS: "internal",
     RESTOW_BAREMETAL_PREVIEW: "true",
+    ...lab,
     ...(options.image ? { RESTOW_IMAGE: options.image, RESTOW_UPDATER_IMAGE: options.image } : {}),
     ...(options.webImage ? { RESTOW_WEB_IMAGE: options.webImage } : {}),
   });
@@ -371,6 +442,10 @@ async function startInstance(options, workDir, agentDir) {
   ]);
   writeFileSync(caFile, ca.stdout);
   const setup = await setUpInstallation(stack);
+  if (lab.RESTOW_LAB_TOKEN) {
+    // The worker opens its lab API with the token; the lab asks it for work from now on.
+    await stack.up(["worker", "recovery-lab"], { forceRecreate: true });
+  }
   const { listTenants, ownOrganisationOf } = await import("../smoke/lib/restow.mjs");
   const tenant = ownOrganisationOf(await listTenants(setup.api));
   if (!tenant) throw new Error("the setup created no own organisation");
@@ -417,6 +492,9 @@ function factoryDisk(workDir, testCase, context) {
       "set -eu",
       `export FACTORY_MIRROR='${mirror}'`,
       context.passphrase ? `export FACTORY_PASSPHRASE='${context.passphrase}'` : "",
+      ...Object.entries(testCase.source.env ?? {}).map(
+        ([name, value]) => `export ${name}='${String(value).replace(/'/g, "")}'`,
+      ),
       `sh /run/restow-factory/${testCase.source.script} >/dev/ttyS0 2>&1`,
       "echo E2E-FACTORY-DONE >/dev/ttyS0",
       "",
@@ -664,7 +742,51 @@ async function bootRestored(testCase, context, source, restored, { emptyNvram = 
   }
 }
 
+/** A boot probe case: back up the source, plan a probe, wait for its report and judge it. */
+async function runProbeCase(testCase, context) {
+  const started = Date.now();
+  context.passphrase = testCase.source.passphrase
+    ? `e2e-${randomBytes(9).toString("hex")}`
+    : undefined;
+  const source = await sourceMachine(testCase, context);
+  const client = await api(context);
+  const tenantId = context.tenantId;
+  const path = `/api/v1/endpoints/${source.endpoint.id}/baremetal`;
+  const before = await client.get(path, { tenantId });
+  if (before.check?.readiness !== "green") {
+    throw new Error(`${testCase.id}: the layout check is ${before.check?.readiness}, not green`);
+  }
+  // The lab must have asked once with KVM before a probe can be planned.
+  await waitUntil(
+    "the recovery lab to ask for work with KVM",
+    async () => {
+      const state = await client.get(path, { tenantId });
+      return state.probe?.lab.present && state.probe.lab.kvm;
+    },
+    { timeoutMs: 5 * 60_000, intervalMs: 10_000 },
+  );
+  const requestedAt = Date.now() - 1000;
+  await client.post(`${path}/probe`, {}, { tenantId });
+  let outcome = null;
+  try {
+    outcome = await waitUntil(
+      "the boot probe's report",
+      async () => probeOutcome(testCase, await client.get(path, { tenantId }), requestedAt),
+      { timeoutMs: 150 * 60_000, intervalMs: 20_000 },
+    );
+  } finally {
+    const logs = await context.stack.compose(["logs", "--no-color", "recovery-lab"], {
+      allowFailure: true,
+    });
+    writeFileSync(join(source.dir, "lab.log"), logs.stdout ?? "");
+  }
+  console.log(`${testCase.id}: ${outcome.reason}`);
+  if (!outcome.ok) throw new Error(`${testCase.id}: ${outcome.reason}`);
+  return { id: testCase.id, seconds: Math.round((Date.now() - started) / 1000) };
+}
+
 async function runCase(testCase, context) {
+  if (testCase.probe) return runProbeCase(testCase, context);
   const started = Date.now();
   context.passphrase = testCase.source.passphrase
     ? (testCase.source.passphraseText ?? `e2e-${randomBytes(9).toString("hex")}`)
@@ -761,4 +883,4 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
   });
 }
 
-export { CASES };
+export { CASES, PROBE_CASES };

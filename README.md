@@ -332,6 +332,9 @@ updater stays off unless you ask for it, see [docs/UPDATING.md](docs/UPDATING.md
 `--no-mounter` or `--without-mounter` (the mounter, which backs up file shares and
 mounts NFS network shares, starts by default for 0.3.0 and newer; these leave it off,
 `--with-mounter` is still accepted; see [docs/MOUNTS.md](docs/MOUNTS.md)),
+`--with-recovery-lab` (from 0.5.0: the recovery lab, which proves that a whole machine
+backup starts on other hardware by restoring it in a virtual machine; it needs KVM on the
+host, see [docs/BAREMETAL.md](docs/BAREMETAL.md) section 12.3),
 `--local` (an evaluation without a public domain: the edge serves
 `https://localhost` or an internal name such as `restow.internal` over HTTPS
 with a certificate from Caddy's own authority, browsers warn about it and

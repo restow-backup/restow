@@ -29,6 +29,9 @@
 #   runtime-base    -> lean image, no dev tooling, ROLE picks the process to run
 #   runtime, runtime-community
 #                   -> runtime-base plus the /prod tree of their build, labels, ENV
+#   lab             -> the recovery lab of the boot probe (docs/BAREMETAL.md 12.3), its own image
+#                      restow-lab: Debian's QEMU, OVMF, SeaBIOS and virt-firmware, Node and the
+#                      lab's compiled files (apps/worker/src/lab), nothing else of Restow
 #   web-base        -> Caddy and the Caddyfile
 #   web, web-community
 #                   -> web-base plus the web interface of their build
@@ -52,6 +55,9 @@
 
 # Go toolchain of the agent build: the image agent/tools.env names (GO_IMAGE).
 ARG GO_IMAGE=golang:1.27
+# The recovery lab (stage lab): its Debian image, pinned by digest, and its snapshot.debian.org
+# time (ARG LAB_SNAPSHOT below); scripts/docker/lab-sources.sh reads both from here.
+ARG LAB_DEBIAN_IMAGE=debian:trixie@sha256:4c25275446ca371766b8b093c696782eabce06263fccacb8d5d813b3dc44b308
 
 ########################################
 # base — Node 22 + pinned pnpm
@@ -443,6 +449,77 @@ ENV RESTOW_VERSION=${RESTOW_VERSION} \
 LABEL org.opencontainers.image.title="Restow" \
       org.opencontainers.image.description="Self-hosted backup and archive for Microsoft 365 and IMAP: the api, worker and scheduler roles of one image" \
       org.opencontainers.image.licenses="Apache-2.0 AND LicenseRef-Restow-Enterprise" \
+      org.opencontainers.image.version="${RESTOW_VERSION}" \
+      org.opencontainers.image.revision="${RESTOW_REVISION}" \
+      org.opencontainers.image.created="${RESTOW_CREATED}"
+
+########################################
+# lab — the recovery lab of the boot probe (ghcr.io/restow-backup/restow-lab)
+########################################
+# docs/BAREMETAL.md 12.3: boots tenants' restored systems in QEMU/KVM, so it is not the
+# application image. It holds no database client, no key and no code of Restow but the lab's
+# own files (apps/worker/src/lab; lab.test.ts refuses any other import). QEMU, OVMF, SeaBIOS and
+# virt-firmware are Debian's packages, unmodified, from the snapshot of the recovery ISO; the
+# list of what the stage installed is in /usr/share/doc/restow-lab/packages.txt, and every
+# release attaches their Debian sources (scripts/docker/lab-sources.sh). The revocation list
+# (DBX) of the firmware comes from microsoft/secureboot_objects at a pinned commit, each file
+# with its SHA-256 (BSD-2-Clause-Patent; licenses/restow-lab-NOTICES.md).
+FROM ${LAB_DEBIAN_IMAGE} AS lab
+ARG LAB_SNAPSHOT=20261020T000000Z
+ARG LAB_PACKAGES="qemu-system-x86 qemu-utils ovmf seabios python3-virt-firmware ca-certificates libstdc++6"
+RUN set -eu; \
+    rm -f /etc/apt/sources.list.d/debian.sources; \
+    printf 'deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/%s/ trixie main\ndeb [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/%s/ trixie-security main\n' \
+      "$LAB_SNAPSHOT" "$LAB_SNAPSHOT" >/etc/apt/sources.list; \
+    dpkg-query -W -f '${Package}\n' | sort >/tmp/before; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends $LAB_PACKAGES; \
+    rm -rf /var/lib/apt/lists/*; \
+    install -d /usr/share/doc/restow-lab; \
+    dpkg-query -W -f '${Package} ${Version} ${source:Package} ${source:Version}\n' | sort \
+      | awk 'NR==FNR { base[$1]=1; next } !($1 in base)' /tmp/before - >/usr/share/doc/restow-lab/packages.txt; \
+    rm /tmp/before; \
+    test -s /usr/share/doc/restow-lab/packages.txt; \
+    test -f /usr/share/OVMF/OVMF_CODE_4M.secboot.fd; \
+    test -f /usr/share/OVMF/OVMF_VARS_4M.ms.fd; \
+    command -v virt-fw-vars qemu-system-x86_64 qemu-img
+# The DBX: the last complete list signed with the KEK of 2011 and the newer one signed with the
+# KEK of 2023 (the lab writes their union into the variable store), and the licence of both.
+ADD --checksum=sha256:2089e3125e611376cb44326b5765674255443b2484f88de97251939d18055f68 \
+    https://raw.githubusercontent.com/microsoft/secureboot_objects/3d762aecbaecd12402efd21ba89c8c7bd40da4bd/PostSignedObjects/DBX/amd64/DBXUpdate.bin \
+    /usr/share/restow-lab/dbx/dbx-kek2011-amd64.bin
+ADD --checksum=sha256:524c796ade42db0048b656f6cf3863832174ae7f58cad6986d1ccae1e3d3ecd1 \
+    https://raw.githubusercontent.com/microsoft/secureboot_objects/3d762aecbaecd12402efd21ba89c8c7bd40da4bd/PostSignedObjects/SignedByKEK2023/dbx_x64.efiauth2 \
+    /usr/share/restow-lab/dbx/dbx-kek2023-x64.efiauth2
+ADD --checksum=sha256:840a8918b28ff140fa720bd3d1b4845a74047914d16883ea74df6977234845fb \
+    https://raw.githubusercontent.com/microsoft/secureboot_objects/3d762aecbaecd12402efd21ba89c8c7bd40da4bd/License.txt \
+    /usr/share/doc/restow-lab/secureboot_objects-LICENSE.txt
+COPY --from=base /usr/local/bin/node /usr/local/bin/node
+COPY --from=build-community /app/apps/worker/dist/apps/worker/src/lab/ /opt/restow-lab/
+COPY LICENSE NOTICE THIRD_PARTY_NOTICES.md /usr/share/doc/restow/
+COPY licenses/restow-lab-NOTICES.md /usr/share/doc/restow-lab/NOTICES.md
+RUN set -eu; \
+    find /opt/restow-lab \( -name '*.test.*' -o -name '*.map' -o -name '*.d.ts' \) -delete; \
+    printf '{"type":"module","private":true}\n' >/opt/restow-lab/package.json; \
+    test -f /opt/restow-lab/main.js; \
+    chmod 0644 /usr/share/restow-lab/dbx/* /usr/share/doc/restow-lab/*; \
+    groupadd --system --gid 10001 lab; \
+    useradd --system --uid 10001 --gid 10001 --home-dir /var/lib/restow-lab --shell /usr/sbin/nologin lab; \
+    install -d -o 10001 -g 10001 -m 0700 /var/lib/restow-lab; \
+    node --version
+USER 10001:10001
+ENV NODE_ENV=production \
+    RESTOW_LAB_DIR=/var/lib/restow-lab
+ENTRYPOINT ["node", "/opt/restow-lab/main.js"]
+ARG RESTOW_VERSION=
+ARG RESTOW_REVISION=
+ARG RESTOW_CREATED=
+ENV RESTOW_VERSION=${RESTOW_VERSION}
+LABEL org.opencontainers.image.title="Restow recovery lab" \
+      org.opencontainers.image.description="The recovery lab of Restow: boots restored whole machine backups in QEMU/KVM to prove they start (optional, compose profile recovery-lab)" \
+      org.opencontainers.image.licenses="Apache-2.0 AND GPL-2.0-only AND LGPL-3.0-only AND BSD-2-Clause-Patent" \
+      org.opencontainers.image.vendor="IT Systeme Flores UG (haftungsbeschraenkt)" \
+      org.opencontainers.image.source="https://github.com/restow-backup/restow" \
       org.opencontainers.image.version="${RESTOW_VERSION}" \
       org.opencontainers.image.revision="${RESTOW_REVISION}" \
       org.opencontainers.image.created="${RESTOW_CREATED}"

@@ -209,6 +209,40 @@ export const objectVerifySchema = component(
 );
 export type ObjectVerifyDto = z.infer<typeof objectVerifySchema>;
 
+export const BAREMETAL_STATES = [
+  "not_enabled",
+  "not_possible",
+  "no_layout",
+  "unverified",
+  "layout_checked",
+  "green",
+  "overdue",
+  "red",
+] as const;
+
+export const baremetalReadinessSchema = component(
+  "BaremetalReadiness",
+  z
+    .object({
+      counts: z
+        .record(z.enum(BAREMETAL_STATES), z.number().int().min(0))
+        .describe("Machines per bare metal state."),
+      machines: z
+        .array(
+          z.object({
+            endpointId: uuidSchema,
+            hostname: z.string(),
+            displayName: z.string().nullable(),
+            state: z.enum(BAREMETAL_STATES),
+          }),
+        )
+        .describe("Every machine backed up as a whole, by hostname."),
+    })
+    .describe(
+      'The "Bare Metal" column: whether each machine backed up as a whole can be restored onto new hardware (docs/BAREMETAL.md 12.4). Counted apart from the readiness of its files. `green` only with a boot probe of the recovery lab that started the newest whole machine backup on other hardware at most 8 days ago; `overdue` after that; `layout_checked` when only the layout check passed.',
+    ),
+);
+
 export const verifyLatestSchema = component(
   "VerificationReport",
   z.object({
@@ -225,6 +259,7 @@ export const verifyLatestSchema = component(
       })
       .describe("Integrity of the chunk store the backups live in."),
     items: z.array(objectVerifySchema),
+    baremetal: baremetalReadinessSchema,
     next: nextCursorSchema,
   }),
 );
@@ -287,6 +322,29 @@ function toObjectVerify(entry: ReadinessOverviewDto["objects"][number]): ObjectV
   };
 }
 
+/** The bare metal column of the machines backed up as a whole, apart from the files' readiness. */
+export function toBaremetalReadiness(
+  overview: Pick<ReadinessOverviewDto, "endpoints">,
+): z.infer<typeof baremetalReadinessSchema> {
+  const machines = overview.endpoints
+    .filter((row) => row.baremetal !== null)
+    .map((row) => ({
+      endpointId: row.id,
+      hostname: row.hostname,
+      displayName: row.displayName,
+      state: row.baremetal as (typeof BAREMETAL_STATES)[number],
+    }))
+    .sort(
+      (a, b) => a.hostname.localeCompare(b.hostname) || a.endpointId.localeCompare(b.endpointId),
+    );
+  const counts = Object.fromEntries(BAREMETAL_STATES.map((state) => [state, 0])) as Record<
+    (typeof BAREMETAL_STATES)[number],
+    number
+  >;
+  for (const machine of machines) counts[machine.state] += 1;
+  return { counts, machines };
+}
+
 /**
  * A page of the overview. The per-object list pages by object id; the summary
  * and the storage integrity always describe the whole tenant.
@@ -309,6 +367,7 @@ export function pageOverview(
       lastFullCheckAt: overview.storage.lastFullAt,
     },
     items: page.map(toObjectVerify),
+    baremetal: toBaremetalReadiness(overview),
     next: ordered.length > limit && last ? encodeCursor({ id: last.object.id }) : null,
   };
 }

@@ -10,6 +10,7 @@ import type { Baremetal, BaremetalState, LayoutUnsupported, LayoutVerdict } from
 import { useBaremetal, useEndpointFormat, useRecoveries, useRecoveryIso } from "../hooks.js";
 import { baremetalWizardTo } from "../paths.js";
 import { BaremetalCheckReport } from "./baremetal-check-report.js";
+import { BaremetalProbeSection } from "./baremetal-probe.js";
 import { baremetalRestoreAvailable, openRecoveryOf } from "./baremetal-wizard.js";
 import { LayoutSummary } from "./layout-summary.js";
 import { MinimumSizes } from "./minimum-sizes.js";
@@ -20,9 +21,13 @@ const STATE_TONE: Record<BaremetalState, StatusTone> = {
   no_layout: "info",
   // A captured layout proves nothing yet.
   unverified: "info",
-  // Stage 1 passed; only a boot probe (a later release) is proof that the machine starts, and
-  // green is kept for proof (docs/BAREMETAL.md 12).
+  // Stage 1 passed; only a boot probe is proof that the machine starts, and green is kept for
+  // proof (docs/BAREMETAL.md 12).
   layout_checked: "neutral",
+  // The boot probe started the newest whole machine backup on other hardware (12.3, 12.4).
+  green: "success",
+  // ... more than 8 days ago.
+  overdue: "warning",
   red: "destructive",
 };
 
@@ -35,6 +40,10 @@ function stateHint(baremetal: Baremetal): string | null {
         : "baremetal.unverifiedHint";
     case "layout_checked":
       return "baremetal.layoutCheckedHint";
+    case "green":
+      return "baremetal.greenHint";
+    case "overdue":
+      return "baremetal.overdueHint";
     case "red":
       return "baremetal.redHint";
     default:
@@ -92,12 +101,12 @@ function Findings({ items }: { items: LayoutUnsupported[] }) {
 
 /**
  * Bare metal (preview) on the machine's page (docs/BAREMETAL.md 14.6): whether the machine is
- * backed up as a whole, its rating (12.4, up to "layout checked"), the layout check of the newest
+ * backed up as a whole, its rating (12.4), the layout check of the newest
  * restore point with its evidence and the minimum sizes of replacement hardware, the layout its
  * newest whole machine backup recorded with the verdict and what is not supported, the summary
- * of the layout, and what to leave free for snapshots. "Restore..." opens the wizard, but only
- * while the installation offers a verified recovery ISO (none does before the ISO ships, M4); the
- * boot probe comes with a later release.
+ * of the layout, and what to leave free for snapshots, and the boot probe of the recovery lab
+ * (12.3: why there is none yet, the newest one, "Probe now"). "Restore..." opens the wizard, but
+ * only while the installation offers a verified recovery ISO.
  */
 export function BaremetalCard({ endpointId, os }: { endpointId: string; os?: string }) {
   const { t } = useTranslation("endpoints");
@@ -186,6 +195,9 @@ export function BaremetalCard({ endpointId, os }: { endpointId: string; os?: str
               </dd>
             </dl>
             <Findings items={latest.unsupported} />
+            {baremetal.probe ? (
+              <BaremetalProbeSection endpointId={endpointId} probe={baremetal.probe} />
+            ) : null}
             {check ? (
               <>
                 <BaremetalCheckReport check={check} />

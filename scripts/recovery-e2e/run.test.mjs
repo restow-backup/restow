@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
-import { CASES, selectCases } from "./cases.mjs";
+import { ALL_CASES, CASES, PROBE_CASES, selectCases } from "./cases.mjs";
 import { assertKvm, diskArgs, firmwareArgs, fwCfgArgs, keysOf, machineArgs } from "./lib/qemu.mjs";
 import {
   parseArgs as autoactivationArgs,
@@ -27,7 +27,9 @@ import {
   guestInstanceUrl,
   identityOf,
   isFinal,
+  labEnv,
   parseArgs,
+  probeOutcome,
   testAgentDir,
   versionOfIso,
   withIsoLine,
@@ -60,16 +62,16 @@ const ANSWER_KEYS = new Set([
 const byId = (id) => CASES.find((item) => item.id === id);
 
 describe("cases", () => {
-  it("runs E1 and E2 per pull request and the rest at night", () => {
+  it("runs E1, E2 and the boot probes P1 and P2 per pull request and the rest at night", () => {
     assert.deepEqual(
       selectCases("per-pr").map((item) => item.id),
-      ["E1", "E2"],
+      ["E1", "E2", "P1", "P2"],
     );
     assert.deepEqual(
       selectCases("nightly").map((item) => item.id),
-      ["E1b", "E3", "E4", "E5", "E6", "E6b", "E7", "E8", "E9", "E10"],
+      ["E1b", "E3", "E4", "E5", "E6", "E6b", "E7", "E8", "E9", "E10", "P3"],
     );
-    assert.equal(selectCases("all").length, CASES.length);
+    assert.equal(selectCases("all").length, ALL_CASES.length);
     assert.deepEqual(
       selectCases("e7, E2").map((item) => item.id),
       ["E7", "E2"],
@@ -91,6 +93,104 @@ describe("cases", () => {
     for (const testCase of CASES.filter((item) => item.source.kind === "factory")) {
       assert.ok(readFileSync(new URL(testCase.source.script, factory), "utf8").includes("set -eu"));
     }
+  });
+});
+
+describe("the boot probe cases [VERIFY-009]", () => {
+  const probe = (id) => PROBE_CASES.find((item) => item.id === id);
+  const latest = (over = {}) => ({
+    checkedAt: "2026-11-12T10:00:00.000Z",
+    readiness: "green",
+    cause: { kind: "booted" },
+    notPossible: null,
+    emptyDirs: [],
+    ...over,
+  });
+  const at = Date.parse("2026-11-12T09:00:00.000Z");
+
+  it("start from the factory's sources with the switches their scripts read", () => {
+    const factory = new URL("../../integrations/recovery/test/machines/", import.meta.url);
+    for (const testCase of PROBE_CASES) {
+      const script = readFileSync(new URL(testCase.source.script, factory), "utf8");
+      for (const name of Object.keys(testCase.source.env ?? {})) {
+        assert.ok(script.includes(name), `${testCase.id}: ${testCase.source.script} reads ${name}`);
+      }
+    }
+    assert.equal(probe("P2").source.firmware, "uefi-sb");
+    assert.equal(probe("P3").source.disks[0].bus, "nvme");
+  });
+
+  it("give the instance the lab only when a probe case runs, with the smallest limit", () => {
+    const settings = { token: "t".repeat(64), kvmGid: 993, image: "restow-lab:recovery-e2e" };
+    assert.deepEqual(labEnv(selectCases("E1"), settings), {});
+    assert.deepEqual(labEnv(selectCases("P1,P3"), settings), {
+      RESTOW_LAB_TOKEN: "t".repeat(64),
+      RESTOW_LAB_IMAGE: "restow-lab:recovery-e2e",
+      RESTOW_LAB_KVM_GID: "993",
+      RESTOW_LAB_MAX_RESTORE_GIB: "2.5",
+    });
+  });
+
+  it("judge by the machine's state and the probe that ended after the request", () => {
+    const green = { state: "green", probe: { pending: null, latest: latest() } };
+    assert.equal(
+      probeOutcome(
+        probe("P1"),
+        { state: "layout_checked", probe: { pending: "running", latest: null } },
+        at,
+      ),
+      null,
+    );
+    assert.equal(
+      probeOutcome(
+        probe("P1"),
+        {
+          ...green,
+          probe: { pending: null, latest: latest({ checkedAt: "2026-11-12T08:00:00.000Z" }) },
+        },
+        at,
+      ),
+      null,
+    );
+    assert.equal(probeOutcome(probe("P1"), green, at).ok, true);
+    const incomplete = {
+      state: "layout_checked",
+      probe: {
+        pending: null,
+        latest: latest({ readiness: null, cause: { kind: "incomplete", reason: "boot_timeout" } }),
+      },
+    };
+    assert.match(probeOutcome(probe("P1"), incomplete, at).reason, /expected green.*boot_timeout/);
+    assert.match(
+      probeOutcome(probe("P3"), green, at).reason,
+      /not left empty: \/var\/lib\/e2e-bulk/,
+    );
+    const red = {
+      state: "red",
+      probe: {
+        pending: null,
+        latest: latest({
+          readiness: "red",
+          cause: { kind: "boot_failed", pattern: "emergency_mode" },
+        }),
+      },
+    };
+    assert.equal(probeOutcome(probe("P2"), red, at).ok, true);
+    assert.equal(probeOutcome(probe("P2"), green, at).ok, false);
+    const otherRed = {
+      state: "red",
+      probe: {
+        pending: null,
+        latest: latest({
+          readiness: "red",
+          cause: { kind: "boot_failed", pattern: "kernel_panic" },
+        }),
+      },
+    };
+    assert.match(
+      probeOutcome(probe("P2"), otherRed, at).reason,
+      /expected the pattern emergency_mode/,
+    );
   });
 });
 

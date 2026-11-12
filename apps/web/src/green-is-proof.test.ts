@@ -74,6 +74,10 @@ const ALLOWED: Readonly<Record<string, string>> = {
     "an archive check that passed: links, daily anchors and the content sample it read",
   "./features/endpoints/components/recovery-verification.tsx":
     "the checks of a bare-metal recovery the server stored as succeeded (all ten there, none failed): the machine is restored; while it runs or when it failed, ok stays neutral",
+  "./features/endpoints/components/baremetal-card.tsx":
+    "the bare metal state of a machine whose newest whole machine backup the boot probe restored onto other hardware and started, at most 8 days ago (docs/BAREMETAL.md 12.3, 12.4)",
+  "./features/endpoints/components/baremetal-probe.tsx":
+    "a boot probe whose restored system reached its normal operation (RESTOW-PROBE-OK after a verified recovery)",
   // -- a restore that completed: the data is back
   "./features/restore/lib/jobs.ts": "a restore that completed",
   "./features/restore/jobs/job-page.tsx": "items that were restored",

@@ -273,10 +273,62 @@ export const CASES = Object.freeze([
 ]);
 
 /**
- * The cases of a run: `per-pr` (E1, E2), `nightly` (the rest), `all`, or a comma-separated
- * list of ids (case-insensitive). An unknown id is an error, so a typo never runs nothing.
+ * The boot probe of the recovery lab (docs/BAREMETAL.md 12.3, M5): a source machine of the
+ * factory is backed up, and the lab (its own container, the image of this checkout) restores it
+ * through the recovery flow onto other hardware and boots it; the driver judges by the API alone
+ * (the machine's bare metal state and its newest probe report). P1 and P2 run per pull request
+ * next to E1 and E2, P3 at night.
+ *
+ *   P1  Debian 12, BIOS, md RAID1 (the source of E1): green.
+ *   P2  Ubuntu 24.04, UEFI Secure Boot with the current DBX, LUKS2 and LVM on NVMe instead of
+ *       virtio (the source of E2), with a GRUB default that starts the emergency target: the
+ *       machine itself still starts (its grub.cfg was written before), the restore writes a new
+ *       one: red with the pattern `emergency_mode`.
+ *   P3  Debian 13, LVM thin, systemd-boot on an NVMe source, probed on AHCI, with a 3 GiB data
+ *       folder under /var/lib and a restore limit of 2.5 GiB: the folder stays empty, green.
  */
-export function selectCases(filter, cases = CASES) {
+export const PROBE_CASES = Object.freeze([
+  {
+    id: "P1",
+    perPR: true,
+    title: "Boot probe: Debian 12, BIOS, md RAID1 (E1's source) starts on other hardware",
+    source: CASES.find((item) => item.id === "E1").source,
+    probe: { expect: "green" },
+  },
+  {
+    id: "P2",
+    perPR: true,
+    title:
+      "Boot probe: Ubuntu 24.04, Secure Boot, LUKS2 and LVM (E2's source) with a GRUB default that starts the emergency target",
+    source: {
+      ...CASES.find((item) => item.id === "E2").source,
+      env: { FACTORY_PROBE_EMERGENCY: "1" },
+    },
+    probe: { expect: "red", pattern: "emergency_mode" },
+  },
+  {
+    id: "P3",
+    perPR: false,
+    title:
+      "Boot probe: Debian 13, LVM thin, systemd-boot, NVMe source on AHCI, a data folder left empty",
+    source: {
+      ...CASES.find((item) => item.id === "E6").source,
+      disks: [{ serial: "e2e-src0", size: GiB(16), bus: "nvme", eui64: "525400e2e00000f3" }],
+      env: { FACTORY_PROBE_BULK: "1" },
+    },
+    probe: { expect: "green", maxRestoreGiB: 2.5, emptyDirs: ["/var/lib/e2e-bulk"] },
+  },
+]);
+
+/** Every case a run can select: the restores and the boot probes. */
+export const ALL_CASES = Object.freeze([...CASES, ...PROBE_CASES]);
+
+/**
+ * The cases of a run: `per-pr` (E1, E2, P1, P2), `nightly` (the rest), `all`, or a
+ * comma-separated list of ids (case-insensitive). An unknown id is an error, so a typo never
+ * runs nothing.
+ */
+export function selectCases(filter, cases = ALL_CASES) {
   const wanted = (filter ?? "per-pr").trim();
   if (wanted === "per-pr") return cases.filter((item) => item.perPR);
   if (wanted === "nightly") return cases.filter((item) => !item.perPR);

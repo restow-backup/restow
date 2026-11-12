@@ -143,6 +143,10 @@ OPT_UPDATER=0
 OPT_MOUNTER=1
 OPT_MOUNTER_FLAG=""
 OPT_BEHIND_PROXY=0
+# The recovery lab of the boot probe (--with-recovery-lab, docs/BAREMETAL.md 12.3): off by default.
+OPT_LAB=0
+# The device the lab needs (tests point it elsewhere).
+KVM_DEVICE=${RESTOW_INSTALL_KVM_DEVICE:-/dev/kvm}
 # The addresses of the reverse proxy, normalized (/32 or /128 added), separated by spaces.
 OPT_PROXY_IPS=""
 OPT_PROXY_HOP=""
@@ -187,6 +191,7 @@ DOMAIN=""
 PUBLIC_URL=""
 APP_IMAGE=""
 WEB_IMAGE=""
+LAB_IMAGE=""
 MASTER_KEY_ONCE=""
 LOCAL_MODE=0
 DOMAIN_PLACEHOLDER=0
@@ -250,6 +255,11 @@ Options:
                            read docs/MOUNTS.md. With the updater on, it follows every
                            signed update by itself. Releases before ${MOUNTER_MIN_VERSION} have no
                            mounter; for them the default is off.
+  --with-recovery-lab      also start the recovery lab (compose profile "recovery-lab"): it
+                           boots restored whole machine backups in QEMU/KVM to prove they
+                           start (the boot probe, docs/BAREMETAL.md 12.3). Needs /dev/kvm
+                           on this host; without a lab no machine's bare metal state
+                           becomes green.
   --no-mounter, --without-mounter
                            leave the mounter off (no file share backups; turn it on later
                            from the web interface or with one command, docs/MOUNTS.md)
@@ -1219,6 +1229,10 @@ parse_args() {
         OPT_UPDATER=1
         shift
         ;;
+      --with-recovery-lab)
+        OPT_LAB=1
+        shift
+        ;;
       --no-mounter | --without-mounter)
         OPT_MOUNTER=0
         OPT_MOUNTER_FLAG=no
@@ -1374,8 +1388,8 @@ validate_cluster_options() {
       https://*) OPT_JOIN_URL=${OPT_JOIN_URL%/} ;;
       *) die "$EXIT_USAGE" "--join needs the installation's https:// address" ;;
     esac
-    if [ "$OPT_LOCAL" = 1 ] || [ "$OPT_BEHIND_PROXY" = 1 ] || [ -n "$OPT_DOMAIN" ] || [ "$OPT_UPDATER" = 1 ]; then
-      die "$EXIT_USAGE" "--join sets up a worker node: --domain, --local, --behind-proxy and --with-updater are for a main host"
+    if [ "$OPT_LOCAL" = 1 ] || [ "$OPT_BEHIND_PROXY" = 1 ] || [ -n "$OPT_DOMAIN" ] || [ "$OPT_UPDATER" = 1 ] || [ "$OPT_LAB" = 1 ]; then
+      die "$EXIT_USAGE" "--join sets up a worker node: --domain, --local, --behind-proxy, --with-updater and --with-recovery-lab are for a main host"
     fi
     if [ "$OPT_DIR_SET" != 1 ]; then
       OPT_DIR="/opt/restow-node"
@@ -1503,6 +1517,16 @@ detect_vm() {
     systemd-detect-virt --vm 2>/dev/null || true
   else
     echo unknown
+  fi
+}
+
+# check_kvm: the recovery lab needs KVM on this host (a VM needs nested virtualization).
+check_kvm() {
+  [ "$OPT_LAB" = 1 ] || return 0
+  if [ -c "$KVM_DEVICE" ]; then
+    ok "KVM is there for the recovery lab ($KVM_DEVICE, group $(stat -c %g "$KVM_DEVICE"))"
+  else
+    pf_fail "--with-recovery-lab needs KVM, and $KVM_DEVICE is missing. In a VM, turn on nested virtualization for it (docs/BAREMETAL.md 12.3), or install without the recovery lab."
   fi
 }
 
@@ -2370,6 +2394,10 @@ write_env() {
   # the tag this script knows), then moves itself after every update from a signed release.
   # RESTOW_MOUNTER_IMAGE stays empty with the mounter on for the same reason; the updater
   # moves the mounter along with it.
+  if [ "$OPT_LAB" = 1 ]; then
+    # The token of the worker's lab API, the lab's image and the group of /dev/kvm.
+    keys="$keys RESTOW_LAB_TOKEN RESTOW_LAB_IMAGE RESTOW_LAB_KVM_GID"
+  fi
   ENV_TMP="$OPT_DIR/.env.install.$$"
   # shellcheck disable=SC2086 # $keys is a list of key names
   if ! (
@@ -2384,6 +2412,11 @@ write_env() {
     export RI_DATABASE_PROVIDER_URL="postgres://restow_provider:${provider_password}@postgres:5432/restow"
     export RI_RESTOW_MASTER_KEY="$MASTER_KEY_ONCE" RI_BETTER_AUTH_SECRET="$auth_secret"
     export RI_RESTOW_PROJECT_DIR="$OPT_DIR"
+    if [ "$OPT_LAB" = 1 ]; then
+      RI_RESTOW_LAB_TOKEN=$(random_hex 32)
+      RI_RESTOW_LAB_KVM_GID=$(stat -c %g "$KVM_DEVICE")
+      export RI_RESTOW_LAB_TOKEN RI_RESTOW_LAB_KVM_GID RI_RESTOW_LAB_IMAGE="$LAB_IMAGE"
+    fi
     # The storage, Microsoft 365 and journal settings a restore takes from the old .env.
     if [ -n "$RESTORE_IMPORT" ] && [ -f "$RESTORE_IMPORT" ]; then
       while IFS= read -r line; do
@@ -2549,6 +2582,9 @@ pull_images() {
   step "Images"
   pull_and_verify "$APP_IMAGE"
   pull_and_verify "$WEB_IMAGE"
+  if [ "$OPT_LAB" = 1 ]; then
+    pull_and_verify "$LAB_IMAGE"
+  fi
 }
 
 # ---- Start --------------------------------------------------------------------------------
@@ -2559,7 +2595,7 @@ compose() {
 
 # start_stack <with updater 0|1> <pull postgres 0|1> [with mounter 0|1]
 start_stack() {
-  local updater=$1 pull_postgres=$2 mounter=${3:-0}
+  local updater=$1 pull_postgres=$2 mounter=${3:-0} lab=${4:-0}
   step "Starting the stack"
   # --quiet: the full output would print the secrets of .env.
   run compose config --quiet ||
@@ -2576,6 +2612,9 @@ start_stack() {
   fi
   if [ "$mounter" = 1 ]; then
     set -- "$@" --profile mounts
+  fi
+  if [ "$lab" = 1 ]; then
+    set -- "$@" --profile recovery-lab
   fi
   run compose "$@" up -d || die "$EXIT_START" "docker compose up failed (cd $OPT_DIR && docker compose ps)"
 }
@@ -3767,6 +3806,7 @@ collect_configuration() {
   prefix=$(image_prefix)
   APP_IMAGE="$prefix/$app_name:$VERSION"
   WEB_IMAGE="$prefix/$web_name:$VERSION"
+  LAB_IMAGE="$prefix/restow-lab:$VERSION"
 }
 
 # collect_proxy_configuration: behind a reverse proxy, which proxies are trusted and how the
@@ -3858,6 +3898,11 @@ show_plan() {
   say "    Signatures   $signatures"
   say "    Updater      $updater"
   say "    Mounter      $mounter"
+  if [ "$OPT_LAB" = 1 ]; then
+    say "    Lab          on: $LAB_IMAGE with /dev/kvm (the boot probe; docs/BAREMETAL.md 12.3)"
+  else
+    say "    Lab          off (--with-recovery-lab; without it no machine's bare metal state becomes green)"
+  fi
   if [ "$WARNINGS" -gt 0 ]; then
     say "    Warnings     $WARNINGS (see above)"
   fi
@@ -3898,7 +3943,7 @@ install_fresh() {
   write_env
   show_master_key
   pull_images
-  start_stack "$OPT_UPDATER" 1 "$OPT_MOUNTER"
+  start_stack "$OPT_UPDATER" 1 "$OPT_MOUNTER" "$OPT_LAB"
   wait_healthy
   ensure_disk_reserve initial
   check_edge "$DOMAIN"
@@ -4083,6 +4128,7 @@ main() {
   check_os
   check_arch
   check_virtualization
+  check_kvm
   check_memory
   check_time_sync
   check_docker

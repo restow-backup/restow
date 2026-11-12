@@ -835,6 +835,34 @@ private repository.
 - Recovery end-to-end tests in QEMU/KVM: E1 (Debian 12, BIOS, RAID1) and E2 (Ubuntu 24.04, UEFI
   Secure Boot, LUKS2 and LVM) on every pull request that touches the restore, E1b and E3 to E10
   every night and before each release (`scripts/recovery-e2e`, `.github/workflows/recovery-nightly.yml`).
+- The boot probe of bare metal (M5, docs/BAREMETAL.md 12.3, 12.4): a machine is "green" only when
+  the recovery lab restored its newest whole machine backup onto other hardware and the restored
+  system started, at most 8 days ago, for the same layout and boot chain. The lab is an optional
+  image, `restow-lab` (Debian's QEMU, OVMF, SeaBIOS and virt-firmware; compose profile
+  `recovery-lab`, `install.sh --with-recovery-lab`), on a main host with KVM; without it a machine
+  stays "Layout checked" and its card says why (no lab, no KVM). The lab runs the same recovery a
+  person runs: the worker plans the probe (at once for a new layout or boot chain, weekly, six hours
+  after a probe that proved nothing, or "Probe now"), hands the lab a one-time code bound to the
+  instance through its lab API (port 8095 on the compose network, `RESTOW_LAB_TOKEN`) and never a
+  repository credential; the ISO in the lab's VM exchanges the code, restores through the reader
+  route (the session keeps retention away) and reports its verification; its VM reaches only the
+  instance's TLS edge through the lab's CONNECT proxy. Probe hardware differs from the source
+  (the other disk controller, serial numbers, the other network card), firmware as backed up with
+  Secure Boot against the current revocation list (DBX); disks are encrypted with a key only the
+  lab holds. Data file systems are created empty, and above `RESTOW_LAB_MAX_RESTORE_GIB` (64) the
+  largest folders under /var/lib, /srv and /home stay empty, never the package or systemd
+  databases. `restow-agent recover` gains a probe mode (answers `probe` only from fw_cfg in QEMU):
+  the restored copy logs to the serial console and reports `RESTOW-PROBE-OK`. A probe is red only
+  with evidence (a fixed failure pattern of the boot, a failed verification, a problem of the
+  backup); anything else is repeated. New report kind `boot_probe` and recovery kind `probe`
+  (migration 0103). New alarms `baremetal.red` (once per episode), `baremetal.recovered` and
+  `baremetal.overdue`, `job.failed` with queue `endpoint_baremetal_check` or `endpoint_boot_probe`
+  for every red report, failure codes `endpoint.baremetal_check_failed` and
+  `endpoint.boot_probe_failed`. `POST /api/v1/endpoints/:id/baremetal/probe` plans a probe;
+  `GET /api/v1/endpoints/:id/baremetal` adds `probe`; `GET /api/v1/verify/latest` adds
+  `baremetal`, the bare metal state of every machine backed up as a whole, counted apart from
+  its files. Recovery end-to-end tests P1 (green) and P2 (red, the emergency target) on every
+  pull request that touches the restore or the lab, P3 (size limit, NVMe source) every night.
 - Write-once (WORM) storage (docs/STORAGE.md, "Write-once storage"): a repository that takes new
   files but refuses to delete, overwrite or rename existing ones, such as an NFS share of a NAS
   with a WORM lock (EPERM, "Operation not permitted"). Every test of a repository (adding it,
@@ -2694,7 +2722,13 @@ the table `endpoint_layouts` and adds the empty column
 0101 creates the tables `endpoint_recoveries` and `endpoint_recovery_log`, adds the empty columns
 `endpoint_id`, `purpose` and `unrevoke` (false) to `endpoint_enrollment_tokens` and
 `endpoint_runs.activity_baseline` (false); 0102 adds `endpoint_recoveries.log_in_key_block`
-(false). None of them rewrites a table. The first directory sync after the
+(false); 0103 adds the values `boot_probe` (report kinds) and `probe` (recovery kinds) and the
+empty column `settings.recovery_lab`. None of them rewrites a table. The recovery lab is not
+started by an update: turn it on with `install.sh --with-recovery-lab` on a new installation, or
+on an existing one with `RESTOW_LAB_TOKEN` (at least 32 characters), `RESTOW_LAB_IMAGE` and
+`RESTOW_LAB_KVM_GID` in `.env` and `docker compose --profile recovery-lab up -d`; the opt-in
+updater does not move the lab's image yet, so set `RESTOW_LAB_IMAGE` to the new release after
+an update. The first directory sync after the
 update reads the owners and members of every Microsoft 365 group once (three Graph reads per group, through
 `$batch`); until it has run, a person's "Teams & sites" is empty and says that it may be
 incomplete. Whole machine backups stay off until `RESTOW_BAREMETAL_PREVIEW=true` is set for the
