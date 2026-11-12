@@ -296,7 +296,10 @@ export function machineArgs(machine: Machine): string[] {
   args.push(...diskArgs(machine.disks));
   if (machine.cdrom) {
     args.push("-drive", `file=${machine.cdrom},media=cdrom,readonly=on,if=none,id=cd0`);
-    args.push("-device", "ide-cd,drive=cd0,bootindex=0");
+    // With a kernel booted directly, QEMU's linuxboot option ROM holds boot index 0 and a
+    // second device with it stops QEMU at once ("The bootindex 0 has already been used");
+    // the medium is then only the live system's carrier, found by its content.
+    args.push("-device", machine.kernel ? "ide-cd,drive=cd0" : "ide-cd,drive=cd0,bootindex=0");
   }
   if (machine.extraDisks) {
     for (const [index, file] of machine.extraDisks.entries()) {
@@ -356,30 +359,73 @@ export async function createVars(
   }
 }
 
-/** Start QEMU; answers the child and a promise of its exit code. */
+/** A started QEMU: the child, its exit code once it ended, and the end of what it wrote to stderr. */
+export interface StartedMachine {
+  child: ChildProcess;
+  exited: Promise<number>;
+  /** The last few KiB QEMU wrote to stderr (why it refused to start, for example). */
+  stderrTail: () => string;
+}
+
+const STDERR_TAIL_CHARS = 4000;
+
+/**
+ * Start QEMU; answers the child, a promise of its exit code and the end of its stderr. stderr is
+ * read all the time, so a talkative QEMU never blocks on a full pipe, and a QEMU that refuses its
+ * command line says why.
+ */
 export function startMachine(
   machine: Machine,
   spawnFn: typeof spawn = spawn,
   options: { stdio?: ("ignore" | "pipe")[] } = {},
-): { child: ChildProcess; exited: Promise<number> } {
+): StartedMachine {
   const child = spawnFn("qemu-system-x86_64", machineArgs(machine), {
     stdio: options.stdio ?? ["ignore", "ignore", "pipe"],
   });
+  let tail = "";
+  child.stderr?.on("data", (chunk: Buffer) => {
+    tail = (tail + chunk.toString("utf8")).slice(-STDERR_TAIL_CHARS);
+  });
   const exited = new Promise<number>((resolve) => child.on("exit", (code) => resolve(code ?? -1)));
-  return { child, exited };
+  return { child, exited, stderrTail: () => tail.trim() };
 }
 
-/** Wait until the serial log has a line matching `pattern`; answers the match. */
+/**
+ * Wait until the serial log has a line matching `pattern`; answers the match. With `machine`,
+ * a QEMU that ends before the line appears fails the wait at once, with its exit code and the
+ * end of its stderr, instead of after the whole timeout.
+ */
 export async function waitForSerial(
   serialLog: string,
   pattern: RegExp,
-  { timeoutMs, intervalMs = 2000 }: { timeoutMs?: number; intervalMs?: number } = {},
+  {
+    timeoutMs,
+    intervalMs = 2000,
+    machine,
+  }: {
+    timeoutMs?: number;
+    intervalMs?: number;
+    machine?: Pick<StartedMachine, "exited"> & Partial<Pick<StartedMachine, "stderrTail">>;
+  } = {},
 ): Promise<RegExpExecArray> {
   const deadline = Date.now() + (timeoutMs ?? 20 * 60 * 1000);
+  let exitCode: number | null = null;
+  void machine?.exited.then((code) => {
+    exitCode = code;
+  });
+  const match = (): RegExpExecArray | null =>
+    existsSync(serialLog) ? pattern.exec(readFileSync(serialLog, "utf8")) : null;
   while (Date.now() < deadline) {
-    if (existsSync(serialLog)) {
-      const match = pattern.exec(readFileSync(serialLog, "utf8"));
-      if (match) return match;
+    const found = match();
+    if (found) return found;
+    if (exitCode !== null) {
+      // The last lines may have arrived together with the end.
+      const last = match();
+      if (last) return last;
+      const stderr = machine?.stderrTail?.() ?? "";
+      throw new Error(
+        `QEMU ended (exit code ${exitCode}) before ${pattern} appeared on the serial console of ${serialLog}${stderr ? `: ${stderr}` : ""}`,
+      );
     }
     await sleep(intervalMs);
   }

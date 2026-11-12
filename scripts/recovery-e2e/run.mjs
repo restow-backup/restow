@@ -559,7 +559,10 @@ async function sourceMachine(testCase, context) {
       qmpSocket: join(dir, "factory.qmp"),
       kernel: { file: kernel, initrd, append: factoryCmdline() },
     });
-    await waitForSerial(join(dir, "factory.log"), /E2E-FACTORY-DONE/, { timeoutMs: 40 * 60_000 });
+    await waitForSerial(join(dir, "factory.log"), /E2E-FACTORY-DONE/, {
+      timeoutMs: 40 * 60_000,
+      machine: build,
+    });
     await build.exited;
   } else {
     throw new Error(
@@ -583,11 +586,15 @@ async function sourceMachine(testCase, context) {
     fwCfg: { "opt/restow/enroll": enroll },
   });
   if (testCase.source.unlockAtBoot) {
-    await waitForSerial(join(dir, "source.log"), /Enter passphrase/, { timeoutMs: 10 * 60_000 });
+    await waitForSerial(join(dir, "source.log"), /Enter passphrase/, {
+      timeoutMs: 10 * 60_000,
+      machine: source,
+    });
     await sendKeys(join(dir, "source.qmp"), `${context.passphrase}\n`);
   }
   const [, hostname, markerSha256] = await waitForSerial(join(dir, "source.log"), SOURCE_BOOT, {
     timeoutMs: 15 * 60_000,
+    machine: source,
   });
   const endpoint = await waitUntil(
     "the source machine to enroll",
@@ -730,11 +737,12 @@ async function bootRestored(testCase, context, source, restored, { emptyNvram = 
   });
   try {
     if (testCase.source.unlockAtBoot) {
-      await waitForSerial(log, /Enter passphrase/, { timeoutMs: 10 * 60_000 });
+      await waitForSerial(log, /Enter passphrase/, { timeoutMs: 10 * 60_000, machine });
       await sendKeys(join(source.dir, "restored.qmp"), `${context.passphrase}\n`);
     }
     await waitForSerial(log, bootPattern(source.hostname, source.markerSha256), {
       timeoutMs: 15 * 60_000,
+      machine,
     });
   } finally {
     await qmp(join(source.dir, "restored.qmp"), "quit").catch(() => undefined);

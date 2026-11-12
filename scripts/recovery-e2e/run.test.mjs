@@ -5,13 +5,23 @@
  */
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { ALL_CASES, CASES, PROBE_CASES, selectCases } from "./cases.mjs";
-import { assertKvm, diskArgs, firmwareArgs, fwCfgArgs, keysOf, machineArgs } from "./lib/qemu.mjs";
+import {
+  assertKvm,
+  diskArgs,
+  firmwareArgs,
+  fwCfgArgs,
+  keysOf,
+  machineArgs,
+  startMachine,
+  waitForSerial,
+} from "./lib/qemu.mjs";
 import {
   parseArgs as autoactivationArgs,
   cmdline as autoactivationCmdline,
@@ -366,6 +376,77 @@ describe("the QEMU command line", () => {
       "-append",
       line,
     ]);
+  });
+
+  it("gives the ISO no boot index when its kernel boots directly (QEMU refuses a second index 0)", () => {
+    // QEMU's linuxboot option ROM takes boot index 0 for -kernel; a CD with bootindex=0 next
+    // to it stopped QEMU before the first line on the serial console.
+    const args = machineArgs({
+      name: "na",
+      firmware: "bios",
+      disks: [{ serial: "restow-na-disk0", bus: "virtio", file: "/d.qcow2" }],
+      cdrom: "/iso",
+      extraDisks: ["/carrier.iso"],
+      serialLog: "/s",
+      qmpSocket: "/q",
+      kernel: { file: "/k", initrd: "/i", append: "boot=live console=ttyS0,115200n8" },
+    });
+    assert.ok(args.includes("ide-cd,drive=cd0"), "the ISO stays attached as the live medium");
+    assert.equal(
+      args.some((arg) => arg.includes("bootindex")),
+      false,
+    );
+    // Booted from the ISO itself, the CD is the first boot device.
+    const fromIso = machineArgs({
+      name: "iso",
+      firmware: "bios",
+      disks: [],
+      cdrom: "/iso",
+      serialLog: "/s",
+      qmpSocket: "/q",
+    });
+    assert.ok(fromIso.includes("ide-cd,drive=cd0,bootindex=0"));
+  });
+
+  it("fails the wait at once with QEMU's own words when QEMU ends before the line", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "restow-serial-"));
+    try {
+      const log = join(dir, "s.log");
+      writeFileSync(log, "");
+      const child = new EventEmitter();
+      child.stderr = new EventEmitter();
+      const machine = startMachine(
+        { name: "x", firmware: "bios", disks: [], serialLog: log, qmpSocket: join(dir, "q") },
+        () => child,
+      );
+      child.stderr.emit(
+        "data",
+        Buffer.from(
+          "qemu-system-x86_64: -device ide-cd,drive=cd0,bootindex=0: The bootindex 0 has already been used\n",
+        ),
+      );
+      child.emit("exit", 1);
+      const started = Date.now();
+      await assert.rejects(
+        waitForSerial(log, /NO-AUTOACTIVATION-PREPARED/, {
+          timeoutMs: 60_000,
+          intervalMs: 10,
+          machine,
+        }),
+        /QEMU ended \(exit code 1\) before .*The bootindex 0 has already been used/,
+      );
+      assert.ok(Date.now() - started < 5_000, "no wait for the whole timeout");
+      // A machine that powers itself off right after the line still counts.
+      writeFileSync(log, "...\nNO-AUTOACTIVATION-PREPARED\n");
+      const [line] = await waitForSerial(log, /NO-AUTOACTIVATION-PREPARED/, {
+        timeoutMs: 1_000,
+        intervalMs: 10,
+        machine,
+      });
+      assert.equal(line, "NO-AUTOACTIVATION-PREPARED");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("types a passphrase with z, y and - as QMP keys", () => {

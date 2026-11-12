@@ -129,7 +129,7 @@ async function boot(options, mode, kernel, initrd, disk, carrier) {
   const pattern =
     mode === "prepare" ? /NO-AUTOACTIVATION-PREPARED/ : /NO-AUTOACTIVATION-RESULT \d+/;
   try {
-    await waitForSerial(serialLog, pattern, { timeoutMs: 15 * 60_000, intervalMs: 1000 });
+    await waitForSerial(serialLog, pattern, { timeoutMs: 15 * 60_000, intervalMs: 1000, machine });
   } finally {
     // The run unit powers the machine off; a hung boot is stopped after the wait.
     const timer = setTimeout(() => machine.child.kill("SIGKILL"), 120_000);
