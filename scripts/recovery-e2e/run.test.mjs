@@ -535,6 +535,19 @@ describe("the run", () => {
   });
 });
 
+describe("the factory VM (factoryCmdline)", () => {
+  it("makes its mount point before it mounts the factory disk, without the recovery program", () => {
+    const line = factoryCmdline();
+    assert.match(line, /systemd\.mask=restow-recover\.service/);
+    // /run is an empty tmpfs at start; without the mount point the VM powers off at once.
+    const mkdir = line.indexOf("mkdir -p /run/restow-factory");
+    const mount = line.indexOf("mount -o ro /dev/disk/by-label/RESTOWFACTORY /run/restow-factory");
+    assert.ok(mkdir >= 0 && mount > mkdir);
+    assert.match(line, /exec sh \/run\/restow-factory\/run\.sh/);
+    assert.match(line, /systemd\.run_failure_action=poweroff/);
+  });
+});
+
 describe("the no auto-activation test of the ISO (no-autoactivation.mjs)", () => {
   it("prepares without the recovery program and checks with a normal start", () => {
     const prepare = autoactivationCmdline("prepare");

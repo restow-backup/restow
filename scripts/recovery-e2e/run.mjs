@@ -219,6 +219,7 @@ export function withIsoLine(sums, fileName, sha256) {
 /**
  * The kernel command line of a factory VM: the ISO's live system without the recovery
  * program, running the factory script from the read-only disk RESTOWFACTORY once, then off.
+ * /run is an empty tmpfs at start: the mount point is made first.
  */
 export function factoryCmdline() {
   return [
@@ -228,7 +229,7 @@ export function factoryCmdline() {
     "nopersistence",
     "console=ttyS0,115200n8",
     "systemd.mask=restow-recover.service",
-    "systemd.run=\"/usr/bin/sh -c 'mount -o ro /dev/disk/by-label/RESTOWFACTORY /run/restow-factory && exec sh /run/restow-factory/run.sh'\"",
+    "systemd.run=\"/usr/bin/sh -c 'mkdir -p /run/restow-factory && mount -o ro /dev/disk/by-label/RESTOWFACTORY /run/restow-factory && exec sh /run/restow-factory/run.sh'\"",
     "systemd.run_success_action=poweroff",
     "systemd.run_failure_action=poweroff",
   ].join(" ");
