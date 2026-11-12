@@ -48,10 +48,11 @@ ls cache/packages.bootstrap/*.deb >/dev/null 2>&1 ||
 ln -f cache/packages.bootstrap/*.deb config/restow/bootstrap-debs/ 2>/dev/null ||
   cp cache/packages.bootstrap/*.deb config/restow/bootstrap-debs/
 lb chroot
-# live-build's last steps of the chroot stage run apt-get update and put back the
-# build's resolv.conf, after the 9900 hook; the image is packed from the chroot next.
-rr_clean_build_leftovers chroot
 lb installer
+# After the 9900 hook live-build still runs apt in the chroot (the last apt-get update
+# of the chroot stage, apt-get autoclean when each stage saves its package cache) and
+# puts back the build's resolv.conf. lb binary copies the chroot as the image first.
+rr_clean_build_leftovers chroot
 lb binary
 lb source
 

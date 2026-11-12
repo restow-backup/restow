@@ -281,9 +281,9 @@ mkdir -p "$tmp/no-run"
 expect "an image without /run" rr_build_leftovers "$tmp/no-run"
 refuse "a missing directory" rr_build_leftovers "$tmp/missing"
 grep -q '^rr_clean_build_leftovers chroot$' "$HERE/../build-inner.sh" && ok || fail "build-inner.sh cleans the chroot"
-[ "$(grep -n '^lb chroot$' "$HERE/../build-inner.sh" | cut -d: -f1)" -lt "$(grep -n '^rr_clean_build_leftovers chroot$' "$HERE/../build-inner.sh" | cut -d: -f1)" ] &&
+[ "$(grep -n '^lb installer$' "$HERE/../build-inner.sh" | cut -d: -f1)" -lt "$(grep -n '^rr_clean_build_leftovers chroot$' "$HERE/../build-inner.sh" | cut -d: -f1)" ] &&
   [ "$(grep -n '^rr_clean_build_leftovers chroot$' "$HERE/../build-inner.sh" | cut -d: -f1)" -lt "$(grep -n '^lb binary$' "$HERE/../build-inner.sh" | cut -d: -f1)" ] &&
-  ok || fail "build-inner.sh cleans between lb chroot and lb binary"
+  ok || fail "build-inner.sh cleans between lb installer and lb binary"
 
 # --- keyboard layouts ----------------------------------------------------------------------
 

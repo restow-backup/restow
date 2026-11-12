@@ -49,8 +49,8 @@ SHA-256 is never accepted. Forbidden anywhere in the configuration, and checked:
 `--allow-unauthenticated`, `AllowInsecureRepositories`.
 
 Nothing of the build stays in the image: the hook `9900-restow-clean` removes package
-lists, caches, logs, the machine id and SSH host keys, and after the chroot stage
-`build-inner.sh` removes what live-build and package scripts leave after it
+lists, caches, logs, the machine id and SSH host keys, and right before the binary
+stage `build-inner.sh` removes what live-build and package scripts leave after it
 (`rr_clean_build_leftovers`): the contents of `/run`, systemd-resolved's copy of the
 build's `resolv.conf`, apt's caches and the NVMe host identity (`/etc/nvme/hostnqn`,
 `hostid`), which nvme-cli makes at install and which would otherwise be the same for
