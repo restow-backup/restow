@@ -8,7 +8,9 @@
  * before the database migrations, and a release the installed key does not
  * cover ends the start there, so no migration runs and nothing is started.
  * The check itself is tested where it lives (ee/api/src/license); this test
- * is about the script around it, which no other test runs.
+ * is about the script around it, which no other test runs. Before both, the api
+ * frees the emergency disk reserve when the disk is almost full (docs/DATABASE.md,
+ * "Disk full"); that step never stops the start.
  */
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -65,7 +67,7 @@ function write(path, content, mode) {
  * stand-in that records each call and ends the licence start check with `startupExit`.
  * `fullBuild` decides whether the tree holds the check (the Community build has none).
  */
-function runEntrypoint({ role = "api", fullBuild = true, startupExit = 0 } = {}) {
+function runEntrypoint({ role = "api", fullBuild = true, startupExit = 0, reserveExit = 0 } = {}) {
   const prod = join(work, "prod");
   // The only change to the script: where the image keeps the roles.
   write("entrypoint.sh", entrypointSource().replaceAll("/prod/", `${prod}/`), 0o755);
@@ -78,6 +80,7 @@ function runEntrypoint({ role = "api", fullBuild = true, startupExit = 0 } = {})
     [
       "#!/bin/sh",
       'case "$*" in',
+      '  *disk-reserve\\ guard*) echo "disk-reserve-guard" >> "$CALLS"; exit "$RESERVE_EXIT" ;;',
       '  *license/startup-check.js*) echo "startup-check" >> "$CALLS"; exit "$STARTUP_EXIT" ;;',
       '  *@restow/db/migrate*) echo "migrate" >> "$CALLS"; exit 0 ;;',
       '  -p*) echo "node dist/index.js"; exit 0 ;;',
@@ -97,6 +100,7 @@ function runEntrypoint({ role = "api", fullBuild = true, startupExit = 0 } = {})
       ROLE: role,
       CALLS: calls,
       STARTUP_EXIT: String(startupExit),
+      RESERVE_EXIT: String(reserveExit),
     },
   });
   return {
@@ -110,14 +114,20 @@ describe("the api's start in the container entrypoint", { skip: !posix }, () => 
   it("checks the licence key before the migrations, then migrates and starts", () => {
     const run = runEntrypoint();
     assert.equal(run.status, 0, run.stderr);
-    assert.deepEqual(run.calls, ["startup-check", "migrate", "start"]);
+    assert.deepEqual(run.calls, ["disk-reserve-guard", "startup-check", "migrate", "start"]);
+  });
+
+  it("starts the api also when the disk reserve guard fails or hangs", () => {
+    const run = runEntrypoint({ reserveExit: 124 });
+    assert.equal(run.status, 0, run.stderr);
+    assert.deepEqual(run.calls, ["disk-reserve-guard", "startup-check", "migrate", "start"]);
   });
 
   it("stops a release the key does not cover before any migration, and starts nothing [LICENSE-004]", () => {
     const run = runEntrypoint({ startupExit: 1 });
     assert.equal(run.status, 1);
     // The check ran, and nothing after it: no migration, no api.
-    assert.deepEqual(run.calls, ["startup-check"]);
+    assert.deepEqual(run.calls, ["disk-reserve-guard", "startup-check"]);
     assert.match(run.stderr, /not covered by the installed licence key/);
     assert.match(run.stderr, /the database was not changed/);
     assert.doesNotMatch(run.stderr, /applying database migrations/);
@@ -126,7 +136,7 @@ describe("the api's start in the container entrypoint", { skip: !posix }, () => 
   it("migrates without a check in the Community build, which has none", () => {
     const run = runEntrypoint({ fullBuild: false });
     assert.equal(run.status, 0, run.stderr);
-    assert.deepEqual(run.calls, ["migrate", "start"]);
+    assert.deepEqual(run.calls, ["disk-reserve-guard", "migrate", "start"]);
   });
 
   it("runs neither the check nor the migrations for the worker and the scheduler", () => {
