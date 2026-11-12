@@ -42,6 +42,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { connect } from "node:tls";
 import { fileURLToPath } from "node:url";
 import { CASES, PROBE_CASES, selectCases } from "./cases.mjs";
+import { factoryDebs } from "./factory-debs.mjs";
 import {
   assertKvm,
   createDisk,
@@ -453,6 +454,14 @@ async function startInstance(options, workDir, agentDir) {
   return { stack, caFile, tenantId: tenant.id, ...setup };
 }
 
+/** What the factory installs into the live overlay with dpkg (lib.sh factory_prepare). */
+export const FACTORY_ROOTS = ["debootstrap"];
+/** The archive keyrings of the factory disk (keyrings/), installed with the rest. */
+export const FACTORY_KEYRINGS = ["debian-archive-keyring", "ubuntu-keyring"];
+/** apt-cache depends limited to what dpkg -i checks: Depends and Pre-Depends. */
+const APT_DEPENDS_ONLY =
+  "--no-recommends --no-suggests --no-conflicts --no-breaks --no-replaces --no-enhances";
+
 /** The read-only factory disk: the machine scripts, run.sh and the debootstrap packages. */
 function factoryDisk(workDir, testCase, context) {
   const tree = join(workDir, `${testCase.id}-factory`);
@@ -464,7 +473,26 @@ function factoryDisk(workDir, testCase, context) {
   const snapshot = readFileSync(join(repoRoot, "integrations/recovery/snapshot.env"), "utf8");
   const stamp = /^SNAPSHOT_TIMESTAMP=(\S+)$/m.exec(snapshot)?.[1];
   const image = /^DEBIAN_IMAGE_DIGEST=(\S+)$/m.exec(snapshot)?.[1];
-  // debootstrap and the keyrings from the ISO's own snapshot, downloaded in its build container.
+  // debootstrap with what it needs that the ISO lacks (factory-debs.mjs) and the keyrings,
+  // from the ISO's own snapshot, in its build container.
+  const apt = [
+    `printf 'deb http://snapshot.debian.org/archive/debian/${stamp}/ trixie main\\n' >/etc/apt/sources.list`,
+    "rm -f /etc/apt/sources.list.d/debian.sources",
+    "apt-get -o Acquire::Check-Valid-Until=false update >/dev/null",
+  ];
+  const depends = sh("docker", [
+    "run",
+    "--rm",
+    image,
+    "sh",
+    "-c",
+    [...apt, `apt-cache depends --recurse ${APT_DEPENDS_ONLY} ${FACTORY_ROOTS.join(" ")}`].join(
+      " && ",
+    ),
+  ]);
+  const lock = readFileSync(join(repoRoot, "integrations/recovery/packages.lock"), "utf8");
+  const debs = factoryDebs(depends, lock, FACTORY_ROOTS);
+  const download = [...new Set([...debs, ...FACTORY_KEYRINGS])].sort();
   sh("docker", [
     "run",
     "--rm",
@@ -474,10 +502,8 @@ function factoryDisk(workDir, testCase, context) {
     "sh",
     "-c",
     [
-      `printf 'deb http://snapshot.debian.org/archive/debian/${stamp}/ trixie main\\n' >/etc/apt/sources.list`,
-      "rm -f /etc/apt/sources.list.d/debian.sources",
-      "apt-get -o Acquire::Check-Valid-Until=false update >/dev/null",
-      "cd /out/debs && apt-get download debootstrap debian-archive-keyring ubuntu-keyring distro-info-data",
+      ...apt,
+      `cd /out/debs && apt-get download ${download.join(" ")}`,
       "dpkg-deb -x ubuntu-keyring_*.deb /tmp/u && cp /tmp/u/usr/share/keyrings/ubuntu-archive-keyring.gpg /out/keyrings/",
       "dpkg-deb -x debian-archive-keyring_*.deb /tmp/d && cp /tmp/d/usr/share/keyrings/debian-archive-keyring.gpg /out/keyrings/",
     ].join(" && "),

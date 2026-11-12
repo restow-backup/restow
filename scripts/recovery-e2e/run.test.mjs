@@ -12,6 +12,7 @@ import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { ALL_CASES, CASES, PROBE_CASES, selectCases } from "./cases.mjs";
+import { factoryDebs, lockedPackages, parseDepends } from "./factory-debs.mjs";
 import {
   assertKvm,
   diskArgs,
@@ -33,6 +34,8 @@ import {
 import {
   bootPattern,
   buildAnswers,
+  FACTORY_KEYRINGS,
+  FACTORY_ROOTS,
   factoryCmdline,
   guestInstanceUrl,
   identityOf,
@@ -532,6 +535,109 @@ describe("the run", () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("the packages of the factory disk (factory-debs.mjs)", () => {
+  // apt-cache depends --recurse of debootstrap in the shape of trixie (apt 3.0).
+  const DEPENDS = [
+    "debootstrap",
+    "  Depends: wget",
+    "  Depends: distro-info",
+    "wget",
+    "  Depends: libc6",
+    "  Depends: libgnutls30t64",
+    "  Depends: libidn2-0",
+    "  Depends: libpsl5t64",
+    "distro-info",
+    "  Depends: distro-info-data",
+    "  Depends: libc6:any",
+    "distro-info-data",
+    "libgnutls30t64",
+    "  Depends: libc6",
+    "  Depends: libp11-kit0",
+    " |PreDepends: debconf",
+    "  PreDepends: <debconf-2.0>",
+    "    cdebconf",
+    "    debconf",
+    "libp11-kit0",
+    "  Depends: libffi8",
+    "libffi8",
+    "libpsl5t64",
+    "  Depends: libidn2-0",
+    "libidn2-0",
+    "libc6",
+    "debconf",
+    "cdebconf",
+    "  Depends: libnewt0.52",
+    "libnewt0.52",
+    "<debconf-2.0>",
+    "",
+  ].join("\n");
+  const LOCK = [
+    "# SPDX-License-Identifier: GPL-3.0-or-later",
+    "#   <package> <version> <SHA-256 of the .deb>",
+    `libc6 2.41-12 ${"a".repeat(64)}`,
+    `libidn2-0 2.3.8-2 ${"b".repeat(64)}`,
+    `debconf 1.5.91 ${"c".repeat(64)}`,
+    "",
+  ].join("\n");
+
+  it("takes debootstrap and everything it needs that the ISO lacks, nothing the ISO has", () => {
+    assert.deepEqual(factoryDebs(DEPENDS, LOCK, ["debootstrap"]), [
+      "debootstrap",
+      "distro-info",
+      "distro-info-data",
+      "libffi8",
+      "libgnutls30t64",
+      "libp11-kit0",
+      "libpsl5t64",
+      "wget",
+    ]);
+  });
+
+  it("meets a group of alternatives with the one the ISO has, else takes the first", () => {
+    const withoutDebconf = LOCK.replace(/^debconf .*$/m, "");
+    // Neither debconf nor a provider of debconf-2.0 in the ISO: the first alternative.
+    assert.ok(factoryDebs(DEPENDS, withoutDebconf, ["debootstrap"]).includes("debconf"));
+    assert.ok(!factoryDebs(DEPENDS, withoutDebconf, ["debootstrap"]).includes("cdebconf"));
+    // With debconf in the ISO neither is taken (the test above).
+    assert.ok(!factoryDebs(DEPENDS, LOCK, ["debootstrap"]).includes("cdebconf"));
+  });
+
+  it("takes the first provider of a virtual package nobody provides yet", () => {
+    const depends = [
+      "tool",
+      "  Depends: <awk>",
+      "    mawk",
+      "    gawk",
+      "mawk",
+      "gawk",
+      "<awk>",
+      "",
+    ].join("\n");
+    assert.deepEqual(factoryDebs(depends, "", ["tool"]), ["mawk", "tool"]);
+    assert.deepEqual(factoryDebs(depends, `gawk 1 ${"d".repeat(64)}\n`, ["tool"]), ["tool"]);
+    assert.throws(
+      () => factoryDebs(["tool", "  Depends: <awk>", ""].join("\n"), "", ["tool"]),
+      /nothing provides awk/,
+    );
+  });
+
+  it("reads the lock and apt-cache's output strictly", () => {
+    assert.deepEqual([...lockedPackages(LOCK)].sort(), ["debconf", "libc6", "libidn2-0"]);
+    assert.equal(parseDepends(DEPENDS).get("distro-info")[1][0].name, "libc6");
+    assert.throws(() => parseDepends("  Depends: x\n"), /before a package/);
+    assert.throws(() => parseDepends("x\n  Recommends: y\n"), /unknown line/);
+    assert.throws(
+      () => factoryDebs("tool\n  Depends: gone\n", "", ["tool"]),
+      /does not name the package gone/,
+    );
+  });
+
+  it("names debootstrap as root and both keyrings", () => {
+    assert.deepEqual(FACTORY_ROOTS, ["debootstrap"]);
+    assert.deepEqual(FACTORY_KEYRINGS, ["debian-archive-keyring", "ubuntu-keyring"]);
   });
 });
 

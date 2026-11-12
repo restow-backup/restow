@@ -5,8 +5,10 @@
 # the cases are those of the CI job recovery-e2e). A machine script runs as root
 # inside a VM that booted the recovery ISO itself, which has every disk tool. The
 # VM has a second, read-only disk with the label RESTOWFACTORY that holds the
-# .deb files of debootstrap and the archive keyrings from the same snapshot (the
-# ISO's package list stays as it is), and the target disks with serial numbers.
+# .deb files of debootstrap, of what it needs that the ISO lacks (wget, distro-info
+# and their libraries; scripts/recovery-e2e/factory-debs.mjs) and of the archive
+# keyrings, all from the same snapshot (the ISO's package list stays as it is), and
+# the target disks with serial numbers.
 #
 # What every machine gets besides its own layout:
 #   - a kernel, its initramfs generator and a boot loader of the distribution;
