@@ -1098,6 +1098,14 @@ Repository-Secrets eines Entwickler-Mandanten und wurde bisher in jedem Release 
 - Belegt gegen: echtes System (PostgreSQL 16, Job test in ci.yml)
 - Stand: belegt
 
+### ALERT-010
+- Aussage: Eine Sicherung, die weit mehr als üblich schreibt, wird standardmäßig nicht angehalten: Sie läuft weiter und löst einmal je Lauf den nicht kritischen Hinweis `backup.unusually_large_notice` aus, ohne Halt. Angehalten wird ein Lauf nur, wenn sein Speicherziel zu wenig freien Platz behielte, oder wenn die Größenprüfung seines Objekts oder Mandanten auf „Anhalten“ steht; dann löst er `backup.unusually_large` aus.
+- Fundstelle: docs/STORAGE.md (Abschnitt „Unusually large runs“), docs/NOTIFICATIONS.md (Abschnitt „Critical events“), CHANGELOG.md (0.5.0, #99)
+- Öffentliche Seite: nicht abgeglichen
+- Tests: apps/api/src/features/run-size/run-size.pg.test.ts
+- Belegt gegen: echtes System (PostgreSQL 16, Job test in ci.yml)
+- Stand: belegt
+
 ## Archiv und Audit-Log (ARCHIVE)
 
 ### ARCHIVE-001
