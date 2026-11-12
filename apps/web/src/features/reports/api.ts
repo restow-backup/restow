@@ -39,6 +39,7 @@ export const REPORT_EVENTS = [
   "file_share.storage_quota",
   "file_share.repository_locked",
   "backup.unusually_large",
+  "backup.unusually_large_notice",
   "storage.copy_behind",
   "source.app_secret_expiring",
   "update.available",

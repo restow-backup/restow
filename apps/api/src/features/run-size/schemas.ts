@@ -1,6 +1,7 @@
 import {
   RUN_SIZE_FACTOR_RANGE,
   RUN_SIZE_FREE_PERCENT_MAX,
+  RUN_SIZE_MODES,
   RUN_SIZE_OBJECT_KINDS,
 } from "@restow/core";
 import { z } from "zod";
@@ -31,6 +32,8 @@ const gib = z.number().min(0).max(MAX_RUN_SIZE_GIB);
 export const overrideSchema = z
   .object({
     enabled: z.boolean().optional(),
+    /** A run past its limit: a notice (`warn`, the default) or a hold (`hold`). */
+    mode: z.enum(RUN_SIZE_MODES).optional(),
     factor: z.number().min(RUN_SIZE_FACTOR_RANGE.min).max(RUN_SIZE_FACTOR_RANGE.max).optional(),
     minGib: gib.optional(),
     limitGib: gib.nullable().optional(),
@@ -92,6 +95,7 @@ const bytes = (value: number | null | undefined) =>
 export function overrideFromRequest(input: z.infer<typeof overrideSchema>) {
   const out: Record<string, unknown> = {};
   if (input.enabled !== undefined) out.enabled = input.enabled;
+  if (input.mode !== undefined) out.mode = input.mode;
   if (input.factor !== undefined) out.factor = input.factor;
   if (input.minGib !== undefined) out.minBytes = bytes(input.minGib);
   if (input.limitGib !== undefined) out.limitBytes = bytes(input.limitGib);

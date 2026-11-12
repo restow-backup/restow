@@ -134,6 +134,8 @@ export const EVENT_GROUPS: Record<
     "file_share.storage_quota",
     // A backup run held as unusually large (0.5.0, #99).
     "backup.unusually_large",
+    // ... or one that passed its size limit and went on (the size check's default, `warn`).
+    "backup.unusually_large_notice",
     // A repository's copy on a copy target is more than two days behind or failing (0.5.0).
     "storage.copy_behind",
   ],

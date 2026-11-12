@@ -41,13 +41,36 @@ export interface HeldBackup {
   resolvedAt: string | null;
 }
 
+/**
+ * A run that passed its size limit and went on (the size check's default, `warn`): a notice, no
+ * hold. `mode` is what its object's size check does now.
+ */
+export interface SizeNotice {
+  objectKind: HeldObjectKind;
+  objectId: string;
+  objectName: string;
+  runId: string;
+  bytes: number;
+  limitBytes: number;
+  medianBytes: number | null;
+  noticedAt: string;
+  mode: SizeGuardMode;
+  enabled: boolean;
+}
+
 export interface HeldBackups {
   open: HeldBackup[];
   recent: HeldBackup[];
+  /** Absent from a server before the size check warned by default. */
+  notices?: SizeNotice[];
 }
+
+/** A run past its limit: a notice (`warn`, the default) or a hold (`hold`). */
+export type SizeGuardMode = "warn" | "hold";
 
 export interface SizeGuardSettings {
   enabled: boolean;
+  mode: SizeGuardMode;
   factor: number;
   minHistory: number;
   historyRuns: number;
@@ -58,6 +81,7 @@ export interface SizeGuardSettings {
 
 export interface SizeGuardOverride {
   enabled?: boolean;
+  mode?: SizeGuardMode;
   factor?: number;
   minBytes?: number;
   limitBytes?: number | null;
@@ -88,6 +112,7 @@ export interface SizeGuardSettingsView {
 /** What the settings form sends: sizes in GiB, `null` for "none". */
 export interface SizeGuardOverrideInput {
   enabled?: boolean;
+  mode?: SizeGuardMode;
   factor?: number;
   minGib?: number;
   limitGib?: number | null;

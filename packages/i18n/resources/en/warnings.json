@@ -132,8 +132,8 @@
   "openToConfirm": "Check and confirm",
   "held": {
     "title": "Held backups",
-    "description": "Backups that would have added far more than usual, or left their storage target too little free space, are held before they fill the storage. Every further backup of such an object waits for your decision.",
-    "none": "No backup is held. Runs are checked against ten times what their object usually adds, at least 10 GiB, and against the free space their storage target keeps (by default 5 % of its size, at least 20 GiB, at most 500 GiB) on targets that report it.",
+    "description": "Backups that would leave their storage target too little free space are held before they fill the storage. A backup that adds far more than usual only raises a notice, unless its object's size check is set to \"hold\": then it is held as well. Every further backup of a held object waits.",
+    "none": "No backup is held. Runs are checked against the free space their storage target keeps (by default 5 % of its size, at least 20 GiB, at most 500 GiB) on targets that report it, and against ten times what their object usually adds, at least 10 GiB: by default a run past that goes on with a notice.",
     "kind": {
       "endpoint": "Server or client",
       "file_share": "File share",
@@ -174,6 +174,16 @@
       "tenantTitle": "Free space on the storage targets of this tenant",
       "shared": "This tenant writes to the installation's shared default target, where the installation's rule applies: {rule}."
     },
+    "notices": {
+      "title": "Unusually large backups that went on",
+      "description": "Runs of the last 30 days that wrote more than their limit. They were not stopped: by default {appName} only warns about large backups.",
+      "row": "Wrote {bytes}, more than its limit of {limit}",
+      "usual": "usually {usual}",
+      "hold": "Hold such runs",
+      "holds": "Such runs are held now",
+      "off": "Size check off",
+      "toast": "Large runs of this object are held from now on."
+    },
     "actions": {
       "continue": "Continue once",
       "raise": "Raise the limit",
@@ -189,8 +199,11 @@
     "settings": {
       "open": "Size check",
       "title": "Size and space check of backups",
-      "description": "For every object of this tenant without its own settings. A run is held when it would add more than the factor times the median of its object's last runs (and at least the minimum), or leave its storage target less free space than the rule below keeps.",
+      "description": "For every object of this tenant without its own settings. A run that adds more than the factor times the median of its object's last runs (and at least the minimum) raises a notice and goes on, or is held when the size check is set to \"hold\". A run is always held when it would leave its storage target less free space than the rule below keeps.",
       "enabled": "Check the size of backup runs",
+      "mode": "When a run adds more than that",
+      "modeWarn": "Notify only, the run goes on (default)",
+      "modeHold": "Hold the run until an administrator decides",
       "factor": "Factor of the usual size",
       "minGib": "Never hold below (GiB)",
       "firstRunGib": "Limit of first backups (GiB)",
@@ -199,6 +212,8 @@
       "objectLimit": "own limit {limit}",
       "objectOwn": "own settings",
       "objectOff": "check off",
+      "objectHold": "holds large runs",
+      "objectWarn": "only notifies",
       "reset": "Reset",
       "save": "Save"
     },

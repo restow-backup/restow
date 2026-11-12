@@ -345,6 +345,10 @@ export function subjectKeyOf(event: ReportEvent, details: Record<string, unknown
   if (event === "backup.unusually_large" && typeof details.holdId === "string") {
     return `size_hold:${details.holdId}`;
   }
+  // A notice about one large run that went on (#99, `warn`): about that run.
+  if (event === "backup.unusually_large_notice" && typeof details.runId === "string") {
+    return `size_notice:${String(details.guardObjectKind ?? "")}:${details.runId}`;
+  }
   // An alert about a VM or container of Proxmox VE is about that guest.
   const guest = details.pveGuestId;
   if (typeof guest === "string" && guest.length > 0) {

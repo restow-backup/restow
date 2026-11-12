@@ -173,6 +173,12 @@ CPU/memory, whether co-hosted or not:
   stays on a real (disk-backed) volume; if you also want a filesystem-level
   quota under it, put `demo-pgdata`'s Docker data root on its own sized
   partition or LVM volume — outside the scope of this compose file.
+- **No emergency disk reserve, the small-target space rule.** The api writes no
+  disk reserve here (`RESTOW_DISK_RESERVE_MB: "0"`): `/data` is the 4 GB tmpfs,
+  RAM a 2 GiB file would take for nothing, and PostgreSQL is not on it. The space
+  rule of the backups keeps at most a quarter of a small target free, so on the
+  4 GB store backups are held only below 1 GiB free (docs/STORAGE.md, "Unusually
+  large runs"); no setting is needed for it.
 - **CPU/memory limits on every container** (`deploy.resources.limits` in
   `docker-compose.yml`), sized for the demo's small, fixed workload.
 - **Templates on the host disk are bounded**: two at most, each about the

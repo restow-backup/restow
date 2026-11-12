@@ -7,12 +7,15 @@
  * {@link RunSizeGuard} is one run's guard: asked before every upload with its size, it says
  * whether the upload may go. The first question decides the run's limit (its object's history and
  * settings), and whether an open hold of the object holds this run too or an approval lets it
- * through once. A run that passes its limit is held: a `run_size_holds` row, the event
- * `backup.unusually_large` once, and every further upload of the run is refused without asking
- * the database again.
+ * through once. A run that passes its size limit goes on with a notice when its object's size
+ * check is in `warn` mode (the default): the event `backup.unusually_large_notice` once per run
+ * (`run_size_runs.noticed_at`), no hold. In `hold` mode, and always for space, it is held: a
+ * `run_size_holds` row, the event `backup.unusually_large` once, and every further upload of the
+ * run is refused without asking the database again.
  */
 import {
   describeRunSizeHold,
+  describeRunSizeNotice,
   judgeRunSize,
   keepFreeBytes,
   parseRunSizeOverride,
@@ -51,6 +54,8 @@ import { settings as installationSettings } from "./schema/system.js";
 export type RunSizeTx = Pick<NodePgDatabase<any>, "select" | "insert" | "update" | "execute">;
 
 export const RUN_SIZE_EVENT = "backup.unusually_large";
+/** A run past its size limit that went on (`warn`, the default): not critical, no hold. */
+export const RUN_SIZE_NOTICE_EVENT = "backup.unusually_large_notice";
 
 /** How a run's object reads in a list and an alert, and the ids the alert's links need. */
 export interface RunSizeObject {
@@ -407,14 +412,21 @@ export class RunSizeGuard {
     const sizeOn = !state.lifts.size;
     const spaceOn = state.spaceRule.enabled && !state.lifts.space && !upload.metadata;
     const space = spaceOn ? await this.readSpace() : null;
-    const verdict = judgeRunSize({
-      settings: state.settings,
-      limit: sizeOn ? state.limit : { ...state.limit, limitBytes: null },
-      writtenBytes: this.written,
-      nextBytes,
-      space,
-      keepBytes: spaceOn ? keepFreeBytes(state.spaceRule, space) : null,
-    });
+    const judge = (limit: RunSizeLimit) =>
+      judgeRunSize({
+        settings: state.settings,
+        limit,
+        writtenBytes: this.written,
+        nextBytes,
+        space,
+        keepBytes: spaceOn ? keepFreeBytes(state.spaceRule, space) : null,
+      });
+    let verdict = judge(sizeOn ? state.limit : { ...state.limit, limitBytes: null });
+    if (verdict.hold && verdict.reason === "size" && state.settings.mode === "warn") {
+      // `warn` (the default): a notice once, the run goes on; the target's space still counts.
+      await this.notice(verdict, state.limit);
+      verdict = judge({ ...state.limit, limitBytes: null });
+    }
     if (verdict.hold) {
       return this.hold(verdict, state.limit);
     }
@@ -528,7 +540,19 @@ export class RunSizeGuard {
           : run?.exemption === "new_repository"
             ? { ...NEW_REPOSITORY_LIFTS }
             : { size: false, space: false };
-      const open = await openRunSizeHold(tx, kind, objectId);
+      if (run?.noticedAt) {
+        // The notice of this run went out already (another process, an earlier attempt).
+        lifts = { ...lifts, size: true };
+      }
+      let open = await openRunSizeHold(tx, kind, objectId);
+      if (open?.reason === "size" && open.status === "pending" && settings.mode === "warn") {
+        // A hold for size made in `hold` mode; the object warns now: the hold ends.
+        await tx
+          .update(runSizeHolds)
+          .set({ status: "resolved", resolution: "settings_changed", resolvedAt: this.now() })
+          .where(and(eq(runSizeHolds.id, open.id), eq(runSizeHolds.status, "pending")));
+        open = null;
+      }
       if (open?.status === "approved") {
         // Continue once: this run uses the approval; recorded on the run, so a restart, a second
         // process or a retry of the run keeps it.
@@ -611,6 +635,91 @@ export class RunSizeGuard {
       holdId: open.id,
     });
     return true;
+  }
+
+  /**
+   * The run passed its size limit and its object warns (`warn`): the notice
+   * `backup.unusually_large_notice` once per run (`run_size_runs.noticed_at`, so a restart or a
+   * retry raises none again), and no further size check for the run.
+   */
+  private async notice(
+    verdict: Extract<RunSizeVerdict, { reason: "size" }>,
+    limit: RunSizeLimit,
+  ): Promise<void> {
+    const state = this.state;
+    if (state.phase !== "watching" || state.lifts.size) {
+      return;
+    }
+    // Lifted at once: parallel uploads of the run raise no second notice.
+    this.state = { ...state, lifts: { ...state.lifts, size: true } };
+    const { tenantId, kind, objectId, runId } = this.deps;
+    const now = this.now();
+    try {
+      await this.flush(true).catch(() => undefined);
+      await this.deps.transaction(async (tx) => {
+        const object = await describeRunSizeObject(tx, kind, objectId);
+        const medianBytes = limit.medianBytes === null ? null : Math.round(limit.medianBytes);
+        const notice = {
+          objectName: object.name,
+          bytes: verdict.bytes,
+          limitBytes: verdict.limitBytes,
+          medianBytes,
+        };
+        if (runId !== null) {
+          const marked = await tx
+            .update(runSizeRuns)
+            .set({ noticedAt: now, notice })
+            .where(
+              and(
+                eq(runSizeRuns.objectKind, kind),
+                eq(runSizeRuns.runId, runId),
+                isNull(runSizeRuns.noticedAt),
+              ),
+            )
+            .returning({ id: runSizeRuns.id });
+          if (marked.length === 0) {
+            return;
+          }
+        }
+        await raiseReportEvents(
+          tx,
+          [
+            {
+              tenantId,
+              level: "warning",
+              event: RUN_SIZE_NOTICE_EVENT,
+              message: describeRunSizeNotice(object.name, notice),
+              details: {
+                objectKind: object.protectedKind ?? null,
+                guardObjectKind: kind,
+                guardObjectId: objectId,
+                objectName: object.name,
+                runId,
+                mode: "warn",
+                bytes: verdict.bytes,
+                limitBytes: verdict.limitBytes,
+                medianBytes,
+                ...object.ref,
+              },
+              createdAt: now,
+            },
+          ],
+          now,
+          { installationTimeZone: this.deps.installationTimeZone },
+        );
+      });
+    } catch (error) {
+      // Not recorded: the next upload asks again.
+      this.state = state;
+      throw error;
+    }
+    this.deps.log?.("warn", "a backup run is unusually large and goes on (warn mode)", {
+      kind,
+      objectId,
+      runId,
+      bytes: verdict.bytes,
+      limitBytes: verdict.limitBytes,
+    });
   }
 
   private async hold(

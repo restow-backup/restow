@@ -431,8 +431,9 @@ export function renderAlert(input: AlertInput): RenderedMessage {
       rows.push([t("reports:mail.todo"), t("reports:mail.reserveTodo")]);
     }
   }
-  if (event === "backup.unusually_large") {
-    // A run the size and space guard held (#99): how large it got, what is usual, what to do.
+  if (event === "backup.unusually_large" || event === "backup.unusually_large_notice") {
+    // A run the size and space guard held (#99), or one that passed its size limit and went on
+    // (`warn`): how large it got, what is usual, what to do.
     if (typeof details.bytes === "number") {
       rows.push([t("reports:mail.runSize"), formatGib(details.bytes, input.language)]);
     }
@@ -445,7 +446,14 @@ export function renderAlert(input: AlertInput): RenderedMessage {
     if (typeof details.freeBytes === "number") {
       rows.push([t("reports:mail.free"), formatGib(details.freeBytes, input.language)]);
     }
-    rows.push([t("reports:mail.todo"), t("reports:mail.runHeldTodo")]);
+    rows.push([
+      t("reports:mail.todo"),
+      t(
+        event === "backup.unusually_large"
+          ? "reports:mail.runHeldTodo"
+          : "reports:mail.runNoticeTodo",
+      ),
+    ]);
   }
   if (event === "installation.restore_mode") {
     // Restore mode came on by itself (a database dump was restored): what to do now.

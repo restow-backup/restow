@@ -46,6 +46,24 @@ export async function passkey(ctx, check) {
     return `passkey gate open for ${result.setup.passkeyReady.origin}`;
   });
 
+  // The space rule of the size and space guard (#99) keeps 5 % of a storage target free, at least
+  // 20 GiB (at most a quarter of a small target): on a CI runner with little free disk it would
+  // hold the smoke's backups into the local repository. The owner sets the installation's rule
+  // the way an operator of a small server does (Installation › Database); the smoke's backups
+  // are no test of the host's free space.
+  await check.step(
+    "the owner sets what storage targets keep free (64 MiB on this host)",
+    async () => {
+      const rule = await ctx.api.put("/api/v1/updates/space-rule", {
+        space: { percent: 0, minGib: 0.0625, maxGib: 0.0625 },
+      });
+      if (rule?.effective?.minBytes !== 64 * 1024 ** 2 || rule.effective.enabled !== true) {
+        throw new Error(`the installation's space rule is ${JSON.stringify(rule?.effective)}`);
+      }
+      return "5 % / 20 GiB lowered to 64 MiB, the rule stays on";
+    },
+  );
+
   await check.step(
     "the setup created the operator's own organisation: one tenant of kind internal, named as given",
     async () => {

@@ -189,6 +189,8 @@ describe("critical events (0.5.0)", () => {
       "installation.disk_reserve_released",
     ]);
     expect(isCriticalReportEvent("installation.disk_reserve_restored")).toBe(false);
+    // A large run that went on (the size check's default, `warn`, #99): a notice, not critical.
+    expect(isCriticalReportEvent("backup.unusually_large_notice")).toBe(false);
     expect(isCriticalReportEvent("backup.suspicious")).toBe(true);
     expect(isCriticalReportEvent("endpoint.backups_deleted")).toBe(false);
     expect(isCriticalReportEvent("backup.failed")).toBe(false);

@@ -57,6 +57,11 @@ storage, docs/STORAGE.md "Unusually large runs"), `installation.disk_low` and
 They are always sent at once (never held for a digest), always reach the floor, and always appear
 in the bell: the bell's column can no longer switch them off.
 
+`backup.unusually_large_notice` is not one of them: a backup run that wrote far more than usual
+and went on, because its object's size check only warns (the default). Nothing stopped, so it is
+an ordinary warning: delivered as each recipient's column and delivery mode say, and only to the
+rules that list it ("Unusually large backup, not stopped", next to the held one under Storage).
+
 ## Digests
 
 Every recipient chooses per severity (error, warning, notice): immediately, an hourly digest or a

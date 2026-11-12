@@ -52,6 +52,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   basic,
   type EndpointFixture,
+  keepLittleFree,
   resticAvailable,
   startFixture,
   testDatabaseAdminUrl,
@@ -91,6 +92,7 @@ describe.skipIf(!canRun)("endpoint backup against Postgres", () => {
 
   beforeAll(async () => {
     fixture = await startFixture(DATABASE);
+    await keepLittleFree(fixture.db);
     shared = await import("../../db.js");
     service = await import("./service.js");
     await import("./agent-service.js");
