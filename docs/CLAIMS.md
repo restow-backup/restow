@@ -1106,6 +1106,14 @@ Repository-Secrets eines Entwickler-Mandanten und wurde bisher in jedem Release 
 - Belegt gegen: echtes System (PostgreSQL 16, Job test in ci.yml)
 - Stand: belegt
 
+### ALERT-011
+- Aussage: Auch Sicherungen von Proxmox-VE-VMs werden gemessen: Was ein Lauf an neuen Daten in den Chunk-Speicher schreibt, gilt gegen die bisherigen VM-Läufe des Gasts. Standardmäßig löst ein ungewöhnlich großer Lauf einen Hinweis aus und läuft weiter, mit „Anhalten“ wird er angehalten und endet als „angehalten“; zu wenig freier Platz auf dem Speicherziel hält ihn immer an. Die erste Sicherung und ein Lauf ohne Basis-Wiederherstellungspunkt beginnen eine neue Kette und gelten nie als ungewöhnlich groß; ein erneutes Lesen nach verlorener Dirty-Bitmap zählt nur, was sich geändert hat.
+- Fundstelle: docs/STORAGE.md (Abschnitt „Unusually large runs“), docs/PVE.md (Abschnitt „Jobs, backups, retention“, „Unusually large backups“), CHANGELOG.md (0.5.0, #99)
+- Öffentliche Seite: nicht abgeglichen
+- Tests: apps/api/src/features/pve/vm-size-guard.pg.test.ts
+- Belegt gegen: echtes System (PostgreSQL 16, Job test in ci.yml)
+- Stand: belegt
+
 ## Archiv und Audit-Log (ARCHIVE)
 
 ### ARCHIVE-001
