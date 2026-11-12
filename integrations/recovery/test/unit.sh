@@ -212,6 +212,7 @@ says "build.sh --help" "--update-lock"
 # The lock hook runs in live-build's chroot without the build's environment: update-lock
 # mode reaches it only as the file build.sh leaves next to the lock.
 hook="$WORK/config/hooks/live/0500-restow-lockcheck.hook.chroot"
+# shellcheck disable=SC2016 # the literal text of the hook, not an expansion
 expect "the lock hook reads update-lock mode from a file" grep -q 'if \[ -f "\$dir/update-lock" \]' "$hook"
 refuse "the lock hook does not rely on the environment" grep -q 'RESTOW_UPDATE_LOCK' "$hook"
 expect "build.sh leaves the update-lock file for the hook" grep -q 'config/restow/update-lock' "$WORK/build.sh"
