@@ -75,7 +75,8 @@ refuse "a malformed snapshot time" rr_epoch_of_snapshot 20261020
 
 # --- packages.lock -----------------------------------------------------------------
 
-[ "$(rr_lock_count "$WORK/packages.lock")" = 0 ] && ok || fail "the committed lock has only its header (R14: the first lock comes from CI)"
+[ "$(rr_lock_count "$WORK/packages.lock")" -gt 0 ] && ok || fail "the committed lock has entries"
+expect "every line of the committed lock is <package> <version> <SHA-256>" rr_lock_complete "$WORK/packages.lock"
 [ "$(rr_lock_count "$FIXTURES/packages.lock")" = 3 ] && ok || fail "the fixture lock has three entries"
 expect "the image equals the lock" rr_lock_compare "$FIXTURES/packages.lock" "$FIXTURES/installed-same.txt"
 refuse "another version" rr_lock_compare "$FIXTURES/packages.lock" "$FIXTURES/installed-version.txt"
@@ -134,7 +135,8 @@ grep -q 'cache/packages.bootstrap/\*.deb config/restow/bootstrap-debs/' "$WORK/b
 # shellcheck disable=SC2016 # the hook's literal text
 grep -q '"$dir/bootstrap-debs"' "$WORK/config/hooks/live/0500-restow-lockcheck.hook.chroot" && ok ||
   fail "the lock hook does not read debootstrap's packages"
-refuse "Check-Valid-Until=false without a lock" rr_valid_until_allowed "$WORK/packages.lock" no
+grep '^#' "$WORK/packages.lock" >"$tmp/header-only.lock"
+refuse "Check-Valid-Until=false without a lock" rr_valid_until_allowed "$tmp/header-only.lock" no
 expect "Check-Valid-Until=false while writing the lock" rr_valid_until_allowed "$WORK/packages.lock" yes
 expect "Check-Valid-Until=false with a lock" rr_valid_until_allowed "$FIXTURES/packages.lock" no
 # The apt configuration of the build container and of live-build's chroot (rr_apt_conf):
@@ -315,8 +317,15 @@ status=0
 rr_parse_build_args --help >/dev/null 2>&1 || status=$?
 [ "$status" = 3 ] && ok || fail "--help"
 mkdir -p "$tmp/dist"
-refuse "build.sh with the header-only lock" sh "$WORK/build.sh" --agent-dist "$tmp/dist" --version 0.5.0 --out "$tmp/out"
+# A copy of the build tree with only the lock's header: build.sh refuses before anything else.
+mkdir -p "$tmp/tree"
+cp -R "$WORK/." "$tmp/tree/"
+cp "$tmp/header-only.lock" "$tmp/tree/packages.lock"
+refuse "build.sh with the header-only lock" sh "$tmp/tree/build.sh" --agent-dist "$tmp/dist" --version 0.5.0 --out "$tmp/out"
 says "build.sh with the header-only lock" "packages.lock has no entries"
+# With the committed lock it gets past the lock and asks for the agent build.
+refuse "build.sh without the agent build" sh "$WORK/build.sh" --agent-dist "$tmp/dist" --version 0.5.0 --out "$tmp/out"
+says "build.sh without the agent build" "restow-agent is missing"
 expect "build.sh --help" sh "$WORK/build.sh" --help
 says "build.sh --help" "--update-lock"
 # The lock hook runs in live-build's chroot without the build's environment: update-lock
