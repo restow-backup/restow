@@ -34,6 +34,8 @@ import { randomBytes } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import {
+  formatRecoveryCode,
+  generateRecoveryCode,
   hashRecoveryCodeProof,
   normalizeRecoveryCode,
   recoveryCodeProof,
@@ -1536,6 +1538,106 @@ describe.skipIf(!testDatabaseAdminUrl)("recovery codes and sessions", () => {
       const listed = await codes.listRecoveries(shared.db, fixture.tenantId, target.id);
       expect(listed.items.map((item) => item.id)).toContain(issued.id);
       expect(JSON.stringify(listed)).not.toMatch(/codeHash|sessionSecretHash|code_hash/);
+    });
+  });
+
+  describe("the boot probe of the lab (12.3)", () => {
+    /** A probe as the worker's lab API leases it: a code it made, no approval, three hours. */
+    async function probe(endpointId: string, snapshotId: string) {
+      const code = generateRecoveryCode();
+      const [row] = await fixture.db
+        .insert(endpointRecoveries)
+        .values({
+          tenantId: fixture.tenantId,
+          endpointId,
+          kind: "probe",
+          status: "issued",
+          codeHash: hashRecoveryCodeProof(recoveryCodeProof(ORIGIN, code)),
+          instanceOrigin: ORIGIN,
+          spkiSha256: SPKI,
+          requireApproval: false,
+          snapshotId,
+          expiresAt: new Date(Date.now() + 3 * 60 * 60 * 1000),
+        })
+        .returning();
+      return { id: row?.id as string, code: formatRecoveryCode(code) };
+    }
+
+    it("runs the recovery flow of a person without approval and without a security event", async () => {
+      const target = await machine();
+      const leased = await probe(target.id, target.snapshotId);
+      const iso = isoSide(leased.code, ORIGIN);
+      const response = await post("/sessions", exchangeBody(iso));
+      expect(response.status, await response.clone().text()).toBe(202);
+      expect(await response.json()).toMatchObject({ sessionId: leased.id, status: "active" });
+      expect(await recoveryAudits(leased.id)).toEqual(["endpoint.boot_probe.started"]);
+      const alerts = await fixture.db
+        .select()
+        .from(notifications)
+        .where(sql`${notifications.details}->>'recoveryId' = ${leased.id}`);
+      expect(alerts).toEqual([]);
+      const auth = sessionBasic(leased.id, iso.sessionSecret);
+      // The worker's, never an operator's: not the machine's running recovery, not to be read,
+      // revoked or cancelled through the recovery codes.
+      const { getBaremetalState } = await import("./baremetal.js");
+      expect(
+        (await getBaremetalState(shared.db, fixture.tenantId, target.id, new Date(), null))
+          .activeRecovery,
+      ).toBeNull();
+      for (const call of [
+        () => codes.getRecovery(shared.db, fixture.tenantId, target.id, leased.id),
+        () => codes.revokeRecoveryCode(shared.db, fixture.tenantId, target.id, leased.id, actor()),
+        () => codes.cancelRecovery(shared.db, fixture.tenantId, target.id, leased.id, actor()),
+      ]) {
+        await expect(call()).rejects.toMatchObject({ status: 404 });
+      }
+      expect((await stored(leased.id))?.status).toBe("active");
+      // It is outside the three open codes of the machine, and not among them.
+      for (let i = 0; i < 3; i++) await issue(target.id);
+      const listed = await codes.listRecoveries(shared.db, fixture.tenantId, target.id);
+      expect(listed.items.map((item) => item.id)).not.toContain(leased.id);
+      // A failed probe is the worker's to rate: no endpoint.recovery.failed.
+      const finish = await post(
+        "/sessions/current/finish",
+        { status: "failed", verification: {}, warnings: [], durationSeconds: 60 },
+        auth,
+      );
+      expect(finish.status, await finish.clone().text()).toBe(200);
+      expect((await stored(leased.id))?.status).toBe("failed");
+      const failed = await fixture.db
+        .select()
+        .from(notifications)
+        .where(
+          and(
+            eq(notifications.event, "endpoint.recovery.failed"),
+            sql`${notifications.details}->>'recoveryId' = ${leased.id}`,
+          ),
+        );
+      expect(failed).toEqual([]);
+    });
+
+    it("never rebinds the machine from a probe, also after a verified success", async () => {
+      const target = await machine();
+      const leased = await probe(target.id, target.snapshotId);
+      const iso = isoSide(leased.code, ORIGIN);
+      expect((await post("/sessions", exchangeBody(iso))).status).toBe(202);
+      const auth = sessionBasic(leased.id, iso.sessionSecret);
+      const finish = await post(
+        "/sessions/current/finish",
+        {
+          status: "succeeded",
+          verification: verificationReport(target.snapshotId),
+          warnings: [],
+          durationSeconds: 600,
+        },
+        auth,
+      );
+      expect(await finish.json()).toEqual({ status: "succeeded" });
+      const locked = await post("/sessions/current/rebind", { token: "not-a-token" }, auth);
+      expect(locked.status).toBe(409);
+      const access = await cache.loadRecoverySession(leased.id);
+      if (!access) throw new Error("no session");
+      expect(() => service.assertRebindAllowed(access, Date.now())).toThrow(/boot probe/);
     });
   });
 

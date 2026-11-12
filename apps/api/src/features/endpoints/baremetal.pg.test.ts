@@ -611,4 +611,189 @@ describe.skipIf(!testDatabaseAdminUrl)("layouts of whole machine backups", () =>
     );
     expect(detail.reports.map((report) => report.kind)).toEqual(["retention"]);
   });
+
+  /** A boot probe report of the worker (docs/BAREMETAL.md 12.3). */
+  async function probeReport(
+    who: { id: string },
+    readiness: "green" | "red" | "yellow" | null,
+    summary: Record<string, unknown>,
+    checkedAt = new Date(),
+  ) {
+    const [row] = await fixture.db
+      .insert(endpointReports)
+      .values({
+        tenantId: fixture.tenantId,
+        endpointId: who.id,
+        kind: "boot_probe",
+        origin: "server",
+        readiness,
+        checkedAt,
+        summary: summary as never,
+      })
+      .returning();
+    return row;
+  }
+
+  const LAB = (now: Date, kvm = true) => ({
+    seenAt: new Date(now.getTime() - 60_000).toISOString(),
+    version: "0.5.0",
+    kvm,
+  });
+
+  it("is green only with a passed boot probe of the same fingerprints, at most 8 days old [READY-014] [READY-015]", async () => {
+    const who = await machine({ config: { wholeMachine: true } });
+    const run = await backup(who, { layout: manifest(DEBIAN) });
+    await checkReport(who, run, "green");
+    const now = new Date();
+    const card = (at = now, lab: ReturnType<typeof LAB> | null = LAB(now)) =>
+      baremetal.getBaremetalState(shared.db, fixture.tenantId, who.id, at, lab);
+    const fingerprints = {
+      layoutFingerprint: fingerprintOf(DEBIAN),
+      bootChainFingerprint: "c".repeat(64),
+    };
+    // Stage 1 alone is "layout checked", and the card says why no probe proved the boot.
+    expect(await card(now, null)).toMatchObject({
+      state: "layout_checked",
+      probe: { reason: "no_lab", lab: { present: false, kvm: false }, latest: null },
+    });
+    expect(await card(now, LAB(now, false))).toMatchObject({
+      state: "layout_checked",
+      probe: { reason: "no_kvm" },
+    });
+    expect(await card()).toMatchObject({ state: "layout_checked", probe: { reason: "planned" } });
+
+    const green = await probeReport(
+      who,
+      "green",
+      {
+        ...fingerprints,
+        cause: { kind: "booted", line: "RESTOW-PROBE-OK x 6.1.0-27-amd64" },
+        firmware: "uefi-sb",
+        controllers: ["sata"],
+        kvm: true,
+        emptyFilesystems: ["/home"],
+        emptyDirs: [],
+        restoreBytes: 9,
+        serialTail: "RESTOW-PROBE-OK x 6.1.0-27-amd64",
+      },
+      new Date(now.getTime() - 60_000),
+    );
+    expect(await card()).toMatchObject({
+      state: "green",
+      probe: {
+        reason: null,
+        latest: {
+          reportId: green?.id,
+          readiness: "green",
+          firmware: "uefi-sb",
+          controllers: ["sata"],
+          emptyFilesystems: ["/home"],
+          serialTail: "RESTOW-PROBE-OK x 6.1.0-27-amd64",
+        },
+      },
+    });
+    // Green also without the lab, for 8 days; then overdue.
+    expect((await card(now, null)).state).toBe("green");
+    // The readiness overview's "Bare Metal" column rates the same; a machine not backed up as a
+    // whole has none.
+    const plain = await machine();
+    const { loadEndpointOverview } = await import("./overview.js");
+    const overview = await tenantContext.withTenantTx(shared.db, fixture.tenantId, (tx) =>
+      loadEndpointOverview(tx, fixture.tenantId, now),
+    );
+    const rowOf = (id: string) => overview.rows.find((row) => row.id === id);
+    expect(rowOf(who.id)?.baremetal).toBe("green");
+    if (rowOf(plain.id)) expect(rowOf(plain.id)?.baremetal).toBeNull();
+    expect((await card(new Date(now.getTime() + 8 * 24 * 3600_000 + 120_000), null)).state).toBe(
+      "overdue",
+    );
+    // A changed boot chain is another system: the probe of the old one proves nothing for it.
+    await checkReport(who, run, "green", { bootChainFingerprint: "d".repeat(64) });
+    expect(await card()).toMatchObject({ state: "layout_checked", probe: { reason: "planned" } });
+    // A probe that proved nothing (yellow) leaves it there; a red one with evidence makes it red.
+    await probeReport(who, "yellow", { ...fingerprints, bootChainFingerprint: "d".repeat(64) });
+    expect(await card()).toMatchObject({
+      state: "layout_checked",
+      probe: { reason: "incomplete" },
+    });
+    await probeReport(who, "red", {
+      ...fingerprints,
+      bootChainFingerprint: "d".repeat(64),
+      cause: { kind: "boot_failed", pattern: "emergency_mode", line: "You are in emergency mode." },
+    });
+    expect(await card()).toMatchObject({ state: "red", probe: { latest: { readiness: "red" } } });
+    // Neither kind of report is listed among the machine's others.
+    const service = await import("./service.js");
+    const detail = await service.getEndpoint(
+      shared.db,
+      fixture.tenantId,
+      who.id,
+      "https://restow.test.example",
+    );
+    expect(detail.reports.map((report) => report.kind)).toEqual([]);
+  });
+
+  it("plans a probe on request once, only with a green stage 1 and a lab with KVM", async () => {
+    const { config } = await import("../../config.js");
+    const { requestBootProbe } = baremetal;
+    const actor = { label: "admin@contoso.example", userId: fixture.adminId, ip: "192.0.2.1" };
+    const now = new Date();
+    const who = await machine({ config: { wholeMachine: true } });
+    const run = await backup(who, { layout: manifest(DEBIAN) });
+    const reasonOf = async (promise: Promise<unknown>) => {
+      try {
+        await promise;
+      } catch (error) {
+        return (error as { status: number; extensions?: { reason?: string } }).extensions?.reason;
+      }
+      return "planned";
+    };
+    const previewBefore = config.baremetalPreview;
+    config.baremetalPreview = true;
+    try {
+      const ask = (lab: ReturnType<typeof LAB> | null) =>
+        requestBootProbe(shared.db, fixture.tenantId, who.id, actor, now, lab);
+      expect(await reasonOf(ask(null))).toBe("no_lab");
+      expect(await reasonOf(ask(LAB(now, false)))).toBe("no_kvm");
+      expect(await reasonOf(ask(LAB(now)))).toBe("not_checked");
+      await checkReport(who, run, "green");
+      const first = await ask(LAB(now));
+      expect(first.state).toBe("planned");
+      // Asked twice, or while it runs: the open probe answers.
+      expect(await ask(LAB(now))).toEqual(first);
+      const rows = await fixture.db
+        .select()
+        .from(endpointRecoveries)
+        .where(eq(endpointRecoveries.endpointId, who.id));
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        kind: "probe",
+        status: "issued",
+        codeHash: null,
+        requireApproval: false,
+        snapshotId: run.snapshotId,
+        createdBy: fixture.adminId,
+      });
+      const audits = await fixture.db.execute<{ action: string }>(
+        sql`SELECT action FROM audit_log WHERE details->>'recoveryId' = ${first.id}`,
+      );
+      expect(audits.rows.map((row) => row.action)).toEqual(["endpoint.boot_probe.requested"]);
+      const card = await baremetal.getBaremetalState(
+        shared.db,
+        fixture.tenantId,
+        who.id,
+        now,
+        LAB(now),
+      );
+      expect(card).toMatchObject({ state: "layout_checked", probe: { pending: "planned" } });
+      // A probe is no recovery of the machine: neither listed nor its running session.
+      const codes = await import("./recovery-codes.js");
+      expect((await codes.listRecoveries(shared.db, fixture.tenantId, who.id)).items).toEqual([]);
+      expect(card.activeRecovery).toBeNull();
+      config.baremetalPreview = false;
+      expect(await reasonOf(ask(LAB(now)))).toBe("preview_off");
+    } finally {
+      config.baremetalPreview = previewBefore;
+    }
+  });
 });

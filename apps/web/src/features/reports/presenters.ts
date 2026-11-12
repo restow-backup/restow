@@ -127,6 +127,9 @@ export const EVENT_GROUPS: Record<
     "endpoint.recovery_code.rejected",
     "endpoint.rebound",
     "endpoint.recovery.failed",
+    "baremetal.red",
+    "baremetal.recovered",
+    "baremetal.overdue",
   ],
   storage: [
     "scrub.corrupt",

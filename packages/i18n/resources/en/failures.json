@@ -523,6 +523,14 @@
         "title": "The disk layout of the machine could not be recorded",
         "why": "A whole machine backup records the disk layout (partition tables, RAID, encryption, LVM, file systems, boot loader) before it backs up. That failed, for example because lsblk, blkid or sfdisk are missing on the machine. The mounted file systems were backed up anyway, so the backup is partial: the files are there, but this restore point cannot restore the machine onto new hardware."
       },
+      "baremetal_check_failed": {
+        "title": "The bare metal check of the newest whole machine backup failed",
+        "why": "Stage 1 of the bare metal check read the newest whole machine backup and found a problem that would stop a restore onto new hardware: for example missing system files, a layout the recovery cannot rebuild or a boot chain that would not start. The files of the backup are not affected; the machine cannot be restored as a whole from it until the cause is fixed."
+      },
+      "boot_probe_failed": {
+        "title": "The boot probe of the newest whole machine backup failed",
+        "why": "The recovery lab restored the newest whole machine backup onto a virtual machine with other hardware and started it. {reason, select, boot_failed {The restored system did not start: the serial console shows a fixed failure pattern.} recovery_failed {The recovery itself found a problem of the backup.} verification_failed {The check after the recovery failed.} other {It found a problem of the backup.}} A restore onto new hardware would most likely end the same way."
+      },
       "source_unreadable": {
         "title": "A backup folder could not be read",
         "why": "{has_path, select, yes {The backup path {path}} other {A backup path}} exists on the machine but could not be backed up, so it is missing from this backup. Usual reasons are a drive locked by BitLocker, a drive that is offline or not ready, missing permissions of the agent, or a link that restic does not follow. Any other paths of the run that could be read were backed up."
@@ -897,6 +905,8 @@
     "check_endpoint_snapshot": "On a Windows machine, check the shadow copy as administrator: `vssadmin list writers` (every writer should be \"Stable\" with no error) and the Event Viewer under Windows Logs > Application, source VSS. On a Linux machine, check the free space of the volume group (`vgs`) or of the btrfs file system (`btrfs filesystem usage <mount>`) and the kernel log (`journalctl -k`). If another backup runs at the same time, move one of them.",
     "check_endpoint_snapshot_service": "On a Windows machine, open services.msc as administrator: the services \"Volume Shadow Copy\" (VSS) and \"Microsoft Software Shadow Copy Provider\" must not be disabled (startup type \"Manual\") and must start. If the run says that Windows denied access, check that the agent runs as the RestowAgent service under the SYSTEM account and that the COM security (dcomcnfg: Component Services > Computers > My Computer > Properties > COM Security) or a security product does not block it. The Event Viewer under Windows Logs > Application, sources VSS and VolSnap, names the error. On a Linux machine, check that the LVM or btrfs tools are installed and the agent runs as root. To back up without a snapshot, switch it off in the machine's settings.",
     "check_endpoint_layout_tools": "Install lsblk, blkid and sfdisk (util-linux/fdisk) on the machine, then run the backup again. The technical message names the part that failed.",
+    "read_baremetal_report": "Open the machine's page and read the bare metal report: it names the check or the console line and what to change on the machine. Then run a backup again.",
+    "run_boot_probe_again": "After fixing the cause on the machine and running a backup, start the boot probe again on the machine's page (Probe now).",
     "check_endpoint_agent": "Check that the agent service is running on the machine and that the machine can reach the server over HTTPS.",
     "check_endpoint_file_access": "Check the permissions of the files named in the run. Databases and other files that change while they are copied are best dumped by a command that runs before the backup.",
     "choose_empty_restore_folder": "Request the restore again and choose a folder that does not exist yet or is empty. A restore never overwrites files.",

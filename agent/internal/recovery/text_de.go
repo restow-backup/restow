@@ -341,6 +341,7 @@ var textDE = map[string]string{
 	"step.restore":         "Dateien des Snapshots wiederherstellen",
 	"step.restore_verify":  "Systempfade vollständig mit dem Snapshot vergleichen",
 	"step.mkdirs":          "Einhängepunkte und API-Ordner anlegen, die dem Snapshot fehlen können",
+	"step.probe_boot":      "Das wiederhergestellte System meldet seinen Start auf der seriellen Konsole (Startprobe)",
 	"step.fixup":           "Geräteverweise in {target} umschreiben",
 	"step.keyfile":         "Neue Schlüsseldatei für {target} erzeugen und als zweiten Schlüssel-Slot eintragen",
 	"step.swapfile":        "Swap-Datei {target} neu anlegen",

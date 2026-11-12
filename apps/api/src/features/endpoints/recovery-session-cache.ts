@@ -1,6 +1,7 @@
 import { RECOVERY_SESSION_CACHE_MS } from "@restow/core";
 import {
   acquireEndpointRepositoryLock,
+  type EndpointRecoveryKind,
   type EndpointRecoveryStatus,
   EndpointRepositoryBusyError,
   endpointRecoveries,
@@ -24,6 +25,8 @@ export interface RecoverySessionAccess {
   id: string;
   tenantId: string;
   endpointId: string;
+  /** `probe`: a boot probe of the lab (docs/BAREMETAL.md 12.3). */
+  kind: EndpointRecoveryKind;
   status: EndpointRecoveryStatus;
   secretHash: string | null;
   expiresAt: Date;
@@ -45,6 +48,7 @@ export async function loadRecoverySession(
       id: endpointRecoveries.id,
       tenantId: endpointRecoveries.tenantId,
       endpointId: endpointRecoveries.endpointId,
+      kind: endpointRecoveries.kind,
       status: endpointRecoveries.status,
       secretHash: endpointRecoveries.sessionSecretHash,
       expiresAt: endpointRecoveries.expiresAt,

@@ -36,6 +36,9 @@ export const REPORT_EVENTS = [
   "endpoint.recovery_code.rejected",
   "endpoint.rebound",
   "endpoint.recovery.failed",
+  "baremetal.red",
+  "baremetal.recovered",
+  "baremetal.overdue",
   "endpoint.sql_red",
   "endpoint.sql_recovered",
   "endpoint.sql_overdue",
@@ -156,6 +159,11 @@ export const REPORT_EVENT_INFO: Readonly<Record<ReportEvent, ReportEventInfo>> =
   // A bare metal recovery ended as failed: reported so by the ISO, not released within 30 minutes,
   // or silent past its expiry.
   "endpoint.recovery.failed": { group: "recoverability", level: "error" },
+  // Bare metal (docs/BAREMETAL.md 12.6): stage 1 or the boot probe rated a machine red (once per
+  // episode), a red one is no longer red, or its green boot probe is older than 8 days (once).
+  "baremetal.red": { group: "recoverability", level: "error" },
+  "baremetal.recovered": { group: "recoverability", level: "info" },
+  "baremetal.overdue": { group: "recoverability", level: "warning" },
   // The check of a SQL Server database restored from the repository found damage (CHECKDB, a
   // damaged backup, another SHA-256), a red database is green again, or no check of a backed-up
   // database was green for more than 8 days (W2a, docs/BAREMETAL-WINDOWS.md 5.1.7). Once each.

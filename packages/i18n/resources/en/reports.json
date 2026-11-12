@@ -456,6 +456,11 @@
       "unproven": "Boot test without proof",
       "skipped": "No boot test result"
     },
+    "baremetal": {
+      "red": "Bare metal restore check failed",
+      "recovered": "Bare metal restore check passes again",
+      "overdue": "Boot probe overdue"
+    },
     "scrub": {
       "corrupt": "Storage damage found",
       "repaired": "Storage damage repaired"
@@ -538,6 +543,11 @@
       "failed": "A Proxmox VE restore point did not boot: restoring it to a temporary guest, starting it or its boot failed.",
       "unproven": "A VM restored from a Proxmox VE restore point started and kept running, but its QEMU Guest Agent never answered, so nothing proves the system inside works.",
       "skipped": "A guest's job boot-tests it, but for longer than its schedule allows (two days after every backup, eight days weekly) every boot test was skipped or could not be carried out. The message names the last reason."
+    },
+    "baremetal": {
+      "red": "The newest whole machine backup of a server or client would not restore onto new hardware: stage 1 of the bare metal check or the boot probe in the recovery lab found a problem of the backup. Once per episode.",
+      "recovered": "A server or client whose bare metal check was red passes it again.",
+      "overdue": "The last passed boot probe of a whole machine backup is older than 8 days, so the machine no longer counts as proven bootable."
     },
     "scrub": {
       "corrupt": "The storage check found damaged or missing pack files.",
@@ -774,6 +784,11 @@
       "failed": "Boot test failed: {object}",
       "unproven": "Boot test without proof: {object}",
       "skipped": "No boot test result: {object}"
+    },
+    "baremetal": {
+      "red": "Bare metal restore check failed: {object}",
+      "recovered": "Bare metal restore check passes again: {object}",
+      "overdue": "Boot probe overdue: {object}"
     },
     "scrub": {
       "corrupt": "Storage damage found",

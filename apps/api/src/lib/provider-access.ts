@@ -759,6 +759,9 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   // machine's serial numbers only for those who configure machines.
   "GET /api/v1/endpoints/:id/baremetal": view(),
   "GET /api/v1/endpoints/:id/baremetal/layouts/:layoutId": configure(),
+  // "Probe now" (docs/BAREMETAL.md 12.3): a check that restores a copy in the lab, like checking
+  // a backup; nothing leaves the installation.
+  "POST /api/v1/endpoints/:id/baremetal/probe": operate(),
   // Bare metal recovery (docs/BAREMETAL.md 9, 11): a code hands out the machine's repository
   // password to the ISO, a session reads all of its backups, a rebind token gives the machine a
   // new agent secret. All of it, and the ISO's download facts, is configuration work.

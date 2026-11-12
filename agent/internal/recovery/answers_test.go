@@ -60,9 +60,8 @@ func TestAnswersSourceRules(t *testing.T) {
 	if _, err := LoadAnswers(SourceFWCfg, []byte(httpURL), true); err != nil {
 		t.Errorf("http:// from fw_cfg in QEMU: %v", err)
 	}
-	probe := strings.Replace(clean, `"afterSuccess"`, `"probe": {"x": 1}, "afterSuccess"`, 1)
-	if _, err := LoadAnswers(SourceFWCfg, []byte(probe), true); err == nil || !strings.Contains(err.Error(), "newer ISO") {
-		t.Errorf("probe: %v", err)
+	if _, err := LoadAnswers(SourceFWCfg, []byte(strings.Replace(clean, `"afterSuccess"`, `"probe": {"x": 1}, "afterSuccess"`, 1)), true); err == nil {
+		t.Error("an unknown key of the probe block was accepted")
 	}
 	unknown := strings.Replace(clean, `"afterSuccess"`, `"surprise": true, "afterSuccess"`, 1)
 	if _, err := LoadAnswers(SourceFWCfg, []byte(unknown), true); err == nil {
@@ -125,5 +124,40 @@ func TestKeymaps(t *testing.T) {
 	}
 	if got := strings.Join(CkbcompArgs("de", "nodeadkeys"), " "); got != "ckbcomp de nodeadkeys" {
 		t.Error(got)
+	}
+}
+
+// TestAnswersProbe: the lab's probe block is read only from fw_cfg in a
+// QEMU machine, with a code, without a reconnect token and with power-off
+// at the end, and only with clean absolute paths (12.3).
+func TestAnswersProbe(t *testing.T) {
+	probe := strings.NewReplacer(`"rebindToken": "rset_abc",`, "",
+		`"afterSuccess"`, `"probe": {"fullRestore": ["/", "/boot"], "emptyFilesystems": ["/home"], "emptyDirs": ["/var/lib/postgresql"]}, "afterSuccess"`).Replace(fullAnswers)
+	a, err := LoadAnswers(SourceFWCfg, []byte(probe), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if o := a.Probe.Options(); o == nil || o.EmptyFilesystems[0] != "/home" || o.EmptyDirs[0] != "/var/lib/postgresql" {
+		t.Errorf("options %+v", o)
+	}
+	if (*AnswersProbe)(nil).Options() != nil {
+		t.Error("no probe block gives options")
+	}
+	for name, bad := range map[string]string{
+		"rebind":   strings.Replace(probe, `"code":`, `"rebindToken": "rset_abc", "code":`, 1),
+		"reboot":   strings.Replace(probe, `"afterSuccess": "poweroff"`, `"afterSuccess": "reboot"`, 1),
+		"relative": strings.Replace(probe, `["/home"]`, `["home"]`, 1),
+		"dotdot":   strings.Replace(probe, `["/home"]`, `["/home/../etc"]`, 1),
+	} {
+		if _, err := LoadAnswers(SourceFWCfg, []byte(bad), true); err == nil {
+			t.Errorf("%s accepted", name)
+		}
+	}
+	// Never from a medium or a file: on real hardware it would leave data out.
+	clean := strings.NewReplacer(`"code": "RC-0A1B2-C3D4E-F5G6H-J7K8M-N9P0Q",`, "", `"passphrase": "correct-horse-battery",`, "").Replace(probe)
+	for _, src := range []Source{SourceMedia, SourceFile} {
+		if _, err := LoadAnswers(src, []byte(clean), true); err == nil || !strings.Contains(err.Error(), "fw_cfg") {
+			t.Errorf("%s: %v", src, err)
+		}
 	}
 }

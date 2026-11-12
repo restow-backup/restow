@@ -456,6 +456,11 @@
       "unproven": "Startprüfung ohne Nachweis",
       "skipped": "Kein Ergebnis der Startprüfung"
     },
+    "baremetal": {
+      "red": "Bare-Metal-Prüfung nicht bestanden",
+      "recovered": "Bare-Metal-Prüfung wieder bestanden",
+      "overdue": "Startprobe überfällig"
+    },
     "scrub": {
       "corrupt": "Speicherschaden gefunden",
       "repaired": "Speicherschaden behoben"
@@ -538,6 +543,11 @@
       "failed": "Ein Sicherungsstand aus Proxmox VE ist nicht gestartet: Die Wiederherstellung als temporärer Gast, sein Start oder sein Hochfahren ist fehlgeschlagen.",
       "unproven": "Eine aus einem Sicherungsstand von Proxmox VE wiederhergestellte VM ist gestartet und lief weiter, aber ihr QEMU Guest Agent hat nie geantwortet. Damit ist nicht nachgewiesen, dass das System darin funktioniert.",
       "skipped": "Der Job eines Gastes sieht Startprüfungen vor, aber länger, als sein Zeitplan erlaubt (zwei Tage bei Prüfung nach jeder Sicherung, acht Tage bei wöchentlicher), wurde jede Startprüfung übersprungen oder konnte nicht durchgeführt werden. Die Meldung nennt den letzten Grund."
+    },
+    "baremetal": {
+      "red": "Die neueste Sicherung des ganzen Rechners eines Servers oder Clients ließe sich nicht auf neuer Hardware wiederherstellen: Stufe 1 der Bare-Metal-Prüfung oder die Startprobe im Wiederherstellungslabor hat ein Problem der Sicherung gefunden. Einmal je Episode.",
+      "recovered": "Ein Server oder Client, dessen Bare-Metal-Prüfung rot war, besteht sie wieder.",
+      "overdue": "Die letzte bestandene Startprobe einer Sicherung des ganzen Rechners ist älter als 8 Tage; der Rechner gilt damit nicht mehr als nachweislich startfähig."
     },
     "scrub": {
       "corrupt": "Die Speicherprüfung hat beschädigte oder fehlende Pack-Dateien gefunden.",
@@ -774,6 +784,11 @@
       "failed": "Startprüfung nicht bestanden: {object}",
       "unproven": "Startprüfung ohne Nachweis: {object}",
       "skipped": "Kein Ergebnis der Startprüfung: {object}"
+    },
+    "baremetal": {
+      "red": "Bare-Metal-Prüfung nicht bestanden: {object}",
+      "recovered": "Bare-Metal-Prüfung wieder bestanden: {object}",
+      "overdue": "Startprobe überfällig: {object}"
     },
     "scrub": {
       "corrupt": "Speicherschaden gefunden",

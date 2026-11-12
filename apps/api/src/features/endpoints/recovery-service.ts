@@ -359,6 +359,22 @@ export async function exchangeRecoveryCode(
         return null;
       }
       const summary = hardwareSummaryOf(input.hardware);
+      if (row.kind === "probe") {
+        // The lab's boot probe (docs/BAREMETAL.md 12.3): audited, but no security event; the
+        // worker issued the code itself and rates the probe.
+        await auditEndpoint(tx, {
+          tenantId: row.tenantId,
+          actor: recoveryActor(row.id, context.ip),
+          action: ENDPOINT_AUDIT_ACTIONS.bootProbeStarted,
+          endpointId: row.endpointId,
+          details: {
+            recoveryId: row.id,
+            recoveryVersion: input.recoveryVersion,
+            hardware: summary,
+          },
+        });
+        return claimed;
+      }
       await auditEndpoint(tx, {
         tenantId: row.tenantId,
         actor: recoveryActor(row.id, context.ip),
@@ -1075,7 +1091,9 @@ export async function finishSession(
           reportedBy: "iso",
         },
       });
-      if (status === "failed") {
+      // A failed boot probe is the worker's to rate and announce (baremetal.red), not a failed
+      // recovery of the machine.
+      if (status === "failed" && access.kind !== "probe") {
         const name = await endpointNameOf(tx, access.endpointId);
         await raiseTenantEvent(tx, {
           tenantId: access.tenantId,
@@ -1108,6 +1126,10 @@ export async function finishSession(
 
 /** `rebind` is for a session that finished well, at most 15 minutes ago (10.19). */
 export function assertRebindAllowed(access: RecoverySessionAccess, now: number): void {
+  if (access.kind === "probe") {
+    // A probe restores a copy in the lab: it never takes the machine's place.
+    throw stateConflict(access.status, "The session of a boot probe never rebinds the machine.");
+  }
   if (
     access.status !== "succeeded" ||
     access.finishedAt === null ||

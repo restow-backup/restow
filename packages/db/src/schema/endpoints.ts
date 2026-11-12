@@ -101,6 +101,8 @@ export const endpointReportKindEnum = pgEnum("endpoint_report_kind", [
   "sql_verify",
   // Bare metal stage 1 (docs/BAREMETAL.md 12.1): layout and boot chain of a whole machine snapshot.
   "baremetal_check",
+  // Bare metal stage 2 (docs/BAREMETAL.md 12.3): the snapshot restored and booted in the lab.
+  "boot_probe",
 ]);
 
 export type EndpointProfile = (typeof endpointProfileEnum.enumValues)[number];
@@ -751,8 +753,12 @@ export const endpointRecoveryStatusEnum = pgEnum("endpoint_recovery_status", [
   "revoked",
 ]);
 
-/** `code`: a recovery code for the ISO (M3). Boot probes and macOS migrations come later. */
-export const endpointRecoveryKindEnum = pgEnum("endpoint_recovery_kind", ["code"]);
+/**
+ * `code`: a recovery code for the ISO (M3). `probe`: a boot probe of the lab (M5, docs/BAREMETAL.md
+ * 12.3), which runs the same code exchange and session without an operator. macOS migrations come
+ * later.
+ */
+export const endpointRecoveryKindEnum = pgEnum("endpoint_recovery_kind", ["code", "probe"]);
 
 export type EndpointRecoveryStatus = (typeof endpointRecoveryStatusEnum.enumValues)[number];
 export type EndpointRecoveryKind = (typeof endpointRecoveryKindEnum.enumValues)[number];

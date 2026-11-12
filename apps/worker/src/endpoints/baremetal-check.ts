@@ -36,6 +36,7 @@ import {
   type PlannerOutcome,
   type PlannerRuns,
   type PlanTarget,
+  ProbeFolderCounter,
   parseLayoutManifest,
   parseRunConsistency,
   planFactsOf,
@@ -91,6 +92,8 @@ interface SnapshotReading {
   restoreSizes: Record<string, RestoreSize>;
   /** Targets with more files than the counter remembers: their sizes are an upper bound. */
   restoreSizesUpperBound: string[];
+  /** The sizes of the folders a boot probe may leave empty (12.3; at most the 200 largest). */
+  folderSizes: Record<string, number>;
 }
 
 /** The snapshot is not in the repository (forgotten by retention since the job was queued). */
@@ -149,10 +152,12 @@ async function readSnapshot(
   const files = new Map<string, DumpedFile>();
   let restoreSizes: Record<string, RestoreSize> = {};
   let restoreSizesUpperBound: string[] = [];
+  let folderSizes: Record<string, number> = {};
   if (manifest) {
     // One walk over the whole tree: restore sizes, the sources and the boot chain.
     const collector = new StageOneCollector(stageOneWanted(manifest));
     const counter = new RestoreSizeCounter(restoreSizeTargets(manifest));
+    const folders = new ProbeFolderCounter();
     try {
       await resticWalk(
         session,
@@ -160,6 +165,7 @@ async function readSnapshot(
         (node) => {
           collector.add(node.path, { type: node.type, size: node.size, mtime: node.mtime });
           counter.add(node);
+          folders.add(node);
         },
         { signal },
       );
@@ -170,6 +176,7 @@ async function readSnapshot(
     for (const [path, count] of collector.childCounts) childCounts.set(path, count);
     restoreSizes = counter.result();
     restoreSizesUpperBound = counter.upperBounds();
+    folderSizes = folders.result();
     for (const dump of stageOneDumps(manifest, nodes)) {
       try {
         files.set(
@@ -190,6 +197,7 @@ async function readSnapshot(
     files,
     restoreSizes,
     restoreSizesUpperBound,
+    folderSizes,
   };
 }
 
@@ -387,6 +395,7 @@ export async function endpointBaremetalCheck(
     checks: result.checks,
     restoreSizes: reading.restoreSizes,
     restoreSizesUpperBound: reading.restoreSizesUpperBound,
+    folderSizes: reading.folderSizes,
     minimumSizes: minimumSizesOf(planner),
     planner: planner
       ? {

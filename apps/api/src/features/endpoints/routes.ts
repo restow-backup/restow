@@ -30,7 +30,7 @@ import {
   updateTenantAgentPolicy,
 } from "./agent-policy.js";
 import type { EndpointActor } from "./audit.js";
-import { getBaremetalState, getLayout } from "./baremetal.js";
+import { getBaremetalState, getLayout, requestBootProbe } from "./baremetal.js";
 import { cancelEndpointBackup, requestEndpointUpdate } from "./cancel.js";
 import { instanceUrl } from "./instance-url.js";
 import { ENDPOINT_PROBLEMS } from "./problems.js";
@@ -162,6 +162,8 @@ import {
  *   GET    /:id/baremetal                       bare metal (preview): state, the newest layout's summary
  *                                               and verdict, the snapshot hint (restore operators too)
  *   GET    /:id/baremetal/layouts/:layoutId     one layout with its full manifest (serial numbers; admins)
+ *   POST   /:id/baremetal/probe                 plan a boot probe of the newest whole machine backup
+ *                                               in the lab now (docs/BAREMETAL.md 12.3; admins)
  *   POST   /:id/recovery-codes                  issue a recovery code for the ISO, shown once (bare metal,
  *                                               docs/BAREMETAL.md 9.2; admins, recent sign-in)
  *   POST   /:id/recovery-codes/:codeId/revoke   revoke a code nobody redeemed (admins)
@@ -492,6 +494,11 @@ endpointsRoutes.get("/:id/browse", restorer, async (c) => {
 endpointsRoutes.get("/:id/baremetal", restorer, async (c) => {
   const { id } = parseOrProblem(endpointIdParamSchema, c.req.param());
   return c.json(await getBaremetalState(db, c.get("tenantId"), id));
+});
+
+endpointsRoutes.post("/:id/baremetal/probe", admin, async (c) => {
+  const { id } = parseOrProblem(endpointIdParamSchema, c.req.param());
+  return c.json(await requestBootProbe(db, c.get("tenantId"), id, actorOf(c)), 202);
 });
 
 endpointsRoutes.get("/:id/baremetal/layouts/:layoutId", admin, async (c) => {

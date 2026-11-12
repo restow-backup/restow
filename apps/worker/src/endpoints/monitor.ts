@@ -34,7 +34,11 @@
  *     redeemed expires, a session nobody released within 30 minutes fails, and so does one the ISO
  *     has not finished 30 minutes after its expiry; each transition is audited
  *     (`endpoint.recovery.expired`) and a failed session raises `endpoint.recovery.failed`.
- *     Recovery logs older than 90 days go.
+ *     Recovery logs older than 90 days go. A boot probe (kind `probe`) runs out the same way but
+ *     raises nothing: it proved nothing, the next one is planned by its own rules.
+ *   - The boot probe (docs/BAREMETAL.md 12.3, ./boot-probe.ts): probes planned for the lab while it
+ *     asks for work with KVM, and `baremetal.red`, `baremetal.recovered` (with `job.failed` for a
+ *     red report) and `baremetal.overdue`, each once.
  *
  * Every alert is raised once: the run, the report or the endpoint carries a
  * mark (`alerted_at`, `stale_alerted_at`) that is set in the same transaction
@@ -82,6 +86,7 @@ import type { TenantTx } from "../progress.js";
 import { raiseEvents } from "../reporting.js";
 import { alertSourceAppSecrets } from "../source-app-expiry.js";
 import { recordStorageSamples } from "../storage-samples.js";
+import { alertBaremetalReports, planBootProbes } from "./boot-probe.js";
 import type { EndpointJobDeps } from "./common.js";
 import { alertSqlOverdue, alertSqlReports, planSqlVerifyChecks } from "./sql-verify-plan.js";
 
@@ -120,6 +125,12 @@ export interface MonitorSummary {
   sqlChecksPlanned: number;
   /** `endpoint.sql_red`, `endpoint.sql_recovered` and `endpoint.sql_overdue` raised (W2a). */
   sqlAlerts: number;
+  /** Boot probes planned for the lab (docs/BAREMETAL.md 12.3). */
+  bootProbesPlanned: number;
+  /** Machines the boot probe cannot boot, recorded for their fingerprints. */
+  bootProbesNotPossible: number;
+  /** `baremetal.red`, `baremetal.recovered` and `baremetal.overdue` raised. */
+  baremetalAlerts: number;
 }
 
 export function endpointName(endpoint: Pick<Endpoint, "displayName" | "hostname">): string {
@@ -708,6 +719,7 @@ export async function expireRecoveries(
       tenantId: endpointRecoveries.tenantId,
       endpointId: endpointRecoveries.endpointId,
       status: endpointRecoveries.status,
+      kind: endpointRecoveries.kind,
       usedAt: endpointRecoveries.usedAt,
       hostname: endpoints.hostname,
       displayName: endpoints.displayName,
@@ -792,6 +804,10 @@ export async function expireRecoveries(
           continue;
         }
         failed += 1;
+        if (candidate.kind === "probe") {
+          // A boot probe the lab did not finish proved nothing: no alarm (12.3).
+          continue;
+        }
         const name = endpointName(candidate);
         raised.push({
           tenantId,
@@ -843,6 +859,9 @@ export async function endpointMonitor(deps: EndpointJobDeps): Promise<MonitorSum
     purgedRecoveryLogs: 0,
     sqlChecksPlanned: 0,
     sqlAlerts: 0,
+    bootProbesPlanned: 0,
+    bootProbesNotPossible: 0,
+    baremetalAlerts: 0,
   };
   const recoveries = await expireRecoveries(deps, now);
   summary.expiredRecoveryCodes = recoveries.expired;
@@ -858,5 +877,9 @@ export async function endpointMonitor(deps: EndpointJobDeps): Promise<MonitorSum
   summary.storageSamples = (await recordStorageSamples(deps, now)).tenants;
   summary.sqlChecksPlanned = await planSqlVerifyChecks(deps, now);
   summary.sqlAlerts = (await alertSqlReports(deps, now)) + (await alertSqlOverdue(deps, now));
+  const probes = await planBootProbes(deps, now);
+  summary.bootProbesPlanned = probes.planned;
+  summary.bootProbesNotPossible = probes.notPossible;
+  summary.baremetalAlerts = (await alertBaremetalReports(deps, now)) + probes.overdue;
   return summary;
 }

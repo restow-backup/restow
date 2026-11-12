@@ -774,6 +774,22 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     retryable: true,
     steps: () => [step("check_endpoint_layout_tools"), READ_DETAILS],
   },
+  // Stage 1 of the bare metal check rated the newest whole machine backup red: the report on the
+  // machine's page names the check and the finding; the next backup is checked again.
+  "endpoint.baremetal_check_failed": {
+    category: "endpoint",
+    transient: false,
+    retryable: false,
+    steps: () => [step("read_baremetal_report"), READ_DETAILS],
+  },
+  // The boot probe of the lab restored the backup and the restored system did not start (or the
+  // recovery found a problem of the backup); the serial console in the report shows where.
+  "endpoint.boot_probe_failed": {
+    category: "endpoint",
+    transient: false,
+    retryable: false,
+    steps: () => [step("read_baremetal_report"), step("run_boot_probe_again")],
+  },
   // A backup path exists but could not be read (a drive locked by BitLocker, offline, no
   // access, a link restic does not follow): it stays so until someone unlocks or changes it.
   "endpoint.source_unreadable": {

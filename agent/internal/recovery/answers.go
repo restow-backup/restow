@@ -9,6 +9,8 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+
+	"github.com/restow-backup/restow/agent/internal/baremetal"
 )
 
 // AnswersFormat is the format of the answers file (C-M4-4).
@@ -68,13 +70,31 @@ type Answers struct {
 	SecureBootOff bool            `json:"secureBootOff,omitempty"`
 	RebindToken   string          `json:"rebindToken,omitempty"`
 	AfterSuccess  string          `json:"afterSuccess,omitempty"`
-	Probe         json.RawMessage `json:"probe,omitempty"`
+	Probe         *AnswersProbe   `json:"probe,omitempty"`
 
 	// Source is where the answers came from (not part of the file).
 	Source Source `json:"-"`
 	// Medium is the medium they were read from (SourceMedia; not part of
 	// the file): its disk is never a target (10.20).
 	Medium *AnswersMedium `json:"-"`
+}
+
+// AnswersProbe is the probe block of the lab's answers (docs/BAREMETAL.md
+// 12.3): what the server decided the boot probe restores in full and what it
+// leaves empty. Only from fw_cfg in a QEMU machine: on real hardware it would
+// leave data out of a restore.
+type AnswersProbe struct {
+	FullRestore      []string `json:"fullRestore"`
+	EmptyFilesystems []string `json:"emptyFilesystems"`
+	EmptyDirs        []string `json:"emptyDirs"`
+}
+
+// Options are the planner's probe options.
+func (p *AnswersProbe) Options() *baremetal.ProbeOptions {
+	if p == nil {
+		return nil
+	}
+	return &baremetal.ProbeOptions{EmptyFilesystems: p.EmptyFilesystems, EmptyDirs: p.EmptyDirs}
 }
 
 // AnswersMedium is the medium of restow.answers=media: the device with the
@@ -163,10 +183,26 @@ func LoadAnswers(src Source, b []byte, isQEMU bool) (*Answers, error) {
 	if a.Format != AnswersFormat {
 		return nil, fmt.Errorf("answers: format %q, want %q", a.Format, AnswersFormat)
 	}
-	if len(a.Probe) > 0 {
-		return nil, errors.New("answers: probe answers need a newer ISO")
-	}
 	fwcfg := src == SourceFWCfg && isQEMU
+	if a.Probe != nil {
+		if !fwcfg {
+			return nil, errors.New("answers: probe answers are read only from fw_cfg in a QEMU machine (the lab)")
+		}
+		if a.RebindToken != "" || a.Code == "" || a.AfterSuccess != "poweroff" {
+			return nil, errors.New("answers: a probe has a code, no rebindToken and afterSuccess poweroff")
+		}
+		lists := [][]string{a.Probe.FullRestore, a.Probe.EmptyFilesystems, a.Probe.EmptyDirs}
+		for _, list := range lists {
+			if len(list) > 256 {
+				return nil, errors.New("answers: probe: at most 256 paths per list")
+			}
+			for _, p := range list {
+				if err := baremetal.ProbePathShape(p); err != nil {
+					return nil, fmt.Errorf("answers: %v", err)
+				}
+			}
+		}
+	}
 	if !fwcfg {
 		var plain []string
 		if a.Code != "" {

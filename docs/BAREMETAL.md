@@ -2896,20 +2896,32 @@ echter Firmware.
 kompromittierte Systeme in QEMU; ein QEMU-Escape (regelmäßige CVEs in Gerätemodellen) darf
 nicht zur Übernahme aller Mandanten werden. Darum:
 
-- Der **Worker** (vertraut, mit Datenbank und Master-Key) plant die Probe (Queue
-  `endpoint-boot-probe`, `apps/worker/src/endpoints/boot-probe.ts`), legt die Zeile in
-  `endpoint_recoveries` an (Art `probe`, kein Code, Audit `endpoint.boot_probe.started`,
-  damit die Sperre gegen Prune greift, 9.7) und öffnet einen **Probe-Listener** für genau
-  diese Probe (`packages/core/src/endpoints/loopback.ts`, der Prinzipal wird dafür ein
-  Parameter, heute fest `maintenance`; hier `reader`, Präfix des einen Rechners), gebunden
-  nur an seine Adresse im internen Netz `lab-net`, mit Einmal-Zugangsdaten (ein Rechner,
-  Ablauf 2 Stunden).
-- Eine schmale **Labor-API** im Worker (eigener Listener auf `lab-net`, Rolle `lab-broker`,
-  Anmeldung mit `RESTOW_LAB_TOKEN`): `POST /internal/lab/next` liefert die nächste Probe
-  (Probe-ID, Listener-URL, Zugangsdaten, Repository-Passwort, Snapshot, `layoutSha256`,
-  Manifest, Plattengrößen, Firmware), `POST /internal/lab/:probeId/event` (Phasen, z. B.
-  `released`), `POST /internal/lab/:probeId/result` (Ergebnis, serielle Ausgabe,
-  `screendump` als PNG, höchstens 8 MiB).
+- Der **Worker** (vertraut, mit Datenbank und Master-Key) plant die Probe im Lauf des
+  Monitors (`apps/worker/src/endpoints/boot-probe.ts`, nur solange ein Labor mit KVM nach
+  Arbeit fragt): eine Zeile in `endpoint_recoveries` der Art `probe`, Status `issued`, noch
+  ohne Code ("geplant"), ohne Freigabe (`require_approval = false`), drei Stunden gültig,
+  Audit `endpoint.boot_probe.requested`. Sie zählt nicht zu den drei offenen Codes eines
+  Rechners, erscheint nicht in seiner Liste der Wiederherstellungen und ist für keinen
+  Bediener zu ändern.
+- Eine schmale **Labor-API** im Worker (eigener Listener, Port 8095, nur im Compose-Netz,
+  nur auf dem Haupthost, Anmeldung mit `RESTOW_LAB_TOKEN` als `Authorization: Bearer`,
+  `apps/worker/src/endpoints/lab-api.ts`): `POST /internal/lab/next` speichert den Stand des
+  Labors (Version, KVM) und übergibt höchstens eine geplante Probe, genau einmal: Der Worker
+  erzeugt dabei einen **Einmal-Code** wie für einen Menschen (an den Ursprung der Instanz
+  gebunden, gespeichert nur der Hash seines Nachweises, dazu der Prüfwert des TLS-Schlüssels)
+  und gibt dem Labor Code, Ursprung, Prüfwert, die erwartete SHA-256 des ISO, die Hardware
+  der Probe und die fertige Antwortdatei; nie Repository-Passwort oder Zugangsdaten.
+  `GET /internal/lab/iso/:sha256` liefert das geprüfte ISO, `POST
+  /internal/lab/probes/:id/event` meldet Phasen (die Antwort sagt, ob das Labor weitermachen
+  soll), `POST /internal/lab/probes/:id/result` das Ergebnis mit der seriellen Ausgabe des
+  wiederhergestellten Systems (höchstens 64 KiB), einmal und nur für eine übernommene Probe.
+- **Abweichung vom ersten Entwurf (Entscheidung des Maintainers, M5):** Die Probe läuft über
+  den echten Ablauf einer Wiederherstellung, nicht über einen eigenen Probe-Listener. Das ISO
+  in der VM tauscht den Code selbst ein (Sitzung ohne Freigabe, Audit
+  `endpoint.boot_probe.started`, kein Sicherheitsereignis), holt die Zugangsdaten, liest über
+  die Route `reader` der Recovery-API, gibt den Zugriff frei und meldet mit `finish` seinen
+  eigenen Prüfbericht. Die Sitzung hält die Sperre gegen Prune wie jede Wiederherstellung
+  (9.7). Bewiesen ist damit der Weg eines Kunden, nicht ein Weg nur für die Probe.
 - Das **Labor** (`restow-recovery-lab`, eigenes Image, Compose-Profil `recovery-lab`) ist
   nicht das Worker-Image: Node mit nur dem Labor-Bündel (`apps/worker/src/lab.ts` und
   `endpoints/lab/*`, ein Test verlangt, dass es nichts aus `@restow/db` und nichts aus der
@@ -2941,17 +2953,20 @@ Treiberfehler auffallen):
   Secure Boot hatte, sonst OVMF ohne, bzw. SeaBIOS. **Eine** `OVMF_VARS`-Datei für den Start
   des ISO **und** den Start der wiederhergestellten Platten (wie echte Hardware: Die shim des
   ISO kann `SbatLevel` anheben, und die wiederhergestellte Kette muss danach starten), mit
-  eingespielter aktueller DBX (`virt-fw-vars --set-dbx`, Datei `dbxupdate_x64.bin` im
-  Labor-Image, SHA-256 gepinnt, mit jedem Release aktualisiert). Einmal je Woche startet die
-  Probe die wiederhergestellten Platten zusätzlich mit **leeren** NVRAM-Variablen (frische
-  `OVMF_VARS` mit DBX), damit der Rückfallpfad `\EFI\BOOT\BOOTX64.EFI` bewiesen ist.
+  eingespielter aktueller DBX (`virt-fw-vars --set-dbx`; Herkunft, SHA-256 und Lizenz der
+  Sperrliste stehen in den Lizenzhinweisen des Labor-Images, mit jedem Release
+  aktualisiert).
 
 **Ablauf:**
 
-- Restore-VM: ISO mit `--answers` über `fw_cfg` (Passphrase der Probe zufällig, Code
-  entfällt, `probe: { fullRestore: [...], emptyFilesystems: [...], emptyDirs: [...] }`),
-  Benutzernetz mit `restrict=on` und nur einer `guestfwd`-Regel zum Probe-Listener des
-  Workers. Wiederhergestellt werden vollständig: `/`, `/boot`, ESP, `/usr`, `/var` (wenn
+- Restore-VM: ISO mit `--answers` über `fw_cfg` (Passphrase der Probe zufällig, der
+  Einmal-Code der Probe, `network.proxy`, `probe: { fullRestore: [...], emptyFilesystems:
+  [...], emptyDirs: [...] }`; `recover` nimmt einen `probe`-Block nur aus `fw_cfg` in QEMU
+  an, nur mit Code und ohne Rebind), Benutzernetz mit `restrict=on` und nur einer
+  `guestfwd`-Regel zu einem CONNECT-Proxy des Labors. Der Proxy lässt nur den einen Host
+  und Port des Ursprungs der Instanz zu und verbindet zum TLS-Rand der Installation
+  (`caddy:443`, einstellbar); die VM erreicht sonst nichts, braucht kein DNS, und TLS samt
+  Prüfwert läuft gegen das echte Zertifikat. Wiederhergestellt werden vollständig: `/`, `/boot`, ESP, `/usr`, `/var` (wenn
   eigene Dateisysteme); alle übrigen Dateisysteme werden mit ihrer Identität **leer**
   angelegt (sie hängen sich ein, das System startet, die Daten beweisen Restore-Test und
   Prüfung).
@@ -2963,8 +2978,8 @@ Treiberfehler auffallen):
   `/var/lib/restow-agent`). Die Probe bleibt gültig für die Startkette, der Bericht nennt
   die leeren Ordner. Nur wenn auch das nicht reicht, ist die Probe "nicht möglich (zu groß)".
 - Sobald `recover` `RESTOW-PROBE phase=released` auf die serielle Konsole schreibt, meldet
-  das Labor `released` an die Labor-API; der Worker schließt den Probe-Listener, das Labor
-  entfernt das Netz der VM (`set_link off`, `netdev_del` über QMP). `recover` wartet im
+  das Labor `released` an die Labor-API; die Sitzung hat ihren Zugriff da schon freigegeben,
+  und das Labor entfernt das Netz der VM (`set_link off`, `netdev_del` über QMP). `recover` wartet im
   Probemodus nach `release`, bis keine Schnittstelle außer `lo` mehr Link hat (höchstens
   60 s), bevor die Schritte aus 10.14 beginnen.
 - **Start der wiederhergestellten Platten:** zweite QEMU-Maschine nur mit den Zielplatten,
@@ -2979,22 +2994,28 @@ Treiberfehler auffallen):
   passphrase`, `Enter passphrase for`); die GRUB-cryptodisk-Abfrage (verschlüsseltes
   `/boot`, E7) erscheint nur auf dem VGA-Terminal, dort tippt das Labor über QMP `send-key`.
   Erfolg: die Zeile `RESTOW-PROBE-OK` innerhalb von 10 Minuten (KVM). Belege: Protokoll von
-  `recover`, serielle Ausgabe, bei Misserfolg ein Bild des VGA-Schirms (`screendump`, als
-  PNG am Bericht).
+  `recover` (über die Sitzung) und die serielle Ausgabe (im Protokoll der Probe, ihr Ende am
+  Bericht). Ein Bild des VGA-Schirms gibt es in 0.5.0 nicht: Ein Fehler, der nur dort
+  sichtbar ist (Firmware, GRUB), endet als unvollständig und wird wiederholt, nie grün.
 - **Wann:** sofort, wenn sich `layoutFingerprint` oder `bootChainFingerprint` gegenüber der
   letzten bestandenen Probe ändern; sonst wöchentlich für den neuesten Bare-Metal-Snapshot;
   auf Anforderung (`POST /api/v1/endpoints/:id/baremetal/probe`). Höchstens eine Probe
-  gleichzeitig je Labor (`RESTOW_LAB_CONCURRENCY`, Standard 1). Zeitgrenze insgesamt
-  2 Stunden. Ohne `/dev/kvm` (nur TCG) läuft die Probe mit zehnfacher Zeitgrenze, der
-  Hinweis steht am Bericht.
+  gleichzeitig je Labor (`RESTOW_LAB_CONCURRENCY`, Standard 1, der Worker übergibt nicht
+  mehr). Eine Probe, die nichts bewiesen hat, wird nach 6 Stunden wiederholt. Zeitgrenze
+  insgesamt 2 Stunden. Ohne `/dev/kvm` läuft keine Probe (kein TCG): Der Rechner bleibt bei
+  "Layout geprüft", die Karte nennt den Grund "kein KVM".
 - **Bewertung:** Bericht `boot_probe`: grün mit der Zeile `RESTOW-PROBE-OK`; rot nur mit
   Beleg (der Plan scheiterte an einem Problem der Sicherung, `recover`-Prüfung `failed`,
   Kernel-Panik, initramfs findet die Wurzel nicht, Notfallmodus von systemd, Secure-Boot-
   Ablehnung, alles erkannt an festen Mustern der seriellen Ausgabe); alles andere
   (Labor-Fehler, Zeitgrenze ohne Muster, ISO nicht ladbar) unvollständig, wiederholt.
 - Nicht-systemd-Systeme: keine Probe ("nicht möglich").
-- Ohne Labor gibt es keine Startprobe, und Bare Metal kann nicht grün werden (Offene
-  Frage 2).
+- Ohne Labor gibt es keine Startprobe, und Bare Metal kann nicht grün werden (Entscheidung
+  des Maintainers für 0.5.0: Das Labor ist ein optionales Image, grün braucht einen
+  Haupthost mit KVM; ein Labor auf einem anderen Host kommt mit 0.5.1).
+- Zurückgestellt (M5, nach 0.5.0): der wöchentliche Start mit leeren NVRAM-Variablen (der
+  Rückfallpfad `\EFI\BOOT\BOOTX64.EFI` ist nur durch die Fälle von `recovery-e2e` belegt,
+  nicht je Rechner), das Bild des VGA-Schirms, TCG und das Labor auf einem anderen Host.
 
 ### 12.4 Fingerabdrücke und Bewertung (Linux)
 
@@ -4453,9 +4474,14 @@ Alle übrigen Befunde der drei Reviews sind wie vorgeschlagen eingearbeitet.
    USB-Stick kann es nicht. Ein Pflicht-Parameter hätte CI und Startprobe auf einen
    besonderen Startweg gezwungen und damit weniger von der echten Startkette geprüft. Für
    Antworten vom Medium gilt der Parameter wie vorgeschlagen.
-7. **Labor-API (Review 2, Punkt 5) im Worker statt in der API:** Der Worker hält ohnehin den
-   Probe-Listener und die Queue; eine weitere Route in der öffentlichen API wäre unnötige
-   Angriffsfläche.
+7. **Labor-API (Review 2, Punkt 5) im Worker statt in der API:** Der Worker plant die Proben
+   ohnehin und vergibt ihre Codes; eine weitere Route in der öffentlichen API wäre unnötige
+   Angriffsfläche. **Geändert mit M5 (Entscheidung des Maintainers):** Einen Probe-Listener
+   gibt es nicht. Die Probe läuft über den echten Ablauf einer Wiederherstellung (Code,
+   Sitzung, Zugangsdaten über das ISO, Freigabe, `finish`, 12.3); das Labor bekommt dafür nur
+   den Einmal-Code, nie Repository-Passwort oder Zugangsdaten, und seine VM erreicht den
+   TLS-Rand der Instanz nur über den CONNECT-Proxy des Labors, der genau diesen einen Host
+   zulässt. Der Preis: Das Labor braucht eine Verbindung zum TLS-Rand der Installation.
 8. **Restore-Größen (Review 1, Punkt 20) über `restic ls` statt
    `restic stats --mode restore-size --path`:** `stats` filtert mit `--path` Snapshots, nicht
    Unterordner (zu belegen, 1.2 Punkt 4); je Einhängepunkt braucht es die Summe unterhalb des

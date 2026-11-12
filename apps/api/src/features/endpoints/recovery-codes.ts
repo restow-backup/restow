@@ -120,6 +120,8 @@ export async function activeRecoveriesOf(
       and(
         inArray(endpointRecoveries.endpointId, [...endpointIds]),
         inArray(endpointRecoveries.status, [...RUNNING_RECOVERY_STATES]),
+        // A boot probe of the lab is no recovery of the machine (docs/BAREMETAL.md 12.3).
+        eq(endpointRecoveries.kind, "code"),
       ),
     )
     .orderBy(desc(endpointRecoveries.issuedAt));
@@ -415,7 +417,12 @@ async function loadRecovery(
     .select()
     .from(endpointRecoveries)
     .where(
-      and(eq(endpointRecoveries.endpointId, endpointId), eq(endpointRecoveries.id, recoveryId)),
+      and(
+        eq(endpointRecoveries.endpointId, endpointId),
+        eq(endpointRecoveries.id, recoveryId),
+        // The sessions of the lab's boot probes are the worker's, never an operator's to change.
+        eq(endpointRecoveries.kind, "code"),
+      ),
     )
     .limit(1);
   const [row] = options.forUpdate ? await query.for("update") : await query;
@@ -503,6 +510,7 @@ export async function issueRecoveryCode(
       .where(
         and(
           eq(endpointRecoveries.endpointId, endpointId),
+          eq(endpointRecoveries.kind, "code"),
           inArray(endpointRecoveries.status, [...OPEN_RECOVERY_STATES]),
           gt(endpointRecoveries.expiresAt, now),
         ),
@@ -667,7 +675,9 @@ export async function listRecoveries(
     const rows = await tx
       .select()
       .from(endpointRecoveries)
-      .where(eq(endpointRecoveries.endpointId, endpointId))
+      .where(
+        and(eq(endpointRecoveries.endpointId, endpointId), eq(endpointRecoveries.kind, "code")),
+      )
       .orderBy(desc(endpointRecoveries.issuedAt))
       .limit(50);
     const names = await userNames(

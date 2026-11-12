@@ -66,6 +66,7 @@ type planner struct {
 	plan     *RestorePlan
 	snapshot string
 	resume   string
+	probe    *ProbeOptions
 
 	partSize   map[string]int64 // planned partition sizes (node key)
 	lvSize     map[string]int64 // planned LV sizes (vg/lv)
@@ -93,6 +94,10 @@ type PlanOptions struct {
 	// wrote), not identity and size of the hardware: the target must carry
 	// its signatures (mapper.mapResume).
 	Resume string
+	// Probe is set for a boot probe in the lab (12.3): the file systems and
+	// folders it names are created but not restored, and the restored system
+	// reports its start on the serial console. Checked with CheckProbe.
+	Probe *ProbeOptions
 }
 
 // Values of PlanOptions.Resume.
@@ -115,7 +120,7 @@ func PlanWith(m *Manifest, t *Target, f *Facts, c Choices, o PlanOptions) (*Rest
 		MinimumSizes: MinimumSizes{Disks: []DiskMinimum{}, Filesystems: []FSMinimum{}, LVs: []LVMinimum{}, ThinPools: []LVMinimum{}},
 		SecureBoot:   ChainCheck{Loaders: []LoaderCheck{}, TargetSecureBoot: t.Firmware.SecureBoot},
 		Drivers:      DriverCheck{Storage: []DriverMatch{}, NICs: []DriverMatch{}}}
-	pl := &planner{m: m, t: t, f: f, c: c, plan: plan, snapshot: o.Snapshot, resume: o.Resume,
+	pl := &planner{m: m, t: t, f: f, c: c, plan: plan, snapshot: o.Snapshot, resume: o.Resume, probe: o.Probe,
 		partSize: map[string]int64{}, lvSize: map[string]int64{}, raidPVs: map[string][]int{}, lbs: map[string]int64{}, luksSector: map[string]int64{}, mixedVG: map[string]bool{}, unplaced: map[string]bool{}}
 	pl.run()
 	pl.finish()
@@ -1052,6 +1057,11 @@ func (pl *planner) steps() {
 	for _, u := range mp.units {
 		excludes = append(excludes, u.Mounts...)
 	}
+	if pl.probe != nil {
+		// A probe leaves data file systems and large data folders empty (12.3).
+		excludes = append(excludes, pl.probe.EmptyFilesystems...)
+		excludes = append(excludes, pl.probe.EmptyDirs...)
+	}
 	for _, e := range uniqueSorted(excludes) {
 		args = append(args, "--exclude", e)
 	}
@@ -1617,6 +1627,10 @@ func (pl *planner) postSteps() {
 	for _, ts := range x.binds {
 		targets = append(targets, ts...)
 	}
+	if pl.probe != nil {
+		// The folders a probe left empty exist, as on the source.
+		targets = append(targets, pl.probe.EmptyDirs...)
+	}
 	for _, t := range uniqueSorted(targets) {
 		if t != "/" && reMountPath.MatchString(t) {
 			dirs = append(dirs, t+":0755")
@@ -1657,6 +1671,12 @@ func (pl *planner) postSteps() {
 		}
 		args := append([]string{"fixup", fx.Path}, fx.Rules...)
 		pl.step("post", "fixup", fx.Path, args, nil, "", "rewrite device references in "+fx.Path)
+	}
+	if pl.probe != nil {
+		// Before the initramfs and the GRUB configuration are written: both
+		// take the kernel command line from the files this step changes.
+		pl.step("post", "probe_boot", "", []string{"probe-boot"}, nil, "",
+			"let the restored system of the boot probe report its start on the serial console")
 	}
 	for _, c := range l.LUKS {
 		if c.KeyFile == nil || *c.KeyFile == "" || pl.mp.adopted[LUKSRef(c.ID).key()] || !pl.present(c.Device) {

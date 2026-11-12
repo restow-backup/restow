@@ -722,6 +722,13 @@
       "when": 1794482819549,
       "tag": "0102_endpoint_recovery_log_key_block",
       "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1794486419549,
+      "tag": "0103_boot_probe",
+      "breakpoints": true
     }
   ]
 }

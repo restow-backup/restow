@@ -32,6 +32,8 @@ export * from "./archive-append.js";
 export * from "./archive-capture.js";
 // How the archive is filtered and held by mailbox, journal assignments included (#32).
 export * from "./archive-mailboxes.js";
+// The boot probes of whole machine backups (docs/BAREMETAL.md 12.3).
+export * from "./boot-probe.js";
 export {
   type ConcurrentSetupOptions,
   isConcurrentSetupConflict,
@@ -39,7 +41,6 @@ export {
 } from "./concurrent-setup.js";
 // Reporting a failed query without its SQL text and bound parameters.
 export { reportableError, safeErrorMessage, withoutQueryText } from "./errors.js";
-
 // Process liveness: heartbeat writer and the status /readyz reports.
 export * from "./heartbeat.js";
 // Installation-level secrets (read on the installation pool).

@@ -77,6 +77,9 @@ type Recover struct {
 	Countdown time.Duration
 	// Poll replaces the 5 seconds of the approval poll (tests).
 	Poll time.Duration
+	// SysClassNet replaces /sys/class/net, where a probe waits for the lab
+	// to take the network away (tests).
+	SysClassNet string
 
 	session *Session
 	curMu   sync.Mutex
@@ -161,6 +164,14 @@ func (l *LogBuffer) All() []string {
 }
 
 func (r *Recover) logf(format string, args ...any) { r.Log.Add(fmt.Sprintf(format, args...)) }
+
+// probe is the probe block of the lab's answers, or nil outside a probe.
+func (r *Recover) probe() *AnswersProbe {
+	if r.Answers == nil {
+		return nil
+	}
+	return r.Answers.Probe
+}
 
 func (r *Recover) flushLog(ctx context.Context) {
 	if r.session == nil || r.session.ID == "" {
@@ -302,12 +313,19 @@ func (r *Recover) run(ctx context.Context) (*Result, error) {
 		r.UI.Line(TParams(r.UI.Lang, "code."+baremetal.ProblemMappingInvalid, map[string]any{"reason": err.Error()}))
 		return r.fail(ctx, nil, nil, baremetal.ProblemMappingInvalid, err)
 	}
-	popts := baremetal.PlanOptions{Snapshot: snapshot}
+	popts := baremetal.PlanOptions{Snapshot: snapshot, Probe: r.probe().Options()}
+	if err := baremetal.CheckProbe(m, popts.Probe); err != nil {
+		// The lab's answers would leave a system path out: no probe, no step.
+		zeroRepo()
+		r.logf("%v", err)
+		return r.fail(ctx, nil, nil, ProblemStepFailed, err)
+	}
 	plan, _ := baremetal.PlanWith(m, target, facts, choices, popts)
 	// The offer to continue comes before any question about the mapping:
 	// a resumed plan maps by the identities on the disks (the disks the
 	// first run wrote, whatever was chosen then) and erases nothing.
-	resume := r.offerResume(m, target, snapshot)
+	// A probe never resumes: its disks are new for every probe.
+	resume := r.probe() == nil && r.offerResume(m, target, snapshot)
 	if resume {
 		popts.Resume = baremetal.ResumeClean
 		// The first run decided the sizes; this plan creates nothing.
@@ -381,7 +399,10 @@ func (r *Recover) run(ctx context.Context) (*Result, error) {
 	}
 	x := &Executor{Plan: plan, PlanSHA256: planSHA, Manifest: m, LayoutSHA256: layoutSHA, Snapshot: snapshot, Restic: restorer,
 		Session: r.session, UI: r.UI, Secrets: secrets, Fixups: fx, ZeroRepoSecrets: zeroRepo, Fallback: fallback, KeepKeyFiles: keepKeys,
-		Log: r.Log.Add, Now: r.Env.Now, TargetDevices: mappedDevices(plan, target)}
+		Log: r.Log.Add, Now: r.Env.Now, TargetDevices: mappedDevices(plan, target), Probe: r.probe() != nil}
+	if r.probe() != nil {
+		x.OnRelease = r.probeReleased
+	}
 	r.Env.Executor(x, target)
 	// From here Ctrl+C asks whether to cancel the execution; one that came
 	// before said "nothing was erased" and holds: no step starts.
@@ -507,7 +528,9 @@ func (r *Recover) run(ctx context.Context) (*Result, error) {
 		}
 		return res, nil
 	}
-	r.rebind(ctx, x, m)
+	if r.probe() == nil {
+		r.rebind(ctx, x, m)
+	}
 	r.Env.Finalize(ctx, x)
 	r.UI.Say("done.succeeded")
 	r.after(ctx)

@@ -357,6 +357,90 @@ func TestRecoverFullFlowUnattended(t *testing.T) {
 	}
 }
 
+// TestRecoverProbeFlow: the lab's unattended recovery of a boot probe
+// (12.3) restores the system, leaves the file systems the server named
+// empty, writes the release line for the lab, makes the restored system
+// report its start on the serial console, never rebinds and powers off. A
+// probe block that would leave a system path out stops the run before the
+// first step.
+func TestRecoverProbeFlow(t *testing.T) {
+	bin := os.Getenv("RESTIC_BINARY")
+	if bin == "" {
+		t.Skip("set RESTIC_BINARY to run the full recovery flow with restic")
+	}
+	raw, err := os.ReadFile("../baremetal/testdata/manifests/debian12-uefi-luks-lvm.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := baremetal.Decode(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo, snap := snapshotOf(t, bin, raw)
+	run := func(empty string) (*fakeRecovery, *testEnv, string, *fakeExec) {
+		f := newFakeRecovery(t, "", testCode)
+		f.status = api.RecoveryActive // a probe needs no release by a person
+		f.snapshotID, f.layoutSHA = snap, sha256Hex(string(raw))
+		answers := fmt.Sprintf(`{"format":"restow-answers-v1","instanceUrl":%q,"code":%q,"language":"en",
+		  "network":{"mode":"dhcp"},"diskMapping":{"d0":"serial.restow-e2e-target0"},"passphrase":%q,
+		  "keyFiles":"regenerate","confirmErase":["serial.restow-e2e-target0"],"rawLvs":"skip","afterSuccess":"poweroff",
+		  "probe":{"fullRestore":["/","/boot","/boot/efi"],"emptyFilesystems":[%q],"emptyDirs":[]}}`, f.srv.URL, FormatCode(testCode), testPassphrase, empty)
+		a, err := LoadAnswers(SourceFWCfg, []byte(answers), true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		exe := newFakeExec()
+		env := &testEnv{t: t, hw: hardwareFor(m), repo: repo, resticB: bin, target: t.TempDir(), exec: exe,
+			iso: &fakeIsolator{exec: exe, reply: initramfsListing}, ops: &fakeOps{exec: exe, mounted: map[string]bool{}}}
+		var out bytes.Buffer
+		r := &Recover{UI: &UI{In: strings.NewReader(""), Out: &out, Lang: LangEN}, Env: env, Answers: a, Version: "0.5.0",
+			Log: &LogBuffer{}, Poll: 20 * time.Millisecond, SysClassNet: t.TempDir()}
+		if _, err := r.Run(context.Background()); err != nil && empty == "/home" {
+			t.Fatalf("run: %v\n%s", err, out.String())
+		}
+		return f, env, out.String(), exe
+	}
+	f, env, console, _ := run("/home")
+	f.mu.Lock()
+	fin, rebind := f.finish, f.rebind
+	f.mu.Unlock()
+	if fin == nil || fin.Status != api.RecoverySucceeded {
+		t.Fatalf("finish %+v\n%s", fin, console)
+	}
+	if _, err := os.Stat(filepath.Join(env.target, "home/alice/notes.txt")); err == nil {
+		t.Error("the probe restored /home, which it was to leave empty")
+	}
+	if _, err := os.Stat(filepath.Join(env.target, "etc/fstab")); err != nil {
+		t.Errorf("the system was not restored: %v", err)
+	}
+	if b, err := os.ReadFile(filepath.Join(env.target, "etc/systemd/system", baremetal.ProbeUnitName)); err != nil || !strings.Contains(string(b), "RESTOW-PROBE-OK") {
+		t.Errorf("probe unit: %v", err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(env.target, "etc/default/grub")); !strings.Contains(string(b), "console=ttyS0,115200") {
+		t.Errorf("GRUB defaults without the serial console:\n%s", b)
+	}
+	if !strings.Contains(console, ProbeReleasedLine) {
+		t.Errorf("no release line on the console:\n%s", console)
+	}
+	if rebind != nil {
+		t.Errorf("a probe rebound the machine: %+v", rebind)
+	}
+	if !strings.Contains(strings.Join(env.actions, ","), "poweroff") {
+		t.Errorf("after success: %v", env.actions)
+	}
+
+	f, _, console, exe := run("/boot")
+	f.mu.Lock()
+	fin = f.finish
+	f.mu.Unlock()
+	if fin == nil || fin.Status != api.RecoveryFailed {
+		t.Errorf("a probe that would leave /boot empty: finish %+v\n%s", fin, console)
+	}
+	if strings.Contains(exe.lines(), "luksFormat") || strings.Contains(exe.lines(), "sgdisk") {
+		t.Errorf("a step ran:\n%s", exe.lines())
+	}
+}
+
 func TestRecoverPlanOnly(t *testing.T) {
 	bin := os.Getenv("RESTIC_BINARY")
 	if bin == "" {

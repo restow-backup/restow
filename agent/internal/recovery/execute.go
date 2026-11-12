@@ -194,8 +194,14 @@ type Executor struct {
 	Fallback bool
 	// KeepKeyFiles keeps the old key files (operator's choice).
 	KeepKeyFiles bool
-	Log          func(string)
-	Now          func() time.Time
+	// Probe: a boot probe in the lab (12.3); the kernel command line in
+	// grubenv gets the serial console too.
+	Probe bool
+	// OnRelease runs once the repository access ended (a probe: the line
+	// for the lab and the wait for the network to go).
+	OnRelease func(ctx context.Context)
+	Log       func(string)
+	Now       func() time.Time
 	// TargetDevices are the target disks of the mapping (their device
 	// paths); isolated steps see these and what sits on them.
 	TargetDevices []string
@@ -565,6 +571,9 @@ func (x *Executor) release(ctx context.Context) {
 	if x.ZeroRepoSecrets != nil {
 		x.ZeroRepoSecrets()
 	}
+	if x.OnRelease != nil {
+		x.OnRelease(ctx)
+	}
 }
 
 func (x *Executor) progress(ctx context.Context, phase string, step, total int, bytesDone, totalBytes, files, totalFiles int64, msg string) {
@@ -665,6 +674,8 @@ func (x *Executor) step(ctx context.Context, s *baremetal.Step) error {
 		return x.nvram(ctx, args[1:])
 	case "fallback-path":
 		return x.fallbackPath(args[1:])
+	case "probe-boot":
+		return x.probeBoot()
 	case "mok-import":
 		return x.mokImport(ctx, args[1:])
 	case "selinux":
@@ -1474,6 +1485,9 @@ func (x *Executor) kernelopts() string {
 			continue
 		}
 		out = append(out, f)
+	}
+	if x.Probe {
+		return baremetal.ProbeKernelCmdline(strings.Join(out, " "))
 	}
 	return strings.Join(out, " ")
 }

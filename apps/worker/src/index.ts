@@ -60,6 +60,12 @@ import { pathToFileURL } from "node:url";
  *   RESTOW_WEBHOOK_ALLOW_PRIVATE "true" permits webhook targets in private networks
  *   RESTOW_PUBLIC_URL            links in chat webhook messages, when Settings name no public URL
  *   RESTOW_PRODUCT_NAME          the product name chat webhook messages use (branding)
+ *   RESTOW_LAB_TOKEN             turns on the lab API on the main host (port 8095, at least 32
+ *                                characters; docs/BAREMETAL.md 12.3, the recovery lab's token)
+ *   RESTOW_LAB_CONCURRENCY       boot probes the lab runs at the same time (default 1)
+ *   RESTOW_LAB_MAX_RESTORE_GIB   the largest restore of a boot probe (default 64)
+ *   RESTOW_LAB_TLS_UPSTREAM      where the TLS edge answers on the compose network (caddy:443),
+ *                                to measure the instance check value of a probe's code
  *   ARCHIVE_CAPTURE_CONCURRENCY  archive capture passes at once in this process (default 16)
  *   ARCHIVE_CAPTURE_TENANT_CONCURRENCY
  *                                ... of them per tenant (default 4)
@@ -106,6 +112,7 @@ import PgBoss from "pg-boss";
 import { ArchiveCaptureService } from "./archive-capture/service.js";
 import { grantContinuation } from "./continuation.js";
 import { configureDefaultStorage } from "./default-storage.js";
+import { LAB_API_PORT, labApiOptionsFromEnv, startLabApi } from "./endpoints/lab-api.js";
 import { registerEndpointJobs } from "./endpoints/register.js";
 import { configureEntraApp } from "./entra-app.js";
 import { extensionFeatureGate, extensionHandlers, extensionRetentionTasks } from "./extensions.js";
@@ -591,6 +598,21 @@ async function main(): Promise<void> {
     { pollingIntervalSeconds: config.pollSeconds },
   );
 
+  // The lab API of the boot probe (docs/BAREMETAL.md 12.3): on the main host, with a token only.
+  const labOptions = labApiOptionsFromEnv();
+  const labServer =
+    !node.nodeId && labOptions
+      ? await startLabApi({ db, providerDb, runtime }, labOptions).catch((error: unknown) => {
+          logger.error("lab API could not listen", { errorMessage: safeErrorMessage(error) });
+          return null;
+        })
+      : null;
+  if (labServer) {
+    logger.info("lab API ready", { port: LAB_API_PORT, concurrency: labOptions?.concurrency });
+  } else if (process.env.RESTOW_LAB_TOKEN?.trim() && !labOptions) {
+    logger.warn("RESTOW_LAB_TOKEN is shorter than 32 characters; the lab API stays off");
+  }
+
   // File shares (docs/FILESHARES.md 8): queued runs, the dispatcher that starts runners through
   // the mounter, the monitor, retention, checks, restore checks, the catalog and the purge. The
   // mounter runs on the main host only, so a worker node leaves them to the main host's worker.
@@ -682,6 +704,7 @@ async function main(): Promise<void> {
     jobPause.stop();
     stopReconciler();
     stopRestoreModeWatch();
+    labServer?.close();
     try {
       await heartbeat.beat();
       await boss.stop({ graceful: true, wait: true, timeout: config.shutdownTimeoutMs });

@@ -50,7 +50,20 @@ import {
   tenants,
   users,
 } from "@restow/db";
-import { and, desc, eq, gt, inArray, isNotNull, isNull, lt, ne, or, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  lt,
+  ne,
+  notInArray,
+  or,
+  sql,
+} from "drizzle-orm";
 import { z } from "zod";
 import { config as appConfig } from "../../config.js";
 import { audit } from "../../lib/audit.js";
@@ -483,11 +496,12 @@ export async function getEndpoint(
       )
       .orderBy(desc(sql`coalesce(${endpointTasks.finishedAt}, ${endpointTasks.createdAt})`))
       .limit(RECENT_TASKS);
-    // The bare metal layout check has its own card (baremetal.ts), not a row in this list.
+    // The bare metal layout check and the boot probe have their own card (baremetal.ts), not a
+    // row in this list.
     const listedReports = and(
       eq(endpointReports.tenantId, tenantId),
       eq(endpointReports.endpointId, id),
-      ne(endpointReports.kind, "baremetal_check"),
+      notInArray(endpointReports.kind, ["baremetal_check", "boot_probe"]),
     );
     const recentReports = await tx
       .select()

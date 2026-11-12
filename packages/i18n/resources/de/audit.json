@@ -649,6 +649,10 @@
         "verify": {
           "requested": "SQL-Server-Prüfung angefordert"
         }
+      },
+      "boot_probe": {
+        "requested": "Startprobe der Ganz-Rechner-Sicherung angefordert",
+        "started": "Startprobe: Das Recovery-ISO des Labors hat seinen Code eingelöst"
       }
     },
     "backup_job": {

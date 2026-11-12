@@ -347,6 +347,7 @@ var textEN = map[string]string{
 	"step.restore":         "Restore the files of the snapshot",
 	"step.restore_verify":  "Compare the system paths completely with the snapshot",
 	"step.mkdirs":          "Create mount points and API folders the snapshot may lack",
+	"step.probe_boot":      "Let the restored system report its start on the serial console (boot probe)",
 	"step.fixup":           "Rewrite device references in {target}",
 	"step.keyfile":         "Create a new key file for {target} and add it as a second key slot",
 	"step.swapfile":        "Recreate the swap file {target}",

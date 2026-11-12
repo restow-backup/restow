@@ -400,6 +400,7 @@ describe.skipIf(!adminUrl || !resticAvailable())(
       checks: { id: string; status: string; findings: { code: string; severity: string }[] }[];
       planner: Record<string, { ok: boolean | null; problems?: unknown[] }>;
       restoreSizes: Record<string, { bytes: number; files: number; inodes: number }>;
+      folderSizes: Record<string, number>;
       minimumSizes: { disks: { disk: string; minBytes: number }[] } | null;
       bootChainFingerprint: string | null;
       layoutSha256: string;
@@ -459,6 +460,13 @@ describe.skipIf(!adminUrl || !resticAvailable())(
       // Only alice's notes: the placeholder that keeps the fixture's empty /home in git is no
       // file of the machine and never reaches the snapshot.
       expect(summary.restoreSizes["/home"]).toMatchObject({ bytes: 6, files: 1 });
+      // The same walk sizes the folders a boot probe may leave empty (12.3): each child of /home,
+      // /srv and /var/lib with every byte below it.
+      expect(summary.folderSizes["/home/alice"]).toBe(6);
+      expect(summary.folderSizes["/var/lib/restow-agent"]).toBeGreaterThan(1000);
+      expect(
+        Object.keys(summary.folderSizes).every((p) => /^\/(home|srv|var\/lib)\/[^/]+$/.test(p)),
+      ).toBe(true);
       const tree = await treeOf(made.root);
       expect(tree.filter((path) => path.endsWith(FIXTURE_KEEP) || path.includes("%"))).toEqual([]);
       expect(tree).toContain(join("sys/devices/pci0000:00/0000:00:1d.0", "modalias"));

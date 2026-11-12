@@ -9,7 +9,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { createServer as createNetServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createServer } from "node:tls";
+import { createSecureContext, createServer } from "node:tls";
 import { afterAll, describe, expect, it } from "vitest";
 import { measureInstanceSpki } from "./instance-tls.js";
 
@@ -67,6 +67,30 @@ describe("measureInstanceSpki", () => {
     const measured = await measureInstanceSpki(`https://127.0.0.1:${port}`);
     expect(measured).toBe(spkiOf(pair.cert));
     expect(measured).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("measures the TLS edge at another address, naming the origin's host (the lab's view)", async () => {
+    const pair = certificate("edge", ["-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256"]);
+    let servername: string | null = null;
+    const server = createServer(
+      {
+        ...pair,
+        SNICallback: (name, done) => {
+          servername = name;
+          done(null, createSecureContext(pair));
+        },
+      },
+      (socket) => socket.end(),
+    );
+    const port = await listen(server);
+    const measured = await measureInstanceSpki("https://restow.example.invalid", {
+      connectTo: `127.0.0.1:${port}`,
+    });
+    expect(measured).toBe(spkiOf(pair.cert));
+    expect(servername).toBe("restow.example.invalid");
+    expect(
+      await measureInstanceSpki("https://restow.example.invalid", { connectTo: "no port" }),
+    ).toBeNull();
   });
 
   it("measures nothing for plain HTTP, a closed port or a server that stays silent", async () => {

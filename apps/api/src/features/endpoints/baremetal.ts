@@ -1,6 +1,7 @@
 import {
   agentVersionAtLeast,
   type BaremetalNotPossibleReason,
+  type BaremetalProbeFacts,
   type BaremetalReadinessState,
   type BaremetalStateDetail,
   baremetalReadiness,
@@ -8,27 +9,40 @@ import {
   type LayoutManifest,
   type LayoutSummary,
   type LayoutUnsupported,
+  type LinuxLayoutManifest,
+  labPresent,
   layoutFingerprint,
+  PROBE_EXPIRY_MS,
+  type ProbePendingReason,
   parseLayoutManifest,
+  probeNotPossible,
   type ReplacementHardware,
   replacementHardware,
   summarizeLayout,
   WHOLE_MACHINE_AGENT_VERSION,
 } from "@restow/core";
 import {
+  bootProbeReports,
   type Database,
   type Endpoint,
   type EndpointRun,
   endpointLayouts,
+  endpointRecoveries,
   endpointReports,
   endpointRuns,
   endpoints,
+  loadRecoveryLab,
+  pendingBootProbe,
+  type RecoveryLabState,
 } from "@restow/db";
 import { and, desc, eq, inArray, isNotNull, isNull, like, or, sql } from "drizzle-orm";
 import { config } from "../../config.js";
+import { providerDb } from "../../db.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
 import type { AgentContext } from "./agent-auth.js";
+import { auditEndpoint, ENDPOINT_AUDIT_ACTIONS, type EndpointActor } from "./audit.js";
+import { ENDPOINT_PROBLEMS } from "./problems.js";
 import {
   type ActiveRecoveryDto,
   activeRecoveriesOf,
@@ -43,11 +57,11 @@ import type { FinishRunInput } from "./schemas.js";
  * layout's summary with the stage 1 report of its snapshot (M2) and the rating that follows
  * (@restow/core `baremetalReadiness`). Since M4 the state also carries what the restore wizard
  * needs: the whole machine snapshots with their check, what replacement hardware needs per layout
- * (@restow/core `replacementHardware`) and the running recovery session. The boot probe comes with
- * M5.
+ * (@restow/core `replacementHardware`) and the running recovery session. Since M5 the boot probe
+ * of the lab (12.3) decides whether a machine with a green stage 1 is green, overdue or red.
  */
 
-export type BaremetalState = Exclude<BaremetalReadinessState, "green" | "overdue">;
+export type BaremetalState = BaremetalReadinessState;
 export type BaremetalNotPossible = BaremetalNotPossibleReason;
 
 export interface BaremetalLatestDto {
@@ -96,6 +110,35 @@ export interface BaremetalSnapshotDto {
   verdict: string;
 }
 
+/** The newest boot probe report for the fingerprints of the newest stage 1 (12.3). */
+export interface BootProbeReportDto {
+  reportId: string;
+  checkedAt: string;
+  snapshotId: string | null;
+  /** null: the probe proved nothing (the lab, a time limit) and is repeated. */
+  readiness: "green" | "red" | null;
+  cause: Record<string, unknown> | null;
+  notPossible: string | null;
+  firmware: string | null;
+  controllers: string[];
+  kvm: boolean | null;
+  emptyFilesystems: string[];
+  emptyDirs: string[];
+  restoreBytes: number | null;
+  /** The end of the serial console of the restored system, as evidence (at most 4 KiB). */
+  serialTail: string;
+}
+
+export interface BaremetalProbeDto {
+  /** The lab asked for work within the last ten minutes, and whether it has KVM. */
+  lab: { present: boolean; kvm: boolean };
+  /** A probe of the machine is planned (the lab has not taken it) or runs. */
+  pending: "planned" | "running" | null;
+  /** Why no probe proves the boot yet, when the state is `layout_checked`. */
+  reason: ProbePendingReason | null;
+  latest: BootProbeReportDto | null;
+}
+
 /** Layouts the hardware guide is computed for (the snapshots rarely have more). */
 const MAX_HARDWARE_LAYOUTS = 10;
 
@@ -120,6 +163,8 @@ export interface BaremetalDto {
   hardwareByLayout: Record<string, ReplacementHardware>;
   /** The running recovery session (pending approval, active, finishing), if there is one. */
   activeRecovery: ActiveRecoveryDto | null;
+  /** The boot probe; null until stage 1 of the newest snapshot is green. */
+  probe: BaremetalProbeDto | null;
 }
 
 export interface LayoutDto {
@@ -311,12 +356,128 @@ export function snapshotHintOf(manifest: LayoutManifest): SnapshotHintDto | null
   };
 }
 
+function stringList(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
+}
+
+/** The boot probe report a rating names, for the card (12.3). */
+async function bootProbeReportOf(
+  tx: Transaction,
+  reportId: string,
+): Promise<BootProbeReportDto | null> {
+  const [report] = await tx
+    .select()
+    .from(endpointReports)
+    .where(eq(endpointReports.id, reportId))
+    .limit(1);
+  if (!report) return null;
+  const summary = report.summary as Record<string, unknown>;
+  const record = (value: unknown) =>
+    value !== null && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
+  return {
+    reportId: report.id,
+    checkedAt: report.checkedAt.toISOString(),
+    snapshotId: report.snapshotId,
+    readiness: report.readiness === "green" || report.readiness === "red" ? report.readiness : null,
+    cause: record(summary.cause),
+    notPossible: typeof summary.notPossible === "string" ? summary.notPossible : null,
+    firmware: typeof summary.firmware === "string" ? summary.firmware : null,
+    controllers: stringList(summary.controllers),
+    kvm: typeof summary.kvm === "boolean" ? summary.kvm : null,
+    emptyFilesystems: stringList(summary.emptyFilesystems),
+    emptyDirs: stringList(summary.emptyDirs),
+    restoreBytes: typeof summary.restoreBytes === "number" ? summary.restoreBytes : null,
+    serialTail: typeof summary.serialTail === "string" ? summary.serialTail.slice(-4096) : "",
+  };
+}
+
+/**
+ * The boot probe facts of a machine whose newest stage 1 is green: its probe reports for the
+ * fingerprints of that report, the open probe and the lab (12.4).
+ */
+export async function bootProbeFactsOf(
+  tx: Transaction,
+  endpointId: string,
+  fingerprints: { layoutFingerprint: string; bootChainFingerprint: string | null },
+  manifest: LinuxLayoutManifest | null,
+  lab: RecoveryLabState | null,
+  now: Date,
+): Promise<{ facts: BaremetalProbeFacts; latestReportId: string | null }> {
+  const reports = fingerprints.bootChainFingerprint
+    ? await bootProbeReports(tx, endpointId, {
+        layoutFingerprint: fingerprints.layoutFingerprint,
+        bootChainFingerprint: fingerprints.bootChainFingerprint,
+      })
+    : [];
+  const pending = await pendingBootProbe(tx, endpointId, now);
+  return {
+    facts: {
+      probes: reports,
+      notPossible: manifest ? probeNotPossible(manifest) : null,
+      lab: labPresent(lab, now),
+      pending: pending?.state ?? null,
+    },
+    latestReportId: reports[0]?.id ?? null,
+  };
+}
+
+/**
+ * The bare metal state of a machine for a list (the "Bare Metal" column of the readiness overview):
+ * the same rating as the card, without the wizard's parts. Null for a machine that is neither
+ * backed up as a whole nor has a layout.
+ */
+export async function baremetalStateOf(
+  tx: Transaction,
+  endpoint: Endpoint,
+  lab: RecoveryLabState | null,
+  now: Date,
+): Promise<BaremetalState | null> {
+  const enabled = endpoint.config.wholeMachine === true;
+  const latestRow = await latestLayoutRun(tx, endpoint.id);
+  if (!enabled && !latestRow) return null;
+  const check = latestRow?.snapshotId
+    ? await latestCheckOf(tx, endpoint.id, latestRow.snapshotId)
+    : null;
+  const parsed = latestRow ? parseLayoutManifest(latestRow.layout.manifest) : null;
+  const manifest = parsed?.ok && parsed.manifest.platform === "linux" ? parsed.manifest : null;
+  const probe =
+    latestRow && check?.readiness === "green"
+      ? await bootProbeFactsOf(
+          tx,
+          endpoint.id,
+          {
+            layoutFingerprint: latestRow.layout.layoutFingerprint,
+            bootChainFingerprint: check.bootChainFingerprint,
+          },
+          manifest,
+          lab,
+          now,
+        )
+      : null;
+  return baremetalReadiness({
+    enabled,
+    os: endpoint.os,
+    arch: endpoint.arch,
+    virtualization: endpoint.settings.agent?.machine?.virtualization ?? null,
+    agentTooOld: !agentVersionAtLeast(endpoint.agentVersion, WHOLE_MACHINE_AGENT_VERSION),
+    latestLayout: latestRow ? { verdict: latestRow.layout.verdict } : null,
+    latestReport: check ? { readiness: check.readiness } : null,
+    ...(probe ? { probe: probe.facts } : {}),
+    now,
+  }).state;
+}
+
 /** The bare metal card of a machine's page (restore role and up). */
 export async function getBaremetalState(
   database: Database,
   tenantId: string,
   endpointId: string,
+  now: Date = new Date(),
+  lab?: RecoveryLabState | null,
 ): Promise<BaremetalDto> {
+  const labState = lab === undefined ? await loadRecoveryLab(providerDb) : lab;
   return withTenantTx(database, tenantId, async (tx) => {
     const endpoint = await loadEndpoint(tx, tenantId, endpointId);
     if (!endpoint) {
@@ -401,6 +562,23 @@ export async function getBaremetalState(
     }
     const hardware = latestRow ? (hardwareByLayout[latestRow.layout.id] ?? null) : null;
     const activeRecovery = (await activeRecoveriesOf(tx, [endpointId])).get(endpointId) ?? null;
+    const latestManifest = latestRow ? parseLayoutManifest(latestRow.layout.manifest) : null;
+    const probeInput =
+      latest && check?.readiness === "green"
+        ? await bootProbeFactsOf(
+            tx,
+            endpointId,
+            {
+              layoutFingerprint: latest.fingerprint,
+              bootChainFingerprint: check.bootChainFingerprint,
+            },
+            latestManifest?.ok && latestManifest.manifest.platform === "linux"
+              ? latestManifest.manifest
+              : null,
+            labState,
+            now,
+          )
+        : null;
     const rating = baremetalReadiness({
       enabled,
       os: endpoint.os,
@@ -409,12 +587,23 @@ export async function getBaremetalState(
       agentTooOld: !agentVersionAtLeast(endpoint.agentVersion, WHOLE_MACHINE_AGENT_VERSION),
       latestLayout: latest ? { verdict: latest.verdict } : null,
       latestReport: check ? { readiness: check.readiness } : null,
+      ...(probeInput ? { probe: probeInput.facts } : {}),
+      now,
     });
+    const probe: BaremetalProbeDto | null = probeInput
+      ? {
+          lab: probeInput.facts.lab,
+          pending: probeInput.facts.pending,
+          reason: rating.probe?.reason ?? null,
+          latest: probeInput.latestReportId
+            ? await bootProbeReportOf(tx, probeInput.latestReportId)
+            : null,
+        }
+      : null;
     return {
       preview: config.baremetalPreview,
       enabled,
-      // `green` and `overdue` need the boot probe (M5); the rating does not produce them yet.
-      state: rating.state as BaremetalState,
+      state: rating.state,
       stateDetail: rating.detail,
       notPossible: rating.notPossible,
       latest,
@@ -424,7 +613,100 @@ export async function getBaremetalState(
       hardware,
       hardwareByLayout,
       activeRecovery,
+      probe,
     };
+  });
+}
+
+/**
+ * "Probe now" on the machine's page (12.3): a probe of the newest whole machine snapshot is planned
+ * at once (the lab takes it at its next request). Only for a machine whose newest stage 1 is
+ * green and with a lab that has KVM; an open probe of the machine is answered instead of a
+ * second one. Audited as `endpoint.boot_probe.requested`.
+ */
+export async function requestBootProbe(
+  database: Database,
+  tenantId: string,
+  endpointId: string,
+  actor: EndpointActor,
+  now: Date = new Date(),
+  lab?: RecoveryLabState | null,
+): Promise<{ id: string; state: "planned" | "running" }> {
+  const notPossible = (reason: string, detail: string) =>
+    new ProblemError(409, "Boot probe not possible", {
+      type: ENDPOINT_PROBLEMS.baremetalNotAvailable,
+      detail,
+      extensions: { reason },
+    });
+  if (!config.baremetalPreview) {
+    throw notPossible(
+      "preview_off",
+      "Bare metal is a preview this installation has not switched on.",
+    );
+  }
+  const present = labPresent(lab === undefined ? await loadRecoveryLab(providerDb) : lab, now);
+  if (!present.present) {
+    throw notPossible(
+      "no_lab",
+      "This installation runs no recovery lab (compose profile recovery-lab).",
+    );
+  }
+  if (!present.kvm) {
+    throw notPossible("no_kvm", "The recovery lab has no KVM; it cannot boot a probe.");
+  }
+  return withTenantTx(database, tenantId, async (tx) => {
+    const endpoint = await loadEndpoint(tx, tenantId, endpointId);
+    if (!endpoint || endpoint.removedAt) {
+      throw new ProblemError(404, "Endpoint not found");
+    }
+    const latestRow = await latestLayoutRun(tx, endpointId);
+    const check = latestRow?.snapshotId
+      ? await latestCheckOf(tx, endpointId, latestRow.snapshotId)
+      : null;
+    if (!latestRow?.snapshotId || check?.readiness !== "green") {
+      throw notPossible(
+        "not_checked",
+        "Stage 1 of the newest whole machine backup has not passed; the boot probe follows it.",
+      );
+    }
+    const parsed = parseLayoutManifest(latestRow.layout.manifest);
+    const reason =
+      parsed.ok && parsed.manifest.platform === "linux" ? probeNotPossible(parsed.manifest) : null;
+    if (reason) {
+      throw notPossible(reason, "This machine cannot be booted by the probe.");
+    }
+    // Serialised per machine, so two requests plan one probe.
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`probe:${endpointId}`}))`);
+    const open = await pendingBootProbe(tx, endpointId, now);
+    if (open) {
+      return open;
+    }
+    const [created] = await tx
+      .insert(endpointRecoveries)
+      .values({
+        tenantId,
+        endpointId,
+        kind: "probe",
+        status: "issued",
+        requireApproval: false,
+        snapshotId: latestRow.snapshotId,
+        issuedAt: now,
+        expiresAt: new Date(now.getTime() + PROBE_EXPIRY_MS),
+        createdBy: actor.userId,
+        updatedAt: now,
+      })
+      .returning({ id: endpointRecoveries.id });
+    if (!created) {
+      throw new Error("probe insert returned no row");
+    }
+    await auditEndpoint(tx, {
+      tenantId,
+      actor,
+      action: ENDPOINT_AUDIT_ACTIONS.bootProbeRequested,
+      endpointId,
+      details: { recoveryId: created.id, snapshotId: latestRow.snapshotId },
+    });
+    return { id: created.id, state: "planned" as const };
   });
 }
 

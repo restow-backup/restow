@@ -649,6 +649,10 @@
         "verify": {
           "requested": "SQL Server check requested"
         }
+      },
+      "boot_probe": {
+        "requested": "Boot probe of the whole machine backup requested",
+        "started": "Boot probe: the recovery ISO of the lab redeemed its code"
       }
     },
     "backup_job": {

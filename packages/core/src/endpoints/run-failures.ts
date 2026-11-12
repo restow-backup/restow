@@ -162,6 +162,29 @@ export function repositoryDamagedCause(message?: string | null): FailureCause {
   };
 }
 
+/** Stage 1 of the bare metal check rated a whole machine backup red (docs/BAREMETAL.md 12.6). */
+export function baremetalCheckFailedCause(failedChecks: readonly string[]): FailureCause {
+  return {
+    code: "endpoint.baremetal_check_failed",
+    transient: false,
+    params: {},
+    technical: failedChecks.length > 0 ? { checks: failedChecks.slice(0, 20).join(", ") } : {},
+  };
+}
+
+/** The boot probe rated a whole machine backup red (docs/BAREMETAL.md 12.3, 12.6). */
+export function bootProbeFailedCause(
+  kind: "boot_failed" | "recovery_failed" | "verification_failed",
+  evidence: string | null,
+): FailureCause {
+  return {
+    code: "endpoint.boot_probe_failed",
+    transient: false,
+    params: { reason: kind },
+    technical: evidence ? { evidence: redactSensitiveText(evidence).slice(0, 300) } : {},
+  };
+}
+
 /** A server that stopped reporting. */
 export function silentCause(ageHours: number): FailureCause {
   return {

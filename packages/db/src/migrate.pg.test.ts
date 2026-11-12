@@ -2419,6 +2419,7 @@ describe.skipIf(!adminUrl)("upgrading to 0.5.0: the bare metal layout check (010
         "retention",
         "sql_verify",
         "baremetal_check",
+        "boot_probe",
       ]);
       await asTenant(pool, ids.tenant, async (client) => {
         const before = await client.query(
@@ -2515,12 +2516,12 @@ describe.skipIf(!adminUrl)("upgrading to 0.5.0: recovery codes and rebind tokens
         );
       });
 
-      // Only 0101 and 0102 (the log's key block mark) are left to apply.
+      // Only 0101, 0102 (the log's key block mark) and 0103 (the boot probe) are left to apply.
       await runMigrations(url);
       const { rows: applied } = await pool.query<{ count: string }>(
         "SELECT count(*)::text AS count FROM drizzle.__drizzle_migrations",
       );
-      expect(Number(applied[0]?.count)).toBe(103);
+      expect(Number(applied[0]?.count)).toBe(104);
       const { rows: column } = await pool.query(
         `SELECT data_type, is_nullable, column_default FROM information_schema.columns
           WHERE table_name = 'endpoint_recoveries' AND column_name = 'log_in_key_block'`,
@@ -2601,6 +2602,122 @@ describe.skipIf(!adminUrl)("upgrading to 0.5.0: recovery codes and rebind tokens
     }
   }, 120_000);
 });
+describe.skipIf(!adminUrl)("upgrading to 0.5.0: the boot probe (0103)", () => {
+  const base = adminUrl as string;
+  const database = `restow_db_migrate_probe_${suffix}`;
+  const owner: RoleLogin = {
+    name: `restow_mig_probe_${suffix}`,
+    password: randomBytes(18).toString("base64url"),
+  };
+  const ids = { tenant: randomUUID(), endpoint: randomUUID(), report: randomUUID() };
+  let folder = "";
+
+  beforeAll(async () => {
+    folder = migrationsFolderUpTo("0102_endpoint_recovery_log_key_block");
+    const admin = new pg.Pool({ connectionString: base });
+    try {
+      await admin.query(
+        `CREATE ROLE ${owner.name} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE PASSWORD '${owner.password}'`,
+      );
+      await admin.query(`CREATE DATABASE ${database} OWNER ${owner.name}`);
+    } finally {
+      await admin.end();
+    }
+  });
+
+  afterAll(async () => {
+    if (folder) rmSync(folder, { recursive: true, force: true });
+    await dropTestDatabase(base, database);
+    const admin = new pg.Pool({ connectionString: base });
+    try {
+      await admin.query(`DROP ROLE IF EXISTS ${owner.name}`);
+    } finally {
+      await admin.end();
+    }
+  });
+
+  it("applies on top of 0102, keeps every report and code, accepts the new kinds and adds the lab state", async () => {
+    const url = urlFor(base, database, owner);
+    await applyReleasedSchema(url, folder, null);
+    const pool = new pg.Pool({ connectionString: url });
+    try {
+      const providerId = await insertReturningId(
+        pool,
+        "INSERT INTO providers (name) VALUES ('Provider') RETURNING id",
+        [],
+      );
+      await asTenant(pool, ids.tenant, async (client) => {
+        await client.query(
+          "INSERT INTO tenants (id, provider_id, name, slug) VALUES ($1, $2, 'Contoso', $3)",
+          [ids.tenant, providerId, `contoso-${suffix}`],
+        );
+        await client.query(
+          `INSERT INTO endpoints (id, tenant_id, hostname, os, arch, profile, secret_hash, config)
+           VALUES ($1, $2, 'srv-01', 'linux', 'amd64', 'server', 'x', '{}'::jsonb)`,
+          [ids.endpoint, ids.tenant],
+        );
+        await client.query(
+          `INSERT INTO endpoint_reports (id, tenant_id, endpoint_id, kind, origin, snapshot_id, readiness, summary)
+           VALUES ($1, $2, $3, 'baremetal_check', 'server', $4, 'green', '{"checks":8}'::jsonb)`,
+          [ids.report, ids.tenant, ids.endpoint, "a".repeat(64)],
+        );
+        await client.query(
+          `INSERT INTO endpoint_recoveries (tenant_id, endpoint_id, kind, code_hash, expires_at, issued_at)
+           VALUES ($1, $2, 'code', 'h1', now() + interval '4 hours', now())`,
+          [ids.tenant, ids.endpoint],
+        );
+      });
+
+      await runMigrations(url);
+
+      const enumOf = async (type: string) =>
+        (
+          await pool.query<{ value: string }>(
+            `SELECT e.enumlabel AS value FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
+              WHERE t.typname = $1 ORDER BY e.enumsortorder`,
+            [type],
+          )
+        ).rows.map((row) => row.value);
+      expect((await enumOf("endpoint_report_kind")).slice(-2)).toEqual([
+        "baremetal_check",
+        "boot_probe",
+      ]);
+      expect(await enumOf("endpoint_recovery_kind")).toEqual(["code", "probe"]);
+      const { rows: lab } = await pool.query(
+        `SELECT data_type, is_nullable, column_default FROM information_schema.columns
+          WHERE table_name = 'settings' AND column_name = 'recovery_lab'`,
+      );
+      expect(lab).toEqual([{ data_type: "jsonb", is_nullable: "YES", column_default: null }]);
+      await asTenant(pool, ids.tenant, async (client) => {
+        const kept = await client.query(
+          `SELECT (SELECT kind FROM endpoint_reports WHERE id = $1) AS report,
+                  (SELECT kind FROM endpoint_recoveries WHERE code_hash = 'h1') AS code`,
+          [ids.report],
+        );
+        expect(kept.rows).toEqual([{ report: "baremetal_check", code: "code" }]);
+        // A probe that is planned has no code yet; the lab's lease sets it.
+        await client.query(
+          `INSERT INTO endpoint_recoveries (tenant_id, endpoint_id, kind, require_approval, expires_at, issued_at)
+           VALUES ($1, $2, 'probe', false, now() + interval '3 hours', now())`,
+          [ids.tenant, ids.endpoint],
+        );
+        await client.query(
+          `INSERT INTO endpoint_reports (tenant_id, endpoint_id, kind, origin, snapshot_id, readiness, summary)
+           VALUES ($1, $2, 'boot_probe', 'server', $3, 'green', '{}'::jsonb)`,
+          [ids.tenant, ids.endpoint, "a".repeat(64)],
+        );
+        const counted = await client.query(
+          `SELECT (SELECT count(*) FROM endpoint_recoveries WHERE kind = 'probe')::int AS probes,
+                  (SELECT count(*) FROM endpoint_reports WHERE kind = 'boot_probe')::int AS reports`,
+        );
+        expect(counted.rows).toEqual([{ probes: 1, reports: 1 }]);
+      });
+    } finally {
+      await pool.end();
+    }
+  }, 120_000);
+});
+
 describe.skipIf(!adminUrl)(
   "upgrading to 0.5.0: the tenants' weekly report moves to the calendar week (0091)",
   () => {

@@ -54,6 +54,10 @@ export const ENDPOINT_AUDIT_ACTIONS = {
   recoveryCancelled: "endpoint.recovery.cancelled",
   // Rebinding a machine (docs/BAREMETAL.md 11).
   rebindTokenCreated: "endpoint.rebind_token.created",
+  // The boot probe of the lab (docs/BAREMETAL.md 12.3): asked for on the machine's page, and its
+  // ISO redeemed the code the worker issued.
+  bootProbeRequested: "endpoint.boot_probe.requested",
+  bootProbeStarted: "endpoint.boot_probe.started",
   rebound: "endpoint.rebound",
   unrevoked: "endpoint.unrevoked",
   // The native SQL Server backup (W2a, docs/BAREMETAL-WINDOWS.md 5.1)
