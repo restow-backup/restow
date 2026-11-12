@@ -169,8 +169,14 @@ export const releaseRefSchema = z.object({
   tag: z.string().min(1).max(128),
   url: z.string().url().nullable(),
   prerelease: z.boolean().default(false),
-  /** Digests the release published for its images, when it did. */
-  digests: z.object({ app: digestSchema.optional(), web: digestSchema.optional() }).default({}),
+  /** Digests the release published for its images, when it did (`lab`: the recovery lab, 0.5.0). */
+  digests: z
+    .object({
+      app: digestSchema.optional(),
+      web: digestSchema.optional(),
+      lab: digestSchema.optional(),
+    })
+    .default({}),
 });
 export type ReleaseRef = z.infer<typeof releaseRefSchema>;
 
@@ -755,6 +761,8 @@ export const UPDATER_SECRET_FILE = "secret";
  *   step.prepare.verifying_compose {}
  *   step.fetch.pulling {version}
  *   step.fetch.pulling_web {version}
+ *   step.fetch.pulling_lab {version}      the recovery lab's image (only where .env sets RESTOW_LAB_IMAGE)
+ *   step.fetch.lab_not_published {version}  the release has no lab image; the lab keeps its own
  *   step.fetch.web_not_published {version}  the release has no web image; the current one stays
  *   step.fetch.verifying_signatures {}     checking the release workflow's signature of the images
  *   step.fetch.verifying_digests {}
@@ -772,6 +780,7 @@ export const UPDATER_SECRET_FILE = "secret";
  *   step.health.waiting_for_api {version}
  *   step.health.starting_workers {}
  *   step.health.starting_edge {}
+ *   step.health.starting_lab {}           the recovery lab on its new image
  *   step.health.verifying_services {}
  *   step.finish.cleaning {}
  *   rollback.checking_migrations {}
@@ -795,7 +804,9 @@ export const UPDATE_MESSAGE_CODES = [
   "step.prepare.verifying_compose",
   "step.fetch.pulling",
   "step.fetch.pulling_web",
+  "step.fetch.pulling_lab",
   "step.fetch.web_not_published",
+  "step.fetch.lab_not_published",
   "step.fetch.verifying_signatures",
   "step.fetch.verifying_digests",
   "step.fetch.requesting_token",
@@ -812,6 +823,7 @@ export const UPDATE_MESSAGE_CODES = [
   "step.health.waiting_for_api",
   "step.health.starting_workers",
   "step.health.starting_edge",
+  "step.health.starting_lab",
   "step.health.verifying_services",
   "step.finish.cleaning",
   "rollback.checking_migrations",

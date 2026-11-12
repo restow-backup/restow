@@ -14,7 +14,10 @@ HERE=$(cd "$(dirname "$0")" && pwd -P)
 # The lab stage's own pins: its Debian image and its snapshot.debian.org time.
 DEBIAN_IMAGE_DIGEST=$(sed -n 's/^ARG LAB_DEBIAN_IMAGE=//p' "$HERE/../../Dockerfile")
 SNAPSHOT_TIMESTAMP=$(sed -n 's/^ARG LAB_SNAPSHOT=//p' "$HERE/../../Dockerfile")
-[ -n "$DEBIAN_IMAGE_DIGEST" ] && [ -n "$SNAPSHOT_TIMESTAMP" ] || { echo "the Dockerfile names no lab pins" >&2; exit 1; }
+if [ -z "$DEBIAN_IMAGE_DIGEST" ] || [ -z "$SNAPSHOT_TIMESTAMP" ]; then
+  echo "the Dockerfile names no lab pins" >&2
+  exit 1
+fi
 
 image=''
 version=''
@@ -29,7 +32,10 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
-[ -n "$image" ] && [ -n "$out" ] || { echo "--image and --out are needed" >&2; exit 2; }
+if [ -z "$image" ] || [ -z "$out" ]; then
+  echo "--image and --out are needed" >&2
+  exit 2
+fi
 printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' || { echo "--version <v> is needed" >&2; exit 2; }
 
 mkdir -p "$out"

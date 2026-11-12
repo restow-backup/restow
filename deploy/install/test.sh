@@ -97,6 +97,9 @@ assert_contains "--http-local is deprecated, use --local" "$( (parse_args --http
 assert_not_contains "deprecated" "$( (parse_args --local) 2>&1)" "--local prints no notice"
 assert_eq "help" "$(parsed --help | cut -d '|' -f 10)" "--help"
 assert_eq "upgrade" "$(parsed --upgrade | cut -d '|' -f 10)" "--upgrade"
+# claim: UPDATE-018 (the manual update names the lab's image, and the updater moves it itself)
+assert_contains "change RESTOW_LAB_IMAGE as well" "$(print_upgrade_info)" "--upgrade: the manual step for the recovery lab"
+assert_contains "where the recovery lab runs, RESTOW_LAB_IMAGE itself" "$(print_upgrade_info)" "--upgrade: the updater moves the lab"
 assert_eq "0" "$(parsed --with-updater --no-updater | cut -d '|' -f 9)" "--no-updater wins when last"
 parsed_mounter() {
   (

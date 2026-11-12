@@ -64,6 +64,10 @@ expect "the committed snapshot.env" rr_check_snapshot_env "$SNAPSHOT_TIMESTAMP" 
 refuse "a tag instead of a digest" rr_check_snapshot_env "$SNAPSHOT_TIMESTAMP" debian:trixie "$LIVE_BUILD_VERSION"
 refuse "another distribution" rr_check_snapshot_env "$SNAPSHOT_TIMESTAMP" "debian:bookworm@sha256:$(printf '%064d' 0)" "$LIVE_BUILD_VERSION"
 refuse "a date instead of a snapshot time" rr_check_snapshot_env 2026-10-20 "$DEBIAN_IMAGE_DIGEST" "$LIVE_BUILD_VERSION"
+# A point release of trixie carries a suffix: the version is compared as dpkg prints it.
+expect "a point-release live-build" rr_check_snapshot_env "$SNAPSHOT_TIMESTAMP" "$DEBIAN_IMAGE_DIGEST" 1:20250505+deb13u1
+refuse "a live-build version with a space" rr_check_snapshot_env "$SNAPSHOT_TIMESTAMP" "$DEBIAN_IMAGE_DIGEST" "1:20250505 x"
+refuse "an empty live-build version" rr_check_snapshot_env "$SNAPSHOT_TIMESTAMP" "$DEBIAN_IMAGE_DIGEST" ""
 
 [ "$(rr_epoch_of_snapshot 19700102T000000Z)" = 86400 ] && ok || fail "epoch of 1970-01-02"
 [ "$(rr_epoch_of_snapshot 20261020T013000Z)" = "$(date -u -d '2026-10-20 01:30:00' +%s)" ] && ok || fail "epoch of the snapshot"

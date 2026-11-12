@@ -248,6 +248,7 @@ async function main(): Promise<void> {
       imageVariant: config.imageVariant,
       imageRepository: config.imageRepository,
       webImageRepository: config.webImageRepository,
+      labImageRepository: config.labImageRepository,
       healthTimeoutSeconds: config.healthTimeoutSeconds,
       verifySignatures: config.verifySignatures,
       cosignImage: config.cosignImage,

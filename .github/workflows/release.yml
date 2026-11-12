@@ -1063,6 +1063,7 @@ jobs:
           WEB_INDEX: ${{ steps.tag.outputs.web_index }}
           COMMUNITY_APP_INDEX: ${{ steps.tag.outputs.community_app_index }}
           COMMUNITY_WEB_INDEX: ${{ steps.tag.outputs.community_web_index }}
+          LAB_INDEX: ${{ steps.tag.outputs.lab_index }}
         run: |
           set -euo pipefail
           cp reports/smoke-report-amd64/smoke-report-amd64.md assets/smoke-report.md
@@ -1096,13 +1097,14 @@ jobs:
             echo "$COMMUNITY_WEB_IMAGE:$VERSION"
             echo "\`\`\`"
             echo
-            echo "The digests of the multi-arch manifests (the opt-in updater verifies the pulled images against the two lines of its build):"
+            echo "The digests of the manifests (the opt-in updater verifies the pulled images against the two lines of its build, and the recovery lab's against the restow-lab line where an installation runs the lab):"
             echo
             echo "\`\`\`"
             echo "restow: $APP_INDEX"
             echo "restow-web: $WEB_INDEX"
             echo "restow-community: $COMMUNITY_APP_INDEX"
             echo "restow-web-community: $COMMUNITY_WEB_INDEX"
+            echo "restow-lab: $LAB_INDEX"
             echo "\`\`\`"
             echo
             echo "The release date the images carry (RESTOW_RELEASED_AT, the commit date of the tag). Licence keys with an update period cover the releases made up to its end; the updater reads this line to offer only those (docs/LICENSING.md):"
@@ -1120,6 +1122,8 @@ jobs:
               echo "  --certificate-oidc-issuer https://token.actions.githubusercontent.com"
             done
             echo "\`\`\`"
+            echo
+            echo "The recovery lab's image, \`$LAB_IMAGE:$VERSION\` (linux/amd64 only; install.sh --with-recovery-lab, docs/BAREMETAL.md), serves both builds and is signed the same way."
             echo
             echo "The public demo's own images, \`$DEMO_SEED_IMAGE:$VERSION\` and \`$DEMO_DOVECOT_IMAGE:$VERSION\` (deploy/demo), carry the same tags, signatures and SBOMs; they are no part of an installation."
             echo

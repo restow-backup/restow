@@ -863,6 +863,13 @@ private repository.
   `baremetal`, the bare metal state of every machine backed up as a whole, counted apart from
   its files. Recovery end-to-end tests P1 (green) and P2 (red, the emergency target) on every
   pull request that touches the restore or the lab, P3 (size limit, NVMe source) every night.
+  The opt-in updater moves the lab along where `.env` names its image (`RESTOW_LAB_IMAGE`): it
+  verifies the lab image of the target version like the other images (the release workflow's
+  signature by the new `restow-lab:` digest line of the release notes, then the pulled digest),
+  pulls it before anything is stopped, writes the line with the other two, recreates the
+  `recovery-lab` service after the web edge and puts the previous line back on a rollback
+  (docs/UPDATING.md, "The recovery lab"; `RESTOW_UPDATER_LAB_IMAGE_REPOSITORY` for a mirror).
+  An installation without the lab is untouched.
 - Write-once (WORM) storage (docs/STORAGE.md, "Write-once storage"): a repository that takes new
   files but refuses to delete, overwrite or rename existing ones, such as an NFS share of a NAS
   with a WORM lock (EPERM, "Operation not permitted"). Every test of a repository (adding it,
@@ -2726,9 +2733,9 @@ the table `endpoint_layouts` and adds the empty column
 empty column `settings.recovery_lab`. None of them rewrites a table. The recovery lab is not
 started by an update: turn it on with `install.sh --with-recovery-lab` on a new installation, or
 on an existing one with `RESTOW_LAB_TOKEN` (at least 32 characters), `RESTOW_LAB_IMAGE` and
-`RESTOW_LAB_KVM_GID` in `.env` and `docker compose --profile recovery-lab up -d`; the opt-in
-updater does not move the lab's image yet, so set `RESTOW_LAB_IMAGE` to the new release after
-an update. The first directory sync after the
+`RESTOW_LAB_KVM_GID` in `.env` and `docker compose --profile recovery-lab up -d`; from then on
+the opt-in updater moves the lab's image with every update (docs/UPDATING.md, "The recovery
+lab"). The first directory sync after the
 update reads the owners and members of every Microsoft 365 group once (three Graph reads per group, through
 `$batch`); until it has run, a person's "Teams & sites" is empty and says that it may be
 incomplete. Whole machine backups stay off until `RESTOW_BAREMETAL_PREVIEW=true` is set for the

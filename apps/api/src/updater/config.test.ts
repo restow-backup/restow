@@ -30,6 +30,7 @@ describe("loadConfig", () => {
       imageVariant: "full",
       imageRepository: "ghcr.io/restow-backup/restow",
       webImageRepository: "ghcr.io/restow-backup/restow-web",
+      labImageRepository: "ghcr.io/restow-backup/restow-lab",
       cliImage: DEFAULT_CLI_IMAGE,
       cosignImage: DEFAULT_COSIGN_IMAGE,
       verifySignatures: true,
@@ -55,6 +56,7 @@ describe("loadConfig", () => {
       RESTOW_UPDATER_MOUNTER_URL: "http://nfs-mounter:9091/",
       RESTOW_UPDATER_IMAGE_REPOSITORY: "registry.example.com:5000/acme/restow",
       RESTOW_UPDATER_WEB_IMAGE_REPOSITORY: "registry.example.com:5000/acme/restow-web",
+      RESTOW_UPDATER_LAB_IMAGE_REPOSITORY: "registry.example.com:5000/acme/restow-lab",
       RESTOW_UPDATER_CLI_IMAGE: PINNED_CLI,
       RESTOW_UPDATER_COSIGN_IMAGE: PINNED_COSIGN,
       RESTOW_UPDATER_VERIFY_SIGNATURES: "FALSE",
@@ -74,6 +76,7 @@ describe("loadConfig", () => {
       apiUrl: "http://restow-api:3000",
       mounterUrl: "http://nfs-mounter:9091",
       imageRepository: "registry.example.com:5000/acme/restow",
+      labImageRepository: "registry.example.com:5000/acme/restow-lab",
       cliImage: PINNED_CLI,
       cosignImage: PINNED_COSIGN,
       verifySignatures: false,
@@ -93,6 +96,8 @@ describe("loadConfig", () => {
     expect(config.imageVariant).toBe("community");
     expect(config.imageRepository).toBe("ghcr.io/restow-backup/restow-community");
     expect(config.webImageRepository).toBe("ghcr.io/restow-backup/restow-web-community");
+    // One lab image serves both builds [UPDATE-018].
+    expect(config.labImageRepository).toBe("ghcr.io/restow-backup/restow-lab");
   });
 
   it("reads RESTOW_IMAGE_VARIANT=full exactly like an image without the variable", () => {
@@ -110,6 +115,8 @@ describe("loadConfig", () => {
       imageVariant: "community",
       imageRepository: "registry.example.com/acme/restow-community",
       webImageRepository: "registry.example.com/acme/restow-web-community",
+      // Derived from the operator's application repository unless named itself.
+      labImageRepository: "registry.example.com/acme/restow-lab",
     });
   });
 

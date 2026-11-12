@@ -94,6 +94,20 @@ docker compose pull
 docker compose up -d
 ```
 
+With the recovery lab (`install.sh --with-recovery-lab`, [docs/BAREMETAL.md](BAREMETAL.md)),
+name the version in its line as well and recreate it; it runs under its own compose
+profile, so the two commands above leave it alone. One lab image serves both builds:
+
+```sh
+# .env
+RESTOW_LAB_IMAGE=ghcr.io/restow-backup/restow-lab:X.Y.Z
+```
+
+```sh
+docker compose --profile recovery-lab pull recovery-lab
+docker compose --profile recovery-lab up -d recovery-lab
+```
+
 Neither these commands nor `install.sh` remove the images of the release before:
 every update adds two images of several hundred MB to Docker's image store, and a
 disk that fills up stops PostgreSQL. Once the new version runs, remove the images of
@@ -581,7 +595,8 @@ modules add, and switches to the full build of the version it runs now:
   `RESTOW_IMAGE=ghcr.io/restow-backup/restow:<version>` and
   `RESTOW_WEB_IMAGE=ghcr.io/restow-backup/restow-web:<version>` into `.env`, recreates
   the services and rolls back to the Community images if the full build does not
-  start (both builds share one migration set, so nothing is migrated). A mirror is
+  start (both builds share one migration set, so nothing is migrated). A recovery lab
+  is verified and moved along as in any update ([The recovery lab](#the-recovery-lab)). A mirror is
   respected: `.../restow-community` becomes `.../restow` in the same registry. When the
   switch succeeded the updater moves itself to the full image too, by the verified
   digest ([The updater updates itself](#the-updater-updates-itself)), so later updates
@@ -613,7 +628,8 @@ Restow picks the mode from the update source and shows it in the tab:
   [What is verified](#what-is-verified)), writes the two image references into
   `.env` (`RESTOW_IMAGE`, `RESTOW_WEB_IMAGE`) and recreates the services. If a
   release publishes no web image digest, the web edge stays as it is and the
-  run says so.
+  run says so. Where `.env` names the recovery lab's image (`RESTOW_LAB_IMAGE`),
+  the lab moves along: see [The recovery lab](#the-recovery-lab).
 - **Source** (any other repository, for example your private Forgejo): downloads
   the tagged archive of the repository, with the stored token in an
   `Authorization` header (never in a URL, a command line or a log), builds the
@@ -675,7 +691,8 @@ In **image** mode, before anything is stopped:
    Community build, see below). A release without one is refused: the tab does
    not offer it, and the updater ends the run as *unchanged* with
    `fetch.digest_missing`. The web edge changes only when the release also
-   publishes `restow-web: sha256:...` (`restow-web-community: sha256:...`).
+   publishes `restow-web: sha256:...` (`restow-web-community: sha256:...`), and
+   the recovery lab, where it runs, only when it publishes `restow-lab: sha256:...`.
 2. Each image is checked in the registry, by that digest, with
    [cosign](https://docs.sigstore.dev/cosign/) (keyless): it must carry a
    signature whose certificate was issued by
@@ -757,7 +774,8 @@ everyone sees a full-screen notice with the steps and the progress.
    applies its database migrations as it starts.
 6. **Health check.** Waits until the api reports ready and the new version
    (it gives up at once when the api container keeps restarting); then starts
-   worker and scheduler, then recreates the web edge last.
+   worker and scheduler, then recreates the web edge, then the recovery lab
+   where it runs ([The recovery lab](#the-recovery-lab)).
 7. **Done.** Old dumps beyond the three kept and the fetched sources are removed.
    Once the run is recorded as succeeded, the images of releases older than the
    previous one are removed ([Old images](#old-images)).
@@ -766,6 +784,37 @@ While the api restarts, the edge answers browsers with a static maintenance
 page (in the browser's language, light or dark) and answers API calls with a
 `503`; the web interface treats that as "the server is restarting" and reloads
 by itself once the new version answers.
+
+#### The recovery lab
+
+An installation with the recovery lab (`install.sh --with-recovery-lab`,
+[docs/BAREMETAL.md](BAREMETAL.md)) has `RESTOW_LAB_IMAGE` in `.env`. In image mode the
+updater moves that line to the lab image of the target version
+(`ghcr.io/restow-backup/restow-lab:<version>`, one image for both builds and so also
+for [the switch to the full build](#switching-to-the-full-build)) and handles it like
+the other images:
+
+- it checks the lab image's signature in the registry by the `restow-lab:` digest of
+  the release notes, with the same signer, before anything is pulled
+  ([What is verified](#what-is-verified)); a lab image without a valid signature, or
+  a pulled lab image with another digest, ends the run as *unchanged*;
+- it pulls the lab image before anything is stopped;
+- it writes `RESTOW_LAB_IMAGE` together with the other two lines and recreates the
+  `recovery-lab` service after the web edge;
+- a rollback ([When something goes wrong](#when-something-goes-wrong)) puts the
+  previous lab line back byte for byte and recreates the lab with it, under the same
+  condition as the other images: only while no migration ran.
+
+An installation without the lab (no `RESTOW_LAB_IMAGE` line, or an empty one for a lab
+built locally as `restow-lab:local`) is untouched: nothing of the lab is verified,
+pulled, written or started. A release that publishes no `restow-lab:` line leaves the
+lab on its image, and the run says so. Source mode builds no lab image, so the lab
+keeps its image there too. If the lab does not start after an otherwise successful
+update, the update still counts as succeeded (the application runs the new version);
+the run's log says so and names the command that starts it:
+`docker compose --profile recovery-lab up -d recovery-lab`. The images of older lab
+releases are not part of [Old images](#old-images); remove them by hand with
+`docker image rm ghcr.io/restow-backup/restow-lab:<old version>`.
 
 State lives in the updater's volume (`status.json`), so it survives the api
 restarting. The audit log records checks, scheduling, cancellation, start,
@@ -1077,6 +1126,9 @@ docker compose run --rm --no-deps --entrypoint restow api restore-mode on --reas
 docker compose up -d
 ```
 
+Where the recovery lab runs, put its previous tag back into `RESTOW_LAB_IMAGE` as well and
+recreate it: `docker compose --profile recovery-lab up -d recovery-lab`.
+
 `restow restore-mode` exists from 0.5.0 on. When the previous image is older
 (an update from 0.4.x to 0.5.0, for example), its command line has no such
 command and answers "Unknown command": do not run the `restore-mode on` line and
@@ -1100,6 +1152,7 @@ updater only (`ROLE=updater`):
 | `RESTOW_UPDATER_PROJECT_DIR`             | (empty: the mount at `/project`; set from `RESTOW_PROJECT_DIR`) | Absolute host path of the Compose project, mounted at the same path. Empty: the project is mounted at `/project` and its host path is read from the mount. |
 | `RESTOW_UPDATER_IMAGE_REPOSITORY`        | `ghcr.io/restow-backup/restow` (Community build: `ghcr.io/restow-backup/restow-community`) | Application image repository for `image` mode (a mirror needs the signatures too). Passed from `.env`. |
 | `RESTOW_UPDATER_WEB_IMAGE_REPOSITORY`    | `ghcr.io/restow-backup/restow-web` (Community build: `ghcr.io/restow-backup/restow-web-community`) | Web image repository for `image` mode. Passed from `.env`.    |
+| `RESTOW_UPDATER_LAB_IMAGE_REPOSITORY`    | the application repository with `-lab` in place of its build suffix (`ghcr.io/restow-backup/restow-lab` for both builds) | The recovery lab's image repository for `image` mode, used only where `.env` sets `RESTOW_LAB_IMAGE` ([The recovery lab](#the-recovery-lab)). Passed from `.env`. |
 | `RESTOW_IMAGE_VARIANT`                   | set by the image (`full` or `community`) | The build the updater belongs to; picks the two defaults above and the targets of `source` mode. Never set it yourself: an unknown value stops the updater. |
 | `RESTOW_UPDATER_HEALTH_TIMEOUT_SECONDS`  | `600`                            | How long to wait for the new api (migrations can take a while). |
 | `RESTOW_UPDATER_MIN_FREE_MB`             | `1024`                           | Margin on top of what an update needs ([Disk space](#disk-space)). |
@@ -1140,6 +1193,7 @@ restow: sha256:<64 hex digits>
 restow-web: sha256:<64 hex digits>
 restow-community: sha256:<64 hex digits>
 restow-web-community: sha256:<64 hex digits>
+restow-lab: sha256:<64 hex digits>
 ```
 
 An installation reads only the two lines of its own build (the first two for the
@@ -1151,6 +1205,8 @@ to another commit: the signature names the tag. Image tags are the release
 version without the `v` (tag `v0.2.0` is pulled as
 `ghcr.io/restow-backup/restow:0.2.0` and `ghcr.io/restow-backup/restow-web:0.2.0`);
 a release without a web digest keeps the web edge as it is, and the run says so.
+The `restow-lab:` line (the recovery lab's image, signed the same way) counts for both
+builds; the updater reads it only where an installation runs the lab.
 
 ## After the update
 
@@ -1225,7 +1281,8 @@ migrations, so going back needs no restore, or starts as Community with
 
 - **No migrations in the release:** check out (or pull) the previous version
   and run `docker compose up -d` again; with the release stack, put the previous
-  tags back into `RESTOW_IMAGE` and `RESTOW_WEB_IMAGE` first. The updater does
+  tags back into `RESTOW_IMAGE` and `RESTOW_WEB_IMAGE` first (and into
+  `RESTOW_LAB_IMAGE` where the recovery lab runs). The updater does
   this by itself when a new version does not start and its database migrations
   had not run (it moves itself only after a successful update, so a rolled
   back update leaves the updater where it was). After rolling back by hand,

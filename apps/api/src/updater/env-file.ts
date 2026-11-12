@@ -34,11 +34,21 @@ export interface CapturedKey {
 export type CapturedEnv = Record<string, CapturedKey>;
 
 /**
- * The lines of `.env` an update writes: the images of the application roles and of
- * the web edge. Everything else in the file belongs to the operator;
- * {@link EnvFile.apply} refuses it.
+ * The recovery lab's image (profile recovery-lab). An update moves it only where the
+ * operator set it, so a lab that runs a release image follows the release.
  */
-export const UPDATER_WRITABLE_KEYS: readonly string[] = ["RESTOW_IMAGE", "RESTOW_WEB_IMAGE"];
+export const LAB_IMAGE_KEY = "RESTOW_LAB_IMAGE";
+
+/**
+ * The lines of `.env` an update writes: the images of the application roles, of the
+ * web edge and of the recovery lab. Everything else in the file belongs to the
+ * operator; {@link EnvFile.apply} refuses it.
+ */
+export const UPDATER_WRITABLE_KEYS: readonly string[] = [
+  "RESTOW_IMAGE",
+  "RESTOW_WEB_IMAGE",
+  LAB_IMAGE_KEY,
+];
 
 /**
  * The updater's own image. Never written by {@link EnvFile.apply}: only
@@ -77,7 +87,7 @@ function assertWritableKeys(keys: readonly string[]): void {
   const foreign = keys.filter((key) => !UPDATER_WRITABLE_KEYS.includes(key));
   if (foreign.length > 0) {
     throw new EnvFileError(
-      `The updater writes only ${UPDATER_WRITABLE_KEYS.join(" and ")} in .env, not ${foreign.join(", ")}.`,
+      `The updater writes only ${UPDATER_WRITABLE_KEYS.join(", ")} in .env, not ${foreign.join(", ")}.`,
       "invalid_setting",
     );
   }

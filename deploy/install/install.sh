@@ -3723,10 +3723,13 @@ In short: read the release notes of every version in between; back up the databa
 (docker compose exec -T postgres pg_dump -U restow -Fc restow > restow-\$(date +%F).dump);
 check the new images' signatures (cosign verify, see docs/UPDATING.md); change
 RESTOW_IMAGE and RESTOW_WEB_IMAGE in .env; docker compose pull && docker compose up -d.
+With the recovery lab, change RESTOW_LAB_IMAGE as well and recreate it:
+docker compose --profile recovery-lab pull recovery-lab && docker compose --profile recovery-lab up -d recovery-lab
 Or switch on the opt-in updater once, with no change to .env (docs/UPDATING.md, "The opt-in
 updater"): cd $OPT_DIR && docker compose --profile updater up -d
-It runs the application image (there is no separate updater image), rewrites RESTOW_IMAGE and
-RESTOW_WEB_IMAGE itself and moves itself to every signed release it installs.
+It runs the application image (there is no separate updater image), rewrites RESTOW_IMAGE,
+RESTOW_WEB_IMAGE and, where the recovery lab runs, RESTOW_LAB_IMAGE itself, and moves itself
+to every signed release it installs.
 UPGRADE
 }
 

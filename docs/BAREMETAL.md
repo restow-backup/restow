@@ -5909,7 +5909,11 @@ Fingerabdrücken, 64 GiB Grenze, eine Probe je Labor gleichzeitig (einstellbar).
   Eingabe (systemd, dracut, cryptsetup, initramfs-tools) und einmal über die Tastatur, wenn die
   Konsole 45 s still bleibt (GRUB-cryptodisk), Zeitgrenzen, Prüfung des freien Platzes,
   Aufräumen nach jedem Lauf und nach einem Absturz. Compose-Dienst `recovery-lab` (nur sein
-  Token, `/dev/kvm`, nur lesbar, keine Capabilities), `install.sh --with-recovery-lab`.
+  Token, `/dev/kvm`, nur lesbar, keine Capabilities), `install.sh --with-recovery-lab`. Der
+  opt-in Updater bewegt `RESTOW_LAB_IMAGE` mit jedem Update mit: Signatur und Digest wie bei den
+  anderen Images (Zeile `restow-lab:` der Release-Notizen), Download vor dem Umschalten, Neustart
+  des Dienstes `recovery-lab` danach und das alte Tag zurück bei einem Rückfall
+  (docs/UPDATING.md, "The recovery lab"). Eine Installation ohne Labor bleibt unberührt.
 - **DBX**: Debian 13 liefert die Sperrliste in keinem Paket (kein `secureboot-db` wie bei Ubuntu;
   `ovmf` schreibt nur die Schlüssel ein, `fwupd` lädt sie zur Laufzeit). Die Dateien kommen aus
   dem Repository `microsoft/secureboot_objects` (BSD-2-Clause-Patent, Weitergabe mit
@@ -5930,8 +5934,6 @@ Fingerabdrücken, 64 GiB Grenze, eine Probe je Labor gleichzeitig (einstellbar).
   kein TCG, kein Labor auf einem anderen Host (0.5.1).
 - Die Spalte "Bare Metal" in der Bereitschaftsseite der Oberfläche (die Daten liefert der
   Überblick schon); die Karte des Rechners zeigt den Zustand.
-- Der opt-in Updater bewegt das Image des Labors noch nicht mit; nach einem Update setzen Sie
-  `RESTOW_LAB_IMAGE` auf das neue Release.
 - Ob ein Labor die ISO-Version der Instanz braucht, prüft es nicht selbst: Ein ISO ohne
   Probemodus lehnt die Antworten ab, die Probe endet unvollständig und wird wiederholt.
 - **[CI]** P1 bis P3 laufen erst, wenn `integrations/recovery/packages.lock` Einträge hat und das

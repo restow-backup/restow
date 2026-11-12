@@ -74,6 +74,18 @@ export function fullBuildRepositories(community: { app: string; web: string }): 
   return app && web ? { app, web } : null;
 }
 
+/**
+ * The repository of the recovery lab's image (docs/BAREMETAL.md 12.3, `restow-lab`): one image for
+ * both builds, next to the application image (`ghcr.io/restow-backup/restow` and
+ * `.../restow-community` -> `ghcr.io/restow-backup/restow-lab`, a mirror the same way).
+ */
+export function labImageRepositoryOf(appRepository: string): string {
+  const base = appRepository.endsWith("-community")
+    ? appRepository.slice(0, -"-community".length)
+    : appRepository;
+  return `${base}-lab`;
+}
+
 /** The Dockerfile targets of the application and the web image, of either build. */
 export type BuildTarget = "runtime" | "web" | "runtime-community" | "web-community";
 

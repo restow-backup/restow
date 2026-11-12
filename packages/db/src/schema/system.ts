@@ -128,8 +128,8 @@ export type StoredUpdateRelease = {
   /** Release notes as Markdown source, cut to a fixed length. */
   notes: string | null;
   notesTruncated: boolean;
-  /** Image digests the release published for its images. */
-  digests: { app?: string; web?: string };
+  /** Image digests the release published for its images (`lab`: the recovery lab's). */
+  digests: { app?: string; web?: string; lab?: string };
   /**
    * The release date its images carry (the `released:` line of the notes, 0.4.5), ISO-8601
    * UTC; null or absent for releases that publish none (and checks stored before 0.4.5).

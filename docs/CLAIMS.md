@@ -952,6 +952,14 @@ Repository-Secrets eines Entwickler-Mandanten und wurde bisher in jedem Release 
 - Stand: belegt
 - Hinweis: Der Schritt „upgrade path“ des Smoke-Checks braucht die Images des vorherigen Release (`--previous-image`). Die nächtliche smoke.yml übergibt sie nicht; dort wird der Schritt als nicht gelaufen gemeldet. Er läuft nur im Release.
 
+### UPDATE-018
+- Aussage: Läuft das Wiederherstellungslabor (`RESTOW_LAB_IMAGE` in `.env`), bewegt der opt-in Updater sein Image auf das Labor-Image der Zielversion: Signatur und Digest werden wie bei den anderen Images geprüft, bevor etwas heruntergeladen wird; ein ungültiges Labor-Image beendet den Lauf unverändert. Bei einem Rückfall ohne gelaufene Migration steht die alte Zeile Byte für Byte wieder in `.env` und das Labor läuft wieder mit ihr. Eine Installation ohne Labor bleibt unberührt.
+- Fundstelle: docs/UPDATING.md (Abschnitt „The recovery lab“), docs/BAREMETAL.md (Abschnitt 26.15), CHANGELOG.md (Upgrade Notes)
+- Öffentliche Seite: nicht abgeglichen
+- Tests: apps/api/src/updater/engine-lab.test.ts, apps/api/src/updater/config.test.ts, apps/api/src/features/updates/feed.test.ts, deploy/install/test.sh
+- Belegt gegen: Simulator (simulierte Docker-Engine und simulierte Signaturprüfung, Job test in ci.yml; der Nachweis gegen einen echten Docker-Daemon, scripts/updater-e2e/run.mjs, läuft in keinem Workflow und kennt das Labor nicht)
+- Stand: belegt
+
 ## Lizenzschlüssel und Editionen (LICENSE)
 
 ### LICENSE-001

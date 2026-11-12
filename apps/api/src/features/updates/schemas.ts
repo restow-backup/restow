@@ -171,7 +171,7 @@ export interface ReleaseView {
   notes: string | null;
   notesTruncated: boolean;
   /** Image digests the release published (`sha256:...`), when it did. */
-  digests: { app?: string; web?: string };
+  digests: { app?: string; web?: string; lab?: string };
   /** The release date its images carry (the `released:` line of its notes); null without one. */
   releasedAt: string | null;
   /**
