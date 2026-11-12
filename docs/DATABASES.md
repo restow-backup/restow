@@ -9,6 +9,12 @@ Stand: Entwurf, noch nicht umgesetzt. Ziel ist Restow 0.6.0. Entscheidungen von 
   5.1) zieht in dieses Modul um; die Rechnerseite behält einen Verweis.
 - **E4** Erster Umfang: PostgreSQL sowie MySQL und MariaDB. MongoDB und Point-in-Time (WAL,
   Binlog) kommen später.
+- **E5** Die Prüfung läuft in 0.6.0 auf der Instanz des Kunden (wie bei SQL Server); ein
+  Restow-eigener Wegwerf-Container im Labor kommt als Option in 0.6.x (Abschnitt 6).
+- **E6** MySQL ohne Socket-Anmeldung: Neben dem Benutzer mit `auth_socket` darf der
+  Administrator ein Kennwort hinterlegen, aber nur lokal auf dem Rechner, nie über den Server
+  (Abschnitt 4).
+- **E7** PostgreSQL und MySQL auf Windows-Rechnern kommen nach 0.6.0.
 
 Markierungen wie in docs/BAREMETAL-WINDOWS.md: **[CI]** = in der CI zu belegen, bevor es
 irgendwo behauptet wird; **[HW]** = auf echter Hardware zu belegen; ohne Markierung = Entwurf.
@@ -142,9 +148,10 @@ weder auf dem Server noch auf dem Rechner.
   `MARIADB_ROOT_PASSWORD` oder die `_FILE`-Variante). Der Agent liest es im Container und gibt es
   dem Client über eine Optionsdatei auf stdin (`--defaults-extra-file=/dev/stdin`), **nie** auf
   der Kommandozeile **[CI]**. Es verlässt den Rechner nicht.
-- **Rückfall (offene Frage F2):** Ein Kennwort, das der Administrator lokal auf dem Rechner
-  hinterlegt (`restow-agent db-credential set`, Datei 0600 unter `/etc/restow-agent/`), nie über
-  den Server.
+- **Rückfall (E6):** Ein Kennwort, das der Administrator lokal auf dem Rechner hinterlegt
+  (`restow-agent db-credential set`, Datei 0600 root unter `/etc/restow-agent/`), nie über den
+  Server. Der Server erfährt nur, dass eines hinterlegt ist; der Client bekommt es über eine
+  Optionsdatei auf stdin, nie auf der Kommandozeile.
 
 Vor jedem Lauf prüft der Agent die Rechte und meldet `db_login_missing` bzw.
 `db_permission_missing` je Instanz oder Datenbank.
@@ -223,9 +230,9 @@ Wie bei SQL Server urteilt der Server; der Agent meldet nur Fakten.
 - **Wann:** Aufgabe `db_verify` je Instanz am Prüftermin des Jobs (Vorgabe Sonntag 03:00 in der
   Zone des Zeitplans) oder mit "Jetzt prüfen". Grenze `maxGiB` je Datenbank (Vorgabe 50 GiB);
   größere bleiben ungeprüft mit Hinweis.
-- **Wo (offene Frage F1):** Vorschlag für 0.6.0 auf derselben Instanz, wie bei SQL Server: gleiche
-  Version, keine weitere Infrastruktur. Der Agent prüft vorher den freien Platz
-  (`db_verify_no_space`).
+- **Wo (E5):** auf derselben Instanz, wie bei SQL Server: gleiche Version, keine weitere
+  Infrastruktur. Der Agent prüft vorher den freien Platz (`db_verify_no_space`). Ein
+  Wegwerf-Container im Restow-Labor (keine Last beim Kunden) kommt als Option in 0.6.x.
 - **Ablauf:** Die neueste Sicherung **aus dem Repository** holen (nie eine lokale Kopie),
   SHA-256 vergleichen, unter dem Namen `<erste 40 Zeichen>__restow_verify_<UTC-Zeit>` einspielen
   (PostgreSQL: `CREATE DATABASE … TEMPLATE template0`, dann `pg_restore --exit-on-error
@@ -295,7 +302,8 @@ Neue Einträge, jeweils mit Test-Tag:
 - Ein abgebrochener Dump wird nie zu einer Sicherung (restic legt keinen Snapshot an).
 - Grün heißt: aus dem Repository geholt, Prüfsumme gleich, vollständig eingespielt, alle
   Objekte da.
-- Restow speichert für die Sicherung von PostgreSQL und MariaDB kein Datenbank-Kennwort.
+- Restow speichert für die Sicherung von PostgreSQL und MariaDB kein Datenbank-Kennwort; ein
+  MySQL-Kennwort liegt, wenn überhaupt, nur auf dem Rechner, nie auf dem Server.
 - Ist die native Sicherung an, steckt der Datenordner nicht zusätzlich in der Dateisicherung.
 
 ## 11. Umsetzung in Stufen
@@ -308,9 +316,10 @@ Neue Einträge, jeweils mit Test-Tag:
 | D4 | Prüfung `db_verify` für beide, Bewertung, Alarme |
 | D5 | Härtung: Versionsmatrix in der CI, große Datenbanken, Abbruch während des Dumps, Container neu erzeugt, Aufnahmen auf echter Hardware **[HW]** |
 
-Später: Point-in-Time (PostgreSQL über WAL-Archivierung mit `pg_backup_start`/`pg_backup_stop`
-zusammen mit dem Dateisystem-Snapshot, MySQL/MariaDB über Binlogs), MongoDB, Podman, PostgreSQL
-und MySQL unter Windows, Restore auf einen anderen Rechner.
+Später: Prüfung im Restow-Labor (0.6.x, E5), Point-in-Time (PostgreSQL über WAL-Archivierung
+mit `pg_backup_start`/`pg_backup_stop` zusammen mit dem Dateisystem-Snapshot, MySQL/MariaDB über
+Binlogs), MongoDB, Podman, PostgreSQL und MySQL unter Windows (E7), Restore auf einen anderen
+Rechner.
 
 ## 12. Tests
 
@@ -327,10 +336,4 @@ und MySQL unter Windows, Restore auf einen anderen Rechner.
 
 ## 13. Offene Fragen
 
-- **F1** Prüfung auf der Instanz des Kunden (Vorschlag für 0.6.0, wie SQL Server) oder in einem
-  Restow-eigenen Wegwerf-Container im Labor (keine Last beim Kunden, braucht ein Image je
-  Version)? Vorschlag: auf der Instanz in 0.6.0, Labor als Option in 0.6.x.
-- **F2** MySQL mit Kennwort und ohne Socket-Anmeldung: lokales Kennwort auf dem Rechner zulassen
-  (4, Rückfall) oder nur den Benutzer mit `auth_socket`? Vorschlag: beides, das lokale Kennwort
-  nur, wenn der Administrator es auf dem Rechner selbst setzt.
-- **F3** Windows-Rechner mit PostgreSQL oder MySQL schon in 0.6.0? Vorschlag: später.
+Keine. F1 bis F3 des ersten Entwurfs sind als E5 bis E7 entschieden.
