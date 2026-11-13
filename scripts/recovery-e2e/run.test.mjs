@@ -718,6 +718,10 @@ describe("which source machines ask for a passphrase at boot", () => {
       line,
       "1 run(s), latest backup failed with 2 error(s) (snapshot_failed); bare metal unverified, check none, latest snapshot none",
     );
+    assert.match(
+      backupProgressLine([], { state: "not_possible", notPossible: "agent_too_old" }),
+      /bare metal not_possible \(agent_too_old\), check none/,
+    );
   });
 
   it("stops waiting once a finished backup left the machine not possible", () => {

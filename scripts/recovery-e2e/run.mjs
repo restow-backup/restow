@@ -741,7 +741,7 @@ export function backupProgressLine(runs, state) {
       (latest.snapshotId ? ` snapshot ${latest.snapshotId.slice(0, 8)}` : "")
     : "no run yet";
   const layout = state
-    ? `bare metal ${state.state ?? "?"}, check ${state.check ? (state.check.readiness ?? "done") : "none"}, ` +
+    ? `bare metal ${state.state ?? "?"}${state.notPossible ? ` (${state.notPossible})` : ""}, check ${state.check ? (state.check.readiness ?? "done") : "none"}, ` +
       `latest snapshot ${state.latest?.snapshotId ? state.latest.snapshotId.slice(0, 8) : "none"}`
     : "bare metal state unknown";
   return `${run}; ${layout}`;

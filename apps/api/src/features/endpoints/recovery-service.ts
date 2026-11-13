@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import {
   endpointPrefix,
   hashRecoveryCodeProof,
+  isDevBuild,
   isServerFinishWarningCode,
   listWithSizes,
   MIN_RECOVERY_VERSION,
@@ -243,9 +244,11 @@ export async function exchangeRecoveryCode(
     });
   }
   // The version is checked before anything is claimed: an old ISO does not use up the code.
+  // A development build carries the code of its tree and is never too old (isDevBuild).
   if (
     !isAgentVersion(input.recoveryVersion) ||
-    compareAgentVersions(input.recoveryVersion, MIN_RECOVERY_VERSION) < 0
+    (!isDevBuild(input.recoveryVersion) &&
+      compareAgentVersions(input.recoveryVersion, MIN_RECOVERY_VERSION) < 0)
   ) {
     throw new ProblemError(426, "Recovery ISO too old", {
       type: ENDPOINT_PROBLEMS.recoveryTooOld,

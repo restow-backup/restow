@@ -541,6 +541,16 @@ describe.skipIf(!testDatabaseAdminUrl)("recovery codes and sessions", () => {
       );
       expect(control.status).toBe(422);
     });
+
+    it("takes a development build of the ISO, as the agent does (0.0.0-dev is not too old)", async () => {
+      const issued = await issue((await machine()).id);
+      const iso = isoSide(issued.code, ORIGIN);
+      const rc = await post("/sessions", exchangeBody(iso, { recoveryVersion: "0.4.0-rc.1" }));
+      expect(rc.status).toBe(426);
+      const dev = await post("/sessions", exchangeBody(iso, { recoveryVersion: "0.0.0-dev" }));
+      expect(dev.status).toBe(202);
+      expect((await stored(issued.id))?.status).toBe("pending_approval");
+    });
   });
 
   describe("release and credentials", () => {

@@ -62,12 +62,30 @@ function versionTriple(version: string | null | undefined): [number, number, num
   return match ? [Number(match[1]), Number(match[2]), Number(match[3])] : null;
 }
 
-/** Whether an agent version is at least `minimum` (major.minor.patch; a pre-release counts as its release). */
+const DEV_BUILD = /^v?\d+\.\d+\.\d+-dev(?:\.[0-9A-Za-z.-]*)?(?:\+.*)?$/;
+
+/**
+ * Whether a version names a development build (`0.0.0-dev`, `x.y.z-dev.N`): built from the
+ * source tree, not a release. A minimum version does not hold one back, as the agent itself
+ * decides (agent/internal/update IsDev, agent/internal/recovery tooOld).
+ */
+export function isDevBuild(version: string | null | undefined): boolean {
+  return DEV_BUILD.test((version ?? "").trim());
+}
+
+/**
+ * Whether an agent version is at least `minimum` (major.minor.patch; a pre-release counts as its
+ * release). A development build counts as new enough, as the agent itself counts it
+ * (agent/internal/recovery tooOld): it carries the code of the tree it was built from.
+ */
 export function agentVersionAtLeast(version: string | null | undefined, minimum: string): boolean {
   const have = versionTriple(version);
   const want = versionTriple(minimum);
   if (!have || !want) {
     return false;
+  }
+  if (isDevBuild(version)) {
+    return true;
   }
   for (let i = 0; i < 3; i++) {
     if ((have[i] as number) !== (want[i] as number)) {

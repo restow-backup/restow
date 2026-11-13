@@ -47,6 +47,15 @@ describe("whole machine backups", () => {
     expect(agentVersionAtLeast("dev", "0.5.0")).toBe(false);
   });
 
+  it("counts a development build as new enough, as the agent does", () => {
+    expect(agentVersionAtLeast("0.0.0-dev", "0.5.0")).toBe(true);
+    expect(agentVersionAtLeast("0.4.0-dev.3", "0.5.0")).toBe(true);
+    expect(agentVersionAtLeast("0.0.0-devel", "0.5.0")).toBe(false);
+    expect(agentVersionAtLeast("0.4.0-rc.1", "0.5.0")).toBe(false);
+    const linux = { os: "linux", arch: "amd64", agentVersion: "0.0.0-dev", virtualization: "none" };
+    expect(wholeMachineNote(linux)).toBeNull();
+  });
+
   it("takes file system snapshots by default only for a whole machine", () => {
     expect(resolveFsSnapshot(undefined, true)).toBe("auto");
     expect(resolveFsSnapshot(null, false)).toBe("off");
