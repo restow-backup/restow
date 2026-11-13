@@ -28,6 +28,7 @@
 import { execFileSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import {
+  chmodSync,
   copyFileSync,
   cpSync,
   existsSync,
@@ -307,6 +308,14 @@ function sha256File(file) {
   return createHash("sha256").update(readFileSync(file)).digest("hex");
 }
 
+/** The programs of an agent build (the Dockerfile sets them to 0755 the same way). */
+export const AGENT_PROGRAMS = Object.freeze([
+  "restow-agent",
+  "restic",
+  "restow-pve",
+  "restow-share",
+]);
+
 /**
  * The agent folder of the test instance: the build, its SHA256SUMS with the ISO's line, signed
  * with an Ed25519 key made here and deleted right after (only its public half stays, as the
@@ -317,6 +326,16 @@ export function testAgentDir({ agentDist, iso, version, dir }) {
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(release, { recursive: true });
   cpSync(agentDist, release, { recursive: true });
+  // A downloaded CI artifact keeps no file modes: the server runs /usr/local/bin/restic, a link
+  // to linux-<arch>/restic in this folder (Dockerfile, agent-dist), and the install scripts
+  // hand out the agent. As in the image: 0755 for every program of the build.
+  for (const target of readdirSync(release, { withFileTypes: true })) {
+    if (!target.isDirectory()) continue;
+    for (const program of AGENT_PROGRAMS) {
+      const file = join(release, target.name, program);
+      if (existsSync(file)) chmodSync(file, 0o755);
+    }
+  }
   const sumsFile = join(release, "SHA256SUMS");
   const sums = existsSync(sumsFile) ? readFileSync(sumsFile, "utf8") : "";
   writeFileSync(sumsFile, withIsoLine(sums, basename(iso), sha256File(iso)));

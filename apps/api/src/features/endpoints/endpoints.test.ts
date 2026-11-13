@@ -1310,6 +1310,14 @@ describe("restic failures become problems an admin can act on", () => {
       status: 503,
       type: "urn:restow:problem:restic-unavailable",
     });
+    // A binary without the execute bit (a mounted agent folder that lost its modes).
+    expect(
+      resticProblem(Object.assign(new Error("spawn restic EACCES"), { code: "EACCES" })),
+    ).toMatchObject({
+      status: 503,
+      type: "urn:restow:problem:restic-unavailable",
+      detail: "The restic binary on this server cannot be run (permission denied).",
+    });
   });
 });
 

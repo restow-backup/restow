@@ -39,10 +39,17 @@ export function resticProblem(error: unknown): unknown {
         });
     }
   }
-  if ((error as NodeJS.ErrnoException | undefined)?.code === "ENOENT") {
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  if (code === "ENOENT") {
     return new ProblemError(503, "restic not available", {
       type: ENDPOINT_PROBLEMS.resticUnavailable,
       detail: "The restic binary is not available on this server.",
+    });
+  }
+  if (code === "EACCES") {
+    return new ProblemError(503, "restic not available", {
+      type: ENDPOINT_PROBLEMS.resticUnavailable,
+      detail: "The restic binary on this server cannot be run (permission denied).",
     });
   }
   return error instanceof Error ? error : new Error(String(error));

@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -522,6 +522,12 @@ describe("the run", () => {
     try {
       mkdirSync(join(dir, "dist", "linux-amd64"), { recursive: true });
       writeFileSync(join(dir, "dist", "SHA256SUMS"), sums);
+      // As a downloaded artifact delivers them: without the execute bit.
+      writeFileSync(join(dir, "dist", "linux-amd64", "restic"), "elf", { mode: 0o644 });
+      writeFileSync(join(dir, "dist", "linux-amd64", "restow-agent"), "elf", { mode: 0o644 });
+      writeFileSync(join(dir, "dist", "linux-amd64", "THIRD_PARTY_NOTICES.txt"), "n", {
+        mode: 0o644,
+      });
       writeFileSync(join(dir, "restow-recovery_0.5.0_amd64.iso"), "iso");
       const agent = testAgentDir({
         agentDist: join(dir, "dist"),
@@ -539,6 +545,11 @@ describe("the run", () => {
       // The private half is gone: only the signature and the public key stay.
       assert.throws(() => readFileSync(join(agent, "ephemeral-signing-key")));
       assert.ok(readFileSync(join(agent, "install", "linux.sh"), "utf8").length > 0);
+      // The server runs restic from here (/usr/local/bin/restic links to it): executable again.
+      const mode = (name) => statSync(join(agent, "0.5.0", "linux-amd64", name)).mode & 0o777;
+      assert.equal(mode("restic"), 0o755);
+      assert.equal(mode("restow-agent"), 0o755);
+      assert.equal(mode("THIRD_PARTY_NOTICES.txt"), 0o644);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
