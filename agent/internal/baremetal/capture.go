@@ -16,6 +16,12 @@ import (
 // without them the machine cannot be captured (and is not bare-metal ready).
 var ErrToolsMissing = errors.New("lsblk, blkid and sfdisk (util-linux, fdisk) are required to capture the disk layout")
 
+// missingTool is ErrToolsMissing naming the program that was not found, so the run error
+// says what to install (errors.Is still matches ErrToolsMissing).
+func missingTool(name string) error {
+	return fmt.Errorf("%w; %s is not installed", ErrToolsMissing, name)
+}
+
 // ErrUnsupportedPlatform is returned by CaptureLocal outside Linux.
 var ErrUnsupportedPlatform = errors.New("capturing the disk layout is supported on Linux only")
 

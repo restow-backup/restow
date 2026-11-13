@@ -725,6 +725,12 @@ export async function bootThroughPassphrase({
   }
 }
 
+/** A backup run has ended and the machine's bare metal state is "not possible". */
+export function wholeMachineNotPossible(runs, state) {
+  const finished = runs.some((run) => run.kind === "backup" && run.status !== "running");
+  return finished && state?.state === "not_possible";
+}
+
 /** One line about the machine's runs and its bare metal state, for the job log. */
 export function backupProgressLine(runs, state) {
   const latest = runs[0];
@@ -752,11 +758,27 @@ async function waitForWholeMachineBackup(client, tenantId, endpointId, id) {
   let nextReport = Date.now() + 5 * 60_000;
   let runs = [];
   let state = null;
+  // The backup run's errors and the end of its log (not those of a restore test after it).
+  const backupDetail = async () => {
+    const backup = runs.find((run) => run.kind === "backup");
+    if (!backup) return "";
+    const run = await client.get(`${base}/runs/${backup.id}`, { tenantId });
+    const errors = (run.errors ?? [])
+      .slice(0, 5)
+      .map((e) => [e.code, e.message].filter(Boolean).join(": ") || JSON.stringify(e));
+    return `; backup errors: ${errors.join(" | ") || "none"}; log tail: ${(run.logTail ?? "").slice(-1500)}`;
+  };
   while (Date.now() < deadline) {
     state = await client.get(`${base}/baremetal`, { tenantId });
     if (state.check && state.latest?.snapshotId) return state;
+    runs = (await client.get(`${base}/runs?limit=5`, { tenantId })).items ?? [];
+    // A finished backup that left the machine "not possible" will not change by waiting.
+    if (wholeMachineNotPossible(runs, state)) {
+      throw new Error(
+        `the whole machine backup cannot restore this machine: ${backupProgressLine(runs, state)}${await backupDetail()}`,
+      );
+    }
     if (Date.now() >= nextReport) {
-      runs = (await client.get(`${base}/runs?limit=5`, { tenantId })).items ?? [];
       console.log(
         `${id}: waiting for the whole machine backup: ${backupProgressLine(runs, state)}`,
       );
@@ -764,17 +786,8 @@ async function waitForWholeMachineBackup(client, tenantId, endpointId, id) {
     }
     await sleep(15_000);
   }
-  runs = (await client.get(`${base}/runs?limit=5`, { tenantId })).items ?? [];
-  let detail = "";
-  if (runs[0]) {
-    const run = await client.get(`${base}/runs/${runs[0].id}`, { tenantId });
-    const errors = (run.errors ?? [])
-      .slice(0, 5)
-      .map((e) => e.code ?? e.message ?? JSON.stringify(e));
-    detail = `; errors: ${errors.join(", ") || "none"}; log tail: ${(run.logTail ?? "").slice(-1500)}`;
-  }
   throw new Error(
-    `timed out waiting for the whole machine backup and its layout check: ${backupProgressLine(runs, state)}${detail}`,
+    `timed out waiting for the whole machine backup and its layout check: ${backupProgressLine(runs, state)}${await backupDetail()}`,
   );
 }
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -170,7 +171,7 @@ func TestCaptureToolsMissing(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, _, err := Capture(context.Background(), captureOptions(f, filepath.Join(dir, "root"), "x"))
-	if err != ErrToolsMissing {
+	if !errors.Is(err, ErrToolsMissing) || !strings.Contains(err.Error(), "is not installed") {
 		t.Fatalf("err %v", err)
 	}
 }

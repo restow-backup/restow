@@ -46,7 +46,7 @@ func capturePartitionTables(c *capture) error {
 		out, err := c.run("sfdisk", "--json", dev)
 		if err != nil {
 			if strings.Contains(err.Error(), "not installed") {
-				return ErrToolsMissing
+				return missingTool("sfdisk")
 			}
 			errs = append(errs, fmt.Sprintf("%s: %v", dev, err))
 			continue

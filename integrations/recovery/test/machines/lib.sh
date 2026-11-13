@@ -87,7 +87,7 @@ bootstrap() {
   keyring="$4"
   shift 4
   debootstrap --keyring="$FACTORY_MEDIA/keyrings/$keyring" --variant=minbase \
-    --include="systemd-sysv,udev,kmod,ca-certificates,curl,openssh-client,$(printf '%s' "$*" | tr ' ' ',')" \
+    --include="systemd-sysv,udev,kmod,ca-certificates,curl,openssh-client,fdisk,$(printf '%s' "$*" | tr ' ' ',')" \
     "$suite" "$root" "$mirror"
 }
 
@@ -219,6 +219,12 @@ NET
   fi
   in_root "$root" systemctl enable systemd-resolved.service >/dev/null 2>&1 || true
   ln -sf ../run/systemd/resolve/stub-resolv.conf "$root/etc/resolv.conf"
+  # What the whole machine backup needs to capture the disk layout, as on an installed
+  # server (minbase leaves out fdisk with sfdisk): missing here, every case fails late.
+  for tool in lsblk blkid sfdisk; do
+    in_root "$root" sh -c "command -v $tool" >/dev/null ||
+      fdie "the machine lacks $tool (the whole machine backup needs lsblk, blkid and sfdisk)"
+  done
 }
 
 # Unmount everything below <root> and stop what the factory started.

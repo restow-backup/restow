@@ -106,7 +106,7 @@ func captureBlockDevices(c *capture) error {
 	out, err := c.run("lsblk", "-J", "-b", "-O")
 	if err != nil {
 		if strings.Contains(err.Error(), "not installed") {
-			return ErrToolsMissing
+			return missingTool("lsblk")
 		}
 		return err
 	}

@@ -54,6 +54,7 @@ import {
   testAgentDir,
   versionOfIso,
   wholeMachineJobSettings,
+  wholeMachineNotPossible,
   withIsoLine,
 } from "./run.mjs";
 
@@ -717,6 +718,16 @@ describe("which source machines ask for a passphrase at boot", () => {
       line,
       "1 run(s), latest backup failed with 2 error(s) (snapshot_failed); bare metal unverified, check none, latest snapshot none",
     );
+  });
+
+  it("stops waiting once a finished backup left the machine not possible", () => {
+    const partial = { kind: "backup", status: "partial" };
+    const running = { kind: "backup", status: "running" };
+    const test = { kind: "verify_sample", status: "succeeded" };
+    assert.equal(wholeMachineNotPossible([test, partial], { state: "not_possible" }), true);
+    assert.equal(wholeMachineNotPossible([running], { state: "not_possible" }), false);
+    assert.equal(wholeMachineNotPossible([partial], { state: "unverified" }), false);
+    assert.equal(wholeMachineNotPossible([], { state: "not_possible" }), false);
   });
 
   it("keeps the logs of services the instance has", () => {
