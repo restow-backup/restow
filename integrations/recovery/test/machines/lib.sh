@@ -170,6 +170,9 @@ After=network-online.target
 [Service]
 Type=oneshot
 ExecStart=/usr/local/sbin/restow-e2e-enroll
+# On the serial console too: a failed enrollment names its reason in the CI log.
+StandardOutput=journal+console
+StandardError=journal+console
 
 [Install]
 WantedBy=multi-user.target
@@ -181,7 +184,11 @@ UNIT
   in_root "$root" systemctl enable restow-e2e-boot.service restow-e2e-enroll.service >/dev/null
 }
 
-# A root password nobody knows and a serial console for the boot output.
+# A root password nobody knows, DHCP by systemd-networkd and name resolution by
+# systemd-resolved. debootstrap copies the factory's resolv.conf (the stub resolver
+# 127.0.0.53) as a file; without systemd-resolved running in the machine nobody
+# answers there. Debian 12 and 13 and Ubuntu 24.04 ship systemd-resolved as a package
+# of its own, Ubuntu 22.04 inside systemd. Runs inside chroot_mount.
 finish_root() {
   root="$1"
   in_root "$root" passwd -l root >/dev/null
@@ -193,6 +200,12 @@ Type=ether
 DHCP=yes
 NET
   in_root "$root" systemctl enable systemd-networkd.service >/dev/null 2>&1 || true
+  if [ ! -e "$root/usr/lib/systemd/systemd-resolved" ] && [ ! -e "$root/lib/systemd/systemd-resolved" ]; then
+    in_root "$root" apt-get install -y --no-install-recommends systemd-resolved >/dev/null ||
+      fdie "systemd-resolved did not install"
+  fi
+  in_root "$root" systemctl enable systemd-resolved.service >/dev/null 2>&1 || true
+  ln -sf ../run/systemd/resolve/stub-resolv.conf "$root/etc/resolv.conf"
 }
 
 # Unmount everything below <root> and stop what the factory started.

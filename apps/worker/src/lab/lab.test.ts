@@ -11,6 +11,7 @@
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,7 +19,14 @@ import { describe, expect, it } from "vitest";
 import { labClient, serialTail } from "./client.js";
 import { guidBytes } from "./dbx.js";
 import { labConfigFromEnv, prepareDbx, runLab } from "./main.js";
-import { encryptedDiskArgs, machineArgs, networkArgs, SANDBOX_ARGS } from "./qemu.js";
+import {
+  connectSerial,
+  encryptedDiskArgs,
+  machineArgs,
+  networkArgs,
+  SANDBOX_ARGS,
+  typeSerial,
+} from "./qemu.js";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 
@@ -87,6 +95,36 @@ describe("QEMU for a probe", () => {
     expect(encryptedDiskArgs("/p/d.qcow2", 1024, "/dev/fd/3").join(" ")).toBe(
       "create -q --object secret,id=sec0,file=/dev/fd/3 -f qcow2 -o encrypt.format=luks,encrypt.key-secret=sec0 /p/d.qcow2 1024",
     );
+  });
+});
+
+describe("the serial console of a machine", () => {
+  it("types a passphrase character by character, Enter as carriage return", async () => {
+    const written: string[] = [];
+    await typeSerial({ write: (chunk: string) => written.push(chunk) }, "ab\n", 0);
+    expect(written).toEqual(["a", "b", "\r"]);
+  });
+
+  it("connects once QEMU has made the socket, and gives up after its time", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "restow-serial-"));
+    const path = join(dir, "s.sock");
+    const received: string[] = [];
+    const server = createServer((socket) => socket.on("data", (d) => received.push(String(d))));
+    try {
+      const later = new Promise<void>((resolve) =>
+        setTimeout(() => server.listen(path, () => resolve()), 300),
+      );
+      const socket = await connectSerial(path, 5_000);
+      await later;
+      await typeSerial(socket, "pw\n", 0);
+      await new Promise<void>((resolve) => socket.end(() => resolve()));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(received.join("")).toBe("pw\r");
+      await expect(connectSerial(join(dir, "missing.sock"), 300)).rejects.toThrow();
+    } finally {
+      server.close();
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
 

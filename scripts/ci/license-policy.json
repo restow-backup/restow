@@ -104,6 +104,7 @@
         "scripts/ci/license-policy.json",
         "scripts/recovery-e2e/README.md",
         "scripts/recovery-e2e/cases.mjs",
+        "scripts/recovery-e2e/factory-debs.mjs",
         "scripts/recovery-e2e/lib/qemu.mjs",
         "scripts/recovery-e2e/no-autoactivation.mjs",
         "scripts/recovery-e2e/run.mjs",

@@ -505,3 +505,42 @@ export async function cutNetwork(socket: string, qmpFn: QmpFn = qmp): Promise<vo
   await qmpFn(socket, "set_link", { name: "nic0", up: false });
   await qmpFn(socket, "netdev_del", { id: "net0" });
 }
+
+/**
+ * Connect to the Unix socket of a machine's serial console (`serialSocket`); QEMU creates it a
+ * moment after its start. What the guest prints still goes to the log; the caller drains it.
+ */
+export async function connectSerial(
+  path: string,
+  timeoutMs = 10_000,
+): Promise<ReturnType<typeof createConnection>> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    try {
+      return await new Promise<ReturnType<typeof createConnection>>((resolve, reject) => {
+        const socket = createConnection(path);
+        socket.once("connect", () => resolve(socket));
+        socket.once("error", reject);
+      });
+    } catch (error) {
+      if (Date.now() > deadline) throw error;
+      await sleep(200);
+    }
+  }
+}
+
+/**
+ * Type a text on the serial console, one character at a time, a line end as the Enter key
+ * (carriage return): an encrypted root asks there for its passphrase when the kernel's console
+ * is ttyS0, and the keyboard of `sendKeys` does not reach it.
+ */
+export async function typeSerial(
+  serial: { write: (chunk: string) => unknown },
+  text: string,
+  delayMs = 20,
+): Promise<void> {
+  for (const char of text) {
+    serial.write(char === "\n" ? "\r" : char);
+    await sleep(delayMs);
+  }
+}

@@ -6,9 +6,9 @@
 import { spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { copyFile } from "node:fs/promises";
-import { createConnection } from "node:net";
 import { setTimeout as sleep } from "node:timers/promises";
 import {
+  connectSerial,
   cutNetwork,
   encryptedDiskArgs,
   type Firmware,
@@ -17,6 +17,7 @@ import {
   OVMF,
   type OvmfFiles,
   sendKeys,
+  typeSerial,
 } from "./qemu.js";
 import type { Vm, VmDriver } from "./runner.js";
 
@@ -43,22 +44,6 @@ function runWithKey(command: string, args: string[], key: string | null): Promis
         : reject(new Error(`${command} failed (${code}): ${stderr.trim().slice(-300)}`)),
     );
   });
-}
-
-async function connectWhenReady(path: string, timeoutMs = 10_000) {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    try {
-      return await new Promise<ReturnType<typeof createConnection>>((resolve, reject) => {
-        const socket = createConnection(path);
-        socket.once("connect", () => resolve(socket));
-        socket.once("error", reject);
-      });
-    } catch (error) {
-      if (Date.now() > deadline) throw error;
-      await sleep(200);
-    }
-  }
 }
 
 export function qemuDriver(options: { dbxFile: string | null; ovmf?: OvmfFiles }): VmDriver {
@@ -107,7 +92,7 @@ export function qemuDriver(options: { dbxFile: string | null; ovmf?: OvmfFiles }
       if (early !== null) {
         throw new Error(`QEMU did not start (${early}): ${stderr.trim().slice(-300)}`);
       }
-      const serial = machine.serialSocket ? await connectWhenReady(machine.serialSocket) : null;
+      const serial = machine.serialSocket ? await connectSerial(machine.serialSocket) : null;
       serial?.on("data", () => {});
       serial?.on("error", () => {});
       return {
@@ -115,10 +100,7 @@ export function qemuDriver(options: { dbxFile: string | null; ovmf?: OvmfFiles }
           existsSync(machine.serialLog) ? readFileSync(machine.serialLog, "utf8") : "",
         type: async (text) => {
           if (!serial) throw new Error("no serial socket");
-          for (const char of text) {
-            serial.write(char === "\n" ? "\r" : char);
-            await sleep(20);
-          }
+          await typeSerial(serial, text);
         },
         keys: (text) => sendKeys(machine.qmpSocket, text),
         cutNetwork: () => cutNetwork(machine.qmpSocket),

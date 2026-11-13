@@ -45,11 +45,13 @@ import { CASES, PROBE_CASES, selectCases } from "./cases.mjs";
 import { factoryDebs } from "./factory-debs.mjs";
 import {
   assertKvm,
+  connectSerial,
   createDisk,
   createVars,
+  PASSPHRASE_PROMPT,
   qmp,
-  sendKeys,
   startMachine,
+  typeSerial,
   waitForSerial,
 } from "./lib/qemu.mjs";
 
@@ -566,6 +568,46 @@ async function waitUntil(what, check, { timeoutMs, intervalMs = 5000 }) {
 }
 
 /** Build, enroll and back up the source machine; answers what the restore is checked against. */
+/** The QEMU machines of the running case; a failed case leaves none behind (stopMachines). */
+const running = new Set();
+
+/** startMachine, remembered until the machine exits. */
+function launch(spec) {
+  const machine = startMachine(spec);
+  running.add(machine);
+  machine.exited.finally(() => running.delete(machine));
+  return machine;
+}
+
+/**
+ * Kill every machine still running: after each case and at the end. A source machine of a failed
+ * case would otherwise run on and keep the driver from ending until the job's time limit.
+ */
+function stopMachines() {
+  for (const machine of running) machine.child.kill("SIGKILL");
+  running.clear();
+}
+
+/**
+ * Unlock an encrypted root at boot: wait for the passphrase prompt on the serial console (the
+ * lab's pattern, apps/worker/src/lab/serial.ts) and type the passphrase there. The kernel's
+ * console is ttyS0, so initramfs-tools and systemd-cryptsetup ask there, not on the keyboard.
+ */
+async function unlockAtBoot(log, serialSocket, machine, passphrase) {
+  await waitForSerial(log, new RegExp(PASSPHRASE_PROMPT.source), {
+    timeoutMs: 10 * 60_000,
+    machine,
+  });
+  const serial = await connectSerial(serialSocket);
+  serial.on("data", () => {});
+  serial.on("error", () => {});
+  try {
+    await typeSerial(serial, `${passphrase}\n`);
+  } finally {
+    serial.end();
+  }
+}
+
 async function sourceMachine(testCase, context) {
   const dir = join(context.workDir, testCase.id);
   mkdirSync(dir, { recursive: true });
@@ -593,7 +635,7 @@ async function sourceMachine(testCase, context) {
     ]);
     const factory = factoryDisk(context.workDir, testCase, context);
     // Direct kernel boot of the ISO's live system with the factory command line.
-    const build = startMachine({
+    const build = launch({
       name: `${testCase.id}-factory`,
       firmware: "bios",
       disks,
@@ -620,21 +662,23 @@ async function sourceMachine(testCase, context) {
   );
   const enroll = join(dir, "enroll.txt");
   writeFileSync(enroll, `url=${context.instanceUrl}\ntoken=${token.token}\n`, { mode: 0o600 });
-  const source = startMachine({
+  const source = launch({
     name: `${testCase.id}-source`,
     firmware: testCase.source.firmware,
     varsFile,
     disks,
     serialLog: join(dir, "source.log"),
+    serialSocket: join(dir, "source-serial.sock"),
     qmpSocket: join(dir, "source.qmp"),
     fwCfg: { "opt/restow/enroll": enroll },
   });
   if (testCase.source.unlockAtBoot) {
-    await waitForSerial(join(dir, "source.log"), /Enter passphrase/, {
-      timeoutMs: 10 * 60_000,
-      machine: source,
-    });
-    await sendKeys(join(dir, "source.qmp"), `${context.passphrase}\n`);
+    await unlockAtBoot(
+      join(dir, "source.log"),
+      join(dir, "source-serial.sock"),
+      source,
+      context.passphrase,
+    );
   }
   const [, hostname, markerSha256] = await waitForSerial(join(dir, "source.log"), SOURCE_BOOT, {
     timeoutMs: 15 * 60_000,
@@ -720,7 +764,7 @@ async function restore(testCase, context, source, { interrupt } = {}) {
   if (varsFile && !existsSync(varsFile))
     await createVars(runAsync, varsFile, testCase.target.firmware, context.dbx);
   const log = join(source.dir, `iso-${issued.id}.log`);
-  const iso = startMachine({
+  const iso = launch({
     name: `${testCase.id}-iso`,
     firmware: testCase.target.firmware,
     varsFile,
@@ -770,19 +814,24 @@ async function bootRestored(testCase, context, source, restored, { emptyNvram = 
     await createVars(runAsync, varsFile, testCase.target.firmware, context.dbx);
   }
   const log = join(source.dir, emptyNvram ? "restored-empty-nvram.log" : "restored.log");
-  const machine = startMachine({
+  const machine = launch({
     name: `${testCase.id}-restored`,
     firmware: testCase.target.firmware,
     varsFile,
     disks: restored.disks,
     serialLog: log,
+    serialSocket: join(source.dir, "restored-serial.sock"),
     qmpSocket: join(source.dir, "restored.qmp"),
     mac: testCase.target.newMac ? "52:54:00:65:43:21" : undefined,
   });
   try {
     if (testCase.source.unlockAtBoot) {
-      await waitForSerial(log, /Enter passphrase/, { timeoutMs: 10 * 60_000, machine });
-      await sendKeys(join(source.dir, "restored.qmp"), `${context.passphrase}\n`);
+      await unlockAtBoot(
+        log,
+        join(source.dir, "restored-serial.sock"),
+        machine,
+        context.passphrase,
+      );
     }
     await waitForSerial(log, bootPattern(source.hostname, source.markerSha256), {
       timeoutMs: 15 * 60_000,
@@ -917,9 +966,12 @@ async function main() {
           reason: String(error?.message ?? error),
         });
         console.error(`${testCase.id} failed: ${error?.stack ?? error}`);
+      } finally {
+        stopMachines();
       }
     }
   } finally {
+    stopMachines();
     writeFileSync(join(workDir, "report.json"), `${JSON.stringify(results, null, 2)}\n`);
     if (!options.keep) await instance.stack.down();
   }
