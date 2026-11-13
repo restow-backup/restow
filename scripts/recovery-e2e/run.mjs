@@ -48,6 +48,7 @@ import {
   connectSerial,
   createDisk,
   createVars,
+  GRUB_SILENCE_MS,
   MAX_PASSPHRASE_TRIES,
   passphrasePrompts,
   qmp,
@@ -570,6 +571,9 @@ async function waitUntil(what, check, { timeoutMs, intervalMs = 5000 }) {
 }
 
 /** Build, enroll and back up the source machine; answers what the restore is checked against. */
+/** The services of the test instance whose logs a failed run keeps (instance/<service>.log). */
+export const INSTANCE_LOG_SERVICES = ["api", "worker", "scheduler", "caddy"];
+
 /** The QEMU machines of the running case; a failed case leaves none behind (stopMachines). */
 const running = new Set();
 
@@ -588,6 +592,14 @@ function launch(spec) {
 function stopMachines() {
   for (const machine of running) machine.child.kill("SIGKILL");
   running.clear();
+}
+
+/**
+ * Whether a source machine asks for a passphrase at boot: an encrypted root (`passphrase`, the
+ * initramfs asks) or an encrypted /boot that GRUB unlocks (`unlockAtBoot`).
+ */
+export function needsPassphraseAtBoot(source) {
+  return Boolean(source.passphrase || source.unlockAtBoot);
 }
 
 /** How long typing at the serial console may show no effect before the keyboard is tried. */
@@ -618,7 +630,8 @@ export async function bootThroughPassphrase({
   machine.exited.then((code) => {
     exited = code;
   });
-  const deadline = Date.now() + timeoutMs;
+  const started = Date.now();
+  const deadline = started + timeoutMs;
   let typed = 0;
   let keyed = false;
   let lastLength = 0;
@@ -647,6 +660,16 @@ export async function bootThroughPassphrase({
         console.log(
           `${id}: no output for ${KEYBOARD_FALLBACK_MS / 1000} s after typing, typing on the keyboard`,
         );
+        await sendKeys(qmpSocket, `${passphrase}\n`);
+      } else if (
+        typed === 0 &&
+        !keyed &&
+        text.trim() === "" &&
+        Date.now() - started >= GRUB_SILENCE_MS
+      ) {
+        // GRUB asks for the passphrase of an encrypted /boot only on the screen (the lab's rule).
+        keyed = true;
+        console.log(`${id}: the console is silent, typing the passphrase on the keyboard (GRUB)`);
         await sendKeys(qmpSocket, `${passphrase}\n`);
       }
       await sleep(2000);
@@ -723,7 +746,7 @@ async function sourceMachine(testCase, context) {
     qmpSocket: join(dir, "source.qmp"),
     fwCfg: { "opt/restow/enroll": enroll },
   });
-  const [, hostname, markerSha256] = testCase.source.unlockAtBoot
+  const [, hostname, markerSha256] = needsPassphraseAtBoot(testCase.source)
     ? await bootThroughPassphrase({
         id: `${testCase.id} source`,
         log: join(dir, "source.log"),
@@ -879,7 +902,7 @@ async function bootRestored(testCase, context, source, restored, { emptyNvram = 
   });
   try {
     const pattern = bootPattern(source.hostname, source.markerSha256);
-    if (testCase.source.unlockAtBoot) {
+    if (needsPassphraseAtBoot(testCase.source)) {
       await bootThroughPassphrase({
         id: `${testCase.id} restored`,
         log,
@@ -1028,6 +1051,14 @@ async function main() {
   } finally {
     stopMachines();
     writeFileSync(join(workDir, "report.json"), `${JSON.stringify(results, null, 2)}\n`);
+    // The instance's own logs, for a 500 or a stuck job (uploaded with the cases' logs).
+    if (failed > 0) {
+      const logDir = join(workDir, "instance");
+      mkdirSync(logDir, { recursive: true });
+      for (const service of INSTANCE_LOG_SERVICES) {
+        writeFileSync(join(logDir, `${service}.log`), await instance.stack.logs(service, 20_000));
+      }
+    }
     if (!options.keep) await instance.stack.down();
   }
   for (const result of results)

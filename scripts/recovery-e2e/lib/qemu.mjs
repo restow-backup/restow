@@ -6,6 +6,7 @@
  */
 export * from "../../../apps/worker/src/lab/qemu.ts";
 export {
+  GRUB_SILENCE_MS,
   MAX_PASSPHRASE_TRIES,
   passphrasePrompts,
 } from "../../../apps/worker/src/lab/serial.ts";

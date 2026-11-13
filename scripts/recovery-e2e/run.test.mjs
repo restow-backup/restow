@@ -42,9 +42,11 @@ import {
   factoryCmdline,
   factoryRunScript,
   guestInstanceUrl,
+  INSTANCE_LOG_SERVICES,
   identityOf,
   isFinal,
   labEnv,
+  needsPassphraseAtBoot,
   parseArgs,
   probeOutcome,
   testAgentDir,
@@ -665,6 +667,25 @@ describe("run.sh of the factory disk (factoryRunScript)", () => {
     assert.match(script, /^export FACTORY_PASSPHRASE='pass'$/m);
     assert.match(script, /^export FACTORY_LAYOUT='raid1'$/m);
     execFileSync("sh", ["-n"], { input: script });
+  });
+});
+
+describe("which source machines ask for a passphrase at boot", () => {
+  const byId = (id) => ALL_CASES.find((item) => item.id === id);
+
+  it("every encrypted root and the encrypted /boot, nothing else", () => {
+    assert.equal(needsPassphraseAtBoot(byId("E2").source), true);
+    assert.equal(needsPassphraseAtBoot(byId("P2").source), true);
+    assert.equal(needsPassphraseAtBoot(byId("E7").source), true);
+    assert.equal(needsPassphraseAtBoot(byId("E1").source), false);
+    assert.equal(needsPassphraseAtBoot(byId("P1").source), false);
+  });
+
+  it("keeps the logs of services the instance has", () => {
+    const compose = readFileSync(new URL("../../docker-compose.yml", import.meta.url), "utf8");
+    for (const service of INSTANCE_LOG_SERVICES) {
+      assert.match(compose, new RegExp(`^  ${service}:$`, "m"));
+    }
   });
 });
 
