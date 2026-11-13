@@ -462,6 +462,29 @@ export const FACTORY_KEYRINGS = ["debian-archive-keyring", "ubuntu-keyring"];
 const APT_DEPENDS_ONLY =
   "--no-recommends --no-suggests --no-conflicts --no-breaks --no-replaces --no-enhances";
 
+/**
+ * run.sh of the factory disk: the settings of the case, then the network (the factory starts
+ * right after sysinit, before it is up, and debootstrap needs it), then the machine script,
+ * then the marker run.mjs waits for.
+ */
+export function factoryRunScript({ mirror, passphrase, env, script }) {
+  return [
+    "#!/bin/sh",
+    "set -eu",
+    `export FACTORY_MIRROR='${mirror}'`,
+    passphrase ? `export FACTORY_PASSPHRASE='${passphrase}'` : "",
+    ...Object.entries(env ?? {}).map(
+      ([name, value]) => `export ${name}='${String(value).replace(/'/g, "")}'`,
+    ),
+    "systemctl start --no-block systemd-networkd.service systemd-resolved.service",
+    "/usr/lib/systemd/systemd-networkd-wait-online --any --timeout=180 ||",
+    "  { echo 'factory: no network after 180 s' >/dev/ttyS0; exit 1; }",
+    `sh /run/restow-factory/${script} >/dev/ttyS0 2>&1`,
+    "echo E2E-FACTORY-DONE >/dev/ttyS0",
+    "",
+  ].join("\n");
+}
+
 /** The read-only factory disk: the machine scripts, run.sh and the debootstrap packages. */
 function factoryDisk(workDir, testCase, context) {
   const tree = join(workDir, `${testCase.id}-factory`);
@@ -514,18 +537,12 @@ function factoryDisk(workDir, testCase, context) {
       : `http://snapshot.debian.org/archive/debian/${stamp}/`;
   writeFileSync(
     join(tree, "run.sh"),
-    [
-      "#!/bin/sh",
-      "set -eu",
-      `export FACTORY_MIRROR='${mirror}'`,
-      context.passphrase ? `export FACTORY_PASSPHRASE='${context.passphrase}'` : "",
-      ...Object.entries(testCase.source.env ?? {}).map(
-        ([name, value]) => `export ${name}='${String(value).replace(/'/g, "")}'`,
-      ),
-      `sh /run/restow-factory/${testCase.source.script} >/dev/ttyS0 2>&1`,
-      "echo E2E-FACTORY-DONE >/dev/ttyS0",
-      "",
-    ].join("\n"),
+    factoryRunScript({
+      mirror,
+      passphrase: context.passphrase,
+      env: testCase.source.env,
+      script: testCase.source.script,
+    }),
   );
   const disk = join(workDir, `${testCase.id}-factory.img`);
   sh("truncate", ["-s", "512M", disk]);

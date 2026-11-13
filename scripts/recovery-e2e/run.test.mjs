@@ -37,6 +37,7 @@ import {
   FACTORY_KEYRINGS,
   FACTORY_ROOTS,
   factoryCmdline,
+  factoryRunScript,
   guestInstanceUrl,
   identityOf,
   isFinal,
@@ -638,6 +639,29 @@ describe("the packages of the factory disk (factory-debs.mjs)", () => {
   it("names debootstrap as root and both keyrings", () => {
     assert.deepEqual(FACTORY_ROOTS, ["debootstrap"]);
     assert.deepEqual(FACTORY_KEYRINGS, ["debian-archive-keyring", "ubuntu-keyring"]);
+  });
+});
+
+describe("run.sh of the factory disk (factoryRunScript)", () => {
+  const script = factoryRunScript({
+    mirror: "http://snapshot.debian.org/archive/debian/20261020T000000Z/",
+    passphrase: "pass",
+    env: { FACTORY_LAYOUT: "raid1'" },
+    script: "debian12-raid1.sh",
+  });
+
+  it("waits for the network before the machine script, which needs it for debootstrap", () => {
+    const wait = script.indexOf("systemd-networkd-wait-online --any --timeout=180");
+    const run = script.indexOf("sh /run/restow-factory/debian12-raid1.sh >/dev/ttyS0 2>&1");
+    assert.ok(script.indexOf("systemctl start --no-block systemd-networkd.service") < wait);
+    assert.ok(wait > 0 && run > wait);
+    assert.ok(script.trimEnd().endsWith("echo E2E-FACTORY-DONE >/dev/ttyS0"));
+  });
+
+  it("is valid sh and quotes the settings", () => {
+    assert.match(script, /^export FACTORY_PASSPHRASE='pass'$/m);
+    assert.match(script, /^export FACTORY_LAYOUT='raid1'$/m);
+    execFileSync("sh", ["-n"], { input: script });
   });
 });
 

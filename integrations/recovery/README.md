@@ -54,7 +54,10 @@ stage `build-inner.sh` removes what live-build and package scripts leave after i
 (`rr_clean_build_leftovers`): the contents of `/run`, systemd-resolved's copy of the
 build's `resolv.conf`, apt's caches and the NVMe host identity (`/etc/nvme/hostnqn`,
 `hostid`), which nvme-cli makes at install and which would otherwise be the same for
-every machine started from the ISO.
+every machine started from the ISO. It also links `/etc/resolv.conf` to systemd-resolved's
+stub resolver again: live-build leaves an empty file there, with which glibc and Go ask
+`127.0.0.1:53`, where nobody answers, and the recovery program could not resolve the
+instance's name.
 
 Every Restow release takes a new snapshot time (security updates); `snapshot.env` and
 `packages.lock` are set in the release commit and so are part of the tag. From the tag

@@ -329,15 +329,23 @@ rr_no_secrets() {
 # differs per build or names the build host: the contents of /run (the build's DNS),
 # systemd-resolved's copy of the build's resolv.conf, the NVMe host identity nvme-cli
 # makes at install (one per machine, never one for every machine started from the ISO)
-# and apt's caches from live-build's last apt-get update.
+# and apt's caches from live-build's last apt-get update. live-build also leaves
+# /etc/resolv.conf as an empty file where systemd-resolved had its link to the stub
+# resolver; empty, glibc and Go ask 127.0.0.1:53, where nobody answers, and
+# systemd-resolved's tmpfiles rule (L!) does not replace a file that exists.
+RR_RESOLV_LINK=../run/systemd/resolve/stub-resolv.conf
 RR_LEFTOVER_FILES="etc/.resolv.conf.systemd-resolved.bak etc/nvme/hostnqn etc/nvme/hostid var/cache/apt/pkgcache.bin var/cache/apt/srcpkgcache.bin"
 
-# rr_clean_build_leftovers <root>: removes them, before lb binary packs the image.
+# rr_clean_build_leftovers <root>: removes them and links /etc/resolv.conf to the stub
+# resolver again, before lb binary packs the image.
 rr_clean_build_leftovers() {
   root="$1"
   [ -d "$root" ] || { echo "no such directory: $root" >&2; return 2; }
   for file in $RR_LEFTOVER_FILES; do rm -f "$root/$file"; done
   if [ -d "$root/run" ]; then find "$root/run" -mindepth 1 -delete; fi
+  mkdir -p "$root/etc"
+  rm -f "$root/etc/resolv.conf"
+  ln -s "$RR_RESOLV_LINK" "$root/etc/resolv.conf"
 }
 
 # rr_build_leftovers <root>: names every one still in the image; fails if there is one.
@@ -350,6 +358,10 @@ rr_build_leftovers() {
   done
   if [ -d "$root/run" ] && [ -n "$(find "$root/run" -mindepth 1 -print | head -n 1)" ]; then
     find "$root/run" -mindepth 1 -print | sed "s#^$root##"
+    found=1
+  fi
+  if [ "$(readlink "$root/etc/resolv.conf" 2>/dev/null)" != "$RR_RESOLV_LINK" ]; then
+    echo "/etc/resolv.conf (not the link to $RR_RESOLV_LINK)"
     found=1
   fi
   [ "$found" -eq 0 ]
