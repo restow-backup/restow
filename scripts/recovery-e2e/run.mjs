@@ -594,6 +594,15 @@ async function waitUntil(what, check, { timeoutMs, intervalMs = 5000 }) {
 }
 
 /** Build, enroll and back up the source machine; answers what the restore is checked against. */
+/**
+ * The settings of a case's backup job. A job always names folders (the API requires them, as the
+ * job editor sends them): a member without "whole machine" (Windows, a container) backs them up
+ * instead; a Linux member replaces them with the sources of its manifest (docs/BAREMETAL.md 5.2).
+ */
+export function wholeMachineJobSettings() {
+  return { wholeMachine: true, paths: ["/etc", "/home"] };
+}
+
 /** The space rule of the test instance: 64 MiB free instead of 5 % and at least 20 GiB. */
 export const E2E_SPACE_RULE = Object.freeze({ percent: 0, minGib: 0.0625, maxGib: 0.0625 });
 
@@ -800,12 +809,12 @@ async function sourceMachine(testCase, context) {
       kind: "endpoint",
       name: `Recovery ${testCase.id}`,
       schedule: { kind: "daily", timeOfDay: "03:00", timeZone: "UTC" },
-      settings: { wholeMachine: true },
+      settings: wholeMachineJobSettings(),
       scope: { mode: "selected", members: [{ id: endpoint.id }] },
     },
     { tenantId },
   );
-  await client.post(`/api/v1/endpoints/${endpoint.id}/tasks`, { kind: "backup" }, { tenantId });
+  await client.post(`/api/v1/endpoints/${endpoint.id}/tasks`, { kind: "backup_now" }, { tenantId });
   const baremetal = await waitUntil(
     "the whole machine backup and its layout check",
     async () => {
@@ -877,14 +886,38 @@ async function restore(testCase, context, source, { interrupt } = {}) {
     mac: testCase.target.newMac ? "52:54:00:65:43:21" : undefined,
     fwCfg: { "opt/restow/answers": answersFile },
   });
+  // QEMU reads the answers file while it starts (fw_cfg): only then may it go, as in the lab
+  // (apps/worker/src/lab/vm.ts). A QEMU that ended at once says why.
+  const early = await Promise.race([iso.exited, sleep(1500).then(() => null)]);
+  if (early !== null) {
+    rmSync(answersFile, { force: true });
+    throw new Error(`the ISO's QEMU ended at once (${early}): ${iso.stderrTail()}`);
+  }
   rmSync(answersFile, { force: true });
   const recoveryPath = `/api/v1/endpoints/${source.endpoint.id}/recoveries/${issued.id}`;
+  let isoEnded = null;
+  iso.exited.then((code) => {
+    isoEnded = code;
+  });
   await waitUntil(
     "the ISO to redeem the code",
-    async () => (await client.get(recoveryPath, { tenantId })).status === "pending_approval",
+    async () => {
+      const recovery = await client.get(recoveryPath, { tenantId });
+      if (recovery.status === "pending_approval") return true;
+      // A session that ended or an ISO that stopped will not get there: say so at once.
+      if (isFinal(recovery.status)) {
+        throw new Error(`the recovery ended as ${recovery.status} before it waited for approval`);
+      }
+      if (isoEnded !== null) {
+        throw new Error(`the ISO's QEMU ended (${isoEnded}) before it redeemed the code`);
+      }
+      return false;
+    },
     { timeoutMs: 20 * 60_000 },
   );
-  await client.post(`${recoveryPath}/approve`, {}, { tenantId });
+  // Releasing needs a sign-in from the last 10 minutes (assertRecentSignIn): the redeem can take
+  // longer than that, so the approval signs in anew.
+  await (await api(context)).post(`${recoveryPath}/approve`, {}, { tenantId });
   if (interrupt) {
     await waitUntil(
       "the restore to start",
@@ -893,7 +926,12 @@ async function restore(testCase, context, source, { interrupt } = {}) {
     );
     await sleep(30_000);
     if (interrupt === "cancel") await client.post(`${recoveryPath}/cancel`, {}, { tenantId });
-    else await qmp(join(source.dir, "iso.qmp"), "quit").catch(() => undefined);
+    else {
+      await qmp(join(source.dir, "iso.qmp"), "quit").catch(() => undefined);
+      // After a power loss the session stays active until the code expires (plus 30 minutes);
+      // the admin ends it, as before a second code.
+      await client.post(`${recoveryPath}/cancel`, {}, { tenantId });
+    }
   }
   const final = await waitUntil(
     "the end of the recovery",

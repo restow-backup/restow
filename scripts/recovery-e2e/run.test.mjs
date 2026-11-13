@@ -52,6 +52,7 @@ import {
   probeOutcome,
   testAgentDir,
   versionOfIso,
+  wholeMachineJobSettings,
   withIsoLine,
 } from "./run.mjs";
 
@@ -697,6 +698,12 @@ describe("which source machines ask for a passphrase at boot", () => {
     const smoke = readFileSync(new URL("../smoke/checks/03-passkey.mjs", import.meta.url), "utf8");
     assert.match(smoke, /space: \{ percent: 0, minGib: 0\.0625, maxGib: 0\.0625 \}/);
     assert.deepEqual({ ...E2E_SPACE_RULE }, { percent: 0, minGib: 0.0625, maxGib: 0.0625 });
+  });
+
+  it("creates whole machine jobs with folders, as the API requires and the job editor sends", () => {
+    const settings = wholeMachineJobSettings();
+    assert.equal(settings.wholeMachine, true);
+    assert.ok(settings.paths.length > 0 && settings.paths.every((path) => path.startsWith("/")));
   });
 
   it("keeps the logs of services the instance has", () => {
