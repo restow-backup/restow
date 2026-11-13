@@ -180,6 +180,11 @@ UNIT
   mkdir -p "$root/etc/restow-e2e"
   if [ -f "$FACTORY_MEDIA/ca.pem" ]; then
     cp "$FACTORY_MEDIA/ca.pem" "$root/etc/restow-e2e/ca.pem"
+    # The installer and the agent trust the system's CAs, as on a machine of an
+    # instance with an internal CA: the test instance's CA joins them.
+    mkdir -p "$root/usr/local/share/ca-certificates"
+    cp "$FACTORY_MEDIA/ca.pem" "$root/usr/local/share/ca-certificates/restow-e2e.crt"
+    in_root "$root" update-ca-certificates >/dev/null || fdie "update-ca-certificates failed"
   fi
   in_root "$root" systemctl enable restow-e2e-boot.service restow-e2e-enroll.service >/dev/null
 }

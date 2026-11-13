@@ -48,8 +48,10 @@ import {
   connectSerial,
   createDisk,
   createVars,
-  PASSPHRASE_PROMPT,
+  MAX_PASSPHRASE_TRIES,
+  passphrasePrompts,
   qmp,
+  sendKeys,
   startMachine,
   typeSerial,
   waitForSerial,
@@ -588,23 +590,72 @@ function stopMachines() {
   running.clear();
 }
 
+/** How long typing at the serial console may show no effect before the keyboard is tried. */
+export const KEYBOARD_FALLBACK_MS = 90_000;
+
 /**
- * Unlock an encrypted root at boot: wait for the passphrase prompt on the serial console (the
- * lab's pattern, apps/worker/src/lab/serial.ts) and type the passphrase there. The kernel's
- * console is ttyS0, so initramfs-tools and systemd-cryptsetup ask there, not on the keyboard.
+ * Boot a machine with an encrypted root until `pattern` is on its serial console; answers the
+ * match. Like the lab (apps/worker/src/lab/runner.ts): connected to the serial socket from the
+ * start, the passphrase typed there once per prompt (initramfs-tools and systemd-cryptsetup ask
+ * on ttyS0, the kernel's console), at most MAX_PASSPHRASE_TRIES times, and once on the keyboard
+ * when the console shows nothing new for KEYBOARD_FALLBACK_MS after typing. Every step goes to
+ * the job log.
  */
-async function unlockAtBoot(log, serialSocket, machine, passphrase) {
-  await waitForSerial(log, new RegExp(PASSPHRASE_PROMPT.source), {
-    timeoutMs: 10 * 60_000,
-    machine,
-  });
+export async function bootThroughPassphrase({
+  id,
+  log,
+  serialSocket,
+  qmpSocket,
+  machine,
+  passphrase,
+  pattern,
+}) {
+  const timeoutMs = 25 * 60_000;
   const serial = await connectSerial(serialSocket);
   serial.on("data", () => {});
   serial.on("error", () => {});
+  let exited = null;
+  machine.exited.then((code) => {
+    exited = code;
+  });
+  const deadline = Date.now() + timeoutMs;
+  let typed = 0;
+  let keyed = false;
+  let lastLength = 0;
+  let quietSince = Date.now();
   try {
-    await typeSerial(serial, `${passphrase}\n`);
+    while (Date.now() < deadline) {
+      const text = existsSync(log) ? readFileSync(log, "utf8") : "";
+      const match = pattern.exec(text);
+      if (match) return match;
+      if (exited !== null)
+        throw new Error(`${id}: QEMU ended (exit code ${exited}) before ${pattern} on ${log}`);
+      if (text.length !== lastLength) {
+        lastLength = text.length;
+        quietSince = Date.now();
+      }
+      const prompts = passphrasePrompts(text);
+      if (prompts > typed && typed < MAX_PASSPHRASE_TRIES) {
+        typed += 1;
+        console.log(
+          `${id}: passphrase prompt ${prompts} on the serial console, typing the passphrase there`,
+        );
+        await typeSerial(serial, `${passphrase}\n`);
+        quietSince = Date.now();
+      } else if (typed > 0 && !keyed && Date.now() - quietSince >= KEYBOARD_FALLBACK_MS) {
+        keyed = true;
+        console.log(
+          `${id}: no output for ${KEYBOARD_FALLBACK_MS / 1000} s after typing, typing on the keyboard`,
+        );
+        await sendKeys(qmpSocket, `${passphrase}\n`);
+      }
+      await sleep(2000);
+    }
+    throw new Error(
+      `${id}: no ${pattern} on ${log} within ${timeoutMs / 60_000} min (prompts typed: ${typed})`,
+    );
   } finally {
-    serial.end();
+    serial.destroy();
   }
 }
 
@@ -672,18 +723,20 @@ async function sourceMachine(testCase, context) {
     qmpSocket: join(dir, "source.qmp"),
     fwCfg: { "opt/restow/enroll": enroll },
   });
-  if (testCase.source.unlockAtBoot) {
-    await unlockAtBoot(
-      join(dir, "source.log"),
-      join(dir, "source-serial.sock"),
-      source,
-      context.passphrase,
-    );
-  }
-  const [, hostname, markerSha256] = await waitForSerial(join(dir, "source.log"), SOURCE_BOOT, {
-    timeoutMs: 15 * 60_000,
-    machine: source,
-  });
+  const [, hostname, markerSha256] = testCase.source.unlockAtBoot
+    ? await bootThroughPassphrase({
+        id: `${testCase.id} source`,
+        log: join(dir, "source.log"),
+        serialSocket: join(dir, "source-serial.sock"),
+        qmpSocket: join(dir, "source.qmp"),
+        machine: source,
+        passphrase: context.passphrase,
+        pattern: SOURCE_BOOT,
+      })
+    : await waitForSerial(join(dir, "source.log"), SOURCE_BOOT, {
+        timeoutMs: 15 * 60_000,
+        machine: source,
+      });
   const endpoint = await waitUntil(
     "the source machine to enroll",
     async () =>
@@ -825,18 +878,20 @@ async function bootRestored(testCase, context, source, restored, { emptyNvram = 
     mac: testCase.target.newMac ? "52:54:00:65:43:21" : undefined,
   });
   try {
+    const pattern = bootPattern(source.hostname, source.markerSha256);
     if (testCase.source.unlockAtBoot) {
-      await unlockAtBoot(
+      await bootThroughPassphrase({
+        id: `${testCase.id} restored`,
         log,
-        join(source.dir, "restored-serial.sock"),
+        serialSocket: join(source.dir, "restored-serial.sock"),
+        qmpSocket: join(source.dir, "restored.qmp"),
         machine,
-        context.passphrase,
-      );
+        passphrase: context.passphrase,
+        pattern,
+      });
+    } else {
+      await waitForSerial(log, pattern, { timeoutMs: 15 * 60_000, machine });
     }
-    await waitForSerial(log, bootPattern(source.hostname, source.markerSha256), {
-      timeoutMs: 15 * 60_000,
-      machine,
-    });
   } finally {
     await qmp(join(source.dir, "restored.qmp"), "quit").catch(() => undefined);
     machine.child.kill("SIGKILL");

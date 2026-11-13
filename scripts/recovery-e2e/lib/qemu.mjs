@@ -5,4 +5,7 @@
  * stripping, Node 22.18 and later).
  */
 export * from "../../../apps/worker/src/lab/qemu.ts";
-export { PASSPHRASE_PROMPT } from "../../../apps/worker/src/lab/serial.ts";
+export {
+  MAX_PASSPHRASE_TRIES,
+  passphrasePrompts,
+} from "../../../apps/worker/src/lab/serial.ts";

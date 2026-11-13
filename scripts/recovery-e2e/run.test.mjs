@@ -7,9 +7,11 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
+import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import { ALL_CASES, CASES, PROBE_CASES, selectCases } from "./cases.mjs";
 import { factoryDebs, lockedPackages, parseDepends } from "./factory-debs.mjs";
@@ -33,6 +35,7 @@ import {
 } from "./no-autoactivation.mjs";
 import {
   bootPattern,
+  bootThroughPassphrase,
   buildAnswers,
   FACTORY_KEYRINGS,
   FACTORY_ROOTS,
@@ -662,6 +665,67 @@ describe("run.sh of the factory disk (factoryRunScript)", () => {
     assert.match(script, /^export FACTORY_PASSPHRASE='pass'$/m);
     assert.match(script, /^export FACTORY_LAYOUT='raid1'$/m);
     execFileSync("sh", ["-n"], { input: script });
+  });
+});
+
+describe("booting through an encrypted root (bootThroughPassphrase)", () => {
+  const MARKER = `E2E-BOOT e2-ubuntu2404 ${"a".repeat(64)}`;
+
+  async function withConsole(run) {
+    const dir = mkdtempSync(join(tmpdir(), "restow-unlock-"));
+    const socketPath = join(dir, "s.sock");
+    const log = join(dir, "source.log");
+    const typed = [];
+    const server = createServer((socket) => socket.on("data", (d) => typed.push(String(d))));
+    await new Promise((resolve) => server.listen(socketPath, resolve));
+    try {
+      return await run({ dir, socketPath, log, typed });
+    } finally {
+      server.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  it("types the passphrase once per prompt on the serial console and answers the boot line", async () => {
+    await withConsole(async ({ socketPath, log, typed }) => {
+      writeFileSync(log, "BdsDxe: starting Boot0001\nPlease unlock disk cryptroot: ");
+      const booted = bootThroughPassphrase({
+        id: "E2 source",
+        log,
+        serialSocket: socketPath,
+        qmpSocket: "/nonexistent.qmp",
+        machine: { exited: new Promise(() => {}) },
+        passphrase: "pw",
+        pattern: /E2E-BOOT (\S+) ([0-9a-f]{64})/,
+      });
+      // The passphrase arrives, the machine boots.
+      for (let i = 0; i < 100 && typed.join("") !== "pw\r"; i += 1) await sleep(50);
+      assert.equal(typed.join(""), "pw\r");
+      writeFileSync(
+        log,
+        `BdsDxe\nPlease unlock disk cryptroot: \n[  OK  ] Reached target\n${MARKER}\n`,
+      );
+      const match = await booted;
+      assert.equal(match[1], "e2-ubuntu2404");
+    });
+  });
+
+  it("stops at once when QEMU ends before the boot line", async () => {
+    await withConsole(async ({ socketPath, log }) => {
+      writeFileSync(log, "");
+      await assert.rejects(
+        bootThroughPassphrase({
+          id: "E2 source",
+          log,
+          serialSocket: socketPath,
+          qmpSocket: "/nonexistent.qmp",
+          machine: { exited: Promise.resolve(1) },
+          passphrase: "pw",
+          pattern: /E2E-BOOT/,
+        }),
+        /QEMU ended \(exit code 1\)/,
+      );
+    });
   });
 });
 
