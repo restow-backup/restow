@@ -30,7 +30,7 @@
     "@restow/i18n": "workspace:*",
     "better-auth": "^1.7.12",
     "drizzle-orm": "^0.45.4",
-    "hono": "^4.13.13",
+    "hono": "^4.13.16",
     "imapflow": "^1.0.171",
     "mailparser": "^3.12.4",
     "nodemailer": "^10.2.1",
