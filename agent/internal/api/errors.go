@@ -117,8 +117,15 @@ func Explain(err error, serverURL string) string {
 		case ae.Status == 429:
 			return "The Restow instance is rate limiting this agent (HTTP 429). The agent backs off and retries."
 		case ae.Status >= 500:
-			return fmt.Sprintf("The Restow instance reported an internal error (HTTP %d). "+
+			msg := fmt.Sprintf("The Restow instance reported an internal error (HTTP %d). "+
 				"The agent retries; if it persists, check the server logs.", ae.Status)
+			// The instance's own words (title and detail of the problem): a 503 names the
+			// missing storage or address, a generic 500 says so; never a secret, the server
+			// keeps internals out of the body.
+			if reason := problemReason(ae); reason != "" {
+				msg += " Reason given: " + reason
+			}
+			return msg
 		default:
 			return ae.Error()
 		}
@@ -164,4 +171,21 @@ func Explain(err error, serverURL string) string {
 			"(outbound HTTPS to %s is required).", host, strings.TrimSpace(err.Error()), host)
 	}
 	return err.Error()
+}
+
+// problemReason is the title and detail of a problem answer, on one line and at most 300
+// characters; empty when the answer carried neither (a proxy's bare error page).
+func problemReason(ae *APIError) string {
+	parts := make([]string, 0, 2)
+	for _, part := range []string{ae.Title, ae.Detail} {
+		part = strings.Join(strings.Fields(part), " ")
+		if part != "" {
+			parts = append(parts, part)
+		}
+	}
+	reason := strings.Join(parts, ": ")
+	if r := []rune(reason); len(r) > 300 {
+		reason = string(r[:300]) + "…"
+	}
+	return reason
 }

@@ -449,6 +449,10 @@ async function startInstance(options, workDir, agentDir) {
   ]);
   writeFileSync(caFile, ca.stdout);
   const setup = await setUpInstallation(stack);
+  // The space rule of the size and space guard (#99) keeps at least 20 GiB free on a storage
+  // target; a CI runner whose disk the cases' VM images fill would hold the whole machine
+  // backups. As in the smoke (checks/03-passkey.mjs): 64 MiB, the rule stays on.
+  await setup.api.put("/api/v1/updates/space-rule", { space: E2E_SPACE_RULE });
   if (lab.RESTOW_LAB_TOKEN) {
     // The worker opens its lab API with the token; the lab asks it for work from now on.
     await stack.up(["worker", "recovery-lab"], { forceRecreate: true });
@@ -571,6 +575,9 @@ async function waitUntil(what, check, { timeoutMs, intervalMs = 5000 }) {
 }
 
 /** Build, enroll and back up the source machine; answers what the restore is checked against. */
+/** The space rule of the test instance: 64 MiB free instead of 5 % and at least 20 GiB. */
+export const E2E_SPACE_RULE = Object.freeze({ percent: 0, minGib: 0.0625, maxGib: 0.0625 });
+
 /** The services of the test instance whose logs a failed run keeps (instance/<service>.log). */
 export const INSTANCE_LOG_SERVICES = ["api", "worker", "scheduler", "caddy"];
 

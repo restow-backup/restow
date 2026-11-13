@@ -37,6 +37,7 @@ import {
   bootPattern,
   bootThroughPassphrase,
   buildAnswers,
+  E2E_SPACE_RULE,
   FACTORY_KEYRINGS,
   FACTORY_ROOTS,
   factoryCmdline,
@@ -679,6 +680,12 @@ describe("which source machines ask for a passphrase at boot", () => {
     assert.equal(needsPassphraseAtBoot(byId("E7").source), true);
     assert.equal(needsPassphraseAtBoot(byId("E1").source), false);
     assert.equal(needsPassphraseAtBoot(byId("P1").source), false);
+  });
+
+  it("lowers the space rule like the smoke does, and keeps it on", () => {
+    const smoke = readFileSync(new URL("../smoke/checks/03-passkey.mjs", import.meta.url), "utf8");
+    assert.match(smoke, /space: \{ percent: 0, minGib: 0\.0625, maxGib: 0\.0625 \}/);
+    assert.deepEqual({ ...E2E_SPACE_RULE }, { percent: 0, minGib: 0.0625, maxGib: 0.0625 });
   });
 
   it("keeps the logs of services the instance has", () => {

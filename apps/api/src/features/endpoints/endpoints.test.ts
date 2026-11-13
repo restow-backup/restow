@@ -12,6 +12,7 @@ import { installCommands, psQuote, releaseKeyFingerprint } from "./commands.js";
 /** Stands in for a maintainer's SSHSIG signature (the server never checks it, the agent does). */
 const SIGNATURE = "-----BEGIN SSH SIGNATURE-----\nU1NIU0lH\n-----END SSH SIGNATURE-----\n";
 
+import { ProblemError } from "../../problem.js";
 import {
   agentBinaryName,
   announcedAgentVersion,
@@ -1293,6 +1294,13 @@ describe("restic failures become problems an admin can act on", () => {
       status: 502,
       type: "urn:restow:problem:restic-failed",
     });
+  });
+
+  it("passes any other error on as it is, so the global handler logs it", () => {
+    const database = new Error('relation "endpoints" does not exist');
+    expect(resticProblem(database)).toBe(database);
+    expect(resticProblem("odd")).toBeInstanceOf(Error);
+    expect(resticProblem("odd")).not.toBeInstanceOf(ProblemError);
   });
 
   it("says restic is missing when it cannot be started", () => {
