@@ -9,6 +9,10 @@ Stand: Planung, nichts davon ist umgesetzt. Entscheidung des Maintainers (Novemb
 - Der Knoten schickt **bei Bedarf selbst eine Mail an den Admin**, ohne Umweg über den
   Restow-Server.
 - **Erweiterte Notfall-Übungen** (Disaster-Recovery-Tests) gehören dazu.
+- Die Appliance wird **gehärtet** wie in Abschnitt 8 beschrieben (verifizierter Start, Kernel,
+  Dienst, Firewall, Konsole, veraltete Abbilder) und das Docker-Image wie in Abschnitt 8.1.
+- ISO und Image lassen sich **über die Oberfläche herunterladen**, mit Hinweis und
+  Fingerabdruck-Abgleich an der Konsole des Knotens (Abschnitt 9.1).
 
 Dieses Dokument hält fest, wie das gebaut würde und was vorher zu klären ist.
 
@@ -180,17 +184,60 @@ Stelle "vom Host nicht freigegeben" statt eines grünen Hakens.
 
 ## 8. Härtung der Appliance (ISO)
 
-- Basis **Debian 13** wie das Recovery-ISO, mit derselben reproduzierbaren Build-Kette.
-- Kein SSH, keine Shell. Verändert wird nur an der Konsole; die Statusseite (Abschnitt 12)
-  liest nur. Die Konsole zeigt ein Menü: Zustand, Netzwerk, Anbinden, Platten,
-  Uhr bestätigen, Update-Zustand, Zurücksetzen.
-- Nach außen sind nur der Port der Schnittstelle und, wenn eingeschaltet, der der Statusseite
-  offen.
+Ziel: Wer nur das Netz erreicht, kommt nicht hinein; wer an der Konsole steht, kommt nicht an
+die Daten; ein verändertes System startet nicht.
+
+- Basis **Debian 13** wie das Recovery-ISO, mit derselben reproduzierbaren Build-Kette, einer
+  Paketliste mit Prüfsummen (`packages.lock`) und den Lizenzen der Firmware.
+- **Kein SSH, keine Shell.** Verändert wird nur an der Konsole; die Statusseite (Abschnitt 12)
+  liest nur. Die Konsole zeigt ein Menü: Zustand, Netzwerk, Anbinden, Platten, Uhr bestätigen,
+  Update-Zustand, Zurücksetzen. Kein Menüpunkt öffnet eine Shell.
+- **Verifizierter Start.** Secure Boot mit einem von Restow signierten Kernel-Abbild (UKI:
+  Kernel, Initramfs und Kommandozeile in einer signierten Datei). Der Besitzer bestätigt den
+  Restow-Schlüssel einmal bei der Installation an der Konsole (MOK). Das Systemabbild ist mit
+  **dm-verity** geschützt; die Prüfsumme der Wurzel steht in der signierten Kommandozeile. Ein
+  verändertes Abbild startet nicht. Ohne Secure Boot (alte Hardware) startet der Knoten mit
+  dem Hinweis "Start nicht verifiziert" in Restow und auf der Statusseite, und Restow zeigt ihn
+  nicht als unveränderbar, nur als getrennten Speicher.
+- **Kernel.** Lockdown im Modus `integrity` (folgt bei Secure Boot von selbst), nach dem Start
+  keine Module mehr nachladbar (`kernel.modules_disabled=1`, nachdem Platten, Netz und Uhr
+  stehen), `kptr_restrict=2`, `dmesg_restrict=1`, `unprivileged_bpf_disabled=1`,
+  `yama.ptrace_scope=3`, kein `kexec`.
+- **Kein Ausweg über den Start.** Die Kommandozeile ist Teil der signierten UKI und am Start
+  nicht änderbar; `rescue.target` und `emergency.target` sind maskiert, eine fehlgeschlagene
+  Einhängung führt zum Rückfall auf das andere Abbild (A/B), nie zu einer Root-Shell.
+- **Der Dienst ist eingesperrt.** `restow-store` läuft als eigener Benutzer ohne Root, mit den
+  Schutzoptionen von systemd (`ProtectSystem=strict`, `NoNewPrivileges`, `PrivateTmp`,
+  `ProtectKernel*`, `RestrictAddressFamilies`, `SystemCallFilter=@system-service`,
+  `CapabilityBoundingSet=` leer) und einem AppArmor-Profil; schreiben darf er nur in seinen
+  Datenbereich. Platten-Werkzeuge (Scrub, SMART, Snapshots) laufen als getrennte Einheiten mit
+  genau den Rechten, die sie brauchen, und werden nur vom Knoten selbst ausgelöst.
+- **Firewall** (nftables): eingehend alles verboten außer dem Port der Schnittstelle und, wenn
+  eingeschaltet, dem der Statusseite; ausgehend nur Update-Quelle, NTP, der eingetragene
+  Mailserver und DNS.
 - System schreibgeschützt in zwei Abbildern (A/B); der Datenbereich ist getrennt.
+- **Konsole.** Das Kennwort wird bei der Einrichtung gesetzt, gehasht gespeichert (yescrypt)
+  und öffnet nur das Menü. Nach Fehlversuchen wächst die Wartezeit (1 s, 2 s, 4 s … bis
+  15 Minuten); jeder Fehlversuch geht in den signierten Zustand und als Hinweis an Restow.
 - **Zurücksetzen** (alles löschen) nur an der Konsole, mit Wartefrist (Vorschlag 7 Tage), in
   der Restow täglich alarmiert und das Zurücksetzen an der Konsole abgebrochen werden kann.
-- Die Konsole ist mit einem Kennwort geschützt, das bei der Einrichtung gesetzt wird. Es öffnet
-  das Menü, keinen Systemzugang.
+- **Veraltete Knoten.** Jedes Release nennt in seinen signierten Metadaten, ob es
+  Sicherheitskorrekturen enthält. Läuft ein Knoten ein Abbild, das älter ist als das letzte
+  Release mit Sicherheitskorrekturen, meldet er das in seinem Zustand an Restow und schickt
+  selbst eine Mail (Abschnitt 11).
+- Was das ISO verspricht, steht im Aussagen-Register und wird in der CI belegt (Abschnitt 15):
+  kein offener Port außer den zwei genannten, kein Login über Netz oder Konsole, ein
+  verändertes Abbild startet nicht, der Dienst kann außerhalb seines Datenbereichs nicht
+  schreiben.
+
+### 8.1 Das Docker-Image
+
+Das Image läuft auf einem Host, dessen Root alles darf; unveränderbar wird es dadurch nie, und
+Restow nennt es nur **getrennten Speicher** (Abschnitt 0). Gehärtet wird es trotzdem:
+minimales Basis-Image, ein Benutzer ohne Root, schreibgeschütztes Dateisystem außer dem
+Datenvolume, keine zusätzlichen Rechte (`cap_drop: [ALL]`, `no-new-privileges`), signiert und
+mit Digest veröffentlicht wie die übrigen Restow-Images. Die Compose-Datei, die Restow
+anbietet, setzt das alles bereits.
 
 ## 9. Updates
 
@@ -201,6 +248,23 @@ Stelle "vom Host nicht freigegeben" statt eines grünen Hakens.
   sein eigenes Format.
 - Restow zeigt die Version des Knotens und warnt, wenn sie zu alt für den Server ist. Das
   Protokoll ist versioniert; der Server spricht die Version des Knotens.
+
+### 9.1 Herunterladen über die Oberfläche
+
+- Unter Speicherziele › Speicherknoten bietet Restow beides an: das **ISO** und für das **Image**
+  den Compose-Abschnitt mit Image-Digest. Wie beim Recovery-ISO lädt die Instanz das ISO ihres
+  Release selbst, prüft die Signatur von `SHA256SUMS` mit dem Release-Schlüssel ihres Images und
+  liefert es angemeldeten Administratoren aus; der GitHub-Release-Anhang bleibt der
+  Ausweichlink.
+- **Der Haken, offen benannt:** Der Knoten soll gerade gegen einen übernommenen Restow-Server
+  schützen, und ein übernommener Server könnte ein verändertes ISO samt passender Prüfsumme
+  ausliefern. Die Oberfläche sagt darum neben dem Download: "Prüfen Sie den Fingerabdruck des
+  Release-Schlüssels außerhalb dieser Instanz (README und Release-Notes auf GitHub). Am
+  sichersten laden Sie das ISO direkt vom GitHub-Release." Dazu zeigt sie die Prüfbefehle.
+- **Abgleich an der Konsole.** Der Installer des ISO zeigt den Fingerabdruck des Schlüssels, mit
+  dem sein Abbild signiert ist, und verlangt die Bestätigung, bevor er Platten anfasst. Mit dem
+  verifizierten Start (Abschnitt 8) bestätigt der Besitzer denselben Schlüssel als MOK; ein ISO
+  mit fremdem Schlüssel fällt dabei auf, gleich woher es kam.
 
 ## 10. Wiederherstellung ohne Restow-Server
 
@@ -328,6 +392,15 @@ Speicherziel; sie können vor 0.7.0 kommen.
   Tausch und Wiederaufbau.
 - ISO: Bau reproduzierbar, Start in einer VM, Einrichtung über die Konsole, Update A/B mit
   Rückfall.
+- Härtung (Abschnitt 8), in einer VM mit Secure Boot in der CI: ein Byte im Systemabbild
+  geändert startet nicht (dm-verity); eine UKI mit fremdem Schlüssel startet nicht; ein
+  Portscan findet nur die zwei Ports; die Konsole öffnet mit keiner Eingabe eine Shell, auch
+  nicht nach einer fehlgeschlagenen Einhängung; `restow-store` scheitert beim Schreiben
+  außerhalb seines Datenbereichs; Fehlversuche an der Konsole verlängern die Wartezeit und
+  erscheinen im Zustand; ein Knoten mit veraltetem Abbild meldet sich.
+- Download (9.1): Die Instanz liefert nur ein ISO aus, dessen Prüfsumme in einem korrekt
+  signierten `SHA256SUMS` steht; der Installer zeigt den Fingerabdruck und bricht ohne
+  Bestätigung ab.
 - Fehlerinjektion von der Restow-Seite: Knoten nicht erreichbar, Knoten voll, Zertifikat
   abgelehnt; jeweils Zustand und Alarm.
 - Metriken und Mail: SMART-Daten aus aufgezeichneten Ausgaben echter Platten (gesund, mit
@@ -346,7 +419,7 @@ Speicherziel; sie können vor 0.7.0 kommen.
 | N1 | Dienst `restow-store` mit den Regeln und der Ablage, Vertragstests, Speicherziel `node` in Restow |
 | N2 | Anbinden mit Code, Zertifikate, Notfall-Lesezugang, `restow-restore` liest vom Knoten |
 | N3 | Uhr, signierter Zustand, Metriken unter Repositories, Alarme in Restow, eigene Mail des Knotens mit Funkstille, Statusseite (nur lesend), Docker-Image ("getrennter Speicher") |
-| N4 | ISO: Installer, btrfs-Verbund, Scrub, SMART-Tests, Snapshots, Plattentausch, Konsole, Härtung |
+| N4 | ISO: Installer, btrfs-Verbund, Scrub, SMART-Tests, Snapshots, Plattentausch, Konsole, Härtung (Abschnitt 8: UKI, dm-verity, Kernel, Dienst, Firewall), Download über die Oberfläche (9.1) |
 | N5 | Updates (A/B, Signatur), Tests auf echter Hardware, Doku, Aussagen im Register |
 | N6 | Notfall-Übungen: Löschversuch, Server verloren, Kopie statt Primärziel, Ganzes Objekt, danach die geführten |
 
@@ -361,7 +434,8 @@ Platten-Code werden geteilt.
    Zeit für beides, oder hat eines Vorrang?
 3. **Standard der Mindestsperre** (Vorschlag 30 Tage) und der Wartefrist beim Zurücksetzen
    (Vorschlag 7 Tage).
-4. **Secure Boot** für das ISO: mit signiertem Startpfad oder zunächst ohne?
+4. ~~**Secure Boot** für das ISO~~: entschieden (November 2026), mit verifiziertem Start
+   (Abschnitt 8).
 5. **Parität** (RAID6) für große Knoten: in 0.7.0 weglassen (Vorschlag) oder gleich mitbauen?
 6. **Testhardware**: ein kleiner Rechner mit mindestens zwei, besser vier Platten.
 7. **Notfall-Übungen vor 0.7.0**: Die drei Übungen, die jedes Speicherziel betreffen ("Server
