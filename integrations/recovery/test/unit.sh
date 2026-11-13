@@ -403,6 +403,12 @@ grep -q 'restow.console=ttyS0' "$grub_pc" && grep -q 'restow.console=ttyS1' "$gr
 grep -q 'verify-checksums' "$grub_pc" && grep -q 'verify-checksums' "$isolinux" && ok || fail "Check medium"
 grep -q 'restow.answers=media' "$grub_pc" && grep -q 'restow.answers=media' "$isolinux" && ok || fail "unattended from the medium"
 [ "$(grep -c 'linux @KERNEL_LIVE@' "$grub_pc")" = "$(grep -c 'linux @LINUX@' "$isolinux")" ] && ok || fail "GRUB and syslinux have other entries"
+isolinux_cfg="$WORK/config/bootloaders/isolinux/isolinux.cfg"
+[ "$(head -n 1 "$isolinux_cfg")" = 'serial 0 115200' ] && ok || fail "syslinux: the serial console is the first line"
+[ "$(grep -E '^[[:space:]]*timeout ' "$isolinux_cfg")" = 'timeout 100' ] && ok || fail "syslinux: default after 10 seconds, the only time limit"
+grep -qE '^[[:space:]]*(timeout|default|prompt) ' "$isolinux" && fail "syslinux: live.cfg.in sets no default or time limit (isolinux.cfg does)" || ok
+[ "$(grep -c 'menu default' "$isolinux")" = 1 ] && ok || fail "syslinux: exactly one default entry"
+awk '/^label /{l=$2} /menu default/{print l}' "$isolinux" | grep -qx restow && ok || fail "syslinux: the default entry is Restow Recovery"
 grep -q 'modprobe.blacklist' "$WORK/auto/config" && fail "auto/config must leave the block list to the menu entries" || ok
 
 # --- the unit, no auto-activation ---------------------------------------------------------------

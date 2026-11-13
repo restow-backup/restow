@@ -38,6 +38,7 @@ import {
   bootPattern,
   bootThroughPassphrase,
   buildAnswers,
+  checkFindings,
   E2E_SPACE_RULE,
   FACTORY_KEYRINGS,
   FACTORY_ROOTS,
@@ -51,6 +52,7 @@ import {
   needsPassphraseAtBoot,
   parseArgs,
   probeOutcome,
+  recoveryLogTail,
   testAgentDir,
   versionOfIso,
   wholeMachineJobSettings,
@@ -722,6 +724,37 @@ describe("which source machines ask for a passphrase at boot", () => {
       backupProgressLine([], { state: "not_possible", notPossible: "agent_too_old" }),
       /bare metal not_possible \(agent_too_old\), check none/,
     );
+  });
+
+  it("names what a red layout check found and the end of a recovery's log", () => {
+    assert.equal(checkFindings(null), "no layout check");
+    const text = checkFindings({
+      readiness: "red",
+      incomplete: null,
+      planner: null,
+      checks: [
+        { id: "L1", status: "passed", findings: [] },
+        {
+          id: "L3",
+          status: "failed",
+          findings: [
+            {
+              code: "target_too_small",
+              severity: "failed",
+              ref: "d0",
+              params: { target: "minimal" },
+            },
+            { code: "a_hint", severity: "info", ref: null, params: {} },
+          ],
+        },
+      ],
+    });
+    assert.equal(text, 'L3 failed: target_too_small [d0] {"target":"minimal"}');
+    const pages = [
+      { log: { items: [{ lines: ["a", "b"] }] } },
+      { log: { items: [{ lines: ["c"] }, { lines: ["d"] }] } },
+    ];
+    assert.deepEqual(recoveryLogTail(pages, 3), ["b", "c", "d"]);
   });
 
   it("stops waiting once a finished backup left the machine not possible", () => {

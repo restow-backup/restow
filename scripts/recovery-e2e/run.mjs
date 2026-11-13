@@ -290,6 +290,57 @@ export function isFinal(status) {
   return ["succeeded", "failed", "cancelled", "expired", "revoked"].includes(status);
 }
 
+/**
+ * What a stage 1 report found, for the job log: each check that did not pass with its failed
+ * and warning findings, and the planner's answer when there is one (at most 3000 characters).
+ */
+export function checkFindings(check) {
+  if (!check) return "no layout check";
+  const parts = [];
+  for (const item of check.checks ?? []) {
+    if (!item || item.status === "passed" || item.status === "skipped") continue;
+    const findings = (item.findings ?? [])
+      .filter((finding) => finding.severity !== "info")
+      .slice(0, 5)
+      .map(
+        (finding) =>
+          `${finding.code}${finding.ref ? ` [${finding.ref}]` : ""} ${JSON.stringify(finding.params ?? {})}`,
+      );
+    parts.push(`${item.id} ${item.status}: ${findings.join("; ") || "no findings"}`);
+  }
+  if (check.incomplete) parts.push(`incomplete: ${check.incomplete}`);
+  if (check.planner) parts.push(`planner: ${JSON.stringify(check.planner)}`);
+  const text = parts.join(" | ") || `readiness ${check.readiness} without failed checks`;
+  return text.length > 3000 ? `${text.slice(0, 3000)}...` : text;
+}
+
+/** The last `count` lines of a recovery's log pages (the ISO's own log), oldest first. */
+export function recoveryLogTail(pages, count = 60) {
+  const lines = pages.flatMap((page) =>
+    (page?.log?.items ?? []).flatMap((item) => item.lines ?? []),
+  );
+  return lines.slice(-count);
+}
+
+/** Why a recovery ended as it did: phase, warnings and the end of the ISO's log. */
+async function recoveryDiagnosis(client, tenantId, recoveryPath) {
+  const pages = [];
+  let after = null;
+  for (let page = 0; page < 40; page++) {
+    const query = `?logLimit=500${after ? `&logAfter=${encodeURIComponent(after)}` : ""}`;
+    const detail = await client.get(`${recoveryPath}${query}`, { tenantId });
+    pages.push(detail);
+    after = detail.log?.next ?? null;
+    if (!after) break;
+  }
+  const last = pages[pages.length - 1] ?? {};
+  const warnings = (last.warnings ?? []).map((w) => `${w.code}: ${w.message}`).join(" | ");
+  return (
+    `phase ${last.phase ?? "?"}, progress ${JSON.stringify(last.progress ?? null)}` +
+    `${warnings ? `, warnings ${warnings}` : ""}\nISO log (end):\n${recoveryLogTail(pages).join("\n")}`
+  );
+}
+
 // ---------------------------------------------------------------------------------------------
 // The run (needs KVM, Docker; the parts above are pure and tested)
 // ---------------------------------------------------------------------------------------------
@@ -890,6 +941,10 @@ async function sourceMachine(testCase, context) {
   );
   await client.post(`/api/v1/endpoints/${endpoint.id}/tasks`, { kind: "backup_now" }, { tenantId });
   const baremetal = await waitForWholeMachineBackup(client, tenantId, endpoint.id, testCase.id);
+  console.log(
+    `${testCase.id}: layout check ${baremetal.check?.readiness ?? "none"}` +
+      (baremetal.check?.readiness === "green" ? "" : `: ${checkFindings(baremetal.check)}`),
+  );
   await qmp(join(dir, "source.qmp"), "quit").catch(() => undefined);
   await source.exited;
   return {
@@ -1008,6 +1063,13 @@ async function restore(testCase, context, source, { interrupt } = {}) {
     },
     { timeoutMs: 3 * 60 * 60_000, intervalMs: 15_000 },
   );
+  if (final.status !== "succeeded" && !interrupt) {
+    const diagnosis = await recoveryDiagnosis(client, tenantId, recoveryPath).catch(
+      (error) => `no diagnosis (${error.message})`,
+    );
+    console.log(`${testCase.id}: the recovery ended ${final.status}: ${diagnosis}`);
+    writeFileSync(join(source.dir, `recovery-${issued.id}.log`), `${diagnosis}\n`);
+  }
   await Promise.race([iso.exited, sleep(10 * 60_000)]);
   iso.child.kill("SIGKILL");
   return { final, disks: [...kept, ...fresh], varsFile };
@@ -1064,7 +1126,9 @@ async function runProbeCase(testCase, context) {
   const path = `/api/v1/endpoints/${source.endpoint.id}/baremetal`;
   const before = await client.get(path, { tenantId });
   if (before.check?.readiness !== "green") {
-    throw new Error(`${testCase.id}: the layout check is ${before.check?.readiness}, not green`);
+    throw new Error(
+      `${testCase.id}: the layout check is ${before.check?.readiness}, not green: ${checkFindings(before.check)}`,
+    );
   }
   // The lab must have asked once with KVM before a probe can be planned.
   await waitUntil(

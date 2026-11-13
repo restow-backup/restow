@@ -31,6 +31,14 @@ report=$(xorriso -indev "$iso" -report_el_torito plain 2>/dev/null || true)
 printf '%s\n' "$report" | grep -q 'El Torito boot img :   1  BIOS' || problem "no BIOS El Torito boot entry"
 printf '%s\n' "$report" | grep -q 'El Torito boot img :   2  UEFI' || problem "no UEFI El Torito boot entry"
 
+# The BIOS menu starts its default entry on its own (isolinux.cfg; live-build's own waits forever).
+xorriso -osirrox on -indev "$iso" -extract /isolinux/isolinux.cfg "$work/isolinux.cfg" >/dev/null 2>&1 ||
+  problem "cannot read /isolinux/isolinux.cfg from $iso"
+if [ -f "$work/isolinux.cfg" ]; then
+  [ "$(grep -E '^[[:space:]]*timeout ' "$work/isolinux.cfg")" = 'timeout 100' ] ||
+    problem "the BIOS boot menu has no time limit of 10 seconds: $(grep -E '^[[:space:]]*timeout ' "$work/isolinux.cfg" | tr '\n' ' ')"
+fi
+
 # The live file system.
 xorriso -osirrox on -indev "$iso" -extract /live/filesystem.squashfs "$work/filesystem.squashfs" >/dev/null 2>&1 ||
   rr_die "cannot read /live/filesystem.squashfs from $iso"

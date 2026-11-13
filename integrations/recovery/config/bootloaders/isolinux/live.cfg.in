@@ -1,13 +1,11 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 #
 # The BIOS boot menu of the recovery ISO (syslinux), the same entries as the GRUB menu
-# (grub-pc/grub.cfg). live-build fills in @LINUX@, @INITRD@ and @APPEND_LIVE@.
-serial 0 115200
-default restow
-timeout 100
-prompt 0
+# (grub-pc/grub.cfg). live-build fills in @LINUX@, @INITRD@ and @APPEND_LIVE@. Serial
+# console, default and time limit are in isolinux.cfg.
 label restow
 	menu label Restow Recovery
+	menu default
 	linux @LINUX@
 	initrd @INITRD@
 	append @APPEND_LIVE@ noswap nopersistence live-media-timeout=30 modprobe.blacklist=amdgpu,radeon,nouveau,xe restow.keymap=us
