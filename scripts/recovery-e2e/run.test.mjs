@@ -34,6 +34,7 @@ import {
   DISK_SERIAL,
 } from "./no-autoactivation.mjs";
 import {
+  backupProgressLine,
   bootPattern,
   bootThroughPassphrase,
   buildAnswers,
@@ -704,6 +705,18 @@ describe("which source machines ask for a passphrase at boot", () => {
     const settings = wholeMachineJobSettings();
     assert.equal(settings.wholeMachine, true);
     assert.ok(settings.paths.length > 0 && settings.paths.every((path) => path.startsWith("/")));
+  });
+
+  it("says in one line where the whole machine backup stands", () => {
+    assert.equal(backupProgressLine([], null), "no run yet; bare metal state unknown");
+    const line = backupProgressLine(
+      [{ kind: "backup", status: "failed", errorCount: 2, failure: { code: "snapshot_failed" } }],
+      { state: "unverified", check: null, latest: null },
+    );
+    assert.equal(
+      line,
+      "1 run(s), latest backup failed with 2 error(s) (snapshot_failed); bare metal unverified, check none, latest snapshot none",
+    );
   });
 
   it("keeps the logs of services the instance has", () => {

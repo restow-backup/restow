@@ -187,6 +187,14 @@ UNIT
     in_root "$root" update-ca-certificates >/dev/null || fdie "update-ca-certificates failed"
   fi
   in_root "$root" systemctl enable restow-e2e-boot.service restow-e2e-enroll.service >/dev/null
+  # The agent's own output on the serial console too (the CI log keeps it); the installer
+  # writes restow-agent.service later, the drop-in waits for it.
+  mkdir -p "$root/etc/systemd/system/restow-agent.service.d"
+  cat >"$root/etc/systemd/system/restow-agent.service.d/e2e-console.conf" <<'UNIT'
+[Service]
+StandardOutput=journal+console
+StandardError=journal+console
+UNIT
 }
 
 # A root password nobody knows, DHCP by systemd-networkd and name resolution by

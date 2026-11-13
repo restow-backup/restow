@@ -609,6 +609,14 @@ export const E2E_SPACE_RULE = Object.freeze({ percent: 0, minGib: 0.0625, maxGib
 /** The services of the test instance whose logs a failed run keeps (instance/<service>.log). */
 export const INSTANCE_LOG_SERVICES = ["api", "worker", "scheduler", "caddy"];
 
+/** Write the logs of INSTANCE_LOG_SERVICES into `dir` as instance-<service>.log. */
+async function keepInstanceLogs(stack, dir) {
+  mkdirSync(dir, { recursive: true });
+  for (const service of INSTANCE_LOG_SERVICES) {
+    writeFileSync(join(dir, `instance-${service}.log`), await stack.logs(service, 20_000));
+  }
+}
+
 /** The QEMU machines of the running case; a failed case leaves none behind (stopMachines). */
 const running = new Set();
 
@@ -717,6 +725,59 @@ export async function bootThroughPassphrase({
   }
 }
 
+/** One line about the machine's runs and its bare metal state, for the job log. */
+export function backupProgressLine(runs, state) {
+  const latest = runs[0];
+  const run = latest
+    ? `${runs.length} run(s), latest ${latest.kind} ${latest.status}` +
+      (latest.errorCount ? ` with ${latest.errorCount} error(s)` : "") +
+      (latest.failure?.code ? ` (${latest.failure.code})` : "") +
+      (latest.snapshotId ? ` snapshot ${latest.snapshotId.slice(0, 8)}` : "")
+    : "no run yet";
+  const layout = state
+    ? `bare metal ${state.state ?? "?"}, check ${state.check ? (state.check.readiness ?? "done") : "none"}, ` +
+      `latest snapshot ${state.latest?.snapshotId ? state.latest.snapshotId.slice(0, 8) : "none"}`
+    : "bare metal state unknown";
+  return `${run}; ${layout}`;
+}
+
+/**
+ * Wait for the whole machine backup and its layout check (at most 60 minutes). Every five
+ * minutes the job log gets the state of the machine's runs; at the end a timeout names the latest
+ * run with its errors and the end of its log, so a failed backup says why.
+ */
+async function waitForWholeMachineBackup(client, tenantId, endpointId, id) {
+  const base = `/api/v1/endpoints/${endpointId}`;
+  const deadline = Date.now() + 60 * 60_000;
+  let nextReport = Date.now() + 5 * 60_000;
+  let runs = [];
+  let state = null;
+  while (Date.now() < deadline) {
+    state = await client.get(`${base}/baremetal`, { tenantId });
+    if (state.check && state.latest?.snapshotId) return state;
+    if (Date.now() >= nextReport) {
+      runs = (await client.get(`${base}/runs?limit=5`, { tenantId })).items ?? [];
+      console.log(
+        `${id}: waiting for the whole machine backup: ${backupProgressLine(runs, state)}`,
+      );
+      nextReport = Date.now() + 5 * 60_000;
+    }
+    await sleep(15_000);
+  }
+  runs = (await client.get(`${base}/runs?limit=5`, { tenantId })).items ?? [];
+  let detail = "";
+  if (runs[0]) {
+    const run = await client.get(`${base}/runs/${runs[0].id}`, { tenantId });
+    const errors = (run.errors ?? [])
+      .slice(0, 5)
+      .map((e) => e.code ?? e.message ?? JSON.stringify(e));
+    detail = `; errors: ${errors.join(", ") || "none"}; log tail: ${(run.logTail ?? "").slice(-1500)}`;
+  }
+  throw new Error(
+    `timed out waiting for the whole machine backup and its layout check: ${backupProgressLine(runs, state)}${detail}`,
+  );
+}
+
 async function sourceMachine(testCase, context) {
   const dir = join(context.workDir, testCase.id);
   mkdirSync(dir, { recursive: true });
@@ -815,14 +876,7 @@ async function sourceMachine(testCase, context) {
     { tenantId },
   );
   await client.post(`/api/v1/endpoints/${endpoint.id}/tasks`, { kind: "backup_now" }, { tenantId });
-  const baremetal = await waitUntil(
-    "the whole machine backup and its layout check",
-    async () => {
-      const state = await client.get(`/api/v1/endpoints/${endpoint.id}/baremetal`, { tenantId });
-      return state.check && state.latest?.snapshotId ? state : null;
-    },
-    { timeoutMs: 60 * 60_000, intervalMs: 15_000 },
-  );
+  const baremetal = await waitForWholeMachineBackup(client, tenantId, endpoint.id, testCase.id);
   await qmp(join(dir, "source.qmp"), "quit").catch(() => undefined);
   await source.exited;
   return {
@@ -1108,6 +1162,10 @@ async function main() {
           reason: String(error?.message ?? error),
         });
         console.error(`${testCase.id} failed: ${error?.stack ?? error}`);
+        // The instance's logs right away: a job that hits its time limit never reaches the end.
+        await keepInstanceLogs(instance.stack, join(workDir, testCase.id)).catch((logError) =>
+          console.error(`${testCase.id}: the instance's logs could not be kept: ${logError}`),
+        );
       } finally {
         stopMachines();
       }
@@ -1116,13 +1174,7 @@ async function main() {
     stopMachines();
     writeFileSync(join(workDir, "report.json"), `${JSON.stringify(results, null, 2)}\n`);
     // The instance's own logs, for a 500 or a stuck job (uploaded with the cases' logs).
-    if (failed > 0) {
-      const logDir = join(workDir, "instance");
-      mkdirSync(logDir, { recursive: true });
-      for (const service of INSTANCE_LOG_SERVICES) {
-        writeFileSync(join(logDir, `${service}.log`), await instance.stack.logs(service, 20_000));
-      }
-    }
+    if (failed > 0) await keepInstanceLogs(instance.stack, join(workDir, "instance"));
     if (!options.keep) await instance.stack.down();
   }
   for (const result of results)

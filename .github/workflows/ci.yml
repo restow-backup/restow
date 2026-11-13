@@ -1100,14 +1100,21 @@ jobs:
           exit 1
 
   recovery-e2e:
-    name: Recovery end to end (E1, E2 and the boot probes P1, P2 in QEMU/KVM)
+    name: Recovery end to end (${{ matrix.case }} in QEMU/KVM)
     # docs/BAREMETAL.md 21.2: a source machine is backed up, restored by the ISO onto other
     # hardware through the recovery API and must boot. KVM through a udev rule; without
-    # it the driver stops with a clear message (TCG would take hours).
+    # it the driver stops with a clear message (TCG would take hours). One job per case, side
+    # by side: each builds its own source machine and instance, and one slow case no longer
+    # pushes the others past the time limit.
     needs: [agent, recovery-iso, recovery-paths]
     if: needs.recovery-paths.outputs.changed == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 240
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        # E1 and E2, and the boot probes P1 (green) and P2 (red, the emergency target).
+        case: [E1, E2, P1, P2]
     permissions:
       contents: read
     steps:
@@ -1137,21 +1144,23 @@ jobs:
           pattern: "{agent-dist-linux-amd64,recovery-iso}"
           path: ${{ runner.temp }}/artifacts
 
-      - name: E1, E2, P1 and P2
+      - name: Case ${{ matrix.case }}
         # claim: VERIFY-009
         # P1 and P2 run the recovery lab's container (Dockerfile target lab, built here) next to
         # the test instance: green for E1's source, red with the emergency pattern for P2.
+        env:
+          CASE: ${{ matrix.case }}
         run: |
           set -euo pipefail
           iso="$(ls "$RUNNER_TEMP"/artifacts/recovery-iso/restow-recovery_*_amd64.iso)"
           node scripts/recovery-e2e/run.mjs --iso "$iso" --agent-dist "$RUNNER_TEMP/artifacts/agent-dist-linux-amd64" \
-            --cases per-pr --work-dir "$RUNNER_TEMP/recovery-e2e"
+            --cases "$CASE" --work-dir "$RUNNER_TEMP/recovery-e2e"
 
       - name: Keep the serial logs and the report
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: recovery-e2e-logs
+          name: recovery-e2e-logs-${{ matrix.case }}
           path: |
             ${{ runner.temp }}/recovery-e2e/report.json
             ${{ runner.temp }}/recovery-e2e/*/*.log
