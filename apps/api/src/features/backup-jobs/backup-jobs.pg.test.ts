@@ -2090,6 +2090,37 @@ describe.skipIf(!testDatabaseAdminUrl)("backup jobs against Postgres", () => {
       expect(mail.wholeMachine).toBeUndefined();
     });
 
+    it("gives a whole machine job without exclusions the whole machine ones", async () => {
+      appConfig.baremetalPreview = true;
+      const id = await make("whole-excl");
+      const job = await json<BackupJobDto>(
+        await call("POST", "", {
+          body: machineJob("Whole", [id], { settings: { paths: ["/etc"], wholeMachine: true } }),
+        }),
+        201,
+      );
+      // As the job editor sends them: /var/tmp and /tmp stay as folders, their contents do not.
+      expect(job.settings?.excludes).toContain("/var/tmp/*");
+      expect(job.settings?.excludes).not.toContain("/var/tmp");
+      expect((await machine(id))?.config.excludes).toContain("/var/tmp/*");
+      expect((await machine(id))?.config.excludes).not.toContain("/var/lib/docker");
+      // Named exclusions stay, also an empty list.
+      const named = await json<BackupJobDto>(
+        await call("PATCH", `/${job.id}`, {
+          body: { settings: { paths: ["/etc"], excludes: [], wholeMachine: true } },
+        }),
+        200,
+      );
+      expect(named.settings?.excludes ?? []).toEqual([]);
+      // A job that is no whole machine job gets nothing.
+      const plain = await json<BackupJobDto>(
+        await call("PATCH", `/${job.id}`, { body: { settings: { paths: ["/etc"] } } }),
+        200,
+      );
+      expect(plain.settings?.excludes ?? []).not.toContain("/var/tmp/*");
+      await owner.delete(backupJobs).where(eq(backupJobs.id, job.id));
+    });
+
     it("writes the switch to Linux machines only and notes why the others back up folders", async () => {
       appConfig.baremetalPreview = true;
       const linux = await make("whole-linux");

@@ -750,6 +750,9 @@ Manifests unter einem Systempfad ist Quelle oder ausdrücklich ausgeschlossen.
   `/var/cache/pacman/pkg/*`, `/var/cache/zypp/packages/*`, `/var/lib/systemd/coredump/*`,
   `lost+found` (Inhalt). Docker, Podman und containerd bleiben drin: Nach einer
   Wiederherstellung sollen die Dienste laufen. Der Bediener kann sie im Job ausschließen.
+  Die API tut dasselbe wie der Job-Editor: Ein Anlegen oder Speichern eines Ganzmaschinen-Jobs
+  ohne den Schlüssel `excludes` bekommt `DEFAULT_WHOLE_MACHINE_EXCLUDES`; eine genannte Liste,
+  auch eine leere, bleibt, wie sie ist.
   macOS hat eine eigene Liste (`DEFAULT_DARWIN_WHOLE_MACHINE_EXCLUDES`, Abschnitt 13.2).
 - Immer, für **jede** Sicherung (auch ohne `wholeMachine`) und auf jedem System:
   `Layout.StateFile()` und die Zwischendateien von `state.Save` (`state.json`,

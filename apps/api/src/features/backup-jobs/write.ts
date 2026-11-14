@@ -5,6 +5,7 @@ import {
   checkCopyRules,
   cleanAgentPolicySettings,
   cleanTargetFolder,
+  DEFAULT_WHOLE_MACHINE_EXCLUDES,
   endpointScheduleOf,
   nextRunAt as firstRunAt,
   JOB_POLICY_KEYS,
@@ -446,6 +447,19 @@ function checkedSettings(
     delete clean.wholeMachine;
   }
   return clean;
+}
+
+/**
+ * The exclusions of a whole machine job (docs/BAREMETAL.md 5.3): a request that switches it on, or
+ * saves it, without an `excludes` key gets the whole machine ones, as the job editor sends them.
+ * Otherwise the machines keep the exclusions of their profile, which leave out `/var/tmp`, `/tmp`,
+ * `/var/cache` and container data altogether, and a restored system lacks them. An `excludes`
+ * the request names (also an empty list) stays as it is.
+ */
+function withWholeMachineExcludes(settings: BackupJobSettings, given: unknown): BackupJobSettings {
+  if (settings.wholeMachine !== true) return settings;
+  if (given !== null && typeof given === "object" && "excludes" in given) return settings;
+  return { ...settings, excludes: [...DEFAULT_WHOLE_MACHINE_EXCLUDES] };
 }
 
 /**
@@ -1097,7 +1111,10 @@ export async function createBackupJob(
   const { now } = context;
   const kind = input.kind;
   const { schedule, verifySchedule } = checkedBase(kind, input, now);
-  let settings = checkedSettings(kind, input.settings, { requirePaths: true });
+  let settings = withWholeMachineExcludes(
+    checkedSettings(kind, input.settings, { requirePaths: true }),
+    input.settings,
+  );
   assertSqlVerifySlot(settings, schedule);
   await assertJobPolicyAllowed(settings, null);
   assertWholeMachineAllowed(settings, null);
@@ -1460,7 +1477,10 @@ export async function updateBackupJob(
     }
     let settings =
       patch.settings !== undefined
-        ? checkedSettings(kind, patch.settings, { requirePaths: true })
+        ? withWholeMachineExcludes(
+            checkedSettings(kind, patch.settings, { requirePaths: true }),
+            patch.settings,
+          )
         : (before.settings ?? {});
     if (kind === "endpoint" && (patch.settings !== undefined || scheduleGiven)) {
       assertSqlVerifySlot(settings, base.schedule);
