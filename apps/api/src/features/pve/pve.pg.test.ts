@@ -2093,6 +2093,90 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
     await service.assignJob(shared.db, fixture.tenantId, id, ct?.jobId ?? null, actor());
   });
 
+  it("puts many guests into a job at once, all or none, the Restow server only when confirmed", async () => {
+    const [vm] = await fixture.db.select().from(pveGuests).where(eq(pveGuests.vmid, 101));
+    const [ct] = await fixture.db.select().from(pveGuests).where(eq(pveGuests.vmid, 200));
+    const vmId = vm?.id ?? "";
+    const ctId = ct?.id ?? "";
+    const before = { vm: vm?.jobId ?? null, ct: ct?.jobId ?? null };
+    const input = (name: string) => ({
+      name,
+      scopeAll: false,
+      schedule: null,
+      enabled: true,
+      settings: {},
+    });
+    const job = await service.saveJob(shared.db, fixture.tenantId, null, input("Bulk"), actor());
+    const other = await service.saveJob(shared.db, fixture.tenantId, null, input("Other"), actor());
+    const jobOf = async (id: string) =>
+      (await fixture.db.select().from(pveGuests).where(eq(pveGuests.id, id)))[0]?.jobId ?? null;
+    await fixture.db
+      .update(pveGuests)
+      .set({ restowServerFlagged: true, selfBackupConfirmedAt: null })
+      .where(eq(pveGuests.id, ctId));
+    try {
+      // Without the confirmation nothing lands, not even the guest that needed none.
+      await expect(
+        service.assignJobGuests(
+          shared.db,
+          fixture.tenantId,
+          job.id,
+          { add: [vmId, ctId], remove: [] },
+          actor(),
+        ),
+      ).rejects.toMatchObject({ status: 409, type: service.PVE_PROBLEMS.restowServer });
+      expect(await jobOf(vmId)).toBe(before.vm);
+      expect(await jobOf(ctId)).toBe(before.ct);
+      // Confirmed: both move, the confirmation is kept on the guest.
+      expect(
+        await service.assignJobGuests(
+          shared.db,
+          fixture.tenantId,
+          job.id,
+          { add: [vmId, ctId], remove: [] },
+          actor(),
+          { confirmSelfBackup: true },
+        ),
+      ).toEqual({ added: 2, removed: 0 });
+      expect(await jobOf(vmId)).toBe(job.id);
+      expect(await jobOf(ctId)).toBe(job.id);
+      const [confirmed] = await fixture.db.select().from(pveGuests).where(eq(pveGuests.id, ctId));
+      expect(confirmed?.selfBackupConfirmedAt).toBeInstanceOf(Date);
+      // Taking out: a guest moved to another job meanwhile stays there.
+      await fixture.db.update(pveGuests).set({ jobId: other.id }).where(eq(pveGuests.id, vmId));
+      expect(
+        await service.assignJobGuests(
+          shared.db,
+          fixture.tenantId,
+          job.id,
+          { add: [], remove: [vmId, ctId] },
+          actor(),
+        ),
+      ).toEqual({ added: 0, removed: 1 });
+      expect(await jobOf(vmId)).toBe(other.id);
+      expect(await jobOf(ctId)).toBeNull();
+      // A job that does not exist changes nothing.
+      await expect(
+        service.assignJobGuests(
+          shared.db,
+          fixture.tenantId,
+          randomUUID(),
+          { add: [ctId], remove: [] },
+          actor(),
+        ),
+      ).rejects.toMatchObject({ status: 404 });
+      expect(await jobOf(ctId)).toBeNull();
+    } finally {
+      await fixture.db
+        .update(pveGuests)
+        .set({ restowServerFlagged: false, selfBackupConfirmedAt: null, jobId: before.ct })
+        .where(eq(pveGuests.id, ctId));
+      await fixture.db.update(pveGuests).set({ jobId: before.vm }).where(eq(pveGuests.id, vmId));
+      await service.deleteJob(shared.db, fixture.tenantId, job.id, actor());
+      await service.deleteJob(shared.db, fixture.tenantId, other.id, actor());
+    }
+  });
+
   it("checks a guest's newest restore point now, or every unchecked one, and an older one exactly (D2)", async () => {
     const [vm] = await fixture.db.select().from(pveGuests).where(eq(pveGuests.vmid, 101));
     await fixture.db.update(pveSnapshots).set({
@@ -2610,5 +2694,107 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
       retiredAt: null,
       smbiosUuid: "44444444-4444-4444-8444-444444444444",
     });
+  });
+
+  it("finds the container the Restow server runs in by its VMID, only while no other cluster has it (LXC)", async () => {
+    const { resetOwnPveVmid } = await import("./self-guest.js");
+    process.env.RESTOW_HOST_PVE_VMID = "4105";
+    resetOwnPveVmid();
+    try {
+      const d = await json<Node>(await enroll(fixture.tenantId, "d".repeat(64), "pveD"), 201);
+      const e = await json<Node>(await enroll(fixture.otherTenantId, "e".repeat(64), "pveE"), 201);
+      const f = await json<Node>(await enroll(fixture.otherTenantId, "f".repeat(64), "pveF"), 201);
+      const report = async (on: Node, guests: { vmid: number; kind: "vm" | "ct" }[]) =>
+        json(
+          await call(on, "/inventory", {
+            json: { guests: guests.map((g) => ({ ...g, name: `guest-${g.vmid}` })) },
+          }),
+        );
+      const row = async (on: Node, vmid: number) =>
+        (
+          await fixture.db
+            .select()
+            .from(pveGuests)
+            .where(and(eq(pveGuests.clusterId, on.clusterId), eq(pveGuests.vmid, vmid)))
+        )[0];
+      // As the provider's staff sees it; a customer's user never gets the hint.
+      const dto = async (tenantId: string, on: Node, vmid: number, provider = true) =>
+        (await service.overview(shared.db, tenantId, new Date(), { provider })).guests.find(
+          (g) => g.clusterId === on.clusterId && g.vmid === vmid,
+        );
+
+      // The container with the VMID its volumes name; a VM with the next VMID is no match.
+      await report(d, [
+        { vmid: 4105, kind: "ct" },
+        { vmid: 4106, kind: "vm" },
+      ]);
+      expect((await row(d, 4105))?.restowServerDetected).toBe(true);
+      expect((await row(d, 4106))?.restowServerDetected).toBe(false);
+      expect(await dto(fixture.tenantId, d, 4105)).toMatchObject({
+        restowServer: "detected",
+        restowServerAmbiguous: false,
+      });
+
+      // A VM with that VMID in another cluster is never matched and leaves the match alone.
+      await report(e, [{ vmid: 4105, kind: "vm" }]);
+      await report(d, [{ vmid: 4105, kind: "ct" }]);
+      expect((await row(e, 4105))?.restowServerDetected).toBe(false);
+      expect((await row(d, 4105))?.restowServerDetected).toBe(true);
+
+      // A container with that VMID in another connected cluster, also of another tenant: which
+      // one it is cannot be told, so neither is marked, and both say so.
+      await report(f, [{ vmid: 4105, kind: "ct" }]);
+      await report(d, [{ vmid: 4105, kind: "ct" }]);
+      expect((await row(f, 4105))?.restowServerDetected).toBe(false);
+      expect((await row(d, 4105))?.restowServerDetected).toBe(false);
+      expect(await dto(fixture.tenantId, d, 4105)).toMatchObject({
+        restowServer: null,
+        restowServerAmbiguous: true,
+      });
+      expect(await dto(fixture.otherTenantId, f, 4105)).toMatchObject({
+        restowServerAmbiguous: true,
+      });
+      expect((await dto(fixture.otherTenantId, e, 4105))?.restowServerAmbiguous).toBe(false);
+      const ambiguous = await row(d, 4105);
+      const detail = await service.guestDetail(shared.db, fixture.tenantId, ambiguous?.id ?? "", {
+        provider: true,
+      });
+      expect(detail.guest.restowServerAmbiguous).toBe(true);
+      // A customer's user learns nothing about the provider's server: no hint, list or page.
+      expect((await dto(fixture.otherTenantId, f, 4105, false))?.restowServerAmbiguous).toBe(false);
+      expect((await dto(fixture.tenantId, d, 4105, false))?.restowServerAmbiguous).toBe(false);
+      const customerDetail = await service.guestDetail(
+        shared.db,
+        fixture.tenantId,
+        ambiguous?.id ?? "",
+      );
+      expect(customerDetail.guest.restowServerAmbiguous).toBe(false);
+
+      // Marked by hand: the hint is gone everywhere.
+      const marked = await row(f, 4105);
+      await service.setRestowServerFlag(
+        shared.db,
+        fixture.otherTenantId,
+        marked?.id ?? "",
+        true,
+        actor(),
+      );
+      expect((await dto(fixture.tenantId, d, 4105))?.restowServerAmbiguous).toBe(false);
+      await service.setRestowServerFlag(
+        shared.db,
+        fixture.otherTenantId,
+        marked?.id ?? "",
+        false,
+        actor(),
+      );
+
+      // A cluster whose nodes are revoked is no longer connected: the match is unique again.
+      await service.revokeNode(shared.db, fixture.otherTenantId, f.nodeId, actor());
+      await report(d, [{ vmid: 4105, kind: "ct" }]);
+      expect((await row(d, 4105))?.restowServerDetected).toBe(true);
+    } finally {
+      delete process.env.RESTOW_HOST_PVE_VMID;
+      resetOwnPveVmid();
+    }
   });
 });

@@ -14,7 +14,7 @@ const ids = vi.hoisted(() => ({
   tenant: "5a0c7c1e-8d2b-4c3a-9f1e-2b3c4d5e6f70",
   job: "22222222-2222-4222-8222-222222222222",
 }));
-const service = vi.hoisted(() => ({ saveJob: vi.fn() }));
+const service = vi.hoisted(() => ({ saveJob: vi.fn(), assignJobGuests: vi.fn() }));
 
 vi.mock("../../db.js", () => ({ db: {}, providerDb: {} }));
 vi.mock("../../middleware/session.js", () => {
@@ -55,6 +55,7 @@ const job = (settings: Record<string, unknown>) => ({
 beforeEach(() => {
   vi.clearAllMocks();
   service.saveJob.mockResolvedValue({ id: ids.job });
+  service.assignJobGuests.mockResolvedValue({ added: 2, removed: 1 });
 });
 
 describe("Proxmox VE job settings that are not applied", () => {
@@ -90,5 +91,33 @@ describe("Proxmox VE job settings that are not applied", () => {
     });
     expect(response.status).toBe(200);
     expect(service.saveJob.mock.calls[0]?.[3]).toMatchObject({ settings: { mode: "stop" } });
+  });
+});
+
+describe("POST /api/v1/pve/jobs/:id/guests (many guests at once)", () => {
+  const a = "33333333-3333-4333-8333-333333333333";
+  const b = "44444444-4444-4444-8444-444444444444";
+  const post = (body: unknown) =>
+    app.request(`/pve/jobs/${ids.job}/guests`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+    });
+
+  it("hands the guests and the confirmation to the service in one call", async () => {
+    const response = await post({ add: [a, b], remove: [], confirmSelfBackup: true });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ added: 2, removed: 1 });
+    expect(service.assignJobGuests).toHaveBeenCalledTimes(1);
+    const [, tenant, job, changes, , options] = service.assignJobGuests.mock.calls[0] ?? [];
+    expect([tenant, job]).toEqual([ids.tenant, ids.job]);
+    expect(changes).toEqual({ add: [a, b], remove: [] });
+    expect(options).toEqual({ confirmSelfBackup: true });
+  });
+
+  it("refuses a guest that is to be added and removed at once, and ids that are no ids", async () => {
+    expect((await post({ add: [a], remove: [a] })).status).toBe(422);
+    expect((await post({ add: ["101"] })).status).toBe(422);
+    expect(service.assignJobGuests).not.toHaveBeenCalled();
   });
 });

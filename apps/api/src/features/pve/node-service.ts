@@ -44,7 +44,7 @@ import { cancelOrders, taskCancelledOrFailed } from "./cancel.js";
 import type { NodeContext } from "./node-auth.js";
 import { endedStatus, finishFailedTaskRun, settleLateBackupResult } from "./runs.js";
 import { restoreResultSchema } from "./schemas.js";
-import { normalizeSmbiosUuid, ownSmbiosUuid } from "./self-guest.js";
+import { containerIsOwn, normalizeSmbiosUuid, ownPveVmid, ownSmbiosUuid } from "./self-guest.js";
 
 /**
  * The server side of restow-pve's service calls (docs/PVE-PROTOCOL.md):
@@ -677,6 +677,29 @@ export function pveVmidReused(
   return nameDiffers;
 }
 
+/**
+ * The containers (LXC) with `vmid` in every connected cluster (one with a node that is not
+ * revoked), of every tenant: whether the VMID of the container the API runs in names one guest
+ * (self-guest.ts). Read on the installation's handle, as the uniqueness spans tenants; only the
+ * cluster and the hand-set mark of each leave this function.
+ */
+export async function ownVmidContainers(
+  vmid: number,
+): Promise<{ clusterId: string; flagged: boolean }[]> {
+  return providerDb
+    .select({ clusterId: pveGuests.clusterId, flagged: pveGuests.restowServerFlagged })
+    .from(pveGuests)
+    .where(
+      and(
+        eq(pveGuests.vmid, vmid),
+        eq(pveGuests.kind, "ct"),
+        eq(pveGuests.present, true),
+        isNull(pveGuests.retiredAt),
+        sql`EXISTS (SELECT 1 FROM pve_nodes n WHERE n.cluster_id = ${pveGuests.clusterId} AND n.revoked_at IS NULL)`,
+      ),
+    );
+}
+
 /** A guest of the cluster as /cluster/resources lists it (restow-pve from 0.5.0). */
 export interface ClusterGuestInput {
   vmid: number;
@@ -701,8 +724,15 @@ export async function reportInventory(
   now: Date = new Date(),
   clusterGuests: ClusterGuestInput[] | null = null,
 ): Promise<{ guests: number }> {
-  // The VM this installation runs in carries the server's SMBIOS UUID (self-guest.ts).
+  // The VM this installation runs in carries the server's SMBIOS UUID; the container it runs in
+  // has the VMID its volumes name, when no other connected cluster has a container with that
+  // VMID (self-guest.ts).
   const own = await ownSmbiosUuid();
+  const ownVmid = await ownPveVmid();
+  const otherClusterContainers =
+    ownVmid !== null && guests.some((g) => g.kind === "ct" && g.vmid === ownVmid)
+      ? (await ownVmidContainers(ownVmid)).filter((row) => row.clusterId !== node.clusterId).length
+      : 0;
   await withTenantTx(db, node.tenantId, async (tx) => {
     const vmids = guests.map((g) => g.vmid);
     const existing =
@@ -741,7 +771,8 @@ export async function reportInventory(
       }
       const values = {
         restowServerDetected:
-          own !== null && g.kind === "vm" && normalizeSmbiosUuid(g.smbiosUuid) === own,
+          (own !== null && g.kind === "vm" && normalizeSmbiosUuid(g.smbiosUuid) === own) ||
+          containerIsOwn(ownVmid, g, otherClusterContainers),
         kind: g.kind,
         name: g.name || null,
         node: g.node || node.name,

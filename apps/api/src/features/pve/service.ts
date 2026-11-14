@@ -53,8 +53,9 @@ import {
 } from "./boot-tests.js";
 import { withdrawQueued } from "./cancel.js";
 import { containerBackupPaths } from "./files.js";
-import { NODE_ONLINE_MS } from "./node-service.js";
+import { NODE_ONLINE_MS, ownVmidContainers } from "./node-service.js";
 import { supportedJobSettings } from "./schemas.js";
+import { ownPveVmid } from "./self-guest.js";
 import { browsableDisks } from "./vm-files.js";
 import { avoidVmids, heldVmid } from "./vmids.js";
 
@@ -457,6 +458,7 @@ function guestDto(
   verify: GuestVerifyFact | null = null,
   leftover: BootTestLeftover | null = null,
   helperNodes: ReadonlySet<string> | null = null,
+  ambiguousVmid: number | null = null,
 ) {
   const attention: string[] = [];
   if (g.template && g.kind === "vm") {
@@ -527,6 +529,9 @@ function guestDto(
         : ("flagged" as const)
       : null,
     restowServerFlagged: g.restowServerFlagged,
+    // A container with the VMID of the one the Restow server runs in, which more than one
+    // connected cluster has: none is marked by itself (docs/PVE.md); the admin marks the right one.
+    restowServerAmbiguous: ambiguousVmid !== null && restowServerCandidate(g, ambiguousVmid),
     // Excluded from backup by an administrator (docs/PVE.md, "Excluding a guest").
     excludedAt: g.excludedAt?.toISOString() ?? null,
     excludedBy: g.excludedBy ?? null,
@@ -549,6 +554,44 @@ function guestDto(
   };
 }
 
+/** Who reads the overview or a guest: the provider's staff (provider admins) or not. */
+export interface PveViewer {
+  provider: boolean;
+}
+
+/** A container that may be the Restow server's own: its VMID, not marked, present. */
+function restowServerCandidate(g: PveGuest, vmid: number): boolean {
+  return (
+    g.kind === "ct" &&
+    g.vmid === vmid &&
+    g.present &&
+    g.retiredAt === null &&
+    !pveGuestIsRestowServer(g)
+  );
+}
+
+/**
+ * The VMID of the container the Restow server runs in, when more than one connected cluster has
+ * a container with it and none of them is marked by hand (self-guest.ts): none is detected, and
+ * the guests of `guests` with it say so. Only to the provider's staff (`providerView`): a
+ * customer's user would learn from it the VMID of the provider's server and that another cluster
+ * has it. Null otherwise, and without asking the database when none of `guests` has the VMID.
+ */
+async function ambiguousRestowServerVmid(
+  guests: readonly PveGuest[],
+  providerView: boolean,
+): Promise<number | null> {
+  if (!providerView) {
+    return null;
+  }
+  const vmid = await ownPveVmid();
+  if (vmid === null || !guests.some((g) => restowServerCandidate(g, vmid))) {
+    return null;
+  }
+  const containers = await ownVmidContainers(vmid);
+  return containers.length > 1 && !containers.some((c) => c.flagged) ? vmid : null;
+}
+
 export function jobDto(j: PveJob, facts: { guests?: number; round?: JobRound | null } = {}) {
   return {
     id: j.id,
@@ -567,7 +610,12 @@ export function jobDto(j: PveJob, facts: { guests?: number; round?: JobRound | n
 }
 
 /** Clusters with their nodes, the guests and the jobs of a tenant. */
-export async function overview(database: Database, tenantId: string, now: Date = new Date()) {
+export async function overview(
+  database: Database,
+  tenantId: string,
+  now: Date = new Date(),
+  viewer: PveViewer = { provider: false },
+) {
   return withTenantTx(database, tenantId, async (tx) => {
     const clusters = await tx.select().from(pveClusters).orderBy(asc(pveClusters.name));
     const nodes = await tx
@@ -752,6 +800,7 @@ export async function overview(database: Database, tenantId: string, now: Date =
         guestCounts.set(jobId, (guestCounts.get(jobId) ?? 0) + 1);
       }
     }
+    const ambiguousVmid = await ambiguousRestowServerVmid(guests, viewer.provider);
     return {
       clusters: clusters.map((c) => ({
         id: c.id,
@@ -772,6 +821,7 @@ export async function overview(database: Database, tenantId: string, now: Date =
           verifies.get(g.id) ?? null,
           leftovers.get(g.id) ?? null,
           helpersByCluster.get(g.clusterId) ?? new Set(),
+          ambiguousVmid,
         ),
       ),
       jobs: jobs.map((j) =>
@@ -891,7 +941,12 @@ export function backupType(
 }
 
 /** One guest with its restore points, runs and open tasks. */
-export async function guestDetail(database: Database, tenantId: string, id: string) {
+export async function guestDetail(
+  database: Database,
+  tenantId: string,
+  id: string,
+  viewer: PveViewer = { provider: false },
+) {
   return withTenantTx(database, tenantId, async (tx) => {
     const guest = await loadGuest(tx, id);
     // Active restore points, and those a new backup chain made unavailable (shown as such).
@@ -974,6 +1029,7 @@ export async function guestDetail(database: Database, tenantId: string, id: stri
               .where(and(eq(pveNodes.clusterId, guest.clusterId), isNull(pveNodes.revokedAt)))
           ).map((n) => n.name),
         ),
+        await ambiguousRestowServerVmid([guest], viewer.provider),
       ),
       bootTest: await guestBootTestFacts(tx, guest),
       restoreCheck: await guestRestoreCheckFacts(tx, guest),
@@ -1637,42 +1693,99 @@ export async function assignJob(
   options: { confirmSelfBackup?: boolean; skipRestowServer?: boolean } = {},
   now: Date = new Date(),
 ): Promise<{ assigned: boolean }> {
+  return withTenantTx(database, tenantId, (tx) =>
+    assignGuest(tx, tenantId, guestId, jobId, actor, options, now),
+  );
+}
+
+/**
+ * Put many guests into a job and take others out of it, in one transaction (the job form's
+ * "Select all", docs/PVE.md): either every change lands or none does, so a save that fails
+ * half-way never leaves a job with half of the guests that were ticked. `add` follows
+ * assignJob (an excluded guest refuses, the Restow server's own VM only with
+ * `confirmSelfBackup`, a guest of another job moves); `remove` takes a guest out only while it
+ * is still in this job, so a guest moved elsewhere meanwhile stays where it is.
+ */
+export async function assignJobGuests(
+  database: DbExecutor,
+  tenantId: string,
+  jobId: string,
+  changes: { add: readonly string[]; remove: readonly string[] },
+  actor: PveActor,
+  options: { confirmSelfBackup?: boolean } = {},
+  now: Date = new Date(),
+): Promise<{ added: number; removed: number }> {
   return withTenantTx(database, tenantId, async (tx) => {
-    const guest = await loadGuest(tx, guestId);
-    if (jobId) {
-      refuseExcluded(guest);
+    const [job] = await tx
+      .select({ id: pveJobs.id })
+      .from(pveJobs)
+      .where(eq(pveJobs.id, jobId))
+      .limit(1);
+    if (!job) {
+      throw new ProblemError(404, "Job not found");
     }
-    if (jobId && pveSelfBackupBlocked(guest)) {
-      // The recommended job leaves the Restow server's own VM out instead of failing (#52).
-      if (options.skipRestowServer) {
-        return { assigned: false };
-      }
-      if (!options.confirmSelfBackup) {
-        refuseSelfBackup(guest);
-      }
-      await confirmSelfBackup(tx, tenantId, guest, actor, now);
+    let added = 0;
+    for (const guestId of new Set(changes.add)) {
+      await assignGuest(tx, tenantId, guestId, jobId, actor, options, now);
+      added += 1;
     }
-    if (jobId) {
-      const [job] = await tx
-        .select({ id: pveJobs.id })
-        .from(pveJobs)
-        .where(eq(pveJobs.id, jobId))
-        .limit(1);
-      if (!job) {
-        throw new ProblemError(404, "Job not found");
+    let removed = 0;
+    for (const guestId of new Set(changes.remove)) {
+      const guest = await loadGuest(tx, guestId);
+      if (guest.jobId !== jobId) {
+        continue;
       }
+      await assignGuest(tx, tenantId, guestId, null, actor, {}, now);
+      removed += 1;
     }
-    await tx.update(pveGuests).set({ jobId }).where(eq(pveGuests.id, guestId));
-    await auditPve(tx, {
-      tenantId,
-      actor,
-      action: PVE_AUDIT_ACTIONS.jobChanged,
-      target: guestId,
-      targetType: "pve_guest",
-      details: { jobId },
-    });
-    return { assigned: true };
+    return { added, removed };
   });
+}
+
+/** assignJob inside a transaction that pins the tenant. */
+async function assignGuest(
+  tx: Tx,
+  tenantId: string,
+  guestId: string,
+  jobId: string | null,
+  actor: PveActor,
+  options: { confirmSelfBackup?: boolean; skipRestowServer?: boolean },
+  now: Date,
+): Promise<{ assigned: boolean }> {
+  const guest = await loadGuest(tx, guestId);
+  if (jobId) {
+    refuseExcluded(guest);
+  }
+  if (jobId && pveSelfBackupBlocked(guest)) {
+    // The recommended job leaves the Restow server's own VM out instead of failing (#52).
+    if (options.skipRestowServer) {
+      return { assigned: false };
+    }
+    if (!options.confirmSelfBackup) {
+      refuseSelfBackup(guest);
+    }
+    await confirmSelfBackup(tx, tenantId, guest, actor, now);
+  }
+  if (jobId) {
+    const [job] = await tx
+      .select({ id: pveJobs.id })
+      .from(pveJobs)
+      .where(eq(pveJobs.id, jobId))
+      .limit(1);
+    if (!job) {
+      throw new ProblemError(404, "Job not found");
+    }
+  }
+  await tx.update(pveGuests).set({ jobId }).where(eq(pveGuests.id, guestId));
+  await auditPve(tx, {
+    tenantId,
+    actor,
+    action: PVE_AUDIT_ACTIONS.jobChanged,
+    target: guestId,
+    targetType: "pve_guest",
+    details: { jobId },
+  });
+  return { assigned: true };
 }
 
 type Tx = Parameters<Parameters<typeof withTenantTx>[2]>[0];

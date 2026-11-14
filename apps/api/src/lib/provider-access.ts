@@ -647,6 +647,7 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "POST /api/v1/pve/jobs/:id/run": operate(),
   "POST /api/v1/pve/jobs/:id/cancel": operate(),
   "PUT /api/v1/pve/guests/:id/job": configure(),
+  "POST /api/v1/pve/jobs/:id/guests": configure(),
   // Begins a new backup chain; the restore points before become unavailable (recent sign-in).
   "POST /api/v1/pve/guests/:id/repository/reset": configure(),
   "PUT /api/v1/pve/guests/:id/restow-server": configure(),

@@ -491,7 +491,7 @@
       "queued": "{count, plural, one {Sicherung von # Gast aus {name} eingereiht} other {Sicherungen von # Gästen aus {name} eingereiht}}",
       "alreadyQueued": "{count, plural, one {# Gast wartet schon oder wird gerade gesichert.} other {# Gäste warten schon oder werden gerade gesichert.}}",
       "noNode": "{count, plural, one {# Gast liegt auf einem Knoten, der nicht verbunden ist.} other {# Gäste liegen auf Knoten, die nicht verbunden sind.}}",
-      "selfBackup": "Die VM des {appName}-Servers bleibt außen vor, bis ihre Sicherung unter VMs & Container bestätigt ist."
+      "selfBackup": "Der Gast des {appName}-Servers bleibt außen vor, bis seine Sicherung unter VMs & Container bestätigt ist."
     }
   },
   "toasts": {

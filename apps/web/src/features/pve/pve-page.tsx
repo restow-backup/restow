@@ -26,6 +26,7 @@ import { BackupDestinationNote, WriteOnceRetentionNotice } from "@/features/stor
 
 import {
   assignJob,
+  assignJobGuests,
   deleteJob,
   fetchOverview,
   type JobInput,
@@ -52,6 +53,7 @@ import {
 } from "./guests-search.js";
 import { GUEST_NAME_ATTRIBUTE, GuestsTable } from "./guests-table.js";
 import { PVE_NAMESPACE } from "./i18n.js";
+import { JobGuestPicker } from "./job-guests.js";
 import { JobsTable } from "./jobs-table.js";
 import { type NodeRow, NodesTable } from "./nodes-table.js";
 import { PVE_PRESET_TYPES, pveCadenceDraft, pveScheduleOfDraft } from "./schedule.js";
@@ -70,18 +72,12 @@ function useOverview() {
   });
 }
 
-/** A guest as the job form lists it: "web01 · VM 101 · pve1". */
-function guestLabel(guest: PveGuest): string {
-  const kind = guest.kind === "vm" ? "VM" : "CT";
-  const name = guest.name ? `${guest.name} · ${kind} ${guest.vmid}` : `${kind} ${guest.vmid}`;
-  return guest.node ? `${name} · ${guest.node}` : name;
-}
-
 /**
  * Create or change a backup job for VMs and containers; `onSaved` gets the job as saved. With
- * `guests` the form lists them to put into the job (#53): the job's own are ticked, `preselect`
- * ticks more; on save each guest whose box changed is put into the job or taken out of it. A
- * guest of another job moves (a guest is in one job at a time).
+ * `guests` the form lists them by node to put into the job (#53, job-guests.tsx): the job's own
+ * are ticked, `preselect` ticks more; on save the guests whose box changed are put into the job
+ * or taken out of it in one request, all or none. A guest of another job moves (a guest is in one
+ * job at a time).
  */
 export function JobDialog({
   job,
@@ -131,19 +127,22 @@ export function JobDialog({
   const chosenSelf = offered.filter(
     (guest) => chosen.has(guest.id) && guest.jobId !== job?.id && selfBackupBlocked(guest),
   );
+  // A new job saved by an attempt whose guests then failed: saving again changes it instead of
+  // creating a second one.
+  const savedJob = React.useRef<PveJob | null>(null);
   const mutation = useMutation({
     mutationFn: async (input: JobInput) => {
-      const saved = await saveJob(job?.id ?? null, input);
+      const saved = await saveJob(savedJob.current?.id ?? job?.id ?? null, input);
+      savedJob.current = saved;
       if (guests) {
-        for (const guest of offered) {
-          const wanted = chosen.has(guest.id);
-          if (wanted && guest.jobId !== saved.id) {
-            await assignJob(guest.id, saved.id, {
-              confirmSelfBackup: selfBackupBlocked(guest) && selfConfirmed,
-            });
-          } else if (!wanted && guest.jobId === saved.id) {
-            await assignJob(guest.id, null);
-          }
+        const add = offered.filter((g) => chosen.has(g.id) && g.jobId !== saved.id);
+        const remove = offered.filter((g) => !chosen.has(g.id) && g.jobId === saved.id);
+        if (add.length > 0 || remove.length > 0) {
+          await assignJobGuests(
+            saved.id,
+            { add: add.map((g) => g.id), remove: remove.map((g) => g.id) },
+            { confirmSelfBackup: selfConfirmed && add.some(selfBackupBlocked) },
+          );
         }
       }
       return saved;
@@ -301,45 +300,12 @@ export function JobDialog({
                   {offered.length === 0 ? (
                     <p className="text-sm text-muted-foreground">{t("jobs.noGuests")}</p>
                   ) : (
-                    <ul className="max-h-56 space-y-1 overflow-y-auto rounded-md border p-2">
-                      {offered.map((guest) => {
-                        const elsewhere =
-                          guest.jobId && guest.jobId !== job?.id ? guest.jobName : null;
-                        return (
-                          <li key={guest.id}>
-                            <label
-                              htmlFor={`pve-job-guest-${guest.id}`}
-                              className="flex items-start gap-2 text-sm"
-                            >
-                              <Checkbox
-                                id={`pve-job-guest-${guest.id}`}
-                                className="mt-0.5"
-                                checked={chosen.has(guest.id)}
-                                onCheckedChange={(checked) =>
-                                  setChosen((current) => {
-                                    const next = new Set(current);
-                                    if (checked === true) next.add(guest.id);
-                                    else next.delete(guest.id);
-                                    return next;
-                                  })
-                                }
-                              />
-                              <span className="min-w-0">
-                                <span className="block truncate">{guestLabel(guest)}</span>
-                                <RestowServerNote guest={guest} compact />
-                                {elsewhere ? (
-                                  <span className="block text-xs text-muted-foreground">
-                                    {chosen.has(guest.id)
-                                      ? t("jobs.guestMoves", { job: elsewhere })
-                                      : t("jobs.guestInJob", { job: elsewhere })}
-                                  </span>
-                                ) : null}
-                              </span>
-                            </label>
-                          </li>
-                        );
-                      })}
-                    </ul>
+                    <JobGuestPicker
+                      guests={offered}
+                      chosen={chosen}
+                      onChange={setChosen}
+                      jobId={job?.id ?? null}
+                    />
                   )}
                 </fieldset>
               ) : null}

@@ -607,6 +607,26 @@ private repository.
     password file;
   - nothing is deleted: the repository repair leaves a lost repository in place, and purging a
     file share's backups removes only Restow's records (the audit entry counts what was `kept`).
+- Proxmox VE job form: guests by node, "Select all" and a search. Putting 40 guests into a job
+  no longer means 40 ticks: the form lists the guests grouped by node, with "Select all" per node
+  and for every guest shown, and a search by name or VMID. "Select all" never ticks the Restow
+  server's own guest (it is ticked on its own, with the confirmation as before) and skips what
+  cannot be backed up. The form says how many guests move from other jobs. Saving sends every
+  changed guest at once (new route `POST /api/v1/pve/jobs/:id/guests` with `add`, `remove` and
+  `confirmSelfBackup`), in one transaction: either every change lands or none does, where one
+  request per guest could stop half-way. A failed save no longer creates the job twice when it is
+  saved again. docs/PVE.md, "Jobs, backups, retention".
+- Proxmox VE: the Restow server in a container (LXC) is found by itself. Up to now only a VM was
+  found (by its SMBIOS UUID); a container had to be marked by hand. The api now reads the VMID its
+  volumes name from the mount table (`/proc/self/mountinfo`, also inside its Docker container):
+  ZFS `<pool>/.../subvol-<vmid>-disk-<n>`, LVM and LVM-thin `/dev/mapper/<vg>-vm--<vmid>--disk--<n>`
+  and `/dev/.../vm-<vmid>-disk-<n>` (for example Ceph RBD), and decides only when exactly one VMID
+  results (a container on directory storage shows none). New `RESTOW_HOST_PVE_VMID` overrides it,
+  as `RESTOW_HOST_SMBIOS_UUID` does for a VM (both now in `.env.example`). A container is marked
+  only while no other connected cluster, of any tenant, has a container with that VMID; otherwise
+  none is, and each says "Possibly the Restow server" (`restowServerAmbiguous` of the guest, shown
+  to the provider's staff only) until an admin marks the right one by hand. "Select all" in the job form leaves such a container out
+  too. A VM is never matched by its VMID. docs/PVE.md, "The Restow server's own VM".
 
 ### Changed
 

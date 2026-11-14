@@ -96,11 +96,17 @@ export interface PveGuest {
    */
   lastRunWarnings?: string[];
   /**
-   * The guest is the VM this Restow installation runs in: found by its SMBIOS UUID, or marked by
-   * an admin; null otherwise. Missing on servers before 0.4.2.
+   * The guest is the VM or container this Restow installation runs in: found by its SMBIOS UUID
+   * (a VM) or by the VMID its volumes name (a container, 0.5.0), or marked by an admin; null
+   * otherwise. Missing on servers before 0.4.2.
    */
   restowServer?: "detected" | "flagged" | null;
   restowServerFlagged?: boolean;
+  /**
+   * A container with the VMID of the one Restow runs in, which more than one connected cluster
+   * has: none is marked by itself, the admin marks the right one (0.5.0).
+   */
+  restowServerAmbiguous?: boolean;
   /** An admin confirmed backing up the Restow server's own VM anyway. */
   selfBackupConfirmedAt?: string | null;
   /**
@@ -646,6 +652,23 @@ export const assignJob = (
   apiFetch<void>(`/pve/guests/${encodeURIComponent(guestId)}/job`, {
     method: "PUT",
     body: { jobId, ...(options.confirmSelfBackup ? { confirmSelfBackup: true } : {}) },
+  });
+/**
+ * Put many guests into a job and take others out of it, all or none (the job form). A guest of
+ * another job moves; one taken out that is in another job by now stays there.
+ */
+export const assignJobGuests = (
+  jobId: string,
+  changes: { add: readonly string[]; remove: readonly string[] },
+  options: { confirmSelfBackup?: boolean } = {},
+) =>
+  apiFetch<{ added: number; removed: number }>(`/pve/jobs/${encodeURIComponent(jobId)}/guests`, {
+    method: "POST",
+    body: {
+      add: changes.add,
+      remove: changes.remove,
+      ...(options.confirmSelfBackup ? { confirmSelfBackup: true } : {}),
+    },
   });
 /** Mark a guest as the Restow server's own VM, or take the mark back (docs/PVE.md). */
 export const setRestowServer = (guestId: string, flagged: boolean) =>
