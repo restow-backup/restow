@@ -403,8 +403,8 @@
         "remedy": "Jobs that write to storage are queued or running ({queues}). Wait for them to finish; the dialog updates on its own."
       },
       "copy_pass_running": {
-        "title": "Copies are being made",
-        "remedy": "{appName} is copying the backup repositories to the copies right now. Wait until this copy pass ends."
+        "title": "Backup repositories are being worked on",
+        "remedy": "{appName} is copying the backup repositories to the copies, or applies a machine's retention or removal, right now. Wait until it ends; the dialog updates on its own."
       },
       "repository_copies_incomplete": {
         "title": "{count, plural, one {# backup repository is} other {# backup repositories are}} not complete on this copy",
@@ -435,7 +435,8 @@
         "failed": "copying failed",
         "requested": "waiting for the copy",
         "pending": "not copied yet",
-        "not_created": "being created (first backup not finished)"
+        "empty": "being created, nothing to copy yet",
+        "not_created": "being created, but restore points refer to it (run the repository repair)"
       }
     },
     "catchUp": {
@@ -525,7 +526,7 @@
     "repairBlocked": "The repair has to wait: a Proxmox VE backup, a file share run or a storage migration of this tenant is running. Repair once it has ended.",
     "previousHoldsMovedAside": "This location holds repository folders that the repository repair or a new backup chain moved aside (….orphaned-…), and no other target has them. A \"move\" does not copy them. Copy them elsewhere, or delete them by hand once they are not needed, then remove this location.",
     "switchBlockedByJobs": "Jobs of this tenant that write to storage are queued or running. Wait for them to finish, then try again.",
-    "copyPassRunning": "The backup repositories are being copied to the copies right now. Wait until this copy pass ends, then try again.",
+    "copyPassRunning": "The backup repositories are being copied, or a machine's retention or removal is running. Wait until it ends, then try again.",
     "repositoryCopiesIncomplete": "Not every backup repository of containers, machines or file shares is complete on this copy. Use \"Catch up now\" and make the copy the primary once every copy is current."
   },
   "immutability": {

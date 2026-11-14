@@ -139,7 +139,8 @@ describe("storage migration endpoints refuse a plain tenant member", () => {
   it("refuses the promotion status and the catch-up of a copy (GET promotion, POST catch-up)", async () => {
     const copyTargetId = "8f14e45f-ceea-4b7f-8b3a-9c1a5b6d0e11";
     for (const [method, path] of [
-      ["GET", `/storage/targets/${copyTargetId}/promotion?files=1`],
+      ["GET", `/storage/targets/${copyTargetId}/promotion`],
+      ["POST", `/storage/targets/${copyTargetId}/promotion/check`],
       ["POST", `/storage/targets/${copyTargetId}/catch-up`],
     ] as const) {
       signedIn(MEMBER_USER);

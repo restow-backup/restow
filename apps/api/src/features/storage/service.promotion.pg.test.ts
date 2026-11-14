@@ -38,6 +38,8 @@ import {
   pveSnapshots,
   repositoryCopies,
   repositoryCopiesLockKey,
+  resticSnapshotOrigins,
+  restorePointSuspicions,
   secrets,
   storageMigrations,
   storageTargets,
@@ -48,6 +50,7 @@ import { and, eq } from "drizzle-orm";
 import PgBoss from "pg-boss";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { setInstallationDefaultResolver } from "../../lib/installation-default.js";
+import { withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
 import {
   dropDatabase,
@@ -55,6 +58,7 @@ import {
   testDatabaseAdminUrl,
 } from "../snapshots/testing/explorer-fixture.js";
 import type { CopiedSnapshot } from "./rules.js";
+import { loadSnapshotOrigins, snapshotOnListing } from "./snapshot-origins.js";
 
 // The API's configuration reads the master key on import (repository passwords are sealed).
 const masterKey = vi.hoisted(() => {
@@ -108,6 +112,7 @@ describe.skipIf(!testDatabaseAdminUrl)("promoting a copy with restic repositorie
   afterEach(async () => {
     await db.delete(jobs).where(eq(jobs.tenantId, tenantId));
     await db.delete(repositoryCopies).where(eq(repositoryCopies.tenantId, tenantId));
+    await db.delete(resticSnapshotOrigins).where(eq(resticSnapshotOrigins.tenantId, tenantId));
     await db.delete(storageMigrations).where(eq(storageMigrations.tenantId, tenantId));
     await db.delete(storageTargets).where(eq(storageTargets.tenantId, tenantId));
     await db.delete(endpoints).where(eq(endpoints.tenantId, tenantId));
@@ -505,12 +510,38 @@ describe.skipIf(!testDatabaseAdminUrl)("promoting a copy with restic repositorie
     await db
       .insert(endpointSnapshotFlags)
       .values({ tenantId, endpointId: machineId, snapshotId: sid("m2"), reasons: ["unrecorded"] });
+    // The suspicion scan of the machine's backup names the restic snapshot.
+    await db.insert(restorePointSuspicions).values({
+      tenantId,
+      objectKind: "endpoint",
+      objectId: machineId,
+      runId: run?.id as string,
+      restorePointId: sid("m2"),
+      restorePointAt: new Date("2026-11-03"),
+      verdict: "suspicious",
+      metrics: {} as never,
+      signaturesVersion: "1",
+    });
+    // A snapshot retention forgot long ago (its run stays): on no repository any more.
+    await db.insert(endpointRuns).values({
+      tenantId,
+      endpointId: machineId,
+      kind: "backup",
+      status: "succeeded",
+      startedAt: new Date("2026-10-01"),
+      finishedAt: new Date("2026-10-01"),
+      snapshotId: sid("m0"),
+    });
     await copyRow(`file-shares/${shareId}/`, shareId, copy.id);
     await copyRow(`endpoints/${machineId}/`, machineId, copy.id);
 
     const result = await service.promoteTarget(db, tenantId, copy.id, actor, {
-      listCopySnapshots: async ({ repository }) =>
-        repository.kind === "file_share" ? copied(["s1"]) : copied(["m2"]),
+      listCopySnapshots: async ({ repository, role }) =>
+        repository.kind === "file_share"
+          ? copied(["s1"])
+          : role === "primary"
+            ? [{ id: sid("m2"), original: null }]
+            : copied(["m2"]),
     });
     expect(result.repositories).toBe(2);
     const [snapshot] = await db
@@ -539,11 +570,24 @@ describe.skipIf(!testDatabaseAdminUrl)("promoting a copy with restic repositorie
       .from(endpointSnapshotFlags)
       .where(eq(endpointSnapshotFlags.endpointId, machineId));
     expect(flag?.id).toBe(sid("cm2"));
+    const [suspicion] = await db
+      .select({ id: restorePointSuspicions.restorePointId })
+      .from(restorePointSuspicions)
+      .where(eq(restorePointSuspicions.objectId, machineId));
+    expect(suspicion?.id).toBe(sid("cm2"));
 
     // The retired primary's chain was replaced by the promoted copy (marked on the primary): it
-    // does not pin the retired location.
+    // does not pin the retired location, unless a record still names a snapshot of it.
     for (const [dir, files] of [
-      [primary.basePath, ["config", `data/ab/${"ab".repeat(32)}`]],
+      [
+        primary.basePath,
+        [
+          "config",
+          `data/ab/${"ab".repeat(32)}`,
+          `snapshots/${sid("m2")}`,
+          `snapshots/${sid("m0")}`,
+        ],
+      ],
       [copy.basePath, ["config", REPOSITORY_COPY_MARKER_FILE, `data/cd/${"cd".repeat(32)}`]],
     ] as const) {
       for (const file of files) {
@@ -552,8 +596,126 @@ describe.skipIf(!testDatabaseAdminUrl)("promoting a copy with restic repositorie
         await writeFile(path, "x");
       }
     }
+    // The forgotten snapshot m0 is still there and a run still names it (it was on no copy).
+    const pinned = await refusal(service.deleteTarget(db, tenantId, primary.id, actor));
+    expect(pinned.type).toBe("urn:restow:problem:storage-previous-holds-endpoint-repositories");
+    await rm(join(primary.basePath, `endpoints/${machineId}/snapshots/${sid("m0")}`));
     await service.deleteTarget(db, tenantId, primary.id, actor);
     expect(await roles()).toEqual({ [copy.id]: "primary" });
+  });
+
+  it("refuses while a restore point that only a hold keeps is not on the copy [COPY-004]", async () => {
+    await targetAt("primary", "primary");
+    const copy = await targetAt("copy", "copy");
+    // A revoked machine (its retention no longer runs): the primary keeps h1 beside h2, and the
+    // copy holds only h2 (a copy pass that followed the retention rules alone did that).
+    const [machine] = await db
+      .insert(endpoints)
+      .values({
+        tenantId,
+        hostname: "attacked",
+        os: "linux",
+        arch: "amd64",
+        profile: "server",
+        status: "revoked",
+        secretHash: "hash",
+        repositorySecretId: await password("endpoint_repository"),
+        lastSnapshotId: sid("h2"),
+        config: defaultEndpointConfig("linux", "server", { timeZone: "Europe/Berlin" }),
+      })
+      .returning();
+    const machineId = machine?.id as string;
+    for (const [tag, at] of [
+      ["h1", "2026-10-20"],
+      ["h2", "2026-11-03"],
+    ] as const) {
+      await db.insert(endpointRuns).values({
+        tenantId,
+        endpointId: machineId,
+        kind: "backup",
+        status: "succeeded",
+        startedAt: new Date(at),
+        finishedAt: new Date(at),
+        snapshotId: sid(tag),
+      });
+    }
+    await copyRow(`endpoints/${machineId}/`, machineId, copy.id);
+    const lister =
+      (onCopy: string[]) =>
+      async ({ role }: { role: "copy" | "primary" }) =>
+        role === "primary"
+          ? [
+              { id: sid("h1"), original: null },
+              { id: sid("h2"), original: null },
+            ]
+          : copied(onCopy);
+
+    const error = await refusal(
+      service.promoteTarget(db, tenantId, copy.id, actor, { listCopySnapshots: lister(["h2"]) }),
+    );
+    expect(error.type).toBe("urn:restow:problem:storage-repository-copies-incomplete");
+    // Once the copy holds it too, the promotion goes ahead and both are carried over.
+    const result = await service.promoteTarget(db, tenantId, copy.id, actor, {
+      listCopySnapshots: lister(["h1", "h2"]),
+    });
+    // Both runs and the machine's newest snapshot.
+    expect(result.restorePointIdsRewritten).toBe(3);
+  });
+
+  it("finds the restore points on another copy after the promoted primary is lost, and promotes that copy later", async () => {
+    // P1 primary, C1 and C2 copies. C1 is promoted (records: c-ids); C1 is lost; C2 holds every
+    // restore point under ids of its own whose original is still P1's (restic keeps the first).
+    const p1 = await targetAt("p1", "primary");
+    const c1 = await targetAt("c1", "copy");
+    const c2 = await targetAt("c2", "copy");
+    const guest = await container(["g1", "g2"]);
+    await copyRow(guest.prefix, guest.id, c1.id);
+    await copyRow(guest.prefix, guest.id, c2.id);
+    const onC2: CopiedSnapshot[] = ["g1", "g2"].map((tag) => ({
+      id: sid(`e${tag}`),
+      original: sid(tag),
+    }));
+
+    await service.promoteTarget(db, tenantId, c1.id, actor, {
+      listCopySnapshots: async () => copied(["g1", "g2"]),
+    });
+    const recorded = async () =>
+      (
+        await db
+          .select({ id: pveSnapshots.resticSnapshotId })
+          .from(pveSnapshots)
+          .where(eq(pveSnapshots.guestId, guest.id))
+      )
+        .map((row) => row.id as string)
+        .sort();
+    expect(await recorded()).toEqual([sid("cg1"), sid("cg2")]);
+
+    // The restore fallback to C2 with C1 gone: by the persistent id the promotion recorded.
+    const origins = await withTenantTx(db, tenantId, (tx) =>
+      loadSnapshotOrigins(tx, tenantId, guest.prefix),
+    );
+    expect(snapshotOnListing(onC2, sid("cg1"), origins)).toBe(sid("eg1"));
+    expect(snapshotOnListing(onC2, sid("cg2").slice(0, 8), origins)).toBe(sid("eg2"));
+    expect(snapshotOnListing(onC2, sid("cg1"), [])).toBeNull();
+
+    // C2 is promoted later: its copies are found by the same persistent ids.
+    await db
+      .update(repositoryCopies)
+      .set({ lastAttemptAt: new Date("2026-11-12") })
+      .where(eq(repositoryCopies.targetId, c2.id));
+    const second = await service.promoteTarget(db, tenantId, c2.id, actor, {
+      listCopySnapshots: async () => onC2,
+    });
+    expect(second.restorePointIdsRewritten).toBe(2);
+    expect(await recorded()).toEqual([sid("eg1"), sid("eg2")]);
+    expect(await roles()).toEqual({ [p1.id]: "previous", [c1.id]: "previous", [c2.id]: "primary" });
+    // And a third copy made from C2 later still resolves the persistent id.
+    const again = await withTenantTx(db, tenantId, (tx) =>
+      loadSnapshotOrigins(tx, tenantId, guest.prefix),
+    );
+    expect(snapshotOnListing([{ id: sid("x1"), original: sid("g1") }], sid("eg1"), again)).toBe(
+      sid("x1"),
+    );
   });
 
   /** A finished run of the share (a sample belongs to one). */

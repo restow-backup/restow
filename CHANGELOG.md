@@ -129,6 +129,14 @@ private repository.
   read-only (`previous`), as a `move` does. New problem types `storage-switch-blocked-by-jobs`,
   `storage-copy-pass-running` and `storage-repository-copies-incomplete`. Active machines still
   block every change of the primary (`storage-active-endpoints`), now shown before the click.
+  The promotion keeps restic's persistent id of every restore point it carries over (new table
+  `restic_snapshot_origins`, migration 0099, tenant isolated), so another copy target still
+  finds them once the promoted primary is lost, and can be promoted in turn. A machine's
+  promotion requires every snapshot a record still names and the primary holds (held ones, SQL
+  backups); the copy pass copies everything while a hold, a revoked machine or a write-once
+  primary keeps more than the retention rules, and a machine's retention and removal jobs no
+  longer run beside a promotion. The listing comparison moved to
+  `POST /api/v1/storage/targets/:id/promotion/check` (right to operate).
 - Modules of the installation: the setup wizard of a new installation asks "What do you want to
   protect?" with a box per module (Microsoft 365, IMAP mailboxes, Mail archive, Servers & clients,
   Proxmox VE; all ticked to begin with, at least one), and Installation › Server & operation ›

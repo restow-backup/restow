@@ -9,6 +9,7 @@ import {
   decideReplacePrimary,
   decideUpdate,
   idOnCopy,
+  matchOnCopy,
   movesLocation,
   type PromotionFacts,
   type RepositoryCopyFacts,
@@ -302,8 +303,13 @@ describe("repositoryCopyReadiness", () => {
     );
   });
 
-  it("names why a copy is not complete", () => {
+  it("lets a repository being created through while no restore point refers to it", () => {
+    // Nothing to copy: its first backup creates it on whichever target is the primary then.
+    expect(repositoryCopyReadiness(facts({ created: false, newestBackup: null }))).toBe("empty");
     expect(repositoryCopyReadiness(facts({ created: false }))).toBe("not_created");
+  });
+
+  it("names why a copy is not complete", () => {
     expect(repositoryCopyReadiness(facts({ row: null }))).toBe("pending");
     expect(repositoryCopyReadiness(facts({ row: copy({ state: "pending" }) }))).toBe("pending");
     expect(repositoryCopyReadiness(facts({ row: copy({ lastAttemptAt: null }) }))).toBe(
@@ -344,6 +350,12 @@ describe("decidePromotion", () => {
   it("allows a tenant with complete repository copies (once refused for any repository)", () => {
     // The PVE homelab case: containers whose `restic copy` on the target is current.
     expect(decidePromotion(facts({ repositories: [current] }))).toEqual([]);
+    // A file share still being created, with no restore point: nothing to copy.
+    const empty = { created: false, row: null, newestBackup: null };
+    expect(decidePromotion(facts({ repositories: [current, empty] }))).toEqual([]);
+    expect(
+      decidePromotion(facts({ repositories: [{ ...empty, newestBackup: new Date(1) }] })),
+    ).toEqual([{ code: "repository_copies_incomplete", repositories: 1 }]);
   });
 
   it("stops at what makes a promotion impossible for this target", () => {
@@ -424,5 +436,15 @@ describe("idOnCopy", () => {
 
   it("takes a snapshot made on the copy itself by its own id", () => {
     expect(idOnCopy([{ id: id("d1"), original: null }], id("d1"))).toBe(id("d1"));
+  });
+
+  it("finds a copy of a promoted copy by the persistent id an earlier promotion recorded", () => {
+    // P1 held a1; C1 copied it as c1 (original a1) and was promoted, so the records name c1.
+    // C2 copied it from P1 or from C1: restic keeps the first original, a1, either way.
+    const onC2 = [{ id: id("e1"), original: id("a1") }];
+    expect(idOnCopy(onC2, id("c1"))).toBeNull();
+    expect(idOnCopy(onC2, id("c1"), id("a1"))).toBe(id("e1"));
+    expect(idOnCopy(onC2, id("c1").slice(0, 8), id("a1"))).toBe(id("e1").slice(0, 8));
+    expect(matchOnCopy(onC2, id("c1"), id("a1"))).toEqual(onC2[0]);
   });
 });

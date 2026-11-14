@@ -100,9 +100,11 @@ import {
   copyRowsOn,
   listCopySnapshots,
   newestRecordedBackups,
+  type PromotionRepository,
   type PromotionRepositoryDto,
   promotionRepositories,
   type RepositoryReadiness,
+  recordedSnapshotValues,
   remapRecordedSnapshots,
   repositoryReadinessOf,
   requestCopies,
@@ -112,6 +114,7 @@ import { loadRepositoryBytes } from "./repository-bytes.js";
 import {
   type CopiedSnapshot,
   canManageKind,
+  copyComplete,
   credentialsBoundElsewhere,
   decideCreate,
   decideDelete,
@@ -662,10 +665,10 @@ function storageJobsRunning(queues: readonly string[]): ProblemError {
 }
 
 function copyPassRunning(): ProblemError {
-  return new ProblemError(409, "Repository copies are being made", {
+  return new ProblemError(409, "Backup repositories are being worked on", {
     type: `${PROBLEM_PREFIX}copy-pass-running`,
     detail:
-      "The worker is copying this tenant's backup repositories to its copy targets right now. Wait until the copy ends (a few minutes at most for a current copy), then try again.",
+      "The worker is copying this tenant's backup repositories to its copy targets, or applies a machine's retention or removal, right now. Wait until it ends, then try again.",
     extensions: { code: "copy_pass_running" },
   });
 }
@@ -2188,13 +2191,8 @@ async function previousTargetExclusiveObjects(
     // a switch left early packs here while `config` is on the new primary too), every data,
     // index, snapshot and key file counts. Lock files are transient and do not.
     const endpointKeys: string[] = [];
+    const owners = await withTenantTx(db, tenantId, (tx) => promotionRepositories(tx, tenantId));
     for (const prefix of repositoryPrefixes) {
-      // The primary holds a repository copy here: a promotion made it the repository and carried
-      // every restore point over to it ("Promoting a copy"). What this location holds under the
-      // prefix is the chain that promotion replaced; no record names it any more.
-      if (await primary.backend.head(`${prefix}${REPOSITORY_COPY_MARKER_FILE}`)) {
-        continue;
-      }
       const here = (await previousBackend.list(prefix)).filter(
         (key) => !key.startsWith(`${prefix}locks/`),
       );
@@ -2208,7 +2206,18 @@ async function previousTargetExclusiveObjects(
         }
       }
       if (here.some((key) => !elsewhere.has(key))) {
-        endpointKeys.push(prefix);
+        // The primary holds a repository copy here: a promotion made it the repository and
+        // carried the restore points over to it ("Promoting a copy"). What this location holds
+        // under the prefix is the chain that promotion replaced; it pins the location only while
+        // a record still names one of its snapshots (one the promotion could not carry over).
+        const owner = owners.find((entry) => entry.prefix === prefix);
+        const replaced =
+          owner !== undefined &&
+          (await primary.backend.head(`${prefix}${REPOSITORY_COPY_MARKER_FILE}`)) !== null &&
+          !(await namesSnapshotHere(db, tenantId, owner, here, prefix));
+        if (!replaced) {
+          endpointKeys.push(prefix);
+        }
       }
     }
     const movedAside = await exclusiveMovedAsideFolders(db, tenantId, previousBackend, others);
@@ -2226,6 +2235,26 @@ async function previousTargetExclusiveObjects(
       extensions: { code: classifyStorageError(error), error: describeStorageError(error) },
     });
   }
+}
+
+/** Whether a record of the repository still names a snapshot file among `keys`. */
+async function namesSnapshotHere(
+  db: Database,
+  tenantId: string,
+  owner: PromotionRepository,
+  keys: readonly string[],
+  prefix: string,
+): Promise<boolean> {
+  const snapshots = keys
+    .filter((key) => key.startsWith(`${prefix}snapshots/`))
+    .map((key) => key.slice(`${prefix}snapshots/`.length));
+  if (snapshots.length === 0) {
+    return false;
+  }
+  const recorded = await withTenantTx(db, tenantId, (tx) =>
+    recordedSnapshotValues(tx, tenantId, owner),
+  );
+  return recorded.some((value) => snapshots.some((id) => id.startsWith(value)));
 }
 
 export async function deleteTarget(
@@ -2655,7 +2684,7 @@ function blockerProblem(
     case "repository_copies_incomplete":
       return repositoryCopiesIncomplete(
         repositories
-          .filter((entry) => entry.readiness !== "current")
+          .filter((entry) => !copyComplete(entry.readiness))
           .map((entry) => ({
             prefix: entry.repository.prefix,
             name: entry.repository.name,
@@ -2827,7 +2856,7 @@ function readinessDto(
   completeness: CopyCompleteness | null,
 ): PromotionReadinessDto {
   const blockers = decidePromotion({ ...state.facts, files });
-  const notCurrent = state.repositories.filter((entry) => entry.readiness !== "current");
+  const notCurrent = state.repositories.filter((entry) => !copyComplete(entry.readiness));
   const waiting = state.repositories.filter((entry) => entry.readiness === "requested").length;
   const scrubLive = state.scrub !== null && LIVE_JOB_STATUSES.includes(state.scrub.status);
   const terminal = blockers.some((blocker) =>
@@ -2927,7 +2956,7 @@ export async function startCatchUp(
     throw ruleProblem("migration_in_progress");
   }
   const behind = before.repositories
-    .filter((entry) => entry.readiness !== "current" && entry.readiness !== "not_created")
+    .filter((entry) => !copyComplete(entry.readiness) && entry.readiness !== "not_created")
     .map((entry) => entry.repository.prefix);
   await withTenantTx(db, tenantId, async (tx) => {
     const payload: ScrubJobPayload = { jobId: randomUUID(), tenantId, mode: "sample" };
@@ -2965,22 +2994,38 @@ export async function startCatchUp(
   return promotionReadiness(db, tenantId, id, actor, { files: false }, deps);
 }
 
-/** Which repository copies to read before a promotion: their target, passwords and listing. */
-async function copiedSnapshotsOf(
+/** The listings of a repository a promotion reads: its copy, and for a machine the primary's. */
+interface PromotionListing {
+  readonly copy: CopiedSnapshot[];
+  /** The primary's snapshots (machines only: what the server still refers to and it holds). */
+  readonly primary: CopiedSnapshot[] | null;
+}
+
+/**
+ * Read every repository copy on the target (and a machine's repository on the primary) before a
+ * promotion: `restic snapshots`, read-only. A repository with nothing to copy (`empty`) is not
+ * read.
+ */
+async function promotionListings(
   db: Database,
   tenantId: string,
+  rows: readonly StorageTarget[],
   target: StorageTarget,
   repositories: readonly RepositoryReadiness[],
   deps: StorageDeps,
-): Promise<Map<string, CopiedSnapshot[]>> {
+): Promise<Map<string, PromotionListing>> {
   const opened = await openStorageTarget(target, secretReaderFor(db, tenantId)).catch(
     (error: unknown) => {
       throw openProblem(error);
     },
   );
+  const toRead = repositories.filter((entry) => entry.readiness !== "empty");
+  const primary = toRead.some((entry) => entry.repository.kind === "machine")
+    ? (await openEffectivePrimary(db, tenantId, rows, deps)).backend
+    : null;
   const lister = deps.listCopySnapshots ?? listCopySnapshots;
-  const out = new Map<string, CopiedSnapshot[]>();
-  const queue = [...repositories];
+  const out = new Map<string, PromotionListing>();
+  const queue = [...toRead];
   const failures: { prefix: string; name: string | null; reason: string }[] = [];
   const worker = async () => {
     for (let entry = queue.shift(); entry; entry = queue.shift()) {
@@ -2993,17 +3038,19 @@ async function copiedSnapshotsOf(
         continue;
       }
       try {
-        out.set(
-          repository.prefix,
-          await lister({ backend: opened.backend, target, repository, password }),
-        );
+        const copy = await lister({ backend: opened.backend, role: "copy", repository, password });
+        const onPrimary =
+          repository.kind === "machine" && primary
+            ? await lister({ backend: primary, role: "primary", repository, password })
+            : null;
+        out.set(repository.prefix, { copy, primary: onPrimary });
       } catch {
         // restic's own message can name storage paths; the copy pass records the reason.
         failures.push({ prefix: repository.prefix, name: repository.name, reason: "unreadable" });
       }
     }
   };
-  await Promise.all(Array.from({ length: Math.min(4, repositories.length) }, worker));
+  await Promise.all(Array.from({ length: Math.min(4, toRead.length) }, worker));
   if (failures.length > 0) {
     throw repositoryCopiesIncomplete(failures);
   }
@@ -3061,8 +3108,8 @@ export async function promoteTarget(
   }
   try {
     const copied = withRepositories
-      ? await copiedSnapshotsOf(db, tenantId, state.target, state.repositories, deps)
-      : new Map<string, CopiedSnapshot[]>();
+      ? await promotionListings(db, tenantId, state.rows, state.target, state.repositories, deps)
+      : new Map<string, PromotionListing>();
     const { promoted, previousPrimaryId, rewritten } = await withTenantTx(
       db,
       tenantId,
@@ -3110,9 +3157,18 @@ export async function promoteTarget(
         let rewritten = 0;
         const missing: { prefix: string; name: string | null; reason: string }[] = [];
         for (const entry of repositories) {
+          if (entry.readiness === "empty") {
+            continue;
+          }
           const listing = copied.get(entry.repository.prefix);
           const remap = listing
-            ? await remapRecordedSnapshots(tx, tenantId, entry.repository, listing)
+            ? await remapRecordedSnapshots(
+                tx,
+                tenantId,
+                entry.repository,
+                listing.copy,
+                listing.primary,
+              )
             : null;
           if (!remap || remap.missing.length > 0) {
             missing.push({

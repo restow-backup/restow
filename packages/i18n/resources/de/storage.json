@@ -403,8 +403,8 @@
         "remedy": "Aufträge, die in den Speicher schreiben, warten oder laufen ({queues}). Warten Sie, bis sie fertig sind; der Dialog aktualisiert sich selbst."
       },
       "copy_pass_running": {
-        "title": "Kopien werden gerade erstellt",
-        "remedy": "{appName} kopiert die Sicherungs-Repositorys gerade auf die Kopien. Warten Sie, bis dieser Kopierlauf endet."
+        "title": "An den Sicherungs-Repositorys wird gerade gearbeitet",
+        "remedy": "{appName} kopiert die Sicherungs-Repositorys gerade auf die Kopien oder wendet die Aufbewahrung oder das Entfernen eines Rechners an. Warten Sie, bis das endet; der Dialog aktualisiert sich selbst."
       },
       "repository_copies_incomplete": {
         "title": "{count, plural, one {# Sicherungs-Repository ist} other {# Sicherungs-Repositorys sind}} auf dieser Kopie nicht vollständig",
@@ -435,7 +435,8 @@
         "failed": "Kopieren fehlgeschlagen",
         "requested": "wartet auf die Kopie",
         "pending": "noch nicht kopiert",
-        "not_created": "wird angelegt (erstes Backup nicht fertig)"
+        "empty": "wird angelegt, noch nichts zu kopieren",
+        "not_created": "wird angelegt, aber Sicherungsstände verweisen darauf (Repository-Reparatur ausführen)"
       }
     },
     "catchUp": {
@@ -525,7 +526,7 @@
     "repairBlocked": "Die Reparatur muss warten: Eine Proxmox-VE-Sicherung, ein Lauf einer Dateifreigabe oder eine Speichermigration dieses Mandanten läuft. Reparieren Sie, wenn sie beendet ist.",
     "previousHoldsMovedAside": "Dieser Speicherort enthält Repository-Ordner, die die Reparatur der Repositorys oder eine neue Sicherungskette beiseitegelegt hat (….orphaned-…), und kein anderes Speicherziel hat sie. „Verschieben“ kopiert sie nicht. Kopieren Sie sie an einen anderen Ort oder löschen Sie sie von Hand, wenn sie nicht mehr gebraucht werden, und entfernen Sie dann diesen Speicherort.",
     "switchBlockedByJobs": "Aufträge dieses Mandanten, die in den Speicher schreiben, warten oder laufen. Warten Sie, bis sie fertig sind, und versuchen Sie es dann erneut.",
-    "copyPassRunning": "Die Sicherungs-Repositorys werden gerade auf die Kopien kopiert. Warten Sie, bis dieser Kopierlauf endet, und versuchen Sie es dann erneut.",
+    "copyPassRunning": "Die Sicherungs-Repositorys werden gerade kopiert, oder die Aufbewahrung oder das Entfernen eines Rechners läuft. Warten Sie, bis das endet, und versuchen Sie es dann erneut.",
     "repositoryCopiesIncomplete": "Nicht jedes Sicherungs-Repository von Containern, Maschinen oder Dateifreigaben ist auf dieser Kopie vollständig. Nutzen Sie „Jetzt angleichen“ und machen Sie die Kopie zum primären Repository, sobald jede Kopie aktuell ist."
   },
   "immutability": {

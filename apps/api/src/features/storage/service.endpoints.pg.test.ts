@@ -313,7 +313,7 @@ describe.skipIf(!testDatabaseAdminUrl)("storage changes and endpoint repositorie
     ]);
   });
 
-  it("refuses to promote while a file share's repository is being created (its password is stored before restic init)", async () => {
+  it("promotes while a file share's repository is being created and no restore point refers to it (nothing to copy)", async () => {
     await primaryAt(join(root, "primary-creating"));
     const copy = await primaryAt(join(root, "copy-creating"), "copy");
     const [secret] = await db
@@ -329,11 +329,11 @@ describe.skipIf(!testDatabaseAdminUrl)("storage changes and endpoint repositorie
       nfsVersion: "4.1",
       repositorySecretId: secret?.id as string,
     });
-    const error = await refusal(promoteTarget(db, tenantId, copy, actor));
-    expect(error.type).toBe("urn:restow:problem:storage-repository-copies-incomplete");
-    expect(error.extensions?.repositories).toMatchObject([
-      { name: "Creating", reason: "not_created" },
-    ]);
+    // Its first backup creates the repository on whichever target is the primary then; a run
+    // in its credential or init step holds the switch instead (`switch-blocked-by-runs`).
+    const result = await promoteTarget(db, tenantId, copy, actor);
+    expect(result.target.role).toBe("primary");
+    expect(result.previousPrimaryRole).toBe("previous");
   });
 
   it("refuses to promote while a container's first backup is in its credential or init step (the run is running)", async () => {

@@ -75,8 +75,9 @@ import { primaryWriteOnce } from "./write-once.js";
  *   POST   /repositories/repair              repair the newest scan ({ scanId, confirm: "REPAIR" },
  *                                            a recent sign-in; 202)
  *   GET    /targets/:id/promotion            may this copy become the primary; every reason it
- *                                            cannot yet, and the catch-up's progress (`?files=1`
- *                                            also compares the listings of primary and copy)
+ *                                            cannot yet, and the catch-up's progress (database)
+ *   POST   /targets/:id/promotion/check      the same, also comparing the listings of primary
+ *                                            and copy (reads both storages)
  *   POST   /targets/:id/catch-up             "Catch up now": a storage check that mirrors the
  *                                            copies, and the copy of every repository behind (202)
  *   POST   /targets/:id/promote              make this copy the primary
@@ -261,11 +262,21 @@ export function buildStorageRoutes(deps: StorageRoutesDeps): Hono<TenantEnv> {
   });
 
   // Whether this copy can become the primary, every reason it cannot yet, and the catch-up's
-  // progress (docs/STORAGE.md, "Promoting a copy"); `?files=1` also compares the listings.
+  // progress (docs/STORAGE.md, "Promoting a copy"), from the database alone (polled by the
+  // dialog); `POST .../promotion/check` also compares the listings of primary and copy.
   routes.get("/targets/:id/promotion", deps.requireAdmin, async (c) => {
-    const files = c.req.query("files") === "1";
     return c.json(
-      await promotionReadiness(deps.db, c.get("tenantId"), targetId(c), actorOf(c), { files }),
+      await promotionReadiness(deps.db, c.get("tenantId"), targetId(c), actorOf(c), {
+        files: false,
+      }),
+    );
+  });
+
+  routes.post("/targets/:id/promotion/check", deps.requireAdmin, async (c) => {
+    return c.json(
+      await promotionReadiness(deps.db, c.get("tenantId"), targetId(c), actorOf(c), {
+        files: true,
+      }),
     );
   });
 

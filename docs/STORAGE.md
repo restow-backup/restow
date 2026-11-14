@@ -945,7 +945,11 @@ snapshot's `original`; a copy therefore has its own `config`, keys and snapshot 
 container and of a file share that are not pruned, and the snapshots a machine's runs
 reported and its retention keeps (of several backups of one day the daily rule keeps the
 newest: the copy holds that one, also while the primary still has the others until its
-next retention run). A snapshot no record names (a run that never committed, a
+next retention run). While the primary keeps more than these rules (the object's retention
+is held on suspicion, a machine is no longer active so its retention does not run, or the
+primary is write-once), the copy holds every restore point the records name and forgets
+nothing, so a promotion of the copy never leaves a restore point that only a hold keeps
+behind. A snapshot no record names (a run that never committed, a
 snapshot a compromised machine wrote by itself) is neither copied nor ever deleted on a copy.
 
 **When.** A pass every five minutes, in one worker at a time, copies every repository that
@@ -965,7 +969,8 @@ beside retention or the check of the same repository (the repository lock, share
   the copy, the others stay;
 - a machine's copy gets the same grouped retention as its primary (the machine's keep rules
   per group, `files` and `sql:<instance>`), dated by the end of the reporting run as the
-  server recorded it, never by the time in the snapshot;
+  server recorded it, never by the time in the snapshot; not while the machine is revoked
+  (its primary's retention does not run then either);
 - while retention of the object is held on suspicion (`docs/RANSOMWARE.md`), nothing is
   forgotten on the copy either.
 
@@ -1165,7 +1170,9 @@ shares); before, a promotion was refused as soon as the tenant had one
 and had to `move`.
 
 **What the dialog shows before the click.** It asks the server
-(`GET /storage/targets/:id/promotion`, with `?files=1` also the listing comparison) and lists
+(`GET /storage/targets/:id/promotion`, from the database; `POST /storage/targets/:id/promotion/check`
+also compares the listings of primary and copy and needs the right to operate, like the
+completeness check) and lists
 every reason the copy cannot become the primary yet, each with what to do; the button is
 enabled only when the server says the copy is ready. The reasons, in this order (the promotion
 itself refuses with the first, as the problem type in brackets):
@@ -1183,13 +1190,18 @@ itself refuses with the first, as the problem type in brackets):
   queues): with restic repositories every queue of "keep" (backup, archive, retention, storage
   check, storage migration, restore, import, export), since the old primary becomes read-only;
   without them only a storage check, which mirrors the copies;
-- the worker copies the tenant's repositories at this moment (`storage-copy-pass-running`);
+- the worker works on the tenant's repositories at this moment (`storage-copy-pass-running`): the
+  copy pass, or a machine's retention or removal job; all three hold the tenant's repository-copy
+  lock shared, and a promotion takes it exclusively, so none of them runs beside the switch or
+  goes on writing to the primary it retires;
 - a restic repository is not complete on the copy (`storage-repository-copies-incomplete`): its
   last copy to this target ("restic repositories on copies") did not succeed, found restore
   points missing or failed its `restic check`, was asked for and has not run yet, never ran, or
   started before the newest restore point the server recorded for the object. A repository
-  still being created (its first backup has not finished) counts as not complete. The dialog
-  lists each such repository with its state;
+  still being created whose first backup has not finished holds nothing to copy and does not
+  hold the promotion (while that backup runs, `storage-switch-blocked-by-runs` does); one being
+  created that restore points already refer to (never expected) does. The dialog lists each
+  repository that is not complete with its state;
 - the copy lacks a pack, manifest, key or archive record (`storage-copy-incomplete`), or the
   primary or the copy cannot be listed (`storage-unreachable`, 502).
 
@@ -1209,15 +1221,17 @@ records the primary's ids. The promotion therefore:
 1. takes the tenant's repository-copy lock exclusively (the copy pass holds it shared while it
    copies the tenant, so no copy runs beside the switch, and a pass that starts during it skips
    the tenant until the next one, then sees the new primary);
-2. lists the snapshots of every repository copy on the target (`restic snapshots`, read-only);
+2. lists the snapshots of every repository copy on the target, and of every machine's
+   repository on the primary (`restic snapshots`, read-only);
 3. in one transaction under the tenant's storage lock: checks every reason above again, checks
    that every restore point the server keeps is on the copy (a container's and a file share's
-   restore points that are not pruned, a machine's newest snapshot; the other restore points of
-   a machine follow its retention, which the copy follows too), rewrites every recorded snapshot
-   id of the repository to the copy's (restore points, samples of restore tests, reports, flags,
-   downloads, SQL backups; an abbreviated id stays abbreviated), retires the old primary to
-   `previous` and makes the copy the primary. A restore point that is missing refuses the
-   promotion and nothing is changed.
+   restore points that are not pruned; for a machine every snapshot a record still names and the
+   primary still holds, held ones included, its newest snapshot and every SQL backup still
+   offered), rewrites every recorded snapshot id of the repository to the copy's (restore points,
+   samples of restore tests, reports, flags, downloads, SQL backups, the suspicion scan of a
+   machine's backups; an abbreviated id stays abbreviated), records restic's persistent id of each
+   (`restic_snapshot_origins`, see below), retires the old primary to `previous` and makes the copy
+   the primary. A restore point that is missing refuses the promotion and nothing is changed.
 
 The old primary stays attached read-only; its repositories are not repository copies, so it
 cannot stay a copy (the copy pass never writes into a repository it did not make). A later
@@ -1227,6 +1241,17 @@ Backups continue in it with the same password (restic finds their parent by host
 as before). Another copy target that held copies made from the old primary keeps them: the
 copy pass matches snapshots by restic's persistent id (`original`, which `restic copy` keeps
 along a chain of copies), so they are not copied again.
+
+**Persistent ids.** Such another copy target holds a restore point under the id of the old
+primary as `original`, not under the promoted copy's id the records name now. The promotion
+therefore keeps, per repository, the persistent id of every snapshot it carried over
+(`restic_snapshot_origins`: the recorded id and restic's persistent id, migration 0099). A read
+from a copy target or a retired target (the snapshot list, browsing, downloads and restores of
+"Restoring from a copy") looks a recorded id up by itself, its `original`, and then by this
+persistent id; a later promotion of another copy target finds its copies the same way and
+records the persistent id again. So when the promoted primary is lost, every restore point from
+before the promotion is still restored from the other copy targets, and they can be promoted in
+turn.
 
 ### The migration job (`move`)
 
@@ -1511,9 +1536,10 @@ holds for restic repositories (`previous-holds-endpoint-repositories`): any data
 snapshot, key or `config` file of a container's, machine's or file share's repository
 that no current target has blocks the removal, not only a `config` (a run that a switch
 split left early packs on the old target while its `config` was on the new one as well).
-A repository whose primary holds a promoted repository copy (its marker file) does not: the
-promotion carried every restore point over to that copy, and no record names the chain the
-retired location still holds ("Promoting a copy").
+A repository whose primary holds a promoted repository copy (its marker file) does not, as long
+as no record still names a snapshot that only this location holds: the promotion carried every
+restore point it could find on the copy over to it ("Promoting a copy"); a snapshot of the old
+chain that a record still names (one the copy did not hold) keeps the location pinned.
 A folder the repository repair or a new backup chain moved aside
 (`<prefix>.orphaned-<time>/`) that no current target has blocks it too
 (`previous-holds-moved-aside`): a `move` does not copy those folders, so copy it elsewhere
@@ -1547,14 +1573,6 @@ not papered over:
   agent runs itself (hash samples restored on the machine) is not served from a copy: it runs
   against the primary and cannot rate a repository that is not there. A boot test that read
   a copy says so on its run and in the audit log only, and a VM restore names no target.
-- **After a promotion, a further copy target's older restore points are read by their new
-  ids only once copied again.** A third target's repository copies made from the old primary
-  stay valid and are not copied again (the copy pass matches the persistent id), but a
-  restore that has to fall back to such a target because the new primary lost a repository
-  looks restore points up by the ids the promotion recorded; those made before the
-  promotion are found there only under the old ids and are refused with
-  `storage-restore-point-not-on-copy`. The retired old primary still holds them under the old
-  ids.
 - **Repository copies cost the copy target's space once more** (deduplicated per repository,
   like on the primary), and the first pass after the update copies every repository in full,
   25 repositories per pass. A copy target that already holds other files under a repository's

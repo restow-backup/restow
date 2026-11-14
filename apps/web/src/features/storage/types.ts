@@ -334,6 +334,7 @@ export interface PromotionBlocker {
 
 export type RepositoryCopyReadiness =
   | "current"
+  | "empty"
   | "outdated"
   | "behind"
   | "failed"

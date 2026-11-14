@@ -102,7 +102,10 @@ function dialog() {
 describe("the promotion dialog", () => {
   it("lists every reason before the click, with what to do, and keeps the promotion disabled", async () => {
     rendered = await render(dialog(), {
-      routes: { "GET /storage/targets/target-2/promotion": () => json(BEHIND) },
+      routes: {
+        "POST /storage/targets/target-2/promotion/check": () => json(BEHIND),
+        "GET /storage/targets/target-2/promotion": () => json(BEHIND),
+      },
     });
     await vi.waitFor(() => expect(slot("promotion-blockers")).not.toBeNull());
     const blockers = [...document.querySelectorAll("[data-blocker]")].map((node) =>
@@ -118,8 +121,9 @@ describe("the promotion dialog", () => {
     expect(action("promote")?.hasAttribute("disabled")).toBe(true);
     expect(action("catch-up")?.textContent).toContain("Catch up now");
     // Nothing was promoted.
+    // The listings are compared on the operate-level check; nothing was promoted.
     expect(rendered.requests.map((request) => `${request.method} ${request.path}`)).toEqual([
-      "GET /storage/targets/target-2/promotion",
+      "POST /storage/targets/target-2/promotion/check",
     ]);
   });
 
@@ -128,6 +132,7 @@ describe("the promotion dialog", () => {
     rendered = await render(dialog(), {
       routes: {
         "GET /storage/targets/target-2/promotion": () => json(state),
+        "POST /storage/targets/target-2/promotion/check": () => json(state),
         "POST /storage/targets/target-2/catch-up": () => {
           state = readiness({
             ...BEHIND,

@@ -279,16 +279,25 @@ export interface PromotionBlocker {
  *   - `failed`: the last copy or its check failed;
  *   - `requested`: a copy was asked for ("Catch up now") and has not run yet;
  *   - `pending`: never copied (a new repository, a copy target added recently);
- *   - `not_created`: the repository is being created (its first backup has not finished).
+ *   - `empty`: the repository is being created and no restore point refers to it yet: there is
+ *     nothing to copy, and its first backup creates it on whichever target is the primary then;
+ *   - `not_created`: the repository is being created, but restore points refer to it (never
+ *     expected): it holds the promotion.
  */
 export type RepositoryCopyReadiness =
   | "current"
+  | "empty"
   | "outdated"
   | "behind"
   | "failed"
   | "requested"
   | "pending"
   | "not_created";
+
+/** Whether a repository's copy lets a promotion go ahead. */
+export function copyComplete(readiness: RepositoryCopyReadiness): boolean {
+  return readiness === "current" || readiness === "empty";
+}
 
 /** What a promotion needs to know about one repository and its copy on the target. */
 export interface RepositoryCopyFacts {
@@ -301,14 +310,14 @@ export interface RepositoryCopyFacts {
     readonly lastAttemptAt: Date | null;
     readonly lastCheckOk: boolean | null;
   } | null;
-  /** When the server last recorded a restore point of the object (null: none). */
+  /** When the server last recorded a restore point of the object (null: none, nothing to copy). */
   readonly newestBackup: Date | null;
 }
 
 export function repositoryCopyReadiness(facts: RepositoryCopyFacts): RepositoryCopyReadiness {
   const { row } = facts;
   if (!facts.created) {
-    return "not_created";
+    return facts.newestBackup === null ? "empty" : "not_created";
   }
   if (!row) {
     return "pending";
@@ -406,7 +415,7 @@ export function decidePromotion(facts: PromotionFacts): PromotionBlocker[] {
     blockers.push({ code: "copy_pass_running" });
   }
   const incomplete = facts.repositories.filter(
-    (repository) => repositoryCopyReadiness(repository) !== "current",
+    (repository) => !copyComplete(repositoryCopyReadiness(repository)),
   ).length;
   if (incomplete > 0) {
     blockers.push({ code: "repository_copies_incomplete", repositories: incomplete });
@@ -427,20 +436,46 @@ export interface CopiedSnapshot {
 }
 
 /**
- * The id under which a repository copy holds the snapshot the database records as `recorded` (the
- * primary's id, possibly abbreviated): the copy whose persistent id (`original`, else its own) is
- * or begins with it, abbreviated to the same length. Null when the copy holds none of it, or when
- * an abbreviation is ambiguous.
+ * The snapshot of a repository copy that holds the restore point the database records as
+ * `recorded` (possibly abbreviated): the one whose persistent id (`original`, else its own id) or
+ * own id is `recorded`, or whose persistent id is `persistent` (what an earlier promotion
+ * recorded for it, `restic_snapshot_origins`: `restic copy` keeps the first `original` along a
+ * chain of copies, so a copy of a promoted copy names the id from before that promotion). An
+ * abbreviation must be unambiguous. Null when the copy does not hold it.
  */
-export function idOnCopy(copies: readonly CopiedSnapshot[], recorded: string): string | null {
+export function matchOnCopy(
+  copies: readonly CopiedSnapshot[],
+  recorded: string,
+  persistent: string | null = null,
+): CopiedSnapshot | null {
   if (!recorded) {
     return null;
   }
-  const matches = copies.filter((copy) => (copy.original ?? copy.id).startsWith(recorded));
-  const exact = matches.filter((copy) => (copy.original ?? copy.id) === recorded);
+  const key = (copy: CopiedSnapshot) => copy.original ?? copy.id;
   // Two copies of one snapshot (never expected) hold the same content: the first will do.
-  const [match] = exact.length > 0 ? exact : matches;
-  if (!match || (exact.length === 0 && matches.length > 1)) {
+  const exact = copies.find(
+    (copy) =>
+      key(copy) === recorded ||
+      copy.id === recorded ||
+      (persistent !== null && key(copy) === persistent),
+  );
+  if (exact) {
+    return exact;
+  }
+  const matches = copies.filter(
+    (copy) => key(copy).startsWith(recorded) || copy.id.startsWith(recorded),
+  );
+  return matches.length === 1 ? (matches[0] ?? null) : null;
+}
+
+/** {@link matchOnCopy}'s id, abbreviated to the length of `recorded`. */
+export function idOnCopy(
+  copies: readonly CopiedSnapshot[],
+  recorded: string,
+  persistent: string | null = null,
+): string | null {
+  const match = matchOnCopy(copies, recorded, persistent);
+  if (!match) {
     return null;
   }
   return recorded.length >= match.id.length ? match.id : match.id.slice(0, recorded.length);

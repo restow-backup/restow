@@ -88,9 +88,9 @@ export function checkCompleteness(targetId: string): Promise<CompletenessResult>
  * progress. `files` also compares the listings of primary and copy (slower).
  */
 export function fetchPromotion(targetId: string, files: boolean): Promise<PromotionReadiness> {
-  return apiFetch<PromotionReadiness>(
-    `${targetPath(targetId, "promotion")}${files ? "?files=1" : ""}`,
-  );
+  return files
+    ? apiFetch<PromotionReadiness>(targetPath(targetId, "promotion/check"), { method: "POST" })
+    : apiFetch<PromotionReadiness>(targetPath(targetId, "promotion"));
 }
 
 /** "Catch up now": a storage check that mirrors the copies, and the copies of every repository. */
