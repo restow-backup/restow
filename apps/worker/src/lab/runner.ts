@@ -265,10 +265,14 @@ export async function runProbe(deps: RunnerDeps, probe: LeasedProbe): Promise<Pr
     }
     base.restoreMs = Math.max(0, now() - restoreStart);
     if (exitCode === null) {
+      const restoreConsole = restore.serial();
       log("restore VM did not end in time", {
         probeId: probe.id,
         released,
-        serial: serialTail(restore.serial(), 1500),
+        // recover starts again after a failure (Restart=on-failure): how often, and the end of
+        // the console, which holds its last attempt with the reason it ended.
+        recoverStarts: (restoreConsole.match(/^.*\$ loadkeys -$/gm) ?? []).length,
+        serial: serialTail(restoreConsole, 8000),
       });
       restore.kill();
       return {
@@ -288,7 +292,7 @@ export async function runProbe(deps: RunnerDeps, probe: LeasedProbe): Promise<Pr
         probeId: probe.id,
         exitCode,
         stderr: qemuError,
-        serial: serialTail(restore.serial(), 1500),
+        serial: serialTail(restore.serial(), 8000),
       });
       return {
         ...base,
