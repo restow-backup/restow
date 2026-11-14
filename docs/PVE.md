@@ -425,7 +425,12 @@ optionally another node of the cluster, a VMID (else the next free one) and
 whether to start it. The restore lands in the pool `restow-restore`; move the
 guest out of the pool once you accept it. Restores started from the PVE UI
 (storage `restow` > Backups > Restore) work through the same plugin, with the
-admin's own PVE permissions.
+admin's own PVE permissions. pvedaemon runs Perl in taint mode (`-T`), the shell
+commands `pct restore` and `qmrestore` do not: the shim therefore checks every
+value restow-pve hands back to PVE (archive directory, NBD address, disk sizes,
+names) against what restow-pve sends and untaints it, or refuses the call naming
+the value. Up to 0.4.12 it did not, and a container restore from the PVE UI ended
+with "Insecure dependency in exec" (`integrations/pve/plugin/t/taint.t`).
 
 ### Files of a container
 

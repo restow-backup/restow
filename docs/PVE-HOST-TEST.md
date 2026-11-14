@@ -100,8 +100,9 @@ It ends with `PASS n, FAIL m`. **Paste the report file back.**
 - On the guest's page: **Restore as a new guest** (target storage, no VMID) and
   **Check now** (the restore check runs within five minutes).
 - In the PVE UI: storage `restow` > Backups shows the restore points; **Show
-  configuration** and **Restore** work; **Remove** is refused ("retention is
-  managed in Restow").
+  configuration** and **Restore** work, of a container and of a VM (the web UI
+  runs in pvedaemon's taint mode, the shell commands do not); **Remove** is
+  refused ("retention is managed in Restow").
 - `qm stop <vm>; qm start <vm>`, back up again: the run reads the whole disk
   ("Full read" in the guest list), uploads almost nothing.
 

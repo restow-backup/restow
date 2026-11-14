@@ -37,6 +37,12 @@ my %results = (
     ] },
 );
 
+# A test can replace the answer to one verb (FAKE_RESTOW_OVERRIDE: {"<verb>": result}).
+if (my $override = $ENV{FAKE_RESTOW_OVERRIDE}) {
+    my $o = JSON::PP->new->decode($override);
+    $results{$verb} = $o->{$verb} if exists $o->{$verb};
+}
+
 if ($verb eq 'fail') {
     print JSON::PP->new->encode({ ok => JSON::PP::false, error => 'it failed on purpose' });
     exit 1;
