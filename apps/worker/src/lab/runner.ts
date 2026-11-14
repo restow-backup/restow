@@ -137,6 +137,22 @@ export function probeDisks(probe: LeasedProbe, dir: string): Disk[] {
   }));
 }
 
+/**
+ * The restore console without the keymap an ISO up to 0.5.0-dev logged at every start of
+ * recover (ckbcomp's output, a few hundred long lines): in the lab's log it filled the tail and
+ * hid the message a failed start ended with.
+ */
+export function withoutKeymap(text: string): string {
+  return text
+    .split("\n")
+    .filter(
+      (line) =>
+        !/^\S*\s+keycode\s+\d+\s+=/.test(line) &&
+        !/^(?:\S*\s+)?(?:(?:Scroll_Lock|Show_\w+|VoidSymbol|nul)\s*)+$/.test(line),
+    )
+    .join("\n");
+}
+
 /** Run one leased probe; answers the result for the worker (never throws). */
 export async function runProbe(deps: RunnerDeps, probe: LeasedProbe): Promise<ProbeResult> {
   const now = deps.now ?? Date.now;
@@ -272,7 +288,7 @@ export async function runProbe(deps: RunnerDeps, probe: LeasedProbe): Promise<Pr
         // recover starts again after a failure (Restart=on-failure): how often, and the end of
         // the console, which holds its last attempt with the reason it ended.
         recoverStarts: (restoreConsole.match(/^.*\$ loadkeys -$/gm) ?? []).length,
-        serial: serialTail(restoreConsole, 8000),
+        serial: serialTail(withoutKeymap(restoreConsole), 8000),
       });
       restore.kill();
       return {
@@ -292,7 +308,7 @@ export async function runProbe(deps: RunnerDeps, probe: LeasedProbe): Promise<Pr
         probeId: probe.id,
         exitCode,
         stderr: qemuError,
-        serial: serialTail(restore.serial(), 8000),
+        serial: serialTail(withoutKeymap(restore.serial()), 8000),
       });
       return {
         ...base,

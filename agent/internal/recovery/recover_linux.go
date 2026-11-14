@@ -80,7 +80,7 @@ func (e *LinuxEnv) LoadKeymap(ctx context.Context, layout, variant string) error
 	if layout == "" {
 		return nil
 	}
-	res, err := e.Exec.Run(ctx, RunSpec{Argv: CkbcompArgs(layout, variant), Timeout: time.Minute})
+	res, err := e.Exec.Run(ctx, RunSpec{Argv: CkbcompArgs(layout, variant), Timeout: time.Minute, QuietOutput: true})
 	if err != nil {
 		return err
 	}

@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { LabClient, LeasedProbe, ProbePhase } from "./client.js";
 import type { Machine } from "./qemu.js";
-import { euiOf, probeDisks, runProbe, type Vm, type VmDriver } from "./runner.js";
+import { euiOf, probeDisks, runProbe, type Vm, type VmDriver, withoutKeymap } from "./runner.js";
 import { passphrasePrompts } from "./serial.js";
 
 const ID = "0f6c1a1c-4c6f-4bd4-9d0d-1a2b3c4d5e6f";
@@ -309,5 +309,24 @@ describe("a boot probe in the lab", () => {
     const [nvme] = probeDisks(probe, "/x");
     expect(nvme).toMatchObject({ bus: "nvme", eui64: euiOf("RESTOWPROBE0") });
     expect(euiOf("RESTOWPROBE0")).toMatch(/^02[0-9a-f]{14}$/);
+  });
+});
+
+describe("withoutKeymap", () => {
+  it("drops the keymap recover logged at every start and keeps its messages", () => {
+    const console = [
+      "roll_Lock Scroll_Lock Show_Registers Scroll_Lock",
+      "2026-11-14T22:31:50Z $ loadkeys -",
+      "2026-11-14T22:31:50Z   keycode 71 = KP_7 KP_7 Hex_7 KP_7 Ascii_7",
+      "2026-11-14T22:31:50Z   keycode 72 = KP_8 KP_8",
+      "Scroll_Lock Scroll_Lock Show_Memory Show_State",
+      "2026-11-14T22:31:51Z instance: TLS check failed: tls_untrusted",
+    ].join("\n");
+    expect(withoutKeymap(console)).toBe(
+      [
+        "2026-11-14T22:31:50Z $ loadkeys -",
+        "2026-11-14T22:31:51Z instance: TLS check failed: tls_untrusted",
+      ].join("\n"),
+    );
   });
 });

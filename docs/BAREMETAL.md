@@ -2787,7 +2787,10 @@ Für CI, Startprobe und Massenwiederherstellungen. Inhalt (JSON): `instanceUrl`,
   und Bildschirm zusätzlich auf `/dev/ttyS0`, auch wenn der Standard-Menüeintrag ohne serielle
   Konsole gestartet ist: Das Labor liest dort `RESTOW-PROBE phase=released` und hält bei einem
   Abbruch fest, wo der Lauf stand. Auf echter Hardware gibt es kein `fw_cfg`, dort bleibt es bei
-  der gewählten Konsole.
+  der gewählten Konsole. Die Tastaturbelegung von `ckbcomp` (einige hundert lange Zeilen,
+  Eingabe für `loadkeys`) steht nur mit ihrer Größe im Protokoll: Vollständig füllte sie bei
+  jedem Start von `recover` Protokoll und Konsole und verdrängte die Meldung, mit der ein
+  Versuch endete; das Labor filtert sie auch aus der Ausgabe älterer ISOs.
 - `code` und `passphrase` im Klartext lehnt `--answers` ab, außer bei `fw_cfg`; vom Medium
   gelesen fragt `recover` beides interaktiv.
 - Vom Medium gelesen zeigt `recover` vor dem ersten Löschen 30 Sekunden lang Zielplatten

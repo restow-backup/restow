@@ -29,6 +29,11 @@ type RunSpec struct {
 	// NoKill: the call is never killed (state changes: lvm, mdadm,
 	// cryptsetup, mkfs, sfdisk); at the time limit it gets SIGTERM.
 	NoKill bool
+	// QuietOutput: the output is data for the next call, not a message
+	// (ckbcomp's keymap, some hundred long lines): only its size is
+	// logged. Logged in full it filled the log and the serial console at
+	// every start of recover and pushed the messages that matter out.
+	QuietOutput bool
 }
 
 // RunResult is the output of a call (stdout).
@@ -73,6 +78,15 @@ func (c CmdExec) Run(ctx context.Context, s RunSpec) (RunResult, error) {
 		out, err = c.Runner.RunInputNoKill(ctx, stdin, timeout, 0, s.Argv[0], s.Argv[1:]...)
 	} else {
 		out, err = c.Runner.RunInput(ctx, stdin, timeout, 0, s.Argv[0], s.Argv[1:]...)
+	}
+	if s.QuietOutput {
+		if len(out) > 0 {
+			c.log(fmt.Sprintf("  (%d bytes of output, not logged)", len(out)))
+		}
+		if err != nil {
+			c.log("  error: " + err.Error())
+		}
+		return RunResult{Output: out}, err
 	}
 	n := 0
 	for _, l := range bytes.Split(bytes.TrimRight(out, "\n"), []byte("\n")) {
