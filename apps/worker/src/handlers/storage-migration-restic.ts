@@ -17,7 +17,8 @@
  * one of this chain; a target with another `config` holds another chain (a new chain on the
  * primary, the old one on a retired target) and is left out. `locks/` is skipped: a lock is
  * transient and restic writes its own. A repository copy on a copy target (marked with
- * `restow-repository-copy.json`) is left out altogether.
+ * `restow-repository-copy.json`) is left out altogether; on the primary it is the repository
+ * itself (a promoted copy target).
  *
  * A repository that is not complete from all targets together (no `config` or no key
  * anywhere) or ambiguous (two different `config` files and none on the primary) cannot be
@@ -405,8 +406,15 @@ export async function planRepositoriesOf(
         keys: (byPrefix.get(prefix) ?? []).filter((key) => !key.startsWith(`${prefix}locks/`)),
       }))
       // A repository copy (../repository-copies/copies.ts) is another repository, made with
-      // `restic copy`: never a part of this one, never merged or moved.
-      .filter((entry) => !entry.keys.includes(`${prefix}${REPOSITORY_COPY_MARKER_FILE}`))
+      // `restic copy`: never a part of this one, never merged or moved. Except on the
+      // reference (the primary): a primary holds a repository copy only after it was promoted
+      // from a copy target, and then that copy is the repository the restore points name
+      // (docs/STORAGE.md, "Promoting a copy"), whatever its marker says.
+      .filter(
+        (entry) =>
+          entry.source === reference ||
+          !entry.keys.includes(`${prefix}${REPOSITORY_COPY_MARKER_FILE}`),
+      )
       .filter((entry) => entry.keys.length > 0);
     const holdings = present.map((entry) => holding(entry.source, prefix, entry.keys));
     const configKey = `${prefix}config`;

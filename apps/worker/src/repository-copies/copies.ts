@@ -50,6 +50,7 @@ import {
   withRepositoryPair,
 } from "@restow/core";
 import {
+  acquireEndpointRepositoryLock,
   type Database,
   EndpointRepositoryBusyError,
   endpoints,
@@ -59,6 +60,7 @@ import {
   type RepositoryCopy,
   type RepositoryCopyState,
   repositoryCopies,
+  repositoryCopiesLockKey,
   type SuspicionObjectKind,
   withEndpointRepositoryLock,
 } from "@restow/db";
@@ -291,6 +293,27 @@ function originalOf(snapshot: Pick<ResticSnapshot, "id" | "original">): string {
   return snapshot.original ?? snapshot.id;
 }
 
+/**
+ * The primary's snapshot id for each persistent id (restic's `original`, else the snapshot's own
+ * id) of the primary's snapshots: `restic copy` keeps the first `original` along a chain of
+ * copies, so a snapshot copied from a promoted repository copy still names the id it had before.
+ */
+export function persistentIds(
+  snapshots: readonly Pick<ResticSnapshot, "id" | "original">[],
+): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const snapshot of snapshots) {
+    out.set(snapshot.id, snapshot.id);
+  }
+  for (const snapshot of snapshots) {
+    const original = originalOf(snapshot);
+    if (!out.has(original)) {
+      out.set(original, snapshot.id);
+    }
+  }
+  return out;
+}
+
 /** What one copy of one repository came to. */
 export interface CopyResult {
   readonly state: RepositoryCopyState;
@@ -362,9 +385,16 @@ export async function syncRepositoryCopy(
       }
       const onPrimary = await resticSnapshots(sourceSession, listing);
       const onCopy = await resticSnapshots(session, listing);
-      const present = [...new Set([...onPrimary.map((s) => s.id), ...onCopy.map(originalOf)])];
+      // A snapshot on the copy is matched to the primary's by restic's persistent id (its
+      // `original`, else its own id): after a promotion the primary itself is a repository copy
+      // whose snapshots keep the earlier primary's ids as `original`, and so do the copies
+      // another copy target already holds of them (docs/STORAGE.md, "Promoting a copy").
+      const primaryIdOf = persistentIds(onPrimary);
+      const onPrimaryOf = (snapshot: Pick<ResticSnapshot, "id" | "original">) =>
+        primaryIdOf.get(originalOf(snapshot)) ?? originalOf(snapshot);
+      const present = [...new Set([...onPrimary.map((s) => s.id), ...onCopy.map(onPrimaryOf)])];
       const decision = policy.decide(present);
-      const held = new Set(onCopy.map(originalOf));
+      const held = new Set(onCopy.map(onPrimaryOf));
       const wanted = onPrimary.filter((snapshot) => decision.keep.has(snapshot.id));
       // Oldest first: an interrupted pass leaves the copy with a gapless older part.
       const toCopy = wanted
@@ -385,7 +415,7 @@ export async function syncRepositoryCopy(
         }
       }
       const after = toCopy.length > 0 ? await resticSnapshots(session, listing) : onCopy;
-      const nowHeld = new Set(after.map(originalOf));
+      const nowHeld = new Set(after.map(onPrimaryOf));
       const missing = wanted.filter((snapshot) => !nowHeld.has(snapshot.id)).length;
       let check: CopyResult["check"];
       try {
@@ -412,7 +442,7 @@ export async function syncRepositoryCopy(
         policy.held || copyError !== null
           ? []
           : after.filter(
-              (snapshot) => decision.remove.has(originalOf(snapshot)) && snapshot.original,
+              (snapshot) => decision.remove.has(onPrimaryOf(snapshot)) && snapshot.original,
             );
       const newest = [...after].sort((a, b) => (a.time < b.time ? 1 : a.time > b.time ? -1 : 0))[0];
       return {
@@ -423,7 +453,7 @@ export async function syncRepositoryCopy(
         check,
         dataChecked,
         forget: forget.map((snapshot) => snapshot.id),
-        lastSnapshotId: newest ? originalOf(newest) : null,
+        lastSnapshotId: newest ? onPrimaryOf(newest) : null,
       };
     },
   );
@@ -608,6 +638,37 @@ export async function repositoryCopyPass(deps: RepositoryCopyDeps): Promise<Copy
 }
 
 async function tenantCopies(
+  deps: RepositoryCopyDeps,
+  tenantId: string,
+  budget: { left: number },
+  summary: CopyPassSummary,
+): Promise<void> {
+  // A promotion of a copy target holds this lock exclusively while it maps the restore points
+  // onto the copy and switches the primary (apps/api storage/service.ts, `promoteTarget`): the
+  // tenant is left for the next pass, which then sees the new primary. Taken before the storage
+  // is resolved, so a pass never copies with a primary a promotion just retired.
+  let release: () => Promise<void>;
+  try {
+    release = await acquireEndpointRepositoryLock(
+      deps.db.$client,
+      repositoryCopiesLockKey(tenantId),
+      { mode: "shared", waitMs: 0 },
+    );
+  } catch (error) {
+    if (error instanceof EndpointRepositoryBusyError) {
+      deps.runtime.logger.debug("repository copies: the tenant is being switched", { tenantId });
+      return;
+    }
+    throw error;
+  }
+  try {
+    await tenantCopiesLocked(deps, tenantId, budget, summary);
+  } finally {
+    await release();
+  }
+}
+
+async function tenantCopiesLocked(
   deps: RepositoryCopyDeps,
   tenantId: string,
   budget: { left: number },
@@ -882,14 +943,51 @@ const LOCK_KEY = 0x72636f70; // "rcop"
 /** A pass that runs longer than this says so in the log while it runs. */
 const PASS_SLOW_MS = 30 * 60 * 1000;
 
+/**
+ * How often a worker looks whether an administrator asked for copies now ("Catch up now" before
+ * promoting a copy target, docs/STORAGE.md): such a request is due at once and does not wait for
+ * the next pass of {@link COPY_PASS_INTERVAL_MS}.
+ */
+export const COPY_REQUEST_POLL_MS = 30_000;
+/** A request is looked for this long after it was made (or a new repository's row appeared). */
+const COPY_REQUEST_WINDOW = "15 minutes";
+
+/**
+ * Whether a copy was asked for and not tried yet: a row without an attempt (catch-up clears it,
+ * a new repository starts without one), recent, of a tenant no storage migration holds.
+ */
+export async function copyRequested(providerDb: Pick<Database, "execute">): Promise<boolean> {
+  const result = await providerDb.execute<{ requested: boolean }>(sql`
+    SELECT EXISTS (
+      SELECT 1 FROM repository_copies rc
+       WHERE rc.last_attempt_at IS NULL
+         AND rc.updated_at > now() - ${COPY_REQUEST_WINDOW}::interval
+         AND NOT EXISTS (
+           SELECT 1 FROM storage_migrations m
+            WHERE m.tenant_id = rc.tenant_id
+              AND m.status IN ('queued', 'copying', 'verifying', 'switching'))
+    ) AS requested`);
+  return result.rows[0]?.requested === true;
+}
+
 /** Run a pass every few minutes while no other worker does; returns a stop function. */
 export function startRepositoryCopies(
   deps: RepositoryCopyDeps,
   intervalMs = COPY_PASS_INTERVAL_MS,
+  requestPollMs = COPY_REQUEST_POLL_MS,
 ): () => void {
   let timer: NodeJS.Timeout | null = null;
+  let poll: NodeJS.Timeout | null = null;
   let stopped = false;
-  const tick = async () => {
+  // One pass at a time in this process: the schedule and a request share it.
+  let current: Promise<void> | null = null;
+  const pass = (): Promise<void> => {
+    current ??= runPass().finally(() => {
+      current = null;
+    });
+    return current;
+  };
+  const runPass = async () => {
     const client = await deps.providerDb.$client.connect();
     try {
       const { rows } = await client.query<{ locked: boolean }>(
@@ -923,16 +1021,38 @@ export function startRepositoryCopies(
       });
     } finally {
       client.release();
+    }
+  };
+  const tick = async () => {
+    await pass();
+    if (!stopped) {
+      timer = setTimeout(() => void tick(), intervalMs);
+    }
+  };
+  const checkRequests = async () => {
+    try {
+      if (!current && deps.startsPaused?.() !== true && (await copyRequested(deps.providerDb))) {
+        await pass();
+      }
+    } catch (error) {
+      deps.runtime.logger.warn("repository copy requests could not be read", {
+        errorMessage: error instanceof Error ? error.message.slice(0, 500) : String(error),
+      });
+    } finally {
       if (!stopped) {
-        timer = setTimeout(() => void tick(), intervalMs);
+        poll = setTimeout(() => void checkRequests(), requestPollMs);
       }
     }
   };
   timer = setTimeout(() => void tick(), 60_000);
+  poll = setTimeout(() => void checkRequests(), requestPollMs);
   const stop = () => {
     stopped = true;
     if (timer) {
       clearTimeout(timer);
+    }
+    if (poll) {
+      clearTimeout(poll);
     }
   };
   deps.runtime.shutdownSignal.addEventListener("abort", stop, { once: true });
