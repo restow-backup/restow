@@ -52,6 +52,8 @@ export interface Vm {
   cutNetwork(): Promise<void>;
   /** Resolves with the exit code once the VM ended. */
   exited: Promise<number>;
+  /** The end of QEMU's own error output (why a VM ended early). */
+  stderr?(): string;
   kill(): void;
 }
 
@@ -272,10 +274,26 @@ export async function runProbe(deps: RunnerDeps, probe: LeasedProbe): Promise<Pr
       };
     }
     if (!released) {
+      // QEMU's error output and the end of the console say why: the lab log keeps both, the
+      // report the exit code and the end of the error output.
+      const qemuError = (restore.stderr?.() ?? "").trim().slice(-200);
+      log("restore VM ended without releasing", {
+        probeId: probe.id,
+        exitCode,
+        stderr: qemuError,
+        serial: serialTail(restore.serial(), 1500),
+      });
       return {
         ...base,
         outcome: "restore_stopped",
-        error: { code: "not_released", message: "The ISO ended without releasing its access." },
+        error: {
+          code: "not_released",
+          message:
+            `The ISO ended without releasing its access (QEMU exit ${exitCode}${qemuError ? `: ${qemuError}` : ""}).`.slice(
+              0,
+              300,
+            ),
+        },
       };
     }
 

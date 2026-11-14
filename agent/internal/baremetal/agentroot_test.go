@@ -209,8 +209,15 @@ func TestRootCaptureStacks(t *testing.T) {
 	bootMnt := e.mount(a+"p2", "boot")
 	e.mount(a+"p1", "esp")
 
-	// B: md RAID1 of two loop devices.
+	// B: md RAID1 of two loop devices. b1 carries GRUB's message in its boot
+	// code, as grub-install leaves it in the MBR of a BIOS disk: the capture
+	// reads the first sector of the block device (its stat size is 0).
 	b1, b2 := e.loop("md1", 256, ""), e.loop("md2", 256, "")
+	grubCode := exec.CommandContext(e.ctx, "dd", "of="+b1, "bs=1", "seek=384", "conv=notrunc", "status=none")
+	grubCode.Stdin = strings.NewReader("GRUB Geom Hard Disk Read Error")
+	if out, err := grubCode.CombinedOutput(); err != nil {
+		t.Fatalf("boot code on %s: %v\n%s", b1, err, out)
+	}
 	md := "/dev/md/rtcap" + tag
 	e.sh("mdadm", "--create", md, "--run", "--level=1", "--raid-devices=2", "--metadata=1.2", b1, b2)
 	t.Cleanup(func() {
@@ -246,6 +253,14 @@ func TestRootCaptureStacks(t *testing.T) {
 	btrfsMnt := e.mount(d, "btrfs", "subvol=@data")
 
 	m, raw, enc := e.capture()
+
+	// The boot code of the block devices: GRUB on b1, none on b2.
+	if d := m.diskByKName(filepath.Base(b1)); d == nil || d.BootCode != "grub" {
+		t.Fatalf("boot code of %s: %+v", b1, d)
+	}
+	if d := m.diskByKName(filepath.Base(b2)); d == nil || d.BootCode != "none" {
+		t.Fatalf("boot code of %s: %+v", b2, d)
+	}
 
 	// A.
 	disk := m.diskByKName(filepath.Base(a))

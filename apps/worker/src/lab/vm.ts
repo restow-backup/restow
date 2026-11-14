@@ -170,6 +170,7 @@ export function qemuDriver(options: { dbxFile: string | null; ovmf?: OvmfFiles }
         keys: (text) => sendKeys(machine.qmpSocket, text),
         cutNetwork: () => cutNetwork(machine.qmpSocket),
         exited,
+        stderr: () => stderr,
         kill: () => {
           serial?.destroy();
           if (child.exitCode === null) child.kill("SIGKILL");

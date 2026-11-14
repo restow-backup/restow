@@ -272,6 +272,10 @@ func (h DirHost) Readlink(p string) (string, error) {
 	return "", err
 }
 
+// Open opens a file or a device for reading. The size of a block device is
+// not in its stat (0): it comes from seeking to the end, as for a file.
+// Without it every disk looked shorter than a sector, and captureBootCode
+// recorded no boot code for any real disk (no grub-install on restore).
 func (h DirHost) Open(p string) (ReaderAtCloser, int64, error) {
 	f, err := os.Open(h.real(p))
 	if err != nil {
@@ -282,7 +286,13 @@ func (h DirHost) Open(p string) (ReaderAtCloser, int64, error) {
 		f.Close()
 		return nil, 0, err
 	}
-	return f, st.Size(), nil
+	size := st.Size()
+	if !st.Mode().IsRegular() {
+		if end, err := f.Seek(0, io.SeekEnd); err == nil {
+			size = end
+		}
+	}
+	return f, size, nil
 }
 
 func (h DirHost) Glob(pattern string) ([]string, error) {

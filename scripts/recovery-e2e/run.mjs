@@ -344,7 +344,7 @@ async function recoveryDiagnosis(client, tenantId, recoveryPath) {
   return (
     `phase ${last.phase ?? "?"}, progress ${JSON.stringify(last.progress ?? null)}` +
     `${warnings ? `, warnings ${warnings}` : ""}\ntarget: ${targetSummary(last.hardware)}` +
-    `\nISO log (end):\n${recoveryLogTail(pages).join("\n")}`
+    `\nISO log (end):\n${recoveryLogTail(pages, 800).join("\n")}`
   );
 }
 
@@ -1097,7 +1097,9 @@ async function restore(testCase, context, source, { interrupt } = {}) {
     );
     writeFileSync(join(source.dir, `recovery-${issued.id}.log`), `${diagnosis}\n`);
     if (final.status !== "succeeded") {
-      console.log(`${testCase.id}: the recovery ended ${final.status}: ${diagnosis}`);
+      console.log(
+        `${testCase.id}: the recovery ended ${final.status}: ${diagnosis.split("\n").slice(-60).join("\n")}`,
+      );
     }
   }
   await Promise.race([iso.exited, sleep(10 * 60_000)]);
@@ -1146,6 +1148,7 @@ async function bootRestored(testCase, context, source, restored, { emptyNvram = 
       try {
         await runAsync("qemu-img", [
           "dd",
+          "-U",
           "-O",
           "raw",
           `if=${disk.file}`,
