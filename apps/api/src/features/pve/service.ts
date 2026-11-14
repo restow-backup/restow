@@ -1637,42 +1637,99 @@ export async function assignJob(
   options: { confirmSelfBackup?: boolean; skipRestowServer?: boolean } = {},
   now: Date = new Date(),
 ): Promise<{ assigned: boolean }> {
+  return withTenantTx(database, tenantId, (tx) =>
+    assignGuest(tx, tenantId, guestId, jobId, actor, options, now),
+  );
+}
+
+/**
+ * Put many guests into a job and take others out of it, in one transaction (the job form's
+ * "Select all", docs/PVE.md): either every change lands or none does, so a save that fails
+ * half-way never leaves a job with half of the guests that were ticked. `add` follows
+ * assignJob (an excluded guest refuses, the Restow server's own VM only with
+ * `confirmSelfBackup`, a guest of another job moves); `remove` takes a guest out only while it
+ * is still in this job, so a guest moved elsewhere meanwhile stays where it is.
+ */
+export async function assignJobGuests(
+  database: DbExecutor,
+  tenantId: string,
+  jobId: string,
+  changes: { add: readonly string[]; remove: readonly string[] },
+  actor: PveActor,
+  options: { confirmSelfBackup?: boolean } = {},
+  now: Date = new Date(),
+): Promise<{ added: number; removed: number }> {
   return withTenantTx(database, tenantId, async (tx) => {
-    const guest = await loadGuest(tx, guestId);
-    if (jobId) {
-      refuseExcluded(guest);
+    const [job] = await tx
+      .select({ id: pveJobs.id })
+      .from(pveJobs)
+      .where(eq(pveJobs.id, jobId))
+      .limit(1);
+    if (!job) {
+      throw new ProblemError(404, "Job not found");
     }
-    if (jobId && pveSelfBackupBlocked(guest)) {
-      // The recommended job leaves the Restow server's own VM out instead of failing (#52).
-      if (options.skipRestowServer) {
-        return { assigned: false };
-      }
-      if (!options.confirmSelfBackup) {
-        refuseSelfBackup(guest);
-      }
-      await confirmSelfBackup(tx, tenantId, guest, actor, now);
+    let added = 0;
+    for (const guestId of new Set(changes.add)) {
+      await assignGuest(tx, tenantId, guestId, jobId, actor, options, now);
+      added += 1;
     }
-    if (jobId) {
-      const [job] = await tx
-        .select({ id: pveJobs.id })
-        .from(pveJobs)
-        .where(eq(pveJobs.id, jobId))
-        .limit(1);
-      if (!job) {
-        throw new ProblemError(404, "Job not found");
+    let removed = 0;
+    for (const guestId of new Set(changes.remove)) {
+      const guest = await loadGuest(tx, guestId);
+      if (guest.jobId !== jobId) {
+        continue;
       }
+      await assignGuest(tx, tenantId, guestId, null, actor, {}, now);
+      removed += 1;
     }
-    await tx.update(pveGuests).set({ jobId }).where(eq(pveGuests.id, guestId));
-    await auditPve(tx, {
-      tenantId,
-      actor,
-      action: PVE_AUDIT_ACTIONS.jobChanged,
-      target: guestId,
-      targetType: "pve_guest",
-      details: { jobId },
-    });
-    return { assigned: true };
+    return { added, removed };
   });
+}
+
+/** assignJob inside a transaction that pins the tenant. */
+async function assignGuest(
+  tx: Tx,
+  tenantId: string,
+  guestId: string,
+  jobId: string | null,
+  actor: PveActor,
+  options: { confirmSelfBackup?: boolean; skipRestowServer?: boolean },
+  now: Date,
+): Promise<{ assigned: boolean }> {
+  const guest = await loadGuest(tx, guestId);
+  if (jobId) {
+    refuseExcluded(guest);
+  }
+  if (jobId && pveSelfBackupBlocked(guest)) {
+    // The recommended job leaves the Restow server's own VM out instead of failing (#52).
+    if (options.skipRestowServer) {
+      return { assigned: false };
+    }
+    if (!options.confirmSelfBackup) {
+      refuseSelfBackup(guest);
+    }
+    await confirmSelfBackup(tx, tenantId, guest, actor, now);
+  }
+  if (jobId) {
+    const [job] = await tx
+      .select({ id: pveJobs.id })
+      .from(pveJobs)
+      .where(eq(pveJobs.id, jobId))
+      .limit(1);
+    if (!job) {
+      throw new ProblemError(404, "Job not found");
+    }
+  }
+  await tx.update(pveGuests).set({ jobId }).where(eq(pveGuests.id, guestId));
+  await auditPve(tx, {
+    tenantId,
+    actor,
+    action: PVE_AUDIT_ACTIONS.jobChanged,
+    target: guestId,
+    targetType: "pve_guest",
+    details: { jobId },
+  });
+  return { assigned: true };
 }
 
 type Tx = Parameters<Parameters<typeof withTenantTx>[2]>[0];

@@ -44,6 +44,7 @@ import {
   filesQuerySchema,
   guestExcludedSchema,
   idParamSchema,
+  jobGuestsSchema,
   jobSchema,
   resetRepositorySchema,
   restoreSchema,
@@ -52,6 +53,7 @@ import {
 } from "./schemas.js";
 import {
   assignJob,
+  assignJobGuests,
   backupNow,
   createEnrollmentToken,
   deleteJob,
@@ -106,6 +108,8 @@ import {
  *   POST   /snapshots/:id/downloads          check selected files and folders, prepare a ZIP
  *   GET    /snapshots/:id/downloads/:downloadId  start the prepared ZIP: streamed, audited first, once
  *   POST   /jobs, PATCH /jobs/:id, DELETE /jobs/:id
+ *   POST   /jobs/:id/guests                  put many guests into the job and take others out
+ *                                             ({ add, remove, confirmSelfBackup }), all or none
  */
 export const pveRoutes = new Hono<TenantEnv>();
 
@@ -374,6 +378,16 @@ pveRoutes.post("/jobs/:id/run", admin, async (c) => {
 pveRoutes.post("/jobs/:id/cancel", admin, async (c) => {
   const { id } = parseOrProblem(idParamSchema, c.req.param());
   return c.json(await cancelPveJob(db, c.get("tenantId"), id, actorOf(c)), 202);
+});
+
+pveRoutes.post("/jobs/:id/guests", admin, async (c) => {
+  const { id } = parseOrProblem(idParamSchema, c.req.param());
+  const { add, remove, confirmSelfBackup } = await parseJsonBody(c.req, jobGuestsSchema);
+  return c.json(
+    await assignJobGuests(db, c.get("tenantId"), id, { add, remove }, actorOf(c), {
+      confirmSelfBackup,
+    }),
+  );
 });
 
 pveRoutes.delete("/jobs/:id", admin, async (c) => {

@@ -191,6 +191,18 @@ unique per installation).
   6 monthly restore points) and the optional monthly restore check. The worker
   turns a due job into one backup task per guest for the node that hosts it;
   the node starts `vzdump` with the Restow storage and its fleecing storage.
+- **Choosing the guests of a job.** The job form lists the guests by node, with
+  a search by name or VMID, "Select all" for every node and one for every guest
+  the search shows. Templates, guests that are gone and excluded guests are not
+  offered. "Select all" never ticks the Restow server's own guest (see below):
+  it is ticked on its own, and only with the confirmation. A guest of another
+  job says so ("Moves from ..."), and the form counts how many move. Saving puts
+  every changed guest into the job or out of it with one request
+  (`POST /api/v1/pve/jobs/:id/guests` with `add`, `remove` and
+  `confirmSelfBackup`), in one transaction: either all changes land or none
+  does. A guest taken out that is in another job by then stays there. The
+  selection covers today's guests; new guests join a job only through "All
+  guests in no other backup job".
 - **Job settings** (`settings` of `POST /api/v1/pve/jobs` and
   `PATCH /api/v1/pve/jobs/:id`): `mode`, `retention` (`keepDaily`,
   `keepWeekly`, `keepMonthly`), `restoreTest` (`enabled`, `targetStorage`) and

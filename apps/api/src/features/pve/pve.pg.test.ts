@@ -2093,6 +2093,90 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
     await service.assignJob(shared.db, fixture.tenantId, id, ct?.jobId ?? null, actor());
   });
 
+  it("puts many guests into a job at once, all or none, the Restow server only when confirmed", async () => {
+    const [vm] = await fixture.db.select().from(pveGuests).where(eq(pveGuests.vmid, 101));
+    const [ct] = await fixture.db.select().from(pveGuests).where(eq(pveGuests.vmid, 200));
+    const vmId = vm?.id ?? "";
+    const ctId = ct?.id ?? "";
+    const before = { vm: vm?.jobId ?? null, ct: ct?.jobId ?? null };
+    const input = (name: string) => ({
+      name,
+      scopeAll: false,
+      schedule: null,
+      enabled: true,
+      settings: {},
+    });
+    const job = await service.saveJob(shared.db, fixture.tenantId, null, input("Bulk"), actor());
+    const other = await service.saveJob(shared.db, fixture.tenantId, null, input("Other"), actor());
+    const jobOf = async (id: string) =>
+      (await fixture.db.select().from(pveGuests).where(eq(pveGuests.id, id)))[0]?.jobId ?? null;
+    await fixture.db
+      .update(pveGuests)
+      .set({ restowServerFlagged: true, selfBackupConfirmedAt: null })
+      .where(eq(pveGuests.id, ctId));
+    try {
+      // Without the confirmation nothing lands, not even the guest that needed none.
+      await expect(
+        service.assignJobGuests(
+          shared.db,
+          fixture.tenantId,
+          job.id,
+          { add: [vmId, ctId], remove: [] },
+          actor(),
+        ),
+      ).rejects.toMatchObject({ status: 409, type: service.PVE_PROBLEMS.restowServer });
+      expect(await jobOf(vmId)).toBe(before.vm);
+      expect(await jobOf(ctId)).toBe(before.ct);
+      // Confirmed: both move, the confirmation is kept on the guest.
+      expect(
+        await service.assignJobGuests(
+          shared.db,
+          fixture.tenantId,
+          job.id,
+          { add: [vmId, ctId], remove: [] },
+          actor(),
+          { confirmSelfBackup: true },
+        ),
+      ).toEqual({ added: 2, removed: 0 });
+      expect(await jobOf(vmId)).toBe(job.id);
+      expect(await jobOf(ctId)).toBe(job.id);
+      const [confirmed] = await fixture.db.select().from(pveGuests).where(eq(pveGuests.id, ctId));
+      expect(confirmed?.selfBackupConfirmedAt).toBeInstanceOf(Date);
+      // Taking out: a guest moved to another job meanwhile stays there.
+      await fixture.db.update(pveGuests).set({ jobId: other.id }).where(eq(pveGuests.id, vmId));
+      expect(
+        await service.assignJobGuests(
+          shared.db,
+          fixture.tenantId,
+          job.id,
+          { add: [], remove: [vmId, ctId] },
+          actor(),
+        ),
+      ).toEqual({ added: 0, removed: 1 });
+      expect(await jobOf(vmId)).toBe(other.id);
+      expect(await jobOf(ctId)).toBeNull();
+      // A job that does not exist changes nothing.
+      await expect(
+        service.assignJobGuests(
+          shared.db,
+          fixture.tenantId,
+          randomUUID(),
+          { add: [ctId], remove: [] },
+          actor(),
+        ),
+      ).rejects.toMatchObject({ status: 404 });
+      expect(await jobOf(ctId)).toBeNull();
+    } finally {
+      await fixture.db
+        .update(pveGuests)
+        .set({ restowServerFlagged: false, selfBackupConfirmedAt: null, jobId: before.ct })
+        .where(eq(pveGuests.id, ctId));
+      await fixture.db.update(pveGuests).set({ jobId: before.vm }).where(eq(pveGuests.id, vmId));
+      await service.deleteJob(shared.db, fixture.tenantId, job.id, actor());
+      await service.deleteJob(shared.db, fixture.tenantId, other.id, actor());
+    }
+  });
+
   it("checks a guest's newest restore point now, or every unchecked one, and an older one exactly (D2)", async () => {
     const [vm] = await fixture.db.select().from(pveGuests).where(eq(pveGuests.vmid, 101));
     await fixture.db.update(pveSnapshots).set({

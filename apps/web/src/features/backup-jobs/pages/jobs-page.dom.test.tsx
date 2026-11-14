@@ -854,8 +854,9 @@ describe("Proxmox VE in the list of machine jobs (#53)", () => {
     ]);
     await click(items[1]);
     await flush(3);
-    // The Proxmox VE job form lists the guests to put into the new job.
-    expect(slot("pve-job-guests")?.textContent).toContain("mail01 · VM 102 · pve1");
+    // The Proxmox VE job form lists the guests to put into the new job, by node.
+    expect(slot("pve-job-guest-node")?.getAttribute("data-node")).toBe("pve1");
+    expect(slot("pve-job-guest-node")?.textContent).toContain("mail01 · VM 102");
     // Wide and in two columns, so a job's settings fit on a desktop screen without scrolling.
     expect(slot("pve-job-form")?.closest('[data-slot="dialog-content"]')?.className).toContain(
       "max-w-5xl",
@@ -893,7 +894,8 @@ describe("Proxmox VE in the list of machine jobs (#53)", () => {
     expect(slot("new-job")?.getAttribute("data-type")).toBe("pve");
     await click(slot("new-job"));
     await flush(3);
-    expect(slot("pve-job-guests")?.textContent).toContain("mail01 · VM 102 · pve1");
+    expect(slot("pve-job-guest-node")?.getAttribute("data-node")).toBe("pve1");
+    expect(slot("pve-job-guest-node")?.textContent).toContain("mail01 · VM 102");
   });
 });
 

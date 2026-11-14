@@ -647,6 +647,23 @@ export const assignJob = (
     method: "PUT",
     body: { jobId, ...(options.confirmSelfBackup ? { confirmSelfBackup: true } : {}) },
   });
+/**
+ * Put many guests into a job and take others out of it, all or none (the job form). A guest of
+ * another job moves; one taken out that is in another job by now stays there.
+ */
+export const assignJobGuests = (
+  jobId: string,
+  changes: { add: readonly string[]; remove: readonly string[] },
+  options: { confirmSelfBackup?: boolean } = {},
+) =>
+  apiFetch<{ added: number; removed: number }>(`/pve/jobs/${encodeURIComponent(jobId)}/guests`, {
+    method: "POST",
+    body: {
+      add: changes.add,
+      remove: changes.remove,
+      ...(options.confirmSelfBackup ? { confirmSelfBackup: true } : {}),
+    },
+  });
 /** Mark a guest as the Restow server's own VM, or take the mark back (docs/PVE.md). */
 export const setRestowServer = (guestId: string, flagged: boolean) =>
   apiFetch<void>(`/pve/guests/${encodeURIComponent(guestId)}/restow-server`, {

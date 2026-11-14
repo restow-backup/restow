@@ -448,6 +448,22 @@ export const assignJobSchema = z.object({
   confirmSelfBackup: z.boolean().optional(),
 });
 
+/**
+ * Many guests into a job and others out of it at once (`POST /jobs/:id/guests`, the job form):
+ * one transaction, so either every change lands or none does.
+ */
+export const jobGuestsSchema = z
+  .object({
+    add: z.array(uuid).max(5000).default([]),
+    remove: z.array(uuid).max(5000).default([]),
+    /** Put the Restow server's own VM into the job anyway (docs/PVE.md). */
+    confirmSelfBackup: z.boolean().optional(),
+  })
+  .refine(({ add, remove }) => !add.some((id) => remove.includes(id)), {
+    message: "A guest cannot be added and removed at once",
+    path: ["remove"],
+  });
+
 export const restowServerSchema = z.object({ flagged: z.boolean() });
 
 export const guestExcludedSchema = z.object({ excluded: z.boolean() });
