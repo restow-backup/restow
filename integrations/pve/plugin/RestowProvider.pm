@@ -51,6 +51,15 @@ sub helper {
     return PVE::Storage::Custom::RestowPlugin::call_helper($verb, $request, $self->{log_function});
 }
 
+# What restow-pve answers is tainted under pvedaemon's -T: every value handed
+# back to PVE goes through these (RestowPlugin.pm, "values from restow-pve").
+sub untaint { return PVE::Storage::Custom::RestowPlugin::untaint(@_) }
+sub untaint_uint { return PVE::Storage::Custom::RestowPlugin::untaint_uint(@_) }
+sub untaint_path { return PVE::Storage::Custom::RestowPlugin::untaint_path(@_) }
+sub untaint_nbd { return PVE::Storage::Custom::RestowPlugin::untaint_nbd(@_) }
+sub untaint_word { return PVE::Storage::Custom::RestowPlugin::untaint_word(@_) }
+sub untaint_enum { return PVE::Storage::Custom::RestowPlugin::untaint_enum(@_) }
+
 sub info_hash {
     my ($info) = @_;
     $info = {} if ref($info) ne 'HASH';
@@ -84,7 +93,7 @@ sub backup_init {
         'backup-init',
         { vmid => int($vmid), vmtype => $vmtype, startTime => int($start_time // 0) },
     );
-    return { 'archive-name' => $res->{archiveName} };
+    return { 'archive-name' => untaint($res->{archiveName}, qr!^((?:vm|ct)/\d+/[0-9TZ:-]+)$!, 'archive name') };
 }
 
 sub backup_cleanup {
@@ -98,13 +107,13 @@ sub backup_cleanup {
             info => info_hash($info),
         },
     );
-    return { stats => { 'archive-size' => int($res->{stats}->{archiveSize} // 0) } };
+    return { stats => { 'archive-size' => untaint_uint($res->{stats}->{archiveSize} // 0, 'archive size') } };
 }
 
 sub backup_get_mechanism {
     my ($self, $vmid, $vmtype) = @_;
     my $res = $self->helper('backup-get-mechanism', { vmid => int($vmid), vmtype => $vmtype });
-    return $res->{mechanism};
+    return untaint_enum($res->{mechanism}, 'backup mechanism', 'nbd', 'directory', 'file-handle');
 }
 
 sub backup_handle_log_file {
@@ -120,7 +129,12 @@ sub backup_vm_query_incremental {
         $req->{$device} = { size => int($volumes->{$device}->{size}) };
     }
     my $res = $self->helper('backup-vm-query-incremental', { vmid => int($vmid), volumes => $req });
-    return $res->{devices};
+    my $devices = $res->{devices};
+    return $devices if ref($devices) ne 'HASH';
+    return {
+        map { untaint_word($_, 'device name') => untaint_enum($devices->{$_}, 'bitmap mode', 'new', 'use', 'none') }
+            keys %$devices
+    };
 }
 
 sub backup_vm {
@@ -174,7 +188,10 @@ sub backup_container {
 sub restore_get_mechanism {
     my ($self, $volname) = @_;
     my $res = $self->helper('restore-get-mechanism', { volname => $volname });
-    return ($res->{mechanism}, $res->{vmtype});
+    return (
+        untaint_enum($res->{mechanism}, 'restore mechanism', 'qemu-img', 'directory', 'tar'),
+        untaint_enum($res->{vmtype}, 'guest type', 'qemu', 'lxc'),
+    );
 }
 
 sub archive_get_guest_config {
@@ -189,7 +206,13 @@ sub archive_get_firewall_config {
 
 sub restore_vm_init {
     my ($self, $volname) = @_;
-    return $self->helper('restore-vm-init', { volname => $volname })->{devices};
+    my $devices = $self->helper('restore-vm-init', { volname => $volname })->{devices};
+    die "restow-pve gave no disks of this restore point\n" if ref($devices) ne 'HASH';
+    # The sizes reach the allocation of the new disks (lvcreate --size and the like).
+    return {
+        map { untaint_word($_, 'device name') => { size => untaint_uint($devices->{$_}->{size}, 'disk size') } }
+            keys %$devices
+    };
 }
 
 sub restore_vm_cleanup {
@@ -204,7 +227,7 @@ sub restore_vm_volume_init {
         'restore-vm-volume-init',
         { volname => $volname, device => $device_name, info => info_hash($info) },
     );
-    return { 'qemu-img-path' => $res->{qemuImgPath} };
+    return { 'qemu-img-path' => untaint_nbd($res->{qemuImgPath}, 'disk address') };
 }
 
 sub restore_vm_volume_cleanup {
@@ -220,8 +243,11 @@ sub restore_container_init {
     my ($self, $volname, @rest) = @_;
     my $info = $rest[-1];
     my $res = $self->helper('restore-container-init', { volname => $volname, info => info_hash($info) });
-    $self->{restore_dirs}->{$volname} = $res->{archiveDirectory};
-    return { 'archive-directory' => $res->{archiveDirectory} };
+    # pve-container runs `tar --directory=<this>`: untainted, or a restore from the
+    # web UI dies with "Insecure dependency in exec".
+    my $dir = untaint_path($res->{archiveDirectory}, 'archive directory');
+    $self->{restore_dirs}->{$volname} = $dir;
+    return { 'archive-directory' => $dir };
 }
 
 sub restore_container_cleanup {

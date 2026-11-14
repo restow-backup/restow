@@ -760,7 +760,12 @@ the same holds for a temporary guest of a restore check or boot test that is
 still there (tagged `restow-boottest` or `restow-restorecheck`). Put into a job
 by hand, it is backed up like any other guest. Restores started from the PVE UI
 (storage `restow` > Backups > Restore) work through the same plugin, with the
-admin's own PVE permissions.
+admin's own PVE permissions. pvedaemon runs Perl in taint mode (`-T`), the shell
+commands `pct restore` and `qmrestore` do not: the shim therefore checks every
+value restow-pve hands back to PVE (archive directory, NBD address, disk sizes,
+names) against what restow-pve sends and untaints it, or refuses the call naming
+the value. Up to 0.4.x it did not, and a container restore from the PVE UI ended
+with "Insecure dependency in exec" (`integrations/pve/plugin/t/taint.t`).
 
 **Start after restore** never asks PVE for `start=1` (PVE would start the guest in a task of
 its own, whose failure the restore does not show, and the start needs `VM.PowerMgmt`). After a
