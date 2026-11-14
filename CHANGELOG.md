@@ -624,8 +624,8 @@ private repository.
   results (a container on directory storage shows none). New `RESTOW_HOST_PVE_VMID` overrides it,
   as `RESTOW_HOST_SMBIOS_UUID` does for a VM (both now in `.env.example`). A container is marked
   only while no other connected cluster, of any tenant, has a container with that VMID; otherwise
-  none is, and each says "Possibly the Restow server" (`restowServerAmbiguous` of the guest) until
-  an admin marks the right one by hand. "Select all" in the job form leaves such a container out
+  none is, and each says "Possibly the Restow server" (`restowServerAmbiguous` of the guest, shown
+  to the provider's staff only) until an admin marks the right one by hand. "Select all" in the job form leaves such a container out
   too. A VM is never matched by its VMID. docs/PVE.md, "The Restow server's own VM".
 
 ### Changed

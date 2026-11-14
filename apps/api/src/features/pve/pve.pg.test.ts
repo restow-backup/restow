@@ -2717,8 +2717,9 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
             .from(pveGuests)
             .where(and(eq(pveGuests.clusterId, on.clusterId), eq(pveGuests.vmid, vmid)))
         )[0];
-      const dto = async (tenantId: string, on: Node, vmid: number) =>
-        (await service.overview(shared.db, tenantId)).guests.find(
+      // As the provider's staff sees it; a customer's user never gets the hint.
+      const dto = async (tenantId: string, on: Node, vmid: number, provider = true) =>
+        (await service.overview(shared.db, tenantId, new Date(), { provider })).guests.find(
           (g) => g.clusterId === on.clusterId && g.vmid === vmid,
         );
 
@@ -2755,8 +2756,19 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
       });
       expect((await dto(fixture.otherTenantId, e, 4105))?.restowServerAmbiguous).toBe(false);
       const ambiguous = await row(d, 4105);
-      const detail = await service.guestDetail(shared.db, fixture.tenantId, ambiguous?.id ?? "");
+      const detail = await service.guestDetail(shared.db, fixture.tenantId, ambiguous?.id ?? "", {
+        provider: true,
+      });
       expect(detail.guest.restowServerAmbiguous).toBe(true);
+      // A customer's user learns nothing about the provider's server: no hint, list or page.
+      expect((await dto(fixture.otherTenantId, f, 4105, false))?.restowServerAmbiguous).toBe(false);
+      expect((await dto(fixture.tenantId, d, 4105, false))?.restowServerAmbiguous).toBe(false);
+      const customerDetail = await service.guestDetail(
+        shared.db,
+        fixture.tenantId,
+        ambiguous?.id ?? "",
+      );
+      expect(customerDetail.guest.restowServerAmbiguous).toBe(false);
 
       // Marked by hand: the hint is gone everywhere.
       const marked = await row(f, 4105);

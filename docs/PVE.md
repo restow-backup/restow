@@ -1086,7 +1086,8 @@ storage, and keep Restow's database dumps (docs/DATABASE.md).
   other connected cluster (one with a node that is not revoked, of any tenant)
   has a container with it. Otherwise none is marked, and each of them says
   "Possibly the Restow server" (`restowServerAmbiguous` of the guest) until one
-  is marked by hand.
+  is marked by hand. Only the provider's staff sees that hint: a customer's
+  user would learn from it the VMID of the provider's server.
 - **Marked by hand.** Restow on another host, in a container that is not found
   (directory storage, a VMID in several clusters), or behind a node before 0.4.2:
   an admin ticks "This is the Restow server" on the guest's page

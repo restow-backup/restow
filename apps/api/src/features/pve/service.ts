@@ -554,6 +554,11 @@ function guestDto(
   };
 }
 
+/** Who reads the overview or a guest: the provider's staff (provider admins) or not. */
+export interface PveViewer {
+  provider: boolean;
+}
+
 /** A container that may be the Restow server's own: its VMID, not marked, present. */
 function restowServerCandidate(g: PveGuest, vmid: number): boolean {
   return (
@@ -568,10 +573,17 @@ function restowServerCandidate(g: PveGuest, vmid: number): boolean {
 /**
  * The VMID of the container the Restow server runs in, when more than one connected cluster has
  * a container with it and none of them is marked by hand (self-guest.ts): none is detected, and
- * the guests of `guests` with it say so. Null otherwise, and without asking the database when
- * none of `guests` has the VMID.
+ * the guests of `guests` with it say so. Only to the provider's staff (`providerView`): a
+ * customer's user would learn from it the VMID of the provider's server and that another cluster
+ * has it. Null otherwise, and without asking the database when none of `guests` has the VMID.
  */
-async function ambiguousRestowServerVmid(guests: readonly PveGuest[]): Promise<number | null> {
+async function ambiguousRestowServerVmid(
+  guests: readonly PveGuest[],
+  providerView: boolean,
+): Promise<number | null> {
+  if (!providerView) {
+    return null;
+  }
   const vmid = await ownPveVmid();
   if (vmid === null || !guests.some((g) => restowServerCandidate(g, vmid))) {
     return null;
@@ -598,7 +610,12 @@ export function jobDto(j: PveJob, facts: { guests?: number; round?: JobRound | n
 }
 
 /** Clusters with their nodes, the guests and the jobs of a tenant. */
-export async function overview(database: Database, tenantId: string, now: Date = new Date()) {
+export async function overview(
+  database: Database,
+  tenantId: string,
+  now: Date = new Date(),
+  viewer: PveViewer = { provider: false },
+) {
   return withTenantTx(database, tenantId, async (tx) => {
     const clusters = await tx.select().from(pveClusters).orderBy(asc(pveClusters.name));
     const nodes = await tx
@@ -783,7 +800,7 @@ export async function overview(database: Database, tenantId: string, now: Date =
         guestCounts.set(jobId, (guestCounts.get(jobId) ?? 0) + 1);
       }
     }
-    const ambiguousVmid = await ambiguousRestowServerVmid(guests);
+    const ambiguousVmid = await ambiguousRestowServerVmid(guests, viewer.provider);
     return {
       clusters: clusters.map((c) => ({
         id: c.id,
@@ -924,7 +941,12 @@ export function backupType(
 }
 
 /** One guest with its restore points, runs and open tasks. */
-export async function guestDetail(database: Database, tenantId: string, id: string) {
+export async function guestDetail(
+  database: Database,
+  tenantId: string,
+  id: string,
+  viewer: PveViewer = { provider: false },
+) {
   return withTenantTx(database, tenantId, async (tx) => {
     const guest = await loadGuest(tx, id);
     // Active restore points, and those a new backup chain made unavailable (shown as such).
@@ -1007,7 +1029,7 @@ export async function guestDetail(database: Database, tenantId: string, id: stri
               .where(and(eq(pveNodes.clusterId, guest.clusterId), isNull(pveNodes.revokedAt)))
           ).map((n) => n.name),
         ),
-        await ambiguousRestowServerVmid([guest]),
+        await ambiguousRestowServerVmid([guest], viewer.provider),
       ),
       bootTest: await guestBootTestFacts(tx, guest),
       restoreCheck: await guestRestoreCheckFacts(tx, guest),

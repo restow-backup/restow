@@ -145,7 +145,9 @@ function actorOf(c: Context<TenantEnv>): PveActor {
   return { label: user.email, userId: user.id, ip: clientIp(c) };
 }
 
-pveRoutes.get("/", restorer, async (c) => c.json(await overview(db, c.get("tenantId"))));
+pveRoutes.get("/", restorer, async (c) =>
+  c.json(await overview(db, c.get("tenantId"), new Date(), { provider: c.get("isProviderAdmin") })),
+);
 pveRoutes.get("/activity", restorer, async (c) => c.json(await pveActivity(db, c.get("tenantId"))));
 
 pveRoutes.post("/tokens", admin, async (c) => {
@@ -198,7 +200,9 @@ pveRoutes.post("/guests/:id/cancel", admin, async (c) => {
 
 pveRoutes.get("/guests/:id", restorer, async (c) => {
   const { id } = parseOrProblem(idParamSchema, c.req.param());
-  return c.json(await guestDetail(db, c.get("tenantId"), id));
+  return c.json(
+    await guestDetail(db, c.get("tenantId"), id, { provider: c.get("isProviderAdmin") }),
+  );
 });
 
 pveRoutes.post("/guests/:id/backup", admin, async (c) => {
