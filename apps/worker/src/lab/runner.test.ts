@@ -3,7 +3,7 @@
  * their serial consoles show: the network is cut once the ISO released its access, the
  * passphrase is typed where a prompt asks, the boot ends at `RESTOW-PROBE-OK`; time limits,
  * a full disk, a changed ISO and a probe the server ended become their outcomes; the probe's
- * folder is always removed and the answers (code, passphrase) leave the disk once QEMU read them.
+ * folder is always removed and the answers (code, passphrase) never reach the disk.
  */
 import { existsSync } from "node:fs";
 import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
@@ -110,7 +110,13 @@ describe("a boot probe in the lab", () => {
 
   function driver(
     vms: Vm[],
-    seen: { machines: Machine[]; disks: unknown[]; vars: string[]; answersAtStart: boolean[] },
+    seen: {
+      machines: Machine[];
+      disks: unknown[];
+      vars: string[];
+      answersAtStart: boolean[];
+      data: (Record<string, string> | undefined)[];
+    },
   ): VmDriver {
     return {
       createDisks: async (disks) => {
@@ -120,11 +126,16 @@ describe("a boot probe in the lab", () => {
         seen.vars.push(firmware);
         await writeFile(file, "vars");
       },
-      start: async (machine) => {
+      start: async (machine, _key, fwCfgData) => {
         seen.machines.push(machine);
-        // Whether the answers of the first machine (code, passphrase) are still on disk.
-        const answers = (seen.machines[0] ?? machine).fwCfg?.["opt/restow/answers"];
-        seen.answersAtStart.push(answers ? existsSync(answers) : false);
+        seen.data.push(fwCfgData);
+        // Whether an answers file (code, passphrase) is anywhere in the probe's folder.
+        seen.answersAtStart.push(
+          existsSync(join(dir, "probes")) &&
+            (await readdir(join(dir, "probes"), { recursive: true })).some((name) =>
+              String(name).endsWith("answers.json"),
+            ),
+        );
         const vm = vms.shift();
         if (!vm) throw new Error("no VM left");
         return vm;
@@ -160,6 +171,7 @@ describe("a boot probe in the lab", () => {
       disks: [] as unknown[],
       vars: [] as string[],
       answersAtStart: [] as boolean[],
+      data: [] as (Record<string, string> | undefined)[],
     };
     const result = await runProbe(deps(driver([restore.vm, boot.vm], seen)), lease());
     expect(result).toMatchObject({
@@ -184,7 +196,14 @@ describe("a boot probe in the lab", () => {
       model: "e1000e",
     });
     expect(first?.cdrom).toContain(`${SHA}.iso`);
-    expect(seen.answersAtStart).toEqual([true, false]);
+    // The answers reach QEMU as fw_cfg content through the driver, never as a file.
+    expect(seen.answersAtStart).toEqual([false, false]);
+    expect(JSON.parse(seen.data[0]?.["opt/restow/answers"] ?? "{}")).toMatchObject({
+      code: "SECRET-CODE",
+      passphrase: "pass-WORD_1",
+    });
+    expect(seen.data[1]).toBeUndefined();
+    expect(first?.fwCfg).toBeUndefined();
     expect(second?.network).toEqual({ mode: "none" });
     expect(second?.cdrom).toBeUndefined();
     expect(second?.fwCfg).toBeUndefined();
@@ -207,6 +226,7 @@ describe("a boot probe in the lab", () => {
       disks: [] as unknown[],
       vars: [] as string[],
       answersAtStart: [] as boolean[],
+      data: [] as (Record<string, string> | undefined)[],
     };
     const result = await runProbe(deps(driver([restore.vm, boot.vm], seen)), lease());
     expect(result.outcome).toBe("boot_timeout");
@@ -221,6 +241,7 @@ describe("a boot probe in the lab", () => {
       disks: [] as unknown[],
       vars: [] as string[],
       answersAtStart: [] as boolean[],
+      data: [] as (Record<string, string> | undefined)[],
     };
     expect(await runProbe(deps(driver([quiet.vm], seen)), lease())).toMatchObject({
       outcome: "restore_stopped",
@@ -244,6 +265,7 @@ describe("a boot probe in the lab", () => {
       disks: [] as unknown[],
       vars: [] as string[],
       answersAtStart: [] as boolean[],
+      data: [] as (Record<string, string> | undefined)[],
     };
     const result = await runProbe(
       deps(driver([endless.vm], seen)),
@@ -259,6 +281,7 @@ describe("a boot probe in the lab", () => {
       disks: [] as unknown[],
       vars: [] as string[],
       answersAtStart: [] as boolean[],
+      data: [] as (Record<string, string> | undefined)[],
     };
     const d = driver([], seen);
     expect((await runProbe(deps(d, { kvm: false }), lease())).error?.code).toBe("no_kvm");

@@ -20,7 +20,7 @@
  */
 import { createHash, randomBytes } from "node:crypto";
 import { createReadStream, existsSync } from "node:fs";
-import { mkdir, rm, statfs, writeFile } from "node:fs/promises";
+import { mkdir, rm, statfs } from "node:fs/promises";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import type { LabClient, LabController, LeasedProbe, ProbeResult } from "./client.js";
@@ -62,8 +62,12 @@ export interface VmDriver {
   createDisks(disks: readonly { file: string; sizeBytes: number }[], key: string): Promise<void>;
   /** The variable store of the firmware (with the DBX for Secure Boot). */
   createVars(file: string, firmware: Firmware): Promise<void>;
-  /** Start a machine; `key` opens its disks (secret `probekey`). */
-  start(machine: Machine, key: string): Promise<Vm>;
+  /**
+   * Start a machine; `key` opens its disks (secret `probekey`). `fwCfgData` are fw_cfg entries
+   * by content (the answers with the code and the passphrase): the driver hands them to QEMU
+   * without a file on disk and returns once QEMU read them.
+   */
+  start(machine: Machine, key: string, fwCfgData?: Record<string, string>): Promise<Vm>;
 }
 
 export interface RunnerDeps {
@@ -202,8 +206,6 @@ export async function runProbe(deps: RunnerDeps, probe: LeasedProbe): Promise<Pr
       upstream: deps.tlsUpstream,
     });
     closeProxy = proxy.close;
-    const answers = join(dir, "answers.json");
-    await writeFile(answers, JSON.stringify(probe.answers), { mode: 0o600 });
     const common = {
       memoryMiB: probe.hardware.memoryMiB,
       cpus: probe.hardware.cpus,
@@ -224,7 +226,6 @@ export async function runProbe(deps: RunnerDeps, probe: LeasedProbe): Promise<Pr
         serialSocket: join(dir, "restore-serial.sock"),
         qmpSocket: join(dir, "restore-qmp.sock"),
         cdrom: isoFile,
-        fwCfg: { "opt/restow/answers": answers },
         network: {
           mode: "restricted",
           guestAddress: PROXY_GUEST_ADDRESS,
@@ -234,10 +235,11 @@ export async function runProbe(deps: RunnerDeps, probe: LeasedProbe): Promise<Pr
         },
       },
       key,
+      // The code and the passphrase never touch the disk: QEMU reads them from a pipe while it
+      // builds the machine (after the encrypted disks are open, seconds after its start).
+      { "opt/restow/answers": JSON.stringify(probe.answers) },
     );
     vms.push(restore);
-    // QEMU read the answers at its start; the code and the passphrase leave the disk.
-    await rm(answers, { force: true });
     const deadline = restoreStart + probe.timeouts.totalMs;
     let released = false;
     let exitCode: number | null = null;

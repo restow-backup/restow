@@ -1391,11 +1391,60 @@ func (x *Executor) isolated(ctx context.Context, s *baremetal.Step, argv []strin
 		return err
 	}
 	if res.ExitCode != 0 {
+		if grubProbeFor[prog] != "" {
+			if derr := x.grubDiagnosis(ctx, spec, grubProbeFor[prog]); derr != nil {
+				return derr
+			}
+		}
 		return fmt.Errorf("%s exited with code %d", prog, res.ExitCode)
 	}
 	switch s.Kind {
 	case "initramfs", "initramfs_extra", "uki":
 		x.report.RebuiltKernels = append(x.report.RebuiltKernels, deref(s.Target))
+	}
+	return nil
+}
+
+// grubProbeFor names the grub-probe of a GRUB program whose failure
+// grubDiagnosis explains.
+var grubProbeFor = map[string]string{"grub-install": "grub-probe", "grub-mkconfig": "grub-probe", "update-grub": "grub-probe",
+	"grub2-install": "grub2-probe", "grub2-mkconfig": "grub2-probe"}
+
+// grubDiagnosis runs, after a failed GRUB step, its grub-probe with -v on
+// /boot/grub in the same isolation (devices, capabilities) and logs what it
+// found: which disks and partitions it scanned, which RAID or LVM members it
+// missed, which file system it tried. "unknown filesystem" alone does not
+// say whether the device, the array or the file system was the problem.
+// Only a mapping opened meanwhile fails the step otherwise; the probe's own
+// result does not.
+func (x *Executor) grubDiagnosis(ctx context.Context, spec IsolateSpec, probe string) error {
+	diag := spec
+	diag.Argv = []string{probe, "-v", "--target=fs", "/boot/grub"}
+	diag.Env = append([]string(nil), spec.Env...)
+	diag.TimeoutSeconds = 120
+	x.log("devices of the step: %s", strings.Join(spec.Devices, " "))
+	x.log("$ chroot-exec %s", strings.Join(diag.Argv, " "))
+	res, err := x.Isolator.Run(ctx, diag)
+	if err != nil {
+		x.log("  %s: %v", probe, err)
+	} else if res != nil {
+		for i, l := range strings.Split(strings.TrimRight(string(res.Output), "\n"), "\n") {
+			if i >= 200 {
+				x.log("  ... (output cut)")
+				break
+			}
+			if l != "" {
+				x.log("  %s", l)
+			}
+		}
+	}
+	if ferr := x.thawAfter(probe); ferr != nil {
+		return ferr
+	}
+	if spec.CapSysAdmin {
+		if f := foreignKeyMappings(x.Ops.DMMappings(), spec.Devices, x.openedNames()); len(f) > 0 {
+			return openedDuringError(probe, f)
+		}
 	}
 	return nil
 }

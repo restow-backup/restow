@@ -561,3 +561,48 @@ func TestRecoveryMountArgs(t *testing.T) {
 		t.Error("no mount in the golden plan")
 	}
 }
+
+// TestExecuteGrubFailureProbes: a failed grub-install is followed by its
+// grub-probe -v in the same isolation; the step still fails with the
+// exit code of grub-install, and the log keeps what the probe found.
+func TestExecuteGrubFailureProbes(t *testing.T) {
+	h := newHarness(t, "bios-mbr-mdadm-raid1.same", "bios-mbr-mdadm-raid1")
+	h.iso.exitFor = func(spec IsolateSpec) int {
+		if spec.Argv[0] == "grub-install" || spec.Argv[0] == "grub-probe" {
+			return 1
+		}
+		return 0
+	}
+	h.iso.reply = func(spec IsolateSpec) string {
+		if spec.Argv[0] == "grub-probe" {
+			return "grub-probe: info: Scanning for mdraid1x devices on disk hd0,msdos1.\ngrub-probe: error: unknown filesystem."
+		}
+		return ""
+	}
+	_, err := h.x.Run(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "grub-install exited with code 1") {
+		t.Fatalf("err %v", err)
+	}
+	var install, probe *IsolateSpec
+	for i := range h.iso.runs {
+		switch h.iso.runs[i].Argv[0] {
+		case "grub-install":
+			if install == nil {
+				install = &h.iso.runs[i]
+			}
+		case "grub-probe":
+			probe = &h.iso.runs[i]
+		}
+	}
+	if install == nil || probe == nil {
+		t.Fatalf("runs: install %v, probe %v", install != nil, probe != nil)
+	}
+	if strings.Join(probe.Argv, " ") != "grub-probe -v --target=fs /boot/grub" ||
+		strings.Join(probe.Devices, " ") != strings.Join(install.Devices, " ") || probe.CapSysAdmin != install.CapSysAdmin {
+		t.Errorf("probe spec %+v", probe)
+	}
+	log := strings.Join(h.log, "\n")
+	if !strings.Contains(log, "Scanning for mdraid1x devices on disk hd0,msdos1") || !strings.Contains(log, "devices of the step: ") {
+		t.Errorf("log does not keep the probe:\n%s", log)
+	}
+}

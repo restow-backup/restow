@@ -358,11 +358,12 @@ func (o *fakeOps) ThawFrozen(root string) ([]string, error) {
 
 // fakeIsolator records the isolated programs.
 type fakeIsolator struct {
-	exec  *fakeExec
-	mu    sync.Mutex
-	runs  []IsolateSpec
-	exit  int
-	reply func(spec IsolateSpec) string
+	exec    *fakeExec
+	mu      sync.Mutex
+	runs    []IsolateSpec
+	exit    int
+	exitFor func(spec IsolateSpec) int
+	reply   func(spec IsolateSpec) string
 }
 
 func (i *fakeIsolator) Run(ctx context.Context, spec IsolateSpec) (*IsolationResult, error) {
@@ -376,7 +377,11 @@ func (i *fakeIsolator) Run(ctx context.Context, spec IsolateSpec) (*IsolationRes
 	if i.reply != nil {
 		out = i.reply(spec)
 	}
-	return &IsolationResult{ExitCode: i.exit, Output: []byte(out)}, nil
+	exit := i.exit
+	if i.exitFor != nil {
+		exit = i.exitFor(spec)
+	}
+	return &IsolationResult{ExitCode: exit, Output: []byte(out)}, nil
 }
 
 // fakeSessionAPI records what the execution reports.

@@ -132,10 +132,18 @@ export function qemuDriver(options: { dbxFile: string | null; ovmf?: OvmfFiles }
         await copyFile(ovmf.vars, file);
       }
     },
-    async start(machine: Machine, key: string): Promise<Vm> {
+    async start(machine: Machine, key: string, fwCfgData?: Record<string, string>): Promise<Vm> {
       const fifo = await keyFifo(key);
+      const dataFifos: Record<string, KeyFifo> = {};
+      for (const [name, content] of Object.entries(fwCfgData ?? {})) {
+        dataFifos[name] = await keyFifo(content);
+      }
+      const fwCfg = { ...machine.fwCfg };
+      for (const [name, data] of Object.entries(dataFifos)) fwCfg[name] = data.path;
+      const pipes = [fifo, ...Object.values(dataFifos)];
       const args = machineArgs({
         ...machine,
+        ...(Object.keys(fwCfg).length > 0 ? { fwCfg } : {}),
         ovmf,
         secrets: [{ id: "probekey", file: fifo.path }],
       });
@@ -150,9 +158,10 @@ export function qemuDriver(options: { dbxFile: string | null; ovmf?: OvmfFiles }
         child.on("exit", (code) => resolve(code ?? -1));
         child.on("error", () => resolve(-1));
       });
-      // QEMU reads its secrets while it starts; the pipe goes once it did or QEMU ended.
-      await Promise.race([fifo.written, exited, sleep(30_000)]);
-      await fifo.close();
+      // QEMU reads its secret first and the fw_cfg files when it builds the machine, after it
+      // opened the encrypted disks; the pipes go once it read them all, or QEMU ended.
+      await Promise.race([Promise.all(pipes.map((pipe) => pipe.written)), exited, sleep(120_000)]);
+      await Promise.all(pipes.map((pipe) => pipe.close()));
       const early = await Promise.race([exited, sleep(1500).then(() => null)]);
       if (early !== null) {
         throw new Error(`QEMU did not start (${early}): ${stderr.trim().slice(-300)}`);
