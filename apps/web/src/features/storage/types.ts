@@ -304,7 +304,79 @@ export interface CompletenessResult {
 export interface PromoteResult {
   target: StorageTargetDto;
   previousPrimaryId: string | null;
+  previousPrimaryRole: "copy" | "previous";
   completeness: CopyCompleteness;
+  repositories: number;
+  restorePointIdsRewritten: number;
+}
+
+/** Why a copy cannot become the primary yet (docs/STORAGE.md, "Promoting a copy"). */
+export type PromotionBlockerCode =
+  | "local_requires_provider_admin"
+  | "already_primary"
+  | "not_a_copy"
+  | "migration_in_progress"
+  | "not_verified"
+  | "active_endpoints"
+  | "switch_blocked_by_runs"
+  | "switch_blocked_by_repair"
+  | "storage_jobs_running"
+  | "copy_pass_running"
+  | "repository_copies_incomplete"
+  | "copy_incomplete"
+  | "unreachable";
+
+export interface PromotionBlocker {
+  code: PromotionBlockerCode;
+  queues?: string[];
+  repositories?: number;
+}
+
+export type RepositoryCopyReadiness =
+  | "current"
+  | "outdated"
+  | "behind"
+  | "failed"
+  | "requested"
+  | "pending"
+  | "not_created";
+
+export interface PromotionRepository {
+  prefix: string;
+  kind: "container" | "machine" | "file_share";
+  ownerId: string;
+  name: string | null;
+  readiness: RepositoryCopyReadiness;
+  missingSnapshots: number;
+  lastCopiedAt: string | null;
+  lastAttemptAt: string | null;
+  lastError: string | null;
+}
+
+/** GET /storage/targets/:id/promotion: the server's answer whether and why not. */
+export interface PromotionReadiness {
+  targetId: string;
+  ready: boolean;
+  blockers: PromotionBlocker[];
+  completeness: CopyCompleteness | null;
+  currentPrimaryBecomes: "copy" | "previous";
+  repositories: {
+    total: number;
+    current: number;
+    items: PromotionRepository[];
+    itemsOmitted: number;
+  };
+  catchUp: {
+    running: boolean;
+    waiting: number;
+    scrub: {
+      jobId: string;
+      status: "queued" | "active" | "completed" | "failed" | "cancelled";
+      createdAt: string;
+      finishedAt: string | null;
+    } | null;
+  };
+  canCatchUp: boolean;
 }
 
 export interface UsagePoint {
