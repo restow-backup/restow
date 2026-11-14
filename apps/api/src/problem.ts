@@ -1,3 +1,4 @@
+import { safeErrorMessage } from "@restow/db";
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 
@@ -73,6 +74,34 @@ export function sendProblem(
   return c.body(JSON.stringify(body), status, { "content-type": PROBLEM_CONTENT_TYPE });
 }
 
+/** How many stack frames an unexpected error keeps in the log. */
+const LOGGED_FRAMES = 12;
+
+/**
+ * One JSON line on stderr for an error answered with 500: the route (path only, never the
+ * query string, which can carry a token), the error's name, its message without the text of a
+ * failed query (safeErrorMessage) and the first frames of its stack (frames only: the message
+ * line is not repeated).
+ */
+function logUnexpected(err: Error, c: Context): void {
+  const frames = (err.stack ?? "")
+    .split("\n")
+    .filter((line) => line.trimStart().startsWith("at "))
+    .slice(0, LOGGED_FRAMES)
+    .map((line) => line.trim());
+  console.error(
+    JSON.stringify({
+      level: "error",
+      message: "unexpected error, answered with 500",
+      method: c.req.method,
+      path: c.req.path,
+      errorName: err.name,
+      errorMessage: safeErrorMessage(err),
+      stack: frames,
+    }),
+  );
+}
+
 /** Global `onError` handler: known problems pass through, everything else is a 500. */
 export function errorHandler(err: Error, c: Context) {
   if (err instanceof ProblemError) {
@@ -83,6 +112,8 @@ export function errorHandler(err: Error, c: Context) {
       extensions: err.extensions,
     });
   }
+  // The log names what went wrong (the body never does): without it a 500 leaves no trace.
+  logUnexpected(err, c);
   // Never leak internals or secrets in the response body.
   return sendProblem(c, 500, "Internal Server Error", {
     detail: "An unexpected error occurred.",

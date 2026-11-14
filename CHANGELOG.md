@@ -10,6 +10,20 @@ private repository.
 
 ## [Unreleased]
 
+### Fixed
+
+- Proxmox VE: a restore from the PVE web UI (storage `restow` > Backups > Restore) of a container
+  ended with "Insecure dependency in exec while running with -T switch". pvedaemon runs Perl in
+  taint mode, and the storage plugin handed the archive directory from restow-pve to
+  pve-container unchecked. Every value the plugin hands back to PVE (archive directory, the NBD
+  address and disk sizes of a VM restore, names, sizes of the listing) is now checked against
+  what restow-pve sends and untainted, or the call is refused naming the value. `pct restore`
+  and `qmrestore` on a shell were not affected.
+- The API now writes an unexpected error to its log before it answers with HTTP 500: the method,
+  the path, the error's name and message (with secrets masked) and the first frames of its stack.
+  Until now such a request failed in the browser while `docker compose logs api` showed nothing,
+  so the cause could not be found without a debugger.
+
 ## [0.4.12] - 2026-11-04
 
 Beta release. Run it alongside your existing backups, not as your only one, until
