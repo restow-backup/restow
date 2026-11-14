@@ -23,6 +23,24 @@ import type { Vm, VmDriver } from "./runner.js";
 
 const KEY_FD_FILE = "/dev/fd/3";
 
+/**
+ * Hand `key` to a child on its fd 3. Node makes that fd a socket pair: when the program closes
+ * its end (QEMU after reading the key, or a program that ends early), the socket on this side may
+ * report ECONNRESET or EPIPE, and an 'error' event without a listener ends the whole lab
+ * process (the boot probe it ran stays leased until its time runs out). Whether the program got
+ * the key shows in its own exit code and stderr, which the callers judge; the error here is noted
+ * and nothing more.
+ */
+export function sendKey(
+  pipe: NodeJS.WritableStream | null | undefined,
+  key: string,
+  onError: (error: Error) => void = () => {},
+): void {
+  if (!pipe) return;
+  pipe.on("error", onError);
+  pipe.end(key);
+}
+
 /** Run a program with `key` on fd 3; rejects with the end of its stderr. */
 function runWithKey(command: string, args: string[], key: string | null): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -33,10 +51,7 @@ function runWithKey(command: string, args: string[], key: string | null): Promis
     child.stderr?.on("data", (chunk: Buffer) => {
       stderr = (stderr + chunk.toString("utf8")).slice(-2000);
     });
-    if (key) {
-      const pipe = child.stdio[3] as NodeJS.WritableStream;
-      pipe.end(key);
-    }
+    if (key) sendKey(child.stdio[3] as NodeJS.WritableStream, key);
     child.on("error", reject);
     child.on("exit", (code) =>
       code === 0
@@ -83,7 +98,7 @@ export function qemuDriver(options: { dbxFile: string | null; ovmf?: OvmfFiles }
       child.stderr?.on("data", (chunk: Buffer) => {
         stderr = (stderr + chunk.toString("utf8")).slice(-2000);
       });
-      (child.stdio[3] as NodeJS.WritableStream).end(key);
+      sendKey(child.stdio[3] as NodeJS.WritableStream, key);
       const exited = new Promise<number>((resolve) => {
         child.on("exit", (code) => resolve(code ?? -1));
         child.on("error", () => resolve(-1));

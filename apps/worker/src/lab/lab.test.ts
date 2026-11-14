@@ -8,6 +8,7 @@
  *   - its configuration, the DBX of the image, the loop that asks the worker for work, the ISO
  *     download checked against its SHA-256.
  */
+import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
@@ -27,6 +28,7 @@ import {
   SANDBOX_ARGS,
   typeSerial,
 } from "./qemu.js";
+import { sendKey } from "./vm.js";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 
@@ -194,6 +196,21 @@ describe("the lab process", () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+
+  it("survives a program that closes the key's fd 3 before reading it all", async () => {
+    // The lab process ended on such an ECONNRESET (no 'error' listener) right after a lease.
+    const child = spawn("sh", ["-c", "exec 3<&-; sleep 0.3"], {
+      stdio: ["ignore", "ignore", "ignore", "pipe"],
+    });
+    const errors: Error[] = [];
+    sendKey(child.stdio[3] as NodeJS.WritableStream, "k".repeat(4 * 1024 * 1024), (error) =>
+      errors.push(error),
+    );
+    const code = await new Promise<number | null>((resolve) => child.on("exit", resolve));
+    expect(code).toBe(0);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(errors.every((error) => /EPIPE|ECONNRESET/.test(String(error)))).toBe(true);
   });
 
   it("logs why a planned probe waits, once per change, and never the normal answers", () => {
