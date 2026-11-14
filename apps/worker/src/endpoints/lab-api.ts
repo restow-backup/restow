@@ -142,14 +142,39 @@ function onlyKeys(value: unknown, keys: readonly string[]): value is Record<stri
   );
 }
 
-/** The body of `next`: the lab's version and whether it has KVM. */
-export function parseNextBody(value: unknown): { labVersion: string; kvm: boolean } | null {
-  if (!onlyKeys(value, ["labVersion", "kvm"])) return null;
-  const { labVersion, kvm } = value;
+/** The most probes a lab can say it runs (its concurrency is far below). */
+const MAX_RUNNING_REPORTED = 32;
+
+export interface NextBody {
+  labVersion: string;
+  kvm: boolean;
+  /**
+   * The probes the lab runs right now. A lab of 0.5.0 always sends it; without it (an older lab)
+   * no leased probe is ended (`releaseOrphanedProbes`).
+   */
+  running?: string[];
+}
+
+/** The body of `next`: the lab's version, whether it has KVM and the probes it runs. */
+export function parseNextBody(value: unknown): NextBody | null {
+  if (!onlyKeys(value, ["labVersion", "kvm", "running"])) return null;
+  const { labVersion, kvm, running } = value;
   if (typeof labVersion !== "string" || labVersion.length > 64 || typeof kvm !== "boolean") {
     return null;
   }
-  return { labVersion: labVersion.replace(/[^\x20-\x7e]/g, ""), kvm };
+  if (
+    running !== undefined &&
+    (!Array.isArray(running) ||
+      running.length > MAX_RUNNING_REPORTED ||
+      !running.every((id) => typeof id === "string" && isUuid(id)))
+  ) {
+    return null;
+  }
+  return {
+    labVersion: labVersion.replace(/[^\x20-\x7e]/g, ""),
+    kvm,
+    ...(running !== undefined ? { running: [...new Set(running as string[])] } : {}),
+  };
 }
 
 export interface ProbeEventBody {
@@ -187,12 +212,88 @@ export type LeaseResult =
   | { probe: LeasedProbe }
   | { probe: null; reason: "no_kvm" | "busy" | "iso_missing" | "instance_unknown" | "none" };
 
+/**
+ * The probes the lab no longer runs: leased and still open, but missing from the lab's `running`
+ * list. The lab lost them (it was restarted, or a result never arrived); without this each kept
+ * a place of the lab's concurrency until it expired (PROBE_TIMEOUT_MS), and the lab answered
+ * "busy" meanwhile. Each ends as a `lab_error` with code `lab_restarted` through the normal
+ * result path: its code and access end, its report is incomplete (no rating), and the planning
+ * plans the machine's next probe as after any probe that proved nothing. One lab per
+ * installation (docs/BAREMETAL.md 12.3): every leased probe is that lab's.
+ */
+export async function releaseOrphanedProbes(
+  deps: EndpointJobDeps,
+  options: Pick<LabApiOptions, "maxRestoreBytes">,
+  lab: { labVersion: string; kvm: boolean; running: readonly string[] },
+): Promise<string[]> {
+  const now = deps.runtime.now();
+  const open = await deps.providerDb
+    .select({
+      id: endpointRecoveries.id,
+      tenantId: endpointRecoveries.tenantId,
+      endpointId: endpointRecoveries.endpointId,
+      snapshotId: endpointRecoveries.snapshotId,
+    })
+    .from(endpointRecoveries)
+    .where(
+      and(
+        eq(endpointRecoveries.kind, "probe"),
+        isNotNull(endpointRecoveries.codeHash),
+        inArray(endpointRecoveries.status, [...OPEN_STATES]),
+        gt(endpointRecoveries.expiresAt, now),
+      ),
+    );
+  const running = new Set(lab.running);
+  const released: string[] = [];
+  for (const probe of open) {
+    if (running.has(probe.id)) continue;
+    // The hardware the probe was leased with, for the report (firmware, controllers).
+    const stage = probe.snapshotId
+      ? await withTenantTx(deps.db, probe.tenantId, (tx) =>
+          stageOneOf(tx, probe.endpointId, probe.snapshotId as string),
+        )
+      : null;
+    const hardware = stage?.manifest ? probeHardware(stage.manifest) : null;
+    const outcome = await storeProbeResult(
+      deps,
+      probe.id,
+      {
+        outcome: "lab_error",
+        bootSerial: "",
+        error: {
+          code: "lab_restarted",
+          message:
+            "The lab no longer runs this probe (it was restarted, or its result never arrived).",
+        },
+        kvm: lab.kvm,
+        firmware: hardware?.firmware ?? "uefi",
+        controllers: hardware ? [...new Set(hardware.disks.map((disk) => disk.controller))] : [],
+        restoreMs: null,
+        bootMs: null,
+        labVersion: lab.labVersion,
+      },
+      options,
+    );
+    if (outcome.status === "stored") {
+      released.push(probe.id);
+      deps.runtime.logger.warn("boot probe released: the lab no longer runs it", {
+        probeId: probe.id,
+        endpointId: probe.endpointId,
+      });
+    }
+  }
+  return released;
+}
+
 /** The lab asked: its state is stored, then at most one planned probe is leased to it. */
 export async function leaseBootProbe(
   deps: EndpointJobDeps,
   options: LabApiOptions,
-  lab: { labVersion: string; kvm: boolean },
+  lab: NextBody,
 ): Promise<LeaseResult> {
+  if (lab.running !== undefined) {
+    await releaseOrphanedProbes(deps, options, { ...lab, running: lab.running });
+  }
   const now = deps.runtime.now();
   const state: RecoveryLabState = {
     seenAt: now.toISOString(),

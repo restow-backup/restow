@@ -192,7 +192,7 @@ describe("the lab process", () => {
           },
         },
       );
-      expect(asked).toEqual([{ labVersion: "0.5.0", kvm: false }]);
+      expect(asked).toEqual([{ labVersion: "0.5.0", kvm: false, running: [] }]);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

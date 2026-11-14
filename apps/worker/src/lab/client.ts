@@ -55,7 +55,8 @@ export interface ProbeResult {
 }
 
 export interface LabClient {
-  next(state: { labVersion: string; kvm: boolean }): Promise<LeaseAnswer>;
+  /** `running`: the probes the lab runs; the worker ends leased ones it does not name. */
+  next(state: { labVersion: string; kvm: boolean; running: string[] }): Promise<LeaseAnswer>;
   event(id: string, phase: ProbePhase, detail?: string): Promise<{ go: boolean }>;
   result(id: string, result: ProbeResult): Promise<void>;
   /** Download the ISO into `file`, checked against its SHA-256 before it is renamed into place. */

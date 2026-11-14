@@ -100,12 +100,20 @@ export async function runLab(
   });
   const driver = deps.driver ?? qemuDriver({ dbxFile: dbx?.file ?? null });
   const running = new Set<Promise<void>>();
+  // The probes this lab runs, named with every `next`: a probe leased before a restart of the
+  // lab is missing from it, and the worker ends that one (lab_restarted) instead of waiting for
+  // its expiry with the lab's place taken.
+  const runningIds = new Set<string>();
   let lastReason: string | null = null;
   while (!deps.signal?.aborted) {
     const kvm = (deps.kvm ?? kvmUsable)();
     try {
       if (running.size < config.concurrency) {
-        const answer = await client.next({ labVersion: config.version, kvm });
+        const answer = await client.next({
+          labVersion: config.version,
+          kvm,
+          running: [...runningIds],
+        });
         if (!answer.probe) {
           const note = noProbeNote(lastReason, answer.reason);
           if (note) log("no probe leased", { reason: note });
@@ -116,6 +124,7 @@ export async function runLab(
         if (answer.probe) {
           const probe = answer.probe;
           log("probe leased", { probeId: probe.id, firmware: probe.hardware.firmware });
+          runningIds.add(probe.id);
           const job = runProbe(
             {
               client,
@@ -139,7 +148,10 @@ export async function runLab(
             .catch((error: unknown) =>
               log("probe result not delivered", { probeId: probe.id, error: String(error) }),
             )
-            .finally(() => running.delete(job));
+            .finally(() => {
+              running.delete(job);
+              runningIds.delete(probe.id);
+            });
           running.add(job);
           continue;
         }

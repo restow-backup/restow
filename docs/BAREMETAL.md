@@ -2920,7 +2920,13 @@ nicht zur Übernahme aller Mandanten werden. Darum:
 - Eine schmale **Labor-API** im Worker (eigener Listener, Port 8095, nur im Compose-Netz,
   nur auf dem Haupthost, Anmeldung mit `RESTOW_LAB_TOKEN` als `Authorization: Bearer`,
   `apps/worker/src/endpoints/lab-api.ts`): `POST /internal/lab/next` speichert den Stand des
-  Labors (Version, KVM) und übergibt höchstens eine geplante Probe, genau einmal: Der Worker
+  Labors (Version, KVM), beendet übernommene Proben, die das Labor nicht mehr ausführt (das
+  Labor nennt mit jeder Anfrage die Kennungen seiner laufenden Proben, `running`; eine
+  übernommene, offene Probe, die dort fehlt, hat das Labor verloren, etwa durch einen
+  Neustart oder ein nie angekommenes Ergebnis: sie endet als `lab_error` mit Code
+  `lab_restarted`, unvollständig, und belegt den Platz des Labors nicht mehr bis zum Ablauf
+  der zwei Stunden; ein Labor ohne `running` beendet nichts), und übergibt höchstens eine
+  geplante Probe, genau einmal: Der Worker
   erzeugt dabei einen **Einmal-Code** wie für einen Menschen (an den Ursprung der Instanz
   gebunden, gespeichert nur der Hash seines Nachweises, dazu der Prüfwert des TLS-Schlüssels)
   und gibt dem Labor Code, Ursprung, Prüfwert, die erwartete SHA-256 des ISO, die Hardware

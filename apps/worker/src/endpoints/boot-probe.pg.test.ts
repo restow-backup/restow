@@ -217,8 +217,10 @@ describe.skipIf(!adminUrl)("the boot probe in the worker", () => {
       headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
       body: JSON.stringify(body),
     });
-  const next = async () =>
-    (await (await lab({ labVersion: "0.5.0", kvm: true })).json()) as {
+  const next = async (running?: string[]) =>
+    (await (
+      await lab({ labVersion: "0.5.0", kvm: true, ...(running ? { running } : {}) })
+    ).json()) as {
       probe: Record<string, unknown> | null;
       reason?: string;
     };
@@ -558,6 +560,44 @@ describe.skipIf(!adminUrl)("the boot probe in the worker", () => {
     } finally {
       options.concurrency = 1;
     }
+  });
+
+  it("ends the probes a restarted lab no longer runs, and leases the next one at once", async () => {
+    clock = new Date();
+    await clearProbes();
+    await labSeen(true);
+    const a = await machine();
+    const b = await machine();
+    await planBootProbes(deps, clock);
+    const first = await next([]);
+    const firstId = String(first.probe?.id);
+    // While the lab names it, it holds the lab's place.
+    expect(await next([firstId])).toEqual({ probe: null, reason: "busy" });
+    // A lab without the list (older) ends nothing.
+    expect(await next()).toEqual({ probe: null, reason: "busy" });
+    // Invalid lists are refused.
+    for (const running of [["not-a-uuid"], "x", Array.from({ length: 33 }, () => randomUUID())]) {
+      expect((await lab({ labVersion: "0.5.0", kvm: true, running })).status).toBe(400);
+    }
+    // Restarted: the lab runs nothing. The orphan ends as lab_restarted, the next probe follows.
+    const second = await next([]);
+    expect(second.probe?.id).toBeTruthy();
+    expect(second.probe?.id).not.toBe(firstId);
+    const orphanOf = (await probesOf(a.id)).some((row) => row.id === firstId) ? a : b;
+    const [orphan] = (await probesOf(orphanOf.id)).filter((row) => row.id === firstId);
+    expect(orphan?.status).toBe("failed");
+    const [report] = await probeReportsOf(orphanOf.id);
+    expect(report?.summary).toMatchObject({
+      probeId: firstId,
+      cause: { kind: "incomplete", reason: "lab_restarted" },
+      controllers: ["sata"],
+    });
+    // The lab's result for the ended probe, should it still come, is already reported.
+    expect((await result(firstId)).status).toBe(409);
+    // The running one is kept.
+    const secondId = String(second.probe?.id);
+    expect(await next([secondId])).toEqual({ probe: null, reason: "busy" });
+    expect(await probeReportsOf(orphanOf === a ? b.id : a.id)).toHaveLength(0);
   });
 
   it("rates a probe from the recovery and the console once, and only one the lab leased [VERIFY-009]", async () => {
