@@ -607,15 +607,19 @@
     "confirmedLong": "An administrator confirmed backing it up with {appName} anyway.",
     "reason": {
       "detected": "{appName} found it: its SMBIOS UUID is the one of the machine {appName} runs on.",
+      "detectedCt": "{appName} found it: {appName}'s data lies on a volume of this container (VMID {vmid}).",
       "flagged": "An administrator marked it as the {appName} server."
     },
-    "risk": "Backing up the VM that runs {appName} with {appName} itself can deadlock: the backup freezes or snapshots the server that receives the backup, and restoring it needs the very server that is being restored.",
-    "recommendation": "Back this VM up with Proxmox VE's own backup (vzdump) to another storage, and keep {appName}'s database dumps (docs/DATABASE.md). Confirm only if you accept the risk.",
+    "risk": "Backing up the guest that runs {appName} with {appName} itself can deadlock: the backup freezes or snapshots the server that receives the backup, and restoring it needs the very server that is being restored.",
+    "recommendation": "Back this guest up with Proxmox VE's own backup (vzdump) to another storage, and keep {appName}'s database dumps (docs/DATABASE.md). Confirm only if you accept the risk.",
     "confirmTitle": "Back up the {appName} server ({name}) with {appName}?",
     "confirm": "Back it up anyway",
-    "confirmInJob": "I understand the risk and want this VM backed up by this job anyway.",
+    "confirmInJob": "I understand the risk and want this guest backed up by this job anyway.",
     "flag": "This is the {appName} server",
-    "flagHint": "Mark the guest {appName} runs in when {appName} cannot find it itself (for example {appName} in a container). It is then not backed up until an administrator confirms it."
+    "flagHint": "Mark the guest {appName} runs in when {appName} cannot find it itself (for example a container on directory storage). It is then not backed up until an administrator confirms it.",
+    "ambiguousTitle": "Possibly the {appName} server",
+    "ambiguous": "{appName} runs in a container with VMID {vmid}. More than one connected cluster has a container with that VMID, so {appName} marks none of them itself. If it is this one, mark it as the {appName} server.",
+    "ambiguousShort": "Possibly the {appName} server: its VMID exists in more than one cluster. If it is, mark it by hand."
   },
   "settings": {
     "title": "Proxmox VE",

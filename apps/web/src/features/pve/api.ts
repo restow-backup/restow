@@ -96,11 +96,17 @@ export interface PveGuest {
    */
   lastRunWarnings?: string[];
   /**
-   * The guest is the VM this Restow installation runs in: found by its SMBIOS UUID, or marked by
-   * an admin; null otherwise. Missing on servers before 0.4.2.
+   * The guest is the VM or container this Restow installation runs in: found by its SMBIOS UUID
+   * (a VM) or by the VMID its volumes name (a container, 0.5.0), or marked by an admin; null
+   * otherwise. Missing on servers before 0.4.2.
    */
   restowServer?: "detected" | "flagged" | null;
   restowServerFlagged?: boolean;
+  /**
+   * A container with the VMID of the one Restow runs in, which more than one connected cluster
+   * has: none is marked by itself, the admin marks the right one (0.5.0).
+   */
+  restowServerAmbiguous?: boolean;
   /** An admin confirmed backing up the Restow server's own VM anyway. */
   selfBackupConfirmedAt?: string | null;
   /**

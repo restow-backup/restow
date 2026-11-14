@@ -53,8 +53,9 @@ import {
 } from "./boot-tests.js";
 import { withdrawQueued } from "./cancel.js";
 import { containerBackupPaths } from "./files.js";
-import { NODE_ONLINE_MS } from "./node-service.js";
+import { NODE_ONLINE_MS, ownVmidContainers } from "./node-service.js";
 import { supportedJobSettings } from "./schemas.js";
+import { ownPveVmid } from "./self-guest.js";
 import { browsableDisks } from "./vm-files.js";
 import { avoidVmids, heldVmid } from "./vmids.js";
 
@@ -457,6 +458,7 @@ function guestDto(
   verify: GuestVerifyFact | null = null,
   leftover: BootTestLeftover | null = null,
   helperNodes: ReadonlySet<string> | null = null,
+  ambiguousVmid: number | null = null,
 ) {
   const attention: string[] = [];
   if (g.template && g.kind === "vm") {
@@ -527,6 +529,9 @@ function guestDto(
         : ("flagged" as const)
       : null,
     restowServerFlagged: g.restowServerFlagged,
+    // A container with the VMID of the one the Restow server runs in, which more than one
+    // connected cluster has: none is marked by itself (docs/PVE.md); the admin marks the right one.
+    restowServerAmbiguous: ambiguousVmid !== null && restowServerCandidate(g, ambiguousVmid),
     // Excluded from backup by an administrator (docs/PVE.md, "Excluding a guest").
     excludedAt: g.excludedAt?.toISOString() ?? null,
     excludedBy: g.excludedBy ?? null,
@@ -547,6 +552,32 @@ function guestDto(
     bootTestLeftover: leftover,
     attention,
   };
+}
+
+/** A container that may be the Restow server's own: its VMID, not marked, present. */
+function restowServerCandidate(g: PveGuest, vmid: number): boolean {
+  return (
+    g.kind === "ct" &&
+    g.vmid === vmid &&
+    g.present &&
+    g.retiredAt === null &&
+    !pveGuestIsRestowServer(g)
+  );
+}
+
+/**
+ * The VMID of the container the Restow server runs in, when more than one connected cluster has
+ * a container with it and none of them is marked by hand (self-guest.ts): none is detected, and
+ * the guests of `guests` with it say so. Null otherwise, and without asking the database when
+ * none of `guests` has the VMID.
+ */
+async function ambiguousRestowServerVmid(guests: readonly PveGuest[]): Promise<number | null> {
+  const vmid = await ownPveVmid();
+  if (vmid === null || !guests.some((g) => restowServerCandidate(g, vmid))) {
+    return null;
+  }
+  const containers = await ownVmidContainers(vmid);
+  return containers.length > 1 && !containers.some((c) => c.flagged) ? vmid : null;
 }
 
 export function jobDto(j: PveJob, facts: { guests?: number; round?: JobRound | null } = {}) {
@@ -752,6 +783,7 @@ export async function overview(database: Database, tenantId: string, now: Date =
         guestCounts.set(jobId, (guestCounts.get(jobId) ?? 0) + 1);
       }
     }
+    const ambiguousVmid = await ambiguousRestowServerVmid(guests);
     return {
       clusters: clusters.map((c) => ({
         id: c.id,
@@ -772,6 +804,7 @@ export async function overview(database: Database, tenantId: string, now: Date =
           verifies.get(g.id) ?? null,
           leftovers.get(g.id) ?? null,
           helpersByCluster.get(g.clusterId) ?? new Set(),
+          ambiguousVmid,
         ),
       ),
       jobs: jobs.map((j) =>
@@ -974,6 +1007,7 @@ export async function guestDetail(database: Database, tenantId: string, id: stri
               .where(and(eq(pveNodes.clusterId, guest.clusterId), isNull(pveNodes.revokedAt)))
           ).map((n) => n.name),
         ),
+        await ambiguousRestowServerVmid([guest]),
       ),
       bootTest: await guestBootTestFacts(tx, guest),
       restoreCheck: await guestRestoreCheckFacts(tx, guest),

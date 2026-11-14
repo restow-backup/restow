@@ -616,6 +616,17 @@ private repository.
   `confirmSelfBackup`), in one transaction: either every change lands or none does, where one
   request per guest could stop half-way. A failed save no longer creates the job twice when it is
   saved again. docs/PVE.md, "Jobs, backups, retention".
+- Proxmox VE: the Restow server in a container (LXC) is found by itself. Up to now only a VM was
+  found (by its SMBIOS UUID); a container had to be marked by hand. The api now reads the VMID its
+  volumes name from the mount table (`/proc/self/mountinfo`, also inside its Docker container):
+  ZFS `<pool>/.../subvol-<vmid>-disk-<n>`, LVM and LVM-thin `/dev/mapper/<vg>-vm--<vmid>--disk--<n>`
+  and `/dev/.../vm-<vmid>-disk-<n>` (for example Ceph RBD), and decides only when exactly one VMID
+  results (a container on directory storage shows none). New `RESTOW_HOST_PVE_VMID` overrides it,
+  as `RESTOW_HOST_SMBIOS_UUID` does for a VM (both now in `.env.example`). A container is marked
+  only while no other connected cluster, of any tenant, has a container with that VMID; otherwise
+  none is, and each says "Possibly the Restow server" (`restowServerAmbiguous` of the guest) until
+  an admin marks the right one by hand. "Select all" in the job form leaves such a container out
+  too. A VM is never matched by its VMID. docs/PVE.md, "The Restow server's own VM".
 
 ### Changed
 

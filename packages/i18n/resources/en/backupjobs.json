@@ -491,7 +491,7 @@
       "queued": "{count, plural, one {Backup of # guest of {name} queued} other {Backups of # guests of {name} queued}}",
       "alreadyQueued": "{count, plural, one {# guest waits or backs up already.} other {# guests wait or back up already.}}",
       "noNode": "{count, plural, one {# guest is on a node that is not connected.} other {# guests are on nodes that are not connected.}}",
-      "selfBackup": "The VM of the {appName} server is left out until a backup of it is confirmed on VMs & containers."
+      "selfBackup": "The guest of the {appName} server is left out until a backup of it is confirmed on VMs & containers."
     }
   },
   "toasts": {

@@ -239,6 +239,27 @@ describe("JobDialog guests", () => {
     expect(slot("pve-job-guests")?.textContent).toContain("No VM or container matches the search.");
   });
 
+  it("leaves a container that may be the Restow server to the admin, and says why", async () => {
+    await mount(null, [
+      guest(105, { name: "maybe", kind: "ct", restowServerAmbiguous: true }),
+      guest(106, { name: "found", kind: "ct", restowServer: "detected" }),
+      guest(107, { name: "app", kind: "ct" }),
+    ]);
+    await click(slot("pve-job-guests-all"));
+    expect(checked()).toEqual(["g-107"]);
+    expect(slot("pve-restow-server-ambiguous")?.textContent).toBe(
+      "Possibly the Restow server: its VMID exists in more than one cluster. If it is, mark it by hand.",
+    );
+    // Ticked on its own, it needs no confirmation: it is not marked.
+    await click(box("pve-job-guest-g-105"));
+    expect(slot("pve-job-self-backup")).toBeNull();
+    // A container found by its volumes says so.
+    await click(box("pve-job-guest-g-106"));
+    expect(slot("pve-job-self-backup")?.textContent).toContain(
+      "Restow's data lies on a volume of this container (VMID 106).",
+    );
+  });
+
   it("saves the changed guests with one request, the Restow server only when confirmed", async () => {
     const own = GUESTS.map((g) =>
       g.vmid === 200 ? { ...g, jobId: "j-1", jobName: "Nightly" } : g,

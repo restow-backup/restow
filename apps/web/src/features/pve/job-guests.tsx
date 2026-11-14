@@ -12,8 +12,9 @@ import { RestowServerNote } from "./self-backup.js";
 /**
  * The guests of the job form (docs/PVE.md, "Backup jobs"): grouped by node, with a search by
  * name or ID, a "Select all" per node and one for every guest the search shows. "Select all"
- * never ticks the Restow server's own guest (detected or marked): backing it up needs the
- * admin's confirmation, so it is ticked on its own or not at all. Guests that cannot be backed
+ * never ticks the Restow server's own guest (detected or marked), nor a container that may be
+ * it (its VMID in more than one cluster): backing it up needs the admin's confirmation, so it is
+ * ticked on its own or not at all. Guests that cannot be backed
  * up (templates, gone, excluded) are not offered by the form in the first place.
  */
 
@@ -48,9 +49,11 @@ export function jobGuestGroups(guests: readonly PveGuest[]): JobGuestGroup[] {
   return sorted;
 }
 
-/** Whether "Select all" may tick the guest: never the Restow server's own one. */
-export function bulkSelectable(guest: Pick<PveGuest, "restowServer">): boolean {
-  return !guest.restowServer;
+/** Whether "Select all" may tick the guest: never the Restow server's own one, or a maybe. */
+export function bulkSelectable(
+  guest: Pick<PveGuest, "restowServer" | "restowServerAmbiguous">,
+): boolean {
+  return !guest.restowServer && !guest.restowServerAmbiguous;
 }
 
 /**

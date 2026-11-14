@@ -607,15 +607,19 @@
     "confirmedLong": "Ein Administrator hat bestätigt, dass er trotzdem mit {appName} gesichert wird.",
     "reason": {
       "detected": "{appName} hat ihn erkannt: Seine SMBIOS-UUID ist die des Rechners, auf dem {appName} läuft.",
+      "detectedCt": "{appName} hat ihn erkannt: Die Daten von {appName} liegen auf einem Volume dieses Containers (VMID {vmid}).",
       "flagged": "Ein Administrator hat ihn als {appName}-Server markiert."
     },
-    "risk": "Die VM, auf der {appName} läuft, mit {appName} selbst zu sichern, kann sich gegenseitig blockieren: Die Sicherung hält den Server an oder friert ihn ein, der die Sicherung empfängt, und für die Wiederherstellung braucht es genau den Server, der wiederhergestellt werden soll.",
-    "recommendation": "Sichern Sie diese VM mit der Sicherung von Proxmox VE selbst (vzdump) auf einen anderen Speicher, und behalten Sie die Datenbank-Dumps von {appName} (docs/DATABASE.md). Bestätigen Sie nur, wenn Sie das Risiko in Kauf nehmen.",
+    "risk": "Den Gast, auf dem {appName} läuft, mit {appName} selbst zu sichern, kann sich gegenseitig blockieren: Die Sicherung hält den Server an oder friert ihn ein, der die Sicherung empfängt, und für die Wiederherstellung braucht es genau den Server, der wiederhergestellt werden soll.",
+    "recommendation": "Sichern Sie diesen Gast mit der Sicherung von Proxmox VE selbst (vzdump) auf einen anderen Speicher, und behalten Sie die Datenbank-Dumps von {appName} (docs/DATABASE.md). Bestätigen Sie nur, wenn Sie das Risiko in Kauf nehmen.",
     "confirmTitle": "Den {appName}-Server ({name}) mit {appName} sichern?",
     "confirm": "Trotzdem sichern",
-    "confirmInJob": "Ich kenne das Risiko und möchte, dass dieser Job die VM trotzdem sichert.",
+    "confirmInJob": "Ich kenne das Risiko und möchte, dass dieser Job den Gast trotzdem sichert.",
     "flag": "Dies ist der {appName}-Server",
-    "flagHint": "Markieren Sie den Gast, in dem {appName} läuft, wenn {appName} ihn nicht selbst erkennt (zum Beispiel {appName} in einem Container). Er wird dann erst gesichert, wenn ein Administrator das bestätigt."
+    "flagHint": "Markieren Sie den Gast, in dem {appName} läuft, wenn {appName} ihn nicht selbst erkennt (zum Beispiel ein Container auf Verzeichnis-Speicher). Er wird dann erst gesichert, wenn ein Administrator das bestätigt.",
+    "ambiguousTitle": "Möglicherweise der {appName}-Server",
+    "ambiguous": "{appName} läuft in einem Container mit der VMID {vmid}. Container mit dieser VMID gibt es in mehr als einem verbundenen Cluster, deshalb markiert {appName} keinen davon selbst. Ist es dieser, markieren Sie ihn als {appName}-Server.",
+    "ambiguousShort": "Möglicherweise der {appName}-Server: Seine VMID gibt es in mehreren Clustern. Ist er es, markieren Sie ihn von Hand."
   },
   "settings": {
     "title": "Proxmox VE",

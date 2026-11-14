@@ -1061,7 +1061,7 @@ snapshot holds and what it does not:
 
 ## The Restow server's own VM
 
-Backing up the VM that runs Restow with Restow itself can deadlock: the backup
+Backing up the VM or container that runs Restow with Restow itself can deadlock: the backup
 freezes or snapshots the server that receives the backup, and restoring it needs
 the very server being restored. Back that VM up with PVE's own vzdump to another
 storage, and keep Restow's database dumps (docs/DATABASE.md).
@@ -1072,9 +1072,25 @@ storage, and keep Restow's database dumps (docs/DATABASE.md).
   inventory, and a match marks the guest (`pve_guests.restow_server_detected`).
   `RESTOW_HOST_SMBIOS_UUID` in the api's environment overrides the file, for a
   host that hides `/sys`. Placeholder UUIDs (all zeros) never match.
-- **Marked by hand.** Restow in a container (LXC), on another host, or behind a
-  node before 0.4.2 is not found: an admin ticks "This is the Restow server" on
-  the guest's page (`PUT /api/v1/pve/guests/:id/restow-server`, audited
+- **A container found by its VMID** (0.5.0). A container (LXC) has no SMBIOS
+  UUID of its own, but its volumes carry its VMID, and the mount table shows
+  them as the source of its root and of every volume mounted from it, also
+  inside the Docker container the API runs in (`/proc/self/mountinfo`, the
+  source after the ` - ` separator): `rpool/data/subvol-105-disk-0` (ZFS, any
+  `<pool>/<path>/subvol-<vmid>-disk-<n>`), `/dev/mapper/pve-vm--105--disk--0`
+  (LVM and LVM-thin) or `/dev/<...>/vm-105-disk-0` (for example Ceph RBD). The
+  API decides only when exactly one VMID results; a container on directory
+  storage (a loop device) shows none, and a VM is never matched by its VMID.
+  `RESTOW_HOST_PVE_VMID` in the api's environment overrides the mount table.
+  The same VMID can exist in two clusters: a container is marked only while no
+  other connected cluster (one with a node that is not revoked, of any tenant)
+  has a container with it. Otherwise none is marked, and each of them says
+  "Possibly the Restow server" (`restowServerAmbiguous` of the guest) until one
+  is marked by hand.
+- **Marked by hand.** Restow on another host, in a container that is not found
+  (directory storage, a VMID in several clusters), or behind a node before 0.4.2:
+  an admin ticks "This is the Restow server" on the guest's page
+  (`PUT /api/v1/pve/guests/:id/restow-server`, audited
   `pve.guest.restow_server`).
 - **What it changes.** The guest shows "Restow server" in the lists and the job
   editor. A job plans no backup of it, the recommended job leaves it out, and

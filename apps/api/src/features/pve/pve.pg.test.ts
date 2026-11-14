@@ -2695,4 +2695,94 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
       smbiosUuid: "44444444-4444-4444-8444-444444444444",
     });
   });
+
+  it("finds the container the Restow server runs in by its VMID, only while no other cluster has it (LXC)", async () => {
+    const { resetOwnPveVmid } = await import("./self-guest.js");
+    process.env.RESTOW_HOST_PVE_VMID = "4105";
+    resetOwnPveVmid();
+    try {
+      const d = await json<Node>(await enroll(fixture.tenantId, "d".repeat(64), "pveD"), 201);
+      const e = await json<Node>(await enroll(fixture.otherTenantId, "e".repeat(64), "pveE"), 201);
+      const f = await json<Node>(await enroll(fixture.otherTenantId, "f".repeat(64), "pveF"), 201);
+      const report = async (on: Node, guests: { vmid: number; kind: "vm" | "ct" }[]) =>
+        json(
+          await call(on, "/inventory", {
+            json: { guests: guests.map((g) => ({ ...g, name: `guest-${g.vmid}` })) },
+          }),
+        );
+      const row = async (on: Node, vmid: number) =>
+        (
+          await fixture.db
+            .select()
+            .from(pveGuests)
+            .where(and(eq(pveGuests.clusterId, on.clusterId), eq(pveGuests.vmid, vmid)))
+        )[0];
+      const dto = async (tenantId: string, on: Node, vmid: number) =>
+        (await service.overview(shared.db, tenantId)).guests.find(
+          (g) => g.clusterId === on.clusterId && g.vmid === vmid,
+        );
+
+      // The container with the VMID its volumes name; a VM with the next VMID is no match.
+      await report(d, [
+        { vmid: 4105, kind: "ct" },
+        { vmid: 4106, kind: "vm" },
+      ]);
+      expect((await row(d, 4105))?.restowServerDetected).toBe(true);
+      expect((await row(d, 4106))?.restowServerDetected).toBe(false);
+      expect(await dto(fixture.tenantId, d, 4105)).toMatchObject({
+        restowServer: "detected",
+        restowServerAmbiguous: false,
+      });
+
+      // A VM with that VMID in another cluster is never matched and leaves the match alone.
+      await report(e, [{ vmid: 4105, kind: "vm" }]);
+      await report(d, [{ vmid: 4105, kind: "ct" }]);
+      expect((await row(e, 4105))?.restowServerDetected).toBe(false);
+      expect((await row(d, 4105))?.restowServerDetected).toBe(true);
+
+      // A container with that VMID in another connected cluster, also of another tenant: which
+      // one it is cannot be told, so neither is marked, and both say so.
+      await report(f, [{ vmid: 4105, kind: "ct" }]);
+      await report(d, [{ vmid: 4105, kind: "ct" }]);
+      expect((await row(f, 4105))?.restowServerDetected).toBe(false);
+      expect((await row(d, 4105))?.restowServerDetected).toBe(false);
+      expect(await dto(fixture.tenantId, d, 4105)).toMatchObject({
+        restowServer: null,
+        restowServerAmbiguous: true,
+      });
+      expect(await dto(fixture.otherTenantId, f, 4105)).toMatchObject({
+        restowServerAmbiguous: true,
+      });
+      expect((await dto(fixture.otherTenantId, e, 4105))?.restowServerAmbiguous).toBe(false);
+      const ambiguous = await row(d, 4105);
+      const detail = await service.guestDetail(shared.db, fixture.tenantId, ambiguous?.id ?? "");
+      expect(detail.guest.restowServerAmbiguous).toBe(true);
+
+      // Marked by hand: the hint is gone everywhere.
+      const marked = await row(f, 4105);
+      await service.setRestowServerFlag(
+        shared.db,
+        fixture.otherTenantId,
+        marked?.id ?? "",
+        true,
+        actor(),
+      );
+      expect((await dto(fixture.tenantId, d, 4105))?.restowServerAmbiguous).toBe(false);
+      await service.setRestowServerFlag(
+        shared.db,
+        fixture.otherTenantId,
+        marked?.id ?? "",
+        false,
+        actor(),
+      );
+
+      // A cluster whose nodes are revoked is no longer connected: the match is unique again.
+      await service.revokeNode(shared.db, fixture.otherTenantId, f.nodeId, actor());
+      await report(d, [{ vmid: 4105, kind: "ct" }]);
+      expect((await row(d, 4105))?.restowServerDetected).toBe(true);
+    } finally {
+      delete process.env.RESTOW_HOST_PVE_VMID;
+      resetOwnPveVmid();
+    }
+  });
 });
