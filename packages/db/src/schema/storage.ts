@@ -482,6 +482,34 @@ export const repositoryCopies = pgTable(
 
 export type RepositoryCopy = typeof repositoryCopies.$inferSelect;
 
+/**
+ * Where a restore point that a promotion carried over to a repository copy came from
+ * (docs/STORAGE.md, "Promoting a copy"): the snapshot id the database records since then, and
+ * restic's persistent id of that snapshot (the `original` that `restic copy` keeps along a chain
+ * of copies, else the snapshot's own id). The other copy targets hold the same restore point
+ * under that persistent id; without this row nothing could find it there once the promoted
+ * primary is lost, or promote another copy later.
+ */
+export const resticSnapshotOrigins = pgTable(
+  "restic_snapshot_origins",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    /** The repository's storage prefix (trailing slash). */
+    prefix: text("prefix").notNull(),
+    /** The full snapshot id on the repository that became the primary's. */
+    snapshotId: text("snapshot_id").notNull(),
+    /** restic's persistent id of the snapshot (the first `original` of its chain of copies). */
+    persistentId: text("persistent_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("restic_snapshot_origins_uq").on(t.tenantId, t.prefix, t.snapshotId)],
+);
+
+export type ResticSnapshotOrigin = typeof resticSnapshotOrigins.$inferSelect;
+
 export type ImmutabilityDeferredDeletion = typeof immutabilityDeferredDeletions.$inferSelect;
 export type StorageTarget = typeof storageTargets.$inferSelect;
 export type NewStorageTarget = typeof storageTargets.$inferInsert;

@@ -144,6 +144,11 @@ export interface CopyDecision {
 export interface CopyPolicy {
   /** Retention of the object is held on suspicion: nothing is forgotten on the copy. */
   readonly held: boolean;
+  /**
+   * The primary's retention does not run for the object (a machine that is not active): the
+   * primary keeps every restore point, so the copy does too.
+   */
+  readonly retentionStopped?: boolean;
   /** Decide over the snapshot ids present on the primary or the copy (the primary's ids). */
   decide(present: readonly string[]): CopyDecision;
 }
@@ -214,16 +219,19 @@ export async function copyPolicy(
   }
   const [endpoint] = await withTenantTx(deps.db, tenantId, (tx) =>
     tx
-      .select({ settings: endpoints.settings })
+      .select({ settings: endpoints.settings, status: endpoints.status })
       .from(endpoints)
       .where(eq(endpoints.id, owner.ownerId))
       .limit(1),
   );
   const policy = endpoint?.settings.retention ?? DEFAULT_ENDPOINT_RETENTION;
+  // The retention job of a machine that is not active returns at once (endpoints/retention.ts).
+  const retentionStopped = endpoint?.status !== "active";
   const zone = await tenantTimeZone(deps, tenantId);
   const reported = await recordedSnapshots(deps, tenantId, owner.ownerId);
   return {
     held,
+    retentionStopped,
     decide: (present) => {
       // Dated by the server's records (the end of the reporting run), never by the snapshot's time.
       const dated = new Map<string, Date>();
@@ -314,6 +322,33 @@ export function persistentIds(
   return out;
 }
 
+/** Which of the primary's snapshots a copy holds, and which of the copy's it forgets. */
+export interface CopyPlan {
+  /** The primary's snapshot ids the copy should hold. */
+  readonly wanted: ReadonlySet<string>;
+  /** Whether the copy forgets anything at all in this pass. */
+  readonly forgets: boolean;
+}
+
+/**
+ * What the copy follows (docs/STORAGE.md, "restic repositories on copies"): the restore points the
+ * server's retention keeps. While the primary keeps more than that rule (retention held on
+ * suspicion, a machine whose retention no longer runs, a write-once primary where nothing is
+ * deleted), the copy holds every restore point the server's records name and forgets nothing: a
+ * promotion of the copy must not lose what only a hold still keeps.
+ */
+export function planCopy(
+  policy: Pick<CopyPolicy, "held" | "retentionStopped">,
+  decision: CopyDecision,
+  primaryWriteOnce: boolean,
+): CopyPlan {
+  const keepAll = policy.held || policy.retentionStopped === true || primaryWriteOnce;
+  return {
+    wanted: keepAll ? new Set([...decision.keep, ...decision.remove]) : decision.keep,
+    forgets: !keepAll,
+  };
+}
+
 /** What one copy of one repository came to. */
 export interface CopyResult {
   readonly state: RepositoryCopyState;
@@ -394,8 +429,9 @@ export async function syncRepositoryCopy(
         primaryIdOf.get(originalOf(snapshot)) ?? originalOf(snapshot);
       const present = [...new Set([...onPrimary.map((s) => s.id), ...onCopy.map(onPrimaryOf)])];
       const decision = policy.decide(present);
+      const plan = planCopy(policy, decision, primary.writeOnce === true);
       const held = new Set(onCopy.map(onPrimaryOf));
-      const wanted = onPrimary.filter((snapshot) => decision.keep.has(snapshot.id));
+      const wanted = onPrimary.filter((snapshot) => plan.wanted.has(snapshot.id));
       // Oldest first: an interrupted pass leaves the copy with a gapless older part.
       const toCopy = wanted
         .filter((snapshot) => !held.has(snapshot.id))
@@ -439,7 +475,7 @@ export async function syncRepositoryCopy(
       }
       // Nothing is forgotten on a copy the pass could not bring up to date.
       const forget =
-        policy.held || copyError !== null
+        !plan.forgets || copyError !== null
           ? []
           : after.filter(
               (snapshot) => decision.remove.has(onPrimaryOf(snapshot)) && snapshot.original,
