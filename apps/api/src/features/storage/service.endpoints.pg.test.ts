@@ -216,9 +216,10 @@ describe.skipIf(!testDatabaseAdminUrl)("storage changes and endpoint repositorie
     expect(error.extensions?.code).toBe("tenant_has_data");
   });
 
-  it("refuses to keep or promote while only revoked machines have repositories", async () => {
+  it("refuses to keep, or to promote before its copy is made, while only revoked machines have repositories", async () => {
     // A promotion away from the installation default (0.4.1) dropped the old location without
-    // a trace, and a revoked machine's backups with it: its repository counts too.
+    // a trace, and a revoked machine's backups with it: its repository counts too, and a
+    // promotion waits until it is copied to the copy target (docs/STORAGE.md, "Promoting a copy").
     const old = await primaryAt(join(root, "old-with-revoked"));
     const copy = await primaryAt(join(root, "copy-with-revoked"), "copy");
     await endpoint("revoked");
@@ -231,7 +232,8 @@ describe.skipIf(!testDatabaseAdminUrl)("storage changes and endpoint repositorie
       machines: true,
     });
     const promoted = await refusal(promoteTarget(db, tenantId, copy, actor));
-    expect(promoted.type).toBe("urn:restow:problem:storage-switch-blocked-by-repositories");
+    expect(promoted.type).toBe("urn:restow:problem:storage-repository-copies-incomplete");
+    expect(promoted.extensions?.repositories).toMatchObject([{ reason: "pending" }]);
     const rows = await db
       .select()
       .from(storageTargets)
@@ -328,8 +330,10 @@ describe.skipIf(!testDatabaseAdminUrl)("storage changes and endpoint repositorie
       repositorySecretId: secret?.id as string,
     });
     const error = await refusal(promoteTarget(db, tenantId, copy, actor));
-    expect(error.type).toBe("urn:restow:problem:storage-switch-blocked-by-repositories");
-    expect(error.extensions?.repositories).toMatchObject({ fileShares: true });
+    expect(error.type).toBe("urn:restow:problem:storage-repository-copies-incomplete");
+    expect(error.extensions?.repositories).toMatchObject([
+      { name: "Creating", reason: "not_created" },
+    ]);
   });
 
   it("refuses to promote while a container's first backup is in its credential or init step (the run is running)", async () => {
@@ -533,11 +537,14 @@ describe.skipIf(!testDatabaseAdminUrl)("storage changes and endpoint repositorie
     expect(moved.migration?.mode).toBe("move");
   });
 
-  it("refuses to promote a copy while containers have repositories (a copy never has them)", async () => {
+  it("refuses to promote a copy while a container's repository has no copy on it yet", async () => {
     await primaryAt(join(root, "primary-containers"));
     const copy = await primaryAt(join(root, "copy-containers"), "copy");
     await containerWithRepository();
     const error = await refusal(promoteTarget(db, tenantId, copy, actor));
-    expect(error.type).toBe("urn:restow:problem:storage-switch-blocked-by-repositories");
+    expect(error.type).toBe("urn:restow:problem:storage-repository-copies-incomplete");
+    expect(error.extensions?.repositories).toMatchObject([
+      { name: "paperless", reason: "pending" },
+    ]);
   });
 });

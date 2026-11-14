@@ -40,15 +40,15 @@ the storage form"). Every target has a role:
   repositories on copies" below; before, a copy never received them, and servers,
   containers and file shares had no second copy inside Restow). Any number of copies is
   allowed; a copy can later be promoted to primary
-  (`POST /storage/targets/:id/promote`) once it is proven complete. A promotion copies
-  nothing: it is refused while the tenant has any restic repository (a container's, a
-  machine's, revoked ones included, or a file share's: a copy holds repository *copies*,
-  whose restore points have other ids than the ones the database records, see below) or a
-  backup run is running (`storage-switch-blocked-by-runs`). The old primary becomes a
-  copy; when it is the installation default, a placeholder row keeps it attached
-  read-only (`previous`). Before 0.5.0 nothing did, and the installation default dropped
-  out of every list of the tenant's targets (the 0.4.1 field incident, "Runs and storage
-  changes" below).
+  (`POST /storage/targets/:id/promote`) once it is proven complete: every pack, manifest,
+  key and archive record, and, when the tenant has restic repositories (containers,
+  machines, file shares), the repository copy of every one of them ("Promoting a copy"
+  below; before, such a tenant could not promote at all). A promotion copies nothing.
+  Without restic repositories the old primary becomes a copy; with them it is retired
+  read-only (`previous`), as after a `move`. When the old primary is the installation
+  default, a placeholder row keeps it attached read-only (`previous`). Before 0.5.0 nothing
+  did, and the installation default dropped out of every list of the tenant's targets (the
+  0.4.1 field incident, "Runs and storage changes" below).
 - **previous** — a retired primary, left behind by a storage migration (see below), or an
   old location an admin attached read-only ("Attach an old location read-only" in the
   add-target dialog, for example a restored copy of an earlier primary for the
@@ -997,8 +997,9 @@ snapshot list, browsing, file downloads and full restores read its copy on a cop
 **What a copy is not.** A repository copy is another repository, not a mirror of the
 primary's files:
 
-- promoting a copy and "keep" stay refused while the tenant has restic repositories; only a
-  `move` brings the repositories themselves to a new primary;
+- "keep" stays refused while the tenant has restic repositories; a `move` brings the
+  repositories themselves to a new primary, and promoting a copy target makes its repository
+  copies the repositories, carrying the restore points over to their ids ("Promoting a copy");
 - a `move` and the repository repair leave repository copies out (the marker): they never
   merge one into a repository or take one for it;
 - the copy pass writes only into a repository it made. When the copy target already holds
@@ -1100,9 +1101,8 @@ data already on it), the add-target dialog offers a role choice:
     repositories are written to the primary only, so after such a switch
     every container and share would find an empty repository on the new primary (the
     0.4.1 field incident: every container with an existing repository then failed with
-    `repository does not exist`). Choose "move" for such a tenant; promoting a copy stays
-    refused as well: a copy holds repository copies made with `restic copy` ("restic
-    repositories on copies"), not the repositories the restore points name.
+    `repository does not exist`). Choose "move" for such a tenant, or promote a copy target
+    whose repository copies are complete ("Promoting a copy" below).
     Since 0.5.0 a file share counts as soon as its repository password is stored (its
     creation stores it before `restic init`), a container once its repository is created
     (its password is recorded together with its ready time, after `restic init`; while its
@@ -1154,6 +1154,79 @@ data already on it), the add-target dialog offers a role choice:
 The switch to the new primary only ever happens after Restow has proven, by copying
 and hashing, that nothing is lost: an existing backup is never made unreachable by a
 `move` replacement.
+
+### Promoting a copy
+
+"Make primary" on a copy target's card switches the primary to a copy that already holds
+everything, without copying anything at the switch (`POST /storage/targets/:id/promote`).
+This works for a tenant with restic repositories too (Proxmox VE containers, machines, file
+shares); before, a promotion was refused as soon as the tenant had one
+(`storage-switch-blocked-by-repositories`), so a tenant with containers could never promote
+and had to `move`.
+
+**What the dialog shows before the click.** It asks the server
+(`GET /storage/targets/:id/promotion`, with `?files=1` also the listing comparison) and lists
+every reason the copy cannot become the primary yet, each with what to do; the button is
+enabled only when the server says the copy is ready. The reasons, in this order (the promotion
+itself refuses with the first, as the problem type in brackets):
+
+- a server path and no provider admin (`storage-local-requires-provider-admin`), the target is
+  the primary already or is no copy (`storage-already-primary`, `storage-not-a-copy`);
+- a storage migration is unfinished (`storage-migration-in-progress`), the copy's last test did
+  not succeed (`storage-not-verified`);
+- an active machine backs up to the primary (`storage-active-endpoints`). A `move` refuses
+  active machines as well (an agent keeps writing to the old primary); revoke or uninstall them
+  first. Their backups stay restorable;
+- a container or VM backup or a file share run is running (`storage-switch-blocked-by-runs`), a
+  repository repair is queued or running (`storage-switch-blocked-by-repair`);
+- jobs that write to storage are queued or running (`storage-switch-blocked-by-jobs`, naming the
+  queues): with restic repositories every queue of "keep" (backup, archive, retention, storage
+  check, storage migration, restore, import, export), since the old primary becomes read-only;
+  without them only a storage check, which mirrors the copies;
+- the worker copies the tenant's repositories at this moment (`storage-copy-pass-running`);
+- a restic repository is not complete on the copy (`storage-repository-copies-incomplete`): its
+  last copy to this target ("restic repositories on copies") did not succeed, found restore
+  points missing or failed its `restic check`, was asked for and has not run yet, never ran, or
+  started before the newest restore point the server recorded for the object. A repository
+  still being created (its first backup has not finished) counts as not complete. The dialog
+  lists each such repository with its state;
+- the copy lacks a pack, manifest, key or archive record (`storage-copy-incomplete`), or the
+  primary or the copy cannot be listed (`storage-unreachable`, 502).
+
+**Catch up now.** When something is missing, the dialog offers "Catch up now"
+(`POST /storage/targets/:id/catch-up`, audited as `storage.target.catch_up_started`). It queues
+a storage check (`scrub`, sample mode: its copy mirror brings every pack, manifest, key and
+archive record onto the copies) and asks the worker for the copy of every repository whose copy
+on this target is not current (the copy pass looks for such requests every 30 seconds instead of
+waiting for its five-minute pass). The dialog follows both live: the storage check's state, the
+repositories still waiting, "x of y current". Nothing is switched: once the server reports the
+copy ready, the administrator clicks "Make primary".
+
+**The switch with restic repositories.** A repository copy holds every restore point under a
+snapshot id of its own (`restic copy` keeps the primary's id as `original`), while the database
+records the primary's ids. The promotion therefore:
+
+1. takes the tenant's repository-copy lock exclusively (the copy pass holds it shared while it
+   copies the tenant, so no copy runs beside the switch, and a pass that starts during it skips
+   the tenant until the next one, then sees the new primary);
+2. lists the snapshots of every repository copy on the target (`restic snapshots`, read-only);
+3. in one transaction under the tenant's storage lock: checks every reason above again, checks
+   that every restore point the server keeps is on the copy (a container's and a file share's
+   restore points that are not pruned, a machine's newest snapshot; the other restore points of
+   a machine follow its retention, which the copy follows too), rewrites every recorded snapshot
+   id of the repository to the copy's (restore points, samples of restore tests, reports, flags,
+   downloads, SQL backups; an abbreviated id stays abbreviated), retires the old primary to
+   `previous` and makes the copy the primary. A restore point that is missing refuses the
+   promotion and nothing is changed.
+
+The old primary stays attached read-only; its repositories are not repository copies, so it
+cannot stay a copy (the copy pass never writes into a repository it did not make). A later
+`move` and the repository repair take the primary's repository as it is, marker file
+(`restow-repository-copy.json`) included: on the primary a repository copy is the repository.
+Backups continue in it with the same password (restic finds their parent by host and paths,
+as before). Another copy target that held copies made from the old primary keeps them: the
+copy pass matches snapshots by restic's persistent id (`original`, which `restic copy` keeps
+along a chain of copies), so they are not copied again.
 
 ### The migration job (`move`)
 
@@ -1438,6 +1511,9 @@ holds for restic repositories (`previous-holds-endpoint-repositories`): any data
 snapshot, key or `config` file of a container's, machine's or file share's repository
 that no current target has blocks the removal, not only a `config` (a run that a switch
 split left early packs on the old target while its `config` was on the new one as well).
+A repository whose primary holds a promoted repository copy (its marker file) does not: the
+promotion carried every restore point over to that copy, and no record names the chain the
+retired location still holds ("Promoting a copy").
 A folder the repository repair or a new backup chain moved aside
 (`<prefix>.orphaned-<time>/`) that no current target has blocks it too
 (`previous-holds-moved-aside`): a `move` does not copy those folders, so copy it elsewhere
@@ -1465,11 +1541,20 @@ not papered over:
 - **A repository copy does not replace the primary's repository.** When the primary lost a
   repository, every restore reads its copy ("Restoring from a copy"), but backups of that
   object are refused until the primary holds a repository again; neither a `move` nor the
-  repository repair rebuilds a primary's repository from a repository copy, and a copy cannot
-  be promoted while the tenant has restic repositories. A machine's restore test that the
+  repository repair rebuilds a primary's repository from a repository copy, and promoting the
+  copy target is refused as well: its copy cannot be current while the copy pass finds no
+  repository on the primary to compare it with ("Promoting a copy"). A machine's restore test that the
   agent runs itself (hash samples restored on the machine) is not served from a copy: it runs
   against the primary and cannot rate a repository that is not there. A boot test that read
   a copy says so on its run and in the audit log only, and a VM restore names no target.
+- **After a promotion, a further copy target's older restore points are read by their new
+  ids only once copied again.** A third target's repository copies made from the old primary
+  stay valid and are not copied again (the copy pass matches the persistent id), but a
+  restore that has to fall back to such a target because the new primary lost a repository
+  looks restore points up by the ids the promotion recorded; those made before the
+  promotion are found there only under the old ids and are refused with
+  `storage-restore-point-not-on-copy`. The retired old primary still holds them under the old
+  ids.
 - **Repository copies cost the copy target's space once more** (deduplicated per repository,
   like on the primary), and the first pass after the update copies every repository in full,
   25 repositories per pass. A copy target that already holds other files under a repository's
@@ -1512,7 +1597,7 @@ not papered over:
   move"), but an active agent keeps writing to the old primary while it runs. While any
   machine of the tenant is active, Restow therefore refuses every change of the primary:
   replacing it (move or keep) and promoting a copy answer `409` with
-  `storage-active-endpoints`. A
+  `storage-active-endpoints` (the promotion dialog says so before the click). A
   repository also counts as data of the primary, so its location cannot be changed and
   it cannot be removed while it holds repositories. To change the primary of such a
   tenant, revoke or uninstall the machines first, switch, and enrol them again (new
