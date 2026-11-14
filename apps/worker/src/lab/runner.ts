@@ -265,6 +265,11 @@ export async function runProbe(deps: RunnerDeps, probe: LeasedProbe): Promise<Pr
     }
     base.restoreMs = Math.max(0, now() - restoreStart);
     if (exitCode === null) {
+      log("restore VM did not end in time", {
+        probeId: probe.id,
+        released,
+        serial: serialTail(restore.serial(), 1500),
+      });
       restore.kill();
       return {
         ...base,

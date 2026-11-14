@@ -1225,7 +1225,24 @@ async function runProbeCase(testCase, context) {
     writeFileSync(join(source.dir, "lab.log"), logs.stdout ?? "");
   }
   console.log(`${testCase.id}: ${outcome.reason}`);
-  if (!outcome.ok) throw new Error(`${testCase.id}: ${outcome.reason}`);
+  if (!outcome.ok) {
+    // The lab's recovery sessions of this machine: their log says where the restore stood.
+    const base = `/api/v1/endpoints/${source.endpoint.id}/recoveries`;
+    const sessions = await client.get(base, { tenantId }).catch(() => ({ items: [] }));
+    for (const session of sessions.items ?? []) {
+      const diagnosis = await recoveryDiagnosis(client, tenantId, `${base}/${session.id}`).catch(
+        (error) => `no diagnosis (${error.message})`,
+      );
+      writeFileSync(
+        join(source.dir, `recovery-${session.id}.log`),
+        `status ${session.status}, phase ${session.phase ?? "?"}\n${diagnosis}\n`,
+      );
+      console.log(
+        `${testCase.id}: lab session ${session.id} ${session.status} (${session.phase ?? "no phase"})`,
+      );
+    }
+    throw new Error(`${testCase.id}: ${outcome.reason}`);
+  }
   return { id: testCase.id, seconds: Math.round((Date.now() - started) / 1000) };
 }
 
