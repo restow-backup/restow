@@ -1090,12 +1090,15 @@ async function restore(testCase, context, source, { interrupt } = {}) {
     },
     { timeoutMs: 3 * 60 * 60_000, intervalMs: 15_000 },
   );
-  if (final.status !== "succeeded" && !interrupt) {
+  if (!interrupt) {
+    // Every recovery's log is kept: a restored system that does not start is judged by it.
     const diagnosis = await recoveryDiagnosis(client, tenantId, recoveryPath).catch(
       (error) => `no diagnosis (${error.message})`,
     );
-    console.log(`${testCase.id}: the recovery ended ${final.status}: ${diagnosis}`);
     writeFileSync(join(source.dir, `recovery-${issued.id}.log`), `${diagnosis}\n`);
+    if (final.status !== "succeeded") {
+      console.log(`${testCase.id}: the recovery ended ${final.status}: ${diagnosis}`);
+    }
   }
   await Promise.race([iso.exited, sleep(10 * 60_000)]);
   iso.child.kill("SIGKILL");
@@ -1135,10 +1138,47 @@ async function bootRestored(testCase, context, source, restored, { emptyNvram = 
     } else {
       await waitForSerial(log, pattern, { timeoutMs: 15 * 60_000, machine });
     }
+  } catch (error) {
+    if (testCase.target.firmware !== "bios") throw error;
+    const notes = [];
+    for (const disk of restored.disks) {
+      const sector = join(source.dir, `${basename(disk.file)}.mbr`);
+      try {
+        await runAsync("qemu-img", [
+          "dd",
+          "-O",
+          "raw",
+          `if=${disk.file}`,
+          `of=${sector}`,
+          "bs=512",
+          "count=1",
+        ]);
+        notes.push(`${disk.serial}: ${mbrNote(readFileSync(sector))}`);
+      } catch (readError) {
+        notes.push(`${disk.serial}: MBR not read (${readError.message})`);
+      }
+    }
+    throw new Error(`${error.message}; ${notes.join("; ")}`);
   } finally {
     await qmp(join(source.dir, "restored.qmp"), "quit").catch(() => undefined);
     machine.child.kill("SIGKILL");
   }
+}
+
+/**
+ * What the first sector of a restored BIOS disk holds: GRUB's boot code (its "GRUB " message at
+ * offset 0x180), other boot code, or none, and whether it ends with the boot signature 55 AA.
+ */
+export function mbrNote(sector) {
+  if (!sector || sector.length < 512) return "MBR shorter than 512 bytes";
+  const signature = sector[510] === 0x55 && sector[511] === 0xaa;
+  const code = sector.subarray(0, 440);
+  const kind = code.includes(Buffer.from("GRUB "))
+    ? "GRUB boot code"
+    : code.every((byte) => byte === 0)
+      ? "no boot code (zeros)"
+      : "boot code without GRUB";
+  return `${kind}, ${signature ? "boot signature 55 AA" : "no boot signature"}`;
 }
 
 /** A boot probe case: back up the source, plan a probe, wait for its report and judge it. */

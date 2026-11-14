@@ -1,12 +1,16 @@
 /**
  * The QEMU side of a probe (./runner.ts `VmDriver`): `qemu-img` and `qemu-system-x86_64` as the
- * lab's own unprivileged user. The key of the probe's disks reaches QEMU through a pipe on file
- * descriptor 3 (`-object secret,file=/dev/fd/3`): it is never written to a file.
+ * lab's own unprivileged user. The key of the probe's disks reaches them through a named pipe in
+ * a fresh folder only the lab may enter (`-object secret,file=<fifo>`, keyFifo): it is never
+ * written to a file.
  */
-import { spawn } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
-import { copyFile } from "node:fs/promises";
+import { execFile, spawn } from "node:child_process";
+import { closeSync, constants, existsSync, openSync, readFileSync, writeSync } from "node:fs";
+import { copyFile, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
+import { promisify } from "node:util";
 import {
   connectSerial,
   cutNetwork,
@@ -21,44 +25,91 @@ import {
 } from "./qemu.js";
 import type { Vm, VmDriver } from "./runner.js";
 
-const KEY_FD_FILE = "/dev/fd/3";
-
-/**
- * Hand `key` to a child on its fd 3. Node makes that fd a socket pair: when the program closes
- * its end (QEMU after reading the key, or a program that ends early), the socket on this side may
- * report ECONNRESET or EPIPE, and an 'error' event without a listener ends the whole lab
- * process (the boot probe it ran stays leased until its time runs out). Whether the program got
- * the key shows in its own exit code and stderr, which the callers judge; the error here is noted
- * and nothing more.
- */
-export function sendKey(
-  pipe: NodeJS.WritableStream | null | undefined,
-  key: string,
-  onError: (error: Error) => void = () => {},
-): void {
-  if (!pipe) return;
-  pipe.on("error", onError);
-  pipe.end(key);
+/** A key handed to one program through a named pipe (keyFifo). */
+export interface KeyFifo {
+  /** The path the program opens like a file. */
+  path: string;
+  /** Settles once the program has read the key (the pipe reached its end). */
+  written: Promise<void>;
+  /** Stop offering the key and remove the folder (also when nobody read it). */
+  close: () => Promise<void>;
 }
 
-/** Run a program with `key` on fd 3; rejects with the end of its stderr. */
-function runWithKey(command: string, args: string[], key: string | null): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      stdio: ["ignore", "ignore", "pipe", key ? "pipe" : "ignore"],
+/**
+ * Offer `key` once through a named pipe in a fresh folder (mkdtemp, 0700) and hand out its path.
+ * The program reads the key like a file up to its end; nothing is written to a disk. The file
+ * descriptor 3 of a child does not do: Node makes it a socket pair, and a program that opens
+ * /dev/fd/3 gets ENXIO (qemu-img: "Unable to read /dev/fd/3 ... No such device or address").
+ * The pipe is opened without blocking and tried again until the program opens its end, so a
+ * program that never reads leaves no thread waiting.
+ */
+export async function keyFifo(key: string, pollMs = 20): Promise<KeyFifo> {
+  const dir = await mkdtemp(join(tmpdir(), "restow-lab-key-"));
+  const path = join(dir, "key");
+  try {
+    await promisify(execFile)("mkfifo", ["-m", "0600", path]);
+  } catch (error) {
+    await rm(dir, { recursive: true, force: true });
+    throw error;
+  }
+  let stopped = false;
+  const written = (async () => {
+    while (!stopped) {
+      let fd: number;
+      try {
+        fd = openSync(path, constants.O_WRONLY | constants.O_NONBLOCK);
+      } catch (error) {
+        // ENXIO: no reader yet.
+        if ((error as NodeJS.ErrnoException).code !== "ENXIO") throw error;
+        await sleep(pollMs);
+        continue;
+      }
+      try {
+        writeSync(fd, key);
+      } finally {
+        closeSync(fd);
+      }
+      return;
+    }
+  })();
+  written.catch(() => {});
+  return {
+    path,
+    written,
+    close: async () => {
+      stopped = true;
+      await written.catch(() => {});
+      await rm(dir, { recursive: true, force: true });
+    },
+  };
+}
+
+/** Run a program with `key` behind KEY_FILE in its arguments; rejects with the end of its stderr. */
+const KEY_FILE = "{key}";
+
+async function runWithKey(command: string, args: string[], key: string | null): Promise<void> {
+  const fifo = key ? await keyFifo(key) : null;
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(
+        command,
+        args.map((arg) => (fifo ? arg.replaceAll(KEY_FILE, fifo.path) : arg)),
+        { stdio: ["ignore", "ignore", "pipe"] },
+      );
+      let stderr = "";
+      child.stderr?.on("data", (chunk: Buffer) => {
+        stderr = (stderr + chunk.toString("utf8")).slice(-2000);
+      });
+      child.on("error", reject);
+      child.on("exit", (code) =>
+        code === 0
+          ? resolve()
+          : reject(new Error(`${command} failed (${code}): ${stderr.trim().slice(-300)}`)),
+      );
     });
-    let stderr = "";
-    child.stderr?.on("data", (chunk: Buffer) => {
-      stderr = (stderr + chunk.toString("utf8")).slice(-2000);
-    });
-    if (key) sendKey(child.stdio[3] as NodeJS.WritableStream, key);
-    child.on("error", reject);
-    child.on("exit", (code) =>
-      code === 0
-        ? resolve()
-        : reject(new Error(`${command} failed (${code}): ${stderr.trim().slice(-300)}`)),
-    );
-  });
+  } finally {
+    await fifo?.close();
+  }
 }
 
 export function qemuDriver(options: { dbxFile: string | null; ovmf?: OvmfFiles }): VmDriver {
@@ -66,11 +117,7 @@ export function qemuDriver(options: { dbxFile: string | null; ovmf?: OvmfFiles }
   return {
     async createDisks(disks, key) {
       for (const disk of disks) {
-        await runWithKey(
-          "qemu-img",
-          encryptedDiskArgs(disk.file, disk.sizeBytes, KEY_FD_FILE),
-          key,
-        );
+        await runWithKey("qemu-img", encryptedDiskArgs(disk.file, disk.sizeBytes, KEY_FILE), key);
       }
     },
     async createVars(file, firmware: Firmware) {
@@ -86,23 +133,26 @@ export function qemuDriver(options: { dbxFile: string | null; ovmf?: OvmfFiles }
       }
     },
     async start(machine: Machine, key: string): Promise<Vm> {
+      const fifo = await keyFifo(key);
       const args = machineArgs({
         ...machine,
         ovmf,
-        secrets: [{ id: "probekey", file: KEY_FD_FILE }],
+        secrets: [{ id: "probekey", file: fifo.path }],
       });
       const child = spawn("qemu-system-x86_64", args, {
-        stdio: ["ignore", "ignore", "pipe", "pipe"],
+        stdio: ["ignore", "ignore", "pipe"],
       });
       let stderr = "";
       child.stderr?.on("data", (chunk: Buffer) => {
         stderr = (stderr + chunk.toString("utf8")).slice(-2000);
       });
-      sendKey(child.stdio[3] as NodeJS.WritableStream, key);
       const exited = new Promise<number>((resolve) => {
         child.on("exit", (code) => resolve(code ?? -1));
         child.on("error", () => resolve(-1));
       });
+      // QEMU reads its secrets while it starts; the pipe goes once it did or QEMU ended.
+      await Promise.race([fifo.written, exited, sleep(30_000)]);
+      await fifo.close();
       const early = await Promise.race([exited, sleep(1500).then(() => null)]);
       if (early !== null) {
         throw new Error(`QEMU did not start (${early}): ${stderr.trim().slice(-300)}`);

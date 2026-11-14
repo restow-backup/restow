@@ -50,6 +50,7 @@ import {
   identityOf,
   isFinal,
   labEnv,
+  mbrNote,
   needsPassphraseAtBoot,
   parseArgs,
   probeOutcome,
@@ -297,6 +298,16 @@ describe("the answers file", () => {
     }
     assert.equal(identityOf(byId("E2").target.disks[0]), "serial.restow-e2e-target0-1");
     assert.equal(byId("E1").answers.diskMapping.d1, "serial.e2e-src1");
+  });
+
+  it("names what the MBR of a restored BIOS disk holds", () => {
+    const sector = Buffer.alloc(512);
+    sector[510] = 0x55;
+    sector[511] = 0xaa;
+    assert.equal(mbrNote(sector), "no boot code (zeros), boot signature 55 AA");
+    sector.write("GRUB ", 0x180, "latin1");
+    assert.equal(mbrNote(sector), "GRUB boot code, boot signature 55 AA");
+    assert.equal(mbrNote(Buffer.alloc(100)), "MBR shorter than 512 bytes");
   });
 
   it("hands the worker the ISO under test as its drop folder, without downloading", () => {

@@ -246,8 +246,17 @@ func TestVerifyAllTen(t *testing.T) {
 			}
 		}
 	}
-	if !strings.Contains(sourceDevice("UUID=AbC"), "by-uuid/abc") || sourceDevice("/dev/sda1") != "/dev/sda1" {
+	if sourceDevice("UUID=AbC") != "/dev/disk/by-uuid/AbC" || sourceDevice("/dev/sda1") != "/dev/sda1" {
 		t.Error("source device")
+	}
+	// A vfat ESP: udev's link keeps blkid's upper case; an ext4 UUID written in upper case
+	// still finds its lower-case link.
+	esp := StandardVerifier{Env: &fakeVerifyEnv{exists: map[string]bool{
+		"/dev/disk/by-uuid/1A2B-3C4D":                            true,
+		"/dev/disk/by-uuid/0f6e4c1a-0000-4000-8000-000000000001": true,
+	}}}
+	if !esp.sourceExists("UUID=1A2B-3C4D") || !esp.sourceExists("UUID=0F6E4C1A-0000-4000-8000-000000000001") || esp.sourceExists("UUID=9999-0000") {
+		t.Error("source exists: case of UUID links")
 	}
 }
 

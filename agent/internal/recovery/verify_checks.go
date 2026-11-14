@@ -148,16 +148,40 @@ func hasOpt(opts, name string) bool {
 
 // sourceDevice is the /dev path of an fstab or crypttab source.
 func sourceDevice(src string) string {
+	return sourceDevices(src)[0]
+}
+
+// sourceDevices are the /dev paths an fstab or crypttab source may have:
+// first as written. udev names a UUID link with the case blkid reports,
+// lower case for ext4, XFS and LUKS, upper case for vfat and NTFS
+// ("UUID=1A2B-3C4D", the ESP of every Debian and Ubuntu installation);
+// a UUID or PARTUUID written in the other case is tried too.
+func sourceDevices(src string) []string {
 	for _, p := range []struct{ pre, dir string }{{"UUID=", "by-uuid"}, {"PARTUUID=", "by-partuuid"}, {"LABEL=", "by-label"}, {"PARTLABEL=", "by-partlabel"}} {
 		if v, ok := strings.CutPrefix(src, p.pre); ok {
 			v = strings.Trim(v, `"`)
+			out := []string{"/dev/disk/" + p.dir + "/" + v}
 			if p.pre == "UUID=" || p.pre == "PARTUUID=" {
-				v = strings.ToLower(v)
+				for _, other := range []string{strings.ToLower(v), strings.ToUpper(v)} {
+					if other != v {
+						out = append(out, "/dev/disk/"+p.dir+"/"+other)
+					}
+				}
 			}
-			return "/dev/disk/" + p.dir + "/" + v
+			return out
 		}
 	}
-	return src
+	return []string{src}
+}
+
+// sourceExists reports whether one of the paths of a source exists.
+func (v StandardVerifier) sourceExists(src string) bool {
+	for _, dev := range sourceDevices(src) {
+		if v.Env.Exists(dev) {
+			return true
+		}
+	}
+	return false
 }
 
 // fstab: every entry without noauto or nofail points to a device that
@@ -181,7 +205,7 @@ func (v StandardVerifier) fstab(r Rootfs) *Check {
 			continue
 		}
 		dev := sourceDevice(e.source)
-		if strings.HasPrefix(dev, "/dev/") && !strings.HasPrefix(dev, "/dev/mapper/") && !v.Env.Exists(dev) {
+		if strings.HasPrefix(dev, "/dev/") && !strings.HasPrefix(dev, "/dev/mapper/") && !v.sourceExists(e.source) {
 			c.FailT(ProblemVerifyFailed, e.source, map[string]string{"line": strconv.Itoa(e.line)}, "tab_no_dev", "line", e.line, "source", e.source)
 		}
 		if strings.HasPrefix(e.mount, "/") && e.fstype != "swap" {
@@ -251,7 +275,7 @@ func (v StandardVerifier) crypttab(x *Executor, r Rootfs) *Check {
 				c.FailT(ProblemVerifyFailed, name, line, "plain_wrong", "line", e.line, "name", name, "source", src)
 				continue
 			}
-			if !v.Env.Exists(sourceDevice(src)) {
+			if !v.sourceExists(src) {
 				c.FailT(ProblemVerifyFailed, name, line, "tab_no_dev", "line", e.line, "source", src)
 			}
 			continue
@@ -260,7 +284,7 @@ func (v StandardVerifier) crypttab(x *Executor, r Rootfs) *Check {
 			if !luks[strings.ToLower(u)] {
 				c.FailT(ProblemVerifyFailed, name, line, "luks_unknown", "line", e.line, "source", src)
 			}
-		} else if !v.Env.Exists(sourceDevice(src)) {
+		} else if !v.sourceExists(src) {
 			c.WarnT(ProblemVerifyFailed, name, line, "tab_no_dev", "line", e.line, "source", src)
 		}
 	}

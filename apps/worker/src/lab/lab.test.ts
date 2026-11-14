@@ -10,11 +10,11 @@
  */
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { labClient, serialTail } from "./client.js";
@@ -28,7 +28,7 @@ import {
   SANDBOX_ARGS,
   typeSerial,
 } from "./qemu.js";
-import { sendKey } from "./vm.js";
+import { keyFifo } from "./vm.js";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 
@@ -198,19 +198,24 @@ describe("the lab process", () => {
     }
   });
 
-  it("survives a program that closes the key's fd 3 before reading it all", async () => {
-    // The lab process ended on such an ECONNRESET (no 'error' listener) right after a lease.
-    const child = spawn("sh", ["-c", "exec 3<&-; sleep 0.3"], {
-      stdio: ["ignore", "ignore", "ignore", "pipe"],
+  it("hands the key to one reader through a named pipe, and leaves nothing behind", async () => {
+    // fd 3 of a child is a socket pair in Node; qemu-img could not open /dev/fd/3 (ENXIO).
+    const fifo = await keyFifo("probe-key-123");
+    const child = spawn("cat", [fifo.path], { stdio: ["ignore", "pipe", "ignore"] });
+    let out = "";
+    child.stdout?.on("data", (chunk: Buffer) => {
+      out += chunk.toString("utf8");
     });
-    const errors: Error[] = [];
-    sendKey(child.stdio[3] as NodeJS.WritableStream, "k".repeat(4 * 1024 * 1024), (error) =>
-      errors.push(error),
-    );
     const code = await new Promise<number | null>((resolve) => child.on("exit", resolve));
+    await fifo.written;
+    await fifo.close();
     expect(code).toBe(0);
-    await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(errors.every((error) => /EPIPE|ECONNRESET/.test(String(error)))).toBe(true);
+    expect(out).toBe("probe-key-123");
+    expect(existsSync(dirname(fifo.path))).toBe(false);
+    // Nobody reads: close() ends the offer without a thread left waiting.
+    const unread = await keyFifo("x", 5);
+    await unread.close();
+    expect(existsSync(dirname(unread.path))).toBe(false);
   });
 
   it("logs why a planned probe waits, once per change, and never the normal answers", () => {
