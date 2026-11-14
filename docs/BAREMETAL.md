@@ -2775,6 +2775,11 @@ Für CI, Startprobe und Massenwiederherstellungen. Inhalt (JSON): `instanceUrl`,
     den Hypervisor; ein fremder USB-Stick kann es nicht.
   - eine Datei nur mit `--answers` von Hand in der Shell.
 - `probe` und `http://` nur bei `fw_cfg` **und** `sys_vendor=QEMU`.
+- Trägt eine QEMU-Maschine Antworten über `fw_cfg` (Labor, CI), schreibt `recover` Protokoll
+  und Bildschirm zusätzlich auf `/dev/ttyS0`, auch wenn der Standard-Menüeintrag ohne serielle
+  Konsole gestartet ist: Das Labor liest dort `RESTOW-PROBE phase=released` und hält bei einem
+  Abbruch fest, wo der Lauf stand. Auf echter Hardware gibt es kein `fw_cfg`, dort bleibt es bei
+  der gewählten Konsole.
 - `code` und `passphrase` im Klartext lehnt `--answers` ab, außer bei `fw_cfg`; vom Medium
   gelesen fragt `recover` beides interaktiv.
 - Vom Medium gelesen zeigt `recover` vor dem ersten Löschen 30 Sekunden lang Zielplatten

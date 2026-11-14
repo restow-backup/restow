@@ -255,8 +255,23 @@ func Main(o MainOptions) int {
 	}
 	defer lf.Close()
 	logBuf := &LogBuffer{File: lf}
+	// In a QEMU machine with answers on fw_cfg (the recovery lab, CI) the default menu entry
+	// shows recover on tty1 only: protocol and screen also go to the first serial port, which
+	// the lab records, so a run that stops before it reaches the instance says why.
+	var mirror io.Writer
+	if console != "/dev/ttyS0" {
+		if w := qemuSerialMirror(); w != nil {
+			defer w.Close()
+			mirror = w
+			logBuf.File = io.MultiWriter(lf, w)
+		}
+	}
 	exe := CmdExec{Runner: cmdrun.ExecRunner{OwnProcessGroup: true}, Log: logBuf.Add}
-	ui := &UI{In: in, Out: out, Lang: LangEN, Serial: strings.HasPrefix(console, "/dev/ttyS")}
+	uiOut := out
+	if mirror != nil {
+		uiOut = io.MultiWriter(out, mirror)
+	}
+	ui := &UI{In: in, Out: uiOut, Lang: LangEN, Serial: strings.HasPrefix(console, "/dev/ttyS")}
 	answers, err := loadAnswers(context.Background(), o.AnswersFile, cl, exe)
 	if err != nil {
 		ui.Raw(err.Error())
@@ -287,6 +302,23 @@ func Main(o MainOptions) int {
 		return 1
 	}
 	return 0
+}
+
+// qemuSerialMirror opens the first serial port for writing when recover
+// runs in a QEMU machine that carries answers on fw_cfg, else nil.
+func qemuSerialMirror() *os.File {
+	vendor, _ := os.ReadFile("/sys/class/dmi/id/sys_vendor")
+	if strings.TrimSpace(string(vendor)) != "QEMU" {
+		return nil
+	}
+	if _, err := os.Stat(FWCfgAnswers); err != nil {
+		return nil
+	}
+	f, err := os.OpenFile("/dev/ttyS0", os.O_WRONLY|syscall.O_NOCTTY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil
+	}
+	return f
 }
 
 // loadAnswers reads the answers from the chosen source only (10.20).
