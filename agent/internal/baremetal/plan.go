@@ -1636,6 +1636,11 @@ func (pl *planner) postSteps() {
 			dirs = append(dirs, t+":0755")
 		}
 	}
+	// /var/tmp after the mount points: a separate /var exists then (mkdirs
+	// would give a missing parent the mode 1777). The job may exclude it
+	// (the profile's defaults do), but the initramfs tools of the
+	// configuration below write there (mkinitramfs: mktemp in /var/tmp).
+	dirs = append(dirs, "/var/tmp:1777")
 	// btrfs quota only after the restore: active qgroups slow a large
 	// restore down a lot (10.11).
 	for _, fs := range l.Filesystems {

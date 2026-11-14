@@ -91,6 +91,21 @@ bootstrap() {
     "$suite" "$root" "$mirror"
 }
 
+# Bring an Ubuntu root to the state of a maintained machine: debootstrap takes the release
+# pocket alone, whose shim and GRUB are those of the release day; newer firmware revokes such
+# a GRUB through SBAT (the planner's secure_boot_sbat_revoked), as it would on real hardware.
+#   ubuntu_updates <root> <suite> <mirror>   (after chroot_mount)
+ubuntu_updates() {
+  root="$1"
+  suite="$2"
+  mirror="$3"
+  printf 'deb %s %s main universe\ndeb %s %s-updates main universe\ndeb %s %s-security main universe\n' \
+    "$mirror" "$suite" "$mirror" "$suite" "$mirror" "$suite" >"$root/etc/apt/sources.list"
+  in_root "$root" apt-get update -q >/dev/null || fdie "apt-get update of $suite-updates failed"
+  in_root "$root" apt-get -y -q -o Dpkg::Options::=--force-confold dist-upgrade >/dev/null ||
+    fdie "the upgrade from $suite-updates failed"
+}
+
 # Bind the API file systems for work inside <root>, and undo it.
 chroot_mount() {
   for dir in dev dev/pts proc sys run; do

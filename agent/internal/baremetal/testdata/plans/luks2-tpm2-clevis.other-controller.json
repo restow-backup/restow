@@ -652,7 +652,8 @@
         "/tmp:1777",
         "/boot:0755",
         "/boot/efi:0755",
-        "/home:0755"
+        "/home:0755",
+        "/var/tmp:1777"
       ],
       "kind": "mkdirs",
       "n": 24,

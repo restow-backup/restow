@@ -395,7 +395,8 @@
         "/run:0755",
         "/tmp:1777",
         "/boot/efi:0755",
-        "/swap:0755"
+        "/swap:0755",
+        "/var/tmp:1777"
       ],
       "kind": "mkdirs",
       "n": 17,

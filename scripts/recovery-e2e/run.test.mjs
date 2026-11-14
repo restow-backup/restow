@@ -722,6 +722,9 @@ describe("which source machines ask for a passphrase at boot", () => {
     const settings = wholeMachineJobSettings();
     assert.equal(settings.wholeMachine, true);
     assert.ok(settings.paths.length > 0 && settings.paths.every((path) => path.startsWith("/")));
+    // The contents of /tmp and /var/tmp stay out, the folders themselves stay in.
+    assert.ok(settings.excludes.includes("/var/tmp/*") && settings.excludes.includes("/tmp/*"));
+    assert.ok(!settings.excludes.includes("/var/tmp") && !settings.excludes.includes("/tmp"));
   });
 
   it("says in one line where the whole machine backup stands", () => {

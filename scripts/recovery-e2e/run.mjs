@@ -42,6 +42,7 @@ import { basename, dirname, join, resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { connect } from "node:tls";
 import { fileURLToPath } from "node:url";
+import { DEFAULT_WHOLE_MACHINE_EXCLUDES } from "../../packages/core/src/endpoints/whole-machine.ts";
 import { CASES, PROBE_CASES, selectCases } from "./cases.mjs";
 import { factoryDebs } from "./factory-debs.mjs";
 import {
@@ -665,12 +666,19 @@ async function waitUntil(what, check, { timeoutMs, intervalMs = 5000 }) {
 
 /** Build, enroll and back up the source machine; answers what the restore is checked against. */
 /**
- * The settings of a case's backup job. A job always names folders (the API requires them, as the
- * job editor sends them): a member without "whole machine" (Windows, a container) backs them up
- * instead; a Linux member replaces them with the sources of its manifest (docs/BAREMETAL.md 5.2).
+ * The settings of a case's backup job, as the job editor sends them when "whole machine" goes on
+ * (docs/BAREMETAL.md 5.2, 5.3). A job always names folders (the API requires them): a member
+ * without "whole machine" (Windows, a container) backs them up instead; a Linux member replaces
+ * them with the sources of its manifest. The exclusions are the whole machine ones, which keep
+ * /tmp and /var/tmp as folders; without them the job keeps the profile's, which leave out
+ * /var/tmp itself, and the restored system lacks it (mkinitramfs needs it).
  */
 export function wholeMachineJobSettings() {
-  return { wholeMachine: true, paths: ["/etc", "/home"] };
+  return {
+    wholeMachine: true,
+    paths: ["/etc", "/home"],
+    excludes: [...DEFAULT_WHOLE_MACHINE_EXCLUDES],
+  };
 }
 
 /** The space rule of the test instance: 64 MiB free instead of 5 % and at least 20 GiB. */

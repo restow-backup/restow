@@ -43,6 +43,7 @@ chmod 0600 "$root/etc/netplan/50-e2e.yaml"
 chroot_mount "$root"
 install_e2e_units "$root" e2-ubuntu2404
 finish_root "$root"
+ubuntu_updates "$root" noble "$FACTORY_MIRROR"
 in_root "$root" update-initramfs -u -k all
 in_root "$root" grub-install --target=x86_64-efi --efi-directory=/boot/efi --uefi-secure-boot --no-nvram
 printf 'GRUB_CMDLINE_LINUX="console=tty0 console=ttyS0,115200n8"\n' >>"$root/etc/default/grub"
