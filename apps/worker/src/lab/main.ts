@@ -74,6 +74,17 @@ function log(message: string, fields: Record<string, unknown> = {}): void {
   );
 }
 
+/**
+ * The reason to log when the worker leases nothing, or null: only a reason that keeps a planned
+ * probe waiting (the worker has no ISO, does not know the instance, the lab has no KVM), and
+ * only when it changed, so the 30 s loop does not repeat it. `none` (nothing planned) and `busy`
+ * are the normal answers.
+ */
+export function noProbeNote(previous: string | null, reason: string): string | null {
+  if (reason === previous || reason === "none" || reason === "busy") return null;
+  return reason;
+}
+
 /** The loop: ask every 30 s while a slot is free (the worker then sees the lab and its KVM). */
 export async function runLab(
   config: LabConfig,
@@ -89,11 +100,19 @@ export async function runLab(
   });
   const driver = deps.driver ?? qemuDriver({ dbxFile: dbx?.file ?? null });
   const running = new Set<Promise<void>>();
+  let lastReason: string | null = null;
   while (!deps.signal?.aborted) {
     const kvm = (deps.kvm ?? kvmUsable)();
     try {
       if (running.size < config.concurrency) {
         const answer = await client.next({ labVersion: config.version, kvm });
+        if (!answer.probe) {
+          const note = noProbeNote(lastReason, answer.reason);
+          if (note) log("no probe leased", { reason: note });
+          lastReason = answer.reason;
+        } else {
+          lastReason = null;
+        }
         if (answer.probe) {
           const probe = answer.probe;
           log("probe leased", { probeId: probe.id, firmware: probe.hardware.firmware });

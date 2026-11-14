@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { labClient, serialTail } from "./client.js";
 import { guidBytes } from "./dbx.js";
-import { labConfigFromEnv, prepareDbx, runLab } from "./main.js";
+import { labConfigFromEnv, noProbeNote, prepareDbx, runLab } from "./main.js";
 import {
   connectSerial,
   encryptedDiskArgs,
@@ -194,6 +194,14 @@ describe("the lab process", () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+
+  it("logs why a planned probe waits, once per change, and never the normal answers", () => {
+    expect(noProbeNote(null, "iso_missing")).toBe("iso_missing");
+    expect(noProbeNote("iso_missing", "iso_missing")).toBeNull();
+    expect(noProbeNote("iso_missing", "instance_unknown")).toBe("instance_unknown");
+    expect(noProbeNote(null, "none")).toBeNull();
+    expect(noProbeNote("iso_missing", "busy")).toBeNull();
   });
 
   it("keeps a downloaded ISO only with the expected SHA-256, and sends the token", async () => {

@@ -40,6 +40,7 @@ import {
   buildAnswers,
   checkFindings,
   E2E_SPACE_RULE,
+  e2eOverlay,
   FACTORY_KEYRINGS,
   FACTORY_ROOTS,
   factoryCmdline,
@@ -296,6 +297,17 @@ describe("the answers file", () => {
     }
     assert.equal(identityOf(byId("E2").target.disks[0]), "serial.restow-e2e-target0-1");
     assert.equal(byId("E1").answers.diskMapping.d1, "serial.e2e-src1");
+  });
+
+  it("hands the worker the ISO under test as its drop folder, without downloading", () => {
+    const overlay = e2eOverlay("/w/agent", "/w/iso");
+    assert.match(
+      overlay,
+      /\n {2}worker:\n {4}environment:\n {6}RESTOW_RECOVERY_ISO_DIR: \/srv\/recovery-iso\n/,
+    );
+    assert.match(overlay, /RESTOW_RECOVERY_ISO_FETCH: "false"/);
+    assert.match(overlay, / {6}- \/w\/iso:\/srv\/recovery-iso:ro\n/);
+    assert.equal(overlay.match(/\/w\/agent:\/srv\/agent:ro/g).length, 2);
   });
 
   it("reaches the instance through QEMU's host address under a name of its own", () => {
