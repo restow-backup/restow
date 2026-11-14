@@ -601,6 +601,18 @@ func TestExecuteGrubFailureProbes(t *testing.T) {
 		strings.Join(probe.Devices, " ") != strings.Join(install.Devices, " ") || probe.CapSysAdmin != install.CapSysAdmin {
 		t.Errorf("probe spec %+v", probe)
 	}
+	// Before GRUB reads the disks past md: their page caches are synced and dropped, the md
+	// and dm nodes are left alone.
+	var flushed string
+	for _, op := range h.ops.ops {
+		if strings.HasPrefix(op, "flushbufs ") {
+			flushed = op
+			break
+		}
+	}
+	if !strings.Contains(flushed, "/dev/sda") || strings.Contains(flushed, "/dev/md") {
+		t.Errorf("flushbufs before GRUB: %q", flushed)
+	}
 	log := strings.Join(h.log, "\n")
 	if !strings.Contains(log, "Scanning for mdraid1x devices on disk hd0,msdos1") || !strings.Contains(log, "devices of the step: ") {
 		t.Errorf("log does not keep the probe:\n%s", log)

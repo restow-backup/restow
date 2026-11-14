@@ -65,6 +65,10 @@ type Ops interface {
 	MappingOn(name, dev string) (bool, string)
 	// DMMappings lists every device-mapper device of the machine (sysfs).
 	DMMappings() []DMMapping
+	// FlushBuffers syncs and drops the page cache of block devices
+	// (blockdev --flushbufs), so a reader through them sees what was
+	// written past them (through md or device-mapper).
+	FlushBuffers(ctx context.Context, devs []string)
 }
 
 // BootEntryRequest is one Boot#### entry to create.
@@ -1360,6 +1364,14 @@ func (x *Executor) isolated(ctx context.Context, s *baremetal.Step, argv []strin
 			}()
 		}
 	}
+	if grubProbeFor[prog] != "" {
+		// GRUB reads the members of an md array and the partitions through
+		// the whole disk (hostdisk//dev/sda), not through md: what mkfs and
+		// the restore wrote through /dev/md0 went past the page cache of
+		// /dev/sda, which still holds what blkzero and blkid saw there
+		// (zeros: "unknown filesystem"). Sync and drop those caches first.
+		x.Ops.FlushBuffers(ctx, rawDevices(spec.Devices))
+	}
 	x.log("$ chroot-exec %s", strings.Join(argv, " "))
 	res, err := x.Isolator.Run(ctx, spec)
 	// Before recover writes again: a file system the program froze.
@@ -1403,6 +1415,20 @@ func (x *Executor) isolated(ctx context.Context, s *baremetal.Step, argv []strin
 		x.report.RebuiltKernels = append(x.report.RebuiltKernels, deref(s.Target))
 	}
 	return nil
+}
+
+// rawDevices are the disks and partitions among the devices of a step:
+// no md, device-mapper or /dev/block alias.
+func rawDevices(devs []string) []string {
+	var out []string
+	for _, d := range devs {
+		switch {
+		case strings.HasPrefix(d, "/dev/md"), strings.HasPrefix(d, "/dev/dm-"), strings.HasPrefix(d, "/dev/mapper/"), strings.HasPrefix(d, "/dev/block/"):
+			continue
+		}
+		out = append(out, d)
+	}
+	return out
 }
 
 // grubProbeFor names the grub-probe of a GRUB program whose failure

@@ -36,5 +36,6 @@ restic restore --json --no-lock --no-cache --target /mnt/restow-target --sparse 
 session release
 zero repository secrets
 chroot-exec update-initramfs -u -k 6.1.0-27-amd64
+op flushbufs /dev/nvme0n1
 chroot-exec grub-mkconfig -o /boot/grub/grub.cfg
 op nvram debian 5e1c4d0a-1b2c-4d3e-8f90-a1b2c3d4e5f6 \EFI\debian\shimx64.efi

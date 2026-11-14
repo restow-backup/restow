@@ -492,6 +492,11 @@ func thawMount(m string) (bool, error) {
 	return false, e
 }
 
+// FlushBuffers implements Ops.
+func (o *LinuxOps) FlushBuffers(ctx context.Context, devs []string) {
+	o.Flush(ctx, devs)
+}
+
 // Flush syncs and flushes the buffers of the target disks before the
 // restart (10.17).
 func (o *LinuxOps) Flush(ctx context.Context, disks []string) {

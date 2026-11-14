@@ -348,6 +348,9 @@ func (o *fakeOps) setDM(ms ...DMMapping) {
 	o.mu.Unlock()
 }
 func (o *fakeOps) UnmountAll(ctx context.Context, root string) error { return o.rec("unmount " + root) }
+func (o *fakeOps) FlushBuffers(ctx context.Context, devs []string) {
+	_ = o.rec("flushbufs " + strings.Join(devs, " "))
+}
 func (o *fakeOps) ThawFrozen(root string) ([]string, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()
