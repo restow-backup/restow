@@ -802,6 +802,13 @@ private repository.
 
 ### Fixed
 
+- Proxmox VE: a restore from the PVE web UI (storage `restow` > Backups > Restore) of a container
+  ended with "Insecure dependency in exec while running with -T switch". pvedaemon runs Perl in
+  taint mode, and the storage plugin handed the archive directory from restow-pve to
+  pve-container unchecked. Every value the plugin hands back to PVE (archive directory, the NBD
+  address and disk sizes of a VM restore, names, sizes of the listing) is now checked against
+  what restow-pve sends and untainted, or the call is refused naming the value. `pct restore`
+  and `qmrestore` on a shell were not affected.
 - Retention frees space on a full storage target (#100). restic's normal prune writes repacked
   packs before it deletes the old ones, so on a full directory, NFS or SMB share, or an S3 bucket
   at its quota it failed and freed nothing. Every server-side prune (machines, file shares,
