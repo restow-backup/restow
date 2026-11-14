@@ -1,7 +1,7 @@
 {
-  "comment": "The disks of the recovery end-to-end cases as the ISO collects them under QEMU (scripts/recovery-e2e/lib/qemu.mjs). expectIdentity is checked by TestQEMUIdentities (Go) and by run.test.mjs (identityOf), so the answers files of the cases name the identities recover reports. nvme0n1 carries the wwid that lsblk shows in its WWN column with udev; it is no WWN (baremetal.SplitWWN).",
+  "comment": "The disks of the recovery end-to-end cases as the ISO collects them under QEMU (scripts/recovery-e2e/lib/qemu.mjs). expectIdentity is checked by TestQEMUIdentities (Go) and by run.test.mjs (identityOf), so the answers files of the cases name the identities recover reports. nvme0n1 is as an ISO of the CI reported it (run 43531036791, E2): Linux ignores the namespace IDs of QEMU's NVMe controller (1b36:0010, NVME_QUIRK_BOGUS_NID), so the eui64= of the command line never shows; the wwid lsblk prints is the nvme.<vendor>-<serial>-<model>-<nsid> fallback, no WWN (baremetal.SplitWWN), and the identity is the serial number with the namespace.",
   "expectIdentity": {
-    "nvme0n1": "eui.525400e2e0000002",
+    "nvme0n1": "serial.restow-e2e-target0-1",
     "sda": "serial.restow-e2e-target0",
     "vda": "serial.e2e-src0",
     "sdb": "serial.restow-e2e-other0"
@@ -29,8 +29,8 @@
       "zoned": "none",
       "model": "QEMU NVMe Ctrl",
       "serial": "restow-e2e-target0",
-      "wwn": "eui.525400e2e0000002",
-      "eui64": "525400e2e0000002",
+      "wwn": "nvme.1b36-726573746f772d6532652d74617267657430-51454d55204e564d65204374726c-00000001",
+      "eui64": "",
       "nguid": "",
       "nsid": 1,
       "transport": "nvme",

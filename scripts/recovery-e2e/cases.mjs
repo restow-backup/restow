@@ -37,7 +37,9 @@ export const CASES = Object.freeze([
       firmware: "bios",
       disks: [{ serial: "restow-e2e-target0", size: GiB(12), bus: "ahci" }],
     },
-    answers: { diskMapping: { d0: "serial.restow-e2e-target0" } },
+    // d1 names the second source disk, which the target lacks: recover maps it as missing and
+    // starts the arrays degraded (an unnamed disk would be mapped automatically and fail).
+    answers: { diskMapping: { d0: "serial.restow-e2e-target0", d1: "serial.e2e-src1" } },
   },
   {
     id: "E1b",
@@ -57,7 +59,8 @@ export const CASES = Object.freeze([
       firmware: "bios",
       disks: [{ serial: "restow-e2e-target0", size: GiB(8), bus: "ahci" }],
     },
-    answers: { diskMapping: { d0: "serial.restow-e2e-target0" } },
+    // d1 is missing on the target, as in E1.
+    answers: { diskMapping: { d0: "serial.restow-e2e-target0", d1: "serial.e2e-src1" } },
   },
   {
     id: "E2",
@@ -81,7 +84,8 @@ export const CASES = Object.freeze([
         { serial: "restow-e2e-target0", size: GiB(16), bus: "nvme", eui64: "525400e2e0000002" },
       ],
     },
-    answers: { diskMapping: { d0: "eui.525400e2e0000002" } },
+    // QEMU's NVMe namespace shows no EUI-64 in Linux (NVME_QUIRK_BOGUS_NID): serial and nsid.
+    answers: { diskMapping: { d0: "serial.restow-e2e-target0-1" } },
   },
   {
     id: "E3",

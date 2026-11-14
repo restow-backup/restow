@@ -225,7 +225,10 @@ func newKernelIndex(k KernelFacts, dkms []DKMSModule) *kernelIndex {
 
 // match returns the module for a modalias and whether it is built in. A
 // module of the device's driver chain built by DKMS for this kernel counts
-// as present.
+// as present, and so does one the kernel has built in (modules.builtin):
+// the device tables of built-in drivers are often not in
+// modules.builtin.modinfo (Ubuntu's 6.8 builds virtio_blk, virtio_pci and
+// virtio_net in and lists no alias of them), so no alias names them.
 func (k *kernelIndex) match(modalias string, chain []string) (module string, builtin, found bool) {
 	for _, a := range k.builtins {
 		if ok, _ := path.Match(a.pattern, modalias); ok {
@@ -253,6 +256,11 @@ func (k *kernelIndex) match(modalias string, chain []string) (module string, bui
 	for _, c := range chain {
 		if k.dkms[moduleName(c)] {
 			return moduleName(c), false, true
+		}
+	}
+	for _, c := range chain {
+		if k.builtin[moduleName(c)] {
+			return moduleName(c), true, true
 		}
 	}
 	return "", false, false

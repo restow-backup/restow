@@ -161,17 +161,14 @@ export function guestInstanceUrl(httpsPort) {
 
 /**
  * The identity of a QEMU disk as the ISO sees it (C-M4-4), derived like recovery.Identity in
- * agent/internal/recovery/hardware.go: an NVMe namespace by its EUI-64 (eui.<hex>, set
- * explicitly in lib/qemu.mjs), every other disk of the cases by its serial number
- * (serial.<serial>; QEMU gives them no WWN). The shared fixture
+ * agent/internal/recovery/hardware.go: every disk of the cases by its serial number
+ * (serial.<serial>; QEMU gives them no WWN), an NVMe namespace with its namespace id
+ * (serial.<serial>-1). The eui64= of the command line does not show: Linux ignores the namespace
+ * IDs of QEMU's NVMe controller (NVME_QUIRK_BOGUS_NID). The shared fixture
  * agent/internal/recovery/testdata/hw/qemu-e2e.json pins both sides.
  */
 export function identityOf(disk) {
-  if (disk.bus === "nvme") {
-    if (!/^[0-9a-f]{16}$/.test(disk.eui64 ?? ""))
-      throw new Error(`NVMe disk ${disk.serial} needs eui64`);
-    return `eui.${disk.eui64}`;
-  }
+  if (disk.bus === "nvme") return `serial.${disk.serial}-1`;
   return `serial.${disk.serial}`;
 }
 
@@ -298,7 +295,7 @@ export function checkFindings(check) {
   if (!check) return "no layout check";
   const parts = [];
   for (const item of check.checks ?? []) {
-    if (!item || item.status === "passed" || item.status === "skipped") continue;
+    if (!item || ["ok", "passed", "skipped"].includes(item.status)) continue;
     const findings = (item.findings ?? [])
       .filter((finding) => finding.severity !== "info")
       .slice(0, 5)
@@ -312,6 +309,14 @@ export function checkFindings(check) {
   if (check.planner) parts.push(`planner: ${JSON.stringify(check.planner)}`);
   const text = parts.join(" | ") || `readiness ${check.readiness} without failed checks`;
   return text.length > 3000 ? `${text.slice(0, 3000)}...` : text;
+}
+
+/** The disks the ISO reported (model, serial, WWN or wwid, size, transport), in one line. */
+export function targetSummary(hardware) {
+  if (!hardware) return "no hardware report";
+  const disk = (d) =>
+    `${d.model || "?"} serial ${d.serial || "-"} wwn ${d.wwn || "-"} ${d.sizeBytes ?? "?"} B ${d.transport || "?"}`;
+  return `${hardware.firmware ?? "?"}, disks [${(hardware.disks ?? []).map(disk).join("; ")}]`;
 }
 
 /** The last `count` lines of a recovery's log pages (the ISO's own log), oldest first. */
@@ -337,7 +342,8 @@ async function recoveryDiagnosis(client, tenantId, recoveryPath) {
   const warnings = (last.warnings ?? []).map((w) => `${w.code}: ${w.message}`).join(" | ");
   return (
     `phase ${last.phase ?? "?"}, progress ${JSON.stringify(last.progress ?? null)}` +
-    `${warnings ? `, warnings ${warnings}` : ""}\nISO log (end):\n${recoveryLogTail(pages).join("\n")}`
+    `${warnings ? `, warnings ${warnings}` : ""}\ntarget: ${targetSummary(last.hardware)}` +
+    `\nISO log (end):\n${recoveryLogTail(pages).join("\n")}`
   );
 }
 

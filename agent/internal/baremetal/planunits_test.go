@@ -400,6 +400,25 @@ func TestDrivers(t *testing.T) {
 	if _, _, ok := k.match("pci:v00001000d000000A5sv00001000sd00004620bc01sc04i00", []string{"mpi3mr"}); ok {
 		t.Error("mpi3mr found")
 	}
+	// Built in without an alias in modules.builtin.modinfo (Ubuntu 6.8 and virtio): the driver
+	// chain of the device names it; "virtio-pci" is the driver of the module virtio_pci.
+	ubuntu := newKernelIndex(KernelFacts{Version: "6.8.0-31-generic", ModulesAlias: "alias pci:v*d*sv*sd*bc01sc08i02* nvme\n",
+		ModulesBuiltin:        "kernel/drivers/block/virtio_blk.ko\nkernel/drivers/virtio/virtio_pci.ko\nkernel/drivers/net/virtio_net.ko\n",
+		ModulesBuiltinModinfo: "virtio_pci.license=GPL\nsha512_ssse3.alias=sha384-avx\n"}, nil)
+	chain := []string{"virtio_blk", "virtio-pci"}
+	if mod, builtin, ok := ubuntu.match("virtio:d00000002v00001AF4", chain); !ok || !builtin || mod != "virtio_blk" {
+		t.Errorf("built-in virtio_blk: %s %v %v", mod, builtin, ok)
+	}
+	if mod, builtin, ok := ubuntu.match("pci:v00001AF4d00001001sv00001AF4sd00000002bc01sc00i00", []string{"virtio-pci"}); !ok || !builtin || mod != "virtio_pci" {
+		t.Errorf("built-in virtio_pci: %s %v %v", mod, builtin, ok)
+	}
+	if mod, _, ok := ubuntu.match("virtio:d00000001v00001AF4", []string{"virtio_net"}); !ok || mod != "virtio_net" {
+		t.Errorf("built-in virtio_net: %s %v", mod, ok)
+	}
+	// A driver the kernel neither has as a module nor built in stays missing.
+	if _, _, ok := ubuntu.match("pci:v00001000d000000A5sv00001000sd00004620bc01sc04i00", []string{"mpi3mr"}); ok {
+		t.Error("mpi3mr found in the Ubuntu index")
+	}
 	if !isBridge("pci:v00008086d0000A33Csv00008086sd00007270bc06sc04i00") || isBridge(modaliasNVMe) {
 		t.Error("bridge")
 	}

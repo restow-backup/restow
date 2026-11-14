@@ -53,6 +53,7 @@ import {
   parseArgs,
   probeOutcome,
   recoveryLogTail,
+  targetSummary,
   testAgentDir,
   versionOfIso,
   wholeMachineJobSettings,
@@ -242,13 +243,16 @@ describe("the answers file", () => {
         answers.confirmErase,
         [
           ...testCase.target.disks.map((disk) =>
-            disk.bus === "nvme" ? `eui.${disk.eui64}` : `serial.${disk.serial}`,
+            disk.bus === "nvme" ? `serial.${disk.serial}-1` : `serial.${disk.serial}`,
           ),
           ...(testCase.eraseAlso ?? []),
         ].sort(),
       );
       if (answers.diskMapping !== "auto") {
+        // A source disk the target lacks is mapped as missing; there is nothing to erase.
+        const gone = new Set(testCase.source.disks.map((disk) => `serial.${disk.serial}`));
         for (const target of Object.values(answers.diskMapping)) {
+          if (gone.has(target)) continue;
           assert.ok(answers.confirmErase.includes(target), `${testCase.id}: ${target} is erased`);
         }
       }
@@ -279,21 +283,19 @@ describe("the answers file", () => {
       };
       assert.equal(identityOf(disk), fixture.expectIdentity[block.kname], block.kname);
     }
-    // Every NVMe disk of the cases has an EUI-64 the fixture covers in form, and a mapping
-    // names exactly the identity the agent reports.
+    // A mapping names a disk of the target by the identity the agent reports, or a source disk
+    // the target lacks (recover maps that one as missing).
     for (const testCase of CASES) {
-      for (const disk of testCase.target.disks) {
-        assert.doesNotThrow(() => identityOf(disk), `${testCase.id}: ${disk.serial}`);
-      }
       const mapping = testCase.answers.diskMapping;
       if (mapping && mapping !== "auto") {
         const ids = new Set(testCase.target.disks.map(identityOf));
+        const gone = new Set((testCase.source.disks ?? []).map(identityOf));
         for (const target of Object.values(mapping))
-          assert.ok(ids.has(target), `${testCase.id}: ${target}`);
+          assert.ok(ids.has(target) || gone.has(target), `${testCase.id}: ${target}`);
       }
     }
-    assert.equal(identityOf(byId("E2").target.disks[0]), "eui.525400e2e0000002");
-    assert.throws(() => identityOf({ serial: "x", bus: "nvme" }), /eui64/);
+    assert.equal(identityOf(byId("E2").target.disks[0]), "serial.restow-e2e-target0-1");
+    assert.equal(byId("E1").answers.diskMapping.d1, "serial.e2e-src1");
   });
 
   it("reaches the instance through QEMU's host address under a name of its own", () => {
@@ -755,6 +757,16 @@ describe("which source machines ask for a passphrase at boot", () => {
       { log: { items: [{ lines: ["c"] }, { lines: ["d"] }] } },
     ];
     assert.deepEqual(recoveryLogTail(pages, 3), ["b", "c", "d"]);
+    assert.equal(targetSummary(null), "no hardware report");
+    assert.equal(
+      targetSummary({
+        firmware: "uefi",
+        disks: [
+          { model: "QEMU NVMe Ctrl", serial: "t0", wwn: "", sizeBytes: 1024, transport: "nvme" },
+        ],
+      }),
+      "uefi, disks [QEMU NVMe Ctrl serial t0 wwn - 1024 B nvme]",
+    );
   });
 
   it("stops waiting once a finished backup left the machine not possible", () => {

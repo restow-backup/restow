@@ -21,7 +21,7 @@ import { resticBinary } from "@restow/core";
 import { auditLog, endpointLayouts, endpointRecoveries, endpointRuns } from "@restow/db";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { Hono } from "hono";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   type EndpointFixture,
   resticAvailable,
@@ -272,16 +272,23 @@ describe.skipIf(!canRun)(
         { method: "DELETE", headers: sessionBasic(session.sessionId, session.secret) },
       );
       expect(raw.status).toBe(403);
-      const denied = await fixture.db
-        .select()
-        .from(auditLog)
-        .where(
-          and(
-            eq(auditLog.action, "endpoint.repository.denied"),
-            sql`${auditLog.details}->>'recoveryId' = ${session.sessionId}`,
-          ),
-        );
-      expect(denied.length).toBeGreaterThan(0);
+      // The route writes the refusal in the background (it does not hold the answer for it).
+      const denied = await vi.waitFor(
+        async () => {
+          const rows = await fixture.db
+            .select()
+            .from(auditLog)
+            .where(
+              and(
+                eq(auditLog.action, "endpoint.repository.denied"),
+                sql`${auditLog.details}->>'recoveryId' = ${session.sessionId}`,
+              ),
+            );
+          expect(rows.length).toBeGreaterThan(0);
+          return rows;
+        },
+        { timeout: 10_000, interval: 100 },
+      );
       expect(denied[0]?.details).toMatchObject({ principal: "recovery" });
       // The snapshot is still there.
       const listed = await restic(["snapshots", "--json"], agentEnv);
