@@ -47,9 +47,13 @@ var reKeylessDMUUID = regexp.MustCompile(`^(LVM-|mpath-|DMRAID-|part[0-9]+-)`)
 func keylessMapping(m DMMapping) bool { return reKeylessDMUUID.MatchString(m.UUID) }
 
 // dmAdminPrograms keep CAP_SYS_ADMIN when a device-mapper node is among
-// the devices of their step (needsSysAdmin).
+// the devices of their step (needsSysAdmin). update-initramfs: the
+// cryptroot hook of cryptsetup-initramfs finds the LUKS volume under the
+// root file system with dmsetup (info, table); without the capability the
+// kernel answers no device-mapper command, the hook leaves the volume out,
+// and the restored system never asks for its passphrase.
 var dmAdminPrograms = map[string]bool{"grub-install": true, "grub2-install": true, "grub-mkconfig": true, "grub2-mkconfig": true,
-	"update-grub": true, "vgimportdevices": true}
+	"update-grub": true, "vgimportdevices": true, "update-initramfs": true}
 
 // foreignKeyMappings lists the mappings a step with CAP_SYS_ADMIN could
 // read a key from: every device-mapper device that is neither among the

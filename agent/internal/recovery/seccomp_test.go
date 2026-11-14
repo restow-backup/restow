@@ -248,7 +248,8 @@ func TestCapsAndSpec(t *testing.T) {
 		{"grub-install", stacked, true},
 		{"grub2-mkconfig", []string{"/dev/mapper/luks-1"}, true},
 		{"vgimportdevices", stacked, true},
-		{"update-initramfs", stacked, false},
+		{"update-initramfs", stacked, true},
+		{"update-initramfs", plain, false},
 		{"dracut", stacked, false},
 	} {
 		if got := needsSysAdmin(c.prog, c.devices); got != c.want {

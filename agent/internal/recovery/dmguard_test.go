@@ -113,10 +113,34 @@ func TestExecuteForeignMappingPreflight(t *testing.T) {
 }
 
 // TestExecuteForeignMappingBeforeStep: a volume opened from another
-// console during the run stops the grub step before it starts; one opened
-// while grub ran fails the step and says the key may be known.
+// console during the run stops the first step with CAP_SYS_ADMIN (the
+// initramfs on a LUKS stack) before it starts; one opened while such a
+// step ran fails it and says the key may be known.
 func TestExecuteForeignMappingBeforeStep(t *testing.T) {
 	h := newHarness(t, "debian12-uefi-luks-lvm.same", "debian12-uefi-luks-lvm")
+	h.ops.stack = goldenStack
+	h.ops.setDM(goldenDM...)
+	h.exec.output = func(argv []string) (string, bool) {
+		if argv[0] == "mount" {
+			h.ops.setDM(append(append([]DMMapping{}, goldenDM...), oldCrypt)...)
+		}
+		return "", false
+	}
+	rep, err := h.x.Run(context.Background())
+	var se *StepError
+	if !errors.As(err, &se) || se.Problem != ProblemForeignMappingOpen || se.Kind != "initramfs" || rep.Problem != ProblemForeignMappingOpen {
+		t.Fatalf("err %v", err)
+	}
+	for _, r := range h.iso.runs {
+		if r.Argv[0] == "update-initramfs" || r.Argv[0] == "grub-mkconfig" {
+			t.Fatalf("%s ran with a foreign LUKS1 volume open", r.Argv[0])
+		}
+	}
+	if !strings.Contains(err.Error(), "/dev/mapper/old_crypt (dm-7 on sdb2)") || strings.Contains(err.Error(), "while") {
+		t.Errorf("message %v", err)
+	}
+
+	h = newHarness(t, "debian12-uefi-luks-lvm.same", "debian12-uefi-luks-lvm")
 	h.ops.stack = goldenStack
 	h.ops.setDM(goldenDM...)
 	h.iso.reply = func(spec IsolateSpec) string {
@@ -125,18 +149,10 @@ func TestExecuteForeignMappingBeforeStep(t *testing.T) {
 		}
 		return ""
 	}
-	rep, err := h.x.Run(context.Background())
-	var se *StepError
-	if !errors.As(err, &se) || se.Problem != ProblemForeignMappingOpen || se.Kind != "grub_config" || rep.Problem != ProblemForeignMappingOpen {
+	_, err = h.x.Run(context.Background())
+	if !errors.As(err, &se) || se.Problem != ProblemForeignMappingOpen || se.Kind != "initramfs" ||
+		!strings.Contains(err.Error(), "while update-initramfs ran") {
 		t.Fatalf("err %v", err)
-	}
-	for _, r := range h.iso.runs {
-		if r.Argv[0] == "grub-mkconfig" {
-			t.Fatal("grub-mkconfig ran with a foreign LUKS1 volume open")
-		}
-	}
-	if !strings.Contains(err.Error(), "/dev/mapper/old_crypt (dm-7 on sdb2)") || strings.Contains(err.Error(), "while") {
-		t.Errorf("message %v", err)
 	}
 
 	h = newHarness(t, "debian12-uefi-luks-lvm.same", "debian12-uefi-luks-lvm")
@@ -155,23 +171,29 @@ func TestExecuteForeignMappingBeforeStep(t *testing.T) {
 	}
 }
 
-// TestExecuteForeignMappingNoSysAdmin: a step without CAP_SYS_ADMIN (the
-// initramfs, or grub on a stack without device-mapper) does not look at
-// other mappings; it cannot send device-mapper commands at all.
+// TestExecuteForeignMappingNoSysAdmin: update-initramfs on a LUKS stack
+// gets CAP_SYS_ADMIN (the cryptroot hook asks dmsetup); a step without it
+// (grub on a stack without device-mapper) does not look at other
+// mappings; it cannot send device-mapper commands at all.
 func TestExecuteForeignMappingNoSysAdmin(t *testing.T) {
 	h := newHarness(t, "debian12-uefi-luks-lvm.same", "debian12-uefi-luks-lvm")
 	h.ops.stack = goldenStack
 	h.ops.setDM(goldenDM...)
+	initramfs := false
 	h.iso.reply = func(spec IsolateSpec) string {
 		if spec.Argv[0] == "update-initramfs" {
-			if spec.CapSysAdmin {
-				t.Error("update-initramfs with CAP_SYS_ADMIN")
+			initramfs = true
+			if !spec.CapSysAdmin {
+				t.Error("update-initramfs on a LUKS stack without CAP_SYS_ADMIN")
 			}
 		}
 		return ""
 	}
 	if _, err := h.x.Run(context.Background()); err != nil {
 		t.Fatal(err)
+	}
+	if !initramfs {
+		t.Fatal("update-initramfs did not run")
 	}
 	x := &Executor{Ops: h.ops, Plan: h.x.Plan, Isolator: h.iso, TargetRoot: "/mnt/restow-target"}
 	h.ops.stack = nil

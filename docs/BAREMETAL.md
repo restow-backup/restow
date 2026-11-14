@@ -2417,8 +2417,13 @@ fremder Teile) und die NVRAM beschädigen. Darum läuft jeder dieser Schritte ü
   `CAP_AUDIT_READ`, `CAP_MAC_ADMIN`, `CAP_MAC_OVERRIDE`, `CAP_CHECKPOINT_RESTORE`
   (reservierte ext4-Blöcke bleiben nutzbar, sie gehören uid 0); `CAP_SYS_ADMIN` (und `/dev/mapper/control`)
   nur für die Schritte, die device-mapper-ioctls brauchen (`grub-install`/`grub-probe`,
-  `grub2-mkconfig`, `update-grub`, `vgimportdevices`), und nur, wenn unter den Geräten des
-  Schritts ein dm-Knoten ist (LVM oder LUKS); auf einem schlichten System ebenfalls weg.
+  `grub2-mkconfig`, `update-grub`, `vgimportdevices`, `update-initramfs`: der Hook `cryptroot`
+  von cryptsetup-initramfs findet das LUKS-Volume unter dem Wurzeldateisystem mit `dmsetup info`
+  und `dmsetup table`; ohne die Fähigkeit lässt er es aus, und das wiederhergestellte System
+  fragt beim Start nicht nach der Passphrase), und nur, wenn unter den Geräten des Schritts ein
+  dm-Knoten ist (LVM oder LUKS); auf einem schlichten System ebenfalls weg. `dracut` und
+  `mkinitcpio` laufen weiter ohne: `dracut --no-hostonly` nimmt alle crypt-Module, `mkinitcpio`
+  folgt den `HOOKS` der Konfiguration.
   Zusätzlich ein seccomp-Filter (von Hand gebautes BPF-Programm,
   `prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER)` als Rohaufruf, kein Modul), der `mount`,
   `umount2`, `pivot_root`, `open_tree`, `open_tree_attr`, `move_mount`, `fsopen`, `fsmount`,
