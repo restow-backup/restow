@@ -253,6 +253,21 @@ describe("the serial console of the restored system", () => {
   });
 });
 
+describe("the lab's result", () => {
+  it("drops an invalid relayed finish, never the whole result", () => {
+    const parsed = labResultSchema.parse({
+      outcome: "booted",
+      bootSerial: "RESTOW-PROBE-OK x 6.1\n",
+      kvm: true,
+      firmware: "bios",
+      controllers: ["nvme"],
+      recoveryFinish: { status: "won", verification: "not an object" },
+    });
+    expect(parsed.recoveryFinish).toBeUndefined();
+    expect(parsed.outcome).toBe("booted");
+  });
+});
+
 const lab = (change: Partial<LabResult> = {}): LabResult =>
   labResultSchema.parse({
     outcome: "booted",

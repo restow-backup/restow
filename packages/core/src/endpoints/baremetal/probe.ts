@@ -415,12 +415,15 @@ export const labResultSchema = z.strictObject({
    * which has no network any more. The worker stores it with the API's rules, only for a session
    * that is still `finishing`.
    */
+  // An invalid finish (the restored system's programs ran before it was written) is dropped,
+  // never the whole result: the probe is still recorded and rated, as incomplete.
   recoveryFinish: recoveryFinishSchema
     .refine(
       (value) => JSON.stringify(value).length <= LAB_FINISH_MAX_BYTES,
       "finish larger than 160 KiB",
     )
-    .optional(),
+    .optional()
+    .catch(undefined),
   /** For `lab_error`: a code and an English message for the report. */
   error: z
     .strictObject({ code: z.string().regex(/^[a-z][a-z0-9_]{0,63}$/), message: LAB_TEXT })
