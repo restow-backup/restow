@@ -55,6 +55,7 @@ export const eeProviderRouteRules: Readonly<Record<string, ProviderRouteRule>> =
   "POST /api/v1/archive/forwarding/:objectId/rotate": configure(),
 
   // The cross-tenant provider API, reachable with a session too.
+  "GET /api/v1/provider/billing": view(scope.provider),
   "GET /api/v1/provider/tenants": view(scope.provider),
   "GET /api/v1/provider/users": view(scope.provider),
 };

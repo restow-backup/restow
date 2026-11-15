@@ -12,6 +12,18 @@ private repository.
 
 ### Added
 
+- Billing figures for PSA and billing tools: `GET /api/v1/provider/billing` (integration API
+  contract 1.10.0, additive; Service Provider) with the new scope `billing:read`, which only a
+  provider key can carry (a tenant key with it is refused, `api-key-scope-provider-only`). Per
+  tenant (not those being deleted): its customer number, status, one line per priced quantity
+  (protected mailboxes, stored data, servers, clients, VMs, containers, file shares) with
+  quantity, unit, unit price, the price's source (the tenant's own or the installation's) and
+  amount, and its total, in the installation's currency; `complete: false` when a tenant's
+  figures could not be read. It is the estimate of the web UI's price cards, so both always
+  agree, live as of `generatedAt`; `?tenant=` or `?customerNumber=` (without case) narrows it to
+  one tenant. Every read is recorded in the audit log of each tenant it contains
+  (`api.provider.billing.read`). In the web UI the scope "Billing" is offered for provider keys
+  only. A fixed monthly close with a webhook follows with 0.6.0.
 - Emergency disk reserve and "Disk full" recovery without a shell (#98). When the disk under the
   database filled up to the last byte, PostgreSQL could not start and getting it back needed a
   shell or a rescue console. The api now keeps a file of real (random, never sparse) blocks on

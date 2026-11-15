@@ -123,6 +123,10 @@
       "label": "Archiv",
       "description": "Journaling-Status, Kettenprüfung und Nachweisberichte."
     },
+    "billing_read": {
+      "label": "Abrechnung",
+      "description": "Was jeder Mandant diesen Monat zu Ihren Preisen kosten würde, mit Kundennummern, für PSA- und Abrechnungstools. Nur für Provider-Schlüssel."
+    },
     "restore_write": {
       "label": "Sicherungen und Wiederherstellungen",
       "description": "Sicherungen und Wiederherstellungen starten."

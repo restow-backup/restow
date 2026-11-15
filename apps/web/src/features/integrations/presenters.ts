@@ -43,10 +43,34 @@ export type ScopeGroupId = "read" | "act" | "manage";
 
 /** Scopes as the create dialog groups them: what an integration may see, do and configure. */
 export const SCOPE_GROUPS: readonly { id: ScopeGroupId; scopes: readonly ApiScope[] }[] = [
-  { id: "read", scopes: ["status:read", "jobs:read", "items:read", "users:read", "archive:read"] },
+  {
+    id: "read",
+    scopes: [
+      "status:read",
+      "jobs:read",
+      "items:read",
+      "users:read",
+      "archive:read",
+      "billing:read",
+    ],
+  },
   { id: "act", scopes: ["restore:write", "verify:write", "users:write"] },
   { id: "manage", scopes: ["webhooks:manage"] },
 ];
+
+/** Scopes only a provider key carries (they read across tenants; the server refuses them on a tenant key). */
+export const PROVIDER_ONLY_SCOPES: readonly ApiScope[] = ["billing:read"];
+
+/** The scope groups the create dialog offers for a key of `kind`. */
+export function scopeGroupsFor(
+  kind: "tenant" | "provider",
+): readonly { id: ScopeGroupId; scopes: readonly ApiScope[] }[] {
+  if (kind === "provider") return SCOPE_GROUPS;
+  return SCOPE_GROUPS.map((group) => ({
+    ...group,
+    scopes: group.scopes.filter((scope) => !PROVIDER_ONLY_SCOPES.includes(scope)),
+  }));
+}
 
 /** Translation id of a scope: `status:read` -> `status_read` (":" separates namespaces in i18next). */
 export function scopeKey(scope: ApiScope): string {

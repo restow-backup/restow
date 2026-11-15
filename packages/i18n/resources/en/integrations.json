@@ -123,6 +123,10 @@
       "label": "Archive",
       "description": "Journaling status, chain verification and proof reports."
     },
+    "billing_read": {
+      "label": "Billing",
+      "description": "What each tenant would be billed this month at your prices, with customer numbers, for PSA and billing tools. Provider keys only."
+    },
     "restore_write": {
       "label": "Backups and restores",
       "description": "Start backups and restores."
