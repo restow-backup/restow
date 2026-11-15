@@ -107,6 +107,33 @@ export function pveGuestRepositoryLockKey(guestId: string): string {
   return `pve-guest:${guestId}`;
 }
 
+/**
+ * The lock of a tenant's repository copies in the same lock space (docs/STORAGE.md, "restic
+ * repositories on copies"): the worker's copy pass holds it shared while it copies the tenant's
+ * repositories, a promotion of a copy target holds it exclusively while it maps the restore
+ * points onto the copy and switches the primary, so neither runs beside the other.
+ */
+export function repositoryCopiesLockKey(tenantId: string): string {
+  return `repository-copies:${tenantId}`;
+}
+
+/**
+ * Whether anyone holds the lock under `key` right now (`pg_locks`, no lock taken): for a status
+ * that says why an action would be refused before it is tried.
+ */
+export async function repositoryLockHeld(pool: Pick<Pool, "query">, key: string): Promise<boolean> {
+  const { rows } = await pool.query<{ held: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM pg_locks
+        WHERE locktype = 'advisory' AND granted AND objsubid = 2
+          AND classid = $1::bigint::oid
+          AND objid = ((hashtext($2)::bigint + 4294967296) % 4294967296)::oid
+     ) AS held`,
+    [LOCK_CLASS, key],
+  );
+  return rows[0]?.held === true;
+}
+
 /** Run `work` while holding the lock of an endpoint's repository. */
 export async function withEndpointRepositoryLock<T>(
   pool: Pool,

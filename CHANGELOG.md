@@ -107,12 +107,43 @@ private repository.
   log too (`readFrom` on `endpoint.restore.requested`/`.finished`, new actions
   `pve.restore.read_from_copy` and `file_share.restore_read_from_copy`). The server's own
   repository checks stay on the primary and are red or incomplete, never green, while it does
-  not hold the repository. Promoting a copy stays refused while the tenant has restic
-  repositories, and a `move` and the repository repair leave repository copies out
+  not hold the repository. A `move` and the repository repair leave repository copies on copy
+  targets out
   (docs/STORAGE.md, "restic repositories on copies", "Restoring from a copy" and "Known
   limitations"). The first pass
   after the update copies every repository once, 25 repositories per pass, and needs their size
   on each copy target. Purging a file share now also deletes its repository copies.
+- "Make primary" for a tenant with containers, machines or file shares (docs/STORAGE.md,
+  "Promoting a copy"). A copy target can become the primary once it holds everything the
+  primary holds: every pack, manifest, key and archive record, and the repository copy of
+  every restic repository (its last copy succeeded, passed its check and started after the
+  object's newest restore point). Before, a tenant with any restic repository could not
+  promote at all and had to "move". The dialog asks the server first
+  (`GET /api/v1/storage/targets/:id/promotion`) and lists every reason it would refuse, each with
+  what to do: an active machine, a running backup, storage jobs, a repository repair, a running
+  copy pass, every repository whose copy is not complete with its state, missing files. "Catch
+  up now" (`POST /api/v1/storage/targets/:id/catch-up`, audit `storage.target.catch_up_started`)
+  queues a storage check that mirrors the copies and asks the worker for the copy of every
+  repository behind (picked up within 30 seconds); the dialog shows the progress, and "Make
+  primary" is enabled once the server says the copy is ready. The promotion lists the
+  repository copies, checks that every restore point the server keeps is there, rewrites the
+  recorded snapshot ids to the copy's in the switching transaction, and retires the old primary
+  read-only (`previous`), as a `move` does. New problem types `storage-switch-blocked-by-jobs`,
+  `storage-copy-pass-running` and `storage-repository-copies-incomplete`. Active machines still
+  block every change of the primary (`storage-active-endpoints`), now shown before the click.
+  The promotion keeps restic's persistent id of every restore point it carries over (new table
+  `restic_snapshot_origins`, migration 0099, tenant isolated), so another copy target still
+  finds them once the promoted primary is lost, and can be promoted in turn. A machine's
+  promotion requires every snapshot a record still names and the primary holds (held ones, SQL
+  backups); the copy pass copies everything while a hold, a revoked machine or a write-once
+  primary keeps more than the retention rules, and a machine's retention and removal jobs no
+  longer run beside a promotion, nor do a file share's retention and purge or the retention of
+  containers (they hold the tenant's repository-copy lock shared; queued jobs wait up to half an
+  hour). A machine's snapshot no run dated that a record still names is copied too. When the
+  primary cannot list a machine's repository, the promotion checks it against the records and
+  the copy's state and names it (`primaryUnreadable`); each listing is limited to five minutes.
+  The listing comparison moved to
+  `POST /api/v1/storage/targets/:id/promotion/check` (right to operate).
 - Modules of the installation: the setup wizard of a new installation asks "What do you want to
   protect?" with a box per module (Microsoft 365, IMAP mailboxes, Mail archive, Servers & clients,
   Proxmox VE; all ticked to begin with, at least one), and Installation › Server & operation ›
@@ -581,7 +612,7 @@ private repository.
   reports it; backups run with `--one-file-system` and `--group-by host`. The server checks the
   manifest (`restow-layout-v1`, the same schema and canonical encoding in Go and TypeScript, held
   to the agent's own test data), keeps it once per machine and content in the new table
-  `endpoint_layouts` (migration 0099, Row Level Security like the other tenant tables) and links
+  `endpoint_layouts` (migration 0100, Row Level Security like the other tenant tables) and links
   the run to it (`endpoint_runs.layout_id`); a refused manifest leaves the run as reported with the
   hint `layout_rejected`. The machine's page shows a card "Bare-metal restore (preview)" with the
   captured layout (disks with their partitions, the storage stack, firmware, boot loader,
@@ -611,7 +642,7 @@ private repository.
   crypttab and LVM device entries). The finish of a run with a layout queues the new worker job
   `endpoint-baremetal-check` at once, the scheduler catches up a snapshot without one; it reads
   the snapshot under the shared repository lock (`restic ls` once, `restic dump` for at most 80
-  small files) and writes a report of the new kind `baremetal_check` (migration 0100) with the
+  small files) and writes a report of the new kind `baremetal_check` (migration 0101) with the
   checks L1 to L8, each with its findings and evidence, the restore sizes per mount point, the
   minimum disk and file system sizes, the planner's answers for the same hardware, the smallest
   possible disks and another disk controller, and the boot chain fingerprint. Red only with proof;
@@ -855,7 +886,7 @@ private repository.
   the restored copy logs to the serial console and reports `RESTOW-PROBE-OK`. A probe is red only
   with evidence (a fixed failure pattern of the boot, a failed verification, a problem of the
   backup); anything else is repeated. New report kind `boot_probe` and recovery kind `probe`
-  (migration 0103). New alarms `baremetal.red` (once per episode), `baremetal.recovered` and
+  (migration 0104). New alarms `baremetal.red` (once per episode), `baremetal.recovered` and
   `baremetal.overdue`, `job.failed` with queue `endpoint_baremetal_check` or `endpoint_boot_probe`
   for every red report, failure codes `endpoint.baremetal_check_failed` and
   `endpoint.boot_probe_failed`. `POST /api/v1/endpoints/:id/baremetal/probe` plans a probe;
@@ -906,6 +937,26 @@ private repository.
     password file;
   - nothing is deleted: the repository repair leaves a lost repository in place, and purging a
     file share's backups removes only Restow's records (the audit entry counts what was `kept`).
+- Proxmox VE job form: guests by node, "Select all" and a search. Putting 40 guests into a job
+  no longer means 40 ticks: the form lists the guests grouped by node, with "Select all" per node
+  and for every guest shown, and a search by name or VMID. "Select all" never ticks the Restow
+  server's own guest (it is ticked on its own, with the confirmation as before) and skips what
+  cannot be backed up. The form says how many guests move from other jobs. Saving sends every
+  changed guest at once (new route `POST /api/v1/pve/jobs/:id/guests` with `add`, `remove` and
+  `confirmSelfBackup`), in one transaction: either every change lands or none does, where one
+  request per guest could stop half-way. A failed save no longer creates the job twice when it is
+  saved again. docs/PVE.md, "Jobs, backups, retention".
+- Proxmox VE: the Restow server in a container (LXC) is found by itself. Up to now only a VM was
+  found (by its SMBIOS UUID); a container had to be marked by hand. The api now reads the VMID its
+  volumes name from the mount table (`/proc/self/mountinfo`, also inside its Docker container):
+  ZFS `<pool>/.../subvol-<vmid>-disk-<n>`, LVM and LVM-thin `/dev/mapper/<vg>-vm--<vmid>--disk--<n>`
+  and `/dev/.../vm-<vmid>-disk-<n>` (for example Ceph RBD), and decides only when exactly one VMID
+  results (a container on directory storage shows none). New `RESTOW_HOST_PVE_VMID` overrides it,
+  as `RESTOW_HOST_SMBIOS_UUID` does for a VM (both now in `.env.example`). A container is marked
+  only while no other connected cluster, of any tenant, has a container with that VMID; otherwise
+  none is, and each says "Possibly the Restow server" (`restowServerAmbiguous` of the guest, shown
+  to the provider's staff only) until an admin marks the right one by hand. "Select all" in the job form leaves such a container out
+  too. A VM is never matched by its VMID. docs/PVE.md, "The Restow server's own VM".
 
 ### Changed
 
@@ -1147,6 +1198,13 @@ private repository.
 
 ### Fixed
 
+- Proxmox VE: a restore from the PVE web UI (storage `restow` > Backups > Restore) of a container
+  ended with "Insecure dependency in exec while running with -T switch". pvedaemon runs Perl in
+  taint mode, and the storage plugin handed the archive directory from restow-pve to
+  pve-container unchecked. Every value the plugin hands back to PVE (archive directory, the NBD
+  address and disk sizes of a VM restore, names, sizes of the listing) is now checked against
+  what restow-pve sends and untainted, or the call is refused naming the value. `pct restore`
+  and `qmrestore` on a shell were not affected.
 - Retention frees space on a full storage target (#100). restic's normal prune writes repacked
   packs before it deletes the old ones, so on a full directory, NFS or SMB share, or an S3 bucket
   at its quota it failed and freed nothing. Every server-side prune (machines, file shares,
@@ -1248,10 +1306,11 @@ private repository.
     `403 storage-switched-during-run` for its writes and fails cleanly instead of finishing on
     another target. Caches of the tenant's targets (API and worker) compare the tenant's storage
     generation instead of only running out after one or five minutes.
-  - Promoting a copy is refused while the tenant has any restic repository, now counting
-    machines (revoked ones included) and file shares whose repository is being created (a
-    container's first backup counts through its running run); "keep" counts the same. A promotion away from the installation default keeps it
-    attached read-only (`previous`).
+  - "Keep" is refused while the tenant has any restic repository, now counting machines
+    (revoked ones included) and file shares whose repository is being created (a container's
+    first backup counts through its running run). Promoting a copy waits until every one of
+    them is complete on the copy (see "Make primary" under Added). A promotion away from the
+    installation default keeps it attached read-only (`previous`).
   - Before a backup, a container's repository must be complete on the primary (config and a
     key). Otherwise every target and the installation default are searched and the backup is
     refused with `pve-repository-elsewhere`, `pve-repository-split` or `pve-repository-missing`;

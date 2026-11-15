@@ -360,8 +360,108 @@
       "title": "Testen Sie das Repository zuerst",
       "description": "Nur ein Repository, dessen letzter Test erfolgreich war, kann primäres Repository werden."
     },
-    "effect": "Alles ist vorhanden. Die Umstellung gilt für das nächste Backup und die nächste Wiederherstellung.",
-    "confirm": "Zum primären Repository machen"
+    "confirm": "Zum primären Repository machen",
+    "descriptionWithRepositories": "Das bisherige primäre Repository bleibt wie nach einem Verschieben schreibgeschützt angebunden und erhält keine Backups mehr. Die Sicherungen von Containern, Maschinen und Dateifreigaben laufen in ihren Kopien auf diesem Repository weiter, und ihre Sicherungsstände werden auf diese übertragen.",
+    "checking": "Es wird geprüft, ob diese Kopie primäres Repository werden kann …",
+    "ready": "Alles ist vorhanden. Die Umstellung gilt für das nächste Backup und die nächste Wiederherstellung.",
+    "blockersTitle": "Bevor diese Kopie primäres Repository werden kann",
+    "blockers": {
+      "local_requires_provider_admin": {
+        "title": "Vom Provider verwaltet",
+        "remedy": "Dieses Repository ist ein Pfad auf dem Server. Nur ein Provider-Admin kann es zum primären Repository machen."
+      },
+      "already_primary": {
+        "title": "Bereits primäres Repository",
+        "remedy": "Nichts zu tun."
+      },
+      "not_a_copy": {
+        "title": "Keine Kopie",
+        "remedy": "Nur eine Kopie kann primäres Repository werden. Ein abgelöster Ort bleibt schreibgeschützt."
+      },
+      "migration_in_progress": {
+        "title": "Eine Speichermigration läuft",
+        "remedy": "Warten Sie, bis sie fertig ist, oder brechen Sie sie auf der Karte ihres neuen Repositorys ab."
+      },
+      "not_verified": {
+        "title": "Das Repository ist nicht getestet",
+        "remedy": "Testen Sie das Repository; nach einem erfolgreichen Test kann es primäres Repository werden."
+      },
+      "active_endpoints": {
+        "title": "Rechner sichern auf das primäre Repository",
+        "remedy": "Server oder Clients sichern über den Agenten, und ein Wechsel des primären Repositorys stellt sie noch nicht um (auch ein Verschieben nicht). Sperren oder deinstallieren Sie diese Rechner und machen Sie die Kopie dann zum primären Repository; ihre vorhandenen Backups bleiben wiederherstellbar."
+      },
+      "switch_blocked_by_runs": {
+        "title": "Eine Sicherung läuft",
+        "remedy": "Eine Sicherung eines Containers oder einer VM oder ein Lauf einer Dateifreigabe schreibt bis zu ihrem Ende auf das aktuelle primäre Repository. Warten Sie, bis sie fertig ist, oder brechen Sie sie ab."
+      },
+      "switch_blocked_by_repair": {
+        "title": "Eine Repository-Reparatur läuft",
+        "remedy": "Warten Sie, bis die Repository-Reparatur unter Repositorys beendet ist."
+      },
+      "storage_jobs_running": {
+        "title": "Speicheraufträge laufen",
+        "remedy": "Aufträge, die in den Speicher schreiben, warten oder laufen ({queues}). Warten Sie, bis sie fertig sind; der Dialog aktualisiert sich selbst."
+      },
+      "copy_pass_running": {
+        "title": "An den Sicherungs-Repositorys wird gerade gearbeitet",
+        "remedy": "{appName} kopiert die Sicherungs-Repositorys gerade auf die Kopien oder wendet die Aufbewahrung oder das Entfernen eines Rechners an. Warten Sie, bis das endet; der Dialog aktualisiert sich selbst."
+      },
+      "repository_copies_incomplete": {
+        "title": "{count, plural, one {# Sicherungs-Repository ist} other {# Sicherungs-Repositorys sind}} auf dieser Kopie nicht vollständig",
+        "remedy": "Nutzen Sie „Jetzt angleichen“: Es kopiert, was fehlt, und zeigt den Fortschritt hier."
+      },
+      "copy_incomplete": {
+        "title": "Die Kopie ist noch nicht vollständig",
+        "remedy": "Packs, Backup-Manifeste, Schlüssel oder Archivdatensätze fehlen (siehe unten). Nutzen Sie „Jetzt angleichen“, um sie zu kopieren."
+      },
+      "unreachable": {
+        "title": "Das primäre Repository oder die Kopie konnte nicht aufgelistet werden",
+        "remedy": "Testen Sie beide Repositorys und öffnen Sie diesen Dialog dann erneut."
+      }
+    },
+    "repositories": {
+      "title": "Sicherungs-Repositorys von Containern, Maschinen und Dateifreigaben",
+      "summary": "{current} von {total} auf dieser Kopie aktuell",
+      "omitted": "{count, plural, one {und # weiteres} other {und # weitere}}",
+      "kind": {
+        "container": "Container",
+        "machine": "Maschine",
+        "file_share": "Dateifreigabe"
+      },
+      "readiness": {
+        "current": "aktuell",
+        "outdated": "ein neueres Backup ist noch nicht kopiert",
+        "behind": "{count, plural, one {# Sicherungsstand fehlt} other {# Sicherungsstände fehlen}}",
+        "failed": "Kopieren fehlgeschlagen",
+        "requested": "wartet auf die Kopie",
+        "pending": "noch nicht kopiert",
+        "empty": "wird angelegt, noch nichts zu kopieren",
+        "not_created": "wird angelegt, aber Sicherungsstände verweisen darauf (Repository-Reparatur ausführen)"
+      }
+    },
+    "catchUp": {
+      "action": "Jetzt angleichen",
+      "description": "Kopiert jetzt alles, was das primäre Repository hat und dieser Kopie fehlt, statt mit den nächsten geplanten Läufen. Umgeschaltet wird dabei nichts: Machen Sie die Kopie zum primären Repository, sobald alles vollständig ist.",
+      "running": "Wird angeglichen …",
+      "waiting": "{count, plural, one {# Sicherungs-Repository wartet} other {# Sicherungs-Repositorys warten}} auf die Kopie (beginnt innerhalb einer Minute).",
+      "scrub": {
+        "queued": "Speicherprüfung eingeplant: Sie kopiert fehlende Packs, Manifeste, Schlüssel und Archivdatensätze.",
+        "active": "Speicherprüfung läuft: Sie kopiert fehlende Packs, Manifeste, Schlüssel und Archivdatensätze.",
+        "completed": "Speicherprüfung abgeschlossen.",
+        "failed": "Die Speicherprüfung ist fehlgeschlagen. Den Grund zeigt die Auftragsliste; gleichen Sie danach erneut an.",
+        "cancelled": "Die Speicherprüfung wurde abgebrochen."
+      }
+    },
+    "queues": {
+      "backup": "Sicherung",
+      "archive": "Archiv-Sync",
+      "retention": "Aufbewahrungslauf",
+      "scrub": "Speicherprüfung",
+      "storage_migration": "Speichermigration",
+      "restore": "Wiederherstellung",
+      "import": "Import",
+      "export": "Export"
+    }
   },
   "delete": {
     "title": "{name} entfernen?",
@@ -380,7 +480,9 @@
     "testFailed": "Der Test von {name} ist fehlgeschlagen.",
     "migrationCancelled": "Die Migration zu {name} wurde abgebrochen.",
     "migrationRetried": "Die Migration zu {name} wurde erneut eingeplant.",
-    "defaultSelected": "Dieser Mandant nutzt wieder den Installationsstandard."
+    "defaultSelected": "Dieser Mandant nutzt wieder den Installationsstandard.",
+    "catchUpStarted": "{name} wird angeglichen. Der Dialog zeigt den Fortschritt.",
+    "promotedPrimaryUnreadable": "{count, plural, one {Das Sicherungs-Repository eines Rechners} other {Die Sicherungs-Repositorys von # Rechnern}} ließ sich auf dem alten primären Repository nicht lesen. Geprüft wurde gegen die Aufzeichnungen und den Zustand der Kopien."
   },
   "errors": {
     "localRequiresProviderAdmin": "Nur ein Provider-Admin kann Serverpfade verwalten.",
@@ -419,11 +521,14 @@
     "immutabilityModeNotAvailable": "Dieser Modus ist für diese Art von Repository nicht verfügbar.",
     "immutabilityNotWritable": "An diesen Ort wird nichts mehr geschrieben; Unveränderbarkeit gilt für das, was ab jetzt geschrieben wird.",
     "immutabilityNotObjectLock": "Nur ein Repository mit Object Lock wird beim Speicher geprüft.",
-    "switchBlockedByRepositories": "Container, Maschinen oder Dateifreigaben dieses Mandanten haben Repositorys auf dem aktuellen primären Repository. Wenn Sie die vorhandenen Sicherungen dort lassen oder eine Kopie zum primären Repository machen, blieben diese Repositorys zurück, und ihre nächsten Sicherungen schlügen fehl oder begännen von vorn. Ersetzen Sie das primäre Repository stattdessen mit „Verschieben“: Dabei werden die Repositorys kopiert und geprüft, bevor umgeschaltet wird.",
+    "switchBlockedByRepositories": "Container, Maschinen oder Dateifreigaben dieses Mandanten haben Repositorys auf dem aktuellen primären Repository. Wenn Sie die vorhandenen Sicherungen dort lassen, blieben diese Repositorys zurück, und ihre nächsten Sicherungen schlügen fehl oder begännen von vorn. Ersetzen Sie das primäre Repository stattdessen mit „Verschieben“: Dabei werden die Repositorys kopiert und geprüft, bevor umgeschaltet wird.",
     "switchBlockedByRuns": "Eine Proxmox-VE-Sicherung (Container oder VM) oder ein Lauf einer Dateifreigabe dieses Mandanten läuft gerade. Sie schreibt bis zu ihrem Ende auf das aktuelle primäre Repository; ein Wechsel jetzt würde ihre Sicherung auf zwei Repositorys verteilen. Warten Sie, bis sie fertig ist, oder brechen Sie sie ab, und versuchen Sie es dann erneut.",
     "switchBlockedByRepair": "Eine Reparatur der Repositorys dieses Mandanten ist eingeplant oder läuft (Repositories › Repositorys reparieren). Sie baut Repositorys auf dem aktuellen primären Repository wieder auf; ein Wechsel jetzt ließe sie halb aufgebaut zurück. Warten Sie, bis sie fertig ist, und versuchen Sie es dann erneut.",
     "repairBlocked": "Die Reparatur muss warten: Eine Proxmox-VE-Sicherung, ein Lauf einer Dateifreigabe oder eine Speichermigration dieses Mandanten läuft. Reparieren Sie, wenn sie beendet ist.",
-    "previousHoldsMovedAside": "Dieser Speicherort enthält Repository-Ordner, die die Reparatur der Repositorys oder eine neue Sicherungskette beiseitegelegt hat (….orphaned-…), und kein anderes Speicherziel hat sie. „Verschieben“ kopiert sie nicht. Kopieren Sie sie an einen anderen Ort oder löschen Sie sie von Hand, wenn sie nicht mehr gebraucht werden, und entfernen Sie dann diesen Speicherort."
+    "previousHoldsMovedAside": "Dieser Speicherort enthält Repository-Ordner, die die Reparatur der Repositorys oder eine neue Sicherungskette beiseitegelegt hat (….orphaned-…), und kein anderes Speicherziel hat sie. „Verschieben“ kopiert sie nicht. Kopieren Sie sie an einen anderen Ort oder löschen Sie sie von Hand, wenn sie nicht mehr gebraucht werden, und entfernen Sie dann diesen Speicherort.",
+    "switchBlockedByJobs": "Aufträge dieses Mandanten, die in den Speicher schreiben, warten oder laufen. Warten Sie, bis sie fertig sind, und versuchen Sie es dann erneut.",
+    "copyPassRunning": "Die Sicherungs-Repositorys werden gerade kopiert, oder die Aufbewahrung oder das Entfernen eines Rechners läuft. Warten Sie, bis das endet, und versuchen Sie es dann erneut.",
+    "repositoryCopiesIncomplete": "Nicht jedes Sicherungs-Repository von Containern, Maschinen oder Dateifreigaben ist auf dieser Kopie vollständig. Nutzen Sie „Jetzt angleichen“ und machen Sie die Kopie zum primären Repository, sobald jede Kopie aktuell ist."
   },
   "immutability": {
     "title": "Unveränderbare Backups",

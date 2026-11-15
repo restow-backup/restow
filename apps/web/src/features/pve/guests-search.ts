@@ -116,8 +116,8 @@ export function guestRows(guests: readonly PveGuest[], nodeOf: (g: PveGuest) => 
   });
 }
 
-/** Whether a row matches the search text: the ID (exactly or as a prefix) or the name. */
-function matchesText(guest: PveGuest, query: string): boolean {
+/** Whether a guest matches the search text: the ID (exactly or as a prefix) or the name. */
+export function matchesText(guest: PveGuest, query: string): boolean {
   const needle = query.toLowerCase();
   return String(guest.vmid).startsWith(needle) || (guest.name ?? "").toLowerCase().includes(needle);
 }

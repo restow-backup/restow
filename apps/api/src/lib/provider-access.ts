@@ -632,6 +632,11 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "POST /api/v1/storage/targets/probe": configure(),
   "POST /api/v1/storage/targets/:id/test": operate(),
   "POST /api/v1/storage/targets/:id/completeness": operate(),
+  // Whether a copy can become the primary, and "Catch up now" (a storage check and the copies).
+  "GET /api/v1/storage/targets/:id/promotion": view(),
+  // Lists both storages, like the completeness check.
+  "POST /api/v1/storage/targets/:id/promotion/check": operate(),
+  "POST /api/v1/storage/targets/:id/catch-up": operate(),
   "POST /api/v1/storage/targets/:id/promote": configure(),
   // The repository repair (docs/STORAGE.md): a scan changes nothing, the repair does.
   "GET /api/v1/storage/repositories/repairs": view(),
@@ -662,6 +667,7 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "POST /api/v1/pve/jobs/:id/run": operate(),
   "POST /api/v1/pve/jobs/:id/cancel": operate(),
   "PUT /api/v1/pve/guests/:id/job": configure(),
+  "POST /api/v1/pve/jobs/:id/guests": configure(),
   // Begins a new backup chain; the restore points before become unavailable (recent sign-in).
   "POST /api/v1/pve/guests/:id/repository/reset": configure(),
   "PUT /api/v1/pve/guests/:id/restow-server": configure(),

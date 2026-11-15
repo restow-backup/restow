@@ -136,6 +136,29 @@ describe("storage migration endpoints refuse a plain tenant member", () => {
     expect(script.pending()).toBe(0);
   });
 
+  it("refuses the promotion status and the catch-up of a copy (GET promotion, POST catch-up)", async () => {
+    const copyTargetId = "8f14e45f-ceea-4b7f-8b3a-9c1a5b6d0e11";
+    for (const [method, path] of [
+      ["GET", `/storage/targets/${copyTargetId}/promotion`],
+      ["POST", `/storage/targets/${copyTargetId}/promotion/check`],
+      ["POST", `/storage/targets/${copyTargetId}/catch-up`],
+    ] as const) {
+      signedIn(MEMBER_USER);
+      const { app: hono, script } = app([
+        [{ organizationId: ORGANIZATION, role: "member" }],
+        [tenantRow()],
+      ]);
+      const res = await hono.request(path, {
+        method,
+        headers,
+        ...(method === "POST" ? { body: "{}" } : {}),
+      });
+      expect(res.status).toBe(403);
+      expect(((await res.json()) as { title: string }).title).toBe("Insufficient role");
+      expect(script.pending()).toBe(0);
+    }
+  });
+
   it("still lets the tenant's own admin reach the service layer (role check passes)", async () => {
     signedIn(MEMBER_USER);
     const { app: hono, script } = app([

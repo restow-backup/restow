@@ -360,8 +360,108 @@
       "title": "Test the repository first",
       "description": "Only a repository whose last test succeeded can become the primary."
     },
-    "effect": "Everything is in place. The switch applies to the next backup and restore.",
-    "confirm": "Make primary"
+    "confirm": "Make primary",
+    "descriptionWithRepositories": "The current primary is kept read-only, as after a move, and receives no further backups. The backups of containers, machines and file shares continue in their copies on this repository, and their restore points are carried over to them.",
+    "checking": "Checking whether this copy can become the primary …",
+    "ready": "Everything is in place. The switch applies to the next backup and restore.",
+    "blockersTitle": "Before this copy can become the primary",
+    "blockers": {
+      "local_requires_provider_admin": {
+        "title": "Managed by the provider",
+        "remedy": "This repository is a path on the server. Only a provider admin can make it the primary."
+      },
+      "already_primary": {
+        "title": "Already the primary",
+        "remedy": "Nothing to do."
+      },
+      "not_a_copy": {
+        "title": "Not a copy",
+        "remedy": "Only a copy can be made the primary. A retired location stays read-only."
+      },
+      "migration_in_progress": {
+        "title": "A storage migration is running",
+        "remedy": "Wait for it to finish, or cancel it on the card of its new repository."
+      },
+      "not_verified": {
+        "title": "The repository is not tested",
+        "remedy": "Test the repository; it can become the primary once its last test succeeded."
+      },
+      "active_endpoints": {
+        "title": "Machines back up to the primary",
+        "remedy": "Servers or clients back up through the agent, and a change of the primary does not switch them over yet (a move does not either). Revoke or uninstall those machines, then make this copy the primary; their existing backups stay restorable."
+      },
+      "switch_blocked_by_runs": {
+        "title": "A backup is running",
+        "remedy": "A container or VM backup or a file share run writes to the current primary until it ends. Wait for it to finish, or stop it."
+      },
+      "switch_blocked_by_repair": {
+        "title": "A repository repair is running",
+        "remedy": "Wait until the repository repair under Repositories has ended."
+      },
+      "storage_jobs_running": {
+        "title": "Storage jobs are running",
+        "remedy": "Jobs that write to storage are queued or running ({queues}). Wait for them to finish; the dialog updates on its own."
+      },
+      "copy_pass_running": {
+        "title": "Backup repositories are being worked on",
+        "remedy": "{appName} is copying the backup repositories to the copies, or applies a machine's retention or removal, right now. Wait until it ends; the dialog updates on its own."
+      },
+      "repository_copies_incomplete": {
+        "title": "{count, plural, one {# backup repository is} other {# backup repositories are}} not complete on this copy",
+        "remedy": "Use \"Catch up now\": it copies what is missing and shows the progress here."
+      },
+      "copy_incomplete": {
+        "title": "The copy is not complete yet",
+        "remedy": "Packs, backup manifests, keys or archive records are missing (see below). Use \"Catch up now\" to copy them."
+      },
+      "unreachable": {
+        "title": "The primary or the copy could not be listed",
+        "remedy": "Test both repositories, then open this dialog again."
+      }
+    },
+    "repositories": {
+      "title": "Backup repositories of containers, machines and file shares",
+      "summary": "{current} of {total} current on this copy",
+      "omitted": "{count, plural, one {and # more} other {and # more}}",
+      "kind": {
+        "container": "Container",
+        "machine": "Machine",
+        "file_share": "File share"
+      },
+      "readiness": {
+        "current": "current",
+        "outdated": "a newer backup is not copied yet",
+        "behind": "{count, plural, one {# restore point missing} other {# restore points missing}}",
+        "failed": "copying failed",
+        "requested": "waiting for the copy",
+        "pending": "not copied yet",
+        "empty": "being created, nothing to copy yet",
+        "not_created": "being created, but restore points refer to it (run the repository repair)"
+      }
+    },
+    "catchUp": {
+      "action": "Catch up now",
+      "description": "Copies everything the primary holds that this copy lacks, now instead of with the next scheduled runs. Nothing is switched: make the copy the primary once everything is complete.",
+      "running": "Catching up …",
+      "waiting": "{count, plural, one {# backup repository waits} other {# backup repositories wait}} for the copy (starts within a minute).",
+      "scrub": {
+        "queued": "Storage check queued: it copies missing packs, manifests, keys and archive records.",
+        "active": "Storage check running: it copies missing packs, manifests, keys and archive records.",
+        "completed": "Storage check finished.",
+        "failed": "The storage check failed. See the job list for the reason, then catch up again.",
+        "cancelled": "The storage check was cancelled."
+      }
+    },
+    "queues": {
+      "backup": "backup",
+      "archive": "archive sync",
+      "retention": "retention run",
+      "scrub": "storage check",
+      "storage_migration": "storage migration",
+      "restore": "restore",
+      "import": "import",
+      "export": "export"
+    }
   },
   "delete": {
     "title": "Remove {name}?",
@@ -380,7 +480,9 @@
     "testFailed": "The test of {name} failed.",
     "migrationCancelled": "The migration to {name} was cancelled.",
     "migrationRetried": "The migration to {name} was queued again.",
-    "defaultSelected": "This tenant uses the installation default again."
+    "defaultSelected": "This tenant uses the installation default again.",
+    "catchUpStarted": "Catching up {name}. The dialog shows the progress.",
+    "promotedPrimaryUnreadable": "{count, plural, one {# machine's backup repository} other {# machines' backup repositories}} could not be read on the old primary. They were checked against the records and the state of their copies."
   },
   "errors": {
     "localRequiresProviderAdmin": "Only a provider admin can manage server paths.",
@@ -419,11 +521,14 @@
     "immutabilityModeNotAvailable": "This mode is not available for this kind of repository.",
     "immutabilityNotWritable": "Nothing is written to this location any more; immutability applies to what is written from now on.",
     "immutabilityNotObjectLock": "Only a repository with Object Lock is checked with the storage.",
-    "switchBlockedByRepositories": "Containers, machines or file shares of this tenant have backup repositories on the current primary. Keeping existing backups where they are, or promoting a copy, would leave those repositories behind, and their next backups would fail or begin from scratch. Replace the primary with \"move\" instead: it copies the repositories and verifies them before it switches.",
+    "switchBlockedByRepositories": "Containers, machines or file shares of this tenant have backup repositories on the current primary. Keeping existing backups where they are would leave those repositories behind, and their next backups would fail or begin from scratch. Replace the primary with \"move\" instead: it copies the repositories and verifies them before it switches.",
     "switchBlockedByRuns": "A Proxmox VE backup (container or VM) or a file share run of this tenant is running. It writes to the current primary until it ends, and switching now would split its backup between two storage targets. Wait for it to finish, or stop it, then try again.",
     "switchBlockedByRepair": "A repository repair of this tenant is queued or running (Repositories › Repository repair). It rebuilds repositories on the current primary; switching now would leave them half rebuilt. Wait for it to end, then try again.",
     "repairBlocked": "The repair has to wait: a Proxmox VE backup, a file share run or a storage migration of this tenant is running. Repair once it has ended.",
-    "previousHoldsMovedAside": "This location holds repository folders that the repository repair or a new backup chain moved aside (….orphaned-…), and no other target has them. A \"move\" does not copy them. Copy them elsewhere, or delete them by hand once they are not needed, then remove this location."
+    "previousHoldsMovedAside": "This location holds repository folders that the repository repair or a new backup chain moved aside (….orphaned-…), and no other target has them. A \"move\" does not copy them. Copy them elsewhere, or delete them by hand once they are not needed, then remove this location.",
+    "switchBlockedByJobs": "Jobs of this tenant that write to storage are queued or running. Wait for them to finish, then try again.",
+    "copyPassRunning": "The backup repositories are being copied, or a machine's retention or removal is running. Wait until it ends, then try again.",
+    "repositoryCopiesIncomplete": "Not every backup repository of containers, machines or file shares is complete on this copy. Use \"Catch up now\" and make the copy the primary once every copy is current."
   },
   "immutability": {
     "title": "Immutable backups",

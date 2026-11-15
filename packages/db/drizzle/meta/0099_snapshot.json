@@ -1,5 +1,5 @@
 {
-  "id": "dfd5f875-97f4-4987-940b-5b2e479dcb93",
+  "id": "d58b9455-0280-4aee-8d4e-ec54fa76e34b",
   "prevId": "d55818c8-1c6e-40bd-9241-bf3705b73e81",
   "version": "7",
   "dialect": "postgresql",
@@ -6722,12 +6722,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        },
-        "layout_id": {
-          "name": "layout_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
@@ -6837,22 +6831,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "endpoint_runs_layout_idx": {
-          "name": "endpoint_runs_layout_idx",
-          "columns": [
-            {
-              "expression": "layout_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "\"endpoint_runs\".\"layout_id\" IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
@@ -6880,19 +6858,6 @@
             "id"
           ],
           "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "endpoint_runs_layout_id_endpoint_layouts_id_fk": {
-          "name": "endpoint_runs_layout_id_endpoint_layouts_id_fk",
-          "tableFrom": "endpoint_runs",
-          "tableTo": "endpoint_layouts",
-          "columnsFrom": [
-            "layout_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -18174,6 +18139,99 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.restic_snapshot_origins": {
+      "name": "restic_snapshot_origins",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "prefix": {
+          "name": "prefix",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "snapshot_id": {
+          "name": "snapshot_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "persistent_id": {
+          "name": "persistent_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "restic_snapshot_origins_uq": {
+          "name": "restic_snapshot_origins_uq",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "prefix",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "snapshot_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "restic_snapshot_origins_tenant_id_tenants_id_fk": {
+          "name": "restic_snapshot_origins_tenant_id_tenants_id_fk",
+          "tableFrom": "restic_snapshot_origins",
+          "tableTo": "tenants",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.storage_migrations": {
       "name": "storage_migrations",
       "schema": "",
@@ -21082,168 +21140,6 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.endpoint_layouts": {
-      "name": "endpoint_layouts",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "endpoint_id": {
-          "name": "endpoint_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "sha256": {
-          "name": "sha256",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "format": {
-          "name": "format",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "schema_version": {
-          "name": "schema_version",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "platform": {
-          "name": "platform",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "manifest": {
-          "name": "manifest",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "summary": {
-          "name": "summary",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "verdict": {
-          "name": "verdict",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "layout_fingerprint": {
-          "name": "layout_fingerprint",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "endpoint_layouts_endpoint_sha_uq": {
-          "name": "endpoint_layouts_endpoint_sha_uq",
-          "columns": [
-            {
-              "expression": "endpoint_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "sha256",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "endpoint_layouts_endpoint_created_idx": {
-          "name": "endpoint_layouts_endpoint_created_idx",
-          "columns": [
-            {
-              "expression": "endpoint_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "endpoint_layouts_tenant_id_tenants_id_fk": {
-          "name": "endpoint_layouts_tenant_id_tenants_id_fk",
-          "tableFrom": "endpoint_layouts",
-          "tableTo": "tenants",
-          "columnsFrom": [
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "endpoint_layouts_endpoint_id_endpoints_id_fk": {
-          "name": "endpoint_layouts_endpoint_id_endpoints_id_fk",
-          "tableFrom": "endpoint_layouts",
-          "tableTo": "endpoints",
-          "columnsFrom": [
-            "endpoint_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "endpoint_layouts_platform_ck": {
-          "name": "endpoint_layouts_platform_ck",
-          "value": "\"endpoint_layouts\".\"platform\" IN ('linux', 'darwin')"
-        }
-      },
       "isRLSEnabled": false
     }
   },

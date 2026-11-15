@@ -1606,7 +1606,7 @@ async function restoreSnapshotId(
     if (guest && password) {
       id = await snapshotOnSource(
         source,
-        { prefix: guestRepositoryPrefix(guest), password, repositoryKey: guest.id },
+        { tenantId, prefix: guestRepositoryPrefix(guest), password, repositoryKey: guest.id },
         recorded,
       ).catch(() => recorded);
     }

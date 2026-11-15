@@ -39,7 +39,9 @@ import {
   listTargets,
   probeSettings,
   promoteTarget,
+  promotionReadiness,
   retryMigration,
+  startCatchUp,
   storageUsage,
   testInstallationDefault,
   testTarget,
@@ -72,6 +74,12 @@ import { primaryWriteOnce } from "./write-once.js";
  *   POST   /repositories/scan                queue a scan of every restic repository (202)
  *   POST   /repositories/repair              repair the newest scan ({ scanId, confirm: "REPAIR" },
  *                                            a recent sign-in; 202)
+ *   GET    /targets/:id/promotion            may this copy become the primary; every reason it
+ *                                            cannot yet, and the catch-up's progress (database)
+ *   POST   /targets/:id/promotion/check      the same, also comparing the listings of primary
+ *                                            and copy (reads both storages)
+ *   POST   /targets/:id/catch-up             "Catch up now": a storage check that mirrors the
+ *                                            copies, and the copy of every repository behind (202)
  *   POST   /targets/:id/promote              make this copy the primary
  *   POST   /targets/:id/migration/cancel     cancel the storage migration replacing the primary with :id
  *   POST   /targets/:id/migration/retry      re-queue a failed "move" replacing the primary with :id
@@ -251,6 +259,29 @@ export function buildStorageRoutes(deps: StorageRoutesDeps): Hono<TenantEnv> {
       await requestRepositoryRepair(deps.db, c.get("tenantId"), input, actorOf(c)),
       202,
     );
+  });
+
+  // Whether this copy can become the primary, every reason it cannot yet, and the catch-up's
+  // progress (docs/STORAGE.md, "Promoting a copy"), from the database alone (polled by the
+  // dialog); `POST .../promotion/check` also compares the listings of primary and copy.
+  routes.get("/targets/:id/promotion", deps.requireAdmin, async (c) => {
+    return c.json(
+      await promotionReadiness(deps.db, c.get("tenantId"), targetId(c), actorOf(c), {
+        files: false,
+      }),
+    );
+  });
+
+  routes.post("/targets/:id/promotion/check", deps.requireAdmin, async (c) => {
+    return c.json(
+      await promotionReadiness(deps.db, c.get("tenantId"), targetId(c), actorOf(c), {
+        files: true,
+      }),
+    );
+  });
+
+  routes.post("/targets/:id/catch-up", deps.requireAdmin, async (c) => {
+    return c.json(await startCatchUp(deps.db, c.get("tenantId"), targetId(c), actorOf(c)), 202);
   });
 
   routes.post("/targets/:id/promote", deps.requireAdmin, async (c) => {

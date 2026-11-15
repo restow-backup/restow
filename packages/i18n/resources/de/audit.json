@@ -438,7 +438,8 @@
         "probed": "Repository abgefragt",
         "promoted": "Repository zum primären gemacht",
         "tested": "Repository getestet",
-        "updated": "Repository geändert"
+        "updated": "Repository geändert",
+        "catch_up_started": "Angleichen einer Kopie gestartet"
       },
       "repositories": {
         "scan_requested": "Prüfung der Repositorys angefordert",

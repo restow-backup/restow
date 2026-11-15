@@ -4581,7 +4581,7 @@ Server (`packages/`, `apps/`):
   Testdaten des Go-Pakets (`agent/internal/baremetal/testdata/manifests`): kanonische Bytes,
   SHA-256 und Fingerabdruck stimmen mit Go überein, jedes `invalid-*` wird abgelehnt.
 - `packages/db`: Tabelle `endpoint_layouts`, Spalte `endpoint_runs.layout_id` mit Teilindex,
-  Migration **0099_baremetal_layouts** (mit drizzle erzeugt, auf dem Zweig zuvor 0076), Row Level
+  Migration **0100_baremetal_layouts** (mit drizzle erzeugt, auf dem Zweig zuvor 0076, dann 0099), Row Level
   Security über `sql/rls.sql`; Job-Einstellung `wholeMachine` (JSONB).
 - `apps/api`: `RESTOW_BAREMETAL_PREVIEW` (`config.baremetalPreview`); `GET /agent/v1/config` mit
   `wholeMachine` und `fsSnapshot` (C2); `finish` speichert das Layout (`storeRunLayout`,
@@ -4766,9 +4766,9 @@ Server (`packages/`, `apps/`):
   wartet auf das Ende, damit kein restic an einer vollen Pipe hängt und die Repository-Sperre
   hält), `resticReadFile` (mit Obergrenze). `queues.ts`: `endpoint-baremetal-check` (stately,
   3 Wiederholungen, 300 s mit Backoff, 6 Stunden, 14 Tage), `EndpointJobPayload.runId`.
-- `packages/db`: Berichtsart `baremetal_check`, Migration **0100_baremetal_check** (auf dem Zweig
+- `packages/db`: Berichtsart `baremetal_check`, Migration **0101_baremetal_check** (auf dem Zweig zuvor 0100,
   zuvor 0077; mit drizzle erzeugt, nur `ALTER TYPE ... ADD VALUE`, keine Tabelle, also keine
-  Änderung an `sql/rls.sql`), Upgrade-Test auf 0099.
+  Änderung an `sql/rls.sql`), Upgrade-Test auf 0100.
 - `apps/worker`: `endpoints/planner.ts` (Sandbox nach 12.2, Ergebnis Plan, abgelehnt oder
   unvollständig), `endpoints/baremetal-check.ts` (Ablauf wie 12.1: geteilte Sperre, `restic
   snapshots <id>`, L4-Dump, ein `restic ls` über den ganzen Baum, höchstens 80 Dumps; danach ohne
@@ -5004,8 +5004,8 @@ Server (`packages/`, `apps/`):
   eindeutiger Teilindex über `code_hash`, Index je Rechner und Teilindex der aktiven Sitzungen wie
   14.2) und `endpoint_recovery_log`, `endpoint_enrollment_tokens.endpoint_id`, `.purpose` (CHECK),
   `.unrevoke` und der CHECK `endpoint_enrollment_tokens_rebind_24h`,
-  `endpoint_runs.activity_baseline`; Migration **0101_endpoint_recoveries** (auf dem Zweig zuvor
-  0078; mit drizzle erzeugt, Upgrade-Test auf 0100), Row Level Security über `sql/rls.sql`; `activeRecoveryOf` und
+  `endpoint_runs.activity_baseline`; Migration **0102_endpoint_recoveries** (auf dem Zweig zuvor 0101,
+  0078; mit drizzle erzeugt, Upgrade-Test auf 0101), Row Level Security über `sql/rls.sql`; `activeRecoveryOf` und
   `EndpointRecoveryActiveError` (Unterklasse von `EndpointRepositoryBusyError`).
 - `apps/api`: `recovery-codes.ts` (Ausstellen mit allen Bedingungen aus 9.2 und Prüfwert,
   Widerruf, Verlängern, Liste, Einzelansicht mit Log seitenweise, Freigabe unter der geteilten
@@ -5918,7 +5918,7 @@ kommt mit 0.5.1); das Labor ist ein optionales Image; die Probe läuft über den
 einer Wiederherstellung (12.3, 25.C7); 8 Tage gültig, wöchentlich und sofort bei neuen
 Fingerabdrücken, 64 GiB Grenze, eine Probe je Labor gleichzeitig (einstellbar).
 
-- **Migration 0103** (`boot_probe`, `probe`, `settings.recovery_lab`).
+- **Migration 0104** (`boot_probe`, `probe`, `settings.recovery_lab`).
 - **Kern** (`packages/core/src/endpoints/baremetal/probe.ts`): Auswahl (Systemdateisysteme ganz,
   übrige leer, große Ordner unter `/var/lib`, `/srv`, `/home` leer, nie die geschützten),
   Hardware der Probe, Antwortdatei, Muster der seriellen Ausgabe, `judgeBootProbe`,

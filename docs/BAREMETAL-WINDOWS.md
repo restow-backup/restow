@@ -248,7 +248,7 @@ Wiederherstellung:
 Bausteine aus M1 bis M3 und der PVE-Integration, die dieser Entwurf weiterverwendet:
 
 - Layout-Manifest, diskriminiert nach Plattform (BM 4.2), Tabelle `endpoint_layouts` mit
-  CHECK `platform IN ('linux', 'darwin')` (`packages/db/drizzle/0099_baremetal_layouts.sql:19`).
+  CHECK `platform IN ('linux', 'darwin')` (`packages/db/drizzle/0100_baremetal_layouts.sql:19`).
 - `agent/internal/baremetal`: `efi.go` (Load-Options, Signaturlisten), `pe.go`
   (Authenticode-Hash und Signaturgeber), `secureboot.go` mit `isMicrosoftLoader` (Zeile 70) und
   `CheckChain` (Zeile 93), `assess.go` mit der GUID der MSR-Partition (Zeile 384).
@@ -257,7 +257,7 @@ Bausteine aus M1 bis M3 und der PVE-Integration, die dieser Entwurf weiterverwen
   Build-Tag, also auch unter Windows übersetzbar.
 - Server-Seite von M3: Recovery-Sitzungen, Freigabe, `reader`-Route, Sperre gegen Prune
   (BM 9.7), Wiederanbindungs-Token (BM 11), Migrationen bis 0102
-  (`0102_endpoint_recovery_log_key_block`). Der Server nimmt heute nur Linux-Layouts an:
+  (`0103_endpoint_recovery_log_key_block`). Der Server nimmt heute nur Linux-Layouts an:
   `apps/api/src/features/endpoints/baremetal.ts:124` und `:246` verwerfen jedes Manifest mit
   `platform != "linux"`.
 - PVE-Blockpfad: 4-MiB-Blöcke (`agent/internal/pve/formats.go:25`), SHA-256 je Block,
@@ -1951,7 +1951,7 @@ mittleren PVE-Installation. docs/SIZING.md bekommt eine Zeile.
 ### 6.4 Datenbank: eine Migration je Meilenstein
 
 Nummern: die nächsten freien beim Merge. Bis 0102 ist vergeben
-(`0102_endpoint_recovery_log_key_block`); BM 26 plant für M5 und M6 0103 und 0104, und die
+(`0103_endpoint_recovery_log_key_block`); BM 26 plant für M5 und M6 0104 und 0105, und die
 Windows-Migrationen folgen danach. Wie BM 14.2: `ADD VALUE` vorn und ohne Verwendung in derselben Migration, jede Migration
 einzeln auf ihren Vorgänger getestet. **Row Level Security** steht nicht in der Migration,
 sondern nach der Konvention des Repositories in `packages/db/sql/rls.sql`: die neuen Tabellen

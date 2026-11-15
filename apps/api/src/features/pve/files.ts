@@ -237,7 +237,10 @@ async function openFor(
       const repository = await openRepository(access);
       return {
         session: repository.session,
-        snapshotRef: snapshotRefOf(repository.session, access.fallback),
+        snapshotRef: snapshotRefOf(repository.session, access.fallback, {
+          tenantId: point.guest.tenantId,
+          prefix: access.prefix,
+        }),
         close: async () => {
           try {
             await repository.close();

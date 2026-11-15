@@ -2236,7 +2236,7 @@ describe.skipIf(!adminUrl)(
   },
 );
 
-describe.skipIf(!adminUrl)("upgrading to 0.5.0: layouts of whole machine backups (0099)", () => {
+describe.skipIf(!adminUrl)("upgrading to 0.5.0: layouts of whole machine backups (0100)", () => {
   const base = adminUrl as string;
   const database = `restow_db_migrate_layouts_${suffix}`;
   const owner: RoleLogin = {
@@ -2346,7 +2346,7 @@ describe.skipIf(!adminUrl)("upgrading to 0.5.0: layouts of whole machine backups
   }, 120_000);
 });
 
-describe.skipIf(!adminUrl)("upgrading to 0.5.0: the bare metal layout check (0100)", () => {
+describe.skipIf(!adminUrl)("upgrading to 0.5.0: the bare metal layout check (0101)", () => {
   const base = adminUrl as string;
   const database = `restow_db_migrate_bmcheck_${suffix}`;
   const owner: RoleLogin = {
@@ -2357,7 +2357,7 @@ describe.skipIf(!adminUrl)("upgrading to 0.5.0: the bare metal layout check (010
   let folder = "";
 
   beforeAll(async () => {
-    folder = migrationsFolderUpTo("0099_baremetal_layouts");
+    folder = migrationsFolderUpTo("0100_baremetal_layouts");
     const admin = new pg.Pool({ connectionString: base });
     try {
       await admin.query(
@@ -2380,7 +2380,7 @@ describe.skipIf(!adminUrl)("upgrading to 0.5.0: the bare metal layout check (010
     }
   });
 
-  it("applies on top of 0099, keeps every report and accepts the new kind", async () => {
+  it("applies on top of 0100, keeps every report and accepts the new kind", async () => {
     const url = urlFor(base, database, owner);
     await applyReleasedSchema(url, folder, null);
     const pool = new pg.Pool({ connectionString: url });
@@ -2449,7 +2449,7 @@ describe.skipIf(!adminUrl)("upgrading to 0.5.0: the bare metal layout check (010
   }, 120_000);
 });
 
-describe.skipIf(!adminUrl)("upgrading to 0.5.0: recovery codes and rebind tokens (0101)", () => {
+describe.skipIf(!adminUrl)("upgrading to 0.5.0: recovery codes and rebind tokens (0102)", () => {
   const base = adminUrl as string;
   const database = `restow_db_migrate_recoveries_${suffix}`;
   const owner: RoleLogin = {
@@ -2460,7 +2460,7 @@ describe.skipIf(!adminUrl)("upgrading to 0.5.0: recovery codes and rebind tokens
   let folder = "";
 
   beforeAll(async () => {
-    folder = migrationsFolderUpTo("0100_baremetal_check");
+    folder = migrationsFolderUpTo("0101_baremetal_check");
     const admin = new pg.Pool({ connectionString: base });
     try {
       await admin.query(
@@ -2483,7 +2483,7 @@ describe.skipIf(!adminUrl)("upgrading to 0.5.0: recovery codes and rebind tokens
     }
   });
 
-  it("applies on top of 0100 alone, keeps every run and token and enforces the new checks", async () => {
+  it("applies on top of 0101 alone, keeps every run and token and enforces the new checks", async () => {
     const url = urlFor(base, database, owner);
     await applyReleasedSchema(url, folder, null);
     const pool = new pg.Pool({ connectionString: url });
@@ -2516,12 +2516,12 @@ describe.skipIf(!adminUrl)("upgrading to 0.5.0: recovery codes and rebind tokens
         );
       });
 
-      // Only 0101, 0102 (the log's key block mark) and 0103 (the boot probe) are left to apply.
+      // Only 0102, 0103 (the log's key block mark) and 0104 (the boot probe) are left to apply.
       await runMigrations(url);
       const { rows: applied } = await pool.query<{ count: string }>(
         "SELECT count(*)::text AS count FROM drizzle.__drizzle_migrations",
       );
-      expect(Number(applied[0]?.count)).toBe(104);
+      expect(Number(applied[0]?.count)).toBe(105);
       const { rows: column } = await pool.query(
         `SELECT data_type, is_nullable, column_default FROM information_schema.columns
           WHERE table_name = 'endpoint_recoveries' AND column_name = 'log_in_key_block'`,
@@ -2602,7 +2602,7 @@ describe.skipIf(!adminUrl)("upgrading to 0.5.0: recovery codes and rebind tokens
     }
   }, 120_000);
 });
-describe.skipIf(!adminUrl)("upgrading to 0.5.0: the boot probe (0103)", () => {
+describe.skipIf(!adminUrl)("upgrading to 0.5.0: the boot probe (0104)", () => {
   const base = adminUrl as string;
   const database = `restow_db_migrate_probe_${suffix}`;
   const owner: RoleLogin = {
@@ -2613,7 +2613,7 @@ describe.skipIf(!adminUrl)("upgrading to 0.5.0: the boot probe (0103)", () => {
   let folder = "";
 
   beforeAll(async () => {
-    folder = migrationsFolderUpTo("0102_endpoint_recovery_log_key_block");
+    folder = migrationsFolderUpTo("0103_endpoint_recovery_log_key_block");
     const admin = new pg.Pool({ connectionString: base });
     try {
       await admin.query(
@@ -2636,7 +2636,7 @@ describe.skipIf(!adminUrl)("upgrading to 0.5.0: the boot probe (0103)", () => {
     }
   });
 
-  it("applies on top of 0102, keeps every report and code, accepts the new kinds and adds the lab state", async () => {
+  it("applies on top of 0103, keeps every report and code, accepts the new kinds and adds the lab state", async () => {
     const url = urlFor(base, database, owner);
     await applyReleasedSchema(url, folder, null);
     const pool = new pg.Pool({ connectionString: url });

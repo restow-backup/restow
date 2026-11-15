@@ -10,6 +10,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   acquireEndpointRepositoryLock,
   EndpointRepositoryBusyError,
+  repositoryCopiesLockKey,
+  repositoryLockHeld,
   withEndpointRepositoryLock,
 } from "./repository-lock.js";
 
@@ -89,5 +91,26 @@ describe.skipIf(!url)("the lock of an endpoint repository", () => {
     await release();
     const again = await acquireEndpointRepositoryLock(pool, endpoint, { mode: "exclusive" });
     await again();
+  });
+
+  it("tells whether a tenant's repository-copy lock is held, by a shared or an exclusive holder", async () => {
+    // The copy pass and a machine's retention or removal hold it shared; a promotion of a copy
+    // target exclusively (docs/STORAGE.md, "Promoting a copy").
+    const key = repositoryCopiesLockKey(randomUUID());
+    expect(await repositoryLockHeld(pool, key)).toBe(false);
+    const shared = await acquireEndpointRepositoryLock(pool, key, { mode: "shared" });
+    expect(await repositoryLockHeld(pool, key)).toBe(true);
+    expect(await repositoryLockHeld(pool, repositoryCopiesLockKey(randomUUID()))).toBe(false);
+    await expect(
+      acquireEndpointRepositoryLock(pool, key, { mode: "exclusive" }),
+    ).rejects.toBeInstanceOf(EndpointRepositoryBusyError);
+    await shared();
+    const promotion = await acquireEndpointRepositoryLock(pool, key, { mode: "exclusive" });
+    expect(await repositoryLockHeld(pool, key)).toBe(true);
+    await expect(
+      acquireEndpointRepositoryLock(pool, key, { mode: "shared" }),
+    ).rejects.toBeInstanceOf(EndpointRepositoryBusyError);
+    await promotion();
+    expect(await repositoryLockHeld(pool, key)).toBe(false);
   });
 });

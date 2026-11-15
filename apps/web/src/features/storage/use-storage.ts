@@ -8,6 +8,7 @@ import {
   createTarget,
   deleteTarget,
   fetchEndpointRestorePointImmutability,
+  fetchPromotion,
   fetchRestorePointImmutability,
   fetchTargets,
   fetchUsage,
@@ -15,6 +16,7 @@ import {
   promoteTarget,
   retryMigration,
   setImmutability,
+  startCatchUp,
   storageKeys,
   testInstallationDefault,
   testTarget,
@@ -25,6 +27,7 @@ import { removeTarget, upsertTarget } from "./cache";
 import type {
   CreateTargetInput,
   ProbeInput,
+  PromotionReadiness,
   SetImmutabilityInput,
   StorageTargetDto,
   StorageTargetList,
@@ -171,6 +174,52 @@ export function useTestInstallationDefault() {
 
 export function useCompleteness(targetId: string) {
   return useMutation({ mutationFn: () => checkCompleteness(targetId) });
+}
+
+/** How often the promotion dialog asks again while a catch-up runs. */
+const CATCH_UP_REFETCH_MS = 3_000;
+
+/**
+ * The server's answer whether this copy can become the primary (GET .../promotion). The first
+ * answer compares the listings of primary and copy too (`?files=1`); while a catch-up runs, the
+ * cheap answer is polled (`followCatchUp`), and once it ends the listings are compared again.
+ */
+export function usePromotionReadiness(targetId: string) {
+  const { tenantId, enabled } = useStorageScope();
+  const [files, setFiles] = React.useState(true);
+  const query = useQuery({
+    queryKey: [...storageKeys.promotion(tenantId, targetId), files ? "files" : "database"],
+    queryFn: () => fetchPromotion(targetId, files),
+    enabled,
+    retry: false,
+    refetchInterval: (q) => (q.state.data?.catchUp.running ? CATCH_UP_REFETCH_MS : false),
+  });
+  const running = query.data?.catchUp.running === true;
+  React.useEffect(() => {
+    if (running) {
+      setFiles(false);
+    } else if (!files && query.data) {
+      // The catch-up ended: compare the listings again.
+      setFiles(true);
+    }
+  }, [running, files, query.data]);
+  const followCatchUp = React.useCallback(() => setFiles(false), []);
+  return { query, followCatchUp };
+}
+
+/** "Catch up now": its answer is the readiness the dialog then follows while it runs. */
+export function useStartCatchUp(targetId: string) {
+  const queryClient = useQueryClient();
+  const { tenantId } = useStorageScope();
+  return useMutation({
+    mutationFn: () => startCatchUp(targetId),
+    onSuccess: (readiness: PromotionReadiness) => {
+      queryClient.setQueryData(
+        [...storageKeys.promotion(tenantId, targetId), "database"],
+        readiness,
+      );
+    },
+  });
 }
 
 export function usePromoteTarget(targetId: string) {

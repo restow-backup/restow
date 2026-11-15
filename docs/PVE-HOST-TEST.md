@@ -198,8 +198,9 @@ guest not given, no terminal, a step the tester skipped): it proves nothing.
   target: restow-pve's own backups send nothing; a PVE job's backups notify as
   that job says (docs/PVE.md, "Notifications of vzdump").
 - In the PVE UI: storage `restow` > Backups shows the restore points; **Show
-  configuration** and **Restore** work; **Remove** is refused ("retention is
-  managed in Restow").
+  configuration** and **Restore** work, of a container and of a VM (the web UI
+  runs in pvedaemon's taint mode, the shell commands do not); **Remove** is
+  refused ("retention is managed in Restow").
 - `qm stop <vm>; qm start <vm>`, back up again: the run reads the whole disk
   ("Full read" in the guest list), uploads almost nothing.
 
@@ -261,6 +262,7 @@ integrations/pve/plugin/t/`):
 | Container backups: lost+found in suspend and stop mode, stable folder for copies, restic cache | `TestContainerBackupLeavesOutLostAndFoundOfMountPointsInSuspendMode`, `TestBackupMountPointsMirrorsTheServer`, `TestContainerBackupRootIsStableForCopies`, `TestContainerBackupOfACopyRunsInTheSameFolderEveryTime`, `TestContainerBackupOfACopyFallsBackWithoutAMountNamespace`, `TestBindPrivateShowsTheCopyToResticOnly`, `TestContainerCacheIsKeptBetweenBackups`, `TestContainerCacheFollowsTheIDMapAndNeverALink`, `TestContainerCacheNeedsSpace`, `TestContainerCachesOfGuestsGoneFromTheNodeAreRemoved` |
 | Stopping restic (SIGINT, bounded stderr) and container backups of PVE jobs | `TestStoppingAContainerBackupLetsResticRemoveItsLock`, `TestStoppingAContainerRestoreLetsResticRemoveItsLock`, `TestResticThatIgnoresSIGINTIsKilledAfterTheGrace`, `TestResticErrorsOfAMillionItemsInBoundedMemory`, `TestResticOutputWithAnOverlongLine`, `TestContainerBackupNamesTheFirstUnreadableItemsAndCountsAll`, `TestCancelOrderStopsOnlyAVzdumpTaskOfTheNodesOwn`, `TestCancelOrderLeavesAPVEJobsTaskAndSaysHowTheBackupEnds`, `TestCancelOrderStopsAContainerProviderThroughItsRunFolder`, `TestForgedContainerProviderRecordIsNeverSignalled`, `TestContainerProviderIsKnownByItsRunFolderWhileItRuns` |
 | vzdump for a migrated guest, the lock of a PVE backup job, consistency from the log | `TestBackupOfAGuestThatIsNoLongerOnTheNode`, `TestRestoreThatStartsNoTaskFails`, `TestVzdumpLockStateOfRealTaskLogs`, `TestBackupWaitingForThePVEBackupJobsLock`, `TestBackupInitLogsTheLockWait`, `TestVMConsistencyFromVzdumpLogs`, `TestAFailedFreezeIsAWarningOfTheTask`, `TestVMBackupRecordsItsConsistency`, `TestVzdumpGuestLogOfTheRunningBackup` (golden vzdump logs in `agent/internal/pve/testdata`) |
+| Restores from the PVE UI under pvedaemon's taint mode (`-T`): every value from restow-pve untainted or refused | `integrations/pve/plugin/t/taint.t` |
 | Prune and notes of a PVE backup job are no-ops | `integrations/pve/plugin/t/shim.t` (prune-backups, notes, protection) |
 | No PVE notification for restow-pve's backups | `TestVzdumpFormNotificationModePerPVEVersion`, `TestBackupTaskSendsNoPVENotification`, `TestBackupRunsWhenPVERefusesNotificationMode` |
 | Inventory: temporary guests left out, the cluster's guests | `TestInventoryLeavesTheTemporaryGuestsOut`, `TestInventoryCarriesTheClustersGuests`, `TestInventoryIsNotSentWithoutTheClustersGuests` |

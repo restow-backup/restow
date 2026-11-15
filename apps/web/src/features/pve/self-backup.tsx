@@ -9,10 +9,12 @@ import { type PveGuest, selfBackupBlocked } from "./api.js";
 import { PVE_NAMESPACE } from "./i18n.js";
 
 /**
- * The Restow server's own VM (docs/PVE.md, "The Restow server's own VM"): Restow found it by its
- * SMBIOS UUID, or an admin marked it. Backing it up with Restow itself can deadlock (the backup
- * freezes or snapshots the server that receives it) and a restore of it needs the server that
- * is being restored, so "Back up now" and putting it into a job ask first.
+ * The Restow server's own VM or container (docs/PVE.md, "The Restow server's own VM"): Restow
+ * found it by its SMBIOS UUID (a VM) or the VMID its volumes name (a container), or an admin
+ * marked it. Backing it up with Restow itself can deadlock (the backup freezes or snapshots the
+ * server that receives it) and a restore of it needs the server that is being restored, so
+ * "Back up now" and putting it into a job ask first. A container whose VMID more than one
+ * connected cluster has is not marked by itself; the note says it may be the one.
  */
 
 function guestName(guest: Pick<PveGuest, "name" | "kind" | "vmid">): string {
@@ -24,14 +26,22 @@ export function RestowServerNote({
   guest,
   compact = false,
 }: {
-  guest: Pick<PveGuest, "restowServer" | "selfBackupConfirmedAt">;
+  guest: Pick<
+    PveGuest,
+    "restowServer" | "selfBackupConfirmedAt" | "kind" | "vmid" | "restowServerAmbiguous"
+  >;
   compact?: boolean;
 }) {
   const { t } = useTranslation(PVE_NAMESPACE);
   if (!guest.restowServer) {
-    return null;
+    return guest.restowServerAmbiguous ? (
+      <AmbiguousNote vmid={guest.vmid} compact={compact} />
+    ) : null;
   }
-  const reason = t(`selfBackup.reason.${guest.restowServer}`);
+  const reason =
+    guest.restowServer === "detected" && guest.kind === "ct"
+      ? t("selfBackup.reason.detectedCt", { vmid: guest.vmid })
+      : t(`selfBackup.reason.${guest.restowServer}`);
   if (compact) {
     return (
       <p className="text-xs text-warning-text" data-slot="pve-restow-server">
@@ -49,6 +59,27 @@ export function RestowServerNote({
         <p>{t("selfBackup.risk")}</p>
         <p>{t("selfBackup.recommendation")}</p>
         {guest.selfBackupConfirmedAt ? <p>{t("selfBackup.confirmedLong")}</p> : null}
+      </AlertDescription>
+    </Alert>
+  );
+}
+
+/** A container that may be the Restow server: its VMID is in more than one cluster. */
+function AmbiguousNote({ vmid, compact }: { vmid: number; compact: boolean }) {
+  const { t } = useTranslation(PVE_NAMESPACE);
+  if (compact) {
+    return (
+      <p className="text-xs text-warning-text" data-slot="pve-restow-server-ambiguous">
+        {t("selfBackup.ambiguousShort")}
+      </p>
+    );
+  }
+  return (
+    <Alert variant="warning" data-slot="pve-restow-server-ambiguous">
+      <ServerCog aria-hidden="true" />
+      <AlertTitle>{t("selfBackup.ambiguousTitle")}</AlertTitle>
+      <AlertDescription>
+        <p>{t("selfBackup.ambiguous", { vmid })}</p>
       </AlertDescription>
     </Alert>
   );
