@@ -181,6 +181,12 @@ CPU/memory, whether co-hosted or not:
   large runs"); no setting is needed for it.
 - **CPU/memory limits on every container** (`deploy.resources.limits` in
   `docker-compose.yml`), sized for the demo's small, fixed workload.
+  Postgres gets 512M and settings to match (`command:` of `postgres`:
+  `max_connections=64`, `shared_buffers=64MB`, small `work_mem` and
+  `maintenance_work_mem`, two autovacuum workers); api, worker and scheduler
+  open smaller pools (`RESTOW_DB_POOL_MAX`, `RESTOW_DB_PROVIDER_POOL_MAX`,
+  `RESTOW_DB_BOSS_POOL_MAX`, 48 connections in all instead of the default 90).
+  The command line wins over `ALTER SYSTEM`: change the values there.
 - **Templates on the host disk are bounded**: two at most, each about the
   size of the seeded volumes plus a compressed database dump, and none is
   saved unless `RESTOW_DEMO_TEMPLATE_MIN_FREE_MB` stays free afterwards (see
