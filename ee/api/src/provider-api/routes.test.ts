@@ -29,6 +29,7 @@ import { providerUserCursorSchema, registerProviderRoutes } from "./routes.js";
  */
 
 const mocks = vi.hoisted(() => ({
+  loadPricingEstimate: vi.fn(),
   setUserProtection: vi.fn(),
   createRestore: vi.fn(),
   startBackup: vi.fn(),
@@ -41,6 +42,13 @@ vi.mock("@restow/core", async (importOriginal) => ({
     "../../../../packages/core/src/usage/mailboxes.js",
   )),
 }));
+vi.mock(
+  "../../../../apps/api/src/features/settings/pricing-estimate.js",
+  async (importOriginal) => ({
+    ...(await importOriginal<Record<string, unknown>>()),
+    loadPricingEstimate: mocks.loadPricingEstimate,
+  }),
+);
 vi.mock("../../../../apps/api/src/features/directory/service.js", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
   setUserProtection: mocks.setUserProtection,
@@ -183,5 +191,117 @@ describe("GET /provider/users", () => {
     const { request } = setup([]);
     const res = await request("/provider/users");
     expect(res.status).toBe(403);
+  });
+});
+
+describe("GET /provider/billing", () => {
+  const priced = (tenantId: string, name: string, total: number) => ({
+    tenantId,
+    name,
+    kind: "customer",
+    mailboxes: 10,
+    storedBytes: 0,
+    billedBytes: 0,
+    servers: null,
+    clients: null,
+    vms: null,
+    containers: null,
+    fileShares: null,
+    mailboxPrice: total / 10,
+    storagePrice: null,
+    serverPrice: null,
+    clientPrice: null,
+    vmPrice: null,
+    containerPrice: null,
+    fileSharePrice: null,
+    overridden: {
+      mailbox: false,
+      storage: false,
+      server: false,
+      client: false,
+      vm: false,
+      container: false,
+      fileShare: false,
+    },
+    amount: {
+      mailboxes: total,
+      storage: null,
+      servers: null,
+      clients: null,
+      vms: null,
+      containers: null,
+      fileShares: null,
+      total,
+    },
+  });
+  const estimate = (tenants: unknown[]) => ({
+    currency: "CHF",
+    storageUnit: "TB",
+    storageBilling: "exact",
+    global: {},
+    perTenantOverrides: false,
+    hasPrices: true,
+    tenants,
+    total: 30,
+    missing: 0,
+  });
+  const facts = [
+    { id: TENANT_ID, customerNumber: "K-1001", status: "active" },
+    { id: OTHER_TENANT_ID, customerNumber: "K-2002", status: "suspended" },
+  ];
+
+  it("answers every tenant's lines with its customer number and records the read in each tenant", async () => {
+    mocks.loadPricingEstimate.mockResolvedValue(
+      estimate([priced(TENANT_ID, "Contoso", 10), priced(OTHER_TENANT_ID, "Fabrikam", 20)]),
+    );
+    const { request, audits } = setup([facts]);
+    const res = await request("/provider/billing", { key: "rsk_provider_full" });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      currency: string;
+      total: number;
+      tenants: {
+        customerNumber: string;
+        status: string;
+        lines: { type: string; amount: number }[];
+      }[];
+    };
+    expect(body.currency).toBe("CHF");
+    expect(body.tenants.map((t) => [t.customerNumber, t.status, t.lines])).toEqual([
+      ["K-1001", "active", [expect.objectContaining({ type: "mailboxes", amount: 10 })]],
+      ["K-2002", "suspended", [expect.objectContaining({ type: "mailboxes", amount: 20 })]],
+    ]);
+    // Every tenant, never a member's narrower view: the key is the provider's.
+    expect(mocks.loadPricingEstimate).toHaveBeenCalledWith(expect.anything(), null, {});
+    expect(audits.map((event) => [event.tenantId, event.action])).toEqual([
+      [TENANT_ID, "api.provider.billing.read"],
+      [OTHER_TENANT_ID, "api.provider.billing.read"],
+    ]);
+  });
+
+  it("narrows to the tenant a customer number names, and 404 for an unknown one", async () => {
+    mocks.loadPricingEstimate.mockResolvedValue(
+      estimate([priced(OTHER_TENANT_ID, "Fabrikam", 20)]),
+    );
+    const { request } = setup([facts]);
+    const res = await request("/provider/billing?customerNumber=k-2002", {
+      key: "rsk_provider_full",
+    });
+    expect(res.status).toBe(200);
+    expect(mocks.loadPricingEstimate).toHaveBeenCalledWith(expect.anything(), null, {
+      tenantId: OTHER_TENANT_ID,
+    });
+    const unknown = setup([facts]);
+    const none = await unknown.request("/provider/billing?customerNumber=K-404", {
+      key: "rsk_provider_full",
+    });
+    expect(none.status).toBe(404);
+  });
+
+  it("is closed to tenant keys and to provider keys without billing:read", async () => {
+    const { request } = setup([]);
+    expect((await request("/provider/billing")).status).toBe(403);
+    expect((await request("/provider/billing", { key: "rsk_provider_status" })).status).toBe(403);
+    expect(mocks.loadPricingEstimate).not.toHaveBeenCalled();
   });
 });

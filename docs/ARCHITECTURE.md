@@ -499,6 +499,14 @@ Archiv-Nachweisen liefert die API eine saubere Nutzer-/Postfach-Aufstellung je M
 (Directory) zur Anbindung an RMM, PSA und Ticketsysteme; mandantenübergreifend über einen
 Provider-Key, solange eine Erweiterung `apiKeys.provider` freischaltet (in der Vollversion:
 Service Provider). `GET /tenant` nennt seit dem 01.10.2026 keine Edition mehr.
+Seit 0.5.0 (Vertrag 1.10.0, additiv) liefert `GET /provider/billing` mit dem Bereich
+`billing:read`, den nur ein Provider-Key tragen kann, je Mandant Kundennummer, Status und eine
+Zeile je bepreister Menge (Postfächer, Speicher, Server, Arbeitsplätze, VMs, Container,
+Freigaben: Menge, Einheit, Stückpreis, Herkunft des Preises, Betrag) samt Summe, für PSA- und
+Abrechnungstools; dieselbe Schätzung wie die Preiskarten der Oberfläche, live zum Zeitpunkt
+`generatedAt`, mit `?tenant=` oder `?customerNumber=` auf einen Mandanten eingeschränkt. Jeder
+Abruf steht im Audit-Log jedes enthaltenen Mandanten (`api.provider.billing.read`). Ein fester
+Monatsabschluss mit Webhook folgt mit 0.6.0.
 SSE `/api/v1/jobs/{id}/events`. Die Läufe heißen in der Integrations-API weiter `/jobs`; seit 0.2.0 (Vertrag
 1.2.0, additiv) gibt es sie auch unter `/runs` (`listRuns`, `startRunBackup`, `getRun`, `streamRunEvents`).
 Die Job-Definitionen (`/api/v1/backup-jobs`) sind Session-API und nicht Teil der Integrations-API.

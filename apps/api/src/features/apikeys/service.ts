@@ -5,7 +5,7 @@ import { featureEnabled, requireFeature } from "../../lib/features.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
 import type { CreateApiKeyInput } from "./schemas.js";
-import { type ApiScope, normalizeScopes } from "./scopes.js";
+import { type ApiScope, normalizeScopes, PROVIDER_ONLY_SCOPES } from "./scopes.js";
 import { type GeneratedApiKey, generateApiKey, PROVIDER_KEY_TAG, tenantKeyTag } from "./tokens.js";
 
 /**
@@ -276,6 +276,14 @@ export async function createKey(
     }
     const tenantId = scope.kind === "tenant" ? scope.tenantId : null;
     const scopes = normalizeScopes(input.scopes);
+    const providerOnly = scopes.filter((granted) => PROVIDER_ONLY_SCOPES.includes(granted));
+    if (scope.kind === "tenant" && providerOnly.length > 0) {
+      throw new ProblemError(422, "Scope for provider keys only", {
+        type: "urn:restow:problem:api-key-scope-provider-only",
+        detail: `A tenant key cannot carry ${providerOnly.join(", ")}: it reads across tenants.`,
+        extensions: { scopes: providerOnly },
+      });
+    }
     const expiresAt = expiryFrom(input.expiresInDays, now);
     const { id, generated } = await insertKey(tx, await tagFor(tx, scope), {
       tenantId,

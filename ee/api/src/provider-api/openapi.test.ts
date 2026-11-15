@@ -70,14 +70,18 @@ describe("the provider operations in the v1 OpenAPI document", () => {
     return (await res.json()) as JsonSchema;
   }
 
-  it("documents both provider operations exactly once", async () => {
+  it("documents the provider operations exactly once", async () => {
     const paths = (await load()).paths as Record<string, Record<string, JsonSchema>>;
     const documented = Object.entries(paths)
       .flatMap(([path, methods]) =>
         Object.keys(methods).map((method) => `${method.toUpperCase()} ${path}`),
       )
       .filter((operation) => operation.includes("/provider/"));
-    expect(documented.sort()).toEqual(["GET /provider/tenants", "GET /provider/users"]);
+    expect(documented.sort()).toEqual([
+      "GET /provider/billing",
+      "GET /provider/tenants",
+      "GET /provider/users",
+    ]);
   });
 
   it("names the scope of the provider operations, without the tenant header, and marks them audited", async () => {
@@ -86,6 +90,10 @@ describe("the provider operations in the v1 OpenAPI document", () => {
     expect(providerUsers.security).toEqual([{ apiKey: ["users:read"] }]);
     expect(JSON.stringify(providerUsers.parameters)).not.toContain("TenantHeader");
     expect(providerUsers["x-restow-audited"]).toBe(true);
+    const billing = paths["/provider/billing"]?.get as JsonSchema;
+    expect(billing.security).toEqual([{ apiKey: ["billing:read"] }]);
+    expect(JSON.stringify(billing.parameters)).not.toContain("TenantHeader");
+    expect(billing["x-restow-audited"]).toBe(true);
     // Reading contact persons (personal data) through the provider tenant list
     // is a read of user data and must be audited, same as /provider/users.
     const providerTenants = paths["/provider/tenants"]?.get as JsonSchema;

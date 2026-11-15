@@ -278,6 +278,22 @@ describe.skipIf(!testDatabaseAdminUrl)("API keys and webhooks against Postgres",
       expect((await app.request("/probe", bearer(created.token))).status).toBe(200);
     });
 
+    it("refuses a tenant key with a scope for provider keys only", async () => {
+      await expect(
+        keys.createKey(
+          db,
+          { kind: "tenant", tenantId: otherTenantId },
+          { name: "Billing", scopes: ["status:read", "billing:read"], expiresInDays: null },
+          actor(),
+        ),
+      ).rejects.toMatchObject({
+        status: 422,
+        type: "urn:restow:problem:api-key-scope-provider-only",
+      });
+      const listed = await keys.listKeys(db, { kind: "tenant", tenantId: otherTenantId });
+      expect(listed.map((key) => key.name)).not.toContain("Billing");
+    });
+
     it("issues provider keys that name the tenant per request", async () => {
       const created = await keys.createKey(
         db,

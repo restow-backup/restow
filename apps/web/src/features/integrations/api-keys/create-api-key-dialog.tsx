@@ -35,7 +35,7 @@ import {
   type ExpiryOption,
   emptyApiKeyForm,
   integrationErrorKey,
-  SCOPE_GROUPS,
+  scopeGroupsFor,
   scopeKey,
   toCreateApiKeyInput,
   toggleItem,
@@ -157,6 +157,7 @@ function CreateApiKeyForm({
           name="scopes"
           render={({ field }) => (
             <ScopePicker
+              kind={kind}
               value={field.value}
               onChange={field.onChange}
               error={reason(errors.scopes?.message)}
@@ -213,10 +214,12 @@ function CreateApiKeyForm({
 }
 
 function ScopePicker({
+  kind,
   value,
   onChange,
   error,
 }: {
+  kind: ApiKeyKind;
   value: ApiScope[];
   onChange: (scopes: ApiScope[]) => void;
   error: string | undefined;
@@ -226,7 +229,7 @@ function ScopePicker({
     <fieldset className="space-y-3" aria-describedby="api-key-scopes-message">
       <legend className="text-sm font-medium">{t("createKey.scopes")}</legend>
       <div className="grid gap-4 sm:grid-cols-2">
-        {SCOPE_GROUPS.map((group) => (
+        {scopeGroupsFor(kind).map((group) => (
           <div key={group.id} className="space-y-2">
             <p className="text-xs font-medium text-muted-foreground">
               {t(`scopes.groups.${group.id}`)}

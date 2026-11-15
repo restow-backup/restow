@@ -13,6 +13,7 @@ export const V1_AUDIT_ACTIONS = {
   usersRead: "api.users.read",
   providerUsersRead: "api.provider.users.read",
   providerTenantsRead: "api.provider.tenants.read",
+  providerBillingRead: "api.provider.billing.read",
   jobsRead: "api.jobs.read",
   jobRead: "api.job.read",
   jobEventsOpened: "api.job.events.opened",

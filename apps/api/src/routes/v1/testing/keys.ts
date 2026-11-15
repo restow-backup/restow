@@ -29,6 +29,9 @@ const ALL_SCOPES: ApiScope[] = [
   "webhooks:manage",
 ];
 
+/** A provider key also reads the provider-only scopes (features/apikeys/scopes.ts). */
+const ALL_PROVIDER_SCOPES: ApiScope[] = [...ALL_SCOPES, "billing:read"];
+
 /**
  * A key context as the middleware builds it. Display fields the middleware may
  * carry (`name`, `prefix`) are filled too, so the table fits every revision.
@@ -47,7 +50,8 @@ function testKey(keyId: string, tenantId: string | null, scopes: ApiScope[]): Ap
 export const TEST_KEYS: Record<string, ApiKeyContext> = {
   rsk_tenant_full: testKey("key-tenant", TENANT_ID, ALL_SCOPES),
   rsk_tenant_status: testKey("key-status", TENANT_ID, ["status:read"]),
-  rsk_provider_full: testKey("key-provider", null, ALL_SCOPES),
+  rsk_provider_full: testKey("key-provider", null, ALL_PROVIDER_SCOPES),
+  rsk_provider_status: testKey("key-provider-status", null, ["status:read"]),
 };
 
 export const fakeRequireKey: typeof requireApiKey = (
