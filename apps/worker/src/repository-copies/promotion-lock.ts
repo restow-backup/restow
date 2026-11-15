@@ -11,7 +11,6 @@ import {
   type Database,
   EndpointRepositoryBusyError,
   repositoryCopiesLockKey,
-  withEndpointRepositoryLock,
 } from "@restow/db";
 
 /**
@@ -24,19 +23,39 @@ import {
 export const PROMOTION_WAIT_MS = 30 * 60 * 1000;
 const PROMOTION_POLL_MS = 5_000;
 
-/** Run `work` under the lock, waiting for a promotion; busy past the wait: `EndpointRepositoryBusyError`. */
-export function besidePromotion<T>(
+/**
+ * Run `work` under the lock, waiting for a promotion; busy past the wait: `EndpointRepositoryBusyError`.
+ * Between its tries it holds no connection: several jobs waiting out a promotion would otherwise
+ * each keep one of the worker's pool (10 by default) for up to half an hour.
+ */
+export async function besidePromotion<T>(
   db: Pick<Database, "$client">,
   tenantId: string,
   work: () => Promise<T>,
   waitMs: number = PROMOTION_WAIT_MS,
+  pollMs: number = PROMOTION_POLL_MS,
 ): Promise<T> {
-  return withEndpointRepositoryLock(
-    db.$client,
-    repositoryCopiesLockKey(tenantId),
-    { mode: "shared", waitMs, pollMs: Math.min(PROMOTION_POLL_MS, Math.max(1, waitMs)) },
-    work,
-  );
+  const deadline = Date.now() + waitMs;
+  const key = repositoryCopiesLockKey(tenantId);
+  let release: () => Promise<void>;
+  for (;;) {
+    try {
+      release = await acquireEndpointRepositoryLock(db.$client, key, { mode: "shared", waitMs: 0 });
+      break;
+    } catch (error) {
+      if (!(error instanceof EndpointRepositoryBusyError) || Date.now() >= deadline) {
+        throw error;
+      }
+    }
+    await new Promise((resolve) =>
+      setTimeout(resolve, Math.max(1, Math.min(pollMs, deadline - Date.now()))),
+    );
+  }
+  try {
+    return await work();
+  } finally {
+    await release();
+  }
 }
 
 /**

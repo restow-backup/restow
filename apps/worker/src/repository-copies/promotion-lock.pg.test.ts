@@ -49,6 +49,30 @@ describe.skipIf(!url)("work beside a promotion of a copy target", () => {
     expect(ran).toBe(true);
   }, 20_000);
 
+  it("holds no connection of the pool while it waits", async () => {
+    const tenantId = randomUUID();
+    const small = createDb(url as string, { max: 2 });
+    const promotion = await acquireEndpointRepositoryLock(
+      db.$client,
+      repositoryCopiesLockKey(tenantId),
+      { mode: "exclusive" },
+    );
+    try {
+      // Three jobs wait out the promotion on a pool of two; the pool still answers.
+      const waiting = [1, 2, 3].map((n) =>
+        besidePromotion(small, tenantId, async () => n, 10_000, 50),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      const { rows } = await small.$client.query<{ one: number }>("SELECT 1 AS one");
+      expect(rows[0]?.one).toBe(1);
+      await promotion();
+      expect(await Promise.all(waiting)).toEqual([1, 2, 3]);
+    } finally {
+      await promotion();
+      await small.$client.end();
+    }
+  }, 20_000);
+
   it("gives up after its wait (pg-boss tries the job again), and a pass skips the tenant", async () => {
     const tenantId = randomUUID();
     const promotion = await acquireEndpointRepositoryLock(
