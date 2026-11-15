@@ -17,6 +17,7 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { accessSync, constants, existsSync, readFileSync } from "node:fs";
 import { createConnection } from "node:net";
 import { setTimeout as sleep } from "node:timers/promises";
+import { fileURLToPath } from "node:url";
 
 /** Where Debian and Ubuntu install OVMF (package ovmf). */
 export const OVMF = Object.freeze({
@@ -189,8 +190,10 @@ export function fwCfgArgs(entries: Record<string, string>): string[] {
  * The network of a machine:
  *   - `user` (default, the end-to-end tests): QEMU's user network, the host at 10.0.2.2;
  *   - `restricted`: the user network with `restrict=on` (nothing outside is reachable) and one
- *     `guestfwd` rule: `address:port` in the guest goes to `target` (`127.0.0.1:<port>` of the
- *     lab's CONNECT proxy). No DNS is needed, the guest names the proxy by its address;
+ *     `guestfwd` rule: every connection to `address:port` in the guest starts the connector
+ *     (connect.ts, `cmd:`), which joins it to `target` (`127.0.0.1:<port>` of the lab's CONNECT
+ *     proxy). A `guestfwd` to `tcp:` gave all connections one shared channel and hung after the
+ *     first. No DNS is needed, the guest names the proxy by its address;
  *   - `none`: no network card at all.
  */
 export type Network =
@@ -200,6 +203,8 @@ export type Network =
       guestAddress: string;
       guestPort: number;
       target: string;
+      /** The connector QEMU starts per connection: Node and connect.js of this folder by default. */
+      connector?: { node: string; script: string };
       mac?: string;
       model?: NicModel;
     }
@@ -207,7 +212,18 @@ export type Network =
 export type NicModel = "virtio-net" | "e1000e";
 
 const IPV4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
-const HOST_PORT = /^127\.0\.0\.1:\d{1,5}$/;
+const HOST_PORT = /^127\.0\.0\.1:(\d{1,5})$/;
+// A path QEMU's option parser and libslirp's argument split take as it is: no comma, no space,
+// no quote.
+const PLAIN_PATH = /^\/[A-Za-z0-9_./+-]+$/;
+
+/** The connector of this folder: connect.js in the lab image, connect.ts beside this file. */
+export const CONNECTOR = Object.freeze({
+  node: process.execPath,
+  script: fileURLToPath(
+    new URL(import.meta.url.endsWith(".ts") ? "./connect.ts" : "./connect.js", import.meta.url),
+  ),
+});
 
 export function networkArgs(network: Network): string[] {
   if (network.mode === "none") return ["-nic", "none"];
@@ -216,15 +232,21 @@ export function networkArgs(network: Network): string[] {
   if (network.mode === "user") {
     return ["-netdev", "user,id=net0", "-device", `${device},netdev=net0,id=nic0,mac=${mac}`];
   }
-  if (!IPV4.test(network.guestAddress) || !HOST_PORT.test(network.target)) {
+  const target = HOST_PORT.exec(network.target);
+  if (!IPV4.test(network.guestAddress) || !target) {
     throw new Error("a restricted network forwards one guest address to 127.0.0.1:<port>");
   }
   if (!Number.isInteger(network.guestPort) || network.guestPort < 1 || network.guestPort > 65535) {
     throw new Error(`guest port ${network.guestPort}`);
   }
+  const connector = network.connector ?? CONNECTOR;
+  if (!PLAIN_PATH.test(connector.node) || !PLAIN_PATH.test(connector.script)) {
+    throw new Error("the connector's paths must be plain absolute paths");
+  }
+  const command = `${connector.node} ${connector.script} ${target[1]}`;
   return [
     "-netdev",
-    `user,id=net0,restrict=on,guestfwd=tcp:${network.guestAddress}:${network.guestPort}-tcp:${network.target}`,
+    `user,id=net0,restrict=on,guestfwd=tcp:${network.guestAddress}:${network.guestPort}-cmd:${command}`,
     "-device",
     `${device},netdev=net0,id=nic0,mac=${mac}`,
   ];
@@ -234,6 +256,17 @@ export function networkArgs(network: Network): string[] {
 export const SANDBOX_ARGS = Object.freeze([
   "-sandbox",
   "on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny",
+  "-nodefaults",
+]);
+
+/**
+ * The sandbox of the restore VM, the one machine with a network: QEMU may start the connector
+ * (connect.ts) for each connection of the guest (spawn=allow, maintainer's decision); the rest
+ * stays denied, and the boot of the restored disks (no network) keeps SANDBOX_ARGS.
+ */
+export const SANDBOX_ARGS_PROXY = Object.freeze([
+  "-sandbox",
+  "on,obsolete=deny,elevateprivileges=deny,spawn=allow,resourcecontrol=deny",
   "-nodefaults",
 ]);
 
@@ -282,7 +315,15 @@ export function machineArgs(machine: Machine): string[] {
     String(machine.cpus ?? 2),
     "-cpu",
     "host",
-    ...(machine.sandbox ? [...SANDBOX_ARGS, "-device", "VGA", "-display", "none"] : ["-nographic"]),
+    ...(machine.sandbox
+      ? [
+          ...(machine.network?.mode === "restricted" ? SANDBOX_ARGS_PROXY : SANDBOX_ARGS),
+          "-device",
+          "VGA",
+          "-display",
+          "none",
+        ]
+      : ["-nographic"]),
     ...serial,
     "-qmp",
     `unix:${machine.qmpSocket},server=on,wait=off`,

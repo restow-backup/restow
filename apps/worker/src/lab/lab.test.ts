@@ -12,20 +12,23 @@ import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { createServer } from "node:net";
+import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { labClient, serialTail } from "./client.js";
+import { connectorPort } from "./connect.js";
 import { guidBytes } from "./dbx.js";
 import { labConfigFromEnv, noProbeNote, prepareDbx, runLab } from "./main.js";
 import {
+  CONNECTOR,
   connectSerial,
   encryptedDiskArgs,
   machineArgs,
   networkArgs,
   SANDBOX_ARGS,
+  SANDBOX_ARGS_PROXY,
   typeSerial,
 } from "./qemu.js";
 import { keyFifo } from "./vm.js";
@@ -76,16 +79,43 @@ describe("QEMU for a probe", () => {
         model: "e1000e",
       },
     }).join(" ");
-    expect(args).toContain(SANDBOX_ARGS.join(" "));
+    // The restore VM may start the connector, nothing else of the sandbox is relaxed.
+    expect(args).toContain(SANDBOX_ARGS_PROXY.join(" "));
+    expect(args).not.toContain("spawn=deny");
+    expect(SANDBOX_ARGS_PROXY.join(" ")).toBe(
+      SANDBOX_ARGS.join(" ").replace("spawn=deny", "spawn=allow"),
+    );
     expect(args).not.toContain("-nographic");
     expect(args).toContain("-object secret,id=probekey,file=/dev/fd/3");
     expect(args).toContain("encrypt.format=luks,encrypt.key-secret=probekey");
+    // One connector per connection of the guest (a `tcp:` target shared one channel among all).
     expect(args).toContain(
-      "user,id=net0,restrict=on,guestfwd=tcp:10.0.2.100:3128-tcp:127.0.0.1:4100",
+      `user,id=net0,restrict=on,guestfwd=tcp:10.0.2.100:3128-cmd:${CONNECTOR.node} ${CONNECTOR.script} 4100`,
     );
+    expect(args).not.toContain("-tcp:");
     expect(args).toContain("e1000e,netdev=net0,id=nic0");
     expect(args).toContain("socket,id=ser0,path=/p/s.sock,server=on,wait=off,logfile=/p/s.log");
     expect(networkArgs({ mode: "none" })).toEqual(["-nic", "none"]);
+    // A machine without network keeps spawn=deny.
+    const boot = machineArgs({
+      name: "boot",
+      serialLog: "/p/b.log",
+      qmpSocket: "/p/b.sock",
+      firmware: "bios",
+      sandbox: true,
+      disks: [],
+      network: { mode: "none" },
+    }).join(" ");
+    expect(boot).toContain(SANDBOX_ARGS.join(" "));
+    expect(() =>
+      networkArgs({
+        mode: "restricted",
+        guestAddress: "10.0.2.100",
+        guestPort: 3128,
+        target: "127.0.0.1:4100",
+        connector: { node: "/usr/bin/node", script: "/opt/x,y.js" },
+      }),
+    ).toThrow(/plain absolute paths/);
     expect(() =>
       networkArgs({
         mode: "restricted",
@@ -249,4 +279,54 @@ describe("the lab process", () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+});
+
+describe("the connector QEMU starts for each connection of the guest", () => {
+  it("joins the socket on its standard input and output to the proxy, once per connection", async () => {
+    // The proxy: echoes with a prefix, and counts its connections.
+    let accepted = 0;
+    const proxy = createServer((socket) => {
+      accepted += 1;
+      socket.on("data", (chunk) => socket.write(`proxy:${chunk.toString()}`));
+    });
+    await new Promise<void>((resolve) => proxy.listen(0, "127.0.0.1", () => resolve()));
+    const port = (proxy.address() as { port: number }).port;
+    const dir = await mkdtemp(join(tmpdir(), "restow-lab-connector-"));
+    try {
+      for (const text of ["first", "second"]) {
+        // As libslirp starts it: one socket of a pair on fd 0, 1 and 2.
+        const path = join(dir, `${text}.sock`);
+        const guestSide = await new Promise<import("node:net").Socket>((resolve) => {
+          const listener = createServer((socket) => {
+            listener.close();
+            resolve(socket);
+          });
+          listener.listen(path, () => {
+            const childEnd = connect(path);
+            childEnd.once("connect", () => {
+              const child = spawn(process.execPath, [CONNECTOR.script, String(port)], {
+                stdio: [childEnd, childEnd, childEnd],
+              });
+              child.once("spawn", () => childEnd.destroy());
+            });
+          });
+        });
+        const answer = await new Promise<string>((resolve) => {
+          guestSide.once("data", (chunk) => resolve(chunk.toString()));
+          guestSide.write(text);
+        });
+        expect(answer).toBe(`proxy:${text}`);
+        guestSide.destroy();
+      }
+      expect(accepted).toBe(2);
+      expect(connectorPort(["4100"])).toBe(4100);
+      expect(connectorPort([])).toBeNull();
+      expect(connectorPort(["0"])).toBeNull();
+      expect(connectorPort(["70000"])).toBeNull();
+      expect(connectorPort(["4100", "x"])).toBeNull();
+    } finally {
+      proxy.close();
+      await rm(dir, { recursive: true, force: true });
+    }
+  }, 20_000);
 });
