@@ -31,7 +31,7 @@ import {
   SANDBOX_ARGS_PROXY,
   typeSerial,
 } from "./qemu.js";
-import { keyFifo } from "./vm.js";
+import { keyFifo, noNewPrivsOf } from "./vm.js";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 
@@ -82,9 +82,16 @@ describe("QEMU for a probe", () => {
     // The restore VM may start the connector, nothing else of the sandbox is relaxed.
     expect(args).toContain(SANDBOX_ARGS_PROXY.join(" "));
     expect(args).not.toContain("spawn=deny");
+    expect(noNewPrivsOf("Name:\tqemu\nNoNewPrivs:\t1\nSeccomp:\t2\n")).toBe(true);
+    expect(noNewPrivsOf("NoNewPrivs:\t0\n")).toBe(false);
+    expect(noNewPrivsOf("Name:\tqemu\n")).toBeNull();
     expect(SANDBOX_ARGS_PROXY.join(" ")).toBe(
-      SANDBOX_ARGS.join(" ").replace("spawn=deny", "spawn=allow"),
+      SANDBOX_ARGS.join(" ")
+        .replace("spawn=deny", "spawn=allow")
+        .replace("elevateprivileges=deny", "elevateprivileges=allow"),
     );
+    expect(SANDBOX_ARGS_PROXY.join(" ")).toContain("obsolete=deny");
+    expect(SANDBOX_ARGS_PROXY.join(" ")).toContain("resourcecontrol=deny");
     expect(args).not.toContain("-nographic");
     expect(args).toContain("-object secret,id=probekey,file=/dev/fd/3");
     expect(args).toContain("encrypt.format=luks,encrypt.key-secret=probekey");

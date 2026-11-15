@@ -261,12 +261,15 @@ export const SANDBOX_ARGS = Object.freeze([
 
 /**
  * The sandbox of the restore VM, the one machine with a network: QEMU may start the connector
- * (connect.ts) for each connection of the guest (spawn=allow, maintainer's decision); the rest
- * stays denied, and the boot of the restored disks (no network) keeps SANDBOX_ARGS.
+ * (connect.ts) for each connection of the guest (spawn=allow), and libslirp calls setsid() in
+ * the child before it starts it, which elevateprivileges=deny kills (every connection ended at
+ * once). Both allowed by the maintainer's decision; obsolete and resourcecontrol stay denied, the
+ * lab refuses the probe unless QEMU runs with no_new_privs (runner.ts), and the boot of the
+ * restored disks (no network) keeps SANDBOX_ARGS.
  */
 export const SANDBOX_ARGS_PROXY = Object.freeze([
   "-sandbox",
-  "on,obsolete=deny,elevateprivileges=deny,spawn=allow,resourcecontrol=deny",
+  "on,obsolete=deny,elevateprivileges=allow,spawn=allow,resourcecontrol=deny",
   "-nodefaults",
 ]);
 

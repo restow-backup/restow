@@ -2955,8 +2955,11 @@ nicht zur Übernahme aller Mandanten werden. Darum:
   on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny`, `-nodefaults`,
   ohne USB und Audio, nur mit den Geräten, die die Probe braucht. **Ausnahme (Entscheidung
   des Maintainers, M5):** Die Restore-VM, die einzige Maschine mit Netz, läuft mit
-  `spawn=allow`, damit QEMU für jede Verbindung des Gasts den Verbinder des Labors starten
-  kann (`guestfwd=…-cmd:`, `apps/worker/src/lab/connect.ts`: verbindet nur zu
+  `spawn=allow` und `elevateprivileges=allow`, damit QEMU für jede Verbindung des Gasts den
+  Verbinder des Labors starten kann (libslirp ruft im Kindprozess vor dem Start `setsid()`
+  auf, das `elevateprivileges=deny` sofort beendet). Das Labor verweigert die Probe
+  (`sandbox_unsafe`), wenn QEMU nicht mit `no_new_privs` läuft (`/proc/<pid>/status`), so dass
+  kein gestartetes Programm Rechte gewinnen kann (`guestfwd=…-cmd:`, `apps/worker/src/lab/connect.ts`: verbindet nur zu
   `127.0.0.1:<Port des Proxys>`). Ein `guestfwd` auf ein `tcp:`-Ziel gab allen Verbindungen
   des Gasts einen gemeinsamen Kanal: Nach der ersten hing jede weitere, und `recover` endete
   jeden Versuch mit "proxy: … i/o timeout" (P1/P2, 221 Starts in zwei Stunden). Alles andere

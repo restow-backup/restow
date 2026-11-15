@@ -84,6 +84,12 @@ export async function keyFifo(key: string, pollMs = 20): Promise<KeyFifo> {
   };
 }
 
+/** `NoNewPrivs:` of a /proc/<pid>/status text; null when the line is missing. */
+export function noNewPrivsOf(status: string): boolean | null {
+  const match = /^NoNewPrivs:\s*([01])\s*$/m.exec(status);
+  return match ? match[1] === "1" : null;
+}
+
 /** Run a program with `key` behind KEY_FILE in its arguments; rejects with the end of its stderr. */
 const KEY_FILE = "{key}";
 
@@ -180,6 +186,14 @@ export function qemuDriver(options: { dbxFile: string | null; ovmf?: OvmfFiles }
         cutNetwork: () => cutNetwork(machine.qmpSocket),
         exited,
         stderr: () => stderr,
+        noNewPrivs: () => {
+          if (child.pid === undefined) return null;
+          try {
+            return noNewPrivsOf(readFileSync(`/proc/${child.pid}/status`, "utf8"));
+          } catch {
+            return null;
+          }
+        },
         kill: () => {
           serial?.destroy();
           if (child.exitCode === null) child.kill("SIGKILL");

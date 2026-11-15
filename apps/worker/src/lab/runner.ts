@@ -54,6 +54,12 @@ export interface Vm {
   exited: Promise<number>;
   /** The end of QEMU's own error output (why a VM ended early). */
   stderr?(): string;
+  /**
+   * Whether QEMU runs with no_new_privs (/proc/<pid>/status), null when unknown. The restore VM
+   * may start the connector (spawn and setsid allowed); without no_new_privs a program it starts
+   * could gain privileges, so the lab refuses the probe.
+   */
+  noNewPrivs?(): boolean | null;
   kill(): void;
 }
 
@@ -256,6 +262,12 @@ export async function runProbe(deps: RunnerDeps, probe: LeasedProbe): Promise<Pr
       { "opt/restow/answers": JSON.stringify(probe.answers) },
     );
     vms.push(restore);
+    if (restore.noNewPrivs?.() === false) {
+      throw new ProbeLabError(
+        "sandbox_unsafe",
+        "QEMU of the restore VM runs without no_new_privs; with spawn allowed for the connector, the lab refuses to run the probe.",
+      );
+    }
     const deadline = restoreStart + probe.timeouts.totalMs;
     let released = false;
     let exitCode: number | null = null;

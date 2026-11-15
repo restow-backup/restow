@@ -257,6 +257,21 @@ describe("a boot probe in the lab", () => {
     expect(endless.record.killed).toBeGreaterThanOrEqual(1);
   });
 
+  it("refuses the probe when QEMU of the restore VM runs without no_new_privs", async () => {
+    const unsafe = scriptedVm(["restoring"]);
+    unsafe.vm.noNewPrivs = () => false;
+    const seen = {
+      machines: [] as Machine[],
+      disks: [] as unknown[],
+      vars: [] as string[],
+      answersAtStart: [] as boolean[],
+      data: [] as (Record<string, string> | undefined)[],
+    };
+    const result = await runProbe(deps(driver([unsafe.vm], seen)), lease());
+    expect(result).toMatchObject({ outcome: "lab_error", error: { code: "sandbox_unsafe" } });
+    expect(unsafe.record.killed).toBe(1);
+  });
+
   it("stops when the server ended the probe", async () => {
     go = false;
     const endless = scriptedVm(["restoring"]);
