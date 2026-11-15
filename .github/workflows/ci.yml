@@ -1156,7 +1156,7 @@ jobs:
           node scripts/recovery-e2e/run.mjs --iso "$iso" --agent-dist "$RUNNER_TEMP/artifacts/agent-dist-linux-amd64" \
             --cases "$CASE" --work-dir "$RUNNER_TEMP/recovery-e2e"
 
-      - name: Keep the serial logs and the report
+      - name: Keep the serial logs, the report and the boot screens
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -1164,6 +1164,7 @@ jobs:
           path: |
             ${{ runner.temp }}/recovery-e2e/report.json
             ${{ runner.temp }}/recovery-e2e/*/*.log
+            ${{ runner.temp }}/recovery-e2e/*/screens/*.ppm
           if-no-files-found: ignore
           retention-days: 7
 
