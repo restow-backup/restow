@@ -928,7 +928,7 @@ jobs:
           fi
           changed=false
           if git diff --name-only "$base" HEAD |
-            grep -qE '^(integrations/recovery/|agent/|scripts/recovery-e2e/|apps/api/src/features/endpoints/recovery|apps/worker/src/lab/|apps/worker/src/endpoints/(lab-api|boot-probe))'; then
+            grep -qE '^(integrations/recovery/|agent/|scripts/recovery-e2e/|deploy/release/docker-compose.yml|apps/api/src/features/endpoints/recovery|apps/worker/src/lab/|apps/worker/src/endpoints/(lab-api|boot-probe))'; then
             changed=true
           else
             echo "::notice::nothing of the recovery ISO changed; its build, comparison and end-to-end tests are skipped."
