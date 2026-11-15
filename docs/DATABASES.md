@@ -12,8 +12,10 @@ Point-in-Time, 0.7.0 für die warme Kopie. Entscheidungen von Lucas Flores (Nove
   Engines: PostgreSQL, MySQL und MariaDB, Microsoft SQL Server, SQLite. Restow erkennt die
   Engine selbst, sichert im Zeitplan (auch stündlich), prüft und zeigt Healthchecks mit Verlauf.
   MongoDB kommt später.
-- **E5** Die Prüfung läuft auf der Instanz des Kunden, wenn der Benutzer die Rechte dafür hat
-  (wie bei SQL Server); sonst siehe offene Frage F1.
+- **E5** Die Prüfung läuft im Prüfdienst von Restow (`db-lab`, Abschnitt 6.1), schon in 0.6.0.
+  Der Backup-Benutzer braucht dafür keine weiteren Rechte. Auf der Instanz des Kunden prüft
+  Restow nur, wenn der Administrator das je Verbindung wählt oder der Prüfdienst nicht
+  eingerichtet ist und der Benutzer die Rechte hat (wie bei SQL Server).
 - **E6** Die Verbindung baut wahlweise ein Agent im Kundennetz oder der Restow-Server selbst auf.
   Zugangsdaten liegen dafür verschlüsselt im Geheimnisspeicher des Servers (wie IMAP-Kennwörter),
   **nicht** mehr nur lokal auf dem Rechner. Die Anmeldung über den Socket ohne Kennwort bleibt
@@ -23,6 +25,8 @@ Point-in-Time, 0.7.0 für die warme Kopie. Entscheidungen von Lucas Flores (Nove
 - **E8** Drei Modi je Verbindung: **Sicherung** (0.6.0), **Point-in-Time** (0.6.x), **warme
   Kopie** (0.7.0). Eine laufend replizierte Bereitschaftsinstanz (Streaming-Standby) baut Restow
   nicht; sie ist ein Betriebsfall des Kunden mit eigenem Failover (Abschnitt 7.3).
+- **E9** Preis je geschützte Datenbank und Monat (wie Postfächer je Postfach), Abschnitt 9.
+- **E10** Alle Modi in allen Editionen, ohne Edition-Sperre.
 
 Markierungen wie in docs/BAREMETAL-WINDOWS.md: **[CI]** = in der CI zu belegen, bevor es
 irgendwo behauptet wird; **[HW]** = auf echter Hardware zu belegen; ohne Markierung = Entwurf.
@@ -67,8 +71,8 @@ Daraus folgt:
   Module schaltet es später.
 - Wie jedes Modul blendet es nur aus (Menü, Karten der Übersicht, "Neu anlegen", Befehlspalette);
   die Seiten bleiben über ihre Adresse erreichbar und sagen, dass das Modul ausgeblendet ist.
-- Keine Edition-Sperre für den Modus Sicherung. Ob Point-in-Time und warme Kopie an eine Edition
-  gebunden werden, ist offene Frage F3.
+- Keine Edition-Sperre (E10): Sicherung, Point-in-Time und warme Kopie gibt es in allen
+  Editionen.
 
 ### 2.2 Begriffe
 
@@ -329,10 +333,12 @@ Wie bei SQL Server urteilt der Server; der Ausführer meldet nur Fakten.
 - **Wann:** Aufgabe `db_verify` je Verbindung am Prüftermin (Vorgabe täglich 03:00 in der Zone
   des Zeitplans) oder mit "Jetzt prüfen". Grenze `maxGiB` je Datenbank (Vorgabe 50 GiB); größere
   bleiben ungeprüft mit Hinweis.
-- **Wo:** auf derselben Instanz, wenn der Benutzer die Rechte dafür hat (3.2), mit vorheriger
-  Prüfung des freien Platzes (`db_verify_no_space`). SQLite prüft der Agent in einer Kopie im
-  Zustandsordner (`PRAGMA integrity_check`, Zählung). Hat der Benutzer die Rechte nicht: offene
-  Frage F1.
+- **Wo (E5):** je Verbindung "Prüfen im Prüfdienst" (Vorgabe, 6.1) oder "Prüfen auf der eigenen
+  Instanz" (Rechte 3.2, vorher Prüfung des freien Platzes, `db_verify_no_space`). Ist der
+  Prüfdienst nicht eingerichtet, prüft Restow auf der Instanz, wenn der Benutzer die Rechte hat;
+  sonst bleibt die Datenbank "gesichert, ungeprüft" (`db_verify_no_place`) mit dem Hinweis, wie
+  der Prüfdienst eingerichtet wird. SQLite prüft der Agent in einer Kopie im Zustandsordner
+  (`PRAGMA integrity_check`, Zählung), SQL Server wie in 0.5.0 auf der Instanz (CHECKDB).
 - **Ablauf:** die neueste Sicherung **aus dem Repository** holen (nie eine lokale Kopie),
   SHA-256 vergleichen, unter `<erste 40 Zeichen>__restow_verify_<UTC-Zeit>` einspielen
   (PostgreSQL: `CREATE DATABASE … TEMPLATE template0`, dann `pg_restore --exit-on-error
@@ -344,7 +350,41 @@ Wie bei SQL Server urteilt der Server; der Ausführer meldet nur Fakten.
 - **Urteil:** grün (geholt, SHA-256 gleich, ohne Fehler eingespielt, jede Objektart mindestens so
   oft wie im Lauf), rot (anderer SHA-256, Fehler beim Einspielen, fehlende Objekte),
   unvollständig (sonst, mit Code).
-- Je Datenbank ein Bericht `kind = db_verify` mit Beleg.
+- Je Datenbank ein Bericht `kind = db_verify` mit Beleg (auch: wo geprüft wurde, mit welcher
+  Version).
+
+### 6.1 Prüfdienst `db-lab`
+
+Ein Dienst der Restow-Installation, der Sicherungen von PostgreSQL, MySQL und MariaDB probeweise
+einspielt, ohne die Instanz des Kunden zu belasten und ohne weitere Rechte des Backup-Benutzers.
+
+- **Aufbau:** Compose-Profil `db-lab` (wie `recovery-lab`), eingerichtet mit
+  `install.sh --with-db-lab`. Drei Container, nur im internen Netz `db-lab-net` zusammen mit dem
+  Worker, ohne Internet, ohne `DATABASE_URL` und `RESTOW_MASTER_KEY`:
+  - `db-lab-postgres`: PostgreSQL 14 bis 18 aus den Paketen von postgresql.org in einem Image,
+    je Hauptversion ein Cluster, der nur während einer Prüfung läuft. Mit den Erweiterungen aus
+    `contrib` sowie PostGIS und pgvector **[CI]**;
+  - `db-lab-mysql`: MySQL 8.4 LTS;
+  - `db-lab-mariadb`: MariaDB 11.8 LTS.
+- **Version:** PostgreSQL prüft in **derselben** Hauptversion wie die Quelle. MySQL und MariaDB
+  prüfen in der neuesten LTS der jeweiligen Familie; ein Dump einer älteren Version lässt sich
+  dort einspielen **[CI]** (MySQL 8.0 nach 8.4, MariaDB 10.6 bis 11.4 nach 11.8). Ein MySQL-Dump
+  wird nie in MariaDB geprüft und umgekehrt.
+- **Ablauf:** Der Worker holt die Sicherung aus dem Repository, vergleicht SHA-256 und spielt sie
+  über das interne Netz ein (`pg_restore` bzw. Client), zählt die Objekte und löscht die
+  Datenbank sofort. Eine Prüfung je Container zugleich (Vorgabe, `RESTOW_DB_LAB_CONCURRENCY`).
+- **Erweiterungen und Plugins:** Braucht ein Dump eine Erweiterung, die der Prüfdienst nicht hat
+  (etwa TimescaleDB), ist das **kein** Rot: Die Prüfung endet unvollständig mit
+  `db_verify_extension_missing` und dem Namen. Hat der Benutzer die Rechte, bietet die Oberfläche
+  an, diese Verbindung auf der eigenen Instanz zu prüfen.
+- **Daten:** Die Datenbank liegt für die Dauer der Prüfung unverschlüsselt im Prüfdienst:
+  bis 4 GiB im tmpfs (RAM), darüber im Volume `db-lab` auf der Platte des Restow-Hosts, danach
+  gelöscht (`DROP DATABASE`, beim Start des Dienstes zusätzlich das ganze Datenverzeichnis). Das
+  steht so in SECURITY.md. Grenze `RESTOW_DB_LAB_MAX_GIB` (Vorgabe 50); größere Datenbanken
+  bleiben ungeprüft (`db_too_large_to_verify`).
+- **Platz und RAM** (docs/SIZING.md): je Container etwa 300 MiB RAM im Leerlauf plus der tmpfs,
+  Platte in Höhe der größten zu prüfenden Datenbank mal zwei (Daten und Indizes).
+- **Aufräumen:** wie oben über das Journal; zusätzlich ist der Prüfdienst selbst Wegwerfware.
 
 ## 7. Weitere Modi
 
@@ -466,8 +506,12 @@ Unabhängig von den Läufen prüft der Ausführer jede Verbindung leicht und reg
   Zugangsdaten werden nur geschrieben, nie gelesen (die Antwort sagt nur `credential: "set"`).
 - **Aufbewahrung:** Regeln je Gruppe `db:<verbindung>:<datenbank>`; eine Sicherung, deren
   Snapshot vergessen wurde, wird `pruned`.
-- **Abrechnung:** neue Position `databases` (je geschützte Datenbank und Monat) im Preisrechner
-  und in `GET /api/v1/provider/billing` (Typ `databases`), offene Frage F2.
+- **Abrechnung (E9):** neue Position `databases` je geschützte Datenbank und Monat im
+  Preisrechner (Installationspreis und Preis je Mandant, wie die übrigen Stückpreise) und in
+  `GET /api/v1/provider/billing` (Typ `databases`, Einheit `unit`). Gezählt wird wie bei den
+  Postfächern der Stand zum Zeitpunkt der Schätzung: jede Datenbank einer Verbindung, die nicht
+  gelöscht (`dropped_at`) und nicht von der Auswahl ausgenommen ist, unabhängig vom Modus und der
+  Engine, einschließlich der Datenbanken der nativen SQL-Server-Sicherung.
 - **Fehlercodes** (Präfix `db_`): `db_unreachable`, `db_login_failed`, `db_permission_missing`,
   `db_engine_changed`, `db_instance_changed`, `db_target_is_restow`, `db_private_network`,
   `db_tls_changed`, `db_tls_missing`, `db_dump_failed`, `db_snapshot_failed`, `db_tool_missing`,
@@ -519,6 +563,8 @@ Neue Einträge, jeweils mit Test-Tag:
   keinem Log und keiner Kommandozeile.
 - Der Restow-Server verbindet sich nur mit Adressen in privaten Netzen, die ein Provider-Admin
   freigegeben hat.
+- Eine Sicherung lässt sich prüfen, ohne dem Backup-Benutzer weitere Rechte zu geben und ohne
+  die Instanz des Kunden zu belasten (Prüfdienst).
 - (0.6.x) Point-in-Time: Wiederherstellung auf einen Zeitpunkt mit höchstens dem angezeigten
   Datenverlust.
 - (0.7.0) Eine warme Kopie überschreibt nie eine Datenbank, die Restow nicht selbst angelegt hat.
@@ -532,7 +578,7 @@ Neue Einträge, jeweils mit Test-Tag:
 | D3 | 0.6.0 | PostgreSQL: Sicherung, Restore unter neuem Namen und auf eine andere Verbindung, Download mit Anleitung |
 | D4 | 0.6.0 | MySQL und MariaDB: dasselbe |
 | D5 | 0.6.0 | SQLite über den Agenten; SQL Server zieht ins Modul um |
-| D6 | 0.6.0 | Prüfung `db_verify`, Bewertung, Alarme, Abrechnungsposition |
+| D6 | 0.6.0 | Prüfung `db_verify` im Prüfdienst `db-lab` und auf der Instanz, Bewertung, Alarme, Abrechnungsposition |
 | D7 | 0.6.0 | Härtung: Versionsmatrix in der CI, große Datenbanken, Abbruch während des Dumps, Ausführer fällt aus, Instanz gewechselt, Aufnahmen auf echter Hardware **[HW]** |
 | P1 | 0.6.x | Point-in-Time PostgreSQL |
 | P2 | 0.6.x | Point-in-Time MySQL und MariaDB |
@@ -556,17 +602,12 @@ Datenbank, Streaming-Standby nur auf Nachfrage (7.3).
   mit dem Server als Ausführer: Daten anlegen, sichern, ändern, unter neuem Namen zurück,
   vergleichen; Dump mitten im Lauf abbrechen und belegen, dass kein Snapshot entsteht; Prüfung
   grün und mit beschädigter Datei rot; Instanz ausgetauscht; Healthcheck bei gestopptem
-  Container rot und danach wieder grün. SQLite unter Schreiblast im WAL-Modus.
+  Container rot und danach wieder grün. SQLite unter Schreiblast im WAL-Modus. Prüfdienst:
+  jede PostgreSQL-Hauptversion in ihrem eigenen Cluster, ein MySQL-8.0-Dump in 8.4, ein
+  MariaDB-10.6-Dump in 11.8, eine fehlende Erweiterung wird unvollständig und nicht rot, das
+  Datenverzeichnis ist nach der Prüfung leer.
 
 ## 15. Offene Fragen
 
-- **F1 Prüfung ohne Rechte auf der Instanz:** Hat der Benutzer nur Sicherungsrechte, kann Restow
-  nicht auf der Instanz des Kunden prüfen. Vorschlag: Restow bringt einen Prüfdienst mit (Compose-
-  Profil `db-lab`, ein Container mit PostgreSQL 14 bis 18 aus den Paketen von postgresql.org und
-  je ein Container für MySQL 8.4 und MariaDB 11.x, nur im internen Netz des Workers, Wegwerf-
-  Daten im tmpfs). Schon in 0.6.0, oder in 0.6.0 "gesichert, ungeprüft" und der Prüfdienst in
-  0.6.x?
-- **F2 Preis:** je geschützte Datenbank oder je Verbindung (Instanz)? Vorschlag: je Datenbank,
-  wie Postfächer je Postfach.
-- **F3 Edition:** Sicherung in allen Editionen (wie SQL Server heute). Point-in-Time und warme
-  Kopie auch, oder nur ab Business?
+Keine. F1 bis F3 dieses Entwurfs sind als E5 (Prüfdienst in 0.6.0), E9 (Preis je Datenbank) und
+E10 (alle Editionen) entschieden.
