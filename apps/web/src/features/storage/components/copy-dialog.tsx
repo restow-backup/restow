@@ -159,8 +159,13 @@ function PromotionCheck({
   };
   const confirm = () => {
     promote.mutate(undefined, {
-      onSuccess: () => {
+      onSuccess: (result) => {
         toast.success(t("toasts.promoted", { name: target.name }));
+        if ((result.primaryUnreadable ?? []).length > 0) {
+          toast.warning(
+            t("toasts.promotedPrimaryUnreadable", { count: result.primaryUnreadable.length }),
+          );
+        }
         onDone();
       },
       // The server knows better now (a run started, a copy fell behind): ask it again.

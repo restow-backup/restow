@@ -135,7 +135,12 @@ private repository.
   promotion requires every snapshot a record still names and the primary holds (held ones, SQL
   backups); the copy pass copies everything while a hold, a revoked machine or a write-once
   primary keeps more than the retention rules, and a machine's retention and removal jobs no
-  longer run beside a promotion. The listing comparison moved to
+  longer run beside a promotion, nor do a file share's retention and purge or the retention of
+  containers (they hold the tenant's repository-copy lock shared; queued jobs wait up to half an
+  hour). A machine's snapshot no run dated that a record still names is copied too. When the
+  primary cannot list a machine's repository, the promotion checks it against the records and
+  the copy's state and names it (`primaryUnreadable`); each listing is limited to five minutes.
+  The listing comparison moved to
   `POST /api/v1/storage/targets/:id/promotion/check` (right to operate).
 - Modules of the installation: the setup wizard of a new installation asks "What do you want to
   protect?" with a box per module (Microsoft 365, IMAP mailboxes, Mail archive, Servers & clients,

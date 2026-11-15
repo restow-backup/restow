@@ -38,6 +38,7 @@ import {
   pveSnapshots,
   repositoryCopies,
   repositoryCopiesLockKey,
+  repositoryLockHeld,
   resticSnapshotOrigins,
   restorePointSuspicions,
   secrets,
@@ -46,7 +47,7 @@ import {
   tenantKeys,
   tenants,
 } from "@restow/db";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import PgBoss from "pg-boss";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { setInstallationDefaultResolver } from "../../lib/installation-default.js";
@@ -660,6 +661,124 @@ describe.skipIf(!testDatabaseAdminUrl)("promoting a copy with restic repositorie
     });
     // Both runs and the machine's newest snapshot.
     expect(result.restorePointIdsRewritten).toBe(3);
+  });
+
+  /** A revoked machine with runs h1, h2 (newest) and a snapshot u1 no run reported, flagged. */
+  async function revokedMachine(): Promise<{ id: string; prefix: string }> {
+    const [machine] = await db
+      .insert(endpoints)
+      .values({
+        tenantId,
+        hostname: `old-${randomUUID().slice(0, 6)}`,
+        os: "linux",
+        arch: "amd64",
+        profile: "server",
+        status: "revoked",
+        secretHash: "hash",
+        repositorySecretId: await password("endpoint_repository"),
+        lastSnapshotId: sid("h2"),
+        config: defaultEndpointConfig("linux", "server", { timeZone: "Europe/Berlin" }),
+      })
+      .returning();
+    const id = machine?.id as string;
+    for (const [tag, at] of [
+      ["h1", "2026-10-20"],
+      ["h2", "2026-11-03"],
+    ] as const) {
+      await db.insert(endpointRuns).values({
+        tenantId,
+        endpointId: id,
+        kind: "backup",
+        status: "succeeded",
+        startedAt: new Date(at),
+        finishedAt: new Date(at),
+        snapshotId: sid(tag),
+      });
+    }
+    await db
+      .insert(endpointSnapshotFlags)
+      .values({ tenantId, endpointId: id, snapshotId: sid("u1"), reasons: ["unrecorded"] });
+    return { id, prefix: `endpoints/${id}/` };
+  }
+
+  it("requires a snapshot no run reported that a flag names while the primary holds it", async () => {
+    await targetAt("primary", "primary");
+    const copy = await targetAt("copy", "copy");
+    const machine = await revokedMachine();
+    await copyRow(machine.prefix, machine.id, copy.id);
+    const onPrimary = ["h1", "h2", "u1"].map((tag) => ({ id: sid(tag), original: null }));
+    const lister =
+      (onCopy: string[]) =>
+      async ({ role }: { role: "copy" | "primary" }) =>
+        role === "primary" ? onPrimary : copied(onCopy);
+
+    const error = await refusal(
+      service.promoteTarget(db, tenantId, copy.id, actor, {
+        listCopySnapshots: lister(["h1", "h2"]),
+      }),
+    );
+    expect(error.type).toBe("urn:restow:problem:storage-repository-copies-incomplete");
+    // The copy pass now copies it too (repository-copies `decideMachineCopy`): then it goes ahead.
+    const result = await service.promoteTarget(db, tenantId, copy.id, actor, {
+      listCopySnapshots: lister(["h1", "h2", "u1"]),
+    });
+    expect(result.primaryUnreadable).toEqual([]);
+    const [flag] = await db
+      .select({ id: endpointSnapshotFlags.snapshotId })
+      .from(endpointSnapshotFlags)
+      .where(eq(endpointSnapshotFlags.endpointId, machine.id));
+    expect(flag?.id).toBe(sid("cu1"));
+  });
+
+  it("checks a machine against the records when the primary cannot list its repository, and says so", async () => {
+    await targetAt("primary", "primary");
+    const copy = await targetAt("copy", "copy");
+    const machine = await revokedMachine();
+    await copyRow(machine.prefix, machine.id, copy.id);
+    const lister =
+      (onCopy: string[]) =>
+      async ({ role }: { role: "copy" | "primary" }) => {
+        if (role === "primary") {
+          throw new Error("Fatal: unable to open config file: no such file");
+        }
+        return copied(onCopy);
+      };
+
+    // Without the newest snapshot on the copy: refused.
+    const error = await refusal(
+      service.promoteTarget(db, tenantId, copy.id, actor, { listCopySnapshots: lister(["h1"]) }),
+    );
+    expect(error.type).toBe("urn:restow:problem:storage-repository-copies-incomplete");
+    // The copy holds it (its state says current): the damaged primary does not lock it out.
+    const result = await service.promoteTarget(db, tenantId, copy.id, actor, {
+      listCopySnapshots: lister(["h1", "h2", "u1"]),
+    });
+    expect(result.primaryUnreadable).toEqual([machine.prefix]);
+    const [entry] = await db
+      .select()
+      .from(auditLog)
+      .where(and(eq(auditLog.tenantId, tenantId), eq(auditLog.action, "storage.target.promoted")))
+      .orderBy(desc(auditLog.createdAt))
+      .limit(1);
+    expect(entry?.details).toMatchObject({ primaryUnreadable: [machine.prefix] });
+  });
+
+  it("refuses when a listing of the copy fails or times out, and releases the copy lock", async () => {
+    const primary = await targetAt("primary", "primary");
+    const copy = await targetAt("copy", "copy");
+    const guest = await container(["t1"]);
+    await copyRow(guest.prefix, guest.id, copy.id);
+    const error = await refusal(
+      service.promoteTarget(db, tenantId, copy.id, actor, {
+        listCopySnapshots: async () => {
+          throw new Error("restic snapshots timed out after 300000 ms");
+        },
+      }),
+    );
+    expect(error.type).toBe("urn:restow:problem:storage-repository-copies-incomplete");
+    expect(error.extensions?.repositories).toMatchObject([{ reason: "unreadable" }]);
+    expect(await repositoryLockHeld(db.$client, repositoryCopiesLockKey(tenantId))).toBe(false);
+    expect(await roles()).toEqual({ [primary.id]: "primary", [copy.id]: "copy" });
   });
 
   it("finds the restore points on another copy after the promoted primary is lost, and promotes that copy later", async () => {

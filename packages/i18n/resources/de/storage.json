@@ -481,7 +481,8 @@
     "migrationCancelled": "Die Migration zu {name} wurde abgebrochen.",
     "migrationRetried": "Die Migration zu {name} wurde erneut eingeplant.",
     "defaultSelected": "Dieser Mandant nutzt wieder den Installationsstandard.",
-    "catchUpStarted": "{name} wird angeglichen. Der Dialog zeigt den Fortschritt."
+    "catchUpStarted": "{name} wird angeglichen. Der Dialog zeigt den Fortschritt.",
+    "promotedPrimaryUnreadable": "{count, plural, one {Das Sicherungs-Repository eines Rechners} other {Die Sicherungs-Repositorys von # Rechnern}} ließ sich auf dem alten primären Repository nicht lesen. Geprüft wurde gegen die Aufzeichnungen und den Zustand der Kopien."
   },
   "errors": {
     "localRequiresProviderAdmin": "Nur ein Provider-Admin kann Serverpfade verwalten.",

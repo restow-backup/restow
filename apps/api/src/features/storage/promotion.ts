@@ -13,7 +13,11 @@ import {
   endpoints,
   fileShares,
   pveGuests,
+  RECORDED_SNAPSHOT_COLUMNS,
   type RepositoryCopy,
+  recordedColumnValuesSql,
+  recordedColumnWhere,
+  recordedSnapshotIds,
   repositoryCopies,
   resticSnapshotOrigins,
 } from "@restow/db";
@@ -248,76 +252,17 @@ export async function requestCopies(
 
 // --- Carrying the restore points over -------------------------------------------------------
 
-/** A column that records restic snapshot ids of one kind of repository, and its owner column. */
-interface RecordedColumn {
-  readonly table: string;
-  readonly column: string;
-  readonly owner: string;
-  /** A fixed condition on the row, when the table records other things too. */
-  readonly where?: string;
-}
-
-/**
- * Every column that records a restic snapshot id of a repository (fixed identifiers, never input):
- * the restore points themselves and what refers to them (samples for restore tests, reports,
- * flags, downloads, SQL backups, a machine's newest snapshot, the suspicion scan of a machine's
- * backups, whose restore point is the restic snapshot).
- */
-const RECORDED_COLUMNS: Record<RepositoryOwnerKind, readonly RecordedColumn[]> = {
-  container: [{ table: "pve_snapshots", column: "restic_snapshot_id", owner: "guest_id" }],
-  file_share: [
-    { table: "file_share_snapshots", column: "restic_snapshot_id", owner: "file_share_id" },
-    { table: "file_share_samples", column: "snapshot_id", owner: "file_share_id" },
-    { table: "file_share_reports", column: "snapshot_id", owner: "file_share_id" },
-  ],
-  machine: [
-    { table: "endpoints", column: "last_snapshot_id", owner: "id" },
-    { table: "endpoint_runs", column: "snapshot_id", owner: "endpoint_id" },
-    { table: "endpoint_samples", column: "snapshot_id", owner: "endpoint_id" },
-    { table: "endpoint_reports", column: "snapshot_id", owner: "endpoint_id" },
-    { table: "endpoint_snapshot_flags", column: "snapshot_id", owner: "endpoint_id" },
-    { table: "endpoint_downloads", column: "snapshot_id", owner: "endpoint_id" },
-    { table: "endpoint_sql_backups", column: "restic_snapshot_id", owner: "endpoint_id" },
-    {
-      table: "restore_point_suspicions",
-      column: "restore_point_id",
-      owner: "object_id",
-      where: "object_kind = 'endpoint'",
-    },
-  ],
-};
-
-function whereOf(column: RecordedColumn, alias = "") {
-  return column.where ? sql.raw(` AND ${alias}${column.where}`) : sql.raw("");
-}
-
 /** Every distinct snapshot id the database records for one repository, in any column. */
-export async function recordedSnapshotValues(
+export function recordedSnapshotValues(
   tx: DbExecutor,
   tenantId: string,
   repository: Pick<PromotionRepository, "kind" | "ownerId">,
 ): Promise<string[]> {
-  const values = new Set<string>();
-  for (const column of RECORDED_COLUMNS[repository.kind]) {
-    for (const value of await columnValues(tx, tenantId, repository, column)) {
-      values.add(value);
-    }
-  }
-  return [...values];
+  return recordedSnapshotIds(tx, tenantId, repository.kind, repository.ownerId);
 }
 
-async function columnValues(
-  tx: DbExecutor,
-  tenantId: string,
-  repository: Pick<PromotionRepository, "ownerId">,
-  column: RecordedColumn,
-): Promise<string[]> {
-  const result = await tx.execute<{ value: string }>(sql`
-    SELECT DISTINCT ${sql.raw(column.column)} AS value FROM ${sql.raw(column.table)}
-     WHERE tenant_id = ${tenantId} AND ${sql.raw(column.owner)} = ${repository.ownerId}
-       AND ${sql.raw(column.column)} IS NOT NULL${whereOf(column)}`);
-  return result.rows.map((row) => String(row.value));
-}
+/** The primary's listing of a machine's repository, or why there is none. */
+export type PrimaryListing = readonly CopiedSnapshot[] | "unreadable" | null;
 
 /**
  * The recorded ids a promotion must find on the copy, or it refuses:
@@ -325,16 +270,22 @@ async function columnValues(
  *   - a container's and a file share's restore points that are not pruned (also those a hold
  *     keeps: retention prunes none while it stands);
  *   - for a machine, every snapshot the server still refers to and the primary still holds (a
- *     hold, a revoked machine or a write-once primary keep more than the retention rules would),
- *     its newest snapshot and every SQL backup still offered for a restore.
+ *     hold, a revoked machine or a write-once primary keep more than the retention rules would;
+ *     snapshots no run reported but a record names are copied as well), its newest snapshot and
+ *     every SQL backup still offered for a restore.
  *
  * `onPrimary` is the listing of the primary's repository (machines only; null for the others).
+ * When the primary's repository cannot be read (damaged or gone: the copy may hold the only good
+ * data), only the newest snapshot and the SQL backups still offered are required from the
+ * database; that the copy holds the rest says its state, which a copy pass computed by listing
+ * the primary while it could (`repositoryCopyReadiness`). The run history cannot stand in: runs
+ * keep the ids of snapshots retention forgot long ago.
  */
 export async function requiredSnapshotIds(
   tx: DbExecutor,
   tenantId: string,
   repository: Pick<PromotionRepository, "kind" | "ownerId">,
-  onPrimary: readonly CopiedSnapshot[] | null,
+  onPrimary: PrimaryListing,
 ): Promise<string[]> {
   if (repository.kind === "container" || repository.kind === "file_share") {
     const query =
@@ -355,8 +306,11 @@ export async function requiredSnapshotIds(
     SELECT restic_snapshot_id AS id FROM endpoint_sql_backups
      WHERE tenant_id = ${tenantId} AND endpoint_id = ${repository.ownerId} AND status = 'active'`);
   const required = new Set(offered.rows.map((row) => String(row.id)));
+  if (onPrimary === "unreadable" || onPrimary === null) {
+    return [...required];
+  }
   for (const value of await recordedSnapshotValues(tx, tenantId, repository)) {
-    if ((onPrimary ?? []).some((snapshot) => snapshot.id.startsWith(value))) {
+    if (onPrimary.some((snapshot) => snapshot.id.startsWith(value))) {
       required.add(value);
     }
   }
@@ -382,7 +336,7 @@ export async function remapRecordedSnapshots(
   tenantId: string,
   repository: Pick<PromotionRepository, "kind" | "ownerId" | "prefix">,
   copies: readonly CopiedSnapshot[],
-  onPrimary: readonly CopiedSnapshot[] | null,
+  onPrimary: PrimaryListing,
 ): Promise<SnapshotRemap> {
   const origins = await loadSnapshotOrigins(tx, tenantId, repository.prefix);
   const find = (value: string) => matchOnCopy(copies, value, persistentOfRecorded(origins, value));
@@ -393,9 +347,12 @@ export async function remapRecordedSnapshots(
   }
   let rewritten = 0;
   const recordedOrigins = new Map<string, string>();
-  for (const column of RECORDED_COLUMNS[repository.kind]) {
+  for (const column of RECORDED_SNAPSHOT_COLUMNS[repository.kind]) {
     const pairs: [string, string][] = [];
-    for (const value of await columnValues(tx, tenantId, repository, column)) {
+    const values = await tx.execute<{ value: string }>(
+      recordedColumnValuesSql(column, tenantId, repository.ownerId),
+    );
+    for (const value of values.rows.map((row) => String(row.value))) {
       const match = find(value);
       if (!match) {
         continue;
@@ -414,7 +371,7 @@ export async function remapRecordedSnapshots(
         FROM unnest(${toTextArray(pairs.map(([value]) => value))},
                     ${toTextArray(pairs.map(([, next]) => next))}) AS m(value, next)
        WHERE t.tenant_id = ${tenantId} AND t.${sql.raw(column.owner)} = ${repository.ownerId}
-         AND t.${sql.raw(column.column)} = m.value${whereOf(column, "t.")}`);
+         AND t.${sql.raw(column.column)} = m.value${recordedColumnWhere(column, "t.")}`);
     rewritten += pairs.length;
   }
   if (recordedOrigins.size > 0) {
@@ -439,6 +396,12 @@ function toTextArray(values: readonly string[]) {
     sql`, `,
   )}]::text[]`;
 }
+
+/**
+ * How long one listing may take while the promotion holds the tenant's repository-copy lock: a
+ * storage that hangs refuses the promotion and releases the lock instead of holding it.
+ */
+export const PROMOTION_LISTING_TIMEOUT_MS = 5 * 60 * 1000;
 
 /** Lists the snapshots of a repository on the copy target being promoted, or on the primary. */
 export type CopySnapshotLister = (input: {
@@ -473,7 +436,8 @@ export const listCopySnapshots: CopySnapshotLister = async ({
       binary: resticBinary(),
       cacheBase: resticCacheBase(),
     },
-    (session) => resticSnapshots(session, { noLock: true }),
+    (session) =>
+      resticSnapshots(session, { noLock: true, timeoutMs: PROMOTION_LISTING_TIMEOUT_MS }),
   );
   return listed.map((snapshot) => ({ id: snapshot.id, original: snapshot.original ?? null }));
 };

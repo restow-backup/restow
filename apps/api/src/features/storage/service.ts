@@ -100,6 +100,7 @@ import {
   copyRowsOn,
   listCopySnapshots,
   newestRecordedBackups,
+  type PrimaryListing,
   type PromotionRepository,
   type PromotionRepositoryDto,
   promotionRepositories,
@@ -249,6 +250,11 @@ export interface PromoteResultDto {
   repositories: number;
   /** Distinct recorded restic snapshot ids rewritten to the copy's. */
   restorePointIdsRewritten: number;
+  /**
+   * Machine repositories the primary could not list (damaged or gone): what they require came
+   * from the database and the copy's state alone.
+   */
+  primaryUnreadable: string[];
 }
 
 export interface CompletenessDto {
@@ -2997,8 +3003,11 @@ export async function startCatchUp(
 /** The listings of a repository a promotion reads: its copy, and for a machine the primary's. */
 interface PromotionListing {
   readonly copy: CopiedSnapshot[];
-  /** The primary's snapshots (machines only: what the server still refers to and it holds). */
-  readonly primary: CopiedSnapshot[] | null;
+  /**
+   * The primary's snapshots (machines only: what the server still refers to and it holds), or
+   * `unreadable` when the primary's repository could not be listed (damaged or gone).
+   */
+  readonly primary: PrimaryListing;
 }
 
 /**
@@ -3021,7 +3030,10 @@ async function promotionListings(
   );
   const toRead = repositories.filter((entry) => entry.readiness !== "empty");
   const primary = toRead.some((entry) => entry.repository.kind === "machine")
-    ? (await openEffectivePrimary(db, tenantId, rows, deps)).backend
+    ? await openEffectivePrimary(db, tenantId, rows, deps).then(
+        (opened) => opened.backend,
+        () => null,
+      )
     : null;
   const lister = deps.listCopySnapshots ?? listCopySnapshots;
   const out = new Map<string, PromotionListing>();
@@ -3037,17 +3049,25 @@ async function promotionListings(
         failures.push({ prefix: repository.prefix, name: repository.name, reason: "no_password" });
         continue;
       }
+      let copy: CopiedSnapshot[];
       try {
-        const copy = await lister({ backend: opened.backend, role: "copy", repository, password });
-        const onPrimary =
-          repository.kind === "machine" && primary
-            ? await lister({ backend: primary, role: "primary", repository, password })
-            : null;
-        out.set(repository.prefix, { copy, primary: onPrimary });
+        copy = await lister({ backend: opened.backend, role: "copy", repository, password });
       } catch {
         // restic's own message can name storage paths; the copy pass records the reason.
         failures.push({ prefix: repository.prefix, name: repository.name, reason: "unreadable" });
+        continue;
       }
+      let onPrimary: PrimaryListing = null;
+      if (repository.kind === "machine") {
+        // A machine's repository damaged or gone on the primary must not lock out the copy that
+        // may hold the only good data: the database stands in (`requiredSnapshotIds`).
+        onPrimary = primary
+          ? await lister({ backend: primary, role: "primary", repository, password }).catch(
+              () => "unreadable" as const,
+            )
+          : "unreadable";
+      }
+      out.set(repository.prefix, { copy, primary: onPrimary });
     }
   };
   await Promise.all(Array.from({ length: Math.min(4, toRead.length) }, worker));
@@ -3110,7 +3130,7 @@ export async function promoteTarget(
     const copied = withRepositories
       ? await promotionListings(db, tenantId, state.rows, state.target, state.repositories, deps)
       : new Map<string, PromotionListing>();
-    const { promoted, previousPrimaryId, rewritten } = await withTenantTx(
+    const { promoted, previousPrimaryId, rewritten, primaryUnreadable } = await withTenantTx(
       db,
       tenantId,
       async (tx) => {
@@ -3156,6 +3176,10 @@ export async function promoteTarget(
         }
         let rewritten = 0;
         const missing: { prefix: string; name: string | null; reason: string }[] = [];
+        const primaryUnreadable = [...copied]
+          .filter(([, listing]) => listing.primary === "unreadable")
+          .map(([prefix]) => prefix)
+          .sort();
         for (const entry of repositories) {
           if (entry.readiness === "empty") {
             continue;
@@ -3220,9 +3244,10 @@ export async function promoteTarget(
             keys: completeness.keys.expected,
             repositories: repositories.length,
             restorePointIdsRewritten: rewritten,
+            ...(primaryUnreadable.length > 0 ? { primaryUnreadable } : {}),
           },
         });
-        return { promoted, previousPrimaryId, rewritten };
+        return { promoted, previousPrimaryId, rewritten, primaryUnreadable };
       },
     );
     return {
@@ -3232,6 +3257,7 @@ export async function promoteTarget(
       completeness,
       repositories: state.repositories.length,
       restorePointIdsRewritten: rewritten,
+      primaryUnreadable,
     };
   } finally {
     await release?.();

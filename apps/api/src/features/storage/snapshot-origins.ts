@@ -1,6 +1,6 @@
 import { type ResticSnapshot, snapshotIdIn } from "@restow/core";
 import { resticSnapshotOrigins } from "@restow/db";
-import { and, eq } from "drizzle-orm";
+import { and, asc, desc, eq } from "drizzle-orm";
 import type { DbExecutor } from "../../lib/tenant-context.js";
 
 /**
@@ -38,12 +38,22 @@ export function persistentOfRecorded(
   return matches.length === 1 ? (matches[0]?.persistentId ?? null) : null;
 }
 
-/** The recorded id of a persistent id, when a promotion rewrote the record to another id. */
+/**
+ * The id the records name for a persistent id. After several promotions several origins share
+ * one persistent id (c1 → a1, then c2 → a1): the one the records name now wins (`isRecorded`),
+ * else the newest origin (`origins` come newest first from {@link loadSnapshotOrigins}), else
+ * the persistent id itself (no promotion rewrote it). Deterministic either way.
+ */
 export function recordedOfPersistent(
   origins: readonly SnapshotOrigin[],
   persistent: string,
-): string | null {
-  return origins.find((origin) => origin.persistentId === persistent)?.snapshotId ?? null;
+  isRecorded: (id: string) => boolean = () => false,
+): string {
+  const candidates = [
+    ...origins.filter((origin) => origin.persistentId === persistent).map((o) => o.snapshotId),
+    persistent,
+  ];
+  return candidates.find(isRecorded) ?? candidates[0] ?? persistent;
 }
 
 /**
@@ -70,13 +80,17 @@ export async function loadSnapshotOrigins(
   tenantId: string,
   prefix: string,
 ): Promise<SnapshotOrigin[]> {
-  return db
-    .select({
-      snapshotId: resticSnapshotOrigins.snapshotId,
-      persistentId: resticSnapshotOrigins.persistentId,
-    })
-    .from(resticSnapshotOrigins)
-    .where(
-      and(eq(resticSnapshotOrigins.tenantId, tenantId), eq(resticSnapshotOrigins.prefix, prefix)),
-    );
+  return (
+    db
+      .select({
+        snapshotId: resticSnapshotOrigins.snapshotId,
+        persistentId: resticSnapshotOrigins.persistentId,
+      })
+      .from(resticSnapshotOrigins)
+      .where(
+        and(eq(resticSnapshotOrigins.tenantId, tenantId), eq(resticSnapshotOrigins.prefix, prefix)),
+      )
+      // Newest first, then by id: a fixed order wherever several share a persistent id.
+      .orderBy(desc(resticSnapshotOrigins.createdAt), asc(resticSnapshotOrigins.snapshotId))
+  );
 }

@@ -949,7 +949,9 @@ next retention run). While the primary keeps more than these rules (the object's
 is held on suspicion, a machine is no longer active so its retention does not run, or the
 primary is write-once), the copy holds every restore point the records name and forgets
 nothing, so a promotion of the copy never leaves a restore point that only a hold keeps
-behind. A snapshot no record names (a run that never committed, a
+behind. A machine's snapshot that no run dated but a record still names (one the retention
+audit flagged as unrecorded, an SQL backup whose run is gone) is copied as well: the primary's
+retention never deletes it, and a promotion requires it. A snapshot no record names (a run that never committed, a
 snapshot a compromised machine wrote by itself) is neither copied nor ever deleted on a copy.
 
 **When.** A pass every five minutes, in one worker at a time, copies every repository that
@@ -1191,9 +1193,11 @@ itself refuses with the first, as the problem type in brackets):
   check, storage migration, restore, import, export), since the old primary becomes read-only;
   without them only a storage check, which mirrors the copies;
 - the worker works on the tenant's repositories at this moment (`storage-copy-pass-running`): the
-  copy pass, or a machine's retention or removal job; all three hold the tenant's repository-copy
-  lock shared, and a promotion takes it exclusively, so none of them runs beside the switch or
-  goes on writing to the primary it retires;
+  copy pass, a machine's retention or removal, a file share's retention or purge, or the retention
+  of containers. All of them hold the tenant's repository-copy lock shared, and a promotion takes
+  it exclusively, so none of them runs beside the switch or goes on deleting on the primary it
+  retires. A queued job waits up to half an hour for a promotion to end before pg-boss tries it
+  again; the retention of containers leaves the tenant for its next pass;
 - a restic repository is not complete on the copy (`storage-repository-copies-incomplete`): its
   last copy to this target ("restic repositories on copies") did not succeed, found restore
   points missing or failed its `restic check`, was asked for and has not run yet, never ran, or
@@ -1222,7 +1226,13 @@ records the primary's ids. The promotion therefore:
    copies the tenant, so no copy runs beside the switch, and a pass that starts during it skips
    the tenant until the next one, then sees the new primary);
 2. lists the snapshots of every repository copy on the target, and of every machine's
-   repository on the primary (`restic snapshots`, read-only);
+   repository on the primary (`restic snapshots`, read-only, at most five minutes each: a
+   listing that fails or takes longer refuses the promotion and releases the lock). When the
+   primary cannot list a machine's repository (damaged or gone), that alone does not refuse: the
+   copy may hold the only good data. The machine's newest snapshot and its SQL backups still
+   offered must then be on the copy, and its copy state (computed by a copy pass that listed the
+   primary while it could) says the rest; the result and the audit entry name such repositories
+   (`primaryUnreadable`);
 3. in one transaction under the tenant's storage lock: checks every reason above again, checks
    that every restore point the server keeps is on the copy (a container's and a file share's
    restore points that are not pruned; for a machine every snapshot a record still names and the

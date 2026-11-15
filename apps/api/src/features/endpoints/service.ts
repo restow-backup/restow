@@ -1519,13 +1519,12 @@ export async function listSnapshots(
         loadSnapshotOrigins(tx, tenantId, endpointPrefix(id)),
       )
     : [];
-  const recordedId = (snapshot: (typeof snapshots)[number]) => {
-    if (ratings.has(snapshot.id) || flags.has(snapshot.id) || added.has(snapshot.id)) {
-      return snapshot.id;
-    }
-    const persistent = snapshot.original ?? snapshot.id;
-    return recordedOfPersistent(origins, persistent) ?? persistent;
-  };
+  const isRecorded = (snapshotId: string) =>
+    ratings.has(snapshotId) || flags.has(snapshotId) || added.has(snapshotId);
+  const recordedId = (snapshot: (typeof snapshots)[number]) =>
+    isRecorded(snapshot.id)
+      ? snapshot.id
+      : recordedOfPersistent(origins, snapshot.original ?? snapshot.id, isRecorded);
   return {
     items: snapshots.map((snapshot) => ({
       id: snapshot.id,

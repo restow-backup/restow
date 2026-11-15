@@ -481,7 +481,8 @@
     "migrationCancelled": "The migration to {name} was cancelled.",
     "migrationRetried": "The migration to {name} was queued again.",
     "defaultSelected": "This tenant uses the installation default again.",
-    "catchUpStarted": "Catching up {name}. The dialog shows the progress."
+    "catchUpStarted": "Catching up {name}. The dialog shows the progress.",
+    "promotedPrimaryUnreadable": "{count, plural, one {# machine's backup repository} other {# machines' backup repositories}} could not be read on the old primary. They were checked against the records and the state of their copies."
   },
   "errors": {
     "localRequiresProviderAdmin": "Only a provider admin can manage server paths.",

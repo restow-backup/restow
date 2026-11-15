@@ -308,6 +308,8 @@ export interface PromoteResult {
   completeness: CopyCompleteness;
   repositories: number;
   restorePointIdsRewritten: number;
+  /** Machine repositories the primary could not list (damaged or gone). */
+  primaryUnreadable: string[];
 }
 
 /** Why a copy cannot become the primary yet (docs/STORAGE.md, "Promoting a copy"). */
