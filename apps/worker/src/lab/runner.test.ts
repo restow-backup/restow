@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { LabClient, LeasedProbe, ProbePhase } from "./client.js";
 import type { Machine } from "./qemu.js";
 import { euiOf, probeDisks, runProbe, type Vm, type VmDriver, withoutKeymap } from "./runner.js";
-import { passphrasePrompts } from "./serial.js";
+import { firstFailure, passphrasePrompts, recoverFailures } from "./serial.js";
 
 const ID = "0f6c1a1c-4c6f-4bd4-9d0d-1a2b3c4d5e6f";
 const SHA = "e".repeat(64);
@@ -255,6 +255,38 @@ describe("a boot probe in the lab", () => {
       error: { code: "restore_timeout" },
     });
     expect(endless.record.killed).toBeGreaterThanOrEqual(1);
+  });
+
+  it("stops the restore after three failed attempts of recover and logs the first one", async () => {
+    const attempt = (why: string) =>
+      `Restow Recovery 0.5.0\n$ loadkeys -\nrecover: ${why}\nRESTOW-RECOVER-RESULT failed\n`;
+    const first = attempt("instance(): TLS check failed");
+    const spent = attempt("HTTP 409 Recovery code used");
+    const failing = scriptedVm([first, first + spent, first + spent + spent]);
+    const lines: { message: string; fields?: Record<string, unknown> }[] = [];
+    const seen = {
+      machines: [] as Machine[],
+      disks: [] as unknown[],
+      vars: [] as string[],
+      answersAtStart: [] as boolean[],
+      data: [] as (Record<string, string> | undefined)[],
+    };
+    const result = await runProbe(
+      {
+        ...deps(driver([failing.vm], seen)),
+        log: (message: string, fields?: Record<string, unknown>) => lines.push({ message, fields }),
+      },
+      lease({ timeouts: { totalMs: 10 * 60_000, bootMs: 1 } }),
+    );
+    expect(result).toMatchObject({ outcome: "restore_stopped", error: { code: "recover_failed" } });
+    expect(failing.record.killed).toBeGreaterThanOrEqual(1);
+    const logged = lines.find((line) => line.message === "recover failed in the restore VM");
+    expect(String(logged?.fields?.serial)).toContain("TLS check failed");
+    expect(String(logged?.fields?.serial)).not.toContain("Recovery code used");
+    expect(firstFailure("a\nRESTOW-RECOVER-RESULT failed\nb")).toBe(
+      "a\nRESTOW-RECOVER-RESULT failed",
+    );
+    expect(recoverFailures(first + spent)).toBe(2);
   });
 
   it("refuses the probe when QEMU of the restore VM runs without no_new_privs", async () => {

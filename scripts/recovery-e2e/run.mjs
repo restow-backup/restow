@@ -1226,6 +1226,34 @@ async function runProbeCase(testCase, context) {
   }
   console.log(`${testCase.id}: ${outcome.reason}`);
   if (!outcome.ok) {
+    // The probe's own recovery sessions are in no list of the machine (docs/BAREMETAL.md 12.3):
+    // their status and the log recover sent are read from the database directly.
+    const probeLog = await context.stack.compose(
+      [
+        "exec",
+        "-T",
+        "postgres",
+        "psql",
+        "-U",
+        "restow",
+        "-d",
+        "restow",
+        "-At",
+        "-c",
+        `SELECT 'session ' || r.id || ' ' || r.status || E'\n' ||
+                coalesce((SELECT string_agg(l.lines, E'\n' ORDER BY l.created_at, l.id)
+                            FROM endpoint_recovery_log l WHERE l.recovery_id = r.id), '(no log)')
+           FROM endpoint_recoveries r
+          WHERE r.endpoint_id = '${source.endpoint.id}' AND r.kind = 'probe'
+          ORDER BY r.issued_at`,
+      ],
+      { allowFailure: true },
+    );
+    const probeText = `${probeLog.stdout ?? ""}${probeLog.stderr ?? ""}`;
+    writeFileSync(join(source.dir, "probe-recoveries.log"), probeText);
+    console.log(
+      `${testCase.id}: the probe's recovery log (end):\n${probeText.split("\n").slice(-60).join("\n")}`,
+    );
     // The lab's recovery sessions of this machine: their log says where the restore stood.
     const base = `/api/v1/endpoints/${source.endpoint.id}/recoveries`;
     const sessions = await client.get(base, { tenantId }).catch(() => ({ items: [] }));

@@ -7,6 +7,23 @@
 /** `recover` ended its access to the repository: the lab takes the network away. */
 export const RELEASED_LINE = /RESTOW-PROBE phase=released/;
 
+/** The line recover writes when an attempt fails; systemd starts it again (Restart=on-failure). */
+export const FAILED_LINE = /^RESTOW-RECOVER-RESULT failed\s*$/gm;
+
+/** Failed attempts after which the lab stops the restore: the code is spent after the first. */
+export const MAX_RECOVER_FAILURES = 3;
+
+/** How many attempts of recover failed on `text`. */
+export function recoverFailures(text: string): number {
+  return (text.match(FAILED_LINE) ?? []).length;
+}
+
+/** The console up to the end of the first failed attempt of recover (where its reason stands). */
+export function firstFailure(text: string): string | null {
+  const match = /^RESTOW-RECOVER-RESULT failed\s*$/m.exec(text);
+  return match ? text.slice(0, match.index + match[0].length) : null;
+}
+
 /** The restored system reached multi-user.target (restow-probe.service). */
 export const OK_LINE = /RESTOW-PROBE-OK [0-9a-f-]{32,36} \S{1,128}/;
 

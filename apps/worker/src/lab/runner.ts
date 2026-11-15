@@ -28,11 +28,14 @@ import { serialTail } from "./client.js";
 import { proxyTarget, startProbeProxy } from "./proxy.js";
 import type { Disk, Firmware, Machine, NicModel } from "./qemu.js";
 import {
+  firstFailure,
   GRUB_SILENCE_MS,
   MAX_PASSPHRASE_TRIES,
+  MAX_RECOVER_FAILURES,
   OK_LINE,
   passphrasePrompts,
   RELEASED_LINE,
+  recoverFailures,
 } from "./serial.js";
 
 /** The guest address of the proxy, as the answers name it (`network.proxy`). */
@@ -272,6 +275,7 @@ export async function runProbe(deps: RunnerDeps, probe: LeasedProbe): Promise<Pr
     let released = false;
     let exitCode: number | null = null;
     let lastEvent = now();
+    let firstFailureLogged = false;
     restore.exited.then((code) => {
       exitCode = code;
     });
@@ -281,6 +285,34 @@ export async function runProbe(deps: RunnerDeps, probe: LeasedProbe): Promise<Pr
         await restore.cutNetwork();
         await deps.client.event(probe.id, "released").catch(() => ({ go: true }));
         log("probe released its access, network cut", { probeId: probe.id });
+      }
+      if (!released) {
+        const text = restore.serial();
+        const failures = recoverFailures(text);
+        if (failures > 0 && !firstFailureLogged) {
+          firstFailureLogged = true;
+          // The first attempt says why; the later ones mostly find the code spent.
+          log("recover failed in the restore VM", {
+            probeId: probe.id,
+            serial: serialTail(withoutKeymap(firstFailure(text) ?? text), 8000),
+          });
+        }
+        if (failures >= MAX_RECOVER_FAILURES) {
+          base.restoreMs = Math.max(0, now() - restoreStart);
+          log("restore VM stopped after failed attempts of recover", {
+            probeId: probe.id,
+            failures,
+          });
+          restore.kill();
+          return {
+            ...base,
+            outcome: "restore_stopped",
+            error: {
+              code: "recover_failed",
+              message: `recover failed ${failures} times in the restore VM; the lab log holds the console of the first attempt.`,
+            },
+          };
+        }
       }
       if (now() - lastEvent >= 60_000) {
         lastEvent = now();

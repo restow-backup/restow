@@ -2997,7 +2997,10 @@ Treiberfehler auffallen):
   [...], emptyDirs: [...] }`; `recover` nimmt einen `probe`-Block nur aus `fw_cfg` in QEMU
   an, nur mit Code und ohne Rebind), Benutzernetz mit `restrict=on` und nur einer
   `guestfwd`-Regel zu einem CONNECT-Proxy des Labors (je Verbindung ein Verbinder, siehe
-  oben). Der Proxy lässt nur den einen Host
+  oben; scheitert `recover` dreimal, beendet das Labor die Restore-VM sofort mit
+  `restore_stopped`/`recover_failed` statt nach zwei Stunden: nach dem ersten Versuch ist der
+  Einmal-Code eingelöst, und das Labor protokolliert die Konsole bis zum Ende dieses ersten
+  Versuchs, der den Grund nennt). Der Proxy lässt nur den einen Host
   und Port des Ursprungs der Instanz zu und verbindet zum TLS-Rand der Installation
   (`caddy:443`, einstellbar); die VM erreicht sonst nichts, braucht kein DNS, und TLS samt
   Prüfwert läuft gegen das echte Zertifikat. Wiederhergestellt werden vollständig: `/`, `/boot`, ESP, `/usr`, `/var` (wenn
