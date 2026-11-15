@@ -673,6 +673,10 @@ private repository.
 
 ### Changed
 
+- Public demo: Postgres is set up for its 512M limit (`max_connections=64`, `shared_buffers=64MB`,
+  small `work_mem` and `maintenance_work_mem`, two autovacuum workers), and api, worker and
+  scheduler open smaller pools, 48 connections in all instead of the default 90
+  (deploy/demo/README.md, "Resource limits").
 - Machines: "Delete every backup" of a revoked machine (Remove from Restow, mode `delete`) is now
   delayed and owner-only. The backups are deleted seven days after the request, not at once; the
   machine stays listed as revoked until then, and its page and File restore show "Backups will be

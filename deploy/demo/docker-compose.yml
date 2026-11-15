@@ -74,6 +74,25 @@ x-restow-app: &restow-app
 services:
   postgres:
     image: postgres:16-alpine
+    # Sized for the 512M limit below (docs/SIZING.md, "Postgres settings"): the pools of
+    # api, worker and scheduler (their RESTOW_DB_*_POOL_MAX) add up to 48 connections, plus
+    # 3 reserved and room for reset.sh and a psql session. Each connection costs a few MB,
+    # shared_buffers is an eighth of the limit, and sorts, index builds (template restore)
+    # and autovacuum stay small: together well below 512M, so Postgres is never OOM-killed.
+    command:
+      - postgres
+      - -c
+      - max_connections=64
+      - -c
+      - shared_buffers=64MB
+      - -c
+      - effective_cache_size=192MB
+      - -c
+      - work_mem=2MB
+      - -c
+      - maintenance_work_mem=32MB
+      - -c
+      - autovacuum_max_workers=2
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-restow}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
@@ -126,6 +145,9 @@ services:
     environment:
       ROLE: api
       RESTOW_DEMO: "true"
+      # Connections to Postgres: 6 + 6, plus the sign-in pool's fixed 10 (postgres above).
+      RESTOW_DB_POOL_MAX: "6"
+      RESTOW_DB_PROVIDER_POOL_MAX: "6"
       RESTOW_MODE: public
       IMAP_ALLOW_INSECURE: "true"
       IMAP_ALLOW_PRIVATE_NETWORKS: "true"
@@ -162,6 +184,11 @@ services:
     environment:
       ROLE: worker
       RESTOW_DEMO: "true"
+      # Connections to Postgres: 6 + 6 + 4. The application pool holds WORKER_CONCURRENCY (2)
+      # plus 2; the installation pool stays at 6 (docs/SIZING.md, it pins a few for long).
+      RESTOW_DB_POOL_MAX: "6"
+      RESTOW_DB_PROVIDER_POOL_MAX: "6"
+      RESTOW_DB_BOSS_POOL_MAX: "4"
       IMAP_ALLOW_INSECURE: "true"
       IMAP_ALLOW_PRIVATE_NETWORKS: "true"
       STORAGE_TARGET: local
@@ -184,6 +211,10 @@ services:
     environment:
       ROLE: scheduler
       RESTOW_DEMO: "true"
+      # Connections to Postgres: 3 + 4 + 3.
+      RESTOW_DB_POOL_MAX: "3"
+      RESTOW_DB_PROVIDER_POOL_MAX: "4"
+      RESTOW_DB_BOSS_POOL_MAX: "3"
     depends_on:
       postgres:
         condition: service_healthy
