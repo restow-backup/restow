@@ -63,6 +63,7 @@ import {
   repositorySource,
   snapshotOnSource,
 } from "../storage/repository-source.js";
+import { loadSnapshotOrigins, recordedOfPersistent } from "../storage/snapshot-origins.js";
 import { auditEndpoint, ENDPOINT_AUDIT_ACTIONS, type EndpointActor } from "./audit.js";
 import { bandwidthWindowsProblem } from "./bandwidth.js";
 import { installCommands, releaseKeyFingerprint } from "./commands.js";
@@ -1138,7 +1139,7 @@ async function restoreFromCopy(
     readFrom,
     snapshotId: await snapshotOnSource(
       source,
-      { prefix: endpointPrefix(endpointId), password, repositoryKey: endpointId },
+      { tenantId, prefix: endpointPrefix(endpointId), password, repositoryKey: endpointId },
       snapshotId,
     ),
   };
@@ -1509,8 +1510,21 @@ export async function listSnapshots(
   });
   // Read from a repository copy (the primary lost the repository, docs/STORAGE.md "restic
   // repositories on copies"), a snapshot has an id of its own; what the server recorded about
-  // it is filed under the primary's id, which `restic copy` keeps as `original`.
-  const recordedId = (snapshot: (typeof snapshots)[number]) => snapshot.original ?? snapshot.id;
+  // it is filed under the primary's id, which `restic copy` keeps as `original`. After a
+  // promotion ("Promoting a copy") the records name the promoted copy's ids, whose persistent id
+  // `restic_snapshot_origins` keeps: on the primary they are the snapshots' own ids, on another
+  // copy target the origin leads from the `original` back to them.
+  const origins = snapshots.some((snapshot) => snapshot.original)
+    ? await withTenantTx(database, tenantId, (tx) =>
+        loadSnapshotOrigins(tx, tenantId, endpointPrefix(id)),
+      )
+    : [];
+  const isRecorded = (snapshotId: string) =>
+    ratings.has(snapshotId) || flags.has(snapshotId) || added.has(snapshotId);
+  const recordedId = (snapshot: (typeof snapshots)[number]) =>
+    isRecorded(snapshot.id)
+      ? snapshot.id
+      : recordedOfPersistent(origins, snapshot.original ?? snapshot.id, isRecorded);
   return {
     items: snapshots.map((snapshot) => ({
       id: snapshot.id,

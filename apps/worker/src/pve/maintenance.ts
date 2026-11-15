@@ -147,6 +147,7 @@ import {
 import { hasActiveMigration } from "../handlers/storage-migration.js";
 import type { TenantTx } from "../progress.js";
 import { raiseEvents } from "../reporting.js";
+import { unlessPromoting } from "../repository-copies/promotion-lock.js";
 import {
   DEFAULT_RETENTION_HOLD_MODE,
   loadRetentionHolds,
@@ -768,7 +769,12 @@ export async function applyRetention(deps: PveDeps, now: Date): Promise<number> 
   const migrating = new Map<string, boolean>();
   for (const guest of guests) {
     try {
-      pruned += await retainGuest(deps, guest, now, mode, migrating, reconciles);
+      // Under the tenant's repository-copy lock: while a promotion of a copy target switches the
+      // primary, the guest waits for the next pass (and then sees the new primary).
+      pruned +=
+        (await unlessPromoting(deps.db, guest.tenantId, () =>
+          retainGuest(deps, guest, now, mode, migrating, reconciles),
+        )) ?? 0;
     } catch (error) {
       // One guest's fault (its tenant's data, its storage) never keeps the others from retention.
       deps.runtime.logger.warn("pve retention: a guest could not be handled", {

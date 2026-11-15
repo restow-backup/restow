@@ -771,6 +771,13 @@ Repository-Secrets eines Entwickler-Mandanten und wurde bisher in jedem Release 
 - Tests: apps/worker/src/framework.test.ts, apps/worker/src/framework.pg.test.ts
 - Belegt gegen: echtes System (Chunk-Speicher in einem Verzeichnis und PostgreSQL 16, Job test in ci.yml; das Speicherziel selbst ist ein lokales Verzeichnis, kein Objektspeicher)
 - Stand: belegt
+### COPY-004
+- Aussage: Eine Kopie wird erst zum primären Ziel, wenn sie alles hält, was das primäre hält, bei Containern, Rechnern und Dateifreigaben auch die aktuelle Kopie jedes restic-Repositorys. Beim Umschalten zeigen die gespeicherten Sicherungsstände danach auf die Snapshots der Kopie; fehlt dort einer, wird nichts umgestellt.
+- Fundstelle: docs/STORAGE.md (Abschnitt „Promoting a copy“), packages/i18n/resources/en/storage.json (`promote.blockers`, `promote.catchUp`)
+- Öffentliche Seite: nicht abgeglichen
+- Tests: apps/api/src/features/storage/service.promotion.pg.test.ts
+- Belegt gegen: Simulator (PostgreSQL 16 und lokale Verzeichnisse, Job test in ci.yml; die Snapshot-Liste der Repository-Kopien wird eingespeist, restic läuft im Test nicht)
+- Stand: belegt
 
 ## Updates: Signatur, Sicherung, Migrationen, Rollback (UPDATE)
 

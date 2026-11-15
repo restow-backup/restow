@@ -100,6 +100,8 @@ DECLARE
     'storage_repository_repairs',
     -- restic repositories on copy targets (0.5.0, docs/STORAGE.md).
     'repository_copies',
+    -- Persistent ids of restore points a promotion carried over to a copy (0.5.0).
+    'restic_snapshot_origins',
     'audit_log',
     'audit_anchor',
     'archive_items',

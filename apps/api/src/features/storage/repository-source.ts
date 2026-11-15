@@ -1,15 +1,10 @@
-import {
-  resticBinary,
-  resticCacheBase,
-  resticSnapshots,
-  snapshotIdIn,
-  withRepository,
-} from "@restow/core";
+import { resticBinary, resticCacheBase, resticSnapshots, withRepository } from "@restow/core";
 import { storageGenerationSql } from "@restow/db";
 import { sql } from "drizzle-orm";
 import { providerDb } from "../../db.js";
 import { ProblemError } from "../../problem.js";
 import { type SearchedTarget, searchedTargets, tenantChunkStore } from "../pve/store.js";
+import { loadSnapshotOrigins, snapshotOnListing } from "./snapshot-origins.js";
 
 /**
  * Where a restore reads a restic repository from (docs/STORAGE.md, "restic repositories on
@@ -125,13 +120,15 @@ export function restorePointNotOnSource(source: RepositorySource): ProblemError 
 /**
  * The id under which `source` holds the restic snapshot `id` (the primary's id, as the database
  * records it; an id of the source itself is taken as it is): `id` on the primary, the snapshot
- * copied from it on a fallback target. One `restic snapshots` against the fallback target, none
- * on the primary. Throws {@link restorePointNotOnSource} when the fallback target does not hold
- * it, so a restore says why before restic on the node reports "no matching ID".
+ * copied from it on a fallback target, found by the id, its `original` or the persistent id a
+ * promotion recorded for it (`restic_snapshot_origins`, docs/STORAGE.md "Promoting a copy"). One
+ * `restic snapshots` against the fallback target, none on the primary. Throws
+ * {@link restorePointNotOnSource} when the fallback target does not hold it, so a restore says
+ * why before restic on the node reports "no matching ID".
  */
 export async function snapshotOnSource(
   source: RepositorySource,
-  repository: { prefix: string; password: string; repositoryKey: string },
+  repository: { tenantId: string; prefix: string; password: string; repositoryKey: string },
   id: string,
 ): Promise<string> {
   if (!source.fallback) {
@@ -148,7 +145,11 @@ export async function snapshotOnSource(
     },
     (session) => resticSnapshots(session, { noLock: true }),
   );
-  const found = snapshotIdIn(listed, id);
+  const found = snapshotOnListing(
+    listed,
+    id,
+    await loadSnapshotOrigins(providerDb, repository.tenantId, repository.prefix),
+  );
   if (!found) {
     throw restorePointNotOnSource(source);
   }

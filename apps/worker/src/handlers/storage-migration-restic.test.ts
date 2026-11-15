@@ -163,6 +163,26 @@ describe("planRepositories", () => {
     expect(blocksSwitch(gone as never)).toBe(false);
   });
 
+  it("takes a repository copy on the primary for the repository: a promoted copy target's, never the retired chain", async () => {
+    // After "Make primary" with restic repositories (docs/STORAGE.md, "Promoting a copy") the
+    // primary holds the repository copy, marker included; the retired primary keeps the chain the
+    // promotion replaced. A later move or repair works with the primary's.
+    await primary.backend.put(`${PREFIX}config`, Buffer.from("copy config"));
+    await primary.backend.put(`${PREFIX}${REPOSITORY_COPY_MARKER_FILE}`, Buffer.from("{}"));
+    const key = await file(primary.backend, "keys", "copy key");
+    const data = await file(primary.backend, "data", "copy data");
+    await other.backend.put(`${PREFIX}config`, Buffer.from("old config"));
+    await file(other.backend, "keys", "old key");
+    await file(other.backend, "data", "old data");
+
+    const [plan] = await planRepositories([owner], [primary, other]);
+    expect(plan?.class).toBe("ok");
+    expect(plan?.configSource?.id).toBe("nfw");
+    expect(plan?.items.map((item) => item.key).sort()).toEqual(
+      [`${PREFIX}config`, `${PREFIX}${REPOSITORY_COPY_MARKER_FILE}`, key, data].sort(),
+    );
+  });
+
   it("calls data without config or key `data_only` (it stops a switch) and a lone password file `password_only`", async () => {
     await file(primary.backend, "data", "pack");
     await file(primary.backend, "snapshots", "snapshot");

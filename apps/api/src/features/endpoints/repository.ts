@@ -25,6 +25,11 @@ import { withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
 import { currentDefaultStorage, resolveTenantStorage } from "../restore/storage.js";
 import { markerWrapper } from "../restore-mode/markers.js";
+import {
+  loadSnapshotOrigins,
+  type SnapshotOrigin,
+  snapshotOnListing,
+} from "../storage/snapshot-origins.js";
 import { ENDPOINT_PROBLEMS } from "./problems.js";
 
 /**
@@ -153,18 +158,29 @@ export interface ReadRepository extends OpenRepository {
   snapshotRef(id: string): Promise<string>;
 }
 
-/** {@link ReadRepository.snapshotRef} for a repository read from the primary or a fallback. */
+/**
+ * {@link ReadRepository.snapshotRef} for a repository read from the primary or a fallback. On a
+ * fallback the id is also looked up by the persistent id a promotion recorded for it
+ * (`restic_snapshot_origins`, docs/STORAGE.md "Promoting a copy"), read once when needed.
+ */
 export function snapshotRefOf(
   session: OpenRepository["session"],
   fallback: boolean,
+  origins: { tenantId: string; prefix: string } | null = null,
 ): (id: string) => Promise<string> {
   if (!fallback) {
     return async (id) => id;
   }
   let listed: Promise<Awaited<ReturnType<typeof resticSnapshots>>> | null = null;
+  let recorded: Promise<SnapshotOrigin[]> | null = null;
   return async (id) => {
     listed ??= resticSnapshots(session, { noLock: true });
-    return snapshotIdIn(await listed, id) ?? id;
+    const direct = snapshotIdIn(await listed, id);
+    if (direct || !origins) {
+      return direct ?? id;
+    }
+    recorded ??= loadSnapshotOrigins(providerDb, origins.tenantId, origins.prefix);
+    return snapshotOnListing(await listed, id, await recorded) ?? id;
   };
 }
 

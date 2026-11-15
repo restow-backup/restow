@@ -105,12 +105,43 @@ private repository.
   log too (`readFrom` on `endpoint.restore.requested`/`.finished`, new actions
   `pve.restore.read_from_copy` and `file_share.restore_read_from_copy`). The server's own
   repository checks stay on the primary and are red or incomplete, never green, while it does
-  not hold the repository. Promoting a copy stays refused while the tenant has restic
-  repositories, and a `move` and the repository repair leave repository copies out
+  not hold the repository. A `move` and the repository repair leave repository copies on copy
+  targets out
   (docs/STORAGE.md, "restic repositories on copies", "Restoring from a copy" and "Known
   limitations"). The first pass
   after the update copies every repository once, 25 repositories per pass, and needs their size
   on each copy target. Purging a file share now also deletes its repository copies.
+- "Make primary" for a tenant with containers, machines or file shares (docs/STORAGE.md,
+  "Promoting a copy"). A copy target can become the primary once it holds everything the
+  primary holds: every pack, manifest, key and archive record, and the repository copy of
+  every restic repository (its last copy succeeded, passed its check and started after the
+  object's newest restore point). Before, a tenant with any restic repository could not
+  promote at all and had to "move". The dialog asks the server first
+  (`GET /api/v1/storage/targets/:id/promotion`) and lists every reason it would refuse, each with
+  what to do: an active machine, a running backup, storage jobs, a repository repair, a running
+  copy pass, every repository whose copy is not complete with its state, missing files. "Catch
+  up now" (`POST /api/v1/storage/targets/:id/catch-up`, audit `storage.target.catch_up_started`)
+  queues a storage check that mirrors the copies and asks the worker for the copy of every
+  repository behind (picked up within 30 seconds); the dialog shows the progress, and "Make
+  primary" is enabled once the server says the copy is ready. The promotion lists the
+  repository copies, checks that every restore point the server keeps is there, rewrites the
+  recorded snapshot ids to the copy's in the switching transaction, and retires the old primary
+  read-only (`previous`), as a `move` does. New problem types `storage-switch-blocked-by-jobs`,
+  `storage-copy-pass-running` and `storage-repository-copies-incomplete`. Active machines still
+  block every change of the primary (`storage-active-endpoints`), now shown before the click.
+  The promotion keeps restic's persistent id of every restore point it carries over (new table
+  `restic_snapshot_origins`, migration 0099, tenant isolated), so another copy target still
+  finds them once the promoted primary is lost, and can be promoted in turn. A machine's
+  promotion requires every snapshot a record still names and the primary holds (held ones, SQL
+  backups); the copy pass copies everything while a hold, a revoked machine or a write-once
+  primary keeps more than the retention rules, and a machine's retention and removal jobs no
+  longer run beside a promotion, nor do a file share's retention and purge or the retention of
+  containers (they hold the tenant's repository-copy lock shared; queued jobs wait up to half an
+  hour). A machine's snapshot no run dated that a record still names is copied too. When the
+  primary cannot list a machine's repository, the promotion checks it against the records and
+  the copy's state and names it (`primaryUnreadable`); each listing is limited to five minutes.
+  The listing comparison moved to
+  `POST /api/v1/storage/targets/:id/promotion/check` (right to operate).
 - Modules of the installation: the setup wizard of a new installation asks "What do you want to
   protect?" with a box per module (Microsoft 365, IMAP mailboxes, Mail archive, Servers & clients,
   Proxmox VE; all ticked to begin with, at least one), and Installation › Server & operation ›
@@ -930,10 +961,11 @@ private repository.
     `403 storage-switched-during-run` for its writes and fails cleanly instead of finishing on
     another target. Caches of the tenant's targets (API and worker) compare the tenant's storage
     generation instead of only running out after one or five minutes.
-  - Promoting a copy is refused while the tenant has any restic repository, now counting
-    machines (revoked ones included) and file shares whose repository is being created (a
-    container's first backup counts through its running run); "keep" counts the same. A promotion away from the installation default keeps it
-    attached read-only (`previous`).
+  - "Keep" is refused while the tenant has any restic repository, now counting machines
+    (revoked ones included) and file shares whose repository is being created (a container's
+    first backup counts through its running run). Promoting a copy waits until every one of
+    them is complete on the copy (see "Make primary" under Added). A promotion away from the
+    installation default keeps it attached read-only (`previous`).
   - Before a backup, a container's repository must be complete on the primary (config and a
     key). Otherwise every target and the installation default are searched and the backup is
     refused with `pve-repository-elsewhere`, `pve-repository-split` or `pve-repository-missing`;

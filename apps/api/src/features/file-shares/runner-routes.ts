@@ -202,7 +202,7 @@ async function restoreFromCopy(
   }
   const snapshotId = await snapshotOnSource(
     source,
-    { prefix, password, repositoryKey: fileShareRepositoryKey(share.id) },
+    { tenantId: run.tenantId, prefix, password, repositoryKey: fileShareRepositoryKey(share.id) },
     recorded,
   );
   return { readFrom, snapshotId };

@@ -21,8 +21,10 @@ import {
   openStorageTarget,
   packPrefix,
   parseS3CredentialsSecret,
+  REPOSITORY_COPY_MARKER_FILE,
   repositoryFolderOf,
   repositoryPrefixOf,
+  type ScrubJobPayload,
   type StorageBackend,
   type StorageConfigIssue,
   type StorageLocation,
@@ -36,8 +38,10 @@ import {
   wrappedKeyKey,
 } from "@restow/core";
 import {
+  acquireEndpointRepositoryLock,
   archiveItems,
   type Database,
+  EndpointRepositoryBusyError,
   endpoints,
   fileShareRuns,
   fileShares,
@@ -48,6 +52,8 @@ import {
   packs,
   pveGuests,
   pveRuns,
+  repositoryCopiesLockKey,
+  repositoryLockHeld,
   repositoryRepairActive,
   type StorageMigration,
   type StorageTarget,
@@ -89,16 +95,36 @@ import {
   type HostResolver,
 } from "./endpoint-policy.js";
 import { deferredDeletionCounts } from "./immutability.js";
+import {
+  type CopySnapshotLister,
+  copyRowsOn,
+  listCopySnapshots,
+  newestRecordedBackups,
+  type PrimaryListing,
+  type PromotionRepository,
+  type PromotionRepositoryDto,
+  promotionRepositories,
+  type RepositoryReadiness,
+  recordedSnapshotValues,
+  remapRecordedSnapshots,
+  repositoryReadinessOf,
+  requestCopies,
+  toPromotionRepositoryDto,
+} from "./promotion.js";
 import { loadRepositoryBytes } from "./repository-bytes.js";
 import {
+  type CopiedSnapshot,
   canManageKind,
+  copyComplete,
   credentialsBoundElsewhere,
   decideCreate,
   decideDelete,
-  decidePromote,
+  decidePromotion,
   decideReplacePrimary,
   decideUpdate,
   movesLocation,
+  type PromotionBlocker,
+  type PromotionFacts,
   type StorageRuleViolation,
   type StorageSituation,
 } from "./rules.js";
@@ -156,6 +182,8 @@ export const STORAGE_AUDIT_ACTIONS = {
   tested: "storage.target.tested",
   probed: "storage.target.probed",
   promoted: "storage.target.promoted",
+  /** "Catch up now" before a promotion: the copies of one copy target were asked for at once. */
+  catchUpStarted: "storage.target.catch_up_started",
   defaultTested: "storage.default.tested",
   /**
    * Migration lifecycle. `migrationStarted` covers both the `move` job being
@@ -197,6 +225,8 @@ export interface StorageDeps {
   readonly now?: () => Date;
   /** How the system disk is read (tests); the api container's own view otherwise. */
   readonly systemDisk?: SystemDiskDeps;
+  /** How a promotion lists the snapshots of a repository copy (tests); restic otherwise. */
+  readonly listCopySnapshots?: CopySnapshotLister;
 }
 
 export interface ProbeOutcomeDto {
@@ -211,9 +241,20 @@ export interface TestResultDto extends ProbeOutcomeDto {
 
 export interface PromoteResultDto {
   target: StorageTargetDto;
-  /** The target that was primary before (now a copy), or null when it was the installation default. */
+  /** The target that was primary before, or null when it was the installation default. */
   previousPrimaryId: string | null;
+  /** What the previous primary became: a copy, or retired read-only (restic repositories). */
+  previousPrimaryRole: "copy" | "previous";
   completeness: CopyCompleteness;
+  /** The tenant's restic repositories carried over to the copy. */
+  repositories: number;
+  /** Distinct recorded restic snapshot ids rewritten to the copy's. */
+  restorePointIdsRewritten: number;
+  /**
+   * Machine repositories the primary could not list (damaged or gone): what they require came
+   * from the database and the copy's state alone.
+   */
+  primaryUnreadable: string[];
 }
 
 export interface CompletenessDto {
@@ -400,18 +441,13 @@ export interface ResticRepositoryKinds {
 }
 
 /**
- * A switch that copies nothing ("keep existing backups where they are", promoting a copy)
- * while the tenant has restic repositories: the repositories the restore points name lie on the
- * current primary only. A target that was never a copy holds none (the PVE field incident,
- * docs/STORAGE.md); a copy holds repository copies written by `restic copy`, whose snapshots
- * have other ids than the restore points record ("restic repositories on copies"), so a
- * promotion would leave every restore point of a container or file share pointing at nothing.
- * "Move" copies the repositories across file by file before it switches.
+ * "Keep existing backups where they are" while the tenant has restic repositories: the
+ * repositories the restore points name lie on the current primary only, and a target that was
+ * never a copy holds none (the PVE field incident, docs/STORAGE.md). "Move" copies the
+ * repositories across file by file before it switches; promoting a copy target carries the
+ * restore points over to its repository copies ("Promoting a copy", {@link promoteTarget}).
  */
-function switchBlockedByRepositories(
-  kinds: ResticRepositoryKinds,
-  action: "keep" | "promote",
-): ProblemError {
+function switchBlockedByRepositories(kinds: ResticRepositoryKinds): ProblemError {
   const what = [
     kinds.containers ? "containers (Proxmox VE)" : null,
     kinds.machines ? "machines" : null,
@@ -421,9 +457,7 @@ function switchBlockedByRepositories(
     .join(", ");
   return new ProblemError(409, "Backups would stay behind", {
     type: `${PROBLEM_PREFIX}switch-blocked-by-repositories`,
-    detail: `This tenant has backup repositories of ${what} on the current primary. ${
-      action === "keep" ? '"Keep existing backups where they are"' : "Promoting a copy"
-    } would leave them behind, and their next backups would fail or begin from scratch. Replace the primary with "move" instead: it copies these repositories and verifies them before it switches.`,
+    detail: `This tenant has backup repositories of ${what} on the current primary. "Keep existing backups where they are" would leave them behind, and their next backups would fail or begin from scratch. Replace the primary with "move" instead: it copies these repositories and verifies them before it switches.`,
     extensions: { code: "switch_blocked_by_repositories", repositories: kinds },
   });
 }
@@ -475,14 +509,10 @@ async function tenantResticRepositories(
   return kinds.containers || kinds.fileShares || kinds.machines ? kinds : null;
 }
 
-async function assertNoResticRepositories(
-  db: DbExecutor,
-  tenantId: string,
-  action: "keep" | "promote",
-): Promise<void> {
+async function assertNoResticRepositories(db: DbExecutor, tenantId: string): Promise<void> {
   const kinds = await withTenantTx(db, tenantId, (tx) => tenantResticRepositories(tx, tenantId));
   if (kinds) {
-    throw switchBlockedByRepositories(kinds, action);
+    throw switchBlockedByRepositories(kinds);
   }
 }
 
@@ -629,6 +659,38 @@ function copyIncomplete(completeness: CopyCompleteness): ProblemError {
     type: `${PROBLEM_PREFIX}copy-incomplete`,
     detail: "The copy does not yet hold everything the primary holds.",
     extensions: { code: "copy_incomplete", completeness },
+  });
+}
+
+function storageJobsRunning(queues: readonly string[]): ProblemError {
+  return new ProblemError(409, "Storage jobs still running", {
+    type: `${PROBLEM_PREFIX}switch-blocked-by-jobs`,
+    detail: `Jobs of this tenant that write to storage are queued or running (${queues.join(", ")}). They hold the current primary and would keep writing to it after the switch. Wait for them to finish, then try again.`,
+    extensions: { code: "storage_jobs_running", queues },
+  });
+}
+
+function copyPassRunning(): ProblemError {
+  return new ProblemError(409, "Backup repositories are being worked on", {
+    type: `${PROBLEM_PREFIX}copy-pass-running`,
+    detail:
+      "The worker is copying this tenant's backup repositories to its copy targets, or applies a machine's retention or removal, right now. Wait until it ends, then try again.",
+    extensions: { code: "copy_pass_running" },
+  });
+}
+
+function repositoryCopiesIncomplete(
+  repositories: readonly { prefix: string; name: string | null; reason: string }[],
+): ProblemError {
+  return new ProblemError(409, "Repository copies incomplete", {
+    type: `${PROBLEM_PREFIX}repository-copies-incomplete`,
+    detail:
+      'Not every backup repository (of a container, machine or file share) is complete on this copy target. Use "Catch up now" and promote once every copy is current.',
+    extensions: {
+      code: "repository_copies_incomplete",
+      repositories: repositories.slice(0, 20),
+      repositoriesOmitted: Math.max(0, repositories.length - 20),
+    },
   });
 }
 
@@ -1250,7 +1312,7 @@ async function startReplacePrimaryTx(
   await assertNoActiveEndpoints(db, tenantId);
   if (mode === "keep") {
     // Restic repositories are not where a "keep" switch would look for them afterwards.
-    await assertNoResticRepositories(db, tenantId, "keep");
+    await assertNoResticRepositories(db, tenantId);
     // "keep" switches the primary immediately, in the transaction below,
     // with no copy job to catch a bad location or stale credentials
     // afterwards ("move" has its own verify pass instead): prove the target
@@ -1278,7 +1340,7 @@ async function startReplacePrimaryTx(
     if (mode === "keep") {
       const kinds = await tenantResticRepositories(tx, tenantId);
       if (kinds) {
-        throw switchBlockedByRepositories(kinds, "keep");
+        throw switchBlockedByRepositories(kinds);
       }
     }
     if (mode === "keep" && (await hasActiveWriteJob(tx, tenantId))) {
@@ -2135,6 +2197,7 @@ async function previousTargetExclusiveObjects(
     // a switch left early packs here while `config` is on the new primary too), every data,
     // index, snapshot and key file counts. Lock files are transient and do not.
     const endpointKeys: string[] = [];
+    const owners = await withTenantTx(db, tenantId, (tx) => promotionRepositories(tx, tenantId));
     for (const prefix of repositoryPrefixes) {
       const here = (await previousBackend.list(prefix)).filter(
         (key) => !key.startsWith(`${prefix}locks/`),
@@ -2149,7 +2212,18 @@ async function previousTargetExclusiveObjects(
         }
       }
       if (here.some((key) => !elsewhere.has(key))) {
-        endpointKeys.push(prefix);
+        // The primary holds a repository copy here: a promotion made it the repository and
+        // carried the restore points over to it ("Promoting a copy"). What this location holds
+        // under the prefix is the chain that promotion replaced; it pins the location only while
+        // a record still names one of its snapshots (one the promotion could not carry over).
+        const owner = owners.find((entry) => entry.prefix === prefix);
+        const replaced =
+          owner !== undefined &&
+          (await primary.backend.head(`${prefix}${REPOSITORY_COPY_MARKER_FILE}`)) !== null &&
+          !(await namesSnapshotHere(db, tenantId, owner, here, prefix));
+        if (!replaced) {
+          endpointKeys.push(prefix);
+        }
       }
     }
     const movedAside = await exclusiveMovedAsideFolders(db, tenantId, previousBackend, others);
@@ -2167,6 +2241,26 @@ async function previousTargetExclusiveObjects(
       extensions: { code: classifyStorageError(error), error: describeStorageError(error) },
     });
   }
+}
+
+/** Whether a record of the repository still names a snapshot file among `keys`. */
+async function namesSnapshotHere(
+  db: Database,
+  tenantId: string,
+  owner: PromotionRepository,
+  keys: readonly string[],
+  prefix: string,
+): Promise<boolean> {
+  const snapshots = keys
+    .filter((key) => key.startsWith(`${prefix}snapshots/`))
+    .map((key) => key.slice(`${prefix}snapshots/`.length));
+  if (snapshots.length === 0) {
+    return false;
+  }
+  const recorded = await withTenantTx(db, tenantId, (tx) =>
+    recordedSnapshotValues(tx, tenantId, owner),
+  );
+  return recorded.some((value) => snapshots.some((id) => id.startsWith(value)));
 }
 
 export async function deleteTarget(
@@ -2570,16 +2664,436 @@ export async function checkCompleteness(
   return { target: toTargetDto(target, actor), completeness };
 }
 
+/** A promotion's blocker as the problem the promotion refuses with. */
+function blockerProblem(
+  blocker: PromotionBlocker,
+  completeness: CopyCompleteness | null,
+  repositories: readonly RepositoryReadiness[],
+): ProblemError {
+  switch (blocker.code) {
+    case "local_requires_provider_admin":
+    case "already_primary":
+    case "not_a_copy":
+    case "migration_in_progress":
+    case "not_verified":
+      return ruleProblem(blocker.code);
+    case "active_endpoints":
+      return activeEndpoints();
+    case "switch_blocked_by_runs":
+      return switchBlockedByRuns();
+    case "switch_blocked_by_repair":
+      return switchBlockedByRepair();
+    case "storage_jobs_running":
+      return storageJobsRunning(blocker.queues ?? []);
+    case "copy_pass_running":
+      return copyPassRunning();
+    case "repository_copies_incomplete":
+      return repositoryCopiesIncomplete(
+        repositories
+          .filter((entry) => !copyComplete(entry.readiness))
+          .map((entry) => ({
+            prefix: entry.repository.prefix,
+            name: entry.repository.name,
+            reason: entry.readiness,
+          })),
+      );
+    case "copy_incomplete":
+      return completeness
+        ? copyIncomplete(completeness)
+        : new ProblemError(409, "Copy incomplete", {
+            type: `${PROBLEM_PREFIX}copy-incomplete`,
+            extensions: { code: "copy_incomplete" },
+          });
+    case "unreachable":
+      return new ProblemError(502, "Storage not reachable", {
+        type: `${PROBLEM_PREFIX}unreachable`,
+        detail: "Listing the primary or the copy failed. Test both targets.",
+      });
+  }
+}
+
+/** The newest storage check (scrub) of the tenant: the file-level part of a catch-up. */
+export interface PromotionScrubDto {
+  jobId: string;
+  status: Job["status"];
+  createdAt: string;
+  finishedAt: string | null;
+}
+
 /**
- * Make a copy the primary. It must have passed its last test and hold every
- * pack, manifest and key of the current primary; the current primary target
- * becomes a copy in the same transaction, so writes keep reaching it. When the
- * current primary is the installation default, a placeholder row keeps it
- * attached read-only (`previous`). Refused while the tenant has restic
- * repositories or a backup run is running: a copy holds repository copies
- * (`restic copy`, docs/STORAGE.md "restic repositories on copies") whose
- * snapshots have ids of their own, while the restore points in the database
- * name the primary's; only a "move" brings the repositories over as they are.
+ * Whether a copy can be made the primary now and, if not, every reason why (docs/STORAGE.md,
+ * "Promoting a copy"). The server decides; the dialog shows it before the click.
+ */
+export interface PromotionReadinessDto {
+  targetId: string;
+  /** No blocker, and the file-level comparison ran and found the copy complete. */
+  ready: boolean;
+  blockers: PromotionBlocker[];
+  /** The file-level comparison (packs, manifests, keys, archive records), when it was run. */
+  completeness: CopyCompleteness | null;
+  /**
+   * What becomes of the current primary: it stays a `copy` (no restic repositories), or retires
+   * read-only (`previous`) like after a "move"; `installation_default` is retired the same way.
+   */
+  currentPrimaryBecomes: "copy" | "previous";
+  repositories: {
+    total: number;
+    current: number;
+    /** The repositories whose copy is not current (at most 50). */
+    items: PromotionRepositoryDto[];
+    itemsOmitted: number;
+  };
+  catchUp: {
+    /** A storage check is queued or running, or a requested copy has not run yet. */
+    running: boolean;
+    /** Repositories whose copy was asked for and has not run yet. */
+    waiting: number;
+    scrub: PromotionScrubDto | null;
+  };
+  /** "Catch up now" is offered: the target is a copy and something is not complete. */
+  canCatchUp: boolean;
+}
+
+interface PromotionState {
+  readonly rows: StorageTarget[];
+  readonly target: StorageTarget;
+  readonly facts: Omit<PromotionFacts, "files">;
+  readonly repositories: RepositoryReadiness[];
+  readonly scrub: PromotionScrubDto | null;
+}
+
+/** Queues of the tenant's queued or running jobs that write to storage. */
+async function activeWriteJobQueues(tx: DbExecutor, tenantId: string): Promise<string[]> {
+  const rows = await tx
+    .selectDistinct({ queue: jobsTable.queue })
+    .from(jobsTable)
+    .where(
+      and(
+        eq(jobsTable.tenantId, tenantId),
+        inArray(jobsTable.queue, STORAGE_WRITING_QUEUES),
+        inArray(jobsTable.status, LIVE_JOB_STATUSES),
+      ),
+    );
+  return rows.map((row) => row.queue).sort();
+}
+
+async function newestScrub(tx: DbExecutor, tenantId: string): Promise<PromotionScrubDto | null> {
+  const [row] = await tx
+    .select({
+      id: jobsTable.id,
+      status: jobsTable.status,
+      createdAt: jobsTable.createdAt,
+      finishedAt: jobsTable.completedAt,
+    })
+    .from(jobsTable)
+    .where(and(eq(jobsTable.tenantId, tenantId), eq(jobsTable.queue, "scrub")))
+    .orderBy(desc(jobsTable.createdAt))
+    .limit(1);
+  return row
+    ? {
+        jobId: row.id,
+        status: row.status,
+        createdAt: row.createdAt.toISOString(),
+        finishedAt: row.finishedAt?.toISOString() ?? null,
+      }
+    : null;
+}
+
+/** Everything a promotion of `id` depends on that the database knows (no storage access). */
+async function promotionState(
+  db: Database,
+  tenantId: string,
+  id: string,
+  actor: Pick<Actor, "isProviderAdmin">,
+): Promise<PromotionState> {
+  const state = await withTenantTx(db, tenantId, async (tx) => {
+    const rows = await loadTargets(tx, tenantId);
+    const target = rows.find((row) => row.id === id);
+    if (!target) {
+      throw notFound();
+    }
+    // One statement after the other: they share the transaction's connection.
+    const migrations = await loadMigrations(tx, tenantId);
+    const active = await hasActiveEndpoints(tx, tenantId);
+    const running = await hasRunningRepositoryRun(tx, tenantId);
+    const repair = await repositoryRepairActive(tx, tenantId);
+    const queues = await activeWriteJobQueues(tx, tenantId);
+    const owners = await promotionRepositories(tx, tenantId);
+    const copyRows = await copyRowsOn(tx, tenantId, id);
+    const newest = await newestRecordedBackups(tx, tenantId);
+    const scrub = await newestScrub(tx, tenantId);
+    return {
+      rows,
+      target,
+      migrationInProgress: activeMigrationOf(migrations) !== null,
+      active,
+      running,
+      repair,
+      queues,
+      repositories: repositoryReadinessOf(owners, copyRows, newest),
+      scrub,
+    };
+  });
+  const copyPass =
+    state.repositories.length > 0 &&
+    (await repositoryLockHeld(db.$client, repositoryCopiesLockKey(tenantId)));
+  return {
+    rows: state.rows,
+    target: state.target,
+    repositories: state.repositories,
+    scrub: state.scrub,
+    facts: {
+      isProviderAdmin: actor.isProviderAdmin,
+      target: state.target,
+      migrationInProgress: state.migrationInProgress,
+      activeEndpoints: state.active,
+      runningRepositoryRun: state.running,
+      repairActive: state.repair,
+      writeJobQueues: state.queues,
+      copyPassRunning: copyPass,
+      repositories: state.repositories.map((entry) => entry.facts),
+    },
+  };
+}
+
+function readinessDto(
+  state: PromotionState,
+  files: PromotionFacts["files"],
+  completeness: CopyCompleteness | null,
+): PromotionReadinessDto {
+  const blockers = decidePromotion({ ...state.facts, files });
+  const notCurrent = state.repositories.filter((entry) => !copyComplete(entry.readiness));
+  const waiting = state.repositories.filter((entry) => entry.readiness === "requested").length;
+  const scrubLive = state.scrub !== null && LIVE_JOB_STATUSES.includes(state.scrub.status);
+  const terminal = blockers.some((blocker) =>
+    ["local_requires_provider_admin", "already_primary", "not_a_copy"].includes(blocker.code),
+  );
+  return {
+    targetId: state.target.id,
+    ready: blockers.length === 0 && files !== null,
+    blockers,
+    completeness,
+    currentPrimaryBecomes: state.repositories.length > 0 ? "previous" : "copy",
+    repositories: {
+      total: state.repositories.length,
+      current: state.repositories.length - notCurrent.length,
+      items: notCurrent.slice(0, 50).map(toPromotionRepositoryDto),
+      itemsOmitted: Math.max(0, notCurrent.length - 50),
+    },
+    catchUp: { running: scrubLive || waiting > 0, waiting, scrub: state.scrub },
+    canCatchUp:
+      !terminal &&
+      !state.facts.migrationInProgress &&
+      (notCurrent.length > 0 ||
+        files === "unreachable" ||
+        (files !== null && !files.complete) ||
+        files === null),
+  };
+}
+
+/** The file-level comparison for a readiness: an unreachable storage is a blocker, not an error. */
+async function filesOf(
+  db: Database,
+  tenantId: string,
+  state: PromotionState,
+  deps: StorageDeps,
+): Promise<{ files: PromotionFacts["files"]; completeness: CopyCompleteness | null }> {
+  try {
+    const completeness = await completenessOf(db, tenantId, state.rows, state.target, deps);
+    return { files: { complete: completeness.complete }, completeness };
+  } catch (error) {
+    if (error instanceof ProblemError && error.status === 502) {
+      return { files: "unreachable", completeness: null };
+    }
+    throw error;
+  }
+}
+
+/**
+ * GET /targets/:id/promotion: may this copy become the primary, and if not, why (every reason,
+ * with what the dialog offers against each). `files` also compares the listings of the primary
+ * and the copy (packs, manifests, keys, archive records); without it the answer reads the
+ * database only, cheap enough to poll while a catch-up runs.
+ */
+export async function promotionReadiness(
+  db: Database,
+  tenantId: string,
+  id: string,
+  actor: Pick<Actor, "isProviderAdmin">,
+  options: { files: boolean },
+  deps: StorageDeps = {},
+): Promise<PromotionReadinessDto> {
+  const state = await promotionState(db, tenantId, id, actor);
+  const terminal = decidePromotion({ ...state.facts, files: null }).some((blocker) =>
+    ["local_requires_provider_admin", "already_primary", "not_a_copy"].includes(blocker.code),
+  );
+  if (!options.files || terminal) {
+    return readinessDto(state, null, null);
+  }
+  const { files, completeness } = await filesOf(db, tenantId, state, deps);
+  return readinessDto(state, files, completeness);
+}
+
+/**
+ * "Catch up now" (POST /targets/:id/catch-up): bring this copy target up to the primary at once
+ * instead of waiting for the weekly storage check and the next copy pass. Queues a storage check
+ * (scrub, `sample`: it mirrors every pack, manifest, key and archive record the copy lacks) and
+ * asks the worker for the copy of every restic repository whose copy on this target is not
+ * current. Nothing is promoted: the dialog follows the progress, and the administrator promotes
+ * once everything is complete. Refused for what refuses a promotion outright (not a copy, a
+ * local target for a tenant administrator) and while a storage migration runs (it pauses the
+ * copies).
+ */
+export async function startCatchUp(
+  db: Database,
+  tenantId: string,
+  id: string,
+  actor: Actor,
+  deps: StorageDeps = {},
+): Promise<PromotionReadinessDto> {
+  const before = await promotionState(db, tenantId, id, actor);
+  const [terminal] = decidePromotion({ ...before.facts, files: null }).filter((blocker) =>
+    ["local_requires_provider_admin", "already_primary", "not_a_copy"].includes(blocker.code),
+  );
+  if (terminal) {
+    throw ruleProblem(terminal.code as StorageRuleViolation);
+  }
+  if (before.facts.migrationInProgress) {
+    throw ruleProblem("migration_in_progress");
+  }
+  const behind = before.repositories
+    .filter((entry) => !copyComplete(entry.readiness) && entry.readiness !== "not_created")
+    .map((entry) => entry.repository.prefix);
+  await withTenantTx(db, tenantId, async (tx) => {
+    const payload: ScrubJobPayload = { jobId: randomUUID(), tenantId, mode: "sample" };
+    const pgBossJobId = await sendJob(tx, "scrub", payload, db);
+    let scrubJobId: string | null = null;
+    if (pgBossJobId !== null) {
+      await tx.insert(jobsTable).values({
+        id: payload.jobId,
+        tenantId,
+        queue: "scrub",
+        status: "queued",
+        payload: payload as unknown as Record<string, unknown>,
+        pgBossJobId,
+      });
+      scrubJobId = payload.jobId;
+    }
+    // Already queued or running (one per tenant): that check mirrors the copies as well.
+    const requested = await requestCopies(tx, tenantId, id, behind);
+    await audit(tx, {
+      tenantId,
+      actor: actor.email,
+      actorUserId: actor.id,
+      action: STORAGE_AUDIT_ACTIONS.catchUpStarted,
+      target: id,
+      targetType: "storage_target",
+      ip: actor.ip,
+      details: {
+        scrubJobId: scrubJobId ?? before.scrub?.jobId ?? null,
+        scrubAlreadyQueued: scrubJobId === null,
+        repositories: behind.length,
+        requested,
+      },
+    });
+  });
+  return promotionReadiness(db, tenantId, id, actor, { files: false }, deps);
+}
+
+/** The listings of a repository a promotion reads: its copy, and for a machine the primary's. */
+interface PromotionListing {
+  readonly copy: CopiedSnapshot[];
+  /**
+   * The primary's snapshots (machines only: what the server still refers to and it holds), or
+   * `unreadable` when the primary's repository could not be listed (damaged or gone).
+   */
+  readonly primary: PrimaryListing;
+}
+
+/**
+ * Read every repository copy on the target (and a machine's repository on the primary) before a
+ * promotion: `restic snapshots`, read-only. A repository with nothing to copy (`empty`) is not
+ * read.
+ */
+async function promotionListings(
+  db: Database,
+  tenantId: string,
+  rows: readonly StorageTarget[],
+  target: StorageTarget,
+  repositories: readonly RepositoryReadiness[],
+  deps: StorageDeps,
+): Promise<Map<string, PromotionListing>> {
+  const opened = await openStorageTarget(target, secretReaderFor(db, tenantId)).catch(
+    (error: unknown) => {
+      throw openProblem(error);
+    },
+  );
+  const toRead = repositories.filter((entry) => entry.readiness !== "empty");
+  const primary = toRead.some((entry) => entry.repository.kind === "machine")
+    ? await openEffectivePrimary(db, tenantId, rows, deps).then(
+        (opened) => opened.backend,
+        () => null,
+      )
+    : null;
+  const lister = deps.listCopySnapshots ?? listCopySnapshots;
+  const out = new Map<string, PromotionListing>();
+  const queue = [...toRead];
+  const failures: { prefix: string; name: string | null; reason: string }[] = [];
+  const worker = async () => {
+    for (let entry = queue.shift(); entry; entry = queue.shift()) {
+      const { repository } = entry;
+      const password = repository.secretId
+        ? await readSecret(db, { id: repository.secretId, tenantId })
+        : null;
+      if (!password) {
+        failures.push({ prefix: repository.prefix, name: repository.name, reason: "no_password" });
+        continue;
+      }
+      let copy: CopiedSnapshot[];
+      try {
+        copy = await lister({ backend: opened.backend, role: "copy", repository, password });
+      } catch {
+        // restic's own message can name storage paths; the copy pass records the reason.
+        failures.push({ prefix: repository.prefix, name: repository.name, reason: "unreadable" });
+        continue;
+      }
+      let onPrimary: PrimaryListing = null;
+      if (repository.kind === "machine") {
+        // A machine's repository damaged or gone on the primary must not lock out the copy that
+        // may hold the only good data: the database stands in (`requiredSnapshotIds`).
+        onPrimary = primary
+          ? await lister({ backend: primary, role: "primary", repository, password }).catch(
+              () => "unreadable" as const,
+            )
+          : "unreadable";
+      }
+      out.set(repository.prefix, { copy, primary: onPrimary });
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(4, toRead.length) }, worker));
+  if (failures.length > 0) {
+    throw repositoryCopiesIncomplete(failures);
+  }
+  return out;
+}
+
+/**
+ * Make a copy the primary (docs/STORAGE.md, "Promoting a copy"). Refused for every reason
+ * {@link decidePromotion} names, and unless the copy holds every pack, manifest, key and archive
+ * record the primary holds (`completenessOf`).
+ *
+ * Without restic repositories the current primary becomes a copy in the same transaction, so
+ * writes keep reaching it; when it is the installation default, a placeholder row keeps it
+ * attached read-only (`previous`).
+ *
+ * With restic repositories (containers, machines, file shares) every repository must be current
+ * on the copy target (its `restic copy`, "restic repositories on copies"). A repository copy
+ * holds each restore point under an id of its own, so under the tenant's copy lock (no copy pass
+ * beside it) the promotion lists every repository copy, and in the switching transaction checks
+ * that each restore point the server keeps is there and rewrites the recorded ids to the copy's
+ * (`remapRecordedSnapshots`). The current primary then retires read-only (`previous`), as at the
+ * switch of a "move": its repositories are no repository copies and cannot receive any. Like
+ * "keep", this is refused while a job that writes to storage is queued or running.
  */
 export async function promoteTarget(
   db: Database,
@@ -2588,90 +3102,166 @@ export async function promoteTarget(
   actor: Actor,
   deps: StorageDeps = {},
 ): Promise<PromoteResultDto> {
-  const { rows, migrationInProgress } = await withTenantTx(db, tenantId, async (tx) => ({
-    rows: await loadTargets(tx, tenantId),
-    migrationInProgress: activeMigrationOf(await loadMigrations(tx, tenantId)) !== null,
-  }));
-  const target = rows.find((row) => row.id === id);
-  if (!target) {
-    throw notFound();
+  const state = await promotionState(db, tenantId, id, actor);
+  const [first] = decidePromotion({ ...state.facts, files: null });
+  if (first) {
+    throw blockerProblem(first, null, state.repositories);
   }
-  const violation = decidePromote(actor, { ...target, migrationInProgress });
-  if (violation) {
-    throw ruleProblem(violation);
-  }
-  await assertNoActiveEndpoints(db, tenantId);
-  // A copy holds repository copies under snapshot ids of their own, not the repositories the
-  // restore points name (docs/STORAGE.md, "restic repositories on copies"): still refused.
-  await assertNoResticRepositories(db, tenantId, "promote");
-  const completeness = await completenessOf(db, tenantId, rows, target, deps);
+  const completeness = await completenessOf(db, tenantId, state.rows, state.target, deps);
   if (!completeness.complete) {
     throw copyIncomplete(completeness);
   }
-
-  const { promoted, previousPrimaryId } = await withTenantTx(db, tenantId, async (tx) => {
-    // The lock credential issue takes: no run gets a credential for the old primary after this.
-    await lockTenantStorage(tx, tenantId);
-    const fresh = await loadTarget(tx, tenantId, id);
-    if (fresh.role === "primary") {
-      throw ruleProblem("already_primary");
+  const withRepositories = state.repositories.length > 0;
+  let release: (() => Promise<void>) | null = null;
+  if (withRepositories) {
+    try {
+      release = await acquireEndpointRepositoryLock(db.$client, repositoryCopiesLockKey(tenantId), {
+        mode: "exclusive",
+        waitMs: 0,
+      });
+    } catch (error) {
+      if (error instanceof EndpointRepositoryBusyError) {
+        throw copyPassRunning();
+      }
+      throw error;
     }
-    // Re-checked inside this transaction: a migration could have started
-    // between the check above and here.
-    if (activeMigrationOf(await loadMigrations(tx, tenantId)) !== null) {
-      throw ruleProblem("migration_in_progress");
-    }
-    if (await hasActiveEndpoints(tx, tenantId)) {
-      throw activeEndpoints();
-    }
-    const kinds = await tenantResticRepositories(tx, tenantId);
-    if (kinds) {
-      throw switchBlockedByRepositories(kinds, "promote");
-    }
-    if (await hasRunningRepositoryRun(tx, tenantId)) {
-      throw switchBlockedByRuns();
-    }
-    if (await repositoryRepairActive(tx, tenantId)) {
-      throw switchBlockedByRepair();
-    }
-    const demoted = await tx
-      .update(storageTargets)
-      .set({ role: "copy" })
-      .where(and(eq(storageTargets.tenantId, tenantId), eq(storageTargets.role, "primary")))
-      .returning({ id: storageTargets.id });
-    // The installation default has no row to demote: without one standing for it, it dropped
-    // out of every list of the tenant's targets (0.4.1), and whatever only it held became
-    // unreadable. It stays attached read-only, as after "keep" or a "move".
-    const retiredDefault =
-      demoted.length === 0 ? await insertRetiredInstallationDefault(tx, tenantId) : null;
-    const [promoted] = await tx
-      .update(storageTargets)
-      .set({ role: "primary" })
-      .where(and(eq(storageTargets.tenantId, tenantId), eq(storageTargets.id, id)))
-      .returning();
-    if (!promoted) {
-      throw notFound();
-    }
-    const previousPrimaryId = demoted[0]?.id ?? null;
-    await audit(tx, {
+  }
+  try {
+    const copied = withRepositories
+      ? await promotionListings(db, tenantId, state.rows, state.target, state.repositories, deps)
+      : new Map<string, PromotionListing>();
+    const { promoted, previousPrimaryId, rewritten, primaryUnreadable } = await withTenantTx(
+      db,
       tenantId,
-      actor: actor.email,
-      actorUserId: actor.id,
-      action: STORAGE_AUDIT_ACTIONS.promoted,
-      target: id,
-      targetType: "storage_target",
-      ip: actor.ip,
-      details: {
-        previousPrimary: previousPrimaryId ?? "installation_default",
-        ...(retiredDefault ? { retiredInstallationDefault: retiredDefault } : {}),
-        packs: completeness.packs.expected,
-        manifests: completeness.manifests.expected,
-        keys: completeness.keys.expected,
+      async (tx) => {
+        // The lock credential issue takes: no run gets a credential for the old primary after this.
+        await lockTenantStorage(tx, tenantId);
+        const fresh = await loadTarget(tx, tenantId, id);
+        // Re-checked inside this transaction, under the lock: a migration, a run, a repair, a
+        // machine or a job could have started since the check above.
+        const migrations = await loadMigrations(tx, tenantId);
+        const active = await hasActiveEndpoints(tx, tenantId);
+        const running = await hasRunningRepositoryRun(tx, tenantId);
+        const repair = await repositoryRepairActive(tx, tenantId);
+        const queues = await activeWriteJobQueues(tx, tenantId);
+        const repositories = repositoryReadinessOf(
+          await promotionRepositories(tx, tenantId),
+          await copyRowsOn(tx, tenantId, id),
+          await newestRecordedBackups(tx, tenantId),
+        );
+        const [blocker] = decidePromotion({
+          ...state.facts,
+          target: fresh,
+          migrationInProgress: activeMigrationOf(migrations) !== null,
+          activeEndpoints: active,
+          runningRepositoryRun: running,
+          repairActive: repair,
+          writeJobQueues: queues,
+          copyPassRunning: false,
+          repositories: repositories.map((entry) => entry.facts),
+          files: { complete: true },
+        });
+        if (blocker) {
+          throw blockerProblem(blocker, completeness, repositories);
+        }
+        if (repositories.length > 0 !== withRepositories) {
+          // A first repository appeared (or the last one went) since the check: start over.
+          throw repositoryCopiesIncomplete(
+            repositories.map((entry) => ({
+              prefix: entry.repository.prefix,
+              name: entry.repository.name,
+              reason: entry.readiness,
+            })),
+          );
+        }
+        let rewritten = 0;
+        const missing: { prefix: string; name: string | null; reason: string }[] = [];
+        const primaryUnreadable = [...copied]
+          .filter(([, listing]) => listing.primary === "unreadable")
+          .map(([prefix]) => prefix)
+          .sort();
+        for (const entry of repositories) {
+          if (entry.readiness === "empty") {
+            continue;
+          }
+          const listing = copied.get(entry.repository.prefix);
+          const remap = listing
+            ? await remapRecordedSnapshots(
+                tx,
+                tenantId,
+                entry.repository,
+                listing.copy,
+                listing.primary,
+              )
+            : null;
+          if (!remap || remap.missing.length > 0) {
+            missing.push({
+              prefix: entry.repository.prefix,
+              name: entry.repository.name,
+              reason: "behind",
+            });
+            continue;
+          }
+          rewritten += remap.rewritten;
+        }
+        if (missing.length > 0) {
+          // Nothing of the rewrite above is kept: the transaction rolls back with this.
+          throw repositoryCopiesIncomplete(missing);
+        }
+        const demoted = await tx
+          .update(storageTargets)
+          .set({ role: withRepositories ? "previous" : "copy" })
+          .where(and(eq(storageTargets.tenantId, tenantId), eq(storageTargets.role, "primary")))
+          .returning({ id: storageTargets.id });
+        // The installation default has no row to demote: without one standing for it, it dropped
+        // out of every list of the tenant's targets (0.4.1), and whatever only it held became
+        // unreadable. It stays attached read-only, as after "keep" or a "move".
+        const retiredDefault =
+          demoted.length === 0 ? await insertRetiredInstallationDefault(tx, tenantId) : null;
+        const [promoted] = await tx
+          .update(storageTargets)
+          .set({ role: "primary" })
+          .where(and(eq(storageTargets.tenantId, tenantId), eq(storageTargets.id, id)))
+          .returning();
+        if (!promoted) {
+          throw notFound();
+        }
+        const previousPrimaryId = demoted[0]?.id ?? null;
+        await audit(tx, {
+          tenantId,
+          actor: actor.email,
+          actorUserId: actor.id,
+          action: STORAGE_AUDIT_ACTIONS.promoted,
+          target: id,
+          targetType: "storage_target",
+          ip: actor.ip,
+          details: {
+            previousPrimary: previousPrimaryId ?? "installation_default",
+            previousPrimaryRole: withRepositories || !previousPrimaryId ? "previous" : "copy",
+            ...(retiredDefault ? { retiredInstallationDefault: retiredDefault } : {}),
+            packs: completeness.packs.expected,
+            manifests: completeness.manifests.expected,
+            keys: completeness.keys.expected,
+            repositories: repositories.length,
+            restorePointIdsRewritten: rewritten,
+            ...(primaryUnreadable.length > 0 ? { primaryUnreadable } : {}),
+          },
+        });
+        return { promoted, previousPrimaryId, rewritten, primaryUnreadable };
       },
-    });
-    return { promoted, previousPrimaryId };
-  });
-  return { target: toTargetDto(promoted, actor), previousPrimaryId, completeness };
+    );
+    return {
+      target: toTargetDto(promoted, actor),
+      previousPrimaryId,
+      previousPrimaryRole: withRepositories || !previousPrimaryId ? "previous" : "copy",
+      completeness,
+      repositories: state.repositories.length,
+      restorePointIdsRewritten: rewritten,
+      primaryUnreadable,
+    };
+  } finally {
+    await release?.();
+  }
 }
 
 // --- Usage ----------------------------------------------------------------------

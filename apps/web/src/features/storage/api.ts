@@ -7,6 +7,7 @@ import type {
   ProbeInput,
   ProbeOutcome,
   PromoteResult,
+  PromotionReadiness,
   RepositoryRepairs,
   RestorePointImmutability,
   SetImmutabilityInput,
@@ -30,6 +31,8 @@ export const storageKeys = {
   targets: (tenantId: string | null) => ["tenant", tenantId, "storage", "targets"] as const,
   usage: (tenantId: string | null) => ["tenant", tenantId, "storage", "usage"] as const,
   repairs: (tenantId: string | null) => ["tenant", tenantId, "storage", "repairs"] as const,
+  promotion: (tenantId: string | null, targetId: string) =>
+    ["tenant", tenantId, "storage", "promotion", targetId] as const,
   restorePoint: (tenantId: string | null, kind: string, id: string) =>
     ["tenant", tenantId, "storage", "restore-point", kind, id] as const,
 };
@@ -78,6 +81,21 @@ export function testInstallationDefault(): Promise<DefaultTestResult> {
 
 export function checkCompleteness(targetId: string): Promise<CompletenessResult> {
   return apiFetch<CompletenessResult>(targetPath(targetId, "completeness"), { method: "POST" });
+}
+
+/**
+ * Whether this copy can become the primary, every reason it cannot yet, and the catch-up's
+ * progress. `files` also compares the listings of primary and copy (slower).
+ */
+export function fetchPromotion(targetId: string, files: boolean): Promise<PromotionReadiness> {
+  return files
+    ? apiFetch<PromotionReadiness>(targetPath(targetId, "promotion/check"), { method: "POST" })
+    : apiFetch<PromotionReadiness>(targetPath(targetId, "promotion"));
+}
+
+/** "Catch up now": a storage check that mirrors the copies, and the copies of every repository. */
+export function startCatchUp(targetId: string): Promise<PromotionReadiness> {
+  return apiFetch<PromotionReadiness>(targetPath(targetId, "catch-up"), { method: "POST" });
 }
 
 export function promoteTarget(targetId: string): Promise<PromoteResult> {

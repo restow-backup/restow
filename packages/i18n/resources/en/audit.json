@@ -438,7 +438,8 @@
         "probed": "Repository probed",
         "promoted": "Repository made primary",
         "tested": "Repository tested",
-        "updated": "Repository changed"
+        "updated": "Repository changed",
+        "catch_up_started": "Catch-up of a copy started"
       },
       "repositories": {
         "scan_requested": "Repository scan requested",

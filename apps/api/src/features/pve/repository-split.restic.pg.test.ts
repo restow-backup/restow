@@ -13,7 +13,8 @@ import { spawn } from "node:child_process";
  *   - CT 100, intact on the installation default, silently began a new chain, its restore
  *     points became unavailable.
  *
- * Each of these is asserted the other way round here: promoting is refused; a run whose target
+ * Each of these is asserted the other way round here: promoting is refused (the copy holds no
+ * repository copy of the containers yet, docs/STORAGE.md "Promoting a copy"); a run whose target
  * stops being the primary in the middle (the same role flip 0.4.1 did, written straight to the
  * database) gets 403 for its writes (restic stops at once) and writes nothing to the new
  * primary; the repository found on another target, split across targets or missing is refused
@@ -430,17 +431,48 @@ describe.skipIf(!canRun)("a storage change in the middle of a container backup",
     // The run was pinned to the target its credential was issued for.
     expect(run100?.target).toBe("installation_default");
 
-    // Promoting the copy is refused while containers have repositories.
+    // Promoting the copy is refused while a container's repository is not on it: NFW-01 holds
+    // no repository copy of CT 100 yet (docs/STORAGE.md, "Promoting a copy"). The dialog says so
+    // before the click, and nothing switches.
+    const promoter = {
+      email: "admin@contoso.example",
+      id: fixture.adminId,
+      ip: "192.0.2.1",
+      isProviderAdmin: true,
+    } as never;
+    const readiness = await storageService.promotionReadiness(
+      shared.db,
+      fixture.tenantId,
+      copyId,
+      promoter,
+      { files: false },
+    );
+    expect(readiness.ready).toBe(false);
+    expect(readiness.blockers).toContainEqual({
+      code: "repository_copies_incomplete",
+      repositories: 1,
+    });
+    expect(readiness.repositories.items).toMatchObject([
+      { ownerId: ct100first.guestId, name: "ct100", readiness: "pending" },
+    ]);
     const refusal = (await storageService
-      .promoteTarget(shared.db, fixture.tenantId, copyId, {
-        email: "admin@contoso.example",
-        id: fixture.adminId,
-        ip: "192.0.2.1",
-        isProviderAdmin: true,
-      } as never)
-      .catch((error: unknown) => error)) as { status?: number; type?: string };
+      .promoteTarget(shared.db, fixture.tenantId, copyId, promoter)
+      .catch((error: unknown) => error)) as {
+      status?: number;
+      type?: string;
+      extensions?: Record<string, unknown>;
+    };
     expect(refusal.status).toBe(409);
-    expect(refusal.type).toBe("urn:restow:problem:storage-switch-blocked-by-repositories");
+    expect(refusal.type).toBe("urn:restow:problem:storage-repository-copies-incomplete");
+    expect(refusal.extensions?.repositories).toEqual([
+      { prefix: `pve-guests/${ct100first.guestId}/`, name: "ct100", reason: "pending" },
+    ]);
+    const [stillCopy] = await fixture.db
+      .select({ role: storageTargets.role })
+      .from(storageTargets)
+      .where(eq(storageTargets.id, copyId));
+    expect(stillCopy?.role).toBe("copy");
+    expect(await files(join(copyDir, "pve-guests", ct100first.guestId))).toEqual([]);
 
     // CT 109's first backup; after its first data pack the primary changes the way 0.4.1
     // changed it (straight in the database, no guard, no lock, the default dropped).

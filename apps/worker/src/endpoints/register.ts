@@ -12,6 +12,7 @@ import {
 import { EndpointRepositoryBusyError, retryConcurrentSetup } from "@restow/db";
 import type PgBoss from "pg-boss";
 import { isUuid } from "../handlers/framework.js";
+import { besidePromotion } from "../repository-copies/promotion-lock.js";
 import { endpointCheck } from "./check.js";
 import type { EndpointJobDeps } from "./common.js";
 import { endpointMonitor } from "./monitor.js";
@@ -79,10 +80,17 @@ export async function registerEndpointJobs(
       },
     );
   };
-  await work(ENDPOINT_QUEUES.retention, (job) => endpointRetention(deps, payloadOf(job.data)));
+  await work(ENDPOINT_QUEUES.retention, (job) => {
+    const payload = payloadOf(job.data);
+    // Under the tenant's repository-copy lock: never beside a promotion of a copy target.
+    return besidePromotion(deps.db, payload.tenantId, () => endpointRetention(deps, payload));
+  });
   await work(ENDPOINT_QUEUES.check, (job) => endpointCheck(deps, payloadOf(job.data)));
   await work(ENDPOINT_QUEUES.verify, (job) => endpointVerify(deps, payloadOf(job.data)));
-  await work(ENDPOINT_QUEUES.removal, (job) => endpointRemoval(deps, payloadOf(job.data)));
+  await work(ENDPOINT_QUEUES.removal, (job) => {
+    const payload = payloadOf(job.data);
+    return besidePromotion(deps.db, payload.tenantId, () => endpointRemoval(deps, payload));
+  });
   await work(ENDPOINT_QUEUES.monitor, async () => {
     const summary = await endpointMonitor(deps);
     if (Object.values(summary).some((count) => count > 0)) {
