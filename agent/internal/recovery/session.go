@@ -416,32 +416,7 @@ func (s *Session) Finish(ctx context.Context, f api.RecoveryFinish) (api.Recover
 	if s.closed.Load() {
 		return api.RecoveryStatus{Status: s.EndState()}, ErrSessionClosed
 	}
-	if len(f.Verification) == 0 {
-		f.Verification = json.RawMessage("{}")
-	}
-	f.Verification = redactJSON(f.Verification)
-	warnings := make([]api.RecoveryWarning, 0, min(len(f.Warnings), api.RecoveryMaxFinishWarning))
-	for _, w := range f.Warnings {
-		if len(warnings) == api.RecoveryMaxFinishWarning {
-			break
-		}
-		warnings = append(warnings, api.RecoveryWarning{
-			Code:    isoField(w.Code, api.RecoveryMaxWarningCode),
-			Message: isoField(w.Message, api.RecoveryMaxWarningMessage),
-		})
-	}
-	f.Warnings = warnings
-	if payload, err := json.Marshal(f); err == nil && len(payload) > api.RecoveryMaxFinishBody {
-		size := len(payload)
-		for len(f.Warnings) > 0 && size > api.RecoveryMaxFinishBody {
-			last := len(f.Warnings) - 1
-			size -= encodedLen(f.Warnings[last])
-			if last > 0 {
-				size-- // the comma
-			}
-			f.Warnings = f.Warnings[:last]
-		}
-	}
+	f = finishBody(f, api.RecoveryMaxFinishBody)
 	var out api.RecoveryStatus
 	if err := s.do(ctx, http.MethodPost, CurrentPath+"/finish", f, &out, true); err != nil {
 		if st := ProblemState(err); IsProblem(err, ProblemStateConflict) && closedState(st) {
@@ -461,6 +436,42 @@ func (s *Session) Finish(ctx context.Context, f api.RecoveryFinish) (api.Recover
 		out.Reported = ""
 	}
 	return out, nil
+}
+
+// finishBody is the body of a finish as it is sent (Finish) or relayed by
+// the lab (a probe, ProbeFinishBlock): the verification report ({} when
+// there is none) with every string redacted, at most 200 warnings, each
+// redacted, without control characters, the code cut to 64 and the message
+// to 1000 characters, and warnings dropped from the end while the encoded
+// body would exceed maxBody.
+func finishBody(f api.RecoveryFinish, maxBody int) api.RecoveryFinish {
+	if len(f.Verification) == 0 {
+		f.Verification = json.RawMessage("{}")
+	}
+	f.Verification = redactJSON(f.Verification)
+	warnings := make([]api.RecoveryWarning, 0, min(len(f.Warnings), api.RecoveryMaxFinishWarning))
+	for _, w := range f.Warnings {
+		if len(warnings) == api.RecoveryMaxFinishWarning {
+			break
+		}
+		warnings = append(warnings, api.RecoveryWarning{
+			Code:    isoField(w.Code, api.RecoveryMaxWarningCode),
+			Message: isoField(w.Message, api.RecoveryMaxWarningMessage),
+		})
+	}
+	f.Warnings = warnings
+	if payload, err := json.Marshal(f); err == nil && len(payload) > maxBody {
+		size := len(payload)
+		for len(f.Warnings) > 0 && size > maxBody {
+			last := len(f.Warnings) - 1
+			size -= encodedLen(f.Warnings[last])
+			if last > 0 {
+				size-- // the comma
+			}
+			f.Warnings = f.Warnings[:last]
+		}
+	}
+	return f
 }
 
 // reCode is the form of a code of the instance (a problem's reason, a

@@ -2,13 +2,21 @@ package recovery
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/restow-backup/restow/agent/internal/api"
 	"github.com/restow-backup/restow/agent/internal/baremetal"
+	"github.com/restow-backup/restow/agent/internal/redact"
 )
 
 // TestProbeBootStep: the step of a probe gives the restored system the
@@ -121,5 +129,115 @@ func TestProbeReleaseWaitsForTheNetwork(t *testing.T) {
 	h.x.release(context.Background())
 	if called != 1 {
 		t.Errorf("OnRelease ran %d times", called)
+	}
+}
+
+// probeFinishOf reads the last finish block of a console as the lab does:
+// the length and SHA-256 of its BEGIN line must match the decoded JSON.
+func probeFinishOf(t *testing.T, console string) (*api.RecoveryFinish, []byte) {
+	t.Helper()
+	lines := strings.Split(console, "\n")
+	begin := -1
+	for i, l := range lines {
+		if strings.HasPrefix(l, ProbeFinishBegin+" ") {
+			begin = i
+		}
+	}
+	if begin < 0 {
+		return nil, nil
+	}
+	head := strings.Fields(lines[begin])
+	if len(head) != 3 {
+		t.Fatalf("BEGIN line %q", lines[begin])
+	}
+	var enc strings.Builder
+	end := false
+	for _, l := range lines[begin+1:] {
+		if l == ProbeFinishEnd {
+			end = true
+			break
+		}
+		if len(l) > ProbeFinishLineLen {
+			t.Errorf("a line of %d characters in the block", len(l))
+		}
+		enc.WriteString(l)
+	}
+	if !end {
+		t.Fatal("no END line after the last BEGIN line")
+	}
+	payload, err := base64.StdEncoding.DecodeString(enc.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(payload)
+	if n, _ := strconv.Atoi(head[1]); n != len(payload) || head[2] != hex.EncodeToString(sum[:]) {
+		t.Fatalf("BEGIN %s %s, payload %d bytes %x", head[1], head[2], len(payload), sum)
+	}
+	var f api.RecoveryFinish
+	if err := json.Unmarshal(payload, &f); err != nil {
+		t.Fatal(err)
+	}
+	return &f, payload
+}
+
+// TestProbeFinishBlock: the finish of a released probe goes over the
+// console as the lab reads it: BEGIN with length and SHA-256, base64 in
+// lines of at most 76 characters, END; the JSON is the body Session.Finish
+// sends (redacted, a verification object, the warnings within the limits),
+// bounded by what the lab takes.
+func TestProbeFinishBlock(t *testing.T) {
+	secret := "probe-finish-secret-0123456789"
+	redact.Add(secret)
+	f := api.RecoveryFinish{Status: api.RecoveryFailed, Verification: json.RawMessage(`{"format":"restow-verify-v1","note":"` + secret + `"}`),
+		Warnings: []api.RecoveryWarning{{Code: "step_failed", Message: "grub-install failed: " + secret + "\tagain"}}, DurationSeconds: 42}
+	lines, err := ProbeFinishBlock(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(lines[0], ProbeFinishBegin+" ") || lines[len(lines)-1] != ProbeFinishEnd {
+		t.Fatalf("frame %q ... %q", lines[0], lines[len(lines)-1])
+	}
+	got, payload := probeFinishOf(t, "noise\n"+strings.Join(lines, "\n")+"\nRESTOW-RECOVER-RESULT failed\n")
+	if got == nil {
+		t.Fatal("no block")
+	}
+	want, _ := json.Marshal(finishBody(f, api.RecoveryMaxFinishBody))
+	if string(payload) != string(want) {
+		t.Errorf("relayed body\n%s\nwant the one Finish sends\n%s", payload, want)
+	}
+	if strings.Contains(string(payload), secret) || strings.Contains(string(payload), "\\t") {
+		t.Errorf("not redacted or with a control character: %s", payload)
+	}
+	if got.Status != api.RecoveryFailed || got.DurationSeconds != 42 || len(got.Warnings) != 1 || got.Warnings[0].Code != "step_failed" {
+		t.Errorf("finish %+v", got)
+	}
+
+	// No verification: an empty object, as Finish sends it.
+	lines, _ = ProbeFinishBlock(api.RecoveryFinish{Status: api.RecoverySucceeded})
+	if got, _ := probeFinishOf(t, strings.Join(lines, "\n")); got == nil || string(got.Verification) != "{}" || got.Warnings == nil {
+		t.Errorf("without a report: %+v", got)
+	}
+
+	// Many long warnings: the block spans many lines, every one within 76
+	// characters, and the body stays within what the lab takes.
+	many := api.RecoveryFinish{Status: api.RecoveryFailed}
+	for i := 0; i < 250; i++ {
+		many.Warnings = append(many.Warnings, api.RecoveryWarning{Code: "restore_size_estimated", Message: fmt.Sprintf("%03d %s", i, strings.Repeat("x", 990))})
+	}
+	lines, _ = ProbeFinishBlock(many)
+	if len(lines) < 100 {
+		t.Errorf("%d lines", len(lines))
+	}
+	for _, l := range lines {
+		if len(l) > ProbeFinishLineLen && !strings.HasPrefix(l, ProbeFinishBegin) {
+			t.Fatalf("line of %d characters", len(l))
+		}
+	}
+	got, payload = probeFinishOf(t, strings.Join(lines, "\n"))
+	if len(payload) > ProbeFinishMaxBody || got == nil || len(got.Warnings) == 0 || len(got.Warnings) >= api.RecoveryMaxFinishWarning {
+		t.Errorf("%d bytes, %d warnings", len(payload), len(got.Warnings))
+	}
+	if got.Warnings[0].Message[:3] != "000" {
+		t.Errorf("warnings are dropped from the end: first %q", got.Warnings[0].Message[:10])
 	}
 }

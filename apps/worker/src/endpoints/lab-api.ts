@@ -51,10 +51,12 @@ import {
   endpointRecoveries,
   endpointRecoveryLog,
   endpointReports,
+  finishRecovery,
   type RecoveryLabState,
   settings,
 } from "@restow/db";
 import { and, asc, eq, gt, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { appendAuditEntry } from "../audit.js";
 import { isUuid, withTenantTx } from "../handlers/framework.js";
 import {
   labMaxRestoreBytesFromEnv,
@@ -68,8 +70,11 @@ import type { EndpointJobDeps } from "./common.js";
 export const LAB_TOKEN_MIN_LENGTH = 32;
 /** The port of the lab API (only on the compose network, never published). */
 export const LAB_API_PORT = 8095;
-/** The largest body the lab may send (a result with 64 KiB of serial console). */
-const MAX_BODY_BYTES = 256 * 1024;
+/**
+ * The largest body the lab may send: a result with two consoles of 64 K characters each (up to
+ * three bytes per character in JSON) and a relayed finish of at most 160 KiB.
+ */
+const MAX_BODY_BYTES = 1024 * 1024;
 /** The end of the serial console a report keeps as evidence. */
 const SERIAL_TAIL_BYTES = 4096;
 const OPEN_STATES = ["issued", "pending_approval", "active", "finishing"] as const;
@@ -512,6 +517,14 @@ export type ResultOutcome =
  * `judgeBootProbe`), written as a `boot_probe` report with the fingerprints of the snapshot's
  * stage 1. A session that is still open is closed as failed: its code and access end with the
  * probe. The serial console goes into the recovery's log (redacted, within its 2 MiB).
+ *
+ * After its release the ISO has no network: it writes its finish to the console, and the lab
+ * hands it in (`recoveryFinish`, length and SHA-256 checked there). A session that is still
+ * `finishing` (released, never any other state) is finished with it first, by the API's rules
+ * (@restow/db `finishRecovery`: redacted, no warning code of the server's own, a success the
+ * verification report does not bear out stored as failed), audited with the lab as the actor; the
+ * probe is rated from the row as it is then. The end of the restore console (`restoreSerial`)
+ * goes into the log too, before the boot's.
  */
 export async function storeProbeResult(
   deps: EndpointJobDeps,
@@ -543,15 +556,46 @@ export async function storeProbeResult(
       .for("update")
       .limit(1);
     if (!current) return { status: "unknown" as const };
+    let recovery = current;
+    if (result.recoveryFinish && current.status === "finishing") {
+      const finished = await finishRecovery(tx, {
+        recovery: current,
+        finish: result.recoveryFinish,
+        actor: { label: `lab:probe:${id}`, userId: null, ip: null },
+        relayedBy: "lab",
+        now,
+        audit: (event) => appendAuditEntry(tx, event),
+      });
+      const [reread] = await tx
+        .select()
+        .from(endpointRecoveries)
+        .where(eq(endpointRecoveries.id, id))
+        .limit(1);
+      recovery = reread ?? current;
+      deps.runtime.logger.info("boot probe: the finish relayed by the lab was stored", {
+        probeId: id,
+        reported: result.recoveryFinish.status,
+        status: finished.status,
+        reason: finished.contradiction?.code ?? null,
+      });
+    } else if (result.recoveryFinish) {
+      deps.runtime.logger.warn(
+        "boot probe: a relayed finish was ignored, the session is not finishing",
+        {
+          probeId: id,
+          status: current.status,
+        },
+      );
+    }
     const judgement = judgeBootProbe(
       {
-        status: current.status,
-        verification: parseRecoveryVerification(current.verification),
-        warnings: current.warnings ?? [],
+        status: recovery.status,
+        verification: parseRecoveryVerification(recovery.verification),
+        warnings: recovery.warnings ?? [],
       },
       result,
     );
-    if ((OPEN_STATES as readonly string[]).includes(current.status)) {
+    if ((OPEN_STATES as readonly string[]).includes(recovery.status)) {
       await tx
         .update(endpointRecoveries)
         .set({ status: "failed", finishedAt: now, updatedAt: now })
@@ -583,7 +627,7 @@ export async function storeProbeResult(
           cause: judgement.cause,
           notPossible: null,
           labOutcome: result.outcome,
-          recoveryStatus: current.status,
+          recoveryStatus: recovery.status,
           firmware: result.firmware,
           controllers: result.controllers,
           kvm: result.kvm,
@@ -600,10 +644,17 @@ export async function storeProbeResult(
         },
       })
       .returning({ id: endpointReports.id });
-    // The console of the restored system beside the ISO's own lines, as far as the log has room.
+    // The end of the restore console (the ISO's log after its release) and the console of the
+    // restored system beside the ISO's own lines, as far as the log has room.
+    const restoreSerial = result.restoreSerial
+      ? redactRecoveryLogBatch(result.restoreSerial.split(/\r?\n/)).lines
+      : [];
     let room = RECOVERY_LOG_MAX_BYTES - current.logBytes;
     const kept: string[] = [];
-    for (const line of serial.map((l) => `[probe boot] ${l}`)) {
+    for (const line of [
+      ...restoreSerial.map((l) => `[probe restore] ${l}`),
+      ...serial.map((l) => `[probe boot] ${l}`),
+    ]) {
       const size = Buffer.byteLength(line, "utf8") + 1;
       if (size > room) break;
       kept.push(line);

@@ -1,3 +1,4 @@
+import { RECOVERY_FINISHED_ACTION } from "@restow/db";
 import { audit } from "../../lib/audit.js";
 import type { DbExecutor } from "../../lib/tenant-context.js";
 
@@ -46,7 +47,7 @@ export const ENDPOINT_AUDIT_ACTIONS = {
   recoveryRemoteAccessEnabled: "endpoint.recovery.remote_access_enabled",
   recoveryKeyfileRegenerated: "endpoint.recovery.keyfile_regenerated",
   recoveryReleased: "endpoint.recovery.released",
-  recoveryFinished: "endpoint.recovery.finished",
+  recoveryFinished: RECOVERY_FINISHED_ACTION,
   /** The ISO wrote to a session that had ended (9.8): the first refused call, once per session. */
   recoveryReportRefused: "endpoint.recovery.report_refused",
   /** The monitor (or a late release) ended a code or a session that ran out of time. */

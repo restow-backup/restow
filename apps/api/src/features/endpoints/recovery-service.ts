@@ -3,23 +3,19 @@ import {
   endpointPrefix,
   hashRecoveryCodeProof,
   isDevBuild,
-  isServerFinishWarningCode,
   listWithSizes,
   MIN_RECOVERY_VERSION,
   parseBasicAuthorization,
-  parseRecoveryVerification,
   RECOVERY_CREDENTIALS_RETRY_MS,
   RECOVERY_IDEMPOTENCY_MS,
   RECOVERY_LOG_MAX_BYTES,
   RECOVERY_REBIND_AFTER_FINISH_MS,
   RECOVERY_SILENCE_AFTER_EXPIRY_MS,
   recoveryMatchCode,
-  redactAgentLog,
   redactAgentMessage,
   redactRecoveryLogBatch,
   type SuccessContradiction,
   secretMatchesHash,
-  successContradiction,
 } from "@restow/core";
 import {
   auditLog,
@@ -28,11 +24,13 @@ import {
   endpointRecoveries,
   endpointRecoveryLog,
   endpoints,
+  finishRecovery,
   tenants,
 } from "@restow/db";
 import { and, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 import type { Context } from "hono";
 import { db, providerDb } from "../../db.js";
+import { audit } from "../../lib/audit.js";
 import { DeniedThrottle } from "../../lib/denied-audit.js";
 import { readSecret } from "../../lib/secrets.js";
 import { isUuid, type Transaction, withTenantTx } from "../../lib/tenant-context.js";
@@ -929,28 +927,6 @@ function redactIsoDetail(detail: Record<string, string>): Record<string, string>
 }
 
 /**
- * A value the ISO reported (the verification report), every string in it redacted line by line
- * (a command's output keeps its lines); below 32 levels the rest is kept as redacted JSON text.
- */
-export function redactIsoValue(value: unknown, depth = 0): unknown {
-  if (typeof value === "string") {
-    return redactAgentLog(value);
-  }
-  if (value === null || typeof value !== "object") {
-    return value;
-  }
-  if (depth > 32) {
-    return redactAgentLog(JSON.stringify(value));
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) => redactIsoValue(item, depth + 1));
-  }
-  return Object.fromEntries(
-    Object.entries(value).map(([key, item]) => [key, redactIsoValue(item, depth + 1)]),
-  );
-}
-
-/**
  * The end of the repository access (9.8, 10.13): `active` -> `finishing`. From now on the restic
  * route and the credentials answer 401; progress, log, events and finish stay. Asking again while
  * finishing changes nothing; a closed session answers 409.
@@ -1001,31 +977,9 @@ export interface RecoveryFinishResult {
 }
 
 /**
- * Why a finish that reports `succeeded` is not stored as one (10.17), or null: the report it
- * carries must parse as `restow-verify-v1`, hold all ten checks, none of them failed, and name a
- * whole machine backup of this machine (the code's or another one the credentials offered). The
- * report is judged as it is stored (redacted), so the state and what the page shows agree.
- */
-async function reportedSuccessContradiction(
-  tx: Transaction,
-  endpointId: string,
-  verification: Record<string, unknown>,
-): Promise<SuccessContradiction | null> {
-  const contradiction = successContradiction(verification);
-  if (contradiction) {
-    return contradiction;
-  }
-  const snapshotId = parseRecoveryVerification(verification)?.snapshotId ?? "";
-  if (!(await baremetalSnapshot(tx, endpointId, snapshotId))) {
-    return { code: "success_snapshot_unknown", checks: [] };
-  }
-  return null;
-}
-
-/**
  * The ISO's result (9.8): final, audited; a failed one is alerted. `succeeded` is the ISO's claim,
  * and it unlocks the rebind (10.19): it is stored only when the verification report bears it out
- * ({@link reportedSuccessContradiction}). Otherwise the session ends as `failed`, with the reason
+ * (@restow/db `reportedSuccessContradiction`). Otherwise the session ends as `failed`, with the reason
  * as a warning of the server's own (`SERVER_FINISH_WARNING_CODES`), in the audit entry and in the
  * alert, and the answer says so. A session that has ended already answers 409.
  */
@@ -1046,53 +1000,12 @@ export async function finishSession(
       if (row.status !== "active" && row.status !== "finishing") {
         throw stateConflict(row.status, "Only an active session can finish.");
       }
-      const verification = redactIsoValue(input.verification) as Record<string, unknown>;
-      // A code of the server's own is the server's to give: the ISO cannot report it.
-      const warnings = input.warnings
-        .map((warning) => ({
-          code: redactAgentMessage(warning.code, 64),
-          message: redactAgentMessage(warning.message, 1000),
-        }))
-        .filter((warning) => !isServerFinishWarningCode(warning.code));
-      const contradiction =
-        input.status === "succeeded"
-          ? await reportedSuccessContradiction(tx, access.endpointId, verification)
-          : null;
-      const status = contradiction ? "failed" : input.status;
-      if (contradiction) {
-        warnings.unshift({ code: contradiction.code, message: contradiction.checks.join(", ") });
-      }
-      await tx
-        .update(endpointRecoveries)
-        .set({
-          status,
-          verification,
-          warnings,
-          finishedAt: now,
-          releasedAt: row.releasedAt ?? now,
-          updatedAt: now,
-        })
-        .where(eq(endpointRecoveries.id, access.id));
-      await auditEndpoint(tx, {
-        tenantId: access.tenantId,
-        actor: recoveryActor(access.id, ip),
-        action: ENDPOINT_AUDIT_ACTIONS.recoveryFinished,
-        endpointId: access.endpointId,
-        details: {
-          recoveryId: access.id,
-          from: row.status,
-          status,
-          ...(contradiction
-            ? {
-                reported: input.status,
-                reason: contradiction.code,
-                checks: contradiction.checks,
-              }
-            : {}),
-          durationSeconds: input.durationSeconds,
-          warnings: input.warnings.length,
-          reportedBy: "iso",
-        },
+      const { status, contradiction } = await finishRecovery(tx, {
+        recovery: row,
+        finish: input,
+        actor: { label: recoveryActor(access.id, ip).label, userId: null, ip },
+        now,
+        audit: (event) => audit(tx, event),
       });
       // A failed boot probe is the worker's to rate and announce (baremetal.red), not a failed
       // recovery of the machine.

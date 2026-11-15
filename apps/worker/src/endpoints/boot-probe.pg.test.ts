@@ -11,7 +11,10 @@
  *     recovery's own report and the serial console, and closes a session that is still open;
  *   - the alarms: `baremetal.red` once per episode (with `job.failed` for every red report),
  *     `baremetal.recovered`, `baremetal.overdue` once; a probe that ran out of time raises nothing;
- *   - retention waits for a probe that reads the repository like for a person's recovery.
+ *   - retention waits for a probe that reads the repository like for a person's recovery;
+ *   - the finish a released probe relays through the lab (no network after the release) is stored
+ *     with the API's rules, only for a session that is still `finishing`, and the end of the
+ *     restore console lands in the recovery's log.
  *
  * Needs RESTOW_TEST_DATABASE_URL (a superuser; the database `restow_worker_probe_test` is
  * recreated). No restic, no lab: the ISO's part of the probe is written into the recovery row as
@@ -37,6 +40,7 @@ import {
   restoreSizeTargets,
   summarizeLayout,
   type TenantKeyring,
+  VERIFICATION_CHECK_IDS,
   webhookSubscriptionUpdate,
 } from "@restow/core";
 import {
@@ -396,6 +400,162 @@ describe.skipIf(!adminUrl)("the boot probe in the worker", () => {
       },
       `probes/${probeId}/result`,
     );
+
+  /** The ISO's part of a probe up to its release, as the API stores it. */
+  const released = (probeId: string) =>
+    owner
+      .update(endpointRecoveries)
+      .set({ status: "finishing", usedAt: clock, releasedAt: clock })
+      .where(eq(endpointRecoveries.id, probeId));
+
+  /** The finish recover writes to the console after the release (the body of a session finish). */
+  const relayedFinish = (snapshotId: string, failedCheck?: string) => ({
+    status: "succeeded",
+    verification: {
+      format: "restow-verify-v1",
+      result: failedCheck ? "failed" : "ok",
+      snapshotId,
+      planSha256: "b".repeat(64),
+      startedAt: clock.toISOString(),
+      finishedAt: clock.toISOString(),
+      restoreErrors: 0,
+      checks: VERIFICATION_CHECK_IDS.map((check) => ({
+        id: check,
+        result: check === failedCheck ? "failed" : "ok",
+        findings: [],
+        evidence: { note: check === "fstab" ? "RESTIC_PASSWORD=hunter2hunter2" : "" },
+      })),
+    },
+    warnings: [
+      // A code of the server's own: the ISO cannot report it.
+      { code: "success_checks_missing", message: "forged" },
+      { code: "restore_size_estimated", message: "estimated from the space in use" },
+    ],
+    durationSeconds: 42,
+  });
+
+  const finishAudits = (probeId: string) =>
+    owner
+      .select()
+      .from(auditLog)
+      .where(
+        and(
+          eq(auditLog.action, "endpoint.recovery.finished"),
+          sql`${auditLog.details}->>'recoveryId' = ${probeId}`,
+        ),
+      );
+
+  const leaseOne = async () => {
+    clock = new Date(clock.getTime() + MINUTE);
+    await clearProbes();
+    await labSeen(true);
+    const made = await machine();
+    await planBootProbes(deps, clock);
+    const leased = await next();
+    return { made, id: String(leased.probe?.id) };
+  };
+
+  it("stores the finish a released probe relays through the lab and rates the probe from it", async () => {
+    const { made, id } = await leaseOne();
+    await released(id);
+    const response = await result(id, {
+      recoveryFinish: relayedFinish(made.snapshotId),
+      restoreSerial:
+        "grub-install: Installation finished. No error reported.\nRESTOW-PROBE-FINISH-BEGIN 1234 " +
+        `${"a".repeat(64)} (relayed to the server, body left out)\nexport RESTIC_PASSWORD=hunter2hunter2\nRESTOW-RECOVER-RESULT succeeded`,
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ readiness: "green" });
+    const [row] = await probesOf(made.id);
+    expect(row?.status).toBe("succeeded");
+    expect(row?.finishedAt).not.toBeNull();
+    expect(row?.verification).toMatchObject({
+      format: "restow-verify-v1",
+      snapshotId: made.snapshotId,
+    });
+    expect(JSON.stringify(row?.verification)).not.toContain("hunter2hunter2");
+    expect(row?.warnings).toEqual([
+      { code: "restore_size_estimated", message: "estimated from the space in use" },
+    ]);
+    const [report] = await probeReportsOf(made.id);
+    expect(report?.summary).toMatchObject({
+      recoveryStatus: "succeeded",
+      cause: { kind: "booted", kernel: "6.1.0-27-amd64" },
+    });
+    const [audit] = await finishAudits(id);
+    expect(audit).toMatchObject({ actor: `lab:probe:${id}`, target: made.id });
+    expect(audit?.details).toMatchObject({
+      recoveryId: id,
+      from: "finishing",
+      status: "succeeded",
+      reportedBy: "iso",
+      relayedBy: "lab",
+      durationSeconds: 42,
+    });
+    // The end of the restore console beside the ISO's own lines, before the boot's, redacted.
+    const log = (
+      await owner.select().from(endpointRecoveryLog).where(eq(endpointRecoveryLog.recoveryId, id))
+    )
+      .map((entry) => entry.lines)
+      .join("\n");
+    expect(log).toContain("[probe restore] grub-install: Installation finished.");
+    expect(log).toContain("[probe restore] RESTOW-RECOVER-RESULT succeeded");
+    expect(log.indexOf("[probe restore]")).toBeLessThan(log.indexOf("[probe boot]"));
+    expect(log).not.toContain("hunter2hunter2");
+  });
+
+  it("stores a relayed success its verification report does not bear out as failed, and rates it red", async () => {
+    const { made, id } = await leaseOne();
+    await released(id);
+    const response = await result(id, {
+      outcome: "booted",
+      recoveryFinish: relayedFinish(made.snapshotId, "fstab"),
+    });
+    expect(response.status).toBe(200);
+    const [row] = await probesOf(made.id);
+    expect(row?.status).toBe("failed");
+    expect(row?.warnings?.[0]).toEqual({ code: "success_checks_failed", message: "fstab" });
+    expect(row?.warnings?.map((w) => w.code)).not.toContain("success_checks_missing");
+    const [report] = await probeReportsOf(made.id);
+    expect(report?.readiness).toBe("red");
+    expect(report?.summary).toMatchObject({
+      recoveryStatus: "failed",
+      cause: { kind: "verification_failed", checks: ["fstab"] },
+    });
+    const [audit] = await finishAudits(id);
+    expect(audit?.details).toMatchObject({
+      status: "failed",
+      reported: "succeeded",
+      reason: "success_checks_failed",
+      relayedBy: "lab",
+    });
+  });
+
+  it("ignores a relayed finish for a session that is not finishing", async () => {
+    // Not released (still active): the lab cannot know the finish, the session ends as failed.
+    let { made, id } = await leaseOne();
+    await owner
+      .update(endpointRecoveries)
+      .set({ status: "active", usedAt: clock })
+      .where(eq(endpointRecoveries.id, id));
+    expect((await result(id, { recoveryFinish: relayedFinish(made.snapshotId) })).status).toBe(200);
+    let [row] = await probesOf(made.id);
+    expect(row?.status).toBe("failed");
+    expect(row?.verification).toBeNull();
+    expect((await probeReportsOf(made.id))[0]?.readiness).toBe("yellow");
+    expect(await finishAudits(id)).toHaveLength(0);
+
+    // Finished already (the session heard it): the stored end stays.
+    ({ made, id } = await leaseOne());
+    await recovered(id, "failed", ["storage_driver_missing"]);
+    expect((await result(id, { recoveryFinish: relayedFinish(made.snapshotId) })).status).toBe(200);
+    [row] = await probesOf(made.id);
+    expect(row?.status).toBe("failed");
+    expect(row?.warnings).toEqual([
+      { code: "storage_driver_missing", message: "storage_driver_missing" },
+    ]);
+    expect(await finishAudits(id)).toHaveLength(0);
+  });
 
   it("plans one probe for a machine with a green stage 1 while a lab with KVM asks, none without", async () => {
     clock = new Date();

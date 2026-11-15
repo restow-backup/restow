@@ -304,3 +304,43 @@ func TestRecoverSnapshotOfTheCodeIsGone(t *testing.T) {
 		u.nothingWritten("a code whose backup is gone")
 	}
 }
+
+// A released probe reports its finish over the console, not to the
+// instance (the lab has taken the network away, 12.3); before the release,
+// and outside a probe, the finish goes to the instance and no block is
+// written.
+func TestRecoverFinishOfAReleasedProbe(t *testing.T) {
+	ctx := context.Background()
+	for _, relayed := range []bool{true, false} {
+		f, s := activeSession(t)
+		before, _ := f.calls()
+		ui, out := newTestUI("")
+		r := &Recover{UI: ui, Env: &testEnv{t: t}, Log: &LogBuffer{}, session: s, probeRelayed: relayed}
+		r.Log.Add("a line after the release")
+		w := []api.RecoveryWarning{{Code: "verify_failed", Message: "fstab"}}
+		stored, reason := r.finish(ctx, api.RecoveryFailed, api.RecoveryVerification{}, w)
+		if stored != api.RecoveryFailed || reason != "" {
+			t.Errorf("relayed %v: stored %q %q", relayed, stored, reason)
+		}
+		after, _ := f.calls()
+		f.mu.Lock()
+		fin := f.finish
+		f.mu.Unlock()
+		block, _ := probeFinishOf(t, out.String())
+		if relayed {
+			if after != before || fin != nil {
+				t.Errorf("a released probe sent %d requests (finish %+v)", after-before, fin)
+			}
+			if block == nil || block.Status != api.RecoveryFailed || len(block.Warnings) != 1 || block.Warnings[0].Code != "verify_failed" {
+				t.Errorf("block %+v\n%s", block, out.String())
+			}
+			continue
+		}
+		if fin == nil || fin.Status != api.RecoveryFailed {
+			t.Errorf("finish to the instance: %+v", fin)
+		}
+		if block != nil || strings.Contains(out.String(), ProbeFinishBegin) {
+			t.Errorf("a block outside a released probe:\n%s", out.String())
+		}
+	}
+}

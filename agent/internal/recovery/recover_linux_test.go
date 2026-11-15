@@ -402,10 +402,23 @@ func TestRecoverProbeFlow(t *testing.T) {
 	}
 	f, env, console, _ := run("/home")
 	f.mu.Lock()
-	fin, rebind := f.finish, f.rebind
+	sent, rebind := f.finish, f.rebind
 	f.mu.Unlock()
+	// After the release the network is gone: the finish goes to the lab
+	// over the console, before the result line, and not to the instance.
+	if sent != nil {
+		t.Errorf("a released probe sent its finish to the instance: %+v", sent)
+	}
+	fin, _ := probeFinishOf(t, console)
 	if fin == nil || fin.Status != api.RecoverySucceeded {
-		t.Fatalf("finish %+v\n%s", fin, console)
+		t.Fatalf("finish block %+v\n%s", fin, console)
+	}
+	if strings.LastIndex(console, ProbeFinishEnd) > strings.LastIndex(console, "RESTOW-RECOVER-RESULT succeeded") {
+		t.Error("the finish block comes after the result line")
+	}
+	var v api.RecoveryVerification
+	if err := json.Unmarshal(fin.Verification, &v); err != nil || v.Format != api.RecoveryVerificationFormat || len(v.Checks) != 10 {
+		t.Errorf("verification of the block %s: %v", fin.Verification, err)
 	}
 	if _, err := os.Stat(filepath.Join(env.target, "home/alice/notes.txt")); err == nil {
 		t.Error("the probe restored /home, which it was to leave empty")
@@ -433,7 +446,9 @@ func TestRecoverProbeFlow(t *testing.T) {
 	f.mu.Lock()
 	fin = f.finish
 	f.mu.Unlock()
-	if fin == nil || fin.Status != api.RecoveryFailed {
+	// Before the release the network is there: the finish goes to the
+	// instance.
+	if fin == nil || fin.Status != api.RecoveryFailed || strings.Contains(console, ProbeFinishBegin) {
 		t.Errorf("a probe that would leave /boot empty: finish %+v\n%s", fin, console)
 	}
 	if strings.Contains(exe.lines(), "luksFormat") || strings.Contains(exe.lines(), "sgdisk") {

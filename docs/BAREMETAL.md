@@ -2937,13 +2937,15 @@ nicht zur Übernahme aller Mandanten werden. Darum:
   `GET /internal/lab/iso/:sha256` liefert das geprüfte ISO, `POST
   /internal/lab/probes/:id/event` meldet Phasen (die Antwort sagt, ob das Labor weitermachen
   soll), `POST /internal/lab/probes/:id/result` das Ergebnis mit der seriellen Ausgabe des
-  wiederhergestellten Systems (höchstens 64 KiB), einmal und nur für eine übernommene Probe.
+  wiederhergestellten Systems (höchstens 64 KiB), nach der Freigabe dazu dem Ende der Konsole
+  der Restore-VM (`restoreSerial`, höchstens 64 KiB) und dem über die Konsole weitergereichten
+  `finish` des ISO (`recoveryFinish`, siehe unten), einmal und nur für eine übernommene Probe.
 - **Abweichung vom ersten Entwurf (Entscheidung des Maintainers, M5):** Die Probe läuft über
   den echten Ablauf einer Wiederherstellung, nicht über einen eigenen Probe-Listener. Das ISO
   in der VM tauscht den Code selbst ein (Sitzung ohne Freigabe, Audit
   `endpoint.boot_probe.started`, kein Sicherheitsereignis), holt die Zugangsdaten, liest über
   die Route `reader` der Recovery-API, gibt den Zugriff frei und meldet mit `finish` seinen
-  eigenen Prüfbericht. Die Sitzung hält die Sperre gegen Prune wie jede Wiederherstellung
+  eigenen Prüfbericht (nach der Freigabe über das Labor, siehe unten). Die Sitzung hält die Sperre gegen Prune wie jede Wiederherstellung
   (9.7). Bewiesen ist damit der Weg eines Kunden, nicht ein Weg nur für die Probe.
 - Das **Labor** (`restow-recovery-lab`, eigenes Image, Compose-Profil `recovery-lab`) ist
   nicht das Worker-Image: Node mit nur dem Labor-Bündel (`apps/worker/src/lab.ts` und
@@ -3019,6 +3021,32 @@ Treiberfehler auffallen):
   und das Labor entfernt das Netz der VM (`set_link off`, `netdev_del` über QMP). `recover` wartet im
   Probemodus nach `release`, bis keine Schnittstelle außer `lo` mehr Link hat (höchstens
   60 s), bevor die Schritte aus 10.14 beginnen.
+- **Abweichung vom ersten Entwurf (Entscheidung des Maintainers, M5): Das Ergebnis reicht das
+  Labor über die Konsole weiter, das Netz bleibt getrennt.** Nach der Freigabe erreicht
+  `recover` die Instanz nicht mehr; ein `finish` über die Sitzung bliebe aus, die Sitzung
+  stünde für immer auf `finishing`, und jede Probe endete als unvollständig
+  (`recovery_finishing`). Darum sendet `recover` im Probemodus nach der Freigabe nichts mehr
+  an die Instanz (weder Protokoll noch `finish`), sondern schreibt den Abschluss vor der Zeile
+  `RESTOW-RECOVER-RESULT` als Block auf die Konsole, die unter QEMU mit `fw_cfg` auf `ttyS0`
+  gespiegelt wird: `RESTOW-PROBE-FINISH-BEGIN <Länge in Bytes> <SHA-256 hex>`, danach das
+  JSON in Base64 in Zeilen von höchstens 76 Zeichen, dann `RESTOW-PROBE-FINISH-END`. Das JSON
+  ist genau der Körper, den `Session.Finish` senden würde (gleiche Schwärzung und Grenzen,
+  derselbe Code), zusätzlich auf 160 KiB begrenzt (Warnungen fallen vom Ende weg). Endet die
+  Restore-VM nach `released` (oder läuft sie danach in die Zeitgrenze), nimmt das Labor den
+  **letzten vollständigen** Block, prüft Länge und SHA-256, dekodiert ihn und liest das JSON
+  mit derselben Obergrenze; es schickt ihn als `recoveryFinish` mit dem Ergebnis, dazu das Ende
+  der Konsole ohne Tastaturbelegung und ohne den Base64-Körper als `restoreSerial`. Ein
+  fehlender oder kaputter Block ist kein Fehler: Das Feld fehlt, und das Protokoll des Labors
+  nennt den Grund. Der Worker prüft `recoveryFinish` mit demselben Schema wie die API
+  (`recoveryFinishSchema`, `@restow/core`) und wendet es in der Transaktion des Ergebnisses
+  nur an, wenn die Sitzung noch `finishing` ist, nie in einem anderen Zustand, mit denselben
+  Regeln wie `finish` der API (`finishRecovery`, `@restow/db`: geschwärzt, keine Codes des
+  Servers, ein `succeeded` ohne tragenden Prüfbericht wird `failed`), Audit
+  `endpoint.recovery.finished` mit dem Labor als Akteur (`lab:probe:<id>`, `relayedBy: lab`);
+  danach bewertet er die Probe. `restoreSerial` landet geschwärzt im Protokoll der
+  Wiederherstellung (Präfix `[probe restore]`, vor `[probe boot]`). Ein eigener Netzweg nur
+  für den Abschluss hätte die Trennung des Netzes vor den Programmen des wiederhergestellten
+  Systems aufgeweicht.
 - **Start der wiederhergestellten Platten:** zweite QEMU-Maschine nur mit den Zielplatten,
   gleiche Firmware und dieselbe `OVMF_VARS`-Datei, kein Netz, kein `fw_cfg` mit Antworten,
   nur serielle Konsole und VGA. Damit das Ergebnis lesbar ist, ändert `recover` im
@@ -3031,8 +3059,8 @@ Treiberfehler auffallen):
   passphrase`, `Enter passphrase for`); die GRUB-cryptodisk-Abfrage (verschlüsseltes
   `/boot`, E7) erscheint nur auf dem VGA-Terminal, dort tippt das Labor über QMP `send-key`.
   Erfolg: die Zeile `RESTOW-PROBE-OK` innerhalb von 10 Minuten (KVM). Belege: Protokoll von
-  `recover` (über die Sitzung) und die serielle Ausgabe (im Protokoll der Probe, ihr Ende am
-  Bericht). Ein Bild des VGA-Schirms gibt es in 0.5.0 nicht: Ein Fehler, der nur dort
+  `recover` (über die Sitzung bis zur Freigabe, danach das Ende der Restore-Konsole) und die
+  serielle Ausgabe (im Protokoll der Probe, ihr Ende am Bericht). Ein Bild des VGA-Schirms gibt es in 0.5.0 nicht: Ein Fehler, der nur dort
   sichtbar ist (Firmware, GRUB), endet als unvollständig und wird wiederholt, nie grün.
 - **Wann:** sofort, wenn sich `layoutFingerprint` oder `bootChainFingerprint` gegenüber der
   letzten bestandenen Probe ändern; sonst wöchentlich für den neuesten Bare-Metal-Snapshot;

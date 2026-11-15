@@ -5,6 +5,7 @@
  * a full disk, a changed ISO and a probe the server ended become their outcomes; the probe's
  * folder is always removed and the answers (code, passphrase) never reach the disk.
  */
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -13,9 +14,38 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { LabClient, LeasedProbe, ProbePhase } from "./client.js";
 import type { Machine } from "./qemu.js";
 import { euiOf, probeDisks, runProbe, type Vm, type VmDriver, withoutKeymap } from "./runner.js";
-import { firstFailure, passphrasePrompts, recoverFailures } from "./serial.js";
+import {
+  firstFailure,
+  MAX_FINISH_BYTES,
+  passphrasePrompts,
+  probeFinishOf,
+  recoverFailures,
+  withoutFinishBlocks,
+} from "./serial.js";
 
 const ID = "0f6c1a1c-4c6f-4bd4-9d0d-1a2b3c4d5e6f";
+
+/** A finish block as recover writes it (agent/internal/recovery/probe.go ProbeFinishBlock). */
+function finishBlock(
+  finish: unknown,
+  change: { sha256?: string; length?: number; json?: string } = {},
+): string {
+  const payload = Buffer.from(change.json ?? JSON.stringify(finish), "utf8");
+  const encoded = payload.toString("base64");
+  const lines = [
+    `RESTOW-PROBE-FINISH-BEGIN ${change.length ?? payload.length} ${change.sha256 ?? createHash("sha256").update(payload).digest("hex")}`,
+  ];
+  for (let i = 0; i < encoded.length; i += 76) lines.push(encoded.slice(i, i + 76));
+  lines.push("RESTOW-PROBE-FINISH-END");
+  return `${lines.join("\n")}\n`;
+}
+
+const FINISH = {
+  status: "succeeded",
+  verification: { format: "restow-verify-v1", result: "ok", note: "x".repeat(300) },
+  warnings: [{ code: "restore_size_estimated", message: "estimated" }],
+  durationSeconds: 42,
+};
 const SHA = "e".repeat(64);
 
 function lease(change: Partial<LeasedProbe> = {}): LeasedProbe {
@@ -356,6 +386,137 @@ describe("a boot probe in the lab", () => {
     const [nvme] = probeDisks(probe, "/x");
     expect(nvme).toMatchObject({ bus: "nvme", eui64: euiOf("RESTOWPROBE0") });
     expect(euiOf("RESTOWPROBE0")).toMatch(/^02[0-9a-f]{14}$/);
+  });
+});
+
+describe("the finish recover relays over the console", () => {
+  it("takes the last complete block whose length and SHA-256 match, and nothing else", () => {
+    const block = finishBlock(FINISH);
+    expect(block.split("\n").every((line) => line.length <= 76 || line.startsWith("RESTOW"))).toBe(
+      true,
+    );
+    expect(block.split("\n").length).toBeGreaterThan(5);
+    const valid = probeFinishOf(`recover: step 9\r\n${block}The recovery is complete.\n`);
+    expect(valid).toMatchObject({ ok: true, finish: FINISH });
+    // The last block wins, also over an earlier valid one; one cut short after it does not count.
+    const later = { ...FINISH, status: "failed", warnings: [] };
+    expect(probeFinishOf(block + finishBlock(later))).toMatchObject({ ok: true, finish: later });
+    const cut = finishBlock(later).split("\n").slice(0, 3).join("\n");
+    expect(probeFinishOf(block + cut)).toMatchObject({ ok: true, finish: FINISH });
+
+    expect(probeFinishOf("RESTOW-PROBE phase=released\n")).toEqual({
+      ok: false,
+      reason: "missing",
+    });
+    expect(probeFinishOf(cut)).toEqual({ ok: false, reason: "incomplete" });
+    expect(probeFinishOf(finishBlock(FINISH, { sha256: "0".repeat(64) }))).toEqual({
+      ok: false,
+      reason: "mismatch",
+    });
+    // A wrong length: the base64 does not fit it.
+    expect(probeFinishOf(finishBlock(FINISH, { length: 10 })).ok).toBe(false);
+    const big = { ...FINISH, verification: { note: "y".repeat(MAX_FINISH_BYTES) } };
+    expect(probeFinishOf(finishBlock(big))).toEqual({ ok: false, reason: "too_large" });
+    expect(probeFinishOf(finishBlock(null, { json: "[1,2]" }))).toEqual({
+      ok: false,
+      reason: "invalid",
+    });
+    expect(probeFinishOf(finishBlock(null, { json: "{not json" }))).toEqual({
+      ok: false,
+      reason: "invalid",
+    });
+    // A changed character in the body.
+    const tampered = block.replace(
+      /\n([A-Za-z0-9+/])/,
+      (_m, c: string) => `\n${c === "A" ? "B" : "A"}`,
+    );
+    expect(probeFinishOf(tampered).ok).toBe(false);
+  });
+
+  it("leaves the base64 out of the console the worker keeps", () => {
+    const text = `before\n${finishBlock(FINISH)}after\n`;
+    const kept = withoutFinishBlocks(text);
+    expect(kept).toContain("before");
+    expect(kept).toContain("after");
+    expect(kept).toMatch(/RESTOW-PROBE-FINISH-BEGIN \d+ [0-9a-f]{64} \(relayed/);
+    expect(kept).not.toContain(Buffer.from(JSON.stringify(FINISH)).toString("base64").slice(0, 40));
+    // A block cut short ends at the first line that is no base64.
+    const cut = finishBlock(FINISH).split("\n").slice(0, 3).join("\n");
+    expect(withoutFinishBlocks(`${cut}\nRESTOW-RECOVER-RESULT succeeded`)).toContain(
+      "RESTOW-RECOVER-RESULT succeeded",
+    );
+  });
+
+  it("hands the finish and the end of the restore console to the worker after the release", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "restow-lab-"));
+    const lines: { message: string; fields?: Record<string, unknown> }[] = [];
+    const run = async (restoreConsole: string) => {
+      const restore = scriptedVm(["restoring", restoreConsole], { exitOnCut: true });
+      const boot = scriptedVm(["RESTOW-PROBE-OK 0f6c1a1c-4c6f-4bd4-9d0d-1a2b3c4d5e6f 6.1.0\n"]);
+      const vms = [restore.vm, boot.vm];
+      const d: VmDriver = {
+        createDisks: async () => {},
+        createVars: async (file) => {
+          await writeFile(file, "vars");
+        },
+        start: async () => vms.shift() as Vm,
+      };
+      return runProbe(
+        {
+          client: {
+            next: async () => ({ probe: null, reason: "none" }),
+            event: async () => ({ go: true }),
+            result: async () => {},
+            downloadIso: async (_sha, file) => {
+              await writeFile(file, "ISO");
+            },
+          },
+          driver: d,
+          dir,
+          labVersion: "0.5.0",
+          kvm: true,
+          tlsUpstream: "127.0.0.1:1",
+          pollMs: 1,
+          now: (() => {
+            let clock = 0;
+            return () => (clock += 1000);
+          })(),
+          freeBytes: async () => 100 * 1024 ** 3,
+          sha256File: async () => SHA,
+          log: (message: string, fields?: Record<string, unknown>) =>
+            lines.push({ message, fields }),
+        },
+        lease(),
+      );
+    };
+    try {
+      const released = "RESTOW-PROBE phase=released\n";
+      const keymap = "2026-11-14T22:31:50Z   keycode 71 = KP_7 KP_7 Hex_7 KP_7 Ascii_7\n";
+      const good = await run(
+        `${released}${keymap}grub-install: done\n${finishBlock(FINISH)}RESTOW-RECOVER-RESULT succeeded\n`,
+      );
+      expect(good.outcome).toBe("booted");
+      expect(good.recoveryFinish).toEqual(FINISH);
+      expect(good.restoreSerial).toContain("grub-install: done");
+      expect(good.restoreSerial).toContain("RESTOW-RECOVER-RESULT succeeded");
+      expect(good.restoreSerial).not.toContain("keycode 71");
+      expect(good.restoreSerial).not.toContain(
+        Buffer.from(JSON.stringify(FINISH)).toString("base64").slice(0, 40),
+      );
+
+      const broken = await run(
+        `${released}${finishBlock(FINISH, { sha256: "0".repeat(64) })}RESTOW-RECOVER-RESULT succeeded\n`,
+      );
+      expect(broken.outcome).toBe("booted");
+      expect(broken).not.toHaveProperty("recoveryFinish");
+      expect(broken.restoreSerial).toContain("RESTOW-RECOVER-RESULT succeeded");
+      expect(lines).toContainEqual({
+        message: "the restore console holds no usable finish",
+        fields: { probeId: ID, reason: "mismatch" },
+      });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
 

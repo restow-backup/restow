@@ -1,6 +1,7 @@
 export * from "./canonical.js";
 export * from "./check.js";
 export * from "./fingerprint.js";
+export * from "./finish.js";
 export * from "./hardware.js";
 export * from "./instance-tls.js";
 export * from "./manifest.js";

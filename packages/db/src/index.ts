@@ -58,6 +58,8 @@ export * from "./pool-size.js";
 export * from "./recorded-snapshots.js";
 // The recovery session that keeps retention and removal away from an endpoint repository.
 export * from "./recovery.js";
+// The end of a recovery as the API (the ISO) and the worker (a probe through the lab) store it.
+export * from "./recovery-finish.js";
 // Raising events for the bell, the rules and the provider's recipients (0.5.0).
 export * from "./report-events.js";
 export * from "./repository-lock.js";

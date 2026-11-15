@@ -15,6 +15,8 @@ import {
   parseCapabilities,
   parseWindowsFacts,
   RECOVERY_LOG_MAX_LINES,
+  type RecoveryFinishInput,
+  recoveryFinishSchema,
   sqlNewNameIssue,
 } from "@restow/core";
 import { z } from "zod";
@@ -640,21 +642,8 @@ export const recoveryEventSchema = z.object({
     .refine((detail) => JSON.stringify(detail).length <= 4096, "detail larger than 4 KiB"),
 });
 
-export const recoveryFinishSchema = z.object({
-  status: z.enum(["succeeded", "failed", "cancelled"]),
-  verification: z
-    .record(z.string(), z.unknown())
-    .default({})
-    .refine(
-      (value) => JSON.stringify(value).length <= 64 * 1024,
-      "verification larger than 64 KiB",
-    ),
-  warnings: z
-    .array(z.object({ code: isoText(64), message: isoText(1000) }))
-    .max(200)
-    .default([]),
-  durationSeconds: count.default(0),
-});
+/** The finish of the ISO (9.8): one schema with the worker, which stores a probe's relayed finish. */
+export { recoveryFinishSchema };
 
 /** POST /agent/v1/recovery/sessions/current/rebind (10.19): the enroll facts of the restored system. */
 export const recoveryRebindSchema = z.object({
@@ -804,10 +793,9 @@ export type ProgressInput = z.infer<typeof progressSchema>;
 export type StartRunInput = z.infer<typeof startRunSchema>;
 export type RecoveryExchangeInput = z.infer<typeof recoveryExchangeSchema>;
 export type RecoveryProgressInput = z.infer<typeof recoveryProgressSchema>;
-export type RecoveryFinishInput = z.infer<typeof recoveryFinishSchema>;
 export type RecoveryEventInput = z.infer<typeof recoveryEventSchema>;
 export type RecoveryRebindInput = z.infer<typeof recoveryRebindSchema>;
 export type IssueRecoveryCodeInput = z.infer<typeof issueRecoveryCodeSchema>;
 export type CreateRebindTokenInput = z.infer<typeof createRebindTokenSchema>;
-export type { EndpointOsName };
+export type { EndpointOsName, RecoveryFinishInput };
 export { MAX_ERRORS };

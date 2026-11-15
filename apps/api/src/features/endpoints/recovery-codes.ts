@@ -13,6 +13,7 @@ import {
   spkiCheckOf,
 } from "@restow/core";
 import {
+  baremetalBackupRunsWhere,
   type Database,
   type Endpoint,
   type EndpointRecovery,
@@ -26,7 +27,7 @@ import {
   endpoints,
   user,
 } from "@restow/db";
-import { and, asc, desc, eq, gt, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, sql } from "drizzle-orm";
 import { config as appConfig } from "../../config.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
@@ -328,16 +329,7 @@ async function loadBaremetalSnapshots(
     })
     .from(endpointRuns)
     .innerJoin(endpointLayouts, eq(endpointLayouts.id, endpointRuns.layoutId))
-    .where(
-      and(
-        eq(endpointRuns.endpointId, endpointId),
-        eq(endpointRuns.kind, "backup"),
-        inArray(endpointRuns.status, ["succeeded", "partial"]),
-        snapshotId === null
-          ? isNotNull(endpointRuns.snapshotId)
-          : eq(endpointRuns.snapshotId, snapshotId),
-      ),
-    )
+    .where(baremetalBackupRunsWhere(endpointId, snapshotId))
     .orderBy(desc(endpointRuns.startedAt))
     .limit(snapshotId === null ? 50 : 1);
   const ids = runs.map((run) => run.snapshotId as string);

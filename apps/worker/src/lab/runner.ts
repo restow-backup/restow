@@ -9,7 +9,8 @@
  *      probe's disks: qcow2 encrypted with LUKS, with a random key only this process holds;
  *   4. the restore: the ISO with the answers through fw_cfg (the file is removed once QEMU read
  *      it), the network through the CONNECT proxy only; on `RESTOW-PROBE phase=released` the lab
- *      takes the network away; the VM powers itself off;
+ *      takes the network away; the VM powers itself off; the finish recover then wrote to the
+ *      console and the end of the console go to the worker with the result ({@link restoreEvidence});
  *   5. the boot of the restored disks: same firmware and variable store, no network; the lab
  *      types the probe's passphrase where a prompt asks for it; `RESTOW-PROBE-OK` ends it;
  *   6. always: both VMs stopped, the proxy closed, the probe's folder (disks, store, logs)
@@ -34,8 +35,10 @@ import {
   MAX_RECOVER_FAILURES,
   OK_LINE,
   passphrasePrompts,
+  probeFinishOf,
   RELEASED_LINE,
   recoverFailures,
+  withoutFinishBlocks,
 } from "./serial.js";
 
 /** The guest address of the proxy, as the answers name it (`network.proxy`). */
@@ -160,6 +163,26 @@ export function withoutKeymap(text: string): string {
         !/^(?:\S*\s+)?(?:(?:Scroll_Lock|Show_\w+|VoidSymbol|nul)\s*)+$/.test(line),
     )
     .join("\n");
+}
+
+/**
+ * What the restore console holds once the ISO released its access: recover's finish (the last
+ * complete block whose length and SHA-256 match; it could not reach the server without network)
+ * and the end of the console without the keymap and the finish's base64. A missing or broken block
+ * is no error: the finish is left out, and the log says why.
+ */
+export function restoreEvidence(
+  text: string,
+  log: (message: string, fields?: Record<string, unknown>) => void,
+  probeId: string,
+): Pick<ProbeResult, "restoreSerial" | "recoveryFinish"> {
+  const restoreSerial = serialTail(withoutKeymap(withoutFinishBlocks(text)));
+  const block = probeFinishOf(text);
+  if (!block.ok) {
+    log("the restore console holds no usable finish", { probeId, reason: block.reason });
+    return { restoreSerial };
+  }
+  return { restoreSerial, recoveryFinish: block.finish };
 }
 
 /** Run one leased probe; answers the result for the worker (never throws). */
@@ -324,6 +347,7 @@ export async function runProbe(deps: RunnerDeps, probe: LeasedProbe): Promise<Pr
       await sleep(poll);
     }
     base.restoreMs = Math.max(0, now() - restoreStart);
+    if (released) Object.assign(base, restoreEvidence(restore.serial(), log, probe.id));
     if (exitCode === null) {
       const restoreConsole = restore.serial();
       log("restore VM did not end in time", {

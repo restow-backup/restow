@@ -52,6 +52,12 @@ export interface ProbeResult {
   restoreMs: number | null;
   bootMs: number | null;
   labVersion: string;
+  /**
+   * After the release: the end of the restore VM's console (recover's log no longer reaches the
+   * server), and the finish recover wrote to it (`RESTOW-PROBE-FINISH-BEGIN`, checked here).
+   */
+  restoreSerial?: string;
+  recoveryFinish?: Record<string, unknown>;
 }
 
 export interface LabClient {

@@ -3,7 +3,12 @@ package recovery
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path"
@@ -21,7 +26,10 @@ import (
 // probe mode it changes three things on the restored copy so that its start
 // can be read on the serial console, writes RESTOW-PROBE phase=released
 // once the repository access has ended, and waits for the lab to take the
-// network away before the programs of the restored system run.
+// network away before the programs of the restored system run. The finish
+// can then no longer reach the instance: recover writes it to the console
+// as a framed block (ProbeFinishBlock), and the lab hands it to the worker
+// with its result.
 
 // ProbeReleasedLine tells the lab that the repository access ended.
 const ProbeReleasedLine = "RESTOW-PROBE phase=released"
@@ -156,8 +164,11 @@ func waitNoLink(ctx context.Context, sysClassNet string, wait, poll time.Duratio
 
 // probeReleased runs when the repository access of a probe ended: the lab
 // reads the line and takes the VM's network away; recover waits for that
-// before the first program of the restored system.
+// before the first program of the restored system. From here nothing more
+// goes to the instance: the log stays on the console, the finish is relayed
+// by the lab (relayFinish).
 func (r *Recover) probeReleased(ctx context.Context) {
+	r.probeRelayed = true
 	r.UI.Line(ProbeReleasedLine)
 	sys := r.SysClassNet
 	if sys == "" {
@@ -165,5 +176,55 @@ func (r *Recover) probeReleased(ctx context.Context) {
 	}
 	if up := waitNoLink(ctx, sys, ProbeLinkWait, time.Second); len(up) > 0 {
 		r.logf("probe: the lab did not take the network away within %s (still up: %s); the programs of the restored system run isolated anyway", ProbeLinkWait, strings.Join(up, ", "))
+	}
+}
+
+// The frame of the finish a probe relays through the lab (docs/BAREMETAL.md
+// 12.3): ProbeFinishBegin with the byte length and the SHA-256 (hex) of the
+// JSON, the JSON in base64 in lines of at most ProbeFinishLineLen
+// characters, then ProbeFinishEnd. The lab takes the last complete block
+// whose length and digest match.
+const (
+	ProbeFinishBegin   = "RESTOW-PROBE-FINISH-BEGIN"
+	ProbeFinishEnd     = "RESTOW-PROBE-FINISH-END"
+	ProbeFinishLineLen = 76
+	// ProbeFinishMaxBody bounds the relayed JSON (the lab takes no more):
+	// warnings are dropped from the end as for the instance's limit.
+	ProbeFinishMaxBody = 160 << 10
+)
+
+// ProbeFinishBlock is the finish as the lines of its console block: the
+// body Session.Finish would send (finishBody: redacted, within the limits),
+// bounded by ProbeFinishMaxBody.
+func ProbeFinishBlock(f api.RecoveryFinish) ([]string, error) {
+	payload, err := json.Marshal(finishBody(f, ProbeFinishMaxBody))
+	if err != nil {
+		return nil, err
+	}
+	sum := sha256.Sum256(payload)
+	enc := base64.StdEncoding.EncodeToString(payload)
+	lines := make([]string, 0, len(enc)/ProbeFinishLineLen+3)
+	lines = append(lines, fmt.Sprintf("%s %d %s", ProbeFinishBegin, len(payload), hex.EncodeToString(sum[:])))
+	for len(enc) > ProbeFinishLineLen {
+		lines = append(lines, enc[:ProbeFinishLineLen])
+		enc = enc[ProbeFinishLineLen:]
+	}
+	if enc != "" {
+		lines = append(lines, enc)
+	}
+	return append(lines, ProbeFinishEnd), nil
+}
+
+// relayFinish writes the finish of a released probe to the console: the
+// lab took the network away, the lab hands the block to the worker.
+func (r *Recover) relayFinish(f api.RecoveryFinish) {
+	lines, err := ProbeFinishBlock(f)
+	if err != nil {
+		r.logf("probe: the finish cannot be encoded: %v", err)
+		return
+	}
+	r.logf("probe: the finish (%s) goes to the lab over the console", f.Status)
+	for _, l := range lines {
+		r.UI.Line(l)
 	}
 }

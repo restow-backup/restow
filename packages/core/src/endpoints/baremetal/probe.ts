@@ -15,6 +15,7 @@
  */
 import { z } from "zod";
 import { noControlChars } from "./canonical.js";
+import { recoveryFinishSchema } from "./finish.js";
 import type { LinuxLayoutManifest } from "./manifest.js";
 import type { PlanProblemCode, RestoreSize } from "./plan.js";
 import type { RecoverProblemCode, RecoveryVerification } from "./verification.js";
@@ -393,13 +394,33 @@ const MS = z
   .min(0)
   .max(24 * HOUR_MS);
 
+/** The largest finish a probe relays through the lab (its JSON; the ISO keeps within it). */
+export const LAB_FINISH_MAX_BYTES = 160 * 1024;
+
+/** The largest console text a lab result carries (the boot's, the restore's). */
+export const LAB_SERIAL_MAX = 64 * 1024;
+
 export const labResultSchema = z.strictObject({
   outcome: z.enum(LAB_RESULT_OUTCOMES),
   /** The serial console of the restored system (its tail), when it was booted. */
-  bootSerial: z
-    .string()
-    .max(64 * 1024)
-    .default(""),
+  bootSerial: z.string().max(LAB_SERIAL_MAX).default(""),
+  /**
+   * The end of the restore VM's console (keymap noise removed): recover's own log reaches the
+   * server only up to the release, the rest of it is here.
+   */
+  restoreSerial: z.string().max(LAB_SERIAL_MAX).optional(),
+  /**
+   * The finish the ISO wrote to the console after the release (`RESTOW-PROBE-FINISH-BEGIN` ...
+   * `-END`, length and SHA-256 checked by the lab): the body the ISO would have sent to the session,
+   * which has no network any more. The worker stores it with the API's rules, only for a session
+   * that is still `finishing`.
+   */
+  recoveryFinish: recoveryFinishSchema
+    .refine(
+      (value) => JSON.stringify(value).length <= LAB_FINISH_MAX_BYTES,
+      "finish larger than 160 KiB",
+    )
+    .optional(),
   /** For `lab_error`: a code and an English message for the report. */
   error: z
     .strictObject({ code: z.string().regex(/^[a-z][a-z0-9_]{0,63}$/), message: LAB_TEXT })

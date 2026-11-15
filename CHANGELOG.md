@@ -877,7 +877,13 @@ private repository.
   instance through its lab API (port 8095 on the compose network, `RESTOW_LAB_TOKEN`) and never a
   repository credential; the ISO in the lab's VM exchanges the code, restores through the reader
   route (the session keeps retention away) and reports its verification; its VM reaches only the
-  instance's TLS edge through the lab's CONNECT proxy. Probe hardware differs from the source
+  instance's TLS edge through the lab's CONNECT proxy. Once the ISO released its access the lab
+  cuts the VM's network for good: `recover` then writes its finish to the serial console as a
+  block with length and SHA-256 (`RESTOW-PROBE-FINISH-BEGIN` ... `-END`), the lab checks it and
+  hands it in with the result together with the end of the restore console, and the worker
+  stores it by the API's rules (one schema, one redaction, a success the verification report does
+  not bear out is stored as failed), only for a session that is still finishing, audited
+  `endpoint.recovery.finished` with the lab as actor. Probe hardware differs from the source
   (the other disk controller, serial numbers, the other network card), firmware as backed up with
   Secure Boot against the current revocation list (DBX); disks are encrypted with a key only the
   lab holds. Data file systems are created empty, and above `RESTOW_LAB_MAX_RESTORE_GIB` (64) the

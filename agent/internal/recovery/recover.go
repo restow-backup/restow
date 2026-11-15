@@ -99,6 +99,10 @@ type Recover struct {
 	// snap is the snapshot that will be restored, as the operator is shown
 	// it before the plan and again before the erase.
 	snap snapshotNote
+	// probeRelayed: a probe released its access and the lab takes the
+	// network away; nothing more goes to the instance, the finish goes to
+	// the lab over the console.
+	probeRelayed bool
 }
 
 // snapshotNote is what the instance says about the chosen snapshot.
@@ -174,7 +178,7 @@ func (r *Recover) probe() *AnswersProbe {
 }
 
 func (r *Recover) flushLog(ctx context.Context) {
-	if r.session == nil || r.session.ID == "" {
+	if r.session == nil || r.session.ID == "" || r.probeRelayed {
 		return
 	}
 	if lines := r.Log.Take(); len(lines) > 0 {
@@ -1788,8 +1792,16 @@ func (r *Recover) finish(ctx context.Context, status string, v api.RecoveryVerif
 	if v.Format != "" {
 		raw = VerificationJSON(v)
 	}
-	res, err := r.session.Finish(ctx, api.RecoveryFinish{Status: status, Verification: raw, Warnings: w,
-		DurationSeconds: int64(r.Env.Now().Sub(r.started) / time.Second)})
+	f := api.RecoveryFinish{Status: status, Verification: raw, Warnings: w,
+		DurationSeconds: int64(r.Env.Now().Sub(r.started) / time.Second)}
+	if r.probeRelayed {
+		// The network is gone: the worker stores the finish from the lab's
+		// result, with the instance's rules (a success the report does not
+		// bear out ends as failed there).
+		r.relayFinish(f)
+		return status, ""
+	}
+	res, err := r.session.Finish(ctx, f)
 	switch {
 	case errors.Is(err, ErrSessionClosed):
 		r.logf("finish: %v", err)
