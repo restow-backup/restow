@@ -14,6 +14,7 @@ import {
 import { EndpointRepositoryBusyError, retryConcurrentSetup } from "@restow/db";
 import type PgBoss from "pg-boss";
 import { isUuid } from "../handlers/framework.js";
+import { besidePromotion } from "../repository-copies/promotion-lock.js";
 import { shareCatalog } from "./catalog.js";
 import { type FileShareDeps, reportableMessage } from "./common.js";
 import { startFileShareDispatcher } from "./dispatch.js";
@@ -132,13 +133,19 @@ export async function registerFileShareJobs(
     const payload = finishPayload(job.data);
     return processFinish(withBoss, payload.tenantId, payload.runId);
   });
-  await work(FILE_SHARE_QUEUES.retention, (job) =>
-    shareRetention(withBoss, sharePayload(job.data)),
-  );
+  // Retention and purge forget and delete in the share's repository: under the tenant's
+  // repository-copy lock, never beside a promotion of a copy target.
+  await work(FILE_SHARE_QUEUES.retention, (job) => {
+    const payload = sharePayload(job.data);
+    return besidePromotion(withBoss.db, payload.tenantId, () => shareRetention(withBoss, payload));
+  });
   await work(FILE_SHARE_QUEUES.check, (job) => shareCheck(withBoss, sharePayload(job.data)));
   await work(FILE_SHARE_QUEUES.verify, (job) => shareVerify(withBoss, sharePayload(job.data)));
   await work(FILE_SHARE_QUEUES.catalog, (job) => shareCatalog(withBoss, sharePayload(job.data)));
-  await work(FILE_SHARE_QUEUES.purge, (job) => purgeShare(withBoss, sharePayload(job.data)));
+  await work(FILE_SHARE_QUEUES.purge, (job) => {
+    const payload = sharePayload(job.data);
+    return besidePromotion(withBoss.db, payload.tenantId, () => purgeShare(withBoss, payload));
+  });
   await work(FILE_SHARE_QUEUES.monitor, async () => {
     const summary = await fileShareMonitor(withBoss);
     if (Object.values(summary).some((count) => count > 0)) {

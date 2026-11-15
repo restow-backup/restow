@@ -1,5 +1,6 @@
+import { DEFAULT_ENDPOINT_RETENTION } from "@restow/core";
 import { describe, expect, it } from "vitest";
-import { persistentIds, planCopy } from "./copies.js";
+import { decideMachineCopy, persistentIds, planCopy } from "./copies.js";
 
 /**
  * How the copy pass matches the snapshots of a copy to the primary's (docs/STORAGE.md, "Promoting
@@ -52,5 +53,30 @@ describe("planCopy", () => {
       expect([...plan.wanted].sort()).toEqual(["k1", "k2", "r1"]);
       expect(plan.forgets).toBe(false);
     }
+  });
+});
+
+/**
+ * A machine's copy holds what a promotion requires (apps/api storage/promotion.ts): also the
+ * snapshots no run dated that a record still names, which the primary's retention never deletes.
+ */
+describe("decideMachineCopy", () => {
+  const id = (tag: string) => tag.padEnd(64, "0");
+  const finishedAt = new Date("2026-11-03T10:00:00Z");
+
+  it("keeps a snapshot the retention audit flagged as unrecorded, and an SQL backup whose run is gone", () => {
+    const present = [id("d1"), id("u1"), id("q1"), id("x1")];
+    const decision = decideMachineCopy(
+      present,
+      { recorded: [{ snapshotId: id("d1"), finishedAt }], groups: [] },
+      // Named by a flag (u1) and by an SQL backup row without its run (q1, abbreviated).
+      [id("d1"), id("u1"), id("q1").slice(0, 8)],
+      DEFAULT_ENDPOINT_RETENTION,
+      "Europe/Berlin",
+    );
+    expect([...decision.keep].sort()).toEqual([id("d1"), id("q1"), id("u1")].sort());
+    // A snapshot no record names is neither copied nor forgotten.
+    expect(decision.keep.has(id("x1"))).toBe(false);
+    expect(decision.remove.has(id("x1"))).toBe(false);
   });
 });

@@ -9,14 +9,10 @@ import {
   type EndpointJobPayload,
   type EndpointQueue,
 } from "@restow/core";
-import {
-  EndpointRepositoryBusyError,
-  repositoryCopiesLockKey,
-  retryConcurrentSetup,
-  withEndpointRepositoryLock,
-} from "@restow/db";
+import { EndpointRepositoryBusyError, retryConcurrentSetup } from "@restow/db";
 import type PgBoss from "pg-boss";
 import { isUuid } from "../handlers/framework.js";
+import { besidePromotion } from "../repository-copies/promotion-lock.js";
 import { endpointCheck } from "./check.js";
 import type { EndpointJobDeps } from "./common.js";
 import { endpointMonitor } from "./monitor.js";
@@ -30,28 +26,6 @@ function payloadOf(data: unknown): EndpointJobPayload {
     throw new Error("endpoint job payload needs tenantId and endpointId");
   }
   return record as unknown as EndpointJobPayload;
-}
-
-/** How long a retention or removal waits for a promotion of a copy target to end. */
-const PROMOTION_WAIT_MS = 10_000;
-
-/**
- * Run a job that writes to or deletes from a machine's repository under the tenant's
- * repository-copy lock, shared (docs/STORAGE.md, "Promoting a copy"): a promotion of a copy target
- * takes it exclusively while it switches the primary, so neither starts beside the other and no
- * such job goes on writing to a primary the promotion just retired. Busy: the job is tried again.
- */
-export function besidePromotion<T>(
-  deps: Pick<EndpointJobDeps, "db">,
-  payload: EndpointJobPayload,
-  work: () => Promise<T>,
-): Promise<T> {
-  return withEndpointRepositoryLock(
-    deps.db.$client,
-    repositoryCopiesLockKey(payload.tenantId),
-    { mode: "shared", waitMs: PROMOTION_WAIT_MS, pollMs: 1000 },
-    work,
-  );
 }
 
 /** Create the queues and start consuming them. */
@@ -108,13 +82,14 @@ export async function registerEndpointJobs(
   };
   await work(ENDPOINT_QUEUES.retention, (job) => {
     const payload = payloadOf(job.data);
-    return besidePromotion(deps, payload, () => endpointRetention(deps, payload));
+    // Under the tenant's repository-copy lock: never beside a promotion of a copy target.
+    return besidePromotion(deps.db, payload.tenantId, () => endpointRetention(deps, payload));
   });
   await work(ENDPOINT_QUEUES.check, (job) => endpointCheck(deps, payloadOf(job.data)));
   await work(ENDPOINT_QUEUES.verify, (job) => endpointVerify(deps, payloadOf(job.data)));
   await work(ENDPOINT_QUEUES.removal, (job) => {
     const payload = payloadOf(job.data);
-    return besidePromotion(deps, payload, () => endpointRemoval(deps, payload));
+    return besidePromotion(deps.db, payload.tenantId, () => endpointRemoval(deps, payload));
   });
   await work(ENDPOINT_QUEUES.monitor, async () => {
     const summary = await endpointMonitor(deps);

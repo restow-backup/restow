@@ -59,6 +59,7 @@ import {
   pveSnapshots,
   type RepositoryCopy,
   type RepositoryCopyState,
+  recordedSnapshotIds,
   repositoryCopies,
   repositoryCopiesLockKey,
   type SuspicionObjectKind,
@@ -229,35 +230,64 @@ export async function copyPolicy(
   const retentionStopped = endpoint?.status !== "active";
   const zone = await tenantTimeZone(deps, tenantId);
   const reported = await recordedSnapshots(deps, tenantId, owner.ownerId);
+  // Every snapshot id any record of the machine names (flags of the retention audit, SQL backups
+  // whose run is gone, samples, reports, ...): the same set a promotion requires.
+  const named = await withTenantTx(deps.db, tenantId, (tx) =>
+    recordedSnapshotIds(tx, tenantId, "machine", owner.ownerId),
+  );
   return {
     held,
     retentionStopped,
-    decide: (present) => {
-      // Dated by the server's records (the end of the reporting run), never by the snapshot's time.
-      const dated = new Map<string, Date>();
-      for (const record of reported.recorded) {
-        if (!record.finishedAt) continue;
-        for (const id of present) {
-          if (id.startsWith(record.snapshotId)) {
-            const before = dated.get(id);
-            if (!before || record.finishedAt < before) dated.set(id, record.finishedAt);
-          }
-        }
-      }
-      const groups = reported.groups.flatMap((entry) =>
-        present
-          .filter((id) => id.startsWith(entry.snapshotId))
-          .map((id) => ({ snapshotId: id, group: entry.group })),
-      );
-      const decision = applyGroupedRetention(
-        [...dated].map(([id, time]) => ({ id, time })),
-        groups,
-        policy,
-        zone,
-      );
-      return { keep: new Set(decision.keep), remove: new Set(decision.remove) };
-    },
+    decide: (present) => decideMachineCopy(present, reported, named, policy, zone),
   };
+}
+
+/**
+ * What a machine's copy holds of the snapshots `present` (the primary's ids): the grouped
+ * retention over the snapshots a run dated (by the end of the reporting run as the server
+ * recorded it, never by the snapshot's time), and every snapshot no run dated that a record still
+ * names (a snapshot the retention audit flagged as unrecorded, an SQL backup whose run is gone).
+ * The primary's retention never deletes those, so the copy keeps them as well; a promotion
+ * requires them (apps/api storage/promotion.ts, `requiredSnapshotIds`).
+ */
+export function decideMachineCopy(
+  present: readonly string[],
+  reported: {
+    readonly recorded: readonly { snapshotId: string; finishedAt: Date | null }[];
+    readonly groups: readonly { snapshotId: string; group: string }[];
+  },
+  named: readonly string[],
+  policy: Parameters<typeof applyGroupedRetention>[2],
+  zone: string,
+): CopyDecision {
+  const dated = new Map<string, Date>();
+  for (const record of reported.recorded) {
+    if (!record.finishedAt) continue;
+    for (const id of present) {
+      if (id.startsWith(record.snapshotId)) {
+        const before = dated.get(id);
+        if (!before || record.finishedAt < before) dated.set(id, record.finishedAt);
+      }
+    }
+  }
+  const groups = reported.groups.flatMap((entry) =>
+    present
+      .filter((id) => id.startsWith(entry.snapshotId))
+      .map((id) => ({ snapshotId: id, group: entry.group })),
+  );
+  const decision = applyGroupedRetention(
+    [...dated].map(([id, time]) => ({ id, time })),
+    groups,
+    policy,
+    zone,
+  );
+  const keep = new Set(decision.keep);
+  for (const id of present) {
+    if (!dated.has(id) && named.some((value) => value && id.startsWith(value))) {
+      keep.add(id);
+    }
+  }
+  return { keep, remove: new Set(decision.remove) };
 }
 
 /** The ids of `present` that one of `recorded` names (a recorded id may be abbreviated). */
