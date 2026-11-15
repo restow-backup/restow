@@ -196,6 +196,9 @@
         "read": "Geschützte Objekte über die API gelesen"
       },
       "provider": {
+        "billing": {
+          "read": "Abrechnungszahlen über die API gelesen"
+        },
         "tenants": {
           "read": "Ansprechpartner eines Mandanten über die API gelesen"
         },

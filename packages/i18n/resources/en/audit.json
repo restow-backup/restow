@@ -196,6 +196,9 @@
         "read": "Protected objects read via API"
       },
       "provider": {
+        "billing": {
+          "read": "Billing figures read via API"
+        },
         "tenants": {
           "read": "Tenant contacts read via API"
         },
