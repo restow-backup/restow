@@ -60,6 +60,8 @@ export interface Vm {
   exited: Promise<number>;
   /** The end of QEMU's own error output (why a VM ended early). */
   stderr?(): string;
+  /** Write a picture of the VGA screen (PPM) to `file` (QMP screendump). */
+  screendump?(file: string): Promise<void>;
   /**
    * Whether QEMU runs with no_new_privs (/proc/<pid>/status), null when unknown. The restore VM
    * may start the connector (spawn and setsid allowed); without no_new_privs a program it starts
@@ -97,6 +99,8 @@ export interface RunnerDeps {
   /** SHA-256 of a file (tests replace it). */
   sha256File?: (file: string) => Promise<string>;
   log?: (message: string, fields?: Record<string, unknown>) => void;
+  /** Diagnostics: keep a picture of the VGA screen of a boot that did not finish (LabConfig). */
+  screenDir?: string;
 }
 
 export class ProbeLabError extends Error {
@@ -434,6 +438,16 @@ export async function runProbe(deps: RunnerDeps, probe: LeasedProbe): Promise<Pr
     }
     base.bootMs = Math.max(0, now() - bootStart);
     base.bootSerial = serialTail(boot.serial());
+    if (!booted && deps.screenDir && boot.screendump) {
+      // GRUB and the BIOS write only to the VGA screen: the picture says where the start stood.
+      const file = join(deps.screenDir, `${probe.id}-boot.ppm`);
+      await mkdir(deps.screenDir, { recursive: true })
+        .then(() => boot.screendump?.(file))
+        .then(() => log("picture of the boot screen kept", { probeId: probe.id, file }))
+        .catch((error: unknown) =>
+          log("no picture of the boot screen", { probeId: probe.id, error: String(error) }),
+        );
+    }
     return { ...base, outcome: booted ? "booted" : "boot_timeout" };
   } catch (error) {
     const code = error instanceof ProbeLabError ? error.code : "lab_error";

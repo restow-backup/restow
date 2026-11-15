@@ -210,6 +210,9 @@ export function bootPattern(hostname, markerSha256) {
 }
 
 /** The marker line of a source machine: hostname and the SHA-256 of its marker file. */
+/** Where the lab keeps a picture of the boot screen of a probe that did not start (diagnostics). */
+const LAB_SCREEN_DIR = "/var/lib/restow-lab/screens";
+
 export const SOURCE_BOOT = /E2E-BOOT (\S+) ([0-9a-f]{64})/;
 
 /** Add the ISO's line to an agent release's SHA256SUMS (C-M4-3), once. */
@@ -252,6 +255,7 @@ export function labEnv(selected, { token, kvmGid, image }) {
     RESTOW_LAB_TOKEN: token,
     RESTOW_LAB_IMAGE: image,
     RESTOW_LAB_KVM_GID: String(kvmGid),
+    RESTOW_LAB_SCREEN_DIR: LAB_SCREEN_DIR,
     ...(limits.length > 0 ? { RESTOW_LAB_MAX_RESTORE_GIB: String(Math.min(...limits)) } : {}),
   };
 }
@@ -1223,6 +1227,11 @@ async function runProbeCase(testCase, context) {
       allowFailure: true,
     });
     writeFileSync(join(source.dir, "lab.log"), logs.stdout ?? "");
+    // A boot that did not finish leaves a picture of its VGA screen (GRUB, BIOS).
+    await context.stack.compose(
+      ["cp", `recovery-lab:${LAB_SCREEN_DIR}/.`, join(source.dir, "screens")],
+      { allowFailure: true },
+    );
   }
   console.log(`${testCase.id}: ${outcome.reason}`);
   if (!outcome.ok) {

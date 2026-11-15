@@ -888,7 +888,8 @@ private repository.
   Secure Boot against the current revocation list (DBX); disks are encrypted with a key only the
   lab holds. Data file systems are created empty, and above `RESTOW_LAB_MAX_RESTORE_GIB` (64) the
   largest folders under /var/lib, /srv and /home stay empty, never the package or systemd
-  databases. `restow-agent recover` gains a probe mode (answers `probe` only from fw_cfg in QEMU):
+  databases. For diagnostics only, `RESTOW_LAB_SCREEN_DIR` (off by default) keeps a picture of
+  the VGA screen of a probe whose start ran out of time. `restow-agent recover` gains a probe mode (answers `probe` only from fw_cfg in QEMU):
   the restored copy logs to the serial console and reports `RESTOW-PROBE-OK`. A probe is red only
   with evidence (a fixed failure pattern of the boot, a failed verification, a problem of the
   backup); anything else is repeated. New report kind `boot_probe` and recovery kind `probe`

@@ -155,6 +155,7 @@ describe("the boot probe cases [VERIFY-009]", () => {
       RESTOW_LAB_TOKEN: "t".repeat(64),
       RESTOW_LAB_IMAGE: "restow-lab:recovery-e2e",
       RESTOW_LAB_KVM_GID: "993",
+      RESTOW_LAB_SCREEN_DIR: "/var/lib/restow-lab/screens",
       RESTOW_LAB_MAX_RESTORE_GIB: "2.5",
     });
   });

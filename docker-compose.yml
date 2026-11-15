@@ -288,6 +288,8 @@ services:
       RESTOW_LAB_API: http://worker:8095
       RESTOW_LAB_CONCURRENCY: ${RESTOW_LAB_CONCURRENCY:-1}
       RESTOW_LAB_TLS_UPSTREAM: ${RESTOW_LAB_TLS_UPSTREAM:-caddy:443}
+      # Diagnostics only (end-to-end tests): a picture of the boot screen of a probe that did not start.
+      RESTOW_LAB_SCREEN_DIR: ${RESTOW_LAB_SCREEN_DIR:-}
     devices:
       - /dev/kvm:/dev/kvm
     group_add:

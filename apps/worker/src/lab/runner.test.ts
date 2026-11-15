@@ -264,6 +264,30 @@ describe("a boot probe in the lab", () => {
     expect(result.bootMs).toBeGreaterThanOrEqual(50_000);
   });
 
+  it("keeps a picture of the boot screen of a start that did not finish, when asked to", async () => {
+    const restore = scriptedVm(["RESTOW-PROBE phase=released"], { exitOnCut: true });
+    const boot = scriptedVm([""]);
+    const pictures: string[] = [];
+    boot.vm.screendump = async (file) => {
+      pictures.push(file);
+    };
+    const seen = {
+      machines: [] as Machine[],
+      disks: [] as unknown[],
+      vars: [] as string[],
+      answersAtStart: [] as boolean[],
+      data: [] as (Record<string, string> | undefined)[],
+    };
+    const screenDir = join(dir, "screens");
+    const result = await runProbe(
+      { ...deps(driver([restore.vm, boot.vm], seen)), screenDir },
+      lease(),
+    );
+    expect(result.outcome).toBe("boot_timeout");
+    expect(pictures).toEqual([join(screenDir, `${lease().id}-boot.ppm`)]);
+    expect(existsSync(screenDir)).toBe(true);
+  });
+
   it("ends as a stopped restore when the ISO does not release, or runs out of time", async () => {
     const quiet = scriptedVm(["plan refused"], { exitAfter: 2 });
     const seen = {

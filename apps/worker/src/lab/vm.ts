@@ -20,6 +20,7 @@ import {
   machineArgs,
   OVMF,
   type OvmfFiles,
+  qmp,
   sendKeys,
   typeSerial,
 } from "./qemu.js";
@@ -184,6 +185,9 @@ export function qemuDriver(options: { dbxFile: string | null; ovmf?: OvmfFiles }
         },
         keys: (text) => sendKeys(machine.qmpSocket, text),
         cutNetwork: () => cutNetwork(machine.qmpSocket),
+        screendump: async (file) => {
+          await qmp(machine.qmpSocket, "screendump", { filename: file });
+        },
         exited,
         stderr: () => stderr,
         noNewPrivs: () => {

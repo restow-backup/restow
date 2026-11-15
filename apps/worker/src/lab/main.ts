@@ -32,6 +32,12 @@ export interface LabConfig {
   tlsUpstream: string | null;
   dbxDir: string;
   version: string;
+  /**
+   * Diagnostics only (the end-to-end tests): a folder where the lab keeps a picture of the VGA
+   * screen when the restored disks do not start in time (GRUB and BIOS write only there). Off
+   * by default: the picture shows the tenant's boot screen.
+   */
+  screenDir?: string;
 }
 
 /** The lab's configuration from its environment; throws on a missing or short token. */
@@ -48,6 +54,7 @@ export function labConfigFromEnv(env: Record<string, string | undefined> = proce
     tlsUpstream: env.RESTOW_LAB_TLS_UPSTREAM?.trim() || "caddy:443",
     dbxDir: env.RESTOW_LAB_DBX_DIR?.trim() || "/usr/share/restow-lab/dbx",
     version: env.RESTOW_VERSION?.trim() || "dev",
+    ...(env.RESTOW_LAB_SCREEN_DIR?.trim() ? { screenDir: env.RESTOW_LAB_SCREEN_DIR.trim() } : {}),
   };
 }
 
@@ -134,6 +141,7 @@ export async function runLab(
               kvm,
               tlsUpstream: config.tlsUpstream,
               log,
+              ...(config.screenDir ? { screenDir: config.screenDir } : {}),
             },
             probe,
           )

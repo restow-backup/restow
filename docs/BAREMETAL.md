@@ -3660,7 +3660,10 @@ führt.
   ["/dev/kvm:/dev/kvm"]`, `user` ohne root, nur im Netz `lab-net` (intern, `internal: true`)
   zusammen mit dem Worker, ohne `DATABASE_URL` und `RESTOW_MASTER_KEY`, mit
   `RESTOW_LAB_TOKEN`; Volume `recovery-lab` für `RESTOW_LAB_DIR` und das ISO,
-  `RESTOW_LAB_MAX_RESTORE_GIB`, `RESTOW_LAB_CONCURRENCY`. Der Worker kommt zusätzlich in
+  `RESTOW_LAB_MAX_RESTORE_GIB`, `RESTOW_LAB_CONCURRENCY`, nur zur Diagnose
+  `RESTOW_LAB_SCREEN_DIR` (Standard leer: bei einer Zeitüberschreitung des Starts ein Bild
+  des VGA-Schirms per QMP `screendump`, weil GRUB und BIOS nur dort schreiben; die e2e-Tests
+  setzen es und legen die Bilder zu den Logs). Der Worker kommt zusätzlich in
   `lab-net`. Der Installer (`deploy/`) fragt, ob das Labor eingerichtet werden soll, wenn
   `/dev/kvm` existiert, und erzeugt `RESTOW_LAB_TOKEN`.
 - docs/SIZING.md: Platz und RAM für das Labor (eine Probe: RAM 2 GiB für das ISO plus
