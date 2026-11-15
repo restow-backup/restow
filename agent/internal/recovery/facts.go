@@ -110,7 +110,9 @@ func GatherFacts(ctx context.Context, rr ResticReader, m *baremetal.Manifest, sn
 	for _, k := range factKernels(m) {
 		kf := baremetal.KernelFacts{Version: k.Version, Default: k.Default}
 		dump := func(name string) string {
-			for _, base := range []string{"/lib/modules/", "/usr/lib/modules/"} {
+			// /usr/lib first: with a merged /usr (Debian 12, current distributions) /lib is a
+			// link, and restic dump of /lib/modules/... fails with "should be a dir".
+			for _, base := range []string{"/usr/lib/modules/", "/lib/modules/"} {
 				b, err := rr.Dump(ctx, snapshot, base+k.Version+"/"+name, 32<<20)
 				if err == nil {
 					return string(b)

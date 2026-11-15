@@ -17,6 +17,7 @@ import {
   type ProbeRecoveryFacts,
   type ProbeReportFacts,
   probeAnswers,
+  probeDiskIdentity,
   probeEmptyAllowed,
   probeHardware,
   probeNotPossible,
@@ -183,6 +184,33 @@ describe("the hardware of a boot probe (12.3)", () => {
       probe: { fullRestore: ["/", "/boot"], emptyFilesystems: ["/home"], emptyDirs: [] },
     });
     expect(answers).not.toHaveProperty("rebindToken");
+    // A disk on the probe's NVMe controller: the ISO names it with its namespace (P1: "No target
+    // disk for d0" with serial.<serial> alone).
+    const nvme = probeAnswers({
+      origin: "https://restow.example.com",
+      code: "ABCD-EFGH",
+      spkiCheck: null,
+      snapshotId: "a".repeat(64),
+      hardware: {
+        ...hardware,
+        disks: hardware.disks.map((disk) => ({ ...disk, controller: "nvme" as const })),
+      },
+      selection: {
+        possible: true,
+        fullRestore: ["/"],
+        emptyFilesystems: [],
+        emptyDirs: [],
+        restoreBytes: 1,
+      },
+      passphrase: "secret",
+    });
+    expect(nvme).toMatchObject({
+      diskMapping: { d0: "serial.RESTOWPROBE0-1" },
+      confirmErase: ["serial.RESTOWPROBE0-1"],
+    });
+    expect(probeDiskIdentity({ serial: "RESTOWPROBE1", controller: "sata" })).toBe(
+      "serial.RESTOWPROBE1",
+    );
   });
 });
 

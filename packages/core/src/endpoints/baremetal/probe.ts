@@ -217,8 +217,18 @@ export interface ProbeDisk {
   sizeBytes: number;
   logicalSectorSize: 512 | 4096;
   controller: ProbeController;
-  /** The serial number the probe gives the disk; the ISO identifies it as `serial.<serial>`. */
+  /** The serial number the probe gives the disk; the ISO's identity: `probeDiskIdentity`. */
   serial: string;
+}
+
+/**
+ * The identity the ISO gives a disk of the probe (agent/internal/recovery Identity): its serial
+ * number, and on NVMe the namespace too (`serial.<serial>-1`). QEMU's NVMe namespace carries no
+ * EUI-64 Linux reads (NVME_QUIRK_BOGUS_NID). With `serial.<serial>` alone the plan found no
+ * target for a disk on NVMe ("No target disk for d0"), P1.
+ */
+export function probeDiskIdentity(disk: Pick<ProbeDisk, "serial" | "controller">): string {
+  return disk.controller === "nvme" ? `serial.${disk.serial}-1` : `serial.${disk.serial}`;
 }
 
 export interface ProbeHardware {
@@ -287,7 +297,7 @@ export interface ProbeAnswersInput {
 export function probeAnswers(input: ProbeAnswersInput): Record<string, unknown> {
   const mapping: Record<string, string> = {};
   for (const disk of input.hardware.disks) {
-    mapping[disk.id] = `serial.${disk.serial}`;
+    mapping[disk.id] = probeDiskIdentity(disk);
   }
   return {
     format: "restow-answers-v1",
@@ -298,7 +308,7 @@ export function probeAnswers(input: ProbeAnswersInput): Record<string, unknown> 
     language: "en",
     network: { mode: "dhcp", proxy: input.proxyUrl ?? PROBE_PROXY_URL },
     diskMapping: mapping,
-    confirmErase: input.hardware.disks.map((disk) => `serial.${disk.serial}`),
+    confirmErase: input.hardware.disks.map((disk) => probeDiskIdentity(disk)),
     shrink: "none",
     passphrase: input.passphrase,
     keyFiles: "regenerate",
