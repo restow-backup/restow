@@ -2047,7 +2047,8 @@ describe.skipIf(!testDatabaseAdminUrl)("backup jobs against Postgres", () => {
     });
 
     afterEach(() => {
-      appConfig.baremetalPreview = false;
+      // The default since the boot probe (docs/BAREMETAL.md 22); false is the emergency brake.
+      appConfig.baremetalPreview = true;
     });
 
     afterAll(async () => {
@@ -2058,6 +2059,7 @@ describe.skipIf(!testDatabaseAdminUrl)("backup jobs against Postgres", () => {
     });
 
     it("is refused while the preview is off, and offered once it is on", async () => {
+      appConfig.baremetalPreview = false;
       const id = await make("whole-off");
       const refused = await problem(
         await call("POST", "", {

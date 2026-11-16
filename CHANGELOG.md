@@ -631,9 +631,9 @@ private repository.
   distribution, encryption), its assessment with what is not supported, and how much to leave free
   in a volume group without room for snapshots; a run says "Layout captured". The job lists why a
   member backs up its folders instead (container, Windows, macOS later, agent before 0.5.0) or what
-  it should know (BIOS boot needs CSM, arm64 restore later). The switch is hidden and refused
-  (409 `baremetal-preview-off`) unless `RESTOW_BAREMETAL_PREVIEW=true`; restoring a machine comes
-  with later releases.
+  it should know (BIOS boot needs CSM, arm64 restore later). The switch is on by default;
+  `RESTOW_BAREMETAL_PREVIEW=false` hides and refuses it again (409 `baremetal-preview-off`) as an
+  emergency brake.
 - File system snapshots on Linux: LVM (thick and thin) and btrfs snapshots under the policy 'When
   the file system snapshot fails'; snapshot paths stay the real paths. Thin pools above 80 % get
   no snapshot, and a backup stops its snapshot before a pool runs full. A volume group without free
@@ -2820,8 +2820,8 @@ the opt-in updater moves the lab's image with every update (docs/UPDATING.md, "T
 lab"). The first directory sync after the
 update reads the owners and members of every Microsoft 365 group once (three Graph reads per group, through
 `$batch`); until it has run, a person's "Teams & sites" is empty and says that it may be
-incomplete. Whole machine backups stay off until `RESTOW_BAREMETAL_PREVIEW=true` is set for the
-api. Agents before 0.5.0 ignore `snapshotOnFailure`, `wholeMachine` and `fsSnapshot`, and the
+incomplete. Whole machine backups are offered at once; `RESTOW_BAREMETAL_PREVIEW=false` for the
+api hides them again. Agents before 0.5.0 ignore `snapshotOnFailure`, `wholeMachine` and `fsSnapshot`, and the
 release key keeps the fingerprint `SHA256:2LB7RPpIS0wqbcZ2NA8MjuQN7ZfFPqBX3CwrGFSu76o`. Once the
 release carries a recovery ISO, the worker downloads it (under 900 MiB, leaving at least 1 GiB
 free) into the data volume once, in the background, and again only for a newer rebuild; set

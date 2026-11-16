@@ -263,3 +263,16 @@ describe("database pool sizes", () => {
     expect(config.dbPool.app).toBe(10);
   });
 });
+
+describe("whole machine backups (RESTOW_BAREMETAL_PREVIEW)", () => {
+  it("are on by default since the boot probe is done (docs/BAREMETAL.md 22)", () => {
+    expect(loadConfig({}).baremetalPreview).toBe(true);
+    expect(loadConfig({ RESTOW_BAREMETAL_PREVIEW: "" }).baremetalPreview).toBe(true);
+    expect(loadConfig({ RESTOW_BAREMETAL_PREVIEW: "true" }).baremetalPreview).toBe(true);
+  });
+
+  it("are hidden again only with false, the emergency brake", () => {
+    expect(loadConfig({ RESTOW_BAREMETAL_PREVIEW: "false" }).baremetalPreview).toBe(false);
+    expect(loadConfig({ RESTOW_BAREMETAL_PREVIEW: "FALSE" }).baremetalPreview).toBe(false);
+  });
+});
