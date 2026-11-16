@@ -2980,6 +2980,10 @@ Start noch einmal). Ein ungeprüftes ISO startet das Labor nicht.
 Treiberfehler auffallen):
 
 - Controller: Quelle NVMe → Probe AHCI (SATA); Quelle SATA, virtio oder SCSI → Probe NVMe.
+  Ausnahme Legacy-BIOS: immer AHCI. SeaBIOS legt die 64-Bit-BAR des NVMe-Controllers über
+  4 GiB, sobald die VM dort Speicher hat (auf q35 ab etwa 2,75 GiB), und sein 32-Bit-Treiber
+  erreicht sie nicht ("Boot failed: could not read the boot disk", vor GRUB; P1). Echte
+  BIOS-Rechner (CSM) starten ebenfalls selten von NVMe.
   Seriennummern an allen Platten (`serial=`), damit z. B. die LVM-Gerätedatei echte IDs
   enthält und ihr Fixup bewiesen ist.
 - Plattenanzahl, -größe und logische Sektorgröße wie gesichert; Netzwerkkarte `e1000e`,

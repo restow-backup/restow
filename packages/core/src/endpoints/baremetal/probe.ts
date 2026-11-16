@@ -245,6 +245,11 @@ export interface ProbeHardware {
  * becomes AHCI, everything else NVMe) and serial numbers on every disk, so device names and
  * missing drivers show; the network card of the other kind; disk sizes, sector sizes and the
  * firmware (Secure Boot as backed up) like the source.
+ *
+ * A BIOS probe always gets AHCI. SeaBIOS maps the NVMe controller's 64-bit BAR above 4 GiB as
+ * soon as the VM has memory there (above about 2.75 GiB on q35), and its 32-bit NVMe driver
+ * cannot reach it: "Boot failed: could not read the boot disk" before GRUB ever runs (P1). Real
+ * legacy BIOS (CSM) rarely boots from NVMe either.
  */
 export function probeHardware(manifest: LinuxLayoutManifest): ProbeHardware {
   const firmware: ProbeFirmware =
@@ -259,7 +264,9 @@ export function probeHardware(manifest: LinuxLayoutManifest): ProbeHardware {
       id: disk.id,
       sizeBytes: disk.sizeBytes,
       logicalSectorSize: disk.logicalSectorSize === 4096 ? (4096 as const) : (512 as const),
-      controller: (disk.transport === "nvme" ? "sata" : "nvme") as ProbeController,
+      controller: (firmware === "bios" || disk.transport === "nvme"
+        ? "sata"
+        : "nvme") as ProbeController,
       serial: `RESTOWPROBE${index}`,
     }));
   const virtio = manifest.network.some(

@@ -143,10 +143,19 @@ describe("the hardware of a boot probe (12.3)", () => {
     const hw = probeHardware(bios);
     expect(hw.firmware).toBe("bios");
     expect(hw.disks.length).toBeGreaterThanOrEqual(2);
-    for (const disk of hw.disks) {
-      const source = bios.disks.find((d) => d.id === disk.id);
-      expect(disk.controller).toBe(source?.transport === "nvme" ? "sata" : "nvme");
-    }
+    // SeaBIOS cannot read an NVMe disk once the VM has memory above 4 GiB (P1): AHCI only.
+    for (const disk of hw.disks) expect(disk.controller).toBe("sata");
+  });
+
+  it("gives a UEFI probe of a SATA or virtio source NVMe", () => {
+    const debian = manifest("debian12-uefi-luks-lvm");
+    const virtio = {
+      ...debian,
+      disks: debian.disks.map((disk) => ({ ...disk, transport: "virtio" })),
+    } as typeof debian;
+    expect(probeHardware(virtio).disks.map((disk) => disk.controller)).toEqual(
+      virtio.disks.map(() => "nvme"),
+    );
   });
 
   it("probes no system without systemd", () => {
