@@ -435,5 +435,21 @@ grep -q 'systemd-gpt-auto-generator' "$WORK/config/hooks/live/0100-restow-mask.h
 grep -q 'enable restow-recover.service' "$WORK/config/hooks/live/0100-restow-mask.hook.chroot" && ok || fail "the unit enabled"
 grep -q 'ssh_host_' "$WORK/config/hooks/live/9900-restow-clean.hook.chroot" && ok || fail "host keys removed"
 
+# --- the source bundle (sources.sh) -------------------------------------------------------------
+
+# The binaries of the lock are looked up in the archives the ISO installs from: main with
+# non-free-firmware and the security archive (auto/config). Without the security archive the
+# signed kernel of a security update had no source to map to, and the release stopped (0.5.0).
+sources="$WORK/sources.sh"
+grep -q -- '--archive-areas "main non-free-firmware"' "$WORK/auto/config" && ok || fail "auto/config archive areas changed: adjust sources.sh"
+grep -q -- '--security true' "$WORK/auto/config" && ok || fail "auto/config no longer uses the security archive: adjust sources.sh"
+# shellcheck disable=SC2016 # the literal line of sources.sh, $SNAPSHOT_TIMESTAMP included
+grep -qx 'deb http://snapshot.debian.org/archive/debian/$SNAPSHOT_TIMESTAMP/ trixie main non-free-firmware' "$sources" && ok || fail "sources.sh: binary index of main and non-free-firmware"
+# shellcheck disable=SC2016
+grep -qx 'deb http://snapshot.debian.org/archive/debian-security/$SNAPSHOT_TIMESTAMP/ trixie-security main' "$sources" && ok || fail "sources.sh: binary index of the security archive"
+grep -q 'is in no binary index of the snapshot' "$sources" && ok || fail "sources.sh: an unknown binary stops the bundle"
+refuse "sources.sh --check needs --out" sh "$sources" --check
+says "sources.sh --check needs --out" "--out <dir> is needed"
+
 printf '%s passed, %s failed\n' "$passed" "$failed"
 [ "$failed" -eq 0 ]

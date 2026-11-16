@@ -971,6 +971,12 @@ jobs:
             --version "$version" --out "$RUNNER_TEMP/recovery" $UPDATE_LOCK
           echo "VERSION=$version" >> "$GITHUB_ENV"
 
+      # The release bundles the source of every package (sources.sh); resolve them here already,
+      # so a package whose source the snapshot lacks stops this build and not the release.
+      - name: Source packages of the ISO resolve (sources.sh --check)
+        if: ${{ !inputs.update-lock }}
+        run: sh integrations/recovery/sources.sh --check --out "$RUNNER_TEMP/recovery-sources-check"
+
       - name: Keep the new packages.lock (update-lock)
         if: inputs.update-lock
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
