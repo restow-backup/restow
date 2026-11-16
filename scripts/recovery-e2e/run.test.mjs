@@ -57,6 +57,7 @@ import {
   recoveryLogTail,
   targetSummary,
   testAgentDir,
+  ubuntuMirror,
   versionOfIso,
   wholeMachineJobSettings,
   wholeMachineNotPossible,
@@ -931,5 +932,21 @@ describe("the no auto-activation test of the ISO (no-autoactivation.mjs)", () =>
     assert.equal(autoactivationArgs(["--iso", "x.iso"]).iso, "x.iso");
     assert.throws(() => autoactivationArgs([]), /--iso/);
     assert.throws(() => autoactivationArgs(["--iso"]), /needs a value/);
+  });
+});
+
+describe("the Ubuntu mirror of the factory", () => {
+  it("is archive.ubuntu.com unless RESTOW_E2E_UBUNTU_MIRROR names another", () => {
+    assert.equal(ubuntuMirror({}), "http://archive.ubuntu.com/ubuntu");
+    assert.equal(
+      ubuntuMirror({ RESTOW_E2E_UBUNTU_MIRROR: "http://azure.archive.ubuntu.com/ubuntu/" }),
+      "http://azure.archive.ubuntu.com/ubuntu",
+    );
+  });
+
+  it("refuses anything that is not a plain http(s) address (it goes into a shell script)", () => {
+    for (const value of ["ftp://x/ubuntu", "http://x/ubuntu' ; reboot", "http://x/$(id)"]) {
+      assert.throws(() => ubuntuMirror({ RESTOW_E2E_UBUNTU_MIRROR: value }), /not a plain/);
+    }
   });
 });

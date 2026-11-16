@@ -1159,6 +1159,8 @@ jobs:
         # the test instance: green for E1's source, red with the emergency pattern for P2.
         env:
           CASE: ${{ matrix.case }}
+          # GitHub's runners are in Azure; archive.ubuntu.com was at times too slow from there.
+          RESTOW_E2E_UBUNTU_MIRROR: http://azure.archive.ubuntu.com/ubuntu
         run: |
           set -euo pipefail
           iso="$(ls "$RUNNER_TEMP"/artifacts/recovery-iso/restow-recovery_*_amd64.iso)"
