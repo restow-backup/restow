@@ -359,7 +359,8 @@ jobs:
           chmod +x "$RUNNER_TEMP"/agent-dist/linux-amd64/restow-agent "$RUNNER_TEMP"/agent-dist/linux-amd64/restic
           sh integrations/recovery/build.sh --agent-dist "$RUNNER_TEMP/agent-dist/linux-amd64" \
             --version "$VERSION" --out "$RUNNER_TEMP/recovery" --sources
-          rm -rf "$RUNNER_TEMP/recovery/build" "$RUNNER_TEMP/recovery/sources" "$RUNNER_TEMP/recovery/build.env"
+          # live-build and apt-get source ran as root in their containers: their files are root's.
+          sudo rm -rf "$RUNNER_TEMP/recovery/build" "$RUNNER_TEMP/recovery/sources" "$RUNNER_TEMP/recovery/build.env"
 
       - name: Image checks
         run: |
