@@ -927,8 +927,11 @@ jobs:
             exit 0
           fi
           changed=false
-          if git diff --name-only "$base" HEAD |
-            grep -qE '^(integrations/recovery/|agent/|scripts/recovery-e2e/|deploy/release/docker-compose.yml|apps/api/src/features/endpoints/recovery|apps/worker/src/lab/|apps/worker/src/endpoints/(lab-api|boot-probe))'; then
+          # The names first, then the match: with pipefail, "git diff | grep -q" fails when grep
+          # stops at the first match of a long list and git diff dies of SIGPIPE, and the large
+          # merge of the bare metal work read as "nothing changed".
+          names="$(git diff --name-only "$base" HEAD)"
+          if grep -qE '^(integrations/recovery/|agent/|scripts/recovery-e2e/|deploy/release/docker-compose.yml|apps/api/src/features/endpoints/recovery|apps/worker/src/lab/|apps/worker/src/endpoints/(lab-api|boot-probe))' <<<"$names"; then
             changed=true
           else
             echo "::notice::nothing of the recovery ISO changed; its build, comparison and end-to-end tests are skipped."

@@ -700,8 +700,9 @@ Server in Stufe 1) und die Startprobe.
 - Ein Container-Rechner (`settings.agent.machine.virtualization = container`) im Job bekommt
   das Feld nicht; die Job-Seite nennt ihn ("sichert seine Ordner, Bare Metal geht in einem
   Container nicht").
-- Solange M5 nicht fertig ist, ist der Schalter hinter `RESTOW_BAREMETAL_PREVIEW`
-  (Standard aus) verborgen (Abschnitt 22).
+- Solange M5 nicht fertig war, war der Schalter hinter `RESTOW_BAREMETAL_PREVIEW`
+  (Standard aus) verborgen (Abschnitt 22). Seit M5 ist er standardmäßig an;
+  `RESTOW_BAREMETAL_PREVIEW=false` blendet ihn als Notbremse wieder aus.
 
 ### 5.2 Quellen (Linux)
 
@@ -4580,7 +4581,7 @@ Alle übrigen Befunde der drei Reviews sind wie vorgeschlagen eingearbeitet.
 **M1 (Ganz-Rechner-Sicherung, Linux), M2 (Planer und Stufe 1), M3 (Code, Freigabe, Sitzung,
 Wiederanbindung) und M4 (Recovery-ISO und `restow-agent recover`, ohne die in 26.12 genannten
 Teile von 10.6, 10.7 und 10.20) sind umgesetzt**, hinter
-`RESTOW_BAREMETAL_PREVIEW` (Standard aus; der Schalter hängt am Job-Schalter, 26.2, am Ausstellen
+`RESTOW_BAREMETAL_PREVIEW` (seit M5 Standard an, `false` als Notbremse; der Schalter hängt am Job-Schalter, 26.2, am Ausstellen
 eines Wiederherstellungscodes, 26.8, und seit M4 an den Texten "kein Bare-Metal-Restore" der Liste
 und des Enroll-Dialogs; die Wiederanbindung ist davon unabhängig). **M5 (Startprobe im Labor)
 ist umgesetzt** (26.15, 26.16). M6 ist offen; für M6 bleibt dieses Dokument der Entwurf. Was M2 liefert und abweichend entschieden hat, steht in 26.4 bis

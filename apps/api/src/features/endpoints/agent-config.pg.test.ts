@@ -260,7 +260,8 @@ describe.skipIf(!testDatabaseAdminUrl)("the configuration of an agent over a wee
     });
 
     afterEach(() => {
-      appConfig.baremetalPreview = false;
+      // The default since the boot probe (docs/BAREMETAL.md 22); false is the emergency brake.
+      appConfig.baremetalPreview = true;
     });
 
     async function machine(os: "linux" | "windows" | "darwin", stored: Partial<EndpointConfig>) {
@@ -290,6 +291,7 @@ describe.skipIf(!testDatabaseAdminUrl)("the configuration of an agent over a wee
     }
 
     it("sends wholeMachine only with the preview on, and then snapshots by default", async () => {
+      appConfig.baremetalPreview = false;
       const who = await machine("linux", { wholeMachine: true });
       const off = await answer(who);
       expect(off).not.toHaveProperty("wholeMachine");
